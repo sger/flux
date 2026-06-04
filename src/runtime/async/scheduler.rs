@@ -350,7 +350,7 @@ impl FiberScheduler {
                 .ready
                 .iter()
                 .rev()
-                .find(|fiber| fiber.id != root && fiber.stealable)
+                .find(|fiber| fiber.id != root && fiber.stealable && fiber.is_migratable())
                 .map(|fiber| fiber.id);
             let Some(steal_id) = steal_id else {
                 continue;
@@ -771,6 +771,59 @@ mod tests {
         assert_eq!(stolen.id, stealable);
         assert!(sched.is_ready(root));
         assert!(sched.is_ready(non_stealable));
+    }
+
+    #[test]
+    fn next_ready_or_steal_skips_deep_baseline_continuations() {
+        use crate::runtime::closure::Closure;
+        use crate::runtime::compiled_function::CompiledFunction;
+        use crate::runtime::continuation::Continuation;
+        use crate::runtime::frame::Frame;
+        use crate::runtime::value::Value;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        use std::sync::Arc;
+
+        fn parked_fiber_with_baseline(entry_frame_index: usize, entry_sp: usize) -> Fiber {
+            let func = Arc::new(CompiledFunction::new(vec![], 0, 0, None));
+            let closure = Rc::new(Closure::new(func, vec![]));
+            let frame = Frame::new(closure, entry_sp);
+            let cont = Continuation {
+                frames: vec![frame],
+                stack: vec![Value::Integer(1)],
+                sp: entry_sp + 1,
+                entry_sp,
+                entry_frame_index,
+                inner_handlers: vec![],
+                state_marker: None,
+            };
+            let mut fiber = Fiber::new(WorkerId(1));
+            fiber.parked = Some(Rc::new(RefCell::new(cont)));
+            fiber.mark_parked();
+            fiber
+        }
+
+        // A continuation captured at the shallow baseline (0, 0) — e.g. on a
+        // background worker — is migratable and gets stolen.
+        let mut sched = FiberScheduler::new(2);
+        sched.spawn_existing(parked_fiber_with_baseline(0, 0));
+        let stolen = sched
+            .next_ready_or_steal_inner(w0(), FiberId(999), true)
+            .unwrap();
+        assert!(stolen.is_some(), "shallow-baseline fiber must be stealable");
+
+        // A continuation captured deep on worker 0's main VM cannot be rebased
+        // onto a shallow worker VM, so it must stay on its home worker.
+        let mut sched = FiberScheduler::new(2);
+        sched.spawn_existing(parked_fiber_with_baseline(2, 14));
+        let stolen = sched
+            .next_ready_or_steal_inner(w0(), FiberId(999), true)
+            .unwrap();
+        assert!(
+            stolen.is_none(),
+            "deep-baseline continuation must not migrate to a shallow VM"
+        );
+        assert_eq!(sched.ready_count(WorkerId(1)), 1);
     }
 
     #[test]

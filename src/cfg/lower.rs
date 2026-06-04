@@ -2614,6 +2614,7 @@ pub(crate) fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelIt
             superclasses,
             methods,
             span,
+            ..
         } => Ok(IrTopLevelItem::Class {
             name: *name,
             type_params: type_params.clone(),
@@ -2628,6 +2629,7 @@ pub(crate) fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelIt
             context,
             methods,
             span,
+            name_span: _,
         } => Ok(IrTopLevelItem::Instance {
             class_name: *class_name,
             type_args: type_args.clone(),
@@ -2789,6 +2791,9 @@ pub(crate) fn ir_top_level_item_to_statement(
             superclasses: superclasses.clone(),
             methods: methods.clone(),
             span: *span,
+            // The IR carries no separate name span; the whole span is a safe
+            // stand-in on this `#[allow(dead_code)]` round-trip path.
+            name_span: *span,
         },
         IrTopLevelItem::Instance {
             class_name,
@@ -2803,6 +2808,9 @@ pub(crate) fn ir_top_level_item_to_statement(
             context: context.clone(),
             methods: methods.clone(),
             span: *span,
+            // The IR carries no separate name span; the whole span is a safe
+            // stand-in on this `#[allow(dead_code)]` round-trip path.
+            name_span: *span,
         },
     }
 }

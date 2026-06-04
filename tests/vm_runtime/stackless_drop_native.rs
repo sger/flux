@@ -26,7 +26,10 @@ fn unique_run_dir(fixture: &str) -> std::path::PathBuf {
         .unwrap_or("fixture");
     let pid = std::process::id();
     let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("flux_native_{stem}_{pid}_{counter}"))
+    workspace_root()
+        .join("target")
+        .join("test-scratch")
+        .join(format!("flux_native_{stem}_{pid}_{counter}"))
 }
 
 /// Run a Flux program with the native backend and return (stdout, exit_success).

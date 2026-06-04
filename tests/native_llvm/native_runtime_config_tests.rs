@@ -32,11 +32,14 @@ fn run_source_with_env(
     tag: &str,
     env: &[(&str, &str)],
 ) -> (String, String, bool, Duration) {
-    let dir = std::env::temp_dir().join(format!(
-        "flux-native-runtime-config-{}-{}",
-        std::process::id(),
-        tag,
-    ));
+    let dir = workspace_root()
+        .join("target")
+        .join("test-scratch")
+        .join(format!(
+            "flux-native-runtime-config-{}-{}",
+            std::process::id(),
+            tag,
+        ));
     std::fs::create_dir_all(&dir).expect("create temp dir");
     let path = dir.join("fixture.flx");
     std::fs::write(&path, source).expect("write fixture");
@@ -75,11 +78,14 @@ fn run_source_with_timeout(
     tag: &str,
     timeout: Duration,
 ) -> (String, String, bool, Duration) {
-    let dir = std::env::temp_dir().join(format!(
-        "flux-native-runtime-config-timeout-{}-{}",
-        std::process::id(),
-        tag,
-    ));
+    let dir = workspace_root()
+        .join("target")
+        .join("test-scratch")
+        .join(format!(
+            "flux-native-runtime-config-timeout-{}-{}",
+            std::process::id(),
+            tag,
+        ));
     std::fs::create_dir_all(&dir).expect("create temp dir");
     let path = dir.join("fixture.flx");
     std::fs::write(&path, source).expect("write fixture");

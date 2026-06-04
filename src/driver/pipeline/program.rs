@@ -15,6 +15,8 @@ use crate::driver::run_program::backend::native::{
     NativeOutputConfig, NativeProgramInput, NativeReportConfig, NativeRunRequest,
     run_native_backend,
 };
+#[cfg(feature = "repl")]
+use crate::driver::support::shared::{DiagnosticRenderRequest, emit_diagnostics};
 use crate::driver::{
     flags::DriverFlags,
     mode::{AetherDumpMode, CoreDumpMode},
@@ -22,7 +24,7 @@ use crate::driver::{
     run_program::{
         backend::vm::{ParallelVmRunRequest, VmRunRequest, run_vm, try_run_parallel_vm},
         dumps::{DumpRequest, handle_dumps},
-        frontend::{ProgramContext, build_program_context},
+        frontend::{ProgramContext, build_program_context, build_program_context_from_source},
         modules::{CompileModulesRequest, compile_modules},
     },
     session::DriverSession,
@@ -39,6 +41,14 @@ use flux::{
     diagnostics::{Diagnostic, Severity},
     shared::cache_paths::CacheLayout,
     syntax::{module_graph::ModuleGraph, program::Program},
+};
+// REPL-only imports (the `:type` query + session bootstrap); excluded from native
+// builds so the `repl` feature can stay off there.
+#[cfg(feature = "repl")]
+use flux::{
+    ast::type_infer::{display_infer_type, infer_program},
+    syntax::{expression::ExprId, interner::Interner, statement::Statement},
+    vm::VM,
 };
 
 #[derive(Clone, Copy)]
@@ -114,6 +124,38 @@ fn has_error_diagnostics(diagnostics: &[Diagnostic]) -> bool {
 
 /// Builds the initial run context after frontend parsing and compiler setup.
 fn prepare_run_context(request: RunProgramRequest<'_>) -> Result<RunContext, String> {
+    let context = build_program_context(
+        request.path,
+        &request.session.roots,
+        request.session.roots_only,
+        request.session.cache_dir_path(),
+        request.flags.runtime.trace_aether,
+        request.flags.is_native_backend(),
+    )?;
+    Ok(finish_run_context(request, context))
+}
+
+/// Like [`prepare_run_context`] but builds from in-memory `source` rather than
+/// reading `request.path` from disk. Powers [`run_from_source`] (`flux eval`).
+fn prepare_run_context_from_source(
+    request: RunProgramRequest<'_>,
+    source: String,
+) -> Result<RunContext, String> {
+    let context = build_program_context_from_source(
+        request.path,
+        source,
+        &request.session.roots,
+        request.session.roots_only,
+        request.session.cache_dir_path(),
+        request.flags.runtime.trace_aether,
+        request.flags.is_native_backend(),
+    )?;
+    Ok(finish_run_context(request, context))
+}
+
+/// Shared tail of context preparation: turn a parsed [`ProgramContext`] into the
+/// pipeline's [`RunContext`] (compiler setup, module counts, strict hash).
+fn finish_run_context(request: RunProgramRequest<'_>, context: ProgramContext) -> RunContext {
     let ProgramContext {
         source,
         program,
@@ -123,14 +165,7 @@ fn prepare_run_context(request: RunProgramRequest<'_>) -> Result<RunContext, Str
         all_diagnostics,
         entry_path,
         cache_layout,
-    } = build_program_context(
-        request.path,
-        &request.session.roots,
-        request.session.roots_only,
-        request.session.cache_dir_path(),
-        request.flags.runtime.trace_aether,
-        request.flags.is_native_backend(),
-    )?;
+    } = context;
 
     let strict_hash =
         hash_bytes(format!("strict={}\n", u8::from(request.session.strict_mode)).as_bytes());
@@ -149,7 +184,7 @@ fn prepare_run_context(request: RunProgramRequest<'_>) -> Result<RunContext, Str
         compiler.set_profiling(true);
     }
 
-    Ok(RunContext {
+    RunContext {
         source,
         program,
         graph: graph_result.graph,
@@ -164,7 +199,7 @@ fn prepare_run_context(request: RunProgramRequest<'_>) -> Result<RunContext, Str
         is_multimodule,
         entry_has_errors,
         strict_hash,
-    })
+    }
 }
 
 /// Attempts the cached parallel VM execution path for eligible multimodule runs.
@@ -352,6 +387,198 @@ pub(crate) fn run_file(request: RunProgramRequest<'_>) {
     }
 }
 
+/// Runs an end-to-end program built from in-memory `source` instead of a file on
+/// disk. This is the slim path behind `flux eval`: a single synthetic module, VM
+/// backend only — no parallel fast-path, dump surfaces, or native dispatch. Parse
+/// and type diagnostics still render and exit non-zero through the shared
+/// `emit_compile_diagnostics_or_exit`, so a bad expression reports a diagnostic
+/// rather than a Rust panic.
+pub(crate) fn run_from_source(request: RunProgramRequest<'_>, source: String) {
+    match prepare_run_context_from_source(request, source) {
+        Ok(mut ctx) => {
+            if has_error_diagnostics(&ctx.all_diagnostics) {
+                emit_compile_diagnostics_or_exit(&ctx, request);
+            }
+            compile_modules_for_run(&mut ctx, request);
+            emit_compile_diagnostics_or_exit(&ctx, request);
+            dispatch_backend(&mut ctx, request);
+        }
+        Err(e) => eprintln!("{e}"),
+    }
+}
+
+/// The synthetic binding name the REPL wraps a `:type` query in. Shared with the
+/// REPL loop, which assembles `let <REPL_TYPE_BINDING> = <expr>` so this side can
+/// recover the queried expression's `ExprId` after inference.
+#[cfg(feature = "repl")]
+pub(crate) const REPL_TYPE_BINDING: &str = "__repl_type";
+
+/// Infer and render the type of a REPL `:type` query **without** running it. The
+/// `source` must bind the queried expression to [`REPL_TYPE_BINDING`] inside
+/// `main` (the REPL's `assemble` does this). Returns the rendered type on success;
+/// on a parse/type error it renders the errors to stderr (like the eval path) and
+/// returns `None`.
+#[cfg(feature = "repl")]
+pub(crate) fn infer_repl_expr_type(
+    request: RunProgramRequest<'_>,
+    source: String,
+) -> Option<String> {
+    let mut ctx = match prepare_run_context_from_source(request, source) {
+        Ok(ctx) => ctx,
+        Err(message) => {
+            eprintln!("{message}");
+            return None;
+        }
+    };
+    if has_error_diagnostics(&ctx.all_diagnostics) {
+        render_repl_errors(&ctx, request);
+        return None;
+    }
+    // Compile the session (the entry module is compiled last) so the prelude and
+    // any session imports are preloaded into the compiler. That preloaded state is
+    // what makes the re-inference below prelude-aware — the same arrangement the
+    // LSP's hover path relies on.
+    compile_modules_for_run(&mut ctx, request);
+    if has_error_diagnostics(&ctx.all_diagnostics) {
+        render_repl_errors(&ctx, request);
+        return None;
+    }
+    // Re-run HM inference directly on the entry program rather than reading the
+    // compile pass's residual types: `infer_program` keys `expr_types` by the
+    // `ExprId`s in `ctx.program` (the compile pass may infer over a desugared
+    // clone), so the queried binding's value can be looked back up.
+    let config = ctx.compiler.build_infer_config(&ctx.program);
+    let inferred = infer_program(&ctx.program, &ctx.compiler.interner, config);
+    let expr_id = repl_type_query_expr_id(&ctx.program, &ctx.compiler.interner)?;
+    let ty = inferred.expr_types.get(&expr_id)?;
+    Some(display_infer_type(ty, &ctx.compiler.interner))
+}
+
+/// Find the `ExprId` of the value bound to [`REPL_TYPE_BINDING`] inside `main`.
+#[cfg(feature = "repl")]
+fn repl_type_query_expr_id(program: &Program, interner: &Interner) -> Option<ExprId> {
+    for stmt in &program.statements {
+        let Statement::Function { body, .. } = stmt else {
+            continue;
+        };
+        for inner in &body.statements {
+            if let Statement::Let { name, value, .. } = inner
+                && interner.try_resolve(*name) == Some(REPL_TYPE_BINDING)
+            {
+                return Some(value.expr_id());
+            }
+        }
+    }
+    None
+}
+
+/// Render only the error diagnostics from a failed REPL candidate to stderr.
+/// Warnings are intentionally dropped — a REPL session accumulates "unused
+/// binding" noise on every line that would otherwise drown the prompt.
+#[cfg(feature = "repl")]
+fn render_repl_errors(ctx: &RunContext, request: RunProgramRequest<'_>) {
+    render_repl_diagnostics(
+        &ctx.all_diagnostics,
+        request.path,
+        ctx.source.as_str(),
+        &DriverDiagnosticConfig::from(request.session),
+    );
+}
+
+/// Render the error diagnostics from a REPL line to stderr (carets included),
+/// dropping warnings. Shared by the Phase 1 source path and the Phase 2 engine,
+/// which renders the `Err` of an incremental [`Compiler::compile_with_opts`]
+/// against the line's wrapped source.
+#[cfg(feature = "repl")]
+pub(crate) fn render_repl_diagnostics(
+    diagnostics: &[Diagnostic],
+    path: &str,
+    source: &str,
+    config: &DriverDiagnosticConfig,
+) {
+    let errors: Vec<Diagnostic> = diagnostics
+        .iter()
+        .filter(|diag| diag.severity == Severity::Error)
+        .cloned()
+        .collect();
+    if errors.is_empty() {
+        return;
+    }
+    emit_diagnostics(DiagnosticRenderRequest {
+        diagnostics: &errors,
+        default_file: Some(path),
+        default_source: Some(source),
+        show_file_headers: false,
+        max_errors: config.max_errors,
+        format: config.diagnostics_format,
+        all_errors: config.all_errors,
+        text_to_stderr: true,
+    });
+}
+
+/// A prelude-loaded compiler paired with a live VM whose `globals` already hold
+/// the prelude's values — the persistent state the Phase 2 REPL engine
+/// (proposal 0176) mutates incrementally, one line at a time.
+#[cfg(feature = "repl")]
+pub(crate) struct ReplBootstrap {
+    pub(crate) compiler: Compiler,
+    pub(crate) vm: VM,
+    /// Optimization flags carried over from the session so per-line compiles
+    /// match the level the prelude was compiled at.
+    pub(crate) optimize: bool,
+    pub(crate) analyze: bool,
+    /// Diagnostic-rendering config + synthetic entry path for surfacing per-line
+    /// compile errors.
+    pub(crate) diagnostics: DriverDiagnosticConfig,
+    pub(crate) path: String,
+}
+
+/// Build the persistent REPL session: compile a trivial entry through the normal
+/// module pipeline (which loads + compiles the Flow prelude into one `Compiler`),
+/// then run the resulting bytecode once on a fresh `VM` so the prelude's globals
+/// are live. The returned compiler and VM are handed to the engine, which from
+/// here compiles each entered line as a delta and runs it via [`VM::run_top_level`]
+/// without ever recompiling the prelude or earlier lines.
+#[cfg(feature = "repl")]
+pub(crate) fn bootstrap_repl_session(
+    request: RunProgramRequest<'_>,
+) -> Result<ReplBootstrap, String> {
+    // A minimal valid entry. Its `main` runs once during bootstrap (a no-op);
+    // later expression lines define their own `main`, shadowing this one.
+    let mut ctx = prepare_run_context_from_source(request, "fn main() {}\n".to_string())?;
+    if has_error_diagnostics(&ctx.all_diagnostics) {
+        render_repl_errors(&ctx, request);
+        return Err("could not initialize the REPL (prelude failed to parse)".to_string());
+    }
+    compile_modules_for_run(&mut ctx, request);
+    if has_error_diagnostics(&ctx.all_diagnostics) {
+        render_repl_errors(&ctx, request);
+        return Err("could not initialize the REPL (prelude failed to compile)".to_string());
+    }
+
+    let bytecode = ctx.compiler.bytecode();
+    let mut vm = VM::new(bytecode);
+    if let Err(err) = vm.run() {
+        return Err(format!("could not initialize the REPL session: {err}"));
+    }
+
+    // Per-line programs are not whole modules and need no `main`.
+    ctx.compiler.set_strict_require_main(false);
+    // Accumulate each line's binding schemes so later lines can resolve the
+    // types of earlier session globals.
+    ctx.compiler.set_repl_mode(true);
+
+    let compile = DriverCompileConfig::from(request.session);
+    Ok(ReplBootstrap {
+        optimize: compile.enable_optimize,
+        analyze: compile.enable_analyze,
+        diagnostics: DriverDiagnosticConfig::from(request.session),
+        path: request.path.to_string(),
+        compiler: ctx.compiler,
+        vm,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -496,10 +723,12 @@ mod tests {
         let first = Program {
             statements: vec![import_statement(Symbol::SENTINEL)],
             span: Span::default(),
+            ..Default::default()
         };
         let second = Program {
             statements: vec![import_statement(Symbol::new(7))],
             span: Span::default(),
+            ..Default::default()
         };
 
         let merged = merge_programs([&first, &second]);

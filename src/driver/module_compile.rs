@@ -225,6 +225,7 @@ mod tests {
                 span: Span::default(),
             }],
             span: Span::default(),
+            ..Default::default()
         };
 
         assert!(program_has_user_adt_declarations(&program));
@@ -249,6 +250,7 @@ mod tests {
                 span: Span::default(),
             }],
             span: Span::default(),
+            ..Default::default()
         };
 
         assert!(program_has_user_adt_declarations(&program));

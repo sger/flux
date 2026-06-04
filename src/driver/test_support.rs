@@ -30,6 +30,7 @@ pub(crate) fn base_flags() -> DriverFlags {
             trace_aether: false,
             show_stats: false,
             profiling: false,
+            quiet: false,
         },
         dumps: DriverDumpFlags {
             dump_repr: false,

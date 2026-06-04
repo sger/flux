@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    rc::Rc,
+    sync::Arc,
 };
 
 use crate::{
@@ -48,6 +48,7 @@ mod display;
 mod effects;
 mod expression;
 mod function;
+mod holes;
 mod pattern_coverage;
 mod pattern_coverage_adapter;
 mod solver;
@@ -57,6 +58,9 @@ mod unification;
 
 pub(crate) type BindingSpanKey = (usize, usize, usize, usize);
 pub use display::{display_infer_type, render_scheme_canonical};
+/// Shared with the VM codegen so it can recognise typed holes (`_` / `_name`) and
+/// defer to HM inference's `E469` instead of also reporting `E004`.
+pub(crate) use holes::is_hole_name;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared type definitions
@@ -148,7 +152,7 @@ struct InferCtx<'a> {
     env: TypeEnv,
     interner: &'a Interner,
     errors: Vec<Diagnostic>,
-    file_path: Rc<str>,
+    file_path: Arc<str>,
     /// Accumulated global substitution — grows monotonically as constraints
     /// are solved.  Apply this to any `Ty` retrieved from the env to obtain
     /// its most-resolved form.
@@ -182,6 +186,13 @@ struct InferCtx<'a> {
     class_env: Option<crate::types::class_env::ClassEnv>,
     /// Accumulated type class constraints (e.g., `Num<a>` from `x + y`).
     class_constraints: Vec<constraint::WantedClassConstraint>,
+    /// Resolved class-method dispatches, keyed by the function-position
+    /// `ExprId` of each class-method call site. Populated in
+    /// `propagate_resolved_class_call_effects` once the matching
+    /// instance is known; drained into `InferProgramResult` in
+    /// `build_infer_result`. The LSP reads this for goto-definition on
+    /// class-method calls.
+    class_method_dispatch: HashMap<ExprId, ClassDispatch>,
     /// Type variables allocated as fallback after inference failures.
     /// These are "tainted" — if they appear in a binding's resolved type,
     /// the binding has unresolved inference even if the scheme is mono.
@@ -205,6 +216,10 @@ struct InferCtx<'a> {
     class_sym_ord: Option<Identifier>,
     class_sym_num: Option<Identifier>,
     class_sym_semigroup: Option<Identifier>,
+    /// Typed holes (`_` / `_name`) recorded during inference. Finalized in
+    /// [`build_infer_result`] into `TYPED HOLE` diagnostics once the substitution
+    /// is complete.
+    holes: Vec<holes::HoleInfo>,
 }
 
 impl<'a> InferCtx<'a> {
@@ -289,11 +304,24 @@ impl<'a> InferCtx<'a> {
             skolem_names: HashMap::new(),
             class_env: None,
             class_constraints: Vec::new(),
+            class_method_dispatch: HashMap::new(),
             class_sym_eq: None,
             class_sym_ord: None,
             class_sym_num: None,
             class_sym_semigroup: None,
+            holes: Vec::new(),
         }
+    }
+
+    /// Record a typed hole (an unbound `_` / `_name`): allocate a fresh ordinary
+    /// inference variable (so surrounding unification fixes its type) and remember
+    /// it for finalization. Returns the variable's type.
+    fn record_hole(&mut self, name: Identifier, span: Span) -> InferType {
+        let ty = self.env.alloc_infer_type_var();
+        if let InferType::Var(var) = ty {
+            self.holes.push(holes::HoleInfo { name, span, var });
+        }
+        ty
     }
 
     /// Return whether a type is fully concrete (no unresolved type variables).
@@ -465,7 +493,7 @@ impl<'a> InferCtx<'a> {
 }
 
 struct InferCtxConfig {
-    file_path: Rc<str>,
+    file_path: Arc<str>,
     preloaded_base_schemes: HashMap<Identifier, Scheme>,
     preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
     task_module_bindings: HashSet<Identifier>,
@@ -496,7 +524,7 @@ pub use display::suggest_type_name;
 /// };
 /// ```
 pub struct InferProgramConfig {
-    pub file_path: Option<Rc<str>>,
+    pub file_path: Option<Arc<str>>,
     pub preloaded_base_schemes: HashMap<Identifier, Scheme>,
     pub preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
     pub task_module_bindings: HashSet<Identifier>,
@@ -507,6 +535,13 @@ pub struct InferProgramConfig {
     pub effect_row_aliases: HashMap<Identifier, EffectExpr>,
     /// Type class environment for constraint generation.
     pub class_env: Option<crate::types::class_env::ClassEnv>,
+    /// `Statement::Data` declarations from earlier compilation units whose
+    /// constructors must be in scope for this program (proposal 0176 REPL:
+    /// `data` declared on an earlier line; the constructors carry their
+    /// named-field metadata so a later line's `Point { x: .. }` / `{ ...p, .. }`
+    /// resolves). Predeclared before the program's own constructors so a same-
+    /// line rebind overrides. Empty for ordinary single-unit compiles.
+    pub preloaded_adt_data: Vec<Statement>,
 }
 
 /// Run Algorithm W (Hindley-Milner) over the entire program.
@@ -539,7 +574,7 @@ pub fn infer_program(
     interner: &Interner,
     config: InferProgramConfig,
 ) -> InferProgramResult {
-    let file: Rc<str> = config.file_path.unwrap_or_else(|| "".into());
+    let file: Arc<str> = config.file_path.unwrap_or_else(|| "".into());
     let mut ctx = InferCtx::new(
         interner,
         InferCtxConfig {
@@ -555,6 +590,10 @@ pub fn infer_program(
         },
     );
     init_class_env(&mut ctx, config.class_env, interner);
+    // Predeclare preloaded constructors (e.g. earlier REPL lines' `data`) before
+    // the program's own, so their named-field metadata is in scope and a same-
+    // line rebind of an ADT still wins.
+    ctx.predeclare_data_constructors_in_statements(&config.preloaded_adt_data);
     ctx.infer_program(program);
     ctx.solve_deferred_constraints();
     build_infer_result(ctx)
@@ -629,7 +668,8 @@ fn resolve_binding_schemes(
 }
 
 /// Apply final substitution to all inferred types and build the result.
-fn build_infer_result(ctx: InferCtx<'_>) -> InferProgramResult {
+fn build_infer_result(mut ctx: InferCtx<'_>) -> InferProgramResult {
+    finalize_holes(&mut ctx);
     let constraint_count = ctx.contraint_log.len();
     let (expanded_fallback, resolved_binding_schemes) =
         resolve_binding_schemes(&ctx.env, &ctx.subst, &ctx.fallback_vars);
@@ -655,6 +695,33 @@ fn build_infer_result(ctx: InferCtx<'_>) -> InferProgramResult {
         instantiated_expr_vars: resolved_instantiated_expr_vars,
         resolved_binding_schemes,
         resolved_binding_schemes_by_span,
+        class_method_dispatch: ctx.class_method_dispatch,
+    }
+}
+
+/// Resolve each recorded typed hole through the final substitution and emit a
+/// `TYPED HOLE` diagnostic (`found hole _ : T` plus the in-scope bindings that
+/// fit). Runs once the substitution is complete so the hole's type reflects its
+/// surrounding context.
+fn finalize_holes(ctx: &mut InferCtx<'_>) {
+    if ctx.holes.is_empty() {
+        return;
+    }
+    let pending = std::mem::take(&mut ctx.holes);
+    for hole in pending {
+        let hole_ty = InferType::Var(hole.var).apply_type_subst(&ctx.subst);
+        // `&mut ctx.env` and `&ctx.subst` are disjoint fields — the trial
+        // unifications never touch `subst`.
+        let fits = holes::hole_fits(&mut ctx.env, &ctx.subst, &hole_ty, ctx.interner);
+        let name = ctx.interner.resolve(hole.name).to_string();
+        ctx.errors.push(holes::hole_diagnostic(
+            &name,
+            &hole_ty,
+            &fits,
+            ctx.file_path.clone(),
+            hole.span,
+            ctx.interner,
+        ));
     }
 }
 
@@ -829,6 +896,33 @@ pub struct InferProgramResult {
     /// Resolved binding schemes for each statement-level generalization site,
     /// keyed by the `Statement::Function`/`Statement::Let` span.
     pub resolved_binding_schemes_by_span: HashMap<BindingSpanKey, Scheme>,
+    /// Per-call-site class-method dispatch resolution, keyed by the
+    /// **function-position** `ExprId` (the identifier the user clicks
+    /// on at `show(42)` is the function expression `show`). Populated
+    /// from `propagate_resolved_class_call_effects` — the same
+    /// resolution the type checker performs to emit class constraints
+    /// and look up mangled `__tc_*` schemes is captured here so the LSP
+    /// can route F12 to the matching `InstanceMethod` arm. Empty when
+    /// no class methods were called in the program.
+    pub class_method_dispatch: HashMap<ExprId, ClassDispatch>,
+}
+
+/// Where a class-method call site dispatched to — enough to identify
+/// the matching `instance` block by name and head type without keeping
+/// a back-reference to the type checker's `InstanceDef`. Mirrors what
+/// the LSP's [`crate::ast::type_infer::expression::calls`] dispatch
+/// stores in [`ResolvedClassMethodCall`] plus the resolved head
+/// identifier.
+#[derive(Debug, Clone, Copy)]
+pub struct ClassDispatch {
+    pub class_name: Identifier,
+    /// Head identifier of the first type argument of the matched
+    /// instance — `Int` for `instance Show<Int>`, `Maybe` for
+    /// `instance Show<Maybe<a>>`. Same notion as the private
+    /// `ClassEnv::head_type_name` helper in
+    /// `src/types/class_env.rs:684`.
+    pub head_type_ctor: Identifier,
+    pub method_name: Identifier,
 }
 
 /// Stable identifier for one expression node within a single inference run.

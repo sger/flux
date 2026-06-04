@@ -291,6 +291,7 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
             trace_aether: parsed.runtime.trace_aether,
             show_stats: parsed.runtime.show_stats,
             profiling: parsed.runtime.profiling,
+            quiet: false,
         },
         dumps: DriverDumpFlags {
             dump_repr: parsed.dumps.dump_repr,

@@ -16,6 +16,11 @@ The body of `bad` does not match its declared return type.
 28 |     "not-an-int"
    |     ^^^^^^^^^^^^
    |     ------------ this expression has type `String`
+   |
+help: Change return type to `String`
+   |
+27 | fn bad() -> String {
+   |             ~~~~~~
 
 Note:
   declared return type: Int

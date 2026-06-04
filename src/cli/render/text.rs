@@ -12,6 +12,8 @@ Usage:
   flux bytecode <file.flx>
   flux lint <file.flx>
   flux fmt [--check] <file.flx>
+  flux eval \"<expr>\"
+  flux repl
   flux cache-info <file.flx>
   flux module-cache-info <file.flx>
   flux native-cache-info <file.flx>

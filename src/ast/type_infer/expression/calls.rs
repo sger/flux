@@ -17,6 +17,13 @@ struct ResolvedClassMethodCall {
     class_name: Identifier,
     method_name: Identifier,
     first_arg_id: ExprId,
+    /// `ExprId` of the **function-position** sub-expression of the call
+    /// (`show` in `show(42)`, or `member` in `Foldable.fold(xs, ...)`'s
+    /// `MemberAccess`). The LSP keys
+    /// `InferProgramResult::class_method_dispatch` by this id because
+    /// the locator's `NodeRef::Expr(Expression::Identifier { expr_id })`
+    /// for a cursor on the method name carries exactly this value.
+    function_expr_id: ExprId,
     span: Span,
 }
 
@@ -84,31 +91,61 @@ impl<'a> InferCtx<'a> {
             });
             // Emit class constraint after inference resolves argument types.
             if let Some(info) = class_method_info {
-                let resolved_type_args = self.propagate_resolved_class_call_effects(info);
-                if let Some(type_args) = resolved_type_args {
-                    self.emit_class_constraint_args(
-                        info.class_name,
-                        type_args,
-                        info.span,
-                        constraint::WantedClassConstraintOrigin::MethodCall,
-                    );
-                } else {
-                    let constrained_ty = param_tys
-                        .first()
-                        .map(|t| t.apply_type_subst(&self.subst))
-                        .unwrap_or(result.apply_type_subst(&self.subst));
-                    self.emit_class_constraint(
-                        info.class_name,
-                        constrained_ty,
-                        info.span,
-                        constraint::WantedClassConstraintOrigin::MethodCall,
-                    );
-                }
+                self.emit_typed_class_method_constraint(info, &param_tys, &result);
             }
             return result;
         }
 
-        self.infer_call_unresolved_callee(&fn_ty, input, fn_name, fn_def_span, ambient_effect_row)
+        let result = self.infer_call_unresolved_callee(
+            &fn_ty,
+            input,
+            fn_name,
+            fn_def_span,
+            ambient_effect_row,
+        );
+        // The unresolved-callee path is what fires for buffer-declared
+        // class methods (their short name isn't pre-bound in HM env, so
+        // `fn_ty_resolved` is a fresh var rather than `Fun`). Re-run the
+        // dispatch resolution here so the LSP still gets a
+        // `ClassDispatch` entry — without emitting class constraints,
+        // since those are the typed-path's responsibility.
+        if let Some(info) = class_method_info {
+            let _ = self.propagate_resolved_class_call_effects(info);
+        }
+        result
+    }
+
+    /// Emit the class constraint for a resolved class-method call on the
+    /// typed-callee path, once argument types are known.
+    ///
+    /// Uses the concrete head type arguments when the first argument selects a
+    /// unique instance; otherwise falls back to constraining the first
+    /// parameter type (or the call result when there are no parameters).
+    fn emit_typed_class_method_constraint(
+        &mut self,
+        info: ResolvedClassMethodCall,
+        param_tys: &[InferType],
+        result: &InferType,
+    ) {
+        if let Some(type_args) = self.propagate_resolved_class_call_effects(info) {
+            self.emit_class_constraint_args(
+                info.class_name,
+                type_args,
+                info.span,
+                constraint::WantedClassConstraintOrigin::MethodCall,
+            );
+        } else {
+            let constrained_ty = param_tys
+                .first()
+                .map(|t| t.apply_type_subst(&self.subst))
+                .unwrap_or(result.apply_type_subst(&self.subst));
+            self.emit_class_constraint(
+                info.class_name,
+                constrained_ty,
+                info.span,
+                constraint::WantedClassConstraintOrigin::MethodCall,
+            );
+        }
     }
 
     /// Infer calls where callee type resolves to `Fun`.
@@ -412,6 +449,7 @@ impl<'a> InferCtx<'a> {
                     class_name,
                     method_name: *name,
                     first_arg_id,
+                    function_expr_id: function.expr_id(),
                     span,
                 })
             }
@@ -433,11 +471,60 @@ impl<'a> InferCtx<'a> {
                     class_name,
                     method_name: *member,
                     first_arg_id,
+                    function_expr_id: function.expr_id(),
                     span,
                 })
             }
             _ => None,
         }
+    }
+
+    /// Resolve a class-method call's first-argument type to a concrete instance.
+    ///
+    /// Records the F12 dispatch entry (so the LSP can route `show(42)` to the
+    /// matching `instance Show<Int>` arm) and returns the concrete head type
+    /// arguments plus the instance's generated mangled `__tc_*` scheme. `None`
+    /// when no unique instance is selected or its scheme is absent.
+    fn resolve_class_method_instance(
+        &mut self,
+        info: ResolvedClassMethodCall,
+        first_arg_ty: &InferType,
+    ) -> Option<(Vec<InferType>, Scheme)> {
+        let class_env = self.class_env.as_ref()?;
+        let (instance, concrete_type_args) = class_env
+            .resolve_method_call_instance_from_first_arg(
+                info.class_name,
+                first_arg_ty,
+                self.interner,
+            )?;
+
+        // Record the dispatch so the LSP can route F12 from `show(42)` to the
+        // matching `instance Show<Int>` arm. Reads the head identifier directly
+        // off the instance's syntactic `type_args[0]` — same shape
+        // `ClassEnv::head_type_name` uses (src/types/class_env.rs:684).
+        if let Some(TypeExpr::Named { name: head, .. }) = instance.type_args.first() {
+            self.class_method_dispatch.insert(
+                info.function_expr_id,
+                ClassDispatch {
+                    class_name: info.class_name,
+                    head_type_ctor: *head,
+                    method_name: info.method_name,
+                },
+            );
+        }
+
+        let type_key = instance
+            .type_args
+            .iter()
+            .map(|arg| arg.display_with(self.interner))
+            .collect::<Vec<_>>()
+            .join("_");
+        let class_str = self.interner.resolve(info.class_name);
+        let method_str = self.interner.resolve(info.method_name);
+        let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
+        let mangled_sym = self.interner.lookup(&mangled)?;
+        let scheme = self.env.lookup(mangled_sym).cloned()?;
+        Some((concrete_type_args, scheme))
     }
 
     /// Resolve a direct class-method call to its concrete instance effects.
@@ -455,28 +542,8 @@ impl<'a> InferCtx<'a> {
             .get(&info.first_arg_id)
             .map(|ty| ty.apply_type_subst(&self.subst))?;
 
-        let (resolved_type_args, scheme) = {
-            let class_env = self.class_env.as_ref()?;
-            let (instance, concrete_type_args) = class_env
-                .resolve_method_call_instance_from_first_arg(
-                    info.class_name,
-                    &first_arg_ty,
-                    self.interner,
-                )?;
-
-            let type_key = instance
-                .type_args
-                .iter()
-                .map(|arg| arg.display_with(self.interner))
-                .collect::<Vec<_>>()
-                .join("_");
-            let class_str = self.interner.resolve(info.class_name);
-            let method_str = self.interner.resolve(info.method_name);
-            let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
-            let mangled_sym = self.interner.lookup(&mangled)?;
-            let scheme = self.env.lookup(mangled_sym).cloned()?;
-            Some((concrete_type_args, scheme))
-        }?;
+        let (resolved_type_args, scheme) =
+            self.resolve_class_method_instance(info, &first_arg_ty)?;
 
         let (resolved_fn_ty, mapping, constraints) = scheme.instantiate(&mut self.env.counter);
         let fresh_vars = mapping.values().copied().collect::<Vec<_>>();

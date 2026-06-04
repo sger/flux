@@ -1,0 +1,202 @@
+{
+  "name": "flux-language",
+  "displayName": "Flux Language Support",
+  "description": "Syntax highlighting and language server integration for the Flux language.",
+  "version": "0.0.5",
+  "publisher": "flux",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sger/flux.git"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:flux"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "flux",
+        "aliases": [
+          "Flux",
+          "flux"
+        ],
+        "extensions": [
+          ".flx"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "flux.viewTokens",
+        "title": "Flux: View Tokens",
+        "category": "Flux"
+      },
+      {
+        "command": "flux.viewCoreIr",
+        "title": "Flux: View Core IR",
+        "category": "Flux"
+      },
+      {
+        "command": "flux.viewBytecode",
+        "title": "Flux: View Bytecode",
+        "category": "Flux"
+      },
+      {
+        "command": "flux.restartServer",
+        "title": "Flux: Restart Language Server",
+        "category": "Flux"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "flux.viewTokens",
+          "when": "editorLangId == flux"
+        },
+        {
+          "command": "flux.viewCoreIr",
+          "when": "editorLangId == flux"
+        },
+        {
+          "command": "flux.viewBytecode",
+          "when": "editorLangId == flux"
+        },
+        {
+          "command": "flux.restartServer",
+          "when": "editorLangId == flux"
+        }
+      ]
+    },
+    "grammars": [
+      {
+        "language": "flux",
+        "scopeName": "source.flux",
+        "path": "./syntaxes/flux.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Flux",
+      "properties": {
+        "flux.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Override path to the flux-lsp binary. Leave empty to use the binary bundled with this extension."
+        },
+        "flux.runCommand": {
+          "type": "string",
+          "default": "cargo run --",
+          "description": "Base command the ▶ Run / ▶ Run Test code lenses launch in a terminal (with the file path, plus --test --test-filter <name> for tests). The ▶ Eval lens reuses it as a captured subprocess: `<runCommand> eval \"<expr>\"`."
+        },
+        "flux.workspaceDiagnostics.scanAllFiles": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Report `workspace/diagnostic` problems for **every** `.flx` file in the workspace, not just open files and the modules they import. Surfaces all project-wide errors at once, but in a repository with examples or fixtures that fail by design it will flag those too (and tint their folders red in the Explorer). Changing this restarts the language server."
+        },
+        "flux.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Trace LSP messages between VS Code and flux-lsp."
+        }
+      }
+    },
+    "configurationDefaults": {
+      "[flux]": {
+        "editor.semanticHighlighting.enabled": true
+      }
+    },
+    "semanticTokenScopes": [
+      {
+        "language": "flux",
+        "scopes": {
+          "namespace": [
+            "entity.name.namespace.flux",
+            "entity.name.type.flux"
+          ],
+          "type": [
+            "entity.name.type.flux"
+          ],
+          "class": [
+            "entity.name.type.class.flux",
+            "entity.name.type.flux"
+          ],
+          "enum": [
+            "entity.name.type.enum.flux",
+            "entity.name.type.flux"
+          ],
+          "interface": [
+            "entity.name.type.interface.flux",
+            "entity.name.type.flux"
+          ],
+          "typeParameter": [
+            "entity.name.type.parameter.flux",
+            "entity.name.type.flux"
+          ],
+          "parameter": [
+            "variable.parameter.flux"
+          ],
+          "variable": [
+            "variable.other.flux"
+          ],
+          "property": [
+            "variable.other.property.flux"
+          ],
+          "enumMember": [
+            "variable.other.enummember.flux",
+            "support.type.variant.flux"
+          ],
+          "function": [
+            "entity.name.function.flux"
+          ],
+          "method": [
+            "entity.name.function.member.flux",
+            "entity.name.function.flux"
+          ],
+          "keyword": [
+            "keyword.flux"
+          ],
+          "comment": [
+            "comment.flux"
+          ],
+          "string": [
+            "string.flux"
+          ],
+          "number": [
+            "constant.numeric.flux"
+          ],
+          "operator": [
+            "keyword.operator.flux"
+          ],
+          "decorator": [
+            "entity.name.type.flux"
+          ]
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.4.0"
+  }
+}

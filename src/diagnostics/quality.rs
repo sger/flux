@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::diagnostics::position::Span;
 use crate::diagnostics::{
@@ -217,7 +217,7 @@ pub fn with_parser_breadcrumb(diag: Diagnostic, breadcrumb: Option<&str>) -> Dia
 /// Build a type mismatch diagnostic with expected/actual notes and a best-effort help hint.
 #[allow(clippy::too_many_arguments)]
 pub fn type_mismatch_diagnostic(
-    file: impl Into<Rc<str>>,
+    file: impl Into<Arc<str>>,
     span: Span,
     message: impl Into<String>,
     primary_label: impl Into<String>,
@@ -253,7 +253,7 @@ pub fn with_type_origin_notes(
 }
 
 /// Build an occurs-check diagnostic for an inferred infinite type.
-pub fn occurs_check_diagnostic(file: impl Into<Rc<str>>, span: Span, ty: &str) -> Diagnostic {
+pub fn occurs_check_diagnostic(file: impl Into<Arc<str>>, span: Span, ty: &str) -> Diagnostic {
     diagnostic_for(&OCCURS_CHECK_FAILURE)
         .with_display_title("Infinite Type")
         .with_category(DiagnosticCategory::TypeInference)
@@ -293,7 +293,7 @@ pub fn runtime_value_preview(value: &str) -> String {
 
 /// Build a runtime type error diagnostic with optional value preview context.
 pub fn runtime_type_error_diagnostic(
-    file: impl Into<Rc<str>>,
+    file: impl Into<Arc<str>>,
     span: Span,
     expected: &str,
     actual: &str,
@@ -357,7 +357,7 @@ pub fn dynamic_explained_diagnostic(
     code: &str,
     title: &str,
     message: impl Into<String>,
-    file: impl Into<Rc<str>>,
+    file: impl Into<Arc<str>>,
     span: Span,
     primary_label: impl Into<String>,
     notes: impl IntoIterator<Item = String>,
@@ -383,7 +383,7 @@ pub fn dynamic_explained_diagnostic(
 
 /// Build a note explaining that a module was skipped after earlier failures.
 pub fn module_skipped_note(
-    file: impl Into<Rc<str>>,
+    file: impl Into<Arc<str>>,
     skipped_module: impl Into<String>,
     dependency_name: impl Into<String>,
 ) -> Diagnostic {
@@ -406,7 +406,7 @@ pub fn module_skipped_note(
 
 /// Build a note summarizing diagnostics suppressed by stage filtering.
 pub fn downstream_errors_suppressed_note(
-    file: impl Into<Rc<str>>,
+    file: impl Into<Arc<str>>,
     suppressed_type_count: usize,
     suppressed_effect_count: usize,
 ) -> Diagnostic {
@@ -442,7 +442,7 @@ pub fn downstream_errors_suppressed_note(
 
 /// Build a note summarizing repeated parser diagnostics compressed in one file.
 pub fn repeated_parser_diagnostics_suppressed_note(
-    file: impl Into<Rc<str>>,
+    file: impl Into<Arc<str>>,
     display_title: impl Into<String>,
     suppressed_count: usize,
 ) -> Diagnostic {

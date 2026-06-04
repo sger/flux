@@ -1,6 +1,7 @@
 use flux::bytecode::op_code::disassemble;
 use flux::compiler::Compiler;
 use flux::diagnostics::render_diagnostics;
+use flux::runtime::value::Value;
 use flux::syntax::lexer::Lexer;
 use flux::syntax::parser::Parser;
 
@@ -18,7 +19,19 @@ fn compile_asm(input: &str) -> String {
     compiler
         .compile(&program)
         .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, Some(input), None)));
-    disassemble(&compiler.bytecode().instructions)
+    let bytecode = compiler.bytecode();
+    // Include compiled-function constants: a top-level `match` (and similar) now
+    // compiles into a synthesized frame, so its body lives in a function constant
+    // rather than the top-level stream. Disassemble both so the fused compare
+    // jumps are visible wherever they were emitted.
+    let mut asm = disassemble(&bytecode.instructions);
+    for constant in &bytecode.constants {
+        if let Value::Function(function) = constant {
+            asm.push('\n');
+            asm.push_str(&disassemble(&function.instructions));
+        }
+    }
+    asm
 }
 
 #[test]

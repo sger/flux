@@ -93,13 +93,10 @@ impl Parser {
     // Token navigation
     /// Advances the 3-token parser window, skipping over doc comment tokens.
     pub(super) fn next_token(&mut self) {
-        let mut next = self.lexer.next_token();
-        self.absorb_lexer_diagnostics();
-        // Skip doc comments - they're lexed but not parsed
-        while next.token_type == TokenType::DocComment {
-            next = self.lexer.next_token();
-            self.absorb_lexer_diagnostics();
-        }
+        // `next_non_doc_token` skips doc comments *and* captures them for the
+        // program's doc-comment index, so all advancement funnels through it
+        // rather than re-skipping here (which would drop them uncollected).
+        let next = self.next_non_doc_token();
         self.current_token = std::mem::replace(
             &mut self.peek_token,
             std::mem::replace(&mut self.peek2_token, next),

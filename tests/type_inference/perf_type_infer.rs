@@ -57,6 +57,7 @@ fn infer_program_perf_guard() {
                 preloaded_effect_op_signatures: HashMap::new(),
                 effect_row_aliases: HashMap::new(),
                 class_env: None,
+                preloaded_adt_data: Vec::new(),
             },
         );
         black_box(result.diagnostics.len());
