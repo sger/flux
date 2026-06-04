@@ -712,6 +712,7 @@ impl ClassEnv {
                     superclasses,
                     methods,
                     span,
+                    ..
                 } => {
                     // Phase 1b Step 3: classes are keyed by ClassId, so two
                     // class declarations with the same short name in
@@ -804,6 +805,7 @@ impl ClassEnv {
                     context,
                     methods,
                     span,
+                    name_span: _,
                 } => {
                     // Check that the class exists. Phase 1b Step 4: prefer
                     // a class in the same module as the instance being

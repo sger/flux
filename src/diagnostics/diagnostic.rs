@@ -5,7 +5,7 @@ use super::{ErrorCode, ErrorType, format_message};
 use crate::diagnostics::position::{Position, Span};
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Arc;
 use std::{env, fs};
 
 /// The core diagnostic struct representing an error, warning, or note
@@ -18,7 +18,7 @@ pub struct Diagnostic {
     pub(crate) code: Option<String>,
     pub(crate) error_type: Option<ErrorType>,
     pub(crate) message: Option<String>,
-    pub(crate) file: Option<Rc<str>>,
+    pub(crate) file: Option<Arc<str>>,
     pub(crate) span: Option<Span>,
     pub(crate) labels: Vec<Label>,
     pub(crate) hints: Vec<Hint>,
@@ -179,7 +179,7 @@ impl Diagnostic {
     }
 
     /// Mutate the diagnostic in place to set its file path.
-    pub fn set_file(&mut self, file: impl Into<Rc<str>>) {
+    pub fn set_file(&mut self, file: impl Into<Arc<str>>) {
         let file = file.into();
         self.file = if file.is_empty() { None } else { Some(file) };
     }
@@ -213,7 +213,7 @@ impl DiagnosticBuilder for Diagnostic {
         self
     }
 
-    fn with_file(mut self, file: impl Into<Rc<str>>) -> Self {
+    fn with_file(mut self, file: impl Into<Arc<str>>) -> Self {
         let file = file.into();
         self.file = if file.is_empty() { None } else { Some(file) };
         self
@@ -380,7 +380,7 @@ impl Diagnostic {
     pub fn make_error(
         err_spec: &'static ErrorCode,
         values: &[&str],
-        file: impl Into<Rc<str>>,
+        file: impl Into<Arc<str>>,
         span: Span,
     ) -> Self {
         let message = format_message(err_spec.message, values);
@@ -417,7 +417,7 @@ impl Diagnostic {
     pub fn make_warning_from_code(
         warn_spec: &'static ErrorCode,
         values: &[&str],
-        file: impl Into<Rc<str>>,
+        file: impl Into<Arc<str>>,
         span: Span,
     ) -> Self {
         let message = format_message(warn_spec.message, values);
@@ -446,7 +446,7 @@ impl Diagnostic {
         error_type: ErrorType,
         message: impl Into<String>,
         hint: Option<String>,
-        file: impl Into<Rc<str>>,
+        file: impl Into<Arc<str>>,
         span: Span,
     ) -> Self {
         let code = code.into();
@@ -485,7 +485,7 @@ impl Diagnostic {
         code: impl Into<String>,
         title: impl Into<String>,
         message: impl Into<String>,
-        file: impl Into<Rc<str>>,
+        file: impl Into<Arc<str>>,
         span: Span,
     ) -> Self {
         Diagnostic::warning(title)
@@ -499,7 +499,7 @@ impl Diagnostic {
     pub fn make_note(
         title: impl Into<String>,
         message: impl Into<String>,
-        file: impl Into<Rc<str>>,
+        file: impl Into<Arc<str>>,
         span: Span,
     ) -> Self {
         let file = file.into();
@@ -527,7 +527,7 @@ impl Diagnostic {
     pub fn make_help(
         title: impl Into<String>,
         message: impl Into<String>,
-        file: impl Into<Rc<str>>,
+        file: impl Into<Arc<str>>,
         span: Span,
     ) -> Self {
         let file = file.into();

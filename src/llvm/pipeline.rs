@@ -209,10 +209,26 @@ pub fn compile_ir_to_object(
     Ok(())
 }
 
+/// Base directory for native build intermediates (`.ll`/`.bc`/`.o`).
+///
+/// Prefers `<cwd>/target/native/` **inside the project build tree** so generated
+/// artifacts don't get scattered into the system temp dir — a fresh, unsigned
+/// executable launched from `%TEMP%` is a heavily-weighted Windows Defender
+/// dropper heuristic, and keeping every native intermediate under `target/` keeps
+/// the build self-contained. Falls back to the system temp dir only when no
+/// project `target/` parent exists (e.g. running outside a workspace).
+fn native_build_base_dir() -> PathBuf {
+    std::env::current_dir()
+        .ok()
+        .map(|d| d.join("target").join("native"))
+        .filter(|d| d.parent().is_some_and(|p| p.exists()))
+        .unwrap_or_else(|| std::env::temp_dir().join("flux_core_to_llvm"))
+}
+
 fn unique_native_work_dir() -> Result<PathBuf, PipelineError> {
     let build_id = NEXT_NATIVE_BUILD_ID.fetch_add(1, Ordering::Relaxed);
     let dir =
-        std::env::temp_dir().join(format!("flux_llvm_obj_{}_{}", std::process::id(), build_id));
+        native_build_base_dir().join(format!("flux_llvm_obj_{}_{}", std::process::id(), build_id));
     fs::create_dir_all(&dir)?;
     Ok(dir)
 }
@@ -488,11 +504,7 @@ pub fn archive_is_up_to_date(obj_paths: &[PathBuf], archive_path: &Path) -> bool
 pub fn compile_to_binary(config: &PipelineConfig) -> Result<PipelineResult, PipelineError> {
     // Use target/native/ inside the project (if available) to avoid Windows
     // Application Control policies that block unsigned executables from temp dirs.
-    let base_dir = std::env::current_dir()
-        .ok()
-        .map(|d| d.join("target").join("native"))
-        .filter(|d| d.parent().is_some_and(|p| p.exists()))
-        .unwrap_or_else(|| std::env::temp_dir().join("flux_core_to_llvm"));
+    let base_dir = native_build_base_dir();
     std::fs::create_dir_all(&base_dir)?;
     let build_id = NEXT_NATIVE_BUILD_ID.fetch_add(1, Ordering::Relaxed);
     let dir = base_dir.join(format!("flux_{}_{}", std::process::id(), build_id));

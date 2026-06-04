@@ -30,6 +30,13 @@ pub enum CliCommand {
         path: String,
         check: bool,
     },
+    Eval {
+        expr: String,
+        flags: DriverFlags,
+    },
+    Repl {
+        flags: DriverFlags,
+    },
     CacheInfo {
         flags: DriverFlags,
     },
@@ -109,9 +116,13 @@ fn has_no_command_or_input(args: &[String]) -> bool {
 
 /// Rejects leftover CLI flags after the known flag-extraction passes complete.
 ///
-/// `parity-check` intentionally forwards raw arguments for its own parser, so its tail is exempt.
+/// `parity-check` forwards raw arguments to its own parser, and `eval` takes a
+/// free-form expression (which may contain `-`-leading tokens), so their tails are exempt.
 fn reject_unknown_flag_tokens(args: &[String]) -> Result<(), String> {
-    if args.get(1).is_some_and(|arg| arg == "parity-check") {
+    if args
+        .get(1)
+        .is_some_and(|arg| arg == "parity-check" || arg == "eval")
+    {
         return Ok(());
     }
 
@@ -170,6 +181,10 @@ fn parse_subcommand(
             CliCommand::Lint { flags }
         }),
         "fmt" => parse_fmt_subcommand(args),
+        "eval" => parse_eval_subcommand(args, flags),
+        "repl" => Ok(CliCommand::Repl {
+            flags: flags.clone(),
+        }),
         "cache-info" => parse_flx_subcommand(
             args,
             flags,
@@ -290,6 +305,23 @@ fn parse_path_subcommand(
     let mut flags = flags.clone();
     flags.input.input_path = Some(parse_path(args, index, usage)?);
     Ok(build(flags))
+}
+
+/// Parses the `eval` subcommand: everything after `eval` is joined into a single
+/// expression string. Unlike every other subcommand this takes a free-form
+/// expression rather than a `.flx` path, so it has no path validation — it only
+/// rejects an empty expression. Joining `args[2..]` tolerates an accidentally
+/// unquoted multi-word expression (`flux eval 2 + 2`) as well as the quoted form.
+fn parse_eval_subcommand(args: &[String], flags: &DriverFlags) -> Result<CliCommand, String> {
+    let expr = args[2..].join(" ");
+    let expr = expr.trim();
+    if expr.is_empty() {
+        return Err("Usage: flux eval \"<expr>\"".to_string());
+    }
+    Ok(CliCommand::Eval {
+        expr: expr.to_string(),
+        flags: flags.clone(),
+    })
 }
 
 /// Parses the `fmt` subcommand and returns the path/check-mode command variant.
@@ -671,6 +703,36 @@ mod tests {
         let err = parse_fmt_command(&["flux".into(), "fmt".into(), "--check".into()]).unwrap_err();
 
         assert!(err.contains("Usage: flux fmt --check"));
+    }
+
+    #[test]
+    fn parses_eval_expression() {
+        let command = parse_args(cli(&["flux", "eval", "2 + 2"])).unwrap();
+        match command {
+            CliCommand::Eval { expr, .. } => assert_eq!(expr, "2 + 2"),
+            other => panic!("expected eval mode, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn eval_joins_unquoted_expression_words() {
+        let command = parse_args(cli(&["flux", "eval", "2", "+", "2"])).unwrap();
+        match command {
+            CliCommand::Eval { expr, .. } => assert_eq!(expr, "2 + 2"),
+            other => panic!("expected eval mode, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn eval_without_expression_is_usage_error() {
+        let err = parse_args(cli(&["flux", "eval"])).unwrap_err();
+        assert!(err.contains("Usage: flux eval"));
+    }
+
+    #[test]
+    fn parses_repl_subcommand() {
+        let command = parse_args(cli(&["flux", "repl"])).unwrap();
+        assert!(matches!(command, CliCommand::Repl { .. }));
     }
 
     #[test]

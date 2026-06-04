@@ -10,7 +10,10 @@ pub mod driver;
 pub mod lir;
 #[cfg(feature = "llvm")]
 pub mod llvm;
+pub mod lsp_support;
 pub mod parity;
+#[cfg(feature = "repl")]
+pub mod repl;
 pub mod runtime;
 pub mod shared;
 pub mod shared_ir;

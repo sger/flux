@@ -194,7 +194,7 @@ fn native_output_path(request: &NativeRunRequest<'_>) -> PathBuf {
                     .native_dir()
                     .join(format!("{bin_name}.bin"))
             } else {
-                native_temp_dir().join("program")
+                native_temp_dir(request.cache.cache_layout).join("program")
             }
         })
 }
@@ -424,6 +424,11 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
         }
 
         let out = native_output_path(&request);
+        // The uncached scratch path now lives under the project build tree, so make
+        // sure its directory exists before the linker writes the binary.
+        if let Some(parent) = out.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
 
         let link_start = Instant::now();
         let binary_up_to_date = should_skip_native_relink(
@@ -542,13 +547,20 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
 }
 
 #[cfg(feature = "llvm")]
-/// Allocates a unique temporary output directory for uncached native runs.
-fn native_temp_dir() -> PathBuf {
+/// A unique scratch output directory for uncached native runs, **inside the project
+/// build tree** (`<cache_root>/native/scratch/…`) rather than the system temp dir.
+/// A freshly-built, unsigned executable launched from `%TEMP%` is a heavily-weighted
+/// malware-dropper heuristic that makes Windows Defender flag native builds
+/// (`Trojan:Win32/Wacatac.B!ml`); building under the project avoids that signal.
+fn native_temp_dir(cache_layout: &crate::shared::cache_paths::CacheLayout) -> PathBuf {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let pid = std::process::id();
     let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("flux_native_{pid}_{counter}"))
+    cache_layout
+        .native_dir()
+        .join("scratch")
+        .join(format!("flux_native_{pid}_{counter}"))
 }
 
 #[cfg(all(test, feature = "llvm"))]
@@ -571,11 +583,14 @@ mod tests {
             .name()
             .unwrap_or("test")
             .replace(|c: char| !c.is_ascii_alphanumeric(), "_");
-        let temp = std::env::temp_dir().join(format!(
-            "flux_native_line_count_{}_{}",
-            std::process::id(),
-            safe_name
-        ));
+        let temp = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-scratch")
+            .join(format!(
+                "flux_native_line_count_{}_{}",
+                std::process::id(),
+                safe_name
+            ));
         std::fs::create_dir_all(&temp).expect("create temp dir");
         let first = temp.join("Main.flx");
         std::fs::write(&first, "fn main = 1\nfn next = 2\n").expect("write first");

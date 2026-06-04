@@ -66,6 +66,13 @@ macro_rules! define_tokens {
                 _ => TokenType::Ident,
             }
         }
+
+        /// Every reserved word the lexer recognizes, in source-declaration
+        /// order. Exposed so downstream tools (LSP keyword-hover, lints) can
+        /// stay in sync with the language's keyword set without duplicating
+        /// the list. Contextual keywords (e.g. `exposing`, `ambient`) are
+        /// not lexer keywords and don't appear here.
+        pub const KEYWORDS: &[&str] = &[$($kw_str),*];
     };
 }
 

@@ -44,6 +44,11 @@ The body of `first` does not match its declared return type.
 60 |     1
    |     ^
    |     - this expression has type `Int`
+   |
+help: Change return type to `Int`
+   |
+59 | public fn first(xs: List<Any>) -> Int {
+   |                                   ~~~
 
 Note:
   declared return type: Any

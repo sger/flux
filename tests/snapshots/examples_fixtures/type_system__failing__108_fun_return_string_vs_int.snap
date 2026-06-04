@@ -16,6 +16,11 @@ The body of `bad` does not match its declared return type.
 51 |     "oops"
    |     ^^^^^^
    |     ------ this expression has type `String`
+   |
+help: Change return type to `String`
+   |
+50 | fn bad() -> String {
+   |             ~~~~~~
 
 Note:
   declared return type: Int
@@ -36,6 +41,11 @@ The body of `main` does not match its declared return type.
 55 |     bad()
    |     ^^^^^
    |     ----- this expression has type `Int`
+   |
+help: Change return type to `Int`
+   |
+54 | fn main() -> Int {
+   |              ~~~
 
 Note:
   declared return type: Unit

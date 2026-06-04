@@ -1275,6 +1275,7 @@ impl<'a> AstLowerer<'a> {
                 superclasses,
                 methods,
                 span,
+                ..
             } => Some(CoreTopLevelItem::Class {
                 name: *name,
                 type_params: type_params.clone(),
@@ -1289,6 +1290,7 @@ impl<'a> AstLowerer<'a> {
                 context,
                 methods,
                 span,
+                name_span: _,
             } => Some(CoreTopLevelItem::Instance {
                 class_name: *class_name,
                 type_args: type_args.clone(),
@@ -1845,6 +1847,7 @@ mod tests {
                 preloaded_effect_op_signatures: HashMap::new(),
                 effect_row_aliases: HashMap::new(),
                 class_env: None,
+                preloaded_adt_data: Vec::new(),
             },
         );
         let types = hm.expr_types;

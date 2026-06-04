@@ -75,7 +75,7 @@ pub mod module_linker;
 mod passes;
 pub(crate) mod pipeline;
 mod statement;
-mod suggestions;
+pub mod suggestions;
 pub mod symbol_scope;
 pub mod symbol_table;
 pub(crate) mod tail_resumptive;
@@ -970,6 +970,7 @@ pub(super) const FLOW_PRELUDE_MODULE_NAMES: &[&str] = &[
 ///
 /// Tracks an active `handle` block's effect, operations, and whether it's
 /// tail-resumptive, enabling `OpPerformDirectIndexed` emission.
+#[derive(Clone)]
 pub(super) struct HandlerScope {
     pub effect: Symbol,
     pub is_direct: bool,
@@ -984,6 +985,7 @@ pub(super) struct HandlerScope {
     pub evidence_symbols: Option<Vec<Symbol>>,
 }
 
+#[derive(Clone)]
 pub struct Compiler {
     constants: Vec<Value>,
     pub symbol_table: SymbolTable,
@@ -1111,6 +1113,25 @@ pub struct Compiler {
     /// diagnostics to render the user's call shape instead of the lowered
     /// `perform` shape.
     pub(super) routed_call_perform_ids: HashSet<ExprId>,
+    /// REPL-only (proposal 0176). When set, each compiled line's top-level
+    /// binding schemes are accumulated into `repl_session_schemes` so a later
+    /// line's HM inference can resolve the *types* of earlier session globals.
+    /// Name resolution already works through the persistent symbol table; this
+    /// closes the gap for inference, which otherwise sees a bare reference to a
+    /// session global (not present in the line's own source) as an unbound `_`.
+    repl_mode: bool,
+    /// Accumulated top-level binding schemes from previously-compiled REPL
+    /// lines, merged into `build_infer_config`'s base schemes. Empty (and inert)
+    /// outside the REPL.
+    repl_session_schemes: HashMap<Symbol, Scheme>,
+    /// `data` declarations committed by earlier REPL lines, replayed into HM
+    /// inference and the named-field desugar so a later line can construct,
+    /// access, or spread a record type declared earlier (proposal 0176). A
+    /// passive store: the REPL engine appends to it after each successful line
+    /// via [`Compiler::accumulate_repl_session_data`]; it rides the engine's
+    /// per-line compiler clone, so a failed line rolls it back. Empty (and
+    /// inert) outside the REPL.
+    repl_session_adt_data: Vec<Statement>,
     #[cfg(test)]
     pub(super) hm_infer_runs: usize,
 }
@@ -1211,6 +1232,7 @@ impl Compiler {
             Program {
                 statements,
                 span: program.span,
+                doc_comments: program.doc_comments.clone(),
             }
         } else {
             let first_non_import = program
@@ -1231,6 +1253,7 @@ impl Compiler {
             Program {
                 statements,
                 span: program.span,
+                doc_comments: program.doc_comments.clone(),
             }
         }
     }
@@ -1322,6 +1345,9 @@ impl Compiler {
             imported_instance_method_schemes: HashMap::new(),
             imported_instance_method_native_symbols: HashMap::new(),
             routed_call_perform_ids: HashSet::new(),
+            repl_mode: false,
+            repl_session_schemes: HashMap::new(),
+            repl_session_adt_data: Vec::new(),
             #[cfg(test)]
             hm_infer_runs: 0,
         }
@@ -2390,6 +2416,15 @@ impl Compiler {
         for statement in &program.statements {
             self.collect_effect_declarations_from_stmt(statement);
         }
+        // REPL (0176): promote this line's user effects into the preloaded set so
+        // a later line's `with` / `perform` / `handle` resolves them, instead of
+        // resetting back to the prelude-only set each compile (E407 across lines).
+        // A failed line is rolled back wholesale by the engine (a pre-line clone
+        // of the compiler), which discards these promotions too.
+        if self.repl_mode {
+            self.preloaded_effect_ops_registry = self.effect_ops_registry.clone();
+            self.preloaded_effect_op_signatures = self.effect_op_signatures.clone();
+        }
     }
 
     /// Proposal 0161 B1: scan only for `Statement::EffectAlias` and populate
@@ -2661,13 +2696,53 @@ impl Compiler {
         }
     }
 
-    fn collect_class_declarations(&mut self, program: &Program) {
+    pub(in crate::compiler) fn collect_class_declarations(&mut self, program: &Program) {
+        let diagnostics = self.collect_class_declarations_diagnostics(program);
+        let (errors, warnings): (Vec<_>, Vec<_>) = diagnostics
+            .into_iter()
+            .partition(|diag| diag.code() == Some("E453"));
+        self.errors.extend(errors);
+        self.warnings.extend(warnings);
+    }
+
+    /// Build `class_env` from the program and return the class/instance
+    /// validation diagnostics, *without* routing them into `self.errors` /
+    /// `self.warnings`. The pipeline path ([`collect_class_declarations`])
+    /// wraps this and does the routing; the LSP path
+    /// ([`collect_classes_for_lsp`](Self::collect_classes_for_lsp)) wants the
+    /// diagnostics back so it can publish a chosen subset as squiggles.
+    pub(in crate::compiler) fn collect_class_declarations_diagnostics(
+        &mut self,
+        program: &Program,
+    ) -> Vec<Diagnostic> {
         // Register built-in classes first so that `deriving` clauses in the
         // program can reference them (Eq, Ord, Num, Show, Semigroup).
         let mut env = crate::types::class_env::ClassEnv::new();
         env.register_builtins(&mut self.interner);
         env.classes.extend(self.imported_public_classes.clone());
+        // REPL (0176): snapshot what's already in scope (builtins + earlier
+        // session/imported classes, and the imported instances about to be
+        // merged) so we can capture *only* this line's new declarations below.
+        let classes_before: Option<HashSet<crate::types::class_id::ClassId>> = self
+            .repl_mode
+            .then(|| env.classes.keys().copied().collect());
+        let instances_before = env.instances.len();
         let diagnostics = env.collect_from_statements(&program.statements, &self.interner);
+        // REPL: promote this line's own `class` / `instance` declarations into the
+        // imported set so a later line resolves them, instead of rebuilding from
+        // the prelude/import set each compile (E004 across lines). Captured before
+        // the imported-instance merge so earlier lines' state isn't re-captured;
+        // a failed line is rolled back wholesale by the engine.
+        if let Some(classes_before) = classes_before {
+            for (id, def) in &env.classes {
+                if !classes_before.contains(id) {
+                    self.imported_public_classes.insert(*id, def.clone());
+                }
+            }
+            for instance in &env.instances[instances_before..] {
+                self.imported_public_instances.push(instance.clone());
+            }
+        }
         merge_imported_public_instances(
             &mut env,
             &self.imported_public_instances,
@@ -2675,11 +2750,7 @@ impl Compiler {
             &self.interner,
         );
         self.class_env = env;
-        let (errors, warnings): (Vec<_>, Vec<_>) = diagnostics
-            .into_iter()
-            .partition(|diag| diag.code() == Some("E453"));
-        self.errors.extend(errors);
-        self.warnings.extend(warnings);
+        diagnostics
     }
 
     fn collect_module_contracts(&mut self, program: &Program) {
@@ -3076,7 +3147,44 @@ impl Compiler {
     ///
     /// Collects module member schemes and effect signatures.
     /// Can be called multiple times (e.g. for two-phase inference).
-    fn build_infer_config(&mut self, program: &Program) -> InferProgramConfig {
+    /// Enable REPL mode (proposal 0176): accumulate each compiled line's
+    /// top-level binding schemes so subsequent lines' inference can resolve the
+    /// types of earlier session globals. Inert outside the persistent REPL.
+    pub fn set_repl_mode(&mut self, on: bool) {
+        self.repl_mode = on;
+    }
+
+    /// REPL redefinition (proposal 0176): forget a session binding so a new
+    /// definition of `name` starts fresh — it gets a new global slot (the old
+    /// value lingers, unreachable, in the VM) and its stale inference scheme is
+    /// dropped. Returns whether a symbol-table binding was present. Used by the
+    /// engine before compiling a line that rebinds an existing name.
+    pub fn forget_session_binding(&mut self, name: Symbol) -> bool {
+        self.repl_session_schemes.remove(&name);
+        self.symbol_table.forget(name)
+    }
+
+    /// REPL session `data` accumulation (proposal 0176): record the top-level
+    /// `data` declarations from a just-committed line so later lines can use
+    /// their constructors — including named-field construction / spread / field
+    /// access, whose metadata only a real `Statement::Data` carries. A line that
+    /// redefines an existing ADT replaces the earlier entry (matching the engine's
+    /// `forget_redefined` rebind model). The REPL engine extracts the statements
+    /// and calls this after a successful line; inert otherwise.
+    pub fn accumulate_repl_session_data(&mut self, data_decls: Vec<Statement>) {
+        for decl in data_decls {
+            let Statement::Data { name, .. } = &decl else {
+                continue;
+            };
+            let name = *name;
+            self.repl_session_adt_data.retain(
+                |existing| !matches!(existing, Statement::Data { name: n, .. } if *n == name),
+            );
+            self.repl_session_adt_data.push(decl);
+        }
+    }
+
+    pub fn build_infer_config(&mut self, program: &Program) -> InferProgramConfig {
         let preloaded_member_schemes = self.build_preloaded_hm_member_schemes(program);
         let (task_module_bindings, task_spawn_exposed) = self.task_spawn_import_metadata(program);
         let flow_module_symbol = self.interner.intern("Flow");
@@ -3117,6 +3225,14 @@ impl Compiler {
                 .or_insert_with(|| scheme.clone());
         }
 
+        // REPL session globals (proposal 0176): inject the inferred schemes of
+        // bindings from earlier lines so a reference to one resolves to its real
+        // type. These override prelude/import schemes of the same name so a user
+        // who shadows a prelude name in the session sees their own binding.
+        for (name, scheme) in &self.repl_session_schemes {
+            exposed_schemes.insert(*name, scheme.clone());
+        }
+
         let class_env = if self.class_env.classes.is_empty() {
             None
         } else {
@@ -3134,6 +3250,7 @@ impl Compiler {
             class_env,
             preloaded_effect_op_signatures: self.effect_op_signatures.clone(),
             effect_row_aliases: self.effect_row_aliases.clone(),
+            preloaded_adt_data: self.repl_session_adt_data.clone(),
         }
     }
 
@@ -3235,6 +3352,272 @@ impl Compiler {
                 .with_category(DiagnosticCategory::TypeInference),
             );
         }
+    }
+
+    /// Bare names of the built-in primop functions (`len`, `abs`, `map_get`, …)
+    /// available to every program. They resolve by name+arity via
+    /// [`resolve_library_primop`](Self::resolve_library_primop), NOT through the
+    /// symbol table, so name-enumerating callers (REPL tab completion) need this
+    /// list. KEEP IN SYNC with the `primop_sigs` table in
+    /// [`inject_primop_hm_schemes`](Self::inject_primop_hm_schemes); the internal
+    /// `__primop_*` aliases are intentionally excluded.
+    pub(crate) const BUILTIN_PRIMOP_NAMES: &[&str] = &[
+        "print",
+        "println",
+        "read_file",
+        "read_stdin",
+        "read_lines",
+        "write_file",
+        "clock_now",
+        "now_ms",
+        "panic",
+        "split",
+        "trim",
+        "upper",
+        "lower",
+        "replace",
+        "substring",
+        "to_string",
+        "abs",
+        "sqrt",
+        "sin",
+        "cos",
+        "exp",
+        "log",
+        "floor",
+        "ceil",
+        "round",
+        "fsqrt",
+        "fsin",
+        "fcos",
+        "fexp",
+        "flog",
+        "ffloor",
+        "fceil",
+        "fround",
+        "tan",
+        "asin",
+        "acos",
+        "atan",
+        "sinh",
+        "cosh",
+        "tanh",
+        "truncate",
+        "ftan",
+        "fasin",
+        "facos",
+        "fatan",
+        "fsinh",
+        "fcosh",
+        "ftanh",
+        "ftruncate",
+        "bit_and",
+        "bit_or",
+        "bit_xor",
+        "bit_shl",
+        "bit_shr",
+        "min",
+        "max",
+        "parse_int",
+        "len",
+        "array_push",
+        "array_concat",
+        "array_slice",
+        "type_of",
+        "is_int",
+        "is_float",
+        "is_string",
+        "is_bool",
+        "is_array",
+        "is_none",
+        "is_some",
+        "is_list",
+        "is_hash",
+        "is_map",
+        "map_keys",
+        "map_values",
+        "map_has",
+        "map_merge",
+        "map_delete",
+        "map_set",
+        "map_get",
+        "map_size",
+        "time",
+        "sum",
+        "product",
+        "safe_div",
+        "safe_mod",
+    ];
+
+    /// Bare value-level names a REPL user can type unqualified, for tab completion:
+    /// auto-exposed / imported library members (`map`, `length`, …), the builtin
+    /// primops, and ADT constructors (`Some`, `Red`, …). `__`-prefixed internals
+    /// are excluded. The library members come from `exposed_bindings` (bare →
+    /// qualified) — the names that actually resolve unqualified — NOT the
+    /// module-qualified symbol table.
+    pub(crate) fn repl_bare_names(&self) -> Vec<String> {
+        let keep = |name: &str| !name.starts_with("__");
+        let mut names: Vec<String> = self
+            .exposed_bindings
+            .keys()
+            .map(|member| self.interner.resolve(*member))
+            .filter(|name| keep(name))
+            .map(str::to_string)
+            .collect();
+        names.extend(
+            Self::BUILTIN_PRIMOP_NAMES
+                .iter()
+                .map(|name| name.to_string()),
+        );
+        for registry in [&self.adt_registry, &self.preloaded_adt_registry] {
+            names.extend(
+                registry
+                    .constructors
+                    .keys()
+                    .map(|ctor| self.interner.resolve(*ctor))
+                    .filter(|name| keep(name))
+                    .map(str::to_string),
+            );
+        }
+        names
+    }
+
+    /// Fully-qualified names (`Flow.Array.map`) for `.`-prefixed REPL completion —
+    /// the only way to reach modules that aren't auto-exposed (Flow.Array, Flow.Map).
+    pub(crate) fn repl_qualified_names(&self) -> Vec<String> {
+        self.symbol_table
+            .all_symbol_names()
+            .into_iter()
+            .map(|sym| self.interner.resolve(sym).to_string())
+            .filter(|name| name.contains('.') && !name.contains("__"))
+            .collect()
+    }
+
+    /// REPL `:info`: if `name` is a registered ADT (a user `data`/`type` or a
+    /// prelude ADT like `Result`), its constructors as `(name, arity)` pairs in
+    /// declaration order; `None` otherwise. The arity lets the REPL eta-expand each
+    /// constructor to a saturated form for signature inference (Flux constructors
+    /// aren't first-class unapplied). Built-in `TypeConstructor`s (`Option`,
+    /// `List`, …) are not in the registry — the REPL handles those from a table.
+    pub(crate) fn repl_adt_constructors(&self, name: &str) -> Option<Vec<(String, usize)>> {
+        let sym = self.interner.lookup(name)?;
+        for registry in [&self.adt_registry, &self.preloaded_adt_registry] {
+            if let Some(def) = registry.lookup_adt(sym) {
+                return Some(
+                    def.constructors
+                        .iter()
+                        .map(|(ctor, arity, _)| (self.interner.resolve(*ctor).to_string(), *arity))
+                        .collect(),
+                );
+            }
+        }
+        None
+    }
+
+    /// REPL `:info`: if `name` is a declared effect (user `effect` or a seeded
+    /// built-in like `Console`), its operations as `(op_name, rendered_signature)`
+    /// pairs sorted by op name; `None` if the name is not a known effect. Empty
+    /// `Vec` means a known effect with no recorded operations.
+    pub(crate) fn repl_effect_op_signatures(&self, name: &str) -> Option<Vec<(String, String)>> {
+        use crate::ast::type_infer::render_scheme_canonical;
+        let sym = self.interner.lookup(name)?;
+        let ops = self
+            .effect_ops_registry
+            .get(&sym)
+            .or_else(|| self.preloaded_effect_ops_registry.get(&sym))?;
+        let mut out: Vec<(String, String)> = ops
+            .iter()
+            .map(|op| {
+                let sig = self
+                    .effect_op_signatures
+                    .get(&(sym, *op))
+                    .or_else(|| self.preloaded_effect_op_signatures.get(&(sym, *op)))
+                    .map(|scheme| render_scheme_canonical(&self.interner, scheme))
+                    .unwrap_or_else(|| "?".to_string());
+                (self.interner.resolve(*op).to_string(), sig)
+            })
+            .collect();
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        Some(out)
+    }
+
+    /// REPL `:info`: if `name` is a data constructor, the name of the ADT it
+    /// belongs to; `None` otherwise.
+    pub(crate) fn repl_constructor_parent(&self, name: &str) -> Option<String> {
+        let sym = self.interner.lookup(name)?;
+        for registry in [&self.adt_registry, &self.preloaded_adt_registry] {
+            if let Some(info) = registry.lookup_constructor(sym) {
+                return Some(self.interner.resolve(info.adt_name).to_string());
+            }
+        }
+        None
+    }
+
+    /// REPL `:info`: a human-readable origin for a value-level `name` — the
+    /// defining module for an exposed/imported library member (`map` →
+    /// `"module Flow.List"`), or `"a builtin primitive"` for a primop. `None` when
+    /// the origin isn't one of these (e.g. a session binding, handled by the REPL).
+    pub(crate) fn repl_value_origin(&self, name: &str) -> Option<String> {
+        if let Some(sym) = self.interner.lookup(name)
+            && let Some(qualified) = self.exposed_bindings.get(&sym)
+        {
+            let qualified = self.interner.resolve(*qualified);
+            if let Some((module, _)) = qualified.rsplit_once('.') {
+                return Some(format!("module {module}"));
+            }
+        }
+        if Self::BUILTIN_PRIMOP_NAMES.contains(&name) {
+            return Some("the builtin primitives".to_string());
+        }
+        None
+    }
+
+    /// REPL `:browse`: the accumulated top-level binding schemes as
+    /// `(name, rendered_type)` pairs sorted by name. This is `repl_session_schemes`,
+    /// which (because the prelude is compiled in REPL mode) also carries prelude
+    /// bindings — the engine narrows it to the user's own `committed` names for the
+    /// session group. `__`-prefixed internals excluded.
+    pub(crate) fn repl_inferred_binding_types(&self) -> Vec<(String, String)> {
+        use crate::ast::type_infer::render_scheme_canonical;
+        let mut out: Vec<(String, String)> = self
+            .repl_session_schemes
+            .iter()
+            .map(|(sym, scheme)| (self.interner.resolve(*sym), scheme))
+            .filter(|(name, _)| !name.starts_with("__"))
+            .map(|(name, scheme)| {
+                (
+                    name.to_string(),
+                    render_scheme_canonical(&self.interner, scheme),
+                )
+            })
+            .collect();
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
+    }
+
+    /// REPL `:browse`: the auto-exposed prelude library members (the names that
+    /// resolve unqualified) as `(name, rendered_type)` pairs sorted by name.
+    /// Sourced from `cached_member_schemes`, restricted to the auto-exposed Flow
+    /// prelude modules; `__`-prefixed internals excluded. A member defined in more
+    /// than one prelude module is listed once (first scheme by name order wins).
+    pub(crate) fn repl_prelude_value_types(&self) -> Vec<(String, String)> {
+        use crate::ast::type_infer::render_scheme_canonical;
+        let mut by_name: HashMap<String, String> = HashMap::new();
+        for ((module, member), scheme) in &self.cached_member_schemes {
+            if !FLOW_PRELUDE_MODULE_NAMES.contains(&self.interner.resolve(*module)) {
+                continue;
+            }
+            let name = self.interner.resolve(*member);
+            if name.starts_with("__") {
+                continue;
+            }
+            by_name
+                .entry(name.to_string())
+                .or_insert_with(|| render_scheme_canonical(&self.interner, scheme));
+        }
+        let mut out: Vec<(String, String)> = by_name.into_iter().collect();
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
     }
 
     fn inject_primop_hm_schemes(
@@ -5775,6 +6158,15 @@ impl Compiler {
         }
     }
 
+    /// The current length of the top-level instruction stream — the offset at
+    /// which the next compiled line's code will begin. The REPL captures this
+    /// before compiling a line, then runs the full buffer from this offset so the
+    /// new tail executes with correct (absolute) jump targets while earlier code
+    /// is skipped (proposal 0176).
+    pub fn top_level_instruction_len(&self) -> usize {
+        self.scopes[self.scope_index].instructions.len()
+    }
+
     pub fn module_cache_snapshot(&self) -> ModuleCacheSnapshot {
         ModuleCacheSnapshot {
             constants_len: self.constants.len(),
@@ -5792,7 +6184,7 @@ impl Compiler {
         let instructions = scope.instructions[snapshot.instructions_len..].to_vec();
         let referenced_globals =
             self.referenced_global_indices_in_artifact(&instructions, &constants);
-        let globals = self
+        let mut globals: Vec<CachedModuleBinding> = self
             .symbol_table
             .global_bindings()
             .into_iter()
@@ -5815,6 +6207,12 @@ impl Compiler {
                 ) || referenced_globals.contains(&binding.index)
             })
             .collect();
+        let named_indices: HashSet<usize> = globals.iter().map(|binding| binding.index).collect();
+        globals.extend(self.synthetic_top_level_temp_bindings(
+            &referenced_globals,
+            &named_indices,
+            snapshot.global_definitions_len,
+        ));
 
         let relative_locations = scope
             .locations
@@ -5841,7 +6239,7 @@ impl Compiler {
         let instructions = scope.instructions.clone();
         let referenced_globals =
             self.referenced_global_indices_in_artifact(&instructions, &constants);
-        let globals = self
+        let mut globals: Vec<CachedModuleBinding> = self
             .symbol_table
             .global_bindings()
             .into_iter()
@@ -5863,6 +6261,12 @@ impl Compiler {
                 ) || referenced_globals.contains(&binding.index)
             })
             .collect();
+        let named_indices: HashSet<usize> = globals.iter().map(|binding| binding.index).collect();
+        globals.extend(self.synthetic_top_level_temp_bindings(
+            &referenced_globals,
+            &named_indices,
+            0,
+        ));
 
         CachedModuleBytecode {
             globals,
@@ -5871,6 +6275,37 @@ impl Compiler {
             debug_info: FunctionDebugInfo::new(None, scope.files.clone(), scope.locations.clone())
                 .with_effect_summary(scope.effect_summary),
         }
+    }
+
+    /// Synthetic cache bindings for top-level transient global slots — anonymous
+    /// `define_temp` results (e.g. a tuple-destructure scrutinee at file scope) —
+    /// that this module's instructions reference but no named binding covers.
+    /// The module linker remaps globals by name; without an entry it fails with
+    /// "missing global mapping for local index N". The synthetic name embeds the
+    /// module path so it stays unique across modules (each gets a distinct slot).
+    fn synthetic_top_level_temp_bindings(
+        &self,
+        referenced_globals: &HashSet<usize>,
+        named_indices: &HashSet<usize>,
+        min_index: usize,
+    ) -> Vec<CachedModuleBinding> {
+        let mut indices: Vec<usize> = referenced_globals
+            .iter()
+            .copied()
+            .filter(|index| *index >= min_index && !named_indices.contains(index))
+            .collect();
+        indices.sort_unstable();
+        indices
+            .into_iter()
+            .map(|index| CachedModuleBinding {
+                name: format!("__flux_top_temp_{}_{index}", self.file_path),
+                index,
+                span: crate::diagnostics::position::Span::default(),
+                is_assigned: true,
+                kind:
+                    crate::bytecode::bytecode_cache::module_cache::CachedModuleBindingKind::Defined,
+            })
+            .collect()
     }
 
     fn referenced_global_indices_in_artifact(

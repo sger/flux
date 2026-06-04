@@ -1,0 +1,27 @@
+[package]
+name = "flux-lsp"
+version = "0.0.1"
+edition = "2024"
+authors = ["Spiros Gerokostas <spiros.gerokostas@gmail.com>"]
+license = "MIT"
+description = "Language Server Protocol implementation for the Flux language."
+
+[[bin]]
+name = "flux-lsp"
+path = "src/main.rs"
+
+[dependencies]
+flux = { path = "../..", default-features = false }
+lsp-server = "0.7"
+lsp-types = "0.97"
+line-index = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+crossbeam-channel = "0.5"
+notify = "8"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tempfile = "3"
