@@ -2,7 +2,7 @@
   "name": "flux-language",
   "displayName": "Flux Language Support",
   "description": "Syntax highlighting and language server integration for the Flux language.",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "publisher": "flux",
   "license": "MIT",
   "repository": {
