@@ -1,30 +1,87 @@
-# Async Syntax (Internal Reference)
+# Async & Concurrency (Reference)
 
 > **Proposal:** [0174 — Async Effect & Concurrency Roadmap](../proposals/0174_async_effect_concurrency.md)
-> **Surface modules:** [`lib/Flow/Async.flx`](../../lib/Flow/Async.flx) · [`lib/Flow/Task.flx`](../../lib/Flow/Task.flx) · [`lib/Flow/Tcp.flx`](../../lib/Flow/Tcp.flx)
-> **Examples:** [`examples/async/`](../../examples/async/)
+> **Surface modules:** [`Flow.Async`](../../lib/Flow/Async.flx) · [`Flow.Task`](../../lib/Flow/Task.flx) · [`Flow.Channel`](../../lib/Flow/Channel.flx) · [`Flow.Event`](../../lib/Flow/Event.flx) · [`Flow.Stream`](../../lib/Flow/Stream.flx) · [`Flow.Http`](../../lib/Flow/Http.flx) · [`Flow.Tcp`](../../lib/Flow/Tcp.flx)
+> **Examples:** [`examples/async/`](../../examples/async/) · **Tutorial:** [`examples/guide_async/`](../../examples/guide_async/)
 > **Related internals:** [effect_row_system.md](effect_row_system.md) · [type_system_effects.md](type_system_effects.md)
 
-This document is the canonical reference for the user-facing async syntax of Flux as it stands after proposal 0174 phases 0, 1a, 1b, and the relevant Phase 2 slices. It describes the surface every user writes against — not the runtime implementation. For the runtime, see proposal 0174.
+This is the reference for Flux's async and concurrency surface. It starts from the **two core ideas a newcomer needs — fibers and tasks** — with runnable examples, then works outward to channels, events, streams, errors, HTTP, and finally the runtime internals and backend (VM vs native) details.
+
+If you just want to *use* async, read §1–§4 and stop. The "Under the hood" (§18) and "Backend semantics" (§17) sections are for people working on the runtime.
 
 ---
 
 ## 1. Mental model
 
-Flux async is an **effect-row + handler** system, not `async fn` / `await`. Three principles:
+Flux async is an **effect-row + handler** system — not `async fn` / `await`. Three principles:
 
-1. **No function coloring.** A function that may suspend carries the `Async` effect in its row. Calls do not need a sigil. There is no contagious "async-ness" — only an effect row that is type-checked like any other.
-2. **Handlers at boundaries.** `Async.run_async(action)` is the boundary that installs the async handler. Inside it, fibers are scheduled cooperatively. Outside it, you cannot call any function with `Async` in its row.
-3. **Structured concurrency.** Every fiber has a clear owner: a `Scope`, a `both` / `race`, a `timeout`, or the root `run_async`. Cancellation is a first-class primitive that propagates down the ownership tree.
-
-There are two cooperating layers:
-
-- **Fibers** — lightweight cooperative tasks scheduled inside `run_async`. On the VM they are single-OS-threaded logical queues; on native they are scheduled over OS workers.
-- **Tasks** — OS-thread-backed work spawned via `Flow.Task`. VM tasks run in pooled isolated worker VMs with Arc-shared read-only state; native tasks run on native worker threads. `Sendable<T>` gates which values can cross the worker boundary.
+1. **No function coloring.** A function that may suspend simply carries the `Async` effect in its row (`with Async`). There is no `await` sigil and no contagious "async-ness" — just an effect that is type-checked like any other.
+2. **Handlers at boundaries.** `run_async(action)` is the boundary that installs the async scheduler. Inside it, work is scheduled cooperatively. Outside it, you cannot call anything with `Async` in its row.
+3. **Structured concurrency.** Every concurrent unit has a clear owner — a `scope`, a `both`/`race`, a `timeout`, or the root `run_async`. Cancellation is first-class and propagates down the ownership tree.
 
 ---
 
-## 2. The `Async` effect row
+## 2. Fibers and Tasks — the two kinds of concurrency
+
+Almost everything below builds on **two primitives**. Understanding the difference is the whole game.
+
+### A fiber is a cheap, cooperative unit *inside* `run_async`
+
+A **fiber** is a lightweight green-thread scheduled by the async runtime. You rarely create one directly — `both`, `race`, `timeout`, and `fork` all spawn fibers for you. Fibers are cheap (thousands per program), and they **cooperate**: a fiber runs until it *suspends* (e.g. `sleep`, waiting on I/O, `yield_now`), at which point another fiber gets to run.
+
+```flux
+import Flow.Async exposing (..)
+
+fn slow()  -> Int with Async { sleep(50); 1 }   // suspends for 50ms
+fn quick() -> Int with Async { sleep(10); 2 }   // suspends for 10ms
+
+fn body() -> (Int, Int) with Async {
+    both(slow, quick)        // both fibers overlap → ~50ms total, returns (1, 2)
+}
+
+fn main() with IO {
+    print(run_async(body))   // → (1, 2)
+}
+```
+
+`slow` and `quick` run *concurrently*: while `slow` is parked on its timer, `quick` runs. Total wall-clock is ~50ms, not 60ms.
+
+### A task is an OS-thread unit for *parallel* work
+
+A **task** (`Flow.Task`) runs on a real OS worker thread, so it gives you **CPU parallelism** for compute-bound work. Tasks cross a thread boundary, so their result type must be [`Sendable`](#14-the-sendable-type-class) (§14).
+
+```flux
+import Flow.Task as Task
+
+fn sum_squares(n: Int, acc: Int) -> Int {
+    if n <= 0 { acc } else { sum_squares(n - 1, acc + n * n) }
+}
+
+fn main() with IO {
+    let a = Task.spawn(fn() { sum_squares(100000, 0) })   // runs on a worker thread
+    let b = Task.spawn(fn() { sum_squares(200000, 0) })   // …in parallel with a
+    print(Task.blocking_join(a) + Task.blocking_join(b))
+}
+```
+
+`spawn` returns immediately with a handle; the two computations run on different cores; `blocking_join` waits for the result.
+
+### Which one do I use?
+
+| You want… | Use | Why |
+|---|---|---|
+| Overlap **I/O** (HTTP calls, timers, sockets) | **Fibers** — `both` / `race` / `fork` | Cheap; they suspend on I/O so one thread serves many |
+| **CPU-bound** work across cores | **Tasks** — `Task.spawn` + `Task.await` | Real OS threads → true parallelism |
+| Both at once | `Task.spawn` *from* a fiber, then `Task.await` | Offload compute, keep serving I/O on the fiber |
+| Join from non-async `main` | `Task.blocking_join` | No fiber context needed |
+
+> **Note on the two backends.** Both fibers *and* tasks run with real parallelism on **both** the VM and the native/LLVM backend — by default `run_async` uses `available_parallelism()` worker OS threads on each (see [§17](#17-backend-semantics-vm-vs-native)). The old "VM fibers are single-threaded" rule no longer holds; it applies only when you pin `run_async_with_workers(1, …)`.
+
+The rest of this document is the detail behind these two ideas.
+
+---
+
+## 3. The `Async` effect row
 
 `Async` is an effect alias declared in [`lib/Flow/Effects.flx`](../../lib/Flow/Effects.flx):
 
@@ -32,24 +89,14 @@ There are two cooperating layers:
 alias Async = <Suspend | Fork | GetContext | AsyncFail>
 ```
 
-The four constituent effects map to:
-
 | Atom | Purpose |
 |---|---|
 | `Suspend` | Pause the current fiber (sleep, await, blocking I/O) |
 | `Fork` | Spawn a child fiber inside the enclosing scope |
 | `GetContext` | Read scheduler-owned state (cancel flag, fiber id, scope) |
-| `AsyncFail` | Raise an `AsyncError` that catches structured-concurrency cancellation |
+| `AsyncFail` | Raise an `AsyncError`, the failure channel for structured concurrency |
 
-User code virtually always writes `with Async`, never the four atoms separately. The only common exception is when you also need a non-async ambient effect:
-
-```flux
-fn handler() -> Unit with Async, Console { ... }
-```
-
-Effect-row rules (additivity, subtraction, row variables) are unchanged from the general system — see [effect_row_system.md](effect_row_system.md).
-
-### 2.1 Mixing `Async` with other rows
+You almost always write `with Async`, never the four atoms separately. The common exception is composing with another ambient effect:
 
 ```flux
 fn fetch_then_log() -> Unit with Async, Console {
@@ -58,209 +105,118 @@ fn fetch_then_log() -> Unit with Async, Console {
 }
 ```
 
-`Async` and `Console` (or any other ambient effect) compose like ordinary atoms in a closed row.
+`Async` composes with any other atom in a closed row. Effect-row rules (additivity, subtraction, row variables) are the general ones — see [effect_row_system.md](effect_row_system.md).
 
-### 2.2 Row variables
-
-Higher-order async functions accept open rows:
+**Row variables** let higher-order combinators stay effect-generic:
 
 ```flux
 public fn timeout<a>(ms: Int, f: () -> a with Async | e) -> Option<a> with Async | e
 ```
 
-The `| e` lets the caller add their own ambient effects without polluting the combinator's signature.
+The `| e` lets the caller's body carry its own ambient effects without polluting the combinator's signature.
 
 ---
 
-## 3. Entry points
-
-### 3.1 `run_async`
+## 4. Entering async: `run_async` and friends
 
 ```flux
 public fn run_async<a>(action: () -> a with Async | e) -> a
+public fn run_async_with<a>(cfg: RuntimeConfig, action: () -> a with Async | e) -> a
+public fn run_async_with_workers<a>(n: Int, action: () -> a with Async | e) -> a
 ```
 
-Installs the async handler, runs `action` to completion, returns its value. This is the only way to "enter" async code from a non-async caller.
+`run_async` installs the scheduler, runs `action` to completion, and returns its value. It is the *only* way to call `Async` code from a non-async caller, and it **blocks the calling OS thread** until the root finishes (analogous to `tokio::Runtime::block_on`).
 
 ```flux
 fn body() -> Int with Async { 42 }
 
 fn main() with IO {
-    print(run_async(body))            // → 42
+    print(run_async(body))                       // → 42
+    print(run_async_with_workers(4, body))       // pin 4 workers
 }
 ```
 
-`run_async` blocks the calling OS thread until the root fiber finishes. This is intentional and analogous to `tokio::Runtime::block_on`.
-
-### 3.2 `run_async_with`
-
-```flux
-public fn run_async_with<a>(cfg: RuntimeConfig, action: () -> a with Async | e) -> a
-```
-
-Same shape as `run_async` but with explicit knobs. See [§13 RuntimeConfig](#13-runtime-configuration).
-
-### 3.3 `run_async_with_workers`
-
-```flux
-public fn run_async_with_workers<a>(n: Int, action: () -> a with Async | e) -> a
-```
-
-Sugar for the common case of pinning the worker count.
-
-```flux
-let result = run_async_with_workers(4, my_action)
-```
-
-### 3.4 `current_worker_count` (introspection)
+### `current_worker_count` (introspection)
 
 ```flux
 public fn current_worker_count() -> Int with Async
 ```
 
-Reports the worker count of the currently active `run_async` scheduler.
-Backed by `CorePrimOp::FiberCurrentWorkerCount = 201`. Returns the number
-of OS worker threads on native (one main thread + `flux-async-worker-{N}`
-threads visible in `ps -T` / Process Explorer); on the VM, the
-logical-worker count of the active `FiberScheduler`.
-
-On the VM this is not a CPU parallelism signal. `run_async_with_workers(8, ...)`
-creates eight logical ready queues, but the fiber dispatch loop still runs on
-the caller OS thread. Use `Task.spawn` / `Task.await` for CPU-bound parallel
-work on the VM today.
+Reports the worker count of the active scheduler — useful to confirm a `RuntimeConfig` was honoured. With no config, it resolves to `FLUX_WORKERS` → `available_parallelism()` → `2`.
 
 ```flux
-fn body() -> Int with Async {
-    current_worker_count()
-}
-
 fn main() with IO {
-    print(run_async_with_workers(8, body))   // → 8
-    print(run_async(body))                    // → available_parallelism()
+    print(run_async_with_workers(8, current_worker_count))   // → 8
 }
 ```
 
-This is the recommended way to verify your `RuntimeConfig` is being
-honoured. See also [`examples/async/16_current_worker_count.flx`](../../examples/async/16_current_worker_count.flx).
+See [`examples/async/16_current_worker_count.flx`](../../examples/async/16_current_worker_count.flx).
 
 ---
 
-## 4. Suspension primitives
+## 5. Suspending and interleaving
 
-### 4.1 `sleep`
+### `sleep`
 
 ```flux
 public fn sleep(ms: Int) -> Unit with Async
 ```
 
-Suspends the current fiber for at least `ms` milliseconds.
+Parks the current fiber for at least `ms` milliseconds, freeing its worker to run other ready fibers. Backed by the `mio` timer reactor.
 
-- **Native:** parks the fiber, frees the OS thread for other fibers.
-- **VM:** parks the fiber through the VM async backend; other ready VM fibers
-  can run on the same OS thread while the timer is pending.
-
-### 4.2 `yield_now`
+### `yield_now`
 
 ```flux
 public fn yield_now() -> Unit with Async
 ```
 
-Cooperative reschedule hint. The fiber gives up its slice; another runnable fiber gets to run.
-
-- **Native:** returns the fiber to the back of its worker queue.
-- **VM:** returns the fiber to the back of its logical worker queue. This is a
-  real cooperative reschedule, but still single-OS-threaded.
-
-See [`02_sleep_yield.flx`](../../examples/async/02_sleep_yield.flx).
+Cooperative reschedule hint: return the fiber to the back of its worker's ready queue so a sibling can run. See [`02_sleep_yield.flx`](../../examples/async/02_sleep_yield.flx).
 
 ---
 
-## 5. Concurrent combinators
+## 6. Running things concurrently
 
-### 5.1 `both`
-
-```flux
-public fn both<a, b>(f: (() -> a with Async | e1), g: (() -> b with Async | e2))
-                  -> (a, b) with Async
-```
-
-Runs `f` and `g` as siblings under a hidden scope, returns `(f_result, g_result)` once both finish. Tuple position is **source order**, not finish order.
+### `both`
 
 ```flux
-fn left()  -> Int with Async { sleep(50); 1 }
-fn right() -> Int with Async { sleep(50); 2 }
-
-fn body() -> (Int, Int) with Async {
-    both(left, right)         // ~50ms wall clock, returns (1, 2)
-}
+public fn both<a, b>(f: (() -> a with Async | e1), g: (() -> b with Async | e2)) -> (a, b) with Async
 ```
 
-If either branch raises, the other is cancelled and the error propagates.
+Runs `f` and `g` as siblings under a hidden scope; returns `(f_result, g_result)` once **both** finish. Tuple position is **source order**, not finish order. If either branch raises, the other is cancelled and the error propagates. See [`03_both.flx`](../../examples/async/03_both.flx).
 
-See [`03_both.flx`](../../examples/async/03_both.flx).
-
-### 5.2 `race`
+### `race`
 
 ```flux
 public fn race<a>(f: (() -> a with Async | e1), g: (() -> a with Async | e2)) -> a with Async
 ```
 
-Runs both fibers concurrently, returns the first to complete; the loser is cancelled (its pending I/O is aborted, its `bracket` / `finally` cleanup arms run).
+Runs both, returns the **first** to finish; the loser is cancelled (its pending I/O aborts, its `bracket`/`finally` cleanup arms run). Both branches must produce the same type. See [`04_race.flx`](../../examples/async/04_race.flx).
 
-Both branches must produce the same type.
-
-See [`04_race.flx`](../../examples/async/04_race.flx).
-
-### 5.3 `first_of` / `first`
+### `first_of` / `first`
 
 ```flux
 public fn first_of<a>(fs: List<() -> a with Async>) -> (Int, a) with Async
 public fn first<a>(fs: List<() -> a with Async>)    -> a with Async
 ```
 
-N-way race. `first_of` returns `(winning_index, value)`; `first` discards the index. Source order breaks immediate ties (the lower index wins).
-
-```flux
-let win = first_of([s100, s50, s200])     // → (1, 50) — s50 wins
-```
-
-Calling `first` / `first_of` on an empty list panics.
-
-See [`05_first_of.flx`](../../examples/async/05_first_of.flx).
+N-way race. `first_of` returns `(winning_index, value)`; `first` drops the index. Source order breaks immediate ties (lower index wins). Empty list panics. See [`05_first_of.flx`](../../examples/async/05_first_of.flx).
 
 ---
 
-## 6. Timeouts
-
-### 6.1 `timeout`
+## 7. Timeouts
 
 ```flux
 public fn timeout<a>(ms: Int, f: () -> a with Async | e) -> Option<a> with Async | e
+public fn timeout_result<a>(ms: Int, f: () -> a with Async | e) -> Result<a, AsyncError> with Async | e
 ```
 
-Bounds `f` by `ms` milliseconds. Returns `Some(value)` if `f` finishes in time, `None` if the timer fires first. On `None`, `f` is cancelled.
-
-### 6.2 `timeout_result`
-
-```flux
-public fn timeout_result<a>(ms: Int, f: () -> a with Async | e)
-                         -> Result<a, AsyncError> with Async | e
-```
-
-Same shape as `timeout` but flattens the timeout into a `Result<a, AsyncError>` that distinguishes:
-- `Ok(v)` — body finished in time
-- `Err(TimedOut)` — timer won
-- `Err(other)` — body raised independently
-
-Use the `result_*` helpers (§7.3) to inspect.
-
-See [`06_timeout.flx`](../../examples/async/06_timeout.flx).
+`timeout` returns `Some(v)` if `f` finishes in time, `None` if the timer wins (and `f` is cancelled). `timeout_result` distinguishes the three outcomes: `Ok(v)`, `Err(TimedOut)`, or `Err(other)` (the body raised independently). Inspect with the `result_*` helpers (§8.3). See [`06_timeout.flx`](../../examples/async/06_timeout.flx).
 
 ---
 
-## 7. Error model
+## 8. Errors
 
-### 7.1 `AsyncError`
+### 8.1 `AsyncError`
 
 ```flux
 public data AsyncError {
@@ -275,25 +231,16 @@ public data AsyncError {
 }
 ```
 
-Variant constructors are not all reachable from user code — only those that come back through the constructor helper functions:
+Only two variants have constructor helpers — `canceled_error()` and `protocol_error(status, msg)`. The rest are produced by the runtime when I/O fails; match on them in handlers, don't construct them.
 
-| Constructor | Helper |
-|---|---|
-| `Canceled` | `canceled_error()` |
-| `ProtocolError(s, m)` | `protocol_error(s, m)` |
-
-Other variants (`IoError`, `DnsError`, `ConnectionClosed`, ...) are produced by the runtime when I/O fails. Match on them in error handlers; do not construct them.
-
-### 7.2 `fail` / `try`
+### 8.2 `fail` / `try`
 
 ```flux
 public fn fail<a>(err: AsyncError) -> a with Async
 public fn try<a>(body: () -> a with Async | e) -> Result<a, AsyncError> with Async | e
 ```
 
-`fail` raises an `AsyncError` in the current fiber and propagates outward — siblings under the same scope are cancelled, ownership unwinds to the nearest `try` (or to the `run_async` boundary, where it surfaces as a panic).
-
-`try` is the recovery primitive.
+`fail` raises in the current fiber and propagates outward — siblings under the same scope are cancelled, unwinding to the nearest `try` (or to `run_async`, where it surfaces as a panic). `try` is the recovery primitive and catches **both** explicit `fail` and panics.
 
 ```flux
 fn body() -> Int with Async { fail(canceled_error()) }
@@ -303,93 +250,51 @@ fn caught() -> Bool with Async {
 }
 ```
 
-### 7.3 Result helpers
+See [`07_try_fail.flx`](../../examples/async/07_try_fail.flx).
 
-`import Flow.Async exposing (..)` brings the `Result<a, e>` type and its `Ok` / `Err` constructors into scope, so direct pattern matching on `Ok(v)` / `Err(e)` works at the call site. The helpers below remain available for cases where you don't want to pattern-match:
+### 8.3 Result helpers
+
+`import Flow.Async exposing (..)` brings `Result<a, e>` and its `Ok`/`Err` constructors into scope, so direct pattern matching works. The helpers are for when you don't want to match:
 
 | Helper | Purpose |
 |---|---|
-| `result_is_ok(r)` | `Bool` — true if Ok |
-| `result_is_timed_out(r)` | `Bool` — true if Err(TimedOut) |
+| `result_is_ok(r)` | `Bool` — true if `Ok` |
+| `result_is_timed_out(r)` | `Bool` — true if `Err(TimedOut)` |
 | `result_or(r, fallback)` | `a` — value or fallback |
 | `result_or_else_async(r, fallback, ok_fn)` | continuation form |
-| `result_or_timeout_with_async(r, t_val, e_val, ok_fn)` | three-way fork on Ok / Err(TimedOut) / other |
+| `result_or_timeout_with_async(r, t_val, e_val, ok_fn)` | three-way fork on `Ok` / `Err(TimedOut)` / other |
 
-See [`07_try_fail.flx`](../../examples/async/07_try_fail.flx).
-
----
-
-## 8. Resource management
-
-### 8.1 `finally`
+### 8.4 Resource safety: `finally` / `bracket`
 
 ```flux
 public fn finally<a>(body: () -> a, cleanup: () -> Unit with Async) -> a with Async
+public fn bracket<r, c, a>(acquire: () -> r, release: (r) -> c, body: (r) -> a with Async) -> a with Async
 ```
 
-Runs `body`, then unconditionally runs `cleanup`, returns `body`'s result. `cleanup` fires on success, failure, and cancellation.
-
-### 8.2 `bracket`
-
-```flux
-public fn bracket<r, c, a>(acquire: () -> r,
-                            release: (r) -> c,
-                            body:    (r) -> a with Async)
-                        -> a with Async
-```
-
-Resource-acquisition pattern: `acquire` produces a resource, `body` uses it, `release` always runs at the end.
-
-Note that `release`'s return type `c` is polymorphic and **discarded**. In practice `release` typically returns `Unit`, but if the parser limitation (§14.1) prevents that, returning `Int` and ignoring the value is the standard workaround.
-
-```flux
-fn open_file() -> String { "fd-7" }
-fn close_file(fd: String) -> Int { 0 }
-fn use_file(fd: String) -> Int with Async { sleep(10); 42 }
-
-fn body() -> Int with Async {
-    bracket(open_file, close_file, use_file)
-}
-```
-
-See [`08_finally_bracket.flx`](../../examples/async/08_finally_bracket.flx).
+`finally` runs `cleanup` on success, failure, **and** cancellation. `bracket` is the acquire/use/release pattern; `release` always runs at the end (its return value is discarded). See [`08_finally_bracket.flx`](../../examples/async/08_finally_bracket.flx).
 
 ---
 
 ## 9. Structured concurrency
 
-### 9.1 `scope`
-
 ```flux
 public fn scope<a>(f: (Scope) -> a with Async | e) -> a with Async | e
-```
-
-Allocates a fresh cancellation boundary `Scope` and passes it to `f`. The scope ID is opaque; users pass it through `fork` / `cancel` rather than inspecting it. With `import Flow.Async exposing (..)` the `Scope` type is in scope unqualified, so user code can annotate helpers like `fn child_runner(s: Scope) -> Unit with Async { ... }`.
-
-### 9.2 `fork`
-
-```flux
 public fn fork<a>(s: Scope, f: () -> a with Async | e) -> Unit with Async | e
-```
-
-Schedules `f` as a sibling fiber under scope `s`. Returns immediately. The child runs concurrently with the rest of the scope body.
-
-### 9.3 `cancel`
-
-```flux
 public fn cancel(s: Scope) -> Unit with Async
 ```
 
-Cancels every fiber forked under `s`. Each child's pending I/O is aborted; its continuation is resumed with `AsyncError.Canceled` so that `bracket` / `finally` cleanup arms run. Idempotent.
+`scope` allocates a fresh cancellation boundary and passes it to `f`. `fork` schedules a child fiber under that scope (returns immediately). `cancel` cancels every fiber forked under `s` — each child's pending I/O aborts and its continuation resumes with `Canceled` so cleanup arms run. Idempotent.
 
-### 9.4 `check_cancelled` / `bail_if_cancelled`
+With `import Flow.Async exposing (..)`, the `Scope` type is unqualified, so you can annotate helpers: `fn child(s: Scope) -> Unit with Async { … }`.
+
+### Cooperative cancellation in CPU loops
 
 ```flux
 public fn check_cancelled()    -> Bool with Async
 public fn bail_if_cancelled() -> Unit with Async
 ```
 
-Pure CPU loops have no I/O suspension point at which the scheduler can deliver a cancellation. To stay cooperative, sprinkle `bail_if_cancelled()` inside hot loops:
+A pure CPU loop has no suspension point at which the scheduler can deliver cancellation. Sprinkle `bail_if_cancelled()` (raises `Canceled` if the flag is set) or `check_cancelled()` (returns `Bool` so you can clean up and return a partial result) inside hot loops:
 
 ```flux
 fn cpu_work(n: Int, acc: Int) -> Int with Async {
@@ -401,658 +306,358 @@ fn cpu_work(n: Int, acc: Int) -> Int with Async {
 }
 ```
 
-`check_cancelled()` is the inspection variant — it returns `Bool` so you can clean up gracefully and `return` a partial result. `bail_if_cancelled()` is the convenience that calls `fail(Canceled)` if the flag is set.
-
 See [`09_scope_fork_cancel.flx`](../../examples/async/09_scope_fork_cancel.flx) and [`10_check_cancelled.flx`](../../examples/async/10_check_cancelled.flx).
 
 ---
 
-## 9.5 Fibers in depth
+## 10. Channels
 
-The user-facing surface above is built on a fiber model that's worth understanding when reasoning about scheduling, cancellation, and the VM/native parity gap.
+[`Flow.Channel`](../../lib/Flow/Channel.flx) is a typed, fiber-aware queue for passing `Sendable` values between fibers (and tasks).
 
-### 9.5.1 What a fiber is
+```flux
+public fn make<a: Sendable>(capacity: Int) -> Channel<a>   // capacity 0 = rendezvous
+public fn send<a: Sendable>(ch: Channel<a>, v: a) -> Unit with Async   // suspends if full
+public fn recv<a: Sendable>(ch: Channel<a>) -> Option<a> with Async    // suspends if empty; None when closed
+public fn try_send<a: Sendable>(ch: Channel<a>, v: a) -> Bool          // non-blocking
+public fn try_recv<a: Sendable>(ch: Channel<a>) -> Option<a>           // non-blocking
+public fn close<a>(ch: Channel<a>) -> Unit
+public fn len<a>(ch: Channel<a>) -> Int
+public fn cap<a>(ch: Channel<a>) -> Int
+public fn is_closed<a>(ch: Channel<a>) -> Bool
+```
 
-A `Fiber` is the unit of cooperative concurrency inside `run_async`. A VM fiber
-does not imply an OS thread; VM fibers time-share the caller thread until they
-suspend or call `Async.yield_now`. Data-structurally a fiber owns
-([src/runtime/async/fiber.rs](../../src/runtime/async/fiber.rs)):
+`send`/`recv` suspend the *fiber* (not the OS thread) when the channel is full/empty. `recv` returns `None` once the channel is closed and drained. There are `send_move`/`try_send_move` ownership-transfer variants.
 
-- A monotonic `FiberId` allocated from `NEXT_FIBER_ID: AtomicU64` — unique per scheduler lifetime.
-- A `home_worker` assignment. On the VM this remains a logical no-migration invariant. On native, the fiber is initially queued there and backend completions return it there, but the scheduler may let an idle worker steal ready work. Native fibers carry a C effect-context snapshot so handler/evidence state is restored before execution on whichever OS thread runs them.
-- A `state: FiberState` — one of `Ready`, `Suspended { request_id }`, `Done`, `Cancelled`.
-- A `parked: Option<Rc<RefCell<Continuation>>>` — the captured delimited continuation when suspended.
-- A `last_completion_req: Option<RequestId>` — set by the dispatch loop just before resuming, so the fiber knows which completion woke it (used to assemble e.g. the `(left, right)` tuple for `both`).
-- An owned `EffectContext` carrying the yield/evidence state, cancel flag, and scope id.
+```flux
+import Flow.Async as Async
+import Flow.Channel as Channel
 
-### 9.5.2 Park / resume cycle
+fn producer_consumer() -> String with Async {
+    let ch = Channel.make(5)
+    Channel.send(ch, 4)
+    Channel.send(ch, 5)
+    match (Channel.recv(ch), Channel.recv(ch)) {
+        (Some(a), Some(b)) -> "total: " + to_string(a + b),
+        _ -> "closed"
+    }
+}
 
-When user code calls `Async.sleep(20)`, the VM executes `CorePrimOp::FiberSleep` ([src/vm/core_dispatch.rs](../../src/vm/core_dispatch.rs)):
+fn main() with IO { print(Async.run_async(producer_consumer)) }   // → "total: 9"
+```
 
-1. Reserve a `RequestId` and submit a `timer_start(20ms)` to the mio backend.
-2. Call `capture_to_fiber_boundary` — walks back to the `FiberRunAsync` frame, snapshots the operand stack and frame index into a `Continuation`, and stores it in `Fiber.parked`.
-3. Move the fiber from the worker's ready FIFO to its `suspended: HashMap<RequestId, Fiber>`.
-4. Return control to `vm_fibers::dispatch_loop`.
-
-The dispatch loop pumps `backend.next_completion()`. When the timer fires:
-
-1. The completion arrives as `(RequestId, payload)`.
-2. Scheduler looks up the fiber by request id, sets `last_completion_req`, moves the fiber back to `Ready`.
-3. Dispatch loop pops the fiber, restores its operand stack and frame from `Continuation`, and calls `resume_from_dispatch` with the payload as the return value of the suspending primop.
-
-The same machinery is reused for `both` / `race` / `timeout` / `first_of` / `Task.await` — each has an `AwaitKind` ([src/runtime/async/await_coordinator.rs](../../src/runtime/async/await_coordinator.rs)) that tells the dispatch loop how to assemble the resume value from one or more child completions:
-
-| `AwaitKind` | Resume value |
-|---|---|
-| `Both` | `(left_outcome, right_outcome)` once both arrive |
-| `Race` | the first outcome; cancel the loser |
-| `FirstOf` | `(winning_index, value)`; cancel the rest |
-| `Timeout` | `Some(body_value)` if body wins, `None` if timer wins |
-| `Task` | the task's stashed value (or `None` if cancelled) |
-
-### 9.5.3 Worker assignment
-
-Root fibers (the body of `run_async`) live on worker 0. On the VM, workers are
-logical ready queues and fibers keep their home-worker affinity for their whole
-lifetime; the dispatch loop drains those queues on the caller OS thread. On
-native, child fibers spawned by `fork` / `both` / `timeout` are placed on the
-least-loaded ready queue by default; `race` / `first_of` still enqueue immediate
-candidates on the caller's worker to preserve source-order tie behavior. With
-native work stealing enabled, idle OS workers may steal ready fibers from other
-workers. `FLUX_WORK_STEALING=0` restores the original owner-only FIFO plus
-round-robin placement fallback for debugging.
-
-### 9.5.4 Cancellation propagation
-
-`scope.cancel()` (and the implicit cancels from `race` losers, `timeout` body losses, error unwinds) walks the scope's fiber list and:
-
-1. Sets each fiber's cancel bit in its `EffectContext`.
-2. For suspended fibers, calls `backend.cancel(request_id)` — the reactor stops the I/O and produces a synthetic `Cancelled` completion.
-3. Re-queues the fiber in `Ready`; when the dispatch loop resumes it, the resumed primop sees the cancelled completion and either short-circuits (`bail_if_cancelled`) or fires `bracket` / `finally` cleanup arms before unwinding.
-
-For *currently executing* fibers, `vm_fibers` mirrors the cancel set in a per-thread `HashSet<FiberId>` so `Async.check_cancelled()` returns true even between suspension points.
-
-### 9.5.5 VM vs native execution
-
-| Aspect | VM | Native |
-|---|---|---|
-| Continuation type | `Rc<RefCell<Continuation>>` (`!Send`) | LLVM-generated stack frames + `flux_rt` C ABI |
-| Worker count | Logical ready queues drained by the caller OS thread | Real OS-thread workers, default 2 |
-| Fiber state | `Vm` instance state | C effect-context TLS + scheduler state in Rust |
-| Cross-worker fiber dispatch | **Disabled**: VM stays single-OS-thread because `Rc<Value>` is non-Send | Enabled |
-
-The VM logical-only constraint applies to fibers, not tasks. VM `Task.spawn`
-crosses a sendable transfer boundary into a pooled isolated worker VM with
-Arc-shared constants and sparse spawn-time globals, so task bodies can run in
-parallel without making the normal `Rc<Value>` graph thread-safe. CPU-bound code
-inside a VM fiber can starve sibling fibers until it suspends or calls
-`Async.yield_now`; CPU-bound parallelism should use `Task.spawn` / `Task.await`
-today.
+See [`21_channel_capture.flx`](../../examples/async/21_channel_capture.flx).
 
 ---
 
-## 10. Tasks
+## 11. `select` and Events
 
-`Flow.Task` is the OS-thread surface. Tasks are **not** fibers; they live on a
-worker pool and can run in true parallel. On the VM, each task runs inside a
-reused isolated worker VM after crossing the `Sendable` transfer boundary; the
-worker VM shares immutable constants and receives a sparse globals snapshot. On
-native, the task body runs through the C runtime task path.
+For waiting on **the first of several** channel/timer operations, Flux has a built-in `select` expression and a composable [`Flow.Event`](../../lib/Flow/Event.flx) (CML-style) layer.
 
-### 10.1 `spawn`
+### The `select` expression
+
+`select` blocks until one arm is ready, commits exactly that arm, and runs its body. Arms are `recv <chan> as <name>`, `send <chan> <value>`, and `after <ms>` (a timer):
 
 ```flux
-public fn spawn<a: Sendable>(action: () -> a) -> Task<a>
-```
+import Flow.Async as Async
+import Flow.Channel as Channel
+import Flow.Event as Event
 
-Schedules `action` on a worker thread. Returns immediately with a handle. The result type must satisfy `Sendable` (§11) so the value can cross a worker boundary.
-
-### 10.2 `blocking_join`
-
-```flux
-public fn blocking_join<a: Sendable>(t: Task<a>) -> a
-```
-
-Blocks the calling **OS thread** until the task finishes and returns the result. Use this when you have no fiber context — typically from `main` before `run_async`.
-
-### 10.3 `await`
-
-```flux
-public fn await<a: Sendable>(t: Task<a>) -> a with Async
-```
-
-The fiber-friendly join. On VM and native, suspends only the current fiber; other fibers on the same worker keep running while the task completes.
-
-Awaiting a cancelled task panics — wrap in `try` to recover:
-
-```flux
-let r = try(fn() -> Int with Async { Task.await(t) })
-```
-
-### 10.4 `cancel`
-
-```flux
-public fn cancel<a>(t: Task<a>) -> Unit
-```
-
-Marks the task cancelled. Idempotent.
-
-- Pre-pickup → worker observes the flag and short-circuits.
-- Post-completion → no-op.
-- In-flight → cooperative; the body must reach a fiber yield point for cancellation to be observed.
-
-Note `cancel` does **not** require `with Async` and `<a>` is unconstrained.
-
-See [`12_task_spawn_join.flx`](../../examples/async/12_task_spawn_join.flx), [`13_task_await.flx`](../../examples/async/13_task_await.flx), [`14_task_cancel.flx`](../../examples/async/14_task_cancel.flx).
-
-### 10.5 Task internals
-
-This section documents the runtime contract beneath the four-function surface above.
-
-#### TaskHandle
-
-`Task<T>` on the user surface wraps a `TaskHandle<T>` ([src/runtime/async/task_scheduler.rs](../../src/runtime/async/task_scheduler.rs)). A `TaskHandle` is cheap-to-clone and holds an `Arc<TaskState<T>>`:
-
-```rust
-struct TaskState<T> {
-    outcome:    Mutex<Option<TaskOutcome<T>>>,
-    finished:   Condvar,
-    cancelled:  AtomicBool,
-}
-
-enum TaskOutcome<T> {
-    Completed(T),
-    Cancelled,
-    Panicked(String),
+fn first_message_or_timeout(ch: Channel<Int>) -> String with Async {
+    select {
+        recv ch as value -> match value {
+            Some(n) -> "received: " + to_string(n),
+            None    -> "closed",
+        },
+        after 100 -> "timeout",
+    }
 }
 ```
 
-The worker thread stores its result (or panic message, or `Cancelled`) into `outcome` and signals `finished`. Joiners wait on the condvar.
+Losing arms are left untouched (a not-taken `recv` does not consume a message). See [`22_select_channel_timer.flx`](../../examples/async/22_select_channel_timer.flx) and [`23_select_send_recv.flx`](../../examples/async/23_select_send_recv.flx).
 
-Native panics inside the task body are caught by `catch_unwind` so a single panicking task does not poison the worker pool — it surfaces back to the joiner as `TaskOutcome::Panicked(message)`, which `Task.blocking_join` / `Task.await` translate into a fiber failure.
+### First-class events (`Flow.Event`)
 
-#### Worker pool layout
+When you need to *build up* a choice programmatically, events are first-class values you compose and then `sync`:
 
-`TaskManager` ([src/runtime/async/task_manager.rs](../../src/runtime/async/task_manager.rs)) owns N worker threads sharing a per-priority FIFO. `MAX_PRIO = 2` gives three priority levels (0–2). Workers park on a `Condvar`; submission grabs the queue lock, pushes, and signals `not_empty`. Shutdown sets a broadcast flag *while holding the queue lock* to avoid a TOCTOU window where a worker could observe an empty queue right before the shutdown bit and re-park forever. `Drop` joins every worker thread to keep libtest from wedging on Windows.
+```flux
+public fn recv<a: Sendable>(ch: Channel<a>) -> Event<Option<a>>
+public fn send<a: Sendable>(ch: Channel<a>, v: a) -> Event<Unit>
+public fn after(ms: Int) -> Event<Unit>          // timer event
+public fn choose<a>(events: List<Event<a>>) -> Event<a>   // first ready wins
+public fn wrap<a, b>(e: Event<a>, f: (a) -> b) -> Event<b> // transform the value
+public fn sync<a>(e: Event<a>) -> a with Async   // commit on whichever fires
+```
 
-#### Native backend (`runtime/c/tasks.c`)
-
-The native task registry is heap-backed and grows with live task handles. Each registered `FluxTaskEntry` has:
-
-- `task_id` (real ids start at 1)
-- platform thread handle (`pthread_t` on POSIX, `HANDLE` on Win32)
-- per-task `mutex` + `finished` condvar (POSIX) or `CRITICAL_SECTION` + `CONDITION_VARIABLE` (Win32)
-- atomic `cancelled_flag`
-- result slot (`FluxValue` + tag byte)
-- `await_request: int64_t` — non-zero when a fiber registered an async await on this task
-
-Spawn flow:
-
-1. Allocate a task id (atomic increment).
-2. Allocate/register a task entry; abort with a diagnostic only if entry allocation or OS thread creation fails.
-3. `flux_rc_promote(closure)` — recursively promote the closure's reference count from single-threaded to atomic mode (sign-bit encoding in [runtime/c/rc.c](../../runtime/c/rc.c)). Required because the worker thread will dup/drop concurrently.
-4. `flux_dup(closure)` — bump the count once for the worker.
-5. `pthread_create` (or `_beginthreadex` on Win32; we prefer `_beginthreadex` over `CreateThread` for proper CRT init).
-6. The worker sets `flux_worker_thread = 1` (TLS) so allocations bypass the per-process bump arena and go through `malloc`.
-
-Worker body:
-
-1. Load `cancelled_flag` with `memory_order_acquire`. If set, store `TaskOutcome::Cancelled` and exit.
-2. `catch_unwind` the Flux closure invocation.
-3. On success, store `Completed(value)` into the slot's result field.
-4. If `await_request` is non-zero, call `flux_async_task_complete(await_request, payload)` — that routes the result through the fiber scheduler back to the awaiting fiber's home worker. Otherwise, signal `finished` for the condvar joiner.
-
-Two join paths are mutually exclusive — once a fiber registers an `await_request`, `blocking_join` on the same handle is rejected.
-
-#### When to use which
-
-| Pattern | Use |
-|---|---|
-| Concurrent I/O on a single core | Fibers (`both`, `race`, `Async.fork`) |
-| CPU-bound parallelism on multiple cores | Tasks (`Task.spawn` + `Task.await`) |
-| Mixing the two | `Task.spawn` from inside a fiber, `Task.await` to gather — see [§16.3](#163-worker-pool-with-task-fan-out) |
-| Joining from non-async code | `Task.blocking_join` from `main` |
+`select` is sugar over `choose` + `sync`. See [`24_event_composition.flx`](../../examples/async/24_event_composition.flx) and the `async_select_*` parity fixtures.
 
 ---
 
-## 11. `Sendable` type class
+## 12. Streams
+
+[`Flow.Stream`](../../lib/Flow/Stream.flx) is a pull-based async sequence — a `Stream<a>` is a state machine whose `next` may suspend with `Async`. It has the usual combinators (`map`, `filter`, `flat_map`, `take`, `drop`, `chunk`, `append`, `zip`, `merge`, `fold`, `to_list`, …):
 
 ```flux
-class Sendable<a>     // declared in src/types/class_env.rs, no methods
+import Flow.Async as Async
+import Flow.Stream as Stream
+
+fn sum_evens() -> Int with Async {
+    Stream.from_list([1, 2, 3, 4, 5, 6])
+    |> Stream.filter(fn(n) { n % 2 == 0 })
+    |> Stream.fold(0, fn(acc, n) { acc + n })     // fold drives the stream → 12
+}
 ```
 
-`Sendable` is a marker class with no methods. It gates which values may cross a worker boundary via `Task.spawn` / `Task.blocking_join` / `Task.await`.
+`fold`/`to_list`/`to_array`/`count` are the terminal operations that actually pull (they carry `Async`); the rest are lazy transformers. Streams underpin chunked HTTP responses (SSE) — see §15.
 
-### 11.1 Built-in instances
+---
 
-Auto-derived for:
+## 13. Tasks (OS-thread parallelism)
 
-- Primitives: `Int`, `Float`, `String`, `Bool`, `Unit`
-- Tuples: `(a, b)`, `(a, b, c)`, ... when all components satisfy `Sendable`
-- Standard collections: `Option<a>`, `List<a>`, `Array<a>`, `Map<k, v>`, `Either<a, b>` when their parameters do
-
-### 11.2 User ADTs
-
-The compiler runs `synthesize_sendable_instances` on every `data` declaration ([`src/types/class_env.rs`](../../src/types/class_env.rs)) and emits an `instance Sendable<MyAdt>` if every field is `Sendable`. Parameterized ADTs get contextual instances:
-
-```flux
-data Foo<a, b> { Foo(a, b) }
-// Auto-synthesised:
-//   instance <a: Sendable, b: Sendable> => Sendable<Foo<a, b>>
-```
-
-### 11.3 What is NOT Sendable
-
-- Function values / closures (intentional — closures may capture non-Sendable state)
-- Opaque runtime handles (e.g. raw TCP file descriptors) — flagged via `is_opaque_non_sendable_adt` in `class_env.rs`
-- ADTs containing function-typed fields, detected by `type_expr_contains_function`
-
-This means you cannot `Task.spawn` a closure that captures user state today. That is by design pending a future "promote-to-MT-RC" story for closures.
-
-### 11.4 Synthesis algorithm
-
-`synthesize_sendable_instances` ([src/types/class_env.rs](../../src/types/class_env.rs)) runs after parsing every program and walks each `Statement::Data`. For an ADT `data Foo<a, b> { Foo(F1, F2, ...) | Bar(...) }`:
-
-1. **Skip if the user wrote an explicit `instance Sendable<Foo>`** — user wins, even if their instance is wrong (this is the open hole that motivates "seal the class" — see [§14.7](#147-sendable-has-no-teeth-against-bad-user-instances)).
-2. **Skip if any variant has a function-typed field** — even one closure field disqualifies the whole ADT.
-3. **Skip if the ADT is on the runtime opaque list** (e.g. `IoHandle`, `TaskHandle` — cannot cross worker boundary safely).
-4. **Otherwise emit `instance <a: Sendable, b: Sendable> => Sendable<Foo<a, b>>`** — every type parameter gets a contextual `Sendable` constraint. At use sites, the solver checks each parameter satisfies `Sendable` recursively.
-
-Recursive ADTs are handled by treating the ADT name itself as in-scope during the field walk (so `data List<a> { Cons(a, List<a>) | Nil }` correctly becomes `<a: Sendable> => Sendable<List<a>>`).
-
-### 11.5 Where it's enforced
-
-The `Sendable<a>` bound appears in three places on the user-facing surface ([`lib/Flow/Task.flx`](../../lib/Flow/Task.flx)):
+`Flow.Task` is the OS-thread surface introduced in §2. Tasks are **not** fibers: they live on a worker pool and run in true parallel. Values crossing the worker boundary must be [`Sendable`](#14-the-sendable-type-class).
 
 ```flux
 public fn spawn<a: Sendable>(action: () -> a) -> Task<a>
-public fn blocking_join<a: Sendable>(t: Task<a>) -> a
-public fn await<a: Sendable>(t: Task<a>) -> a with Async
+public fn blocking_join<a: Sendable>(t: Task<a>) -> a            // blocks the OS thread
+public fn await<a: Sendable>(t: Task<a>) -> a with Async         // suspends only the fiber
+public fn cancel<a>(t: Task<a>) -> Unit                          // idempotent; unconstrained in a
+public fn spawn_scoped<a: Sendable>(s: Scope, action: () -> a) -> Task<a> with Async
 ```
 
-Note `Task.cancel<a>(t)` is *unconstrained* in `a` — cancelling a handle does not actually transfer the inner value, so the bound isn't required.
+- **`blocking_join`** — use from non-async code (e.g. `main`) when you have no fiber.
+- **`await`** — the fiber-friendly join: suspends the current fiber, lets siblings keep running, resumes when the task completes. Awaiting a cancelled task raises — wrap in `try` to recover.
+- **`cancel`** — pre-pickup short-circuits; post-completion is a no-op; in-flight is cooperative (the body must reach a yield point). It does **not** require `with Async`.
+- **`spawn_scoped`** — ties the task's lifetime to a `Scope` so it is cancelled if the scope is.
 
-The solver ([src/types/class_solver.rs](../../src/types/class_solver.rs) `has_structural_builtin_instance`) resolves `Sendable<T>` queries at type-checking time. If a user writes `Task.spawn(fn() { ... captures non-sendable ... })`, the type error fires at the spawn site, not at runtime.
-
----
-
-## 12. Backend semantics: VM vs LLVM
-
-| Surface | VM | LLVM/native |
-|---|---|---|
-| `run_async` | Single-OS-thread logical scheduler | Multi-OS-thread M:N scheduler |
-| `sleep(ms)` | Suspends the current fiber through the VM async backend; other ready VM fibers may run on the caller OS thread | Suspends fiber; an OS worker can run other work |
-| `yield_now()` | Real cooperative reschedule within the single-threaded VM scheduler | Real cooperative reschedule across native ready queues |
-| `both` / `race` | Cooperative fiber overlap on a single OS thread | Fiber overlap across OS workers |
-| `Task.spawn` | Body runs in a pooled isolated worker VM on a real OS thread | Body runs on a real OS worker thread |
-| `Task.blocking_join` | Waits for worker completion | Condvar wait |
-| `Task.await` | Suspends current fiber, resumes when task completes | Suspends current fiber, resumes when task completes |
-| `Async.scope` / `cancel` | Real cancellation through scheduler/backend | Real cancellation through scheduler/backend |
-
-The **type-level surface is identical** on both backends. Source written today against the VM compiles unchanged on native and gains parallelism for free where the runtime supports it.
+`spawn_move` variants transfer ownership of the captured value rather than sharing it. See [`12_task_spawn_join.flx`](../../examples/async/12_task_spawn_join.flx) – [`14_task_cancel.flx`](../../examples/async/14_task_cancel.flx) and [`19_task_spawn_scoped.flx`](../../examples/async/19_task_spawn_scoped.flx).
 
 ---
 
-## 13. Runtime configuration
+## 14. The `Sendable` type class
+
+```flux
+class Sendable<a>     // marker class, no methods — declared in src/types/class_env.rs
+```
+
+`Sendable` gates which values may cross a worker boundary via `Task.spawn`/`join`/`await` and `Channel.send`. It is a compile-time check: a non-Sendable spawn fails at the *spawn site*, not at runtime.
+
+**Auto-derived for:** primitives (`Int`, `Float`, `String`, `Bool`, `Unit`); tuples and `Option`/`List`/`Array`/`Map`/`Either` when their parameters are Sendable; and user ADTs whose every field is Sendable (synthesized by `synthesize_sendable_instances` in [`class_env.rs`](../../src/types/class_env.rs), including recursive ADTs and contextual instances like `<a: Sendable> => Sendable<Foo<a>>`).
+
+**Not Sendable:** function values / closures (they may capture non-Sendable state), opaque runtime handles, and any ADT containing a function-typed field. So you cannot `Task.spawn` a closure that captures user state today — by design, pending a future closure-promotion story.
+
+> ⚠️ `Sendable` has no teeth against a *hand-written* instance: the synthesizer skips an ADT that already has an explicit `instance Sendable<…>`, and nothing checks that yours is correct. **Don't write `Sendable` instances by hand** — let the synthesizer derive them. (Tracked as the "seal the class" limitation, §20.)
+
+---
+
+## 15. HTTP and TCP
+
+The driving use case for 0174 is HTTP microservices. [`Flow.Http`](../../lib/Flow/Http.flx) provides a scratch-built HTTP/1.1 server and client over the `mio` TCP substrate ([`Flow.Tcp`](../../lib/Flow/Tcp.flx)).
+
+```flux
+// client
+public fn get(url: String) -> Response with Async, AsyncFail
+public fn post(url: String, body: String) -> Response with Async, AsyncFail
+
+// server
+public fn serve(addr: String, port: Int, handler: (Request) -> Response with Async | e)
+    -> ServerHandle with Async, AsyncFail
+public fn serve_config(addr: String, port: Int, cfg: ServerConfig, handler: …) -> ServerHandle …
+public fn serve_stream<a>(addr, port, handler: (Request) -> StreamResponse<a> …) -> ServerHandle …   // chunked / SSE
+public fn shutdown(h: ServerHandle) -> Unit …       // graceful drain
+public fn shutdown_now(h: ServerHandle) -> Unit …   // forced
+```
+
+`ServerConfig` carries `max_connections`, `max_header_bytes`, `max_body_bytes`, `request_timeout_ms`, and `worker_count`. Streaming responses are driven by `Flow.Stream` (§12) — see the SSE example under `examples/`. JSON lives in `Flow.Json` (`encode`/`decode`, `deriving (Encode, Decode)`).
+
+---
+
+## 16. Runtime configuration
 
 ```flux
 public data RuntimeConfig {
-    RuntimeConfig {
-        worker_count:  Option<Int>,
-        fs_pool_size:  Int,
-        dns_pool_size: Int,
-    }
+    RuntimeConfig { worker_count: Option<Int>, fs_pool_size: Int, dns_pool_size: Int }
 }
+
+default_runtime_config() : RuntimeConfig
+with_worker_count(n)     : RuntimeConfig
+with_dns_pool_size(n)    : RuntimeConfig
 ```
 
-| Field | Default | Native today |
+| Field | Default resolution | Status |
 |---|---|---|
-| `worker_count` | `None` → `FLUX_WORKERS` env → `available_parallelism()` → `2` | Honoured per call. VM uses logical queues on one OS thread; native sizes ready queues and the worker thread pool to the requested count. |
-| `fs_pool_size` | `0` → reserved | Plumbed but unused |
-| `dns_pool_size` | `0` → `FLUX_DNS_THREADS` env, fallback 4 | Honoured |
+| `worker_count` | `None` → `FLUX_WORKERS` → `available_parallelism()` → `2` | Honoured on both backends |
+| `fs_pool_size` | `0` → `FLUX_FS_THREADS` | Plumbed, reserved (unused) |
+| `dns_pool_size` | `0` → `FLUX_DNS_THREADS`, fallback 4 | Honoured |
 
-### 13.1 Builders
-
-```flux
-default_runtime_config()    : RuntimeConfig
-with_worker_count(n)        : RuntimeConfig
-with_dns_pool_size(n)       : RuntimeConfig
-```
-
-### 13.2 Environment fallbacks
-
-When a field is the default sentinel, the runtime reads:
-
-- `FLUX_WORKERS` for `worker_count`
-- `FLUX_FS_THREADS` for `fs_pool_size`
-- `FLUX_DNS_THREADS` for `dns_pool_size`
-
-Explicit `RuntimeConfig` always wins over env.
-
-See [`11_runtime_config.flx`](../../examples/async/11_runtime_config.flx).
+Explicit `RuntimeConfig` always wins over the env vars. See [`11_runtime_config.flx`](../../examples/async/11_runtime_config.flx).
 
 ---
 
-## 14. Known surface limitations
+## 17. Backend semantics: VM vs native
 
-These are real today; users will hit them. Each has a tracked roadmap entry.
+Flux runs async on **both** the bytecode VM and the LLVM/native backend, and the **type-level surface is identical** — source written against one compiles unchanged on the other.
 
-### 14.1 Parens scope effect rows on callback parameters
+Both backends are **multi-OS-threaded by default.** `run_async` resolves `worker_count` to `available_parallelism()` and, when that is `> 1` (any multicore machine), spawns real worker OS threads; the single-thread path is only used at `worker_count == 1`.
 
-A callback parameter that carries `with <effect>` must wrap its function type in parens when it is not the final parameter. The bare form `f: () -> a with Async` works only on the final parameter (where the `with` is unambiguously the enclosing function's effect clause).
-
-```flux
-// ✅ accepted — both callbacks carry Async via parens
-fn both<a, b>(f: (() -> a with Async | e1), g: (() -> b with Async | e2)) -> (a, b) with Async
-
-// ✅ accepted — final-callback bare form is also fine
-fn finally<a>(body: () -> a, cleanup: () -> Unit with Async) -> a with Async
-```
-
-`Flow.Async.both` / `race` / `bracket` / `finally` all use this convention.
-
-### 14.4 `AsyncError` runtime variants are opaque
-
-Only `canceled_error()` and `protocol_error(status, msg)` are exposed as constructor helpers. Other variants come back via the runtime; users construct them only by calling failing primitives.
-
-### 14.7 `Sendable` has no teeth against bad user instances
-
-`Sendable` is a marker class with no methods, and the synthesis pass skips ADTs that already have an explicit user-written instance. There is no current check that user-written instances are *correct* — a user could write `instance Sendable<MyClosureType>` and the type checker would accept it. The runtime would then promote a closure across a worker boundary; behaviour is undefined if the closure captured non-Sendable state.
-
-Mitigation: don't write `Sendable` instances by hand. Let the synthesizer derive them.
-
-### 14.8 LLVM compile hang on many `run_async_with*` call sites + a suspending body (historical; fixed upstream)
-
-Investigated 2026-05-08. **Not a runtime bug** — the symptom was the LLVM
-compile/link of the user binary hanging at
-`[12 of 13] Linking Flow.Either` (just before the user module would link).
-Earlier writeups described this as a "native sequential deadlock"; that
-characterisation was wrong, the program never reached runtime.
-
-**Original reproducer:** in a single function, place **9 sequential
-`run_async_with_workers(N, fn)` call sites** where at least one of the
-bodies contains a suspending call (e.g. `sleep`). Eight call sites
-compiled fine; nine hung the LLVM optimizer/linker indefinitely.
-
-```flux
-// Used to hang the build at the user-module link step:
-fn main() with IO {
-    print(run_async_with_workers(1, report))
-    // ... 7 more identical calls ...
-    print(run_async_with_workers(9, slept))      // body contains sleep(10)
-}
-```
-
-**Suspected cause:** an LLVM optimization pass scaling super-linearly with the
-number of `flux_fiber_run_async_with` call sites that share a suspending
-closure body. The specific pass was never localized — see the re-verification
-below; it could not be reproduced again, so the bisect was not redone.
-
-**Re-verification (2026-05-12, LLVM 22 / 23):** the original reproducer —
-*and* a 40-site stress version — compile and run cleanly **even with the
-outline pass disabled** (`RUN_ASYNC_WITH_INLINE_SITE_LIMIT` set to
-`usize::MAX`). The underlying LLVM regression appears fixed upstream. The
-source-level "≤ 8 sequential `run_async_with*` sites per function" guidance is
-**no longer necessary** on current LLVM.
-
-**Compiler safety net:** the native LIR→LLVM path still transparently outlines
-the 9th and later `run_async_with*` sites in a function into noinline helper
-functions before LLVM optimization ([`src/lir/run_async_outline.rs`](../../src/lir/run_async_outline.rs),
-limit `8`). It is cheap (a quick scan, a no-op below the limit) and is kept as
-a defence for older toolchains; it can be removed once the project's CI LLVM
-floor is known to include the fix. User source never needs to change either way.
-
-**LLVM-side diagnostics (if it ever recurs):** run any pass-localization work
-under an external timeout. Extract IR with `--emit-llvm -o file.ll` (or
-`--dump-lir-llvm`), then `timeout 60 opt -passes='default<O2>' -opt-bisect-limit=N file.ll -o /dev/null`
-(binary-search `N`) and/or `-debug-pass-manager` to find the offending pass.
-Note: the *combined* `--emit-llvm` module did not reproduce the hang even on
-the affected toolchain — the trigger lived in the per-module native compile of
-the user module, so reproduce via `--native` (with a timeout), not `--emit-llvm`.
-
-**Reproducer file:** [`examples/async/repro_native_seq.flx`](../../examples/async/repro_native_seq.flx)
-— preserved as the smallest historical trigger.
-
-**Related design implication:** the architecture *was* hypothesised to
-have a runtime sequential-teardown bug. Phase B testing confirmed
-sequential `run_async_with*` boundaries on native are fine — the
-runtime correctly tears down each `NativeRun`, joins workers, and starts
-the next run. The earlier proposal-0174 §14.8 wording about runtime
-deadlock has been corrected.
-
----
-
-## 15. Primop reference
-
-User-facing async functions are thin wrappers over `CorePrimOp` variants. This table is for cross-referencing source ↔ runtime.
-
-| Surface | Primop | Where dispatched |
+| Aspect | VM | Native (LLVM) |
 |---|---|---|
-| `fail` | `FiberFail = 161` | raise |
-| `run_async` | `FiberRunAsync = 163` | [vm/core_dispatch.rs](../../src/vm/core_dispatch.rs) · [emit_llvm.rs](../../src/lir/emit_llvm.rs) |
-| `yield_now` | `FiberYieldNow = 164` | same |
-| `sleep` | `FiberSleep = 165` | timer via mio backend |
-| `both` | `FiberBoth = 172` | dispatch loop awaiter |
-| `race` | `FiberRace = 173` | dispatch loop awaiter |
-| `timeout` | `FiberTimeout = 174` | dispatch loop + timer |
-| `new_scope` | `FiberNewScope = 175` | scope alloc |
-| `fork` | `FiberForkScoped = 176` | scheduler.spawn |
-| `cancel` (scope) | `FiberCancelScope = 177` | scheduler.cancel_scope |
-| `check_cancelled` | `FiberCheckCancelled = 178` | scheduler-flag read |
-| `run_async_with` | `FiberRunAsyncWith = 179` | same as `run_async` + cfg |
-| `first_of` | `FiberFirstOf = 180` | N-way awaiter |
-| `try` | `FiberTry = 181` | error boundary |
-| `current_worker_count` | `FiberCurrentWorkerCount = 201` | active scheduler introspection |
-| `Task.spawn` | `TaskSpawn` | `flux_task_spawn` (native) |
-| `Task.blocking_join` | `TaskBlockingJoin` | `flux_task_blocking_join` |
-| `Task.await` | `TaskAwait` | `flux_task_await` |
-| `Task.cancel` | `TaskCancel` | `flux_task_cancel` |
+| Default workers | `available_parallelism()` (OS threads via `enter_run_async_multi`) | `available_parallelism()` (pooled OS workers) |
+| Single-thread path | `worker_count == 1` only (`dispatch_loop` on the caller thread) | `worker_count == 1` only |
+| Fiber values across workers | `Rc`-backed; shared constants/globals via an `Arc<WorkerSharedState>` mirror, cross-thread results via `VmSendValue` | Shared C runtime heap; values promoted at worker boundaries |
+| Fiber migration | Stolen parked/yielded fibers migrate via `ArcFiber` (`FLUX_FIBER_MIGRATION`, on by default) | Work-stealing across worker queues (`FLUX_WORK_STEALING`) |
+| Tasks | Pooled isolated worker VMs behind the `Sendable` transfer boundary | Native worker threads |
 
-Primop numbers are stable as of v0.0.4; see [`src/core/mod.rs`](../../src/core/mod.rs) for the canonical list.
+> A single CPU-bound fiber that never suspends still occupies one worker; cooperative concurrency means *multiple* fibers overlap, not that one fiber is auto-parallelised. For dividing one heavy computation across cores, use `Task.spawn`/`await` (§13).
+
+`FLUX_WORK_STEALING=0` (native) and `FLUX_FIBER_MIGRATION=0` (VM) restore owner-only FIFO scheduling for debugging.
 
 ---
 
-## 16. Idiom reference
+## 18. Under the hood
 
-### 16.1 Parallel fetch + combine
+The user surface above is built on a fiber scheduler worth understanding when reasoning about scheduling and cancellation. Source: [`src/runtime/async/`](../../src/runtime/async/), [`src/vm/core_dispatch.rs`](../../src/vm/core_dispatch.rs), [`runtime/c/tasks.c`](../../runtime/c/tasks.c).
 
+> **Reliability status (2026-06).** The scheduler/cancellation/migration paths are the historically fragile part of the runtime — several reactive fixes have landed at the *cancel × completion × steal* boundary, and `Fiber`'s `Send` impl currently rests on a hand-maintained invariant rather than the type system (see [`fiber.rs`](../../src/runtime/async/fiber.rs)). Treat this layer as "works, hardening in progress" (proposal 0174 Phase 2). A deterministic test scheduler is the planned mitigation.
+
+### 18.1 What a fiber is
+
+A `Fiber` ([`src/runtime/async/fiber.rs`](../../src/runtime/async/fiber.rs)) owns:
+
+- A monotonic `FiberId` (from `NEXT_FIBER_ID`), unique per scheduler lifetime.
+- A `home_worker` assignment. Fibers are queued there and backend completions return there, but an idle worker may **steal** a ready fiber; stolen fibers cross threads only via the honestly-`Send` `ArcFiber` (`Fiber::promote` / `ArcFiber::demote`).
+- A `state`: `Ready`, `Suspended { request_id }`, `Done`, or `Cancelled`.
+- A `parked: Option<Rc<RefCell<Continuation>>>` — the captured delimited continuation when suspended.
+- An owned `EffectContext` carrying yield/evidence state, the cancel flag, and scope id.
+
+### 18.2 Park / resume cycle
+
+When user code calls `sleep(20)`, the VM executes `CorePrimOp::FiberSleep` ([`core_dispatch.rs`](../../src/vm/core_dispatch.rs)):
+
+1. Reserve a `RequestId` and submit a `timer_start(20ms)` to the `mio` backend.
+2. `capture_to_fiber_boundary` — walk to the `FiberRunAsync` frame, snapshot the operand stack and frame index into a `Continuation`, store it in `Fiber.parked`.
+3. Move the fiber from the worker's ready queue to its `suspended: HashMap<RequestId, Fiber>`.
+4. Return control to the dispatch loop, which pumps `backend.next_completion()`.
+
+When the timer fires, the scheduler looks the fiber up by request id, moves it back to `Ready`, restores the continuation, and resumes the suspending primop with the completion payload as its return value. The same machinery serves `both`/`race`/`timeout`/`first_of`/`Task.await` via an `AwaitKind` ([`await_coordinator.rs`](../../src/runtime/async/await_coordinator.rs)) that assembles the resume value from one or more child completions.
+
+### 18.3 Cancellation propagation
+
+`cancel(scope)` (and the implicit cancels from `race` losers, `timeout` losses, and error unwinds):
+
+1. Sets each fiber's cancel bit in its `EffectContext`.
+2. For suspended fibers, calls `backend.cancel(request_id)` — the reactor stops the I/O and synthesises a `Cancelled` completion.
+3. Re-queues the fiber `Ready`; on resume the primop sees the cancelled completion and either short-circuits or fires cleanup before unwinding.
+
+For *currently executing* fibers, a per-thread `CANCELLED_IDS` set lets `check_cancelled()` observe cancellation between suspension points.
+
+### 18.4 Task internals
+
+`Flow.Task` is backed by a worker pool ([`task_manager.rs`](../../src/runtime/async/task_manager.rs), [`task_scheduler.rs`](../../src/runtime/async/task_scheduler.rs)); native tasks use [`runtime/c/tasks.c`](../../runtime/c/tasks.c). A task's `outcome` (`Completed`/`Cancelled`/`Panicked`) is stored behind a `Mutex` + `Condvar`; panics inside the body are caught (`catch_unwind`) so one bad task does not poison the pool — it surfaces to the joiner as a fiber failure. A fiber `await` and a `blocking_join` on the same handle are mutually exclusive (the C side rejects a double-await).
+
+---
+
+## 19. Primop reference
+
+User-facing async functions are thin wrappers over `CorePrimOp` variants, dispatched in [`core_dispatch.rs`](../../src/vm/core_dispatch.rs) (VM) and emitted via [`emit_llvm.rs`](../../src/lir/emit_llvm.rs) → [`tasks.c`](../../runtime/c/tasks.c) → [`native_abi.rs`](../../src/runtime/async/native_abi.rs) (native). The canonical numbered list is in [`src/core/mod.rs`](../../src/core/mod.rs).
+
+| Surface | Primop | Surface | Primop |
+|---|---|---|---|
+| `run_async` | `FiberRunAsync` | `Task.spawn` / `_move` | `TaskSpawn` / `TaskSpawnMove` |
+| `run_async_with` | `FiberRunAsyncWith` | `Task.spawn_scoped` / `_move` | `TaskSpawnScoped` / `…Move` |
+| `sleep` | `FiberSleep` | `Task.blocking_join` | `TaskBlockingJoin` |
+| `yield_now` | `FiberYieldNow` | `Task.await` | `TaskAwait` |
+| `both` / `race` | `FiberBoth` / `FiberRace` | `Task.cancel` | `TaskCancel` |
+| `first_of` | `FiberFirstOf` | `Channel.make`/`send`/`recv`/… | `ChanMake` / `ChanSend` / `ChanRecv` / … |
+| `timeout` | `FiberTimeout` | `Event.recv`/`send`/`after`/`choose`/… | `EventRecv` / `EventSend` / `EventAfter` / … |
+| `try` / `fail` | `FiberTry` / `FiberFail` | `Tcp.connect`/`read`/`write`/… | `TcpConnect` / `TcpRead` / … |
+| `new_scope` / `fork` / `cancel` | `FiberNewScope` / `FiberForkScoped` / `FiberCancelScope` | `Http.*` / `Json.*` | `HttpServeConfig` / … / `JsonParse` / `JsonStringify` |
+| `check_cancelled` | `FiberCheckCancelled` | `current_worker_count` | `FiberCurrentWorkerCount` |
+
+> The numeric primop IDs are assigned in `src/core/mod.rs`; the `Fiber*` channel/event/cancellation primops in the 178–201 range are from the v0.0.6 async work. Do not hardcode the numbers — reference the enum.
+
+---
+
+## 20. Known limitations
+
+These are real today; each has a tracked roadmap entry in [0174](../proposals/0174_async_effect_concurrency.md).
+
+1. **Parens scope effect rows on callback parameters.** A callback that carries `with <effect>` must wrap its function type in parens unless it is the final parameter. `Flow.Async.both`/`race`/`bracket`/`finally` all use the parenthesised form:
+   ```flux
+   fn both<a, b>(f: (() -> a with Async | e1), g: (() -> b with Async | e2)) -> (a, b) with Async   // ✅
+   fn finally<a>(body: () -> a, cleanup: () -> Unit with Async) -> a with Async                       // ✅ final bare form
+   ```
+2. **`AsyncError` runtime variants are opaque.** Only `canceled_error()` and `protocol_error(status, msg)` are exposed as constructors; the rest come back from the runtime.
+3. **`Sendable` has no teeth against bad hand-written instances** (§14). Mitigation: let the synthesizer derive them.
+4. **Scheduler hardening in progress.** The cancel × completion × steal boundary is historically fragile and `Fiber`'s `Send` rests on a prose invariant (§18). A deterministic test scheduler + stress harness are the planned fix (0174 Phase 2).
+
+> *Historical note:* a v0.0.5-era "LLVM compile hang on ≥9 sequential `run_async_with*` sites" was traced to an LLVM optimizer pass (not a Flux runtime bug) and is fixed on current LLVM. A defensive outliner remains in [`src/lir/run_async_outline.rs`](../../src/lir/run_async_outline.rs); user source never needs to change. Reproducer preserved at [`examples/async/repro_native_seq.flx`](../../examples/async/repro_native_seq.flx).
+
+---
+
+## 21. Idiom cookbook
+
+**Parallel fetch + combine** (fibers):
 ```flux
-fn fetch_a() -> String with Async { http_get("https://a") }
-fn fetch_b() -> String with Async { http_get("https://b") }
-
 fn combined() -> String with Async {
-    let pair = both(fetch_a, fetch_b)
-    pair.0 + pair.1
+    let (a, b) = both(fn() { http_get("https://a") }, fn() { http_get("https://b") })
+    a + b
 }
 ```
 
-### 16.2 Bounded backoff retry
-
+**Scatter + gather** (tasks for CPU work, awaited from a fiber):
 ```flux
-fn try_once() -> Int with Async { ... }
-
-fn with_deadline() -> Option<Int> with Async {
-    timeout(2000, try_once)
-}
-```
-
-### 16.3 Worker pool with task fan-out
-
-```flux
-fn job(n: Int) -> Int { sum_squares(n, 0) }
-
-fn main() with IO {
-    let t1 = Task.spawn(fn() { job(100) })   // closure must capture only Sendable values
-    let t2 = Task.spawn(fn() { job(200) })
-    print(Task.blocking_join(t1) + Task.blocking_join(t2))
-}
-```
-
-### 16.4 Cancellable long loop
-
-```flux
-fn process(items: List<Int>) -> List<Int> with Async {
-    bail_if_cancelled()
-    match items {
-        []        -> [],
-        [x | rest] -> [transform(x)] + process(rest)
-    }
-}
-```
-
-### 16.5 Resource + timeout composition
-
-```flux
-fn with_socket(addr: String) -> String with Async {
-    bracket(
-        fn() { open_socket(addr) },
-        fn(s) { close_socket(s) },
-        fn(s) { read_with_timeout(s) }
-    )
-}
-
-fn read_with_timeout(s: Socket) -> String with Async {
-    match timeout(500, fn() { read_line(s) }) {
-        Some(line) -> line,
-        None       -> ""
-    }
-}
-```
-
-### 16.6 Pinning the worker count for a benchmark
-
-```flux
-fn benchmark() -> Int with Async {
-    // Confirm the runtime actually allocated the workers we asked for.
-    let n = current_worker_count()
-    print("benchmark on " + to_string(n) + " workers")
-    workload()
-}
-
-fn main() with IO {
-    print(run_async_with_workers(8, benchmark))
-}
-```
-
-### 16.7 Tuning at startup from an env var
-
-```flux
-// Caller already set FLUX_WORKERS=N; let the resolver pick it up.
-fn main() with IO {
-    print("running with " + to_string(run_async(fn() -> Int with Async {
-        current_worker_count()
-    })) + " workers")
-}
-```
-
-### 16.8 Scatter + gather
-
-Spawn N parallel tasks for CPU work, await them all from a fiber while
-the OS thread keeps servicing other fibers.
-
-```flux
-fn job(seed: Int) -> Int { sum_squares(seed, 0) }
-
-fn worker_count_or_default() -> Int with Async {
-    let n = current_worker_count()
-    if n > 0 { n } else { 4 }
-}
-
 fn scatter_gather() -> Int with Async {
-    let n = worker_count_or_default()
+    let n = current_worker_count()
     let handles = map(range(0, n), fn(i) { Task.spawn(fn() { job(i * 100) }) })
     sum_list(map(handles, Task.await))
 }
 ```
 
-### 16.9 Race with cleanup
-
-`bracket` cleanup arms fire on every termination path including
-`race`-loser cancellation:
-
+**Race with cleanup** — `bracket` arms fire even on the loser:
 ```flux
-fn slow() -> String with Async {
-    bracket(
-        fn()  { acquire_handle() },
-        fn(h) { release_handle(h) },        // runs even when cancelled
-        fn(h) { sleep(2000); read(h) }
-    )
-}
-
-fn fast() -> String with Async { sleep(20); "fast" }
-
 fn body() -> String with Async {
-    race(fast, slow)                         // returns "fast" in ~20ms
-}                                            // slow's release_handle still runs
+    race(fn() { sleep(20); "fast" },
+         fn() { bracket(acquire, release, fn(h) { sleep(2000); read(h) }) })   // release still runs
+}
 ```
 
-### 16.10 Cooperative checkpoint inside a streaming reduction
-
+**Cancellable streaming reduction:**
 ```flux
 fn reduce_until<a, b>(items: Stream<a>, seed: b, step: (b, a) -> b) -> b with Async {
-    bail_if_cancelled()                      // honour scope cancellation
+    bail_if_cancelled()
     match Stream.next(items) {
-        None         -> seed,
+        None            -> seed,
         Some((x, rest)) -> reduce_until(rest, step(seed, x), step)
     }
 }
 ```
 
-### 16.11 Bounded concurrency with first_of
-
-Run N candidates, return the first one that succeeds, cancel the rest:
-
+**First successful mirror, cancel the rest:**
 ```flux
-fn fetch(url: String) -> String with Async { http_get(url) }
-
 fn fastest_mirror() -> String with Async {
-    let mirrors = [
-        fn() { fetch("https://a.example.com") },
-        fn() { fetch("https://b.example.com") },
-        fn() { fetch("https://c.example.com") }
-    ]
-    first(mirrors)                           // returns the fastest, cancels the others
+    first([fn() { fetch("https://a") }, fn() { fetch("https://b") }, fn() { fetch("https://c") }])
 }
 ```
 
-### 16.12 Catching panics in workers
-
-`Async.try` catches both explicit `fail` and panics, returning a
-`Result<a, AsyncError>` you can pattern-match or inspect with helper functions:
-
-```flux
-fn risky() -> Int with Async {
-    if random() < 0.5 { panic("nope") }
-    else              { 42 }
-}
-
-fn safe() -> Int with Async {
-    result_or(try(risky), -1)                // -1 on panic or fail
-}
-```
-
-### 16.13 Timeout cascades
-
-Stack timeouts when a sub-operation has its own deadline:
-
+**Timeout cascade** (sub-operation with its own deadline):
 ```flux
 fn outer() -> Option<String> with Async {
     timeout(5000, fn() {
-        let early = timeout(1000, fast_path)
-        match early {
-            Some(v) -> v,                    // fast path won
-            None    -> slow_path()           // 4s budget remains
+        match timeout(1000, fast_path) {
+            Some(v) -> v,
+            None    -> slow_path(),
         }
     })
 }
 ```
 
+More runnable, parity-tested examples for every surface live in [`examples/async/`](../../examples/async/); the teaching progression is in [`examples/guide_async/`](../../examples/guide_async/).
+
 ---
 
-## 17. See also
+## 22. See also
 
-- [`examples/async/`](../../examples/async/) — runnable, parity-tested examples for each surface in this doc
-- [`tests/parity/async_*.flx`](../../tests/parity/) — minimal parity fixtures pinning VM/LLVM behaviour
+- [`examples/async/`](../../examples/async/) — runnable, parity-tested examples per surface
+- [`tests/parity/async_*.flx`](../../tests/parity/) · `channel_*.flx` · `task_*.flx` — VM/LLVM parity fixtures
 - [proposal 0174](../proposals/0174_async_effect_concurrency.md) — full roadmap and runtime design
-- [`docs/internals/effect_row_system.md`](effect_row_system.md) — effect rows, row variables, subtraction
-- [`docs/internals/type_system_effects.md`](type_system_effects.md) — how the inference layer treats `with` clauses
+- [effect_row_system.md](effect_row_system.md) — effect rows, row variables, subtraction
+- [type_system_effects.md](type_system_effects.md) — how inference treats `with` clauses
