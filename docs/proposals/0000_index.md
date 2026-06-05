@@ -156,6 +156,7 @@ Feature state is evidence-driven:
 | 0152 | [0152_named_fields_for_data_types.md](0152_named_fields_for_data_types.md) | Draft | gap | proposal-only | named fields + dot-access + functional update syntax; supersedes 0048 |
 | 0175 | [0175_interactive_repl.md](0175_interactive_repl.md) | Draft | gap | proposal-only (builds on `flux eval`, `src/driver/pipeline/eval.rs`) | Phase 1 REPL: accumulate-source MVP; defines the user-facing REPL contract; Phase 2 engine is 0176 |
 | 0176 | [0176_interactive_repl_persistent_engine.md](0176_interactive_repl_persistent_engine.md) | Draft | gap | proposal-only | Phase 2 REPL: persistent-`Compiler` + live-VM incremental engine (GHCi-style); depends on 0175 |
+| 0177 | [0177_concurrency_reliability_and_actor_mvp.md](0177_concurrency_reliability_and_actor_mvp.md) | Draft | partial | v0.0.7 delivery plan over shipped 0174 substrate; M1 reliability (deterministic scheduler, stress harness, race audit) + Actor MVP (0143 Phase A) | execute in v0.0.7; depends on 0174, relates to 0143 |
 
 ### Superseded Historical Docs
 
