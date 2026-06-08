@@ -50,6 +50,55 @@ pub fn work_stealing_enabled() -> bool {
     })
 }
 
+// ── Deterministic scheduling ───────────────────────────────
+
+/// Tiny, dependency-free SplitMix64 PRNG. Pure integer arithmetic — no floats, no
+/// pointer hashing, no clock — so a given seed produces the identical stream on
+/// every platform, which is what makes the deterministic scheduler reproducible
+/// across OSes.
+#[derive(Debug, Clone)]
+pub struct SplitMix64 {
+    state: u64,
+}
+
+impl SplitMix64 {
+    pub fn new(seed: u64) -> Self {
+        SplitMix64 { state: seed }
+    }
+
+    /// Draw the next 64-bit value, advancing the state.
+    pub fn next_u64(&mut self) -> u64 {
+        self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    /// Draw a value in `0..n` (n > 0).
+    fn next_index(&mut self, n: usize) -> usize {
+        debug_assert!(n > 0);
+        (self.next_u64() % n as u64) as usize
+    }
+}
+
+/// Scheduling policy for a [`FiberScheduler`].
+///
+/// `Default` reproduces the production behavior (FIFO ready order + env-gated
+/// work-stealing / migration). `Deterministic` is the seedable single-worker test
+/// scheduler: it never steals (single worker) and, for a
+/// non-zero seed, picks the next ready fiber via a reproducible PRNG draw so tests
+/// can assert a fixed interleaving with zero `sleep()`. A zero seed keeps strict
+/// FIFO, identical to `Default` on a single worker.
+#[derive(Debug)]
+enum SchedPolicy {
+    Default,
+    /// Seedable single-worker test scheduler. `None` is the `seed == 0` strict-FIFO
+    /// mode (bit-identical to `Default` on one worker); `Some(rng)` is the seeded
+    /// permuting mode.
+    Deterministic(Option<SplitMix64>),
+}
+
 // ── WorkerState ───────────────────────────────────────────────────────────────
 
 /// Per-worker state owned by the scheduler.
@@ -84,6 +133,9 @@ pub struct FiberScheduler {
     workers: Vec<WorkerState>,
     next_child_worker: usize,
     next_ready_worker: usize,
+    /// Scheduling policy — production (`Default`) or the seedable deterministic
+    /// test scheduler.
+    policy: SchedPolicy,
 }
 
 impl FiberScheduler {
@@ -102,7 +154,27 @@ impl FiberScheduler {
             // immediately while preserving the no-migration invariant.
             next_child_worker: if num_workers > 1 { 1 } else { 0 },
             next_ready_worker: 0,
+            policy: SchedPolicy::Default,
         }
+    }
+
+    /// Create a single-worker **deterministic** scheduler seeded with `seed`
+    ///
+    /// Always runs on exactly one logical worker, so work-stealing and fiber
+    /// migration are structurally unreachable and the only scheduling choice is
+    /// which ready fiber to run next. With `seed == 0` that choice is strict FIFO
+    /// (identical to [`FiberScheduler::new(1)`]); with a non-zero seed it is a
+    /// reproducible PRNG-driven pick, letting tests assert a fixed interleaving
+    /// (and later sweep seeds to explore interleavings) with zero `sleep()`.
+    pub fn new_deterministic(seed: u64) -> Self {
+        let mut sched = FiberScheduler::new(1);
+        let rng = if seed == 0 {
+            None
+        } else {
+            Some(SplitMix64::new(seed))
+        };
+        sched.policy = SchedPolicy::Deterministic(rng);
+        sched
     }
 
     /// Spawn a new fiber on the given worker and push it onto the ready queue.
@@ -141,6 +213,12 @@ impl FiberScheduler {
     /// child-spawn sites should call; the two `spawn_child_*` variants below are
     /// the explicit primitives (used directly by tests).
     pub fn spawn_child(&mut self) -> FiberId {
+        // Deterministic test scheduler: a single worker, so placement is fixed at
+        // worker 0 — bypass the load-aware policy whose tie-breaks depend on
+        // transient queue lengths.
+        if matches!(self.policy, SchedPolicy::Deterministic(_)) {
+            return self.spawn(WorkerId(0));
+        }
         if work_stealing_enabled() {
             self.spawn_child_least_loaded()
         } else {
@@ -375,6 +453,27 @@ impl FiberScheduler {
     /// letting tests and future dispatch loops exercise multiple logical
     /// worker queues.
     pub fn next_ready_any(&mut self) -> Option<(WorkerId, Fiber)> {
+        // Deterministic test scheduler: one logical worker,
+        // so the only scheduling choice is which ready fiber on worker 0 to run
+        // next. A seeded policy permutes that choice reproducibly; the FIFO mode
+        // (`seed == 0`) falls through to the default path below.
+        if let SchedPolicy::Deterministic(Some(_)) = self.policy {
+            self.drain_pending_drop(0);
+            let len = self.workers[0].ready.len();
+            if len == 0 {
+                return None;
+            }
+            let pick = match &mut self.policy {
+                SchedPolicy::Deterministic(Some(rng)) => rng.next_index(len),
+                _ => unreachable!("policy checked above"),
+            };
+            let fiber = self.workers[0]
+                .ready
+                .pop_at(pick)
+                .expect("pick is within bounds");
+            return Some((WorkerId(0), fiber));
+        }
+
         for offset in 0..self.workers.len() {
             let worker_idx = (self.next_ready_worker + offset) % self.workers.len();
             let worker = WorkerId(worker_idx as u32);
@@ -839,5 +938,76 @@ mod tests {
             .unwrap();
         assert!(stolen.is_none());
         assert_eq!(sched.ready_count(WorkerId(1)), 1);
+    }
+
+    // ── Deterministic scheduler ────────────────────────
+
+    #[test]
+    fn splitmix64_pins_first_outputs_for_seed_42() {
+        // Pure integer arithmetic — these outputs must be identical on every
+        // platform, which is the bedrock of cross-OS deterministic scheduling.
+        let mut rng = SplitMix64::new(42);
+        let got: Vec<u64> = (0..5).map(|_| rng.next_u64()).collect();
+        assert_eq!(
+            got,
+            vec![
+                13679457532755275413,
+                2949826092126892291,
+                5139283748462763858,
+                6349198060258255764,
+                701532786141963250,
+            ]
+        );
+    }
+
+    #[test]
+    fn deterministic_seed_zero_is_fifo() {
+        let mut sched = FiberScheduler::new_deterministic(0);
+        let a = sched.spawn(w0());
+        let b = sched.spawn(w0());
+        let c = sched.spawn(w0());
+        assert_eq!(sched.next_ready_any().unwrap().1.id, a);
+        assert_eq!(sched.next_ready_any().unwrap().1.id, b);
+        assert_eq!(sched.next_ready_any().unwrap().1.id, c);
+        assert!(sched.next_ready_any().is_none())
+    }
+
+    #[test]
+    fn deterministic_seed_nonzero_picks_pinned_permutation() {
+        // Drain order of four ready fibers under SplitMix64(42): b, c, a, d
+        // (see splitmix64_pins_first_outputs_for_seed_42 + next_index mechanics).
+        let mut sched = FiberScheduler::new_deterministic(42);
+        let a = sched.spawn(w0());
+        let b = sched.spawn(w0());
+        let c = sched.spawn(w0());
+        let d = sched.spawn(w0());
+        let order: Vec<FiberId> =
+            std::iter::from_fn(|| sched.next_ready_any().map(|(_, f)| f.id)).collect();
+        assert_eq!(order, vec![b, c, a, d]);
+    }
+
+    #[test]
+    fn deterministic_same_seed_is_reproducible() {
+        // The same seed must produce the identical interleaving every time —
+        // the property the whole test scheduler exists to provide.
+        fn drain(seed: u64) -> Vec<usize> {
+            let mut sched = FiberScheduler::new_deterministic(seed);
+            let ids: Vec<FiberId> = (0..6).map(|_| sched.spawn(w0())).collect();
+            std::iter::from_fn(|| sched.next_ready_any().map(|(_, f)| f.id))
+                .map(|id| ids.iter().position(|x| *x == id).unwrap())
+                .collect()
+        }
+        let first = drain(7);
+        assert_eq!(first, drain(7), "same seed must replay the same schedule");
+        // It is a genuine permutation of all spawned fibers.
+        let mut sorted = first.clone();
+        sorted.sort_unstable();
+        assert_eq!(sorted, (0..6).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn deterministic_scheduler_is_simple_worker() {
+        let sched = FiberScheduler::new_deterministic(42);
+        assert_eq!(sched.num_workers(), 1);
     }
 }

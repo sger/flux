@@ -368,6 +368,13 @@ impl FiberQueue {
         self.inner.pop_back()
     }
 
+    /// Remove and return the fiber at position `idx` (front = 0), preserving the
+    /// relative order of the rest. Used by the deterministic scheduler to pick a
+    /// seeded ready fiber. Returns `None` if out of bounds.
+    pub fn pop_at(&mut self, idx: usize) -> Option<Fiber> {
+        self.inner.remove(idx)
+    }
+
     /// Iterate over queued fibers from front to back.
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = &Fiber> {
         self.inner.iter()

@@ -434,6 +434,14 @@ name = "vm_runtime_config"
 path = "tests/integration/vm_runtime_config.rs"
 
 [[test]]
+name = "vm_deterministic_scheduler"
+path = "tests/integration/vm_deterministic_scheduler.rs"
+
+[[test]]
+name = "effectful_closures"
+path = "tests/integration/effectful_closures.rs"
+
+[[test]]
 name = "vm_fiber_registry"
 path = "tests/integration/vm_fiber_registry.rs"
 

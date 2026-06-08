@@ -1462,7 +1462,7 @@ impl CorePrimOp {
             ("event_wrap", 2, CorePrimOp::EventWrap),
             ("fiber_first_of", 1, CorePrimOp::FiberFirstOf),
             ("fiber_try", 1, CorePrimOp::FiberTry),
-            ("fiber_run_async_with", 4, CorePrimOp::FiberRunAsyncWith),
+            ("fiber_run_async_with", 5, CorePrimOp::FiberRunAsyncWith),
             ("http_serve_config", 3, CorePrimOp::HttpServeConfig),
             ("http_shutdown", 1, CorePrimOp::HttpShutdown),
             ("http_shutdown_now", 1, CorePrimOp::HttpShutdownNow),
@@ -1720,8 +1720,7 @@ impl CorePrimOp {
             | HttpParseRequest => 2,
             ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring
             | HttpServeConfig => 3,
-            FiberRunAsyncWith => 4,
-            HttpWriteRequest => 5,
+            FiberRunAsyncWith | HttpWriteRequest => 5,
             // Variadic: MakeList, MakeArray, MakeTuple, MakeHash, Interpolate
             // are handled separately by the compiler, not via OpPrimOp.
             MakeList | MakeArray | MakeTuple | MakeHash | Interpolate => 0,
