@@ -74,7 +74,7 @@ module Flow.Async {
     /// Phase 2 slice 2-vii: run an async action with explicit RuntimeConfig
     /// knobs. Each int is a tagged Flux Int; passing 0 means "use the default
     /// for that knob".
-    intrinsic fn fiber_run_async_with_prim<a>(workers: Int, fs_pool: Int, dns_pool: Int, action: () -> a with Async | e) -> a = primop FiberRunAsyncWith
+    intrinsic fn fiber_run_async_with_prim<a>(workers: Int, fs_pool: Int, dns_pool: Int, det_seed: Int, action: () -> a with Async | e) -> a = primop FiberRunAsyncWith
 
     /// Cooperative reschedule: move the current fiber to the tail of its
     /// run-queue. Real on both the VM and native backends; a no-op only
@@ -146,11 +146,19 @@ module Flow.Async {
     ///   consumers land. `0` means "use default".
     /// - `dns_pool_size`: blocking-thread pool size for DNS resolution.
     ///   `0` means use `FLUX_DNS_THREADS` or the runtime default.
+    /// - `det_seed`: deterministic-scheduler seed (proposal 0177 T1.1).
+    ///   `Some(seed)` selects a single-worker, seedable scheduler so a program's
+    ///   fiber interleaving is reproducible across runs and OSes; `None` (the
+    ///   default) uses the production multi-worker scheduler. The determinism
+    ///   guarantee covers cooperative/`yield_now`-only interleavings — it does
+    ///   not virtualize timers or I/O completion order, so it is best-effort if
+    ///   the program calls `sleep`/network I/O. See `with_deterministic_scheduler`.
     public data RuntimeConfig {
         RuntimeConfig {
             worker_count:  Option<Int>,
             fs_pool_size:  Int,
             dns_pool_size: Int,
+            det_seed:      Option<Int>,
         }
     }
 
@@ -167,6 +175,7 @@ module Flow.Async {
             worker_count:  None,
             fs_pool_size:  0,
             dns_pool_size: 0,
+            det_seed:      None,
         }
     }
 
@@ -179,6 +188,7 @@ module Flow.Async {
             worker_count:  Some(n),
             fs_pool_size:  0,
             dns_pool_size: 0,
+            det_seed:      None,
         }
     }
 
@@ -188,6 +198,25 @@ module Flow.Async {
             worker_count:  None,
             fs_pool_size:  0,
             dns_pool_size: n,
+            det_seed:      None,
+        }
+    }
+
+    /// Builder helper: select the **deterministic test scheduler** seeded with
+    /// `seed`.
+    ///
+    /// Runs on a single logical worker so the fiber interleaving is reproducible
+    /// across runs and operating systems — letting tests assert a fixed schedule
+    /// instead of racing on `sleep` timers. `seed == 0` is strict FIFO; a
+    /// non-zero seed selects a reproducible interleaving (sweep seeds to explore
+    /// schedules). The guarantee covers cooperative/`yield_now`-only programs; it
+    /// does not virtualize timers or I/O completion order.
+    public fn with_deterministic_scheduler(seed: Int) -> RuntimeConfig {
+        RuntimeConfig {
+            worker_count:  Some(1),
+            fs_pool_size:  0,
+            dns_pool_size: 0,
+            det_seed:      Some(seed),
         }
     }
 
@@ -209,7 +238,11 @@ module Flow.Async {
             Some(n) -> n,
             None    -> 0
         }
-        fiber_run_async_with_prim(workers, cfg.fs_pool_size, cfg.dns_pool_size, action)
+        let seed = match cfg.det_seed {
+            Some(s) -> s,
+            None -> -1
+        }
+        fiber_run_async_with_prim(workers, cfg.fs_pool_size, cfg.dns_pool_size, seed, action)
     }
 
     /// Run an async computation with an explicit worker count and default

@@ -415,6 +415,9 @@ mod vm_fibers {
         #[allow(dead_code)]
         pub fs_pool_size: u32,
         pub dns_pool_size: u32,
+        /// Deterministic-scheduler seed. `Some(seed)` selects
+        /// the single-worker seedable scheduler; `None` is the production path.
+        pub det_seed: Option<u64>,
     }
 
     #[derive(Clone)]
@@ -509,6 +512,15 @@ mod vm_fibers {
     ///   4. Hardcoded fallback of 2 logical workers when parallelism cannot
     ///      be determined (matches the Phase 1b-vi-c default).
     fn resolved_worker_count() -> usize {
+        // The deterministic test scheduler is single-worker by construction
+        // force one worker before consulting any explicit
+        // count, FLUX_WORKERS, or available parallelism, so the timing-dependent
+        // multi-OS-thread dispatch path is never selected.
+        if let Some(cfg) = PENDING_RUN_CONFIG.with(|c| c.get())
+            && cfg.det_seed.is_some()
+        {
+            return 1;
+        }
         if let Some(cfg) = PENDING_RUN_CONFIG.with(|c| c.get())
             && cfg.worker_count > 0
         {
@@ -556,8 +568,14 @@ mod vm_fibers {
                 vm_async::configure_dns_pool_size(cfg.dns_pool_size as usize);
             }
             let n_workers = resolved_worker_count().max(1);
+            let det_seed = PENDING_RUN_CONFIG
+                .with(|c| c.get())
+                .and_then(|cfg| cfg.det_seed);
             SCHED.with(|s| {
-                *s.borrow_mut() = Some(FiberScheduler::new(n_workers));
+                *s.borrow_mut() = Some(match det_seed {
+                    Some(seed) => FiberScheduler::new_deterministic(seed),
+                    None => FiberScheduler::new(n_workers),
+                });
             });
             // Phase 2: arm the root-task safety net for `Task.spawn` calls
             // made inside this run_async. Cleared at outermost exit.
@@ -3395,11 +3413,13 @@ pub fn execute_core_primop(
         }
 
         // fiber_run_async_with: `FiberRunAsync` plus explicit RuntimeConfig
-        // knobs (proposal 0174 Phase 2 slice 2-vii). Args:
+        // knobs (proposal 0174 Phase 2 slice 2-vii; det_seed added by 0177 T1.1).
+        // Args:
         //   args[0] = worker_count   (Int; 0 means "default")
         //   args[1] = fs_pool_size   (Int; 0 means "default"; consulted by 2-viii)
         //   args[2] = dns_pool_size  (Int; 0 means "default"; consulted by 2-viii)
-        //   args[3] = action closure
+        //   args[3] = det_seed       (Int; -1 means "non-deterministic"; >=0 = seed)
+        //   args[4] = action closure
         // Sets the pending RuntimeConfig before entering the boundary so
         // `enter_run_async` picks it up; the rest of the path is identical
         // to `FiberRunAsync`.
@@ -3419,17 +3439,23 @@ pub fn execute_core_primop(
                 Value::Integer(_) => 0,
                 other => return Err(terr("fiber_run_async_with(dns)", "Int", other)),
             };
+            let det_seed = match &args[3] {
+                Value::Integer(n) if *n >= 0 => Some(*n as u64),
+                Value::Integer(_) => None,
+                other => return Err(terr("fiber_run_async_with(det_seed)", "Int", other)),
+            };
             vm_fibers::set_pending_run_config(vm_fibers::PendingRunConfig {
                 worker_count: workers,
                 fs_pool_size: fs_pool,
                 dns_pool_size: dns_pool,
+                det_seed,
             });
 
             let backend = vm_async::backend()?;
             let root = vm_fibers::enter_run_async();
             let prev_boundary =
                 vm_fibers::set_boundary(ctx.current_frame_index(), ctx.current_sp());
-            vm_fibers::set_root_with_body(root, args[3].clone());
+            vm_fibers::set_root_with_body(root, args[4].clone());
 
             // Phase 4: branch on worker count (same as FiberRunAsync above).
             let n_workers = vm_fibers::current_num_workers();

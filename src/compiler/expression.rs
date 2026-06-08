@@ -2368,7 +2368,10 @@ impl Compiler {
         }
 
         let param_effect_rows = self.build_param_effect_rows(parameters, parameters_types);
-        self.with_function_context_with_param_effect_rows(
+        // Function literals with no explicit `with` clause inherit the enclosing
+        // ambient effect row, matching type inference. An explicit
+        // clause is honoured verbatim.
+        self.with_function_literal_context(
             parameters.len(),
             effects,
             param_effect_rows,

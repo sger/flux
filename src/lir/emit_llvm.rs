@@ -4017,10 +4017,13 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_fiber_check_cancelled" => (LlvmType::i64(), vec![]),
         // Slice 2-vii follow-up: zero-arg, returns tagged Flux Int.
         "flux_fiber_current_worker_count" => (LlvmType::i64(), vec![]),
-        // Phase 2 slice 2-vii: 4-arg run_async_with (workers, fs, dns, closure).
+        // 5-arg run_async_with
+        // (workers, fs, dns, det_seed, closure). det_seed is the deterministic
+        // scheduler seed; the native backend ignores it (VM-only for now).
         "flux_fiber_run_async_with" => (
             LlvmType::i64(),
             vec![
+                LlvmType::i64(),
                 LlvmType::i64(),
                 LlvmType::i64(),
                 LlvmType::i64(),

@@ -2350,10 +2350,26 @@ impl Parser {
         let parameters = self.parse_function_parameters()?;
         let parameter_types = vec![None; parameters.len()];
 
+        // Optional return-type and `with` effect clause: a
+        // function literal may declare `fn(params) -> T with E { ... }`, mirroring
+        // named functions. Both are optional, so bare `fn(params) { ... }` is
+        // unchanged. The declared effects are honoured verbatim by the compiler;
+        // without them the literal inherits the enclosing ambient.
+        let return_type = if self.is_peek_token(TokenType::Arrow) {
+            self.next_token(); // ->
+            self.next_token(); // start of return type
+            self.parse_type_expr()
+        } else {
+            None
+        };
+
+        let effects = self.parse_effect_list()?;
+
         if !self.expect_peek_context(
             TokenType::LBrace,
             "Expected `{` to begin function literal body.".to_string(),
-            "Function literals use `fn(params) { ... }`.".to_string(),
+            "Function literals use `fn(params) { ... }` or `fn(params) -> T with E { ... }."
+                .to_string(),
         ) {
             return None;
         }
@@ -2362,8 +2378,8 @@ impl Parser {
         Some(Expression::Function {
             parameters,
             parameter_types,
-            return_type: None,
-            effects: vec![],
+            return_type,
+            effects,
             body,
             span: Span::new(start, self.current_token.end_position),
             id: self.next_expr_id(),

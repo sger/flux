@@ -219,7 +219,7 @@ int64_t flux_fiber_current_worker_count(void);
 /* Phase 2 slice 2-vii: run an async action with explicit RuntimeConfig
  * (worker_count, fs_pool_size, dns_pool_size). Each int is a tagged Flux
  * Int; a value of 0 means "use the default". */
-int64_t flux_fiber_run_async_with(int64_t worker_count, int64_t fs_pool_size, int64_t dns_pool_size, int64_t closure);
+int64_t flux_fiber_run_async_with(int64_t worker_count, int64_t fs_pool_size, int64_t dns_pool_size, int64_t det_seed, int64_t closure);
 
 /* Flow.Channel<a> (bounded producer/consumer channels). */
 int64_t flux_chan_make(int64_t capacity);
@@ -286,7 +286,7 @@ int32_t  flux_async_set_callbacks(const FluxAsyncCallbacks *callbacks);
 int32_t  flux_async_runtime_init(void);
 int64_t  flux_async_run_root(int64_t root_closure);
 int32_t  flux_async_last_run_failed(void);
-int64_t  flux_async_run_root_with(int64_t worker_count, int64_t fs_pool_size, int64_t dns_pool_size, int64_t root_closure);
+int64_t  flux_async_run_root_with(int64_t worker_count, int64_t fs_pool_size, int64_t dns_pool_size, int64_t det_seed, int64_t root_closure);
 uint64_t flux_async_timer_start(int64_t ms);
 int64_t  flux_async_suspend(int64_t request_id, int64_t resume_value);
 int64_t  flux_async_suspend_request(uint64_t request_id);

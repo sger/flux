@@ -6967,7 +6967,47 @@ impl Compiler {
     where
         F: FnOnce(&mut Self) -> R,
     {
-        self.function_param_counts.push(num_params);
+        let normalized_effects = self.normalize_function_effects(effects);
+        self.run_in_function_context(num_params, normalized_effects, param_effect_rows, f)
+    }
+
+    /// Function-context entry for **function literals** (closures/lambdas).
+    ///
+    /// When a literal carries no explicit `with` clause, its body inherits the
+    /// enclosing function's ambient effect row (the same rule type inference
+    /// already applies via bidirectional checking). A closure can only perform
+    /// effects its defining context permits, so this is sound, and it keeps the
+    /// compiler's effect gate from being stricter than the type checker — which
+    /// otherwise rejects effectful un-annotated closures with E400. An explicit
+    /// `with` clause on the literal is honoured verbatim.
+    pub(super) fn with_function_literal_context<F, R>(
+        &mut self,
+        num_params: usize,
+        effects: &[EffectExpr],
+        param_effect_rows: HashMap<Symbol, effect_rows::EffectRow>,
+        f: F,
+    ) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        let normalize_effects = if effects.is_empty() {
+            let mut inherited = self
+                .current_function_effects()
+                .map(<[Symbol]>::to_vec)
+                .unwrap_or_default();
+            inherited.extend(self.handled_effects.iter().copied());
+            inherited
+        } else {
+            self.normalize_function_effects(effects)
+        };
+        self.run_in_function_context(num_params, normalize_effects, param_effect_rows, f)
+    }
+
+    /// Lower a declared effect list to the flat set of effect-name symbols that
+    /// forms a function's ambient row. Resolves the `ambient` / select-ambient
+    /// row-var markers against the enclosing context. Must be called *before*
+    /// the new function frame is pushed (it reads the enclosing frame).
+    fn normalize_function_effects(&self, effects: &[EffectExpr]) -> Vec<Symbol> {
         let mut normalized_effects = Vec::new();
         for effect in effects {
             match effect {
@@ -6994,6 +7034,22 @@ impl Compiler {
                 _ => normalized_effects.extend(effect.normalized_names()),
             }
         }
+        normalized_effects
+    }
+
+    /// Push a function frame with a precomputed ambient effect row, run `f`, then
+    /// pop the frame. Shared by the named-function and function-literal entries.
+    fn run_in_function_context<F, R>(
+        &mut self,
+        num_params: usize,
+        normalized_effects: Vec<Symbol>,
+        param_effect_rows: HashMap<Symbol, effect_rows::EffectRow>,
+        f: F,
+    ) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        self.function_param_counts.push(num_params);
         self.function_effects.push(normalized_effects);
         self.function_param_effect_rows.push(param_effect_rows);
         self.captured_local_indices.push(HashSet::new());
