@@ -343,6 +343,54 @@ let test2 = "this compiles";
     }
 
     #[test]
+    fn function_literal_with_return_type_and_effects() {
+        // function literals may carry `-> T with E`.
+        let (program, interner) = parse("let f = fn() -> Int with Async { 1 };");
+        match &program.statements[0] {
+            Statement::Let { value, .. } => match value {
+                Expression::Function {
+                    return_type,
+                    effects,
+                    ..
+                } => {
+                    assert!(return_type.is_some(), "return type should be parsed");
+                    let names: Vec<_> = effects
+                        .iter()
+                        .flat_map(|e| e.normalized_names())
+                        .map(|s| interner.resolve(s).to_string())
+                        .collect();
+                    assert!(
+                        names.iter().any(|n| n == "Async"),
+                        "expected Async effect, got {names:?}"
+                    );
+                }
+                other => panic!("expected function literal, got {other:?}"),
+            },
+            other => panic!("expected let statement, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn function_literal_effects_are_optional() {
+        // Bare `fn(params) { ... }` must still parse with no return type/effects.
+        let (program, _interner) = parse("let f = fn(x, y) { x + y};");
+        match &program.statements[0] {
+            Statement::Let { value, .. } => match value {
+                Expression::Function {
+                    return_type,
+                    effects,
+                    ..
+                } => {
+                    assert!(return_type.is_none());
+                    assert!(effects.is_empty());
+                }
+                other => panic!("expected function literal, got {other:?}"),
+            },
+            other => panic!("expected let statement, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn test_function_statement() {
         let (program, interner) = parse("fn add(x, y) { x + y; }");
         assert_eq!(program.statements.len(), 1);

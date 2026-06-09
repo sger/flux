@@ -41,6 +41,11 @@ runtime/c/*.obj
 runtime/c/*.lib
 runtime/c/smoke_test
 
+# clangd compile database (machine-specific absolute paths;
+# regenerate with scripts/gen-compile-commands.ps1) and index cache
+runtime/c/compile_commands.json
+.cache/
+
 # Benchmark artifacts
 /baseline_criterion/
 

@@ -74,3 +74,59 @@ fn main() with IO {
     );
     assert_eq!(stdout.trim(), "\"hi\"");
 }
+
+#[test]
+fn explicit_effect_annotation_on_closure_compiles_and_runs() {
+    // explicit `fn() -> T with E { ... }` literal syntax.
+    let source = r#"
+import Flow.Async exposing (..)
+import Flow.Channel as Channel
+
+fn body() -> String with Async {
+    let ch = Channel.make(8)
+    both(
+        fn() -> Unit with Async { Channel.send(ch, "x") },
+        fn() -> Unit with Async { yield_now() }
+    )
+    match Channel.recv(ch) { Some(v) -> v, _ -> "none" }
+}
+
+fn main() with IO {
+    print(run_async(body))
+}
+"#;
+
+    let (stdout, stderr, success) = flux_runner::run_flux(source, "closure_explicit");
+    assert!(
+        success,
+        "explicitly-annotated effectful closure must compile and run:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.trim(), "\"x\"");
+}
+
+#[test]
+fn closure_effect_beyond_enclosing_function_is_rejected() {
+    // Soundness: the closure performs `Console` (print) but the enclosing
+    // `pure_ctx` declares no effects — this must still fail to compile.
+    let source = r#"
+fn apply(f: () -> Int) -> Int { f() }
+
+fn pure_ctx() -> Int {
+    apply(fn() { print("leak"); 1 })
+}
+
+fn main() with IO {
+    print(to_string(pure_ctx()))
+}
+"#;
+    let (stdout, stderr, success) = flux_runner::run_flux(source, "closure_unsound");
+    assert!(
+        !success,
+        "closure performing an effect beyond its enclosing function must be rejected:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+
+    assert!(
+        stderr.contains("E400") || stderr.contains("Missing Ambient Effect"),
+        "expected E400 missing-effect error, got stderr:\n{stderr}"
+    );
+}
