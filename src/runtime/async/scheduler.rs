@@ -27,6 +27,8 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+use crate::runtime::value::Value;
+
 use super::backend::RequestId;
 use super::config::fiber_migration_enabled;
 use super::context::WorkerId;
@@ -136,6 +138,18 @@ pub struct FiberScheduler {
     /// Scheduling policy — production (`Default`) or the seedable deterministic
     /// test scheduler.
     policy: SchedPolicy,
+    /// Reserved-but-not-yet-runnable child fibers, keyed by fiber id.
+    ///
+    /// A synthetic-await combinator (`both`/`race`/`first_of`/`try`/`timeout`)
+    /// must register its await and suspend the parent **before** any child can
+    /// run — otherwise a child completing on another worker races the parent's
+    /// registration/park and its completion is lost (deadlock under
+    /// `FLUX_FIBER_MIGRATION`/`FLUX_WORK_STEALING`). Children are `reserve`d
+    /// here (created, home-worker assigned, but in no ready queue, so no worker
+    /// can pop them) and only `activate`d onto a ready queue once the parent is
+    /// safely suspended. Mirrors the native backend's register-before-spawn
+    /// ordering (`native_abi.rs`).
+    reserved: HashMap<u64, Fiber>,
 }
 
 impl FiberScheduler {
@@ -155,6 +169,7 @@ impl FiberScheduler {
             next_child_worker: if num_workers > 1 { 1 } else { 0 },
             next_ready_worker: 0,
             policy: SchedPolicy::Default,
+            reserved: HashMap::new(),
         }
     }
 
@@ -245,6 +260,85 @@ impl FiberScheduler {
             .map(|(idx, _)| WorkerId(idx as u32))
             .unwrap_or(WorkerId(0));
         self.spawn(worker)
+    }
+
+    /// Choose the home worker a freshly-spawned child would be pinned to,
+    /// **without** creating or enqueuing anything. Same policy as
+    /// [`FiberScheduler::spawn_child`]: fixed worker 0 under the deterministic
+    /// scheduler, least-loaded queue when work-stealing is enabled, plain
+    /// round-robin otherwise.
+    fn placement_worker(&mut self) -> WorkerId {
+        if matches!(self.policy, SchedPolicy::Deterministic(_)) {
+            return WorkerId(0);
+        }
+
+        if work_stealing_enabled() {
+            self.workers
+                .iter()
+                .enumerate()
+                .min_by_key(|(idx, w)| (w.ready.len(), *idx))
+                .map(|(idx, _)| WorkerId(idx as u32))
+                .unwrap_or(WorkerId(0))
+        } else {
+            self.next_child_worker()
+        }
+    }
+
+    /// Reserve a child fiber **without** making it runnable (proposal 0177 T1.2
+    /// race fix). The fiber is created and assigned a home worker by the active
+    /// placement policy, but parked in `reserved` rather than any ready queue,
+    /// so no worker can pop or run it. The caller registers the parent's await
+    /// on the returned id, suspends the parent, then calls
+    /// [`FiberScheduler::activate_child`]. See the `reserved` field doc.
+    pub fn reserve_child(&mut self) -> FiberId {
+        let worker = self.placement_worker();
+        self.reserve_on(worker)
+    }
+
+    /// Like [`FiberScheduler::reserve_child`] but pins the reserved child to a
+    /// specific worker — used by the source-order-sensitive `race`/`first_of`
+    /// combinators, which place immediate candidates on the caller's worker.
+    pub fn reserve_ordered_child(&mut self, worker: WorkerId) -> FiberId {
+        self.reserve_on(worker)
+    }
+
+    fn reserve_on(&mut self, worker: WorkerId) -> FiberId {
+        let worker_idx = worker.0 as usize;
+        assert!(worker_idx < self.workers.len(), "invalid worker id");
+        let fiber = Fiber::new(worker);
+        let id = fiber.id;
+        self.reserved.insert(id.0, fiber);
+        id
+    }
+
+    /// Attach `body` to a previously [`reserve`d](FiberScheduler::reserve_child)
+    /// child and move it onto its home worker's ready queue, making it
+    /// runnable. Returns the home worker so the caller can wake it. Returns
+    /// `None` if the id was never reserved (or was already activated/discarded).
+    pub fn activate_child(&mut self, id: FiberId, body: Value) -> Option<WorkerId> {
+        let mut fiber = self.reserved.remove(&id.0)?;
+        fiber.body = Some(body);
+        fiber.state = FiberState::Ready;
+        let worker = fiber.home_worker;
+        let worker_idx = worker.0 as usize;
+        if self.total_ready_count() == 0 {
+            self.next_ready_worker = worker_idx;
+        }
+        self.workers[worker_idx].ready.push(fiber);
+        fiber_trace::emit(FiberEvent::Spawn {
+            fid: id.0,
+            worker: worker.0,
+        });
+        Some(worker)
+    }
+
+    /// Drop reserved children that will never be activated — the parent's park
+    /// aborted (e.g. cancelled before suspending), so the children must not
+    /// leak in `reserved` nor ever run.
+    pub fn discard_reserved(&mut self, ids: &[FiberId]) {
+        for id in ids {
+            self.reserved.remove(&id.0);
+        }
     }
 
     /// Push a pre-existing fiber onto its home worker's ready queue (proposal
@@ -576,6 +670,49 @@ mod tests {
         assert_eq!(fiber.id, id);
         assert_eq!(fiber.state, FiberState::Ready);
         assert_eq!(sched.ready_count(w0()), 0);
+    }
+
+    #[test]
+    fn reserve_child_is_not_runnable_until_activated() {
+        // A reserved child must stay out of every ready
+        // queue (no worker can pop it) until the parent activates it, which is
+        // what closes the register/park-vs-complete races.
+        let mut sched = FiberScheduler::new(1);
+        let id = sched.reserve_child();
+        assert_eq!(
+            sched.ready_count(w0()),
+            0,
+            "reserved child must not be ready"
+        );
+        assert!(
+            sched.next_ready(w0()).is_none(),
+            "no worker may pop a reserved child"
+        );
+
+        let woke = sched.activate_child(id, Value::None);
+        assert_eq!(
+            woke,
+            Some(w0()),
+            "activation returns the home worker to wake"
+        );
+        assert_eq!(sched.ready_count(w0()), 1);
+        let fiber = sched.next_ready(w0()).unwrap();
+        assert_eq!(fiber.id, id);
+        assert_eq!(fiber.state, FiberState::Ready);
+        assert!(fiber.body.is_some(), "activation attaches the body");
+    }
+
+    #[test]
+    fn discard_reserved_drops_child_without_running_it() {
+        // A parent whose park aborts (cancellation) discards its reserved
+        // children; they must never reach a ready queue.
+        let mut sched = FiberScheduler::new(1);
+        let id = sched.reserve_child();
+        sched.discard_reserved(&[id]);
+        assert_eq!(sched.ready_count(w0()), 0);
+        assert!(sched.next_ready(w0()).is_none());
+        // Activating a discarded id is a no-op (returns None).
+        assert_eq!(sched.activate_child(id, Value::None), None);
     }
 
     #[test]

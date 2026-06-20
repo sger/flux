@@ -56,10 +56,14 @@ fn run_once(seed: i64, tag: &str) -> String {
 }
 
 #[test]
-fn with_deterministic_scheduler_output_is_byte_identical_across_runs() {
+fn deterministic_scheduler_output_is_byte_identical_across_runs() {
     let first = run_once(42, "det_first");
+    // A genuine permutation of the four tags not the trivial source orde).
+    // The exact permutation encodes the order children enter the ready queue;
+    // it shifted (from "ADBC") made synthetic-await
+    // children reserve-then-activate-after-park instead of spawning eagerly.
     assert_eq!(
-        first, "\"ADBC\"",
+        first, "\"CADB\"",
         "unexpected interleaving for seed 42: {first}"
     );
     for i in 0..20 {
@@ -73,14 +77,14 @@ fn with_deterministic_scheduler_output_is_byte_identical_across_runs() {
 
 #[test]
 fn deterministic_scheduler_seed_selects_the_interleaving() {
-    // Each seed is internally stable and the seeds disagree — proof the seed
+    // Each seed is internally stable and the seeds disagree proof the seed
     // actually drives the schedule (not just incidental determinism).
     let s0 = run_once(0, "det_seed0"); // strict FIFO
     let s1 = run_once(1, "det_seed1");
     let s99 = run_once(99, "det_seed99");
     assert_eq!(s0, "\"ABCD\"", "seed 0 is strict FIFO");
-    assert_eq!(s1, "\"BDAC\"");
-    assert_eq!(s99, "\"DCAB\"");
+    assert_eq!(s1, "\"BADC\"");
+    assert_eq!(s99, "\"DABC\"");
     // Stable on repeat.
     assert_eq!(run_once(1, "det_seed1_again"), s1);
 }

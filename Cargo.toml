@@ -378,6 +378,10 @@ name = "native_runtime_config_tests"
 path = "tests/native_llvm/native_runtime_config_tests.rs"
 
 [[test]]
+name = "native_async_stress_tests"
+path = "tests/native_llvm/native_async_stress_tests.rs"
+
+[[test]]
 name = "type_inference_tests"
 path = "tests/type_inference/type_inference_tests.rs"
 
@@ -408,6 +412,10 @@ path = "tests/type_inference/constrained_type_params_integration.rs"
 [[test]]
 name = "sendable_tests"
 path = "tests/type_inference/sendable_tests.rs"
+
+[[test]]
+name = "async_stress"
+path = "tests/integration/async_stress.rs"
 
 [[test]]
 name = "flow_task_tests"
