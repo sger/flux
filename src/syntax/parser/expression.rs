@@ -2368,7 +2368,7 @@ impl Parser {
         if !self.expect_peek_context(
             TokenType::LBrace,
             "Expected `{` to begin function literal body.".to_string(),
-            "Function literals use `fn(params) { ... }` or `fn(params) -> T with E { ... }."
+            "Function literals use `fn(params) { ... }` or `fn(params) -> T with E { ... }`."
                 .to_string(),
         ) {
             return None;

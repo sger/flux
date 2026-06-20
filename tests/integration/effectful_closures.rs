@@ -18,25 +18,25 @@ fn unannotated_effectful_closure_passed_to_both_compiles_and_runs() {
     // The closures perform Async effects (yield_now, Channel.send) with no `with`
     // clause; they inherit `body`'s ambient `Async`. Previously E400.
     let source = r#"
-    import Flow.Async exposing (..)
-    import Flow.Channel as Channel
+import Flow.Async exposing (..)
+import Flow.Channel as Channel
 
-    fn body() -> String with Async {
-        let ch = Channel.make(8)
-        both(
-            fn() { yield_now(); Channel.send(ch, "A") },
-            fn() { yield_now(); Channel.send(ch, "B") },
-        )
-        match (Channel.recv(ch), Channel.recv(ch)) {
-            (Some(x), Some(y)) -> x + y,
-            _ -> "closed"
-        }
+fn body() -> String with Async {
+    let ch = Channel.make(8)
+    both(
+        fn() { yield_now(); Channel.send(ch, "A") },
+        fn() { yield_now(); Channel.send(ch, "B") }
+    )
+    match (Channel.recv(ch), Channel.recv(ch)) {
+        (Some(x), Some(y)) -> x + y,
+        _ -> "closed"
     }
+}
 
-    fn main() with IO {
-        print(run_async(body))
-    }
-    "#;
+fn main() with IO {
+    print(run_async(body))
+}
+"#;
     let (stdout, stderr, success) = flux_runner::run_flux(source, "closure_both");
     assert!(
         success,

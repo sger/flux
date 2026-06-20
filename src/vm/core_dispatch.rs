@@ -353,6 +353,12 @@ mod vm_fibers {
         // tail of its run-queue, and resumes it with `Unit`.  Stores the
         // captured continuation as a Value::Continuation.
         static PENDING_YIELD: RefCell<Option<Value>> = const { RefCell::new(None) };
+        // Child fibers reserved by a synthetic-await combinator that must not
+        // become runnable until the parent has registered its await and been
+        // inserted into the suspended map. The primop reserves children + staged their bodies here;
+        // the dispatch loop drains and activates them immediately after the parent parks.
+        // Stores (reserve child id, body Value to attach).
+        static PENDING_ACTIVASIONS: RefCell<Vec<(FiberId, Value)>> = const { RefCell::new(Vec::new()) };
         // Root fiber id for the current FiberRunAsync boundary; the dispatch
         // loop uses this to recognise root-fiber completion and propagate the
         // result.  None when no run_async is active.
@@ -876,29 +882,116 @@ mod vm_fibers {
         id
     }
 
-    /// Spawn a child on the currently executing fiber's worker.
-    ///
-    /// Used for source-order-sensitive combinators (`race` / `first_of`) so
-    /// immediate candidates drain FIFO on one worker before any parked/yielded
-    /// candidate becomes eligible for migration.
-    pub fn spawn_ordered_child_with_body(body: Value) -> FiberId {
+    /// Reserve a synthetic-await child fiber without making it runnable.
+    /// The fiber is created and home-worker
+    /// assigned but held in the scheduler's `reserved` map — no worker can pop
+    /// it. The await primop registers the parent's await on the returned id and
+    /// stages the body via [`queue_child_activation`]; the dispatch loop
+    /// activates it only after the parent has parked. See `reserved` field doc
+    /// on `FiberScheduler`.
+    pub fn reserve_child() -> FiberId {
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            return shared
+                .sched
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .reserve_child();
+        }
+        SCHED.with(|s| {
+            s.borrow_mut()
+                .as_mut()
+                .expect("reserve_child outside Async.run_async")
+                .reserve_child()
+        })
+    }
+
+    /// Like [`reserve_child`] but pins the reserved child to the currently
+    /// executing fiber's worker — for the source-order-sensitive `race` /
+    /// `first_of` combinators (mirrors [`spawn_ordered_child_with_body`]).
+    pub fn reserve_ordered_child() -> FiberId {
         let worker = current_worker().unwrap_or(WorkerId(0));
-        let id = if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            return shared
+                .sched
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .reserve_ordered_child(worker);
+        }
+        SCHED.with(|s| {
+            s.borrow_mut()
+                .as_mut()
+                .expect("reserved_ordered_child outside Async.run_async")
+                .reserve_ordered_child(worker)
+        })
+    }
+
+    /// Stage a reserved child's body for activation once the parent parks.
+    pub fn queue_child_activation(id: FiberId, body: Value) {
+        PENDING_ACTIVASIONS.with(|p| p.borrow_mut().push((id, body)));
+    }
+
+    /// Discard all staged child activations (parent park aborted, e.g. by
+    /// cancellation). The reserved fibers themselves are dropped via
+    /// [`discard_reserved_children`].
+    pub fn discard_pending_activations() {
+        PENDING_ACTIVASIONS.with(|p| p.borrow_mut().clear())
+    }
+
+    /// Discard all staged child activations (parent park aborted, e.g. by
+    /// cancellation). The reserved fibers themselves are dropped via
+    /// [`discard_reserved_children`].
+    pub fn discard_reserved_children(ids: &[FiberId]) {
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
             shared
                 .sched
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .spawn(worker)
-        } else {
-            SCHED.with(|s| {
-                s.borrow_mut()
-                    .as_mut()
-                    .expect("spawn_ordered_child_with_body outside Async.run_async")
-                    .spawn(worker)
-            })
-        };
-        attach_body_to_ready_fiber(id, body);
-        id
+                .discard_reserved(ids);
+            return;
+        }
+        SCHED.with(|s| {
+            if let Some(sched) = s.borrow_mut().as_mut() {
+                sched.discard_reserved(ids);
+            }
+        });
+    }
+
+    /// Activate every child staged by the just-parked parent: attach its body,
+    /// move it onto its home worker's ready queue, and wake that worker. Called
+    /// by the dispatch loop immediately after the parent is inserted into the
+    /// suspended map, so no child can complete before the parent is registered
+    /// AND suspended.
+    pub fn activate_pending_children() {
+        let staged: Vec<(FiberId, Value)> =
+            PENDING_ACTIVASIONS.with(|p| std::mem::take(&mut *p.borrow_mut()));
+        if staged.is_empty() {
+            return;
+        }
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            let mut woke: Vec<WorkerId> = Vec::new();
+            {
+                let mut sched = shared.sched.lock().unwrap_or_else(|e| e.into_inner());
+                for (id, body) in staged {
+                    if let Some(w) = sched.activate_child(id, isolate_for_worker(&body)) {
+                        woke.push(w);
+                    }
+                }
+            }
+            for w in woke {
+                let idx = w.0 as usize;
+                if idx < shared.worker_wakeups.len() {
+                    shared.worker_wakeups[idx].wake();
+                }
+            }
+            return;
+        }
+        SCHED.with(|s| {
+            if let Some(sched) = s.borrow_mut().as_mut() {
+                for (id, body) in staged {
+                    sched.activate_child(id, body);
+                }
+            }
+        });
     }
 
     /// Register a `FiberBoth` await: parent_req fires when both children finish.
@@ -1432,6 +1525,9 @@ mod vm_fibers {
                                     .expect("scheduler missing")
                                     .insert_suspended(home_worker, req, fiber);
                             });
+                            // Activate any children staged while a cancelled
+                            // fiber's cleanup arm re-parked.
+                            activate_pending_children();
                             let done = on_fiber_suspended(fid);
                             if !done.losers.is_empty() {
                                 cancel_losers(&done.losers, backend);
@@ -1542,6 +1638,9 @@ mod vm_fibers {
                             .expect("scheduler missing")
                             .insert_suspended(home_worker, req, fiber);
                     });
+                    // Parent suspended: activate any staged synthetic-await
+                    // children. No-op for plain parks.
+                    activate_pending_children();
                     let done = on_fiber_suspended(fiber_id);
                     if !done.losers.is_empty() {
                         cancel_losers(&done.losers, backend);
@@ -2146,6 +2245,12 @@ mod vm_fibers {
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .insert_suspended(home_worker, request_id, f);
+                // Parent is now safely suspended: activate any children a
+                // synthetic-await combinator staged on this tick. Doing this
+                // strictly after `insert_suspended` is what closes the
+                // register/park-vs-complete races. No-op
+                // for non-await parks (nothing staged).
+                activate_pending_children();
                 // Re-evaluate suspended-fiber awaits for first_of.
                 let (completions, losers) = {
                     let events = shared
@@ -3413,11 +3518,11 @@ pub fn execute_core_primop(
         }
 
         // fiber_run_async_with: `FiberRunAsync` plus explicit RuntimeConfig
-        // knobs (proposal 0174 Phase 2 slice 2-vii; det_seed added by 0177 T1.1).
+        // knobs
         // Args:
         //   args[0] = worker_count   (Int; 0 means "default")
-        //   args[1] = fs_pool_size   (Int; 0 means "default"; consulted by 2-viii)
-        //   args[2] = dns_pool_size  (Int; 0 means "default"; consulted by 2-viii)
+        //   args[1] = fs_pool_size   (Int; 0 means "default")
+        //   args[2] = dns_pool_size  (Int; 0 means "default")
         //   args[3] = det_seed       (Int; -1 means "non-deterministic"; >=0 = seed)
         //   args[4] = action closure
         // Sets the pending RuntimeConfig before entering the boundary so
@@ -3585,16 +3690,22 @@ pub fn execute_core_primop(
             let (boundary_frame, boundary_sp) = vm_fibers::boundary().ok_or_else(|| {
                 "fiber_both called outside Async.run_async — no boundary set".to_string()
             })?;
-            let child_a = vm_fibers::spawn_child_with_body(args[0].clone());
-            let child_b = vm_fibers::spawn_child_with_body(args[1].clone());
+            // Reserve children (non-runnable), register the await, then stage
+            // bodies; the dispatch loop activates them only after this parent
+            // parks, so no child can complete before the await is registered
+            // and the parent suspended.
+            let child_a = vm_fibers::reserve_child();
+            let child_b = vm_fibers::reserve_child();
             let req = vm_async::alloc_request_id();
             vm_fibers::register_both_await(req.0, child_a, child_b);
+            vm_fibers::queue_child_activation(child_a, args[0].clone());
+            vm_fibers::queue_child_activation(child_b, args[1].clone());
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
             vm_fibers::signal_park(req, cont);
             if let Err(e) = propagate_if_park_cancelled() {
                 vm_fibers::deregister_await(req.0);
-                let backend = vm_async::backend()?;
-                vm_fibers::cancel_losers(&[child_a, child_b], backend);
+                vm_fibers::discard_pending_activations();
+                vm_fibers::discard_reserved_children(&[child_a, child_b]);
                 return Err(e);
             }
             Err("__fiber_park__".to_string())
@@ -3604,16 +3715,18 @@ pub fn execute_core_primop(
             let (boundary_frame, boundary_sp) = vm_fibers::boundary().ok_or_else(|| {
                 "fiber_race called outside Async.run_async — no boundary set".to_string()
             })?;
-            let child_a = vm_fibers::spawn_ordered_child_with_body(args[0].clone());
-            let child_b = vm_fibers::spawn_ordered_child_with_body(args[1].clone());
+            let child_a = vm_fibers::reserve_ordered_child();
+            let child_b = vm_fibers::reserve_ordered_child();
             let req = vm_async::alloc_request_id();
             vm_fibers::register_race_await(req.0, vec![child_a, child_b]);
+            vm_fibers::queue_child_activation(child_a, args[0].clone());
+            vm_fibers::queue_child_activation(child_b, args[1].clone());
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
             vm_fibers::signal_park(req, cont);
             if let Err(e) = propagate_if_park_cancelled() {
                 vm_fibers::deregister_await(req.0);
-                let backend = vm_async::backend()?;
-                vm_fibers::cancel_losers(&[child_a, child_b], backend);
+                vm_fibers::discard_pending_activations();
+                vm_fibers::discard_reserved_children(&[child_a, child_b]);
                 return Err(e);
             }
             Err("__fiber_park__".to_string())
@@ -3629,20 +3742,25 @@ pub fn execute_core_primop(
             if bodies.is_empty() {
                 return Err("Async.first_of called on empty list".to_string());
             }
-            let children: Vec<_> = bodies
+            // Reserve a child per candidate, keeping its body for staging.
+            let staged: Vec<_> = bodies
                 .into_iter()
                 .enumerate()
-                .map(|(idx, body)| (vm_fibers::spawn_ordered_child_with_body(body), idx))
+                .map(|(idx, body)| (vm_fibers::reserve_ordered_child(), idx, body))
                 .collect();
+            let children: Vec<_> = staged.iter().map(|(id, idx, _)| (*id, *idx)).collect();
             let req = vm_async::alloc_request_id();
             vm_fibers::register_first_of_await(req.0, children.clone());
+            for (id, _idx, body) in staged {
+                vm_fibers::queue_child_activation(id, body);
+            }
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
             vm_fibers::signal_park(req, cont);
             if let Err(e) = propagate_if_park_cancelled() {
                 vm_fibers::deregister_await(req.0);
-                let child_ids: Vec<_> = children.iter().map(|(id, _)| *id).collect();
-                let backend = vm_async::backend()?;
-                vm_fibers::cancel_losers(&child_ids, backend);
+                let childs_id: Vec<_> = children.iter().map(|(id, _)| *id).collect();
+                vm_fibers::discard_pending_activations();
+                vm_fibers::discard_reserved_children(&childs_id);
                 return Err(e);
             }
             Err("__fiber_park__".to_string())
@@ -3652,15 +3770,16 @@ pub fn execute_core_primop(
             let (boundary_frame, boundary_sp) = vm_fibers::boundary().ok_or_else(|| {
                 "fiber_try called outside Async.run_async — no boundary set".to_string()
             })?;
-            let child = vm_fibers::spawn_child_with_body(args[0].clone());
+            let child = vm_fibers::reserve_child();
             let req = vm_async::alloc_request_id();
             vm_fibers::register_try_await(req.0, child);
+            vm_fibers::queue_child_activation(child, args[0].clone());
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
             vm_fibers::signal_park(req, cont);
             if let Err(e) = propagate_if_park_cancelled() {
                 vm_fibers::deregister_await(req.0);
-                let backend = vm_async::backend()?;
-                vm_fibers::cancel_losers(&[child], backend);
+                vm_fibers::discard_pending_activations();
+                vm_fibers::discard_reserved_children(&[child]);
                 return Err(e);
             }
             Err("__fiber_park__".to_string())
@@ -3683,9 +3802,10 @@ pub fn execute_core_primop(
                 }
                 other => return Err(terr("fiber_timeout", "Int", other)),
             };
-            let body_child = vm_fibers::spawn_child_with_body(args[1].clone());
+            let body_child = vm_fibers::reserve_child();
             let req = vm_async::alloc_request_id();
             vm_fibers::register_timeout_await(req.0, body_child);
+            vm_fibers::queue_child_activation(body_child, args[1].clone());
             // Register the backend timer keyed on the SAME request id as
             // the parent's await — when the timer fires, the dispatch
             // loop's pump observes c.request_id == req, calls
@@ -3698,7 +3818,8 @@ pub fn execute_core_primop(
             if let Err(e) = propagate_if_park_cancelled() {
                 vm_fibers::deregister_await(req.0);
                 backend.cancel(req);
-                vm_fibers::cancel_losers(&[body_child], backend);
+                vm_fibers::discard_pending_activations();
+                vm_fibers::discard_reserved_children(&[body_child]);
                 return Err(e);
             }
             Err("__fiber_park__".to_string())
