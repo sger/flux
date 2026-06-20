@@ -344,7 +344,7 @@ let test2 = "this compiles";
 
     #[test]
     fn function_literal_with_return_type_and_effects() {
-        // function literals may carry `-> T with E`.
+        // Proposal 0177: function literals may carry `-> T with E`.
         let (program, interner) = parse("let f = fn() -> Int with Async { 1 };");
         match &program.statements[0] {
             Statement::Let { value, .. } => match value {
@@ -373,7 +373,7 @@ let test2 = "this compiles";
     #[test]
     fn function_literal_effects_are_optional() {
         // Bare `fn(params) { ... }` must still parse with no return type/effects.
-        let (program, _interner) = parse("let f = fn(x, y) { x + y};");
+        let (program, _interner) = parse("let f = fn(x, y) { x + y };");
         match &program.statements[0] {
             Statement::Let { value, .. } => match value {
                 Expression::Function {

@@ -41,8 +41,12 @@ fn main() with IO {
     );
     let lines: Vec<_> = stdout.lines().collect();
     assert_eq!(lines, ["1", "2"]);
+    // Wide-gap deadlock guard (proposal 0177 T1.4): a working run returns on the
+    // fast branch in ~50ms + compile; a regression that waits for the slow
+    // losers blocks on their 30s sleeps and trips this. Not load-sensitive.
+    // See vm_fiber_cancel_loser.rs and docs/internals/concurrency_model.md §1.
     assert!(
-        elapsed < Duration::from_millis(1500),
+        elapsed < Duration::from_secs(8),
         "first_of waited for slow losers: {elapsed:?}"
     );
 }
