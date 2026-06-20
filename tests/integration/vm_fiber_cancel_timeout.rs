@@ -7,7 +7,14 @@
 //! After 1b-vi-c, `backend.cancel` is called for the body child immediately
 //! when `try_route_timer_for_timeout` fires.
 //!
-//! Observable difference: program completes well under 500ms, not ~2000ms.
+//! Observable difference: with the body child cancelled the program completes
+//! in ~50ms of timer + startup; otherwise it blocks until the body's timer
+//! expires.
+//!
+//! De-flake: the body sleeps a large fixed amount (30s)
+//! and we assert completion well under it (8s), a wide-gap deadlock guard that
+//! is not load-sensitive. See vm_fiber_cancel_loser.rs and
+//! docs/internals/concurrency_model.md §1 for the full rationale.
 
 #[path = "../support/flux_runner.rs"]
 mod flux_runner;
@@ -19,12 +26,12 @@ fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {
 
 #[test]
 fn timeout_body_child_request_is_cancelled() {
-    // timer fires at 50ms; body would run 2000ms if not cancelled.
+    // timer fires at 50ms; body would block 30s if its timer is not cancelled.
     let source = r#"
 import Flow.Async exposing (..)
 
 fn slow() -> Int with Async {
-    let _ = sleep(2000)
+    let _ = sleep(30000)
     99
 }
 
@@ -50,13 +57,12 @@ fn main() with IO {
         stdout.contains("timed_out"),
         "expected 'timed_out' output:\nstdout:\n{stdout}"
     );
-    // Must complete well before the body's 2s sleep. 3000ms budget: ~50ms
-    // timer + ~1s --no-cache compile + 1.5s CI load headroom. Without
-    // cancellation the body's full 2s sleep + startup would exceed 3000ms,
-    // so the bound is still a meaningful proof of cancellation.
+    // Wide-gap deadlock guard: working run finishes in compile + ~50ms timer
+    // (well under 8s on any CI load); a regressed run blocks on the body's 30s
+    // timer and trips this.
     assert!(
-        elapsed < Duration::from_millis(3000),
-        "elapsed {elapsed:?} — body child's 2s timer was not cancelled \
+        elapsed < Duration::from_secs(8),
+        "elapsed {elapsed:?} — body child's 30s timer was not cancelled \
          (should complete in ~50ms timer + startup)"
     );
 }

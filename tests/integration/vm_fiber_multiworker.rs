@@ -68,21 +68,29 @@ fn main() with IO {
 
 #[test]
 fn multiworker_sleep_both_overlaps() {
-    // Two 500ms sleeps across 2 workers should finish in ~500ms, not ~1000ms.
+    // Parallelism proof via a channel rendezvous across 2 OS workers.
+    // Each `both` child announces itself and waits for the
+    // other; both can only complete if they run simultaneously on the two
+    // workers. Sequential execution would block the first child forever. This
+    // replaces the old "<2800ms" timing margin, which flaked under CI load.
+    // See vm_fiber_overlap.rs and docs/internals/concurrency_model.md §1.
     let source = r#"
 import Flow.Async exposing (..)
-
-fn slow_left() -> Int with Async {
-    let _ = sleep(500)
-    1
-}
-
-fn slow_right() -> Int with Async {
-    let _ = sleep(500)
-    2
-}
+import Flow.Channel as Channel
 
 fn body() -> (Int, Int) with Async {
+    let a_started = Channel.make(1)
+    let b_started = Channel.make(1)
+    let slow_left = fn() -> Int with Async {
+        let _ls = Channel.send(a_started, 1)
+        let _lr = Channel.recv(b_started)
+        1
+    }
+    let slow_right = fn() -> Int with Async {
+        let _rr = Channel.recv(a_started)
+        let _rs = Channel.send(b_started, 1)
+        2
+    }
     both(slow_left, slow_right)
 }
 
@@ -103,19 +111,11 @@ fn main() with IO {
         ["1", "2"],
         "expected both fibers' results in order:\nstdout:\n{stdout}"
     );
-    // Must wait at least one sleep duration.
+    // Wide-gap deadlock guard: the rendezvous completes near-instantly when the
+    // fibers overlap; a regression that serialises them deadlocks and trips this.
     assert!(
-        elapsed >= Duration::from_millis(400),
-        "elapsed {elapsed:?} too short — sleeps must actually wait"
-    );
-    // With 2 OS workers the sleeps overlap: total should be ~500ms + startup.
-    // 2800ms budget: ~500ms sleep + ~1s --no-cache compile + 1.3s CI headroom.
-    // Sequential would be ~1000ms sleep + ~1s startup ≈ 2000ms, so if fibers
-    // don't overlap the assertion fails.
-    assert!(
-        elapsed < Duration::from_millis(2800),
-        "elapsed {elapsed:?} — fibers didn't overlap across workers \
-         (sequential would be ~1000ms sleep + startup)"
+        elapsed < Duration::from_secs(8),
+        "elapsed {elapsed:?} — fibers didn't overlap across workers (no rendezvous)"
     );
 }
 
@@ -200,7 +200,7 @@ fn fast() -> Int with Async {
 }
 
 fn slow() -> Int with Async {
-    let _ = sleep(2000)
+    let _ = sleep(3000)
     0
 }
 
@@ -222,11 +222,11 @@ fn main() with IO {
         stdout.contains("99"),
         "expected fast branch result (99):\nstdout:\n{stdout}"
     );
-    // Should complete in ~50ms + startup. 3200ms budget: ~50ms fast branch +
-    // ~1s --no-cache compile + 2.1s CI load headroom. The slow branch (2s
-    // sleep + startup) would exceed this, so the bound proves early exit.
+    // Wide-gap deadlock guard (proposal 0177 T1.4): working run returns on the
+    // fast branch in ~50ms + compile (well under 8s on any CI load); a
+    // regression that waits for the loser blocks on its 30s sleep and trips this.
     assert!(
-        elapsed < Duration::from_millis(3200),
+        elapsed < Duration::from_secs(8),
         "elapsed {elapsed:?} — race didn't return on fast branch"
     );
 }

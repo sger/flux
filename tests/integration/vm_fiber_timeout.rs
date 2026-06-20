@@ -1,4 +1,4 @@
-//! VM `Async.timeout` overlap acid test (proposal 0174 Phase 1b-vi-b₂.2 follow-up).
+//! VM `Async.timeout` overlap acid test.
 //!
 //! `timeout(ms, f)` returns `Some(f())` if `f` completes within `ms`,
 //! otherwise `None`. Both branches run concurrently via the fiber
@@ -15,14 +15,14 @@ fn run_source(source: &str, fixture_tag: &str) -> (String, String, bool, Duratio
 
 #[test]
 fn timeout_fires_when_body_too_slow() {
-    // Body would take 1000ms; timeout cuts it off at 50ms. Should return
+    // Body would block 30s; timeout cuts it off at 50ms. Should return
     // None (printed as -1) and finish ~50ms after run_async start (well
-    // before slow's 1000ms would complete).
+    // before slow's sleep would complete).
     let source = r#"
 import Flow.Async exposing (..)
 
 fn slow() -> Int with Async {
-    let _ = sleep(1000)
+    let _ = sleep(30000)
     99
 }
 
@@ -47,20 +47,21 @@ fn main() with IO {
         stdout.contains("-1"),
         "expected None (-1) in output:\nstdout:\n{stdout}"
     );
-    // Timer must fire well before slow's 1000ms. 3000ms budget: ~50ms timer +
-    // ~1s --no-cache stdlib recompile + 1.5s CI load headroom. The non-firing
-    // path (slow's full 1000ms + startup) would be >3000ms, so the bound is
-    // still a meaningful proof.
+    // Wide-gap deadlock guard (proposal 0177 T1.4): working run finishes in
+    // compile + ~50ms timer (well under 8s on any CI load); a regressed run
+    // blocks on slow's 30s sleep and trips this. See vm_fiber_cancel_loser.rs
+    // and docs/internals/concurrency_model.md §1.
     assert!(
-        elapsed < Duration::from_millis(3000),
+        elapsed < Duration::from_secs(8),
         "elapsed {elapsed:?} — timeout didn't return on timer (slow's full \
-         1000ms + startup would be >3000ms; timer + startup should be ~1100ms)"
+         30s sleep would block; timer + startup should be ~50ms + compile)"
     );
 }
 
 #[test]
 fn timeout_returns_some_when_body_in_time() {
-    // Body completes in 50ms; timeout is 1000ms. Should return Some(42).
+    // Body completes in 50ms; timeout window is 30s. Should return Some(42)
+    // as soon as the body finishes, without waiting out the window.
     let source = r#"
 import Flow.Async exposing (..)
 
@@ -70,7 +71,7 @@ fn fast() -> Int with Async {
 }
 
 fn body() -> Option<Int> with Async {
-    timeout(1000, fast)
+    timeout(30000, fast)
 }
 
 fn main() with IO {
@@ -90,12 +91,12 @@ fn main() with IO {
         stdout.contains("42"),
         "expected Some(42) result in output:\nstdout:\n{stdout}"
     );
-    // Body must wake parent before timeout fires (~50ms vs 1000ms). 3000ms
-    // budget: ~50ms body + ~1s --no-cache compile + 1.5s CI load headroom.
-    // Waiting for the full timeout (1000ms + startup) would be >2000ms.
+    // Wide-gap deadlock guard (proposal 0177 T1.4): the body resumes the parent
+    // on completion (~50ms + compile, well under 8s); a regression that waits
+    // out the full 30s timeout window would trip this. Not load-sensitive.
     assert!(
-        elapsed < Duration::from_millis(3000),
+        elapsed < Duration::from_secs(8),
         "elapsed {elapsed:?} — body should resume parent on completion (~50ms), \
-         not wait for timeout (~1000ms)"
+         not wait for the 30s timeout window"
     );
 }

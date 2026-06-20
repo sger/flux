@@ -302,6 +302,72 @@ fn main() with IO {
     );
 }
 
+/// Four fibers (nested `both`) each send their tag to a shared channel; `body`
+/// drains the channel into a 4-char string = the run order. Identical to the VM
+/// end-to-end fixture in `tests/integration/vm_deterministic_scheduler.rs`, so
+/// the two backends exercise the same program through the arity-5
+/// `with_deterministic_scheduler(seed)` path.
+const FOUR_FIBER_SOURCE: &str = r#"
+import Flow.Async exposing (..)
+import Flow.Channel as Channel
+
+fn body() -> String with Async {
+    let ch = Channel.make(16)
+    both(
+        fn() { both(fn() { Channel.send(ch, "A") }, fn() { Channel.send(ch, "B") }) },
+        fn() { both(fn() { Channel.send(ch, "C") }, fn() { Channel.send(ch, "D") }) }
+    )
+    let a = Channel.recv(ch)
+    let b = Channel.recv(ch)
+    let c = Channel.recv(ch)
+    let d = Channel.recv(ch)
+    match (a, b, c, d) {
+        (Some(w), Some(x), Some(y), Some(z)) -> w + x + y + z,
+        _ -> "closed"
+    }
+}
+
+fn main() with IO {
+    print(run_async_with(with_deterministic_scheduler(SEED), body))
+}
+"#;
+
+/// Pull the four tag letters out of the printed `"WXYZ"` string and return them
+/// sorted, so callers can assert "every tag present exactly once" without
+/// pinning an order the native backend does not promise.
+fn sorted_tags(stdout: &str) -> String {
+    let mut tags: Vec<char> = stdout.chars().filter(|c| "ABCD".contains(*c)).collect();
+    tags.sort_unstable();
+    tags.into_iter().collect()
+}
+
+#[test]
+fn native_deterministic_scheduler_seed_is_accepted_and_runs() {
+    // The native backend threads `det_seed` through the arity-5
+    // `flux_fiber_run_async_with` ABI but does **not** yet honour it
+    // (deterministic native scheduling is a later 0177 milestone — see the
+    // `_det_seed` param in `flux_async_run_root_with`). So this is an ABI-smoke
+    // test, not an interleaving test: for several seeds it asserts only that the
+    // program compiles, runs, and drains a **valid permutation of all four tags**
+    // — never a fixed order. It guards the seed-threading without asserting a
+    // reproducibility guarantee the VM provides and native does not.
+    for seed in [0_i64, 42, 99] {
+        let source = FOUR_FIBER_SOURCE.replace("SEED", &seed.to_string());
+        let tag = format!("det-seed-{seed}");
+        let (stdout, stderr, success, elapsed) = run_source_with_env(source.as_str(), &tag, &[]);
+        assert!(
+            success,
+            "native with_deterministic_scheduler({seed}) must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        );
+        assert_eq!(
+            sorted_tags(&stdout),
+            "ABCD",
+            "seed {seed} must drain every tag exactly once (any order); got: {stdout:?}"
+        );
+        assert!(elapsed < Duration::from_secs(30));
+    }
+}
+
 #[test]
 fn native_flux_workers_env_var_does_not_break_default() {
     // FLUX_WORKERS=1 + default config → the env-var arm of

@@ -1,15 +1,22 @@
 //! VM `Async.both` / `Async.race` overlap acid test (proposal 0174 Phase 1b-vi-b₂.2).
 //!
-//! With concurrent fiber dispatch, `both(sleep(50), sleep(50))` should
-//! finish in ~50ms — both timers run on the same OS thread, parked on
-//! the mio reactor; the dispatch loop wakes whichever fires first and
-//! resumes the other only after its own completion. Sequential execution
-//! would be ~100ms.
+//! De-flake: these used to assert on elapsed-time margins
+//! (e.g. "both finished in <1800ms, so the fibers overlapped"), which flaked
+//! under CI load because the working and broken durations sat only a few hundred
+//! ms apart. They now prove the same properties *semantically*, with no
+//! load-sensitive threshold:
 //!
-//! `race(sleep(150), sleep(20))` should finish in ~20ms (the fast branch
-//! wins). The slow branch keeps running in the background until its own
-//! sleep completes — that's a small CPU waste but no observable
-//! correctness issue (cancellation is 1b-vi-c work).
+//! - **Overlap** is proven by a channel **rendezvous**: each `both` child
+//!   announces itself and then waits for the other. Both children can only
+//!   complete if they are alive *simultaneously*; if `both` ran them
+//!   sequentially the first child would block forever waiting for the second,
+//!   so completion ⟺ overlap. No sleeps, so a passing run is fast; a regression
+//!   deadlocks and trips a wide deadlock guard.
+//! - **Race early-exit** is proven with the wide-gap pattern: the slow branch
+//!   sleeps a large fixed amount (30s); a working `race` returns on the fast
+//!   branch in ~50ms, a regression that waits for the loser blocks ~30s.
+//!
+//! See vm_fiber_cancel_loser.rs and docs/internals/concurrency_model.md §1.
 
 #[path = "../support/flux_runner.rs"]
 mod flux_runner;
@@ -21,20 +28,28 @@ fn run_source(source: &str, fixture_tag: &str) -> (String, String, bool, Duratio
 
 #[test]
 fn both_overlap_runs_in_parallel() {
+    // Rendezvous overlap proof: `left` announces on `a_started` then waits on
+    // `b_started`; `right` waits on `a_started` then announces on `b_started`.
+    // Both can only complete if `both` runs them concurrently — sequential
+    // execution would block `left` forever on `recv(b_started)`. Completion ⟺
+    // overlap, with no timing threshold.
     let source = r#"
 import Flow.Async exposing (..)
-
-fn left() -> Int with Async {
-    let _ = sleep(500)
-    1
-}
-
-fn right() -> Int with Async {
-    let _ = sleep(500)
-    2
-}
+import Flow.Channel as Channel
 
 fn body() -> (Int, Int) with Async {
+    let a_started = Channel.make(1)
+    let b_started = Channel.make(1)
+    let left = fn() -> Int with Async {
+        let _ls = Channel.send(a_started, 1)
+        let _lr = Channel.recv(b_started)
+        1
+    }
+    let right = fn() -> Int with Async {
+        let _rr = Channel.recv(a_started)
+        let _rs = Channel.send(b_started, 1)
+        2
+    }
     both(left, right)
 }
 
@@ -49,24 +64,15 @@ fn main() with IO {
         success,
         "both program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    // Lower bound: sleeps must actually wait — at least one 500ms sleep.
-    // (`--no-cache` adds ~1s of stdlib-recompile startup, so total is ~1.5s
-    // when fibers overlap, ~2s when they run sequentially.)
-    assert!(
-        elapsed >= Duration::from_millis(450),
-        "elapsed {elapsed:?} too short — sleeps must wait at least ~500ms"
-    );
-    // Upper bound: fibers must overlap. Sequential = ~1000ms of sleep (plus
-    // startup); concurrent = ~500ms of sleep (plus startup). Choosing a bound
-    // below the worst-case startup + sequential keeps the assertion robust.
-    assert!(
-        elapsed < Duration::from_millis(1800),
-        "elapsed {elapsed:?} — fibers didn't overlap (sequential would be \
-         ~1000ms of sleep + startup, concurrent should be ~500ms + startup)"
-    );
     assert!(
         stdout.contains('1') && stdout.contains('2'),
         "expected both results in output:\nstdout:\n{stdout}"
+    );
+    // Wide-gap deadlock guard: the rendezvous completes near-instantly when the
+    // fibers overlap; a regression that serialises them deadlocks and trips this.
+    assert!(
+        elapsed < Duration::from_secs(8),
+        "elapsed {elapsed:?} — both children did not rendezvous (no overlap)"
     );
 }
 
@@ -76,7 +82,7 @@ fn race_returns_first_finisher() {
 import Flow.Async exposing (..)
 
 fn slow() -> Int with Async {
-    let _ = sleep(1000)
+    let _ = sleep(30000)
     1
 }
 
@@ -99,14 +105,13 @@ fn main() with IO {
         success,
         "race program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    // Upper bound: parent must resume on fast's completion (~50ms),
-    // not wait for slow (~1000ms). Includes ~1s startup overhead from
-    // `--no-cache` stdlib recompile, so generous bound at 1500ms.
+    // Wide-gap deadlock guard: parent resumes on fast's completion (~50ms +
+    // compile, well under 8s); a regression that waits for the loser blocks on
+    // slow's 30s sleep and trips this. Not load-sensitive.
     assert!(
-        elapsed < Duration::from_millis(1500),
-        "elapsed {elapsed:?} — race didn't return on fast (sequential or \
-         waiting-on-slow would be ~1000ms of sleep + startup, fast-wins \
-         should be ~50ms + startup)"
+        elapsed < Duration::from_secs(8),
+        "elapsed {elapsed:?} — race didn't return on fast (waiting on the \
+         loser would block on its 30s sleep; fast-wins should be ~50ms + compile)"
     );
     assert!(
         stdout.contains('2'),

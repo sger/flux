@@ -10,6 +10,11 @@
 //! 2. The fast result is returned correctly.
 //! 3. Elapsed time is well below the slow fiber's 2s sleep (cancelled, not
 //!    waited for), proving `exit_run_async` doesn't hang on cancelled fibers.
+//!
+//! De-flake: the slow fiber sleeps a large fixed amount
+//! (30s) and we assert completion well under it (8s), a wide-gap deadlock
+//! guard that is not load-sensitive. See vm_fiber_cancel_loser.rs and
+//! docs/internal/concurrency_model.md §1 for the full rationale.
 
 #[path = "../support/flux_runner.rs"]
 mod flux_runner;
@@ -21,14 +26,14 @@ fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {
 
 #[test]
 fn cancelled_fiber_resumes_cleanly() {
-    // fast wins in ~50ms; slow sleeps 2000ms and is cancelled.
+    // fast wins in ~50ms; slow sleeps 30s and is cancelled.
     // After 1b-vi-c, the slow fiber's continuation is resumed with Canceled
     // and the fiber exits cleanly — no runtime panic, correct result returned.
     let source = r#"
 import Flow.Async exposing (..)
 
 fn slow() -> Int with Async {
-    let _ = sleep(2000)
+    let _ = sleep(30000)
     0
 }
 
@@ -55,9 +60,9 @@ fn main() with IO {
         stdout.contains("42"),
         "expected fast result 42:\nstdout:\n{stdout}"
     );
-    // Must complete well before the slow fiber's 2s sleep.
+    // Wide-gap deadlock guard (see header): regressed run blocks on slow's 30s sleep.
     assert!(
-        elapsed < Duration::from_millis(1800),
+        elapsed < Duration::from_secs(8),
         "elapsed {elapsed:?} — slow fiber not cancelled"
     );
 }
@@ -70,7 +75,7 @@ fn both_cancelled_fibers_resume_cleanly() {
 import Flow.Async exposing (..)
 
 fn slow() -> Int with Async {
-    let _ = sleep(2000)
+    let _ = sleep(30000)
     99
 }
 
@@ -97,7 +102,7 @@ fn main() with IO {
         "expected 'timed_out':\nstdout:\n{stdout}"
     );
     assert!(
-        elapsed < Duration::from_millis(1800),
+        elapsed < Duration::from_secs(8),
         "elapsed {elapsed:?} — body child not cancelled"
     );
 }

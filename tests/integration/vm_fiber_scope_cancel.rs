@@ -1,4 +1,4 @@
-//! Acid tests: real `scope`/`fork`/`cancel` (proposal 0174 Phase 1b-vi-c).
+//! Acid tests: real `scope`/`fork`/`cancel`.
 //!
 //! `scope` now allocates a real cancellation boundary; `fork` registers child
 //! fibers under it; `cancel` stops them immediately by cancelling their backend
@@ -15,12 +15,12 @@ fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {
 #[test]
 fn scope_cancel_stops_forked_fibers() {
     // Fork two slow sleeps inside a scope; cancel after 100ms.
-    // Without cancellation this would take ~2000ms. With it, ~100ms.
+    // Without cancellation this would block 30s; with it, ~100ms.
     let source = r#"
 import Flow.Async exposing (..)
 
 fn slow_work() -> Int with Async {
-    let _ = sleep(2000)
+    let _ = sleep(30000)
     0
 }
 
@@ -50,9 +50,12 @@ fn main() with IO {
         stdout.contains("42"),
         "expected result 42:\nstdout:\n{stdout}"
     );
-    // Must complete well before the forked fibers' 2s sleeps.
+    // Wide-gap deadlock guard (proposal 0177 T1.4): a working run finishes in
+    // compile + ~100ms cancel delay; a regressed run blocks on the forks' 30s
+    // sleeps and trips this. Not load-sensitive. See vm_fiber_cancel_loser.rs
+    // and docs/internals/concurrency_model.md §1.
     assert!(
-        elapsed < Duration::from_millis(1800),
+        elapsed < Duration::from_secs(8),
         "elapsed {elapsed:?} — scope cancel did not stop forked fibers"
     );
 }
