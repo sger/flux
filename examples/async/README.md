@@ -34,6 +34,10 @@ cargo run --features llvm -- examples/async/01_run_async.flx # native
 | [22_select_channel_timer.flx](22_select_channel_timer.flx) | `select` over channel receive and timer |
 | [23_select_send_recv.flx](23_select_send_recv.flx) | `select` send arm readiness |
 | [24_event_composition.flx](24_event_composition.flx) | `Event.choose`, `wrap`, `guard`, `with_nack` |
+| [25_multiworker_parallel.flx](25_multiworker_parallel.flx) | `run_async_with_workers` — CPU parallelism across OS workers |
+| [26_stress_fanout.flx](26_stress_fanout.flx) | stress: 4096-fiber `both`-tree — no lost/duplicated completions |
+| [27_stress_racing_cancel.flx](27_stress_racing_cancel.flx) | stress: 1024 concurrent `race` loser-cancellations |
+| [28_stress_timeout_churn.flx](28_stress_timeout_churn.flx) | stress: 512 concurrent `timeout` body-cancellations |
 
 ## Effect surface cheat sheet
 

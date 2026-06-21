@@ -291,8 +291,12 @@ module Flow.Async {
 
     /// Run `f` and `g` concurrently; return both results.
     ///
-    /// VM: cooperative interleaving on the caller OS thread. Native:
-    /// cooperative fibers scheduled over OS workers.
+    /// Both backends schedule cooperative fibers over logical worker queues.
+    /// With a single worker the queues are drained on the caller OS thread; a
+    /// multi-worker `run_async_with_workers(n, ...)` runs them on `n` OS threads
+    /// (worker 0 on the caller thread, plus `n - 1` background workers) and may
+    /// migrate/steal parked fibers across them. Native additionally scales this
+    /// over OS workers for true parallelism.
     ///
     public fn both<a, b>(f: (() -> a with Async | e1), g: (() -> b with Async | e2)) -> (a, b) with Async {
         fiber_both_prim(f, g)
@@ -300,9 +304,11 @@ module Flow.Async {
 
     /// Run `f` and `g` concurrently; return whichever finishes first.
     ///
-    /// VM/native: real first-wins via the fiber scheduler. On the VM this is
-    /// single-threaded cooperative interleaving; losers are cancelled when the
-    /// winner resolves.
+    /// Real first-wins via the fiber scheduler on both backends; losers are
+    /// cancelled when the winner resolves. Fibers interleave cooperatively over
+    /// the scheduler's logical worker queues — drained on the caller OS thread
+    /// with a single worker, or across `n` OS threads under
+    /// `run_async_with_workers(n, ...)`.
     ///
     public fn race<a>(f: (() -> a with Async | e1), g: (() -> a with Async | e2)) -> a with Async {
         fiber_race_prim(f, g)

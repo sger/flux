@@ -1,0 +1,48 @@
+import Flow.Async as Async
+// 26 — stress: fan-out tree (thousands of fibers, no lost completions)
+//
+// A depth-d `both`-tree spawns 2^d leaf fibers. At depth 12 that is 4096
+// concurrent leaves, each contributing 1, folded back up through the tree —
+// pure spawn / steal / complete pressure with no cancellation.
+//
+// The whole point is the INVARIANT: the total must be exactly 4096. A lost
+// completion would undershoot; a double-resumed continuation would overshoot.
+// So the single printed number is a checksum over every fiber's result.
+//
+// This is the program that exposed (and now guards against) the synthetic-await
+// lost-completion deadlock fixed in proposal 0177 T1.2. To stress the migration
+// and work-stealing paths hardest, run it on several workers with both knobs on:
+//
+//   FLUX_FIBER_MIGRATION=1 FLUX_WORK_STEALING=1 \
+//     cargo run -- examples/async/26_stress_fanout.flx                 # VM
+//   FLUX_FIBER_MIGRATION=1 FLUX_WORK_STEALING=1 \
+//     cargo run --features llvm -- examples/async/26_stress_fanout.flx # native
+//
+// The output is identical on both backends regardless of interleaving.
+
+// parity-expected-stdout-begin
+// "leaves completed = 4096"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+// Each recursive level forks two children with `both` and sums their results;
+// a leaf yields once (a cancellation/reschedule checkpoint) and returns 1.
+fn tree(depth: Int) -> Int with Async {
+    if depth == 0 {
+        yield_now()
+        1
+    } else {
+        let p = both(fn() { tree(depth - 1)}, fn() {tree(depth - 1)})
+        p.0 + p.1
+    }
+}
+
+fn body() -> Int with Async {
+    tree(12)
+}
+
+fn main() with IO {
+    // 8 workers so children actually migrate and get stolen across cores.
+    print("leaves completed = "+ to_string(run_async_with_workers(8, body)))
+}
