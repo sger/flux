@@ -1,0 +1,54 @@
+// 27 — stress: racing cancellation under load (no lost winners)
+//
+// Every leaf is a `race(slow, fast)`: `fast` finishes immediately while `slow`
+// sleeps 2s and must be CANCELLED the moment `fast` wins. A depth-10 tree runs
+// 1024 such races concurrently across 8 workers — 1024 loser-cancellations
+// racing 1024 winner-completions, all under constant migration.
+//
+// Invariant: `fast` always wins, so the total is exactly 1024. And because the
+// 2s losers are cancelled (not awaited), the whole program finishes in a blink —
+// if cancellation leaked, this would instead take seconds.
+//
+// Stress both backends with the migration/stealing knobs on:
+//
+//   FLUX_FIBER_MIGRATION=1 FLUX_WORK_STEALING=1 \
+//     cargo run -- examples/async/27_stress_racing_cancel.flx                 # VM
+//   FLUX_FIBER_MIGRATION=1 FLUX_WORK_STEALING=1 \
+//     cargo run --features llvm -- examples/async/27_stress_racing_cancel.flx # native
+
+// parity-expected-stdout-begin
+// "race winners = 1024"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+fn slow() -> Int with Async {
+    sleep(2000)   // cancelled the instant `fast` wins — never actually waited
+    0
+}
+
+fn fast() -> Int with Async {
+    yield_now()
+    1
+}
+
+fn leaf() -> Int with Async {
+    race(slow, fast)
+}
+
+fn tree(depth: Int) -> Int with Async {
+    if depth == 0 {
+        leaf()
+    } else {
+        let p = both(fn() { tree(depth - 1) }, fn() { tree(depth - 1) })
+        p.0 + p.1
+    }
+}
+
+fn body() -> Int with Async {
+    tree(10)
+}
+
+fn main() with IO {
+    print("race winners = " + to_string(run_async_with_workers(8, body)))
+}

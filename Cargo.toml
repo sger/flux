@@ -350,6 +350,10 @@ name = "native_async_sleep_tests"
 path = "tests/native_llvm/native_async_sleep_tests.rs"
 
 [[test]]
+name = "native_async_stress_tests"
+path = "tests/native_llvm/native_async_stress_tests.rs"
+
+[[test]]
 name = "native_http_server_tests"
 path = "tests/native_llvm/native_http_server_tests.rs"
 
@@ -376,10 +380,6 @@ path = "tests/native_llvm/native_work_stealing_tests.rs"
 [[test]]
 name = "native_runtime_config_tests"
 path = "tests/native_llvm/native_runtime_config_tests.rs"
-
-[[test]]
-name = "native_async_stress_tests"
-path = "tests/native_llvm/native_async_stress_tests.rs"
 
 [[test]]
 name = "type_inference_tests"
@@ -414,10 +414,6 @@ name = "sendable_tests"
 path = "tests/type_inference/sendable_tests.rs"
 
 [[test]]
-name = "async_stress"
-path = "tests/integration/async_stress.rs"
-
-[[test]]
 name = "flow_task_tests"
 path = "tests/integration/flow_task_tests.rs"
 
@@ -448,6 +444,10 @@ path = "tests/integration/vm_deterministic_scheduler.rs"
 [[test]]
 name = "effectful_closures"
 path = "tests/integration/effectful_closures.rs"
+
+[[test]]
+name = "async_stress"
+path = "tests/integration/async_stress.rs"
 
 [[test]]
 name = "vm_fiber_registry"

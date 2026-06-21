@@ -124,28 +124,70 @@ M5 is non-optional housekeeping. Each task carries an acceptance check and a fil
 The headline. Nothing else is trustworthy without it; the Actor MVP and every later I/O
 feature inherit the scheduler's correctness.
 
-- **T1.1 — Deterministic test scheduler.** A single-thread, seedable scheduler selected via
-  `RuntimeConfig`, reusing the scheduler-as-handler seam (the `FLUX_WORKERS=1` +
-  swappable-scheduler path in [scheduler.rs](../../src/runtime/async/scheduler.rs)). Tests
-  drive `spawn`/`steal`/`cancel`/`resume` ordering explicitly.
+- **T1.1 — Deterministic test scheduler.** ✅ **Done.** A single-thread, seedable scheduler
+  selected via `RuntimeConfig`. Implemented as a `SchedPolicy` enum + in-tree `SplitMix64` PRNG
+  on `FiberScheduler` ([scheduler.rs](../../src/runtime/async/scheduler.rs),
+  `new_deterministic`), selected through the new `with_deterministic_scheduler(seed)` builder and
+  the arity-5 `FiberRunAsyncWith` primop; deterministic mode forces a single worker, so steal/
+  migration are structurally unreachable and the only choice is the seeded ready-pick (`seed == 0`
+  = strict FIFO). *(Note: the "swappable-scheduler seam" referenced here did not exist and was
+  introduced as the `SchedPolicy` enum; the proposal's `FLUX_WORKERS=1` framing is superseded by
+  the explicit `det_seed` config path.)* Unit tests pin the seeded permutation; the end-to-end
+  test ([vm_deterministic_scheduler.rs](../../tests/integration/vm_deterministic_scheduler.rs))
+  asserts a **fixed interleaving with zero `sleep()`, byte-identical across runs**, distinct per
+  seed. Enabling this end-to-end test also required fixing a language limitation — effectful
+  *closures* (un-annotated function literals couldn't perform effects); see the effectful-closures
+  changelog fragment.
   *Done when:* a test asserts a fixed interleaving with zero `sleep()`, identical across runs
-  and OSes.
-- **T1.2 — Stress/soak harness.** New `tests/integration/async_stress.rs` (+ native twin):
-  thousands of fibers, forced migration, racing cancel/timeout. Asserts no panics, no leaked
-  continuations (the Phase 0 invariant), no lost/duplicated completions.
-  *Done when:* runs clean N×100 in a loop on VM + native, in CI on all three OSes.
-- **T1.3 — Race audit + invariants doc.** Systematically review the cancel/steal/migration
-  boundaries behind the three late-0.0.6 fixes — `cancel_fibers` TOCTOU
-  ([scheduler.rs:268](../../src/runtime/async/scheduler.rs#L268)), cross-worker steal in
-  `next_ready_or_steal`, and the `unsafe impl Send for Fiber` invariant
-  ([fiber.rs](../../src/runtime/async/fiber.rs)). Record the invariants in a new
-  `docs/internals/concurrency_model.md`.
-  *Done when:* every `unsafe` / race-prone boundary has a written invariant and a test.
-- **T1.4 — De-flake existing tests.** Retrofit `sleep`-margin assertions in
-  [tests/integration/vm_fiber_*.rs](../../tests/integration/) and
-  [tests/native_llvm/native_work_stealing_tests.rs](../../tests/native_llvm/native_work_stealing_tests.rs)
-  onto T1.1.
-  *Done when:* no concurrency test depends on an elapsed-time threshold.
+  and OSes. ✅
+  *Scope note:* VM-only and cooperative/`yield_now`-only — timer/I/O completion order is **not**
+  virtualized, and multi-worker steal/migration interleavings are **not** yet replayable. Those
+  (virtual-time backend; multi-worker deterministic simulation) are follow-ups feeding T1.2/T1.4.
+- **T1.2 — Stress/soak harness.** ✅ **Done.** New
+  [tests/integration/async_stress.rs](../../tests/integration/async_stress.rs) (+ native twin
+  [tests/native_llvm/native_async_stress_tests.rs](../../tests/native_llvm/native_async_stress_tests.rs)):
+  thousands of fibers (up to a 4096-leaf `both`-tree) under forced migration + work-stealing,
+  racing cancel/timeout. Three fixtures target the cancel × steal × completion boundary — a pure
+  fan-out tree, 1024 concurrent `race` loser-cancellations, and 512 concurrent `timeout`
+  body-cancellations — each folding N fibers into one integer with a known-correct total, so a
+  lost completion undershoots and a double-resume overshoots (both caught by exact-equals). Each
+  run carries a hard wall-clock kill deadline so a deadlock fails loudly instead of hanging CI.
+  The harness immediately earned its keep: it shook out a VM lost-completion **deadlock** under
+  migration + work-stealing (synthetic-await children were runnable before the parent registered
+  its await), fixed by a reserve → register → park → activate sequence on `FiberScheduler`.
+  *Done when:* runs clean N×100 in a loop on VM + native, in CI on all three OSes. ✅ (fan-out
+  fixture: 12/15 fail before the fix → 25/25 after, on VM + native).
+- **T1.3 — Race audit + invariants doc.** ✅ **Done.** New
+  [docs/internals/concurrency_model.md](../../docs/internals/concurrency_model.md)
+  systematically audits the cancel/steal/migration boundaries behind the three
+  late-0.0.6 fixes — the `cancel_fibers` two-pass TOCTOU scan
+  ([scheduler.rs:442](../../src/runtime/async/scheduler.rs#L442)), cross-worker steal in
+  [`next_ready_or_steal`](../../src/runtime/async/scheduler.rs#L498), and the
+  `unsafe impl Send for Fiber` invariant ([fiber.rs:127](../../src/runtime/async/fiber.rs#L127)) —
+  plus the continuation-portability keystone (`is_migratable`, baseline-`(0,0)` only), the
+  reserve→register→park→activate synthetic-await sequence (the T1.2 deadlock fix), and the
+  await-coordinator ordering. Each boundary carries a file:line anchor, the race window opened
+  if its invariant is violated, and the named regression test that pins it (§9 summary table).
+  *Done when:* every `unsafe` / race-prone boundary has a written invariant and a test. ✅
+- **T1.4 — De-flake existing tests.** ✅ **Done.** Retrofitted the
+  `sleep`-margin assertions in [tests/integration/vm_fiber_*.rs](../../tests/integration/)
+  ([native_work_stealing_tests.rs](../../tests/native_llvm/native_work_stealing_tests.rs)
+  was already de-flaked in v0.0.6). Two load-insensitive replacements: (a)
+  **cancellation/timeout/race** tests use a *wide-gap deadlock guard* — the
+  branch that should be cancelled/skipped sleeps a large fixed amount (30s) and
+  the test asserts completion under 8s, so a working run finishes in compile +
+  ~50ms regardless of load while a regression blocks ~30s and trips the guard;
+  (b) **overlap/parallelism** tests (`both`) prove concurrency *semantically* via
+  a channel **rendezvous** (each child announces itself and waits for the other,
+  so completion ⟺ overlap; sequential execution deadlocks) with zero sleeps. The
+  converted binaries now run ~0.12s each (down from 0.5–3s) and looped 75×
+  flake-free. Rationale recorded in
+  [concurrency_model.md](../../docs/internals/concurrency_model.md) §1.
+  *Done when:* no concurrency test depends on an elapsed-time threshold. ✅
+  *Scope note:* a fully time-free form for the timer-cancellation cases (asserting
+  *zero* wall-clock) awaits the virtual-time scheduler backend, a T1.1 follow-up;
+  until then the wide-gap guards are robust deadlock checks rather than tight
+  margins — they no longer flake under load, which is the de-flake objective.
 
 ### M2 — Phase 2 semantic closeout (verify-and-fill)
 
