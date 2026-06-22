@@ -67,7 +67,7 @@ fn main() with IO {
     );
     // Deadlock guard with a wide gap: a working run finishes in compile +
     // ~50ms sleep (well under 8s on any CI load); a regressed run blocks on the
-    // loser's 30s timer and trips this. See the de-flake note above
+    // loser's 30s timer and trips this. See the de-flake note above.
     assert!(
         elapsed < Duration::from_secs(8),
         "elapsed {elapsed:?} — loser's 30s timer was not cancelled \

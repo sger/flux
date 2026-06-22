@@ -68,7 +68,7 @@ fn main() with IO {
 
 #[test]
 fn multiworker_sleep_both_overlaps() {
-    // Parallelism proof via a channel rendezvous across 2 OS workers.
+    // Parallelism proof via a channel rendezvous across 2 OS workers
     // Each `both` child announces itself and waits for the
     // other; both can only complete if they run simultaneously on the two
     // workers. Sequential execution would block the first child forever. This
@@ -200,7 +200,7 @@ fn fast() -> Int with Async {
 }
 
 fn slow() -> Int with Async {
-    let _ = sleep(3000)
+    let _ = sleep(30000)
     0
 }
 
