@@ -8,13 +8,13 @@
 //! We verify:
 //! 1. The program succeeds (no runtime error from the cancelled fiber).
 //! 2. The fast result is returned correctly.
-//! 3. Elapsed time is well below the slow fiber's 2s sleep (cancelled, not
+//! 3. The program completes well below the slow fiber's sleep (cancelled, not
 //!    waited for), proving `exit_run_async` doesn't hang on cancelled fibers.
 //!
 //! De-flake: the slow fiber sleeps a large fixed amount
 //! (30s) and we assert completion well under it (8s), a wide-gap deadlock
 //! guard that is not load-sensitive. See vm_fiber_cancel_loser.rs and
-//! docs/internal/concurrency_model.md §1 for the full rationale.
+//! docs/internals/concurrency_model.md §1 for the full rationale.
 
 #[path = "../support/flux_runner.rs"]
 mod flux_runner;

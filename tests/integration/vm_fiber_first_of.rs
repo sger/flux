@@ -1,5 +1,4 @@
-//! VM `Async.first` / `Async.first_of` integration tests (proposal 0174
-//! Phase 2 slice 2-ii).
+//! VM `Async.first` / `Async.first_of` integration tests.
 
 #[path = "../support/flux_runner.rs"]
 mod flux_runner;
@@ -15,7 +14,7 @@ fn first_of_returns_fastest_index_and_cancels_losers() {
 import Flow.Async exposing (..)
 
 fn slow() -> Int with Async {
-    sleep(1000)
+    sleep(30000)
     1
 }
 
