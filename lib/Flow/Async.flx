@@ -304,18 +304,28 @@ module Flow.Async {
 
     /// Run `f` and `g` concurrently; return whichever finishes first.
     ///
-    /// Real first-wins via the fiber scheduler on both backends; losers are
-    /// cancelled when the winner resolves. Fibers interleave cooperatively over
-    /// the scheduler's logical worker queues — drained on the caller OS thread
-    /// with a single worker, or across `n` OS threads under
-    /// `run_async_with_workers(n, ...)`.
+    /// `race` is intentionally **2-way**; for more candidates use the n-way
+    /// [`first_of`] / [`first`] (`race(f, g)` is `first([f, g])`). Both share the
+    /// same deterministic **source-order tie-break**: when both branches are
+    /// runnable at once, `f` wins; `g` wins only once `f` is suspended on a real
+    /// async wait (`sleep` / I/O), not merely yielding (see [`first_of`]).
+    ///
+    /// VM/native: real first-wins via the fiber scheduler. On the VM this is
+    /// single-threaded cooperative interleaving; losers are cancelled when the
+    /// winner resolves.
     ///
     public fn race<a>(f: (() -> a with Async | e1), g: (() -> a with Async | e2)) -> a with Async {
         fiber_race_prim(f, g)
     }
 
     /// Run every async thunk in `fs`; return the zero-based index and value
-    /// from the first one that completes. Source order breaks immediate ties.
+    /// from the first one that completes.
+    ///
+    /// **Tie-break is source order.** When several thunks are simultaneously
+    /// *runnable* — ready in the same cooperative round, including across
+    /// `yield_now` — the earliest in `fs` wins. A later thunk wins only once
+    /// every earlier thunk is *suspended on a real async wait* (`sleep` / I/O).
+    /// This is deterministic and independent of scheduler interleaving.
     public fn first_of<a>(fs: List<() -> a with Async>) -> (Int, a) with Async {
         match fs {
             [_ | _] -> fiber_first_of_prim(fs),
@@ -417,6 +427,11 @@ module Flow.Async {
     }
 
     /// Raise an `AsyncError` inside the current fiber.
+    ///
+    /// This is a genuine catchable raise: wrapping the caller in `try` recovers
+    /// it as `Err(err)` with the payload intact, and an unwrapped raise
+    /// propagates to the enclosing `scope`/await — including across `both`,
+    /// `race`, and forked children.
     public fn fail<a>(err: AsyncError) -> a with Async {
         fiber_fail_prim(err)
     }
@@ -444,6 +459,10 @@ module Flow.Async {
     }
 
     /// Convenience wrapper: `if check_cancelled() { fail(AsyncError.Canceled) }`.
+    ///
+    /// Built on the genuine catchable raise `fail` (not a placeholder shim): in
+    /// a cancelled scope this raises `AsyncError.Canceled`, recoverable with
+    /// `try` like any other [`fail`].
     public fn bail_if_cancelled() -> Unit with Async {
         if check_cancelled() { fail(Canceled) }
         else { () };
