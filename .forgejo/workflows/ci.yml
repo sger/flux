@@ -37,18 +37,30 @@ jobs:
     steps:
       # The `llvm` feature (pulled in by --all-features) shells out to
       # clang/opt/llc/llvm-config, and the frontend needs a C toolchain +
-      # linker. Install them plus git/curl for checkout and rustup. The runner
-      # image runs as root, so no sudo.
+      # linker. The runner image runs as root, so no sudo.
+      #
+      # Debian bookworm's distro LLVM is 14, whose `opt` rejects the opaque
+      # `ptr` IR the backend emits (opaque pointers are default only in LLVM
+      # 15+). Install LLVM 18 from apt.llvm.org — the same major version the
+      # Ubuntu 24.04 GitHub runners use — so the native/LLVM tests pass.
       - name: Install system toolchain
+        env:
+          LLVM_VERSION: "18"
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            build-essential binutils lld clang llvm \
-            curl ca-certificates git pkg-config
-          # Expose the unversioned opt/llc/clang/llvm-config the backend calls
-          # (Debian keeps them under /usr/lib/llvm-*/bin, not /usr/bin).
-          LLVM_BIN="$(ls -d /usr/lib/llvm-*/bin | sort -V | tail -1)"
-          echo "$LLVM_BIN" >> "$GITHUB_PATH"
+            build-essential binutils curl ca-certificates git pkg-config \
+            wget gnupg
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | gpg --dearmor -o /usr/share/keyrings/llvm.gpg
+          echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] http://apt.llvm.org/bookworm/ llvm-toolchain-bookworm-${LLVM_VERSION} main" \
+            > /etc/apt/sources.list.d/llvm.list
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            "clang-${LLVM_VERSION}" "llvm-${LLVM_VERSION}" "lld-${LLVM_VERSION}"
+          # Expose the unversioned opt/llc/clang/llvm-config from this toolchain
+          # (they live under /usr/lib/llvm-<v>/bin, not /usr/bin).
+          echo "/usr/lib/llvm-${LLVM_VERSION}/bin" >> "$GITHUB_PATH"
 
       - name: Checkout
         uses: actions/checkout@v4
