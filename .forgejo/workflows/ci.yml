@@ -1,0 +1,76 @@
+name: CI
+
+# Forgejo Actions mirror of .github/workflows/ci.yml, trimmed to a single
+# self-hosted Linux runner. GitHub ignores `.forgejo/`, so this only runs on
+# the Forgejo instance — no duplicate runs.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # rustup/cargo live here; also added to PATH via $GITHUB_PATH below.
+  CARGO_HOME: /opt/cargo
+  RUSTUP_HOME: /opt/rustup
+
+jobs:
+  ci:
+    # `ubuntu-latest` must be a label your Forgejo runner registered, mapped to
+    # a Debian/Ubuntu image with apt + node (the runner default
+    # `node:20-bookworm` works). Adjust if your label differs.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      # The `llvm` feature (pulled in by --all-features) shells out to
+      # clang/opt/llc/llvm-config, and the frontend needs a C toolchain +
+      # linker. Install them plus git/curl for checkout and rustup. The runner
+      # image runs as root, so no sudo.
+      - name: Install system toolchain
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential binutils lld clang llvm \
+            curl ca-certificates git pkg-config
+          # Expose the unversioned opt/llc/clang/llvm-config the backend calls
+          # (Debian keeps them under /usr/lib/llvm-*/bin, not /usr/bin).
+          LLVM_BIN="$(ls -d /usr/lib/llvm-*/bin | sort -V | tail -1)"
+          echo "$LLVM_BIN" >> "$GITHUB_PATH"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history so the changelog check can diff against the base ref.
+          fetch-depth: 0
+
+      - name: Install Rust 1.93.0
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain 1.93.0 --profile minimal \
+                --component rustfmt --component clippy
+          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Versions
+        run: |
+          rustc --version
+          cargo --version
+          clang --version | head -1
+          llvm-config --version
+          opt --version | head -2 || true
+          llc --version | head -2 || true
+
+      - name: Changelog fragment check (PRs)
+        if: ${{ github.event_name == 'pull_request' }}
+        run: scripts/changelog/check_changelog_fragment.sh "${{ github.base_ref }}"
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Tests
+        run: cargo test --all --all-features
