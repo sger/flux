@@ -1,0 +1,31 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// "ok"
+// parity-expected-stdout-end
+// bug: scope cancellation — `cancel(s)` must tear down fibers forked under
+//      scope `s`. Without it the forked worker's sleep(30000) would block the
+//      whole program; with it the scope body returns immediately with "ok".
+//      This gates the structured-concurrency cancel path (scope/fork/cancel)
+//      on both backends; previously only exercised in the ungated
+//      examples/async sweep. See docs/internals/concurrency_model.md.
+
+import Flow.Async exposing (..)
+
+// Long-running background work. Cancellation must stop this before its sleep
+// resolves, otherwise the program hangs ~30s.
+fn worker() -> Unit with Async { sleep(30000) }
+
+fn body() -> String with Async {
+    scope(fn(s) {
+        fork(s, worker)
+        // Let the scheduler start the child fiber before cancelling, so the
+        // fork is registered under the scope when cancel runs.
+        sleep(20)
+        cancel(s)
+        "ok"
+    })
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

@@ -1,0 +1,24 @@
+// parity: vm, llvm
+// expect: success
+//
+// Proposal 0177 T2.1 — a panicking forked child must surface as a catchable
+// failure at the enclosing scope, identically on VM and native.
+//
+// `panicky` is forked as a child of `both`; its `panic` aborts that fiber.
+// The failure propagates to the parent await and is caught by `try`, which
+// converts it into `Err(Panicked(...))` rather than tearing down the whole
+// `run_async`. The sibling `calm` is cancelled as a loser.
+
+import Flow.Async exposing (..)
+
+fn panicky() -> Int with Async { panic("child boom") }
+fn calm() -> Int with Async { 5 }
+
+fn forked() -> Int with Async { both(panicky, calm).0 }
+
+fn caught() -> Result<Int, AsyncError> with Async, AsyncFail { try(forked) }
+
+fn main() with IO {
+    // Expected on both backends: Err(Panicked("child boom"))
+    print(run_async(caught))
+}

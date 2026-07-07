@@ -1,0 +1,27 @@
+// parity: vm, llvm
+// expect: success
+//
+// Proposal 0177 T2.2 — catchable-raise audit. `Async.fail(err)` is a genuine
+// catchable raise (not a shim): `try` converts it into `Err(err)` with the
+// AsyncError payload intact, end-to-end and identically on VM and native.
+//
+// Covers the direct raise, a raise carrying a multi-field payload, and a raise
+// performed by a forked child (via `both`) that propagates to the parent await
+// and is caught at the scope boundary.
+
+import Flow.Async exposing (..)
+
+fn raise_proto()  -> Int with Async { fail(protocol_error(503, "upstream busy")) }
+fn raise_cancel() -> Int with Async { fail(canceled_error()) }
+fn ok_body()      -> Int with Async { 42 }
+
+// A forked child raises; the failure must surface at the enclosing scope.
+fn forked_fail()   -> Int with Async { both(raise_cancel, ok_body).0 }
+fn caught_forked() -> Result<Int, AsyncError> with Async, AsyncFail { try(forked_fail) }
+
+fn main() with IO {
+    print(run_async(fn() { try(ok_body) }))      // Ok(42)
+    print(run_async(fn() { try(raise_proto) }))  // Err(ProtocolError(503, "upstream busy"))
+    print(run_async(fn() { try(raise_cancel) })) // Err(Canceled)
+    print(run_async(caught_forked))              // Err(Canceled)
+}

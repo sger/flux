@@ -1,0 +1,12 @@
+// Helper module for the KI-1 regression demo (see ../regression_ki1.md and
+// docs/internals/known_issues.md). A user-defined `async` combinator that
+// suspends through its callback `f`. Its effect row is the expanded async seam
+// (`Suspend, Fork, GetContext, AsyncFail`), the shape the native backend must
+// recognize as suspend-capable at a *cross-module* call site.
+module Lib {
+    public fn step<e>(f: () -> Int with Suspend, Fork, GetContext, AsyncFail | e)
+        -> Int with Suspend, Fork, GetContext, AsyncFail | e {
+        let r = f()
+        r
+    }
+}

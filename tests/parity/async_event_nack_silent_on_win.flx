@@ -1,0 +1,34 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// 0
+// parity-expected-stdout-end
+//
+// CML-style `with_nack`: when the branch built by the callback *wins* the
+// enclosing `choose`, its nack never fires (proposal 0177 T2.5). Here the
+// `with_nack` branch (ready immediately) beats the `lose` branch (a 10s timer),
+// so the cleanup fiber parked on `sync(nack)` is torn down at scope exit and
+// never records the sentinel — the observation channel stays empty (0).
+import Flow.Async exposing (..)
+import Flow.Channel as Channel
+import Flow.Event exposing (..)
+
+fn win_case() -> Int with Async {
+    let obs: Channel<Int> = Channel.make(4)
+    scope(fn(s) with Async {
+        let lose: Event<Unit> = wrap(after(10000), fn(_) { })
+        let nb: Event<Unit> = with_nack(fn(nack) with Async {
+            let _u = fork(s, fn() with Async {
+                let _r = sync(nack)
+                let _s2 = Channel.try_send(obs, 99)
+                0
+            })
+            wrap(always(0), fn(_) { })
+        })
+        let _w = sync(choose([lose, nb]))
+        yield_now()
+        yield_now()
+        match Channel.try_recv(obs) { Some(n) -> n, None -> 0 }
+    })
+}
+
+fn main() with IO { print(run_async(win_case)) }

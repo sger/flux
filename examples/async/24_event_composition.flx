@@ -1,14 +1,33 @@
-import Flow.Async as Async
-import Flow.Event as Event
+import Flow.Async exposing (..)
+import Flow.Channel as Channel
+import Flow.Event exposing (..)
 
-fn composed() -> String with Async {
-    let fast = Event.wrap(Event.always(3), fn(n) { "value: " + to_string(n) })
-    let guarded = Event.guard(fn() { fast })
-    let ignored_nack = Event.with_nack(fn(_nack) { Event.after(50) })
-    let winner = Event.choose([guarded, Event.wrap(ignored_nack, fn(_) { "late" })])
-    Event.sync(winner)
+// CML-style event composition (proposal 0177 T2.5):
+//   - `guard` defers building its event until sync-time,
+//   - `with_nack` hands a losing branch a negative-acknowledgement event so it
+//     can clean up, and
+//   - `choose` races the alternatives, committing to the first ready branch.
+//
+// Here the guarded `winner` (ready immediately) beats the `loser` (a 10s
+// timer). Because `loser` lost, its nack fires; a forked cleanup fiber blocked
+// on `sync(nack)` wakes and records the sentinel 42.
+fn composed() -> Int with Async {
+    let obs: Channel<Int> = Channel.make(4)
+    scope(fn(s) with Async {
+        let winner: Event<Unit> = guard(fn() { wrap(always(0), fn(_) { }) })
+        let loser: Event<Unit> = with_nack(fn(nack) with Async {
+            let _u = fork(s, fn() with Async {
+                let _r = sync(nack)
+                let _s2 = Channel.try_send(obs, 42)
+                0
+            })
+            wrap(after(10000), fn(_) { })
+        })
+        let _w = sync(choose([winner, loser]))
+        yield_now()
+        yield_now()
+        match Channel.try_recv(obs) { Some(n) -> n, None -> 0 }
+    })
 }
 
-fn main() with IO {
-    print(Async.run_async(composed))
-}
+fn main() with IO { print(run_async(composed)) }

@@ -1,0 +1,17 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// true
+// parity-expected-stdout-end
+// bug: Tcp.local_port reads the OS-assigned port of an ephemeral (:0) bind.
+//      Exercises the TcpLocalPort primop on both backends (VM immediate lookup,
+//      native fiber-suspending via flux_tcp_local_port). A real bind returns a
+//      nonzero in-range port; both backends must agree.
+import Flow.Async exposing (..)
+import Flow.Tcp exposing (..)
+
+fn body() -> Bool with Async {
+    let l = listen("127.0.0.1", 0)
+    let p = local_port(l)
+    p > 0 && p < 65536
+}
+fn main() with IO { print(run_async(body)) }

@@ -191,35 +191,132 @@ feature inherit the scheduler's correctness.
 
 ### M2 — Phase 2 semantic closeout (verify-and-fill)
 
+**Status: 5/5 done.** T2.1–T2.5 complete on VM + native. T2.5's `guard`/`nack` ship with
+VM+native parity fixtures. The native `with_nack` crash was a missing yield check at
+cross-module async call sites: a function performing `Async` written with the expanded effect
+row was misclassified non-async (`effect_expr_contains_async`), and `with_nack` was absent from
+the cross-module async allowlist (`is_direct_async_extern_symbol`). Both fixed — see
+[changes/2026-06-23-native-async-resume-followups.md](../../changes/2026-06-23-native-async-resume-followups.md).
+
+**M2 follow-ups (tracked, not blocking).** Two pre-existing native-backend bugs were surfaced —
+not caused — while landing T2.5. Neither affects the `Flow.*` library combinators or the M2
+deliverables; both are logged in
+[docs/internals/known_issues.md](../internals/known_issues.md) and deferred:
+
+- **KI-1 — user-defined cross-module `async` functions miss native yield checks.** Native
+  cross-module async-ness is decided by the hardcoded allowlist `is_direct_async_extern_symbol`,
+  so an `async` function a user defines in one module and calls from another gets no yield check
+  and SIGSEGVs when it suspends. The callee's effect row is already known at compile time (the
+  whole program is type-checked together); the fix is to thread that async-ness into LIR
+  classification instead of the allowlist. Reachable, medium priority, well-bounded.
+- **KI-2 — effectful call duplicated in a generic cross-module `let r = f(); r` tail-return.** An
+  aether copy-prop inlines the single-use tail var without dropping the dead binding, double-
+  emitting the call. Contrived shape, latent (masked by KI-1), low priority; re-test after KI-1.
+
 Smaller than the prior roadmap implied — most slices are already implemented; this milestone
 proves them and fills the one real gap.
 
-- **T2.1 — Fiber panic propagation.** Ensure a panicking fiber propagates to its enclosing
-  `scope` instead of poisoning a worker thread. (`try`/`fail` primops 161/181 already exist;
-  the gap is *panic*, not performed-fail.)
+- **T2.1 — Fiber panic propagation.** ✅ **Done.** The genuinely-open gap was a *Rust*
+  `panic!` in a fiber body (a runtime fault: bad `unwrap`, overflow, ICE) — Flux `panic` was
+  already routed through `signal_fiber_error` into a catchable `Err`. Such a Rust panic
+  unwound the OS worker thread (poisoning a background worker; aborting `run_async` on the
+  single-threaded loop). The VM dispatch now wraps both fiber-body invocation sites
+  (`dispatch_loop` and the multi-worker `run_one_fiber`,
+  [core_dispatch.rs](../../src/vm/core_dispatch.rs)) in `catch_unwind`, resets the reused
+  worker VM to its pre-tick stack/frame boundary via the new
+  `RuntimeContext::unwind_to_boundary` hook, and surfaces the fault as a catchable
+  `AsyncError.Panicked(message)` at the enclosing scope. (`FiberFork`'s inline child runs
+  within the parent tick and is covered by the parent's guard.)
   *Done when:* a panicking child surfaces as a catchable failure at the scope boundary, on
-  VM + native, with a parity fixture.
-- **T2.2 — Catchable-raise audit.** Verify `Async.fail` + `try` is genuinely catchable
-  end-to-end; retire any remaining `bail_if_cancelled` shim semantics. Add parity fixtures.
-- **T2.3 — `yield_now` / `check_cancelled` confirmation (test-only).** Both already perform
-  real checkpoints; add deterministic-scheduler tests (T1.1) proving `yield_now` observes
-  cancellation. *(Down-scoped from "implement" to "test".)*
-- **T2.4 — N-way `race` tie-break decision.** `first_of` is already n-way; `race` is 2-way.
-  Decide whether `race` stays 2-way (delegating n-way to `first_of`) and lock the deterministic
-  source-order tie-break with tests.
-- **T2.5 — Event `guard`/`nack` real semantics.** Make `guard` fire at sync-time (not eager)
-  and `nack` actually fire — the placeholders at
-  [lib/Flow/Event.flx:64,73](../../lib/Flow/Event.flx#L64). This is the real remaining
-  channel/event gap.
-  *Done when:* CML-style `guard`/`nack` parity fixtures pass on VM + native.
+  VM + native, with a parity fixture. ✅ New parity fixture
+  [tests/parity/async_both_child_panic.flx](../../tests/parity/async_both_child_panic.flx)
+  (a `both`-forked child panics → `Err(Panicked("child boom"))`, byte-identical VM/native)
+  plus a `core_dispatch` unit test asserting a Rust panic becomes a `WorkerFiberResult::Error`
+  without poisoning the worker.
+- **T2.2 — Catchable-raise audit.** ✅ **Done.** Confirmed `Async.fail` is a genuine
+  catchable raise end-to-end on VM + native: `try` recovers it as `Err(err)` with the
+  `AsyncError` payload intact, and an unwrapped raise propagates to the enclosing
+  `scope`/await across `both`/`race` and forked children. `bail_if_cancelled` is already
+  `if check_cancelled() { fail(Canceled) }` over that real raise — its pre-T2.1 shim
+  semantics are retired and the stale "becomes catchable in slice 2-vi" framing was removed
+  from the `FiberCheckCancelled` comment ([core_dispatch.rs](../../src/vm/core_dispatch.rs))
+  and the `fail` / `bail_if_cancelled` library docs ([lib/Flow/Async.flx](../../lib/Flow/Async.flx)).
+  No behavioral change — the machinery was already real (`FiberFail` → `signal_fiber_error` →
+  catchable). A dedicated `bail_if_cancelled` runtime fixture is intentionally omitted: a
+  flag-set fiber is normally a loser being torn down (whose errors are deliberately swallowed),
+  so catchability follows compositionally from the separately-verified `check_cancelled`
+  (flag read) and `fail` (catchable).
+  *Done when:* parity fixtures pass on VM + native. ✅ New
+  [tests/parity/async_fail_catchable.flx](../../tests/parity/async_fail_catchable.flx)
+  (direct raise, multi-field payload, forked-child raise) alongside the pre-existing
+  [tests/parity/async_try_panic.flx](../../tests/parity/async_try_panic.flx).
+- **T2.3 — `yield_now` / `check_cancelled` confirmation (test-only).** ✅ **Done.** Both
+  already perform real checkpoints. New
+  [tests/integration/vm_yield_now_cancel.rs](../../tests/integration/vm_yield_now_cancel.rs)
+  pins `yield_now`'s checkpoint under the seedable single-worker deterministic scheduler
+  (T1.1, zero `sleep`): a `race` loser running a finite cooperative `yield_now` loop is
+  cancelled when the winner resolves and is curtailed to ~1 tick instead of its 200-tick
+  bound. The test is validated to isolate the checkpoint — temporarily removing the
+  `is_current_cancelled()` guard in `FiberYieldNow` runs the same seeds (0, 7, 123) to the
+  full 200 ticks, flipping the assertion (and the finite bound makes a regression fail loudly
+  rather than hang). `check_cancelled`'s checkpoint remains covered by
+  [vm_fiber_check_cancelled.rs](../../tests/integration/vm_fiber_check_cancelled.rs).
+  *(Down-scoped from "implement" to "test".)*
+- **T2.4 — N-way `race` tie-break decision.** ✅ **Done.** Decision: **`race` stays 2-way**
+  and delegates the n-way case to `first_of` / `first` (`race(f, g)` ≡ `first([f, g])`). Both
+  share one deterministic **source-order tie-break**: when several branches are simultaneously
+  *runnable* (ready in the same cooperative round, including across `yield_now`), the earliest
+  in source order wins; a later branch wins only once every earlier branch is *suspended on a
+  real async wait* (`sleep` / I/O). This records the existing
+  `AwaitCoordinator::{resolve_race, resolve_first_of}` `blocked_by_earlier_ready` semantics
+  ([await_coordinator.rs](../../src/runtime/async/await_coordinator.rs)); documented on `race`
+  and `first_of` in [lib/Flow/Async.flx](../../lib/Flow/Async.flx).
+  *Done when:* the deterministic source-order tie-break is locked with tests. ✅ New
+  [tests/integration/vm_race_tiebreak.rs](../../tests/integration/vm_race_tiebreak.rs) sweeps
+  11 seeds under the deterministic scheduler (T1.1), asserting the tie-break holds for every
+  seed — 2-way `race` ties, n-way `first_of` ties, and earlier-source priority across a
+  `yield_now`.
+- **T2.5 — Event `guard`/`nack` real semantics.** ✅ **Done (VM + native).** Replaced the
+  placeholders at [lib/Flow/Event.flx](../../lib/Flow/Event.flx): `guard(f)` now defers building
+  its event to **sync-time** (runs `f` once, memoized across re-polls) via a new `EventGuard`
+  primop, and `with_nack(f)` now hands `f` a real nack event that **fires when its branch loses**
+  the enclosing `choose` (silent on win, CML-style) via a new `EventWithNack` primop over a
+  1-capacity channel.
+  *Done when:* CML-style `guard`/`nack` parity fixtures pass on VM + native. ✅
+  - `guard` defers/runs-once: [tests/parity/async_event_guard_defers.flx](../../tests/parity/async_event_guard_defers.flx). ✅
+  - `nack` fire-on-loss: [tests/parity/async_event_nack_fires_on_loss.flx](../../tests/parity/async_event_nack_fires_on_loss.flx). ✅
+  - `nack` silent-on-win: [tests/parity/async_event_nack_silent_on_win.flx](../../tests/parity/async_event_nack_silent_on_win.flx). ✅
+  - The native `with_nack` crash was a **missing yield check at cross-module async call sites**:
+    a function performing `Async` via the expanded effect row was misclassified non-async
+    (`effect_expr_contains_async` now matches the expanded seam labels, not just the `Async`
+    alias), and `with_nack` was absent from the cross-module async allowlist
+    (`is_direct_async_extern_symbol`). Both fixed — details in
+    [changes/2026-06-23-native-async-resume-followups.md](../../changes/2026-06-23-native-async-resume-followups.md).
 
 ### M3 — Async parity gate
 
+**Status: T3.1 done; T3.2 done (HTTP unblocked — KI-3 fixed).**
+
 - **T3.1 — Wire async parity into `release_check.sh`** so VM↔native divergence is a release
-  gate, not an ad-hoc check.
+  gate, not an ad-hoc check. ✅ **Done.** Already wired: [release_check.sh](../../scripts/release/release_check.sh#L17)
+  runs `parity-check tests/parity --ways vm,llvm,vm_cached,vm_strict,llvm_strict` under
+  `set -e`, and `parity-check` exits non-zero on any mismatch — so a VM↔native divergence in
+  `tests/parity/` already fails the release preflight. Confirmed against a forced-mismatch
+  probe (exit code 1). No code change needed.
 - **T3.2 — Backfill missing parity fixtures.** Today's blind spots, each tested on only one
-  backend: `Task` spawn/join lifecycle, scope cancellation, and HTTP/TCP.
-  *Done when:* `parity-check tests/parity --ways vm,llvm` covers every async op at 100%.
+  backend: `Task` spawn/join lifecycle, scope cancellation, and HTTP/TCP. ◐ **Mostly done.**
+  - `Task` spawn/join lifecycle — ✅ [tests/parity/async_task_spawn_await.flx](../../tests/parity/async_task_spawn_await.flx)
+    (async-surface `Task.await`, distinct from the existing `blocking_join` fixture).
+  - Scope cancellation — ✅ [tests/parity/async_scope_cancel_stops_fork.flx](../../tests/parity/async_scope_cancel_stops_fork.flx)
+    (`scope`/`fork`/`cancel`), moved from the ungated `examples/async` sweep into the gated dir.
+  - TCP — ✅ already covered by the passing `tcp_*` fixtures (raw async socket I/O on both backends).
+  - HTTP — ✅ [tests/parity/http_get_roundtrip.flx](../../tests/parity/http_get_roundtrip.flx)
+    (`serve`/`get`/`shutdown` round-trip over `both`). Authoring this fixture surfaced a native
+    heap-use-after-free (composed-continuation double-drop) that crashed all native HTTP inside
+    `both`; **fixed** (was KI-3, now resolved in
+    [known_issues.md](../../docs/internals/known_issues.md)) in `runtime/c/effects.c`, and the
+    fixture promoted into the gated set.
+  *Done when:* `parity-check tests/parity --ways vm,llvm` covers every async op at 100%. ✅
 
 ### M4 — Actor MVP (primary)
 
@@ -250,13 +347,54 @@ supervision trees / restart strategies (Phase C), the M:N scheduler upgrade (Pha
   decomposition / 0161", which shipped in 0.0.5.
 - **T5.3 — Changelog fragments** under `changes/` per task, per the release procedure.
 
+### M6 — Deterministic scheduling follow-ups (stretch)
+
+Deepens M1's deterministic scheduler along the two axes its T1.1 scope note explicitly
+deferred (VM-only, cooperative/`yield_now`-only — timer/I/O order not virtualized,
+multi-worker interleavings not replayable). **Status: stretch / may slip to 0.0.8.** None of
+M2–M4 depend on it; it is the next increment of test-oracle fidelity, not a prerequisite for
+the Actor MVP. Promote into committed scope only if reliability time is available after M1–M4.
+
+- **T6.1 — Virtual-time scheduler backend.** Virtualize timer (and, where feasible, I/O)
+  completion ordering so `sleep`/`timeout`/timer-driven programs run on a logical clock the
+  deterministic scheduler advances, rather than the wall clock. Lets timer-cancellation tests
+  assert a fixed interleaving with **zero** real time elapsed — the "fully time-free form"
+  the T1.4 scope note defers. Built behind the existing
+  `SchedPolicy::Deterministic` seam in
+  [scheduler.rs](../../src/runtime/async/scheduler.rs); the mio backend's timer source is the
+  swap point.
+  *Done when:* a `timeout`/`sleep` cancellation test asserts a fixed interleaving with zero
+  wall-clock, reproducible across runs and OSes — converting the current wide-gap deadlock
+  guards (T1.4) into exact assertions.
+- **T6.2 — Multi-worker deterministic simulation.** Extend the deterministic scheduler past
+  one logical worker: model >1 worker with seeded work-stealing / migration decisions so
+  multi-worker interleavings (the cancel × steal × completion boundary the T1.2 harness
+  hammers) become replayable, not just stress-fuzzed. Cross-checked against the T1.2 stress
+  harness so the simulation tracks the production scheduler.
+  *Done when:* a multi-worker program asserts a fixed, seed-selected interleaving identical
+  across runs; a seed that reproduces a known steal/migration race is pinned as a regression.
+- **T6.3 — Native deterministic scheduling + VM↔native deterministic parity.** Today native
+  threads `det_seed` through its ABI but ignores it ([native_abi.rs](../../src/runtime/async/native_abi.rs));
+  make the native scheduler honor it (single-worker, then the T6.2 simulation) so a given seed
+  yields the same interleaving on both backends. Unblocks exact-count deterministic tests as
+  **parity fixtures** (e.g. promoting `vm_yield_now_cancel.rs`'s exact assertion to vm + llvm),
+  extending the M3 parity gate to deterministic schedules.
+  *Done when:* `parity-check` shows vm and llvm produce byte-identical output under a fixed
+  `with_deterministic_scheduler(seed)` for a cooperative and a timer-driven fixture.
+
 ### Dependency order
 
 ```
 M1 ──┬──> M2 ──┐
-     └──> M3 ──┴──> M4 ──> release
+     │         ├──> M4 ──> release
+     ├──> M3 ──┘
+     └┄┄> M6 (stretch; T6.3 also builds on M3)
 M5 runs throughout.
 ```
+
+M6 extends M1 and is independent of the M2→M4 critical path; the dotted edge marks it as
+deferred. T6.3 additionally builds on the M3 parity gate (it adds deterministic-schedule
+fixtures to it).
 
 M4 depends on M1 (the actor mailbox/receive lean on the deterministic scheduler and the
 hardened cancel path) and on M2's event/channel closeout. M2 and M3 can proceed in parallel

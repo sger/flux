@@ -1,0 +1,28 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// "sum = 6"
+// parity-expected-stdout-end
+// bug: Task lifecycle — spawn a worker-backed task, then join it from a
+//      fiber via the async-surface `Task.await` (primop TaskAwait), distinct
+//      from the blocking `blocking_join` path covered by task_spawn_move.flx.
+//      VM: task body runs on a worker thread; `await` suspends only the
+//      calling fiber. Native: OS-thread task; `await` resumes through the
+//      native async scheduler when the task finishes. Both must agree.
+
+import Flow.Async exposing (..)
+import Flow.Task as Task
+
+fn one()   -> Int { 1 }
+fn two()   -> Int { 2 }
+fn three() -> Int { 3 }
+
+fn body() -> Int with Async {
+    let a = Task.spawn(one)
+    let b = Task.spawn(two)
+    let c = Task.spawn(three)
+    Task.await(a) + Task.await(b) + Task.await(c)
+}
+
+fn main() with IO {
+    print("sum = " + to_string(run_async(body)))
+}

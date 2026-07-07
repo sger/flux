@@ -1,0 +1,17 @@
+// Helper module for the KI-2 regression demo (see docs/internals/known_issues.md,
+// Resolved: KI-2). The trigger shape: an unused binding (`cid`, extracted from a
+// dropped heap value) immediately before `let r = f(...); r` that returns the
+// bound var bare in tail position. The dropped binding is what routed this
+// through the aether reuse-token threader, which used to duplicate the effectful
+// call `f(never())` (emitting it twice on the native backend).
+import Flow.Channel as Channel exposing (Channel)
+import Flow.Event exposing (never, Event)
+
+module Lib {
+    public fn m<a, e>(f: (Event<Int>) -> a with IO | e) -> a with IO | e {
+        let ch: Channel<Int> = Channel.make(1)
+        let cid: Int = match ch { Channel(id) -> id }
+        let r = f(never())
+        r
+    }
+}

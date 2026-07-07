@@ -44,8 +44,8 @@ typedef enum {
     /* CML guard: b = thunk closure (() -> Int), a = resolved child id
      * (0 = unresolved). Evaluated once at poll-time and memoized. */
     EV_GUARD,
-     /* CML negative-ack: a = nack channel id (not owned), b = child event id. */
-     EV_WITH_NACK,
+    /* CML negative-ack: a = nack channel id (not owned), b = child event id. */
+    EV_WITH_NACK,
 } FluxEventKind;
 
 typedef struct {
@@ -240,7 +240,7 @@ static int collect_ids(int64_t list, int64_t **out_ids, size_t *out_len) {
 
 /* Poll the tree at `id`. On readiness, `*out` is the value and `*out_leaf` is
  * the leaf event id that produced it (used by fire_losing_nacks at commit). */
-static int poll_event(int64_t id, int64_t *out, int16_t *out_leaf) {
+static int poll_event(int64_t id, int64_t *out, int64_t *out_leaf) {
     FluxEvent *ev = lookup_event(id);
     if (!ev) {
         fprintf(stderr, "flux_event_sync: unknown event %lld\n", (long long)id);
@@ -515,7 +515,7 @@ static void free_event_tree(int64_t id) {
         break;
     case EV_WITH_NACK:
         /* Recurse the child subtree only; the nack channel (a) is owned by
-         * the channel table and read by the cleanup fiber never freed here. */
+         * the channel table and read by the cleanup fiber — never freed here. */
         free_event_tree(old.b);
         break;
     default:

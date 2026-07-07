@@ -1,0 +1,32 @@
+// KI-1 regression demo — user-defined cross-module `async` functions must get a
+// native yield check (see docs/internals/known_issues.md, Resolved: KI-1).
+//
+// `Lib.step` is a user-defined async combinator in another module whose callback
+// suspends (`yield_now`). Before the fix, the native (LLVM) backend decided
+// cross-module async-ness from a hardcoded `Flow.*` allowlist, so the call into
+// `step` emitted no `flux_is_yielding` check: when the callee suspended, the
+// caller dereferenced the yield sentinel and crashed (SIGSEGV). The VM was fine.
+// Async-ness is now data-driven from the callee's effect row, so both backends
+// agree.
+//
+// Run on both backends (both print 7):
+//
+//     cargo run -- examples/async/regression_ki1_cross_module_async/main.flx
+//     cargo native   examples/async/regression_ki1_cross_module_async/main.flx
+//
+// Regression test: tests/native_llvm/native_async_cross_module_tests.rs.
+
+// parity-expected-stdout-begin
+// 7
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+import Lib exposing (..)
+
+fn body() -> Int with Async {
+    step(fn() with Async { yield_now(); 7 })
+}
+
+fn main() with IO {
+    print(run_async(body))
+}
