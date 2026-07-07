@@ -4739,6 +4739,71 @@ fn cross_file_goto_definition_resolves_unqualified_module_member() {
 }
 
 #[test]
+fn cross_file_exposing_all_resolves_unqualified_member_no_diagnostic() {
+    // Regression: `import Math exposing (..)` of a sibling module must bring the
+    // module's exported members into scope for the name-resolution pass, so a
+    // bare use of `twice` is not falsely flagged UNDEFINED VARIABLE. Before the
+    // fix, only Flow-stdlib `exposing (..)` members were recognized; user-module
+    // members were not, so cross-module async helpers squiggled.
+    let math_src = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+    let main_src = "import Math exposing (..)\n\nfn run() { twice(21) }\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", math_src), ("main.flx", main_src)]);
+
+    let diags = state.handle_did_open(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uris[1].clone(),
+            language_id: "flux".into(),
+            version: 1,
+            text: main_src.into(),
+        },
+    });
+    let main_diags = diags
+        .iter()
+        .find(|d| d.uri == uris[1])
+        .expect("diagnostics for main.flx");
+    assert!(
+        main_diags
+            .diagnostics
+            .iter()
+            .all(|d| !d.message.contains("twice")),
+        "bare `twice` from `exposing (..)` should resolve, got: {:?}",
+        main_diags.diagnostics
+    );
+}
+
+#[test]
+fn cross_file_exposing_all_still_flags_a_genuine_typo() {
+    // The `exposing (..)` fix must not blanket-suppress undefined names: a
+    // misspelled member (not exported by the sibling module) is still reported.
+    let math_src = "module Math {\n    public fn twice(x) { x * 2 }\n}\n";
+    let main_src = "import Math exposing (..)\n\nfn run() { twicce(21) }\n";
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", math_src), ("main.flx", main_src)]);
+
+    let diags = state.handle_did_open(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uris[1].clone(),
+            language_id: "flux".into(),
+            version: 1,
+            text: main_src.into(),
+        },
+    });
+    let main_diags = diags
+        .iter()
+        .find(|d| d.uri == uris[1])
+        .expect("diagnostics for main.flx");
+    assert!(
+        main_diags
+            .diagnostics
+            .iter()
+            .any(|d| d.message.contains("twicce")),
+        "a misspelled member should still be flagged, got: {:?}",
+        main_diags.diagnostics
+    );
+}
+
+#[test]
 fn cross_file_goto_definition_resolves_deeply_qualified_member() {
     // `A.B.C.member` — a multi-segment qualified path. The `object` of the
     // `.run` access is a `MemberAccess` chain, not a bare identifier.

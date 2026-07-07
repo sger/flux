@@ -50,6 +50,9 @@ pub fn unresolved_name_diagnostics(snapshot: &Snapshot) -> Vec<FluxDiagnostic> {
 
     // `import X exposing (..)` brings every member of X into scope unqualified.
     // (The `exposing (a, b)` form is handled name-by-name in `collect_global_decls`.)
+    // Members come from the Flow-stdlib index (`module_members`, keyed by short
+    // name) or, for a sibling/subdir `module`, the workspace symbol index
+    // (`user_module_members`, keyed by module name).
     for stmt in &snapshot.program.statements {
         if let Statement::Import {
             name,
@@ -57,9 +60,17 @@ pub fn unresolved_name_diagnostics(snapshot: &Snapshot) -> Vec<FluxDiagnostic> {
             ..
         } = stmt
             && let Some(full) = interner.try_resolve(*name)
-            && let Some(members) = snapshot.module_members.get(last_segment(full))
         {
-            globals.extend(members.iter().cloned());
+            if let Some(members) = snapshot.module_members.get(last_segment(full)) {
+                globals.extend(members.iter().cloned());
+            }
+            if let Some(members) = snapshot
+                .user_module_members
+                .get(full)
+                .or_else(|| snapshot.user_module_members.get(last_segment(full)))
+            {
+                globals.extend(members.iter().cloned());
+            }
         }
     }
 
@@ -528,7 +539,18 @@ fn module_member_sets(snapshot: &Snapshot) -> std::collections::HashMap<String, 
                     continue;
                 };
                 let short = last_segment(full);
-                let Some(members) = snapshot.module_members.get(short) else {
+                // Prefer the Flow-stdlib member set (keyed by short name); fall
+                // back to a sibling/subdir `module`'s members from the workspace
+                // symbol index (keyed by full or short name).
+                let members: HashSet<String> = if let Some(m) = snapshot.module_members.get(short) {
+                    m.iter().cloned().collect()
+                } else if let Some(m) = snapshot
+                    .user_module_members
+                    .get(full)
+                    .or_else(|| snapshot.user_module_members.get(short))
+                {
+                    m.clone()
+                } else {
                     // Members of this module aren't known with confidence — skip
                     // the membership check (but still treat it as a binding).
                     continue;
@@ -537,7 +559,7 @@ fn module_member_sets(snapshot: &Snapshot) -> std::collections::HashMap<String, 
                     .and_then(|a| interner.try_resolve(a))
                     .unwrap_or(full)
                     .to_string();
-                map.insert(binding, members.iter().cloned().collect());
+                map.insert(binding, members);
             }
             Statement::Module { name, body, .. } => {
                 let mut members = HashSet::new();
