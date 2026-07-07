@@ -811,7 +811,16 @@ pub enum CorePrimOp {
     ChanTrySendMove = 225,
     /// Create a channel-send event by ownership transfer.
     EventSendMove = 226,
-    // ── Next free ID: 227 ─────────────────────────────────────────────
+    /// CML-style guard: defer an event-building thunk until sync-time.
+    EventGuard = 227,
+    /// CML-style negative acknowledgement: fire a nack channel when this
+    /// branch loses the enclosing `choose` at commit.
+    EventWithNack = 228,
+    /// Read the OS-assigned local port of a bound listener. Args: (listener: Int)
+    /// → port: Int. Lets a server bind to port 0 (ephemeral) and learn the
+    /// actual port. VM + native: fiber-suspending (mirrors `TcpAccept`).
+    TcpLocalPort = 229,
+    // ── Next free ID: 230 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -870,6 +879,7 @@ impl CorePrimOp {
             "TcpClose" => return Some(Self::TcpClose),
             "TcpListen" => return Some(Self::TcpListen),
             "TcpAccept" => return Some(Self::TcpAccept),
+            "TcpLocalPort" => return Some(Self::TcpLocalPort),
             "FiberBoth" => return Some(Self::FiberBoth),
             "FiberRace" => return Some(Self::FiberRace),
             "FiberTimeout" => return Some(Self::FiberTimeout),
@@ -900,6 +910,8 @@ impl CorePrimOp {
             "EventSync" => return Some(Self::EventSync),
             "EventPoll" => return Some(Self::EventPoll),
             "EventWait" => return Some(Self::EventWait),
+            "EventGuard" => return Some(Self::EventGuard),
+            "EventWithNack" => return Some(Self::EventWithNack),
             "TaskSpawnMove" => return Some(Self::TaskSpawnMove),
             "TaskSpawnScopedMove" => return Some(Self::TaskSpawnScopedMove),
             "ChanSendMove" => return Some(Self::ChanSendMove),
@@ -1017,6 +1029,7 @@ impl CorePrimOp {
             Self::TcpClose => Some("tcp_close"),
             Self::TcpListen => Some("tcp_listen"),
             Self::TcpAccept => Some("tcp_accept"),
+            Self::TcpLocalPort => Some("tcp_local_port"),
             Self::FiberBoth => Some("fiber_both"),
             Self::FiberRace => Some("fiber_race"),
             Self::FiberFirstOf => Some("fiber_first_of"),
@@ -1050,6 +1063,8 @@ impl CorePrimOp {
             Self::EventSync => Some("event_sync"),
             Self::EventPoll => Some("event_poll"),
             Self::EventWait => Some("event_wait"),
+            Self::EventGuard => Some("event_guard"),
+            Self::EventWithNack => Some("event_with_nack"),
             Self::TaskSpawnScoped => Some("task_spawn_scoped"),
             Self::TaskSpawnScopedMove => Some("task_spawn_scoped_move"),
             Self::HttpServeConfig => Some("http_serve_config"),
@@ -1237,6 +1252,7 @@ impl CorePrimOp {
             169 => TcpClose,
             170 => TcpListen,
             171 => TcpAccept,
+            229 => TcpLocalPort,
             172 => FiberBoth,
             173 => FiberRace,
             174 => FiberTimeout,
@@ -1292,6 +1308,8 @@ impl CorePrimOp {
             224 => ChanSendMove,
             225 => ChanTrySendMove,
             226 => EventSendMove,
+            227 => EventGuard,
+            228 => EventWithNack,
             _ => return None,
         };
         Some(op)
@@ -1460,6 +1478,8 @@ impl CorePrimOp {
             ("event_poll", 1, CorePrimOp::EventPoll),
             ("event_wait", 1, CorePrimOp::EventWait),
             ("event_wrap", 2, CorePrimOp::EventWrap),
+            ("event_guard", 1, CorePrimOp::EventGuard),
+            ("event_with_nack", 2, CorePrimOp::EventWithNack),
             ("fiber_first_of", 1, CorePrimOp::FiberFirstOf),
             ("fiber_try", 1, CorePrimOp::FiberTry),
             ("fiber_run_async_with", 5, CorePrimOp::FiberRunAsyncWith),
@@ -1506,6 +1526,7 @@ impl CorePrimOp {
             ("task_spawn_scoped", 2, CorePrimOp::TaskSpawnScoped),
             ("task_spawn_scoped_move", 2, CorePrimOp::TaskSpawnScopedMove),
             ("tcp_accept", 1, CorePrimOp::TcpAccept),
+            ("tcp_local_port", 1, CorePrimOp::TcpLocalPort),
             ("tcp_close", 1, CorePrimOp::TcpClose),
             ("tcp_connect", 2, CorePrimOp::TcpConnect),
             ("tcp_listen", 2, CorePrimOp::TcpListen),
@@ -1627,6 +1648,7 @@ impl CorePrimOp {
             | EventSync
             | EventPoll
             | EventWait
+            | EventGuard
             | HttpShutdown
             | HttpShutdownNow
             | HttpActiveConnectionCount
@@ -1638,7 +1660,8 @@ impl CorePrimOp {
             | JsonParse
             | JsonStringify
             | HttpWriteChunkedHead
-            | HttpWriteChunk => 1,
+            | HttpWriteChunk
+            | TcpLocalPort => 1,
             HttpWriteChunkedEnd => 0,
             Add
             | Sub
@@ -1714,6 +1737,7 @@ impl CorePrimOp {
             | EventSend
             | EventSendMove
             | EventWrap
+            | EventWithNack
             | HttpWriteResponse
             | HttpRegisterConnection
             | HttpUnregisterConnection

@@ -457,6 +457,18 @@ mod vm_fibers {
         adt1("Panicked", Value::String(Rc::new(message.into())))
     }
 
+    /// Best-effort extraction of a Rust panic payload's message. `panic!`/`unwrap`/`expect` payloads are `&str` or `String`; any
+    /// other payload type falls back to a fixed marker.
+    pub fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
+        if let Some(s) = payload.downcast_ref::<&str>() {
+            (*s).to_string()
+        } else if let Some(s) = payload.downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "<unknown panic payload>".to_string()
+        }
+    }
+
     pub fn async_canceled() -> Value {
         Value::AdtUnit(Rc::new("Canceled".to_string()))
     }
@@ -1598,17 +1610,38 @@ mod vm_fibers {
                         continue;
                     }
                 };
-                let outcome = with_current(fiber_id, || {
+                // Snapshot the VM stack so a Rust panic in the fiber body can be
+                // unwound cleanly.
+                let panic_snapshot = (ctx.current_frame_index(), ctx.current_sp());
+                let caught = with_current(fiber_id, || {
                     with_current_worker(fiber.home_worker, || {
-                        if let Some(cont) = fiber.parked.take() {
-                            ctx.resume_from_dispatch(Value::Continuation(cont), resume_val)
-                        } else if let Some(body) = fiber.body.take() {
-                            ctx.invoke_value(body, vec![])
-                        } else {
-                            unreachable!("checked above")
-                        }
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            if let Some(cont) = fiber.parked.take() {
+                                ctx.resume_from_dispatch(Value::Continuation(cont), resume_val)
+                            } else if let Some(body) = fiber.body.take() {
+                                ctx.invoke_value(body, vec![])
+                            } else {
+                                unreachable!("checked abobe")
+                            }
+                        }))
                     })
                 });
+                // A genuine `panic!` in the fiber body (not a Flux `panic`,
+                // which is already a catchable `Err`) unwound the Rust stack.
+                // Reset the VM, drop the aborted tick's park/yield signals, and
+                // funnel it through the normal fiber-error path so it surfaces
+                // as a catchable `AsyncError.Panicked` at the enclosing scope
+                // instead of aborting `run_async`.
+                let outcome = match caught {
+                    Ok(outcome) => outcome,
+                    Err(payload) => {
+                        ctx.unwind_to_boundary(panic_snapshot.0, panic_snapshot.1);
+                        let _ = take_park();
+                        let _ = take_yield();
+                        signal_fiber_error(async_panicked(panic_message(payload)));
+                        Err("__fiber_error__".to_string())
+                    }
+                };
 
                 // Did the fiber park during this tick?  FiberSleep/FiberSuspend
                 // capture+unwind+set PENDING_PARK, then return Err so the
@@ -2075,12 +2108,8 @@ mod vm_fibers {
 
         let prev_worker = CURRENT_WORKER.with(|w| w.replace(Some(home_worker)));
 
-        let outcome = if let Some(cont) = fiber.parked.take() {
-            ctx.resume_from_dispatch(Value::Continuation(cont), resume_val)
-        } else if let Some(body) = fiber.body.take() {
-            ctx.invoke_value(body, vec![])
-        } else {
-            // No body, no parked: bookkeeping artifact.
+        // No body, no parked: bookkeeping artifact.
+        if fiber.parked.is_none() && fiber.body.is_none() {
             if let Some(prev) = prev_boundary {
                 restore_boundary(prev);
             }
@@ -2090,14 +2119,47 @@ mod vm_fibers {
                 fiber_id,
                 value: Value::None,
             };
-        };
+        }
 
-        // Restore the previous current fiber and boundary.
+        // Snapshot the VM stack so a Rust panic in the fiber body can be
+        // unwound cleanly, leaving this (reused) worker VM consistent for the
+        // next fiber instead of poisoning the OS thread.
+        let panic_snapshot = (ctx.current_frame_index(), ctx.current_sp());
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if let Some(cont) = fiber.parked.take() {
+                ctx.resume_from_dispatch(Value::Continuation(cont), resume_val)
+            } else {
+                let body = fiber.body.take().expect("checked above");
+                ctx.invoke_value(body, vec![])
+            }
+        }));
+
+        // Restore the previous current fiber and boundary — must run whether
+        // the body returned or unwound, since these were set manually (not via
+        // Drop guards).
         if let Some(prev) = prev_boundary {
             restore_boundary(prev);
         }
         CURRENT_WORKER.with(|w| w.set(prev_worker));
         CURRENT.with(|c| c.set(prev_current));
+
+        // A genuine `panic!` in the fiber body (not a Flux `panic`, already a
+        // catchable `Err`) unwound the Rust stack. Reset the VM, drop the
+        // aborted tick's signals, and surface it as a catchable
+        // `AsyncError.Panicked` rather than poisoning this worker thread.
+        let outcome = match caught {
+            Ok(outcome) => outcome,
+            Err(payload) => {
+                ctx.unwind_to_boundary(panic_snapshot.0, panic_snapshot.1);
+                let _ = take_park();
+                let _ = take_yield();
+                let _ = take_fiber_error();
+                return WorkerFiberResult::Error {
+                    fiber_id,
+                    err_value: async_panicked(panic_message(payload)),
+                };
+            }
+        };
 
         // Check for park signal.
         if let Some((req, cont_val)) = take_park() {
@@ -2831,6 +2893,70 @@ mod vm_fibers {
         }
 
         result
+    }
+
+    #[cfg(test)]
+    mod panic_propagation_tests {
+        use super::*;
+        use crate::runtime::RuntimeContext;
+        use crate::runtime::value::Value;
+
+        /// A `RuntimeContext` whose fiber-body invocation Rust-`panic!`s,
+        /// modelling a genuine runtime fault (bad `unwrap`, overflow, ICE)
+        /// inside a fiber — as opposed to a Flux `panic`, which is already a
+        /// catchable `Err`.
+        struct PanickingCtx;
+
+        impl RuntimeContext for PanickingCtx {
+            fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String> {
+                panic!("kaboom in fiber body")
+            }
+
+            fn invoke_base_function_borrowed(
+                &mut self,
+                base_fn_index: usize,
+                args: &[&Value],
+            ) -> Result<Value, String> {
+                unreachable!("not exercised by this test")
+            }
+
+            fn current_frame_index(&self) -> usize {
+                0
+            }
+
+            fn current_sp(&self) -> usize {
+                0
+            }
+        }
+
+        #[test]
+        fn rust_panic_in_fiber_body_becomes_catchables_error_not_thread_poison() {
+            // A genuine Rust panic in a fiber body must be
+            // caught and surfaced as an `AsyncError.Panicked`, leaving the
+            // worker usable never unwinding (poisoning) the OS worker thread.
+            // If the panic escaped `run_one_fiber`, this test would itself
+            // unwind and fail loudly.
+            let mut fiber = Fiber::new(WorkerId(0));
+            fiber.body = Some(Value::None);
+            let mut ctx = PanickingCtx;
+
+            let result = run_one_fiber(&mut fiber, &mut ctx, Value::None);
+
+            match result {
+                WorkerFiberResult::Error { err_value, .. } => {
+                    let rendered = format!("{err_value:?}");
+                    assert!(
+                        rendered.contains("Panicked"),
+                        "expected an AsyncError.Panicked, got {rendered}"
+                    );
+                    assert!(
+                        rendered.contains("kaboom"),
+                        "panic message should be preserved, got {rendered}"
+                    );
+                }
+                _ => panic!("expected WorkerFiberResult::Error from a panicking fiber body"),
+            }
+        }
     }
 }
 
@@ -3607,8 +3733,9 @@ pub fn execute_core_primop(
         // fiber_check_cancelled: returns true iff the current fiber's
         // enclosing scope has been cancelled (proposal 0174 Phase 2 slice
         // 2-iv). Scheduler-flag read; no suspend, no backend round-trip.
-        // Composes with Async.fail when the caller wants to raise; slice
-        // 2-vi makes that raise catchable.
+        // Composes with `Async.fail` when the caller wants to raise (the
+        // `bail_if_cancelled` idiom); that raise is a genuine catchable
+        // `AsyncError` — see `FiberFail` below.
         FiberCheckCancelled => Ok(Value::Boolean(vm_fibers::is_current_cancelled())),
 
         // fiber_current_worker_count: report the worker count of the
@@ -4088,6 +4215,15 @@ pub fn execute_core_primop(
             }
             other => Err(terr("event_wait", "Int", other)),
         },
+        // CML guard: store the event-building thunk; it runs at sync-time.
+        EventGuard => Ok(Value::Integer(super::event::guard(args[0].clone()))),
+        // CML negative-ack: wrap the child event with its nack channel id.
+        EventWithNack => match (&args[0], &args[1]) {
+            (Value::Integer(nack_ch), Value::Integer(child)) => {
+                Ok(Value::Integer(super::event::with_nack(*nack_ch, *child)))
+            }
+            (other, _) => Err(terr("event_with_nack", "Int", other)),
+        },
 
         // ── TCP primops (proposal 0174 Phase 1b-vii) ────────────────
         // Async-aware: park on the fiber scheduler, execute non-blocking
@@ -4179,6 +4315,18 @@ pub fn execute_core_primop(
                 park_tcp_op(ctx, req)
             }
             other => Err(terr("tcp_accept", "Int", other)),
+        },
+
+        TcpLocalPort => match &args[0] {
+            Value::Integer(listener_handle) => {
+                use crate::runtime::r#async::backend::{AsyncBackend, IoHandle};
+                let h = IoHandle(*listener_handle as u64);
+                let backend = vm_async::backend()?;
+                let req = vm_async::alloc_request_id();
+                backend.tcp_local_port(req, h);
+                park_tcp_op(ctx, req)
+            }
+            other => Err(terr("tcp_local_port", "Int", other)),
         },
 
         // ── HTTP server-manager reserved primops (proposal 0174 Phase 3a) ──

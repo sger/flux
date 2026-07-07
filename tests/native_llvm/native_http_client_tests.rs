@@ -265,3 +265,50 @@ fn main() with IO {
     let stdout = run_ok(source);
     assert!(stdout.contains("rejected"), "{stdout}");
 }
+
+/// Regression for KI-3: an HTTP `get` (a deep async call chain that re-yields
+/// on reactor I/O: get -> request -> request_parsed_url -> read_response_loop)
+/// running inside a `both` **child** fiber on a **multi-worker** native
+/// scheduler used to heap-use-after-free (composed-continuation double-drop in
+/// the `flux_compose` trampoline). Pre-fix this SIGSEGVs; post-fix it returns
+/// the body. The rest of the native HTTP suite pins `with_worker_count(1)`,
+/// which masks the bug — this one deliberately uses 4 workers.
+#[test]
+fn native_http_client_get_under_both_multiworker_no_uaf() {
+    let _guard = native_http_client_test_lock();
+    let port = next_port();
+    let source = format!(
+        r#"
+import Flow.Async exposing (..)
+import Flow.Http exposing (..)
+
+fn handler(req) with Async {{ ok("hello from " + req.path) }}
+
+fn server() -> Unit with Async, AsyncFail {{
+    let h = serve("127.0.0.1", {port}, handler)
+    let _wait = sleep(250)
+    shutdown(h)
+}}
+
+fn client() -> String with Async, AsyncFail {{
+    let _wait = sleep(50)
+    let resp = get("http://127.0.0.1:{port}/ki3")
+    resp.body
+}}
+
+fn body() -> String with Async, AsyncFail {{
+    let pair = both(server, client)
+    pair.1
+}}
+
+fn main() with IO {{
+    print(run_async_with(with_worker_count(4), body))
+}}
+"#
+    );
+    let stdout = run_ok(source);
+    assert!(
+        stdout.contains("hello from /ki3"),
+        "expected HTTP round-trip body under 4 workers:\n{stdout}"
+    );
+}

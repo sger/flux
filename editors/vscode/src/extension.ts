@@ -145,11 +145,84 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   );
 
+  // Dev aid: watch the resolved server binary and auto-restart when it's
+  // rebuilt, so editing flux-lsp's Rust source + `cargo build` is enough to
+  // pick up the change without a manual "Flux: Restart Server". Off by default
+  // (see `flux.autoRestartOnBinaryChange`); the gate is re-read per event so
+  // toggling the setting takes effect without a reload.
+  setupBinaryAutoRestart(context, serverPath);
+
   context.subscriptions.push({
     dispose: () => {
       client?.stop();
     },
   });
+}
+
+/**
+ * Watch the resolved server binary; when it changes on disk (a rebuild) and
+ * `flux.autoRestartOnBinaryChange` is enabled, restart the language server so
+ * the new binary takes effect. A no-op when the server comes from `PATH`
+ * (`resolveServerPath`'s final fallback) since there's no fixed file to watch.
+ */
+function setupBinaryAutoRestart(
+  context: vscode.ExtensionContext,
+  serverPath: string,
+) {
+  if (!path.isAbsolute(serverPath)) {
+    return;
+  }
+
+  const dir = path.dirname(serverPath);
+  const base = path.basename(serverPath);
+  const watcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(vscode.Uri.file(dir), base),
+  );
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let restarting = false;
+
+  const scheduleRestart = () => {
+    const enabled = vscode.workspace
+      .getConfiguration("flux")
+      .get<boolean>("autoRestartOnBinaryChange", false);
+    if (!enabled) {
+      return;
+    }
+    // Debounce: a rebuild fires several events (the old exe renamed aside to
+    // beat the Windows file lock, then the linker writes the new one). Wait
+    // for quiet so we respawn once, against the finished binary — never a
+    // half-written one.
+    if (timer) {
+      clearTimeout(timer);
+    }
+    timer = setTimeout(async () => {
+      timer = undefined;
+      if (restarting || !client) {
+        return;
+      }
+      restarting = true;
+      try {
+        await client.restart();
+        vscode.window.setStatusBarMessage(
+          "Flux: language server restarted (binary rebuilt).",
+          3000,
+        );
+      } catch (err) {
+        vscode.window.showErrorMessage(
+          `Flux: auto-restart after binary rebuild failed: ${err}`,
+        );
+      } finally {
+        restarting = false;
+      }
+    }, 700);
+  };
+
+  // `onDidCreate` covers the rename-aside-then-write pattern (the path briefly
+  // vanishes then reappears); `onDidChange` covers an in-place overwrite.
+  watcher.onDidChange(scheduleRestart);
+  watcher.onDidCreate(scheduleRestart);
+  context.subscriptions.push(watcher);
 }
 
 /**

@@ -1288,6 +1288,16 @@ pub extern "C" fn flux_async_tcp_accept(handle: u64) -> u64 {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn flux_async_tcp_local_port(handle: u64) -> u64 {
+    if flux_async_runtime_init() != 0 {
+        return 0;
+    }
+    let req = next_request_id();
+    backend().tcp_local_port(RequestId(req), IoHandle(handle));
+    req
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn flux_async_tcp_close(handle: u64) -> i32 {
     if flux_async_runtime_init() != 0 {
         return -1;

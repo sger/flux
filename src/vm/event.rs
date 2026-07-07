@@ -21,6 +21,19 @@ enum VmEvent {
     Never,
     Choose(Vec<i64>),
     Wrap(i64, Value),
+    /// CML guard: a thunk `() -> Int` (returns the child event id), evaluated
+    /// once at sync-time and memoized into `resolved`.
+    Guard {
+        thunk: Value,
+        resolved: Option<i64>,
+    },
+    /// CML negative-ack: transparent wrapper over `child`; if `child`'s subtree
+    /// does not contain the winning leaf at commit, the runtime fires `nack_ch`
+    /// (sends Unit). `nack_ch` is a channel id the node neither owns nor frees.
+    WithNack {
+        nack_ch: i64,
+        child: i64,
+    },
 }
 
 thread_local! {
@@ -116,8 +129,23 @@ pub(super) fn wrap(id: i64, f: Value) -> i64 {
     insert(VmEvent::Wrap(id, f))
 }
 
+pub(super) fn guard(thunk: Value) -> i64 {
+    insert(VmEvent::Guard {
+        thunk,
+        resolved: None,
+    })
+}
+
+pub(super) fn with_nack(nack_ch: i64, child: i64) -> i64 {
+    insert(VmEvent::WithNack { nack_ch, child })
+}
+
 pub(super) fn poll_value(ctx: &mut dyn RuntimeContext, id: i64) -> Result<Value, String> {
-    if let Some(value) = poll(ctx, id)? {
+    if let Some((value, winner_leaf)) = poll(ctx, id)? {
+        // CML nack before tearing the committed tree
+        // down, fire the nack channel of every `with_nack` branch that the
+        // winning leaf does not belong to.
+        fire_losing_nacks(id, winner_leaf)?;
         remove_tree(id);
         Ok(Value::Adt(Rc::new(AdtValue {
             constructor: Rc::new("Ready".to_string()),
@@ -177,8 +205,15 @@ fn remove_tree(id: i64) {
             }
         }
         Some(VmEvent::Wrap(child, _)) => remove_tree(child),
-        // Leaf events, including SendMove, have no child IDs. Dropping the event
-        // releases any retained VmSendValue payload.
+        Some(VmEvent::Guard {
+            resolved: Some(child),
+            ..
+        }) => remove_tree(child),
+        // A `with_nack` node owns its `child` subtree but NOT its nack channel
+        // (the channel table owns it; the cleanup fiber still reads it).
+        Some(VmEvent::WithNack { child, .. }) => remove_tree(child),
+        // Leaf events (and an unresolved Guard), including SendMove, have no
+        // child IDs to recurse. Dropping the event releases any retained payload.
         _ => {}
     }
 }
@@ -199,6 +234,15 @@ fn is_ready(id: i64) -> Result<bool, String> {
             Ok(false)
         }
         VmEvent::Wrap(child, _) => is_ready(child),
+        // An unresolved guard is treated as not-ready: `sync_id` always polls
+        // (which resolves it) before reaching the wait path, so by the time
+        // `is_ready`/`register_wait` run the guard is resolved.
+        VmEvent::Guard {
+            resolved: Some(child),
+            ..
+        } => is_ready(child),
+        VmEvent::Guard { resolved: None, .. } => Ok(false),
+        VmEvent::WithNack { child, .. } => is_ready(child),
     }
 }
 
@@ -231,59 +275,153 @@ fn register_wait(id: i64, request_id: u64) -> Result<(), String> {
             Ok(())
         }
         VmEvent::Wrap(child, _) => register_wait(child, request_id),
+        VmEvent::Guard {
+            resolved: Some(child),
+            ..
+        } => register_wait(child, request_id),
+        VmEvent::Guard { resolved: None, .. } => Ok(()),
+        VmEvent::WithNack { child, .. } => register_wait(child, request_id),
     }
 }
 
-fn poll(ctx: &mut dyn RuntimeContext, id: i64) -> Result<Option<Value>, String> {
+fn poll(ctx: &mut dyn RuntimeContext, id: i64) -> Result<Option<(Value, i64)>, String> {
     match get(id)? {
         VmEvent::Recv(ch) => {
             let value = super::channel::try_recv(ch)?;
             if !matches!(value, Value::None) {
-                Ok(Some(value))
+                Ok(Some((value, id)))
             } else if super::channel::is_closed(ch)? {
-                Ok(Some(Value::None))
+                Ok(Some((Value::None, id)))
             } else {
                 Ok(None)
             }
         }
         VmEvent::Send(ch, value) => {
             if super::channel::try_send(ch, &value)? || super::channel::is_closed(ch)? {
-                Ok(Some(Value::None))
+                Ok(Some((Value::None, id)))
             } else {
                 Ok(None)
             }
         }
         VmEvent::SendMove(ch, value) => {
             if super::channel::try_send_value(ch, value)? || super::channel::is_closed(ch)? {
-                Ok(Some(Value::None))
+                Ok(Some((Value::None, id)))
             } else {
                 Ok(None)
             }
         }
         VmEvent::After(deadline) => {
             if Instant::now() >= deadline {
-                Ok(Some(Value::None))
+                Ok(Some((Value::None, id)))
             } else {
                 Ok(None)
             }
         }
-        VmEvent::Always(value) => Ok(Some(value)),
+        VmEvent::Always(value) => Ok(Some((value, id))),
         VmEvent::Never => Ok(None),
         VmEvent::Choose(ids) => {
             for child in ids {
-                if let Some(value) = poll(ctx, child)? {
-                    return Ok(Some(value));
+                if let Some(found) = poll(ctx, child)? {
+                    return Ok(Some(found));
                 }
             }
             Ok(None)
         }
         VmEvent::Wrap(child, f) => {
-            if let Some(value) = poll(ctx, child)? {
-                ctx.invoke_value(f, vec![value]).map(Some)
+            if let Some((value, leaf)) = poll(ctx, child)? {
+                Ok(Some((ctx.invoke_value(f, vec![value])?, leaf)))
             } else {
                 Ok(None)
             }
         }
+        VmEvent::Guard { thunk, resolved } => {
+            let child = match resolved {
+                Some(child) => child,
+                None => {
+                    // Run the thunk exactly once, then memoize the child id.
+                    // Never hold the EVENTS borrow across `invoke_value` (the
+                    // thunk builds events via `insert`) `get` already cloned
+                    // the node out, so we are borrow-free here.
+                    let child_val = ctx.invoke_value(thunk.clone(), vec![])?;
+                    let child = match child_val {
+                        Value::Integer(child) => child,
+                        other => {
+                            return Err(format!(
+                                "event_guard thunk must return an event id (Int), got {}",
+                                other.type_name()
+                            ));
+                        }
+                    };
+                    EVENTS.with(|events| {
+                        events.borrow_mut().insert(
+                            id,
+                            VmEvent::Guard {
+                                thunk,
+                                resolved: Some(child),
+                            },
+                        )
+                    });
+                    child
+                }
+            };
+            poll(ctx, child)
+        }
+        VmEvent::WithNack { child, .. } => poll(ctx, child),
+    }
+}
+
+/// Walk the committed tree and fire the nack channel of every `with_nack`
+/// branch whose subtree does not contain `winner_leaf`.
+/// Called after `poll` succeeds, before `remove_tree`.
+fn fire_losing_nacks(id: i64, winner_leaf: i64) -> Result<(), String> {
+    match get(id)? {
+        VmEvent::Choose(ids) => {
+            for child in ids {
+                fire_losing_nacks(child, winner_leaf)?;
+            }
+        }
+        VmEvent::Wrap(child, _) => fire_losing_nacks(child, winner_leaf)?,
+        VmEvent::Guard {
+            resolved: Some(child),
+            ..
+        } => fire_losing_nacks(child, winner_leaf)?,
+        VmEvent::WithNack { nack_ch, child } => {
+            if !subtree_contains(id, winner_leaf)? {
+                // Loser: fire the nack. Sending Value::None is fine `try_recv`
+                // wraps a buffered value in `Some`, so the cleanup fiber's recv
+                // observes `Some(None)` (ready), distinct from the empty case.
+                let _ = super::channel::try_send(nack_ch, &Value::None);
+            }
+            // Recurse for nested `with_nack` losers within this subtree.
+            fire_losing_nacks(child, winner_leaf)?;
+        }
+        // Leaves and unresolved Guard: no nack-bearing children.
+        _ => {}
+    }
+    Ok(())
+}
+
+/// True if the event subtree rooted at `id` contains the leaf `leaf`.
+fn subtree_contains(id: i64, leaf: i64) -> Result<bool, String> {
+    if id == leaf {
+        return Ok(true);
+    }
+    match get(id)? {
+        VmEvent::Choose(ids) => {
+            for child in ids {
+                if subtree_contains(child, leaf)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+        VmEvent::Wrap(child, _) => subtree_contains(child, leaf),
+        VmEvent::WithNack { child, .. } => subtree_contains(child, leaf),
+        VmEvent::Guard {
+            resolved: Some(child),
+            ..
+        } => subtree_contains(child, leaf),
+        _ => Ok(false),
     }
 }
 

@@ -132,6 +132,12 @@ enum TcpCommand {
         req: RequestId,
         listener_handle: IoHandle,
     },
+    /// Read the OS-assigned local port of a bound listener. Answered
+    /// immediately from the listener's `local_addr()`; never blocks.
+    LocalPort {
+        req: RequestId,
+        listener_handle: IoHandle,
+    },
     /// Walk every live connection and clear any pending read or write that
     /// matches `req`, so the reactor stops doing I/O work on the cancelled
     /// caller's behalf (proposal 0174 D3). The cancel-set / completion-drop
@@ -426,6 +432,20 @@ impl AsyncBackend for MioBackend {
             let _ = shared.waker.wake();
         });
     }
+
+    fn tcp_local_port(&self, req: RequestId, handle: IoHandle) {
+        let _ = self.with_shared(|shared| {
+            shared
+                .tcp_commands
+                .lock()
+                .expect("tcp commands poisoned")
+                .push_back(TcpCommand::LocalPort {
+                    req,
+                    listener_handle: handle,
+                });
+            let _ = shared.waker.wake();
+        });
+    }
 }
 
 impl Drop for MioBackend {
@@ -706,6 +726,21 @@ fn drain_tcp_commands(
                 };
                 ls.pending_accept = Some(req);
                 try_progress_accept(shared, ls, conns, handles_by_token, next_token, registry);
+            }
+            TcpCommand::LocalPort {
+                req,
+                listener_handle,
+            } => {
+                let payload = match listeners.get(&listener_handle) {
+                    Some(ls) => match ls.listener.local_addr() {
+                        // Reuse the integer-carrying `TcpHandle` payload to
+                        // return the port number (untagged as an Int everywhere).
+                        Ok(addr) => CompletionPayload::TcpHandle(IoHandle(addr.port() as u64)),
+                        Err(e) => CompletionPayload::Error(format!("local_addr failed: {e}")),
+                    },
+                    None => CompletionPayload::Error("local_port on unknown listener".into()),
+                };
+                push_completion(shared, req, payload);
             }
             TcpCommand::CancelRequest { req } => {
                 // Walk every live connection and clear matching pending ops.

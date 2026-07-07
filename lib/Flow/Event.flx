@@ -15,6 +15,8 @@ module Flow.Event {
     intrinsic fn event_wrap_id<a, b>(id: Int, f: (a) -> b) -> Int = primop EventWrap
     intrinsic fn event_poll_id<a>(id: Int) -> Poll<a> = primop EventPoll
     intrinsic fn event_wait_id(id: Int) -> Unit with Async = primop EventWait
+    intrinsic fn event_guard_id(thunk: () -> Int) -> Int = primop EventGuard
+    intrinsic fn event_with_nack_id(nack_ch: Int, child: Int) -> Int = primop EventWithNack
 
     fn ids<a>(events: List<Event<a>>) -> List<Int> {
         match events {
@@ -61,17 +63,47 @@ module Flow.Event {
         match event { Event(id) -> Event(event_wrap_id(id, f)) }
     }
 
-    /// Placeholder for CML-style guard. This currently evaluates `f`
-    /// immediately while building the event; it does not delay until sync-time.
+    /// CML-style guard: defer building the event until **sync-time**.
+    ///
+    /// `f` is not run while the event tree is constructed; it runs once, the
+    /// first time `sync` polls this node, and the event it returns is what the
+    /// surrounding `choose` / `sync` actually races on. Re-polls reuse the
+    /// memoized result, so `f`'s side effects happen exactly once per sync.
     public fn guard<a>(f: () -> Event<a>) -> Event<a> {
-        f()
+        Event(event_guard_id(fn() {
+            match f() { Event(id) -> id }
+        }))
     }
 
-    /// Placeholder for CML-style negative acknowledgement.
-    /// The nack event does not fire yet; full loser notification requires
-    /// transaction-level select cancellation in the runtime.
-    public fn with_nack<a>(f: (Event<Unit>) -> Event<a>) -> Event<a> {
-        f(never())
+    /// CML-style negative acknowledgement.
+    ///
+    /// `f` receives a nack event that **fires** (yielding `()`) when, at the
+    /// enclosing `sync` commit, the event built by `f` is *not* the branch
+    /// selected — letting a loser clean up a partially-started operation. If
+    /// this branch wins, the nack never fires (a fiber blocked on it parks
+    /// until `run_async` tears down, as in Concurrent ML). Implemented over a
+    /// 1-capacity channel that the runtime sends to when this branch loses.
+    fn to_unit<a>(x: a) -> Unit { }
+
+    // The callback's effect row is written as the `Async` alias expansion
+    // (`Suspend, Fork, GetContext, AsyncFail`) rather than `Async`: the alias
+    // does not unify across modules in this higher-order position when called
+    // qualified (the same limitation `run_selected` hits); the expansion does.
+    //
+    // The channel handle `c` is destructured exactly once into the raw `cid`,
+    // which is then reused both before and after `f`. Using the `Channel` value
+    // twice (e.g. `recv(c)` then `match c`) makes the native backend drop it on
+    // first use and read freed memory on the second — `cid` is a plain Int and
+    // sidesteps that.
+    public fn with_nack<a>(
+        f: (Event<Unit>) -> Event<a> with Suspend, Fork, GetContext, AsyncFail | e
+    ) -> Event<a> with Suspend, Fork, GetContext, AsyncFail | e {
+        let cid: Int = match Channel.make(1) { Channel(id) -> id }
+        let nack_ev: Event<Unit> = Event(event_wrap_id(event_recv_id(cid), to_unit))
+        let main = f(nack_ev)
+        match main {
+            Event(mid) -> Event(event_with_nack_id(cid, mid))
+        }
     }
 
     /// Synchronize on an event. Sync consumes the whole event tree when it

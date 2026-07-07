@@ -41,6 +41,11 @@ typedef enum {
     EV_NEVER,
     EV_CHOOSE,
     EV_WRAP,
+    /* CML guard: b = thunk closure (() -> Int), a = resolved child id
+     * (0 = unresolved). Evaluated once at poll-time and memoized. */
+    EV_GUARD,
+     /* CML negative-ack: a = nack channel id (not owned), b = child event id. */
+     EV_WITH_NACK,
 } FluxEventKind;
 
 typedef struct {
@@ -233,7 +238,9 @@ static int collect_ids(int64_t list, int64_t **out_ids, size_t *out_len) {
     return 1;
 }
 
-static int poll_event(int64_t id, int64_t *out) {
+/* Poll the tree at `id`. On readiness, `*out` is the value and `*out_leaf` is
+ * the leaf event id that produced it (used by fire_losing_nacks at commit). */
+static int poll_event(int64_t id, int64_t *out, int16_t *out_leaf) {
     FluxEvent *ev = lookup_event(id);
     if (!ev) {
         fprintf(stderr, "flux_event_sync: unknown event %lld\n", (long long)id);
@@ -247,10 +254,12 @@ static int poll_event(int64_t id, int64_t *out) {
         int64_t value = flux_chan_try_recv(flux_tag_int(ev->a));
         if (value != FLUX_NONE) {
             *out = value;
+            *out_leaf = id;
             return 1;
         }
         if (flux_chan_is_closed(flux_tag_int(ev->a)) == FLUX_TRUE) {
             *out = FLUX_NONE;
+            *out_leaf = id;
             return 1;
         }
         return 0;
@@ -259,6 +268,7 @@ static int poll_event(int64_t id, int64_t *out) {
         if (flux_chan_try_send(flux_tag_int(ev->a), ev->b) == FLUX_TRUE ||
             flux_chan_is_closed(flux_tag_int(ev->a)) == FLUX_TRUE) {
             *out = FLUX_NONE;
+            *out_leaf = id;
             return 1;
         }
         return 0;
@@ -267,39 +277,55 @@ static int poll_event(int64_t id, int64_t *out) {
             flux_drop(ev->b);
             ev->b = FLUX_NONE;
             *out = FLUX_NONE;
+            *out_leaf = id;
             return 1;
         }
         if (flux_chan_event_can_send(ev->a) != 0 &&
             flux_chan_try_send_move(flux_tag_int(ev->a), ev->b) == FLUX_TRUE) {
             ev->b = FLUX_NONE;
             *out = FLUX_NONE;
+            *out_leaf = id;
             return 1;
         }
         return 0;
     case EV_AFTER:
         if (now_ms() >= (uint64_t)ev->a) {
             *out = FLUX_NONE;
+            *out_leaf = id;
             return 1;
         }
         return 0;
     case EV_ALWAYS:
         *out = retain_value(ev->a);
+        *out_leaf = id;
         return 1;
     case EV_NEVER:
         return 0;
     case EV_CHOOSE:
         for (size_t i = 0; i < ev->len; i++) {
-            if (poll_event(ev->ids[i], out)) return 1;
+            if (poll_event(ev->ids[i], out, out_leaf)) return 1;
         }
         return 0;
     case EV_WRAP: {
         int64_t inner = 0;
-        if (!poll_event(ev->a, &inner)) return 0;
+        if (!poll_event(ev->a, &inner, out_leaf)) return 0;
         int64_t args[1] = { inner };
         *out = flux_call_closure_c(ev->b, args, 1);
         flux_drop(inner);
         return 1;
     }
+    case EV_GUARD: {
+        if (ev->a == 0) {
+            /* Run the thunk once; it returns the child event id (tagged Int). */
+            int64_t child = flux_call_closure_c(ev->b, NULL, 0);
+            /* flux_call_closure_c may realloc the event table — re-lookup. */
+            ev = lookup_event(id);
+            ev->a = flux_untag_int(child);
+        }
+        return poll_event(ev->a, out, out_leaf);
+    }
+    case EV_WITH_NACK:
+        return poll_event(ev->b, out, out_leaf);
     }
     return 0;
 }
@@ -330,6 +356,11 @@ static int event_ready(int64_t id) {
         return 0;
     case EV_WRAP:
         return event_ready(ev->a);
+    case EV_GUARD:
+        /* Unresolved guard: not ready (poll resolves it first, as in sync_id). */
+        return ev->a != 0 ? event_ready(ev->a) : 0;
+    case EV_WITH_NACK:
+        return event_ready(ev->b);
     case EV_FREE:
         return 0;
     }
@@ -439,6 +470,13 @@ static void register_event_wait(int64_t id, uint64_t request_id) {
     case EV_WRAP:
         register_event_wait(ev->a, request_id);
         break;
+    case EV_GUARD:
+        /* Resolved by the time wait runs (poll precedes wait in sync_id). */
+        if (ev->a != 0) register_event_wait(ev->a, request_id);
+        break;
+    case EV_WITH_NACK:
+        register_event_wait(ev->b, request_id);
+        break;
     case EV_FREE:
         break;
     }
@@ -469,6 +507,16 @@ static void free_event_tree(int64_t id) {
             free_event_tree(old.ids[i]);
         }
         free(old.ids);
+        break;
+    case EV_GUARD:
+        /* Drop the thunk closure; recurse the resolved child if any. */
+        flux_drop(old.b);
+        if (old.a != 0) free_event_tree(old.a);
+        break;
+    case EV_WITH_NACK:
+        /* Recurse the child subtree only; the nack channel (a) is owned by
+         * the channel table and read by the cleanup fiber never freed here. */
+        free_event_tree(old.b);
         break;
     default:
         free(old.ids);
@@ -530,6 +578,75 @@ int64_t flux_event_wrap(int64_t id_val, int64_t closure) {
     return insert_event(ev);
 }
 
+int64_t flux_event_guard(int64_t closure) {
+    /* a = 0 (unresolved); b = thunk closure (retained, run once at poll). */
+    FluxEvent ev = { EV_GUARD, 0, retain_value(closure), NULL, 0 };
+    return insert_event(ev);
+}
+
+int64_t flux_event_with_nack(int64_t ch, int64_t child) {
+    /* a = nack channel id (not retained), b = child event id. */
+    FluxEvent ev = { EV_WITH_NACK, flux_untag_int(ch), flux_untag_int(child), NULL, 0 };
+    return insert_event(ev);
+}
+
+/* True if the subtree rooted at `id` contains the leaf `leaf`. */
+static int subtree_contains(int64_t id, int64_t leaf) {
+    if (id == leaf) return 1;
+    FluxEvent *ev = lookup_event(id);
+    if (!ev) return 0;
+    switch (ev->kind) {
+    case EV_CHOOSE:
+        for (size_t i = 0; i < ev->len; i++) {
+            if (subtree_contains(ev->ids[i], leaf)) return 1;
+        }
+        return 0;
+    case EV_WRAP:
+        return subtree_contains(ev->a, leaf);
+    case EV_WITH_NACK:
+        return subtree_contains(ev->b, leaf);
+    case EV_GUARD:
+        return ev->a != 0 ? subtree_contains(ev->a, leaf) : 0;
+    default:
+        return 0;
+    }
+}
+
+/* Fire the nack channel of every with_nack branch whose subtree does not
+ * contain the winning leaf (proposal 0177 T2.5). Called at commit, before
+ * the tree is freed. */
+static void fire_losing_nacks(int64_t id, int64_t winner_leaf) {
+    FluxEvent *ev = lookup_event(id);
+    if (!ev) return;
+    switch (ev->kind) {
+    case EV_CHOOSE:
+        for (size_t i = 0; i < ev->len; i++) {
+            fire_losing_nacks(ev->ids[i], winner_leaf);
+        }
+        break;
+    case EV_WRAP:
+        fire_losing_nacks(ev->a, winner_leaf);
+        break;
+    case EV_GUARD:
+        if (ev->a != 0) fire_losing_nacks(ev->a, winner_leaf);
+        break;
+    case EV_WITH_NACK: {
+        int64_t nack_ch = ev->a;
+        int64_t child = ev->b;
+        if (!subtree_contains(child, winner_leaf)) {
+            /* Loser: fire the nack. Send a non-FLUX_NONE value so the cleanup
+             * fiber's recv reads readiness (FLUX_NONE reads as empty). The
+             * value is discarded by the nack event's wrap closure. */
+            flux_chan_try_send(flux_tag_int(nack_ch), flux_tag_int(0));
+        }
+        fire_losing_nacks(child, winner_leaf);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
 int64_t flux_event_sync(int64_t id_val) {
     (void)id_val;
     fprintf(stderr, "flux_event_sync is deprecated; Flow.Event.sync uses flux_event_poll\n");
@@ -539,7 +656,9 @@ int64_t flux_event_sync(int64_t id_val) {
 int64_t flux_event_poll(int32_t ready_tag, int32_t pending_tag, int64_t id_val) {
     int64_t id = flux_untag_int(id_val);
     int64_t out = 0;
-    if (poll_event(id, &out)) {
+    int64_t leaf = 0;
+    if (poll_event(id, &out, &leaf)) {
+        fire_losing_nacks(id, leaf);
         free_event_tree(id);
         return flux_async_make_adt1(ready_tag, out);
     }

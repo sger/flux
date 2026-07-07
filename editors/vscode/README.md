@@ -413,6 +413,7 @@ cargo uninstall flux-lsp   # optional
 | Setting | Type | Default | Purpose |
 |---|---|---|---|
 | `flux.serverPath` | string | `""` | Absolute path override for the `flux-lsp` binary. Empty = use the binary bundled in the `.vsix`, else search `PATH`. |
+| `flux.autoRestartOnBinaryChange` | boolean | `false` | Dev aid: watch the resolved `flux-lsp` binary and auto-restart the server when it's rebuilt, so `cargo build` picks up flux-lsp **source** changes (e.g. a new primop) with no manual restart or window reload. For hacking on flux-lsp itself; no effect when the server comes from `PATH`. |
 | `flux.trace.server` | enum | `"off"` | `off` / `messages` / `verbose`. Logs LSP traffic to the **Flux Language Server** Output channel. Enable `verbose` to debug a misbehaving hover/completion. |
 
 ---

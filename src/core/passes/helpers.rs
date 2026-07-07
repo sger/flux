@@ -604,6 +604,7 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::TcpClose
         | CorePrimOp::TcpListen
         | CorePrimOp::TcpAccept
+        | CorePrimOp::TcpLocalPort
         | CorePrimOp::FiberBoth
         | CorePrimOp::FiberRace
         | CorePrimOp::FiberTimeout
@@ -637,6 +638,8 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::EventPoll
         | CorePrimOp::EventSync
         | CorePrimOp::EventWait
+        | CorePrimOp::EventGuard
+        | CorePrimOp::EventWithNack
         | CorePrimOp::HttpServeConfig
         | CorePrimOp::HttpShutdown
         | CorePrimOp::HttpShutdownNow

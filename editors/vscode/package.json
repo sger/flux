@@ -101,6 +101,11 @@
           "default": false,
           "markdownDescription": "Report `workspace/diagnostic` problems for **every** `.flx` file in the workspace, not just open files and the modules they import. Surfaces all project-wide errors at once, but in a repository with examples or fixtures that fail by design it will flag those too (and tint their folders red in the Explorer). Changing this restarts the language server."
         },
+        "flux.autoRestartOnBinaryChange": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Watch the resolved `flux-lsp` binary and automatically restart the language server when it's rebuilt, so `cargo build` picks up flux-lsp **source** changes (e.g. a new primop) without a manual **Flux: Restart Server** or window reload. Intended for people hacking on flux-lsp itself; leave off for normal use. Has no effect when the server is resolved from `PATH` (no fixed file to watch)."
+        },
         "flux.trace.server": {
           "type": "string",
           "enum": [

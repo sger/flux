@@ -129,4 +129,12 @@ pub trait AsyncBackend {
     fn tcp_accept(&self, _req: RequestId, _handle: IoHandle) {
         panic!("AsyncBackend::tcp_accept not implemented for this backend");
     }
+
+    /// Read the OS-assigned local port of the listener identified by `handle`.
+    /// Completion carries `TcpHandle(port)` on success (the port number reuses
+    /// the integer-carrying `TcpHandle` payload), or `Error`. Never blocks —
+    /// the port is known as soon as the socket is bound.
+    fn tcp_local_port(&self, _req: RequestId, _handle: IoHandle) {
+        panic!("AsyncBackend::tcp_local_port not implemented for this backend");
+    }
 }

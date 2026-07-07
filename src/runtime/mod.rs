@@ -100,6 +100,18 @@ pub trait RuntimeContext {
         unimplemented!("current_sp not implemented for this RuntimeContext")
     }
 
+    /// Reset the VM stack/frames back to a previously captured
+    /// `(frame_index, sp)` boundary after a fiber body unwound the Rust stack
+    /// via a genuine `panic!` (proposal 0177 T2.1).
+    ///
+    /// `invoke_value`/`resume_from_dispatch` only restore the VM stack when the
+    /// body returns `Err`; a Rust panic unwinds straight past that cleanup, so
+    /// the dispatch loop calls this after catching such a panic to leave the
+    /// (reused) worker VM consistent for the next fiber. The default is a no-op
+    /// — backends whose fiber bodies cannot Rust-panic into the dispatch loop
+    /// need nothing.
+    fn unwind_to_boundary(&mut self, _frame_index: usize, _sp: usize) {}
+
     /// Capture a delimited continuation from the current frame back to
     /// `(entry_frame_index, entry_sp)`. Returns a `Value::Continuation`.
     /// Mirrors the OpPerform capture mechanism with a non-handler boundary.
