@@ -1659,7 +1659,7 @@ pub extern "C" fn flux_async_run_root_with(
     worker_count: i64,
     _fs_pool_size: i64,
     dns_pool_size: i64,
-    // Deterministic-scheduler seed. The native backend does
+    // Deterministic-scheduler seed (proposal 0177 T1.1). The native backend does
     // not yet have a deterministic scheduler, so the seed is accepted and ignored;
     // the VM backend honours it. Kept in the signature so VM and native primop
     // arities stay in lockstep.

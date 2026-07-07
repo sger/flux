@@ -699,6 +699,13 @@ impl RuntimeContext for VM {
         self.sp
     }
 
+    fn unwind_to_boundary(&mut self, frame_index: usize, sp: usize) {
+        // Reuse the same stack/frame teardown invoke_value runs on an `Err`
+        // return; here it recovers from a fiber body that Rust-panicked
+        // (proposal 0177 T2.1).
+        self.unwind_invoke_error(sp, frame_index);
+    }
+
     fn capture_to_fiber_boundary(
         &mut self,
         entry_frame_index: usize,

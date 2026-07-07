@@ -22,7 +22,7 @@ enum VmEvent {
     Choose(Vec<i64>),
     Wrap(i64, Value),
     /// CML guard: a thunk `() -> Int` (returns the child event id), evaluated
-    /// once at sync-time and memoized into `resolved`.
+    /// once at sync-time and memoized into `resolved` (proposal 0177 T2.5).
     Guard {
         thunk: Value,
         resolved: Option<i64>,
@@ -142,7 +142,7 @@ pub(super) fn with_nack(nack_ch: i64, child: i64) -> i64 {
 
 pub(super) fn poll_value(ctx: &mut dyn RuntimeContext, id: i64) -> Result<Value, String> {
     if let Some((value, winner_leaf)) = poll(ctx, id)? {
-        // CML nack before tearing the committed tree
+        // CML nack (proposal 0177 T2.5): before tearing the committed tree
         // down, fire the nack channel of every `with_nack` branch that the
         // winning leaf does not belong to.
         fire_losing_nacks(id, winner_leaf)?;
@@ -284,6 +284,10 @@ fn register_wait(id: i64, request_id: u64) -> Result<(), String> {
     }
 }
 
+/// Poll the event tree at `id`. On readiness returns `(value, winner_leaf)`
+/// where `winner_leaf` is the id of the leaf event that produced the value —
+/// used by `fire_losing_nacks` at commit. Propagated unchanged through
+/// `Choose` / `Wrap` / `Guard` / `WithNack`.
 fn poll(ctx: &mut dyn RuntimeContext, id: i64) -> Result<Option<(Value, i64)>, String> {
     match get(id)? {
         VmEvent::Recv(ch) => {
@@ -340,7 +344,7 @@ fn poll(ctx: &mut dyn RuntimeContext, id: i64) -> Result<Option<(Value, i64)>, S
                 None => {
                     // Run the thunk exactly once, then memoize the child id.
                     // Never hold the EVENTS borrow across `invoke_value` (the
-                    // thunk builds events via `insert`) `get` already cloned
+                    // thunk builds events via `insert`) — `get` already cloned
                     // the node out, so we are borrow-free here.
                     let child_val = ctx.invoke_value(thunk.clone(), vec![])?;
                     let child = match child_val {
@@ -359,7 +363,7 @@ fn poll(ctx: &mut dyn RuntimeContext, id: i64) -> Result<Option<(Value, i64)>, S
                                 thunk,
                                 resolved: Some(child),
                             },
-                        )
+                        );
                     });
                     child
                 }
@@ -371,7 +375,7 @@ fn poll(ctx: &mut dyn RuntimeContext, id: i64) -> Result<Option<(Value, i64)>, S
 }
 
 /// Walk the committed tree and fire the nack channel of every `with_nack`
-/// branch whose subtree does not contain `winner_leaf`.
+/// branch whose subtree does not contain `winner_leaf` (proposal 0177 T2.5).
 /// Called after `poll` succeeds, before `remove_tree`.
 fn fire_losing_nacks(id: i64, winner_leaf: i64) -> Result<(), String> {
     match get(id)? {
@@ -386,8 +390,8 @@ fn fire_losing_nacks(id: i64, winner_leaf: i64) -> Result<(), String> {
             ..
         } => fire_losing_nacks(child, winner_leaf)?,
         VmEvent::WithNack { nack_ch, child } => {
-            if !subtree_contains(id, winner_leaf)? {
-                // Loser: fire the nack. Sending Value::None is fine `try_recv`
+            if !subtree_contains(child, winner_leaf)? {
+                // Loser: fire the nack. Sending Value::None is fine — `try_recv`
                 // wraps a buffered value in `Some`, so the cleanup fiber's recv
                 // observes `Some(None)` (ready), distinct from the empty case.
                 let _ = super::channel::try_send(nack_ch, &Value::None);
