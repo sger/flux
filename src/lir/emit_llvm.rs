@@ -18,6 +18,7 @@ use crate::llvm::ir::{
     LlvmFunctionSig, LlvmGlobal, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator,
     LlvmType, LlvmValueKind, render_module,
 };
+use crate::parity::Way::Llvm;
 
 // ── Pointer-tag constants (must match runtime/c/flux_rt.h and prelude.rs) ───
 
@@ -3803,6 +3804,7 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::TcpClose => return "flux_tcp_close".to_string(),
         CorePrimOp::TcpListen => return "flux_tcp_listen".to_string(),
         CorePrimOp::TcpAccept => return "flux_tcp_accept".to_string(),
+        CorePrimOp::TcpLocalPort => return "flux_tco_local_port".to_string(),
         // FiberBoth/FiberRace (proposal 0174 Phase 1b-vi-b₂.2). Native
         // implementation lands in 1b-vi-d; until then any program that
         // reaches these primops on the native backend will fail to link
@@ -3844,6 +3846,8 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::EventNever => return "flux_event_never".to_string(),
         CorePrimOp::EventChoose => return "flux_event_choose".to_string(),
         CorePrimOp::EventWrap => return "flux_event_wrap".to_string(),
+        CorePrimOp::EventGuard => return "flux_event_guard".to_string(),
+        CorePrimOp::EventWithNack => return "flux_event_with_nack".to_string(),
         CorePrimOp::EventSync => return "flux_event_sync".to_string(),
         CorePrimOp::EventPoll => return "flux_event_poll".to_string(),
         CorePrimOp::EventWait => return "flux_event_wait".to_string(),
@@ -4049,6 +4053,8 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_event_never" => (LlvmType::i64(), vec![]),
         "flux_event_choose" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_event_wrap" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_event_guard" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_event_with_nack" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_event_sync" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_event_poll" => (
             LlvmType::i64(),
@@ -4063,6 +4069,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_tcp_close" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_tcp_listen" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_tcp_accept" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_tcp_local_port" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_http_serve_config" => (
             LlvmType::i64(),
             vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()],

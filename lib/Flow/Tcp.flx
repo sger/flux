@@ -28,6 +28,7 @@ module Flow.Tcp {
     intrinsic fn tcp_close_prim(conn_id: Int) -> Unit = primop TcpClose
     intrinsic fn tcp_listen_prim(host: String, port: Int) -> Int = primop TcpListen
     intrinsic fn tcp_accept_prim(listener_id: Int) -> Int = primop TcpAccept
+     intrinsic fn tcp_local_port_prim(listener_id: Int) -> Int = primop TcpLocalPort
 
     // ── Public API ────────────────────────────────────────────────────
 
@@ -71,6 +72,16 @@ module Flow.Tcp {
     public fn accept(listener: Listener) -> Connection with Async {
         match listener {
             Listener(l) -> Connection(tcp_accept_prim(l))
+        }
+    }
+
+    /// The OS-assigned local port `listener` is bound to. Bind with
+    /// `listen(host, 0)` to get an ephemeral port, then call `local_port` to
+    /// learn which one the OS chose — useful for tests and same-process
+    /// server/client pairs that must agree on a port without hard-coding one.
+    public fn local_port(listener: Listener) -> Int with Async {
+        match listener {
+            Listener(l) -> tcp_local_port_prim(l)
         }
     }
 

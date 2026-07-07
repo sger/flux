@@ -110,6 +110,7 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::TcpClose => "tcp_close",
         CorePrimOp::TcpListen => "tcp_listen",
         CorePrimOp::TcpAccept => "tcp_accept",
+        CorePrimOp::TcpLocalPort => "tcp_local_port",
         CorePrimOp::FiberBoth => "fiber_both",
         CorePrimOp::FiberRace => "fiber_race",
         CorePrimOp::FiberTimeout => "fiber_timeout",
@@ -162,6 +163,8 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::EventSync => "event_sync",
         CorePrimOp::EventPoll => "event_poll",
         CorePrimOp::EventWait => "event_wait",
+        CorePrimOp::EventGuard => "event_guard",
+        CorePrimOp::EventWithNack => "event_with_nack",
         _ => unreachable!("not a promoted primop"),
     }
 }
@@ -394,6 +397,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::TcpClose
             | CorePrimOp::TcpListen
             | CorePrimOp::TcpAccept
+            | CorePrimOp::TcpLocalPort
             | CorePrimOp::FiberBoth
             | CorePrimOp::FiberRace
             | CorePrimOp::FiberTimeout
@@ -427,6 +431,8 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::EventSync
             | CorePrimOp::EventPoll
             | CorePrimOp::EventWait
+            | CorePrimOp::EventGuard
+            | CorePrimOp::EventWithNack
             | CorePrimOp::HttpServeConfig
             | CorePrimOp::HttpShutdown
             | CorePrimOp::HttpShutdownNow

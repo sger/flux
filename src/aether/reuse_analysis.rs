@@ -683,13 +683,30 @@ fn rewrite_drop_body_with_env(
                 .binder
                 .and_then(|binder_id| env.aliases.get(&binder_id).cloned())
             {
-                return rewrite_drop_body_with_env(
+                // Follow the alias only to look through to a reuse opportunity
+                // (e.g. `let r = Con(..) in r`). If that succeeds, return the
+                // rewritten alias. If it does NOT reuse, we must keep the
+                // original `Var(r)` — returning the aliased RHS here would
+                // substitute it into the body while the enclosing `let r = RHS`
+                // binding is retained, duplicating a potentially effectful RHS
+                // (`let r = RHS in RHS`). That double-executed the call in a
+                // `drop x in (let r = <effectful> in r)` shape.
+                let rewritten = rewrite_drop_body_with_env(
                     token,
                     alias,
                     drop_span,
                     pat_tag,
                     blocked_outer_token,
                     env,
+                );
+                if rewritten.reused {
+                    return rewritten;
+                }
+                return no_rewrite(
+                    body,
+                    rewritten
+                        .reason
+                        .unwrap_or(ReuseFailureReason::ShapeMismatch),
                 );
             }
             no_rewrite(body, ReuseFailureReason::ShapeMismatch)
@@ -2180,6 +2197,70 @@ mod tests {
             None,
         );
         assert!(rewritten.reused);
+    }
+
+    /// Regression: `drop x in (let r = <effectful call> in r)` must NOT be
+    /// rewritten into `let r = call in call`. When the let body is a bare `Var`
+    /// aliased to a non-reusable (effectful) rhs, following the alias for reuse
+    /// finds no `Con`, so the rewrite must leave the body as `Var(r)` rather than
+    /// substituting the aliased rhs — which duplicated (double-executed) the call.
+    #[test]
+    fn effectful_let_returned_bare_is_not_duplicated() {
+        fn count_calls(expr: &CoreExpr) -> usize {
+            let here = matches!(
+                expr,
+                CoreExpr::App { .. } | CoreExpr::AetherCall { .. } | CoreExpr::Perform { .. }
+            ) as usize;
+            match expr {
+                CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+                    here + count_calls(rhs) + count_calls(body)
+                }
+                CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
+                    here + count_calls(func) + args.iter().map(count_calls).sum::<usize>()
+                }
+                CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
+                    here + count_calls(body)
+                }
+                _ => here,
+            }
+        }
+
+        let mut interner = Interner::new();
+        let xs = binder(1, interner.intern("xs"));
+        let f = binder(2, interner.intern("f"));
+        let a = binder(3, interner.intern("a"));
+        let r = binder(4, interner.intern("r"));
+
+        // let r = f(a) in r   (f(a) is an effectful call; token `xs` is unrelated)
+        let body = CoreExpr::Let {
+            var: r,
+            rhs: Box::new(CoreExpr::AetherCall {
+                func: Box::new(v(f)),
+                args: vec![v(a)],
+                arg_modes: vec![crate::aether::borrow_infer::BorrowMode::Owned],
+                span: s(),
+            }),
+            body: Box::new(v(r)),
+            span: s(),
+        };
+
+        let rewritten = rewrite_drop_body(&CoreVarRef::resolved(&xs), body, s(), None, None, None);
+
+        // No reuse is possible (no Con), and — critically — the call appears
+        // exactly once (not duplicated into the body).
+        assert!(!rewritten.reused);
+        assert_eq!(
+            count_calls(&rewritten.expr),
+            1,
+            "call must not be duplicated"
+        );
+        match &rewritten.expr {
+            CoreExpr::Let { body, .. } => assert!(
+                matches!(body.as_ref(), CoreExpr::Var { .. }),
+                "let body must remain the bare var, got {body:?}"
+            ),
+            other => panic!("expected a let, got {other:?}"),
+        }
     }
 
     #[test]

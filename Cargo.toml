@@ -374,6 +374,10 @@ name = "native_async_indirect_tests"
 path = "tests/native_llvm/native_async_indirect_tests.rs"
 
 [[test]]
+name = "native_async_cross_module_tests"
+path = "tests/native_llvm/native_async_cross_module_tests.rs"
+
+[[test]]
 name = "native_work_stealing_tests"
 path = "tests/native_llvm/native_work_stealing_tests.rs"
 
@@ -440,6 +444,14 @@ path = "tests/integration/vm_runtime_config.rs"
 [[test]]
 name = "vm_deterministic_scheduler"
 path = "tests/integration/vm_deterministic_scheduler.rs"
+
+[[test]]
+name = "vm_yield_now_cancel"
+path = "tests/integration/vm_yield_now_cancel.rs"
+
+[[test]]
+name = "vm_race_tiebreak"
+path = "tests/integration/vm_race_tiebreak.rs"
 
 [[test]]
 name = "effectful_closures"

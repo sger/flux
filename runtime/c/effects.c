@@ -640,6 +640,19 @@ int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args
         if (flux_thread_ctx.yielding != 0) {
             for (int64_t j = i + 1; j < count; j++) {
                 int64_t outer = flux_array_get(conts_arr, flux_tag_int(j));
+                /* `outer` is a *borrow* from this trampoline's own `conts_arr`
+                 * (flux_array_get does not dup). flux_yield_extend takes
+                 * ownership: the carried conts are memcpy'd into the next
+                 * composed continuation's array (flux_array_new also does not
+                 * dup). This trampoline closure still owns `conts_arr` and will
+                 * drop every element when it is released after the suspend
+                 * (native_abi release_executed_work). Without this retain the
+                 * carried conts are freed out from under the next continuation
+                 * → heap-use-after-free on resume. Only reachable for
+                 * multi-cont (deep) continuations that re-yield mid-resume; the
+                 * single-cont fast path in flux_compose_conts never builds this
+                 * array. See docs/internals/known_issues.md KI-3. */
+                flux_dup(outer);
                 (void)flux_yield_extend(outer);
             }
             return FLUX_YIELD_SENTINEL;

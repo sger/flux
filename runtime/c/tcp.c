@@ -684,6 +684,12 @@ int64_t flux_tcp_accept(int64_t listener_val) {
     return flux_tcp_suspend_or_abort(request_id, "flux_tcp_accept");
 }
 
+int64_t flux_tcp_local_port(int64_t listener_val) {
+    uint64_t listener = (uint64_t)flux_untag_int(listener_val);
+    uint64_t request_id = flux_async_tcp_local_port(listener);
+    return flux_tcp_suspend_or_abort(request_id, "flux_tcp_local_port");
+}
+
 int64_t flux_http_serve_config(
     int64_t listener_val,
     int64_t scope_val,

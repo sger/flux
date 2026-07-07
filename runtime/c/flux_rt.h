@@ -245,6 +245,8 @@ int64_t flux_event_always(int64_t value);
 int64_t flux_event_never(void);
 int64_t flux_event_choose(int64_t ids);
 int64_t flux_event_wrap(int64_t id, int64_t closure);
+int64_t flux_event_guard(int64_t closure);
+int64_t flux_event_with_nack(int64_t ch, int64_t child);
 int64_t flux_event_sync(int64_t id);
 int64_t flux_event_poll(int32_t ready_tag, int32_t pending_tag, int64_t id);
 int64_t flux_event_wait(int64_t id);
@@ -312,6 +314,7 @@ uint64_t flux_async_tcp_listen(const uint8_t *host, uintptr_t host_len, int64_t 
 uint64_t flux_async_tcp_read(uint64_t handle, uintptr_t max);
 uint64_t flux_async_tcp_write_all(uint64_t handle, const uint8_t *data, uintptr_t len);
 uint64_t flux_async_tcp_accept(uint64_t handle);
+uint64_t flux_async_tcp_local_port(uint64_t handle);
 int32_t  flux_async_tcp_close(uint64_t handle);
 int32_t  flux_async_poll_dispatch(uint64_t request_id);
 int32_t  flux_async_shutdown(void);
@@ -380,6 +383,7 @@ int64_t flux_tcp_write_all(int64_t handle_val, int64_t data_val);
 int64_t flux_tcp_close(int64_t handle_val);
 int64_t flux_tcp_listen(int64_t host_val, int64_t port_val);
 int64_t flux_tcp_accept(int64_t listener_val);
+int64_t flux_tcp_local_port(int64_t listener_val);
 
 /* ── HTTP (proposal 0174 Phase 3a reserved server-manager hooks) ───── */
 int64_t flux_http_serve_config(int64_t listener_val, int64_t scope_val, int64_t config_val);
