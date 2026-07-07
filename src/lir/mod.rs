@@ -456,6 +456,12 @@ pub struct LirProgram {
     /// Built-in constructors (Some=1, Left=2, Right=3, Cons=4) are implicit.
     /// User constructors start at 5 and are assigned sequentially.
     pub constructor_tags: HashMap<String, i32>,
+    /// Mangled symbols of imported extern functions whose type scheme carries an
+    /// async effect (so a native call to them can suspend). Populated at lowering
+    /// time from `ImportedNativeSymbol::is_async`; consulted by
+    /// `call_kind_is_direct_async` alongside the `Flow.*` allowlist so that
+    /// user-defined cross-module async functions get a yield check (KI-1).
+    pub async_extern_symbols: HashSet<String>,
     /// Monotonic allocator for synthetic nested-function IDs.
     next_synthetic_func_id: u32,
 }
@@ -504,6 +510,11 @@ pub fn is_direct_async_extern_symbol(symbol: &str) -> bool {
         "Flow_Event_run_selected",
         "Flow_Event_sync",
         "Flow_Event_sync_id",
+        // `with_nack` suspends through its callback `f` (which performs `Async`),
+        // so a cross-module call to it must get a native yield check. `guard` is
+        // deliberately absent: its thunk is pure (`() -> Event<a>`, no `Async`),
+        // so it never suspends.
+        "Flow_Event_with_nack",
         "Flow_Http_get",
         "Flow_Http_post",
         "Flow_Http_request",
@@ -521,6 +532,8 @@ pub fn is_direct_async_extern_symbol(symbol: &str) -> bool {
         "Flow_Tcp_tcp_listen_prim",
         "Flow_Tcp_accept",
         "Flow_Tcp_tcp_accept_prim",
+        "Flow_Tcp_local_port",
+        "Flow_Tcp_tcp_local_port_prim",
     ];
 
     ASYNC_SYMBOLS.iter().any(|needle| {
@@ -537,12 +550,22 @@ pub fn is_direct_async_extern_symbol(symbol: &str) -> bool {
     })
 }
 
-pub fn call_kind_is_direct_async(kind: &CallKind, async_funcs: &HashSet<LirFuncId>) -> bool {
+pub fn call_kind_is_direct_async(
+    kind: &CallKind,
+    async_funcs: &HashSet<LirFuncId>,
+    async_externs: &HashSet<String>,
+) -> bool {
     match kind {
         CallKind::Direct { func_id } | CallKind::DirectClosure { func_id, .. } => {
             async_funcs.contains(func_id)
         }
-        CallKind::DirectExtern { symbol } => is_direct_async_extern_symbol(symbol),
+        CallKind::DirectExtern { symbol } => {
+            // The hardcoded allowlist covers `Flow.*` combinators (and prim
+            // symbols with no scheme); `async_externs` covers any imported
+            // function whose type scheme carries an async effect, including
+            // user-defined cross-module async functions (KI-1).
+            is_direct_async_extern_symbol(symbol) || async_externs.contains(symbol)
+        }
         CallKind::Indirect { async_capable } => *async_capable,
         CallKind::YieldTo => true,
     }
@@ -560,7 +583,7 @@ pub fn direct_async_func_ids(program: &LirProgram) -> HashSet<LirFuncId> {
             if async_funcs.contains(&func.id) {
                 continue;
             }
-            if function_has_direct_async_site(func, &async_funcs) {
+            if function_has_direct_async_site(func, &async_funcs, &program.async_extern_symbols) {
                 async_funcs.insert(func.id);
                 changed = true;
             }
@@ -573,10 +596,14 @@ pub fn direct_async_func_ids(program: &LirProgram) -> HashSet<LirFuncId> {
     async_funcs
 }
 
-fn function_has_direct_async_site(func: &LirFunction, async_funcs: &HashSet<LirFuncId>) -> bool {
+fn function_has_direct_async_site(
+    func: &LirFunction,
+    async_funcs: &HashSet<LirFuncId>,
+    async_externs: &HashSet<String>,
+) -> bool {
     func.blocks.iter().any(|block| match &block.terminator {
         LirTerminator::Call { kind, .. } | LirTerminator::TailCall { kind, .. } => {
-            call_kind_is_direct_async(kind, async_funcs)
+            call_kind_is_direct_async(kind, async_funcs, async_externs)
         }
         _ => false,
     })
@@ -632,6 +659,7 @@ impl LirProgram {
             string_pool: Vec::new(),
             func_index: HashMap::new(),
             constructor_tags: HashMap::new(),
+            async_extern_symbols: HashSet::new(),
             next_synthetic_func_id: u32::MAX,
         }
     }

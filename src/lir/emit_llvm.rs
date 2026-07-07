@@ -18,7 +18,6 @@ use crate::llvm::ir::{
     LlvmFunctionSig, LlvmGlobal, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator,
     LlvmType, LlvmValueKind, render_module,
 };
-use crate::parity::Way::Llvm;
 
 // ── Pointer-tag constants (must match runtime/c/flux_rt.h and prelude.rs) ───
 
@@ -3804,7 +3803,7 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::TcpClose => return "flux_tcp_close".to_string(),
         CorePrimOp::TcpListen => return "flux_tcp_listen".to_string(),
         CorePrimOp::TcpAccept => return "flux_tcp_accept".to_string(),
-        CorePrimOp::TcpLocalPort => return "flux_tco_local_port".to_string(),
+        CorePrimOp::TcpLocalPort => return "flux_tcp_local_port".to_string(),
         // FiberBoth/FiberRace (proposal 0174 Phase 1b-vi-b₂.2). Native
         // implementation lands in 1b-vi-d; until then any program that
         // reaches these primops on the native backend will fail to link
@@ -4021,7 +4020,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_fiber_check_cancelled" => (LlvmType::i64(), vec![]),
         // Slice 2-vii follow-up: zero-arg, returns tagged Flux Int.
         "flux_fiber_current_worker_count" => (LlvmType::i64(), vec![]),
-        // 5-arg run_async_with
+        // Phase 2 slice 2-vii + 0177 T1.1: 5-arg run_async_with
         // (workers, fs, dns, det_seed, closure). det_seed is the deterministic
         // scheduler seed; the native backend ignores it (VM-only for now).
         "flux_fiber_run_async_with" => (

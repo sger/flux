@@ -2076,6 +2076,7 @@ impl Compiler {
                         .get(&(*module_name, *member_name))
                         .copied()
                         .unwrap_or(false),
+                    is_async: self.scheme_effect_row_is_async(scheme),
                 }
             });
         }
@@ -2098,6 +2099,7 @@ impl Compiler {
                             .get(&(*module_name, *member_name))
                             .copied()
                             .unwrap_or(false),
+                        is_async: self.scheme_effect_row_is_async(scheme),
                     },
                 );
             }
@@ -2114,6 +2116,10 @@ impl Compiler {
                             symbol: format!("flux_{}_{}", target_name.replace('.', "_"), member),
                             arity: method.arity,
                             is_value: false,
+                            // Class methods carry no cached effect row here; a
+                            // suspend-capable method still gets its yield check
+                            // via the `Flow.*` allowlist. Out of KI-1's scope.
+                            is_async: false,
                         });
                 }
             }
@@ -2150,6 +2156,7 @@ impl Compiler {
                                 .get(&(*mod_name, *member_name))
                                 .copied()
                                 .unwrap_or(false),
+                            is_async: self.scheme_effect_row_is_async(scheme),
                         },
                     );
                 }
@@ -2176,6 +2183,7 @@ impl Compiler {
                                         .get(&(*mod_name, *member_name))
                                         .copied()
                                         .unwrap_or(false),
+                                    is_async: self.scheme_effect_row_is_async(scheme),
                                 },
                             );
                         }
@@ -2195,6 +2203,7 @@ impl Compiler {
                                     ),
                                     arity: method.arity,
                                     is_value: false,
+                                    is_async: false,
                                 }
                             });
                         }
@@ -2221,6 +2230,7 @@ impl Compiler {
                                         .get(&(*module_name, *member_name))
                                         .copied()
                                         .unwrap_or(false),
+                                    is_async: self.scheme_effect_row_is_async(scheme),
                                 },
                             );
                         }
@@ -2241,6 +2251,7 @@ impl Compiler {
                                         ),
                                         arity: method.arity,
                                         is_value: false,
+                                        is_async: false,
                                     }
                                 });
                             }
@@ -2265,6 +2276,7 @@ impl Compiler {
                     symbol: native_symbol,
                     arity: Self::native_function_arity(scheme),
                     is_value: false,
+                    is_async: self.scheme_effect_row_is_async(scheme),
                 }
             });
         }
@@ -3029,6 +3041,27 @@ impl Compiler {
             InferType::Fun(params, _, _) => params.len() + scheme.constraints.len(),
             _ => 0,
         }
+    }
+
+    /// True when a function's type scheme carries an async seam effect (`Async`,
+    /// or its expansion `Suspend`/`Fork`/`GetContext`/`AsyncFail`) in its
+    /// top-level effect row. Used to mark an imported extern symbol as
+    /// suspend-capable so the native backend emits a yield check at its call
+    /// sites (KI-1). Mirrors `lir::lower::effect_expr_contains_async`, but reads
+    /// the inferred `InferEffectRow` instead of surface `EffectExpr`s.
+    fn scheme_effect_row_is_async(&self, scheme: &Scheme) -> bool {
+        use crate::syntax::builtin_effects as be;
+        let InferType::Fun(_, _, effects) = &scheme.infer_type else {
+            return false;
+        };
+        effects.concrete().iter().any(|id| {
+            self.interner.try_resolve(*id).is_some_and(|name| {
+                matches!(
+                    name,
+                    be::ASYNC | be::SUSPEND | be::FORK | be::GET_CONTEXT | be::ASYNC_FAIL
+                )
+            })
+        })
     }
 
     fn build_preloaded_hm_member_schemes(
@@ -6979,7 +7012,7 @@ impl Compiler {
     /// effects its defining context permits, so this is sound, and it keeps the
     /// compiler's effect gate from being stricter than the type checker — which
     /// otherwise rejects effectful un-annotated closures with E400. An explicit
-    /// `with` clause on the literal is honoured verbatim.
+    /// `with` clause on the literal is honoured verbatim. See proposal 0177.
     pub(super) fn with_function_literal_context<F, R>(
         &mut self,
         num_params: usize,
@@ -6990,7 +7023,7 @@ impl Compiler {
     where
         F: FnOnce(&mut Self) -> R,
     {
-        let normalize_effects = if effects.is_empty() {
+        let normalized_effects = if effects.is_empty() {
             let mut inherited = self
                 .current_function_effects()
                 .map(<[Symbol]>::to_vec)
@@ -7000,7 +7033,7 @@ impl Compiler {
         } else {
             self.normalize_function_effects(effects)
         };
-        self.run_in_function_context(num_params, normalize_effects, param_effect_rows, f)
+        self.run_in_function_context(num_params, normalized_effects, param_effect_rows, f)
     }
 
     /// Lower a declared effect list to the flat set of effect-name symbols that

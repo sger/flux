@@ -20,6 +20,13 @@ pub struct ImportedNativeSymbol {
     pub symbol: String,
     pub arity: usize,
     pub is_value: bool,
+    /// True when the imported function's effect row contains an async seam
+    /// label (`Async`, or its expansion `Suspend`/`Fork`/`GetContext`/
+    /// `AsyncFail`). A native call to such a symbol must emit a
+    /// `flux_is_yielding` check — the callee can suspend. Data-driven from the
+    /// callee's known type scheme, replacing the old hardcoded allowlist for
+    /// cross-module user-defined async functions (see KI-1).
+    pub is_async: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -201,10 +208,28 @@ fn effect_expr_contains_async(
     effect: &crate::syntax::effect_expr::EffectExpr,
     interner: Option<&Interner>,
 ) -> bool {
+    use crate::syntax::builtin_effects;
+    // Match both the `Async` alias and its expansion into the four async seam
+    // labels. A row written `with Async` and one written
+    // `with Suspend, Fork, GetContext, AsyncFail` are the same capability and
+    // must classify identically — otherwise a function written with the
+    // expanded form (e.g. `Flow.Event.with_nack`, where the alias does not
+    // unify in a cross-module higher-order position) would be treated as
+    // non-async, so its indirect closure calls would skip the yield check and
+    // dereference the yield sentinel when the callee actually suspends.
     effect.normalized_concrete_names().into_iter().any(|name| {
         interner
             .and_then(|i| i.try_resolve(name))
-            .is_some_and(|resolved| resolved == crate::syntax::builtin_effects::ASYNC)
+            .is_some_and(|resolved| {
+                matches!(
+                    resolved,
+                    builtin_effects::ASYNC
+                        | builtin_effects::SUSPEND
+                        | builtin_effects::FORK
+                        | builtin_effects::GET_CONTEXT
+                        | builtin_effects::ASYNC_FAIL
+                )
+            })
     })
 }
 
@@ -632,6 +657,18 @@ pub fn lower_program_with_interner_and_externs(
         lir.push_function(func);
     }
 
+    // Record which imported extern symbols can suspend, from their known type
+    // schemes (see KI-1). This makes cross-module async-ness data-driven so the
+    // yield-check machinery (`call_kind_is_direct_async`, `promote_tail_calls`,
+    // `cont_split`) no longer relies solely on the `Flow.*` allowlist.
+    if let Some(externs) = extern_symbols {
+        for sym in externs.values() {
+            if sym.is_async {
+                lir.async_extern_symbols.insert(sym.symbol.clone());
+            }
+        }
+    }
+
     // Post-pass: promote Call → TailCall where the result flows directly
     // to a Return with no intervening side effects.
     promote_tail_calls(&mut lir);
@@ -780,6 +817,7 @@ pub fn lower_aether_program_with_interner_and_externs(
 /// tail calls (causes Bus errors on Apple clang).
 fn promote_tail_calls(program: &mut LirProgram) {
     let async_funcs = direct_async_func_ids(program);
+    let async_externs = program.async_extern_symbols.clone();
 
     for func in &mut program.functions {
         let num_blocks = func.blocks.len();
@@ -890,7 +928,7 @@ fn promote_tail_calls(program: &mut LirProgram) {
                             | CallKind::DirectClosure { .. }
                             | CallKind::DirectExtern { .. }
                     )
-                    && !call_kind_is_direct_async(kind, &async_funcs)
+                    && !call_kind_is_direct_async(kind, &async_funcs, &async_externs)
             } else {
                 false
             };
@@ -4082,7 +4120,8 @@ impl<'a> FnLower<'a> {
             | CorePrimOp::TcpRead
             | CorePrimOp::TcpWriteAll
             | CorePrimOp::TcpListen
-            | CorePrimOp::TcpAccept => {
+            | CorePrimOp::TcpAccept
+            | CorePrimOp::TcpLocalPort => {
                 let result = self.fresh_var();
                 let sink = self.fresh_var();
                 self.emit(LirInstr::PrimCall {
