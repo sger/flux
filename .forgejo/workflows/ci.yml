@@ -12,16 +12,26 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  # rustup/cargo live here; also added to PATH via $GITHUB_PATH below.
+  # rustup/cargo live at fixed paths so the cache step can save/restore them.
   CARGO_HOME: /opt/cargo
   RUSTUP_HOME: /opt/rustup
+  # Faster, cache-friendlier builds: no incremental artifacts (useless in CI and
+  # they bloat the cache), no debuginfo (a large slice of compile time and disk),
+  # and resilient crate downloads.
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  CARGO_NET_RETRY: "10"
 
 jobs:
   ci:
-    # `ubuntu-latest` must be a label your Forgejo runner registered, mapped to
-    # a Debian/Ubuntu image with apt + node (the runner default
-    # `node:20-bookworm` works). Adjust if your label differs.
-    runs-on: ubuntu-latest
+    # Must equal a label your runner advertises. The synology-runner registers
+    # only the `docker` label, so target that. `container:` then pins the exact
+    # image the job runs in (Debian + Node, for apt and actions/checkout),
+    # independent of whatever image the bare `docker` label defaults to.
+    runs-on: docker
+    container:
+      image: node:20-bookworm
     timeout-minutes: 60
 
     steps:
@@ -46,11 +56,31 @@ jobs:
           # Full history so the changelog check can diff against the base ref.
           fetch-depth: 0
 
+      # Restore the Rust toolchain, crate registry, and build outputs from the
+      # previous run. `target/` is the big win — only crates whose inputs changed
+      # recompile. `restore-keys` gives partial reuse when Cargo.lock changes.
+      - name: Cache Rust toolchain + build
+        uses: actions/cache@v4
+        with:
+          path: |
+            /opt/cargo/bin
+            /opt/cargo/registry/index
+            /opt/cargo/registry/cache
+            /opt/cargo/git/db
+            /opt/rustup/toolchains
+            target
+          key: forgejo-rust-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            forgejo-rust-
+
       - name: Install Rust 1.93.0
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --default-toolchain 1.93.0 --profile minimal \
-                --component rustfmt --component clippy
+          # No-op fast path when the toolchain came back from cache.
+          if ! /opt/cargo/bin/cargo --version 2>/dev/null | grep -q .; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --default-toolchain 1.93.0 --profile minimal \
+                  --component rustfmt --component clippy
+          fi
           echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
 
       - name: Versions
@@ -59,8 +89,6 @@ jobs:
           cargo --version
           clang --version | head -1
           llvm-config --version
-          opt --version | head -2 || true
-          llc --version | head -2 || true
 
       - name: Changelog fragment check (PRs)
         if: ${{ github.event_name == 'pull_request' }}
