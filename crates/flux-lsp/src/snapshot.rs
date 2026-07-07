@@ -59,6 +59,12 @@ pub struct Snapshot {
     /// it recognizes. The name-resolution pass treats these as resolved so it
     /// never flags `print`, `len`, and friends.
     pub base_names: HashSet<Identifier>,
+    /// User `module` name → its exported value members, from the workspace
+    /// symbol index. Unlike [`module_members`](Self::module_members) (Flow
+    /// stdlib only), this covers sibling/subdir modules declared in the
+    /// project, so `import Lib exposing (..)` brings `Lib`'s members into scope
+    /// for the name-resolution pass. Empty in file-at-a-time mode.
+    pub user_module_members: HashMap<String, HashSet<String>>,
 }
 
 impl Snapshot {
@@ -72,11 +78,15 @@ impl Snapshot {
     /// a not-yet-imported *sibling* — those never enter `module_programs`
     /// because the module graph only follows existing imports. Pass an empty
     /// slice when no workspace context is available (file-at-a-time mode).
+    /// `user_module_members` maps each workspace `module` name to its exported
+    /// value members, so `import Lib exposing (..)` of a sibling module resolves
+    /// its members unqualified; pass an empty map in file-at-a-time mode.
     pub fn build(
         text: Arc<str>,
         prelude: &mut Prelude,
         encoding: PositionEncoding,
         workspace_modules: &[String],
+        user_module_members: &HashMap<String, Vec<String>>,
     ) -> Self {
         // Swap the compiler's interner into the buffer's lexer so identifiers
         // in the buffer share IDs with the preloaded schemes. Swap the
@@ -125,6 +135,13 @@ impl Snapshot {
         // ref-count bumps, not AST deep copies.
         let module_programs = prelude.module_programs.clone();
 
+        // Sibling/subdir `module` members (Flow-independent), keyed by module
+        // name, for the name-resolution pass's `exposing (..)` handling.
+        let user_module_members: HashMap<String, HashSet<String>> = user_module_members
+            .iter()
+            .map(|(module, members)| (module.clone(), members.iter().cloned().collect()))
+            .collect();
+
         let mut snapshot = Snapshot {
             text,
             program,
@@ -140,6 +157,7 @@ impl Snapshot {
             variant_positional_fields,
             module_programs,
             base_names,
+            user_module_members,
         };
 
         // Inference does not report undefined names (it recovers with fresh type

@@ -74,6 +74,12 @@ pub struct Workspace {
     /// keystroke (`build_snapshot` calls it once per member); now that scan
     /// happens at most once per edit.
     module_names_cache: Option<Vec<String>>,
+    /// Memoized [`workspace_module_members`](Self::workspace_module_members) —
+    /// each workspace `module` name mapped to its exported value members.
+    /// Derived from [`symbols`](Self::symbols) alongside `module_names_cache`
+    /// and invalidated on the same `index_symbols` boundary. Lets the
+    /// name-resolution pass resolve `import Lib exposing (..)` of a sibling.
+    module_members_cache: Option<HashMap<String, Vec<String>>>,
     /// Original client `Uri` for each interned file, so responses echo back
     /// exactly the spelling the editor sent rather than a re-derived one.
     uris: HashMap<FileId, Uri>,
@@ -106,6 +112,7 @@ impl Workspace {
             components: HashMap::new(),
             symbols: HashMap::new(),
             module_names_cache: None,
+            module_members_cache: None,
             uris: HashMap::new(),
         }
     }
@@ -473,11 +480,18 @@ impl Workspace {
 
     fn build_snapshot(&mut self, hint: &Path, text: Arc<str>) -> Snapshot {
         let encoding = self.encoding;
-        // Owned list, so the immutable borrow is released before the mutable
+        // Owned values, so the immutable borrows are released before the mutable
         // `prelude_for` borrow below.
         let workspace_modules = self.workspace_module_full_names();
+        let user_module_members = self.workspace_module_members();
         let prelude = self.prelude_for(hint);
-        Snapshot::build(text, prelude, encoding, &workspace_modules)
+        Snapshot::build(
+            text,
+            prelude,
+            encoding,
+            &workspace_modules,
+            &user_module_members,
+        )
     }
 
     /// Publish a user module's inferred schemes into the shared compiler so
@@ -620,9 +634,11 @@ impl Workspace {
     /// Removes the entry when the file has no content (or no resolvable URI), so
     /// the index never reports stale symbols.
     fn index_symbols(&mut self, id: FileId) {
-        // Every path below mutates `symbols`, so the derived module-name cache
-        // is now stale — drop it; it rebuilds lazily on next use.
+        // Every path below mutates `symbols`, so the derived module-name and
+        // module-member caches are now stale — drop them; they rebuild lazily
+        // on next use.
         self.module_names_cache = None;
+        self.module_members_cache = None;
         let Some(text) = self.vfs.text(id) else {
             self.symbols.remove(&id);
             return;
@@ -646,6 +662,47 @@ impl Workspace {
             self.module_names_cache = Some(self.compute_module_full_names());
         }
         self.module_names_cache.clone().unwrap_or_default()
+    }
+
+    /// Each workspace `module` name mapped to its exported value members
+    /// (functions and top-level `let`s), from every file's symbol index. Feeds
+    /// the name-resolution pass so `import Lib exposing (..)` of a sibling
+    /// module resolves its members unqualified. Memoized like
+    /// [`workspace_module_full_names`](Self::workspace_module_full_names).
+    pub fn workspace_module_members(&mut self) -> HashMap<String, Vec<String>> {
+        if self.module_members_cache.is_none() {
+            self.module_members_cache = Some(self.compute_module_members());
+        }
+        self.module_members_cache.clone().unwrap_or_default()
+    }
+
+    /// The scan behind [`workspace_module_members`](Self::workspace_module_members)
+    /// — every symbol whose `container` is a module, grouped by that module.
+    /// O(total symbols); call through the memoized getter, not directly.
+    fn compute_module_members(&self) -> HashMap<String, Vec<String>> {
+        let mut map: HashMap<String, Vec<String>> = HashMap::new();
+        for file in self.symbols.values() {
+            for entry in &file.entries {
+                let Some(container) = &entry.container else {
+                    continue;
+                };
+                // Only value members can be referenced unqualified as values;
+                // nested types/constructors resolve through other tables.
+                if matches!(
+                    entry.kind,
+                    lsp_types::SymbolKind::FUNCTION | lsp_types::SymbolKind::VARIABLE
+                ) {
+                    map.entry(container.clone())
+                        .or_default()
+                        .push(entry.name.clone());
+                }
+            }
+        }
+        for members in map.values_mut() {
+            members.sort();
+            members.dedup();
+        }
+        map
     }
 
     /// The actual scan behind [`workspace_module_full_names`](Self::workspace_module_full_names)
