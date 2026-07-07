@@ -1,0 +1,83 @@
+// 29 — deep async I/O inside a `both` child fiber
+//
+// A `both(f, g)` runs its two branches as concurrent fibers. When a branch
+// performs real reactor I/O (`Tcp.read`) from *deep* inside a call chain, the
+// runtime suspends and later resumes a multi-frame composed continuation on a
+// worker fiber. This example forks a one-shot echo server against a client that
+// reaches its socket I/O through six nested calls (`c2 → … → c6 → io`), so the
+// resumed continuation is deep rather than a single frame.
+//
+// Regression demo for a fixed native heap-use-after-free (KI-3, see
+// docs/internals/known_issues.md): the `flux_compose` trampoline used to carry
+// a re-yielding continuation's remaining frames into the next continuation
+// *without retaining them*, so releasing the just-run continuation freed frames
+// the next one still owned. It only bit multi-frame (deep) continuations that
+// re-yield on I/O inside a child fiber — exactly this shape — and only with
+// more than one worker. Run it with `FLUX_WORKERS=4` to exercise the path that
+// used to crash on the native backend:
+//
+//     FLUX_WORKERS=4 cargo native examples/async/29_deep_io_in_both.flx
+//
+// Ports: the server binds to port 0 (an OS-assigned *ephemeral* port), reads
+// the chosen port back with `Tcp.local_port`, and hands it to the client over a
+// channel. No hard-coded port to collide on, and the handshake means the client
+// never connects before the server is bound. Both backends print "ping".
+
+// parity-expected-stdout-begin
+// "ping"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+import Flow.Tcp exposing (..)
+import Flow.Channel as Channel
+
+// One-shot loopback echo server on an ephemeral port. Publishes the OS-assigned
+// port on `port_ch` before accepting, so the client knows where to connect.
+fn echo_server(port_ch) -> Unit with Async {
+    let l = listen("127.0.0.1", 0)
+    let _p = Channel.send(port_ch, local_port(l))
+    let conn = accept(l)
+    let msg = read(conn, 1024)
+    let _w = write_all(conn, msg)
+    let _ = sleep(50)
+    close(conn)
+}
+
+// The actual socket I/O — suspends on `read` at the bottom of the call chain.
+fn io(conn) -> String with Async {
+    let _w = write_all(conn, "ping")
+    let reply = read(conn, 1024)
+    close(conn)
+    reply
+}
+
+// Six nested calls so the continuation captured at the `read` suspend is deep.
+fn c6(conn) -> String with Async { io(conn) }
+fn c5(conn) -> String with Async { c6(conn) }
+fn c4(conn) -> String with Async { c5(conn) }
+fn c3(conn) -> String with Async { c4(conn) }
+fn c2(conn) -> String with Async { c3(conn) }
+
+fn connect_and_run(port: Int) -> String with Async {
+    let conn = connect("127.0.0.1", port)
+    c2(conn)
+}
+
+// Wait for the server's port, then connect and run the deep I/O chain.
+fn client(port_ch) -> String with Async {
+    match Channel.recv(port_ch) {
+        None       -> "no-port",
+        Some(port) -> connect_and_run(port)
+    }
+}
+
+fn body() -> String with Async {
+    let port_ch = Channel.make(1)
+    // Server and client run concurrently; the client's reply is returned.
+    let pair = both(fn() { echo_server(port_ch) }, fn() { client(port_ch) })
+    pair.1
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

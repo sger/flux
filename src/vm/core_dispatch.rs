@@ -354,11 +354,12 @@ mod vm_fibers {
         // captured continuation as a Value::Continuation.
         static PENDING_YIELD: RefCell<Option<Value>> = const { RefCell::new(None) };
         // Child fibers reserved by a synthetic-await combinator that must not
-        // become runnable until the parent has registered its await and been
-        // inserted into the suspended map. The primop reserves children + staged their bodies here;
-        // the dispatch loop drains and activates them immediately after the parent parks.
-        // Stores (reserve child id, body Value to attach).
-        static PENDING_ACTIVASIONS: RefCell<Vec<(FiberId, Value)>> = const { RefCell::new(Vec::new()) };
+        // become runnable until the parent has registered its await AND been
+        // inserted into the suspended map (proposal 0177 T1.2 race fix). The
+        // primop reserves children + stages their bodies here; the dispatch
+        // loop drains and activates them immediately after the parent parks.
+        // Stores (reserved child id, body Value to attach).
+        static PENDING_ACTIVATIONS: RefCell<Vec<(FiberId, Value)>> = const { RefCell::new(Vec::new()) };
         // Root fiber id for the current FiberRunAsync boundary; the dispatch
         // loop uses this to recognise root-fiber completion and propagate the
         // result.  None when no run_async is active.
@@ -421,7 +422,7 @@ mod vm_fibers {
         #[allow(dead_code)]
         pub fs_pool_size: u32,
         pub dns_pool_size: u32,
-        /// Deterministic-scheduler seed. `Some(seed)` selects
+        /// Deterministic-scheduler seed (proposal 0177 T1.1). `Some(seed)` selects
         /// the single-worker seedable scheduler; `None` is the production path.
         pub det_seed: Option<u64>,
     }
@@ -457,7 +458,8 @@ mod vm_fibers {
         adt1("Panicked", Value::String(Rc::new(message.into())))
     }
 
-    /// Best-effort extraction of a Rust panic payload's message. `panic!`/`unwrap`/`expect` payloads are `&str` or `String`; any
+    /// Best-effort extraction of a Rust panic payload's message (proposal 0177
+    /// T2.1). `panic!`/`unwrap`/`expect` payloads are `&str` or `String`; any
     /// other payload type falls back to a fixed marker.
     pub fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
         if let Some(s) = payload.downcast_ref::<&str>() {
@@ -531,7 +533,7 @@ mod vm_fibers {
     ///      be determined (matches the Phase 1b-vi-c default).
     fn resolved_worker_count() -> usize {
         // The deterministic test scheduler is single-worker by construction
-        // force one worker before consulting any explicit
+        // (proposal 0177 T1.1): force one worker before consulting any explicit
         // count, FLUX_WORKERS, or available parallelism, so the timing-dependent
         // multi-OS-thread dispatch path is never selected.
         if let Some(cfg) = PENDING_RUN_CONFIG.with(|c| c.get())
@@ -894,8 +896,8 @@ mod vm_fibers {
         id
     }
 
-    /// Reserve a synthetic-await child fiber without making it runnable.
-    /// The fiber is created and home-worker
+    /// Reserve a synthetic-await child fiber without making it runnable
+    /// (proposal 0177 T1.2 race fix). The fiber is created and home-worker
     /// assigned but held in the scheduler's `reserved` map — no worker can pop
     /// it. The await primop registers the parent's await on the returned id and
     /// stages the body via [`queue_child_activation`]; the dispatch loop
@@ -932,26 +934,24 @@ mod vm_fibers {
         SCHED.with(|s| {
             s.borrow_mut()
                 .as_mut()
-                .expect("reserved_ordered_child outside Async.run_async")
+                .expect("reserve_ordered_child outside Async.run_async")
                 .reserve_ordered_child(worker)
         })
     }
 
     /// Stage a reserved child's body for activation once the parent parks.
     pub fn queue_child_activation(id: FiberId, body: Value) {
-        PENDING_ACTIVASIONS.with(|p| p.borrow_mut().push((id, body)));
+        PENDING_ACTIVATIONS.with(|p| p.borrow_mut().push((id, body)));
     }
 
     /// Discard all staged child activations (parent park aborted, e.g. by
     /// cancellation). The reserved fibers themselves are dropped via
     /// [`discard_reserved_children`].
     pub fn discard_pending_activations() {
-        PENDING_ACTIVASIONS.with(|p| p.borrow_mut().clear())
+        PENDING_ACTIVATIONS.with(|p| p.borrow_mut().clear());
     }
 
-    /// Discard all staged child activations (parent park aborted, e.g. by
-    /// cancellation). The reserved fibers themselves are dropped via
-    /// [`discard_reserved_children`].
+    /// Drop reserved children that will never be activated (park aborted).
     pub fn discard_reserved_children(ids: &[FiberId]) {
         if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
             shared
@@ -972,10 +972,10 @@ mod vm_fibers {
     /// move it onto its home worker's ready queue, and wake that worker. Called
     /// by the dispatch loop immediately after the parent is inserted into the
     /// suspended map, so no child can complete before the parent is registered
-    /// AND suspended.
+    /// AND suspended (proposal 0177 T1.2 race fix).
     pub fn activate_pending_children() {
         let staged: Vec<(FiberId, Value)> =
-            PENDING_ACTIVASIONS.with(|p| std::mem::take(&mut *p.borrow_mut()));
+            PENDING_ACTIVATIONS.with(|p| std::mem::take(&mut *p.borrow_mut()));
         if staged.is_empty() {
             return;
         }
@@ -1538,7 +1538,7 @@ mod vm_fibers {
                                     .insert_suspended(home_worker, req, fiber);
                             });
                             // Activate any children staged while a cancelled
-                            // fiber's cleanup arm re-parked.
+                            // fiber's cleanup arm re-parked (proposal 0177 T1.2).
                             activate_pending_children();
                             let done = on_fiber_suspended(fid);
                             if !done.losers.is_empty() {
@@ -1611,7 +1611,7 @@ mod vm_fibers {
                     }
                 };
                 // Snapshot the VM stack so a Rust panic in the fiber body can be
-                // unwound cleanly.
+                // unwound cleanly (proposal 0177 T2.1).
                 let panic_snapshot = (ctx.current_frame_index(), ctx.current_sp());
                 let caught = with_current(fiber_id, || {
                     with_current_worker(fiber.home_worker, || {
@@ -1621,7 +1621,7 @@ mod vm_fibers {
                             } else if let Some(body) = fiber.body.take() {
                                 ctx.invoke_value(body, vec![])
                             } else {
-                                unreachable!("checked abobe")
+                                unreachable!("checked above")
                             }
                         }))
                     })
@@ -1631,7 +1631,7 @@ mod vm_fibers {
                 // Reset the VM, drop the aborted tick's park/yield signals, and
                 // funnel it through the normal fiber-error path so it surfaces
                 // as a catchable `AsyncError.Panicked` at the enclosing scope
-                // instead of aborting `run_async`.
+                // instead of aborting `run_async` (proposal 0177 T2.1).
                 let outcome = match caught {
                     Ok(outcome) => outcome,
                     Err(payload) => {
@@ -1672,7 +1672,7 @@ mod vm_fibers {
                             .insert_suspended(home_worker, req, fiber);
                     });
                     // Parent suspended: activate any staged synthetic-await
-                    // children. No-op for plain parks.
+                    // children (proposal 0177 T1.2). No-op for plain parks.
                     activate_pending_children();
                     let done = on_fiber_suspended(fiber_id);
                     if !done.losers.is_empty() {
@@ -2123,7 +2123,7 @@ mod vm_fibers {
 
         // Snapshot the VM stack so a Rust panic in the fiber body can be
         // unwound cleanly, leaving this (reused) worker VM consistent for the
-        // next fiber instead of poisoning the OS thread.
+        // next fiber instead of poisoning the OS thread (proposal 0177 T2.1).
         let panic_snapshot = (ctx.current_frame_index(), ctx.current_sp());
         let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             if let Some(cont) = fiber.parked.take() {
@@ -2146,7 +2146,8 @@ mod vm_fibers {
         // A genuine `panic!` in the fiber body (not a Flux `panic`, already a
         // catchable `Err`) unwound the Rust stack. Reset the VM, drop the
         // aborted tick's signals, and surface it as a catchable
-        // `AsyncError.Panicked` rather than poisoning this worker thread.
+        // `AsyncError.Panicked` rather than poisoning this worker thread
+        // (proposal 0177 T2.1).
         let outcome = match caught {
             Ok(outcome) => outcome,
             Err(payload) => {
@@ -2310,7 +2311,7 @@ mod vm_fibers {
                 // Parent is now safely suspended: activate any children a
                 // synthetic-await combinator staged on this tick. Doing this
                 // strictly after `insert_suspended` is what closes the
-                // register/park-vs-complete races. No-op
+                // register/park-vs-complete races (proposal 0177 T1.2). No-op
                 // for non-await parks (nothing staged).
                 activate_pending_children();
                 // Re-evaluate suspended-fiber awaits for first_of.
@@ -2908,14 +2909,14 @@ mod vm_fibers {
         struct PanickingCtx;
 
         impl RuntimeContext for PanickingCtx {
-            fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String> {
+            fn invoke_value(&mut self, _callee: Value, _args: Vec<Value>) -> Result<Value, String> {
                 panic!("kaboom in fiber body")
             }
 
             fn invoke_base_function_borrowed(
                 &mut self,
-                base_fn_index: usize,
-                args: &[&Value],
+                _base_fn_index: usize,
+                _args: &[&Value],
             ) -> Result<Value, String> {
                 unreachable!("not exercised by this test")
             }
@@ -2930,10 +2931,10 @@ mod vm_fibers {
         }
 
         #[test]
-        fn rust_panic_in_fiber_body_becomes_catchables_error_not_thread_poison() {
-            // A genuine Rust panic in a fiber body must be
+        fn rust_panic_in_fiber_body_becomes_catchable_error_not_thread_poison() {
+            // Proposal 0177 T2.1: a genuine Rust panic in a fiber body must be
             // caught and surfaced as an `AsyncError.Panicked`, leaving the
-            // worker usable never unwinding (poisoning) the OS worker thread.
+            // worker usable — never unwinding (poisoning) the OS worker thread.
             // If the panic escaped `run_one_fiber`, this test would itself
             // unwind and fail loudly.
             let mut fiber = Fiber::new(WorkerId(0));
@@ -3644,11 +3645,11 @@ pub fn execute_core_primop(
         }
 
         // fiber_run_async_with: `FiberRunAsync` plus explicit RuntimeConfig
-        // knobs
+        // knobs (proposal 0174 Phase 2 slice 2-vii; det_seed added by 0177 T1.1).
         // Args:
         //   args[0] = worker_count   (Int; 0 means "default")
-        //   args[1] = fs_pool_size   (Int; 0 means "default")
-        //   args[2] = dns_pool_size  (Int; 0 means "default")
+        //   args[1] = fs_pool_size   (Int; 0 means "default"; consulted by 2-viii)
+        //   args[2] = dns_pool_size  (Int; 0 means "default"; consulted by 2-viii)
         //   args[3] = det_seed       (Int; -1 means "non-deterministic"; >=0 = seed)
         //   args[4] = action closure
         // Sets the pending RuntimeConfig before entering the boundary so
@@ -3735,7 +3736,7 @@ pub fn execute_core_primop(
         // 2-iv). Scheduler-flag read; no suspend, no backend round-trip.
         // Composes with `Async.fail` when the caller wants to raise (the
         // `bail_if_cancelled` idiom); that raise is a genuine catchable
-        // `AsyncError` — see `FiberFail` below.
+        // `AsyncError` — see `FiberFail` below and proposal 0177 T2.2.
         FiberCheckCancelled => Ok(Value::Boolean(vm_fibers::is_current_cancelled())),
 
         // fiber_current_worker_count: report the worker count of the
@@ -3820,7 +3821,7 @@ pub fn execute_core_primop(
             // Reserve children (non-runnable), register the await, then stage
             // bodies; the dispatch loop activates them only after this parent
             // parks, so no child can complete before the await is registered
-            // and the parent suspended.
+            // and the parent suspended (proposal 0177 T1.2 race fix).
             let child_a = vm_fibers::reserve_child();
             let child_b = vm_fibers::reserve_child();
             let req = vm_async::alloc_request_id();
@@ -3885,9 +3886,9 @@ pub fn execute_core_primop(
             vm_fibers::signal_park(req, cont);
             if let Err(e) = propagate_if_park_cancelled() {
                 vm_fibers::deregister_await(req.0);
-                let childs_id: Vec<_> = children.iter().map(|(id, _)| *id).collect();
+                let child_ids: Vec<_> = children.iter().map(|(id, _)| *id).collect();
                 vm_fibers::discard_pending_activations();
-                vm_fibers::discard_reserved_children(&childs_id);
+                vm_fibers::discard_reserved_children(&child_ids);
                 return Err(e);
             }
             Err("__fiber_park__".to_string())

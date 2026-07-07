@@ -1,0 +1,31 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// 210
+// parity-expected-stdout-end
+//
+// CML-style `guard` defers building its event until sync-time (proposal 0177
+// T2.5). The thunk's observable side effect (writing `1` into `order`) must
+// happen *after* the build-time write of `2` — i.e. only when `sync` first
+// polls the node — and exactly once. If `guard` were eager, the `1` would land
+// before the `2`. Deferred order is [2, 1] → 2*100 + 1*10 = 210.
+import Flow.Async exposing (..)
+import Flow.Channel as Channel
+import Flow.Event exposing (..)
+
+fn body() -> Int with Async {
+    let order: Channel<Int> = Channel.make(4)
+    let g = guard(fn() {
+        let _ = Channel.try_send(order, 1)
+        always(42)
+    })
+    let _ = Channel.try_send(order, 2)
+    let v = sync(g)
+    let a = Channel.try_recv(order)
+    let b = Channel.try_recv(order)
+    match (a, b) {
+        (Some(x), Some(y)) -> x * 100 + y * 10 + (v - 42),
+        _ -> -1
+    }
+}
+
+fn main() with IO { print(run_async(body)) }

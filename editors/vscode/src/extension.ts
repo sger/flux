@@ -7,6 +7,7 @@ import {
   LanguageClient,
   LanguageClientOptions,
   ServerOptions,
+  State,
   TransportKind,
 } from "vscode-languageclient/node";
 
@@ -203,7 +204,16 @@ function setupBinaryAutoRestart(
       }
       restarting = true;
       try {
-        await client.restart();
+        // `restart()` stops-then-starts, but `stop()` throws if the client
+        // never came up (e.g. the binary was missing at activation, so the
+        // initial `start()` rejected and left it in the `startFailed` state).
+        // In that case the rebuild is exactly what we were waiting for — do a
+        // plain `start()` instead. Only a Running client is safe to restart().
+        if (client.state === State.Running) {
+          await client.restart();
+        } else {
+          await client.start();
+        }
         vscode.window.setStatusBarMessage(
           "Flux: language server restarted (binary rebuilt).",
           3000,

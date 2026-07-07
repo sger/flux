@@ -1,0 +1,40 @@
+// KI-2 regression demo — an effectful call bound and returned bare in tail
+// position, after a dropped binding, must be emitted once on the native backend
+// (see docs/internals/known_issues.md, Resolved: KI-2).
+//
+// `Lib.m` has the shape `drop cid in (let r = f(never()); r)`. Before the fix,
+// the aether reuse pass followed the `r -> f(never())` alias and substituted the
+// call into the body position while keeping the binding, producing
+// `let r = f(never()) in f(never())` — so the native backend emitted `f` (and
+// `never`) twice, the first result discarded. This is an IR-level bug: with the
+// `print` effect below it is masked (the effect handler runs it once on both
+// backends), so stdout is "F"/42 either way. Inspect the lowering to see the fix:
+//
+//     cargo run --features llvm -- --dump-lir \
+//         examples/aether/regression_ki2_reuse_drop_let/main.flx --native
+//
+// Before the fix `Lib_m` had two `call` sites for `f`/`never`; now it has one.
+// The behavioral guard is the unit test
+// reuse_analysis::tests::effectful_let_returned_bare_is_not_duplicated.
+//
+// Runs on both backends (prints "F" then 42):
+//
+//     cargo run -- examples/aether/regression_ki2_reuse_drop_let/main.flx
+//     cargo native   examples/aether/regression_ki2_reuse_drop_let/main.flx
+
+// parity-expected-stdout-begin
+// "F"
+// 42
+// parity-expected-stdout-end
+
+import Lib exposing (..)
+import Flow.Event exposing (Event)
+
+fn ff(e: Event<Int>) -> Int with IO {
+    print("F")
+    42
+}
+
+fn main() with IO {
+    print(m(ff))
+}

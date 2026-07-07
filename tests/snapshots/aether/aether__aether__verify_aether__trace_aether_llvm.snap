@@ -1,6 +1,5 @@
 ---
 source: tests/aether/cli_snapshots.rs
-assertion_line: 213
 ---
 [1 of 1] Compiling  verify_aether
 [lir→llvm] Compiling via per-module LLVM native backend...

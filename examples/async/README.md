@@ -38,6 +38,8 @@ cargo run --features llvm -- examples/async/01_run_async.flx # native
 | [26_stress_fanout.flx](26_stress_fanout.flx) | stress: 4096-fiber `both`-tree — no lost/duplicated completions |
 | [27_stress_racing_cancel.flx](27_stress_racing_cancel.flx) | stress: 1024 concurrent `race` loser-cancellations |
 | [28_stress_timeout_churn.flx](28_stress_timeout_churn.flx) | stress: 512 concurrent `timeout` body-cancellations |
+| [29_deep_io_in_both.flx](29_deep_io_in_both.flx) | deep async I/O inside a `both` child (regression demo for KI-3) |
+| [regression_cross_module_async/main.flx](regression_ki1_cross_module_async/main.flx) | user-defined `async` fn imported from another module gets a native yield check (regression demo for KI-1) |
 
 ## Effect surface cheat sheet
 

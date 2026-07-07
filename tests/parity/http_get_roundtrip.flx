@@ -1,0 +1,41 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// "hello from /parity"
+// parity-expected-stdout-end
+// bug: HTTP client/server round-trip over the async fiber scheduler. A bounded
+//      local server handles one request; a concurrent client GETs it via
+//      `both(server, client)`. Exercises Flow.Http serve/get/shutdown end to
+//      end on both backends. Regression cover for KI-3: a deep async call
+//      chain (get -> request -> request_parsed_url -> read_response_loop) that
+//      re-yields on reactor I/O inside a `both` child fiber used to
+//      heap-use-after-free on native (composed-continuation double-drop);
+//      fixed in runtime/c/effects.c (flux_compose trampoline retains carried
+//      conts).
+
+import Flow.Async exposing (..)
+import Flow.Http exposing (..)
+
+fn handler(req) with Async {
+    ok("hello from " + req.path)
+}
+
+fn server() -> Unit with Async, AsyncFail {
+    let h = serve("127.0.0.1", 24917, handler)
+    let _wait = sleep(250)
+    shutdown(h)
+}
+
+fn client() -> String with Async, AsyncFail {
+    let _wait = sleep(50)
+    let resp = get("http://127.0.0.1:24917/parity")
+    resp.body
+}
+
+fn body() -> String with Async, AsyncFail {
+    let pair = both(server, client)
+    pair.1
+}
+
+fn main() with IO {
+    print(run_async(body))
+}
