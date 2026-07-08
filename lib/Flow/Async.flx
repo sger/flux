@@ -203,7 +203,7 @@ module Flow.Async {
     }
 
     /// Builder helper: select the **deterministic test scheduler** seeded with
-    /// `seed`.
+    /// `seed` (proposal 0177 T1.1).
     ///
     /// Runs on a single logical worker so the fiber interleaving is reproducible
     /// across runs and operating systems — letting tests assert a fixed schedule
@@ -240,7 +240,7 @@ module Flow.Async {
         }
         let seed = match cfg.det_seed {
             Some(s) -> s,
-            None -> -1
+            None    -> -1
         }
         fiber_run_async_with_prim(workers, cfg.fs_pool_size, cfg.dns_pool_size, seed, action)
     }
@@ -291,12 +291,8 @@ module Flow.Async {
 
     /// Run `f` and `g` concurrently; return both results.
     ///
-    /// Both backends schedule cooperative fibers over logical worker queues.
-    /// With a single worker the queues are drained on the caller OS thread; a
-    /// multi-worker `run_async_with_workers(n, ...)` runs them on `n` OS threads
-    /// (worker 0 on the caller thread, plus `n - 1` background workers) and may
-    /// migrate/steal parked fibers across them. Native additionally scales this
-    /// over OS workers for true parallelism.
+    /// VM: cooperative interleaving on the caller OS thread. Native:
+    /// cooperative fibers scheduled over OS workers.
     ///
     public fn both<a, b>(f: (() -> a with Async | e1), g: (() -> b with Async | e2)) -> (a, b) with Async {
         fiber_both_prim(f, g)

@@ -439,8 +439,29 @@ function resolveServerPath(context: vscode.ExtensionContext): string {
 
   const bundled = path.join(context.extensionPath, "server", BINARY_NAME);
   if (fs.existsSync(bundled)) {
+    ensureExecutable(bundled);
     return bundled;
   }
 
   return "flux-lsp";
+}
+
+/**
+ * VSIX archives are zip files, which do not reliably preserve Unix execute
+ * bits — so an installed bundled `flux-lsp` can land as `rw-r--r--`, making
+ * `spawn` fail with EACCES. Restore the execute bit before we try to launch it.
+ * No-op on Windows (execute permission is not modeled the same way) and
+ * best-effort: a failure here just falls through to the normal spawn error.
+ */
+function ensureExecutable(binaryPath: string): void {
+  if (process.platform === "win32") {
+    return;
+  }
+  try {
+    const mode = fs.statSync(binaryPath).mode;
+    // Add execute for user/group/other, preserving existing bits.
+    fs.chmodSync(binaryPath, mode | 0o111);
+  } catch {
+    // Best-effort; if this fails the client.start() error path reports it.
+  }
 }
