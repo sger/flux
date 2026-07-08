@@ -690,7 +690,7 @@ fn rewrite_drop_body_with_env(
                 // substitute it into the body while the enclosing `let r = RHS`
                 // binding is retained, duplicating a potentially effectful RHS
                 // (`let r = RHS in RHS`). That double-executed the call in a
-                // `drop x in (let r = <effectful> in r)` shape.
+                // `drop x in (let r = <effectful> in r)` shape. See KI-2.
                 let rewritten = rewrite_drop_body_with_env(
                     token,
                     alias,
@@ -2199,7 +2199,7 @@ mod tests {
         assert!(rewritten.reused);
     }
 
-    /// Regression: `drop x in (let r = <effectful call> in r)` must NOT be
+    /// Regression (KI-2): `drop x in (let r = <effectful call> in r)` must NOT be
     /// rewritten into `let r = call in call`. When the let body is a bare `Var`
     /// aliased to a non-reusable (effectful) rhs, following the alias for reuse
     /// finds no `Con`, so the rewrite must leave the body as `Var(r)` rather than

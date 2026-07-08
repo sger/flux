@@ -28,7 +28,7 @@ module Flow.Tcp {
     intrinsic fn tcp_close_prim(conn_id: Int) -> Unit = primop TcpClose
     intrinsic fn tcp_listen_prim(host: String, port: Int) -> Int = primop TcpListen
     intrinsic fn tcp_accept_prim(listener_id: Int) -> Int = primop TcpAccept
-     intrinsic fn tcp_local_port_prim(listener_id: Int) -> Int = primop TcpLocalPort
+    intrinsic fn tcp_local_port_prim(listener_id: Int) -> Int = primop TcpLocalPort
 
     // ── Public API ────────────────────────────────────────────────────
 

@@ -11,7 +11,7 @@
 // backends), so stdout is "F"/42 either way. Inspect the lowering to see the fix:
 //
 //     cargo run --features llvm -- --dump-lir \
-//         examples/aether/regression_ki2_reuse_drop_let/main.flx --native
+//         examples/aether/regression_reuse_drop_let/main.flx --native
 //
 // Before the fix `Lib_m` had two `call` sites for `f`/`never`; now it has one.
 // The behavioral guard is the unit test

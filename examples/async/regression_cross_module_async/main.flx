@@ -11,8 +11,8 @@
 //
 // Run on both backends (both print 7):
 //
-//     cargo run -- examples/async/regression_ki1_cross_module_async/main.flx
-//     cargo native   examples/async/regression_ki1_cross_module_async/main.flx
+//     cargo run -- examples/async/regression_cross_module_async/main.flx
+//     cargo native   examples/async/regression_cross_module_async/main.flx
 //
 // Regression test: tests/native_llvm/native_async_cross_module_tests.rs.
 

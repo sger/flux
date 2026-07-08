@@ -35,6 +35,10 @@ cargo build --release -p flux-lsp --manifest-path "$REPO_ROOT/Cargo.toml"
 echo "==> Staging binary..."
 mkdir -p "$VSCODE_DIR/server"
 cp "$REPO_ROOT/target/release/flux-lsp$EXE_SUFFIX" "$VSCODE_DIR/server/flux-lsp$EXE_SUFFIX"
+# Keep the staged binary executable. VSIX (zip) packaging can still drop this
+# bit on install, so the extension re-chmods at activation too, but stage it
+# correctly regardless.
+chmod +x "$VSCODE_DIR/server/flux-lsp$EXE_SUFFIX"
 
 # ── step 3: install JS deps (no-op if already up to date) ────────────────────
 echo "==> Installing JS dependencies..."
