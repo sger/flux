@@ -117,3 +117,90 @@ fn main() with IO { print(run_async(body)) }
     );
     assert_eq!(nat_out.trim(), "6", "native output must match VM");
 }
+
+/// A suspending channel intrinsic wrapper imported via `exposing (..)`
+/// and called *bare* must still get its native yield check. Library modules
+/// (unlike the sibling user modules above) are resolved through the extern
+/// symbol map, so this only passes when `async_extern_symbols` is populated on
+/// the per-module (aether) lowering path — before the fix the set was filled
+/// only on a dead lowering entry point and this printed the yield sentinel
+/// (`105`) or SIGSEGV'd instead of `141`.
+#[test]
+fn native_exposing_imported_channel_intrinsic_gets_yield_check() {
+    let main = r#"import Flow.Async exposing (..)
+import Flow.Channel exposing (..)
+fn worker(ch: Channel<Int>, out: Channel<Int>) -> Unit with Async {
+    match recv(ch) {
+        Some(v) -> send(out, v + 100),
+        None    -> send(out, 0 - 1)
+    }
+}
+fn driver() -> Int with Async {
+    let ch = make(1)
+    let out = make(1)
+    let s = new_scope()
+    fork(s, fn() { worker(ch, out) })
+    send(ch, 41)
+    match recv(out) { Some(v) -> v, None -> 0 - 1 }
+}
+fn main() with IO { print(to_string(run_async(driver))) }
+"#;
+    let (entry, dir) = write_module_fixture("ki4-bare-recv", &[("main.flx", main)]);
+
+    let (vm_out, vm_err, vm_ok) = run(&entry, false);
+    assert!(
+        vm_ok,
+        "VM run must succeed:\nstdout:\n{vm_out}\nstderr:\n{vm_err}"
+    );
+    assert_eq!(vm_out.trim(), "\"141\"", "VM output");
+
+    let (nat_out, nat_err, nat_ok) = run(&entry, true);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(
+        nat_ok,
+        "native run must succeed (KI-4: bare exposing-imported `recv`/`send` \
+         missed the yield check):\nstdout:\n{nat_out}\nstderr:\n{nat_err}"
+    );
+    assert_eq!(nat_out.trim(), "\"141\"", "native output must match VM");
+}
+
+/// `Flow.Actor.receive` — a user-level async library function called
+/// bare from a spawned (indirect) actor body. Before the fix the actor fiber
+/// failed to park at the mailbox recv and computed on the yield sentinel,
+/// printing `105` instead of `141` on native (VM was always correct).
+#[test]
+fn native_actor_receive_gets_yield_check() {
+    let main = r#"import Flow.Async exposing (..)
+import Flow.Channel as Channel
+import Flow.Channel exposing (Channel)
+import Flow.Actor exposing (..)
+fn once(mb: Mailbox<Int>, out: Channel<Int>) -> Unit with Async {
+    let x = receive(mb)
+    Channel.send(out, x + 100)
+}
+fn driver() -> Int with Async {
+    let out = Channel.make(1)
+    let c = spawn(fn(mb) { once(mb, out) })
+    tell(c, 41)
+    match Channel.recv(out) { Some(v) -> v, None -> 0 - 1 }
+}
+fn main() with IO { print(to_string(run_async(driver))) }
+"#;
+    let (entry, dir) = write_module_fixture("ki5-actor-receive", &[("main.flx", main)]);
+
+    let (vm_out, vm_err, vm_ok) = run(&entry, false);
+    assert!(
+        vm_ok,
+        "VM run must succeed:\nstdout:\n{vm_out}\nstderr:\n{vm_err}"
+    );
+    assert_eq!(vm_out.trim(), "\"141\"", "VM output");
+
+    let (nat_out, nat_err, nat_ok) = run(&entry, true);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(
+        nat_ok,
+        "native run must succeed (KI-5: actor `receive` missed the yield \
+         check):\nstdout:\n{nat_out}\nstderr:\n{nat_err}"
+    );
+    assert_eq!(nat_out.trim(), "\"141\"", "native output must match VM");
+}

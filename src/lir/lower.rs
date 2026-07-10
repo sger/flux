@@ -669,11 +669,32 @@ pub fn lower_program_with_interner_and_externs(
         }
     }
 
+    record_async_external_symbols(&mut lir, extern_symbols);
+
     // Post-pass: promote Call → TailCall where the result flows directly
     // to a Return with no intervening side effects.
     promote_tail_calls(&mut lir);
 
     lir
+}
+
+/// Record which imported extern symbols can suspend, from their known type
+/// schemes. This makes cross-module async-ness data-driven so the
+/// yield-check machinery (`call_kind_is_direct_async`, `promote_tail_calls`,
+/// `cont_split`) no longer relies solely on the `Flow.*` allowlist. Must run
+/// on every lowering entry point that receives extern symbols — the aether
+/// path is the one the per-module native pipeline uses.
+fn record_async_external_symbols(
+    lir: &mut LirProgram,
+    extern_symbols: Option<&HashMap<String, ImportedNativeSymbol>>,
+) {
+    if let Some(externs) = extern_symbols {
+        for sym in externs.values() {
+            if sym.is_async {
+                lir.async_extern_symbols.insert(sym.symbol.clone());
+            }
+        }
+    }
 }
 
 pub fn lower_aether_program_with_interner_and_externs(
@@ -802,6 +823,8 @@ pub fn lower_aether_program_with_interner_and_externs(
         );
         lir.push_function(func);
     }
+
+    record_async_external_symbols(&mut lir, extern_symbols);
 
     promote_tail_calls(&mut lir);
     lir
