@@ -1,0 +1,60 @@
+// actors/ping_pong — request/reply rally with graceful shutdown
+//
+// A `pong` actor answers every `Ping` with a reply on the channel the ping
+// carried, and shuts itself down on `Stop`. The driver rallies with it N
+// times, then tells it to stop — the actor *self-terminates* by returning
+// from its receive loop, which is the graceful way to end an actor (its
+// fiber completes and its scope is reaped at `run_async` teardown).
+//
+// Contrast with `stop(ref)`, which cancels the actor's scope outright and
+// curtails even a parked `receive` — useful when the actor should be torn
+// down without draining its mailbox.
+
+// parity-expected-stdout-begin
+// "rallies = 3"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+import Flow.Channel as Channel
+import Flow.Channel exposing (Channel)
+import Flow.Actor exposing (..)
+
+data Msg { Ping(Channel<String>), Stop }
+
+fn done() -> Unit {}
+
+// Answer one ping, then keep playing.
+fn answer(mb: Mailbox<Msg>, rep: Channel<String>) -> Unit with Async {
+    let _ = Channel.send(rep, "pong")
+    pong(mb)
+}
+
+fn pong(mb: Mailbox<Msg>) -> Unit with Async {
+    match receive(mb) {
+        Ping(rep) -> answer(mb, rep),
+        Stop      -> done()
+    }
+}
+
+// Rally n times, counting successful round-trips.
+fn rally(p: ActorRef<Msg>, n: Int, acc: Int) -> Int with Async {
+    if n == 0 {
+        acc
+    } else {
+        let rep = Channel.make(1)
+        tell(p, Ping(rep))
+        match Channel.recv(rep) {
+            Some(_) -> rally(p, n - 1, acc + 1),
+            None    -> acc
+        }
+    }
+}
+
+fn driver() -> String with Async {
+    let p = spawn(fn(mb) { pong(mb) })
+    let rallies = rally(p, 3, 0)
+    tell(p, Stop)
+    "rallies = " + to_string(rallies)
+}
+
+fn main() with IO { print(run_async(driver)) }

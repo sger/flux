@@ -1,0 +1,93 @@
+// Flow.Actor — a minimal actor layer over the 0174 fiber substrate.
+// An actor is a fiber that owns a mailbox (a bounded
+// `Flow.Channel`) and processes `Sendable` messages one at a time.
+//
+// The capability to `receive` is carried by the `Mailbox<msg>` value, which
+// only `spawn` ever constructs — so `receive` can be called only from inside a
+// spawned actor body, without a distinct effect label.
+//
+// Channel operations are called *qualified* (`Channel.recv`, not `recv`) as a
+// style choice; the `Channel` *type* is imported `exposing` because a
+// module-qualified generic type does not parse in type position (see
+// docs/internals/known_issues.md, L4).
+
+import Flow.Async exposing (..)
+import Flow.Channel as Channel
+import Flow.Channel exposing (Channel)
+
+module Flow.Actor {
+
+    // Fork primop, forwarded to directly: a Flux-level `fork` wrapper cannot
+    // relay a function *parameter* through the effect checker, so — like the
+    // shipping `both`/`first_of` combinators — `spawn` hands the body straight
+    // to the primop.
+    intrinsic fn actor_fork_prim<a, e>(s: Scope, f: () -> a with Async | e) -> Unit = primop FiberForkScoped
+
+    /// A mailbox handed to an actor body. Holding one is the capability to
+    /// `receive`; it is only ever constructed by `spawn`.
+    public data Mailbox<msg> { Mailbox(Channel<msg>) }
+
+    /// Handle to a running actor: its mailbox plus the cancellation scope its
+    /// fiber is forked under. `tell` enqueues; `stop` tears the fiber down.
+    public data ActorRef<msg> { ActorRef(Channel<msg>, Scope) }
+
+    fn ref_chan<msg>(a: ActorRef<msg>) -> Channel<msg> {
+        match a { ActorRef(ch, _) -> ch }
+    }
+    fn ref_scope<msg>(a: ActorRef<msg>) -> Scope {
+        match a { ActorRef(_, s) -> s }
+    }
+
+    /// Block the actor fiber until a message arrives. A cancellation
+    /// checkpoint: `stop` / scope-cancel curtails a blocked actor. Raises
+    /// `Canceled` if the mailbox is closed and drained.
+    public fn receive<msg: Sendable>(mb: Mailbox<msg>) -> msg with Async {
+        match mb {
+            Mailbox(ch) -> match Channel.recv(ch) {
+                Some(m) -> m,
+                None    -> fail(canceled_error())
+            }
+        }
+    }
+
+    /// Non-blocking receive. `Some(m)` if a message was ready, else `None`.
+    public fn try_receive<msg: Sendable>(mb: Mailbox<msg>) -> Option<msg> {
+        match mb { Mailbox(ch) -> Channel.try_recv(ch) }
+    }
+
+    /// Spawn an actor with an explicit mailbox capacity. The body runs on a
+    /// fresh fiber under a private scope; the returned handle owns both.
+    public fn spawn_sized<msg: Sendable>(
+        capacity: Int,
+        body: (Mailbox<msg>) -> Unit with Async
+    ) -> ActorRef<msg> with Async {
+        let ch = Channel.make(capacity)
+        let s = new_scope()
+        let mb = Mailbox(ch)
+        actor_fork_prim(s, fn() { body(mb) })
+        ActorRef(ch, s)
+    }
+
+    /// Spawn an actor with the default mailbox capacity (64). Inlines
+    /// `spawn_sized`'s body rather than calling it: the effect checker cannot
+    /// relay the `body` function *parameter* through a second Flux-level call.
+    public fn spawn<msg: Sendable>(body: (Mailbox<msg>) -> Unit with Async) -> ActorRef<msg> with Async {
+        let ch = Channel.make(64)
+        let s = new_scope()
+        let mb = Mailbox(ch)
+        actor_fork_prim(s, fn() { body(mb) })
+        ActorRef(ch, s)
+    }
+
+    /// Enqueue a message, suspending if the mailbox is full (back-pressure).
+    public fn tell<msg: Sendable>(a: ActorRef<msg>, m: msg) -> Unit with Async {
+        Channel.send(ref_chan(a), m)
+    }
+
+    /// Stop an actor by cancelling its fiber. A `receive` blocked on the
+    /// mailbox is a cancellation checkpoint, so the actor is torn down at once;
+    /// its scope is reaped either way at `run_async` teardown.
+    public fn stop<msg>(a: ActorRef<msg>) -> Unit with Async {
+        cancel(ref_scope(a))
+    }
+}

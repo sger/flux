@@ -1,0 +1,29 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// "141"
+// parity-expected-stdout-end
+// bug: Flow.Actor round-trip — spawn an actor (indirect fiber body), `tell`
+//      it a value, actor suspends in bare exposing-imported `receive` and
+//      replies on a captured channel. Guards the KI-4/KI-5 native yield-check
+//      classification (async_extern_symbols on the per-module aether path):
+//      pre-fix native ran past the suspended receive with the yield sentinel
+//      and printed 105 instead of 141.
+
+import Flow.Async exposing (..)
+import Flow.Channel as Channel
+import Flow.Channel exposing (Channel)
+import Flow.Actor exposing (..)
+
+fn once(mb: Mailbox<Int>, out: Channel<Int>) -> Unit with Async {
+    let x = receive(mb)
+    Channel.send(out, x + 100)
+}
+
+fn driver() -> Int with Async {
+    let out = Channel.make(1)
+    let c = spawn(fn(mb) { once(mb, out) })
+    tell(c, 41)
+    match Channel.recv(out) { Some(v) -> v, None -> 0 - 1 }
+}
+
+fn main() with IO { print(to_string(run_async(driver))) }

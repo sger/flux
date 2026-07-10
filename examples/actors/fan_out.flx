@@ -1,0 +1,52 @@
+// actors/fan_out — a pool of one-shot worker actors
+//
+// The driver spawns four worker actors, sends each one a job, and collects
+// the results from a shared reply channel. Each worker handles exactly one
+// message and then returns — a one-shot actor needs no Stop protocol and no
+// cancellation; its fiber simply completes.
+//
+// Result collection drains the shared channel by *count*, so the answer is
+// independent of which worker finishes first — the sum is deterministic even
+// though the completion order is not.
+
+// parity-expected-stdout-begin
+// "sum of squares = 30"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+import Flow.Channel as Channel
+import Flow.Channel exposing (Channel)
+import Flow.Actor exposing (..)
+
+// One-shot worker: receive a job, reply with its square, terminate.
+fn worker(mb: Mailbox<Int>, results: Channel<Int>) -> Unit with Async {
+    let job = receive(mb)
+    Channel.send(results, job * job)
+}
+
+fn spawn_and_tell(results: Channel<Int>, job: Int) -> Unit with Async {
+    let w = spawn(fn(mb) { worker(mb, results) })
+    tell(w, job)
+}
+
+fn collect(results: Channel<Int>, remaining: Int, acc: Int) -> Int with Async {
+    if remaining == 0 {
+        acc
+    } else {
+        match Channel.recv(results) {
+            Some(v) -> collect(results, remaining - 1, acc + v),
+            None    -> acc
+        }
+    }
+}
+
+fn driver() -> String with Async {
+    let results = Channel.make(4)
+    spawn_and_tell(results, 1)
+    spawn_and_tell(results, 2)
+    spawn_and_tell(results, 3)
+    spawn_and_tell(results, 4)
+    "sum of squares = " + to_string(collect(results, 4, 0))
+}
+
+fn main() with IO { print(run_async(driver)) }
