@@ -1,6 +1,12 @@
 - Feature Name: Concurrency Reliability & Actor MVP (v0.0.7)
 - Start Date: 2026-06-05
-- Status: Draft
+- Status: Implemented (2026-07-09 — committed scope M1–M5 complete; M6 stretch
+  deferred to 0.0.8)
+- Progress (2026-07-09): M1 ✅ · M2 ✅ (follow-ups KI-1/KI-2 resolved) · M3 ✅ ·
+  M4 ✅ (T4.2–T4.4 done VM+native; T4.1 re-scoped to a value-carried capability,
+  first-class label deferred to 0161 follow-ups) · M5 ✅ ·
+  M6 deferred to 0.0.8. KI-4/KI-5/KI-6 all fixed — no open backend issues.
+  User guide: [docs/guide/21_actors.md](../guide/21_actors.md).
 - Proposal PR:
 - Flux Issue:
 - Depends on: [0174_async_effect_concurrency.md](0174_async_effect_concurrency.md) (Phases 0–3, shipped in v0.0.6), `Sendable<T>` derivation, the scheduler-as-handler seam in [src/runtime/async/scheduler.rs](../../src/runtime/async/scheduler.rs)
@@ -121,6 +127,8 @@ M5 is non-optional housekeeping. Each task carries an acceptance check and a fil
 
 ### M1 — Reliability foundation
 
+**Status: 4/4 done.**
+
 The headline. Nothing else is trustworthy without it; the Actor MVP and every later I/O
 feature inherit the scheduler's correctness.
 
@@ -198,20 +206,20 @@ row was misclassified non-async (`effect_expr_contains_async`), and `with_nack` 
 the cross-module async allowlist (`is_direct_async_extern_symbol`). Both fixed — see
 [changes/2026-06-23-native-async-resume-followups.md](../../changes/2026-06-23-native-async-resume-followups.md).
 
-**M2 follow-ups (tracked, not blocking).** Two pre-existing native-backend bugs were surfaced —
-not caused — while landing T2.5. Neither affects the `Flow.*` library combinators or the M2
-deliverables; both are logged in
-[docs/internals/known_issues.md](../internals/known_issues.md) and deferred:
+**M2 follow-ups (all since resolved).** Two pre-existing native-backend bugs were surfaced —
+not caused — while landing T2.5; both are closed in
+[docs/internals/known_issues.md](../internals/known_issues.md):
 
-- **KI-1 — user-defined cross-module `async` functions miss native yield checks.** Native
-  cross-module async-ness is decided by the hardcoded allowlist `is_direct_async_extern_symbol`,
-  so an `async` function a user defines in one module and calls from another gets no yield check
-  and SIGSEGVs when it suspends. The callee's effect row is already known at compile time (the
-  whole program is type-checked together); the fix is to thread that async-ness into LIR
-  classification instead of the allowlist. Reachable, medium priority, well-bounded.
-- **KI-2 — effectful call duplicated in a generic cross-module `let r = f(); r` tail-return.** An
-  aether copy-prop inlines the single-use tail var without dropping the dead binding, double-
-  emitting the call. Contrived shape, latent (masked by KI-1), low priority; re-test after KI-1.
+- **KI-1 — user-defined cross-module `async` functions miss native yield checks.**
+  ✅ **Fixed (2026-07-03):** async-ness is data-driven from the callee's effect row
+  (`ImportedNativeSymbol::is_async` → `LirProgram::async_extern_symbols`) instead of the
+  hardcoded allowlist. A residual gap — the set was populated only on a lowering entry
+  point the per-module native pipeline doesn't use, leaving bare `exposing`-imported
+  library calls unclassified — was found while landing M4's `receive` and fixed
+  2026-07-08 (KI-4/KI-5, see M4 T4.3).
+- **KI-2 — effectful call duplicated in a generic cross-module `let r = f(); r` tail-return.**
+  ✅ **Fixed (2026-07-03)** in the aether reuse pass (`rewrite_drop_body_with_env`); see the
+  Resolved entry for the root cause and regression coverage.
 
 Smaller than the prior roadmap implied — most slices are already implemented; this milestone
 proves them and fills the one real gap.
@@ -320,25 +328,72 @@ proves them and fills the one real gap.
 
 ### M4 — Actor MVP (primary)
 
+**Status: done (2026-07-09) — T4.2–T4.4 on VM + native; T4.1 re-scoped
+(value-carried capability; first-class label deferred to 0161 follow-ups).**
+
 [0143](0143_actor_concurrency_roadmap.md) Phase A, re-scoped as a userspace layer over 0174.
 Built on the now-solid fiber substrate + the M2 channel + `Sendable<T>` (already enforced by
 the type system, [src/types/class_env.rs](../../src/types/class_env.rs)).
 
 - **T4.1 — `Actor` effect label** via [0161](implemented/0161_effect_system_decomposition_and_capabilities.md)
-  Phase-1 infra (phantom capability label, no new runtime).
-- **T4.2 — `spawn` + mailbox.** `spawn` over the fiber substrate; a `Mailbox<T>` built on the
-  shipping channel; `send` requires `Sendable<T>` (already enforced).
-- **T4.3 — `receive`.** Suspends the actor fiber until a message arrives; cooperates with
-  cancellation (uses the M1 checkpoints).
-- **T4.4 — Examples + parity.** `examples/actors/*.flx` — ping/pong, counter, fan-out —
-  running with identical output on VM + native; `tests/integration/actor_mvp.rs` (+ native
-  twin) with deterministic-scheduler ordering tests.
+  Phase-1 infra (phantom capability label, no new runtime). ⤳ **Re-scoped: not expressible
+  today.** Two effect-system limitations block it, confirmed empirically and logged as
+  L1/L2 in [known_issues.md](../internals/known_issues.md): a `with` clause cannot carry two
+  concrete labels (`with Actor | Async` fails E034), and an effect **alias** rides through a
+  higher-order boundary as an opaque atom that cannot be discharged there — so a
+  `with Actor`-typed body passed to `fork` forces the label all the way up to `main`. The MVP
+  instead carries the receive capability **as a value**: `Mailbox<msg>`, only ever
+  constructed by `spawn`. Revisit a first-class label under 0161 follow-ups (0.0.8+).
+- **T4.2 — `spawn` + mailbox.** ✅ **Done** — [lib/Flow/Actor.flx](../../lib/Flow/Actor.flx):
+  `spawn` / `spawn_sized` fork the body under a private scope via the `FiberForkScoped`
+  primop (L3: a function *parameter* cannot be forwarded through a Flux-level
+  effect-polymorphic wrapper, so `spawn` hands the body straight to the primop, like
+  `both`/`first_of`); `Mailbox<msg>` wraps the shipping bounded channel; `tell` enqueues
+  with back-pressure; `msg: Sendable` is enforced on every message-bearing op.
+- **T4.3 — `receive`.** ✅ **Done** — suspends the actor fiber on the mailbox; a
+  cancellation checkpoint (`stop` cancels the actor's scope and curtails a blocked
+  `receive`; a closed-and-drained mailbox raises `Canceled`). Landing this on native
+  surfaced — and fixed (2026-07-08) — **KI-5/KI-4**: a bare `exposing`-imported
+  cross-module async call missed its native yield check because `async_extern_symbols`
+  was never populated on the per-module (aether) lowering path; see the Resolved entry in
+  [known_issues.md](../internals/known_issues.md). The actor repros now match the VM on
+  native (single-`receive` → 141, adder → 42, looping counter → 3); regression tests
+  `native_actor_receive_gets_yield_check` /
+  `native_exposing_imported_channel_intrinsic_gets_yield_check` in
+  [tests/native_llvm/native_async_cross_module_tests.rs](../../tests/native_llvm/native_async_cross_module_tests.rs).
+  *Known edge — resolved:* **KI-6** (cancel-blocked-`recv` immediately before `run_async`
+  teardown corrupted the boundary; `stop()`-then-exit patterns) was fixed 2026-07-09 —
+  the dispatch loop no longer ticks fibers after the root completes. See the Resolved
+  entry in [known_issues.md](../internals/known_issues.md).
+- **T4.4 — Examples + parity.** ✅ **Done (2026-07-09)** —
+  [examples/actors/](../../examples/actors/): `counter.flx` (stateful actor,
+  request/reply via a channel carried in the message), `ping_pong.flx` (rally +
+  graceful self-termination via a `Stop` message), `fan_out.flx` (one-shot worker
+  pool), each verified byte-identical on VM + native.
+  [tests/integration/actor_mvp.rs](../../tests/integration/actor_mvp.rs) runs the
+  example files on the VM and adds the deterministic-scheduler ordering tests: actor
+  fibers participate in the T1.1 seeded ready-pick, so a fixed seed replays a fixed
+  spawn-wake interleaving (seeds 0/1/99 → `ABC`/`CAB`/`BAC`), while mailbox wake-ups
+  resume in publish order by design (seed-independent). Native twin:
+  [tests/native_llvm/native_actor_mvp_tests.rs](../../tests/native_llvm/native_actor_mvp_tests.rs)
+  (deterministic tests stay VM-only until T6.3). The release parity gate gains
+  [tests/parity/async_actor_receive_reply.flx](../../tests/parity/async_actor_receive_reply.flx).
+  *Example-design note:* examples self-terminate (a `Stop` message or one-shot bodies)
+  or let `run_async` teardown reap a parked actor; `stop()` immediately before exit
+  (the former KI-6 edge) is now also safe and pinned by
+  [tests/integration/vm_cancel_teardown.rs](../../tests/integration/vm_cancel_teardown.rs).
 
 **Explicitly not in scope (→ 0.0.8+):** typed per-message mailbox protocols (0143 Phase B),
 supervision trees / restart strategies (Phase C), the M:N scheduler upgrade (Phase D), and any
 0162 evidence-passing rework.
 
 ### M5 — Housekeeping (not optional)
+
+**Status: done (2026-07-09).** T5.1: 0083/0152/0175/0176 marked Implemented in
+[0000_index.md](0000_index.md), files moved under `implemented/`, cross-references
+fixed repo-wide. T5.2: `roadmap_to_1_0_0.md` 0.0.6/0.0.7 rows and detail sections
+refreshed to the actual themes (displaced items preserved as explicit deferrals).
+T5.3: fragments landed per task throughout.
 
 - **T5.1 — Fix stale proposal statuses** in [0000_index.md](0000_index.md): 0175/0176 (REPL),
   0083 (typed holes), and 0152 (named fields) shipped in 0.0.6 but still read "Draft" — mark
@@ -351,9 +406,11 @@ supervision trees / restart strategies (Phase C), the M:N scheduler upgrade (Pha
 
 Deepens M1's deterministic scheduler along the two axes its T1.1 scope note explicitly
 deferred (VM-only, cooperative/`yield_now`-only — timer/I/O order not virtualized,
-multi-worker interleavings not replayable). **Status: stretch / may slip to 0.0.8.** None of
-M2–M4 depend on it; it is the next increment of test-oracle fidelity, not a prerequisite for
-the Actor MVP. Promote into committed scope only if reliability time is available after M1–M4.
+multi-worker interleavings not replayable). **Status: deferred to 0.0.8 (decided
+2026-07-09)** — M1–M5 landed and closed v0.0.7's committed scope; T6.1–T6.3 move to 0.0.8
+planning (recorded in [roadmap_to_1_0_0.md](../roadmaps/roadmap_to_1_0_0.md)) together with
+the T4.1 first-class `Actor` label follow-up. None of M2–M4 depended on it; it is the next
+increment of test-oracle fidelity, not a prerequisite for the Actor MVP.
 
 - **T6.1 — Virtual-time scheduler backend.** Virtualize timer (and, where feasible, I/O)
   completion ordering so `sleep`/`timeout`/timer-driven programs run on a logical clock the
@@ -457,15 +514,23 @@ once M1's deterministic scheduler exists.
 
 ## Unresolved questions
 
-- **Actor surface syntax.** Is it a plain `spawn(fn(mailbox) with Actor { … })` function, or
-  does it warrant sugar (an `actor { … }` block)? Pinned during M4; the MVP can ship as a
-  function and add sugar later.
-- **Does `race` stay 2-way?** (T2.4) — leaning yes, delegating n-way to `first_of`, but the
-  tie-break contract needs to be written down and tested either way.
-- **Mailbox capacity policy.** Bounded (back-pressure on `send`) vs unbounded (grow). Likely
-  bounded on the shipping channel, but the default capacity and overflow behavior are open.
-- **Deterministic-scheduler fidelity.** How faithfully must it model work-stealing/migration to
-  be a trustworthy test oracle? Resolved during T1.1 by cross-checking against the stress harness.
+_All four resolved during execution:_
+
+- **Actor surface syntax.** ✅ Resolved during M4: a plain function surface —
+  `spawn(fn(mb) { body(mb) })` with the capability carried by `Mailbox<msg>` and bodies
+  typed `with Async` (the `with Actor` label is deferred, see T4.1). No `actor { … }`
+  sugar in the MVP; revisit only if 0143 Phase B's typed protocols create pull for it.
+- **Does `race` stay 2-way?** ✅ Yes (T2.4): 2-way `race` delegating n-way to `first_of`;
+  the tie-break contract is written down and tested
+  ([changes/2026-06-23-race-tiebreak-contract.md](../../changes/2026-06-23-race-tiebreak-contract.md)).
+- **Mailbox capacity policy.** ✅ Bounded on the shipping channel: `spawn` defaults to
+  capacity 64, `spawn_sized` makes it explicit, and a full mailbox back-pressures the
+  *sender* (`tell` suspends). No unbounded/grow mode; no overflow drop policy — the MVP
+  prefers suspension.
+- **Deterministic-scheduler fidelity.** ✅ Resolved during T1.1 by cross-checking against
+  the stress harness; actor spawn-wake order participates in the seeded pick (pinned in
+  `tests/integration/actor_mvp.rs`), while completion routing stays publish-ordered by
+  design.
 
 ## Future possibilities
 

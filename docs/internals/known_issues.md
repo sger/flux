@@ -13,13 +13,130 @@ a minimal repro, root cause (if known), and the proposed fix direction.
 
 ## Open
 
-_(none)_
+_All surfaced while building the Actor MVP (proposal 0177 M4), which stresses
+forked fibers that suspend on channels through library-provided closures. None
+is caused by the actor layer; each is a pre-existing native-backend or
+effect-system limitation the pattern is the first to exercise together._
+
+_(No open backend issues. KI-4/KI-5/KI-6 moved to Resolved below.)_
+
+### Effect-system / surface-syntax limitations (not backend bugs)
+
+These are language limitations, confirmed empirically, that shaped the Actor MVP
+design. Tracked here so they are not rediscovered.
+
+- **L1 — A `with` clause accepts only `Label | rowvar` or a single alias, never
+  two concrete labels.** `fn f() with Actor | Async` and `with Console | Clock`
+  fail to parse (`E034`); the whole stdlib expresses multi-label rows through
+  **aliases** (`IO`, `Async`). Consequence: a new capability that must co-occur
+  with `Async` has to ship as an alias, not a bare label.
+- **L2 — An effect **alias** is carried as an opaque atom through a higher-order
+  boundary and never decomposes/discharges there.** `handle ActorCap {}` strips a
+  concrete label from a multi-label row at a *direct* call site, but when a
+  `with Actor`-typed function is passed as a value and invoked via `fork`, the
+  `Actor` atom rides through and cannot be discharged — forcing it up to `main`.
+  This is why proposal 0177 T4.1's distinct `Actor` capability label is not yet
+  achievable; the Actor MVP uses `with Async` + a value-carried capability
+  (`Mailbox<msg>`) instead.
+- **L3 — A function *parameter* cannot be forwarded through a Flux-level
+  effect-polymorphic wrapper.** `fn spawn(body) { fork(s, fn(){ body() }) }` fails
+  `E422` (the `body` obligation leaks past the enclosing `with Async`), whereas
+  passing the parameter **straight to a primop** (as `both`/`first_of` do)
+  type-checks. Consequence: `Flow.Actor.spawn` calls the fork primop directly and
+  cannot delegate to `spawn_sized`.
+- **L4 — A module-qualified **generic** type does not parse in data-constructor or
+  parameter type position.** `data M { M(Channel.Channel<Int>) }` and
+  `fn f(c: Channel.Channel<Int>)` fail (`E034`); the type must be imported
+  unqualified (`exposing (Channel)`), which is why `Flow.Actor` double-imports
+  `Flow.Channel` (aliased for calls per KI-4, exposed for the type).
 
 ---
 
 ## Resolved
 
 _(Move entries here with the fixing commit/PR when closed; prune at release.)_
+
+- **KI-6 — Cancelling a fiber blocked on channel `recv`, then exiting
+  `run_async` immediately, corrupted the boundary** (originally reported as a
+  `channel N not found` error; the same defect also surfaced as `run_async`
+  returning a stale `None` instead of the root's value, and as the cancelled
+  fiber's `Canceled` error escaping to `main` as an opaque `E1009
+  __fiber_error__` — `Flow.Actor.stop` on a `receive`-looping actor right
+  before program exit was the user-facing shape. Native: same shape SIGSEGV'd.)
+  - **Root cause (VM):** the dispatch loop's inner ready-queue drain kept
+    ticking fibers *after the root fiber had completed*. `cancel(scope)`
+    re-queues a recv-parked fiber as ready/`Cancelled`; when the root then
+    finished in the same drain pass (cancel **immediately** before returning),
+    the cancelled fiber's continuation was resumed on the shared worker-0 VM
+    whose stack the root's final tick had already unwound to the `run_async`
+    boundary. The post-root resume trashed the boundary state — which stale
+    artifact surfaced (clobbered result, phantom fiber error, freed-channel
+    lookup) depended on the shape. This is exactly why "cancel then `sleep`
+    then exit" always worked: with the root parked, the cancelled fiber's
+    cleanup resume ran against a boundary-consistent VM.
+  - **Fix (2026-07-09):** once the root has produced its result, the dispatch
+    loop ticks no further fibers — `dispatch_loop`'s ready drain breaks on
+    `root_result`, and the multi-worker `worker_0_dispatch_loop` drain breaks
+    on `shared.is_finished()` ([src/vm/core_dispatch.rs](../../src/vm/core_dispatch.rs)).
+    Remaining fibers are reaped by `exit_run_async`, exactly as they already
+    were when the root exited while children were still parked. (Semantics
+    note: a fiber cancelled in the boundary's final drain pass no longer runs
+    its cleanup arms — consistent with the existing behavior for children
+    still parked at root exit.)
+  - **Native:** the SIGSEGV on this shape no longer reproduces after the
+    KI-4/KI-5 yield-check fix (the cancellation path through `receive` now
+    suspends properly); pinned by the native regression test below.
+  - **Regression tests:**
+    [tests/integration/vm_cancel_teardown.rs](../../tests/integration/vm_cancel_teardown.rs)
+    (fork-cancel-return, actor-stop-return, looped + multi-worker) and
+    `actor_stop_then_immediate_return_native` in
+    [tests/native_llvm/native_actor_mvp_tests.rs](../../tests/native_llvm/native_actor_mvp_tests.rs).
+
+- **KI-5 / KI-4 — Native: a bare `exposing`-imported cross-module async call
+  missed its yield check** (one bug, two reported shapes; resolved together).
+  - **KI-5 as reported:** a fiber body invoked through a function value
+    (`spawn(body)` → `fork(s, fn(){ body(mb) })`) that suspends on
+    `Flow.Actor.receive` computed on the **yield sentinel** instead of parking:
+    the single-`receive` actor replying `x + 100` printed `105` (sentinel
+    `10 >> 1 = 5`, plus 100) instead of `141`; a forced suspend rendered a raw
+    pointer as `"<value>"`. **KI-4 as reported:** `import Flow.Channel exposing
+    (..)` then a bare `recv(ch)` / `send(ch, v)` SIGSEGV'd, while qualified
+    `Channel.recv(ch)` worked. VM unaffected in both.
+  - **Root cause:** `LirProgram::async_extern_symbols` — the KI-1 data-driven
+    cross-module async classification — was populated only in
+    `lower_program_with_interner_and_externs`, the **Core**-lowering entry point,
+    which the native pipeline never invokes with extern symbols (dead path). The
+    per-module native pipeline (`Compiler::lower_to_lir_llvm_module_per_module` →
+    `lower_aether_program_with_interner_and_externs`, the **Aether** twin) never
+    populated the set, so `DirectExtern` async classification silently degraded
+    to the hardcoded `Flow.*` allowlist (`is_direct_async_extern_symbol`). Any
+    suspending import off the allowlist — bare exposed `recv`/`send`,
+    `Flow.Actor.receive` — got **no `flux_is_yielding` check** at its call site
+    (confirmed by disassembly: `flux_once_once` called
+    `flux_Flow_Actor_receive` and consumed the return with no check), so when
+    the callee suspended, the caller ran on with the sentinel.
+  - **Why the shapes misled:** only **bare** names of interface-loaded library
+    modules lower to `DirectExtern` (no binder → extern-map hit). *Qualified*
+    member calls (`Channel.recv(...)`) lower as closure loads + **indirect**
+    calls, which get yield checks via the caller's own async effect row
+    (`async_effect_binders` → `CallKind::Indirect { async_capable }`) — hence
+    "qualified works". Sibling *user*-module imports carry HM binders and also
+    take the indirect path — hence the KI-1 regression tests kept passing while
+    the per-module gap was live, and KI-5 looked "indirect-call-specific"
+    (the actor was simply the first *bare* exposed suspending import in a
+    position whose resume value was consumed).
+  - **Fix (2026-07-08):** populate `async_extern_symbols` on the aether lowering
+    entry point too — shared helper `record_async_extern_symbols`
+    ([src/lir/lower.rs](../../src/lir/lower.rs)), called by both
+    `lower_program_with_interner_and_externs` and
+    `lower_aether_program_with_interner_and_externs`.
+  - **Regression tests** (fail pre-fix, pass post-fix):
+    `native_exposing_imported_channel_intrinsic_gets_yield_check` (KI-4 shape)
+    and `native_actor_receive_gets_yield_check` (KI-5 shape) in
+    `tests/native_llvm/native_async_cross_module_tests.rs`.
+  - **Note:** qualified channel calls in `lib/Flow/Actor.flx` were a KI-4
+    workaround and are now optional; the `exposing (Channel)` double-import is
+    still required by L4 (qualified generic types don't parse in type position).
 
 - **KI-2 — Effectful call duplicated in a `drop x in (let r = f(...); r)` tail-return.**
   On the native (LLVM) backend, an effectful call bound and returned bare in tail

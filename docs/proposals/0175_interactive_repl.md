@@ -3,8 +3,8 @@
 - Status: Implemented (2026-05-24)
 - Proposal PR:
 - Flux Issue:
-- Builds on: the `flux eval "<expr>"` subcommand ([../../src/driver/pipeline/eval.rs](../../src/driver/pipeline/eval.rs)) and the staged VM compiler pipeline ([../../src/driver/pipeline/program.rs](../../src/driver/pipeline/program.rs))
-- Relates to: [0176_interactive_repl_persistent_engine.md](0176_interactive_repl_persistent_engine.md) (Phase 2 — the incremental engine that replaces this phase's evaluator behind the same UX), [0163_flux_language_server.md](0163_flux_language_server.md)
+- Builds on: the `flux eval "<expr>"` subcommand ([../../src/driver/pipeline/eval.rs](../../../src/driver/pipeline/eval.rs)) and the staged VM compiler pipeline ([../../src/driver/pipeline/program.rs](../../../src/driver/pipeline/program.rs))
+- Relates to: [0176_interactive_repl_persistent_engine.md](0176_interactive_repl_persistent_engine.md) (Phase 2 — the incremental engine that replaces this phase's evaluator behind the same UX), [0163_flux_language_server.md](../0163_flux_language_server.md)
 
 # Proposal 0175: Interactive REPL — Phase 1 (Accumulate-Source MVP)
 
@@ -25,8 +25,8 @@ engine behind the identical user-facing behavior defined in this proposal.
 ## Motivation
 [motivation]: #motivation
 
-Flux today is run-a-file only ([../../src/main.rs](../../src/main.rs) →
-[../../src/cli/](../../src/cli/)). There is one-shot expression evaluation —
+Flux today is run-a-file only ([../../src/main.rs](../../../src/main.rs) →
+[../../src/cli/](../../../src/cli/)). There is one-shot expression evaluation —
 `flux eval "1 + 2"`, added for the LSP doc-comment "▶ Eval" lens — but no
 *interactive* mode: no way to define `let x = 5`, then ask for `x + 1`, then build
 on that incrementally.
@@ -48,7 +48,7 @@ can ship. Concrete use cases:
 The motivation for Phase 1 specifically is **speed to value**: Flux already has
 the building block (`eval`), value rendering is already "REPL-correct" (numbers
 unquoted, strings quoted — see
-[../../src/driver/pipeline/eval.rs](../../src/driver/pipeline/eval.rs)), and an
+[../../src/driver/pipeline/eval.rs](../../../src/driver/pipeline/eval.rs)), and an
 accumulate-source REPL is a legitimate, proven first cut (Elm's `elm repl` shipped
 on essentially this model). Phase 1 lets us validate the UX, command set, and
 ergonomics before paying for the deeper engine work in
@@ -125,14 +125,14 @@ level of a `.flx` file, you can write at the prompt.
 
 `flux eval "<expr>"` runs the **entire** pipeline fresh:
 
-1. [../../src/cli/cmdline.rs](../../src/cli/cmdline.rs) parses `CliCommand::Eval`.
-2. [../../src/driver/pipeline/eval.rs](../../src/driver/pipeline/eval.rs) wraps the
+1. [../../src/cli/cmdline.rs](../../../src/cli/cmdline.rs) parses `CliCommand::Eval`.
+2. [../../src/driver/pipeline/eval.rs](../../../src/driver/pipeline/eval.rs) wraps the
    expression in a synthetic `fn main() with IO { println(<expr>) }` and calls
    `run_from_source`.
-3. [../../src/driver/pipeline/program.rs](../../src/driver/pipeline/program.rs)
+3. [../../src/driver/pipeline/program.rs](../../../src/driver/pipeline/program.rs)
    builds a **fresh** `Compiler`, runs parse → module graph → HM inference → Core →
    CFG/bytecode, then
-4. [../../src/driver/run_program/backend/vm.rs](../../src/driver/run_program/backend/vm.rs)
+4. [../../src/driver/run_program/backend/vm.rs](../../../src/driver/run_program/backend/vm.rs)
    constructs a **fresh** `VM` and runs it.
 
 Each `eval` is independent with no carried state. Phase 1 turns this into a session
@@ -143,7 +143,7 @@ compiler or VM (that is Phase 2's job — see
 ### Phase 1 design: accumulate-source
 
 Keep a growing buffer of the session's **declarations**. Each entered line is
-classified using the existing parser/lexer ([../../src/syntax/](../../src/syntax/))
+classified using the existing parser/lexer ([../../src/syntax/](../../../src/syntax/))
 — parse the line as a statement; an `Expression` statement is an expression,
 anything else (`let` / `public let` / `fn` / `data` / `alias` / `effect` /
 `class` / `instance` / `import` / `module`) is a declaration:
@@ -170,7 +170,7 @@ is why declarations are compiled too, GHCi-style.
 **`:type`** reuses the exact inference the LSP hover uses: it wraps `<expr>` as
 `let __repl_type = <expr>` over the buffer, compiles the session so the prelude is
 preloaded, then runs `infer_program` with `Compiler::build_infer_config`
-([../../src/compiler/mod.rs](../../src/compiler/mod.rs)) on the entry program and
+([../../src/compiler/mod.rs](../../../src/compiler/mod.rs)) on the entry program and
 reads back the binding value's inferred type by its `ExprId` (rendered with
 `display_infer_type`). The expression is type-checked, never run. The reported type
 is the instantiated `InferType` (hover-style), not a generalized scheme.
@@ -196,16 +196,16 @@ which compiles each line incrementally against a persistent `Compiler` and a liv
 ### Implementation surface (Phase 1)
 
 - `CliCommand::Repl { flags }` in
-  [../../src/cli/cmdline.rs](../../src/cli/cmdline.rs), dispatched in
-  [../../src/cli/mod.rs](../../src/cli/mod.rs).
+  [../../src/cli/cmdline.rs](../../../src/cli/cmdline.rs), dispatched in
+  [../../src/cli/mod.rs](../../../src/cli/mod.rs).
 - A new module holding the loop: read line (raw `stdin` for v0, or a small
   line-editor dependency such as `rustyline`), classify, build candidate source,
   call `run_from_source`, print, commit/roll back. Reuses the
   `wrap_expression`-style assembly from
-  [../../src/driver/pipeline/eval.rs](../../src/driver/pipeline/eval.rs).
+  [../../src/driver/pipeline/eval.rs](../../../src/driver/pipeline/eval.rs).
   (Shipped initially as `src/driver/pipeline/repl.rs`; the Phase 2 engine
   ([0176](0176_interactive_repl_persistent_engine.md)) moved it to a dedicated
-  top-level [`src/repl/`](../../src/repl/) module.)
+  top-level [`src/repl/`](../../../src/repl/) module.)
 - Multi-line continuation via brace/paren balance reported by the parser.
 
 ### Acceptance criteria (Phase 1)
@@ -284,11 +284,11 @@ which compiles each line incrementally against a persistent `Compiler` and a liv
   `Compiler` + live-VM engine that removes this phase's limitations.
 - **Editor-integrated REPL** — a VS Code "Flux: Start REPL" terminal command and a
   "send selection to REPL" action, reusing the extension's command plumbing
-  ([../../editors/vscode/src/extension.ts](../../editors/vscode/src/extension.ts)).
+  ([../../editors/vscode/src/extension.ts](../../../editors/vscode/src/extension.ts)).
 - ~~**`:load <file>` / `:reload`** — bring a module's definitions into the
   session.~~ *Shipped (2026-05-25): `:load` resets then compiles the file as one
   delta into the session; `:reload` re-applies the last loaded file from disk.*
 - **Tab completion and `:doc`** powered by the LSP's completion/hover engines
-  ([0163_flux_language_server.md](0163_flux_language_server.md)).
+  ([0163_flux_language_server.md](../0163_flux_language_server.md)).
 - **Notebook / transcript mode** sharing one evaluator with the `/// >>>`
   doc-comment eval feature.

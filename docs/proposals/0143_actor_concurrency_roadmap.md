@@ -5,7 +5,7 @@
 - Proposal PR:
 - Flux Issue:
 - Supersedes: [0026](superseded/0026_concurrency_model.md), [0065](superseded/0065_actor_effect_stdlib.md), [0066](superseded/0066_thread_per_actor_handler.md), [0067](superseded/0067_gchandle_actor_boundary_error.md), [0071](superseded/0071_mn_scheduler_actor_handler.md), [0095](superseded/0095_actor_runtime_architecture.md)
-- Depends on: [0174](0174_async_effect_concurrency.md) (Async Effect & Concurrency Roadmap — runtime substrate), [0161](implemented/0161_effect_system_decomposition_and_capabilities.md) (Effect System Decomposition), [0162](0162_unified_effect_handler_runtime.md) (Unified Effect Handler Runtime), [0152](0152_named_fields_for_data_types.md) (Named Fields)
+- Depends on: [0174](0174_async_effect_concurrency.md) (Async Effect & Concurrency Roadmap — runtime substrate), [0161](implemented/0161_effect_system_decomposition_and_capabilities.md) (Effect System Decomposition), [0162](0162_unified_effect_handler_runtime.md) (Unified Effect Handler Runtime), [0152](implemented/0152_named_fields_for_data_types.md) (Named Fields)
 
 # Proposal 0143: Actor Concurrency Roadmap (Aether-Aware)
 
@@ -219,7 +219,7 @@ recommended but not blocking.
   value does not satisfy mailbox type).
 - Users with polymorphic mailboxes wrap messages in a sum ADT.
 
-**Prerequisites:** [0152](0152_named_fields_for_data_types.md) (named fields)
+**Prerequisites:** [0152](implemented/0152_named_fields_for_data_types.md) (named fields)
 makes structured messages ergonomic.
 
 ### Phase C — Supervision + cancellation (~5 weeks)

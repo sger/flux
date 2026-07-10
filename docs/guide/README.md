@@ -24,6 +24,7 @@ A practical manual for learning Flux, organized from basics to advanced topics. 
 18. [JSON Codecs](18_json_codecs.md) — Json values, parser/stringifier, manual and derived codecs
 19. [Streams and SSE](19_streams_and_sse.md) — Pure pull streams, stream adapters, chunked responses, SSE helpers
 20. [Async and Fibers](20_async_and_fibers.md) — `with Async`, `run_async`, fibers vs OS threads, `both` / `race` / `timeout`, `try` / `fail`, `scope` / `fork` / `cancel`, `Task.spawn`, `Channel`
+21. [Actors](21_actors.md) — `Flow.Actor`: `spawn` / `tell` / `receive` / `stop`, mailbox-as-capability, state via tail recursion, request/reply, shutdown patterns
 
 ## Type System + Effects Track (09-14)
 

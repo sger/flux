@@ -1,5 +1,10 @@
 # Flux v0.0.7 Implementation Plan
 
+> **Status (2026-07-09): committed scope delivered.** Proposal
+> [0177](../proposals/0177_concurrency_reliability_and_actor_mvp.md) M1–M5 are
+> complete (KI-4/KI-5/KI-6 fixed along the way); M6 and the T4.1 `Actor` effect
+> label carry to 0.0.8. Actor guide: [docs/guide/21_actors.md](../guide/21_actors.md).
+
 ## Overview
 
 **Theme: Concurrency — make async/await rock-solid, then ship an Actor MVP on top.**
