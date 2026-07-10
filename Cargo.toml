@@ -466,6 +466,14 @@ name = "async_stress"
 path = "tests/integration/async_stress.rs"
 
 [[test]]
+name = "actor_mvp"
+path = "tests/integration/actor_mvp.rs"
+
+[[test]]
+name = "vm_cancel_teardown"
+path = "tests/integration/vm_cancel_teardown.rs"
+
+[[test]]
 name = "vm_fiber_registry"
 path = "tests/integration/vm_fiber_registry.rs"
 
