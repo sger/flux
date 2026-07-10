@@ -109,7 +109,7 @@ No new architectural bets. No new IRs. No new backends. v0.0.5 delivered a huge 
 
 ### M1: Named Fields (0152) — Weeks 1-2
 
-**Proposal:** [0152_named_fields_for_data_types.md](../proposals/0152_named_fields_for_data_types.md)
+**Proposal:** [0152_named_fields_for_data_types.md](../proposals/implemented/0152_named_fields_for_data_types.md)
 
 **Scope:**
 

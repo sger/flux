@@ -38,9 +38,9 @@ It does **not** require:
 | Version | Theme | Core blockers | Optional / stretch |
 |---|---|---|---|
 | `0.0.5` ✅ | Static typing closure | `0127`, `0155`, `0156`, `0157`, `0158`, `0159`, `0160`, `0150`, `0116` | — |
-| `0.0.6` | Finish partials + named fields | `0152`, `0151`, `0126`, `0135`, `0015` | `0011` |
-| `0.0.7` | Effect system decomposition | `0161` (Flow.Effects + sealing + optimizer levels), `0040` Phase 1 | `0143` Phase 0 |
-| `0.0.8` | Stdlib and tooling | `0030` polish, `0035`, `0010`, `0083` | `0076` |
+| `0.0.6` ✅ | Concurrency substrate + interactive tooling | `0174` Phases 0–3 (fibers, scheduler, channels, HTTP/JSON), `0152`, `0151`, `0175`/`0176` (REPL), `0083`, `0163` (LSP) | — |
+| `0.0.7` ✅ (committed scope) | Concurrency reliability + Actor MVP | `0177` M1–M5 delivered 2026-07-09 (KI-4/5/6 fixed; no open backend issues) | `0177` M6 → moved to `0.0.8` |
+| `0.0.8` | Stdlib and tooling | `0030` polish, `0035`, `0010`, `0015` | `0076`; carried from `0177`: M6 (virtual-time scheduler, multi-worker deterministic sim, native det. parity) + T4.1 (`Actor` effect label, needs L1/L2 effect-system work) |
 | `0.0.9` | Compiler/runtime perf closure | `0109` Phase 1/3, `0112` Phase 2/3, `0162` Phase 1/2 (evidence passing + monomorphic State/Reader) | `0024` |
 | `0.1.0` | First coherent preview | Consolidate `0.0.5` to `0.0.9` | — |
 | `0.2.0` | Actor concurrency maturity | `0143` remaining phases | — |
@@ -79,42 +79,56 @@ Exit criteria:
 - effect/type semantics are clear and test-backed
 - parser/type/effect diagnostics feel deliberate rather than transitional
 
-### `0.0.6` — Stdlib and package workflow
+### `0.0.6` — Concurrency substrate + interactive tooling ✅
+
+Shipped (see [roadmap_v0.0.6.md](roadmap_v0.0.6.md)):
+
+- [0174_async_effect_concurrency.md](../proposals/0174_async_effect_concurrency.md) Phases 0–3 — fibers, work-stealing scheduler, structured concurrency, channels, HTTP/JSON/streams, VM + native
+- [0152_named_fields_for_data_types.md](../proposals/implemented/0152_named_fields_for_data_types.md), [0151_module_scoped_type_classes.md](../proposals/implemented/0151_module_scoped_type_classes.md)
+- [0175_interactive_repl.md](../proposals/implemented/0175_interactive_repl.md) + [0176_interactive_repl_persistent_engine.md](../proposals/implemented/0176_interactive_repl_persistent_engine.md) (REPL), [0083_typed_holes.md](../proposals/implemented/0083_typed_holes.md), [0163_flux_language_server.md](../proposals/0163_flux_language_server.md) (LSP)
+
+Deferred from the earlier plan for this slot (now unscheduled; fold into `0.0.8`
+planning): [0030_flow.md](../proposals/0030_flow.md),
+[0015_package_module_workflow_mvp.md](../proposals/0015_package_module_workflow_mvp.md),
+[0003_stdlib_proposal.md](../proposals/0003_stdlib_proposal.md),
+[0029_base_and_flow.md](../proposals/0029_base_and_flow.md),
+[0011_phase2_module_system_enhancements.md](../proposals/0011_phase2_module_system_enhancements.md)
+
+Exit criteria (met): the concurrency substrate runs identically on VM + native;
+interactive tooling (REPL, LSP, typed holes) makes the language explorable.
+
+### `0.0.7` — Concurrency reliability + Actor MVP
+
+The whole release is [0177_concurrency_reliability_and_actor_mvp.md](../proposals/0177_concurrency_reliability_and_actor_mvp.md)
+(see [roadmap_v0.0.7.md](roadmap_v0.0.7.md)). Status 2026-07-09: committed scope
+(M1–M5) delivered; KI-4/KI-5/KI-6 fixed along the way; actor guide chapter at
+[docs/guide/21_actors.md](../guide/21_actors.md).
 
 Core blockers:
 
-- [0030_flow.md](../proposals/0030_flow.md)
-- [0015_package_module_workflow_mvp.md](../proposals/0015_package_module_workflow_mvp.md)
-- [0003_stdlib_proposal.md](../proposals/0003_stdlib_proposal.md)
-- [0029_base_and_flow.md](../proposals/0029_base_and_flow.md)
+- 0177 M1 — deterministic test scheduler, stress/soak harness, race audit, de-flaked timing tests ✅
+- 0177 M2/M3 — 0174 Phase-2 semantic closeout; VM↔native async parity gate in `release_check.sh` ✅
+- 0177 M4 — Actor MVP ([0143](../proposals/0143_actor_concurrency_roadmap.md) Phase A): `lib/Flow/Actor.flx`, `examples/actors/`, VM+native tests ✅
+- 0177 M5 — housekeeping (proposal statuses, this roadmap, changelog fragments) ✅
 
 Optional:
 
-- [0011_phase2_module_system_enhancements.md](../proposals/0011_phase2_module_system_enhancements.md)
+- 0177 M6 — virtual-time scheduler, multi-worker deterministic simulation, native
+  deterministic parity → **deferred to `0.0.8`** (with T4.1, the first-class
+  `Actor` effect label)
+
+Deferred from the earlier plan for this slot (now unscheduled):
+[0035_unit_test_framework.md](../proposals/0035_unit_test_framework.md),
+[0010_advanced_linter.md](../proposals/0010_advanced_linter.md),
+[0025_pure_fp_language_vision.md](../proposals/0025_pure_fp_language_vision.md),
+[0043_pure_flux_checklist.md](../proposals/0043_pure_flux_checklist.md),
+[0024_runtime_instrumentation_and_value_tracer.md](../proposals/0024_runtime_instrumentation_and_value_tracer.md)
 
 Exit criteria:
 
-- `Base` and `Flow` become a coherent public standard library story
-- users can structure projects with a real module/package workflow
-
-### `0.0.7` — Tests, linter, language identity
-
-Core blockers:
-
-- [0035_unit_test_framework.md](../proposals/0035_unit_test_framework.md)
-- [0010_advanced_linter.md](../proposals/0010_advanced_linter.md)
-- [0025_pure_fp_language_vision.md](../proposals/0025_pure_fp_language_vision.md)
-- [0043_pure_flux_checklist.md](../proposals/0043_pure_flux_checklist.md)
-
-Optional:
-
-- [0024_runtime_instrumentation_and_value_tracer.md](../proposals/0024_runtime_instrumentation_and_value_tracer.md)
-
-Exit criteria:
-
-- Flux has a usable self-hosted testing workflow
-- linting starts enforcing the language’s intended style
-- the project’s identity is explicit: pure FP with effects
+- concurrency tests pass deterministically (zero sleep-margin races) on VM + native
+- `spawn`/`tell`/`receive` actor examples run with identical VM/native output
+- `parity-check tests/parity --ways vm,llvm` at 100%, wired into the release preflight
 
 ### `0.0.8` — Compiler/runtime architecture base
 
@@ -222,7 +236,7 @@ Exit criteria:
 Core blockers:
 
 - [0076_debug_toolkit.md](../proposals/0076_debug_toolkit.md)
-- [0083_typed_holes.md](../proposals/0083_typed_holes.md)
+- [0083_typed_holes.md](../proposals/implemented/0083_typed_holes.md)
 
 Optional if still unfinished:
 

@@ -1,8 +1,8 @@
 # REPL
 
 > Source: `src/repl/` (`mod.rs`, `engine.rs`, `completion.rs`, `info.rs`, `browse.rs`)
-> Proposals: [0175](../proposals/0175_interactive_repl.md) (Phase 1),
-> [0176](../proposals/0176_interactive_repl_persistent_engine.md) (Phase 2, persistent engine)
+> Proposals: [0175](../proposals/implemented/0175_interactive_repl.md) (Phase 1),
+> [0176](../proposals/implemented/0176_interactive_repl_persistent_engine.md) (Phase 2, persistent engine)
 
 `flux repl` is an interactive read-eval-print loop. The current implementation is the
 **Phase 2 persistent engine**: a single prelude-loaded `Compiler` and a single live `VM`

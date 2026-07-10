@@ -1,6 +1,6 @@
 - Feature Name: Typed Record Types
 - Start Date: 2026-02-26
-- Status: Superseded by [Proposal 0152](0152_named_fields_for_data_types.md)
+- Status: Superseded by [Proposal 0152](../implemented/0152_named_fields_for_data_types.md)
 - Proposal PR: 
 - Flux Issue: 
 

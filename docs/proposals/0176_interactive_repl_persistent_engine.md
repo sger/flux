@@ -4,8 +4,8 @@
 - Proposal PR:
 - Flux Issue:
 - Depends on: [0175_interactive_repl.md](0175_interactive_repl.md) (Phase 1 — defines the user-facing REPL contract and ships the accumulate-source MVP)
-- Builds on: the persistent-`Compiler` model used by the language server ([../../crates/flux-lsp/src/prelude.rs](../../crates/flux-lsp/src/prelude.rs)), the module-interface global preload path ([../../src/compiler/symbol_table.rs](../../src/compiler/symbol_table.rs)), and the VM globals model ([../../src/vm/mod.rs](../../src/vm/mod.rs))
-- Relates to: [0163_flux_language_server.md](0163_flux_language_server.md), [0076_debug_toolkit.md](0076_debug_toolkit.md), [0038_deterministic_effect_replay.md](0038_deterministic_effect_replay.md)
+- Builds on: the persistent-`Compiler` model used by the language server ([../../crates/flux-lsp/src/prelude.rs](../../../crates/flux-lsp/src/prelude.rs)), the module-interface global preload path ([../../src/compiler/symbol_table.rs](../../../src/compiler/symbol_table.rs)), and the VM globals model ([../../src/vm/mod.rs](../../../src/vm/mod.rs))
+- Relates to: [0163_flux_language_server.md](../0163_flux_language_server.md), [0076_debug_toolkit.md](../0076_debug_toolkit.md), [0038_deterministic_effect_replay.md](../0038_deterministic_effect_replay.md)
 
 # Proposal 0176: Interactive REPL — Phase 2 (Persistent-Compiler / Live-VM Engine)
 
@@ -73,9 +73,9 @@ chunks" approach unsafe:
 
 - **VM globals are addressed by compile-time slot index**, allocated from 0 on
   every compile. `SymbolTable::define`
-  ([../../src/compiler/symbol_table.rs](../../src/compiler/symbol_table.rs))
+  ([../../src/compiler/symbol_table.rs](../../../src/compiler/symbol_table.rs))
   increments `num_definitions` per global; the VM reads `globals[index]`
-  ([../../src/vm/mod.rs](../../src/vm/mod.rs)). A *new* independent compile re-issues
+  ([../../src/vm/mod.rs](../../../src/vm/mod.rs)). A *new* independent compile re-issues
   slots 0, 1, 2…, which would collide with a still-live VM's earlier globals.
 
 That single fact is why Phase 1 re-runs the whole buffer (one compile, consistent
@@ -115,13 +115,13 @@ matter, used today by the module system and the language server:
 
 - **A reusable frontend.** `flux-lsp` keeps one persistent `Compiler` with
   accumulating `cached_member_schemes`
-  ([../../src/compiler/mod.rs](../../src/compiler/mod.rs)) and resets only per-file
+  ([../../src/compiler/mod.rs](../../../src/compiler/mod.rs)) and resets only per-file
   state between documents via `phase_reset_for_lsp`
-  ([../../src/compiler/passes/reset.rs](../../src/compiler/passes/reset.rs)). This is
+  ([../../src/compiler/passes/reset.rs](../../../src/compiler/passes/reset.rs)). This is
   Flux's `InteractiveContext` analog for the *type/name* side.
 - **Name-keyed cross-unit global resolution.** Imported-module globals are preloaded
   at fixed indices via `define_global_with_index`
-  ([../../src/compiler/symbol_table.rs](../../src/compiler/symbol_table.rs)). A REPL
+  ([../../src/compiler/symbol_table.rs](../../../src/compiler/symbol_table.rs)). A REPL
   line is morally a module that imports the session, so this is Flux's analog to
   `closure_env` for the *runtime* side.
 
@@ -131,7 +131,7 @@ Each entered line becomes a synthetic module `Repl{N}` compiled against persiste
 session state:
 
 1. **Persistent `Compiler`.** Keep one `Compiler` alive for the session (as
-   `flux-lsp` does — [../../crates/flux-lsp/src/prelude.rs](../../crates/flux-lsp/src/prelude.rs)),
+   `flux-lsp` does — [../../crates/flux-lsp/src/prelude.rs](../../../crates/flux-lsp/src/prelude.rs)),
    with the prelude/standard library loaded once. Per-line, reset only transient
    state, preserving accumulated schemes and the session's global mapping.
 
@@ -143,7 +143,7 @@ session state:
    of GHCi linking by name into `closure_env`.
 
 3. **Live `VM`.** Keep **one `VM` instance** alive across lines
-   ([../../src/vm/mod.rs](../../src/vm/mod.rs)). New compiled chunks execute on the
+   ([../../src/vm/mod.rs](../../../src/vm/mod.rs)). New compiled chunks execute on the
    live VM and *extend* `vm.globals` rather than replacing it; references to earlier
    globals read the slots populated by earlier lines. A bare expression compiles to
    code that binds `it` (the same `let it = <expr>` shape Phase 1 uses) and prints
@@ -253,16 +253,16 @@ interpreter; `it` is identical.
 
 - **Editor-integrated REPL** — a VS Code "Flux: Start REPL" terminal and "send
   selection to REPL", reusing the extension command plumbing
-  ([../../editors/vscode/src/extension.ts](../../editors/vscode/src/extension.ts)).
+  ([../../editors/vscode/src/extension.ts](../../../editors/vscode/src/extension.ts)).
 - **`:load <file>` / `:reload`** — now cheap on the persistent engine; bring a
   module's definitions into the session via the module graph.
 - **Tab completion and `:doc`** powered by the LSP completion/hover engines
-  ([0163_flux_language_server.md](0163_flux_language_server.md)).
+  ([0163_flux_language_server.md](../0163_flux_language_server.md)).
 - **Notebook / transcript mode** sharing one evaluator with the `/// >>>`
   doc-comment eval feature; deterministic replay of a session relates to
-  [0038_deterministic_effect_replay.md](0038_deterministic_effect_replay.md).
+  [0038_deterministic_effect_replay.md](../0038_deterministic_effect_replay.md).
 - **Debugger at the prompt** — breakpoints and value inspection on the live VM,
-  connecting to [0076_debug_toolkit.md](0076_debug_toolkit.md).
+  connecting to [0076_debug_toolkit.md](../0076_debug_toolkit.md).
 - **Native-backend (JIT) REPL** — a much larger, separate effort beyond the VM.
 
 ## Implementation notes (2026-05-24)
