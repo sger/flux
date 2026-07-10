@@ -1,0 +1,53 @@
+// actors/counter — a stateful actor with request/reply
+//
+// An actor is a fiber that owns a `Mailbox` and processes `Sendable` messages
+// one at a time (proposal 0177 M4, a userspace layer over the 0174 fibers).
+// `spawn(body)` forks the body under a private scope and hands it the only
+// `Mailbox<msg>` ever created for it — holding the mailbox *is* the capability
+// to `receive`.
+//
+// State lives in the actor's tail-recursive loop parameters: `counter` carries
+// its count from one `receive` to the next. Request/reply is a channel carried
+// *inside* the message (`Get(Channel<Int>)`) — the requester makes a channel,
+// sends it along, and blocks on `Channel.recv` until the actor replies.
+//
+// The actor never terminates itself; when `driver` returns, `run_async`
+// teardown reaps the actor's scope while it is parked on an empty mailbox.
+
+// parity-expected-stdout-begin
+// "count = 2"
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+import Flow.Channel as Channel
+import Flow.Channel exposing (Channel)
+import Flow.Actor exposing (..)
+
+data Msg { Inc, Get(Channel<Int>) }
+
+// Reply to a `Get`, then keep serving with unchanged state.
+fn reply(mb: Mailbox<Msg>, rep: Channel<Int>, state: Int) -> Unit with Async {
+    let _ = Channel.send(rep, state)
+    counter(mb, state)
+}
+
+fn counter(mb: Mailbox<Msg>, state: Int) -> Unit with Async {
+    match receive(mb) {
+        Inc      -> counter(mb, state + 1),
+        Get(rep) -> reply(mb, rep, state)
+    }
+}
+
+fn driver() -> String with Async {
+    let c = spawn(fn(mb) { counter(mb, 0) })
+    tell(c, Inc)
+    tell(c, Inc)
+    let rep = Channel.make(1)
+    tell(c, Get(rep))
+    match Channel.recv(rep) {
+        Some(v) -> "count = " + to_string(v),
+        None    -> "mailbox closed"
+    }
+}
+
+fn main() with IO { print(run_async(driver)) }

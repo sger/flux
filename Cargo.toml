@@ -378,6 +378,10 @@ name = "native_async_cross_module_tests"
 path = "tests/native_llvm/native_async_cross_module_tests.rs"
 
 [[test]]
+name = "native_actor_mvp_tests"
+path = "tests/native_llvm/native_actor_mvp_tests.rs"
+
+[[test]]
 name = "native_work_stealing_tests"
 path = "tests/native_llvm/native_work_stealing_tests.rs"
 
