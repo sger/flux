@@ -1478,6 +1478,18 @@ mod vm_fibers {
         loop {
             // Drain ready queue.
             loop {
+                // The root's completion ends the boundary: never tick another
+                // fiber after the root has produced its result. A cancelled
+                // fiber resumed here would run its continuation on the shared
+                // worker-0 VM *after* the root tick unwound it to the boundary,
+                // corrupting the boundary state — `run_async` then returns a
+                // stale stack slot or a phantom `__fiber_error__` (KI-6:
+                // cancel-blocked-recv immediately before teardown). Remaining
+                // ready/suspended fibers are reaped by `exit_run_async`, same
+                // as when the root exits while children are still parked.
+                if root_result.is_some() {
+                    break;
+                }
                 let next = SCHED.with(|s| {
                     s.borrow_mut()
                         .as_mut()
@@ -2593,6 +2605,13 @@ mod vm_fibers {
             // Drain all ready fibers assigned to worker 0.
             let mut did_work = false;
             loop {
+                // Same boundary rule as `dispatch_loop`: once the run is
+                // finished (root completed — possibly observed via another
+                // worker), never tick another fiber on the shared worker-0 VM;
+                // its stack is already back at the `run_async` boundary.
+                if shared.is_finished() {
+                    break;
+                }
                 let Some(mut fiber) = pop_ready_for_worker(&shared, worker_id) else {
                     break;
                 };
