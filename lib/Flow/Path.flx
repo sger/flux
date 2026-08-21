@@ -1,0 +1,202 @@
+import Flow.Array as Array
+
+// Flow.Path — filesystem path manipulation.
+//
+// Pure string manipulation: no filesystem access, no effects. Every function
+// here is total and answers a question about the *shape* of a path, never
+// about what exists on disk. `Path.parent("a/b")` is "a" whether or not `a`
+// is a real directory.
+//
+// NOT auto-imported. Use: import Flow.Path as Path
+//
+// Paths are POSIX-style: `/` separates components and a leading `/` means
+// absolute. See proposal 0178.
+
+module Flow.Path {
+
+    /// The path component separator.
+    public fn separator() -> String {
+        "/"
+    }
+
+    /// `true` if `p` starts at the filesystem root.
+    public fn is_absolute(p: String) -> Bool {
+        substring(p, 0, 1) == "/"
+    }
+
+    /// `true` if `p` is interpreted relative to a working directory.
+    public fn is_relative(p: String) -> Bool {
+        is_absolute(p) == false
+    }
+
+    /// Split `p` into its non-empty components, discarding separators.
+    ///
+    /// `components("/a//b/")` is `["a", "b"]`. The leading-`/` information is
+    /// lost; use `is_absolute` to recover it.
+    ///
+    /// Deliberately not named `split`: a module-level `split` would shadow the
+    /// builtin `split(s, delim)` for every function in this module.
+    public fn components(p: String) -> Array<String> {
+        Array.filter(split_on_sep(p), fn(part) { part != "" })
+    }
+
+    /// Join two path segments with a single separator.
+    ///
+    /// An absolute `b` replaces `a` entirely, and an empty segment is ignored,
+    /// so `join("a", "/b")` is `/b` and `join("", "b")` is `b`.
+    public fn join(a: String, b: String) -> String {
+        if b == "" { a }
+        else {
+            if a == "" { b }
+            else {
+                if is_absolute(b) { b }
+                else { trim_trailing(a) + "/" + trim_leading(b) }
+            }
+        }
+    }
+
+    /// Join every segment in `parts`, left to right, using `join`.
+    public fn join_all(parts: Array<String>) -> String {
+        Array.fold(parts, "", fn(acc, part) { join(acc, part) })
+    }
+
+    /// The final component of `p`, or `""` when there is none.
+    ///
+    /// `file_name("a/b.txt")` is `b.txt`; `file_name("/")` is `""`.
+    public fn file_name(p: String) -> String {
+        let parts = components(p)
+        match Array.last(parts) {
+            Some(name) -> name,
+            None -> ""
+        }
+    }
+
+    /// Everything before the final component of `p`.
+    ///
+    /// `parent("a/b/c")` is `a/b`. The parent of a root or of a lone relative
+    /// component is `""`, so this never walks above where it started.
+    public fn parent(p: String) -> String {
+        let parts = components(p)
+        let n = len(parts)
+        if n <= 1 {
+            if is_absolute(p) { "/" } else { "" }
+        } else {
+            let head = Array.take(parts, n - 1)
+            let joined = Array.fold(head, "", fn(acc, part) {
+                if acc == "" { part } else { acc + "/" + part }
+            })
+            if is_absolute(p) { "/" + joined } else { joined }
+        }
+    }
+
+    /// The extension of `p`'s final component, without the dot.
+    ///
+    /// `extension("a/b.tar.gz")` is `gz`. A leading dot marks a hidden file
+    /// rather than an extension, so `extension(".flxrc")` is `""`.
+    public fn extension(p: String) -> String {
+        let name = file_name(p)
+        let idx = last_dot(name)
+        if idx <= 0 { "" }
+        else { substring(name, idx + 1, len(name)) }
+    }
+
+    /// `p`'s final component with any extension removed.
+    ///
+    /// `file_stem("a/b.tar.gz")` is `b.tar`.
+    public fn file_stem(p: String) -> String {
+        let name = file_name(p)
+        let idx = last_dot(name)
+        if idx <= 0 { name }
+        else { substring(name, 0, idx) }
+    }
+
+    /// Replace `p`'s extension, adding one when absent.
+    ///
+    /// An empty `ext` removes the extension.
+    public fn with_extension(p: String, ext: String) -> String {
+        let stem = file_stem(p)
+        let base = if stem == "" { file_name(p) } else { stem }
+        let renamed = if ext == "" { base } else { base + "." + ext }
+        join(parent(p), renamed)
+    }
+
+    /// Resolve `.` and `..` lexically and collapse repeated separators.
+    ///
+    /// This is purely textual — no symlinks are followed and the filesystem is
+    /// never consulted, so `normalize` is safe on paths that do not exist.
+    /// A `..` that would escape a relative path is preserved; one that would
+    /// escape an absolute path is discarded, since `/..` is `/`.
+    public fn normalize(p: String) -> String {
+        let absolute = is_absolute(p)
+        let resolved = Array.fold(components(p), [||], fn(acc, part) {
+            if part == "." { acc }
+            else {
+                if part == ".." { pop_or_keep(acc, absolute) }
+                else { Array.push(acc, part) }
+            }
+        })
+        let joined = Array.fold(resolved, "", fn(acc, part) {
+            if acc == "" { part } else { acc + "/" + part }
+        })
+        if absolute { "/" + joined }
+        else {
+            if joined == "" { "." } else { joined }
+        }
+    }
+
+    // ── internal helpers ───────────────────────────────────────────
+
+    /// Split on the separator without discarding empty components.
+    fn split_on_sep(p: String) -> Array<String> {
+        split(p, "/")
+    }
+
+    /// Drop one component for `..`, unless doing so would escape.
+    ///
+    /// Under an absolute path a `..` at the root is absorbed; under a relative
+    /// path it is kept, because `../x` is meaningful.
+    fn pop_or_keep(acc: Array<String>, absolute: Bool) -> Array<String> {
+        let n = len(acc)
+        if n == 0 {
+            if absolute { acc } else { Array.push(acc, "..") }
+        } else {
+            match acc[n - 1] {
+                Some(prev) ->
+                    if prev == ".." { Array.push(acc, "..") }
+                    else { Array.take(acc, n - 1) },
+                None -> acc
+            }
+        }
+    }
+
+    /// Index of the last `.` in `s`, or `-1` when there is none.
+    fn last_dot(s: String) -> Int {
+        fn go(i, found) {
+            if i >= len(s) { found }
+            else {
+                if substring(s, i, i + 1) == "." { go(i + 1, i) }
+                else { go(i + 1, found) }
+            }
+        }
+        go(0, -1)
+    }
+
+    /// Remove trailing separators, keeping a lone root intact.
+    fn trim_trailing(s: String) -> String {
+        let n = len(s)
+        if n <= 1 { s }
+        else {
+            if substring(s, n - 1, n) == "/" { trim_trailing(substring(s, 0, n - 1)) }
+            else { s }
+        }
+    }
+
+    /// Remove leading separators.
+    fn trim_leading(s: String) -> String {
+        if len(s) == 0 { s }
+        else {
+            if substring(s, 0, 1) == "/" { trim_leading(substring(s, 1, len(s))) }
+            else { s }
+        }
+    }
+}

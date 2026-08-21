@@ -298,6 +298,14 @@ name = "stdlib_list_tail_recursive"
 path = "tests/vm_runtime/stdlib_list_tail_recursive.rs"
 
 [[test]]
+name = "stdlib_path_tests"
+path = "tests/vm_runtime/stdlib_path_tests.rs"
+
+[[test]]
+name = "module_local_shadowing_tests"
+path = "tests/integration/module_local_shadowing_tests.rs"
+
+[[test]]
 name = "map_contract_tests"
 path = "tests/vm_runtime/map_contract_tests.rs"
 

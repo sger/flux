@@ -1,0 +1,72 @@
+// Regression tests: a module-level function shadows a same-named builtin for
+// bare calls inside that module.
+//
+// Module members live in the symbol table under a qualified key (`M.name`), so
+// bare-name shadow checks used to miss them and the builtin ran instead — with
+// no diagnostic. Two independent builtin channels had to be fixed:
+//
+//   1. `route_effectful_primops` rewrote bare `read_file(p)` into
+//      `perform FileSystem.read_file(p)` on name+arity alone.
+//   2. Identifier compilation fell through to `exposed_bindings`, loading the
+//      prelude's binding of the name.
+//
+// Locals win over builtins — see docs/internals/primops_vs_base.md.
+
+import Shadowing as S
+
+// ── effectful builtins (routed through `perform`) ──────────────
+
+fn test_local_shadows_effectful_builtin() {
+    // `read_file` is prelude-exposed and normally routes to a FileSystem
+    // perform. The local is pure and must win, so this neither performs an
+    // effect nor touches the filesystem — the path does not exist.
+    assert_eq(S.call_read_file("/nonexistent/path"), "LOCAL-read_file")
+}
+
+fn test_shadowing_local_needs_no_ambient_effect() {
+    // The caller declares no effects at all. If the builtin were still
+    // selected this would be a compile error (E400), not a runtime one.
+    assert_eq(S.pure_caller(), "LOCAL-read_file")
+}
+
+// ── pure builtins (name+arity table) ───────────────────────────
+
+fn test_local_shadows_pure_builtin() {
+    // `trim` is not in Flow.Primops; it resolves through the name+arity
+    // builtin table. The local returns a marker rather than trimming.
+    assert_eq(S.call_trim("  padded  "), "LOCAL-trim")
+}
+
+fn test_local_shadows_builtin_with_different_arity() {
+    // The local `split` takes one argument; the builtin takes two. The local
+    // must win, so this returns the marker rather than splitting.
+    assert_eq(S.call_split("a/b"), "LOCAL-split")
+}
+
+// ── scope rules ────────────────────────────────────────────────
+
+fn test_shadowing_applies_to_forward_references() {
+    // The call appears above the definition in the module body. Module scope
+    // is whole-body, so it must still shadow.
+    assert_eq(S.call_before_definition("x"), "LOCAL-defined-later")
+}
+
+fn test_qualified_call_agrees_with_bare_call() {
+    // Same function, two call syntaxes — they must not disagree. This is the
+    // exact divergence the bug produced.
+    assert_eq(S.trim("  padded  "), S.call_trim("  padded  "))
+}
+
+fn test_builtin_still_works_where_not_shadowed() {
+    // The module defines no `upper`, so the builtin is reached normally.
+    assert_eq(S.call_upper("abc"), "ABC")
+}
+
+// ── non-shadowing callers are unaffected ───────────────────────
+
+fn test_builtins_unaffected_outside_the_shadowing_module() {
+    // This file defines no `trim`/`upper`, so bare calls here get the builtins.
+    assert_eq(trim("  padded  "), "padded")
+    assert_eq(upper("abc"), "ABC")
+    assert_eq(split("a/b", "/"), [|"a", "b"|])
+}
