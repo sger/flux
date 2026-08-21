@@ -1882,6 +1882,22 @@ impl Compiler {
         // interner that is session-specific.
         let symbol_remap = interface.build_symbol_remap(&mut self.interner);
         let module_name = self.interner.intern(&interface.module_name);
+
+        // Proposal 0152: preload declared field order for this interface's
+        // record-style constructors so named-field syntax naming an imported
+        // constructor can be desugared to its positional form. Without this the
+        // desugaring finds no field order and silently emits a zero-field
+        // constructor, surfacing as a bogus arity mismatch (E082 / E085).
+        for (ctor_name, field_names) in &interface.ctor_field_names {
+            let ctor = self.interner.intern(ctor_name);
+            let fields = field_names
+                .iter()
+                .map(|name| self.interner.intern(name))
+                .collect();
+            self.preloaded_ctor_field_names
+                .entry(ctor)
+                .or_insert(fields);
+        }
         for (member_name, scheme) in &interface.schemes {
             let member = self.interner.intern(member_name);
             let qualified = self.interner.intern_join(module_name, member);
@@ -1994,6 +2010,27 @@ impl Compiler {
             &mut self.preloaded_imported_globals,
             &mut self.interner,
         );
+    }
+
+    /// Proposal 0152: record record-style constructor field order from
+    /// `program` without the rest of the dependency preload.
+    ///
+    /// `preload_dependency_program` does this too, but it also collects
+    /// visibility, contracts, effects, and constructor tags — work the test
+    /// runner does not want, since it compiles every module itself. Field
+    /// order alone is what named-field desugaring needs from a module it does
+    /// not own.
+    pub fn preload_ctor_field_names_from_program(&mut self, program: &Program) {
+        let (ctor_field_names, adt_variants) =
+            crate::ast::desugar_named_fields::collect_named_field_metadata(program);
+        for (ctor, fields) in ctor_field_names {
+            self.preloaded_ctor_field_names
+                .entry(ctor)
+                .or_insert(fields);
+        }
+        for (adt, variants) in adt_variants {
+            self.preloaded_adt_variants.entry(adt).or_insert(variants);
+        }
     }
 
     pub fn preload_dependency_program(&mut self, program: &Program) {

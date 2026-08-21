@@ -16,6 +16,7 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::Println => "println",
         CorePrimOp::DebugTrace => "__primop_debug_trace",
         CorePrimOp::ReadFile => "read_file",
+        CorePrimOp::TryReadFile => "try_read_file",
         CorePrimOp::WriteFile => "write_file",
         CorePrimOp::ReadStdin => "read_stdin",
         CorePrimOp::ReadLines => "read_lines",
@@ -299,6 +300,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::Println
             | CorePrimOp::DebugTrace
             | CorePrimOp::ReadFile
+            | CorePrimOp::TryReadFile
             | CorePrimOp::WriteFile
             | CorePrimOp::ReadStdin
             | CorePrimOp::ReadLines

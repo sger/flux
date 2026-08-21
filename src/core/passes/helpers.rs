@@ -536,6 +536,7 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::Println
         | CorePrimOp::DebugTrace
         | CorePrimOp::ReadFile
+        | CorePrimOp::TryReadFile
         | CorePrimOp::WriteFile
         | CorePrimOp::ReadStdin
         | CorePrimOp::ReadLines

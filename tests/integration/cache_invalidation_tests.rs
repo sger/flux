@@ -41,6 +41,7 @@ fn compile_and_build_interface(source: &str) -> ModuleInterface {
         Some(compiler.class_env()),
         Vec::new(),
         &compiler.interner,
+        Some(&program),
     )
 }
 

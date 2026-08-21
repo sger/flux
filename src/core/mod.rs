@@ -811,7 +811,16 @@ pub enum CorePrimOp {
     ChanTrySendMove = 225,
     /// Create a channel-send event by ownership transfer.
     EventSendMove = 226,
-    // ── Next free ID: 227 ─────────────────────────────────────────────
+
+    // ── Recoverable filesystem operations (proposal 0178) ─────────────
+    /// Read a file, reporting failure instead of aborting.
+    /// Args: (path) -> Result<String, IoError>.
+    ///
+    /// Unlike `ReadFile`, which panics when the file cannot be read, this
+    /// returns `Err(IoError { .. })` so the caller can recover. Both are kept:
+    /// existing code depends on the aborting form.
+    TryReadFile = 227,
+    // ── Next free ID: 228 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -921,6 +930,7 @@ impl CorePrimOp {
             "HttpWriteRequest" => return Some(Self::HttpWriteRequest),
             "HttpParseResponse" => return Some(Self::HttpParseResponse),
             "JsonParse" => return Some(Self::JsonParse),
+            "TryReadFile" => return Some(Self::TryReadFile),
             "JsonStringify" => return Some(Self::JsonStringify),
             "HttpWriteChunkedHead" => return Some(Self::HttpWriteChunkedHead),
             "HttpWriteChunk" => return Some(Self::HttpWriteChunk),
@@ -969,6 +979,7 @@ impl CorePrimOp {
             Self::Println => Some("println"),
             Self::DebugTrace => Some("__primop_debug_trace"),
             Self::ReadFile => Some("read_file"),
+            Self::TryReadFile => Some("try_read_file"),
             Self::WriteFile => Some("write_file"),
             Self::ReadStdin => Some("read_stdin"),
             Self::ReadLines => Some("read_lines"),
@@ -1142,6 +1153,7 @@ impl CorePrimOp {
             48 => Print,
             49 => Println,
             50 => ReadFile,
+            227 => TryReadFile,
             51 => WriteFile,
             52 => ReadStdin,
             53 => ReadLines,
@@ -1325,6 +1337,7 @@ impl CorePrimOp {
             ("__primop_print", 1, CorePrimOp::Print),
             ("__primop_println", 1, CorePrimOp::Println),
             ("__primop_read_file", 1, CorePrimOp::ReadFile),
+            ("__primop_try_read_file", 1, CorePrimOp::TryReadFile),
             ("__primop_read_lines", 1, CorePrimOp::ReadLines),
             ("__primop_read_stdin", 0, CorePrimOp::ReadStdin),
             ("__primop_write_file", 2, CorePrimOp::WriteFile),
@@ -1568,6 +1581,7 @@ impl CorePrimOp {
             | Print
             | Println
             | ReadFile
+            | TryReadFile
             | ReadLines
             | StringLength
             | ToString

@@ -194,7 +194,10 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         | CorePrimOp::Println
         | CorePrimOp::DebugTrace
         | CorePrimOp::WriteFile => FluxRep::UnitRep,
-        CorePrimOp::ReadFile | CorePrimOp::ReadStdin | CorePrimOp::ReadLines => FluxRep::BoxedRep,
+        CorePrimOp::ReadFile
+        | CorePrimOp::TryReadFile
+        | CorePrimOp::ReadStdin
+        | CorePrimOp::ReadLines => FluxRep::BoxedRep,
 
         // Polymorphic / unknown → TaggedRep
         _ => FluxRep::TaggedRep,

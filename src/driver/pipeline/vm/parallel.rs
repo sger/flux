@@ -208,6 +208,7 @@ fn compile_parallel_module(
                         Some(compiler.class_env()),
                         dependency_fingerprints,
                         &compiler.interner,
+                        Some(&node.program),
                     )
                 })
         },
