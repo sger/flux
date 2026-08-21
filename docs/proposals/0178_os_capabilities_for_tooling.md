@@ -185,7 +185,7 @@ the existing `Exn` effect so it can be intercepted by a handler. `Result` and
 `Exn` are complementary, not alternatives, but the interaction should be settled
 before the surface is large.
 
-### Item 2 — `Flow.Path` (pure, no effects, no primops)
+### Item 2 — `Flow.Path` (pure, no effects, no primops) — IMPLEMENTED
 
 Path manipulation is string manipulation. It needs no OS access, and therefore no
 primops and no effects — it can be written **entirely in Flux today**, on top of
@@ -200,6 +200,29 @@ This should be built first, before any primop work: it is immediately useful, it
 is a genuine test of whether non-trivial library code is comfortable to write in
 Flux, and it has zero dependency on the rest of the proposal. Separator handling
 is a Windows-portability question, not a language question.
+
+**Status: shipped** as `lib/Flow/Path.flx`.
+
+One naming note for the later stages. The public splitter is called `components`
+rather than `split` because a module-level `fn split` shadows the builtin
+`split(s, delim)` for every function in the same module — so `Flow.Path` could
+not have used the builtin internally had it defined its own `split`. This is
+ordinary lexical shadowing behaving exactly as
+[`primops_vs_base.md`](../internals/primops_vs_base.md) specifies ("if `foo` is
+shadowed by a local/function/global symbol, primop and Base-fastcall lowering are
+both skipped"), not a compiler defect: locals correctly win over primops, and
+over-applying the shadowing local reports `E056` against the *local* arity.
+
+The practical consequence is only that a module cannot both define and call a
+builtin of the same name. `Flow.Fs` (Item 3) is the case to watch, since it
+declares `read_file` / `write_file` against same-named builtins — it must either
+pick distinct names or route through the `__primop_*` intrinsics rather than the
+bare builtin names.
+
+Coverage is three-layered: `tests/flux/stdlib_path.flx` (28 behavioral tests),
+`tests/vm_runtime/stdlib_path_tests.rs` (drives the fixture, and asserts the
+module is neither auto-injected nor effectful), and unit tests in
+`src/lsp_support.rs` guarding the duplicated `FLOW_PRELUDE_MODULES` list.
 
 ### Item 3 — `Flow.Fs` (filesystem)
 
@@ -288,7 +311,7 @@ injection bugs.
 
 | Stage | Contents | Rationale |
 |---|---|---|
-| **0** | `Flow.Path` | Pure Flux, no primops, no blockers. Immediately useful. |
+| **0** | `Flow.Path` — **implemented** (`lib/Flow/Path.flx`) | Pure Flux, no primops, no blockers. Immediately useful. |
 | **1** | `IoError` + `Result`-returning I/O; convert existing fallible ops | Everything downstream inherits the error model |
 | **2** | `Flow.Fs` | The bulk of the capability gap |
 | **3** | `Flow.Crypto` | Small, self-contained, unblocks checksums and the store |

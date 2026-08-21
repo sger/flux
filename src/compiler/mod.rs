@@ -7230,6 +7230,30 @@ impl Compiler {
         self.symbol_table.resolve(name)
     }
 
+    /// Resolve a bare `name` to a sibling member of the enclosing module.
+    ///
+    /// Module members live in the symbol table under the qualified key
+    /// (`M.name`), so a bare-name lookup misses them. Callers use this to give
+    /// a local definition priority over a same-named builtin, which resolves
+    /// through a separate name+arity channel that never consults scope.
+    ///
+    /// Forward references are covered because `compile_module_statement`
+    /// predeclares every member under its qualified name (PASS 1) before any
+    /// body is compiled, so a call appearing above its definition still finds
+    /// the member here.
+    pub(super) fn current_module_member(&mut self, name: Symbol) -> Option<Binding> {
+        let prefix = self.current_module_prefix?;
+        let qualified = self.interner.intern_join(prefix, name);
+        self.resolve_visible_symbol(qualified)
+    }
+
+    /// Whether a bare `name` inside the current module names a sibling member,
+    /// and therefore shadows any same-named builtin. See
+    /// [`current_module_member`](Self::current_module_member).
+    pub(super) fn module_member_shadows_builtin(&mut self, name: Symbol) -> bool {
+        self.current_module_member(name).is_some()
+    }
+
     pub(super) fn resolve_library_primop(
         _name: &str,
         _arity: usize,

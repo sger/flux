@@ -356,3 +356,89 @@ fn find_flow_dir(start: &Path) -> Option<std::path::PathBuf> {
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Locate `lib/Flow/` from the crate manifest directory.
+    fn flow_dir() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("lib")
+            .join("Flow")
+    }
+
+    /// The LSP mirrors `FLOW_PRELUDE_MODULES` from `driver::frontend`. Both
+    /// lists are private, so nothing but a test can catch them drifting apart
+    /// — and drift is silent: the LSP would simply stop resolving whatever the
+    /// driver injects, producing phantom "unknown name" diagnostics.
+    #[test]
+    fn prelude_module_files_all_exist() {
+        let dir = flow_dir();
+        for (module_name, file_name) in FLOW_PRELUDE_MODULES {
+            let path = dir.join(file_name);
+            assert!(
+                path.is_file(),
+                "prelude module {module_name} maps to {file_name}, which does not exist \
+                 under lib/Flow/"
+            );
+        }
+    }
+
+    /// Auto-injecting a module makes every program pay to compile it, so the
+    /// prelude is deliberately small. `Flow.Path` (proposal 0178) is an
+    /// explicit-import module and must stay out of this list; the same goes
+    /// for the other opt-in modules.
+    #[test]
+    fn explicit_import_modules_are_not_in_the_prelude() {
+        let injected: Vec<&str> = FLOW_PRELUDE_MODULES.iter().map(|(name, _)| *name).collect();
+        for opt_in in [
+            "Flow.Path",
+            "Flow.Array",
+            "Flow.Map",
+            "Flow.Async",
+            "Flow.Http",
+            "Flow.Tcp",
+            "Flow.Json",
+        ] {
+            assert!(
+                !injected.contains(&opt_in),
+                "{opt_in} is an explicit-import module but appears in FLOW_PRELUDE_MODULES"
+            );
+        }
+    }
+
+    /// Entries are ordered so each may depend only on names exported by
+    /// earlier ones. `Flow.Option` underpins the rest and must stay first.
+    #[test]
+    fn prelude_order_starts_with_option() {
+        assert_eq!(
+            FLOW_PRELUDE_MODULES.first().map(|(name, _)| *name),
+            Some("Flow.Option"),
+            "Flow.Option must be injected first; later modules depend on it"
+        );
+    }
+
+    /// `find_flow_dir` walks up to a `lib/Flow/` ancestor. This is how an LSP
+    /// session started in a nested directory still finds the stdlib.
+    #[test]
+    fn find_flow_dir_walks_up_from_a_nested_path() {
+        let nested = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("driver");
+        assert_eq!(
+            find_flow_dir(&nested).as_deref(),
+            Some(flow_dir().as_path()),
+            "find_flow_dir should locate lib/Flow from a nested source directory"
+        );
+    }
+
+    /// `Flow.Path` ships as a real stdlib file even though it is not injected.
+    #[test]
+    fn flow_path_module_file_exists() {
+        assert!(
+            flow_dir().join("Path.flx").is_file(),
+            "lib/Flow/Path.flx should exist (proposal 0178 stage 0)"
+        );
+    }
+}
