@@ -1,10 +1,15 @@
 - Feature Name: Package/Module Workflow MVP
 - Start Date: 2026-02-07
-- Status: Not Implemented
+- Status: Superseded by [0177_package_manager.md](0177_package_manager.md)
 - Proposal PR: 
 - Flux Issue: 
 
 # Proposal 0015: Package/Module Workflow MVP
+
+> **Superseded.** This document was damaged during proposal-corpus normalization
+> (duplicated headings, elided normative text) and is not implementable as written.
+> The complete design lives in [0177_package_manager.md](0177_package_manager.md),
+> which subsumes this MVP scope as its Phase 1.
 
 ## Summary
 [summary]: #summary

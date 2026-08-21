@@ -111,7 +111,7 @@ Feature state is evidence-driven:
 | 0011 | [0011_phase2_module_system_enhancements.md](0011_phase2_module_system_enhancements.md) | Proposed | partial | module imports/type fixtures exist in `examples/type_system/TypeSystem/*` | decompose into deliverable increments |
 | 0012 | [0012_phase2_module_split_plan.md](implemented/0012_phase2_module_split_plan.md) | Proposed | partial | module compiler split partially landed | merge with 011/006 cleanup |
 | 0013 | [0013_phase3_advanced_architecture.md](0013_phase3_advanced_architecture.md) | Proposed | gap | umbrella planning proposal | split into concrete proposals |
-| 0015 | [0015_package_module_workflow_mvp.md](0015_package_module_workflow_mvp.md) | Proposed | partial | module roots (`--root`) exist; package workflow not fully present | narrow to package manager MVP |
+| 0015 | [0015_package_module_workflow_mvp.md](0015_package_module_workflow_mvp.md) | Superseded | partial | module roots (`--root`) exist; package workflow not present. Document is normalization-damaged (duplicated headings, elided body) and not implementable as written | superseded by [0177](0177_package_manager.md) |
 | 0017 | [0017_persistent_collections_and_gc.md](implemented/0017_persistent_collections_and_gc.md) | Proposed | gap | proposal-only | supersede by targeted runtime proposals |
 | 0020 | [0020_map_filter_fold_builtins.md](implemented/0020_map_filter_fold_builtins.md) | Proposed | partial | base functions and tests exist (`tests/base_functions_tests.rs`) | mark landed APIs vs pending |
 | 0023 | [0023_bytecode_decode_passes.md](0023_bytecode_decode_passes.md) | Proposed | gap | proposal-only | keep as compiler tooling backlog |
@@ -156,6 +156,8 @@ Feature state is evidence-driven:
 | 0152 | [0152_named_fields_for_data_types.md](0152_named_fields_for_data_types.md) | Draft | gap | proposal-only | named fields + dot-access + functional update syntax; supersedes 0048 |
 | 0175 | [0175_interactive_repl.md](0175_interactive_repl.md) | Draft | gap | proposal-only (builds on `flux eval`, `src/driver/pipeline/eval.rs`) | Phase 1 REPL: accumulate-source MVP; defines the user-facing REPL contract; Phase 2 engine is 0176 |
 | 0176 | [0176_interactive_repl_persistent_engine.md](0176_interactive_repl_persistent_engine.md) | Draft | gap | proposal-only | Phase 2 REPL: persistent-`Compiler` + live-VM incremental engine (GHCi-style); depends on 0175 |
+| 0177 | [0177_package_manager.md](0177_package_manager.md) | Draft | gap | proposal-only; supersedes 0015 | Package manager: `flux.toml`, `flux.lock`, namespaced packages, registry + store. Phases 0–3 specified inline; written in Flux. Phase 1 fixes CWD-relative stdlib/root discovery (flux currently unusable outside its own checkout) |
+| 0178 | [0178_os_capabilities_for_tooling.md](0178_os_capabilities_for_tooling.md) | Draft | gap | proposal-only | `Flow.Fs`/`Path`/`Crypto`/`Env`/`Process` + recoverable I/O errors. Required for a Flux-written package manager; no type-system gap exists, only OS surface |
 
 ### Superseded Historical Docs
 
