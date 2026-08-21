@@ -534,6 +534,12 @@ impl Compiler {
                     if !self.try_emit_consumed_local(name) {
                         self.load_symbol(&symbol);
                     }
+                } else if let Some(member) = self.current_module_member(name) {
+                    // A sibling member of the enclosing module. Stored under the
+                    // qualified key, so the bare lookup above misses it — without
+                    // this it would fall through to `exposed_bindings` and load the
+                    // prelude's binding of the same name instead of the local one.
+                    self.load_symbol(&member);
                 } else if let Some(&qualified) = self.exposed_bindings.get(&name) {
                     // Unqualified access to an exposed module member.
                     if let Some(symbol) = self.resolve_visible_symbol(qualified) {
@@ -1759,6 +1765,16 @@ impl Compiler {
     }
 
     fn check_direct_builtin_effect_call(&mut self, function: &Expression) -> CompileResult<()> {
+        // A local definition shadows the builtin, so the builtin's effect
+        // requirement no longer applies: a pure `fn read_file(p)` in this
+        // module must not force `with FileSystem` on its callers.
+        if let Expression::Identifier { name, .. } = function
+            && (self.resolve_visible_symbol(*name).is_some()
+                || self.module_member_shadows_builtin(*name))
+        {
+            return Ok(());
+        }
+
         let required_name = match function {
             Expression::Identifier { name, .. } => self
                 .lookup_effect_alias(*name)
@@ -3500,6 +3516,19 @@ impl Compiler {
 
         // Shadowed names must resolve through the regular call path.
         if self.resolve_visible_symbol(*name).is_some() {
+            return Ok(false);
+        }
+
+        // A bare call inside `module M` may name a sibling member. Module
+        // members live in the symbol table under the *qualified* key `M.name`,
+        // so neither bare lookup above can see them — without this, a
+        // module-level `public fn trim(s)` loses to the builtin `trim` for every
+        // bare call in its own module, and the builtin silently runs instead.
+        //
+        // Locals win over builtins (see `docs/internals/primops_vs_base.md`).
+        // Where the builtin also has a qualified name it stays reachable as
+        // `Flow.Primops.<name>`; the demotion here is scoped to bare calls.
+        if self.module_member_shadows_builtin(*name) {
             return Ok(false);
         }
 
