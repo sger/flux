@@ -1558,7 +1558,7 @@ impl Compiler {
         self.lower_core_from_program(&program_to_lower, false, elaborate_dictionaries)
     }
 
-    /// Proposal 0152: run the named-field AST desugar in place. No-op when
+    /// run the named-field AST desugar in place. No-op when
     /// the program declares no named-field variants.
     fn apply_named_field_desugar(&self, program: &mut Program) {
         use crate::ast::desugar_named_fields::{
@@ -1883,7 +1883,7 @@ impl Compiler {
         let symbol_remap = interface.build_symbol_remap(&mut self.interner);
         let module_name = self.interner.intern(&interface.module_name);
 
-        // Proposal 0152: preload declared field order for this interface's
+        // preload declared field order for this interface's
         // record-style constructors so named-field syntax naming an imported
         // constructor can be desugared to its positional form. Without this the
         // desugaring finds no field order and silently emits a zero-field
@@ -2012,7 +2012,7 @@ impl Compiler {
         );
     }
 
-    /// Proposal 0152: record record-style constructor field order from
+    /// record record-style constructor field order from
     /// `program` without the rest of the dependency preload.
     ///
     /// `preload_dependency_program` does this too, but it also collects
@@ -2806,6 +2806,33 @@ impl Compiler {
         for statement in &program.statements {
             self.collect_module_adt_constructors_from_statement(statement, None);
         }
+    }
+
+    /// Assign native constructor tags for `program` before compiling anything.
+    ///
+    /// Native builds compile each module with its own `Compiler`, so a module
+    /// only sees the tags for constructors it happens to preload. Numbering
+    /// then restarts per module and the same constructor gets different tags
+    /// in different objects — a value built in one module is matched against
+    /// the wrong tag in another. Seeding every module up front, in one order,
+    /// gives one numbering for the whole program.
+    pub fn seed_native_constructor_tags(&mut self, program: &Program) {
+        self.collect_native_constructor_tags(program);
+    }
+
+    /// The tags assigned so far, plus the next free tag, for handing to
+    /// another `Compiler` that must agree on the numbering.
+    pub fn native_constructor_tag_state(&self) -> (HashMap<Symbol, i32>, i32) {
+        (
+            self.native_constructor_tags.clone(),
+            self.next_native_constructor_tag,
+        )
+    }
+
+    /// Adopt a tag numbering produced by [`Self::native_constructor_tag_state`].
+    pub fn adopt_native_constructor_tags(&mut self, tags: HashMap<Symbol, i32>, next: i32) {
+        self.native_constructor_tags = tags;
+        self.next_native_constructor_tag = next;
     }
 
     fn collect_native_constructor_tags(&mut self, program: &Program) {

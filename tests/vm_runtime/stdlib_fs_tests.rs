@@ -60,8 +60,8 @@ fn stdlib_fs_flux_suite_passes() {
     let (stdout, success) = run_flux_test("stdlib_fs.flx");
     assert!(success, "Flow.Fs test suite failed:\n{stdout}");
     assert!(
-        stdout.contains("8 tests: 8 passed, 0 failed"),
-        "expected all 8 Flow.Fs tests to pass, got:\n{stdout}"
+        stdout.contains("19 tests: 19 passed, 0 failed"),
+        "expected all 19 Flow.Fs tests to pass, got:\n{stdout}"
     );
 }
 
@@ -205,5 +205,139 @@ fn main() -> Unit with IO {
     assert!(
         combined.contains("FileSystem"),
         "the diagnostic should name the FileSystem effect:\n{combined}"
+    );
+}
+
+/// Predicates answer `Bool`, and answer `false` rather than erroring for a
+/// path that does not exist.
+#[test]
+fn predicates_distinguish_files_directories_and_absence() {
+    let (stdout, stderr, success) = run_source(
+        "fs_predicates.flx",
+        r#"
+import Flow.Fs as Fs
+
+fn main() -> Unit with IO {
+    println("file=" + to_string(Fs.is_file("Cargo.toml")))
+    println("dir=" + to_string(Fs.is_dir("src")))
+    println("missing=" + to_string(Fs.exists("/nonexistent/x")))
+    println("dir_not_file=" + to_string(Fs.is_file("src")))
+}
+"#,
+    );
+    assert!(success, "run failed:\n{stdout}\n{stderr}");
+    assert!(stdout.contains("file=true"), "{stdout}");
+    assert!(stdout.contains("dir=true"), "{stdout}");
+    assert!(stdout.contains("missing=false"), "{stdout}");
+    assert!(stdout.contains("dir_not_file=false"), "{stdout}");
+}
+
+/// A full create/write/rename/remove cycle, asserting the tree is gone at the
+/// end. Exercises every mutation in one program.
+#[test]
+fn a_full_write_rename_remove_cycle_leaves_nothing_behind() {
+    let base = "target/test-scratch/fs_cycle";
+    let _ = std::fs::remove_dir_all(workspace_root().join(base));
+
+    let (stdout, stderr, success) = run_source(
+        "fs_cycle.flx",
+        &format!(
+            r#"
+import Flow.Fs as Fs
+import Flow.Result as Result
+
+fn main() -> Unit with IO {{
+    let base = "{base}"
+    println("mkdir=" + to_string(Result.is_ok(Fs.create_dir_all(base + "/sub"))))
+    println("write=" + to_string(Result.is_ok(Fs.write_file(base + "/sub/a.txt", "v"))))
+    println("rename=" + to_string(Result.is_ok(Fs.rename(base + "/sub/a.txt", base + "/sub/b.txt"))))
+    println("content=" + Fs.read_file_or(base + "/sub/b.txt", "MISSING"))
+    println("rmtree=" + to_string(Result.is_ok(Fs.remove_dir_all(base))))
+    println("gone=" + to_string(Fs.exists(base) == false))
+}}
+"#
+        ),
+    );
+    assert!(success, "run failed:\n{stdout}\n{stderr}");
+    for expected in [
+        "mkdir=true",
+        "write=true",
+        "rename=true",
+        "content=v",
+        "rmtree=true",
+        "gone=true",
+    ] {
+        assert!(stdout.contains(expected), "missing {expected}:\n{stdout}");
+    }
+    assert!(
+        !workspace_root().join(base).exists(),
+        "remove_dir_all left the tree behind"
+    );
+}
+
+/// Errors are classified the same way on both backends. The VM matches on
+/// Rust's `io::ErrorKind`; the C runtime matches on `errno`. Nothing shares
+/// code, so agreement has to be asserted.
+#[test]
+fn every_mutation_reports_not_found_for_a_missing_path() {
+    let (stdout, stderr, success) = run_source(
+        "fs_missing_kinds.flx",
+        r#"
+import Flow.Fs as Fs
+import Flow.IoError as Io
+import Flow.Result as Result
+
+fn kind(r: Result<Unit, IoError>) -> String {
+    match r {
+        Ok(_) -> "ok",
+        Err(e) -> Io.kind_name(Io.error_kind(e)),
+    }
+}
+
+fn main() -> Unit with IO {
+    println("write=" + kind(Fs.write_file("/nonexistent/d/f.txt", "x")))
+    println("rmfile=" + kind(Fs.remove_file("/nonexistent/f.txt")))
+    println("rmdir=" + kind(Fs.remove_dir_all("/nonexistent/d")))
+    println("rename=" + kind(Fs.rename("/nonexistent/a", "/nonexistent/b")))
+}
+"#,
+    );
+    assert!(success, "run failed:\n{stdout}\n{stderr}");
+    for expected in [
+        "write=NotFound",
+        "rmfile=NotFound",
+        "rmdir=NotFound",
+        "rename=NotFound",
+    ] {
+        assert!(stdout.contains(expected), "missing {expected}:\n{stdout}");
+    }
+}
+
+/// Mutations carry `FileSystem` too — a caller that does not declare it must
+/// be rejected, the same as for reads.
+#[test]
+fn writing_a_file_requires_the_filesystem_effect() {
+    let (stdout, stderr, success) = run_source(
+        "fs_write_effect.flx",
+        r#"
+import Flow.Fs as Fs
+import Flow.Result as Result
+
+fn sneaky() -> Bool {
+    Result.is_ok(Fs.write_file("target/test-scratch/sneaky.txt", "x"))
+}
+
+fn main() -> Unit with IO {
+    println(to_string(sneaky()))
+}
+"#,
+    );
+    assert!(
+        !success,
+        "an undeclared FileSystem effect must be rejected:\n{stdout}"
+    );
+    assert!(
+        format!("{stdout}{stderr}").contains("FileSystem"),
+        "the diagnostic should name the FileSystem effect"
     );
 }

@@ -157,20 +157,15 @@ pub struct ModuleInterface {
     /// by `(class_module, class_name, head_type_repr)`.
     #[serde(default)]
     pub public_instances: Vec<PublicInstanceEntry>,
-    /// Proposal 0152: declared field names for this module's record-style ADT
-    /// constructors, keyed by constructor name (e.g. `IoError` ->
-    /// `["kind", "message", "path"]`).
+    /// Field names for this module's record-style constructors, e.g.
+    /// `IoError -> ["kind", "message", "path"]`.
     ///
-    /// Named-field syntax (`IoError { kind: .. }`, both as an expression and
-    /// as a pattern) is desugared to positional form by resolving the
-    /// constructor's declared field order. That resolution runs over the
-    /// *current* program's AST, so without this table an importing module has
-    /// no field order for a constructor declared elsewhere and the desugaring
-    /// silently produces a zero-field constructor.
+    /// Named-field syntax is desugared to positional form using the declared
+    /// field order. That lookup only sees the current program's AST, so an
+    /// importing module needs the order from here.
     ///
-    /// Entries are sorted by constructor name for deterministic
-    /// fingerprinting. Field *order* is significant — it is the positional
-    /// order the desugaring emits — so the vectors are never sorted.
+    /// Sorted by constructor name for stable fingerprinting. The field vectors
+    /// are never sorted — their order is the positional layout.
     #[serde(default)]
     pub ctor_field_names: BTreeMap<String, Vec<String>>,
 }

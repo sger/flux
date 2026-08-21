@@ -196,6 +196,11 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         | CorePrimOp::WriteFile => FluxRep::UnitRep,
         CorePrimOp::ReadFile
         | CorePrimOp::TryReadFile
+        | CorePrimOp::FsWriteFile
+        | CorePrimOp::FsCreateDirAll
+        | CorePrimOp::FsRemoveFile
+        | CorePrimOp::FsRemoveDirAll
+        | CorePrimOp::FsRename
         | CorePrimOp::ReadStdin
         | CorePrimOp::ReadLines => FluxRep::BoxedRep,
 

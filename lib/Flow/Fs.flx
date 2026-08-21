@@ -1,13 +1,9 @@
-// Flow.Fs — filesystem access with recoverable errors (proposal 0178, item 3).
+// Flow.Fs — filesystem access with recoverable errors.
 //
-// Every fallible operation here returns `Result<a, IoError>` rather than
-// aborting: a missing file is an ordinary outcome a caller can handle, not a
-// reason to stop the program. Callers branch on `IoError`'s `kind` — see
-// `Flow.IoError`.
+// Fallible operations return `Result<a, IoError>` instead of aborting, so a
+// missing file is something the caller handles rather than a crash.
 //
-// The prelude's `read_file` is unchanged and still aborts on failure. It is
-// kept because existing code depends on that behaviour; new code that wants to
-// recover should use `Flow.Fs.read_file` instead.
+// The prelude's `read_file` still aborts and is unchanged.
 
 import Flow.IoError as IoError
 import Flow.Result as Result
@@ -31,5 +27,79 @@ module Flow.Fs {
     /// distinction between missing and unreadable does not matter.
     public fn read_file_or(path: String, default: String) -> String with FileSystem {
         Result.unwrap_or_result(read_file(path), default)
+    }
+
+    // ── Predicates ────────────────────────────────────────────────────
+    //
+    // These return `Bool`, not `Result`: the answer can go stale before the
+    // caller acts on it. If you need to know *why* something failed, attempt
+    // the operation and read the `IoError`.
+
+    intrinsic fn fs_exists_prim(path: String) -> Bool with FileSystem = primop FsExists
+    intrinsic fn fs_is_dir_prim(path: String) -> Bool with FileSystem = primop FsIsDir
+    intrinsic fn fs_is_file_prim(path: String) -> Bool with FileSystem = primop FsIsFile
+
+    /// True when something exists at `path`.
+    public fn exists(path: String) -> Bool with FileSystem {
+        fs_exists_prim(path)
+    }
+
+    /// True when `path` exists and is a directory.
+    public fn is_dir(path: String) -> Bool with FileSystem {
+        fs_is_dir_prim(path)
+    }
+
+    /// True when `path` exists and is a regular file.
+    public fn is_file(path: String) -> Bool with FileSystem {
+        fs_is_file_prim(path)
+    }
+
+    // ── Mutation ──────────────────────────────────────────────────────
+
+    intrinsic fn fs_write_file_prim(path: String, contents: String)
+        -> Result<Unit, IoError> with FileSystem = primop FsWriteFile
+    intrinsic fn fs_create_dir_all_prim(path: String)
+        -> Result<Unit, IoError> with FileSystem = primop FsCreateDirAll
+    intrinsic fn fs_remove_file_prim(path: String)
+        -> Result<Unit, IoError> with FileSystem = primop FsRemoveFile
+    intrinsic fn fs_remove_dir_all_prim(path: String)
+        -> Result<Unit, IoError> with FileSystem = primop FsRemoveDirAll
+    intrinsic fn fs_rename_prim(from: String, to: String)
+        -> Result<Unit, IoError> with FileSystem = primop FsRename
+
+    /// Write text to `path`, replacing any existing file.
+    ///
+    /// The parent directory must already exist; use `create_dir_all` first if
+    /// that is not guaranteed.
+    public fn write_file(path: String, contents: String)
+        -> Result<Unit, IoError> with FileSystem {
+        fs_write_file_prim(path, contents)
+    }
+
+    /// Create `path` and any missing parent directories.
+    ///
+    /// Succeeds when the directory already exists, like `mkdir -p`, so callers
+    /// do not have to check first.
+    public fn create_dir_all(path: String) -> Result<Unit, IoError> with FileSystem {
+        fs_create_dir_all_prim(path)
+    }
+
+    /// Remove a single file.
+    public fn remove_file(path: String) -> Result<Unit, IoError> with FileSystem {
+        fs_remove_file_prim(path)
+    }
+
+    /// Remove a directory and everything beneath it.
+    public fn remove_dir_all(path: String) -> Result<Unit, IoError> with FileSystem {
+        fs_remove_dir_all_prim(path)
+    }
+
+    /// Rename `from` to `to`, atomically where the platform allows.
+    ///
+    /// Atomic rename is what makes "write to a temp path, then swap it in"
+    /// safe against concurrent writers. Renaming across filesystems is not
+    /// atomic and usually fails.
+    public fn rename(from: String, to: String) -> Result<Unit, IoError> with FileSystem {
+        fs_rename_prim(from, to)
     }
 }

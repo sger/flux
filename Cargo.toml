@@ -314,6 +314,11 @@ name = "stdlib_fs_tests"
 path = "tests/vm_runtime/stdlib_fs_tests.rs"
 
 [[test]]
+name = "native_constructor_tag_tests"
+path = "tests/native_llvm/native_constructor_tag_tests.rs"
+required-features = ["llvm"]
+
+[[test]]
 name = "cross_module_named_fields_tests"
 path = "tests/integration/cross_module_named_fields_tests.rs"
 

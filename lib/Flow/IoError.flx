@@ -1,23 +1,15 @@
-// Flow.IoError — the shared error type for recoverable I/O (proposal 0178, item 1).
+// Flow.IoError — the shared error type for recoverable I/O.
 //
-// Every fallible operating-system operation reports failure the same way:
-// `Result<a, IoError>` from `Flow.Result`, where `IoError` carries a
-// machine-readable `kind` alongside a human-readable message and the path the
-// operation was attempted on.
+// OS operations report failure as `Result<a, IoError>`. `IoError` carries a
+// `kind` to branch on, plus a message and path for humans.
 //
-// The `kind` is what makes these errors *recoverable* rather than merely
-// reportable. "Not found" and "permission denied" call for different handling,
-// and a caller that had to match on message text would turn those strings into
-// a compatibility surface nobody could change.
+// Branch on `kind`, never on `message` — message text is not stable.
 //
-// The module is named `Flow.IoError` rather than `Flow.Io` because module
-// names map to file names, and `Io.flx` collides with the existing `IO.flx`
-// (`Flow.IO`) on case-insensitive filesystems.
+// It lives in its own module because Fs, Crypto, Env, and Process all report
+// failures this way, so callers match one error type whatever produced it.
 //
-// This type lives in its own module rather than in `Flow.Fs` because
-// `Flow.Crypto`, `Flow.Env`, and `Flow.Process` report failures the same way;
-// each of them imports it, so callers pattern-match one error type regardless
-// of which capability produced it.
+// Named `IoError` not `Io`: `Io.flx` would collide with `IO.flx` on
+// case-insensitive filesystems.
 
 module Flow.IoError {
 

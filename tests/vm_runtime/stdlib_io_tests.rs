@@ -1,4 +1,4 @@
-//! Integration tests for `Flow.IoError` (proposal 0178, item 1).
+//! Integration tests for `Flow.IoError`.
 //!
 //! `Flow.IoError` declares the error type every fallible OS capability reports:
 //! `Result<a, IoError>`, with a machine-readable `kind` beside the human

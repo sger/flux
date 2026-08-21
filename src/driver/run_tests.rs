@@ -368,7 +368,7 @@ pub(crate) fn run_test_file(path: &str, request: TestRunRequest<'_>) {
             effective_module_strictness(node.kind, entry_module_kind, request.session.strict_mode);
         compiler.set_strict_mode(module_strict_mode);
         compiler.set_strict_require_main(false);
-        // Proposal 0152: record this module's record-style constructor field
+        // record this module's record-style constructor field
         // order before compiling it, so a *later* module in the topo order can
         // desugar named-field syntax naming one of its constructors. Unlike
         // the `run` drivers, the test runner compiles every module through one

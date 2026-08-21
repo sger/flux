@@ -17,10 +17,15 @@
 #include <math.h>
 #include <time.h>
 #include <setjmp.h>
+#include <sys/stat.h>
 #if defined(_MSC_VER) || defined(_WIN32)
 #include <windows.h>
 #include <io.h>
 #include <fcntl.h>
+#include <direct.h>
+#else
+#include <dirent.h>
+#include <unistd.h>
 #endif
 
 /* ── Forward declarations for string helpers (string.c) ─────────────── */
@@ -356,19 +361,15 @@ int64_t flux_read_file(int64_t path) {
     #undef FLUX_READ_FILE_PANIC
 }
 
-/* ── Recoverable file reads (proposal 0178) ───────────────────────────────
+/* ── Recoverable file reads ───────────────────────────────────────────────
  *
- * `flux_try_read_file` mirrors the VM's TryReadFile primop: instead of
- * aborting through flux_panic like flux_read_file, it returns
- * Result<String, IoError> so the caller can recover.
+ * Returns Result<String, IoError> instead of aborting like flux_read_file.
  *
- * Constructor tags are passed in by the code generator rather than hardcoded,
- * because tags are assigned per-compilation from the program's data
- * declarations. This mirrors flux_json_parse's calling convention.
+ * Constructor tags come in as arguments because they are assigned per
+ * compilation, not fixed. Same convention as flux_json_parse.
  *
- * The IoError field order (kind, message, path) must match Flow.IoError's
- * declaration: named-field syntax is desugared to positional form, so this is
- * the layout callers pattern-match against.
+ * IoError field order (kind, message, path) must match Flow.IoError — record
+ * fields are positional at runtime.
  */
 static int64_t flux_io_make_adt(int32_t ctor_tag, const int64_t *fields, int32_t count) {
     uint8_t scan = count <= 255 ? (uint8_t)count : 255;
@@ -382,9 +383,8 @@ static int64_t flux_io_make_adt(int32_t ctor_tag, const int64_t *fields, int32_t
     return flux_tag_ptr(mem);
 }
 
-/* Map an errno onto the matching Flow.IoError.IoErrorKind tag. Keep this in
- * step with vm_io_err in src/vm/core_dispatch.rs — the two backends must
- * classify the same failure identically or parity breaks. */
+/* Map errno to an IoErrorKind tag. Must agree with vm_io_err in
+ * src/vm/core_dispatch.rs or the two backends diverge. */
 static int32_t flux_io_kind_tag(
     int err,
     int32_t not_found_tag,
@@ -492,6 +492,215 @@ int64_t flux_try_read_file(
     return flux_io_make_adt(ok_tag, &content_val, 1);
 
     #undef FLUX_TRY_READ_FAIL
+}
+
+/* ── Filesystem predicates ────────────────────────────────────────────────
+ *
+ * Answer FLUX_FALSE for any failure; they do not distinguish "absent" from
+ * "unreadable". Matches the VM, which uses Rust's Path::exists / is_dir /
+ * is_file.
+ */
+static int flux_fs_stat_path(int64_t path, struct stat *out) {
+    const char *data = flux_string_data(path);
+    uint32_t    len  = flux_string_len(path);
+    char *cpath = (char *)malloc((size_t)len + 1);
+    if (!cpath) return 0;
+    memcpy(cpath, data, len);
+    cpath[len] = '\0';
+    int ok = stat(cpath, out) == 0;
+    free(cpath);
+    return ok;
+}
+
+int64_t flux_fs_exists(int64_t path) {
+    struct stat st;
+    return flux_make_bool(flux_fs_stat_path(path, &st));
+}
+
+int64_t flux_fs_is_dir(int64_t path) {
+    struct stat st;
+    return flux_make_bool(flux_fs_stat_path(path, &st) && S_ISDIR(st.st_mode));
+}
+
+int64_t flux_fs_is_file(int64_t path) {
+    struct stat st;
+    return flux_make_bool(flux_fs_stat_path(path, &st) && S_ISREG(st.st_mode));
+}
+
+/* ── Filesystem mutations ─────────────────────────────────────────────────
+ *
+ * Return Result<Unit, IoError>. Constructor tags come in as arguments, same
+ * convention as flux_try_read_file.
+ */
+typedef struct {
+    int32_t ok_tag;
+    int32_t err_tag;
+    int32_t io_error_tag;
+    int32_t not_found_tag;
+    int32_t permission_denied_tag;
+    int32_t is_a_directory_tag;
+    int32_t interrupted_tag;
+    int32_t other_tag;
+} FluxIoTags;
+
+/* Build Err(IoError { kind, message, path }) from an errno. */
+static int64_t flux_io_fail(FluxIoTags tags, int errnum, int64_t path) {
+    char msg_buf[256];
+    int32_t kind_tag = flux_io_kind_tag(
+        errnum, tags.not_found_tag, tags.permission_denied_tag,
+        tags.is_a_directory_tag, tags.interrupted_tag, tags.other_tag
+    );
+    int written = snprintf(msg_buf, sizeof(msg_buf), "%s (os error %d)",
+                           strerror(errnum), errnum);
+    size_t mlen = written < 0 ? 0 : (size_t)written;
+    if (mlen >= sizeof(msg_buf)) mlen = sizeof(msg_buf) - 1;
+
+    int64_t fields[3];
+    fields[0] = flux_io_make_adt(kind_tag, NULL, 0);
+    fields[1] = flux_string_new(msg_buf, (uint32_t)mlen);
+    fields[2] = path;
+    int64_t io_err = flux_io_make_adt(tags.io_error_tag, fields, 3);
+    return flux_io_make_adt(tags.err_tag, &io_err, 1);
+}
+
+/* Ok(()) — unit is FLUX_NONE, matching the VM. */
+static int64_t flux_io_unit_ok(FluxIoTags tags) {
+    int64_t unit = FLUX_NONE;
+    return flux_io_make_adt(tags.ok_tag, &unit, 1);
+}
+
+/* Null-terminate a Flux string. Caller frees. NULL on OOM. */
+static char *flux_io_cstr(int64_t s) {
+    const char *data = flux_string_data(s);
+    uint32_t    len  = flux_string_len(s);
+    char *out = (char *)malloc((size_t)len + 1);
+    if (!out) return NULL;
+    memcpy(out, data, len);
+    out[len] = '\0';
+    return out;
+}
+
+#define FLUX_IO_TAGS_ARGS                                                      \
+    int32_t ok_tag, int32_t err_tag, int32_t io_error_tag,                     \
+    int32_t not_found_tag, int32_t permission_denied_tag,                      \
+    int32_t is_a_directory_tag, int32_t interrupted_tag, int32_t other_tag
+
+#define FLUX_IO_TAGS_INIT                                                      \
+    { ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,     \
+      is_a_directory_tag, interrupted_tag, other_tag }
+
+int64_t flux_fs_write_file(FLUX_IO_TAGS_ARGS, int64_t path, int64_t contents) {
+    FluxIoTags tags = FLUX_IO_TAGS_INIT;
+    char *cpath = flux_io_cstr(path);
+    if (!cpath) return flux_io_fail(tags, ENOMEM, path);
+
+    FILE *f = fopen(cpath, "wb");
+    if (!f) {
+        int saved = errno;
+        free(cpath);
+        return flux_io_fail(tags, saved, path);
+    }
+    const char *data = flux_string_data(contents);
+    uint32_t    len  = flux_string_len(contents);
+    size_t written = len > 0 ? fwrite(data, 1, len, f) : 0;
+    int write_error = ferror(f);
+    int saved_errno = errno;
+    fclose(f);
+    free(cpath);
+    if (written != (size_t)len || write_error) {
+        return flux_io_fail(tags, write_error ? saved_errno : EIO, path);
+    }
+    return flux_io_unit_ok(tags);
+}
+
+/* mkdir -p: walk the path creating each missing component. */
+int64_t flux_fs_create_dir_all(FLUX_IO_TAGS_ARGS, int64_t path) {
+    FluxIoTags tags = FLUX_IO_TAGS_INIT;
+    char *cpath = flux_io_cstr(path);
+    if (!cpath) return flux_io_fail(tags, ENOMEM, path);
+
+    for (char *p = cpath + (cpath[0] == '/' ? 1 : 0); *p; p++) {
+        if (*p != '/') continue;
+        *p = '\0';
+        if (mkdir(cpath, 0777) != 0 && errno != EEXIST) {
+            int saved = errno;
+            free(cpath);
+            return flux_io_fail(tags, saved, path);
+        }
+        *p = '/';
+    }
+    if (mkdir(cpath, 0777) != 0 && errno != EEXIST) {
+        int saved = errno;
+        free(cpath);
+        return flux_io_fail(tags, saved, path);
+    }
+    free(cpath);
+    return flux_io_unit_ok(tags);
+}
+
+int64_t flux_fs_remove_file(FLUX_IO_TAGS_ARGS, int64_t path) {
+    FluxIoTags tags = FLUX_IO_TAGS_INIT;
+    char *cpath = flux_io_cstr(path);
+    if (!cpath) return flux_io_fail(tags, ENOMEM, path);
+    int failed = unlink(cpath) != 0;
+    int saved = errno;
+    free(cpath);
+    return failed ? flux_io_fail(tags, saved, path) : flux_io_unit_ok(tags);
+}
+
+/* Depth-first rmdir -r. */
+static int flux_fs_rm_tree(const char *path, int *err_out) {
+    struct stat st;
+    if (lstat(path, &st) != 0) { *err_out = errno; return 0; }
+
+    if (!S_ISDIR(st.st_mode)) {
+        if (unlink(path) != 0) { *err_out = errno; return 0; }
+        return 1;
+    }
+
+    DIR *d = opendir(path);
+    if (!d) { *err_out = errno; return 0; }
+
+    struct dirent *entry;
+    while ((entry = readdir(d)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
+        size_t child_len = strlen(path) + 1 + strlen(entry->d_name) + 1;
+        char *child = (char *)malloc(child_len);
+        if (!child) { closedir(d); *err_out = ENOMEM; return 0; }
+        snprintf(child, child_len, "%s/%s", path, entry->d_name);
+        int ok = flux_fs_rm_tree(child, err_out);
+        free(child);
+        if (!ok) { closedir(d); return 0; }
+    }
+    closedir(d);
+    if (rmdir(path) != 0) { *err_out = errno; return 0; }
+    return 1;
+}
+
+int64_t flux_fs_remove_dir_all(FLUX_IO_TAGS_ARGS, int64_t path) {
+    FluxIoTags tags = FLUX_IO_TAGS_INIT;
+    char *cpath = flux_io_cstr(path);
+    if (!cpath) return flux_io_fail(tags, ENOMEM, path);
+    int err = 0;
+    int ok = flux_fs_rm_tree(cpath, &err);
+    free(cpath);
+    return ok ? flux_io_unit_ok(tags) : flux_io_fail(tags, err, path);
+}
+
+int64_t flux_fs_rename(FLUX_IO_TAGS_ARGS, int64_t from, int64_t to) {
+    FluxIoTags tags = FLUX_IO_TAGS_INIT;
+    char *cfrom = flux_io_cstr(from);
+    if (!cfrom) return flux_io_fail(tags, ENOMEM, to);
+    char *cto = flux_io_cstr(to);
+    if (!cto) { free(cfrom); return flux_io_fail(tags, ENOMEM, to); }
+
+    int failed = rename(cfrom, cto) != 0;
+    int saved = errno;
+    free(cfrom);
+    free(cto);
+    /* Error names the destination: renames fail on the target far more often
+     * than the source. Matches the VM. */
+    return failed ? flux_io_fail(tags, saved, to) : flux_io_unit_ok(tags);
 }
 
 int64_t flux_write_file(int64_t path, int64_t content) {

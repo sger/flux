@@ -507,17 +507,24 @@ pub fn lower_program_with_interner_and_externs(
     // Build module-qualified names from the CoreTopLevelItem tree.
     let qualified_names = build_qualified_names(program, interner, entry_qualifier);
 
-    // Collect user-defined ADT constructor tags from Data declarations.
-    collect_constructor_tags(
-        &program.top_level_items,
-        &mut lir.constructor_tags,
-        interner,
-    );
+    // Seed with the compiler-wide tags first. They are assigned once across
+    // the whole program, so a constructor declared in another module keeps the
+    // same tag here as in the module that defined it. Collecting locally first
+    // would let a local constructor claim a number an imported one already
+    // owns, and values would then be built with one tag and matched with
+    // another.
     if let Some(imported) = imported_constructor_tags {
         for (name, tag) in imported {
             lir.constructor_tags.entry(name.clone()).or_insert(*tag);
         }
     }
+    // Then number any constructor the program declares that the compiler-wide
+    // map did not cover.
+    collect_constructor_tags(
+        &program.top_level_items,
+        &mut lir.constructor_tags,
+        interner,
+    );
 
     // Find the main def — it could be at any position in defs[].
     let main_idx = if emit_main {
@@ -652,12 +659,14 @@ pub fn lower_aether_program_with_interner_and_externs(
     let mut lir = LirProgram::new();
 
     let qualified_names = build_qualified_names(core, interner, entry_qualifier);
-    collect_constructor_tags(&core.top_level_items, &mut lir.constructor_tags, interner);
+    // Compiler-wide tags first — see the note in
+    // `lower_program_with_interner_and_externs`.
     if let Some(imported) = imported_constructor_tags {
         for (name, tag) in imported {
             lir.constructor_tags.entry(name.clone()).or_insert(*tag);
         }
     }
+    collect_constructor_tags(&core.top_level_items, &mut lir.constructor_tags, interner);
 
     let main_idx = if emit_main {
         if let Some(interner) = interner {

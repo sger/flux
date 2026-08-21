@@ -529,6 +529,47 @@ Rust structs have named fields with move semantics and `..base` spread syntax. N
 
 2. **Interaction with Hash literals**: `{ key: val }` is currently a Hash literal. Named-field construction always requires a variant prefix (`Point { x: 1 }`), so there is no ambiguity. Functional update `{ ...base, field: val }` starts with `...` which is not valid in Hash literals, so no ambiguity there either. Confirm during implementation.
 
+## Known gaps
+
+### Named-field syntax does not work in the REPL
+
+Filed 2026-08-21. Named-field construction and patterns fail in `flux repl`
+with `E082 Constructor Arity Mismatch` (plus a cascading `E004`), while the
+same code compiles and runs correctly from a file.
+
+Minimal repro — a single REPL line is enough, so this is not about state
+carried between lines:
+
+```
+flux> data R { R { n: Int } } R { n: 5 }
+error[E082]: Constructor Arity Mismatch
+error[E004]: Undefined Variable
+```
+
+Positional constructors are unaffected:
+
+```
+flux> data P { P(Int) }
+flux> P(5)
+P(5)
+```
+
+The failure signature — a constructor reported with zero fields when it
+declares some — matches what happens when named-field desugaring cannot find
+the constructor's declared field order and falls back to an empty field list
+(`unwrap_or_default` in `src/ast/desugar_named_fields.rs`). The same root cause
+produced the cross-module variant of this bug, fixed by carrying
+`ctor_field_names` on `ModuleInterface`.
+
+The REPL uses `Compiler::compile_with_opts`, which does run the desugaring
+pass, so the metadata is likely missing rather than the pass being skipped.
+`repl_session_adt_data` (`src/compiler/mod.rs`) is the REPL's equivalent
+channel and reaches inference through `InferProgramConfig::preloaded_adt_data`;
+that is the first place to look.
+
+The LSP is not affected: it resolves record patterns from raw `data`
+statements, which carry `field_names` directly.
+
 ## Future possibilities
 [future-possibilities]: #future-possibilities
 

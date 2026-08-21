@@ -1,4 +1,4 @@
-// Tests for Flow.Result (proposal 0178, stage 1).
+// Tests for Flow.Result.
 //
 // Flow.Result is auto-injected, so `Result`, `Ok`, and `Err` are used here
 // without an import; the combinators are reached through `Result.*`.

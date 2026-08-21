@@ -1,22 +1,18 @@
 // Flow.Result — the Result type and its combinators.
 //
-// `Result<a, e>` is the canonical type for operations that can fail in a
-// recoverable way: `Ok(value)` on success, `Err(error)` on failure. It is the
-// error model for fallible standard-library operations (proposal 0178).
+// `Result<a, e>` is `Ok(value)` on success, `Err(error)` on failure. It is the
+// error model for fallible stdlib operations.
 //
-// Unlike `Option`, `Either`, `List`, and `Map`, `Result` is an ordinary data
-// declaration rather than a compiler built-in, so `Ok` and `Err` are ordinary
-// constructor names that a local declaration may reuse. This keeps existing
-// user-defined result types working, and matches Haskell and Rust — neither
-// reserves its result constructors.
+// `Result` is an ordinary data declaration, not a compiler built-in, so `Ok`
+// and `Err` are ordinary names a local declaration may reuse. Haskell and Rust
+// do the same.
 //
-// This module is imported explicitly rather than auto-injected. `import
-// Flow.Result` brings the type and both constructors into scope unqualified,
-// so nothing is gained by injecting it — and injection is the one choice that
-// cannot be walked back later without breaking every program that relied on it.
+// Imported explicitly rather than auto-injected: one `import Flow.Result`
+// already brings the type and both constructors into scope, and auto-injecting
+// could not be undone later without breaking callers.
 //
-// Combinators are named `*_result` where a bare name would collide with the
-// `Option` equivalents in the prelude (`map_result`, not `map`).
+// Combinators end in `_result` to avoid colliding with the prelude's `Option`
+// equivalents (`map_result`, not `map`).
 
 module Flow.Result {
 
