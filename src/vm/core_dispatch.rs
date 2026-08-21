@@ -3164,6 +3164,13 @@ pub fn execute_core_primop(
                 .map_err(|e| format!("read_file failed for '{}': {}", path, e))?;
             Ok(Value::String(content.into()))
         }
+        TryReadFile => {
+            let path = estr(&args[0], "try_read_file")?;
+            Ok(match fs::read_to_string(path) {
+                Ok(content) => vm_io_ok(Value::String(content.into())),
+                Err(err) => vm_io_err(&err, path),
+            })
+        }
         WriteFile => {
             let path = estr(&args[0], "write_file")?;
             let content = estr(&args[1], "write_file")?;
@@ -4551,6 +4558,56 @@ fn vm_json_stringify(args: &[Value]) -> Result<Value, String> {
     Ok(Value::String(
         crate::runtime::json::stringify(&value).into(),
     ))
+}
+
+/// Proposal 0178: wrap a successful value as `Flow.Result`'s `Ok`.
+///
+/// Recoverable I/O primops return `Ok(Value::Adt(..))` for *both* outcomes —
+/// the `Result` is the value, not the Rust-level error channel. Reserving
+/// `Err(String)` for genuine VM faults (a type mismatch in the argument, say)
+/// keeps "the file was missing" distinct from "the primop was called wrong".
+fn vm_io_ok(value: Value) -> Value {
+    use crate::runtime::value::{AdtFields, AdtValue};
+    Value::Adt(Rc::new(AdtValue {
+        constructor: Rc::new("Ok".to_string()),
+        fields: AdtFields::One(value),
+    }))
+}
+
+/// Proposal 0178: wrap an `std::io::Error` as `Err(IoError { .. })`.
+///
+/// The field order here must match `Flow.IoError`'s declaration
+/// (`kind`, `message`, `path`) — named-field syntax is desugared to positional
+/// form, so this is the positional layout callers pattern-match against.
+fn vm_io_err(err: &std::io::Error, path: &str) -> Value {
+    use crate::runtime::value::{AdtFields, AdtValue};
+    use std::io::ErrorKind;
+
+    // `Flow.IoError`'s IoErrorKind is a nullary-constructor enum, so each kind
+    // is a unit ADT named exactly as declared there.
+    let kind_name = match err.kind() {
+        ErrorKind::NotFound => "NotFound",
+        ErrorKind::PermissionDenied => "PermissionDenied",
+        ErrorKind::AlreadyExists => "AlreadyExists",
+        ErrorKind::NotADirectory => "NotADirectory",
+        ErrorKind::IsADirectory => "IsADirectory",
+        ErrorKind::DirectoryNotEmpty => "DirectoryNotEmpty",
+        ErrorKind::Interrupted | ErrorKind::TimedOut | ErrorKind::WouldBlock => "Interrupted",
+        _ => "Other",
+    };
+    let kind = Value::AdtUnit(Rc::new(kind_name.to_string()));
+    let io_error = Value::Adt(Rc::new(AdtValue {
+        constructor: Rc::new("IoError".to_string()),
+        fields: AdtFields::Three(
+            kind,
+            Value::String(err.to_string().into()),
+            Value::String(path.to_string().into()),
+        ),
+    }));
+    Value::Adt(Rc::new(AdtValue {
+        constructor: Rc::new("Err".to_string()),
+        fields: AdtFields::One(io_error),
+    }))
 }
 
 fn json_ok_value(value: Value) -> Value {

@@ -471,6 +471,19 @@ void    flux_println(int64_t value);
 void    flux_debug_trace(int64_t value);
 int64_t flux_read_line(void);
 int64_t flux_read_file(int64_t path);
+/* Proposal 0178: recoverable read. Returns Result<String, IoError> instead of
+ * aborting. Constructor tags are supplied by the code generator. */
+int64_t flux_try_read_file(
+    int32_t ok_tag,
+    int32_t err_tag,
+    int32_t io_error_tag,
+    int32_t not_found_tag,
+    int32_t permission_denied_tag,
+    int32_t is_a_directory_tag,
+    int32_t interrupted_tag,
+    int32_t other_tag,
+    int64_t path
+);
 int64_t flux_write_file(int64_t path, int64_t content);
 
 /* ── Runtime lifecycle ──────────────────────────────────────────────── */

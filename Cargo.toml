@@ -306,6 +306,18 @@ name = "stdlib_result_tests"
 path = "tests/vm_runtime/stdlib_result_tests.rs"
 
 [[test]]
+name = "stdlib_io_tests"
+path = "tests/vm_runtime/stdlib_io_tests.rs"
+
+[[test]]
+name = "stdlib_fs_tests"
+path = "tests/vm_runtime/stdlib_fs_tests.rs"
+
+[[test]]
+name = "cross_module_named_fields_tests"
+path = "tests/integration/cross_module_named_fields_tests.rs"
+
+[[test]]
 name = "module_local_shadowing_tests"
 path = "tests/integration/module_local_shadowing_tests.rs"
 

@@ -83,6 +83,7 @@ fn is_wrapper_primop(op: CorePrimOp) -> bool {
             | CorePrimOp::Println
             | CorePrimOp::DebugTrace
             | CorePrimOp::ReadFile
+            | CorePrimOp::TryReadFile
             | CorePrimOp::WriteFile
             | CorePrimOp::ReadStdin
             | CorePrimOp::ReadLines

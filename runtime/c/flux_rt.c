@@ -356,6 +356,144 @@ int64_t flux_read_file(int64_t path) {
     #undef FLUX_READ_FILE_PANIC
 }
 
+/* ── Recoverable file reads (proposal 0178) ───────────────────────────────
+ *
+ * `flux_try_read_file` mirrors the VM's TryReadFile primop: instead of
+ * aborting through flux_panic like flux_read_file, it returns
+ * Result<String, IoError> so the caller can recover.
+ *
+ * Constructor tags are passed in by the code generator rather than hardcoded,
+ * because tags are assigned per-compilation from the program's data
+ * declarations. This mirrors flux_json_parse's calling convention.
+ *
+ * The IoError field order (kind, message, path) must match Flow.IoError's
+ * declaration: named-field syntax is desugared to positional form, so this is
+ * the layout callers pattern-match against.
+ */
+static int64_t flux_io_make_adt(int32_t ctor_tag, const int64_t *fields, int32_t count) {
+    uint8_t scan = count <= 255 ? (uint8_t)count : 255;
+    void *mem = flux_gc_alloc_header((uint32_t)(8 + count * 8), scan, FLUX_OBJ_ADT);
+    int32_t *hdr = (int32_t *)mem;
+    hdr[0] = ctor_tag;
+    hdr[1] = count;
+    if (count > 0 && fields) {
+        memcpy((char *)mem + 8, fields, (size_t)count * sizeof(int64_t));
+    }
+    return flux_tag_ptr(mem);
+}
+
+/* Map an errno onto the matching Flow.IoError.IoErrorKind tag. Keep this in
+ * step with vm_io_err in src/vm/core_dispatch.rs — the two backends must
+ * classify the same failure identically or parity breaks. */
+static int32_t flux_io_kind_tag(
+    int err,
+    int32_t not_found_tag,
+    int32_t permission_denied_tag,
+    int32_t is_a_directory_tag,
+    int32_t interrupted_tag,
+    int32_t other_tag
+) {
+    switch (err) {
+        case ENOENT:  return not_found_tag;
+        case EACCES:  return permission_denied_tag;
+        case EPERM:   return permission_denied_tag;
+        case EISDIR:  return is_a_directory_tag;
+        case EINTR:   return interrupted_tag;
+        case EAGAIN:  return interrupted_tag;
+        default:      return other_tag;
+    }
+}
+
+int64_t flux_try_read_file(
+    int32_t ok_tag,
+    int32_t err_tag,
+    int32_t io_error_tag,
+    int32_t not_found_tag,
+    int32_t permission_denied_tag,
+    int32_t is_a_directory_tag,
+    int32_t interrupted_tag,
+    int32_t other_tag,
+    int64_t path
+) {
+    const char *path_str = flux_string_data(path);
+    uint32_t    path_len = flux_string_len(path);
+    char        msg_buf[256];
+
+    #define FLUX_TRY_READ_FAIL(errnum)                                            \
+        do {                                                                       \
+            int32_t kind_tag = flux_io_kind_tag(                                   \
+                (errnum), not_found_tag, permission_denied_tag,                    \
+                is_a_directory_tag, interrupted_tag, other_tag                     \
+            );                                                                     \
+            int written = snprintf(                                                \
+                msg_buf, sizeof(msg_buf), "%s (os error %d)",                      \
+                strerror(errnum), (errnum)                                         \
+            );                                                                     \
+            size_t mlen = written < 0 ? 0 : (size_t)written;                       \
+            if (mlen >= sizeof(msg_buf)) mlen = sizeof(msg_buf) - 1;               \
+            int64_t kind_val = flux_io_make_adt(kind_tag, NULL, 0);                \
+            int64_t err_fields[3];                                                 \
+            err_fields[0] = kind_val;                                              \
+            err_fields[1] = flux_string_new(msg_buf, (uint32_t)mlen);              \
+            err_fields[2] = path;                                                  \
+            int64_t io_err = flux_io_make_adt(io_error_tag, err_fields, 3);        \
+            return flux_io_make_adt(err_tag, &io_err, 1);                          \
+        } while (0)
+
+    char *cpath = (char *)malloc((size_t)path_len + 1);
+    if (!cpath) {
+        FLUX_TRY_READ_FAIL(ENOMEM);
+    }
+    memcpy(cpath, path_str, path_len);
+    cpath[path_len] = '\0';
+
+    FILE *f = fopen(cpath, "rb");
+    if (!f) {
+        int saved = errno;
+        free(cpath);
+        FLUX_TRY_READ_FAIL(saved);
+    }
+
+    if (fseek(f, 0, SEEK_END) != 0) {
+        int saved = errno;
+        fclose(f);
+        free(cpath);
+        FLUX_TRY_READ_FAIL(saved);
+    }
+    long fsize = ftell(f);
+    if (fsize < 0) {
+        int saved = errno;
+        fclose(f);
+        free(cpath);
+        FLUX_TRY_READ_FAIL(saved);
+    }
+    rewind(f);
+
+    char *contents = (char *)malloc((size_t)fsize > 0 ? (size_t)fsize : 1);
+    if (!contents) {
+        fclose(f);
+        free(cpath);
+        FLUX_TRY_READ_FAIL(ENOMEM);
+    }
+
+    size_t nread = fread(contents, 1, (size_t)fsize, f);
+    int read_error = ferror(f);
+    int saved_errno = errno;
+    fclose(f);
+    if (nread != (size_t)fsize) {
+        free(contents);
+        free(cpath);
+        FLUX_TRY_READ_FAIL(read_error ? saved_errno : EIO);
+    }
+
+    int64_t content_val = flux_string_new(contents, (uint32_t)nread);
+    free(contents);
+    free(cpath);
+    return flux_io_make_adt(ok_tag, &content_val, 1);
+
+    #undef FLUX_TRY_READ_FAIL
+}
+
 int64_t flux_write_file(int64_t path, int64_t content) {
     const char *path_str    = flux_string_data(path);
     uint32_t    path_len    = flux_string_len(path);

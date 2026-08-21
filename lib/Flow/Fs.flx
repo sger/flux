@@ -1,0 +1,35 @@
+// Flow.Fs — filesystem access with recoverable errors (proposal 0178, item 3).
+//
+// Every fallible operation here returns `Result<a, IoError>` rather than
+// aborting: a missing file is an ordinary outcome a caller can handle, not a
+// reason to stop the program. Callers branch on `IoError`'s `kind` — see
+// `Flow.IoError`.
+//
+// The prelude's `read_file` is unchanged and still aborts on failure. It is
+// kept because existing code depends on that behaviour; new code that wants to
+// recover should use `Flow.Fs.read_file` instead.
+
+import Flow.IoError as IoError
+import Flow.Result as Result
+
+module Flow.Fs {
+
+    intrinsic fn try_read_file_prim(path: String) -> Result<String, IoError>
+        with FileSystem = primop TryReadFile
+
+    /// Read a whole file as text.
+    ///
+    /// Returns `Err` with kind `NotFound` when the path does not exist and
+    /// `PermissionDenied` when it cannot be opened, rather than aborting.
+    public fn read_file(path: String) -> Result<String, IoError> with FileSystem {
+        try_read_file_prim(path)
+    }
+
+    /// Read a file, falling back to `default` on any failure.
+    ///
+    /// A convenience for the common "config file is optional" shape, where the
+    /// distinction between missing and unreadable does not matter.
+    public fn read_file_or(path: String, default: String) -> String with FileSystem {
+        Result.unwrap_or_result(read_file(path), default)
+    }
+}

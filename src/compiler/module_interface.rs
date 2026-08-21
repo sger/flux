@@ -4,7 +4,7 @@
 //! compiled module. Consumers can later preload this metadata without
 //! recompiling the dependency from source.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -95,6 +95,7 @@ pub fn build_interface(
     class_env: Option<&ClassEnv>,
     dependency_fingerprints: Vec<DependencyFingerprint>,
     interner: &Interner,
+    ast_program: Option<&crate::syntax::program::Program>,
 ) -> ModuleInterface {
     let mut interface = ModuleInterface::new(
         module_name,
@@ -154,8 +155,66 @@ pub fn build_interface(
             .insert(sym.as_u32(), interner.resolve(sym).to_string());
     }
 
+    // Proposal 0152: record declared field order for this module's public
+    // record-style constructors so importing modules can desugar named-field
+    // syntax. Must run before the fingerprint so a changed field order (which
+    // changes the positional lowering) invalidates downstream caches.
+    if let Some(program) = ast_program {
+        interface.ctor_field_names = collect_public_ctor_field_names(program, interner);
+    }
+
     interface.interface_fingerprint = compute_interface_fingerprint(&interface);
     interface
+}
+
+/// Proposal 0152: collect `constructor -> [field names]` for every `public
+/// data` declaration in `program`, walking both top-level and module-nested
+/// statements.
+///
+/// Only public declarations are recorded: a private constructor is not
+/// nameable from another module, so its field order is not part of the
+/// interface. Field order is preserved exactly — it is the positional order
+/// that named-field desugaring emits.
+fn collect_public_ctor_field_names(
+    program: &crate::syntax::program::Program,
+    interner: &Interner,
+) -> BTreeMap<String, Vec<String>> {
+    fn walk(
+        statements: &[crate::syntax::statement::Statement],
+        interner: &Interner,
+        out: &mut BTreeMap<String, Vec<String>>,
+    ) {
+        use crate::syntax::statement::Statement;
+        for statement in statements {
+            match statement {
+                Statement::Data {
+                    is_public,
+                    variants,
+                    ..
+                } => {
+                    if !is_public {
+                        continue;
+                    }
+                    for variant in variants {
+                        if let Some(names) = variant.field_names.as_ref() {
+                            out.insert(
+                                interner.resolve(variant.name).to_string(),
+                                names
+                                    .iter()
+                                    .map(|n| interner.resolve(*n).to_string())
+                                    .collect(),
+                            );
+                        }
+                    }
+                }
+                Statement::Module { body, .. } => walk(&body.statements, interner, out),
+                _ => {}
+            }
+        }
+    }
+    let mut out = BTreeMap::new();
+    walk(&program.statements, interner, &mut out);
+    out
 }
 
 /// Proposal 0151, Phase 2: extract every `public class` declared in
@@ -422,12 +481,17 @@ pub fn compute_interface_fingerprint(interface: &ModuleInterface) -> String {
         exports: &'a [CanonicalExport<'a>],
         public_classes: &'a [PublicClassEntry],
         public_instances: &'a [PublicInstanceEntry],
+        /// Proposal 0152: constructor field order participates in the
+        /// fingerprint because it determines the positional form that
+        /// named-field syntax desugars to in *importing* modules.
+        ctor_field_names: &'a BTreeMap<String, Vec<String>>,
     }
 
     let canonical = CanonicalInterface {
         exports: &exports,
         public_classes: &interface.public_classes,
         public_instances: &interface.public_instances,
+        ctor_field_names: &interface.ctor_field_names,
     };
 
     let bytes = serde_json::to_vec(&canonical).expect("canonical interface fingerprint");
@@ -661,6 +725,7 @@ mod tests {
                 interface_fingerprint: "abc".to_string(),
             }],
             &interner,
+            None,
         );
 
         assert_eq!(interface.module_name, "Base.List");
@@ -723,6 +788,7 @@ mod tests {
             None,
             Vec::new(),
             &interner,
+            None,
         );
 
         // Symbol table should contain both the ADT and effect symbols.
@@ -786,6 +852,7 @@ mod tests {
             None,
             Vec::new(),
             &interner,
+            None,
         );
 
         assert!(
@@ -846,6 +913,7 @@ mod tests {
             symbol_table: HashMap::new(),
             public_classes: Vec::new(),
             public_instances: Vec::new(),
+            ctor_field_names: BTreeMap::new(),
         };
 
         let json = serde_json::to_string_pretty(&interface).unwrap();
@@ -884,6 +952,49 @@ mod tests {
         b.interface_fingerprint = compute_interface_fingerprint(&b);
 
         assert_eq!(a.interface_fingerprint, b.interface_fingerprint);
+    }
+
+    /// Proposal 0152: constructor field *order* determines the positional form
+    /// that named-field syntax desugars to in importing modules, so reordering
+    /// fields is an interface-breaking change and must move the fingerprint.
+    #[test]
+    fn ctor_field_order_changes_the_interface_fingerprint() {
+        let mut a = ModuleInterface::new("M", "src", "cfg");
+        a.ctor_field_names.insert(
+            "IoError".to_string(),
+            vec!["kind".to_string(), "message".to_string()],
+        );
+        let fingerprint_a = compute_interface_fingerprint(&a);
+
+        let mut b = ModuleInterface::new("M", "src", "cfg");
+        b.ctor_field_names.insert(
+            "IoError".to_string(),
+            vec!["message".to_string(), "kind".to_string()],
+        );
+        let fingerprint_b = compute_interface_fingerprint(&b);
+
+        assert_ne!(
+            fingerprint_a, fingerprint_b,
+            "swapping two constructor field names must change the fingerprint; \
+             importers desugar named fields to this order"
+        );
+    }
+
+    /// Adding a record constructor to a module changes what importers can
+    /// desugar, so it must invalidate downstream caches too.
+    #[test]
+    fn adding_a_record_constructor_changes_the_interface_fingerprint() {
+        let bare = ModuleInterface::new("M", "src", "cfg");
+        let mut with_ctor = ModuleInterface::new("M", "src", "cfg");
+        with_ctor
+            .ctor_field_names
+            .insert("IoError".to_string(), vec!["kind".to_string()]);
+
+        assert_ne!(
+            compute_interface_fingerprint(&bare),
+            compute_interface_fingerprint(&with_ctor),
+            "adding a record constructor must change the fingerprint"
+        );
     }
 
     /// Proposal 0151, Phase 2: an empty `.flxi` round-trips its
@@ -1033,6 +1144,7 @@ mod tests {
             Some(&env_empty),
             Vec::new(),
             &interner,
+            None,
         );
 
         // Same module, but with one PRIVATE class registered.
@@ -1064,6 +1176,7 @@ mod tests {
             Some(&env_priv),
             Vec::new(),
             &interner,
+            None,
         );
 
         assert_eq!(
