@@ -394,6 +394,7 @@ mod tests {
         let injected: Vec<&str> = FLOW_PRELUDE_MODULES.iter().map(|(name, _)| *name).collect();
         for opt_in in [
             "Flow.Path",
+            "Flow.Result",
             "Flow.Array",
             "Flow.Map",
             "Flow.Async",
@@ -416,6 +417,33 @@ mod tests {
             FLOW_PRELUDE_MODULES.first().map(|(name, _)| *name),
             Some("Flow.Option"),
             "Flow.Option must be injected first; later modules depend on it"
+        );
+    }
+
+    /// `Flow.Result` stays *out* of the prelude. It is the error model for
+    /// fallible stdlib operations (proposal 0178), which makes auto-injection
+    /// tempting — but injecting it is the hard-to-reverse direction: removing
+    /// it later breaks every program that relied on a bare `Result`, whereas
+    /// adding it later breaks nothing. `import Flow.Result` already brings the
+    /// type and both constructors into scope unqualified, so nothing is lost.
+    #[test]
+    fn result_module_is_not_auto_injected() {
+        assert!(
+            !FLOW_PRELUDE_MODULES
+                .iter()
+                .any(|(name, _)| *name == "Flow.Result"),
+            "Flow.Result must stay an explicit-import module; auto-injection is \
+             the one choice that cannot be walked back"
+        );
+    }
+
+    /// The module file still has to exist — it is referenced by proposal 0178
+    /// and imported by the stdlib test fixtures.
+    #[test]
+    fn result_module_file_exists() {
+        assert!(
+            flow_dir().join("Result.flx").is_file(),
+            "lib/Flow/Result.flx must exist even though it is not auto-injected"
         );
     }
 

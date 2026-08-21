@@ -302,6 +302,10 @@ name = "stdlib_path_tests"
 path = "tests/vm_runtime/stdlib_path_tests.rs"
 
 [[test]]
+name = "stdlib_result_tests"
+path = "tests/vm_runtime/stdlib_result_tests.rs"
+
+[[test]]
 name = "module_local_shadowing_tests"
 path = "tests/integration/module_local_shadowing_tests.rs"
 
