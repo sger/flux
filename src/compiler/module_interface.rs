@@ -155,7 +155,7 @@ pub fn build_interface(
             .insert(sym.as_u32(), interner.resolve(sym).to_string());
     }
 
-    // Proposal 0152: record declared field order for this module's public
+    // record declared field order for this module's public
     // record-style constructors so importing modules can desugar named-field
     // syntax. Must run before the fingerprint so a changed field order (which
     // changes the positional lowering) invalidates downstream caches.
@@ -167,7 +167,7 @@ pub fn build_interface(
     interface
 }
 
-/// Proposal 0152: collect `constructor -> [field names]` for every `public
+/// collect `constructor -> [field names]` for every `public
 /// data` declaration in `program`, walking both top-level and module-nested
 /// statements.
 ///
@@ -481,7 +481,7 @@ pub fn compute_interface_fingerprint(interface: &ModuleInterface) -> String {
         exports: &'a [CanonicalExport<'a>],
         public_classes: &'a [PublicClassEntry],
         public_instances: &'a [PublicInstanceEntry],
-        /// Proposal 0152: constructor field order participates in the
+        /// constructor field order participates in the
         /// fingerprint because it determines the positional form that
         /// named-field syntax desugars to in *importing* modules.
         ctor_field_names: &'a BTreeMap<String, Vec<String>>,
@@ -954,7 +954,7 @@ mod tests {
         assert_eq!(a.interface_fingerprint, b.interface_fingerprint);
     }
 
-    /// Proposal 0152: constructor field *order* determines the positional form
+    /// constructor field *order* determines the positional form
     /// that named-field syntax desugars to in importing modules, so reordering
     /// fields is an interface-breaking change and must move the fingerprint.
     #[test]

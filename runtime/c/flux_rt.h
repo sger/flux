@@ -471,8 +471,8 @@ void    flux_println(int64_t value);
 void    flux_debug_trace(int64_t value);
 int64_t flux_read_line(void);
 int64_t flux_read_file(int64_t path);
-/* Proposal 0178: recoverable read. Returns Result<String, IoError> instead of
- * aborting. Constructor tags are supplied by the code generator. */
+/* Recoverable read: returns Result<String, IoError> instead of aborting.
+ * Constructor tags are supplied by the code generator. */
 int64_t flux_try_read_file(
     int32_t ok_tag,
     int32_t err_tag,
@@ -484,7 +484,25 @@ int64_t flux_try_read_file(
     int32_t other_tag,
     int64_t path
 );
-int64_t flux_write_file(int64_t path, int64_t content);
+
+
+/* Filesystem predicates: FLUX_TRUE / FLUX_FALSE, false on any failure. */
+int64_t flux_fs_exists(int64_t path);
+int64_t flux_fs_is_dir(int64_t path);
+int64_t flux_fs_is_file(int64_t path);
+
+/* Filesystem mutations: Result<Unit, IoError>. Leading tags are the
+ * constructor tags for Ok, Err, IoError, and the IoErrorKind variants. */
+#define FLUX_IO_TAGS_DECL                                                      \
+    int32_t ok_tag, int32_t err_tag, int32_t io_error_tag,                     \
+    int32_t not_found_tag, int32_t permission_denied_tag,                      \
+    int32_t is_a_directory_tag, int32_t interrupted_tag, int32_t other_tag
+
+int64_t flux_fs_write_file(FLUX_IO_TAGS_DECL, int64_t path, int64_t contents);
+int64_t flux_fs_create_dir_all(FLUX_IO_TAGS_DECL, int64_t path);
+int64_t flux_fs_remove_file(FLUX_IO_TAGS_DECL, int64_t path);
+int64_t flux_fs_remove_dir_all(FLUX_IO_TAGS_DECL, int64_t path);
+int64_t flux_fs_rename(FLUX_IO_TAGS_DECL, int64_t from, int64_t to);int64_t flux_write_file(int64_t path, int64_t content);
 
 /* ── Runtime lifecycle ──────────────────────────────────────────────── */
 

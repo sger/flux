@@ -1,6 +1,5 @@
 // parity: vm, llvm
 // expect: success
-// Proposal 0178: TryReadFile is the first primop that reports failure as a
 // value. The two backends classify failures independently — the VM matches on
 // Rust's io::ErrorKind, the C runtime on errno — so identical output here is a
 // real invariant, not a shared code path.

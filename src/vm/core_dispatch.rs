@@ -3171,6 +3171,43 @@ pub fn execute_core_primop(
                 Err(err) => vm_io_err(&err, path),
             })
         }
+        FsExists => {
+            let path = estr(&args[0], "fs_exists")?;
+            Ok(Value::Boolean(std::path::Path::new(path).exists()))
+        }
+        FsIsDir => {
+            let path = estr(&args[0], "fs_is_dir")?;
+            Ok(Value::Boolean(std::path::Path::new(path).is_dir()))
+        }
+        FsIsFile => {
+            let path = estr(&args[0], "fs_is_file")?;
+            Ok(Value::Boolean(std::path::Path::new(path).is_file()))
+        }
+        FsWriteFile => {
+            let path = estr(&args[0], "fs_write_file")?;
+            let contents = estr(&args[1], "fs_write_file")?;
+            Ok(vm_io_unit_result(fs::write(path, contents), path))
+        }
+        FsCreateDirAll => {
+            let path = estr(&args[0], "fs_create_dir_all")?;
+            Ok(vm_io_unit_result(fs::create_dir_all(path), path))
+        }
+        FsRemoveFile => {
+            let path = estr(&args[0], "fs_remove_file")?;
+            Ok(vm_io_unit_result(fs::remove_file(path), path))
+        }
+        FsRemoveDirAll => {
+            let path = estr(&args[0], "fs_remove_dir_all")?;
+            Ok(vm_io_unit_result(fs::remove_dir_all(path), path))
+        }
+        FsRename => {
+            let from = estr(&args[0], "fs_rename")?;
+            let to = estr(&args[1], "fs_rename")?;
+            // The error names the destination: a rename fails far more often
+            // because the target directory is missing or on another device
+            // than because the source is unreadable.
+            Ok(vm_io_unit_result(fs::rename(from, to), to))
+        }
         WriteFile => {
             let path = estr(&args[0], "write_file")?;
             let content = estr(&args[1], "write_file")?;
@@ -4560,12 +4597,11 @@ fn vm_json_stringify(args: &[Value]) -> Result<Value, String> {
     ))
 }
 
-/// Proposal 0178: wrap a successful value as `Flow.Result`'s `Ok`.
+/// Wrap a value as `Flow.Result`'s `Ok`.
 ///
-/// Recoverable I/O primops return `Ok(Value::Adt(..))` for *both* outcomes —
-/// the `Result` is the value, not the Rust-level error channel. Reserving
-/// `Err(String)` for genuine VM faults (a type mismatch in the argument, say)
-/// keeps "the file was missing" distinct from "the primop was called wrong".
+/// Both outcomes come back as `Ok(Value::Adt(..))` — the Flux `Result` is the
+/// return value. Rust-level `Err` is reserved for real VM faults like a
+/// wrong-typed argument.
 fn vm_io_ok(value: Value) -> Value {
     use crate::runtime::value::{AdtFields, AdtValue};
     Value::Adt(Rc::new(AdtValue {
@@ -4574,17 +4610,26 @@ fn vm_io_ok(value: Value) -> Value {
     }))
 }
 
-/// Proposal 0178: wrap an `std::io::Error` as `Err(IoError { .. })`.
+/// Turn a `std::io::Result<()>` into `Result<Unit, IoError>`.
 ///
-/// The field order here must match `Flow.IoError`'s declaration
-/// (`kind`, `message`, `path`) — named-field syntax is desugared to positional
-/// form, so this is the positional layout callers pattern-match against.
+/// `Ok` is a one-field constructor, so the unit case still carries a payload:
+/// `Value::None`, the VM's unit representation.
+fn vm_io_unit_result(result: std::io::Result<()>, path: &str) -> Value {
+    match result {
+        Ok(()) => vm_io_ok(Value::None),
+        Err(err) => vm_io_err(&err, path),
+    }
+}
+
+/// Wrap an `std::io::Error` as `Err(IoError { .. })`.
+///
+/// Field order must match `Flow.IoError` (`kind`, `message`, `path`) — record
+/// fields are positional at runtime.
 fn vm_io_err(err: &std::io::Error, path: &str) -> Value {
     use crate::runtime::value::{AdtFields, AdtValue};
     use std::io::ErrorKind;
 
-    // `Flow.IoError`'s IoErrorKind is a nullary-constructor enum, so each kind
-    // is a unit ADT named exactly as declared there.
+    // Each kind is a nullary constructor, named as declared in Flow.IoError.
     let kind_name = match err.kind() {
         ErrorKind::NotFound => "NotFound",
         ErrorKind::PermissionDenied => "PermissionDenied",

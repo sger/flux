@@ -103,7 +103,7 @@ impl Compiler {
                 ctor_field_names.extend(preloaded_field_names);
                 adt_variants.extend(preloaded_variants);
             }
-            // Proposal 0152: fold in field order for constructors declared in
+            // fold in field order for constructors declared in
             // *imported* modules, which have no `data` statement in this
             // program. Inserted first-wins order: a locally declared
             // constructor of the same name keeps its own field order, matching

@@ -537,6 +537,14 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::DebugTrace
         | CorePrimOp::ReadFile
         | CorePrimOp::TryReadFile
+        | CorePrimOp::FsExists
+        | CorePrimOp::FsIsDir
+        | CorePrimOp::FsIsFile
+        | CorePrimOp::FsCreateDirAll
+        | CorePrimOp::FsRemoveFile
+        | CorePrimOp::FsRemoveDirAll
+        | CorePrimOp::FsWriteFile
+        | CorePrimOp::FsRename
         | CorePrimOp::WriteFile
         | CorePrimOp::ReadStdin
         | CorePrimOp::ReadLines

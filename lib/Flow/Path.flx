@@ -9,8 +9,8 @@ import Flow.Array as Array
 //
 // NOT auto-imported. Use: import Flow.Path as Path
 //
-// Paths are POSIX-style: `/` separates components and a leading `/` means
-// absolute. See proposal 0178.
+// Paths are POSIX-style: `/` separates components, a leading `/` means
+// absolute.
 
 module Flow.Path {
 

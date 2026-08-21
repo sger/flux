@@ -17,6 +17,14 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::DebugTrace => "__primop_debug_trace",
         CorePrimOp::ReadFile => "read_file",
         CorePrimOp::TryReadFile => "try_read_file",
+        CorePrimOp::FsExists => "fs_exists",
+        CorePrimOp::FsIsDir => "fs_is_dir",
+        CorePrimOp::FsIsFile => "fs_is_file",
+        CorePrimOp::FsCreateDirAll => "fs_create_dir_all",
+        CorePrimOp::FsRemoveFile => "fs_remove_file",
+        CorePrimOp::FsRemoveDirAll => "fs_remove_dir_all",
+        CorePrimOp::FsWriteFile => "fs_write_file",
+        CorePrimOp::FsRename => "fs_rename",
         CorePrimOp::WriteFile => "write_file",
         CorePrimOp::ReadStdin => "read_stdin",
         CorePrimOp::ReadLines => "read_lines",
@@ -301,6 +309,14 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::DebugTrace
             | CorePrimOp::ReadFile
             | CorePrimOp::TryReadFile
+            | CorePrimOp::FsExists
+            | CorePrimOp::FsIsDir
+            | CorePrimOp::FsIsFile
+            | CorePrimOp::FsCreateDirAll
+            | CorePrimOp::FsRemoveFile
+            | CorePrimOp::FsRemoveDirAll
+            | CorePrimOp::FsWriteFile
+            | CorePrimOp::FsRename
             | CorePrimOp::WriteFile
             | CorePrimOp::ReadStdin
             | CorePrimOp::ReadLines
