@@ -449,6 +449,7 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
                         Some(request.compiler.class_env()),
                         dependency_fingerprints,
                         &request.compiler.interner,
+                        Some(&node.program),
                     );
                     request.compiler.preload_module_interface(&interface);
                     loaded_interfaces.insert(node.path.clone(), interface.clone());

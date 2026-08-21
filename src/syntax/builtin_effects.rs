@@ -139,7 +139,7 @@ pub fn primop_fine_effect_label(op: CorePrimOp) -> Option<&'static str> {
     match op {
         Println | Print => Some(CONSOLE),
         DebugTrace => Some(DEBUG),
-        ReadFile | WriteFile | ReadLines => Some(FILESYSTEM),
+        ReadFile | TryReadFile | WriteFile | ReadLines => Some(FILESYSTEM),
         ReadStdin => Some(STDIN),
         ClockNow | Time => Some(CLOCK),
         Panic => Some(PANIC),
@@ -197,6 +197,7 @@ mod tests {
     fn filesystem_primops_have_filesystem_fine_and_io_coarse() {
         for op in [
             CorePrimOp::ReadFile,
+            CorePrimOp::TryReadFile,
             CorePrimOp::WriteFile,
             CorePrimOp::ReadLines,
         ] {
@@ -258,6 +259,7 @@ mod tests {
             CorePrimOp::Print,
             CorePrimOp::Println,
             CorePrimOp::ReadFile,
+            CorePrimOp::TryReadFile,
             CorePrimOp::WriteFile,
             CorePrimOp::ReadLines,
             CorePrimOp::ReadStdin,

@@ -368,6 +368,14 @@ pub(crate) fn run_test_file(path: &str, request: TestRunRequest<'_>) {
             effective_module_strictness(node.kind, entry_module_kind, request.session.strict_mode);
         compiler.set_strict_mode(module_strict_mode);
         compiler.set_strict_require_main(false);
+        // Proposal 0152: record this module's record-style constructor field
+        // order before compiling it, so a *later* module in the topo order can
+        // desugar named-field syntax naming one of its constructors. Unlike
+        // the `run` drivers, the test runner compiles every module through one
+        // `Compiler` without a preload step, so without this the field order
+        // for an imported constructor is never seen and the desugaring emits a
+        // zero-field constructor (E082 / E085).
+        compiler.preload_ctor_field_names_from_program(&node.program);
         let compile_result = compiler.compile_with_opts(
             &node.program,
             request.session.enable_optimize,

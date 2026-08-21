@@ -515,6 +515,7 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::Println => out.push_str("Println"),
         CorePrimOp::DebugTrace => out.push_str("DebugTrace"),
         CorePrimOp::ReadFile => out.push_str("ReadFile"),
+        CorePrimOp::TryReadFile => out.push_str("TryReadFile"),
         CorePrimOp::WriteFile => out.push_str("WriteFile"),
         CorePrimOp::ReadStdin => out.push_str("ReadStdin"),
         CorePrimOp::ReadLines => out.push_str("ReadLines"),

@@ -28,7 +28,10 @@ use sha2::{Digest, Sha256};
 /// with value getters.
 /// Epoch 9: parameterized handlers and default-handler unit resumes update
 /// cached module bytecode/global relocation shape.
-pub const CACHE_EPOCH: u16 = 10;
+/// Epoch 11: module interfaces record record-style constructor field order
+/// (`ctor_field_names`) so importing modules can desugar named-field syntax;
+/// the `TryReadFile` primop changes the primop table and cached lowering.
+pub const CACHE_EPOCH: u16 = 11;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

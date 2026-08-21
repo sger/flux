@@ -1,0 +1,75 @@
+// Tests for Flow.Fs (proposal 0178, item 3 — first fallible primop).
+//
+// Unlike the rest of the 0178 stdlib tests these are not hermetic: they touch
+// the real filesystem. They deliberately only read paths that are guaranteed
+// to exist in the repository (or guaranteed not to), so no fixture setup is
+// needed and nothing is written.
+
+import Flow.Fs as Fs
+import Flow.IoError as Io
+import Flow.Result as Result
+
+// ── success ────────────────────────────────────────────────────
+
+fn test_reading_an_existing_file_succeeds() with FileSystem, Console {
+    match Fs.read_file("Cargo.toml") {
+        Ok(content) -> assert_true(len(content) > 0),
+        Err(e) -> assert_true(false),
+    }
+}
+
+fn test_read_file_returns_the_file_contents() with FileSystem, Console {
+    let content = Fs.read_file_or("Cargo.toml", "")
+    assert_true(len(content) > 0)
+}
+
+// ── failure is recoverable, not fatal ──────────────────────────
+
+fn test_a_missing_file_yields_not_found_instead_of_aborting() with FileSystem, Console {
+    match Fs.read_file("/nonexistent/definitely/not/here.txt") {
+        Ok(_) -> assert_true(false),
+        Err(e) -> assert_eq(Io.kind_name(Io.error_kind(e)), "NotFound"),
+    }
+}
+
+fn test_a_missing_file_reports_the_path_it_tried() with FileSystem, Console {
+    match Fs.read_file("/nonexistent/xyz.txt") {
+        Ok(_) -> assert_true(false),
+        Err(e) -> assert_eq(Io.error_path(e), "/nonexistent/xyz.txt"),
+    }
+}
+
+fn test_reading_a_directory_is_an_error_not_a_success() with FileSystem, Console {
+    match Fs.read_file("src") {
+        Ok(_) -> assert_true(false),
+        Err(e) -> assert_true(Io.kind_name(Io.error_kind(e)) != "NotFound"),
+    }
+}
+
+// ── composition ────────────────────────────────────────────────
+
+fn test_read_file_or_falls_back_on_failure() with FileSystem, Console {
+    assert_eq(Fs.read_file_or("/nonexistent/abc.txt", "fallback"), "fallback")
+}
+
+fn test_the_result_composes_with_flow_result_combinators() with FileSystem, Console {
+    let length = Result.map_result(Fs.read_file("Cargo.toml"), fn(c) { len(c) })
+    assert_true(Result.unwrap_or_result(length, 0) > 0)
+
+    let missing = Result.map_result(Fs.read_file("/nonexistent/q.txt"), fn(c) { len(c) })
+    assert_eq(Result.unwrap_or_result(missing, -1), -1)
+}
+
+fn test_a_caller_can_recover_by_branching_on_kind() with FileSystem, Console {
+    fn read_optional(path: String) -> String with FileSystem {
+        match Fs.read_file(path) {
+            Ok(c) -> c,
+            Err(e) -> match Io.is_not_found(e) {
+                true -> "",
+                false -> "unreadable",
+            },
+        }
+    }
+    assert_eq(read_optional("/nonexistent/opt.txt"), "")
+    assert_true(len(read_optional("Cargo.toml")) > 0)
+}

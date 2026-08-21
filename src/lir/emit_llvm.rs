@@ -2112,6 +2112,43 @@ impl<'a> FnEmitter<'a> {
             return;
         }
 
+        // Proposal 0178: TryReadFile returns Result<String, IoError>, so the
+        // C runtime needs this program's constructor tags for `Ok`, `Err`,
+        // `IoError`, and the IoErrorKind variants it may produce. Tags are
+        // assigned per compilation, so they cannot be baked into the runtime.
+        if let CorePrimOp::TryReadFile = op {
+            let tag = |name: &str, fallback: i32| {
+                self.program
+                    .constructor_tags
+                    .get(name)
+                    .copied()
+                    .unwrap_or(fallback)
+            };
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            self.call_c(
+                dst_local,
+                "flux_try_read_file",
+                vec![
+                    (LlvmType::i32(), self.i32_const(tag("Ok", 16))),
+                    (LlvmType::i32(), self.i32_const(tag("Err", 17))),
+                    (LlvmType::i32(), self.i32_const(tag("IoError", 18))),
+                    (LlvmType::i32(), self.i32_const(tag("NotFound", 19))),
+                    (LlvmType::i32(), self.i32_const(tag("PermissionDenied", 20))),
+                    (LlvmType::i32(), self.i32_const(tag("IsADirectory", 21))),
+                    (LlvmType::i32(), self.i32_const(tag("Interrupted", 22))),
+                    (LlvmType::i32(), self.i32_const(tag("Other", 23))),
+                    (LlvmType::i64(), self.var(args[0])),
+                ],
+                ret_ty,
+            );
+            return;
+        }
+
         if let CorePrimOp::JsonParse = op {
             let tag = |name: &str, fallback: i32| {
                 self.program
@@ -3648,6 +3685,7 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::DebugTrace => "debug_trace",
         CorePrimOp::ToString => "to_string",
         CorePrimOp::ReadFile => "read_file",
+        CorePrimOp::TryReadFile => "try_read_file",
         CorePrimOp::WriteFile => "write_file",
         CorePrimOp::ReadStdin => "read_stdin",
         CorePrimOp::ReadLines => "read_lines",

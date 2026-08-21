@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -157,6 +157,22 @@ pub struct ModuleInterface {
     /// by `(class_module, class_name, head_type_repr)`.
     #[serde(default)]
     pub public_instances: Vec<PublicInstanceEntry>,
+    /// Proposal 0152: declared field names for this module's record-style ADT
+    /// constructors, keyed by constructor name (e.g. `IoError` ->
+    /// `["kind", "message", "path"]`).
+    ///
+    /// Named-field syntax (`IoError { kind: .. }`, both as an expression and
+    /// as a pattern) is desugared to positional form by resolving the
+    /// constructor's declared field order. That resolution runs over the
+    /// *current* program's AST, so without this table an importing module has
+    /// no field order for a constructor declared elsewhere and the desugaring
+    /// silently produces a zero-field constructor.
+    ///
+    /// Entries are sorted by constructor name for deterministic
+    /// fingerprinting. Field *order* is significant — it is the positional
+    /// order the desugaring emits — so the vectors are never sorted.
+    #[serde(default)]
+    pub ctor_field_names: BTreeMap<String, Vec<String>>,
 }
 
 /// Sub-reason for a dependency fingerprint cache miss.
@@ -228,6 +244,7 @@ impl ModuleInterface {
             symbol_table: HashMap::new(),
             public_classes: Vec::new(),
             public_instances: Vec::new(),
+            ctor_field_names: BTreeMap::new(),
         }
     }
 }
