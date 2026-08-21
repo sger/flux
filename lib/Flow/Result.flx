@@ -1,0 +1,130 @@
+// Flow.Result — the Result type and its combinators.
+//
+// `Result<a, e>` is the canonical type for operations that can fail in a
+// recoverable way: `Ok(value)` on success, `Err(error)` on failure. It is the
+// error model for fallible standard-library operations (proposal 0178).
+//
+// Unlike `Option`, `Either`, `List`, and `Map`, `Result` is an ordinary data
+// declaration rather than a compiler built-in, so `Ok` and `Err` are ordinary
+// constructor names that a local declaration may reuse. This keeps existing
+// user-defined result types working, and matches Haskell and Rust — neither
+// reserves its result constructors.
+//
+// This module is imported explicitly rather than auto-injected. `import
+// Flow.Result` brings the type and both constructors into scope unqualified,
+// so nothing is gained by injecting it — and injection is the one choice that
+// cannot be walked back later without breaking every program that relied on it.
+//
+// Combinators are named `*_result` where a bare name would collide with the
+// `Option` equivalents in the prelude (`map_result`, not `map`).
+
+module Flow.Result {
+
+    /// Success carries a value of type `a`; failure carries an error of type `e`.
+    public data Result<a, e> {
+        Ok(a),
+        Err(e),
+    }
+
+    // ── Inspection ────────────────────────────────────────────────────
+
+    /// True when the result is `Ok`.
+    public fn is_ok<a, e>(result: Result<a, e>) -> Bool {
+        match result {
+            Ok(_) -> true,
+            Err(_) -> false,
+        }
+    }
+
+    /// True when the result is `Err`.
+    public fn is_err<a, e>(result: Result<a, e>) -> Bool {
+        match result {
+            Ok(_) -> false,
+            Err(_) -> true,
+        }
+    }
+
+    // ── Extraction ────────────────────────────────────────────────────
+
+    /// Extract the success value, or panic on `Err`.
+    public fn unwrap_result<a, e>(result: Result<a, e>) -> a {
+        match result {
+            Ok(value) -> value,
+            Err(_) -> panic("unwrap_result called on Err"),
+        }
+    }
+
+    /// Extract the success value, or return `default` on `Err`.
+    public fn unwrap_or_result<a, e>(result: Result<a, e>, default: a) -> a {
+        match result {
+            Ok(value) -> value,
+            Err(_) -> default,
+        }
+    }
+
+    /// Extract the error, or panic on `Ok`.
+    public fn unwrap_err_result<a, e>(result: Result<a, e>) -> e {
+        match result {
+            Ok(_) -> panic("unwrap_err_result called on Ok"),
+            Err(error) -> error,
+        }
+    }
+
+    // ── Transformation ────────────────────────────────────────────────
+
+    /// Apply `f` to the success value, passing `Err` through unchanged.
+    public fn map_result<a, b, e>(result: Result<a, e>, f: (a) -> b) -> Result<b, e> {
+        match result {
+            Ok(value) -> Ok(f(value)),
+            Err(error) -> Err(error),
+        }
+    }
+
+    /// Apply `f` to the error, passing `Ok` through unchanged.
+    public fn map_err_result<a, e, f2>(result: Result<a, e>, f: (e) -> f2) -> Result<a, f2> {
+        match result {
+            Ok(value) -> Ok(value),
+            Err(error) -> Err(f(error)),
+        }
+    }
+
+    /// Chain a fallible operation, short-circuiting on the first `Err`.
+    public fn and_then_result<a, b, e>(
+        result: Result<a, e>,
+        f: (a) -> Result<b, e>,
+    ) -> Result<b, e> {
+        match result {
+            Ok(value) -> f(value),
+            Err(error) -> Err(error),
+        }
+    }
+
+    /// Supply a fallback result when this one is `Err`.
+    public fn or_else_result<a, e, f2>(
+        result: Result<a, e>,
+        f: (e) -> Result<a, f2>,
+    ) -> Result<a, f2> {
+        match result {
+            Ok(value) -> Ok(value),
+            Err(error) -> f(error),
+        }
+    }
+
+    // ── Conversion ────────────────────────────────────────────────────
+
+    /// Discard the error, turning `Ok(v)` into `Some(v)` and `Err(_)` into `None`.
+    public fn result_to_option<a, e>(result: Result<a, e>) -> Option<a> {
+        match result {
+            Ok(value) -> Some(value),
+            Err(_) -> None,
+        }
+    }
+
+    /// Attach an error to an absent value, turning `None` into `Err(error)`.
+    public fn option_to_result<a, e>(opt: Option<a>, error: e) -> Result<a, e> {
+        match opt {
+            Some(value) -> Ok(value),
+            None -> Err(error),
+        }
+    }
+}
