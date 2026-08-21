@@ -1,5 +1,5 @@
 //! Regression tests for named-field syntax on *imported* constructors
-//! (proposal 0152).
+//!.
 //!
 //! Named-field syntax — `IoError { kind: .., message: .. }` as an expression
 //! and `IoError { kind, message }` as a pattern — is desugared to positional

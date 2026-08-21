@@ -1,4 +1,4 @@
-//! Integration tests for `Flow.Result` (proposal 0178, stage 1).
+//! Integration tests for `Flow.Result`.
 //!
 //! `Result<a, e>` is the error model every fallible stdlib operation will
 //! return, so the properties locked in here are the ones the rest of 0178

@@ -725,6 +725,33 @@ impl<'a> FnEmitter<'a> {
         })
     }
 
+    /// Constructor tags for `Result` / `IoError`, in the order the C runtime's
+    /// recoverable-I/O functions expect them.
+    ///
+    /// Tags are assigned per compilation from the program's data
+    /// declarations, so they cannot be fixed in the runtime. The fallbacks
+    /// only apply when a program never declares the constructor, in which case
+    /// the value is unreachable anyway.
+    fn io_result_tag_args(&self) -> Vec<(LlvmType, LlvmOperand)> {
+        let tag = |name: &str, fallback: i32| {
+            self.program
+                .constructor_tags
+                .get(name)
+                .copied()
+                .unwrap_or(fallback)
+        };
+        vec![
+            (LlvmType::i32(), self.i32_const(tag("Ok", 16))),
+            (LlvmType::i32(), self.i32_const(tag("Err", 17))),
+            (LlvmType::i32(), self.i32_const(tag("IoError", 18))),
+            (LlvmType::i32(), self.i32_const(tag("NotFound", 19))),
+            (LlvmType::i32(), self.i32_const(tag("PermissionDenied", 20))),
+            (LlvmType::i32(), self.i32_const(tag("IsADirectory", 21))),
+            (LlvmType::i32(), self.i32_const(tag("Interrupted", 22))),
+            (LlvmType::i32(), self.i32_const(tag("Other", 23))),
+        ]
+    }
+
     fn i32_const(&self, value: i32) -> LlvmOperand {
         LlvmOperand::Const(LlvmConst::Int {
             bits: 32,
@@ -2112,17 +2139,25 @@ impl<'a> FnEmitter<'a> {
             return;
         }
 
-        // Proposal 0178: TryReadFile returns Result<String, IoError>, so the
-        // C runtime needs this program's constructor tags for `Ok`, `Err`,
-        // `IoError`, and the IoErrorKind variants it may produce. Tags are
-        // assigned per compilation, so they cannot be baked into the runtime.
-        if let CorePrimOp::TryReadFile = op {
-            let tag = |name: &str, fallback: i32| {
-                self.program
-                    .constructor_tags
-                    .get(name)
-                    .copied()
-                    .unwrap_or(fallback)
+        // TryReadFile builds Ok/Err/IoError values, so the C runtime needs
+        // this program's constructor tags. Tags are assigned per compilation.
+        // Fs mutations return Result<Unit, IoError>, so the C runtime needs
+        // this program's constructor tags. Predicates return Bool and are
+        // plain calls handled by the generic path.
+        if matches!(
+            op,
+            CorePrimOp::FsWriteFile
+                | CorePrimOp::FsCreateDirAll
+                | CorePrimOp::FsRemoveFile
+                | CorePrimOp::FsRemoveDirAll
+                | CorePrimOp::FsRename
+        ) {
+            let c_name = match op {
+                CorePrimOp::FsWriteFile => "flux_fs_write_file",
+                CorePrimOp::FsCreateDirAll => "flux_fs_create_dir_all",
+                CorePrimOp::FsRemoveFile => "flux_fs_remove_file",
+                CorePrimOp::FsRemoveDirAll => "flux_fs_remove_dir_all",
+                _ => "flux_fs_rename",
             };
             let dst_local = dst.map(|d| self.var_local(d));
             let ret_ty = if dst.is_some() {
@@ -2130,22 +2165,24 @@ impl<'a> FnEmitter<'a> {
             } else {
                 LlvmType::Void
             };
-            self.call_c(
-                dst_local,
-                "flux_try_read_file",
-                vec![
-                    (LlvmType::i32(), self.i32_const(tag("Ok", 16))),
-                    (LlvmType::i32(), self.i32_const(tag("Err", 17))),
-                    (LlvmType::i32(), self.i32_const(tag("IoError", 18))),
-                    (LlvmType::i32(), self.i32_const(tag("NotFound", 19))),
-                    (LlvmType::i32(), self.i32_const(tag("PermissionDenied", 20))),
-                    (LlvmType::i32(), self.i32_const(tag("IsADirectory", 21))),
-                    (LlvmType::i32(), self.i32_const(tag("Interrupted", 22))),
-                    (LlvmType::i32(), self.i32_const(tag("Other", 23))),
-                    (LlvmType::i64(), self.var(args[0])),
-                ],
-                ret_ty,
-            );
+            let mut call_args = self.io_result_tag_args();
+            for arg in args {
+                call_args.push((LlvmType::i64(), self.var(*arg)));
+            }
+            self.call_c(dst_local, c_name, call_args, ret_ty);
+            return;
+        }
+
+        if let CorePrimOp::TryReadFile = op {
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            let mut call_args = self.io_result_tag_args();
+            call_args.push((LlvmType::i64(), self.var(args[0])));
+            self.call_c(dst_local, "flux_try_read_file", call_args, ret_ty);
             return;
         }
 
@@ -3686,6 +3723,14 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::ToString => "to_string",
         CorePrimOp::ReadFile => "read_file",
         CorePrimOp::TryReadFile => "try_read_file",
+        CorePrimOp::FsExists => "fs_exists",
+        CorePrimOp::FsIsDir => "fs_is_dir",
+        CorePrimOp::FsIsFile => "fs_is_file",
+        CorePrimOp::FsWriteFile => "fs_write_file",
+        CorePrimOp::FsCreateDirAll => "fs_create_dir_all",
+        CorePrimOp::FsRemoveFile => "fs_remove_file",
+        CorePrimOp::FsRemoveDirAll => "fs_remove_dir_all",
+        CorePrimOp::FsRename => "fs_rename",
         CorePrimOp::WriteFile => "write_file",
         CorePrimOp::ReadStdin => "read_stdin",
         CorePrimOp::ReadLines => "read_lines",
@@ -4171,6 +4216,43 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_http_is_shutting_down" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_http_server_stopped" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_http_is_server_stopped" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        // Recoverable I/O: eight leading i32 constructor tags, then the
+        // i64 arguments. Must match the C declarations in flux_rt.h.
+        "flux_try_read_file"
+        | "flux_fs_create_dir_all"
+        | "flux_fs_remove_file"
+        | "flux_fs_remove_dir_all" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i64(),
+            ],
+        ),
+        "flux_fs_write_file" | "flux_fs_rename" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+            ],
+        ),
+        "flux_fs_exists" | "flux_fs_is_dir" | "flux_fs_is_file" => {
+            (LlvmType::i64(), vec![LlvmType::i64()])
+        }
         "flux_json_parse" => (
             LlvmType::i64(),
             vec![

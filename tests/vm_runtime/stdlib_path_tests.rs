@@ -1,4 +1,4 @@
-//! Integration tests for `Flow.Path` (proposal 0178, stage 0).
+//! Integration tests for `Flow.Path`.
 //!
 //! `Flow.Path` is pure Flux with no primops, so the behavioral coverage lives
 //! in the Flux fixture and is driven here through the `flux --test` runner.

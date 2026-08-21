@@ -1,4 +1,4 @@
-// Tests for Flow.Path (proposal 0178, stage 0).
+// Tests for Flow.Path.
 //
 // Flow.Path is pure string manipulation: no filesystem access, no effects.
 // Every assertion here is about the *shape* of a path, never about what

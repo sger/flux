@@ -816,11 +816,33 @@ pub enum CorePrimOp {
     /// Read a file, reporting failure instead of aborting.
     /// Args: (path) -> Result<String, IoError>.
     ///
-    /// Unlike `ReadFile`, which panics when the file cannot be read, this
-    /// returns `Err(IoError { .. })` so the caller can recover. Both are kept:
-    /// existing code depends on the aborting form.
+    /// `ReadFile` panics on failure and is kept for existing code.
     TryReadFile = 227,
-    // ── Next free ID: 228 ─────────────────────────────────────────────
+    /// True when the path exists. Args: (path) -> Bool.
+    ///
+    /// Predicates answer `false` for any failure; they do not distinguish
+    /// "absent" from "unreadable".
+    FsExists = 228,
+    /// True when the path exists and is a directory. Args: (path) -> Bool.
+    FsIsDir = 229,
+    /// True when the path exists and is a regular file. Args: (path) -> Bool.
+    FsIsFile = 230,
+    /// Write text to a file, replacing it. Args: (path, contents) -> Result<Unit, IoError>.
+    FsWriteFile = 231,
+    /// Create a directory and any missing parents, like `mkdir -p`.
+    /// Args: (path) -> Result<Unit, IoError>.
+    FsCreateDirAll = 232,
+    /// Remove a single file. Args: (path) -> Result<Unit, IoError>.
+    FsRemoveFile = 233,
+    /// Remove a directory and everything under it. Args: (path) -> Result<Unit, IoError>.
+    FsRemoveDirAll = 234,
+    /// Rename a path, atomically where the platform allows.
+    /// Args: (from, to) -> Result<Unit, IoError>.
+    ///
+    /// Must map to the platform primitive, not copy-then-delete — callers rely
+    /// on the atomicity.
+    FsRename = 235,
+    // ── Next free ID: 236 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -931,6 +953,14 @@ impl CorePrimOp {
             "HttpParseResponse" => return Some(Self::HttpParseResponse),
             "JsonParse" => return Some(Self::JsonParse),
             "TryReadFile" => return Some(Self::TryReadFile),
+            "FsExists" => return Some(Self::FsExists),
+            "FsIsDir" => return Some(Self::FsIsDir),
+            "FsIsFile" => return Some(Self::FsIsFile),
+            "FsWriteFile" => return Some(Self::FsWriteFile),
+            "FsCreateDirAll" => return Some(Self::FsCreateDirAll),
+            "FsRemoveFile" => return Some(Self::FsRemoveFile),
+            "FsRemoveDirAll" => return Some(Self::FsRemoveDirAll),
+            "FsRename" => return Some(Self::FsRename),
             "JsonStringify" => return Some(Self::JsonStringify),
             "HttpWriteChunkedHead" => return Some(Self::HttpWriteChunkedHead),
             "HttpWriteChunk" => return Some(Self::HttpWriteChunk),
@@ -980,6 +1010,14 @@ impl CorePrimOp {
             Self::DebugTrace => Some("__primop_debug_trace"),
             Self::ReadFile => Some("read_file"),
             Self::TryReadFile => Some("try_read_file"),
+            Self::FsExists => Some("fs_exists"),
+            Self::FsIsDir => Some("fs_is_dir"),
+            Self::FsIsFile => Some("fs_is_file"),
+            Self::FsWriteFile => Some("fs_write_file"),
+            Self::FsCreateDirAll => Some("fs_create_dir_all"),
+            Self::FsRemoveFile => Some("fs_remove_file"),
+            Self::FsRemoveDirAll => Some("fs_remove_dir_all"),
+            Self::FsRename => Some("fs_rename"),
             Self::WriteFile => Some("write_file"),
             Self::ReadStdin => Some("read_stdin"),
             Self::ReadLines => Some("read_lines"),
@@ -1154,6 +1192,14 @@ impl CorePrimOp {
             49 => Println,
             50 => ReadFile,
             227 => TryReadFile,
+            228 => FsExists,
+            229 => FsIsDir,
+            230 => FsIsFile,
+            231 => FsWriteFile,
+            232 => FsCreateDirAll,
+            233 => FsRemoveFile,
+            234 => FsRemoveDirAll,
+            235 => FsRename,
             51 => WriteFile,
             52 => ReadStdin,
             53 => ReadLines,
@@ -1338,6 +1384,14 @@ impl CorePrimOp {
             ("__primop_println", 1, CorePrimOp::Println),
             ("__primop_read_file", 1, CorePrimOp::ReadFile),
             ("__primop_try_read_file", 1, CorePrimOp::TryReadFile),
+            ("__primop_fs_exists", 1, CorePrimOp::FsExists),
+            ("__primop_fs_is_dir", 1, CorePrimOp::FsIsDir),
+            ("__primop_fs_is_file", 1, CorePrimOp::FsIsFile),
+            ("__primop_fs_write_file", 2, CorePrimOp::FsWriteFile),
+            ("__primop_fs_create_dir_all", 1, CorePrimOp::FsCreateDirAll),
+            ("__primop_fs_remove_file", 1, CorePrimOp::FsRemoveFile),
+            ("__primop_fs_remove_dir_all", 1, CorePrimOp::FsRemoveDirAll),
+            ("__primop_fs_rename", 2, CorePrimOp::FsRename),
             ("__primop_read_lines", 1, CorePrimOp::ReadLines),
             ("__primop_read_stdin", 0, CorePrimOp::ReadStdin),
             ("__primop_write_file", 2, CorePrimOp::WriteFile),
@@ -1582,6 +1636,12 @@ impl CorePrimOp {
             | Println
             | ReadFile
             | TryReadFile
+            | FsExists
+            | FsIsDir
+            | FsIsFile
+            | FsCreateDirAll
+            | FsRemoveFile
+            | FsRemoveDirAll
             | ReadLines
             | StringLength
             | ToString
@@ -1704,6 +1764,8 @@ impl CorePrimOp {
             | Split
             | StringConcat
             | WriteFile
+            | FsWriteFile
+            | FsRename
             | SafeDiv
             | SafeMod
             | BitAnd

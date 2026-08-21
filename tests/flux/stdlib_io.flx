@@ -1,4 +1,4 @@
-// Tests for Flow.IoError (proposal 0178, item 1).
+// Tests for Flow.IoError.
 //
 // Flow.IoError is pure: it declares the error type every fallible OS operation will
 // report and the helpers for inspecting one. No filesystem access, no effects,
