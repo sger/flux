@@ -467,6 +467,19 @@ impl<'a> InferCtx<'a> {
                     return None;
                 }
                 let class_name = self.lookup_class_method(*member)?;
+                // A qualified call dispatches as a class method only when the
+                // qualifier names that class. `Foldable.fold` and
+                // `Comparable.same` do; `Stream.append` does not — there the
+                // qualifier is a module that happens to export a function
+                // sharing a name with the built-in `Semigroup` method, and the
+                // module's own function must win.
+                //
+                // Matching on the class's declaring path does not work: an
+                // instance may live in a different module from its class, and
+                // the qualifier at the call site is an import alias.
+                if *member != class_name && *module_name != class_name {
+                    return None;
+                }
                 Some(ResolvedClassMethodCall {
                     class_name,
                     method_name: *member,

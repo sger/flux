@@ -520,7 +520,7 @@ static void json_stringify_value(JsonBuf *buf, JsonTags tags, int64_t value) {
         json_buf_byte(buf, '[');
         for (int64_t i = 0; i < n; i++) {
             if (i > 0) json_buf_byte(buf, ',');
-            json_stringify_value(buf, tags, flux_array_get(arr, flux_tag_int(i)));
+            json_stringify_value(buf, tags, flux_array_at(arr, flux_tag_int(i)));
         }
         json_buf_byte(buf, ']');
     } else if (tag == tags.json_object_tag && fields && count >= 1) {
@@ -529,7 +529,7 @@ static void json_stringify_value(JsonBuf *buf, JsonTags tags, int64_t value) {
         int64_t len_val = flux_array_len(keys);
         int64_t n = flux_is_int(len_val) ? flux_untag_int(len_val) : 0;
         int64_t *sorted = n > 0 ? (int64_t *)malloc((size_t)n * sizeof(int64_t)) : NULL;
-        for (int64_t i = 0; i < n; i++) sorted[i] = flux_array_get(keys, flux_tag_int(i));
+        for (int64_t i = 0; i < n; i++) sorted[i] = flux_array_at(keys, flux_tag_int(i));
         qsort(sorted, (size_t)n, sizeof(int64_t), json_key_cmp);
         json_buf_byte(buf, '{');
         for (int64_t i = 0; i < n; i++) {
