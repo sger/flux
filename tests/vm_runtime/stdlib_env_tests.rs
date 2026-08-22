@@ -11,18 +11,22 @@ use std::process::Command;
 #[path = "../support/stdlib_fixture.rs"]
 mod stdlib_fixture;
 
+use stdlib_fixture::scratch::Scratch;
+
 use stdlib_fixture::assert_fixture_passes;
 
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
 
-fn scratch_file(name: &str, source: &str) -> PathBuf {
-    let dir = workspace_root().join("target").join("test-scratch");
-    std::fs::create_dir_all(&dir).expect("create scratch dir");
-    let file = dir.join(name);
-    std::fs::write(&file, source).expect("write scratch fixture");
-    file
+/// Write a fixture into a scratch dir unique to this process, and return both
+/// the path and the guard that removes the dir on drop. The name alone is not
+/// unique: concurrent test binaries writing the same literal filename into one
+/// shared directory clobbered each other (KI-010 in docs/known_issues.md).
+fn scratch_file(name: &str, source: &str) -> (Scratch, PathBuf) {
+    let scratch = Scratch::new(name.trim_end_matches(".flx"));
+    let file = scratch.write(name, source);
+    (scratch, file)
 }
 
 /// Run a program with extra arguments after `--`.
@@ -62,9 +66,8 @@ fn stdlib_env_fixture_passes_on_the_vm() {
 /// With no `--`, the program still sees its own path as argv[0].
 #[test]
 fn args_contains_only_the_program_path_when_none_are_passed() {
-    let file = scratch_file("env_argv_none.flx", ARGV_PROGRAM);
+    let (_guard, file) = scratch_file("env_argv_none.flx", ARGV_PROGRAM);
     let (stdout, stderr, success) = run_with_args(&file, &[]);
-    let _ = std::fs::remove_file(&file);
     assert!(success, "run failed:\n{stdout}\n{stderr}");
     assert!(stdout.contains("argc=1"), "got:\n{stdout}");
     assert!(
@@ -76,9 +79,8 @@ fn args_contains_only_the_program_path_when_none_are_passed() {
 /// Arguments after `--` reach the program, in order, after the script path.
 #[test]
 fn arguments_after_the_separator_reach_the_program() {
-    let file = scratch_file("env_argv_some.flx", ARGV_PROGRAM);
+    let (_guard, file) = scratch_file("env_argv_some.flx", ARGV_PROGRAM);
     let (stdout, stderr, success) = run_with_args(&file, &["build", "release"]);
-    let _ = std::fs::remove_file(&file);
     assert!(success, "run failed:\n{stdout}\n{stderr}");
     assert!(stdout.contains("argc=3"), "got:\n{stdout}");
     assert!(stdout.contains("|build|release"), "got:\n{stdout}");
@@ -88,9 +90,8 @@ fn arguments_after_the_separator_reach_the_program() {
 /// itself would otherwise claim, or reject as unknown.
 #[test]
 fn a_program_can_receive_flags_that_flux_would_otherwise_reject() {
-    let file = scratch_file("env_argv_flags.flx", ARGV_PROGRAM);
+    let (_guard, file) = scratch_file("env_argv_flags.flx", ARGV_PROGRAM);
     let (stdout, stderr, success) = run_with_args(&file, &["--native", "--verbose"]);
-    let _ = std::fs::remove_file(&file);
     assert!(
         success,
         "flags after `--` must not be parsed by flux:\n{stdout}\n{stderr}"
@@ -102,7 +103,7 @@ fn a_program_can_receive_flags_that_flux_would_otherwise_reject() {
 /// Reading the environment is a capability, so it must be declared.
 #[test]
 fn reading_the_environment_requires_the_env_effect() {
-    let file = scratch_file(
+    let (_guard, file) = scratch_file(
         "env_effect.flx",
         r#"
 import Flow.Env as Env
@@ -117,7 +118,6 @@ fn main() -> Unit with Console {
 "#,
     );
     let (stdout, stderr, success) = run_with_args(&file, &[]);
-    let _ = std::fs::remove_file(&file);
     assert!(
         !success,
         "an undeclared Env effect must be rejected:\n{stdout}"
@@ -132,7 +132,7 @@ fn main() -> Unit with Console {
 /// environment without naming `Env` separately.
 #[test]
 fn the_io_alias_covers_the_env_effect() {
-    let file = scratch_file(
+    let (_guard, file) = scratch_file(
         "env_io_alias.flx",
         r#"
 import Flow.Env as Env
@@ -143,7 +143,6 @@ fn main() -> Unit with IO {
 "#,
     );
     let (stdout, stderr, success) = run_with_args(&file, &[]);
-    let _ = std::fs::remove_file(&file);
     assert!(success, "IO must cover Env:\n{stdout}\n{stderr}");
     assert!(stdout.contains("true"), "got:\n{stdout}");
 }

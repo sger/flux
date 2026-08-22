@@ -12,18 +12,22 @@ use std::process::Command;
 #[path = "../support/stdlib_fixture.rs"]
 mod stdlib_fixture;
 
-use stdlib_fixture::{assert_backends_agree, assert_fixture_passes};
+use stdlib_fixture::scratch::Scratch;
+
+use stdlib_fixture::assert_backends_agree;
 
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
 
-fn scratch_file(name: &str, source: &str) -> PathBuf {
-    let dir = workspace_root().join("target").join("test-scratch");
-    std::fs::create_dir_all(&dir).expect("create scratch dir");
-    let file = dir.join(name);
-    std::fs::write(&file, source).expect("write scratch fixture");
-    file
+/// Write a fixture into a scratch dir unique to this process, and return both
+/// the path and the guard that removes the dir on drop. The name alone is not
+/// unique: concurrent test binaries writing the same literal filename into one
+/// shared directory clobbered each other (KI-010 in docs/known_issues.md).
+fn scratch_file(name: &str, source: &str) -> (Scratch, PathBuf) {
+    let scratch = Scratch::new(name.trim_end_matches(".flx"));
+    let file = scratch.write(name, source);
+    (scratch, file)
 }
 
 fn compile(file: &Path) -> (String, String, bool) {
@@ -39,20 +43,21 @@ fn compile(file: &Path) -> (String, String, bool) {
     )
 }
 
+/// Runs the fixture on both backends and requires identical results.
+///
+/// Deliberately one test rather than a VM test plus a parity test: the two
+/// would run on separate threads over the same fixture, and the fixture spawns
+/// processes against shared paths. `assert_backends_agree` already runs the VM
+/// leg, so a separate VM-only test adds a race and no coverage.
 #[test]
-fn stdlib_process_fixture_passes_on_the_vm() {
-    assert_fixture_passes("stdlib_process.flx");
-}
-
-#[test]
-fn stdlib_process_agrees_across_backends() {
+fn stdlib_process_fixture_passes_on_both_backends() {
     assert_backends_agree("stdlib_process.flx");
 }
 
 /// Running a subprocess is a capability, so it must be declared.
 #[test]
 fn running_a_subprocess_requires_the_process_effect() {
-    let file = scratch_file(
+    let (_guard, file) = scratch_file(
         "proc_effect.flx",
         r#"
 import Flow.Process as Proc
@@ -71,7 +76,6 @@ fn main() -> Unit with Console {
 "#,
     );
     let (stdout, stderr, success) = compile(&file);
-    let _ = std::fs::remove_file(&file);
     assert!(
         !success,
         "an undeclared Process effect must be rejected:\n{stdout}"
@@ -87,7 +91,7 @@ fn main() -> Unit with Console {
 /// into another capability and signatures no longer mean what they say.
 #[test]
 fn the_filesystem_effect_does_not_authorise_subprocesses() {
-    let file = scratch_file(
+    let (_guard, file) = scratch_file(
         "proc_not_fs.flx",
         r#"
 import Flow.Process as Proc
@@ -106,7 +110,6 @@ fn main() -> Unit with IO {
 "#,
     );
     let (stdout, stderr, success) = compile(&file);
-    let _ = std::fs::remove_file(&file);
     assert!(
         !success,
         "FileSystem must not cover Process:\n{stdout}{stderr}"
@@ -121,7 +124,7 @@ fn main() -> Unit with IO {
 /// subprocess without naming `Process` separately.
 #[test]
 fn the_io_alias_covers_the_process_effect() {
-    let file = scratch_file(
+    let (_guard, file) = scratch_file(
         "proc_io_alias.flx",
         r#"
 import Flow.Process as Proc
@@ -136,7 +139,6 @@ fn main() -> Unit with IO {
 "#,
     );
     let (stdout, stderr, success) = compile(&file);
-    let _ = std::fs::remove_file(&file);
     assert!(success, "IO must cover Process:\n{stdout}\n{stderr}");
     assert!(stdout.contains("covered"), "got:\n{stdout}");
 }
