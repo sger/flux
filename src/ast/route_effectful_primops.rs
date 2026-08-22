@@ -259,13 +259,7 @@ fn collect_default_effects_from_annotation(
                     out.insert(be::DEBUG);
                 }
                 Some(be::IO) => {
-                    out.extend([
-                        be::CONSOLE,
-                        be::FILESYSTEM,
-                        be::STDIN,
-                        be::ENV,
-                        be::PROCESS,
-                    ]);
+                    out.extend([be::CONSOLE, be::FILESYSTEM, be::STDIN, be::ENV, be::PROCESS]);
                 }
                 Some(be::TIME) => {
                     out.insert(be::CLOCK);

@@ -3,8 +3,8 @@
 - Status: Draft
 - Proposal PR:
 - Flux Issue:
-- Required by: [0177_package_manager.md](0177_package_manager.md) — a Flux-written package manager is blocked on every capability here
-- Builds on: the primop contract ([0164](implemented/0164_internal_primop_contract_and_stdlib_surface.md)), the effect system ([0161](implemented/0161_effect_system_decomposition_and_capabilities.md)), and the I/O effect-handler migration ([0165](implemented/0165_io_primop_migration_to_effect_handlers.md))
+- Required by: [0177_package_manager.md](../0177_package_manager.md) — a Flux-written package manager is blocked on every capability here
+- Builds on: the primop contract ([0164](0164_internal_primop_contract_and_stdlib_surface.md)), the effect system ([0161](0161_effect_system_decomposition_and_capabilities.md)), and the I/O effect-handler migration ([0165](0165_io_primop_migration_to_effect_handlers.md))
 
 # Proposal 0178: OS Capabilities for Tooling
 
@@ -17,7 +17,7 @@ process environment and arguments, subprocess execution, and — the one that is
 semantic change rather than an addition — **recoverable I/O errors**.
 
 The motivating consumer is a Flux-written package manager
-([0177](0177_package_manager.md)), but nothing here is package-manager-specific.
+([0177](../0177_package_manager.md)), but nothing here is package-manager-specific.
 These are the capabilities that separate a language that can compute from one
 that can write its own tooling.
 
@@ -26,7 +26,7 @@ that can write its own tooling.
 
 ### The gap is real, and it is narrow
 
-An investigation for [0177](0177_package_manager.md) asked whether a package
+An investigation for [0177](../0177_package_manager.md) asked whether a package
 manager could be written in Flux. The result was sharper than expected: **there
 is no type-system gap.** Flux's ADTs, exhaustive matching, generics, HAMT maps,
 effect tracking, and structured concurrency are already sufficient to express a
@@ -45,7 +45,7 @@ process's own arguments, run a subprocess, or hash a byte string. A Flux program
 cannot answer "does `flux.toml` exist in this directory?"
 
 This is not an oversight so much as a consequence of history: Flux's I/O story
-was driven by async networking ([0174](0174_async_effect_concurrency.md)), which
+was driven by async networking ([0174](../0174_async_effect_concurrency.md)), which
 produced an excellent TCP and HTTP stack — `Flow.Http.get` performs real network
 requests today — while leaving local-machine I/O at the level needed for example
 programs.
@@ -208,7 +208,7 @@ rather than `split` because a module-level `fn split` shadows the builtin
 `split(s, delim)` for every function in the same module — so `Flow.Path` could
 not have used the builtin internally had it defined its own `split`. This is
 ordinary lexical shadowing behaving exactly as
-[`primops_vs_base.md`](../internals/primops_vs_base.md) specifies ("if `foo` is
+[`primops_vs_base.md`](../../internals/primops_vs_base.md) specifies ("if `foo` is
 shadowed by a local/function/global symbol, primop and Base-fastcall lowering are
 both skipped"), not a compiler defect: locals correctly win over primops, and
 over-applying the shadowing local reports `E056` against the *local* arity.
@@ -240,11 +240,11 @@ module is neither auto-injected nor effectful), and unit tests in
 | `metadata` | `String -> Result<FileMeta, IoError>` | `FileSystem` |
 
 `rename` is called out because atomic rename is what makes a content-addressed
-store safe against concurrent writers ([0177](0177_package_manager.md)); it must
+store safe against concurrent writers ([0177](../0177_package_manager.md)); it must
 map to the platform's atomic primitive, not to copy-then-delete.
 
 `FileMeta` should carry size and modification time. Note that
-[0177](0177_package_manager.md) requires build caches never to *hash* an mtime —
+[0177](../0177_package_manager.md) requires build caches never to *hash* an mtime —
 exposing it is still correct, because comparing mtimes is fine; hashing them is
 not.
 
@@ -448,19 +448,19 @@ same benefit with less ceremony.
 
 **During implementation:**
 
-5. Whether `Flow.Fs` operations should be async-aware — `Flow.Async` already has
-   a filesystem thread pool (`fs_pool`), and blocking calls inside a fiber are a
-   known hazard from [0174](0174_async_effect_concurrency.md).
-6. Streaming reads for large files, rather than whole-file `String` returns.
-7. Whether `Bytes` should be the I/O currency instead of `String`; `Flow.Http`
-   already uses `Bytes` for response bodies, and binary files cannot round-trip
-   through `String`.
-8. **Open after implementation:** `Flow.Process` is POSIX-only on the native
-   backend. The C runtime spawns via `posix_spawnp`; the Windows branch returns
-   an `IoError` (`ENOSYS`) instead. The VM backend works on Windows because it
-   goes through Rust's `std::process::Command`. This is the only deliberate
-   behavioural difference between the two backends in this proposal, and it
-   must be closed before Windows is a supported target for Flux tooling.
+5. Whether `Flow.Fs` operations should be async-aware — tracked as
+   [KI-005](../../known_issues.md#ki-005-flowfs-is-not-async-aware).
+6. Streaming reads for large files — tracked as
+   [KI-007](../../known_issues.md#ki-007-no-streaming-reads-for-large-files).
+7. Whether `Bytes` should be the I/O currency instead of `String` — tracked as
+   [KI-006](../../known_issues.md#ki-006-io-uses-string-so-binary-data-cannot-round-trip).
+8. **Found during implementation:** `Flow.Process` is POSIX-only on the native
+   backend — tracked as
+   [KI-004](../../known_issues.md#ki-004-native-subprocess-execution-is-posix-only).
+
+Questions 5–8 outlived the implementation and moved to
+[docs/known_issues.md](../../known_issues.md) so they stay visible after this
+proposal is filed under `implemented/`.
 
 **Out of scope:** a general FFI, file locking, symbolic links, permissions and
 ownership, file watching, and terminal control.
@@ -468,7 +468,7 @@ ownership, file watching, and terminal control.
 ## Future possibilities
 [future-possibilities]: #future-possibilities
 
-- **A Flux-written package manager** ([0177](0177_package_manager.md)) — the
+- **A Flux-written package manager** ([0177](../0177_package_manager.md)) — the
   immediate consumer, and the one that would demonstrate the whole stack.
 - **Self-hosted developer tooling**: formatter, linter, and documentation
   generator, all currently Rust-side.
