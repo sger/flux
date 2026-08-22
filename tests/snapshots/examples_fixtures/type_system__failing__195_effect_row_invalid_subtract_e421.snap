@@ -1,5 +1,6 @@
 ---
 source: tests/examples/examples_fixtures_snapshots.rs
+assertion_line: 39
 ---
 Fixture: examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx
 == compile ==
@@ -13,17 +14,17 @@ Parameter 1 has the wrong type.
    |
 50 |     run_filtered(io_console_work)
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |     ----------------------------- parameter 1 has type `() -> Unit with Console, FileSystem, Stdin, Env`
+   |     ----------------------------- parameter 1 has type `() -> Unit with Console, FileSystem, Stdin, Env, Process`
 
    |     ----------------------------- this type mismatch is reported here
 
 Note:
-  expected parameter type: () -> Unit with FileSystem, Stdin, Env
-  found parameter type: () -> Unit with Console, FileSystem, Stdin, Env
+  expected parameter type: () -> Unit with FileSystem, Stdin, Env, Process
+  found parameter type: () -> Unit with Console, FileSystem, Stdin, Env, Process
   the conflicting types meet at this expression
 
 Help:
-  Change parameter 1 to use `() -> Unit with FileSystem, Stdin, Env` consistently.
+  Change parameter 1 to use `() -> Unit with FileSystem, Stdin, Env, Process` consistently.
 
 
 Note: Downstream Errors Suppressed

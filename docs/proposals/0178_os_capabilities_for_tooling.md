@@ -312,11 +312,15 @@ injection bugs.
 | Stage | Contents | Rationale |
 |---|---|---|
 | **0** | `Flow.Path` — **implemented** (`lib/Flow/Path.flx`) | Pure Flux, no primops, no blockers. Immediately useful. |
-| **1** | `IoError` + `Result`-returning I/O; convert existing fallible ops | Everything downstream inherits the error model |
-| **2** | `Flow.Fs` | The bulk of the capability gap |
-| **3** | `Flow.Crypto` | Small, self-contained, unblocks checksums and the store |
-| **4** | `Flow.Env` + argv plumbing | Unblocks writing a CLI at all |
-| **5** | `Flow.Process` | Escape hatch; git dependencies |
+| **1** | `IoError` + `Result`-returning I/O — **implemented** | Everything downstream inherits the error model |
+| **2** | `Flow.Fs` — **implemented** (`lib/Flow/Fs.flx`) | The bulk of the capability gap |
+| **3** | `Flow.Crypto` — **implemented** (`lib/Flow/Crypto.flx`) | Small, self-contained, unblocks checksums and the store |
+| **4** | `Flow.Env` + argv plumbing — **implemented** (`lib/Flow/Env.flx`) | Unblocks writing a CLI at all |
+| **5** | `Flow.Process` — **implemented** (`lib/Flow/Process.flx`) | Escape hatch; git dependencies |
+
+All stages are implemented. Each capability has a Flux fixture under
+`tests/flux/stdlib_*.flx` run on both backends, plus a Rust target asserting the
+effect-annotation behaviour the fixture cannot check about itself.
 
 Stages 2–5 are independent of one another once stage 1 lands, so they can proceed
 in parallel or be reordered by need.
@@ -435,8 +439,12 @@ same benefit with less ceremony.
    an existing one. (Proposed: distinct — they grant different authority.)
 3. Windows path semantics for `Flow.Path`: separators, drive prefixes, and
    whether `normalize` is purely lexical.
-4. Whether `Flow.Process` belongs in this proposal at all, or should be deferred
-   until a concrete need beyond git dependencies exists.
+4. ~~Whether `Flow.Process` belongs in this proposal at all, or should be
+   deferred until a concrete need beyond git dependencies exists.~~
+   **Resolved: included.** Implemented as specified — one primop, a distinct
+   `Process` effect, an argument vector with no shell. Deferring it would have
+   left the capability set without an escape hatch, which is what keeps a
+   missing capability from being a blocking gap.
 
 **During implementation:**
 
@@ -447,6 +455,12 @@ same benefit with less ceremony.
 7. Whether `Bytes` should be the I/O currency instead of `String`; `Flow.Http`
    already uses `Bytes` for response bodies, and binary files cannot round-trip
    through `String`.
+8. **Open after implementation:** `Flow.Process` is POSIX-only on the native
+   backend. The C runtime spawns via `posix_spawnp`; the Windows branch returns
+   an `IoError` (`ENOSYS`) instead. The VM backend works on Windows because it
+   goes through Rust's `std::process::Command`. This is the only deliberate
+   behavioural difference between the two backends in this proposal, and it
+   must be closed before Windows is a supported target for Flux tooling.
 
 **Out of scope:** a general FFI, file locking, symbolic links, permissions and
 ownership, file watching, and terminal control.

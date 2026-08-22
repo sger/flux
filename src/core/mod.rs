@@ -880,7 +880,13 @@ pub enum CorePrimOp {
     EnvCwd = 242,
     /// The user's home directory. Args: () -> Option<String>.
     EnvHomeDir = 243,
-    // ── Next free ID: 244 ─────────────────────────────────────────────
+    /// Run a subprocess to completion and capture its output.
+    /// Args: (cmd: String, args: Array<String>) -> Result<ProcOutput, IoError>.
+    ///
+    /// The argument vector is passed to `execvp` directly — there is no shell,
+    /// so quoting is not a concern and injection is not possible.
+    ProcRun = 244,
+    // ── Next free ID: 245 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -1007,6 +1013,7 @@ impl CorePrimOp {
             "EnvArgs" => return Some(Self::EnvArgs),
             "EnvCwd" => return Some(Self::EnvCwd),
             "EnvHomeDir" => return Some(Self::EnvHomeDir),
+            "ProcRun" => return Some(Self::ProcRun),
             "JsonStringify" => return Some(Self::JsonStringify),
             "HttpWriteChunkedHead" => return Some(Self::HttpWriteChunkedHead),
             "HttpWriteChunk" => return Some(Self::HttpWriteChunk),
@@ -1072,6 +1079,7 @@ impl CorePrimOp {
             Self::EnvArgs => Some("env_args"),
             Self::EnvCwd => Some("env_cwd"),
             Self::EnvHomeDir => Some("env_home_dir"),
+            Self::ProcRun => Some("proc_run"),
             Self::WriteFile => Some("write_file"),
             Self::ReadStdin => Some("read_stdin"),
             Self::ReadLines => Some("read_lines"),
@@ -1262,6 +1270,7 @@ impl CorePrimOp {
             241 => EnvArgs,
             242 => EnvCwd,
             243 => EnvHomeDir,
+            244 => ProcRun,
             51 => WriteFile,
             52 => ReadStdin,
             53 => ReadLines,
@@ -1462,6 +1471,7 @@ impl CorePrimOp {
             ("__primop_env_args", 0, CorePrimOp::EnvArgs),
             ("__primop_env_cwd", 0, CorePrimOp::EnvCwd),
             ("__primop_env_home_dir", 0, CorePrimOp::EnvHomeDir),
+            ("__primop_proc_run", 2, CorePrimOp::ProcRun),
             ("__primop_read_lines", 1, CorePrimOp::ReadLines),
             ("__primop_read_stdin", 0, CorePrimOp::ReadStdin),
             ("__primop_write_file", 2, CorePrimOp::WriteFile),
@@ -1871,7 +1881,8 @@ impl CorePrimOp {
             | HttpWriteResponse
             | HttpRegisterConnection
             | HttpUnregisterConnection
-            | HttpParseRequest => 2,
+            | HttpParseRequest
+            | ProcRun => 2,
             ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring
             | HttpServeConfig => 3,
             FiberRunAsyncWith => 4,

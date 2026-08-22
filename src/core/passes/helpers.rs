@@ -553,6 +553,7 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::EnvArgs
         | CorePrimOp::EnvCwd
         | CorePrimOp::EnvHomeDir
+        | CorePrimOp::ProcRun
         | CorePrimOp::WriteFile
         | CorePrimOp::ReadStdin
         | CorePrimOp::ReadLines

@@ -63,6 +63,7 @@ fn builtin_primop_table() -> HashMap<(&'static str, usize), CorePrimOp> {
         ("__primop_env_args", 0, CorePrimOp::EnvArgs),
         ("__primop_env_cwd", 0, CorePrimOp::EnvCwd),
         ("__primop_env_home_dir", 0, CorePrimOp::EnvHomeDir),
+        ("__primop_proc_run", 2, CorePrimOp::ProcRun),
         ("__primop_write_file", 2, CorePrimOp::WriteFile),
         ("__primop_read_stdin", 0, CorePrimOp::ReadStdin),
         ("__primop_read_lines", 1, CorePrimOp::ReadLines),

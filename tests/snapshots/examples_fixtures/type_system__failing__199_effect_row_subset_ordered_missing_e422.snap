@@ -1,5 +1,6 @@
 ---
 source: tests/examples/examples_fixtures_snapshots.rs
+assertion_line: 39
 ---
 Fixture: examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx
 == compile ==
@@ -18,12 +19,12 @@ Parameter 1 has the wrong type.
    |     ------------------------------ this type mismatch is reported here
 
 Note:
-  expected parameter type: () -> Unit with Console, FileSystem, Stdin, Clock, Env
+  expected parameter type: () -> Unit with Console, FileSystem, Stdin, Clock, Env, Process
   found parameter type: () -> Unit
   the conflicting types meet at this expression
 
 Help:
-  Change parameter 1 to use `() -> Unit with Console, FileSystem, Stdin, Clock, Env` consistently.
+  Change parameter 1 to use `() -> Unit with Console, FileSystem, Stdin, Clock, Env, Process` consistently.
 
 
 Note: Downstream Errors Suppressed

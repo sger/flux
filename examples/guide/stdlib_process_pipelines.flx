@@ -1,0 +1,181 @@
+// parity-expected-stdout-begin
+// "── running a command ──"
+// "0"
+// "hello from a subprocess"
+// "true"
+// "── exit status is data, not an abort ──"
+// "3"
+// "false"
+// "still running"
+// "── stdout and stderr are separate channels ──"
+// "out"
+// "err"
+// "── failing to start is the only Err ──"
+// "NotFound"
+// "── no shell: an argument is just an argument ──"
+// "a; echo INJECTED"
+// "one  two"
+// "── pipelines over several commands ──"
+// "3"
+// "["a", "b", "c"]"
+// "── partition succeeded from failed ──"
+// "2"
+// "1"
+// "── Result combinators compose over run ──"
+// "7"
+// "-1"
+// "── output_or collapses both failure modes ──"
+// "ok"
+// "fallback"
+// "fallback"
+// parity-expected-stdout-end
+
+/*
+Pipelines over `Flow.Process`.
+
+The theme is that running a program is an ordinary value-producing operation:
+`run` returns a `Result`, so failure threads through the same combinators as
+everything else, and a program that shells out never aborts on a missing
+binary unless it chooses to.
+
+Note the two-level distinction this example leans on throughout:
+
+  - `Err`  — the process could not be started (no such binary, no permission).
+  - `Ok` with a non-zero status — it ran, and reported failure.
+
+Collapsing those would make "command not installed" indistinguishable from
+"command ran and said no", which are different problems with different fixes.
+*/
+
+import Flow.Process as Proc
+import Flow.List as List
+import Flow.Result as Result
+import Flow.String as Str
+import Flow.IoError as Io
+
+// ── pure helpers: no effects, so provably cannot spawn anything ─────
+
+fn args(items: List<String>) -> Array<String> {
+    List.to_array(items)
+}
+
+/// Strip one trailing newline, the shape almost every CLI emits.
+fn chomp(s: String) -> String {
+    if Str.ends_with(s, "\n") { Str.string_slice(s, 0, len(s) - 1) } else { s }
+}
+
+/// Classify a start failure without matching on message text.
+fn explain(e: IoError) -> String {
+    Io.kind_name(Io.error_kind(e))
+}
+
+// ── effectful shell: everything here declares Process ───────────────
+
+/// Run a command and return its trimmed stdout, or a marker describing what
+/// went wrong. Folding both failure modes into a value keeps callers linear.
+fn capture(cmd: String, argv: Array<String>) -> String with Process {
+    match Proc.run(cmd, argv) {
+        Ok(out) -> if Proc.succeeded(out) {
+            chomp(Proc.stdout_of(out))
+        } else {
+            "<exit " + to_string(Proc.status_of(out)) + ">"
+        },
+        Err(e) -> "<" + explain(e) + ">",
+    }
+}
+
+fn main() with IO {
+    print("── running a command ──")
+
+    match Proc.run("/bin/echo", args(["hello from a subprocess"])) {
+        Ok(out) -> do {
+            print(to_string(Proc.status_of(out)))
+            print(chomp(Proc.stdout_of(out)))
+            print(to_string(Proc.succeeded(out)))
+        },
+        Err(_) -> print("could not start echo"),
+    }
+
+    print("── exit status is data, not an abort ──")
+
+    // A non-zero exit is Ok: the process ran and reported a result.
+    match Proc.run("sh", args(["-c", "exit 3"])) {
+        Ok(out) -> do {
+            print(to_string(Proc.status_of(out)))
+            print(to_string(Proc.succeeded(out)))
+        },
+        Err(_) -> print("could not start sh"),
+    }
+
+    // And the program continues, because nothing threw.
+    print("still running")
+
+    print("── stdout and stderr are separate channels ──")
+
+    match Proc.run("sh", args(["-c", "echo out; echo err 1>&2"])) {
+        Ok(out) -> do {
+            print(chomp(Proc.stdout_of(out)))
+            print(chomp(Proc.stderr_of(out)))
+        },
+        Err(_) -> print("could not start sh"),
+    }
+
+    print("── failing to start is the only Err ──")
+
+    match Proc.run("flux-no-such-binary", args([])) {
+        Ok(_) -> print("unexpectedly ran"),
+        Err(e) -> print(explain(e)),
+    }
+
+    print("── no shell: an argument is just an argument ──")
+
+    // Were a shell involved, the `;` would start a second command. It does
+    // not, because there is no shell to interpret it.
+    print(capture("/bin/echo", args(["a; echo INJECTED"])))
+
+    // Two spaces survive: the vector is not re-split on whitespace.
+    print(capture("/bin/echo", args(["one  two"])))
+
+    print("── pipelines over several commands ──")
+
+    // Map a list of inputs through a command, purely at the call site.
+    let letters = ["a", "b", "c"]
+        |> List.map(\c -> capture("/bin/echo", args([c])))
+    print(to_string(List.length(letters)))
+    print(to_string(letters))
+
+    print("── partition succeeded from failed ──")
+
+    // Probe several commands, then split the outcomes in one pass. Note that
+    // `sh -c "exit 1"` lands in `failed` even though it started fine.
+    let runs = [
+        Proc.run("true", args([])),
+        Proc.run("/bin/echo", args(["x"])),
+        Proc.run("false", args([])),
+    ]
+    let (ok, failed) = List.partition(runs, \r -> match r {
+        Ok(o) -> Proc.succeeded(o),
+        Err(_) -> false,
+    })
+    print(to_string(List.length(ok)))
+    print(to_string(List.length(failed)))
+
+    print("── Result combinators compose over run ──")
+
+    // map_result reaches inside the success case without unwrapping.
+    let status = Proc.run("sh", args(["-c", "exit 7"]))
+        |> Result.map_result(\o -> Proc.status_of(o))
+    print(to_string(Result.unwrap_or_result(status, -1)))
+
+    // A start failure short-circuits to the default instead.
+    let missing = Proc.run("flux-no-such-binary", args([]))
+        |> Result.map_result(\o -> Proc.status_of(o))
+    print(to_string(Result.unwrap_or_result(missing, -1)))
+
+    print("── output_or collapses both failure modes ──")
+
+    // When any failure means "use the default", output_or says so in one line.
+    print(chomp(Proc.output_or("/bin/echo", args(["ok"]), "fallback")))
+    print(Proc.output_or("false", args([]), "fallback"))
+    print(Proc.output_or("flux-no-such-binary", args([]), "fallback"))
+}

@@ -209,6 +209,7 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         | CorePrimOp::EnvArgs
         | CorePrimOp::EnvCwd
         | CorePrimOp::EnvHomeDir
+        | CorePrimOp::ProcRun
         | CorePrimOp::ReadStdin
         | CorePrimOp::ReadLines => FluxRep::BoxedRep,
 

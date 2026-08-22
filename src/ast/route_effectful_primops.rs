@@ -96,6 +96,13 @@ const ROUTED_PRIMOPS: &[RoutedPrimop] = &[
         returns_unit: false,
     },
     RoutedPrimop {
+        effect: be::PROCESS,
+        operation: "proc_run",
+        internal_name: "__primop_proc_run",
+        arity: 2,
+        returns_unit: false,
+    },
+    RoutedPrimop {
         effect: be::CLOCK,
         operation: "clock_now",
         internal_name: "__primop_clock_now",
@@ -242,6 +249,9 @@ fn collect_default_effects_from_annotation(
                 Some(be::ENV) => {
                     out.insert(be::ENV);
                 }
+                Some(be::PROCESS) => {
+                    out.insert(be::PROCESS);
+                }
                 Some(be::CLOCK) => {
                     out.insert(be::CLOCK);
                 }
@@ -249,7 +259,13 @@ fn collect_default_effects_from_annotation(
                     out.insert(be::DEBUG);
                 }
                 Some(be::IO) => {
-                    out.extend([be::CONSOLE, be::FILESYSTEM, be::STDIN, be::ENV]);
+                    out.extend([
+                        be::CONSOLE,
+                        be::FILESYSTEM,
+                        be::STDIN,
+                        be::ENV,
+                        be::PROCESS,
+                    ]);
                 }
                 Some(be::TIME) => {
                     out.insert(be::CLOCK);
@@ -748,6 +764,7 @@ fn wrap_block_with_default_handlers(
         be::FILESYSTEM,
         be::STDIN,
         be::ENV,
+        be::PROCESS,
         be::CLOCK,
         be::DEBUG,
     ] {
@@ -911,6 +928,9 @@ fn collect_default_effects_expr(
                 }
                 Some(be::ENV) => {
                     out.insert(be::ENV);
+                }
+                Some(be::PROCESS) => {
+                    out.insert(be::PROCESS);
                 }
                 Some(be::CLOCK) => {
                     out.insert(be::CLOCK);

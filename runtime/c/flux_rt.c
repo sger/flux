@@ -26,6 +26,10 @@
 #else
 #include <dirent.h>
 #include <unistd.h>
+#include <sys/wait.h>
+#include <spawn.h>
+#include <poll.h>
+extern char **environ;
 #endif
 
 /* ── Forward declarations for string helpers (string.c) ─────────────── */
@@ -776,6 +780,205 @@ int64_t flux_fs_metadata(FLUX_IO_TAGS_ARGS, int32_t file_meta_tag, int64_t path)
     fields[3] = flux_make_bool(S_ISREG(st.st_mode));
     int64_t meta = flux_io_make_adt(file_meta_tag, fields, 4);
     return flux_io_make_adt(tags.ok_tag, &meta, 1);
+}
+
+/* ── Subprocess execution (proposal 0178, item 6) ───────────────────── */
+
+#if !defined(_MSC_VER) && !defined(_WIN32)
+
+/* A growable byte buffer for draining a pipe. */
+typedef struct {
+    char  *data;
+    size_t len;
+    size_t cap;
+} FluxProcBuf;
+
+/* Append `n` bytes, growing geometrically. Returns 0 on allocation failure. */
+static int flux_proc_buf_push(FluxProcBuf *b, const char *src, size_t n) {
+    if (b->len + n > b->cap) {
+        size_t next = b->cap ? b->cap : 4096;
+        while (next < b->len + n) next *= 2;
+        char *grown = (char *)realloc(b->data, next);
+        if (!grown) return 0;
+        b->data = grown;
+        b->cap  = next;
+    }
+    memcpy(b->data + b->len, src, n);
+    b->len += n;
+    return 1;
+}
+
+/* Drain both pipes concurrently until each reaches EOF.
+ *
+ * Draining one to EOF before starting the other would deadlock: a child that
+ * fills the other pipe's buffer blocks forever, and so do we. poll() lets us
+ * take whichever stream has data ready.
+ *
+ * Returns 0 on allocation or I/O failure, with *err_out set to an errno. */
+static int flux_proc_drain_both(int out_fd, int err_fd, FluxProcBuf *out,
+                                FluxProcBuf *err, int *err_out) {
+    struct pollfd fds[2];
+    fds[0].fd = out_fd;
+    fds[1].fd = err_fd;
+    fds[0].events = fds[1].events = POLLIN;
+
+    FluxProcBuf *bufs[2] = { out, err };
+    char chunk[4096];
+
+    while (fds[0].fd >= 0 || fds[1].fd >= 0) {
+        if (poll(fds, 2, -1) < 0) {
+            if (errno == EINTR) continue;
+            *err_out = errno;
+            return 0;
+        }
+        for (int i = 0; i < 2; i++) {
+            if (fds[i].fd < 0 || !(fds[i].revents & (POLLIN | POLLHUP | POLLERR)))
+                continue;
+            ssize_t n = read(fds[i].fd, chunk, sizeof(chunk));
+            if (n > 0) {
+                if (!flux_proc_buf_push(bufs[i], chunk, (size_t)n)) {
+                    *err_out = ENOMEM;
+                    return 0;
+                }
+            } else if (n == 0) {
+                fds[i].fd = -1; /* EOF: stop polling this stream. */
+            } else if (errno != EINTR && errno != EAGAIN) {
+                *err_out = errno;
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+
+#endif /* POSIX */
+
+/* Run a subprocess to completion and capture both output streams.
+ *
+ * ProcOutput field order (status, stdout, stderr) must match Flow.Process.
+ *
+ * No shell is involved: the argument vector reaches execvp directly, so an
+ * argument containing spaces or `;` stays a single argument and cannot become
+ * a second command. A non-zero exit is a successful *run* reporting a result,
+ * not an Err — Err is reserved for failing to start the process at all. A
+ * signal-terminated child reports -1, which no normal exit status produces. */
+int64_t flux_proc_run(FLUX_IO_TAGS_ARGS, int32_t proc_output_tag, int64_t cmd,
+                      int64_t argv) {
+    FluxIoTags tags = FLUX_IO_TAGS_INIT;
+
+#if defined(_MSC_VER) || defined(_WIN32)
+    (void)proc_output_tag;
+    (void)argv;
+    /* Windows subprocess support is not implemented yet. Report it as an
+     * unsupported operation rather than as a missing command, so the caller
+     * can tell the two apart. */
+    return flux_io_fail(tags, ENOSYS, cmd);
+#else
+    char *ccmd = flux_io_cstr(cmd);
+    if (!ccmd) return flux_io_fail(tags, ENOMEM, cmd);
+
+    /* flux_array_len returns a *tagged* integer; using it raw would spawn the
+     * command with phantom extra arguments. */
+    int64_t argc = flux_untag_int(flux_array_len(argv));
+    if (argc < 0) argc = 0;
+
+    /* execvp convention: argv[0] is the command, then the caller's
+     * arguments, then a NULL terminator. */
+    char **spawn_argv = (char **)calloc((size_t)argc + 2, sizeof(char *));
+    if (!spawn_argv) {
+        free(ccmd);
+        return flux_io_fail(tags, ENOMEM, cmd);
+    }
+    spawn_argv[0] = ccmd;
+
+    for (int64_t i = 0; i < argc; i++) {
+        char *arg = flux_io_cstr(flux_array_at(argv, flux_tag_int(i)));
+        if (!arg) {
+            for (int64_t j = 1; j <= i; j++) free(spawn_argv[j]);
+            free(spawn_argv);
+            free(ccmd);
+            return flux_io_fail(tags, ENOMEM, cmd);
+        }
+        spawn_argv[i + 1] = arg;
+    }
+
+#define FLUX_PROC_CLEANUP_ARGV()                                               \
+    do {                                                                       \
+        for (int64_t j = 1; j <= argc; j++) free(spawn_argv[j]);               \
+        free(spawn_argv);                                                      \
+        free(ccmd);                                                            \
+    } while (0)
+
+    int out_pipe[2], err_pipe[2];
+    if (pipe(out_pipe) != 0) {
+        int saved = errno;
+        FLUX_PROC_CLEANUP_ARGV();
+        return flux_io_fail(tags, saved, cmd);
+    }
+    if (pipe(err_pipe) != 0) {
+        int saved = errno;
+        close(out_pipe[0]);
+        close(out_pipe[1]);
+        FLUX_PROC_CLEANUP_ARGV();
+        return flux_io_fail(tags, saved, cmd);
+    }
+
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_adddup2(&actions, out_pipe[1], STDOUT_FILENO);
+    posix_spawn_file_actions_adddup2(&actions, err_pipe[1], STDERR_FILENO);
+    posix_spawn_file_actions_addclose(&actions, out_pipe[0]);
+    posix_spawn_file_actions_addclose(&actions, err_pipe[0]);
+
+    pid_t pid = 0;
+    int spawn_err = posix_spawnp(&pid, ccmd, &actions, NULL, spawn_argv, environ);
+
+    posix_spawn_file_actions_destroy(&actions);
+    /* Close the write ends here: the reads below only see EOF once no
+     * writable descriptor remains open in this process. */
+    close(out_pipe[1]);
+    close(err_pipe[1]);
+    FLUX_PROC_CLEANUP_ARGV();
+#undef FLUX_PROC_CLEANUP_ARGV
+
+    if (spawn_err != 0) {
+        close(out_pipe[0]);
+        close(err_pipe[0]);
+        /* posix_spawnp reports failure through its return value, not errno. */
+        return flux_io_fail(tags, spawn_err, cmd);
+    }
+
+    FluxProcBuf out = { NULL, 0, 0 };
+    FluxProcBuf err = { NULL, 0, 0 };
+    int drain_errno = 0;
+    int drained = flux_proc_drain_both(out_pipe[0], err_pipe[0], &out, &err,
+                                       &drain_errno);
+    close(out_pipe[0]);
+    close(err_pipe[0]);
+
+    /* Reap the child even if draining failed, so a failure here cannot leave
+     * a zombie behind. */
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) { /* retry */ }
+
+    if (!drained) {
+        free(out.data);
+        free(err.data);
+        return flux_io_fail(tags, drain_errno, cmd);
+    }
+
+    int64_t code = WIFEXITED(status) ? (int64_t)WEXITSTATUS(status) : -1;
+
+    int64_t fields[3];
+    fields[0] = flux_tag_int(code);
+    fields[1] = flux_string_new(out.data ? out.data : "", (uint32_t)out.len);
+    fields[2] = flux_string_new(err.data ? err.data : "", (uint32_t)err.len);
+    free(out.data);
+    free(err.data);
+
+    int64_t result = flux_io_make_adt(proc_output_tag, fields, 3);
+    return flux_io_make_adt(tags.ok_tag, &result, 1);
+#endif
 }
 
 int64_t flux_write_file(int64_t path, int64_t content) {
