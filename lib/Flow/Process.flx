@@ -1,0 +1,98 @@
+// Flow.Process — running other programs.
+//
+// Subprocess execution is strictly more authority than filesystem access: a
+// child process can do anything the invoking user can. Collapsing it into
+// `FileSystem` would understate what a signature permits, so it carries its
+// own `Process` effect. A function that shells out says so.
+//
+// `Process` coarsens to `IO`, alongside `Console`, `FileSystem`, `Stdin`, and
+// `Env`.
+//
+// There is no shell. `run` takes a command and an argument vector, and the
+// vector reaches the OS unchanged — an argument containing spaces, quotes, or
+// `;` stays one argument. Shell injection is not a failure mode here because
+// there is nothing to inject into.
+//
+// Note what counts as an error. A command that runs and exits non-zero is
+// `Ok`: it ran, and the status is the answer. `Err` means the process could
+// not be started at all — no such binary, or no permission to execute it.
+//
+// Platform note: on the native backend this is POSIX-only. A Windows native
+// build returns an `IoError` rather than spawning; the VM backend works on
+// Windows. See proposal 0178, unresolved question 8.
+
+import Flow.IoError as IoError
+import Flow.Result as Result
+
+module Flow.Process {
+
+    /// What a finished subprocess produced.
+    ///
+    /// `status` is the exit code, or `-1` when the child was killed by a
+    /// signal — a value no normal exit can produce, so the two stay
+    /// distinguishable.
+    public data ProcOutput {
+        ProcOutput { status: Int, stdout: String, stderr: String }
+    }
+
+    intrinsic fn proc_run_prim(cmd: String, args: Array<String>)
+        -> Result<ProcOutput, IoError> with Process = primop ProcRun
+
+    /// Run `cmd` with `args`, wait for it to finish, and capture its output.
+    ///
+    /// Both output streams are read concurrently, so a command that writes
+    /// heavily to stderr cannot deadlock against one that writes to stdout.
+    ///
+    /// ```flux
+    /// match Proc.run("git", ["rev-parse", "HEAD"]) {
+    ///     Ok(out) -> if Proc.succeeded(out) { Proc.stdout_of(out) } else { "" },
+    ///     Err(_)  -> "",
+    /// }
+    /// ```
+    public fn run(cmd: String, args: Array<String>)
+        -> Result<ProcOutput, IoError> with Process {
+        proc_run_prim(cmd, args)
+    }
+
+    /// The exit status: `0` conventionally means success.
+    public fn status_of(out: ProcOutput) -> Int {
+        match out {
+            ProcOutput { status, stdout: _, stderr: _ } -> status,
+        }
+    }
+
+    /// Everything the process wrote to stdout.
+    public fn stdout_of(out: ProcOutput) -> String {
+        match out {
+            ProcOutput { status: _, stdout, stderr: _ } -> stdout,
+        }
+    }
+
+    /// Everything the process wrote to stderr.
+    public fn stderr_of(out: ProcOutput) -> String {
+        match out {
+            ProcOutput { status: _, stdout: _, stderr } -> stderr,
+        }
+    }
+
+    /// Whether the process exited with status `0`.
+    ///
+    /// The common check, spelled once here so callers do not repeat the
+    /// comparison and risk getting the polarity backwards.
+    public fn succeeded(out: ProcOutput) -> Bool {
+        status_of(out) == 0
+    }
+
+    /// Run a command and return its stdout, or `fallback` if anything went
+    /// wrong — the process failed to start, or it ran and exited non-zero.
+    ///
+    /// For the common case where a command's output is wanted and any failure
+    /// means "use the default" rather than needing to be told apart.
+    public fn output_or(cmd: String, args: Array<String>, fallback: String)
+        -> String with Process {
+        match run(cmd, args) {
+            Ok(out) -> if succeeded(out) { stdout_of(out) } else { fallback },
+            Err(_) -> fallback,
+        }
+    }
+}

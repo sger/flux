@@ -3253,6 +3253,17 @@ pub fn execute_core_primop(
             Some(dir) => Value::Some(Rc::new(Value::String(dir.into()))),
             None => Value::None,
         }),
+        ProcRun => {
+            let cmd = estr(&args[0], "proc_run")?;
+            let Value::Array(items) = &args[1] else {
+                return Err(terr("proc_run", "Array", &args[1]));
+            };
+            let mut argv = Vec::with_capacity(items.len());
+            for item in items.iter() {
+                argv.push(estr(item, "proc_run")?.to_string());
+            }
+            Ok(vm_proc_run(cmd, &argv))
+        }
         WriteFile => {
             let path = estr(&args[0], "write_file")?;
             let content = estr(&args[1], "write_file")?;
@@ -4849,6 +4860,38 @@ fn vm_fs_metadata(path: &str) -> Value {
             Value::Integer(modified),
             Value::Boolean(meta.is_dir()),
             Value::Boolean(meta.is_file()),
+        ]),
+    })))
+}
+
+/// Run a subprocess to completion and capture both output streams.
+///
+/// The argument vector is handed to the OS directly — no shell is involved, so
+/// a value containing spaces, quotes, or `;` is one argument and cannot become
+/// a second command.
+///
+/// A non-zero exit status is a successful *run*, not an error: the process was
+/// started and reported a result. `Err` is reserved for failing to run it at
+/// all (missing binary, no permission). Output is decoded lossily, since a
+/// subprocess is under no obligation to emit UTF-8.
+fn vm_proc_run(cmd: &str, argv: &[String]) -> Value {
+    use crate::runtime::value::{AdtFields, AdtValue};
+
+    let output = match std::process::Command::new(cmd).args(argv).output() {
+        Ok(output) => output,
+        Err(err) => return vm_io_err(&err, cmd),
+    };
+
+    // A signal-terminated child has no code; -1 distinguishes it from any
+    // status a process can exit with normally.
+    let status = output.status.code().unwrap_or(-1) as i64;
+
+    vm_io_ok(Value::Adt(Rc::new(AdtValue {
+        constructor: Rc::new("ProcOutput".to_string()),
+        fields: AdtFields::from_vec(vec![
+            Value::Integer(status),
+            Value::String(String::from_utf8_lossy(&output.stdout).into_owned().into()),
+            Value::String(String::from_utf8_lossy(&output.stderr).into_owned().into()),
         ]),
     })))
 }

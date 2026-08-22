@@ -1,5 +1,6 @@
 ---
 source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
+assertion_line: 143
 ---
 Fixture: examples/compiler_errors/row_effects/unsatisfied_row_subset_e422.flx
 == compile ==
@@ -13,17 +14,17 @@ Parameter 1 has the wrong type.
    |
 14 |     run_needs_io_time(only_io)
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |     -------------------------- parameter 1 has type `() -> Unit with Console, FileSystem, Stdin, Env`
+   |     -------------------------- parameter 1 has type `() -> Unit with Console, FileSystem, Stdin, Env, Process`
 
    |     -------------------------- this type mismatch is reported here
 
 Note:
-  expected parameter type: () -> Unit with Console, FileSystem, Stdin, Env, Clock
-  found parameter type: () -> Unit with Console, FileSystem, Stdin, Env
+  expected parameter type: () -> Unit with Console, FileSystem, Stdin, Env, Process, Clock
+  found parameter type: () -> Unit with Console, FileSystem, Stdin, Env, Process
   the conflicting types meet at this expression
 
 Help:
-  Change parameter 1 to use `() -> Unit with Console, FileSystem, Stdin, Env, Clock` consistently.
+  Change parameter 1 to use `() -> Unit with Console, FileSystem, Stdin, Env, Process, Clock` consistently.
 
 
 Note: Downstream Errors Suppressed

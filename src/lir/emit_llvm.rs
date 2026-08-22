@@ -2211,6 +2211,29 @@ impl<'a> FnEmitter<'a> {
             return;
         }
 
+        // ProcRun builds a ProcOutput record, so like FsMetadata it needs that
+        // constructor's tag alongside the shared Result/IoError ones.
+        if let CorePrimOp::ProcRun = op {
+            let proc_output_tag = self
+                .program
+                .constructor_tags
+                .get("ProcOutput")
+                .copied()
+                .unwrap_or(28);
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            let mut call_args = self.io_result_tag_args();
+            call_args.push((LlvmType::i32(), self.i32_const(proc_output_tag)));
+            call_args.push((LlvmType::i64(), self.var(args[0])));
+            call_args.push((LlvmType::i64(), self.var(args[1])));
+            self.call_c(dst_local, "flux_proc_run", call_args, ret_ty);
+            return;
+        }
+
         if let CorePrimOp::TryReadFile = op {
             let dst_local = dst.map(|d| self.var_local(d));
             let ret_ty = if dst.is_some() {
@@ -3777,6 +3800,7 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::EnvArgs => "env_args",
         CorePrimOp::EnvCwd => "env_cwd",
         CorePrimOp::EnvHomeDir => "env_home_dir",
+        CorePrimOp::ProcRun => "proc_run",
         CorePrimOp::WriteFile => "write_file",
         CorePrimOp::ReadStdin => "read_stdin",
         CorePrimOp::ReadLines => "read_lines",
@@ -4319,6 +4343,27 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
                 LlvmType::i32(),
                 LlvmType::i32(),
                 LlvmType::i32(),
+                LlvmType::i64(),
+            ],
+        ),
+        // 11 shared Result/IoError tags, then the ProcOutput tag, then
+        // (cmd, argv).
+        "flux_proc_run" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i64(),
                 LlvmType::i64(),
             ],
         ),

@@ -535,6 +535,12 @@ int64_t flux_fs_list_dir(FLUX_IO_TAGS_DECL, int64_t path);
  * FileMeta constructor, since it builds a record rather than Unit. */
 int64_t flux_fs_metadata(FLUX_IO_TAGS_DECL, int32_t file_meta_tag, int64_t path);
 
+/* Run a subprocess to completion, capturing stdout and stderr.
+   No shell: `argv` is passed to execvp directly, so quoting cannot become
+   injection. Returns Result<ProcOutput, IoError>. */
+int64_t flux_proc_run(FLUX_IO_TAGS_DECL, int32_t proc_output_tag, int64_t cmd,
+                      int64_t argv);
+
 int64_t flux_write_file(int64_t path, int64_t content);
 
 /* ── Hashing (proposal 0178) ────────────────────────────────────────── */

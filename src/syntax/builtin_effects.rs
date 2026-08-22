@@ -39,6 +39,13 @@ pub const STDIN: &str = "Stdin";
 /// signatures rather than silent (proposal 0178, item 5).
 pub const ENV: &str = "Env";
 
+/// `proc_run` — subprocess execution.
+///
+/// Strictly more authority than `FileSystem`: a subprocess can do anything the
+/// invoking user can. Collapsing it into `FileSystem` would understate what a
+/// signature permits, so it is its own label (proposal 0178, item 6).
+pub const PROCESS: &str = "Process";
+
 /// `clock_now` / `now_ms` — wall-clock / monotonic time.
 pub const CLOCK: &str = "Clock";
 
@@ -151,6 +158,7 @@ pub fn primop_fine_effect_label(op: CorePrimOp) -> Option<&'static str> {
         | FsRemoveDirAll | FsRename | FsListDir | FsMetadata | Sha256File => Some(FILESYSTEM),
         ReadStdin => Some(STDIN),
         EnvVar | EnvArgs | EnvCwd | EnvHomeDir => Some(ENV),
+        ProcRun => Some(PROCESS),
         ClockNow | Time => Some(CLOCK),
         Panic => Some(PANIC),
         Div | Mod | IDiv | IMod | FDiv | Index => Some(DIV),
@@ -167,7 +175,7 @@ pub fn primop_fine_effect_label(op: CorePrimOp) -> Option<&'static str> {
 /// expansion.
 pub fn primop_coarse_effect_label(op: CorePrimOp) -> Option<&'static str> {
     match primop_fine_effect_label(op)? {
-        CONSOLE | FILESYSTEM | STDIN | ENV => Some(IO),
+        CONSOLE | FILESYSTEM | STDIN | ENV | PROCESS => Some(IO),
         CLOCK => Some(TIME),
         // Panic, Div, and Debug stay as themselves — no coarse alias.
         other => Some(other),

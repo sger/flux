@@ -1,0 +1,176 @@
+// Behavioural coverage for `Flow.Process` (proposal 0178, item 6).
+//
+// Every command used here is POSIX-standard and present on any machine that
+// can build the compiler, so the fixture does not depend on developer tooling.
+//
+// The central distinction under test: a command that runs and exits non-zero
+// is `Ok` — it ran, and the status is the answer — while `Err` is reserved for
+// failing to start the process at all.
+
+import Flow.Process as Proc
+import Flow.List as List
+import Flow.Result as Result
+import Flow.String as Str
+import Flow.IoError as Io
+
+fn args(items: List<String>) -> Array<String> {
+    List.to_array(items)
+}
+
+fn test_run_captures_stdout() with IO {
+    match Proc.run("/bin/echo", args(["hello"])) {
+        Ok(out) -> assert_eq(Proc.stdout_of(out), "hello\n"),
+        Err(_) -> assert_msg(false, "echo should have run"),
+    }
+}
+
+fn test_zero_exit_is_success() with IO {
+    match Proc.run("true", args([])) {
+        Ok(out) -> do {
+            assert_eq(Proc.status_of(out), 0)
+            assert_msg(Proc.succeeded(out), "`true` exits 0")
+        },
+        Err(_) -> assert_msg(false, "`true` should have run"),
+    }
+}
+
+// A non-zero exit is a *result*, not an error: the process started and
+// reported something. Collapsing the two would make "ran and failed"
+// indistinguishable from "could not run".
+fn test_nonzero_exit_is_still_ok() with IO {
+    match Proc.run("false", args([])) {
+        Ok(out) -> do {
+            assert_msg(Proc.status_of(out) != 0, "`false` exits non-zero")
+            assert_msg(!Proc.succeeded(out), "succeeded() is false")
+        },
+        Err(_) -> assert_msg(false, "a non-zero exit must not be Err"),
+    }
+}
+
+fn test_exit_status_is_reported_exactly() with IO {
+    match Proc.run("sh", args(["-c", "exit 7"])) {
+        Ok(out) -> assert_eq(Proc.status_of(out), 7),
+        Err(_) -> assert_msg(false, "sh should have run"),
+    }
+}
+
+fn test_stderr_is_captured_separately() with IO {
+    match Proc.run("sh", args(["-c", "echo OUT; echo ERR 1>&2"])) {
+        Ok(out) -> do {
+            assert_eq(Proc.stdout_of(out), "OUT\n")
+            assert_eq(Proc.stderr_of(out), "ERR\n")
+        },
+        Err(_) -> assert_msg(false, "sh should have run"),
+    }
+}
+
+fn test_missing_command_is_err() with IO {
+    match Proc.run("flux-no-such-binary-exists-here", args([])) {
+        Ok(_) -> assert_msg(false, "a missing binary must not be Ok"),
+        Err(e) -> assert_eq(Io.kind_name(Io.error_kind(e)), "NotFound"),
+    }
+}
+
+// The security property. With no shell, a metacharacter is just a character:
+// this must echo the text back, not run a second command.
+fn test_arguments_are_never_shell_interpreted() with IO {
+    match Proc.run("/bin/echo", args(["a; echo INJECTED"])) {
+        Ok(out) -> do {
+            assert_eq(Proc.stdout_of(out), "a; echo INJECTED\n")
+            assert_msg(!Str.str_contains(Proc.stdout_of(out), "\nINJECTED"),
+                   "the second command must not have run")
+        },
+        Err(_) -> assert_msg(false, "echo should have run"),
+    }
+}
+
+fn test_arguments_with_spaces_stay_one_argument() with IO {
+    // Were this split on whitespace, echo would collapse the run of spaces.
+    match Proc.run("/bin/echo", args(["one  two"])) {
+        Ok(out) -> assert_eq(Proc.stdout_of(out), "one  two\n"),
+        Err(_) -> assert_msg(false, "echo should have run"),
+    }
+}
+
+fn test_multiple_arguments_arrive_in_order() with IO {
+    match Proc.run("/bin/echo", args(["a", "b", "c"])) {
+        Ok(out) -> assert_eq(Proc.stdout_of(out), "a b c\n"),
+        Err(_) -> assert_msg(false, "echo should have run"),
+    }
+}
+
+fn test_empty_argument_vector_is_accepted() with IO {
+    match Proc.run("/bin/echo", args([])) {
+        Ok(out) -> assert_eq(Proc.stdout_of(out), "\n"),
+        Err(_) -> assert_msg(false, "echo with no arguments should run"),
+    }
+}
+
+fn test_empty_string_argument_is_preserved() with IO {
+    match Proc.run("/bin/echo", args(["", "x"])) {
+        Ok(out) -> assert_eq(Proc.stdout_of(out), " x\n"),
+        Err(_) -> assert_msg(false, "echo should have run"),
+    }
+}
+
+// Output larger than one pipe buffer must not truncate or deadlock. 200 lines
+// of 50 characters comfortably exceeds a typical 64 KiB pipe only in aggregate
+// with the read loop, but is enough to force multiple read() calls.
+fn test_large_output_is_captured_whole() with IO {
+    match Proc.run("sh", args(["-c", "i=0; while [ $i -lt 200 ]; do echo 0123456789012345678901234567890123456789012345678; i=$((i+1)); done"])) {
+        Ok(out) -> assert_eq(len(Proc.stdout_of(out)), 200 * 50),
+        Err(_) -> assert_msg(false, "sh should have run"),
+    }
+}
+
+// Both streams busy at once is the case a naive sequential drain deadlocks on.
+fn test_both_streams_can_be_busy_at_once() with IO {
+    match Proc.run("sh", args(["-c", "i=0; while [ $i -lt 100 ]; do echo out-line; echo err-line 1>&2; i=$((i+1)); done"])) {
+        Ok(out) -> do {
+            assert_eq(len(Proc.stdout_of(out)), 100 * 9)
+            assert_eq(len(Proc.stderr_of(out)), 100 * 9)
+        },
+        Err(_) -> assert_msg(false, "sh should have run"),
+    }
+}
+
+fn test_no_output_yields_empty_strings() with IO {
+    match Proc.run("true", args([])) {
+        Ok(out) -> do {
+            assert_eq(Proc.stdout_of(out), "")
+            assert_eq(Proc.stderr_of(out), "")
+        },
+        Err(_) -> assert_msg(false, "`true` should have run"),
+    }
+}
+
+fn test_output_or_returns_stdout_on_success() with IO {
+    assert_eq(Proc.output_or("/bin/echo", args(["ok"]), "fallback"), "ok\n")
+}
+
+fn test_output_or_falls_back_on_nonzero_exit() with IO {
+    assert_eq(Proc.output_or("false", args([]), "fallback"), "fallback")
+}
+
+fn test_output_or_falls_back_when_the_command_is_missing() with IO {
+    assert_eq(Proc.output_or("flux-no-such-binary", args([]), "fallback"), "fallback")
+}
+
+fn test_result_combinators_compose_over_run() with IO {
+    let status = Proc.run("sh", args(["-c", "exit 3"]))
+        |> Result.map_result(\o -> Proc.status_of(o))
+    assert_eq(Result.unwrap_or_result(status, -99), 3)
+
+    let missing = Proc.run("flux-no-such-binary", args([]))
+        |> Result.map_result(\o -> Proc.status_of(o))
+    assert_eq(Result.unwrap_or_result(missing, -99), -99)
+}
+
+fn test_binary_safe_output_does_not_truncate_at_a_nul() with IO {
+    // Flux strings are length-carrying, so an embedded NUL is data, not a
+    // terminator. printf's \0 escape is POSIX.
+    match Proc.run("sh", args(["-c", "printf 'a\\0b'"])) {
+        Ok(out) -> assert_eq(len(Proc.stdout_of(out)), 3),
+        Err(_) -> assert_msg(false, "sh should have run"),
+    }
+}
