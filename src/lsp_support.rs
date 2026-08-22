@@ -395,6 +395,9 @@ mod tests {
         for opt_in in [
             "Flow.Path",
             "Flow.Result",
+            "Flow.Fs",
+            "Flow.Crypto",
+            "Flow.IoError",
             "Flow.Array",
             "Flow.Map",
             "Flow.Async",

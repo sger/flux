@@ -371,7 +371,7 @@ int64_t flux_read_file(int64_t path) {
  * IoError field order (kind, message, path) must match Flow.IoError — record
  * fields are positional at runtime.
  */
-static int64_t flux_io_make_adt(int32_t ctor_tag, const int64_t *fields, int32_t count) {
+int64_t flux_io_make_adt(int32_t ctor_tag, const int64_t *fields, int32_t count) {
     uint8_t scan = count <= 255 ? (uint8_t)count : 255;
     void *mem = flux_gc_alloc_header((uint32_t)(8 + count * 8), scan, FLUX_OBJ_ADT);
     int32_t *hdr = (int32_t *)mem;
@@ -533,22 +533,9 @@ int64_t flux_fs_is_file(int64_t path) {
  * Return Result<Unit, IoError>. Constructor tags come in as arguments, same
  * convention as flux_try_read_file.
  */
-typedef struct {
-    int32_t ok_tag;
-    int32_t err_tag;
-    int32_t io_error_tag;
-    int32_t not_found_tag;
-    int32_t permission_denied_tag;
-    int32_t already_exists_tag;
-    int32_t not_a_directory_tag;
-    int32_t is_a_directory_tag;
-    int32_t directory_not_empty_tag;
-    int32_t interrupted_tag;
-    int32_t other_tag;
-} FluxIoTags;
 
 /* Build Err(IoError { kind, message, path }) from an errno. */
-static int64_t flux_io_fail(FluxIoTags tags, int errnum, int64_t path) {
+int64_t flux_io_fail(FluxIoTags tags, int errnum, int64_t path) {
     char msg_buf[256];
     int32_t kind_tag = flux_io_kind_tag(
         errnum, tags.not_found_tag, tags.permission_denied_tag,
@@ -576,7 +563,7 @@ static int64_t flux_io_unit_ok(FluxIoTags tags) {
 }
 
 /* Null-terminate a Flux string. Caller frees. NULL on OOM. */
-static char *flux_io_cstr(int64_t s) {
+char *flux_io_cstr(int64_t s) {
     const char *data = flux_string_data(s);
     uint32_t    len  = flux_string_len(s);
     char *out = (char *)malloc((size_t)len + 1);
@@ -587,11 +574,6 @@ static char *flux_io_cstr(int64_t s) {
 }
 
 #define FLUX_IO_TAGS_ARGS FLUX_IO_TAGS_DECL
-
-#define FLUX_IO_TAGS_INIT                                                      \
-    { ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,     \
-      already_exists_tag, not_a_directory_tag, is_a_directory_tag,             \
-      directory_not_empty_tag, interrupted_tag, other_tag }
 
 int64_t flux_fs_write_file(FLUX_IO_TAGS_ARGS, int64_t path, int64_t contents) {
     FluxIoTags tags = FLUX_IO_TAGS_INIT;

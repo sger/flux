@@ -486,6 +486,32 @@ int64_t flux_read_file(int64_t path);
     int32_t is_a_directory_tag, int32_t directory_not_empty_tag,               \
     int32_t interrupted_tag, int32_t other_tag
 
+/* The same tags as a struct, for helpers shared across translation units. */
+typedef struct {
+    int32_t ok_tag;
+    int32_t err_tag;
+    int32_t io_error_tag;
+    int32_t not_found_tag;
+    int32_t permission_denied_tag;
+    int32_t already_exists_tag;
+    int32_t not_a_directory_tag;
+    int32_t is_a_directory_tag;
+    int32_t directory_not_empty_tag;
+    int32_t interrupted_tag;
+    int32_t other_tag;
+} FluxIoTags;
+
+/* Bind the FLUX_IO_TAGS_DECL parameters into a FluxIoTags. */
+#define FLUX_IO_TAGS_INIT                                                      \
+    { ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,     \
+      already_exists_tag, not_a_directory_tag, is_a_directory_tag,             \
+      directory_not_empty_tag, interrupted_tag, other_tag }
+
+/* Shared by every fallible operation, including those in other .c files. */
+int64_t flux_io_make_adt(int32_t ctor_tag, const int64_t *fields, int32_t count);
+int64_t flux_io_fail(FluxIoTags tags, int errnum, int64_t path);
+char   *flux_io_cstr(int64_t s);   /* null-terminate a Flux string; caller frees */
+
 /* Recoverable read: returns Result<String, IoError> instead of aborting. */
 int64_t flux_try_read_file(FLUX_IO_TAGS_DECL, int64_t path);
 
@@ -510,6 +536,13 @@ int64_t flux_fs_list_dir(FLUX_IO_TAGS_DECL, int64_t path);
 int64_t flux_fs_metadata(FLUX_IO_TAGS_DECL, int32_t file_meta_tag, int64_t path);
 
 int64_t flux_write_file(int64_t path, int64_t content);
+
+/* ── Hashing (proposal 0178) ────────────────────────────────────────── */
+
+/* SHA-256 as 64 lowercase hex characters. Pure: no tags, no effect. */
+int64_t flux_sha256(int64_t data);
+/* SHA-256 of a file's contents; streams rather than loading it whole. */
+int64_t flux_sha256_file(FLUX_IO_TAGS_DECL, int64_t path);
 
 /* ── Runtime lifecycle ──────────────────────────────────────────────── */
 

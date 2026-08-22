@@ -852,7 +852,19 @@ pub enum CorePrimOp {
     ///
     /// Follows symlinks, like the predicates.
     FsMetadata = 237,
-    // ── Next free ID: 238 ─────────────────────────────────────────────
+    // ── Hashing (proposal 0178) ───────────────────────────────────────
+    /// SHA-256 of a string, as lowercase hex. Args: (data) -> String.
+    ///
+    /// Pure: same input, same output, no effect. Hashing observes nothing
+    /// outside its argument.
+    Sha256 = 238,
+    /// SHA-256 of a file's contents, as lowercase hex.
+    /// Args: (path) -> Result<String, IoError>.
+    ///
+    /// Separate from `Sha256` so large files stream rather than being read
+    /// fully into memory.
+    Sha256File = 239,
+    // ── Next free ID: 240 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -973,6 +985,8 @@ impl CorePrimOp {
             "FsRename" => return Some(Self::FsRename),
             "FsListDir" => return Some(Self::FsListDir),
             "FsMetadata" => return Some(Self::FsMetadata),
+            "Sha256" => return Some(Self::Sha256),
+            "Sha256File" => return Some(Self::Sha256File),
             "JsonStringify" => return Some(Self::JsonStringify),
             "HttpWriteChunkedHead" => return Some(Self::HttpWriteChunkedHead),
             "HttpWriteChunk" => return Some(Self::HttpWriteChunk),
@@ -1032,6 +1046,8 @@ impl CorePrimOp {
             Self::FsRename => Some("fs_rename"),
             Self::FsListDir => Some("fs_list_dir"),
             Self::FsMetadata => Some("fs_metadata"),
+            Self::Sha256 => Some("sha256"),
+            Self::Sha256File => Some("sha256_file"),
             Self::WriteFile => Some("write_file"),
             Self::ReadStdin => Some("read_stdin"),
             Self::ReadLines => Some("read_lines"),
@@ -1216,6 +1232,8 @@ impl CorePrimOp {
             235 => FsRename,
             236 => FsListDir,
             237 => FsMetadata,
+            238 => Sha256,
+            239 => Sha256File,
             51 => WriteFile,
             52 => ReadStdin,
             53 => ReadLines,
@@ -1410,6 +1428,8 @@ impl CorePrimOp {
             ("__primop_fs_rename", 2, CorePrimOp::FsRename),
             ("__primop_fs_list_dir", 1, CorePrimOp::FsListDir),
             ("__primop_fs_metadata", 1, CorePrimOp::FsMetadata),
+            ("__primop_sha256", 1, CorePrimOp::Sha256),
+            ("__primop_sha256_file", 1, CorePrimOp::Sha256File),
             ("__primop_read_lines", 1, CorePrimOp::ReadLines),
             ("__primop_read_stdin", 0, CorePrimOp::ReadStdin),
             ("__primop_write_file", 2, CorePrimOp::WriteFile),
@@ -1662,6 +1682,8 @@ impl CorePrimOp {
             | FsRemoveDirAll
             | FsListDir
             | FsMetadata
+            | Sha256
+            | Sha256File
             | ReadLines
             | StringLength
             | ToString

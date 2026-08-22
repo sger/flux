@@ -203,6 +203,8 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         | CorePrimOp::FsRename
         | CorePrimOp::FsListDir
         | CorePrimOp::FsMetadata
+        | CorePrimOp::Sha256
+        | CorePrimOp::Sha256File
         | CorePrimOp::ReadStdin
         | CorePrimOp::ReadLines => FluxRep::BoxedRep,
 

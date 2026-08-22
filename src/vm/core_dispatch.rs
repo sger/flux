@@ -3216,6 +3216,14 @@ pub fn execute_core_primop(
             let path = estr(&args[0], "fs_metadata")?;
             Ok(vm_fs_metadata(path))
         }
+        Sha256 => {
+            let data = estr(&args[0], "sha256")?;
+            Ok(Value::String(vm_sha256_hex(data.as_bytes()).into()))
+        }
+        Sha256File => {
+            let path = estr(&args[0], "sha256_file")?;
+            Ok(vm_sha256_file(path))
+        }
         WriteFile => {
             let path = estr(&args[0], "write_file")?;
             let content = estr(&args[1], "write_file")?;
@@ -4661,6 +4669,47 @@ fn vm_io_err(err: &std::io::Error, path: &str) -> Value {
         constructor: Rc::new("Err".to_string()),
         fields: AdtFields::One(io_error),
     }))
+}
+
+/// SHA-256 of `bytes`, as lowercase hex.
+///
+/// Shares `shared::hex` with the cache fingerprints so a digest computed in
+/// Flux and one computed by the compiler are spelled identically.
+fn vm_sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256 as Sha256Hasher};
+
+    let mut hasher = Sha256Hasher::new();
+    hasher.update(bytes);
+    crate::shared::hex::encode(&hasher.finalize())
+}
+
+/// SHA-256 of a file's contents as `Result<String, IoError>`.
+///
+/// Reads in chunks rather than slurping the file, so hashing a large artifact
+/// costs a fixed buffer rather than its full size in memory — the reason this
+/// is a separate primop from `Sha256` instead of `sha256(read_file(p))`.
+fn vm_sha256_file(path: &str) -> Value {
+    use sha2::{Digest, Sha256 as Sha256Hasher};
+    use std::io::Read;
+
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(err) => return vm_io_err(&err, path),
+    };
+    let mut hasher = Sha256Hasher::new();
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        match file.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => hasher.update(&buf[..n]),
+            // A retryable interruption is not a failure: reads resume.
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(err) => return vm_io_err(&err, path),
+        }
+    }
+    vm_io_ok(Value::String(
+        crate::shared::hex::encode(&hasher.finalize()).into(),
+    ))
 }
 
 /// List a directory as `Result<Array<String>, IoError>`.

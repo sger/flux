@@ -94,6 +94,8 @@ fn is_wrapper_primop(op: CorePrimOp) -> bool {
             | CorePrimOp::FsRename
             | CorePrimOp::FsListDir
             | CorePrimOp::FsMetadata
+            | CorePrimOp::Sha256
+            | CorePrimOp::Sha256File
             | CorePrimOp::WriteFile
             | CorePrimOp::ReadStdin
             | CorePrimOp::ReadLines

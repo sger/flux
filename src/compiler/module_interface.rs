@@ -15,7 +15,7 @@ use crate::{
     bytecode::bytecode_cache::hash_bytes,
     core::CoreProgram,
     runtime::function_contract::FunctionContract,
-    shared::cache_paths,
+    shared::{cache_paths, hex},
     syntax::{Identifier, interner::Interner, symbol::Symbol},
     types::{
         class_env::ClassEnv,
@@ -615,12 +615,6 @@ pub fn load_valid_interface(
     }
 
     Ok(interface)
-}
-
-mod hex {
-    pub fn encode(bytes: &[u8]) -> String {
-        bytes.iter().map(|b| format!("{b:02x}")).collect()
-    }
 }
 
 #[cfg(test)]
