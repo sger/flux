@@ -526,6 +526,8 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::FsRename => out.push_str("FsRename"),
         CorePrimOp::FsListDir => out.push_str("FsListDir"),
         CorePrimOp::FsMetadata => out.push_str("FsMetadata"),
+        CorePrimOp::Sha256 => out.push_str("Sha256"),
+        CorePrimOp::Sha256File => out.push_str("Sha256File"),
         CorePrimOp::WriteFile => out.push_str("WriteFile"),
         CorePrimOp::ReadStdin => out.push_str("ReadStdin"),
         CorePrimOp::ReadLines => out.push_str("ReadLines"),

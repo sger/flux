@@ -720,6 +720,7 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
         "event.c",
         "tcp.c",
         "json.c",
+        "sha256.c",
     ];
     let mut obj_files = Vec::new();
 

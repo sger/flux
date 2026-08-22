@@ -2162,6 +2162,7 @@ impl<'a> FnEmitter<'a> {
                 | CorePrimOp::FsRemoveDirAll
                 | CorePrimOp::FsRename
                 | CorePrimOp::FsListDir
+                | CorePrimOp::Sha256File
         ) {
             let c_name = match op {
                 CorePrimOp::FsWriteFile => "flux_fs_write_file",
@@ -2169,6 +2170,7 @@ impl<'a> FnEmitter<'a> {
                 CorePrimOp::FsRemoveFile => "flux_fs_remove_file",
                 CorePrimOp::FsRemoveDirAll => "flux_fs_remove_dir_all",
                 CorePrimOp::FsListDir => "flux_fs_list_dir",
+                CorePrimOp::Sha256File => "flux_sha256_file",
                 _ => "flux_fs_rename",
             };
             let dst_local = dst.map(|d| self.var_local(d));
@@ -3767,6 +3769,8 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::FsRename => "fs_rename",
         CorePrimOp::FsListDir => "fs_list_dir",
         CorePrimOp::FsMetadata => "fs_metadata",
+        CorePrimOp::Sha256 => "sha256",
+        CorePrimOp::Sha256File => "sha256_file",
         CorePrimOp::WriteFile => "write_file",
         CorePrimOp::ReadStdin => "read_stdin",
         CorePrimOp::ReadLines => "read_lines",
@@ -4258,7 +4262,8 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         | "flux_fs_create_dir_all"
         | "flux_fs_remove_file"
         | "flux_fs_remove_dir_all"
-        | "flux_fs_list_dir" => (
+        | "flux_fs_list_dir"
+        | "flux_sha256_file" => (
             LlvmType::i64(),
             vec![
                 LlvmType::i32(),
@@ -4311,6 +4316,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
                 LlvmType::i64(),
             ],
         ),
+        "flux_sha256" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_fs_exists" | "flux_fs_is_dir" | "flux_fs_is_file" => {
             (LlvmType::i64(), vec![LlvmType::i64()])
         }
