@@ -24,32 +24,32 @@ fn nums() -> Array<Int> {
 
 // ── access ─────────────────────────────────────────────────────
 
-/// KNOWN BUG: `get` is declared `-> Option<a>` but returns the **bare
-/// element** on the in-bounds path; only the out-of-bounds path returns
-/// `None`. These assertions pin the behaviour as it actually is, so the day
-/// it is fixed this fixture fails loudly instead of the change going
-/// unnoticed.
-///
-/// Consequences today: `Array.get(a, 0) == Some(1)` is a runtime type error,
-/// and pattern-matching the result falls through every arm on the VM and
-/// **segfaults** on the native backend.
-fn test_get_returns_none_out_of_bounds() {
+fn test_get_is_bounds_checked() {
+    assert_eq(Array.get(nums(), 0), Some(1))
+    assert_eq(Array.get(nums(), 4), Some(5))
     assert_eq(Array.get(nums(), 5), None)
     let empty: Array<Int> = [||]
     assert_eq(Array.get(empty, 0), None)
 }
 
-/// The in-bounds half of the bug, pinned as it actually behaves: because the
-/// value is never wrapped, every `Option` combinator reads it as *absent* and
-/// silently substitutes the default. `is_some` says `false` for an element
-/// that is plainly there.
-///
-/// These assertions are deliberately "wrong" — they encode the defect so the
-/// fix is caught. When `get` is corrected, this test fails and should be
-/// rewritten to `Some(1)` / `true`.
-fn test_get_in_bounds_is_misread_as_absent_by_option_combinators() {
-    assert_eq(Option.unwrap_or(Array.get(nums(), 0), -1), -1)
-    assert_false(Option.is_some(Array.get(nums(), 0)))
+/// A negative index is out of bounds, not an offset from the end.
+fn test_a_negative_index_is_none() {
+    assert_eq(Array.get(nums(), -1), None)
+}
+
+/// `get` returns a real `Option`, so the combinators and pattern matching
+/// both see a present element as present. Regression cover for a bug where
+/// the in-bounds path returned the bare element: every `Option` combinator
+/// then read a present value as absent, and matching it segfaulted on the
+/// native backend.
+fn test_get_returns_a_usable_option() {
+    assert_true(Option.is_some(Array.get(nums(), 0)))
+    assert_eq(Option.unwrap_or(Array.get(nums(), 0), -1), 1)
+    assert_eq(Option.unwrap_or(Array.get(nums(), 99), -1), -1)
+    match Array.get(nums(), 2) {
+        Some(v) -> assert_eq(v, 3),
+        None -> assert_true(false),
+    }
 }
 
 fn test_length_counts_elements() {

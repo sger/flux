@@ -2909,7 +2909,10 @@ pub fn execute_core_primop(
                     if index < 0 || index as usize >= items.len() {
                         Ok(Value::None)
                     } else {
-                        Ok(items[index as usize].clone())
+                        // Declared `-> Option<a>`, so the hit must be wrapped.
+                        // Returning the bare element made every Option
+                        // combinator read a present value as absent.
+                        Ok(Value::Some(Rc::new(items[index as usize].clone())))
                     }
                 }
                 other => Err(terr("array_get", "Array", other)),

@@ -256,11 +256,35 @@ fn test_an_unfold_that_stops_immediately_is_empty() {
 
 // ── combining ──────────────────────────────────────────────────
 
-// `Stream.append` is NOT covered here: it is currently unreachable. Even a
-// fully qualified `Stream.append(a, b)` resolves to the `Semigroup` class
-// method rather than the module function, failing with
-// `error[E444]: No instance for Semigroup<Stream<Int>>`. Add coverage once
-// the name resolution is fixed.
+fn body_append() -> Array<Int> with Async {
+    Stream.to_array(Stream.append(Stream.from_array([|1, 2|]), Stream.from_array([|3|])))
+}
+
+/// Regression cover: `Stream.append` used to be unreachable. A qualified call
+/// resolved to the built-in `Semigroup` class method rather than the module's
+/// own function, failing with `E444: No instance for Semigroup<Stream<Int>>`.
+fn test_append_concatenates_in_order() {
+    assert_eq(run_async(body_append), [|1, 2, 3|])
+}
+
+fn body_append_with_empty() -> Array<Int> with Async {
+    Stream.to_array(Stream.append(Stream.empty(), Stream.from_array([|1|])))
+}
+
+fn test_appending_to_the_empty_stream_is_the_identity() {
+    assert_eq(run_async(body_append_with_empty), [|1|])
+}
+
+fn body_append_is_lazy() -> Array<Int> with Async {
+    // The right side is infinite; `take` must bound the whole append.
+    let naturals = Stream.unfold(0, \n -> Some((n, n + 1)))
+    Stream.to_array(Stream.take(Stream.append(Stream.from_array([|9|]), naturals), 3))
+}
+
+/// Appending an infinite stream stays lazy — only what `take` pulls is forced.
+fn test_append_stays_lazy_on_an_infinite_right_side() {
+    assert_eq(run_async(body_append_is_lazy), [|9, 0, 1|])
+}
 
 fn body_zip() -> Int with Async {
     Stream.count(Stream.zip(Stream.from_array([|1, 2, 3|]), Stream.from_array([|9, 8|])))

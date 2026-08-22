@@ -1186,6 +1186,22 @@ int64_t flux_rt_eq(int64_t a, int64_t b) {
             }
             return flux_make_bool(1);
         }
+        /* Array structural equality, element by element.
+         *
+         * Layout must match FluxArray in array.c: len at offset 4, elements
+         * at offset 16 (after capacity and its padding). */
+        if (tag_a == FLUX_OBJ_ARRAY) {
+            uint32_t len_a = *(uint32_t *)((char *)pa + 4);
+            uint32_t len_b = *(uint32_t *)((char *)pb + 4);
+            if (len_a != len_b) return flux_make_bool(0);
+            int64_t *ea = (int64_t *)((char *)pa + 16);
+            int64_t *eb = (int64_t *)((char *)pb + 16);
+            for (uint32_t i = 0; i < len_a; i++) {
+                int64_t eq = flux_rt_eq(ea[i], eb[i]);
+                if (eq == FLUX_FALSE) return flux_make_bool(0);
+            }
+            return flux_make_bool(1);
+        }
         /* ADT structural equality (Option/Either/List/user ctors). */
         if (tag_a == FLUX_OBJ_ADT) {
             int32_t ctor_a = *(int32_t *)pa;
@@ -1252,13 +1268,11 @@ int64_t flux_rt_index(int64_t collection, int64_t key) {
     void *ptr = flux_untag_ptr(collection);
     uint8_t tag = flux_obj_tag(ptr);
     switch (tag) {
-    case FLUX_OBJ_ARRAY: {
-        int64_t result = flux_array_get(collection, key);
-        if (result == FLUX_NONE) {
-            return flux_make_none();
-        }
-        return flux_wrap_some(result);
-    }
+    case FLUX_OBJ_ARRAY:
+        /* flux_array_get already returns Option<a> — Some(v) or None — so it
+         * is passed straight through. It used to return the bare element and
+         * be wrapped here, which left `Array.get` itself unwrapped. */
+        return flux_array_get(collection, key);
     case FLUX_OBJ_TUPLE: {
         uint32_t arity = *(uint32_t *)((char *)ptr + 4);
         int64_t idx = flux_untag_int(key);
