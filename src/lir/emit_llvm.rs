@@ -740,15 +740,25 @@ impl<'a> FnEmitter<'a> {
                 .copied()
                 .unwrap_or(fallback)
         };
+        // Every IoErrorKind variant declared in Flow.IoError must appear here.
+        // A kind that is missing is one the native backend can never report,
+        // which surfaces as a VM/native parity divergence rather than a build
+        // error. Order must match FLUX_IO_TAGS_DECL in flux_rt.h.
         vec![
             (LlvmType::i32(), self.i32_const(tag("Ok", 16))),
             (LlvmType::i32(), self.i32_const(tag("Err", 17))),
             (LlvmType::i32(), self.i32_const(tag("IoError", 18))),
             (LlvmType::i32(), self.i32_const(tag("NotFound", 19))),
             (LlvmType::i32(), self.i32_const(tag("PermissionDenied", 20))),
-            (LlvmType::i32(), self.i32_const(tag("IsADirectory", 21))),
-            (LlvmType::i32(), self.i32_const(tag("Interrupted", 22))),
-            (LlvmType::i32(), self.i32_const(tag("Other", 23))),
+            (LlvmType::i32(), self.i32_const(tag("AlreadyExists", 21))),
+            (LlvmType::i32(), self.i32_const(tag("NotADirectory", 22))),
+            (LlvmType::i32(), self.i32_const(tag("IsADirectory", 23))),
+            (
+                LlvmType::i32(),
+                self.i32_const(tag("DirectoryNotEmpty", 24)),
+            ),
+            (LlvmType::i32(), self.i32_const(tag("Interrupted", 25))),
+            (LlvmType::i32(), self.i32_const(tag("Other", 26))),
         ]
     }
 
@@ -2151,12 +2161,14 @@ impl<'a> FnEmitter<'a> {
                 | CorePrimOp::FsRemoveFile
                 | CorePrimOp::FsRemoveDirAll
                 | CorePrimOp::FsRename
+                | CorePrimOp::FsListDir
         ) {
             let c_name = match op {
                 CorePrimOp::FsWriteFile => "flux_fs_write_file",
                 CorePrimOp::FsCreateDirAll => "flux_fs_create_dir_all",
                 CorePrimOp::FsRemoveFile => "flux_fs_remove_file",
                 CorePrimOp::FsRemoveDirAll => "flux_fs_remove_dir_all",
+                CorePrimOp::FsListDir => "flux_fs_list_dir",
                 _ => "flux_fs_rename",
             };
             let dst_local = dst.map(|d| self.var_local(d));
@@ -2170,6 +2182,28 @@ impl<'a> FnEmitter<'a> {
                 call_args.push((LlvmType::i64(), self.var(*arg)));
             }
             self.call_c(dst_local, c_name, call_args, ret_ty);
+            return;
+        }
+
+        // FsMetadata builds a FileMeta record, so it needs that constructor's
+        // tag in addition to the shared Result/IoError ones.
+        if let CorePrimOp::FsMetadata = op {
+            let file_meta_tag = self
+                .program
+                .constructor_tags
+                .get("FileMeta")
+                .copied()
+                .unwrap_or(27);
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            let mut call_args = self.io_result_tag_args();
+            call_args.push((LlvmType::i32(), self.i32_const(file_meta_tag)));
+            call_args.push((LlvmType::i64(), self.var(args[0])));
+            self.call_c(dst_local, "flux_fs_metadata", call_args, ret_ty);
             return;
         }
 
@@ -3731,6 +3765,8 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::FsRemoveFile => "fs_remove_file",
         CorePrimOp::FsRemoveDirAll => "fs_remove_dir_all",
         CorePrimOp::FsRename => "fs_rename",
+        CorePrimOp::FsListDir => "fs_list_dir",
+        CorePrimOp::FsMetadata => "fs_metadata",
         CorePrimOp::WriteFile => "write_file",
         CorePrimOp::ReadStdin => "read_stdin",
         CorePrimOp::ReadLines => "read_lines",
@@ -4221,9 +4257,13 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_try_read_file"
         | "flux_fs_create_dir_all"
         | "flux_fs_remove_file"
-        | "flux_fs_remove_dir_all" => (
+        | "flux_fs_remove_dir_all"
+        | "flux_fs_list_dir" => (
             LlvmType::i64(),
             vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
                 LlvmType::i32(),
                 LlvmType::i32(),
                 LlvmType::i32(),
@@ -4246,7 +4286,28 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
                 LlvmType::i32(),
                 LlvmType::i32(),
                 LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
                 LlvmType::i64(),
+                LlvmType::i64(),
+            ],
+        ),
+        "flux_fs_metadata" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
                 LlvmType::i64(),
             ],
         ),

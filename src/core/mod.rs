@@ -842,7 +842,17 @@ pub enum CorePrimOp {
     /// Must map to the platform primitive, not copy-then-delete — callers rely
     /// on the atomicity.
     FsRename = 235,
-    // ── Next free ID: 236 ─────────────────────────────────────────────
+    /// List a directory's entries. Args: (path) -> Result<Array<String>, IoError>.
+    ///
+    /// Entries are bare file names, not full paths, and exclude `.` and `..`.
+    /// Order is whatever the platform reports; callers that need determinism
+    /// sort it themselves.
+    FsListDir = 236,
+    /// Stat a path. Args: (path) -> Result<FileMeta, IoError>.
+    ///
+    /// Follows symlinks, like the predicates.
+    FsMetadata = 237,
+    // ── Next free ID: 238 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -961,6 +971,8 @@ impl CorePrimOp {
             "FsRemoveFile" => return Some(Self::FsRemoveFile),
             "FsRemoveDirAll" => return Some(Self::FsRemoveDirAll),
             "FsRename" => return Some(Self::FsRename),
+            "FsListDir" => return Some(Self::FsListDir),
+            "FsMetadata" => return Some(Self::FsMetadata),
             "JsonStringify" => return Some(Self::JsonStringify),
             "HttpWriteChunkedHead" => return Some(Self::HttpWriteChunkedHead),
             "HttpWriteChunk" => return Some(Self::HttpWriteChunk),
@@ -1018,6 +1030,8 @@ impl CorePrimOp {
             Self::FsRemoveFile => Some("fs_remove_file"),
             Self::FsRemoveDirAll => Some("fs_remove_dir_all"),
             Self::FsRename => Some("fs_rename"),
+            Self::FsListDir => Some("fs_list_dir"),
+            Self::FsMetadata => Some("fs_metadata"),
             Self::WriteFile => Some("write_file"),
             Self::ReadStdin => Some("read_stdin"),
             Self::ReadLines => Some("read_lines"),
@@ -1200,6 +1214,8 @@ impl CorePrimOp {
             233 => FsRemoveFile,
             234 => FsRemoveDirAll,
             235 => FsRename,
+            236 => FsListDir,
+            237 => FsMetadata,
             51 => WriteFile,
             52 => ReadStdin,
             53 => ReadLines,
@@ -1392,6 +1408,8 @@ impl CorePrimOp {
             ("__primop_fs_remove_file", 1, CorePrimOp::FsRemoveFile),
             ("__primop_fs_remove_dir_all", 1, CorePrimOp::FsRemoveDirAll),
             ("__primop_fs_rename", 2, CorePrimOp::FsRename),
+            ("__primop_fs_list_dir", 1, CorePrimOp::FsListDir),
+            ("__primop_fs_metadata", 1, CorePrimOp::FsMetadata),
             ("__primop_read_lines", 1, CorePrimOp::ReadLines),
             ("__primop_read_stdin", 0, CorePrimOp::ReadStdin),
             ("__primop_write_file", 2, CorePrimOp::WriteFile),
@@ -1642,6 +1660,8 @@ impl CorePrimOp {
             | FsCreateDirAll
             | FsRemoveFile
             | FsRemoveDirAll
+            | FsListDir
+            | FsMetadata
             | ReadLines
             | StringLength
             | ToString

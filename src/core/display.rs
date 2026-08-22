@@ -524,6 +524,8 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::FsRemoveDirAll => out.push_str("FsRemoveDirAll"),
         CorePrimOp::FsWriteFile => out.push_str("FsWriteFile"),
         CorePrimOp::FsRename => out.push_str("FsRename"),
+        CorePrimOp::FsListDir => out.push_str("FsListDir"),
+        CorePrimOp::FsMetadata => out.push_str("FsMetadata"),
         CorePrimOp::WriteFile => out.push_str("WriteFile"),
         CorePrimOp::ReadStdin => out.push_str("ReadStdin"),
         CorePrimOp::ReadLines => out.push_str("ReadLines"),

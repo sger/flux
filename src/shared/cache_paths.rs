@@ -31,7 +31,10 @@ use sha2::{Digest, Sha256};
 /// Epoch 11: module interfaces record record-style constructor field order
 /// (`ctor_field_names`) so importing modules can desugar named-field syntax;
 /// the `TryReadFile` primop changes the primop table and cached lowering.
-pub const CACHE_EPOCH: u16 = 11;
+/// Epoch 13: the `FsListDir` and `FsMetadata` primops extend the primop table
+/// and change cached lowering; recoverable-I/O runtime calls now take eleven
+/// constructor tags rather than eight, changing the native calling convention.
+pub const CACHE_EPOCH: u16 = 13;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

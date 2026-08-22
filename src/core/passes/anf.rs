@@ -201,6 +201,8 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         | CorePrimOp::FsRemoveFile
         | CorePrimOp::FsRemoveDirAll
         | CorePrimOp::FsRename
+        | CorePrimOp::FsListDir
+        | CorePrimOp::FsMetadata
         | CorePrimOp::ReadStdin
         | CorePrimOp::ReadLines => FluxRep::BoxedRep,
 
