@@ -68,6 +68,34 @@ const ROUTED_PRIMOPS: &[RoutedPrimop] = &[
         returns_unit: false,
     },
     RoutedPrimop {
+        effect: be::ENV,
+        operation: "env_var",
+        internal_name: "__primop_env_var",
+        arity: 1,
+        returns_unit: false,
+    },
+    RoutedPrimop {
+        effect: be::ENV,
+        operation: "env_args",
+        internal_name: "__primop_env_args",
+        arity: 0,
+        returns_unit: false,
+    },
+    RoutedPrimop {
+        effect: be::ENV,
+        operation: "env_cwd",
+        internal_name: "__primop_env_cwd",
+        arity: 0,
+        returns_unit: false,
+    },
+    RoutedPrimop {
+        effect: be::ENV,
+        operation: "env_home_dir",
+        internal_name: "__primop_env_home_dir",
+        arity: 0,
+        returns_unit: false,
+    },
+    RoutedPrimop {
         effect: be::CLOCK,
         operation: "clock_now",
         internal_name: "__primop_clock_now",
@@ -211,6 +239,9 @@ fn collect_default_effects_from_annotation(
                 Some(be::STDIN) => {
                     out.insert(be::STDIN);
                 }
+                Some(be::ENV) => {
+                    out.insert(be::ENV);
+                }
                 Some(be::CLOCK) => {
                     out.insert(be::CLOCK);
                 }
@@ -218,7 +249,7 @@ fn collect_default_effects_from_annotation(
                     out.insert(be::DEBUG);
                 }
                 Some(be::IO) => {
-                    out.extend([be::CONSOLE, be::FILESYSTEM, be::STDIN]);
+                    out.extend([be::CONSOLE, be::FILESYSTEM, be::STDIN, be::ENV]);
                 }
                 Some(be::TIME) => {
                     out.insert(be::CLOCK);
@@ -712,7 +743,14 @@ fn wrap_block_with_default_handlers(
         id: ctx.ids.next_id(),
     };
 
-    for effect in [be::CONSOLE, be::FILESYSTEM, be::STDIN, be::CLOCK, be::DEBUG] {
+    for effect in [
+        be::CONSOLE,
+        be::FILESYSTEM,
+        be::STDIN,
+        be::ENV,
+        be::CLOCK,
+        be::DEBUG,
+    ] {
         if !required_effects.contains(effect) {
             continue;
         }
@@ -870,6 +908,9 @@ fn collect_default_effects_expr(
                 }
                 Some(be::STDIN) => {
                     out.insert(be::STDIN);
+                }
+                Some(be::ENV) => {
+                    out.insert(be::ENV);
                 }
                 Some(be::CLOCK) => {
                     out.insert(be::CLOCK);

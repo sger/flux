@@ -463,6 +463,20 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
         let exec_start = Instant::now();
         let fiber_trace = std::env::var("FLUX_FIBER_TRACE").ok();
         let mut native_cmd = std::process::Command::new(&out);
+        // Forward the program's own arguments (everything the driver saw
+        // after `--`). The child is a separate process, so argv[0] would
+        // otherwise be the cache path of the compiled binary; arg0 is
+        // overridden to the script path so `Env.args()` reads the same on
+        // both backends.
+        let argv = crate::vm::program_args_snapshot();
+        if let Some((script, rest)) = argv.split_first() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::CommandExt as _;
+                native_cmd.arg0(script);
+            }
+            native_cmd.args(rest);
+        }
         native_cmd.stdout(std::process::Stdio::inherit());
         if fiber_trace.as_deref() == Some("1") {
             // Inherit stderr so trace events written by the child binary appear

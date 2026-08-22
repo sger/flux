@@ -29,6 +29,10 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::FsMetadata => "fs_metadata",
         CorePrimOp::Sha256 => "sha256",
         CorePrimOp::Sha256File => "sha256_file",
+        CorePrimOp::EnvVar => "env_var",
+        CorePrimOp::EnvArgs => "env_args",
+        CorePrimOp::EnvCwd => "env_cwd",
+        CorePrimOp::EnvHomeDir => "env_home_dir",
         CorePrimOp::WriteFile => "write_file",
         CorePrimOp::ReadStdin => "read_stdin",
         CorePrimOp::ReadLines => "read_lines",
@@ -325,6 +329,10 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::FsMetadata
             | CorePrimOp::Sha256
             | CorePrimOp::Sha256File
+            | CorePrimOp::EnvVar
+            | CorePrimOp::EnvArgs
+            | CorePrimOp::EnvCwd
+            | CorePrimOp::EnvHomeDir
             | CorePrimOp::WriteFile
             | CorePrimOp::ReadStdin
             | CorePrimOp::ReadLines

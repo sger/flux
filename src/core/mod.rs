@@ -864,7 +864,23 @@ pub enum CorePrimOp {
     /// Separate from `Sha256` so large files stream rather than being read
     /// fully into memory.
     Sha256File = 239,
-    // ── Next free ID: 240 ─────────────────────────────────────────────
+    // ── Process environment (proposal 0178) ───────────────────────────
+    /// Read an environment variable. Args: (name) -> Option<String>.
+    ///
+    /// An unset variable is an ordinary condition, not an error, so this is
+    /// `Option` rather than `Result`.
+    EnvVar = 240,
+    /// The process's own arguments. Args: () -> Array<String>.
+    ///
+    /// The first element is the script path, matching argv[0] elsewhere.
+    EnvArgs = 241,
+    /// The current working directory. Args: () -> Result<String, IoError>.
+    ///
+    /// Fallible: the directory can be deleted out from under the process.
+    EnvCwd = 242,
+    /// The user's home directory. Args: () -> Option<String>.
+    EnvHomeDir = 243,
+    // ── Next free ID: 244 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -987,6 +1003,10 @@ impl CorePrimOp {
             "FsMetadata" => return Some(Self::FsMetadata),
             "Sha256" => return Some(Self::Sha256),
             "Sha256File" => return Some(Self::Sha256File),
+            "EnvVar" => return Some(Self::EnvVar),
+            "EnvArgs" => return Some(Self::EnvArgs),
+            "EnvCwd" => return Some(Self::EnvCwd),
+            "EnvHomeDir" => return Some(Self::EnvHomeDir),
             "JsonStringify" => return Some(Self::JsonStringify),
             "HttpWriteChunkedHead" => return Some(Self::HttpWriteChunkedHead),
             "HttpWriteChunk" => return Some(Self::HttpWriteChunk),
@@ -1048,6 +1068,10 @@ impl CorePrimOp {
             Self::FsMetadata => Some("fs_metadata"),
             Self::Sha256 => Some("sha256"),
             Self::Sha256File => Some("sha256_file"),
+            Self::EnvVar => Some("env_var"),
+            Self::EnvArgs => Some("env_args"),
+            Self::EnvCwd => Some("env_cwd"),
+            Self::EnvHomeDir => Some("env_home_dir"),
             Self::WriteFile => Some("write_file"),
             Self::ReadStdin => Some("read_stdin"),
             Self::ReadLines => Some("read_lines"),
@@ -1234,6 +1258,10 @@ impl CorePrimOp {
             237 => FsMetadata,
             238 => Sha256,
             239 => Sha256File,
+            240 => EnvVar,
+            241 => EnvArgs,
+            242 => EnvCwd,
+            243 => EnvHomeDir,
             51 => WriteFile,
             52 => ReadStdin,
             53 => ReadLines,
@@ -1430,6 +1458,10 @@ impl CorePrimOp {
             ("__primop_fs_metadata", 1, CorePrimOp::FsMetadata),
             ("__primop_sha256", 1, CorePrimOp::Sha256),
             ("__primop_sha256_file", 1, CorePrimOp::Sha256File),
+            ("__primop_env_var", 1, CorePrimOp::EnvVar),
+            ("__primop_env_args", 0, CorePrimOp::EnvArgs),
+            ("__primop_env_cwd", 0, CorePrimOp::EnvCwd),
+            ("__primop_env_home_dir", 0, CorePrimOp::EnvHomeDir),
             ("__primop_read_lines", 1, CorePrimOp::ReadLines),
             ("__primop_read_stdin", 0, CorePrimOp::ReadStdin),
             ("__primop_write_file", 2, CorePrimOp::WriteFile),
@@ -1653,7 +1685,10 @@ impl CorePrimOp {
             | FiberNewScope
             | FiberCheckCancelled
             | FiberCurrentWorkerCount
-            | EventNever => 0,
+            | EventNever
+            | EnvArgs
+            | EnvCwd
+            | EnvHomeDir => 0,
             Abs
             | ArrayLen
             | DebugTrace
@@ -1684,6 +1719,7 @@ impl CorePrimOp {
             | FsMetadata
             | Sha256
             | Sha256File
+            | EnvVar
             | ReadLines
             | StringLength
             | ToString

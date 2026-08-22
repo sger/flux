@@ -2498,91 +2498,117 @@ letrec my_sum =
         0
 
 def main =
-let %t481 = (λ__resume_default.
-    let %t482 = __primop_read_stdin()
+let %t481 = (λ__resume_default, __arg0.
+    let %t482 = EnvVar(__arg0)
     __resume_default(%t482))
-  handle Stdin {
-    read_stdin(; __resume_default) →
-      let %t483 = __primop_read_stdin()
-      __resume_default(%t483)
+  let %t483 = (λ__resume_default.
+    let %t484 = EnvArgs()
+    __resume_default(%t484))
+  let %t485 = (λ__resume_default.
+    let %t486 = EnvCwd()
+    __resume_default(%t486))
+  let %t487 = (λ__resume_default.
+    let %t488 = EnvHomeDir()
+    __resume_default(%t488))
+  handle Env {
+    env_var(__arg0; __resume_default) →
+      let %t489 = EnvVar(__arg0)
+      __resume_default(%t489)
+    env_args(; __resume_default) →
+      let %t490 = EnvArgs()
+      __resume_default(%t490)
+    env_cwd(; __resume_default) →
+      let %t491 = EnvCwd()
+      __resume_default(%t491)
+    env_home_dir(; __resume_default) →
+      let %t492 = EnvHomeDir()
+      __resume_default(%t492)
   } with
-    let %t484 = (λ__resume_default, __arg0.
-      let %t485 = __primop_read_file(__arg0)
-      __resume_default(%t485))
-    let %t486 = (λ__resume_default, __arg0.
-      let %t487 = __primop_read_lines(__arg0)
-      __resume_default(%t487))
-    let %t488 = (λ__resume_default, __arg0, __arg1.
-      let %t489 = __primop_write_file(__arg0, __arg1)
-      let %t490 = MakeTuple()
-      __resume_default(%t490))
-    handle FileSystem {
-      read_file(__arg0; __resume_default) →
-        let %t491 = __primop_read_file(__arg0)
-        __resume_default(%t491)
-      read_lines(__arg0; __resume_default) →
-        let %t492 = __primop_read_lines(__arg0)
-        __resume_default(%t492)
-      write_file(__arg0, __arg1; __resume_default) →
-        let %t489 = __primop_write_file(__arg0, __arg1)
-        let %t493 = MakeTuple()
-        __resume_default(%t493)
+    let %t493 = (λ__resume_default.
+      let %t494 = __primop_read_stdin()
+      __resume_default(%t494))
+    handle Stdin {
+      read_stdin(; __resume_default) →
+        let %t495 = __primop_read_stdin()
+        __resume_default(%t495)
     } with
-      let %t494 = (λ__resume_default, __arg0.
-        let %t495 = __primop_print(__arg0)
-        let %t496 = MakeTuple()
-        __resume_default(%t496))
-      let %t497 = (λ__resume_default, __arg0.
-        let %t498 = __primop_println(__arg0)
-        let %t499 = MakeTuple()
+      let %t496 = (λ__resume_default, __arg0.
+        let %t497 = __primop_read_file(__arg0)
+        __resume_default(%t497))
+      let %t498 = (λ__resume_default, __arg0.
+        let %t499 = __primop_read_lines(__arg0)
         __resume_default(%t499))
-      handle Console {
-        print(__arg0; __resume_default) →
-          let %t495 = __primop_print(__arg0)
-          let %t500 = MakeTuple()
-          __resume_default(%t500)
-        println(__arg0; __resume_default) →
-          let %t498 = __primop_println(__arg0)
-          let %t501 = MakeTuple()
-          __resume_default(%t501)
+      let %t500 = (λ__resume_default, __arg0, __arg1.
+        let %t501 = __primop_write_file(__arg0, __arg1)
+        let %t502 = MakeTuple()
+        __resume_default(%t502))
+      handle FileSystem {
+        read_file(__arg0; __resume_default) →
+          let %t503 = __primop_read_file(__arg0)
+          __resume_default(%t503)
+        read_lines(__arg0; __resume_default) →
+          let %t504 = __primop_read_lines(__arg0)
+          __resume_default(%t504)
+        write_file(__arg0, __arg1; __resume_default) →
+          let %t501 = __primop_write_file(__arg0, __arg1)
+          let %t505 = MakeTuple()
+          __resume_default(%t505)
       } with
-        let result = (let %t502 = MakeList(1, 2, 3)
-        let %t503 = (λx.
-          IMul(x, 2))
-        my_map(%t502, %t503))
-        let %t504 = (let %t505 = (λ%t506.
-          %t506)
-        %t494(%t505, result))
-        let opt = (let %t507 = Some(42)
-        let %t508 = (λx.
-          IAdd(x, 1))
-        option_map(%t507, %t508))
-        let %t509 = (let %t510 = (λ%t511.
-          %t511)
-        %t494(%t510, opt))
-        let tree = Node(Red, Leaf, 5, Leaf)
-        let blk = set_black(tree)
-        let %t512 = (let %t513 = (λ%t514.
-          %t514)
-        %t494(%t513, blk))
-        let n = (let %t515 = MakeList(1, 2, 3, 4, 5)
-        my_len(%t515))
-        let %t516 = (let %t517 = (λ%t518.
-          %t518)
-        %t494(%t517, n))
-        let evens = (let %t519 = MakeList(1, 2, 3, 4, 5, 6)
-        let %t520 = (λx.
-          let %t521 = IMod(x, 2)
-          ICmpEq(%t521, 0))
-        my_filter(%t519, %t520))
-        let %t522 = (let %t523 = (λ%t524.
-          %t524)
-        %t494(%t523, evens))
-        let total = (let %t525 = MakeList(1, 2, 3, 4, 5)
-        my_sum(%t525))
-        let %t526 = (λ%t527.
-          %t527)
-        %t494(%t526, total)
+        let %t506 = (λ__resume_default, __arg0.
+          let %t507 = __primop_print(__arg0)
+          let %t508 = MakeTuple()
+          __resume_default(%t508))
+        let %t509 = (λ__resume_default, __arg0.
+          let %t510 = __primop_println(__arg0)
+          let %t511 = MakeTuple()
+          __resume_default(%t511))
+        handle Console {
+          print(__arg0; __resume_default) →
+            let %t507 = __primop_print(__arg0)
+            let %t512 = MakeTuple()
+            __resume_default(%t512)
+          println(__arg0; __resume_default) →
+            let %t510 = __primop_println(__arg0)
+            let %t513 = MakeTuple()
+            __resume_default(%t513)
+        } with
+          let result = (let %t514 = MakeList(1, 2, 3)
+          let %t515 = (λx.
+            IMul(x, 2))
+          my_map(%t514, %t515))
+          let %t516 = (let %t517 = (λ%t518.
+            %t518)
+          %t506(%t517, result))
+          let opt = (let %t519 = Some(42)
+          let %t520 = (λx.
+            IAdd(x, 1))
+          option_map(%t519, %t520))
+          let %t521 = (let %t522 = (λ%t523.
+            %t523)
+          %t506(%t522, opt))
+          let tree = Node(Red, Leaf, 5, Leaf)
+          let blk = set_black(tree)
+          let %t524 = (let %t525 = (λ%t526.
+            %t526)
+          %t506(%t525, blk))
+          let n = (let %t527 = MakeList(1, 2, 3, 4, 5)
+          my_len(%t527))
+          let %t528 = (let %t529 = (λ%t530.
+            %t530)
+          %t506(%t529, n))
+          let evens = (let %t531 = MakeList(1, 2, 3, 4, 5, 6)
+          let %t532 = (λx.
+            let %t533 = IMod(x, 2)
+            ICmpEq(%t533, 0))
+          my_filter(%t531, %t532))
+          let %t534 = (let %t535 = (λ%t536.
+            %t536)
+          %t506(%t535, evens))
+          let total = (let %t537 = MakeList(1, 2, 3, 4, 5)
+          my_sum(%t537))
+          let %t538 = (λ%t539.
+            %t539)
+          %t506(%t538, total)
 
 [ 1 of 12] Compiling  Assert
 [ 2 of 12] Compiling  Debug

@@ -3147,13 +3147,92 @@ double flux_unbox_float_rt(int64_t val) {
 
 #ifndef FLUX_RT_NO_MAIN
 
+/* ── Process environment (proposal 0178) ──────────────────────────────────
+ *
+ * argv is captured in main() rather than read from a platform API, so the
+ * native and VM paths agree on what "the program's arguments" means.
+ */
+
+static int    flux_env_argc = 0;
+static char **flux_env_argv = NULL;
+
+void flux_env_set_args(int argc, char **argv) {
+    flux_env_argc = argc;
+    flux_env_argv = argv;
+}
+
+int64_t flux_env_args(void) {
+    if (flux_env_argc <= 0 || !flux_env_argv) return flux_array_new(NULL, 0);
+
+    int64_t *elems = (int64_t *)malloc((size_t)flux_env_argc * sizeof(int64_t));
+    if (!elems) return flux_array_new(NULL, 0);
+    for (int i = 0; i < flux_env_argc; i++) {
+        const char *a = flux_env_argv[i] ? flux_env_argv[i] : "";
+        elems[i] = flux_string_new(a, (uint32_t)strlen(a));
+    }
+    int64_t result = flux_array_new(elems, flux_env_argc);
+    free(elems);
+    return result;
+}
+
+int64_t flux_env_var(int64_t name) {
+    char *cname = flux_io_cstr(name);
+    if (!cname) return flux_make_none();
+    const char *value = getenv(cname);
+    free(cname);
+    if (!value) return flux_make_none();
+    return flux_wrap_some(flux_string_new(value, (uint32_t)strlen(value)));
+}
+
+int64_t flux_env_cwd(FLUX_IO_TAGS_DECL) {
+    FluxIoTags tags = FLUX_IO_TAGS_INIT;
+    char buf[4096];
+    if (!getcwd(buf, sizeof(buf))) {
+        /* The path is "" because the failure is not about a path the caller
+         * named — matches the VM. */
+        int64_t empty = flux_string_new("", 0);
+        return flux_io_fail(tags, errno, empty);
+    }
+    int64_t dir = flux_string_new(buf, (uint32_t)strlen(buf));
+    return flux_io_make_adt(tags.ok_tag, &dir, 1);
+}
+
+int64_t flux_env_home_dir(void) {
+    /* Environment first, so a user who overrides HOME is honoured. Matches
+     * the VM, which does not consult the password database either. */
+    const char *home = getenv("HOME");
+    if (home && *home) {
+        return flux_wrap_some(flux_string_new(home, (uint32_t)strlen(home)));
+    }
+    const char *profile = getenv("USERPROFILE");
+    if (profile && *profile) {
+        return flux_wrap_some(flux_string_new(profile, (uint32_t)strlen(profile)));
+    }
+    const char *drive = getenv("HOMEDRIVE");
+    const char *path  = getenv("HOMEPATH");
+    if (drive && *drive && path && *path) {
+        size_t n = strlen(drive) + strlen(path);
+        char *joined = (char *)malloc(n + 1);
+        if (!joined) return flux_make_none();
+        snprintf(joined, n + 1, "%s%s", drive, path);
+        int64_t out = flux_string_new(joined, (uint32_t)n);
+        free(joined);
+        return flux_wrap_some(out);
+    }
+    return flux_make_none();
+}
+
 /*
  * The LLVM codegen emits a `@flux_main() -> i64` function.
  * This C main() initializes the runtime, calls flux_main, and shuts down.
  */
 extern int64_t flux_main(void);
 
-int main(void) {
+int main(int argc, char **argv) {
+    /* argv is stashed before anything runs so `Flow.Env.args` can read it.
+     * On native the process's own argv is already in argv[0]-first form,
+     * which is the shape the VM driver synthesizes to match. */
+    flux_env_set_args(argc, argv);
     flux_rt_init();
     int64_t result = flux_main();
     (void)result;

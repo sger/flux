@@ -3227,6 +3227,32 @@ pub fn execute_core_primop(
             let path = estr(&args[0], "sha256_file")?;
             Ok(vm_sha256_file(path))
         }
+        EnvVar => {
+            let name = estr(&args[0], "env_var")?;
+            Ok(match std::env::var(name) {
+                Ok(value) => Value::Some(Rc::new(Value::String(value.into()))),
+                // Absent and not-unicode are both "no usable value here".
+                Err(_) => Value::None,
+            })
+        }
+        EnvArgs => Ok(Value::Array(
+            program_args()
+                .iter()
+                .map(|a| Value::String(a.clone().into()))
+                .collect::<Vec<_>>()
+                .into(),
+        )),
+        EnvCwd => Ok(match std::env::current_dir() {
+            Ok(dir) => vm_io_ok(Value::String(dir.to_string_lossy().into_owned().into())),
+            // The cwd can be deleted out from under a running process, so
+            // this is genuinely fallible. `""` as the path: the failure is
+            // not about a path the caller named.
+            Err(err) => vm_io_err(&err, ""),
+        }),
+        EnvHomeDir => Ok(match home_dir() {
+            Some(dir) => Value::Some(Rc::new(Value::String(dir.into()))),
+            None => Value::None,
+        }),
         WriteFile => {
             let path = estr(&args[0], "write_file")?;
             let content = estr(&args[1], "write_file")?;
@@ -4672,6 +4698,57 @@ fn vm_io_err(err: &std::io::Error, path: &str) -> Value {
         constructor: Rc::new("Err".to_string()),
         fields: AdtFields::One(io_error),
     }))
+}
+
+/// The arguments handed to the running Flux program.
+///
+/// Set once by the driver before execution. Empty when the driver never set
+/// them (an embedded VM, a test harness), which is a valid answer rather than
+/// an error — the program simply received no arguments.
+static PROGRAM_ARGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
+/// Install the program's arguments. First element is the script path.
+///
+/// Only the first call takes effect; later ones are ignored, so a nested or
+/// repeated driver invocation cannot rewrite what the program already saw.
+pub fn set_program_args(args: Vec<String>) {
+    let _ = PROGRAM_ARGS.set(args);
+}
+
+fn program_args() -> &'static [String] {
+    PROGRAM_ARGS.get().map(Vec::as_slice).unwrap_or(&[])
+}
+
+/// The installed argv, for surfaces outside the VM.
+///
+/// The native backend needs it to forward arguments to the binary it spawns,
+/// which is a separate process and cannot see this one's statics.
+pub fn program_args_snapshot() -> &'static [String] {
+    program_args()
+}
+
+/// The user's home directory, or `None` when the platform does not say.
+///
+/// Read from the environment rather than the password database: `HOME` is the
+/// value a user can actually override, which is what a tool should honour.
+fn home_dir() -> Option<String> {
+    if let Ok(home) = std::env::var("HOME")
+        && !home.is_empty()
+    {
+        return Some(home);
+    }
+    // Windows spells it differently and may split it in two.
+    if let Ok(profile) = std::env::var("USERPROFILE")
+        && !profile.is_empty()
+    {
+        return Some(profile);
+    }
+    match (std::env::var("HOMEDRIVE"), std::env::var("HOMEPATH")) {
+        (Ok(drive), Ok(path)) if !drive.is_empty() && !path.is_empty() => {
+            Some(format!("{drive}{path}"))
+        }
+        _ => None,
+    }
 }
 
 /// SHA-256 of `bytes`, as lowercase hex.

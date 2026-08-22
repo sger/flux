@@ -549,6 +549,10 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::FsMetadata
         | CorePrimOp::Sha256
         | CorePrimOp::Sha256File
+        | CorePrimOp::EnvVar
+        | CorePrimOp::EnvArgs
+        | CorePrimOp::EnvCwd
+        | CorePrimOp::EnvHomeDir
         | CorePrimOp::WriteFile
         | CorePrimOp::ReadStdin
         | CorePrimOp::ReadLines

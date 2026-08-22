@@ -16,11 +16,11 @@
 // 39 | fn main() -> Unit {
 // 40 |     apply_with_time(io_add_one, 1)
 //    |                     ^^^^^^^^^^
-//    |                     ---------- this argument has type `(Int) -> Int with Console, FileSystem, Stdin`
+//    |                     ---------- this argument has type `(Int) -> Int with Console, FileSystem, Stdin, Env`
 //
 // Note:
 //   expected argument type: (Int) -> Int with Time
-//   found argument type: (Int) -> Int with Console, FileSystem, Stdin
+//   found argument type: (Int) -> Int with Console, FileSystem, Stdin, Env
 //   the actual argument type is inferred from this expression
 //   the expected argument type comes from the function signature
 //

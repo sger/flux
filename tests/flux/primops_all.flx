@@ -39,7 +39,11 @@ fn test_compare_primops() {
 fn test_array_and_collection_primops() {
     let arr = [|10, 20, 30|]
     assert_eq(array_len(arr), 3)
-    assert_eq(array_get(arr, 1), 20)
+    // The deprecated bare `array_get` spelling is typed as returning the
+    // element itself. `Flow.Array.get` is the supported API and returns
+    // `Option<a>`, matching the `arr[i]` indexing used below.
+    assert_eq(Array.get(arr, 1), Some(20))
+    assert_eq(Array.get(arr, 99), None)
 
     let arr2 = array_set(arr, 1, 99)
     assert_eq(len(arr2), 3)

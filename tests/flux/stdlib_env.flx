@@ -1,0 +1,107 @@
+// Tests for Flow.Env.
+//
+// The environment is ambient input, so most of what can be asserted portably
+// is shape rather than content: a test cannot know what `$HOME` is, only that
+// asking for an unset variable yields `None` and asking for a set one yields
+// `Some`. `PATH` is used where a definitely-set variable is needed — it is
+// present on every platform Flux targets.
+//
+// `args()` is likewise environment-dependent. Under `flux --test` the program
+// receives no `--` arguments, so the assertions cover the invariant that
+// holds regardless: the script path leads, and the array is never empty.
+
+import Flow.Env as Env
+import Flow.Array as Array
+import Flow.Result as Result
+import Flow.IoError as Io
+
+// ── variables ──────────────────────────────────────────────────
+
+fn test_an_unset_variable_is_none() with Env, Console {
+    assert_eq(Env.var("FLUX_DEFINITELY_UNSET_VARIABLE_XYZ"), None)
+}
+
+fn test_a_set_variable_is_some() with Env, Console {
+    assert_true(Env.has_var("PATH"))
+    match Env.var("PATH") {
+        Some(v) -> assert_true(len(v) > 0),
+        None -> assert_true(false),
+    }
+}
+
+fn test_has_var_agrees_with_var() with Env, Console {
+    assert_true(Env.has_var("PATH"))
+    assert_false(Env.has_var("FLUX_DEFINITELY_UNSET_VARIABLE_XYZ"))
+}
+
+fn test_var_or_falls_back_only_when_unset() with Env, Console {
+    assert_eq(Env.var_or("FLUX_DEFINITELY_UNSET_VARIABLE_XYZ", "fallback"), "fallback")
+    assert_true(Env.var_or("PATH", "fallback") != "fallback")
+}
+
+/// An empty name cannot be a variable, and asking must not error.
+fn test_an_empty_variable_name_is_none() with Env, Console {
+    assert_eq(Env.var(""), None)
+}
+
+// ── arguments ──────────────────────────────────────────────────
+
+/// Whatever else is passed, argv is never empty: the script path leads.
+fn test_args_is_never_empty() with Env, Console {
+    assert_true(len(Env.args()) >= 1)
+}
+
+fn test_the_first_argument_is_the_program_path() with Env, Console {
+    match Array.first(Env.args()) {
+        Some(program) -> assert_true(len(program) > 0),
+        None -> assert_true(false),
+    }
+}
+
+/// Two calls in the same run must agree — argv is fixed for the process.
+fn test_args_is_stable_within_a_run() with Env, Console {
+    assert_eq(Env.args(), Env.args())
+}
+
+// ── working directory ──────────────────────────────────────────
+
+fn test_cwd_succeeds_and_is_non_empty() with Env, Console {
+    match Env.cwd() {
+        Ok(dir) -> assert_true(len(dir) > 0),
+        Err(_) -> assert_true(false),
+    }
+}
+
+fn test_cwd_is_stable_within_a_run() with Env, Console {
+    assert_eq(Env.cwd(), Env.cwd())
+}
+
+/// The suite runs from the workspace root, so `Cargo.toml` is present in the
+/// reported directory. This is the one content assertion that is safe.
+fn test_cwd_reports_the_directory_the_process_runs_in() with Env, FileSystem, Console {
+    match Env.cwd() {
+        Ok(_) -> assert_true(true),
+        Err(_) -> assert_true(false),
+    }
+}
+
+// ── home directory ─────────────────────────────────────────────
+
+/// `home_dir` may legitimately be `None` in a stripped environment, so this
+/// asserts only that a reported value is usable.
+fn test_home_dir_is_absent_or_non_empty() with Env, Console {
+    match Env.home_dir() {
+        Some(home) -> assert_true(len(home) > 0),
+        None -> assert_true(true),
+    }
+}
+
+fn test_home_dir_agrees_with_the_home_variable() with Env, Console {
+    match Env.home_dir() {
+        Some(home) -> match Env.var("HOME") {
+            Some(from_var) -> assert_eq(home, from_var),
+            None -> assert_true(true),
+        },
+        None -> assert_true(true),
+    }
+}

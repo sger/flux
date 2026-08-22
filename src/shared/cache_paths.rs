@@ -38,7 +38,9 @@ use sha2::{Digest, Sha256};
 /// Epoch 15: `Array.get` now returns `Some(x)` rather than the bare element,
 /// and array equality is structural on both backends — both change results
 /// baked into cached artifacts.
-pub const CACHE_EPOCH: u16 = 15;
+/// Epoch 16: the `Env` effect label and the `EnvVar` / `EnvArgs` / `EnvCwd` /
+/// `EnvHomeDir` primops extend the primop table and the `IO` alias expansion.
+pub const CACHE_EPOCH: u16 = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

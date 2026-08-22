@@ -2163,6 +2163,7 @@ impl<'a> FnEmitter<'a> {
                 | CorePrimOp::FsRename
                 | CorePrimOp::FsListDir
                 | CorePrimOp::Sha256File
+                | CorePrimOp::EnvCwd
         ) {
             let c_name = match op {
                 CorePrimOp::FsWriteFile => "flux_fs_write_file",
@@ -2171,6 +2172,7 @@ impl<'a> FnEmitter<'a> {
                 CorePrimOp::FsRemoveDirAll => "flux_fs_remove_dir_all",
                 CorePrimOp::FsListDir => "flux_fs_list_dir",
                 CorePrimOp::Sha256File => "flux_sha256_file",
+                CorePrimOp::EnvCwd => "flux_env_cwd",
                 _ => "flux_fs_rename",
             };
             let dst_local = dst.map(|d| self.var_local(d));
@@ -3771,6 +3773,10 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::FsMetadata => "fs_metadata",
         CorePrimOp::Sha256 => "sha256",
         CorePrimOp::Sha256File => "sha256_file",
+        CorePrimOp::EnvVar => "env_var",
+        CorePrimOp::EnvArgs => "env_args",
+        CorePrimOp::EnvCwd => "env_cwd",
+        CorePrimOp::EnvHomeDir => "env_home_dir",
         CorePrimOp::WriteFile => "write_file",
         CorePrimOp::ReadStdin => "read_stdin",
         CorePrimOp::ReadLines => "read_lines",
@@ -4317,6 +4323,26 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
             ],
         ),
         "flux_sha256" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_env_var" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_env_args" | "flux_env_home_dir" => (LlvmType::i64(), vec![]),
+        // env_cwd takes the eleven leading constructor tags, like the other
+        // Result-returning runtime calls, and no further arguments.
+        "flux_env_cwd" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+            ],
+        ),
         "flux_fs_exists" | "flux_fs_is_dir" | "flux_fs_is_file" => {
             (LlvmType::i64(), vec![LlvmType::i64()])
         }

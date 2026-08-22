@@ -454,42 +454,54 @@ impl<'a> InferCtx<'a> {
                 })
             }
             Expression::MemberAccess { object, member, .. } => {
-                let Expression::Identifier {
-                    name: module_name, ..
-                } = object.as_ref()
-                else {
-                    return None;
-                };
-                if !self
-                    .module_member_schemes
-                    .contains_key(&(*module_name, *member))
-                {
-                    return None;
-                }
-                let class_name = self.lookup_class_method(*member)?;
-                // A qualified call dispatches as a class method only when the
-                // qualifier names that class. `Foldable.fold` and
-                // `Comparable.same` do; `Stream.append` does not — there the
-                // qualifier is a module that happens to export a function
-                // sharing a name with the built-in `Semigroup` method, and the
-                // module's own function must win.
-                //
-                // Matching on the class's declaring path does not work: an
-                // instance may live in a different module from its class, and
-                // the qualifier at the call site is an import alias.
-                if *member != class_name && *module_name != class_name {
-                    return None;
-                }
-                Some(ResolvedClassMethodCall {
-                    class_name,
-                    method_name: *member,
-                    first_arg_id,
-                    function_expr_id: function.expr_id(),
-                    span,
-                })
+                self.qualified_class_method_call(object, *member, function, first_arg_id, span)
             }
             _ => None,
         }
+    }
+
+    /// Recognize a *qualified* class-method call, `Module.method(..)`.
+    ///
+    /// A qualified call dispatches as a class method only when the qualifier
+    /// names that class. `Foldable.fold` and `Comparable.same` do;
+    /// `Stream.append` does not — there the qualifier is a module that happens
+    /// to export a function sharing a name with the built-in `Semigroup`
+    /// method, and the module's own function must win.
+    ///
+    /// Matching on the class's declaring path does not work as a rule: an
+    /// instance may live in a different module from its class, and the
+    /// qualifier at the call site is an import alias rather than a path.
+    fn qualified_class_method_call(
+        &self,
+        object: &Expression,
+        member: Identifier,
+        function: &Expression,
+        first_arg_id: ExprId,
+        span: Span,
+    ) -> Option<ResolvedClassMethodCall> {
+        let Expression::Identifier {
+            name: module_name, ..
+        } = object
+        else {
+            return None;
+        };
+        if !self
+            .module_member_schemes
+            .contains_key(&(*module_name, member))
+        {
+            return None;
+        }
+        let class_name = self.lookup_class_method(member)?;
+        if member != class_name && *module_name != class_name {
+            return None;
+        }
+        Some(ResolvedClassMethodCall {
+            class_name,
+            method_name: member,
+            first_arg_id,
+            function_expr_id: function.expr_id(),
+            span,
+        })
     }
 
     /// Resolve a class-method call's first-argument type to a concrete instance.
