@@ -547,6 +547,8 @@ fn is_primop_pure(op: &CorePrimOp) -> bool {
         | CorePrimOp::FsRename
         | CorePrimOp::FsListDir
         | CorePrimOp::FsMetadata
+        | CorePrimOp::Sha256
+        | CorePrimOp::Sha256File
         | CorePrimOp::WriteFile
         | CorePrimOp::ReadStdin
         | CorePrimOp::ReadLines

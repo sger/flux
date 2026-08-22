@@ -34,7 +34,8 @@ use sha2::{Digest, Sha256};
 /// Epoch 13: the `FsListDir` and `FsMetadata` primops extend the primop table
 /// and change cached lowering; recoverable-I/O runtime calls now take eleven
 /// constructor tags rather than eight, changing the native calling convention.
-pub const CACHE_EPOCH: u16 = 13;
+/// Epoch 14: the `Sha256` and `Sha256File` primops extend the primop table.
+pub const CACHE_EPOCH: u16 = 14;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

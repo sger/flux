@@ -141,7 +141,7 @@ pub fn primop_fine_effect_label(op: CorePrimOp) -> Option<&'static str> {
         DebugTrace => Some(DEBUG),
         ReadFile | TryReadFile | WriteFile | ReadLines => Some(FILESYSTEM),
         FsExists | FsIsDir | FsIsFile | FsWriteFile | FsCreateDirAll | FsRemoveFile
-        | FsRemoveDirAll | FsRename | FsListDir | FsMetadata => Some(FILESYSTEM),
+        | FsRemoveDirAll | FsRename | FsListDir | FsMetadata | Sha256File => Some(FILESYSTEM),
         ReadStdin => Some(STDIN),
         ClockNow | Time => Some(CLOCK),
         Panic => Some(PANIC),
