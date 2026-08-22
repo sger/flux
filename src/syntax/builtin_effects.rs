@@ -141,7 +141,7 @@ pub fn primop_fine_effect_label(op: CorePrimOp) -> Option<&'static str> {
         DebugTrace => Some(DEBUG),
         ReadFile | TryReadFile | WriteFile | ReadLines => Some(FILESYSTEM),
         FsExists | FsIsDir | FsIsFile | FsWriteFile | FsCreateDirAll | FsRemoveFile
-        | FsRemoveDirAll | FsRename => Some(FILESYSTEM),
+        | FsRemoveDirAll | FsRename | FsListDir | FsMetadata => Some(FILESYSTEM),
         ReadStdin => Some(STDIN),
         ClockNow | Time => Some(CLOCK),
         Panic => Some(PANIC),
@@ -208,6 +208,8 @@ mod tests {
             CorePrimOp::FsRemoveFile,
             CorePrimOp::FsRemoveDirAll,
             CorePrimOp::FsRename,
+            CorePrimOp::FsListDir,
+            CorePrimOp::FsMetadata,
             CorePrimOp::WriteFile,
             CorePrimOp::ReadLines,
         ] {
@@ -278,6 +280,8 @@ mod tests {
             CorePrimOp::FsRemoveFile,
             CorePrimOp::FsRemoveDirAll,
             CorePrimOp::FsRename,
+            CorePrimOp::FsListDir,
+            CorePrimOp::FsMetadata,
             CorePrimOp::WriteFile,
             CorePrimOp::ReadLines,
             CorePrimOp::ReadStdin,

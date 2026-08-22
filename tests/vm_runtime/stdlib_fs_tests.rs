@@ -60,8 +60,8 @@ fn stdlib_fs_flux_suite_passes() {
     let (stdout, success) = run_flux_test("stdlib_fs.flx");
     assert!(success, "Flow.Fs test suite failed:\n{stdout}");
     assert!(
-        stdout.contains("19 tests: 19 passed, 0 failed"),
-        "expected all 19 Flow.Fs tests to pass, got:\n{stdout}"
+        stdout.contains("31 tests: 31 passed, 0 failed"),
+        "expected all 31 Flow.Fs tests to pass, got:\n{stdout}"
     );
 }
 
@@ -325,6 +325,195 @@ import Flow.Result as Result
 
 fn sneaky() -> Bool {
     Result.is_ok(Fs.write_file("target/test-scratch/sneaky.txt", "x"))
+}
+
+fn main() -> Unit with IO {
+    println(to_string(sneaky()))
+}
+"#,
+    );
+    assert!(
+        !success,
+        "an undeclared FileSystem effect must be rejected:\n{stdout}"
+    );
+    assert!(
+        format!("{stdout}{stderr}").contains("FileSystem"),
+        "the diagnostic should name the FileSystem effect"
+    );
+}
+
+/// `list_dir` reports exactly what was created — no more (`.`/`..` are not
+/// entries) and no less. Names are bare, so joining is the caller's job.
+#[test]
+fn list_dir_returns_bare_entry_names() {
+    let base = "target/test-scratch/fs_rs_list";
+    let _ = std::fs::remove_dir_all(workspace_root().join(base));
+    let (stdout, stderr, success) = run_source(
+        "fs_list_dir.flx",
+        &format!(
+            r#"
+import Flow.Fs as Fs
+import Flow.Array as Array
+import Flow.Result as Result
+
+fn main() -> Unit with IO {{
+    let base = "{base}"
+    println("mkdir=" + to_string(Result.is_ok(Fs.create_dir_all(base))))
+    println("w1=" + to_string(Result.is_ok(Fs.write_file(base + "/a.txt", "1"))))
+    println("w2=" + to_string(Result.is_ok(Fs.write_file(base + "/b.txt", "2"))))
+    match Fs.list_dir(base) {{
+        Ok(names) -> do {{
+            println("count=" + to_string(len(names)))
+            println("has_a=" + to_string(Array.contains(names, "a.txt")))
+            println("has_b=" + to_string(Array.contains(names, "b.txt")))
+            println("no_dot=" + to_string(Array.contains(names, ".") == false))
+            println("bare=" + to_string(Array.contains(names, base + "/a.txt") == false))
+        }},
+        Err(_) -> println("count=ERR"),
+    }}
+}}
+"#
+        ),
+    );
+    let _ = std::fs::remove_dir_all(workspace_root().join(base));
+    assert!(success, "run failed:\n{stdout}\n{stderr}");
+    for expected in [
+        "count=2",
+        "has_a=true",
+        "has_b=true",
+        "no_dot=true",
+        "bare=true",
+    ] {
+        assert!(stdout.contains(expected), "missing {expected}:\n{stdout}");
+    }
+}
+
+/// Listing failures are classified, not collapsed into one error. A missing
+/// directory and a path that is a file fail for different reasons, and the
+/// VM (`io::ErrorKind`) and C runtime (`errno`) must agree on both.
+#[test]
+fn list_dir_distinguishes_missing_from_not_a_directory() {
+    let (stdout, stderr, success) = run_source(
+        "fs_list_kinds.flx",
+        r#"
+import Flow.Fs as Fs
+import Flow.IoError as Io
+
+fn kind(r: Result<Array<String>, IoError>) -> String {
+    match r {
+        Ok(_) -> "ok",
+        Err(e) -> Io.kind_name(Io.error_kind(e)),
+    }
+}
+
+fn main() -> Unit with IO {
+    println("missing=" + kind(Fs.list_dir("/nonexistent/d")))
+    println("notdir=" + kind(Fs.list_dir("Cargo.toml")))
+}
+"#,
+    );
+    assert!(success, "run failed:\n{stdout}\n{stderr}");
+    assert!(stdout.contains("missing=NotFound"), "got:\n{stdout}");
+    assert!(stdout.contains("notdir=NotADirectory"), "got:\n{stdout}");
+}
+
+/// `metadata` answers several questions from one syscall, and its answers
+/// agree with the standalone predicates.
+#[test]
+fn metadata_reports_size_and_kind_consistently_with_the_predicates() {
+    let base = "target/test-scratch/fs_rs_meta";
+    let _ = std::fs::remove_dir_all(workspace_root().join(base));
+    let (stdout, stderr, success) = run_source(
+        "fs_metadata.flx",
+        &format!(
+            r#"
+import Flow.Fs as Fs
+import Flow.Result as Result
+
+fn main() -> Unit with IO {{
+    let base = "{base}"
+    println("mkdir=" + to_string(Result.is_ok(Fs.create_dir_all(base))))
+    println("write=" + to_string(Result.is_ok(Fs.write_file(base + "/s.txt", "12345"))))
+    report_file(base + "/s.txt")
+    match Fs.metadata(base) {{
+        Ok(m) -> println("dir_is_dir=" + to_string(Fs.meta_is_dir(m))),
+        Err(_) -> println("dir_is_dir=ERR"),
+    }}
+}}
+
+fn report_file(path: String) -> Unit with IO {{
+    match Fs.metadata(path) {{
+        Ok(m) -> do {{
+            println("size=" + to_string(Fs.file_size(m)))
+            println("is_file=" + to_string(Fs.meta_is_file(m)))
+            println("is_dir=" + to_string(Fs.meta_is_dir(m)))
+            println("agrees=" + to_string(Fs.meta_is_file(m) == Fs.is_file(path)))
+            println("mtime=" + to_string(Fs.modified_time(m) > 0))
+        }},
+        Err(_) -> println("size=ERR"),
+    }}
+}}
+"#
+        ),
+    );
+    let _ = std::fs::remove_dir_all(workspace_root().join(base));
+    assert!(success, "run failed:\n{stdout}\n{stderr}");
+    for expected in [
+        "size=5",
+        "is_file=true",
+        "is_dir=false",
+        "agrees=true",
+        "mtime=true",
+        "dir_is_dir=true",
+    ] {
+        assert!(stdout.contains(expected), "missing {expected}:\n{stdout}");
+    }
+}
+
+/// Statting a missing path is recoverable and names the path it tried.
+#[test]
+fn metadata_on_a_missing_path_is_recoverable() {
+    let (stdout, stderr, success) = run_source(
+        "fs_metadata_missing.flx",
+        r#"
+import Flow.Fs as Fs
+import Flow.IoError as Io
+
+fn main() -> Unit with IO {
+    match Fs.metadata("/nonexistent/meta.txt") {
+        Ok(_) -> println("unexpected"),
+        Err(e) -> do {
+            println("kind=" + Io.kind_name(Io.error_kind(e)))
+            println("path=" + Io.error_path(e))
+        },
+    }
+    println("still running")
+}
+"#,
+    );
+    assert!(success, "run failed:\n{stdout}\n{stderr}");
+    assert!(stdout.contains("kind=NotFound"), "got:\n{stdout}");
+    assert!(
+        stdout.contains("path=/nonexistent/meta.txt"),
+        "got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("still running"),
+        "a failed stat must not abort:\n{stdout}"
+    );
+}
+
+/// Inspection carries `FileSystem` like every other operation here.
+#[test]
+fn list_dir_requires_the_filesystem_effect() {
+    let (stdout, stderr, success) = run_source(
+        "fs_list_effect.flx",
+        r#"
+import Flow.Fs as Fs
+import Flow.Result as Result
+
+fn sneaky() -> Bool {
+    Result.is_ok(Fs.list_dir("src"))
 }
 
 fn main() -> Unit with IO {

@@ -8,6 +8,7 @@
 import Flow.Fs as Fs
 import Flow.IoError as Io
 import Flow.Result as Result
+import Flow.Array as Array
 
 // ── success ────────────────────────────────────────────────────
 
@@ -159,5 +160,137 @@ fn test_renaming_a_missing_source_reports_not_found() with FileSystem, Console {
     match Fs.rename("/nonexistent/a.txt", "/nonexistent/b.txt") {
         Ok(_) -> assert_true(false),
         Err(e) -> assert_true(Io.is_not_found(e)),
+    }
+}
+
+// ── list_dir ───────────────────────────────────────────────────
+
+fn test_list_dir_returns_the_entries_it_created() with FileSystem, Console {
+    let dir = "target/test-scratch/flux_fs_list"
+    assert_true(Result.is_ok(Fs.create_dir_all(dir)))
+    assert_true(Result.is_ok(Fs.write_file(dir + "/a.txt", "1")))
+    assert_true(Result.is_ok(Fs.write_file(dir + "/b.txt", "2")))
+    match Fs.list_dir(dir) {
+        Ok(names) -> do {
+            assert_eq(len(names), 2)
+            assert_true(Array.contains(names, "a.txt"))
+            assert_true(Array.contains(names, "b.txt"))
+        },
+        Err(e) -> assert_true(false),
+    }
+    assert_true(Result.is_ok(Fs.remove_dir_all(dir)))
+}
+
+fn test_list_dir_yields_bare_names_not_paths() with FileSystem, Console {
+    let dir = "target/test-scratch/flux_fs_list_bare"
+    assert_true(Result.is_ok(Fs.create_dir_all(dir)))
+    assert_true(Result.is_ok(Fs.write_file(dir + "/only.txt", "x")))
+    match Fs.list_dir(dir) {
+        Ok(names) -> assert_true(Array.contains(names, "only.txt")),
+        Err(e) -> assert_true(false),
+    }
+    assert_true(Result.is_ok(Fs.remove_dir_all(dir)))
+}
+
+fn test_list_dir_excludes_dot_and_dotdot() with FileSystem, Console {
+    let dir = "target/test-scratch/flux_fs_list_dots"
+    assert_true(Result.is_ok(Fs.create_dir_all(dir)))
+    match Fs.list_dir(dir) {
+        Ok(names) -> do {
+            assert_eq(len(names), 0)
+            assert_false(Array.contains(names, "."))
+            assert_false(Array.contains(names, ".."))
+        },
+        Err(e) -> assert_true(false),
+    }
+    assert_true(Result.is_ok(Fs.remove_dir_all(dir)))
+}
+
+fn test_list_dir_sees_subdirectories_too() with FileSystem, Console {
+    let dir = "target/test-scratch/flux_fs_list_sub"
+    assert_true(Result.is_ok(Fs.create_dir_all(dir + "/child")))
+    match Fs.list_dir(dir) {
+        Ok(names) -> assert_true(Array.contains(names, "child")),
+        Err(e) -> assert_true(false),
+    }
+    assert_true(Result.is_ok(Fs.remove_dir_all(dir)))
+}
+
+fn test_listing_a_missing_directory_reports_not_found() with FileSystem, Console {
+    match Fs.list_dir("/nonexistent/no/such/dir") {
+        Ok(_) -> assert_true(false),
+        Err(e) -> assert_true(Io.is_not_found(e)),
+    }
+}
+
+fn test_listing_a_file_is_an_error_not_a_success() with FileSystem, Console {
+    match Fs.list_dir("Cargo.toml") {
+        Ok(_) -> assert_true(false),
+        Err(e) -> assert_true(Io.kind_name(Io.error_kind(e)) != "NotFound"),
+    }
+}
+
+// ── metadata ───────────────────────────────────────────────────
+
+fn test_metadata_reports_the_size_that_was_written() with FileSystem, Console {
+    let dir = "target/test-scratch/flux_fs_meta_size"
+    assert_true(Result.is_ok(Fs.create_dir_all(dir)))
+    assert_true(Result.is_ok(Fs.write_file(dir + "/s.txt", "12345")))
+    match Fs.metadata(dir + "/s.txt") {
+        Ok(m) -> assert_eq(Fs.file_size(m), 5),
+        Err(e) -> assert_true(false),
+    }
+    assert_true(Result.is_ok(Fs.remove_dir_all(dir)))
+}
+
+fn test_metadata_distinguishes_files_from_directories() with FileSystem, Console {
+    match Fs.metadata("Cargo.toml") {
+        Ok(m) -> do {
+            assert_true(Fs.meta_is_file(m))
+            assert_false(Fs.meta_is_dir(m))
+        },
+        Err(e) -> assert_true(false),
+    }
+    match Fs.metadata("src") {
+        Ok(m) -> do {
+            assert_true(Fs.meta_is_dir(m))
+            assert_false(Fs.meta_is_file(m))
+        },
+        Err(e) -> assert_true(false),
+    }
+}
+
+fn test_metadata_agrees_with_the_predicates() with FileSystem, Console {
+    match Fs.metadata("Cargo.toml") {
+        Ok(m) -> do {
+            assert_eq(Fs.meta_is_file(m), Fs.is_file("Cargo.toml"))
+            assert_eq(Fs.meta_is_dir(m), Fs.is_dir("Cargo.toml"))
+        },
+        Err(e) -> assert_true(false),
+    }
+}
+
+fn test_metadata_reports_a_modification_time() with FileSystem, Console {
+    let dir = "target/test-scratch/flux_fs_meta_time"
+    assert_true(Result.is_ok(Fs.create_dir_all(dir)))
+    assert_true(Result.is_ok(Fs.write_file(dir + "/t.txt", "x")))
+    match Fs.metadata(dir + "/t.txt") {
+        Ok(m) -> assert_true(Fs.modified_time(m) > 0),
+        Err(e) -> assert_true(false),
+    }
+    assert_true(Result.is_ok(Fs.remove_dir_all(dir)))
+}
+
+fn test_metadata_on_a_missing_path_reports_not_found() with FileSystem, Console {
+    match Fs.metadata("/nonexistent/meta.txt") {
+        Ok(_) -> assert_true(false),
+        Err(e) -> assert_true(Io.is_not_found(e)),
+    }
+}
+
+fn test_metadata_reports_the_path_it_tried() with FileSystem, Console {
+    match Fs.metadata("/nonexistent/meta2.txt") {
+        Ok(_) -> assert_true(false),
+        Err(e) -> assert_eq(Io.error_path(e), "/nonexistent/meta2.txt"),
     }
 }

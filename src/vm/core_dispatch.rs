@@ -3208,6 +3208,14 @@ pub fn execute_core_primop(
             // than because the source is unreadable.
             Ok(vm_io_unit_result(fs::rename(from, to), to))
         }
+        FsListDir => {
+            let path = estr(&args[0], "fs_list_dir")?;
+            Ok(vm_fs_list_dir(path))
+        }
+        FsMetadata => {
+            let path = estr(&args[0], "fs_metadata")?;
+            Ok(vm_fs_metadata(path))
+        }
         WriteFile => {
             let path = estr(&args[0], "write_file")?;
             let content = estr(&args[1], "write_file")?;
@@ -4653,6 +4661,67 @@ fn vm_io_err(err: &std::io::Error, path: &str) -> Value {
         constructor: Rc::new("Err".to_string()),
         fields: AdtFields::One(io_error),
     }))
+}
+
+/// List a directory as `Result<Array<String>, IoError>`.
+///
+/// Entries are bare file names, not joined paths — callers compose with
+/// `Flow.Path.join`, which is the only thing that knows the right separator.
+/// `.` and `..` are excluded, matching `std::fs::read_dir`.
+///
+/// Order is the platform's. A failure part-way through the walk fails the
+/// whole call rather than returning a partial listing, so a caller never
+/// mistakes a truncated directory for a complete one.
+fn vm_fs_list_dir(path: &str) -> Value {
+    let entries = match fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(err) => return vm_io_err(&err, path),
+    };
+    let mut names = Vec::new();
+    for entry in entries {
+        match entry {
+            Ok(entry) => {
+                names.push(Value::String(
+                    entry.file_name().to_string_lossy().into_owned().into(),
+                ));
+            }
+            Err(err) => return vm_io_err(&err, path),
+        }
+    }
+    vm_io_ok(Value::Array(names.into()))
+}
+
+/// Stat a path as `Result<FileMeta, IoError>`.
+///
+/// Field order must match `Flow.Fs`'s `FileMeta` (`size`, `modified`,
+/// `is_dir`, `is_file`) — record fields are positional at runtime.
+///
+/// `modified` is milliseconds since the Unix epoch, and is `0` when the
+/// platform does not record one. Proposal 0177 requires build caches to
+/// compare mtimes but never hash them.
+fn vm_fs_metadata(path: &str) -> Value {
+    use crate::runtime::value::{AdtFields, AdtValue};
+
+    let meta = match fs::metadata(path) {
+        Ok(meta) => meta,
+        Err(err) => return vm_io_err(&err, path),
+    };
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+
+    vm_io_ok(Value::Adt(Rc::new(AdtValue {
+        constructor: Rc::new("FileMeta".to_string()),
+        fields: AdtFields::from_vec(vec![
+            Value::Integer(meta.len() as i64),
+            Value::Integer(modified),
+            Value::Boolean(meta.is_dir()),
+            Value::Boolean(meta.is_file()),
+        ]),
+    })))
 }
 
 fn json_ok_value(value: Value) -> Value {
