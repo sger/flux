@@ -1,0 +1,193 @@
+// parity-expected-stdout-begin
+// "true"
+// "── write a small tree ──"
+// "true"
+// "── list, filter, sort: a pure decision over an effectful read ──"
+// "["a.flx", "b.flx"]"
+// "── content addressing ──"
+// "2"
+// "true"
+// "false"
+// "── failure is a value, not an abort ──"
+// "<missing>"
+// "<is-a-dir>"
+// "still running"
+// "── Result combinators over I/O ──"
+// "5"
+// "-1"
+// "── metadata: one syscall, several consistent answers ──"
+// "5"
+// "true"
+// "false"
+// "── Path is pure string manipulation ──"
+// "a/b"
+// "flx"
+// "file.flx"
+// "dir"
+// "true"
+// "false"
+// "── partition successes from failures ──"
+// "2"
+// "1"
+// "true"
+// "false"
+// parity-expected-stdout-end
+
+/*
+Pipelines over the OS capabilities from proposal 0178.
+
+Where `stdlib_pipelines.flx` stays pure, this one crosses the I/O boundary and
+shows what the effect system buys: the functions that *decide* things are pure
+and say so by having no `with` clause, while the functions that *touch* the
+machine wear `FileSystem` in their signature. The pure core is the majority of
+the file.
+
+It also shows the recoverable-error model end to end — `Result<T, IoError>`
+threaded through combinators, branched on `kind`, and collapsed to a default
+at the edge — rather than aborting on the first missing file.
+*/
+
+import Flow.Fs as Fs
+import Flow.Array as Array
+import Flow.Path as Path
+import Flow.Crypto as Crypto
+import Flow.IoError as Io
+import Flow.List as List
+import Flow.Option as Option
+import Flow.Result as Result
+
+// ── pure core: no effects, so provably cannot touch the machine ─────
+
+/// Files we care about, decided without looking at the filesystem.
+fn interesting(names: List<String>) -> List<String> {
+    names
+        |> List.filter(\n -> Path.extension(n) == "flx")
+        |> List.sort
+}
+
+/// A manifest line. Pure string building — the hash is computed elsewhere and
+/// passed in, which is what keeps this function testable without a disk.
+fn manifest_line(name: String, digest: String) -> String {
+    name + "  " + digest
+}
+
+/// Classify a failure without pattern-matching on message text.
+fn explain(e: IoError) -> String {
+    match Io.kind_name(Io.error_kind(e)) {
+        "NotFound" -> "missing",
+        "PermissionDenied" -> "denied",
+        "IsADirectory" -> "is-a-dir",
+        _ -> "other",
+    }
+}
+
+// ── effectful shell: everything here declares FileSystem ────────────
+
+fn write_fixture(dir: String, name: String, body: String)
+    -> Result<Unit, IoError> with FileSystem {
+    Fs.write_file(Path.join(dir, name), body)
+}
+
+/// Hash one file, folding a read failure into a readable marker rather than
+/// letting it abort the program.
+fn digest_or_marker(path: String) -> String with FileSystem {
+    match Crypto.sha256_file(path) {
+        Ok(h) -> h,
+        Err(e) -> "<" + explain(e) + ">",
+    }
+}
+
+fn main() with IO {
+    let root = "target/test-scratch/os_pipeline"
+
+    // Start from a known-clean state. The first removal may legitimately fail
+    // because nothing is there yet, which is exactly why it returns a value.
+    let _cleanup = Fs.remove_dir_all(root)
+    print(to_string(Result.is_ok(Fs.create_dir_all(Path.join(root, "src")))))
+
+    print("── write a small tree ──")
+
+    let wrote = [
+        write_fixture(root, "a.flx", "alpha"),
+        write_fixture(root, "b.flx", "beta"),
+        write_fixture(root, "notes.txt", "ignore me"),
+    ]
+    print(to_string(List.all(wrote, \r -> Result.is_ok(r))))
+
+    print("── list, filter, sort: a pure decision over an effectful read ──")
+
+    // list_dir is effectful and returns an Array; `interesting` is pure and
+    // works on cons lists. The conversion is explicit — the two collection
+    // types are not interchangeable, which is why `Array.to_list` exists.
+    let names = match Fs.list_dir(root) {
+        Ok(entries) -> interesting(Array.to_list(entries)),
+        Err(_) -> [],
+    }
+    print(to_string(names))
+
+    print("── content addressing ──")
+
+    // Map each name to its digest, then build manifest lines. Two passes for
+    // clarity; the hashing pass is the only effectful one.
+    let digests = names |> List.map(\n -> digest_or_marker(Path.join(root, n)))
+    let manifest = List.zip_with(names, digests, manifest_line)
+    print(to_string(List.length(manifest)))
+
+    // Identical content must hash identically, different content must not.
+    let a_digest = digest_or_marker(Path.join(root, "a.flx"))
+    print(to_string(a_digest == Crypto.sha256("alpha")))
+    print(to_string(a_digest == Crypto.sha256("beta")))
+
+    print("── failure is a value, not an abort ──")
+
+    // A missing file flows through the same pipeline and comes out labelled.
+    print(digest_or_marker(Path.join(root, "nope.flx")))
+    print(digest_or_marker(root))
+
+    // And the program is still running to say so.
+    print("still running")
+
+    print("── Result combinators over I/O ──")
+
+    // map_result transforms the success case without unwrapping.
+    let size = Fs.read_file(Path.join(root, "a.flx"))
+        |> Result.map_result(\s -> len(s))
+    print(to_string(Result.unwrap_or_result(size, -1)))
+
+    let missing_size = Fs.read_file(Path.join(root, "gone.flx"))
+        |> Result.map_result(\s -> len(s))
+    print(to_string(Result.unwrap_or_result(missing_size, -1)))
+
+    print("── metadata: one syscall, several consistent answers ──")
+
+    match Fs.metadata(Path.join(root, "a.flx")) {
+        Ok(m) -> do {
+            print(to_string(Fs.file_size(m)))
+            print(to_string(Fs.meta_is_file(m)))
+            print(to_string(Fs.meta_is_dir(m)))
+        },
+        Err(_) -> print("no metadata"),
+    }
+
+    print("── Path is pure string manipulation ──")
+
+    print(Path.join("a", "b"))
+    print(Path.extension("dir/file.flx"))
+    print(Path.file_name("dir/file.flx"))
+    print(Path.parent("dir/file.flx"))
+    print(to_string(Path.is_absolute("/etc")))
+    print(to_string(Path.is_absolute("rel")))
+
+    print("── partition successes from failures ──")
+
+    // Probe several paths, then split the outcomes in one pass.
+    let probes = ["a.flx", "b.flx", "gone.flx"]
+        |> List.map(\n -> Fs.read_file(Path.join(root, n)))
+    let (ok, failed) = List.partition(probes, \r -> Result.is_ok(r))
+    print(to_string(List.length(ok)))
+    print(to_string(List.length(failed)))
+
+    // Tidy up; the tree must be gone afterwards.
+    print(to_string(Result.is_ok(Fs.remove_dir_all(root))))
+    print(to_string(Fs.exists(root)))
+}

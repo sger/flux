@@ -1,0 +1,126 @@
+// Tests for Flow.Option.
+//
+// `Option` is built in, so `Some` and `None` need no import; the combinators
+// are reached through `Option.*`. Every exported function is covered on both
+// constructors — the whole point of the type is that the `None` path is not
+// an afterthought.
+
+import Flow.Option as Option
+
+// ── inspection ─────────────────────────────────────────────────
+
+fn test_is_some_and_is_none_are_complements() {
+    let present: Option<Int> = Some(1)
+    let absent: Option<Int> = None
+    assert_true(Option.is_some(present))
+    assert_false(Option.is_none_opt(present))
+    assert_false(Option.is_some(absent))
+    assert_true(Option.is_none_opt(absent))
+}
+
+/// `Some` of a falsy-looking value is still `Some`. Nothing about the payload
+/// makes an Option empty.
+fn test_some_of_zero_is_still_some() {
+    assert_true(Option.is_some(Some(0)))
+    assert_true(Option.is_some(Some("")))
+    assert_true(Option.is_some(Some(false)))
+}
+
+// ── unwrapping ─────────────────────────────────────────────────
+
+fn test_unwrap_returns_the_payload() {
+    assert_eq(Option.unwrap(Some(42)), 42)
+    assert_eq(Option.unwrap(Some("x")), "x")
+}
+
+fn test_unwrap_or_uses_the_default_only_on_none() {
+    assert_eq(Option.unwrap_or(Some(1), 99), 1)
+    assert_eq(Option.unwrap_or(None, 99), 99)
+}
+
+/// The default is a plain value, so it is always evaluated — worth knowing
+/// when it is expensive, and the reason this is not a lazy `or_else`.
+fn test_unwrap_or_on_none_of_a_string() {
+    assert_eq(Option.unwrap_or(None, "fallback"), "fallback")
+}
+
+// ── map ────────────────────────────────────────────────────────
+
+fn test_map_option_transforms_inside_some() {
+    assert_eq(Option.map_option(Some(2), \x -> x * 3), Some(6))
+}
+
+fn test_map_option_passes_none_through_untouched() {
+    let absent: Option<Int> = None
+    assert_eq(Option.map_option(absent, \x -> x * 3), None)
+}
+
+fn test_map_option_can_change_the_type() {
+    assert_eq(Option.map_option(Some(7), \x -> to_string(x)), Some("7"))
+}
+
+/// Functor identity: mapping the identity function changes nothing.
+fn test_map_option_with_identity_is_a_no_op() {
+    assert_eq(Option.map_option(Some(5), \x -> x), Some(5))
+}
+
+/// Functor composition: mapping twice equals mapping the composition once.
+fn test_map_option_composes() {
+    let twice = Option.map_option(Option.map_option(Some(2), \x -> x + 1), \x -> x * 10)
+    let once = Option.map_option(Some(2), \x -> (x + 1) * 10)
+    assert_eq(twice, once)
+}
+
+// ── flat_map ───────────────────────────────────────────────────
+
+fn test_flat_map_option_chains_without_nesting() {
+    assert_eq(Option.flat_map_option(Some(4), \x -> Some(x + 1)), Some(5))
+}
+
+/// The reason flat_map exists: the function may itself fail, and the result
+/// stays a single-level Option rather than Option<Option<_>>.
+fn test_flat_map_option_can_introduce_none() {
+    assert_eq(Option.flat_map_option(Some(4), \x -> None), None)
+}
+
+fn test_flat_map_option_short_circuits_on_none() {
+    let absent: Option<Int> = None
+    assert_eq(Option.flat_map_option(absent, \x -> Some(x + 1)), None)
+}
+
+/// Monad left identity: flat_map over Some(x) is just f(x).
+fn test_flat_map_left_identity() {
+    assert_eq(Option.flat_map_option(Some(3), \x -> Some(x * 2)), Some(6))
+}
+
+/// Monad right identity: flat_map with Some is the identity.
+fn test_flat_map_right_identity() {
+    assert_eq(Option.flat_map_option(Some(3), \x -> Some(x)), Some(3))
+}
+
+// ── chaining ───────────────────────────────────────────────────
+
+/// A chain of fallible steps: the first None wins and the rest is skipped.
+fn safe_div(a: Int, b: Int) -> Option<Int> {
+    if b == 0 { None } else { Some(a / b) }
+}
+
+fn test_a_chain_of_fallible_steps_short_circuits() {
+    let ok = Some(100)
+        |> Option.flat_map_option(\x -> safe_div(x, 2))
+        |> Option.flat_map_option(\x -> safe_div(x, 5))
+    assert_eq(ok, Some(10))
+
+    let divided_by_zero = Some(100)
+        |> Option.flat_map_option(\x -> safe_div(x, 0))
+        |> Option.flat_map_option(\x -> safe_div(x, 5))
+    assert_eq(divided_by_zero, None)
+}
+
+fn test_a_chain_ends_with_a_default_at_the_edge() {
+    let result = Some(10)
+        |> Option.flat_map_option(\x -> safe_div(x, 0))
+        |> Option.map_option(\x -> x + 1)
+        |> Option.unwrap_or(-1)
+    assert_eq(result, -1)
+}
