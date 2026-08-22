@@ -573,7 +573,8 @@ uint32_t    flux_string_len(int64_t s);
 
 int64_t flux_array_new(int64_t *elements, int32_t len);
 int64_t flux_array_len(int64_t arr);
-int64_t flux_array_get(int64_t arr, int64_t index);
+int64_t flux_array_get(int64_t arr, int64_t index);   /* -> Option<a>, for Flux */
+int64_t flux_array_at(int64_t arr, int64_t index);    /* -> raw element, internal */
 int64_t flux_array_set(int64_t arr, int64_t index, int64_t value);
 int64_t flux_array_push(int64_t arr, int64_t value);
 int64_t flux_array_concat(int64_t a, int64_t b);

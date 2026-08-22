@@ -362,6 +362,14 @@ name = "stdlib_map_native_tests"
 path = "tests/native_llvm/stdlib_map_native_tests.rs"
 
 [[test]]
+name = "stdlib_array_native_tests"
+path = "tests/native_llvm/stdlib_array_native_tests.rs"
+
+[[test]]
+name = "qualified_class_method_dispatch_tests"
+path = "tests/integration/qualified_class_method_dispatch_tests.rs"
+
+[[test]]
 name = "native_constructor_tag_tests"
 path = "tests/native_llvm/native_constructor_tag_tests.rs"
 required-features = ["llvm"]

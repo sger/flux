@@ -35,7 +35,10 @@ use sha2::{Digest, Sha256};
 /// and change cached lowering; recoverable-I/O runtime calls now take eleven
 /// constructor tags rather than eight, changing the native calling convention.
 /// Epoch 14: the `Sha256` and `Sha256File` primops extend the primop table.
-pub const CACHE_EPOCH: u16 = 14;
+/// Epoch 15: `Array.get` now returns `Some(x)` rather than the bare element,
+/// and array equality is structural on both backends — both change results
+/// baked into cached artifacts.
+pub const CACHE_EPOCH: u16 = 15;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {
