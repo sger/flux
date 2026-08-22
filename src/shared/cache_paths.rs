@@ -40,7 +40,9 @@ use sha2::{Digest, Sha256};
 /// baked into cached artifacts.
 /// Epoch 16: the `Env` effect label and the `EnvVar` / `EnvArgs` / `EnvCwd` /
 /// `EnvHomeDir` primops extend the primop table and the `IO` alias expansion.
-pub const CACHE_EPOCH: u16 = 16;
+/// Epoch 17: the `Process` effect label and the `ProcRun` primop extend the
+/// primop table and the `IO` alias expansion.
+pub const CACHE_EPOCH: u16 = 17;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

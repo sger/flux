@@ -2610,6 +2610,7 @@ impl Compiler {
         let filesystem_sym = self.interner.intern(be::FILESYSTEM);
         let stdin_sym = self.interner.intern(be::STDIN);
         let env_sym = self.interner.intern(be::ENV);
+        let process_sym = self.interner.intern(be::PROCESS);
         let clock_sym = self.interner.intern(be::CLOCK);
         let io_sym = self.interner.intern(be::IO);
         let time_sym = self.interner.intern(be::TIME);
@@ -2621,13 +2622,16 @@ impl Compiler {
             span,
         };
 
-        // IO = <Console | FileSystem | Stdin | Env>
+        // IO = <Console | FileSystem | Stdin | Env | Process>
         let io_expansion = add(
             add(
-                add(named(console_sym), named(filesystem_sym)),
-                named(stdin_sym),
+                add(
+                    add(named(console_sym), named(filesystem_sym)),
+                    named(stdin_sym),
+                ),
+                named(env_sym),
             ),
-            named(env_sym),
+            named(process_sym),
         );
         self.effect_row_aliases
             .entry(io_sym)
@@ -2714,6 +2718,11 @@ impl Compiler {
         add_op(be::ENV, "env_args", mono(vec![], array_string()));
         add_op(be::ENV, "env_cwd", mono(vec![], string()));
         add_op(be::ENV, "env_home_dir", mono(vec![], string()));
+        add_op(
+            be::PROCESS,
+            "proc_run",
+            mono(vec![string(), array_string()], string()),
+        );
         add_op(be::CLOCK, "clock_now", mono(vec![], int()));
         add_op(be::CLOCK, "now_ms", mono(vec![], int()));
         // Debug effect: single low-level `trace` operation takes a
@@ -4924,6 +4933,9 @@ impl Compiler {
             .intern(crate::syntax::builtin_effects::FILESYSTEM);
         let stdin_effect = self.interner.intern(crate::syntax::builtin_effects::STDIN);
         let env_effect = self.interner.intern(crate::syntax::builtin_effects::ENV);
+        let process_effect = self
+            .interner
+            .intern(crate::syntax::builtin_effects::PROCESS);
         let clock_effect = self.interner.intern(crate::syntax::builtin_effects::CLOCK);
         let inferred = self.contract_effect_sets();
 
@@ -4952,6 +4964,7 @@ impl Compiler {
                     && *effect != filesystem_effect
                     && *effect != stdin_effect
                     && *effect != env_effect
+                    && *effect != process_effect
                     && *effect != clock_effect
                     && *effect != debug_effect
             })
@@ -5262,6 +5275,7 @@ impl Compiler {
                         | crate::syntax::builtin_effects::FILESYSTEM
                         | crate::syntax::builtin_effects::STDIN
                         | crate::syntax::builtin_effects::ENV
+                        | crate::syntax::builtin_effects::PROCESS
                         | crate::syntax::builtin_effects::CLOCK
                 )
             {

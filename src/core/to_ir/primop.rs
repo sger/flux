@@ -33,6 +33,7 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::EnvArgs => "env_args",
         CorePrimOp::EnvCwd => "env_cwd",
         CorePrimOp::EnvHomeDir => "env_home_dir",
+        CorePrimOp::ProcRun => "proc_run",
         CorePrimOp::WriteFile => "write_file",
         CorePrimOp::ReadStdin => "read_stdin",
         CorePrimOp::ReadLines => "read_lines",
@@ -333,6 +334,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::EnvArgs
             | CorePrimOp::EnvCwd
             | CorePrimOp::EnvHomeDir
+            | CorePrimOp::ProcRun
             | CorePrimOp::WriteFile
             | CorePrimOp::ReadStdin
             | CorePrimOp::ReadLines

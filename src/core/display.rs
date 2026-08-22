@@ -532,6 +532,7 @@ fn write_primop_name(out: &mut String, op: &CorePrimOp, _interner: &Interner) {
         CorePrimOp::EnvArgs => out.push_str("EnvArgs"),
         CorePrimOp::EnvCwd => out.push_str("EnvCwd"),
         CorePrimOp::EnvHomeDir => out.push_str("EnvHomeDir"),
+        CorePrimOp::ProcRun => out.push_str("ProcRun"),
         CorePrimOp::WriteFile => out.push_str("WriteFile"),
         CorePrimOp::ReadStdin => out.push_str("ReadStdin"),
         CorePrimOp::ReadLines => out.push_str("ReadLines"),

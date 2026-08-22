@@ -374,6 +374,10 @@ name = "stdlib_env_tests"
 path = "tests/vm_runtime/stdlib_env_tests.rs"
 
 [[test]]
+name = "stdlib_process_tests"
+path = "tests/vm_runtime/stdlib_process_tests.rs"
+
+[[test]]
 name = "native_constructor_tag_tests"
 path = "tests/native_llvm/native_constructor_tag_tests.rs"
 required-features = ["llvm"]
