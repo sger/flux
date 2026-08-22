@@ -544,6 +544,15 @@ int64_t flux_sha256(int64_t data);
 /* SHA-256 of a file's contents; streams rather than loading it whole. */
 int64_t flux_sha256_file(FLUX_IO_TAGS_DECL, int64_t path);
 
+/* ── Process environment (proposal 0178) ────────────────────────────── */
+
+/* Stash the process argv; called from main() before anything runs. */
+void    flux_env_set_args(int argc, char **argv);
+int64_t flux_env_args(void);                  /* -> Array<String>, argv[0] first */
+int64_t flux_env_var(int64_t name);           /* -> Option<String> */
+int64_t flux_env_cwd(FLUX_IO_TAGS_DECL);      /* -> Result<String, IoError> */
+int64_t flux_env_home_dir(void);              /* -> Option<String> */
+
 /* ── Runtime lifecycle ──────────────────────────────────────────────── */
 
 void flux_rt_init(void);

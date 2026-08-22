@@ -13,17 +13,17 @@ Parameter 1 has the wrong type.
    |
 14 |     run_needs_io_time(only_io)
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |     -------------------------- parameter 1 has type `() -> Unit with Console, FileSystem, Stdin`
+   |     -------------------------- parameter 1 has type `() -> Unit with Console, FileSystem, Stdin, Env`
 
    |     -------------------------- this type mismatch is reported here
 
 Note:
-  expected parameter type: () -> Unit with Console, FileSystem, Stdin, Clock
-  found parameter type: () -> Unit with Console, FileSystem, Stdin
+  expected parameter type: () -> Unit with Console, FileSystem, Stdin, Env, Clock
+  found parameter type: () -> Unit with Console, FileSystem, Stdin, Env
   the conflicting types meet at this expression
 
 Help:
-  Change parameter 1 to use `() -> Unit with Console, FileSystem, Stdin, Clock` consistently.
+  Change parameter 1 to use `() -> Unit with Console, FileSystem, Stdin, Env, Clock` consistently.
 
 
 Note: Downstream Errors Suppressed

@@ -205,6 +205,10 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         | CorePrimOp::FsMetadata
         | CorePrimOp::Sha256
         | CorePrimOp::Sha256File
+        | CorePrimOp::EnvVar
+        | CorePrimOp::EnvArgs
+        | CorePrimOp::EnvCwd
+        | CorePrimOp::EnvHomeDir
         | CorePrimOp::ReadStdin
         | CorePrimOp::ReadLines => FluxRep::BoxedRep,
 

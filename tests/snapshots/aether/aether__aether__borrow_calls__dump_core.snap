@@ -2457,64 +2457,90 @@ letrec borrow_then_return =
         y
 
 def main =
-let %t475 = (λ__resume_default.
-    let %t476 = __primop_read_stdin()
+let %t475 = (λ__resume_default, __arg0.
+    let %t476 = EnvVar(__arg0)
     __resume_default(%t476))
-  handle Stdin {
-    read_stdin(; __resume_default) →
-      let %t477 = __primop_read_stdin()
-      __resume_default(%t477)
+  let %t477 = (λ__resume_default.
+    let %t478 = EnvArgs()
+    __resume_default(%t478))
+  let %t479 = (λ__resume_default.
+    let %t480 = EnvCwd()
+    __resume_default(%t480))
+  let %t481 = (λ__resume_default.
+    let %t482 = EnvHomeDir()
+    __resume_default(%t482))
+  handle Env {
+    env_var(__arg0; __resume_default) →
+      let %t483 = EnvVar(__arg0)
+      __resume_default(%t483)
+    env_args(; __resume_default) →
+      let %t484 = EnvArgs()
+      __resume_default(%t484)
+    env_cwd(; __resume_default) →
+      let %t485 = EnvCwd()
+      __resume_default(%t485)
+    env_home_dir(; __resume_default) →
+      let %t486 = EnvHomeDir()
+      __resume_default(%t486)
   } with
-    let %t478 = (λ__resume_default, __arg0.
-      let %t479 = __primop_read_file(__arg0)
-      __resume_default(%t479))
-    let %t480 = (λ__resume_default, __arg0.
-      let %t481 = __primop_read_lines(__arg0)
-      __resume_default(%t481))
-    let %t482 = (λ__resume_default, __arg0, __arg1.
-      let %t483 = __primop_write_file(__arg0, __arg1)
-      let %t484 = MakeTuple()
-      __resume_default(%t484))
-    handle FileSystem {
-      read_file(__arg0; __resume_default) →
-        let %t485 = __primop_read_file(__arg0)
-        __resume_default(%t485)
-      read_lines(__arg0; __resume_default) →
-        let %t486 = __primop_read_lines(__arg0)
-        __resume_default(%t486)
-      write_file(__arg0, __arg1; __resume_default) →
-        let %t483 = __primop_write_file(__arg0, __arg1)
-        let %t487 = MakeTuple()
-        __resume_default(%t487)
+    let %t487 = (λ__resume_default.
+      let %t488 = __primop_read_stdin()
+      __resume_default(%t488))
+    handle Stdin {
+      read_stdin(; __resume_default) →
+        let %t489 = __primop_read_stdin()
+        __resume_default(%t489)
     } with
-      let %t488 = (λ__resume_default, __arg0.
-        let %t489 = __primop_print(__arg0)
-        let %t490 = MakeTuple()
-        __resume_default(%t490))
-      let %t491 = (λ__resume_default, __arg0.
-        let %t492 = __primop_println(__arg0)
-        let %t493 = MakeTuple()
+      let %t490 = (λ__resume_default, __arg0.
+        let %t491 = __primop_read_file(__arg0)
+        __resume_default(%t491))
+      let %t492 = (λ__resume_default, __arg0.
+        let %t493 = __primop_read_lines(__arg0)
         __resume_default(%t493))
-      handle Console {
-        print(__arg0; __resume_default) →
-          let %t489 = __primop_print(__arg0)
-          let %t494 = MakeTuple()
-          __resume_default(%t494)
-        println(__arg0; __resume_default) →
-          let %t492 = __primop_println(__arg0)
-          let %t495 = MakeTuple()
-          __resume_default(%t495)
+      let %t494 = (λ__resume_default, __arg0, __arg1.
+        let %t495 = __primop_write_file(__arg0, __arg1)
+        let %t496 = MakeTuple()
+        __resume_default(%t496))
+      handle FileSystem {
+        read_file(__arg0; __resume_default) →
+          let %t497 = __primop_read_file(__arg0)
+          __resume_default(%t497)
+        read_lines(__arg0; __resume_default) →
+          let %t498 = __primop_read_lines(__arg0)
+          __resume_default(%t498)
+        write_file(__arg0, __arg1; __resume_default) →
+          let %t495 = __primop_write_file(__arg0, __arg1)
+          let %t499 = MakeTuple()
+          __resume_default(%t499)
       } with
-        let %t496 = (let %t497 = (λ%t498.
-          %t498)
-        let %t499 = (let %t500 = MakeList(1, 2, 3)
-        len_twice(%t500))
-        %t488(%t497, %t499))
-        let %t501 = (λ%t502.
-          %t502)
-        let %t503 = (let %t504 = MakeList(1, 2, 3)
-        borrow_then_return(%t504, 42))
-        %t488(%t501, %t503)
+        let %t500 = (λ__resume_default, __arg0.
+          let %t501 = __primop_print(__arg0)
+          let %t502 = MakeTuple()
+          __resume_default(%t502))
+        let %t503 = (λ__resume_default, __arg0.
+          let %t504 = __primop_println(__arg0)
+          let %t505 = MakeTuple()
+          __resume_default(%t505))
+        handle Console {
+          print(__arg0; __resume_default) →
+            let %t501 = __primop_print(__arg0)
+            let %t506 = MakeTuple()
+            __resume_default(%t506)
+          println(__arg0; __resume_default) →
+            let %t504 = __primop_println(__arg0)
+            let %t507 = MakeTuple()
+            __resume_default(%t507)
+        } with
+          let %t508 = (let %t509 = (λ%t510.
+            %t510)
+          let %t511 = (let %t512 = MakeList(1, 2, 3)
+          len_twice(%t512))
+          %t500(%t509, %t511))
+          let %t513 = (λ%t514.
+            %t514)
+          let %t515 = (let %t516 = MakeList(1, 2, 3)
+          borrow_then_return(%t516, 42))
+          %t500(%t513, %t515)
 
 [ 1 of 12] Compiling  Assert
 [ 2 of 12] Compiling  Debug
