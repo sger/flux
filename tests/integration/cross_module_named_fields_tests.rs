@@ -14,8 +14,12 @@
 //! into importing modules — including across the `.flxi` cache, which is why
 //! the warm-cache path is covered explicitly.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
+
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
 
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -25,20 +29,16 @@ fn workspace_root() -> &'static Path {
 /// scratch directory and run it. A module must live in a file named after it,
 /// so the module source cannot simply be inlined into `main.flx`.
 fn run_project(case: &str, module_name: &str, module_src: &str, main_src: &str) -> (String, bool) {
-    let dir: PathBuf = workspace_root()
-        .join("target")
-        .join("test-scratch")
-        .join(case);
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create scratch dir");
-    std::fs::write(dir.join(format!("{module_name}.flx")), module_src).expect("write module");
-    std::fs::write(dir.join("main.flx"), main_src).expect("write main");
+    let scratch = Scratch::new(case);
+    scratch.write(&format!("{module_name}.flx"), module_src);
+    let main = scratch.write("main.flx", main_src);
+    let dir = scratch.path();
 
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([
             "run",
-            dir.join("main.flx").to_str().unwrap(),
+            main.to_str().unwrap(),
             "--root",
             dir.to_str().unwrap(),
             "--no-cache",
@@ -191,13 +191,9 @@ fn main() -> Unit {
 /// second run here is the one that matters.
 #[test]
 fn field_order_survives_the_warm_module_cache() {
-    let dir = workspace_root()
-        .join("target")
-        .join("test-scratch")
-        .join("xmod_named_warm");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create scratch dir");
-    std::fs::write(dir.join("Errs.flx"), ERRS_MODULE).expect("write module");
+    let scratch = Scratch::new("xmod_named_warm");
+    let dir = scratch.path().to_path_buf();
+    scratch.write("Errs.flx", ERRS_MODULE);
     std::fs::write(
         dir.join("main.flx"),
         r#"
@@ -213,7 +209,9 @@ fn main() -> Unit {
     .expect("write main");
 
     // Note: no `--no-cache`, so the first run populates the cache and the
-    // second reads the interface back from disk.
+    // second reads the interface back from disk. The cache is this test's own
+    // (`--cache-dir`): sharing the repo-wide one let concurrent test binaries
+    // corrupt each other's interfaces — see KI-010 in docs/known_issues.md.
     let run = || {
         let output = Command::new(env!("CARGO_BIN_EXE_flux"))
             .current_dir(workspace_root())
@@ -223,6 +221,7 @@ fn main() -> Unit {
                 "--root",
                 dir.to_str().unwrap(),
             ])
+            .args(scratch.cache_args())
             .output()
             .expect("failed to run flux");
         (

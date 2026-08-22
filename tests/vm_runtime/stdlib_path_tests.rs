@@ -9,6 +9,10 @@
 use std::path::Path;
 use std::process::Command;
 
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
@@ -30,10 +34,10 @@ fn run_flux_test(fixture: &str) -> (String, bool) {
 
 /// Run a snippet through the VM and return `(stdout, stderr, success)`.
 fn run_source(name: &str, source: &str) -> (String, String, bool) {
-    let dir = workspace_root().join("target").join("test-scratch");
-    std::fs::create_dir_all(&dir).expect("create scratch dir");
-    let file = dir.join(name);
-    std::fs::write(&file, source).expect("write scratch fixture");
+    // Own scratch dir per run: a literal filename in one shared directory let
+    // concurrent test binaries overwrite each other (KI-010).
+    let scratch = Scratch::new(name.trim_end_matches(".flx"));
+    let file = scratch.write(name, source);
 
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
@@ -41,7 +45,6 @@ fn run_source(name: &str, source: &str) -> (String, String, bool) {
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux on {name}: {e}"));
 
-    let _ = std::fs::remove_file(&file);
     (
         String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
         String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n"),

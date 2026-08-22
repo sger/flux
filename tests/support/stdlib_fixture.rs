@@ -19,19 +19,46 @@
 use std::path::Path;
 use std::process::Command;
 
+// Re-exported so a test including this file gets `Scratch` from here rather
+// than declaring its own `mod scratch;` — two `#[path]` declarations of one
+// file in the same crate is a `clippy::duplicate_mod` warning.
+#[path = "scratch.rs"]
+pub mod scratch;
+use scratch::Scratch;
+
 #[allow(dead_code)]
 pub fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
 
 /// Run one fixture through `flux --test`, optionally on the native backend.
-/// Returns `(stdout, success)`.
+/// Returns `(stdout, success)`. Stderr is folded into the returned text when
+/// the run fails, so a compile or link error is visible in the panic message
+/// rather than surfacing as an unexplained empty summary.
+///
+/// Each call gets its own cache directory. `--no-cache` alone is not enough
+/// for `--native`: the native backend also writes shared build artifacts under
+/// the cache root, and concurrent test binaries were clobbering each other's
+/// (KI-010 in `docs/known_issues.md`).
 #[allow(dead_code)]
 pub fn run_fixture(fixture: &str, native: bool) -> (String, bool) {
     let path = workspace_root().join("tests").join("flux").join(fixture);
-    let mut args = vec!["--test", path.to_str().unwrap(), "--no-cache"];
+    let scratch = Scratch::new(&format!(
+        "fixture-{}{}",
+        fixture.trim_end_matches(".flx"),
+        if native { "-native" } else { "" }
+    ));
+    let cache = scratch.cache_dir();
+
+    let mut args: Vec<String> = vec![
+        "--test".to_string(),
+        path.to_string_lossy().into_owned(),
+        "--no-cache".to_string(),
+        "--cache-dir".to_string(),
+        cache.to_string_lossy().into_owned(),
+    ];
     if native {
-        args.push("--native");
+        args.push("--native".to_string());
     }
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
@@ -43,7 +70,22 @@ pub fn run_fixture(fixture: &str, native: bool) -> (String, bool) {
         .replace("\r\n", "\n")
         .trim()
         .to_string();
-    (stdout, output.status.success())
+    let success = output.status.success();
+    if success {
+        return (stdout, true);
+    }
+    // The failure detail is almost always on stderr; without it the caller can
+    // only report "no summary", which says nothing about what went wrong.
+    let stderr = String::from_utf8_lossy(&output.stderr)
+        .replace("\r\n", "\n")
+        .trim()
+        .to_string();
+    let combined = if stderr.is_empty() {
+        stdout
+    } else {
+        format!("{stdout}\n── stderr ──\n{stderr}")
+    };
+    (combined, false)
 }
 
 /// Parse the runner's trailing `"N tests: N passed, M failed"` line.

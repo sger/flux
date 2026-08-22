@@ -157,7 +157,7 @@ Feature state is evidence-driven:
 | 0175 | [0175_interactive_repl.md](0175_interactive_repl.md) | Draft | gap | proposal-only (builds on `flux eval`, `src/driver/pipeline/eval.rs`) | Phase 1 REPL: accumulate-source MVP; defines the user-facing REPL contract; Phase 2 engine is 0176 |
 | 0176 | [0176_interactive_repl_persistent_engine.md](0176_interactive_repl_persistent_engine.md) | Draft | gap | proposal-only | Phase 2 REPL: persistent-`Compiler` + live-VM incremental engine (GHCi-style); depends on 0175 |
 | 0177 | [0177_package_manager.md](0177_package_manager.md) | Draft | gap | proposal-only; supersedes 0015 | Package manager: `flux.toml`, `flux.lock`, namespaced packages, registry + store. Phases 0–3 specified inline; written in Flux. Phase 1 fixes CWD-relative stdlib/root discovery (flux currently unusable outside its own checkout) |
-| 0178 | [0178_os_capabilities_for_tooling.md](0178_os_capabilities_for_tooling.md) | Draft | gap | proposal-only | `Flow.Fs`/`Path`/`Crypto`/`Env`/`Process` + recoverable I/O errors. Required for a Flux-written package manager; no type-system gap exists, only OS surface |
+| 0178 | [0178_os_capabilities_for_tooling.md](implemented/0178_os_capabilities_for_tooling.md) | Implemented | have | `lib/Flow/{Path,IoError,Fs,Crypto,Env,Process}.flx`; `ProcRun`/`Env*`/`Fs*`/`Sha256*` primops with C-runtime parity; fixtures in `tests/flux/stdlib_*.flx` run on both backends | closed 2026-08-22; all six stages shipped. Surviving questions moved to [known_issues.md](../known_issues.md) as KI-004 to KI-007 |
 
 ### Superseded Historical Docs
 

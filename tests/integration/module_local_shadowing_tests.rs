@@ -12,6 +12,10 @@
 use std::path::Path;
 use std::process::Command;
 
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
@@ -44,17 +48,13 @@ fn run_flux_test(fixture: &str) -> (String, bool) {
 /// so the module and the entry point are written separately and the scratch
 /// directory is passed as a module root.
 fn run_program(case: &str, module_name: &str, module_src: &str, main_src: &str) -> ProgramRun {
-    let dir = workspace_root()
-        .join("target")
-        .join("test-scratch")
-        .join(case);
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create scratch dir");
-
-    let module_file = dir.join(format!("{module_name}.flx"));
+    // Unique per process: `case` alone is fixed, so concurrent test binaries
+    // shared this directory (KI-010 in docs/known_issues.md).
+    let scratch = Scratch::new(case);
+    let dir = scratch.path().to_path_buf();
+    scratch.write(&format!("{module_name}.flx"), module_src);
+    scratch.write("main.flx", main_src);
     let main_file = dir.join("main.flx");
-    std::fs::write(&module_file, module_src).expect("write module fixture");
-    std::fs::write(&main_file, main_src).expect("write entry fixture");
 
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())

@@ -4,7 +4,7 @@
 - Proposal PR:
 - Flux Issue:
 - Supersedes: [0015_package_module_workflow_mvp.md](0015_package_module_workflow_mvp.md) (the MVP sketch; this proposal subsumes and completes it)
-- Requires (for a Flux implementation): [0178_os_capabilities_for_tooling.md](0178_os_capabilities_for_tooling.md)
+- Requires (for a Flux implementation): [0178_os_capabilities_for_tooling.md](implemented/0178_os_capabilities_for_tooling.md)
 - Builds on: the module graph ([../../src/syntax/module_graph/module_resolution.rs](../../src/syntax/module_graph/module_resolution.rs)), module interfaces ([../../src/types/module_interface.rs](../../src/types/module_interface.rs)), the cache layout ([../../src/shared/cache_paths.rs](../../src/shared/cache_paths.rs)), and the CLI driver split ([0154](implemented/0154_cli_driver_split.md))
 - Relates to: [0163_flux_language_server.md](0163_flux_language_server.md), [0175_interactive_repl.md](0175_interactive_repl.md), [0011_phase2_module_system_enhancements.md](0011_phase2_module_system_enhancements.md)
 
@@ -32,7 +32,7 @@ specified in the [Reference-level explanation](#reference-level-explanation):
 | **2** | Registry index, semver resolution, `flux.lock`, `add/update/tree` | Third-party libraries |
 | **3** | Content-addressed store, `publish`, workspaces, `metadata` | An ecosystem |
 
-Phase 0 has no dependency on [0178](0178_os_capabilities_for_tooling.md) and can
+Phase 0 has no dependency on [0178](implemented/0178_os_capabilities_for_tooling.md) and can
 begin immediately. Phase 1 is independently valuable and should land on its own.
 
 ## Motivation
@@ -270,7 +270,7 @@ Build the package manager's pure logic — path manipulation, manifest parsing,
 version and range arithmetic, and the dependency resolver — as Flux libraries
 with no I/O, tested against in-memory fixtures. This phase writes no files, opens
 no sockets, and adds no primops. It depends on nothing in
-[0178](0178_os_capabilities_for_tooling.md).
+[0178](implemented/0178_os_capabilities_for_tooling.md).
 
 It is worth doing first for three reasons. It is **unblocked** — recursive ADTs,
 exhaustive matching, generics, HAMT maps, and the string primops all work today,
@@ -287,7 +287,7 @@ is a design smell worth investigating.
 #### `Flow.Path`
 
 Path manipulation is string manipulation; it needs no OS access. This module is
-specified in [0178 Item 2](0178_os_capabilities_for_tooling.md) and is listed
+specified in [0178 Item 2](implemented/0178_os_capabilities_for_tooling.md) and is listed
 there as stage 0 precisely because it belongs to this phase.
 
 ```flux
@@ -411,7 +411,7 @@ version solving — every dependency is a local path.
 later phase is ever built: fixing stdlib discovery alone converts Flux from a
 language that runs inside its own repository into one that can be installed.
 
-Requires [0178](0178_os_capabilities_for_tooling.md) stages 1–4 (recoverable I/O,
+Requires [0178](implemented/0178_os_capabilities_for_tooling.md) stages 1–4 (recoverable I/O,
 `Flow.Fs`, `Flow.Env`).
 
 #### Manifest (Phase 1 subset)
@@ -544,7 +544,7 @@ resolve identically, and tampering is detected rather than executed.
 cache rests on, which must be enforced by the index from the first published
 package because it cannot be introduced later.
 
-Requires [0178](0178_os_capabilities_for_tooling.md) stage 3 (`Flow.Crypto`), and
+Requires [0178](implemented/0178_os_capabilities_for_tooling.md) stage 3 (`Flow.Crypto`), and
 stage 5 (`Flow.Process`) for git dependencies.
 
 #### Resolution
@@ -680,7 +680,7 @@ Phase 2 uses `$FLUX_HOME` for the index, download cache, and unpacked sources. T
 #### Git dependencies
 
 Git dependencies require subprocess execution
-([0178](0178_os_capabilities_for_tooling.md) stage 5) to shell out to `git`. They
+([0178](implemented/0178_os_capabilities_for_tooling.md) stage 5) to shell out to `git`. They
 pin to a resolved commit hash in the lockfile, and — like path dependencies —
 carry no registry `source`.
 
@@ -854,7 +854,7 @@ The question of whether Flux is *ready* was investigated empirically against the
 current toolchain. **Verdict: the resolver and manifest layers can be written
 today; four OS capabilities are missing, and every one is a library/primop
 addition rather than a type-system or language-semantics change.** Those four are
-specified separately as [0178](0178_os_capabilities_for_tooling.md).
+specified separately as [0178](implemented/0178_os_capabilities_for_tooling.md).
 
 #### What already works (verified by running Flux programs)
 
@@ -916,7 +916,7 @@ networking (proposal 0174) rather than by tooling.
 
 #### Plan
 
-The four gaps are specified as [0178](0178_os_capabilities_for_tooling.md), which
+The four gaps are specified as [0178](implemented/0178_os_capabilities_for_tooling.md), which
 this proposal depends on for Phases 1–3. Their cost is now measured
 rather than estimated: a throwaway spike added a working `file_exists` primop
 end-to-end in about nine edit sites, and the compiler's exhaustiveness checking
@@ -984,7 +984,7 @@ implementation begins.
 8. **Publishing is irreversible**, so the archive format and validation rules must
    be right before the first package ships.
 9. **Building in Flux adds a dependency and a bootstrap question.** Phases 1–3
-   gate on [0178](0178_os_capabilities_for_tooling.md), and a Flux-written package
+   gate on [0178](implemented/0178_os_capabilities_for_tooling.md), and a Flux-written package
    manager cannot be distributed *by* the package manager — it ships with the
    toolchain. Both are accepted deliberately: the goal is to learn what Flux can
    express, and a tool the language cannot write is itself the more important
@@ -1117,7 +1117,7 @@ if the Phase 2 resolver's error quality proves inadequate.
 3. **How much of the toolchain should be Flux versus Rust over time.** The current
    boundary — Flux decides what to build, Rust supplies module roots and reads
    interface fingerprints — is deliberately thin and does not grow across phases.
-4. **Sequencing against [0178](0178_os_capabilities_for_tooling.md).** Phase 0 is
+4. **Sequencing against [0178](implemented/0178_os_capabilities_for_tooling.md).** Phase 0 is
    unblocked; Phases 1–3 gate on specific stages. Whether 0178 proceeds in
    parallel or as a prerequisite is a scheduling decision.
 
@@ -1150,7 +1150,7 @@ if the Phase 2 resolver's error quality proves inadequate.
 2. Exact lockfile v1 serialization, validated against real merge conflicts.
 3. Whether yanking is available at launch, and what it means for an existing lock.
 4. Whether git dependencies ship in this phase or wait for
-   [0178](0178_os_capabilities_for_tooling.md) stage 5.
+   [0178](implemented/0178_os_capabilities_for_tooling.md) stage 5.
 5. Publish-age preference defaults — the supply-chain mitigation the index format
    must leave room for.
 
