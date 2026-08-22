@@ -25,6 +25,8 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::FsRemoveDirAll => "fs_remove_dir_all",
         CorePrimOp::FsWriteFile => "fs_write_file",
         CorePrimOp::FsRename => "fs_rename",
+        CorePrimOp::FsListDir => "fs_list_dir",
+        CorePrimOp::FsMetadata => "fs_metadata",
         CorePrimOp::WriteFile => "write_file",
         CorePrimOp::ReadStdin => "read_stdin",
         CorePrimOp::ReadLines => "read_lines",
@@ -317,6 +319,8 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::FsRemoveDirAll
             | CorePrimOp::FsWriteFile
             | CorePrimOp::FsRename
+            | CorePrimOp::FsListDir
+            | CorePrimOp::FsMetadata
             | CorePrimOp::WriteFile
             | CorePrimOp::ReadStdin
             | CorePrimOp::ReadLines

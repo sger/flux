@@ -471,38 +471,45 @@ void    flux_println(int64_t value);
 void    flux_debug_trace(int64_t value);
 int64_t flux_read_line(void);
 int64_t flux_read_file(int64_t path);
-/* Recoverable read: returns Result<String, IoError> instead of aborting.
- * Constructor tags are supplied by the code generator. */
-int64_t flux_try_read_file(
-    int32_t ok_tag,
-    int32_t err_tag,
-    int32_t io_error_tag,
-    int32_t not_found_tag,
-    int32_t permission_denied_tag,
-    int32_t is_a_directory_tag,
-    int32_t interrupted_tag,
-    int32_t other_tag,
-    int64_t path
-);
 
+/* Recoverable I/O: every fallible operation returns Result<_, IoError> and
+ * takes the constructor tags it needs as leading arguments, because tags are
+ * assigned per compilation rather than fixed.
+ *
+ * The IoErrorKind tags must cover every variant declared in Flow.IoError —
+ * a kind missing here is a kind the native backend can never report, which
+ * shows up as a VM/native parity divergence. */
+#define FLUX_IO_TAGS_DECL                                                      \
+    int32_t ok_tag, int32_t err_tag, int32_t io_error_tag,                     \
+    int32_t not_found_tag, int32_t permission_denied_tag,                      \
+    int32_t already_exists_tag, int32_t not_a_directory_tag,                   \
+    int32_t is_a_directory_tag, int32_t directory_not_empty_tag,               \
+    int32_t interrupted_tag, int32_t other_tag
+
+/* Recoverable read: returns Result<String, IoError> instead of aborting. */
+int64_t flux_try_read_file(FLUX_IO_TAGS_DECL, int64_t path);
 
 /* Filesystem predicates: FLUX_TRUE / FLUX_FALSE, false on any failure. */
 int64_t flux_fs_exists(int64_t path);
 int64_t flux_fs_is_dir(int64_t path);
 int64_t flux_fs_is_file(int64_t path);
 
-/* Filesystem mutations: Result<Unit, IoError>. Leading tags are the
- * constructor tags for Ok, Err, IoError, and the IoErrorKind variants. */
-#define FLUX_IO_TAGS_DECL                                                      \
-    int32_t ok_tag, int32_t err_tag, int32_t io_error_tag,                     \
-    int32_t not_found_tag, int32_t permission_denied_tag,                      \
-    int32_t is_a_directory_tag, int32_t interrupted_tag, int32_t other_tag
-
+/* Filesystem mutations: Result<Unit, IoError>. */
 int64_t flux_fs_write_file(FLUX_IO_TAGS_DECL, int64_t path, int64_t contents);
 int64_t flux_fs_create_dir_all(FLUX_IO_TAGS_DECL, int64_t path);
 int64_t flux_fs_remove_file(FLUX_IO_TAGS_DECL, int64_t path);
 int64_t flux_fs_remove_dir_all(FLUX_IO_TAGS_DECL, int64_t path);
-int64_t flux_fs_rename(FLUX_IO_TAGS_DECL, int64_t from, int64_t to);int64_t flux_write_file(int64_t path, int64_t content);
+int64_t flux_fs_rename(FLUX_IO_TAGS_DECL, int64_t from, int64_t to);
+
+/* Directory listing: Result<Array<String>, IoError>. Entries are bare file
+ * names excluding "." and "..". */
+int64_t flux_fs_list_dir(FLUX_IO_TAGS_DECL, int64_t path);
+
+/* Stat: Result<FileMeta, IoError>. Takes one extra leading tag for the
+ * FileMeta constructor, since it builds a record rather than Unit. */
+int64_t flux_fs_metadata(FLUX_IO_TAGS_DECL, int32_t file_meta_tag, int64_t path);
+
+int64_t flux_write_file(int64_t path, int64_t content);
 
 /* ── Runtime lifecycle ──────────────────────────────────────────────── */
 

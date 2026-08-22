@@ -389,32 +389,32 @@ static int32_t flux_io_kind_tag(
     int err,
     int32_t not_found_tag,
     int32_t permission_denied_tag,
+    int32_t already_exists_tag,
+    int32_t not_a_directory_tag,
     int32_t is_a_directory_tag,
+    int32_t directory_not_empty_tag,
     int32_t interrupted_tag,
     int32_t other_tag
 ) {
     switch (err) {
-        case ENOENT:  return not_found_tag;
-        case EACCES:  return permission_denied_tag;
-        case EPERM:   return permission_denied_tag;
-        case EISDIR:  return is_a_directory_tag;
-        case EINTR:   return interrupted_tag;
-        case EAGAIN:  return interrupted_tag;
-        default:      return other_tag;
+        case ENOENT:       return not_found_tag;
+        case EACCES:       return permission_denied_tag;
+        case EPERM:        return permission_denied_tag;
+        case EEXIST:       return already_exists_tag;
+        case ENOTDIR:      return not_a_directory_tag;
+        case EISDIR:       return is_a_directory_tag;
+        case ENOTEMPTY:    return directory_not_empty_tag;
+        case EINTR:        return interrupted_tag;
+        case EAGAIN:       return interrupted_tag;
+        case ETIMEDOUT:    return interrupted_tag;
+#if EWOULDBLOCK != EAGAIN
+        case EWOULDBLOCK:  return interrupted_tag;
+#endif
+        default:           return other_tag;
     }
 }
 
-int64_t flux_try_read_file(
-    int32_t ok_tag,
-    int32_t err_tag,
-    int32_t io_error_tag,
-    int32_t not_found_tag,
-    int32_t permission_denied_tag,
-    int32_t is_a_directory_tag,
-    int32_t interrupted_tag,
-    int32_t other_tag,
-    int64_t path
-) {
+int64_t flux_try_read_file(FLUX_IO_TAGS_DECL, int64_t path) {
     const char *path_str = flux_string_data(path);
     uint32_t    path_len = flux_string_len(path);
     char        msg_buf[256];
@@ -423,7 +423,8 @@ int64_t flux_try_read_file(
         do {                                                                       \
             int32_t kind_tag = flux_io_kind_tag(                                   \
                 (errnum), not_found_tag, permission_denied_tag,                    \
-                is_a_directory_tag, interrupted_tag, other_tag                     \
+                already_exists_tag, not_a_directory_tag, is_a_directory_tag,       \
+                directory_not_empty_tag, interrupted_tag, other_tag                \
             );                                                                     \
             int written = snprintf(                                                \
                 msg_buf, sizeof(msg_buf), "%s (os error %d)",                      \
@@ -538,7 +539,10 @@ typedef struct {
     int32_t io_error_tag;
     int32_t not_found_tag;
     int32_t permission_denied_tag;
+    int32_t already_exists_tag;
+    int32_t not_a_directory_tag;
     int32_t is_a_directory_tag;
+    int32_t directory_not_empty_tag;
     int32_t interrupted_tag;
     int32_t other_tag;
 } FluxIoTags;
@@ -548,7 +552,9 @@ static int64_t flux_io_fail(FluxIoTags tags, int errnum, int64_t path) {
     char msg_buf[256];
     int32_t kind_tag = flux_io_kind_tag(
         errnum, tags.not_found_tag, tags.permission_denied_tag,
-        tags.is_a_directory_tag, tags.interrupted_tag, tags.other_tag
+        tags.already_exists_tag, tags.not_a_directory_tag,
+        tags.is_a_directory_tag, tags.directory_not_empty_tag,
+        tags.interrupted_tag, tags.other_tag
     );
     int written = snprintf(msg_buf, sizeof(msg_buf), "%s (os error %d)",
                            strerror(errnum), errnum);
@@ -580,14 +586,12 @@ static char *flux_io_cstr(int64_t s) {
     return out;
 }
 
-#define FLUX_IO_TAGS_ARGS                                                      \
-    int32_t ok_tag, int32_t err_tag, int32_t io_error_tag,                     \
-    int32_t not_found_tag, int32_t permission_denied_tag,                      \
-    int32_t is_a_directory_tag, int32_t interrupted_tag, int32_t other_tag
+#define FLUX_IO_TAGS_ARGS FLUX_IO_TAGS_DECL
 
 #define FLUX_IO_TAGS_INIT                                                      \
     { ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,     \
-      is_a_directory_tag, interrupted_tag, other_tag }
+      already_exists_tag, not_a_directory_tag, is_a_directory_tag,             \
+      directory_not_empty_tag, interrupted_tag, other_tag }
 
 int64_t flux_fs_write_file(FLUX_IO_TAGS_ARGS, int64_t path, int64_t contents) {
     FluxIoTags tags = FLUX_IO_TAGS_INIT;
@@ -701,6 +705,95 @@ int64_t flux_fs_rename(FLUX_IO_TAGS_ARGS, int64_t from, int64_t to) {
     /* Error names the destination: renames fail on the target far more often
      * than the source. Matches the VM. */
     return failed ? flux_io_fail(tags, saved, to) : flux_io_unit_ok(tags);
+}
+
+/* List a directory as Result<Array<String>, IoError>.
+ *
+ * Entries are bare file names excluding "." and "..", matching the VM's use
+ * of std::fs::read_dir. A failure part-way through fails the whole call,
+ * so a caller never mistakes a truncated listing for a complete one. */
+int64_t flux_fs_list_dir(FLUX_IO_TAGS_ARGS, int64_t path) {
+    FluxIoTags tags = FLUX_IO_TAGS_INIT;
+    char *cpath = flux_io_cstr(path);
+    if (!cpath) return flux_io_fail(tags, ENOMEM, path);
+
+    DIR *d = opendir(cpath);
+    if (!d) {
+        int saved = errno;
+        free(cpath);
+        return flux_io_fail(tags, saved, path);
+    }
+    free(cpath);
+
+    /* Grown geometrically; entry count is not known up front. */
+    size_t   cap   = 16;
+    size_t   count = 0;
+    int64_t *elems = (int64_t *)malloc(cap * sizeof(int64_t));
+    if (!elems) {
+        closedir(d);
+        return flux_io_fail(tags, ENOMEM, path);
+    }
+
+    struct dirent *entry;
+    errno = 0;
+    while ((entry = readdir(d)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            errno = 0;
+            continue;
+        }
+        if (count == cap) {
+            size_t next_cap = cap * 2;
+            int64_t *grown = (int64_t *)realloc(elems, next_cap * sizeof(int64_t));
+            if (!grown) {
+                free(elems);
+                closedir(d);
+                return flux_io_fail(tags, ENOMEM, path);
+            }
+            elems = grown;
+            cap = next_cap;
+        }
+        elems[count++] = flux_string_new(entry->d_name, (uint32_t)strlen(entry->d_name));
+        errno = 0;
+    }
+    /* readdir returns NULL for both end-of-stream and error; errno separates
+     * them, which is why it is cleared before each call. */
+    int saved = errno;
+    closedir(d);
+    if (saved != 0) {
+        free(elems);
+        return flux_io_fail(tags, saved, path);
+    }
+
+    int64_t arr = flux_array_new(elems, (int32_t)count);
+    free(elems);
+    return flux_io_make_adt(tags.ok_tag, &arr, 1);
+}
+
+/* Stat a path as Result<FileMeta, IoError>.
+ *
+ * FileMeta field order (size, modified, is_dir, is_file) must match Flow.Fs.
+ * `modified` is milliseconds since the Unix epoch, 0 when unavailable —
+ * the same convention the VM uses. */
+int64_t flux_fs_metadata(FLUX_IO_TAGS_ARGS, int32_t file_meta_tag, int64_t path) {
+    FluxIoTags tags = FLUX_IO_TAGS_INIT;
+    char *cpath = flux_io_cstr(path);
+    if (!cpath) return flux_io_fail(tags, ENOMEM, path);
+
+    struct stat st;
+    int failed = stat(cpath, &st) != 0;
+    int saved = errno;
+    free(cpath);
+    if (failed) return flux_io_fail(tags, saved, path);
+
+    int64_t modified_ms = (int64_t)st.st_mtime * 1000;
+
+    int64_t fields[4];
+    fields[0] = flux_tag_int((int64_t)st.st_size);
+    fields[1] = flux_tag_int(modified_ms);
+    fields[2] = flux_make_bool(S_ISDIR(st.st_mode));
+    fields[3] = flux_make_bool(S_ISREG(st.st_mode));
+    int64_t meta = flux_io_make_adt(file_meta_tag, fields, 4);
+    return flux_io_make_adt(tags.ok_tag, &meta, 1);
 }
 
 int64_t flux_write_file(int64_t path, int64_t content) {

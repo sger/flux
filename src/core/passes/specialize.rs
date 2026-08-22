@@ -84,6 +84,8 @@ fn is_wrapper_primop(op: CorePrimOp) -> bool {
             | CorePrimOp::FsRemoveFile
             | CorePrimOp::FsRemoveDirAll
             | CorePrimOp::FsRename
+            | CorePrimOp::FsListDir
+            | CorePrimOp::FsMetadata
             | CorePrimOp::WriteFile
             | CorePrimOp::ReadStdin
             | CorePrimOp::ReadLines
