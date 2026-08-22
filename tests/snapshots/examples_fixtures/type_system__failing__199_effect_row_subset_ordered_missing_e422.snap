@@ -18,12 +18,12 @@ Parameter 1 has the wrong type.
    |     ------------------------------ this type mismatch is reported here
 
 Note:
-  expected parameter type: () -> Unit with Console, FileSystem, Stdin, Clock
+  expected parameter type: () -> Unit with Console, FileSystem, Stdin, Clock, Env
   found parameter type: () -> Unit
   the conflicting types meet at this expression
 
 Help:
-  Change parameter 1 to use `() -> Unit with Console, FileSystem, Stdin, Clock` consistently.
+  Change parameter 1 to use `() -> Unit with Console, FileSystem, Stdin, Clock, Env` consistently.
 
 
 Note: Downstream Errors Suppressed

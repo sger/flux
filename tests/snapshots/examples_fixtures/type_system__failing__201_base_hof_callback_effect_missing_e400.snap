@@ -13,13 +13,13 @@ Parameter 2 has the wrong type.
    |
 52 |     each([1, 2, 3], noisy_log)
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |     -------------------------- parameter 2 has type `() -> Unit with Console, FileSystem, Stdin`
+   |     -------------------------- parameter 2 has type `() -> Unit with Console, FileSystem, Stdin, Env`
 
    |     -------------------------- this type mismatch is reported here
 
 Note:
   expected parameter type: () -> Unit
-  found parameter type: () -> Unit with Console, FileSystem, Stdin
+  found parameter type: () -> Unit with Console, FileSystem, Stdin, Env
   the conflicting types meet at this expression
 
 Help:

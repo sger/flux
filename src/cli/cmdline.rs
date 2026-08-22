@@ -71,6 +71,10 @@ pub enum CliCommand {
 /// positional arguments then drive subcommand selection.
 pub fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<CliCommand, String> {
     let mut args = collect_cli_args(args);
+    // Everything after a `--` belongs to the program, not to flux. Split it
+    // off first so the program may take flags that flux also understands (or
+    // does not) without the CLI parser claiming or rejecting them.
+    let program_args = split_program_args(&mut args);
     let (parsed, mut flags) = parse_driver_flags(&mut args)?;
 
     if has_no_command_or_input(&args) {
@@ -82,10 +86,33 @@ pub fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<CliCommand
     let run_mode = run_mode_from_flags(parsed.execution.test_mode);
 
     if let Some(command) = parse_implicit_file_command(&args, flags.clone(), run_mode)? {
-        return Ok(command);
+        return Ok(attach_program_args(command, program_args));
     }
 
-    parse_subcommand(&args, &mut flags, run_mode)
+    parse_subcommand(&args, &mut flags, run_mode).map(|c| attach_program_args(c, program_args))
+}
+
+/// Removes a `--` separator and everything after it, returning the tail.
+///
+/// The separator itself is dropped. A trailing bare `--` yields an empty
+/// argument list, which is distinct from never having written one only in
+/// that it is still an explicit choice; both give the program no arguments.
+fn split_program_args(args: &mut Vec<String>) -> Vec<String> {
+    match args.iter().position(|a| a == "--") {
+        Some(idx) => args.split_off(idx).into_iter().skip(1).collect(),
+        None => Vec::new(),
+    }
+}
+
+/// Attaches program arguments to a run command; other commands ignore them.
+fn attach_program_args(command: CliCommand, program_args: Vec<String>) -> CliCommand {
+    match command {
+        CliCommand::Run { flags, mut target } => {
+            target.program_args = program_args;
+            CliCommand::Run { flags, target }
+        }
+        other => other,
+    }
 }
 
 /// Converts raw process arguments into an owned CLI buffer.
@@ -239,7 +266,11 @@ fn parse_subcommand(
 fn run_command(flags: DriverFlags, path: String, mode: RunMode) -> CliCommand {
     CliCommand::Run {
         flags,
-        target: RunTarget { path, mode },
+        target: RunTarget {
+            path,
+            mode,
+            program_args: Vec::new(),
+        },
     }
 }
 

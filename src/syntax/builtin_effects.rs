@@ -32,6 +32,13 @@ pub const FILESYSTEM: &str = "FileSystem";
 /// `read_stdin` — stdin I/O.
 pub const STDIN: &str = "Stdin";
 
+/// `env_var` / `env_args` / `env_cwd` — the process environment.
+///
+/// Reading the environment is ambient input: it makes a function
+/// non-deterministic in the same way the filesystem does, so it is visible in
+/// signatures rather than silent (proposal 0178, item 5).
+pub const ENV: &str = "Env";
+
 /// `clock_now` / `now_ms` — wall-clock / monotonic time.
 pub const CLOCK: &str = "Clock";
 
@@ -143,6 +150,7 @@ pub fn primop_fine_effect_label(op: CorePrimOp) -> Option<&'static str> {
         FsExists | FsIsDir | FsIsFile | FsWriteFile | FsCreateDirAll | FsRemoveFile
         | FsRemoveDirAll | FsRename | FsListDir | FsMetadata | Sha256File => Some(FILESYSTEM),
         ReadStdin => Some(STDIN),
+        EnvVar | EnvArgs | EnvCwd | EnvHomeDir => Some(ENV),
         ClockNow | Time => Some(CLOCK),
         Panic => Some(PANIC),
         Div | Mod | IDiv | IMod | FDiv | Index => Some(DIV),
@@ -159,7 +167,7 @@ pub fn primop_fine_effect_label(op: CorePrimOp) -> Option<&'static str> {
 /// expansion.
 pub fn primop_coarse_effect_label(op: CorePrimOp) -> Option<&'static str> {
     match primop_fine_effect_label(op)? {
-        CONSOLE | FILESYSTEM | STDIN => Some(IO),
+        CONSOLE | FILESYSTEM | STDIN | ENV => Some(IO),
         CLOCK => Some(TIME),
         // Panic, Div, and Debug stay as themselves — no coarse alias.
         other => Some(other),
