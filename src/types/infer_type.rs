@@ -236,6 +236,27 @@ impl InferType {
         !self.contains_var()
     }
 
+    /// Returns `true` when these two types can never unify because their
+    /// outermost type constructors differ — `List<a>` against `Array<Int>`.
+    ///
+    /// Unlike `is_concrete`, this stays decisive when free variables remain,
+    /// so a mismatch under an unresolved class constraint is still reportable.
+    /// Deliberately conservative: anything involving a `Var`, a function, or an
+    /// `HktApp` head is left undecided, so a type still being solved is never
+    /// reported early.
+    pub fn heads_conflict(&self, other: &InferType) -> bool {
+        match (self, other) {
+            (InferType::Con(a), InferType::Con(b)) => a != b,
+            (InferType::App(a, _), InferType::App(b, _)) => a != b,
+            (InferType::Con(a), InferType::App(b, _))
+            | (InferType::App(a, _), InferType::Con(b)) => a != b,
+            (InferType::Tuple(a), InferType::Tuple(b)) => a.len() != b.len(),
+            (InferType::Con(_) | InferType::App(..), InferType::Tuple(_))
+            | (InferType::Tuple(_), InferType::Con(_) | InferType::App(..)) => true,
+            _ => false,
+        }
+    }
+
     fn contains_var(&self) -> bool {
         match self {
             InferType::Var(_) => true,
