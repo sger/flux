@@ -23,6 +23,10 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
@@ -45,9 +49,13 @@ fn run_source_with_env(
     std::fs::write(&path, source).expect("write fixture");
 
     let start = Instant::now();
+    // Private cache root: `--no-cache` does not isolate native
+    // builds, which write shared artifacts regardless (KI-010).
+    let scratch = Scratch::new("native-llvm");
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_flux"));
     cmd.current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--native", "--no-cache"]);
+        .args([path.to_str().unwrap(), "--native", "--no-cache"])
+        .args(scratch.cache_args());
     for (k, v) in env {
         cmd.env(k, v);
     }
@@ -91,9 +99,13 @@ fn run_source_with_timeout(
     std::fs::write(&path, source).expect("write fixture");
 
     let start = Instant::now();
+    // Private cache root: `--no-cache` does not isolate native
+    // builds, which write shared artifacts regardless (KI-010).
+    let scratch = Scratch::new("native-llvm");
     let mut child = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--native", "--no-cache"])
+        .args(scratch.cache_args())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

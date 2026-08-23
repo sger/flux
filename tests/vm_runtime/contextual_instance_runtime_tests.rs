@@ -3,15 +3,21 @@
 use std::path::Path;
 use std::process::Command;
 
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
 
 fn run_vm(fixture: &str) -> String {
     let path = workspace_root().join("tests").join("parity").join(fixture);
+    let scratch = Scratch::new("cache-isolated");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--no-cache"])
+        .args(scratch.cache_args())
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux on {fixture}: {e}"));
 
@@ -23,9 +29,11 @@ fn run_vm(fixture: &str) -> String {
 
 fn run_native(fixture: &str) -> (String, bool) {
     let path = workspace_root().join("tests").join("parity").join(fixture);
+    let scratch = Scratch::new("cache-isolated");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--native", "--no-cache"])
+        .args(scratch.cache_args())
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux --native on {fixture}: {e}"));
 
