@@ -1,0 +1,365 @@
+// Behavioural coverage for `Flume.Manifest` (proposal 0177, Phase 0).
+//
+// The schema layer only: TOML syntax is covered by `flume_toml.flx`. What is
+// asserted here is the funnel's last stage — that a valid document becomes the
+// right domain values, and that an invalid one is rejected with a kind Phase 1
+// can key a diagnostic on.
+//
+// Pure, so no fixture directory and no cleanup. `with IO` is for `assert_*`.
+
+import Flume.Manifest as Manifest
+import Flume.Manifest exposing (Source, Dep, Manifest, Package, Bin)
+import Flume.Parse as Parse
+import Flow.List as List
+import Flow.Array as Array
+import Flow.String as Str
+
+/// The smallest manifest that parses, with `extra` appended.
+///
+/// Almost every test needs a valid `[package]` table it does not care about,
+/// and repeating it would bury the line each test is actually about.
+fn manifest_with(extra: String) -> String {
+    "[package]\nname = \"demo\"\nversion = \"1.0.0\"\n" + extra
+}
+
+fn join_with(pieces: List<String>, separator: String) -> String {
+    Str.join(Array.from_list(pieces), separator)
+}
+
+/// The error kind, or `ok` when the manifest parsed.
+///
+/// Kinds rather than messages: the kind is the contract, and asserting on
+/// prose would break these tests on every rewording.
+fn kind_of(source: String) -> String {
+    match Manifest.parse(source) {
+        Ok(_) -> "ok",
+        Err(problem) -> Parse.error_kind(problem),
+    }
+}
+
+/// Apply `read` to a parsed manifest, or report the failure.
+fn field(source: String, read: (Manifest) -> String) -> String {
+    match Manifest.parse(source) {
+        Ok(manifest) -> read(manifest),
+        Err(problem) -> "ERR " + Parse.error_kind(problem),
+    }
+}
+
+fn name_of(manifest: Manifest) -> String {
+    Manifest.package_name(Manifest.manifest_package(manifest))
+}
+
+fn version_of(manifest: Manifest) -> String {
+    Manifest.package_version(Manifest.manifest_package(manifest))
+}
+
+fn edition_of(manifest: Manifest) -> String {
+    Manifest.package_edition(Manifest.manifest_package(manifest))
+}
+
+fn namespace_of(manifest: Manifest) -> String {
+    Manifest.package_namespace(Manifest.manifest_package(manifest))
+}
+
+fn describe_source(source: Source) -> String {
+    match source {
+        FromPath(path) -> "path:" + path,
+        FromRegistry(requirement) -> "registry:" + requirement,
+    }
+}
+
+fn describe_dep(entry: Dep) -> String {
+    Manifest.dep_name(entry) + "=" + describe_source(Manifest.dep_source(entry))
+        + (if Manifest.dep_is_dev(entry) { ":dev" } else { "" })
+}
+
+fn deps_of(manifest: Manifest) -> String {
+    join_with(List.map(Manifest.manifest_deps(manifest), describe_dep), ";")
+}
+
+fn lib_of(manifest: Manifest) -> String {
+    match Manifest.manifest_lib(manifest) {
+        Some(path) -> path,
+        None -> "<none>",
+    }
+}
+
+fn describe_bin(entry: Bin) -> String {
+    Manifest.bin_name(entry) + "@" + Manifest.bin_path(entry)
+}
+
+fn bins_of(manifest: Manifest) -> String {
+    join_with(List.map(Manifest.manifest_bins(manifest), describe_bin), ";")
+}
+
+// ── [package] ──────────────────────────────────────────────────
+
+fn test_reads_the_package_name() with IO {
+    assert_eq(field(manifest_with(""), name_of), "demo")
+}
+
+fn test_reads_the_package_version() with IO {
+    assert_eq(field(manifest_with(""), version_of), "1.0.0")
+}
+
+fn test_reads_an_explicit_edition() with IO {
+    assert_eq(field(manifest_with("edition = \"2027\"\n"), edition_of), "2027")
+}
+
+// An omitted edition takes the current default rather than failing, so a
+// minimal manifest stays minimal.
+fn test_edition_defaults_when_absent() with IO {
+    assert_eq(field(manifest_with(""), edition_of), "2026")
+}
+
+fn test_reads_an_explicit_namespace() with IO {
+    assert_eq(field(manifest_with("namespace = \"Custom\"\n"), namespace_of), "Custom")
+}
+
+// ── namespace derivation ───────────────────────────────────────
+
+// Every module-path segment must begin uppercase, so a lowercase package name
+// cannot be used as a namespace verbatim.
+
+fn test_namespace_is_derived_from_the_name() with IO {
+    assert_eq(field(manifest_with(""), namespace_of), "Demo")
+}
+
+fn test_derivation_capitalizes_each_dash_separated_segment() with IO {
+    assert_eq(Manifest.derive_namespace("flux-json"), "FluxJson")
+}
+
+fn test_derivation_handles_underscores_too() with IO {
+    assert_eq(Manifest.derive_namespace("flux_json"), "FluxJson")
+}
+
+fn test_derivation_handles_several_segments() with IO {
+    assert_eq(Manifest.derive_namespace("flux-json-core"), "FluxJsonCore")
+}
+
+fn test_derivation_leaves_an_already_capitalized_name_alone() with IO {
+    assert_eq(Manifest.derive_namespace("Json"), "Json")
+}
+
+fn test_derivation_ignores_empty_segments() with IO {
+    assert_eq(Manifest.derive_namespace("a--b"), "AB")
+}
+
+// ── dependencies ───────────────────────────────────────────────
+
+fn test_reads_a_path_dependency() with IO {
+    assert_eq(
+        field(manifest_with("[dependencies]\na = { path = \"../a\" }\n"), deps_of),
+        "a=path:../a",
+    )
+}
+
+// The registry form parses in Phase 0 even though Phase 1 rejects it: it must
+// produce a "not supported until Phase 2" diagnostic rather than be ignored,
+// and that is only possible if the parser represents it.
+fn test_reads_a_registry_dependency_in_short_form() with IO {
+    assert_eq(
+        field(manifest_with("[dependencies]\na = \"1.0\"\n"), deps_of),
+        "a=registry:1.0",
+    )
+}
+
+fn test_reads_a_registry_dependency_in_table_form() with IO {
+    assert_eq(
+        field(manifest_with("[dependencies]\na = { version = \"1.0\" }\n"), deps_of),
+        "a=registry:1.0",
+    )
+}
+
+fn test_reads_several_dependencies_in_order() with IO {
+    assert_eq(
+        field(
+            manifest_with("[dependencies]\na = { path = \"../a\" }\nb = \"2.0\"\n"),
+            deps_of,
+        ),
+        "a=path:../a;b=registry:2.0",
+    )
+}
+
+fn test_dev_dependencies_are_marked_as_such() with IO {
+    assert_eq(
+        field(manifest_with("[dev-dependencies]\nk = { path = \"../k\" }\n"), deps_of),
+        "k=path:../k:dev",
+    )
+}
+
+fn test_normal_dependencies_precede_dev_ones() with IO {
+    assert_eq(
+        field(
+            manifest_with(
+                "[dependencies]\na = \"1.0\"\n\n[dev-dependencies]\nk = \"2.0\"\n"
+            ),
+            deps_of,
+        ),
+        "a=registry:1.0;k=registry:2.0:dev",
+    )
+}
+
+fn test_a_manifest_may_have_no_dependencies() with IO {
+    assert_eq(field(manifest_with(""), deps_of), "")
+}
+
+// ── [lib] and [[bin]] ──────────────────────────────────────────
+
+fn test_reads_the_lib_path() with IO {
+    assert_eq(field(manifest_with("[lib]\npath = \"src/A.flx\"\n"), lib_of), "src/A.flx")
+}
+
+fn test_lib_is_optional() with IO {
+    assert_eq(field(manifest_with(""), lib_of), "<none>")
+}
+
+fn test_reads_one_bin_target() with IO {
+    assert_eq(
+        field(manifest_with("[[bin]]\nname = \"a\"\npath = \"x.flx\"\n"), bins_of),
+        "a@x.flx",
+    )
+}
+
+fn test_reads_several_bin_targets_in_order() with IO {
+    assert_eq(
+        field(
+            manifest_with(
+                "[[bin]]\nname = \"a\"\npath = \"x.flx\"\n\n"
+                + "[[bin]]\nname = \"b\"\npath = \"y.flx\"\n"
+            ),
+            bins_of,
+        ),
+        "a@x.flx;b@y.flx",
+    )
+}
+
+fn test_bins_are_optional() with IO {
+    assert_eq(field(manifest_with(""), bins_of), "")
+}
+
+// ── schema errors ──────────────────────────────────────────────
+
+fn test_a_manifest_without_a_package_table_is_rejected() with IO {
+    assert_eq(kind_of("[dependencies]\na = \"1.0\"\n"), "missing-package")
+}
+
+fn test_a_package_without_a_name_is_rejected() with IO {
+    assert_eq(kind_of("[package]\nversion = \"1.0.0\"\n"), "missing-field")
+}
+
+fn test_a_package_without_a_version_is_rejected() with IO {
+    assert_eq(kind_of("[package]\nname = \"demo\"\n"), "missing-field")
+}
+
+fn test_a_non_string_name_is_rejected() with IO {
+    assert_eq(kind_of("[package]\nname = 1\nversion = \"1.0.0\"\n"), "wrong-type")
+}
+
+fn test_a_non_table_package_is_rejected() with IO {
+    assert_eq(kind_of("package = 1\n"), "invalid-package")
+}
+
+fn test_a_bin_without_a_path_is_rejected() with IO {
+    assert_eq(kind_of(manifest_with("[[bin]]\nname = \"a\"\n")), "missing-field")
+}
+
+fn test_a_lib_without_a_path_is_rejected() with IO {
+    assert_eq(kind_of(manifest_with("[lib]\n")), "missing-field")
+}
+
+// `bin` must be an array of tables; the singular `[bin]` form is a common
+// mistake and is worth its own message.
+fn test_a_singular_bin_table_is_rejected() with IO {
+    assert_eq(kind_of(manifest_with("[bin]\nname = \"a\"\npath = \"x\"\n")), "invalid-bin")
+}
+
+// ── dependency errors ──────────────────────────────────────────
+
+// A dependency with both `path` and `version` has two sources of truth.
+// Choosing one silently is how a build ends up using a working directory that
+// the manifest appears to pin to a published release.
+fn test_a_dependency_with_both_path_and_version_is_rejected() with IO {
+    assert_eq(
+        kind_of(manifest_with("[dependencies]\na = { path = \"p\", version = \"1\" }\n")),
+        "conflicting-dependency-source",
+    )
+}
+
+fn test_a_dependency_with_neither_path_nor_version_is_rejected() with IO {
+    assert_eq(
+        kind_of(manifest_with("[dependencies]\na = {}\n")),
+        "incomplete-dependency",
+    )
+}
+
+fn test_a_dependency_that_is_a_number_is_rejected() with IO {
+    assert_eq(kind_of(manifest_with("[dependencies]\na = 1\n")), "invalid-dependency")
+}
+
+// Written before `[package]` so the key lands at the document root: appended
+// after the header it would become `package.dependencies` and never reach the
+// dependencies reader at all.
+fn test_a_non_table_dependencies_section_is_rejected() with IO {
+    assert_eq(
+        kind_of("dependencies = 1\n[package]\nname = \"demo\"\nversion = \"1.0.0\"\n"),
+        "invalid-dependencies",
+    )
+}
+
+fn test_a_non_string_dependency_path_is_rejected() with IO {
+    assert_eq(kind_of(manifest_with("[dependencies]\na = { path = 1 }\n")), "wrong-type")
+}
+
+// ── syntax errors propagate ────────────────────────────────────
+
+// `Manifest.parse` is TOML then schema, so a syntax error must surface with the
+// syntax layer's own kind rather than being reported as a schema problem.
+fn test_a_toml_syntax_error_reaches_the_caller() with IO {
+    assert_eq(kind_of("[package\nname = \"demo\"\n"), "expected-bracket")
+}
+
+fn test_an_unsupported_toml_construct_reaches_the_caller() with IO {
+    assert_eq(kind_of(manifest_with("weight = 1.5\n")), "unsupported-float")
+}
+
+// ── the whole funnel ───────────────────────────────────────────
+
+// The manifest from proposal 0177's Phase 1 schema section, read end to end.
+fn test_parses_the_proposals_example_manifest() with IO {
+    assert_eq(
+        field(
+            "[package]\n"
+            + "name = \"json\"\n"
+            + "version = \"1.2.0\"\n"
+            + "edition = \"2026\"\n"
+            + "namespace = \"Json\"\n"
+            + "\n"
+            + "[dependencies]\n"
+            + "shared = { path = \"../shared\" }\n"
+            + "\n"
+            + "[lib]\n"
+            + "path = \"src/Json.flx\"\n"
+            + "\n"
+            + "[[bin]]\n"
+            + "name = \"json-fmt\"\n"
+            + "path = \"src/bin/fmt.flx\"\n",
+            summarize,
+        ),
+        "json 1.2.0 2026 Json | shared=path:../shared | src/Json.flx | json-fmt@src/bin/fmt.flx",
+    )
+}
+
+fn summarize(manifest: Manifest) -> String {
+    join_with([
+        join_with([
+            name_of(manifest),
+            version_of(manifest),
+            edition_of(manifest),
+            namespace_of(manifest),
+        ], " "),
+        deps_of(manifest),
+        lib_of(manifest),
+        bins_of(manifest),
+    ], " | ")
+}

@@ -378,6 +378,22 @@ name = "stdlib_process_tests"
 path = "tests/vm_runtime/stdlib_process_tests.rs"
 
 [[test]]
+name = "flume_version_tests"
+path = "tests/flume/flume_version_tests.rs"
+
+[[test]]
+name = "flume_toml_tests"
+path = "tests/flume/flume_toml_tests.rs"
+
+[[test]]
+name = "flume_manifest_tests"
+path = "tests/flume/flume_manifest_tests.rs"
+
+[[test]]
+name = "flume_resolve_tests"
+path = "tests/flume/flume_resolve_tests.rs"
+
+[[test]]
 name = "native_constructor_tag_tests"
 path = "tests/native_llvm/native_constructor_tag_tests.rs"
 required-features = ["llvm"]

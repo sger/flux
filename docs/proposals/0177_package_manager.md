@@ -299,7 +299,27 @@ It ships here rather than in 0178 because Phase 0 is its first consumer and
 because it is the natural warm-up exercise: small, pure, and immediately useful
 elsewhere.
 
-#### `Pkg.Version`
+#### The `Flume` namespace
+
+The package manager lives under a single `Flume` namespace, shipped at
+`lib/Flume/` alongside the `Flow` standard library. The name shares the Latin
+root of *flux* and *flow* (*fluere*, to flow); a flume is an engineered channel
+that carries material to where it is needed, which is what a package manager
+does.
+
+Namespacing is a correctness requirement, not a preference. Module names are
+flat: two roots that each contain a bare `Version.flx` collide with
+`error[E027] Duplicate Module`. A namespaced `Flume.Version` coexists with a
+user's own `Version` module, so the package manager must not squat on bare
+names — and using the namespace itself dogfoods the mechanism Phase 1 hands to
+every third-party package.
+
+Two mechanical constraints apply, both verified: a dotted module requires the
+brace-block form (`module Flume.Version { ... }`; the bare header form raises
+E034), and every segment must start uppercase, which is what forces the
+package-name-to-namespace derivation rule discussed under Phase 1.
+
+#### `Flume.Version`
 
 ```flux
 data Version { Version { major: Int, minor: Int, patch: Int, pre: Option<String> } }
@@ -332,7 +352,7 @@ be a data-structure invariant rather than a scattered check.
 precedes `1.0.0`, and pre-release versions are excluded from ranges unless the
 range itself names a pre-release.
 
-#### `Pkg.Manifest`
+#### `Flume.Manifest`
 
 A three-stage funnel — raw TOML → schema types → normalization → domain model —
 with the schema types kept separate so they remain a stable serialization
@@ -356,7 +376,7 @@ contained change behind `Manifest.parse`.
 
 `ManifestError` carries a position so diagnostics can point at the offending line.
 
-#### `Pkg.Resolve`
+#### `Flume.Resolve`
 
 The resolver specified in Phase 2's Resolution section, minus all I/O. It is a pure
 function from a dependency graph and a set of candidate packages to either a
@@ -416,7 +436,7 @@ Requires [0178](implemented/0178_os_capabilities_for_tooling.md) stages 1–4 (r
 
 #### Manifest (Phase 1 subset)
 
-Phase 1 accepts a deliberately small schema, parsed by `Pkg.Manifest` from
+Phase 1 accepts a deliberately small schema, parsed by `Flume.Manifest` from
 [Phase 0](#phase-0-core-libraries-in-flux):
 
 ```toml
@@ -1125,7 +1145,7 @@ if the Phase 2 resolver's error quality proves inadequate.
 
 1. Exactly which TOML subset the Phase 0 parser accepts, and how it reports
    constructs it does not support.
-2. Whether `Pkg.Version` should follow semver strictly or permit a Flux-specific
+2. Whether `Flume.Version` should follow semver strictly or permit a Flux-specific
    relaxation (for example, two-component `1.2` versions in manifests).
 3. Whether the resolver's conflict type should be shared with the compiler's
    diagnostic infrastructure or remain package-manager-local until Phase 1.

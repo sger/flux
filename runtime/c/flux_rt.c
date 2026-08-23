@@ -1431,25 +1431,54 @@ int64_t flux_rt_neq(int64_t a, int64_t b) {
     return (eq == flux_make_bool(1)) ? flux_make_bool(0) : flux_make_bool(1);
 }
 
+/* Lexicographic byte order over two Flux strings: <0, 0, or >0.
+ *
+ * Matches the VM, which compares Rust `String`s and so orders by bytes. The
+ * shorter string wins a tie on its common prefix, which is what `memcmp`
+ * followed by a length comparison gives.
+ *
+ * Without this, ordering comparisons on strings fell through to
+ * `flux_untag_int` and compared heap *addresses* — so `"b" > "a"` was decided
+ * by allocation order rather than by content. */
+static int flux_string_cmp(int64_t a, int64_t b) {
+    const char *da  = flux_string_data(a);
+    const char *db  = flux_string_data(b);
+    uint32_t    la  = flux_string_len(a);
+    uint32_t    lb  = flux_string_len(b);
+    uint32_t    min = la < lb ? la : lb;
+    int         ord = min == 0 ? 0 : memcmp(da, db, min);
+    if (ord != 0) return ord;
+    if (la == lb) return 0;
+    return la < lb ? -1 : 1;
+}
+
 int64_t flux_rt_lt(int64_t a, int64_t b) {
+    if (flux_val_is_string(a) && flux_val_is_string(b))
+        return flux_make_bool(flux_string_cmp(a, b) < 0);
     if (flux_val_is_float(a))
         return flux_make_bool(flux_unbox_float(a) < flux_unbox_float(b));
     return flux_make_bool(flux_untag_int(a) < flux_untag_int(b));
 }
 
 int64_t flux_rt_le(int64_t a, int64_t b) {
+    if (flux_val_is_string(a) && flux_val_is_string(b))
+        return flux_make_bool(flux_string_cmp(a, b) <= 0);
     if (flux_val_is_float(a))
         return flux_make_bool(flux_unbox_float(a) <= flux_unbox_float(b));
     return flux_make_bool(flux_untag_int(a) <= flux_untag_int(b));
 }
 
 int64_t flux_rt_gt(int64_t a, int64_t b) {
+    if (flux_val_is_string(a) && flux_val_is_string(b))
+        return flux_make_bool(flux_string_cmp(a, b) > 0);
     if (flux_val_is_float(a))
         return flux_make_bool(flux_unbox_float(a) > flux_unbox_float(b));
     return flux_make_bool(flux_untag_int(a) > flux_untag_int(b));
 }
 
 int64_t flux_rt_ge(int64_t a, int64_t b) {
+    if (flux_val_is_string(a) && flux_val_is_string(b))
+        return flux_make_bool(flux_string_cmp(a, b) >= 0);
     if (flux_val_is_float(a))
         return flux_make_bool(flux_unbox_float(a) >= flux_unbox_float(b));
     return flux_make_bool(flux_untag_int(a) >= flux_untag_int(b));
