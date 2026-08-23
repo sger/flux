@@ -73,9 +73,12 @@ fn desugar_expr(expr: &mut Expression, ctx: &mut NamedFieldDesugarCtx<'_>) {
 
     match expr {
         Expression::NamedConstructor {
-            name, fields, span, ..
+            name,
+            fields,
+            span,
+            id,
         } => {
-            let rewritten = rewrite_named_constructor(*name, fields, *span, ctx);
+            let rewritten = rewrite_named_constructor(*name, fields, *span, *id, ctx);
             *expr = rewritten;
         }
         Expression::Spread {
@@ -275,6 +278,7 @@ fn rewrite_named_constructor(
     name: Identifier,
     fields: &[NamedFieldInit],
     span: crate::diagnostics::position::Span,
+    ctor_id: ExprId,
     ctx: &mut NamedFieldDesugarCtx<'_>,
 ) -> Expression {
     let declared = ctx.ctor_field_names.get(&name).cloned().unwrap_or_default();
@@ -302,11 +306,19 @@ fn rewrite_named_constructor(
         span,
         id: crate::syntax::expression::ExprId::UNSET,
     };
+    // Carry the original `NamedConstructor`'s id onto the synthesized call.
+    //
+    // This pass runs *after* inference, so `hm_expr_types` already holds the
+    // constructed value's type keyed by that id. Stamping `UNSET` here instead
+    // would strand the type: every later consumer that looks a value's type up
+    // by id — class-method dispatch in Core lowering above all — would see
+    // nothing and fall back. That is how `describe(Red { on: true })` came to
+    // miss its instance and reach the no-instance panic stub (KI-012).
     Expression::Call {
         function: Box::new(func),
         arguments,
         span,
-        id: crate::syntax::expression::ExprId::UNSET,
+        id: ctor_id,
     }
 }
 
