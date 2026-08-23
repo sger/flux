@@ -269,7 +269,11 @@ fn expand_constraint(
     }
 }
 
-fn expand_type(
+/// Expand transparent aliases inside a single type.
+///
+/// Exposed for module-interface export: constructor field types are collected
+/// from the raw AST, which still names the alias.
+pub fn expand_type(
     ty: &mut TypeExpr,
     aliases: &HashMap<Identifier, TypeAliasDecl>,
     file_path: &str,

@@ -13,6 +13,12 @@ module ImportedCtor.Shapes {
 
     public data Boxed<a> { Boxed(a) }
 
+    // A transparent alias in a constructor field: exported field types must be
+    // expanded, or an importer sees `Label` where inference produced `String`.
+    public alias Label = String
+
+    public data Tagged { Tagged { label: Label } }
+
     public fn area(shape: Shape) -> Float {
         match shape {
             Circle(radius) -> 3.0 * radius * radius,
@@ -22,6 +28,10 @@ module ImportedCtor.Shapes {
 
     public fn rect_area(rect: Rect) -> Float {
         match rect { Rect(width, height) -> width * height }
+    }
+
+    public fn tagged(label: String) -> Tagged {
+        Tagged { label: label }
     }
 
     public fn unbox<a>(boxed: Boxed<a>) -> a {

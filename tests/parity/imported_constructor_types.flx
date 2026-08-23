@@ -21,5 +21,9 @@ fn main() {
     // The inferred type must survive a let binding too.
     let boxed = Boxed(5)
     print(to_string(Shapes.unbox(boxed)))
+
+    // A field whose declared type is a transparent alias must arrive expanded,
+    // so it is usable as the type the alias stands for.
+    print(Shapes.tagged("tag").label + "!")
     print(describe(Circle(1.0)))
 }
