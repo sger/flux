@@ -21,6 +21,10 @@
 use std::path::Path;
 use std::process::Command;
 
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 const FIXTURE: &str = "match_arm_outer_binding.flx";
 
 /// What the fixture must print, in order. Every pair is a read inside an arm
@@ -54,9 +58,13 @@ fn run(native: bool) -> (String, bool) {
     if native {
         args.push("--native".to_string());
     }
+    // Private cache root: `--no-cache` does not isolate native builds, which
+    // write shared artifacts under the cache root regardless (KI-010).
+    let scratch = Scratch::new("fixture-run");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args(&args)
+        .args(scratch.cache_args())
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux on {FIXTURE}: {e}"));
 

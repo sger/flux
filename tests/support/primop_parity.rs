@@ -11,6 +11,13 @@
 use std::path::Path;
 use std::process::Command;
 
+// Re-exported so a test including this file gets `Scratch` from here rather
+// than declaring its own `mod scratch;` — two `#[path]` declarations of one
+// file in the same crate is a `clippy::duplicate_mod` warning.
+#[path = "scratch.rs"]
+pub mod scratch;
+use scratch::Scratch;
+
 pub fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
@@ -24,9 +31,17 @@ pub fn run_native(fixture: &str) -> (String, bool) {
 /// Run a parity fixture through the native/LLVM backend with extra env vars.
 pub fn run_native_with_env(fixture: &str, env: &[(&str, &str)]) -> (String, bool) {
     let path = workspace_root().join("tests").join("parity").join(fixture);
+    // `--no-cache` does not isolate native builds: the backend writes shared
+    // artifacts under the cache root regardless, so concurrent runs collided
+    // (KI-010). The scratch dir exists for its private cache root.
+    let scratch = Scratch::new(&format!(
+        "parity-native-{}",
+        fixture.trim_end_matches(".flx")
+    ));
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_flux"));
     cmd.current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--native", "--no-cache"]);
+        .args([path.to_str().unwrap(), "--native", "--no-cache"])
+        .args(scratch.cache_args());
     for (k, v) in env {
         cmd.env(k, v);
     }
@@ -44,9 +59,11 @@ pub fn run_native_with_env(fixture: &str, env: &[(&str, &str)]) -> (String, bool
 /// Run a parity fixture through the bytecode VM backend. Returns trimmed stdout.
 pub fn run_vm(fixture: &str) -> String {
     let path = workspace_root().join("tests").join("parity").join(fixture);
+    let scratch = Scratch::new(&format!("parity-vm-{}", fixture.trim_end_matches(".flx")));
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--no-cache"])
+        .args(scratch.cache_args())
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux on {fixture}: {e}"));
 

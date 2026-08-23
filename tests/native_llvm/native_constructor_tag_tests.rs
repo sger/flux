@@ -12,6 +12,10 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
@@ -28,9 +32,11 @@ fn run_both(name: &str, source: &str) -> (String, String) {
         if native {
             args.push("--native");
         }
+        let scratch = Scratch::new("cache-isolated");
         let output = Command::new(env!("CARGO_BIN_EXE_flux"))
             .current_dir(workspace_root())
             .args(&args)
+            .args(scratch.cache_args())
             .output()
             .expect("run flux");
         String::from_utf8_lossy(&output.stdout)

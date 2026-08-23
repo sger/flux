@@ -2,6 +2,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 static MAP_CONTRACT_TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn workspace_root() -> &'static Path {
@@ -20,9 +24,11 @@ fn write_test_program(source: &str) -> PathBuf {
 
 fn run_strict(source: &str) -> (String, bool) {
     let path = write_test_program(source);
+    let scratch = Scratch::new("cache-isolated");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--strict", "--no-cache"])
+        .args(scratch.cache_args())
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux strict map contract test: {e}"));
 

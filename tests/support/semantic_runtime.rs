@@ -1,6 +1,13 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+// Re-exported so a test including this file gets `Scratch` from here rather
+// than declaring its own `mod scratch;` — two `#[path]` declarations of one
+// file in the same crate is a `clippy::duplicate_mod` warning.
+#[path = "scratch.rs"]
+pub mod scratch;
+use scratch::Scratch;
+
 pub fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
@@ -41,6 +48,11 @@ pub fn run_fixture(rel: &str, native: bool) -> Output {
     args.push(fixture_root.display().to_string());
     args.push("--root".into());
     args.push(lib_root.display().to_string());
+
+    // `--no-cache` does not isolate native builds, which write shared
+    // artifacts under the cache root regardless (KI-010).
+    let scratch = Scratch::new("semantic-runtime");
+    args.extend(scratch.cache_args());
 
     Command::new(env!("CARGO_BIN_EXE_flux"))
         .args(&args)
