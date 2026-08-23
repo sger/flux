@@ -168,6 +168,31 @@ pub struct ModuleInterface {
     /// are never sorted — their order is the positional layout.
     #[serde(default)]
     pub ctor_field_names: BTreeMap<String, Vec<String>>,
+    /// Field types for this module's public constructors, keyed by constructor
+    /// name. `ctor_field_names` above carries names only; importers need the
+    /// types to infer a constructor application.
+    ///
+    /// Sorted by constructor name for stable fingerprinting; `fields` keeps
+    /// positional order.
+    #[serde(default)]
+    pub public_ctor_types: BTreeMap<String, PublicCtorTypeEntry>,
+}
+
+/// Type metadata for one public ADT constructor.
+///
+/// Mirrors the inference-side `AdtConstructorTypeInfo`. Symbols are remapped
+/// through the interface's `symbol_table` on load.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicCtorTypeEntry {
+    /// The ADT this constructor belongs to.
+    pub adt_name: Identifier,
+    /// The ADT's declared type parameters, in order.
+    pub type_params: Vec<Identifier>,
+    /// Field types in positional order.
+    pub fields: Vec<TypeExpr>,
+    /// Field names for named-field variants; `None` for positional ones.
+    #[serde(default)]
+    pub field_names: Option<Vec<Identifier>>,
 }
 
 /// Sub-reason for a dependency fingerprint cache miss.
@@ -240,6 +265,7 @@ impl ModuleInterface {
             public_classes: Vec::new(),
             public_instances: Vec::new(),
             ctor_field_names: BTreeMap::new(),
+            public_ctor_types: BTreeMap::new(),
         }
     }
 }

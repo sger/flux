@@ -21,8 +21,8 @@ use crate::{
         class_env::ClassEnv,
         module_interface::{
             DependencyFingerprint, DependencyMissReason, MODULE_INTERFACE_FORMAT_VERSION,
-            ModuleInterface, PublicClassEntry, PublicClassMethodEntry, PublicInstanceEntry,
-            PublicInstanceMethodEntry,
+            ModuleInterface, PublicClassEntry, PublicClassMethodEntry, PublicCtorTypeEntry,
+            PublicInstanceEntry, PublicInstanceMethodEntry,
         },
         scheme::Scheme,
     },
@@ -161,6 +161,25 @@ pub fn build_interface(
     // changes the positional lowering) invalidates downstream caches.
     if let Some(program) = ast_program {
         interface.ctor_field_names = collect_public_ctor_field_names(program, interner);
+        // Before the fingerprint: a changed field type changes how
+        // importers infer the application.
+        interface.public_ctor_types = collect_public_ctor_types(program, interner);
+        let mut ctor_symbols: HashSet<Symbol> = HashSet::new();
+        for entry in interface.public_ctor_types.values() {
+            ctor_symbols.insert(entry.adt_name);
+            ctor_symbols.extend(entry.type_params.iter().copied());
+            if let Some(names) = entry.field_names.as_ref() {
+                ctor_symbols.extend(names.iter().copied());
+            }
+            for field in &entry.fields {
+                collect_symbols_from_type_expr(field, &mut ctor_symbols);
+            }
+        }
+        for sym in ctor_symbols {
+            interface
+                .symbol_table
+                .insert(sym.as_u32(), interner.resolve(sym).to_string());
+        }
     }
 
     interface.interface_fingerprint = compute_interface_fingerprint(&interface);
@@ -175,6 +194,54 @@ pub fn build_interface(
 /// nameable from another module, so its field order is not part of the
 /// interface. Field order is preserved exactly — it is the positional order
 /// that named-field desugaring emits.
+/// Collect `constructor -> type metadata` for every `public data` declaration,
+/// walking top-level and module-nested statements.
+///
+/// Private constructors are skipped: they are not nameable from another module.
+fn collect_public_ctor_types(
+    program: &crate::syntax::program::Program,
+    interner: &Interner,
+) -> BTreeMap<String, PublicCtorTypeEntry> {
+    fn walk(
+        statements: &[crate::syntax::statement::Statement],
+        interner: &Interner,
+        out: &mut BTreeMap<String, PublicCtorTypeEntry>,
+    ) {
+        use crate::syntax::statement::Statement;
+        for statement in statements {
+            match statement {
+                Statement::Data {
+                    name,
+                    is_public,
+                    type_params,
+                    variants,
+                    ..
+                } => {
+                    if !is_public {
+                        continue;
+                    }
+                    for variant in variants {
+                        out.insert(
+                            interner.resolve(variant.name).to_string(),
+                            PublicCtorTypeEntry {
+                                adt_name: *name,
+                                type_params: type_params.clone(),
+                                fields: variant.fields.clone(),
+                                field_names: variant.field_names.clone(),
+                            },
+                        );
+                    }
+                }
+                Statement::Module { body, .. } => walk(&body.statements, interner, out),
+                _ => {}
+            }
+        }
+    }
+    let mut out = BTreeMap::new();
+    walk(&program.statements, interner, &mut out);
+    out
+}
+
 fn collect_public_ctor_field_names(
     program: &crate::syntax::program::Program,
     interner: &Interner,
@@ -485,6 +552,8 @@ pub fn compute_interface_fingerprint(interface: &ModuleInterface) -> String {
         /// fingerprint because it determines the positional form that
         /// named-field syntax desugars to in *importing* modules.
         ctor_field_names: &'a BTreeMap<String, Vec<String>>,
+        /// Importers infer constructor applications from these.
+        public_ctor_types: &'a BTreeMap<String, PublicCtorTypeEntry>,
     }
 
     let canonical = CanonicalInterface {
@@ -492,6 +561,7 @@ pub fn compute_interface_fingerprint(interface: &ModuleInterface) -> String {
         public_classes: &interface.public_classes,
         public_instances: &interface.public_instances,
         ctor_field_names: &interface.ctor_field_names,
+        public_ctor_types: &interface.public_ctor_types,
     };
 
     let bytes = serde_json::to_vec(&canonical).expect("canonical interface fingerprint");
@@ -908,6 +978,7 @@ mod tests {
             public_classes: Vec::new(),
             public_instances: Vec::new(),
             ctor_field_names: BTreeMap::new(),
+            public_ctor_types: BTreeMap::new(),
         };
 
         let json = serde_json::to_string_pretty(&interface).unwrap();

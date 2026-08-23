@@ -53,7 +53,11 @@ fn show_help() {
 }
 
 /// Prints a parse error and returns the CLI process exit code.
+///
+/// Must be a failure code: rejected flags (`--native` without the `llvm`
+/// feature, for one) print to stderr and produce no output, so a success code
+/// makes callers see an empty-but-successful run.
 fn render_parse_error(message: &str) -> ExitCode {
     eprintln!("{message}");
-    ExitCode::SUCCESS
+    ExitCode::FAILURE
 }
