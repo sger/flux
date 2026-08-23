@@ -101,7 +101,12 @@ pub(crate) fn build_program_context_from_source(
         all_diagnostics.append(&mut primops_import_diags);
     }
     if !trace_aether {
-        inject_flow_prelude(&mut program, &mut parser, use_native_backend);
+        inject_flow_prelude(
+            &mut program,
+            &mut parser,
+            use_native_backend,
+            Path::new(path),
+        );
     }
 
     let interner = parser.take_interner();
