@@ -2792,13 +2792,28 @@ impl Compiler {
             // once in the arm body (e.g. `left`, `right` in a Node pattern) are emitted
             // as `OpConsumeLocal` instead of `OpGetLocal`, keeping Rc strong_count == 1
             // and enabling `Rc::try_unwrap` to succeed in `OpAdtFields2` / `OpAdtField`.
+            //
+            // Only the arm's *own* bindings may take their count from the arm body.
+            // For anything declared outside, the arm body is one branch of the
+            // function, not the whole of it: a binding read once here may be read
+            // again after the match, and consuming it there leaves the slot
+            // `Uninit` for that later read (KI-001). Merging those outer symbols
+            // with `or_insert` was exactly that mistake — when the outer map had no
+            // entry for them, the arm-local count of 1 became the whole-function
+            // count.
+            //
+            // `enter_block_scope` and `compile_pattern_bind` have already run, so
+            // the arm's pattern bindings are the ones in the current scope, and
+            // `exists_in_current_scope` distinguishes them.
             let merged_counts = {
                 let outer_clone = self.current_consumable_local_use_counts().cloned();
                 if let Some(mut merged) = outer_clone {
                     let mut arm_body_counts: HashMap<Symbol, usize> = HashMap::new();
                     self.collect_consumable_param_uses(&arm.body, &mut arm_body_counts);
                     for (sym, count) in arm_body_counts {
-                        merged.entry(sym).or_insert(count);
+                        if self.symbol_table.exists_in_current_scope(sym) {
+                            merged.entry(sym).or_insert(count);
+                        }
                     }
                     Some(merged)
                 } else {

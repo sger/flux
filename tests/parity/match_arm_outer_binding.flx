@@ -1,0 +1,82 @@
+// A binding declared *outside* a `match` and read *inside* an arm must survive
+// the match (KI-001).
+//
+// The VM compiles a read that is an arm's only use as `OpConsumeLocal`, which
+// moves the value out of its stack slot and leaves the `Uninit` sentinel
+// behind. That is right when the arm body really is the binding's last use, and
+// wrong when it is read again afterwards — which the arm alone cannot decide,
+// because it is one branch of the function rather than the whole of it.
+//
+// **Every case below is written directly in `main`, deliberately.** `main` is
+// the function whose body does not get an enclosing use-count map, so the
+// arm-body count of 1 became the whole-function count. The identical code
+// inside a called helper was always correct, which is what made the original
+// report look narrower than it was — and what made a first version of this
+// fixture pass against the unfixed compiler.
+//
+// The failure was silent for `Int` (`<uninit>` where a number belonged) and
+// loud for `String` (`E1009: Cannot add String and Uninit`), so both appear
+// here. The LLVM backend was always correct, so this doubles as a parity check.
+
+data Pair { Pair(String, String) }
+
+fn main() with IO {
+    // The original report: printed `<uninit>` on the second read.
+    let n = 42
+    match Some(1) {
+        Some(_) -> println(to_string(n)),
+        None -> println("none"),
+    }
+    println(to_string(n))
+
+    // The loud variant: aborted rather than printing a wrong answer.
+    let s = "hello"
+    match Some(1) {
+        Some(_) -> println(s),
+        None -> println("none"),
+    }
+    println(s + " again")
+
+    // Read from *every* arm, so no single arm is obviously the last use.
+    let both = 7
+    match None {
+        Some(_) -> println(to_string(both)),
+        None -> println(to_string(both)),
+    }
+    println(to_string(both))
+
+    // The read is nested two matches deep; the outer binding must still survive.
+    let deep = 9
+    match Some(1) {
+        Some(_) -> match Some(2) {
+            Some(_) -> println(to_string(deep)),
+            None -> println("inner-none"),
+        },
+        None -> println("outer-none"),
+    }
+    println(to_string(deep))
+
+    // The shape that made this expensive in practice: a value bound once, used
+    // to drive a `match`, then used again to clean up.
+    let label = "work"
+    match Some(label) {
+        Some(found) -> println("found " + found),
+        None -> println("missing"),
+    }
+    println("cleaning " + label)
+
+    // A binding whose arm read really *is* its last use. This must keep
+    // compiling to `OpConsumeLocal` — the fix narrows that optimisation and must
+    // not disable it.
+    let last = 5
+    match Some(1) {
+        Some(_) -> println(to_string(last)),
+        None -> println("none"),
+    }
+
+    // The arm's *own* pattern bindings stay consumable: they are scoped to the
+    // arm, so the arm body genuinely is their whole lifetime.
+    match Pair("a", "b") {
+        Pair(left, right) -> println(left + right),
+    }
+}

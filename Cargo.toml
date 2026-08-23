@@ -619,6 +619,10 @@ name = "match_some_pattern_tests"
 path = "tests/type_inference/match_some_pattern_tests.rs"
 
 [[test]]
+name = "match_arm_outer_binding_tests"
+path = "tests/vm_runtime/match_arm_outer_binding_tests.rs"
+
+[[test]]
 name = "perf_type_infer"
 path = "tests/type_inference/perf_type_infer.rs"
 
