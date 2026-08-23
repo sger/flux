@@ -579,6 +579,7 @@ fn preload_module_interface_remaps_adt_symbols_across_sessions() {
         public_classes: Vec::new(),
         public_instances: Vec::new(),
         ctor_field_names: Default::default(),
+        public_ctor_types: Default::default(),
     };
 
     // Session 2: fresh compiler. "Color" will get a different symbol ID.
@@ -643,6 +644,7 @@ fn preload_module_interface_remaps_effect_symbols_across_sessions() {
         public_classes: Vec::new(),
         public_instances: Vec::new(),
         ctor_field_names: Default::default(),
+        public_ctor_types: Default::default(),
     };
 
     let mut compiler = Compiler::new();
@@ -693,6 +695,7 @@ fn preload_module_interface_inserts_cached_public_schemes() {
         public_classes: Vec::new(),
         public_instances: Vec::new(),
         ctor_field_names: Default::default(),
+        public_ctor_types: Default::default(),
     };
 
     compiler.preload_module_interface(&interface);
@@ -1001,6 +1004,7 @@ fn preload_module_interface_inserts_cached_borrow_signatures() {
         public_classes: Vec::new(),
         public_instances: Vec::new(),
         ctor_field_names: Default::default(),
+        public_ctor_types: Default::default(),
     };
 
     compiler.preload_module_interface(&interface);
@@ -1081,6 +1085,7 @@ module Local {
         }],
         public_instances: Vec::new(),
         ctor_field_names: Default::default(),
+        public_ctor_types: Default::default(),
     };
 
     compiler.preload_module_interface(&interface);
@@ -1159,6 +1164,7 @@ import Example.StdLog as StdLog
         }],
         public_instances: Vec::new(),
         ctor_field_names: Default::default(),
+        public_ctor_types: Default::default(),
     };
     let instance_interface = ModuleInterface {
         module_name: "Example.StdLog".to_string(),
@@ -1195,6 +1201,7 @@ import Example.StdLog as StdLog
             pinned_row_placeholder: None,
         }],
         ctor_field_names: Default::default(),
+        public_ctor_types: Default::default(),
     };
 
     compiler.preload_module_interface(&class_interface);
@@ -1282,6 +1289,7 @@ module Local {
         }],
         public_instances: Vec::new(),
         ctor_field_names: Default::default(),
+        public_ctor_types: Default::default(),
     };
 
     compiler.preload_module_interface(&interface);

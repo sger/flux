@@ -1042,6 +1042,11 @@ pub struct Compiler {
     pub(super) native_constructor_tags: HashMap<Symbol, i32>,
     pub(super) next_native_constructor_tag: i32,
     pub(super) preloaded_ctor_field_names: HashMap<Symbol, Vec<Symbol>>,
+    /// Constructor type metadata from imported interfaces, keyed by
+    /// constructor name. Seeds HM inference so imported constructor
+    /// applications infer as their ADT rather than a fresh type variable.
+    pub(super) preloaded_ctor_types:
+        HashMap<Symbol, crate::types::module_interface::PublicCtorTypeEntry>,
     pub(super) preloaded_adt_variants: HashMap<Symbol, Vec<Symbol>>,
     pub(super) adt_contract_specs: HashMap<Symbol, AdtContractSpec>,
     pub(crate) preloaded_imported_globals: HashSet<Symbol>,
@@ -1308,6 +1313,7 @@ impl Compiler {
             native_constructor_tags: HashMap::new(),
             next_native_constructor_tag: 5,
             preloaded_ctor_field_names: HashMap::new(),
+            preloaded_ctor_types: HashMap::new(),
             preloaded_adt_variants: HashMap::new(),
             adt_contract_specs: HashMap::new(),
             preloaded_imported_globals: HashSet::new(),
@@ -1935,6 +1941,32 @@ impl Compiler {
             self.cached_member_borrow_signatures
                 .insert((module_name, member), signature.clone());
         }
+        for (ctor_name, entry) in &interface.public_ctor_types {
+            let ctor = self.interner.intern(ctor_name);
+            self.preloaded_ctor_types.insert(
+                ctor,
+                crate::types::module_interface::PublicCtorTypeEntry {
+                    adt_name: remap_identifier(entry.adt_name, &symbol_remap),
+                    type_params: entry
+                        .type_params
+                        .iter()
+                        .map(|tp| remap_identifier(*tp, &symbol_remap))
+                        .collect(),
+                    fields: entry
+                        .fields
+                        .iter()
+                        .map(|ty| remap_type_expr(ty, &symbol_remap))
+                        .collect(),
+                    field_names: entry.field_names.as_ref().map(|names| {
+                        names
+                            .iter()
+                            .map(|n| remap_identifier(*n, &symbol_remap))
+                            .collect()
+                    }),
+                },
+            );
+        }
+
         for (member_name, runtime_contract) in &interface.runtime_contracts {
             let member = self.interner.intern(member_name);
             let qualified = self.interner.intern_join(module_name, member);
@@ -3266,6 +3298,56 @@ impl Compiler {
         }
     }
 
+    /// `data` statements to predeclare before inferring this program: the REPL
+    /// session's own declarations plus imported public ADTs.
+    ///
+    /// Imported constructors are grouped back into one statement per ADT so
+    /// inference registers each ADT's full variant set.
+    fn preloaded_adt_data_statements(&self) -> Vec<Statement> {
+        use crate::syntax::data_variant::DataVariant;
+
+        struct AdtGroup {
+            name: Symbol,
+            type_params: Vec<Symbol>,
+            variants: Vec<DataVariant>,
+        }
+
+        // Keyed by symbol id rather than Symbol, which is not Ord.
+        let mut by_adt: std::collections::BTreeMap<u32, AdtGroup> =
+            std::collections::BTreeMap::new();
+        for (ctor, entry) in &self.preloaded_ctor_types {
+            by_adt
+                .entry(entry.adt_name.as_u32())
+                .or_insert_with(|| AdtGroup {
+                    name: entry.adt_name,
+                    type_params: entry.type_params.clone(),
+                    variants: Vec::new(),
+                })
+                .variants
+                .push(DataVariant {
+                    name: *ctor,
+                    fields: entry.fields.clone(),
+                    field_names: entry.field_names.clone(),
+                    span: Span::default(),
+                });
+        }
+
+        let mut statements = self.repl_session_adt_data.clone();
+        for (_, mut group) in by_adt {
+            // Symbol ids vary with interning order; sort for determinism.
+            group.variants.sort_by_key(|variant| variant.name.as_u32());
+            statements.push(Statement::Data {
+                is_public: true,
+                name: group.name,
+                type_params: group.type_params,
+                variants: group.variants,
+                deriving: Vec::new(),
+                span: Span::default(),
+            });
+        }
+        statements
+    }
+
     pub fn build_infer_config(&mut self, program: &Program) -> InferProgramConfig {
         let preloaded_member_schemes = self.build_preloaded_hm_member_schemes(program);
         let (task_module_bindings, task_spawn_exposed) = self.task_spawn_import_metadata(program);
@@ -3332,7 +3414,7 @@ impl Compiler {
             class_env,
             preloaded_effect_op_signatures: self.effect_op_signatures.clone(),
             effect_row_aliases: self.effect_row_aliases.clone(),
-            preloaded_adt_data: self.repl_session_adt_data.clone(),
+            preloaded_adt_data: self.preloaded_adt_data_statements(),
         }
     }
 

@@ -1,0 +1,30 @@
+// Positional, nullary, named-field and generic variants, so the fixture covers
+// every constructor shape an importing module can apply. Named-field variants
+// live in their own type because a data type may not mix the two forms (E465).
+
+module ImportedCtor.Shapes {
+
+    public data Shape {
+        Circle(Float),
+        Empty,
+    }
+
+    public data Rect { Rect { width: Float, height: Float } }
+
+    public data Boxed<a> { Boxed(a) }
+
+    public fn area(shape: Shape) -> Float {
+        match shape {
+            Circle(radius) -> 3.0 * radius * radius,
+            Empty -> 0.0,
+        }
+    }
+
+    public fn rect_area(rect: Rect) -> Float {
+        match rect { Rect(width, height) -> width * height }
+    }
+
+    public fn unbox<a>(boxed: Boxed<a>) -> a {
+        match boxed { Boxed(inner) -> inner }
+    }
+}

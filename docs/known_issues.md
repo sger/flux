@@ -268,44 +268,6 @@ four, matching the VM's byte ordering.
 
 ---
 
-### KI-014 — A constructor imported from another module infers as a type variable
-
-**Severity:** High · **Area:** HM inference / module interfaces · **Verified:** 2026-08-23
-
-A constructor applied in a module other than the one declaring its ADT gets an
-unresolved type variable rather than the ADT type, so anything keyed on that
-type fails. Class dispatch is the visible casualty:
-
-```flux
-import Flume.Value as Value
-import Flume.Value exposing (Toml, TString)
-
-class Render<a> { fn render(value: a) -> String }
-instance Render<Int>  { fn render(value) { to_string(value) } }
-instance Render<Toml> { fn render(value) { Value.render_toml(value) } }
-
-render(42)             // "42"
-render(TString("hi"))  // error[E1009] panic: No instance of Render.render ...
-```
-
-`hm_expr_types` holds an entry for `TString("hi")`, but its value is
-`Var(_)` — inference never concretised it. Dispatch then has a type variable
-where it needs a constructor, and `resolve_method_call_instance_from_first_arg`
-correctly declines to guess.
-
-The same class *does* dispatch when the value arrives from a function call
-rather than a directly-applied imported constructor
-(`describe(Resolve.from_root())` works), which locates the gap in constructor
-scheme import rather than in dispatch itself. Related to the
-`preloaded_adt_constructor_types` plumbing that fixed cross-module *named-field*
-constructors; the positional-application path appears not to be covered.
-
-**Workaround:** wrap the construction in a local function whose return type is
-annotated, or reify the dispatch as an explicit record of functions — which is
-what `Flume.Manifest`'s `Reader<a>` does.
-
----
-
 ### KI-015 — A class whose variable appears only in the return position cannot dispatch
 
 **Severity:** Medium · **Area:** Type classes / dispatch · **Verified:** 2026-08-23
@@ -337,6 +299,44 @@ Reader<List<a>>` needs no higher-kinded types).
 
 Entries move here with the resolving commit rather than being deleted, so
 existing `#KI-nnn` references still explain themselves.
+
+### KI-014 — A constructor imported from another module infers as a type variable — FIXED 2026-08-23
+
+**Severity:** High · **Area:** HM inference / module interfaces · **Verified:** 2026-08-23
+
+A constructor applied in a module other than the one declaring its ADT inferred
+as an unresolved type variable rather than the ADT type, so anything keyed on
+that type failed. Class dispatch was the visible casualty:
+
+```flux
+import Flume.Value exposing (Toml, TString)
+render(TString("hi"))  // error[E1009] panic: No instance of Render.render ...
+```
+
+Constructor applications route through `adt_constructor_types` in
+`infer_call_expression`, and that map was populated only from *local* `data`
+statements (`register_data_constructors`). An imported constructor missed the
+lookup, fell through to the ordinary function-call path, and produced a fresh
+type variable. Dispatch, which keys on the argument's type, then had nothing to
+select on.
+
+The metadata to fix it was simply absent: `ModuleInterface` carried
+`ctor_field_names` — field *names*, added for the named-field fix — but no field
+types and no owning ADT, which is why the named-field path could be fixed
+earlier while the positional path could not. `ModuleInterface` now also carries
+`public_ctor_types`, which seeds inference on import.
+
+Two details in the original report were wrong: the symbol it named,
+`preloaded_adt_constructor_types`, does not exist (the map is
+`adt_constructor_types`), and the failure was a routing-guard miss rather than a
+constructor scheme that failed to concretise.
+
+Fixed by adding `public_ctor_types` to `ModuleInterface` (fingerprinted, so a
+changed field type invalidates importers) and seeding imported ADTs into
+inference; `CACHE_EPOCH` bumped 18 → 19. Regression test:
+`tests/type_inference/imported_constructor_types_tests.rs`.
+
+---
 
 ### KI-001 — A `let` read inside a `match` arm is `Uninit` after the match — FIXED 2026-08-23
 
