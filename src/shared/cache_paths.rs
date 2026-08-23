@@ -42,7 +42,7 @@ use sha2::{Digest, Sha256};
 /// `EnvHomeDir` primops extend the primop table and the `IO` alias expansion.
 /// Epoch 17: the `Process` effect label and the `ProcRun` primop extend the
 /// primop table and the `IO` alias expansion.
-pub const CACHE_EPOCH: u16 = 17;
+pub const CACHE_EPOCH: u16 = 18;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

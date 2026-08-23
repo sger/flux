@@ -1,0 +1,105 @@
+// Flume.Value — the TOML value tree.
+//
+// Its own module because three others depend on it and none of them should
+// depend on each other: `Flume.Toml` produces it, `Flume.Document` assembles
+// it, and `Flume.Manifest` reads it. It is the stable serialization contract
+// proposal 0177 asks for — replacing the parser, which Phase 3's richer
+// manifests will require, touches nothing downstream of this type.
+//
+// Pure: every function here has an empty effect row.
+
+import Flow.String as Str
+import Flow.Array as Array
+import Flow.List as List
+
+module Flume.Value {
+
+    // ── generic TOML value tree ─────────────────────────────────────
+
+    /// A parsed TOML value.
+    ///
+    /// This is the stable serialization contract the proposal asks for: the
+    /// schema layer reads only this type, so replacing the parser — which
+    /// Phase 3's richer manifests will require — touches nothing downstream.
+    ///
+    /// Tables are association lists rather than maps. `Flow.Map` exposes only
+    /// `has` today, manifests have a handful of keys, and a list preserves
+    /// source order, which matters for error messages and for rendering a
+    /// manifest back out.
+    public data Toml {
+        TString(String),
+        TInt(Int),
+        TBool(Bool),
+        TArray(List<Toml>),
+        TTable(List<(String, Toml)>),
+    }
+
+    // ── association-list helpers ────────────────────────────────────
+
+    /// Append two lists.
+    ///
+    /// Local because `Flow.List.append` is private — the module directs
+    /// callers to the built-in `Semigroup` `++` operator, which the parser
+    /// does not currently accept.
+    public fn concat<a>(front: List<a>, back: List<a>) -> List<a> {
+        match front {
+            [] -> back,
+            [head | rest] -> [head | concat(rest, back)],
+        }
+    }
+
+    /// Look up a key in a table.
+    public fn get(table: List<(String, Toml)>, key: String) -> Option<Toml> {
+        match table {
+            [] -> None,
+            [(candidate, found) | rest] -> if candidate == key {
+                Some(found)
+            } else {
+                get(rest, key)
+            },
+        }
+    }
+
+    /// Replace the value at `key`, or append it when absent.
+    ///
+    /// Order-preserving: an existing key keeps its position, so table contents
+    /// stay in source order for rendering and error messages.
+    public fn assoc_set(
+        table: List<(String, Toml)>,
+        key: String,
+        value: Toml,
+    ) -> List<(String, Toml)> {
+        match table {
+            [] -> [(key, value)],
+            [(candidate, existing) | rest] -> if candidate == key {
+                [(key, value) | rest]
+            } else {
+                [(candidate, existing) | assoc_set(rest, key, value)]
+            },
+        }
+    }
+
+    // ── rendering, for tests and diagnostics ────────────────────────
+
+    /// Render a TOML value to a canonical single-line form.
+    ///
+    /// Not TOML output — it is a stable, order-preserving shape for snapshot
+    /// assertions, which is why tables render as `{key=value}` at every depth.
+    public fn render_toml(value: Toml) -> String {
+        match value {
+            TString(text) -> "\"" + text + "\"",
+            TInt(number) -> to_string(number),
+            TBool(flag) -> if flag { "true" } else { "false" },
+            TArray(items) -> "[" + join_rendered(List.map(items, render_toml)) + "]",
+            TTable(pairs) -> "{" + join_rendered(List.map(pairs, render_pair)) + "}",
+        }
+    }
+
+    fn join_rendered(pieces: List<String>) -> String {
+        Str.join(Array.from_list(pieces), ",")
+    }
+
+    fn render_pair(pair: (String, Toml)) -> String {
+        match pair { (key, value) -> key + "=" + render_toml(value) }
+    }
+}

@@ -1,0 +1,401 @@
+// Flume.Document — assembling parsed TOML items into a document.
+//
+// The half of TOML that is not grammar. `Flume.Toml`'s parser says what was
+// *written* — a header, a key/value pair — and this module decides whether it
+// was *allowed*: which tables may already exist implicitly, which keys may
+// never be overwritten, and where a dotted key lands relative to the current
+// `[table]` or `[[array-of-table]]`.
+//
+// Separate from the grammar because the two answer different questions and fail
+// differently. A parse error points at a character and talks about syntax; a
+// conflict points at an item and says what it collides with.
+//
+// Pure: every function here has an empty effect row.
+
+import Flow.Option as Option
+import Flow.Result as Result
+import Flow.String as Str
+import Flow.Array as Array
+import Flow.List as List
+import Flume.Parse as Parse
+import Flume.Parse exposing (ParseError, Pos)
+import Flume.Value as Value
+import Flume.Value exposing (Toml, TString, TInt, TBool, TArray, TTable)
+
+module Flume.Document {
+
+    // ── association-list helpers ────────────────────────────────────
+
+    /// Append two lists.
+    ///
+    /// Local because `Flow.List.append` is private — the module directs
+    /// callers to the built-in `Semigroup` `++` operator, which the parser
+    /// does not currently accept.
+    fn concat<a>(front: List<a>, back: List<a>) -> List<a> {
+        match front {
+            [] -> back,
+            [head | rest] -> [head | concat(rest, back)],
+        }
+    }
+
+    /// Look up a key in a table.
+    public fn get(table: List<(String, Toml)>, key: String) -> Option<Toml> {
+        match table {
+            [] -> None,
+            [(candidate, found) | rest] -> if candidate == key {
+                Some(found)
+            } else {
+                get(rest, key)
+            },
+        }
+    }
+
+    /// Replace the value at `key`, or append it when absent.
+    ///
+    /// Order-preserving: an existing key keeps its position, so table contents
+    /// stay in source order for rendering and error messages.
+    fn assoc_set(
+        table: List<(String, Toml)>,
+        key: String,
+        value: Toml,
+    ) -> List<(String, Toml)> {
+        match table {
+            [] -> [(key, value)],
+            [(candidate, existing) | rest] -> if candidate == key {
+                [(key, value) | rest]
+            } else {
+                [(candidate, existing) | assoc_set(rest, key, value)]
+            },
+        }
+    }
+
+    // ── document assembly ───────────────────────────────────────────
+
+    // A document is built by folding each parsed item into an accumulating
+    // table. The three insertion routines differ in what they permit to exist
+    // already, which is the whole of TOML's table-conflict rules.
+
+    /// Insert `value` at a dotted path, creating intermediate tables.
+    ///
+    /// `None` when the path runs through a non-table (`a = 1` then `a.b = 2`)
+    /// or would overwrite an existing leaf. The failure is an `Option` rather
+    /// than a `Result` because this function has no position to report with;
+    /// the caller, which does, supplies one.
+    fn insert_path(
+        table: List<(String, Toml)>,
+        path: List<String>,
+        value: Toml,
+    ) -> Option<List<(String, Toml)>> {
+        match path {
+            [] -> None,
+            [key | rest] -> match rest {
+                [] -> match get(table, key) {
+                    Some(_) -> None,
+                    None -> Some(assoc_set(table, key, value)),
+                },
+                [_ | _] -> match get(table, key) {
+                    None -> map_subtable(table, key, insert_path([], rest, value)),
+                    Some(TTable(sub)) ->
+                        map_subtable(table, key, insert_path(sub, rest, value)),
+                    Some(_) -> None,
+                },
+            },
+        }
+    }
+
+    /// Rebuild `table` with `key` bound to a freshly computed subtable.
+    ///
+    /// Extracted because all three insertion routines end in exactly this
+    /// shape, and inlining it three times obscured how they actually differ.
+    fn map_subtable(
+        table: List<(String, Toml)>,
+        key: String,
+        computed: Option<List<(String, Toml)>>,
+    ) -> Option<List<(String, Toml)>> {
+        match computed {
+            None -> None,
+            Some(sub) -> Some(assoc_set(table, key, TTable(sub))),
+        }
+    }
+
+    /// Merge a `[table]` header's contents into the document at `path`.
+    ///
+    /// Distinct from `insert_path` because a header may legally address a
+    /// table that already exists implicitly — `[a.b]` then `[a]` — whereas a
+    /// key/value pair may never overwrite. Redefining a table written
+    /// explicitly is still rejected, via the `defined` set the caller keeps.
+    fn merge_path(
+        table: List<(String, Toml)>,
+        path: List<String>,
+        value: List<(String, Toml)>,
+    ) -> Option<List<(String, Toml)>> {
+        match path {
+            [] -> None,
+            [key | rest] -> match rest {
+                [] -> match get(table, key) {
+                    None -> Some(assoc_set(table, key, TTable(value))),
+                    Some(TTable(existing)) ->
+                        Some(assoc_set(table, key, TTable(append_pairs(existing, value)))),
+                    Some(_) -> None,
+                },
+                [_ | _] -> match get(table, key) {
+                    None -> map_subtable(table, key, merge_path([], rest, value)),
+                    Some(TTable(sub)) ->
+                        map_subtable(table, key, merge_path(sub, rest, value)),
+                    Some(_) -> None,
+                },
+            },
+        }
+    }
+
+    fn set_pair(
+        table: List<(String, Toml)>,
+        pair: (String, Toml),
+    ) -> List<(String, Toml)> {
+        match pair { (key, value) -> assoc_set(table, key, value) }
+    }
+
+    fn append_pairs(
+        base: List<(String, Toml)>,
+        extra: List<(String, Toml)>,
+    ) -> List<(String, Toml)> {
+        List.fold(extra, base, set_pair)
+    }
+
+    /// Append an element to the array of tables at `path`, creating it when
+    /// absent. This is what `[[bin]]` does.
+    fn push_array_table(
+        table: List<(String, Toml)>,
+        path: List<String>,
+        value: List<(String, Toml)>,
+    ) -> Option<List<(String, Toml)>> {
+        match path {
+            [] -> None,
+            [key | rest] -> match rest {
+                [] -> match get(table, key) {
+                    None -> Some(assoc_set(table, key, TArray([TTable(value)]))),
+                    Some(TArray(items)) -> Some(assoc_set(
+                        table, key, TArray(concat(items, [TTable(value)]))
+                    )),
+                    Some(_) -> None,
+                },
+                [_ | _] -> match get(table, key) {
+                    None -> map_subtable(table, key, push_array_table([], rest, value)),
+                    Some(TTable(sub)) ->
+                        map_subtable(table, key, push_array_table(sub, rest, value)),
+                    Some(_) -> None,
+                },
+            },
+        }
+    }
+
+    // ── document structure ──────────────────────────────────────────
+
+    /// One top-level item: a table header or a key/value pair.
+    ///
+    /// Parsing to this intermediate form, then folding, keeps the syntax layer
+    /// free of the table-conflict rules — the grammar says what was written,
+    /// and the fold decides whether it was allowed.
+    public data Item {
+        TableHeader { path: List<String>, is_array: Bool, at: Pos },
+        KeyValue { path: List<String>, value: Toml, at: Pos },
+    }
+
+    public fn item_at(item: Item) -> Pos {
+        match item {
+            TableHeader { path: _, is_array: _, at } -> at,
+            KeyValue { path: _, value: _, at } -> at,
+        }
+    }
+
+    // ── folding items into a document ───────────────────────────────
+
+    /// The state the fold threads: the document so far, the current table path
+    /// that bare keys land under, and the set of explicitly-written headers.
+    ///
+    /// `defined` exists to catch `[a]` appearing twice. The document alone
+    /// cannot distinguish that from `[a.b]` followed by `[a]`, which is legal,
+    /// because both leave a table at `a`.
+    data Doc {
+        Doc {
+            root: List<(String, Toml)>,
+            path: List<String>,
+            defined: List<String>,
+        }
+    }
+
+    fn empty_doc() -> Doc {
+        Doc { root: [], path: [], defined: [] }
+    }
+
+    public fn doc_root(doc: Doc) -> List<(String, Toml)> {
+        match doc { Doc { root, path: _, defined: _ } -> root }
+    }
+
+    /// Fold every item into a document, stopping at the first violation.
+    ///
+    /// `Result.and_then_result` rather than a match, per KI-011.
+    public fn build_document(items: List<Item>) -> Result<Doc, ParseError> {
+        List.fold(items, Ok(empty_doc()), step_document)
+    }
+
+    fn step_document(
+        pending: Result<Doc, ParseError>,
+        item: Item,
+    ) -> Result<Doc, ParseError> {
+        Result.and_then_result(pending, \doc -> apply_item(doc, item))
+    }
+
+    fn apply_item(doc: Doc, item: Item) -> Result<Doc, ParseError> {
+        match item {
+            TableHeader { path, is_array, at } -> open_table(doc, path, is_array, at),
+            KeyValue { path, value, at } -> store_pair(doc, path, value, at),
+        }
+    }
+
+    /// A document-assembly failure.
+    ///
+    /// Returns the bare error rather than a `Result`: an `Err` in a function
+    /// whose success type is `Doc` does not infer (KI-011, and it survives
+    /// monomorphising the signature), so callers write `Err(structure_error(..))`
+    /// where the expected type is already fixed by their own return annotation.
+    fn structure_error(kind: String, message: String, at: Pos) -> ParseError {
+        ParseError { kind: kind, message: message, pos: at }
+    }
+
+    /// Create the table a header names and make it current.
+    ///
+    /// `[[bin]]` pushes a fresh element and does not register in `defined`,
+    /// because repeating it is the entire point of the form.
+    fn open_table(
+        doc: Doc,
+        path: List<String>,
+        is_array: Bool,
+        at: Pos,
+    ) -> Result<Doc, ParseError> {
+        let header = render_path(path)
+        if is_array {
+            match push_array_table(doc_root(doc), path, []) {
+                None -> Err(structure_error(
+                    "table-conflict",
+                    "`" + header + "` is already defined as something other than an array of tables",
+                    at,
+                )),
+                Some(root) -> Ok(Doc {
+                    root: root,
+                    path: path,
+                    defined: doc_defined(doc),
+                }),
+            }
+        } else {
+            if List.contains(doc_defined(doc), header) {
+                Err(structure_error(
+                    "duplicate-table",
+                    "table `" + header + "` is defined more than once",
+                    at,
+                 ))
+            } else {
+                match merge_path(doc_root(doc), path, []) {
+                    None -> Err(structure_error(
+                        "table-conflict",
+                        "`" + header + "` is already defined as a value, not a table",
+                        at,
+                    )),
+                    Some(root) -> Ok(Doc {
+                        root: root,
+                        path: path,
+                        defined: [header | doc_defined(doc)],
+                    }),
+                }
+            }
+        }
+    }
+
+    fn doc_defined(doc: Doc) -> List<String> {
+        match doc { Doc { root: _, path: _, defined } -> defined }
+    }
+
+    fn doc_path(doc: Doc) -> List<String> {
+        match doc { Doc { root: _, path, defined: _ } -> path }
+    }
+
+    /// Write a parsed pair into the document under the current table.
+    fn store_pair(
+        doc: Doc,
+        path: List<String>,
+        value: Toml,
+        at: Pos,
+    ) -> Result<Doc, ParseError> {
+        match insert_within(doc_root(doc), doc_path(doc), path, value) {
+            None -> Err(structure_error(
+                "duplicate-key",
+                "duplicate key `" + render_path(concat(doc_path(doc), path)) + "`",
+                at,
+            )),
+            Some(root) -> Ok(Doc {
+                root: root,
+                path: doc_path(doc),
+                defined: doc_defined(doc),
+            }),
+        }
+    }
+
+    /// Insert a key path relative to the current table.
+    ///
+    /// Under `[[bin]]` the current path names an array, so the write must land
+    /// in its last element rather than on the array itself — which is why this
+    /// is not simply `insert_path` at a joined path.
+    fn insert_within(
+        root: List<(String, Toml)>,
+        table_path: List<String>,
+        key_path: List<String>,
+        value: Toml,
+    ) -> Option<List<(String, Toml)>> {
+        match table_path {
+            [] -> insert_path(root, key_path, value),
+            [key | rest] -> match rest {
+                [] -> match get(root, key) {
+                    Some(TArray(items)) -> match insert_into_last(items, key_path, value) {
+                        None -> None,
+                        Some(updated) -> Some(assoc_set(root, key, TArray(updated))),
+                    },
+                    _ -> insert_path(root, concat(table_path, key_path), value),
+                },
+                [_ | _] -> match get(root, key) {
+                    Some(TTable(sub)) ->
+                        map_subtable(root, key, insert_within(sub, rest, key_path, value)),
+                    _ -> insert_path(root, concat(table_path, key_path), value),
+                },
+            },
+        }
+    }
+
+    fn insert_into_last(
+        items: List<Toml>,
+        key_path: List<String>,
+        value: Toml,
+    ) -> Option<List<Toml>> {
+        match items {
+            [] -> None,
+            [head | rest] -> match rest {
+                [] -> match head {
+                    TTable(pairs) -> match insert_path(pairs, key_path, value) {
+                        None -> None,
+                        Some(updated) -> Some([TTable(updated)]),
+                    },
+                    _ -> None,
+                },
+                [_ | _] -> match insert_into_last(rest, key_path, value) {
+                    None -> None,
+                    Some(updated) -> Some([head | updated]),
+                },
+            },
+        }
+    }
+
+    /// A dotted path rendered back to text, for error messages and for the
+    /// `defined` set's identity.
+    public fn render_path(path: List<String>) -> String {
+        Str.join(Array.from_list(path), ".")
+    }
+}

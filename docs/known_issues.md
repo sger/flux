@@ -238,6 +238,134 @@ reusing a name would reintroduce the problem silently.
 
 **Meanwhile:** re-run any suspect target on its own before believing it.
 
+### KI-011 — Re-wrapping `Err(e)` into a `Result` with a different success type fails inference
+
+**Severity:** Medium · **Area:** HM inference · **Verified:** 2026-08-23
+
+The standard error short-circuit — match a `Result`, pass `Err` through
+unchanged, produce a different success type — does not infer:
+
+```flux
+fn inner() -> Result<Int, String> { Ok(1) }
+
+fn outer() -> Result<Bool, String> {
+    match inner() {
+        Ok(_)  -> Ok(true),
+        Err(e) -> Err(e),      // error[E430]: Could Not Infer Concrete Type
+    }
+}
+```
+
+The declared return type of `outer` fixes both parameters, so the `Err(e)` arm
+should unify against `Result<Bool, String>`. Arm order makes no difference, and
+annotating the re-wrapped value via an intermediate `let` does not help either.
+
+**Workaround:** chain with `Flow.Result.and_then_result` / `map_result`, which
+thread the error without an explicit re-wrap:
+
+```flux
+Result.and_then_result(step_one(), \x ->
+    Result.map_result(step_two(), \y -> combine(x, y)))
+```
+
+**Why it matters:** this is the ordinary shape of any multi-step parser, so it is
+hit constantly rather than rarely. `Flume.Version.parse` is written in the
+combinator form for exactly this reason. The workaround reads acceptably for two
+or three steps and poorly beyond that, which will press harder in
+`Flume.Manifest`, where a TOML parser chains many more.
+
+---
+
+### KI-012 — Only the first instance of a type class dispatches; the rest panic at runtime
+
+**Severity:** High · **Area:** Type classes / dispatch · **Verified:** 2026-08-23
+
+Declaring two instances of one class over two distinct ADTs type-checks, but
+only the first one resolves. The second panics at run time:
+
+```flux
+data Colour { Red { on: Bool }, Blue { on: Bool } }
+data Tag { Tag { name: String } }
+
+class Describe<a> { fn describe(value: a) -> String }
+
+instance Describe<Colour> {
+    fn describe(value) { match value { Red { on: _ } -> "red", Blue { on: _ } -> "blue" } }
+}
+instance Describe<Tag> {
+    fn describe(value) { match value { Tag { name } -> name } }
+}
+
+fn main() with IO {
+    println(describe(Red { on: true }))   // "red"
+    println(describe(Tag { name: "x" }))  // error[E1009] panic:
+                                          // No instance of Describe.describe for the given type
+}
+```
+
+The same failure occurs when an instance head names an ADT **imported** from
+another module, even as the only instance of its class — consistent with
+KI-005-era findings that dispatch keys on a module-qualified name an imported
+ADT does not carry.
+
+**Why it matters:** the checker accepts the program, so the failure surfaces at
+the call site rather than the declaration, and only on the code path that
+reaches the second instance. It makes the obvious use of a type class — one
+class, several instances — unusable, which is why `Flume.Resolve` renders its
+types with a family of plain `render_*` functions and `Flume.Manifest` reifies
+what would naturally be a `FromToml` class as a first-class `Reader<a>` value.
+
+**Workaround:** a plain function per type, or reify the dispatch as a record of
+functions passed explicitly. The latter composes further than the class would
+have — `array_of(element: Reader<a>) -> Reader<List<a>>` needs no higher-kinded
+types — so it is not purely a downgrade.
+
+Related: a class whose type variable appears **only in the return position**
+dispatches against the *argument* type instead and cannot resolve at all:
+
+```flux
+class Parse<a> { fn from_text(text: String) -> Result<a, String> }
+instance Parse<Int> { fn from_text(text) { Ok(len(text)) } }
+fn read_int(t: String) -> Result<Int, String> { from_text(t) }
+// error[E444]: No instance for `Parse<String>`   ← the parameter type, not `Int`
+```
+
+---
+
+### KI-013 — A recursive parser grammar over a recursive ADT crashes the native backend
+
+**Severity:** High · **Area:** LLVM backend · **Verified:** 2026-08-23
+
+`Flume.Toml` parses correctly on the VM and crashes on the native backend with
+`signal 5` (SIGTRAP) as soon as the input contains an integer, an array, an
+inline table, or a dotted key. Boolean and string values parse fine on both.
+
+```sh
+cargo run --features llvm -- --test --native tests/flux/flume_toml.flx
+# 58 tests: 21 passed, 37 failed
+#   native program terminated by signal 5 (signal): native program crashed
+```
+
+The crash is **not** a stack limit: `depth(10000)` runs natively without
+trouble. It is also not reproduced by any reduction attempted so far —
+`separated_by` alone, mutual recursion between two parser constructors via
+`lazy`, and a recursive ADT built by a recursive grammar all work natively in
+isolation. The trigger is some combination of these that only the full
+`Flume.Toml` grammar exhibits, so the minimal reproduction is currently the
+module itself.
+
+**Impact:** `tests/flume/flume_toml_tests.rs` and `flume_manifest_tests.rs` run
+their fixtures on the VM only, rather than through `assert_backends_agree`.
+`flume_resolve` and `flume_version` pass on both backends and still assert
+parity. Restore the parity assertion in both harnesses when this is fixed.
+
+**Found alongside a bug this work did fix:** ordering comparisons on strings
+compared heap *addresses* on the native backend, because `flux_rt_lt/le/gt/ge`
+in `runtime/c/flux_rt.c` handled only floats and ints and fell through to
+`flux_untag_int` on a string pointer. `"x" >= "a"` was `false` natively and
+`true` on the VM. Fixed by adding a `flux_string_cmp` lexicographic path to all
+four, matching the VM's byte ordering.
+
 ---
 
 ## Resolved

@@ -1,0 +1,574 @@
+// Flume.Toml — a TOML subset, parsed with `Flume.Parse`.
+//
+// The grammar only: the value tree lives in `Flume.Value` and the rules for
+// assembling parsed items into a document live in `Flume.Document`. This module
+// says what the text *is*; those say what it *means*.
+//
+// Pure: every function here has an empty effect row.
+//
+// ## The subset
+//
+// Deliberate, and the parser rejects rather than guesses. Supported: comments,
+// bare and quoted keys, `[table]` and `[[array-of-table]]` headers, dotted
+// keys, basic strings with escapes, integers, booleans, arrays, and inline
+// tables. Not supported: multi-line and literal strings, floats, datetimes,
+// and hex/octal integers. Each unsupported construct gets a *named* error,
+// because a manifest that silently mis-parses is worse than one that fails.
+
+import Flow.Option as Option
+import Flow.Result as Result
+import Flow.String as Str
+import Flow.Array as Array
+import Flow.List as List
+import Flume.Parse as Parse
+import Flume.Parse exposing (Parser, ParseError, Pos, State)
+import Flume.Value as Value
+import Flume.Value exposing (Toml, TString, TInt, TBool, TArray, TTable)
+import Flume.Document as Document
+import Flume.Document exposing (Item, TableHeader, KeyValue)
+
+module Flume.Toml {
+
+    // ── whitespace and comments ─────────────────────────────────────
+
+    /// Spaces and tabs, stopping at a newline.
+    fn spaces() -> Parser<String> {
+        Parse.take_while(Parse.is_horizontal_space)
+    }
+
+    /// A `#` comment through to, but not including, the newline.
+    fn comment() -> Parser<String> {
+        Parse.skip_then(Parse.character("#"), Parse.take_while(is_not_newline))
+    }
+
+    fn is_not_newline(character: String) -> Bool {
+        character != "\n"
+    }
+
+    /// Everything insignificant between top-level items and array elements:
+    /// spaces, comments, and newlines.
+    fn trivia() -> Parser<List<String>> {
+        Parse.many(Parse.choice([
+            Parse.take_while1(Parse.is_horizontal_space, "whitespace"),
+            comment(),
+            Parse.character("\n"),
+        ]))
+    }
+
+    /// The end of a key/value or header line: optional space, an optional
+    /// comment, then a newline or end of input.
+    ///
+    /// This is what makes `name = "a" version = "b"` an error rather than two
+    /// silently accepted pairs.
+    fn end_of_line() -> Parser<String> {
+        Parse.skip_then(
+            spaces(),
+            Parse.skip_then(
+                Parse.or_else(comment(), Parse.succeed("")),
+                Parse.choice([
+                    Parse.character("\n"),
+                    Parse.end_of_input(),
+                    Parse.fail_with(
+                        "trailing-content",
+                        "unexpected text after value; expected end of line",
+                    ),
+                ]),
+            ),
+        )
+    }
+
+    // ── keys ────────────────────────────────────────────────────────
+
+    /// One key segment: bare (`name`) or quoted (`"name"`).
+    fn key_segment() -> Parser<String> {
+        Parse.or_else(basic_string(), Parse.take_while1(Parse.is_bare_key_char, "a key"))
+    }
+
+    /// A dotted key path: `a.b.c` yields `["a", "b", "c"]`.
+    ///
+    /// Both `[a.b]` headers and `a.b = 1` pairs need paths, so normalizing to
+    /// one here means a single insertion routine serves both.
+    fn key_path() -> Parser<List<String>> {
+        Parse.and_then(
+            Parse.skip_then(spaces(), key_segment()),
+            \head -> Parse.map_parser(Parse.many(dotted_segment()), \rest -> [head | rest])
+        )
+    }
+
+    /// A `.` followed by another key segment.
+    ///
+    /// `attempt` because the space before the dot has to be consumed to find
+    /// out whether a dot is there at all; without it, `name = "x"` would
+    /// commit after the space and report "expected `.`" instead of trying the
+    /// `=` that actually follows.
+    fn dotted_segment() -> Parser<String> {
+        Parse.attempt(Parse.skip_then(
+            Parse.skip_then(spaces(), Parse.character(".")),
+            Parse.skip_then(spaces(), key_segment()),
+        ))
+    }
+
+    // ── strings ─────────────────────────────────────────────────────
+
+    /// A basic (double-quoted) string.
+    ///
+    /// Multi-line (`"""`) strings are rejected by name before the opening
+    /// quote is consumed, so the error says "multi-line strings are not
+    /// supported" rather than reporting an empty string followed by junk.
+    fn basic_string() -> Parser<String> {
+        Parse.skip_then(
+            reject_multiline_string(),
+            Parse.and_then(
+                Parse.character("\""),
+                \_ -> Parse.then_skip(
+                    Parse.map_parser(Parse.many(string_character()), \pieces ->
+                        Str.join(Array.from_list(pieces), "")
+                    ),
+                    closing_quote(),
+                )
+            ),
+        )
+    }
+
+    fn reject_multiline_string() -> Parser<String> {
+        Parse.or_else(
+            Parse.skip_then(
+                Parse.literal("\"\"\""),
+                Parse.fail_with(
+                    "unsupported-multiline-string",
+                    "multi-line strings (\"\"\") are not supported in a manifest",
+                ),
+            ),
+            Parse.succeed(""),
+        )
+    }
+
+    /// The closing quote, reported as an unterminated string when absent.
+    ///
+    /// A bare `Parse.character("\"")` would say "expected `\"`", which describes the
+    /// parser's state rather than the user's mistake.
+    fn closing_quote() -> Parser<String> {
+        Parse.or_else(
+            Parse.character("\""),
+            Parse.fail_with("unterminated-string", "unterminated string"),
+        )
+    }
+
+    /// One character of a string body: an escape, or any character that is not
+    /// a quote, backslash, or newline.
+    fn string_character() -> Parser<String> {
+        Parse.or_else(
+            Parse.skip_then(Parse.character("\\"), escape_sequence()),
+            Parse.satisfy(
+                \character ->
+                    character != "\"" && character != "\\" && character != "\n",
+                "a string character",
+            ),
+        )
+    }
+
+    /// One escape sequence, the backslash already consumed.
+    ///
+    /// `\u` is rejected rather than decoded: there is no code-point-to-string
+    /// primop today, and a manifest that needs one is a signal to revisit the
+    /// subset rather than something to approximate.
+    fn escape_sequence() -> Parser<String> {
+        Parse.choice([
+            Parse.map_parser(Parse.character("n"), \_ -> "\n"),
+            Parse.map_parser(Parse.character("t"), \_ -> "\t"),
+            Parse.map_parser(Parse.character("r"), \_ -> "\r"),
+            Parse.character("\""),
+            Parse.character("\\"),
+            Parse.skip_then(
+                Parse.choice([Parse.character("u"), Parse.character("U")]),
+                Parse.fail_with(
+                    "unsupported-escape",
+                    "unicode escapes (\\u) are not supported in a manifest",
+                ),
+            ),
+            Parse.fail_with("invalid-escape", "invalid escape sequence"),
+        ])
+    }
+
+    // ── numbers ─────────────────────────────────────────────────────
+
+    /// An integer, with an optional sign and `_` digit separators.
+    ///
+    /// A `.` or exponent after the digits means a float, which the subset does
+    /// not cover; that is detected here, where the error can name floats
+    /// instead of complaining about a stray `.`.
+    fn integer() -> Parser<Toml> {
+        Parse.and_then(
+            Parse.or_else(Parse.choice([Parse.character("-"), Parse.character("+")]), Parse.succeed("+")),
+            \sign -> Parse.and_then(
+                Parse.take_while1(\character -> Parse.is_digit(character) || character == "_", "a number"),
+                \digits -> Parse.skip_then(
+                    reject_float_tail(),
+                    to_integer(sign, digits),
+                )
+            )
+        )
+    }
+
+    fn reject_float_tail() -> Parser<String> {
+        Parse.or_else(
+            Parse.skip_then(
+                Parse.choice([Parse.character("."), Parse.character("e"), Parse.character("E")]),
+                Parse.fail_with(
+                    "unsupported-float",
+                    "floating-point values are not supported in a manifest",
+                ),
+            ),
+            Parse.succeed(""),
+        )
+    }
+
+    fn to_integer(sign: String, digits: String) -> Parser<Toml> {
+        match digits_to_int(Str.chars(strip_underscores(digits)), 0, 0) {
+            None -> Parse.fail_with("invalid-integer", "invalid integer `" + digits + "`"),
+            Some(magnitude) -> Parse.succeed(
+                TInt(if sign == "-" { 0 - magnitude } else { magnitude })
+            ),
+        }
+    }
+
+    fn strip_underscores(text: String) -> String {
+        Str.join(Array.filter(Str.chars(text), \character -> character != "_"), "")
+    }
+
+    fn digits_to_int(characters: Array<String>, index: Int, acc: Int) -> Option<Int> {
+        if index >= Array.length(characters) {
+            Some(acc)
+        } else {
+            match Array.get(characters, index) {
+                None -> None,
+                Some(character) -> match digit_value(character) {
+                    None -> None,
+                    Some(digit) -> digits_to_int(characters, index + 1, acc * 10 + digit),
+                },
+            }
+        }
+    }
+
+    fn digit_value(character: String) -> Option<Int> {
+        index_of_character("0123456789", character, 0)
+    }
+
+    fn index_of_character(text: String, character: String, index: Int) -> Option<Int> {
+        if index >= len(text) {
+            None
+        } else {
+            if Str.string_slice(text, index, index + 1) == character {
+                Some(index)
+            } else {
+                index_of_character(text, character, index + 1)
+            }
+        }
+    }
+
+    // ── values ──────────────────────────────────────────────────────
+
+    /// Any TOML value: string, boolean, array, inline table, or integer.
+    ///
+    /// The unsupported forms appear as explicit alternatives so each keeps its
+    /// own name in the error, instead of all collapsing into "expected value".
+    fn value() -> Parser<Toml> {
+        Parse.choice([
+            Parse.map_parser(basic_string(), \text -> TString(text)),
+            reject_literal_string(),
+            boolean(),
+            Parse.lazy(delayed_array),
+            Parse.lazy(delayed_inline_table),
+            integer(),
+        ])
+    }
+
+    fn reject_literal_string() -> Parser<Toml> {
+        Parse.skip_then(
+            Parse.character("'"),
+            Parse.fail_with(
+                "unsupported-literal-string",
+                "literal strings ('...') are not supported in a manifest; use \"...\"",
+            ),
+        )
+    }
+
+    /// `true` or `false`, not matching the prefix of a longer word.
+    fn boolean() -> Parser<Toml> {
+        Parse.or_else(keyword("true", TBool(true)), keyword("false", TBool(false)))
+    }
+
+    fn keyword(text: String, result: Toml) -> Parser<Toml> {
+        Parse.map_parser(
+            Parse.then_skip(
+                Parse.literal(text),
+                Parse.not_followed_by(Parse.satisfy(Parse.is_bare_key_char, "a key character")),
+            ),
+            \_ -> result
+        )
+    }
+
+    /// An array. Newlines and comments are legal between elements.
+    fn array_value() -> Parser<Toml> {
+        Parse.map_parser(
+            bracketed(
+                "[", "]", "array",
+                Parse.then_skip(
+                    Parse.separated_by(
+                        Parse.then_skip(
+                            Parse.skip_then(trivia(), Parse.lazy(delayed_value)),
+                            trivia(),
+                        ),
+                        Parse.character(","),
+                    ),
+                    trivia(),
+                ),
+            ),
+            \items -> TArray(items)
+        )
+    }
+
+    // The recursive alternatives of `value`, each behind a thunk.
+    //
+    // Flux is strict, so `value` eagerly constructing `array_value` — which
+    // constructs `value` again — builds an unbounded parser graph before a
+    // character is read. The VM tolerates the depth; the native backend
+    // crashes outright. Deferring construction until the alternative is
+    // actually tried breaks the cycle.
+
+    fn delayed_value(ignored: String) -> Parser<Toml> {
+        value()
+    }
+
+    fn delayed_array(ignored: String) -> Parser<Toml> {
+        array_value()
+    }
+
+    fn delayed_inline_table(ignored: String) -> Parser<Toml> {
+        inline_table()
+    }
+
+    /// An inline table. Unlike arrays, TOML forbids newlines inside one, so
+    /// only horizontal space is skipped between entries.
+    fn inline_table() -> Parser<Toml> {
+        Parse.and_then(
+            bracketed(
+                "{", "}", "inline table",
+                Parse.separated_by(
+                    Parse.then_skip(Parse.skip_then(spaces(), inline_pair()), spaces()),
+                    Parse.character(","),
+                ),
+            ),
+            \pairs -> match first_duplicate_key(pairs) {
+                Some(key) -> Parse.fail_with(
+                    "duplicate-key",
+                    "duplicate key `" + key + "` in inline table",
+                ),
+                None -> Parse.succeed(TTable(pairs)),
+            }
+        )
+    }
+
+    /// Between an opening and closing delimiter, naming the enclosing
+    /// construct when the closing one is missing.
+    fn bracketed<a>(
+        open: String,
+        close: String,
+        construct: String,
+        inner: Parser<a>,
+    ) -> Parser<a> {
+        Parse.skip_then(
+            Parse.character(open),
+            Parse.then_skip(
+                inner,
+                Parse.or_else(
+                    Parse.character(close),
+                    Parse.fail_with(
+                        "unterminated-" + construct,
+                        "unterminated " + construct + ": expected `" + close + "`",
+                    ),
+                ),
+            ),
+        )
+    }
+
+    /// One `key = value` inside an inline table.
+    ///
+    /// Dotted keys are not accepted here: the subset keeps inline tables flat,
+    /// which is all the manifest schema needs.
+    fn inline_pair() -> Parser<(String, Toml)> {
+        Parse.and_then(
+            key_segment(),
+            \key -> Parse.map_parser(
+                Parse.skip_then(
+                    Parse.skip_then(spaces(), equals_sign(key)),
+                    Parse.skip_then(spaces(), Parse.lazy(delayed_value)),
+                ),
+                \parsed -> (key, parsed)
+            )
+        )
+    }
+
+    fn equals_sign(key: String) -> Parser<String> {
+        Parse.or_else(
+            Parse.character("="),
+            Parse.fail_with("expected-equals", "expected `=` after key `" + key + "`"),
+        )
+    }
+
+    fn first_duplicate_key(pairs: List<(String, Toml)>) -> Option<String> {
+        match pairs {
+            [] -> None,
+            [(key, _) | rest] -> if List.contains(List.map(rest, key_of), key) {
+                Some(key)
+            } else {
+                first_duplicate_key(rest)
+            },
+        }
+    }
+
+    fn key_of(pair: (String, Toml)) -> String {
+        match pair { (key, _) -> key }
+    }
+
+    // ── document structure ──────────────────────────────────────────
+
+    /// One top-level item: a table header or a key/value pair.
+    ///
+    /// Parsing to this intermediate form, then folding, keeps the syntax layer
+    /// free of the table-conflict rules — the grammar says what was written,
+    /// and the fold decides whether it was allowed.
+    data Item {
+        TableHeader { path: List<String>, is_array: Bool, at: Pos },
+        KeyValue { path: List<String>, value: Toml, at: Pos },
+    }
+
+    fn item_at(item: Item) -> Pos {
+        match item {
+            TableHeader { path: _, is_array: _, at } -> at,
+            KeyValue { path: _, value: _, at } -> at,
+        }
+    }
+
+    fn table_header() -> Parser<Item> {
+        Parse.map_parser(
+            Parse.positioned(Parse.or_else(array_table_header(), single_table_header())),
+            \located -> match located {
+                ((path, is_array), at) ->
+                    TableHeader { path: path, is_array: is_array, at: at }
+            }
+        )
+    }
+
+    fn array_table_header() -> Parser<(List<String>, Bool)> {
+        Parse.map_parser(
+            Parse.then_skip(
+                Parse.skip_then(Parse.literal("[["), key_path()),
+                Parse.then_skip(Parse.skip_then(spaces(), closing_brackets("]]")), end_of_line()),
+            ),
+            \path -> (path, true)
+        )
+    }
+
+    fn single_table_header() -> Parser<(List<String>, Bool)> {
+        Parse.map_parser(
+            Parse.then_skip(
+                Parse.skip_then(Parse.character("["), key_path()),
+                Parse.then_skip(Parse.skip_then(spaces(), closing_brackets("]")), end_of_line()),
+            ),
+            \path -> (path, false)
+        )
+    }
+
+    fn closing_brackets(close: String) -> Parser<String> {
+        Parse.or_else(
+            Parse.literal(close),
+            Parse.fail_with(
+                "expected-bracket",
+                "expected `" + close + "` to close the table header",
+            ),
+        )
+    }
+
+    fn key_value() -> Parser<Item> {
+        Parse.map_parser(
+            Parse.positioned(Parse.and_then(
+                key_path(),
+                \path -> Parse.map_parser(
+                    Parse.then_skip(
+                        Parse.skip_then(
+                            Parse.skip_then(spaces(), equals_sign(Document.render_path(path))),
+                            Parse.skip_then(spaces(), value()),
+                        ),
+                        end_of_line(),
+                    ),
+                    \parsed -> (path, parsed)
+                )
+            )),
+            \located -> match located {
+                ((path, parsed), at) -> KeyValue { path: path, value: parsed, at: at }
+            }
+        )
+    }
+
+    /// The whole document: trivia-separated items, then end of input.
+    fn document() -> Parser<List<Item>> {
+        Parse.then_skip(
+            Parse.skip_then(
+                trivia(),
+                Parse.many(Parse.then_skip(Parse.or_else(table_header(), key_value()), trivia())),
+            ),
+            Parse.end_of_input(),
+        )
+    }
+
+    // ── the TOML entry point ────────────────────────────────────────
+
+    /// Parse a whole TOML document into a table.
+    ///
+    /// Public because Phase 2's lockfile reader wants the generic tree without
+    /// the manifest schema on top.
+    public fn parse_toml(text: String) -> Result<Toml, ParseError> {
+        Parse.parse_with(document(), text)
+            |> map_items
+            |> build_from_items
+            |> take_root
+            |> wrap_root
+    }
+
+    // Each stage of `parse_toml` as a named function, so the entry point can
+    // be a pipeline. `|>` takes a named function or a call, not a lambda.
+
+    fn map_items(
+        parsed: Result<(List<Item>, State), ParseError>,
+    ) -> Result<List<Item>, ParseError> {
+        Result.map_result(parsed, take_value)
+    }
+
+    fn take_value(step: (List<Item>, State)) -> List<Item> {
+        match step { (items, _) -> items }
+    }
+
+    fn build_from_items(
+        items: Result<List<Item>, ParseError>,
+    ) -> Result<Doc, ParseError> {
+        Result.and_then_result(items, Document.build_document)
+    }
+
+    fn take_root(
+        built: Result<Doc, ParseError>,
+    ) -> Result<List<(String, Toml)>, ParseError> {
+        Result.map_result(built, Document.doc_root)
+    }
+
+    fn wrap_root(
+        root: Result<List<(String, Toml)>, ParseError>,
+    ) -> Result<Toml, ParseError> {
+        Result.map_result(root, wrap_table)
+    }
+
+    fn wrap_table(root: List<(String, Toml)>) -> Toml {
+        TTable(root)
+    }
+
+}
