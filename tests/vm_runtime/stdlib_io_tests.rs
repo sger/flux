@@ -173,3 +173,102 @@ fn main() -> Unit {
         "expected NotFound: missing (/a):\n{stdout}"
     );
 }
+
+/// `println` must render collections, not drop them (KI-002).
+///
+/// The reported symptom — no output for a list or array — did not reproduce;
+/// it was an artifact of filtering terminal output, where a `[1, 2, 3]` line
+/// looks like the compiler's `[ 1 of 12]` progress lines. This asserts against
+/// raw stdout so a real regression cannot hide the same way.
+#[test]
+fn println_renders_lists_and_arrays() {
+    let (stdout, stderr, success) = run_source(
+        "println_collections.flx",
+        r#"
+fn main() with IO {
+    println([1, 2, 3])
+    println([|1, 2, 3|])
+    println([])
+    println(["a", "b"])
+}
+"#,
+    );
+    assert!(success, "run failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
+
+    let printed: Vec<&str> = stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    assert_eq!(
+        printed,
+        vec!["[1, 2, 3]", "[|1, 2, 3|]", "[]", r#"["a", "b"]"#],
+        "println dropped or misrendered a collection:\n{stdout}"
+    );
+}
+
+/// A constrained stdlib function must reject the wrong container type (KI-003).
+///
+/// `List.contains` is `(List<a>, a) -> Bool`, so an `Array` argument is an
+/// E300 — but the diagnostic used to be suppressed whenever the expected type
+/// still held a free variable, which an `Eq`-constrained element type always
+/// does. The call then compiled and returned a wrong answer instead of failing:
+/// `not_elem` reported a present element as absent.
+#[test]
+fn a_constrained_stdlib_function_rejects_the_wrong_container() {
+    for (call, func) in [
+        ("contains(arr, 1)", "contains"),
+        ("not_elem(arr, 1)", "not_elem"),
+        ("nub(arr)", "nub"),
+    ] {
+        let source = format!(
+            r#"
+fn main() with IO {{
+    let arr = [|1, 2|]
+    println({call})
+}}
+"#
+        );
+        let (stdout, stderr, success) = run_source("wrong_container.flx", &source);
+        let combined = format!("{stdout}{stderr}");
+        assert!(
+            !success,
+            "`{func}` must reject an Array where List<a> is declared:\n{combined}"
+        );
+        assert!(
+            combined.contains("E300"),
+            "expected E300 for `{func}`, got:\n{combined}"
+        );
+    }
+}
+
+/// The KI-003 fix must not reject calls that are actually well-typed.
+///
+/// The suppression it removed existed to hide transient mismatches while a
+/// type was still being solved, so these cover the shapes most at risk:
+/// numeric defaulting, an untyped stdlib function whose inferred type is only
+/// an approximation (`List.first`), and locally-declared unannotated functions.
+#[test]
+fn well_typed_calls_still_compile() {
+    let (stdout, stderr, success) = run_source(
+        "still_compiles.flx",
+        r#"
+fn find_in(xs, target) {
+    if contains(xs, target) { Some(target) } else { None }
+}
+
+fn main() with IO {
+    println(contains([1, 2, 3], 2))
+    println(nub([1, 1, 2]))
+    println(contains([1.5], 1.5))
+    println(contains(["a"], "a"))
+    println(min(1, 2))
+    println(find_in([1, 2], 2))
+}
+"#,
+    );
+    assert!(
+        success,
+        "well-typed program must still compile:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+}
