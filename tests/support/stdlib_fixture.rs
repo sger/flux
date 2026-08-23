@@ -124,8 +124,16 @@ pub fn assert_fixture_passes(fixture: &str) {
 ///
 /// The counts are compared rather than raw stdout because the runner prints
 /// per-test timings, which legitimately differ between backends.
+///
+/// Skips when the `llvm` feature is off: `--native` is rejected at flag
+/// validation there, so the run produces no summary to compare and the
+/// assertion would fail for a reason unrelated to the fixture.
 #[allow(dead_code)]
 pub fn assert_backends_agree(fixture: &str) {
+    if !cfg!(feature = "llvm") {
+        eprintln!("skipping native parity for {fixture}: built without the `llvm` feature");
+        return;
+    }
     let (vm_out, vm_ok) = run_fixture(fixture, false);
     let (native_out, native_ok) = run_fixture(fixture, true);
 
