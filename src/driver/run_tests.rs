@@ -404,7 +404,12 @@ pub(crate) fn run_test_file(path: &str, request: TestRunRequest<'_>) {
         tag_and_attach_file(&mut primops_import_diags, DiagnosticPhase::Parse, path);
         all_diagnostics.append(&mut primops_import_diags);
     }
-    inject_flow_prelude(&mut program, &mut parser, request.flags.is_native_backend());
+    inject_flow_prelude(
+        &mut program,
+        &mut parser,
+        request.flags.is_native_backend(),
+        Path::new(path),
+    );
     let interner = parser.take_interner();
     let graph_result =
         ModuleGraph::build_with_entry_and_roots(entry_path, &program, interner, &roots);
