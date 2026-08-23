@@ -370,6 +370,10 @@ name = "qualified_class_method_dispatch_tests"
 path = "tests/integration/qualified_class_method_dispatch_tests.rs"
 
 [[test]]
+name = "named_field_class_dispatch_tests"
+path = "tests/integration/named_field_class_dispatch_tests.rs"
+
+[[test]]
 name = "stdlib_env_tests"
 path = "tests/vm_runtime/stdlib_env_tests.rs"
 
