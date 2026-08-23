@@ -2,6 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 fn discover_fixtures(root: &Path) -> Vec<PathBuf> {
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
         let entries = fs::read_dir(dir).unwrap_or_else(|e| {
@@ -107,9 +111,14 @@ fn regression_fixtures_cli_output() {
             .to_string_lossy()
             .replace('\\', "/");
 
+        // Private cache root: `--no-cache` does not isolate native builds,
+        // which write shared artifacts under the cache root regardless
+        // (KI-010).
+        let scratch = Scratch::new("regression-snapshots");
         let output = Command::new(&flux_bin)
             .arg("--no-cache")
             .arg(&fixture)
+            .args(scratch.cache_args())
             .env("NO_COLOR", "1")
             .output()
             .unwrap_or_else(|e| panic!("failed to run flux for `{}`: {e}", fixture.display()));

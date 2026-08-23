@@ -6,6 +6,10 @@ mod examples_snapshot;
 use std::path::Path;
 use std::process::Command;
 
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 fn normalize_cli_text(text: &str, workspace_root: &Path) -> String {
     let normalized = examples_snapshot::normalize_transcript(text, workspace_root);
     // Strip non-deterministic thread IDs from panic messages:
@@ -67,9 +71,13 @@ fn run_flux_file(
         args.push("--native".to_string());
     }
 
+    // Private cache root: `--no-cache` does not isolate native builds, which
+    // write shared artifacts under the cache root regardless (KI-010).
+    let scratch = Scratch::new("runtime-error-fixtures");
     let output = Command::new(flux_bin)
         .current_dir(workspace_root)
         .args(&args)
+        .args(scratch.cache_args())
         .env("NO_COLOR", "1")
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux for `{file}` (native={native}): {e}"));

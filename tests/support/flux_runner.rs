@@ -11,6 +11,13 @@ use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+// Re-exported so a test including this file gets `Scratch` from here rather
+// than declaring its own `mod scratch;` — two `#[path]` declarations of one
+// file in the same crate is a `clippy::duplicate_mod` warning.
+#[path = "scratch.rs"]
+pub mod scratch;
+use scratch::Scratch;
+
 #[allow(dead_code)]
 pub fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -43,23 +50,18 @@ pub fn run_flux_with_env(
     tag: &str,
     env: &[(&str, &str)],
 ) -> (String, String, bool, Duration) {
-    let dir = workspace_root()
-        .join("target")
-        .join("test-scratch")
-        .join(format!(
-            "flux-runner-{}-{}-{}",
-            std::process::id(),
-            std::thread::current().name().unwrap_or("test"),
-            tag,
-        ));
-    std::fs::create_dir_all(&dir).expect("create temp dir for flux fixture");
-    let path = dir.join("fixture.flx");
-    std::fs::write(&path, source).expect("write flux fixture");
+    // `--no-cache` alone does not isolate: the native backend writes shared
+    // artifacts under the cache root regardless, so concurrent runs collided
+    // (KI-010). `Scratch` gives each run its own cache root as well, and
+    // removes the directory on drop.
+    let scratch = Scratch::new(&format!("flux-runner-{tag}"));
+    let path = scratch.write("fixture.flx", source);
 
     let start = Instant::now();
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_flux"));
     cmd.current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--no-cache"]);
+        .args([path.to_str().unwrap(), "--no-cache"])
+        .args(scratch.cache_args());
     for (k, v) in env {
         cmd.env(k, v);
     }
@@ -68,6 +70,5 @@ pub fn run_flux_with_env(
 
     let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
     let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
-    let _ = std::fs::remove_file(&path);
     (stdout, stderr, output.status.success(), elapsed)
 }

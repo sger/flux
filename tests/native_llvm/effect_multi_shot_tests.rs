@@ -24,6 +24,10 @@ use primop_parity::{run_native, run_native_with_env};
 use std::path::Path;
 use std::process::Command;
 
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 const FIXTURE: &str = "effect_multi_shot.flx";
 
 fn workspace_root() -> &'static Path {
@@ -33,9 +37,13 @@ fn workspace_root() -> &'static Path {
 /// Run the VM and return `(combined stdout+stderr, exit-success flag)`.
 fn run_vm_with_status() -> (String, bool) {
     let path = workspace_root().join("tests").join("parity").join(FIXTURE);
+    // Private cache root: `--no-cache` does not isolate native
+    // builds, which write shared artifacts regardless (KI-010).
+    let scratch = Scratch::new("native-llvm");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--no-cache"])
+        .args(scratch.cache_args())
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux on {FIXTURE}: {e}"));
     let mut combined = String::from_utf8_lossy(&output.stdout).to_string();

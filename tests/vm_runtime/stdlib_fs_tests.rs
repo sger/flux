@@ -15,6 +15,10 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
@@ -27,9 +31,11 @@ fn scratch_dir() -> PathBuf {
 
 fn run_flux_test(fixture: &str) -> (String, bool) {
     let path = workspace_root().join("tests").join("flux").join(fixture);
+    let scratch = Scratch::new("cache-isolated");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args(["--test", path.to_str().unwrap(), "--no-cache"])
+        .args(scratch.cache_args())
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux --test on {fixture}: {e}"));
     let stdout = String::from_utf8_lossy(&output.stdout)
@@ -42,9 +48,11 @@ fn run_flux_test(fixture: &str) -> (String, bool) {
 fn run_source(name: &str, source: &str) -> (String, String, bool) {
     let file = scratch_dir().join(name);
     std::fs::write(&file, source).expect("write scratch fixture");
+    let scratch = Scratch::new("cache-isolated");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args(["run", file.to_str().unwrap(), "--no-cache"])
+        .args(scratch.cache_args())
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux on {name}: {e}"));
     let _ = std::fs::remove_file(&file);

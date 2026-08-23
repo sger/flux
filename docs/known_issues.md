@@ -125,75 +125,6 @@ tool or shipping a binary. Proposal 0177 tracks the fix.
 TCP operations use blocking stdlib calls with no fiber-scheduler integration, so
 concurrent TCP tests are not yet possible. Needs the mio reactor wiring.
 
-### KI-010 — The test suite is flaky under load: tests share one on-disk cache
-
-**Severity:** High · **Area:** Test harness · **Verified:** 2026-08-22
-
-`cargo test --all --all-features` intermittently fails targets that pass in
-isolation. The failures move between runs and look unrelated to each other,
-which makes them read as separate bugs. They are one bug.
-
-**Cause.** 34 test files drive the `flux` binary against a shared
-`target/test-scratch/` and the shared compilation cache under `target/`. Many do
-**not** pass `--no-cache`, so concurrent targets read and write each other's
-`.flxi` interfaces and bytecode. Anything else touching `target/` at the same
-time — another `cargo` invocation, an editor build — widens the window.
-
-Two distinct symptoms, both from this cause:
-
-1. **A compiler assertion escapes as a test failure.**
-   ```
-   parallel VM compilation failed: missing global mapping for local index 26
-   ```
-   Raised by `module_linker.rs:141` when a module's instructions reference a
-   global slot no cache binding covers. `synthetic_top_level_temp_bindings`
-   (`compiler/mod.rs`) exists to prevent exactly this, so reaching it means the
-   cache was read in a state that function did not anticipate.
-
-2. **A native fixture produces no output at all**, so the harness cannot parse a
-   summary:
-   ```
-   no native summary for stdlib_either.flx:
-   ```
-   The `*_native_tests` targets are the slowest in the suite (25s–165s each) and
-   rebuild native artifacts, so they lose these races most often.
-
-**How to tell it apart from a real failure.** A contention failure finishes in
-~0.1s (nothing ran) and passes when the target is run alone. A real failure
-takes normal time and reproduces in isolation. **Always re-run a suspect target
-by itself before believing it.**
-
-**Partially fixed (2026-08-22).** `tests/support/scratch.rs` provides a
-`Scratch` guard giving each test a unique directory (pid + counter) and, via
-`cache_args()`, its own `--cache-dir`. Converted so far: the shared
-`stdlib_fixture` runner — which covers every `stdlib_*` fixture on both
-backends — plus `cross_module_named_fields`, `module_local_shadowing`,
-`qualified_class_method_dispatch`, and the `stdlib_{io,path,result,env,process}`
-runners.
-
-Two things that fix which `--no-cache` alone did not:
-
-- **`--no-cache` does not isolate native builds.** The native backend writes
-  shared artifacts under the cache root regardless, which is why
-  `*_native_tests` targets lost these races most often despite passing
-  `--no-cache`.
-- **A test that *exercises* caching cannot use `--no-cache`.**
-  `field_order_survives_the_warm_module_cache` needs a cold run followed by a
-  warm one; it now gets a private cache instead of sharing the repo-wide one.
-
-`run_fixture` also folds stderr into its returned text on failure, so a native
-compile or link error is visible instead of surfacing as an unexplained
-`no native summary for <fixture>`.
-
-**Still outstanding:** `stdlib_fs_tests`, `stdlib_crypto_tests`,
-`native_constructor_tag_tests`, and the `tests/flux/*.flx` fixtures hardcode
-paths like `target/test-scratch/flux_fs_rename` inside **Flux source**, so they
-cannot be redirected from the Rust side alone. Each such path is currently
-unique to one test, so they do not collide with each other — but a future test
-reusing a name would reintroduce the problem silently.
-
-**Meanwhile:** re-run any suspect target on its own before believing it.
-
 ### KI-011 — Re-wrapping `Err(e)` into a `Result` with a different success type fails inference
 
 **Severity:** Medium · **Area:** HM inference · **Verified:** 2026-08-23
@@ -299,6 +230,42 @@ Reader<List<a>>` needs no higher-kinded types).
 
 Entries move here with the resolving commit rather than being deleted, so
 existing `#KI-nnn` references still explain themselves.
+
+### KI-010 — The test suite is flaky under load: tests share one on-disk cache — FIXED 2026-08-23
+
+**Severity:** High · **Area:** Test harness · **Verified:** 2026-08-23
+
+`cargo test --all --all-features` intermittently failed targets that passed in
+isolation. The failures moved between runs and looked unrelated, which made them
+read as separate bugs. They were one bug: test binaries drove the `flux` CLI
+against a shared `target/test-scratch/` and the shared compilation cache under
+`target/`, so concurrent targets read and wrote each other's `.flxi` interfaces
+and bytecode.
+
+Two symptoms, both from that cause: a compiler assertion escaping as
+`parallel VM compilation failed: missing global mapping for local index N`, and
+a native fixture producing no output so the harness could not parse a summary
+(`no native summary for <fixture>`).
+
+`--no-cache` was not sufficient. The native backend writes shared artifacts
+under the cache root regardless of it, which is why `*_native_tests` lost these
+races most often despite passing the flag; a private `--cache-dir` is what
+actually isolates. Verified: with `--cache-dir`, a native run left the shared
+`target/flux/native` tree untouched and wrote its 27 artifacts to the private
+root instead.
+
+**Fixed** by routing every test that spawns the `flux` binary through the
+`Scratch` guard in `tests/support/scratch.rs`, which gives each run its own
+directory *and* its own cache root, and removes the directory on drop. All 44
+such targets are now isolated — the three shared support runners
+(`flux_runner.rs`, `primop_parity.rs`, `semantic_runtime.rs`) cover 26 of them,
+and the rest were converted individually. `tests/aether/cli_snapshots.rs`
+already had an equivalent private-cache scheme of its own.
+
+**Note for new tests.** A test that spawns `flux` must pass
+`Scratch::cache_args()`. `--no-cache` alone does not isolate it.
+
+---
 
 ### KI-016 — An exported constructor field type kept its transparent alias — FIXED 2026-08-23
 

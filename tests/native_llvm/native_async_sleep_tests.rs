@@ -6,6 +6,10 @@ use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
@@ -24,9 +28,13 @@ fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {
     std::fs::write(&path, source).expect("write fixture");
 
     let start = Instant::now();
+    // Private cache root: `--no-cache` does not isolate native
+    // builds, which write shared artifacts regardless (KI-010).
+    let scratch = Scratch::new("native-llvm");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--native", "--no-cache"])
+        .args(scratch.cache_args())
         .output()
         .expect("run flux native");
     let elapsed = start.elapsed();
