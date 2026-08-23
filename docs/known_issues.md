@@ -276,62 +276,6 @@ or three steps and poorly beyond that, which will press harder in
 
 ---
 
-### KI-012 — Only the first instance of a type class dispatches; the rest panic at runtime
-
-**Severity:** High · **Area:** Type classes / dispatch · **Verified:** 2026-08-23
-
-Declaring two instances of one class over two distinct ADTs type-checks, but
-only the first one resolves. The second panics at run time:
-
-```flux
-data Colour { Red { on: Bool }, Blue { on: Bool } }
-data Tag { Tag { name: String } }
-
-class Describe<a> { fn describe(value: a) -> String }
-
-instance Describe<Colour> {
-    fn describe(value) { match value { Red { on: _ } -> "red", Blue { on: _ } -> "blue" } }
-}
-instance Describe<Tag> {
-    fn describe(value) { match value { Tag { name } -> name } }
-}
-
-fn main() with IO {
-    println(describe(Red { on: true }))   // "red"
-    println(describe(Tag { name: "x" }))  // error[E1009] panic:
-                                          // No instance of Describe.describe for the given type
-}
-```
-
-The same failure occurs when an instance head names an ADT **imported** from
-another module, even as the only instance of its class — consistent with
-KI-005-era findings that dispatch keys on a module-qualified name an imported
-ADT does not carry.
-
-**Why it matters:** the checker accepts the program, so the failure surfaces at
-the call site rather than the declaration, and only on the code path that
-reaches the second instance. It makes the obvious use of a type class — one
-class, several instances — unusable, which is why `Flume.Resolve` renders its
-types with a family of plain `render_*` functions and `Flume.Manifest` reifies
-what would naturally be a `FromToml` class as a first-class `Reader<a>` value.
-
-**Workaround:** a plain function per type, or reify the dispatch as a record of
-functions passed explicitly. The latter composes further than the class would
-have — `array_of(element: Reader<a>) -> Reader<List<a>>` needs no higher-kinded
-types — so it is not purely a downgrade.
-
-Related: a class whose type variable appears **only in the return position**
-dispatches against the *argument* type instead and cannot resolve at all:
-
-```flux
-class Parse<a> { fn from_text(text: String) -> Result<a, String> }
-instance Parse<Int> { fn from_text(text) { Ok(len(text)) } }
-fn read_int(t: String) -> Result<Int, String> { from_text(t) }
-// error[E444]: No instance for `Parse<String>`   ← the parameter type, not `Int`
-```
-
----
-
 ### KI-013 — A recursive parser grammar over a recursive ADT crashes the native backend
 
 **Severity:** High · **Area:** LLVM backend · **Verified:** 2026-08-23
@@ -368,7 +312,105 @@ four, matching the VM's byte ordering.
 
 ---
 
+### KI-014 — A constructor imported from another module infers as a type variable
+
+**Severity:** High · **Area:** HM inference / module interfaces · **Verified:** 2026-08-23
+
+A constructor applied in a module other than the one declaring its ADT gets an
+unresolved type variable rather than the ADT type, so anything keyed on that
+type fails. Class dispatch is the visible casualty:
+
+```flux
+import Flume.Value as Value
+import Flume.Value exposing (Toml, TString)
+
+class Render<a> { fn render(value: a) -> String }
+instance Render<Int>  { fn render(value) { to_string(value) } }
+instance Render<Toml> { fn render(value) { Value.render_toml(value) } }
+
+render(42)             // "42"
+render(TString("hi"))  // error[E1009] panic: No instance of Render.render ...
+```
+
+`hm_expr_types` holds an entry for `TString("hi")`, but its value is
+`Var(_)` — inference never concretised it. Dispatch then has a type variable
+where it needs a constructor, and `resolve_method_call_instance_from_first_arg`
+correctly declines to guess.
+
+The same class *does* dispatch when the value arrives from a function call
+rather than a directly-applied imported constructor
+(`describe(Resolve.from_root())` works), which locates the gap in constructor
+scheme import rather than in dispatch itself. Related to the
+`preloaded_adt_constructor_types` plumbing that fixed cross-module *named-field*
+constructors; the positional-application path appears not to be covered.
+
+**Workaround:** wrap the construction in a local function whose return type is
+annotated, or reify the dispatch as an explicit record of functions — which is
+what `Flume.Manifest`'s `Reader<a>` does.
+
+---
+
+### KI-015 — A class whose variable appears only in the return position cannot dispatch
+
+**Severity:** Medium · **Area:** Type classes / dispatch · **Verified:** 2026-08-23
+
+Dispatch selects an instance from the *first argument's* type. A class whose
+type variable appears only in the return position therefore resolves against the
+parameter type and fails:
+
+```flux
+class Parse<a> { fn from_text(text: String) -> Result<a, String> }
+instance Parse<Int> { fn from_text(text) { Ok(len(text)) } }
+
+fn read_int(t: String) -> Result<Int, String> { from_text(t) }
+// error[E444]: No instance for `Parse<String>`   ← the parameter type, not `Int`
+```
+
+`Flow.Json`'s `Decode` works only because `try_resolve_class_call` special-cases
+it by name (`src/core/lower_ast/mod.rs`), selecting from the inferred result
+type. A general return-type-directed rule would subsume that special case.
+
+**Workaround:** give the class an argument mentioning the type variable, or
+reify it as a value — `Flume.Manifest` uses a `Reader<a>` record, which also
+composes further than an instance head can (`array_of(element: Reader<a>) ->
+Reader<List<a>>` needs no higher-kinded types).
+
+---
+
 ## Resolved
 
-_None yet. Move entries here with the resolving commit rather than deleting
-them, so existing `#KI-nnn` references still explain themselves._
+Entries move here with the resolving commit rather than being deleted, so
+existing `#KI-nnn` references still explain themselves.
+
+### KI-012 — Class dispatch fails for a value built by a named-field constructor — FIXED 2026-08-23
+
+**Severity:** High · **Area:** Type classes / dispatch · **Verified:** 2026-08-23
+
+A class method applied to a value written with named-field syntax reached the
+no-instance panic stub instead of its instance:
+
+```flux
+data Colour { Red { on: Bool }, Blue { on: Bool } }
+class Describe<a> { fn describe(value: a) -> String }
+instance Describe<Colour> { fn describe(value) { ... } }
+
+describe(Red { on: true })
+// error[E1009] panic: No instance of Describe.describe for the given type
+```
+
+**Root cause.** `rewrite_named_constructor` in `src/ast/desugar_named_fields.rs`
+rewrites `Red { on: true }` into an ordinary constructor call, and stamped the
+synthesized `Expression::Call` with `ExprId::UNSET`. That pass runs *after*
+inference, so `hm_expr_types` already held the constructed value's type keyed by
+the original `NamedConstructor`'s id — and discarding the id stranded it.
+`try_resolve_class_call` (`src/core/lower_ast/mod.rs`) looks the first argument's
+type up by id, found nothing, and fell through to the stub whose body is
+`panic("No instance ...")`.
+
+The symptom read as "only the first instance dispatches", but neither instance
+resolved at compile time; positional constructors were unaffected, which is what
+made one arm appear to work.
+
+**Fix.** Carry the original id onto the synthesized call.
+
+---
