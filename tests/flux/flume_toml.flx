@@ -1,0 +1,330 @@
+// Behavioural coverage for `Flume.Parse` and `Flume.Toml` (proposal 0177,
+// Phase 0).
+//
+// Both modules are pure, so these tests need no fixture directory, no temp
+// files, and no cleanup. The `with IO` on each test is for `assert_*` printing
+// only — nothing under test can perform an effect.
+//
+// Assertions go through `render`, which flattens a parsed document to a single
+// canonical line. Comparing rendered text rather than walking the tree keeps
+// each test to one assertion and makes a failure show the whole shape that was
+// produced, not just the field that differed.
+
+import Flume.Toml as Toml
+import Flume.Value as Value
+import Flume.Parse as Parse
+
+/// A parsed document, flattened, or `ERR <kind>` when parsing failed.
+///
+/// Errors collapse to their *kind* rather than their message: the kind is the
+/// contract Phase 1 keys its diagnostics on, and asserting on prose would make
+/// these tests fail every time a message is reworded.
+fn render(source: String) -> String {
+    match Toml.parse_toml(source) {
+        Ok(tree) -> Value.render_toml(tree),
+        Err(problem) -> "ERR " + Parse.error_kind(problem),
+    }
+}
+
+/// Where a failure was reported, as `line:column`, or `ok` when it succeeded.
+fn where_failed(source: String) -> String {
+    match Toml.parse_toml(source) {
+        Ok(_) -> "ok",
+        Err(problem) -> to_string(Parse.pos_line(Parse.error_pos(problem))) + ":"
+            + to_string(Parse.pos_column(Parse.error_pos(problem))),
+    }
+}
+
+// ── values ─────────────────────────────────────────────────────
+
+fn test_parses_an_integer() with IO {
+    assert_eq(render("x = 1\n"), "{x=1}")
+}
+
+fn test_parses_a_string() with IO {
+    assert_eq(render("x = \"hello\"\n"), "{x=\"hello\"}")
+}
+
+fn test_parses_booleans() with IO {
+    assert_eq(render("yes = true\nno = false\n"), "{yes=true,no=false}")
+}
+
+fn test_parses_a_negative_integer() with IO {
+    assert_eq(render("x = -5\n"), "{x=-5}")
+}
+
+fn test_parses_an_explicitly_positive_integer() with IO {
+    assert_eq(render("x = +5\n"), "{x=5}")
+}
+
+// TOML allows `_` inside numbers as a thousands separator.
+fn test_underscores_in_numbers_are_ignored() with IO {
+    assert_eq(render("x = 1_000_000\n"), "{x=1000000}")
+}
+
+fn test_parses_an_array() with IO {
+    assert_eq(render("x = [1, 2, 3]\n"), "{x=[1,2,3]}")
+}
+
+fn test_parses_an_empty_array() with IO {
+    assert_eq(render("x = []\n"), "{x=[]}")
+}
+
+// Hand-written manifests are routinely formatted this way, and TOML permits it.
+fn test_a_trailing_comma_in_an_array_is_allowed() with IO {
+    assert_eq(render("x = [1, 2, 3,]\n"), "{x=[1,2,3]}")
+}
+
+fn test_an_array_may_span_lines() with IO {
+    assert_eq(render("x = [\n  1,\n  2,\n]\n"), "{x=[1,2]}")
+}
+
+fn test_parses_a_nested_array() with IO {
+    assert_eq(render("x = [[1], [2, 3]]\n"), "{x=[[1],[2,3]]}")
+}
+
+fn test_parses_an_inline_table() with IO {
+    assert_eq(render("x = { a = 1, b = \"t\" }\n"), "{x={a=1,b=\"t\"}}")
+}
+
+fn test_parses_an_empty_inline_table() with IO {
+    assert_eq(render("x = {}\n"), "{x={}}")
+}
+
+fn test_parses_an_array_of_inline_tables() with IO {
+    assert_eq(render("x = [{ a = 1 }, { a = 2 }]\n"), "{x=[{a=1},{a=2}]}")
+}
+
+// ── strings ────────────────────────────────────────────────────
+
+fn test_parses_an_empty_string() with IO {
+    assert_eq(render("x = \"\"\n"), "{x=\"\"}")
+}
+
+fn test_decodes_escape_sequences() with IO {
+    assert_eq(render("x = \"a\\tb\"\n"), "{x=\"a\tb\"}")
+}
+
+fn test_decodes_an_escaped_quote() with IO {
+    assert_eq(render("x = \"a\\\"b\"\n"), "{x=\"a\"b\"}")
+}
+
+fn test_decodes_an_escaped_backslash() with IO {
+    assert_eq(render("x = \"a\\\\b\"\n"), "{x=\"a\\b\"}")
+}
+
+// ── keys ───────────────────────────────────────────────────────
+
+fn test_a_key_may_contain_digits_and_dashes() with IO {
+    assert_eq(render("dev-dep2 = 1\n"), "{dev-dep2=1}")
+}
+
+fn test_a_key_may_be_quoted() with IO {
+    assert_eq(render("\"odd key\" = 1\n"), "{odd key=1}")
+}
+
+// Dotted keys build intermediate tables, which is what makes `[a.b]` and
+// `a.b = 1` two spellings of one thing.
+fn test_a_dotted_key_builds_nested_tables() with IO {
+    assert_eq(render("a.b.c = 1\n"), "{a={b={c=1}}}")
+}
+
+fn test_dotted_keys_sharing_a_prefix_merge() with IO {
+    assert_eq(render("a.b = 1\na.c = 2\n"), "{a={b=1,c=2}}")
+}
+
+fn test_space_is_allowed_around_a_dot() with IO {
+    assert_eq(render("a . b = 1\n"), "{a={b=1}}")
+}
+
+// ── whitespace and comments ────────────────────────────────────
+
+fn test_a_comment_line_is_ignored() with IO {
+    assert_eq(render("# a note\nx = 1\n"), "{x=1}")
+}
+
+fn test_a_trailing_comment_is_ignored() with IO {
+    assert_eq(render("x = 1 # why\n"), "{x=1}")
+}
+
+fn test_blank_lines_are_ignored() with IO {
+    assert_eq(render("\n\nx = 1\n\n\n"), "{x=1}")
+}
+
+fn test_a_file_of_only_comments_is_an_empty_document() with IO {
+    assert_eq(render("# nothing here\n"), "{}")
+}
+
+fn test_an_empty_file_is_an_empty_document() with IO {
+    assert_eq(render(""), "{}")
+}
+
+fn test_a_final_newline_is_optional() with IO {
+    assert_eq(render("x = 1"), "{x=1}")
+}
+
+// ── tables ─────────────────────────────────────────────────────
+
+fn test_a_table_header_scopes_the_keys_below_it() with IO {
+    assert_eq(render("[a]\nx = 1\ny = 2\n"), "{a={x=1,y=2}}")
+}
+
+fn test_a_dotted_table_header_nests() with IO {
+    assert_eq(render("[a.b]\nx = 1\n"), "{a={b={x=1}}}")
+}
+
+fn test_two_tables_are_independent() with IO {
+    assert_eq(render("[a]\nx = 1\n\n[b]\nx = 2\n"), "{a={x=1},b={x=2}}")
+}
+
+// A parent header may follow a child: `[a.b]` creates `a` implicitly, and `[a]`
+// then fills it in. Only an *explicit* redefinition is an error.
+fn test_a_parent_table_may_be_written_after_its_child() with IO {
+    assert_eq(render("[a.b]\nx = 1\n\n[a]\ny = 2\n"), "{a={b={x=1},y=2}}")
+}
+
+fn test_an_array_of_tables_collects_its_entries() with IO {
+    assert_eq(
+        render("[[bin]]\nname = \"a\"\n\n[[bin]]\nname = \"b\"\n"),
+        "{bin=[{name=\"a\"},{name=\"b\"}]}",
+    )
+}
+
+fn test_a_single_array_of_tables_entry_is_still_an_array() with IO {
+    assert_eq(render("[[bin]]\nname = \"a\"\n"), "{bin=[{name=\"a\"}]}")
+}
+
+// ── unsupported constructs ─────────────────────────────────────
+
+// The subset must reject what it does not support rather than mis-parse it,
+// and each rejection names the construct so the message is actionable.
+
+fn test_floats_are_rejected_by_name() with IO {
+    assert_eq(render("x = 1.5\n"), "ERR unsupported-float")
+}
+
+fn test_exponents_are_rejected_as_floats() with IO {
+    assert_eq(render("x = 1e5\n"), "ERR unsupported-float")
+}
+
+fn test_literal_strings_are_rejected_by_name() with IO {
+    assert_eq(render("x = 'literal'\n"), "ERR unsupported-literal-string")
+}
+
+fn test_multiline_strings_are_rejected_by_name() with IO {
+    assert_eq(render("x = \"\"\"multi\"\"\"\n"), "ERR unsupported-multiline-string")
+}
+
+fn test_unicode_escapes_are_rejected_by_name() with IO {
+    assert_eq(render("x = \"\\u0041\"\n"), "ERR unsupported-escape")
+}
+
+// ── syntax errors ──────────────────────────────────────────────
+
+fn test_a_missing_equals_is_an_error() with IO {
+    assert_eq(render("x 1\n"), "ERR expected-equals")
+}
+
+fn test_a_missing_value_is_an_error() with IO {
+    assert_msg(render("x =\n") != "{x=1}", "a key with no value must not parse")
+}
+
+fn test_an_unterminated_string_is_an_error() with IO {
+    assert_eq(render("x = \"open\n"), "ERR unterminated-string")
+}
+
+fn test_an_unterminated_array_is_an_error() with IO {
+    assert_eq(render("x = [1, 2\n"), "ERR unterminated-array")
+}
+
+fn test_an_unterminated_inline_table_is_an_error() with IO {
+    assert_eq(render("x = { a = 1\n"), "ERR unterminated-inline table")
+}
+
+fn test_an_invalid_escape_is_an_error() with IO {
+    assert_eq(render("x = \"a\\qb\"\n"), "ERR invalid-escape")
+}
+
+// Two pairs on one line would otherwise parse as one pair plus silent junk.
+fn test_two_pairs_on_one_line_is_an_error() with IO {
+    assert_eq(render("x = 1 y = 2\n"), "ERR trailing-content")
+}
+
+fn test_an_unclosed_table_header_is_an_error() with IO {
+    assert_eq(render("[a\nx = 1\n"), "ERR expected-bracket")
+}
+
+// ── conflict rules ─────────────────────────────────────────────
+
+fn test_a_duplicate_key_is_an_error() with IO {
+    assert_eq(render("x = 1\nx = 2\n"), "ERR duplicate-key")
+}
+
+fn test_a_duplicate_key_in_an_inline_table_is_an_error() with IO {
+    assert_eq(render("x = { a = 1, a = 2 }\n"), "ERR duplicate-key")
+}
+
+fn test_a_duplicate_table_is_an_error() with IO {
+    assert_eq(render("[a]\nx = 1\n\n[a]\ny = 2\n"), "ERR duplicate-table")
+}
+
+fn test_a_key_and_a_table_may_not_share_a_name() with IO {
+    assert_eq(render("a = 1\n\n[a]\nx = 2\n"), "ERR table-conflict")
+}
+
+fn test_a_dotted_key_through_a_value_is_an_error() with IO {
+    assert_eq(render("a = 1\na.b = 2\n"), "ERR duplicate-key")
+}
+
+// ── error positions ────────────────────────────────────────────
+
+// `ManifestError` carries a position so Phase 1 can point a diagnostic at the
+// offending text; a position that is merely present but wrong is worse than
+// none, so it is asserted directly.
+
+fn test_an_error_on_the_first_line_reports_line_one() with IO {
+    assert_eq(where_failed("x = 1.5\n"), "1:7")
+}
+
+fn test_an_error_reports_the_line_it_occurred_on() with IO {
+    assert_eq(where_failed("x = 1\ny = 1.5\n"), "2:7")
+}
+
+fn test_a_duplicate_key_points_at_the_second_occurrence() with IO {
+    assert_eq(where_failed("x = 1\nx = 2\n"), "2:1")
+}
+
+fn test_a_duplicate_table_points_at_the_second_header() with IO {
+    assert_eq(where_failed("[a]\n[a]\n"), "2:1")
+}
+
+// ── a realistic manifest ───────────────────────────────────────
+
+// Every construct the Phase 1 schema uses, in one document, in the layout a
+// user would actually write.
+fn test_parses_a_complete_manifest() with IO {
+    assert_eq(
+        render(
+            "# The project\n"
+            + "[package]\n"
+            + "name = \"json\"\n"
+            + "version = \"1.2.0\"\n"
+            + "edition = \"2026\"\n"
+            + "\n"
+            + "[dependencies]\n"
+            + "shared = { path = \"../shared\" }\n"
+            + "web = \"1.0\"\n"
+            + "\n"
+            + "[lib]\n"
+            + "path = \"src/Json.flx\"\n"
+            + "\n"
+            + "[[bin]]\n"
+            + "name = \"json-fmt\"\n"
+            + "path = \"src/bin/fmt.flx\"\n"
+        ),
+        "{package={name=\"json\",version=\"1.2.0\",edition=\"2026\"},"
+            + "dependencies={shared={path=\"../shared\"},web=\"1.0\"},"
+            + "lib={path=\"src/Json.flx\"},"
+            + "bin=[{name=\"json-fmt\",path=\"src/bin/fmt.flx\"}]}",
+    )
+}

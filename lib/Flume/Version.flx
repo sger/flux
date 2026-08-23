@@ -1,0 +1,576 @@
+// Flume.Version — semantic versions and version ranges.
+//
+// Pure: every function here has an empty effect row. A version comparator that
+// provably cannot read a file or open a socket is the property Phase 0 of
+// proposal 0177 is built to demonstrate, so if anything in this module ever
+// needs a `with` clause, that is a design smell rather than a new requirement.
+//
+// Ranges are conjunctions of intervals only — there is no `||` union. Unions
+// buy little and cost both normalization and solver complexity, so a range is
+// always a single contiguous interval or an intersection of them.
+
+import Flow.Option as Option
+import Flow.Result as Result
+import Flow.String as Str
+import Flow.Array as Array
+import Flow.List as List
+
+module Flume.Version {
+
+    /// A semantic version. `pre` is the pre-release tag without its leading
+    /// `-`, so `1.0.0-alpha.1` parses to `pre = Some("alpha.1")`.
+    ///
+    /// Build metadata (`+sha.abc`) is deliberately absent: semver says it is
+    /// ignored for both precedence and equality, so keeping it would create a
+    /// value that compares equal to another while not being identical.
+    public data Version {
+        Version { major: Int, minor: Int, patch: Int, pre: Option<String> }
+    }
+
+    /// The result of comparing two versions.
+    ///
+    /// Defined here rather than imported because the standard library has no
+    /// `Ordering` type yet. If one is added, this should move there.
+    public data Ordering {
+        Lt,
+        Eq,
+        Gt,
+    }
+
+    /// A constraint on acceptable versions.
+    ///
+    /// `And` is the only combinator — see the note on unions above. A
+    /// comma-separated constraint like `">=1.2, <2.0"` parses to nested `And`.
+    public data Range {
+        Exact(Version),
+        Caret(Version),
+        Tilde(Version),
+        GreaterEq(Version),
+        LessThan(Version),
+        And(Range, Range),
+    }
+
+    /// Which versions a package considers mutually compatible: "same leftmost
+    /// nonzero digit". `1.x` versions share `Major(1)`, `0.2.x` share
+    /// `Minor(2)`, and `0.0.z` are each their own `Patch(z)`.
+    ///
+    /// This is a value rather than a scattered check because the resolver keys
+    /// its one-version-per-package rule on it, making the rule a data-structure
+    /// invariant instead of something every call site must remember.
+    public data Compat {
+        Major(Int),
+        Minor(Int),
+        Patch(Int),
+    }
+
+    // ── constructors ────────────────────────────────────────────────
+
+    /// A release version, with no pre-release tag.
+    public fn version(major: Int, minor: Int, patch: Int) -> Version {
+        Version { major: major, minor: minor, patch: patch, pre: None }
+    }
+
+    /// A pre-release version. `tag` excludes the leading `-`.
+    public fn pre_version(major: Int, minor: Int, patch: Int, tag: String) -> Version {
+        Version { major: major, minor: minor, patch: patch, pre: Some(tag) }
+    }
+
+    // ── accessors ───────────────────────────────────────────────────
+
+    public fn major(v: Version) -> Int {
+        match v { Version { major, minor: _, patch: _, pre: _ } -> major }
+    }
+
+    public fn minor(v: Version) -> Int {
+        match v { Version { major: _, minor, patch: _, pre: _ } -> minor }
+    }
+
+    public fn patch(v: Version) -> Int {
+        match v { Version { major: _, minor: _, patch, pre: _ } -> patch }
+    }
+
+    public fn pre(v: Version) -> Option<String> {
+        match v { Version { major: _, minor: _, patch: _, pre } -> pre }
+    }
+
+    /// Whether this is a pre-release. Pre-releases are excluded from ranges
+    /// that do not themselves name one.
+    public fn is_prerelease(v: Version) -> Bool {
+        match pre(v) {
+            Some(_) -> true,
+            None -> false,
+        }
+    }
+
+    // ── comparison ──────────────────────────────────────────────────
+
+    fn compare_int(a: Int, b: Int) -> Ordering {
+        if a < b { Lt } else { if a > b { Gt } else { Eq } }
+    }
+
+    /// Total order over versions, following semver precedence.
+    ///
+    /// The subtle rule: a pre-release precedes its own release, so
+    /// `1.0.0-alpha < 1.0.0`. Numeric fields are compared first, and only when
+    /// all three are equal does the pre-release tag decide.
+    public fn compare(a: Version, b: Version) -> Ordering {
+        match compare_int(major(a), major(b)) {
+            Eq -> match compare_int(minor(a), minor(b)) {
+                Eq -> match compare_int(patch(a), patch(b)) {
+                    Eq -> compare_pre(pre(a), pre(b)),
+                    other -> other,
+                },
+                other -> other,
+            },
+            other -> other,
+        }
+    }
+
+    /// Compare pre-release tags. Absent beats present — `1.0.0` outranks
+    /// `1.0.0-rc` — and two tags are ordered identifier by identifier.
+    fn compare_pre(a: Option<String>, b: Option<String>) -> Ordering {
+        match (a, b) {
+            (None, None) -> Eq,
+            (None, Some(_)) -> Gt,
+            (Some(_), None) -> Lt,
+            (Some(x), Some(y)) -> compare_pre_tags(x, y),
+        }
+    }
+
+    /// Compare dot-separated pre-release identifiers.
+    ///
+    /// Semver: numeric identifiers compare numerically and always rank below
+    /// alphanumeric ones; when one tag runs out of identifiers first, the
+    /// shorter tag is the smaller.
+    fn compare_pre_tags(x: String, y: String) -> Ordering {
+        compare_ident_lists(
+            Array.to_list(split(x, ".")),
+            Array.to_list(split(y, ".")),
+        )
+    }
+
+    /// Compare identifier lists element by element; the shorter tag wins when
+    /// one runs out, per semver.
+    ///
+    /// Nested matches rather than a match on `(xs, ys)`: the checker does not
+    /// see the tuple-of-lists form as exhaustive.
+    fn compare_ident_lists(xs: List<String>, ys: List<String>) -> Ordering {
+        match xs {
+            [] -> match ys {
+                [] -> Eq,
+                [_ | _] -> Lt,
+            },
+            [x | xrest] -> match ys {
+                [] -> Gt,
+                [y | yrest] -> match compare_ident(x, y) {
+                    Eq -> compare_ident_lists(xrest, yrest),
+                    other -> other,
+                },
+            },
+        }
+    }
+
+    fn compare_ident(x: String, y: String) -> Ordering {
+        match (parse_int(x), parse_int(y)) {
+            // Both numeric: compare as numbers, so `2` precedes `10`.
+            (Some(a), Some(b)) -> compare_int(a, b),
+            // Numeric identifiers always have lower precedence.
+            (Some(_), None) -> Lt,
+            (None, Some(_)) -> Gt,
+            (None, None) -> compare_string(x, y),
+        }
+    }
+
+    fn compare_string(a: String, b: String) -> Ordering {
+        if a < b { Lt } else { if a > b { Gt } else { Eq } }
+    }
+
+    /// True when `a` and `b` denote the same version.
+    public fn equals(a: Version, b: Version) -> Bool {
+        match compare(a, b) { Eq -> true, _ -> false }
+    }
+
+    /// True when `a` precedes `b`.
+    public fn less_than(a: Version, b: Version) -> Bool {
+        match compare(a, b) { Lt -> true, _ -> false }
+    }
+
+    /// True when `a` follows `b`.
+    public fn greater_than(a: Version, b: Version) -> Bool {
+        match compare(a, b) { Gt -> true, _ -> false }
+    }
+
+    // ── parsing ─────────────────────────────────────────────────────
+
+    /// Parse `MAJOR.MINOR.PATCH` with an optional `-PRERELEASE` suffix.
+    ///
+    /// Build metadata after `+` is accepted and discarded, per semver: it does
+    /// not participate in precedence, so retaining it would be misleading.
+    /// Errors name what was wrong rather than just failing, since a bad
+    /// version in a manifest should point the user at the offending text.
+    public fn parse(s: String) -> Result<Version, String> {
+        let trimmed = trim(s)
+        if len(trimmed) == 0 {
+            Err("empty version string")
+        } else {
+            // Split build metadata off first; it never affects the outcome.
+            let core_and_pre = take_before(trimmed, "+")
+            let core = take_before(core_and_pre, "-")
+            let pre_tag = take_after(core_and_pre, "-")
+
+            let parts = split(core, ".")
+            if Array.length(parts) != 3 {
+                Err("expected MAJOR.MINOR.PATCH in `" + trimmed + "`")
+            } else {
+                // Chained with `and_then_result` rather than matched: an
+                // explicit `Err(e) -> Err(e)` re-wrap into a Result with a
+                // different success type does not infer (E430).
+                Result.and_then_result(
+                    parse_component(parts, 0, "major", trimmed),
+                    \x -> Result.and_then_result(
+                        parse_component(parts, 1, "minor", trimmed),
+                        \y -> Result.map_result(
+                            parse_component(parts, 2, "patch", trimmed),
+                            \z -> Version {
+                                major: x,
+                                minor: y,
+                                patch: z,
+                                pre: pre_tag,
+                            }
+                        )
+                    )
+                )
+            }
+        }
+    }
+
+    fn parse_component(
+        parts: Array<String>,
+        index: Int,
+        label: String,
+        original: String,
+    ) -> Result<Int, String> {
+        match Array.get(parts, index) {
+            None -> Err("missing " + label + " in `" + original + "`"),
+            Some(text) -> match parse_int(text) {
+                Some(n) -> Ok(n),
+                None -> Err(
+                    "invalid " + label + " `" + text + "` in `" + original + "`"
+                ),
+            },
+        }
+    }
+
+    /// The portion of `s` before the first `sep`, or all of `s` when absent.
+    fn take_before(s: String, sep: String) -> String {
+        match index_of(s, sep) {
+            Some(i) -> Str.string_slice(s, 0, i),
+            None -> s,
+        }
+    }
+
+    /// The portion of `s` after the first `sep`, or `None` when absent.
+    fn take_after(s: String, sep: String) -> Option<String> {
+        match index_of(s, sep) {
+            Some(i) -> Some(Str.string_slice(s, i + 1, len(s))),
+            None -> None,
+        }
+    }
+
+    fn index_of(s: String, needle: String) -> Option<Int> {
+        index_of_from(s, needle, 0)
+    }
+
+    fn index_of_from(s: String, needle: String, i: Int) -> Option<Int> {
+        if i >= len(s) {
+            None
+        } else {
+            if Str.string_slice(s, i, i + 1) == needle {
+                Some(i)
+            } else {
+                index_of_from(s, needle, i + 1)
+            }
+        }
+    }
+
+    /// Parse a non-negative integer. Returns `None` for empty input, a
+    /// non-digit, or a leading zero — semver forbids `01` so that versions
+    /// have one spelling each.
+    fn parse_int(s: String) -> Option<Int> {
+        if len(s) == 0 {
+            None
+        } else {
+            if len(s) > 1 && Str.string_slice(s, 0, 1) == "0" {
+                None
+            } else {
+                digits_to_int(Str.chars(s), 0, 0)
+            }
+        }
+    }
+
+    fn digits_to_int(cs: Array<String>, i: Int, acc: Int) -> Option<Int> {
+        if i >= Array.length(cs) {
+            Some(acc)
+        } else {
+            match Array.get(cs, i) {
+                None -> None,
+                Some(c) -> match digit_value(c) {
+                    None -> None,
+                    Some(d) -> digits_to_int(cs, i + 1, acc * 10 + d),
+                },
+            }
+        }
+    }
+
+    /// The numeric value of a single digit character, or `None`.
+    ///
+    /// A positional lookup rather than a ten-arm match: same behaviour, and it
+    /// keeps the function under the linter's cyclomatic-complexity limit.
+    fn digit_value(c: String) -> Option<Int> {
+        index_of("0123456789", c)
+    }
+
+    // ── rendering ───────────────────────────────────────────────────
+
+    /// Render a version. `parse(render(v)) == Ok(v)` for every `v` this module
+    /// can construct — the round-trip the property tests assert.
+    public fn render(v: Version) -> String {
+        let core = to_string(major(v)) + "." + to_string(minor(v)) + "."
+            + to_string(patch(v))
+        match pre(v) {
+            Some(tag) -> core + "-" + tag,
+            None -> core,
+        }
+    }
+
+    // ── ranges ──────────────────────────────────────────────────────
+
+    /// Whether `version` satisfies `range`.
+    ///
+    /// Pre-releases are excluded unless the range itself names one, per the
+    /// semver convention: `^1.0.0` must not silently pull in `2.0.0-alpha`.
+    /// The check is on the whole range rather than per-interval, because a
+    /// conjunction naming a pre-release anywhere is opting into them.
+    public fn matches(range: Range, version: Version) -> Bool {
+        if is_prerelease(version) && !range_admits_prerelease(range, version) {
+            false
+        } else {
+            satisfies(range, version)
+        }
+    }
+
+    /// Whether any bound in the range names a pre-release of the *same*
+    /// numeric version. Same-version is the rule: `>=1.0.0-rc` opts into
+    /// `1.0.0-rc1`, not into `2.0.0-alpha`.
+    fn range_admits_prerelease(range: Range, version: Version) -> Bool {
+        match range {
+            Exact(bound) -> shares_release(bound, version),
+            Caret(bound) -> shares_release(bound, version),
+            Tilde(bound) -> shares_release(bound, version),
+            GreaterEq(bound) -> shares_release(bound, version),
+            LessThan(bound) -> shares_release(bound, version),
+            And(left, right) -> range_admits_prerelease(left, version)
+                || range_admits_prerelease(right, version),
+        }
+    }
+
+    fn shares_release(bound: Version, version: Version) -> Bool {
+        is_prerelease(bound)
+            && major(bound) == major(version)
+            && minor(bound) == minor(version)
+            && patch(bound) == patch(version)
+    }
+
+    /// The interval test, ignoring the pre-release policy.
+    fn satisfies(range: Range, version: Version) -> Bool {
+        match range {
+            Exact(bound) -> equals(version, bound),
+            GreaterEq(bound) -> !less_than(version, bound),
+            LessThan(bound) -> less_than(version, bound),
+            Caret(bound) -> !less_than(version, bound)
+                && less_than(version, caret_limit(bound)),
+            Tilde(bound) -> !less_than(version, bound)
+                && less_than(version, tilde_limit(bound)),
+            And(left, right) -> satisfies(left, version) && satisfies(right, version),
+        }
+    }
+
+    /// The exclusive upper bound of `^v`: the next leftmost-nonzero bump.
+    ///
+    /// `^1.2.3` allows `<2.0.0`, `^0.2.3` allows `<0.3.0`, and `^0.0.3`
+    /// allows `<0.0.4` — the same "leftmost nonzero digit" rule `compat`
+    /// encodes, which is why both live in this module.
+    fn caret_limit(bound: Version) -> Version {
+        match compat(bound) {
+            Major(number) -> version(number + 1, 0, 0),
+            Minor(number) -> version(0, number + 1, 0),
+            Patch(number) -> version(0, 0, number + 1),
+        }
+    }
+
+    /// The exclusive upper bound of `~v`: the next minor.
+    fn tilde_limit(bound: Version) -> Version {
+        version(major(bound), minor(bound) + 1, 0)
+    }
+
+    /// Parse a requirement: comma-separated conjuncts, each a comparison.
+    ///
+    /// There is no `||` union, per the module header — a range is always a
+    /// single interval or an intersection of them.
+    public fn parse_range(source: String) -> Result<Range, String> {
+        let parts = split(source, ",")
+        if Array.length(parts) == 0 {
+            Err("empty version requirement")
+        } else {
+            Result.and_then_result(
+                parse_conjuncts(Array.to_list(parts)),
+                conjoin
+            )
+        }
+    }
+
+    /// Parse each comma-separated piece, keeping the first error.
+    fn parse_conjuncts(parts: List<String>) -> Result<List<Range>, String> {
+        match parts {
+            [] -> Ok([]),
+            [head | rest] -> Result.and_then_result(
+                parse_comparator(trim(head)),
+                \parsed -> Result.map_result(
+                    parse_conjuncts(rest),
+                    \others -> [parsed | others]
+                )
+            ),
+        }
+    }
+
+    /// Fold a non-empty conjunct list into nested `And`.
+    fn conjoin(ranges: List<Range>) -> Result<Range, String> {
+        match ranges {
+            [] -> Err("empty version requirement"),
+            [head | rest] -> match rest {
+                [] -> Ok(head),
+                [_ | _] -> Result.map_result(conjoin(rest), \tail -> And(head, tail)),
+            },
+        }
+    }
+
+    /// One comparator: `^1.2`, `~1.2`, `>=1.0`, `<2.0`, `=1.2.3`, or a bare
+    /// version (which means caret, as in Cargo).
+    fn parse_comparator(source: String) -> Result<Range, String> {
+        if len(source) == 0 {
+            Err("empty version requirement")
+        } else {
+            match operator_of(source) {
+                (symbol, rest) -> Result.and_then_result(
+                    parse_partial(trim(rest)),
+                    \bound -> build_range(symbol, bound)
+                ),
+            }
+        }
+    }
+
+    /// Split a leading comparison operator off the requirement.
+    ///
+    /// The operators are a table rather than a chain of `if`s: the two-
+    /// character forms must be tried before the one-character ones so `>=` is
+    /// not read as `>`, and a length-ordered table states that ordering once
+    /// instead of relying on the order the branches happen to be written in.
+    /// A requirement with no operator means caret, as in Cargo.
+    fn operator_of(source: String) -> (String, String) {
+        match List.find(operators(), \symbol -> starts_with_operator(source, symbol)) {
+            Some(symbol) -> (symbol, Str.string_slice(source, len(symbol), len(source))),
+            None -> ("^", source),
+        }
+    }
+
+    /// Recognized comparators, longest first.
+    fn operators() -> List<String> {
+        [">=", "^", "~", "<", "="]
+    }
+
+    fn starts_with_operator(source: String, symbol: String) -> Bool {
+        len(source) >= len(symbol) && Str.string_slice(source, 0, len(symbol)) == symbol
+    }
+
+    /// Build the range a comparator denotes.
+    ///
+    /// Exhaustive over `operators()`; the final case cannot arise because
+    /// `operator_of` only ever returns a symbol from that list.
+    fn build_range(symbol: String, bound: Version) -> Result<Range, String> {
+        match symbol {
+            "^" -> Ok(Caret(bound)),
+            "~" -> Ok(Tilde(bound)),
+            ">=" -> Ok(GreaterEq(bound)),
+            "<" -> Ok(LessThan(bound)),
+            "=" -> Ok(Exact(bound)),
+            _ -> Err("unsupported comparator `" + symbol + "`"),
+        }
+    }
+
+    /// Parse a possibly-partial version: `1`, `1.2`, or `1.2.3`.
+    ///
+    /// Requirements are routinely written `^1.2`, so the missing components
+    /// default to zero. `parse` itself stays strict — a *version* must be
+    /// complete; only a *requirement* may be abbreviated.
+    fn parse_partial(source: String) -> Result<Version, String> {
+        let parts = split(take_before(source, "-"), ".")
+        let count = Array.length(parts)
+        if count == 0 || count > 3 {
+            Err("invalid version requirement `" + source + "`")
+        } else {
+            parse(pad_components(parts, count) + suffix_of(source))
+        }
+    }
+
+    /// Pad `1` to `1.0.0` and `1.2` to `1.2.0`.
+    fn pad_components(parts: Array<String>, count: Int) -> String {
+        Str.join(parts, ".") + repeat_zeroes(3 - count)
+    }
+
+    fn repeat_zeroes(count: Int) -> String {
+        if count <= 0 { "" } else { ".0" + repeat_zeroes(count - 1) }
+    }
+
+    fn suffix_of(source: String) -> String {
+        match take_after(source, "-") {
+            Some(tag) -> "-" + tag,
+            None -> "",
+        }
+    }
+
+    /// Render a range back to its requirement syntax.
+    public fn render_range(range: Range) -> String {
+        match range {
+            Exact(bound) -> "=" + render(bound),
+            Caret(bound) -> "^" + render(bound),
+            Tilde(bound) -> "~" + render(bound),
+            GreaterEq(bound) -> ">=" + render(bound),
+            LessThan(bound) -> "<" + render(bound),
+            And(left, right) -> render_range(left) + ", " + render_range(right),
+        }
+    }
+
+    // ── compatibility ───────────────────────────────────────────────
+
+    /// The compatibility class of a version: "same leftmost nonzero digit".
+    ///
+    /// Below 1.0.0 every minor bump is treated as breaking, which is what the
+    /// `0.x` convention means in practice.
+    public fn compat(v: Version) -> Compat {
+        if major(v) != 0 {
+            Major(major(v))
+        } else {
+            if minor(v) != 0 { Minor(minor(v)) } else { Patch(patch(v)) }
+        }
+    }
+
+    /// Whether two versions are in the same compatibility class.
+    public fn compatible(a: Version, b: Version) -> Bool {
+        match (compat(a), compat(b)) {
+            (Major(x), Major(y)) -> x == y,
+            (Minor(x), Minor(y)) -> x == y,
+            (Patch(x), Patch(y)) -> x == y,
+            _ -> false,
+        }
+    }
+}

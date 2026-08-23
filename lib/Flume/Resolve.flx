@@ -1,0 +1,698 @@
+// Flume.Resolve — the dependency resolver.
+//
+// Pure: every function here has an empty effect row. The candidate set is a
+// *parameter*, not a fetch — Phase 2 supplies it from a registry, Phase 0 from
+// fixtures — and that seam is what keeps the resolver testable forever. It is
+// also what makes the purity claim meaningful: a solver that cannot reach the
+// network cannot make a resolution depend on when it ran.
+//
+// ## The problem
+//
+// One version per package name. Proposal 0177 explains why this is forced
+// rather than chosen: the VM linker keys globals by flat string name, and on a
+// collision `VmAssemblyContext::global_map_for` silently reuses the existing
+// global. Two versions of one package in one program would not error — they
+// would quietly alias each other's functions.
+//
+// That single-instance rule is exactly what makes resolution hard. If
+// duplicates were allowed, a conflict could almost always be settled by
+// admitting a second copy; under a single-instance rule the solver must
+// *backtrack*. So this is a real backtracking search, not a graph walk:
+//
+//   - **highest-version-first** — try the newest candidate before older ones,
+//     so a successful resolution is also a good one;
+//   - **most-constrained-goal-first** — expand the package with the fewest
+//     viable candidates next, because a goal with one candidate either forces
+//     the choice or fails immediately, and failing early is the whole game;
+//   - **a conflict cache** — remember which (package, version) choices already
+//     failed, so a sibling branch does not re-derive the same dead end.
+//
+// ## Shape
+//
+// The search is written as mutual recursion over an immutable `Search` state.
+// There is no mutable frontier and no explicit stack: a choice point is a
+// `List` of candidates, and backtracking is what happens when the recursive
+// call returns a failure and the fold moves to the next element. This is the
+// natural shape in a pure language, and it is why the resolver reads as a
+// specification of the search rather than as a machine that performs it.
+
+import Flow.Option as Option
+import Flow.Result as Result
+import Flow.String as Str
+import Flow.Array as Array
+import Flow.List as List
+import Flume.Version as Version
+import Flume.Version exposing (Version, Range, Ordering)
+
+module Flume.Resolve {
+
+    // ── inputs ──────────────────────────────────────────────────────
+
+    /// Where a constraint came from.
+    ///
+    /// Provenance is a cross-cutting requirement of the proposal: "why is this
+    /// version pinned?" must be answerable. It is recorded at construction
+    /// time because reconstructing it after a failed search is impossible —
+    /// by then the branch that introduced it is gone.
+    /// Every variant carries fields, even the three that have nothing to
+    /// record: a data type may not mix positional and named-field variants,
+    /// and `FromPackage` genuinely needs both a name and a version.
+    public data Origin {
+        FromRoot { unused: Bool },
+        FromPackage { name: String, version: Version },
+        FromLockfile { unused: Bool },
+        FromCommandLine { unused: Bool },
+    }
+
+    /// The root project, as a constraint origin.
+    public fn from_root() -> Origin { FromRoot { unused: true } }
+
+    /// The lockfile, as a constraint origin.
+    public fn from_lockfile() -> Origin { FromLockfile { unused: true } }
+
+    /// A `--constraint` flag, as a constraint origin.
+    public fn from_command_line() -> Origin { FromCommandLine { unused: true } }
+
+    /// Another package's manifest, as a constraint origin.
+    public fn from_package(name: String, version: Version) -> Origin {
+        FromPackage { name: name, version: version }
+    }
+
+    /// One requirement: a package name, an acceptable range, and where the
+    /// requirement came from.
+    public data Dep {
+        Dep { name: String, range: Range, origin: Origin }
+    }
+
+    /// A candidate package: a name, a version, and what it in turn requires.
+    public data Package {
+        Package { name: String, version: Version, deps: List<Dep> }
+    }
+
+    /// One chosen package.
+    public data Pick {
+        Pick { name: String, version: Version }
+    }
+
+    /// A successful resolution: exactly one version per package name.
+    public data Resolution {
+        Resolution { picks: List<Pick> }
+    }
+
+    /// Why resolution failed.
+    ///
+    /// `culprits` is the **minimized conflict set** the proposal requires: the
+    /// requirements that actually collided, not the whole graph. A resolver
+    /// that reports every constraint it saw is not much better than one that
+    /// reports nothing.
+    public data Conflict {
+        Unsatisfiable { name: String, culprits: List<Dep> },
+        Missing { name: String, culprits: List<Dep> },
+    }
+
+    // ── accessors ───────────────────────────────────────────────────
+
+    public fn dep(name: String, range: Range, origin: Origin) -> Dep {
+        Dep { name: name, range: range, origin: origin }
+    }
+
+    public fn package(name: String, version: Version, deps: List<Dep>) -> Package {
+        Package { name: name, version: version, deps: deps }
+    }
+
+    public fn dep_name(requirement: Dep) -> String {
+        match requirement { Dep { name, range: _, origin: _ } -> name }
+    }
+
+    public fn dep_range(requirement: Dep) -> Range {
+        match requirement { Dep { name: _, range, origin: _ } -> range }
+    }
+
+    public fn dep_origin(requirement: Dep) -> Origin {
+        match requirement { Dep { name: _, range: _, origin } -> origin }
+    }
+
+    public fn package_name(candidate: Package) -> String {
+        match candidate { Package { name, version: _, deps: _ } -> name }
+    }
+
+    public fn package_version(candidate: Package) -> Version {
+        match candidate { Package { name: _, version, deps: _ } -> version }
+    }
+
+    public fn package_deps(candidate: Package) -> List<Dep> {
+        match candidate { Package { name: _, version: _, deps } -> deps }
+    }
+
+    public fn pick_name(chosen: Pick) -> String {
+        match chosen { Pick { name, version: _ } -> name }
+    }
+
+    public fn pick_version(chosen: Pick) -> Version {
+        match chosen { Pick { name: _, version } -> version }
+    }
+
+    public fn resolution_picks(resolution: Resolution) -> List<Pick> {
+        match resolution { Resolution { picks } -> picks }
+    }
+
+    // ── search state ────────────────────────────────────────────────
+
+    /// The state threaded through the search.
+    ///
+    /// Immutable, and every field is a plain list: `picks` is what has been
+    /// decided, `pending` is what still has to be satisfied, and `failed` is
+    /// the conflict cache. Backtracking is then just "return the state you
+    /// were given" rather than an undo log.
+    data Search {
+        Search {
+            picks: List<Pick>,
+            pending: List<Dep>,
+            failed: List<Pick>,
+        }
+    }
+
+    fn search_picks(state: Search) -> List<Pick> {
+        match state { Search { picks, pending: _, failed: _ } -> picks }
+    }
+
+    fn search_pending(state: Search) -> List<Dep> {
+        match state { Search { picks: _, pending, failed: _ } -> pending }
+    }
+
+    fn search_failed(state: Search) -> List<Pick> {
+        match state { Search { picks: _, pending: _, failed } -> failed }
+    }
+
+    /// The result of exploring one branch.
+    ///
+    /// A distinct type rather than `Result<Search, Conflict>` because a failed
+    /// branch still carries the conflict cache it learned — that knowledge is
+    /// the point of the cache, and discarding it on failure would make the
+    /// cache useless.
+    data Outcome {
+        Solved { state: Search },
+        Stuck { conflict: Conflict, learned: List<Pick> },
+    }
+
+    // ── entry point ─────────────────────────────────────────────────
+
+    /// Resolve `roots` against `available`.
+    ///
+    /// Returns one version per package name, or the minimized conflict that
+    /// prevented it.
+    public fn resolve(
+        roots: List<Dep>,
+        available: List<Package>,
+    ) -> Result<Resolution, Conflict> {
+        let start = Search { picks: [], pending: roots, failed: [] }
+        match step(start, available) {
+            Solved { state } -> Ok(Resolution { picks: order_picks(search_picks(state)) }),
+            Stuck { conflict, learned: _ } -> Err(conflict),
+        }
+    }
+
+    /// Resolutions are reported in name order so a lockfile is stable: the
+    /// search visits packages in whatever order the heuristic picks, and that
+    /// order must not leak into the output.
+    fn order_picks(picks: List<Pick>) -> List<Pick> {
+        List.sort_by(picks, pick_name)
+    }
+
+    // ── the search ──────────────────────────────────────────────────
+
+    /// One step: satisfy the most constrained pending requirement, or succeed
+    /// when none remain.
+    fn step(state: Search, available: List<Package>) -> Outcome {
+        match select_goal(state, available) {
+            None -> Solved { state: state },
+            Some(goal) -> expand(state, goal, available),
+        }
+    }
+
+    /// Choose the next requirement to satisfy: the one with the fewest viable
+    /// candidates.
+    ///
+    /// Requirements already satisfied by a pick are dropped here rather than
+    /// filtered by the caller, so "no goal left" and "every goal satisfied"
+    /// are the same condition.
+    fn select_goal(state: Search, available: List<Package>) -> Option<Dep> {
+        let open = List.filter(
+            search_pending(state),
+            \requirement -> !already_picked(state, requirement)
+        )
+        match open {
+            [] -> None,
+            [first | rest] -> Some(most_constrained(state, first, rest, available)),
+        }
+    }
+
+    /// Whether a pick already settles this requirement.
+    ///
+    /// A pick that *violates* the requirement is not "settled" — it is a
+    /// conflict, which `expand` reports when it finds no candidate left.
+    fn already_picked(state: Search, requirement: Dep) -> Bool {
+        match find_pick(search_picks(state), dep_name(requirement)) {
+            None -> false,
+            Some(chosen) -> Version.matches(dep_range(requirement), pick_version(chosen)),
+        }
+    }
+
+    fn find_pick(picks: List<Pick>, name: String) -> Option<Pick> {
+        List.find(picks, \chosen -> pick_name(chosen) == name)
+    }
+
+    /// The most-constrained-goal-first heuristic: fewest viable candidates
+    /// wins.
+    ///
+    /// Written as a fold over the open goals rather than a sort, because only
+    /// the minimum is needed and the comparison is not cheap — each one counts
+    /// candidates.
+    fn most_constrained(
+        state: Search,
+        best: Dep,
+        rest: List<Dep>,
+        available: List<Package>,
+    ) -> Dep {
+        match rest {
+            [] -> best,
+            [next | others] -> most_constrained(
+                state,
+                if candidate_count(state, next, available)
+                    < candidate_count(state, best, available) { next } else { best },
+                others,
+                available,
+            ),
+        }
+    }
+
+    fn candidate_count(state: Search, requirement: Dep, available: List<Package>) -> Int {
+        List.length(candidates_for(state, requirement, available))
+    }
+
+    /// Try each candidate for `goal` in turn, deepest-first, and take the
+    /// first that leads to a full resolution.
+    ///
+    /// This is the backtracking point. `try_candidates` walks the candidate
+    /// list; returning from a failed recursive call *is* the backtrack, with
+    /// no state to unwind because nothing was mutated.
+    fn expand(state: Search, goal: Dep, available: List<Package>) -> Outcome {
+        match candidates_for(state, goal, available) {
+            [] -> Stuck {
+                conflict: explain(state, goal, available),
+                learned: search_failed(state),
+            },
+            [first | rest] -> try_candidates(state, goal, [first | rest], available, None),
+        }
+    }
+
+    /// Walk the candidate list, threading the conflict cache forward.
+    ///
+    /// The cache is threaded through *failures* specifically: when a candidate
+    /// fails, what its subtree learned is carried into the next sibling's
+    /// attempt, which is what stops the search re-deriving the same dead end
+    /// once per branch.
+    fn try_candidates(
+        state: Search,
+        goal: Dep,
+        remaining: List<Package>,
+        available: List<Package>,
+        deepest: Option<Conflict>,
+    ) -> Outcome {
+        match remaining {
+            [] -> Stuck {
+                conflict: settle(state, goal, available, deepest),
+                learned: search_failed(state),
+            },
+            [candidate | rest] -> match step(assume(state, candidate), available) {
+                Solved { state } -> Solved { state: state },
+                Stuck { conflict, learned } -> try_candidates(
+                    remember(state, learned, candidate),
+                    goal,
+                    rest,
+                    available,
+                    Some(keep_deeper(deepest, conflict)),
+                ),
+            },
+        }
+    }
+
+    /// Which conflict to report when every candidate for a goal failed.
+    ///
+    /// A goal can fail for two very different reasons, and blaming the wrong
+    /// one produces a useless message. Either *this* goal's own accumulated
+    /// requirements admit no version — a real conflict here — or every
+    /// candidate was fine but something deeper went wrong, in which case the
+    /// deeper conflict is the one the user has to fix.
+    ///
+    /// The diamond is the motivating case: `left` and `right` each resolve
+    /// perfectly, and it is their two requirements on `core` that collide.
+    /// Reporting "no version of `left` satisfies all requirements" would name
+    /// the package the search happened to unwind to, not the culprit.
+    fn settle(
+        state: Search,
+        goal: Dep,
+        available: List<Package>,
+        deepest: Option<Conflict>,
+    ) -> Conflict {
+        let local = explain(state, goal, available)
+        match deepest {
+            None -> local,
+            Some(inner) -> if is_real_conflict(local) { local } else { inner },
+        }
+    }
+
+    /// Whether a conflict names culprits that genuinely collide here, rather
+    /// than the single requirement the search was working on.
+    ///
+    /// One culprit is never a conflict *between* requirements: it means this
+    /// goal was reached and its candidates were exhausted for a reason found
+    /// further down.
+    fn is_real_conflict(conflict: Conflict) -> Bool {
+        match conflict {
+            Missing { name: _, culprits: _ } -> true,
+            Unsatisfiable { name: _, culprits } -> List.length(culprits) > 1,
+        }
+    }
+
+    /// Prefer the conflict with more culprits — the one that actually explains
+    /// a collision — over a single-requirement dead end.
+    fn keep_deeper(existing: Option<Conflict>, found: Conflict) -> Conflict {
+        match existing {
+            None -> found,
+            Some(previous) -> if is_real_conflict(previous) && !is_real_conflict(found) {
+                previous
+            } else {
+                found
+            },
+        }
+    }
+
+    /// Commit to a candidate: record the pick and add its requirements.
+    fn assume(state: Search, candidate: Package) -> Search {
+        Search {
+            picks: [
+                Pick {
+                    name: package_name(candidate),
+                    version: package_version(candidate),
+                }
+                | search_picks(state)
+            ],
+            pending: concat(search_pending(state), package_deps(candidate)),
+            failed: search_failed(state),
+        }
+    }
+
+    /// Record that a candidate led nowhere, keeping what its subtree learned.
+    fn remember(state: Search, learned: List<Pick>, candidate: Package) -> Search {
+        Search {
+            picks: search_picks(state),
+            pending: search_pending(state),
+            failed: [
+                Pick {
+                    name: package_name(candidate),
+                    version: package_version(candidate),
+                }
+                | merge_failed(search_failed(state), learned)
+            ],
+        }
+    }
+
+    fn merge_failed(known: List<Pick>, learned: List<Pick>) -> List<Pick> {
+        List.fold(learned, known, note_failure)
+    }
+
+    fn note_failure(known: List<Pick>, entry: Pick) -> List<Pick> {
+        if is_known_failure(known, entry) { known } else { [entry | known] }
+    }
+
+    fn is_known_failure(known: List<Pick>, entry: Pick) -> Bool {
+        List.any(known, \other -> same_pick(other, entry))
+    }
+
+    fn same_pick(left: Pick, right: Pick) -> Bool {
+        pick_name(left) == pick_name(right)
+            && Version.equals(pick_version(left), pick_version(right))
+    }
+
+    // ── candidate selection ─────────────────────────────────────────
+
+    /// The viable candidates for a requirement, best first.
+    ///
+    /// "Viable" means: the right package, satisfying *every* requirement seen
+    /// so far for that name (not just this one), consistent with any existing
+    /// pick, and not already known to fail. Filtering against all constraints
+    /// here rather than discovering the violation a level deeper is what keeps
+    /// the search from exploring obviously-doomed branches.
+    fn candidates_for(
+        state: Search,
+        requirement: Dep,
+        available: List<Package>,
+    ) -> List<Package> {
+        let name = dep_name(requirement)
+        let constraints = constraints_on(state, name)
+        highest_first(List.filter(
+            available,
+            \candidate -> package_name(candidate) == name
+                && satisfies_all(candidate, constraints)
+                && consistent_with_picks(state, candidate)
+                && !is_known_failure(
+                    search_failed(state),
+                    Pick {
+                        name: package_name(candidate),
+                        version: package_version(candidate),
+                    }
+                )
+        ))
+    }
+
+    /// Every requirement recorded so far for one package name.
+    ///
+    /// This is also the raw material for the conflict set — the culprits are
+    /// always a subset of these.
+    fn constraints_on(state: Search, name: String) -> List<Dep> {
+        List.filter(search_pending(state), \requirement -> dep_name(requirement) == name)
+    }
+
+    fn satisfies_all(candidate: Package, constraints: List<Dep>) -> Bool {
+        List.all(
+            constraints,
+            \requirement -> Version.matches(dep_range(requirement), package_version(candidate))
+        )
+    }
+
+    /// The one-version-per-package rule. A candidate is inconsistent when a
+    /// different version of the same name has already been chosen.
+    fn consistent_with_picks(state: Search, candidate: Package) -> Bool {
+        match find_pick(search_picks(state), package_name(candidate)) {
+            None -> true,
+            Some(chosen) -> Version.equals(pick_version(chosen), package_version(candidate)),
+        }
+    }
+
+    /// Highest version first, so the first solution found is also the newest.
+    fn highest_first(candidates: List<Package>) -> List<Package> {
+        List.reverse(sort_by_version(candidates))
+    }
+
+    /// Insertion sort by version.
+    ///
+    /// `List.sort_by` needs a key with an `Ord` instance, and `Version` is
+    /// ordered by `Version.compare` rather than structurally — `1.0.0` and
+    /// `1.0.0-rc` differ in an `Option` field whose derived order is not
+    /// semver's. So the comparison function is passed explicitly.
+    fn sort_by_version(candidates: List<Package>) -> List<Package> {
+        match candidates {
+            [] -> [],
+            [head | rest] -> insert_by_version(head, sort_by_version(rest)),
+        }
+    }
+
+    fn insert_by_version(candidate: Package, sorted: List<Package>) -> List<Package> {
+        match sorted {
+            [] -> [candidate],
+            [head | rest] -> match Version.compare(
+                package_version(candidate),
+                package_version(head),
+            ) {
+                Gt -> [head | insert_by_version(candidate, rest)],
+                _ -> [candidate | sorted],
+            },
+        }
+    }
+
+    // ── explaining failure ──────────────────────────────────────────
+
+    /// Build the conflict that killed a goal.
+    ///
+    /// Two distinct failures, and telling them apart matters to the user: the
+    /// package is *unknown* (a typo, a missing registry entry), or it exists
+    /// but no version satisfies the accumulated requirements. Only the second
+    /// is a version conflict.
+    fn explain(state: Search, goal: Dep, available: List<Package>) -> Conflict {
+        let name = dep_name(goal)
+        let constraints = constraints_on(state, name)
+        if List.any(available, \candidate -> package_name(candidate) == name) {
+            Unsatisfiable {
+                name: name,
+                culprits: minimize(constraints, versions_of(name, available)),
+            }
+        } else {
+            Missing { name: name, culprits: constraints }
+        }
+    }
+
+    fn versions_of(name: String, available: List<Package>) -> List<Version> {
+        List.map(
+            List.filter(available, \candidate -> package_name(candidate) == name),
+            package_version,
+        )
+    }
+
+    /// Reduce the constraints to a minimal set that is still unsatisfiable.
+    ///
+    /// A greedy pass: drop each requirement in turn and keep the drop if what
+    /// remains still admits no version. What survives is a set where *every*
+    /// member matters — remove any one and a version becomes available — which
+    /// is exactly the claim an error message wants to make.
+    ///
+    /// Greedy rather than exhaustive: a minimum-cardinality conflict set is
+    /// NP-hard, this is linear in the constraint count, and it always yields a
+    /// genuinely minimal set even if not the smallest possible one.
+    fn minimize(constraints: List<Dep>, versions: List<Version>) -> List<Dep> {
+        drop_each(constraints, constraints, versions)
+    }
+
+    /// Try dropping each of `remaining` from `kept` in turn.
+    ///
+    /// A recursion rather than a `List.fold`, because the folded function
+    /// needs `versions` as well as the accumulator and the element, and a
+    /// lambda cannot take two parameters.
+    fn drop_each(
+        kept: List<Dep>,
+        remaining: List<Dep>,
+        versions: List<Version>,
+    ) -> List<Dep> {
+        match remaining {
+            [] -> kept,
+            [head | rest] -> drop_each(
+                drop_if_still_unsatisfiable(kept, head, versions),
+                rest,
+                versions,
+            ),
+        }
+    }
+
+    fn drop_if_still_unsatisfiable(
+        kept: List<Dep>,
+        requirement: Dep,
+        versions: List<Version>,
+    ) -> List<Dep> {
+        let without = remove_dep(kept, requirement)
+        if admits_none(without, versions) { without } else { kept }
+    }
+
+    /// Whether no version satisfies every requirement in the set.
+    ///
+    /// An empty set admits everything, so it is never a conflict — which is
+    /// what stops `minimize` from reducing to nothing.
+    fn admits_none(constraints: List<Dep>, versions: List<Version>) -> Bool {
+        match constraints {
+            [] -> false,
+            [_ | _] -> !List.any(versions, \version -> List.all(
+                constraints,
+                \requirement -> Version.matches(dep_range(requirement), version)
+            )),
+        }
+    }
+
+    /// Remove one requirement by identity — same name, range, and origin.
+    fn remove_dep(constraints: List<Dep>, target: Dep) -> List<Dep> {
+        match constraints {
+            [] -> [],
+            [head | rest] -> if same_dep(head, target) {
+                rest
+            } else {
+                [head | remove_dep(rest, target)]
+            },
+        }
+    }
+
+    fn same_dep(left: Dep, right: Dep) -> Bool {
+        dep_name(left) == dep_name(right)
+            && Version.render_range(dep_range(left)) == Version.render_range(dep_range(right))
+            && render_origin(dep_origin(left)) == render_origin(dep_origin(right))
+    }
+
+    // ── rendering ───────────────────────────────────────────────────
+
+    // Rendering is a family of plain functions rather than a `Describe` type
+    // class with one instance per type. The class is the better design — the
+    // messages nest, so each renderer would call `describe` on its parts
+    // without naming their types — but Flux cannot dispatch it: with two
+    // instances of one class over two distinct ADTs, only the first resolves
+    // and the second panics at runtime with "No instance ... for the given
+    // type". The checker accepts the program, so the failure appears at the
+    // call, not the declaration. Verified with a two-ADT reproduction; see the
+    // note in `docs/known_issues.md`.
+
+    /// Where a constraint came from, in a form a user can act on.
+    public fn render_origin(origin: Origin) -> String {
+        match origin {
+            FromRoot { unused: _ } -> "this project",
+            FromPackage { name, version } -> name + " " + Version.render(version),
+            FromLockfile { unused: _ } -> "flux.lock",
+            FromCommandLine { unused: _ } -> "--constraint",
+        }
+    }
+
+    public fn render_dep(requirement: Dep) -> String {
+        dep_name(requirement) + " " + Version.render_range(dep_range(requirement))
+            + " (required by " + render_origin(dep_origin(requirement)) + ")"
+    }
+
+    public fn render_pick(chosen: Pick) -> String {
+        pick_name(chosen) + " " + Version.render(pick_version(chosen))
+    }
+
+    public fn render_resolution(resolution: Resolution) -> String {
+        join_lines(List.map(resolution_picks(resolution), render_pick))
+    }
+
+    /// Render a conflict as the explanation a user needs: what could not be
+    /// satisfied, and which requirements are responsible.
+    public fn render_conflict(conflict: Conflict) -> String {
+        match conflict {
+            Missing { name, culprits } -> join_lines([
+                "no package named `" + name + "`"
+                | List.map(culprits, indent_dep)
+            ]),
+            Unsatisfiable { name, culprits } -> join_lines([
+                "no version of `" + name + "` satisfies all requirements"
+                | List.map(culprits, indent_dep)
+            ]),
+        }
+    }
+
+    fn indent_dep(requirement: Dep) -> String {
+        "  " + render_dep(requirement)
+    }
+
+    fn join_lines(lines: List<String>) -> String {
+        Str.join(Array.from_list(lines), "\n")
+    }
+
+    // ── local helpers ───────────────────────────────────────────────
+
+    /// Append two lists.
+    ///
+    /// Local because `Flow.List.append` is private — the module directs
+    /// callers to the built-in `Semigroup` `++` operator, which the parser
+    /// does not currently accept.
+    fn concat<a>(front: List<a>, back: List<a>) -> List<a> {
+        match front {
+            [] -> back,
+            [head | rest] -> [head | concat(rest, back)],
+        }
+    }
+}

@@ -1,0 +1,589 @@
+// Flume.Manifest — the manifest schema.
+//
+// The last stage of the three-stage funnel proposal 0177 specifies:
+//
+//     text → Flume.Toml (generic value tree) → Manifest (domain model)
+//
+// The stages are separate modules because they fail differently. TOML errors
+// are about syntax and point at a character; schema errors are about meaning
+// ("`version` must be a string") and name a key. Fusing them would produce a
+// parser that reports "unexpected `=`" for a missing dependency field.
+//
+// Pure: every function here has an empty effect row, the property Phase 0
+// exists to demonstrate. A manifest parser that provably cannot read a file is
+// unusual enough to be worth enforcing, and `tests/flume/flume_manifest_tests.rs`
+// does enforce it.
+//
+// Positions here are coarse: this layer works on the value tree, which no
+// longer knows offsets, so errors land at 1:1 and name the key instead. That is
+// the right trade — a missing `[package] name` is a fact about the document,
+// not about a character.
+
+import Flow.Option as Option
+import Flow.Result as Result
+import Flow.String as Str
+import Flow.Array as Array
+import Flow.List as List
+import Flume.Parse as Parse
+import Flume.Parse exposing (ParseError, Pos)
+import Flume.Toml as Toml
+import Flume.Value as Value
+import Flume.Value exposing (Toml, TString, TInt, TBool, TArray, TTable)
+
+module Flume.Manifest {
+
+    // ── domain model ────────────────────────────────────────────────
+
+    /// Where a dependency comes from.
+    ///
+    /// `Registry` parses in Phase 0 even though Phase 1 rejects it: the
+    /// proposal requires registry dependencies to produce a "not supported
+    /// until Phase 2" diagnostic rather than being silently ignored, and that
+    /// is only possible if the parser represents them.
+    public data Source {
+        FromPath(String),
+        FromRegistry(String),
+    }
+
+    /// One entry of `[dependencies]` or `[dev-dependencies]`.
+    public data Dep {
+        Dep { name: String, source: Source, dev: Bool }
+    }
+
+    /// A `[[bin]]` target.
+    public data Bin {
+        Bin { name: String, path: String }
+    }
+
+    /// The `[package]` table. `namespace` is optional in the manifest and
+    /// derived from `name` when absent — see `derive_namespace`.
+    public data Package {
+        Package {
+            name: String,
+            version: String,
+            edition: String,
+            namespace: String,
+        }
+    }
+
+    /// A parsed and normalized manifest.
+    public data Manifest {
+        Manifest {
+            package: Package,
+            deps: List<Dep>,
+            lib: Option<String>,
+            bins: List<Bin>,
+        }
+    }
+
+    public fn manifest_package(manifest: Manifest) -> Package {
+        match manifest { Manifest { package, deps: _, lib: _, bins: _ } -> package }
+    }
+
+    public fn manifest_deps(manifest: Manifest) -> List<Dep> {
+        match manifest { Manifest { package: _, deps, lib: _, bins: _ } -> deps }
+    }
+
+    public fn manifest_lib(manifest: Manifest) -> Option<String> {
+        match manifest { Manifest { package: _, deps: _, lib, bins: _ } -> lib }
+    }
+
+    public fn manifest_bins(manifest: Manifest) -> List<Bin> {
+        match manifest { Manifest { package: _, deps: _, lib: _, bins } -> bins }
+    }
+
+    public fn package_name(package: Package) -> String {
+        match package { Package { name, version: _, edition: _, namespace: _ } -> name }
+    }
+
+    public fn package_version(package: Package) -> String {
+        match package { Package { name: _, version, edition: _, namespace: _ } -> version }
+    }
+
+    public fn package_edition(package: Package) -> String {
+        match package { Package { name: _, version: _, edition, namespace: _ } -> edition }
+    }
+
+    public fn package_namespace(package: Package) -> String {
+        match package { Package { name: _, version: _, edition: _, namespace } -> namespace }
+    }
+
+    public fn dep_name(dep: Dep) -> String {
+        match dep { Dep { name, source: _, dev: _ } -> name }
+    }
+
+    public fn dep_source(dep: Dep) -> Source {
+        match dep { Dep { name: _, source, dev: _ } -> source }
+    }
+
+    public fn dep_is_dev(dep: Dep) -> Bool {
+        match dep { Dep { name: _, source: _, dev } -> dev }
+    }
+
+    public fn bin_name(bin: Bin) -> String {
+        match bin { Bin { name, path: _ } -> name }
+    }
+
+    public fn bin_path(bin: Bin) -> String {
+        match bin { Bin { name: _, path } -> path }
+    }
+
+    // ── the schema layer ────────────────────────────────────────────
+
+    // Positions here are coarse: the schema layer works on the value tree,
+    // which no longer knows offsets, so errors land at 1:1 and name the key
+    // instead. That is the right trade — a missing `[package] name` is a fact
+    // about the document, not about a character.
+
+    /// How to read one typed value out of a TOML tree.
+    ///
+    /// A first-class *reader* rather than a type class. The natural spelling
+    /// is a class — `fn from_toml(value) -> Result<a, _>`, one instance per
+    /// field type, selected by what the caller expects. Flux cannot dispatch
+    /// that: a class whose variable appears only in the return position
+    /// resolves against the argument type instead, so three `FromToml`
+    /// instances all collapse onto `FromToml<Toml>` and fail to resolve.
+    ///
+    /// Reifying the choice as a value recovers the same property — one reader
+    /// per field type, and a caller names the type it wants rather than
+    /// spelling out the match — and composes further than the class would
+    /// have: `array_of` builds a reader from a reader, which an instance head
+    /// cannot express without higher-kinded types.
+    public data Reader<a> {
+        Reader { expected: String, read: (Toml) -> Option<a> }
+    }
+
+    fn reader_expected<a>(reader: Reader<a>) -> String {
+        match reader { Reader { expected, read: _ } -> expected }
+    }
+
+    fn reader_read<a>(reader: Reader<a>, value: Toml) -> Option<a> {
+        match reader { Reader { expected: _, read } -> read(value) }
+    }
+
+    public fn string_reader() -> Reader<String> {
+        Reader { expected: "a string", read: as_string }
+    }
+
+    public fn int_reader() -> Reader<Int> {
+        Reader { expected: "an integer", read: as_int }
+    }
+
+    public fn bool_reader() -> Reader<Bool> {
+        Reader { expected: "a boolean", read: as_bool }
+    }
+
+    /// A reader for a homogeneous array, built from the element reader.
+    ///
+    /// The combinator a type class could not have given: `Reader` is an
+    /// ordinary value, so readers compose the way parsers do.
+    public fn array_of<a>(element: Reader<a>) -> Reader<List<a>> {
+        Reader {
+            expected: "an array of " + reader_expected(element),
+            read: \value -> match value {
+                TArray(items) -> traverse_option(List.map(items, \item ->
+                    reader_read(element, item)
+                )),
+                _ -> None,
+            },
+        }
+    }
+
+    fn as_string(value: Toml) -> Option<String> {
+        match value { TString(text) -> Some(text), _ -> None }
+    }
+
+    fn as_int(value: Toml) -> Option<Int> {
+        match value { TInt(number) -> Some(number), _ -> None }
+    }
+
+    fn as_bool(value: Toml) -> Option<Bool> {
+        match value { TBool(flag) -> Some(flag), _ -> None }
+    }
+
+    /// A list of options into an option of a list — `None` if any is `None`.
+    fn traverse_option<a>(items: List<Option<a>>) -> Option<List<a>> {
+        List.foldr(items, Some([]), cons_option)
+    }
+
+    fn cons_option<a>(head: Option<a>, rest: Option<List<a>>) -> Option<List<a>> {
+        match head {
+            None -> None,
+            Some(value) -> match rest {
+                None -> None,
+                Some(values) -> Some([value | values]),
+            },
+        }
+    }
+
+    /// A schema failure, at the nominal head of the document.
+    ///
+    /// Returns the bare error rather than a `Result`: a generic `Err` whose
+    /// success type is still free does not infer (KI-011). Callers wrap it,
+    /// where their own return annotation has already fixed the type.
+    fn schema_error(kind: String, message: String) -> ParseError {
+        ParseError {
+            kind: kind,
+            message: message,
+            pos: Pos { line: 1, column: 1 },
+        }
+    }
+
+    /// Read a required field with the given reader.
+    fn require<a>(
+        reader: Reader<a>,
+        table: List<(String, Toml)>,
+        context: String,
+        key: String,
+    ) -> Result<a, ParseError> {
+        match Value.get(table, key) {
+            None -> Err(schema_error(
+                "missing-field",
+                "`" + context + "` is missing required field `" + key + "`",
+            )),
+            Some(value) -> match reader_read(reader, value) {
+                Some(read) -> Ok(read),
+                None -> Err(schema_error(
+                    "wrong-type",
+                    "`" + context + "." + key + "` must be "
+                        + reader_expected(reader),
+                )),
+            },
+        }
+    }
+
+    /// Read an optional field with the given reader.
+    fn optional<a>(
+        reader: Reader<a>,
+        table: List<(String, Toml)>,
+        context: String,
+        key: String,
+    ) -> Result<Option<a>, ParseError> {
+        match Value.get(table, key) {
+            None -> Ok(None),
+            Some(value) -> match reader_read(reader, value) {
+                Some(read) -> Ok(Some(read)),
+                None -> Err(schema_error(
+                    "wrong-type",
+                    "`" + context + "." + key + "` must be "
+                        + reader_expected(reader),
+                )),
+            },
+        }
+    }
+
+    // ── manifest entry points ───────────────────────────────────────
+
+    /// Parse a manifest: TOML, then schema, then normalization.
+    public fn parse(text: String) -> Result<Manifest, ParseError> {
+        Result.and_then_result(Toml.parse_toml(text), from_toml_document)
+    }
+
+    /// Build a manifest from an already-parsed TOML document.
+    public fn from_toml_document(document: Toml) -> Result<Manifest, ParseError> {
+        match document {
+            TTable(root) -> Result.and_then_result(
+                parse_package(root),
+                \package -> Result.and_then_result(
+                    parse_all_deps(root),
+                    \deps -> Result.and_then_result(
+                        parse_lib(root),
+                        \lib -> Result.map_result(
+                            parse_bins(root),
+                            \bins -> Manifest {
+                                package: package,
+                                deps: deps,
+                                lib: lib,
+                                bins: bins,
+                            }
+                        )
+                    )
+                )
+            ),
+            _ -> Err(schema_error("invalid-manifest", "a manifest must be a table")),
+        }
+    }
+
+    // ── [package] ───────────────────────────────────────────────────
+
+    fn parse_package(root: List<(String, Toml)>) -> Result<Package, ParseError> {
+        match Value.get(root, "package") {
+            None -> Err(schema_error(
+                "missing-package",
+                "a manifest must have a `[package]` table",
+            )),
+            Some(TTable(fields)) -> build_package(fields),
+            Some(_) -> Err(schema_error("invalid-package", "`package` must be a table")),
+        }
+    }
+
+    fn build_package(fields: List<(String, Toml)>) -> Result<Package, ParseError> {
+        Result.and_then_result(
+            require_string(fields, "package", "name"),
+            \name -> Result.and_then_result(
+                require_string(fields, "package", "version"),
+                \version -> Result.and_then_result(
+                    optional_string(fields, "package", "edition"),
+                    \edition -> Result.map_result(
+                        optional_string(fields, "package", "namespace"),
+                        \namespace -> Package {
+                            name: name,
+                            version: version,
+                            edition: Option.unwrap_or(edition, default_edition()),
+                            namespace: Option.unwrap_or(namespace, derive_namespace(name)),
+                        }
+                    )
+                )
+            )
+        )
+    }
+
+    // Named wrappers for the reader every `[package]` field happens to use.
+    // Worth having because these four call sites all read strings, and the
+    // reader argument would otherwise be repeated at each one.
+    fn require_string(
+        table: List<(String, Toml)>,
+        context: String,
+        key: String,
+    ) -> Result<String, ParseError> {
+        require(string_reader(), table, context, key)
+    }
+
+    fn optional_string(
+        table: List<(String, Toml)>,
+        context: String,
+        key: String,
+    ) -> Result<Option<String>, ParseError> {
+        optional(string_reader(), table, context, key)
+    }
+
+    fn default_edition() -> String { "2026" }
+
+    /// Derive a module namespace from a package name.
+    ///
+    /// `flux-json` becomes `FluxJson`: split on `-` and `_`, capitalize each
+    /// segment. The rule exists because every module-path segment must start
+    /// uppercase (proposal 0177, "The `Flume` namespace"), so a lowercase
+    /// package name cannot be used verbatim.
+    public fn derive_namespace(name: String) -> String {
+        Str.chars(name)
+            |> split_segments
+            |> drop_empty
+            |> capitalize_each
+            |> Array.from_list
+            |> concat_all
+    }
+
+    fn drop_empty(segments: List<String>) -> List<String> {
+        List.filter(segments, is_non_empty)
+    }
+
+    fn is_non_empty(segment: String) -> Bool {
+        len(segment) > 0
+    }
+
+    fn capitalize_each(segments: List<String>) -> List<String> {
+        List.map(segments, capitalize)
+    }
+
+    fn concat_all(segments: Array<String>) -> String {
+        Str.join(segments, "")
+    }
+
+    fn split_segments(characters: Array<String>) -> List<String> {
+        List.reverse(split_segments_from(characters, 0, "", []))
+    }
+
+    fn split_segments_from(
+        characters: Array<String>,
+        index: Int,
+        current: String,
+        acc: List<String>,
+    ) -> List<String> {
+        if index >= Array.length(characters) {
+            [current | acc]
+        } else {
+            match Array.get(characters, index) {
+                None -> [current | acc],
+                Some(character) -> if character == "-" || character == "_" {
+                    split_segments_from(characters, index + 1, "", [current | acc])
+                } else {
+                    split_segments_from(characters, index + 1, current + character, acc)
+                },
+            }
+        }
+    }
+
+    fn capitalize(text: String) -> String {
+        if len(text) == 0 {
+            text
+        } else {
+            upper(Str.string_slice(text, 0, 1)) + Str.string_slice(text, 1, len(text))
+        }
+    }
+
+    // ── [dependencies] ──────────────────────────────────────────────
+
+    fn parse_all_deps(root: List<(String, Toml)>) -> Result<List<Dep>, ParseError> {
+        Result.and_then_result(
+            parse_dep_table(root, "dependencies", false),
+            \normal -> Result.map_result(
+                parse_dep_table(root, "dev-dependencies", true),
+                \dev -> concat(normal, dev)
+            )
+        )
+    }
+
+    fn parse_dep_table(
+        root: List<(String, Toml)>,
+        table: String,
+        dev: Bool,
+    ) -> Result<List<Dep>, ParseError> {
+        match Value.get(root, table) {
+            None -> Ok([]),
+            Some(TTable(entries)) -> collect_results(
+                List.map(entries, \entry -> match entry {
+                    (name, value) -> parse_dep(name, value, dev, table)
+                })
+            ),
+            Some(_) -> Err(schema_error(
+                "invalid-dependencies",
+                "`" + table + "` must be a table",
+            )),
+        }
+    }
+
+    /// Turn a list of results into a result of a list, keeping the first
+    /// error.
+    ///
+    /// The generic version of the "parse every entry, fail on the first bad
+    /// one" loop that each of the three tables would otherwise spell out.
+    fn collect_results<a>(
+        results: List<Result<a, ParseError>>,
+    ) -> Result<List<a>, ParseError> {
+        List.foldr(results, Ok([]), cons_result)
+    }
+
+    fn cons_result<a>(
+        head: Result<a, ParseError>,
+        rest: Result<List<a>, ParseError>,
+    ) -> Result<List<a>, ParseError> {
+        Result.and_then_result(
+            head,
+            \value -> Result.map_result(rest, \values -> [value | values])
+        )
+    }
+
+    /// Parse one dependency entry.
+    ///
+    /// Two spellings: `name = "1.2"` (registry) and
+    /// `name = { path = "../x" }`. Both parse; Phase 1 rejects the registry
+    /// form downstream with its own diagnostic, which is why this does not
+    /// reject it here.
+    fn parse_dep(
+        name: String,
+        value: Toml,
+        dev: Bool,
+        table: String,
+    ) -> Result<Dep, ParseError> {
+        match value {
+            TString(requirement) -> Ok(Dep {
+                name: name,
+                source: FromRegistry(requirement),
+                dev: dev,
+            }),
+            TTable(fields) -> Result.map_result(
+                parse_dep_source(name, fields, table),
+                \source -> Dep { name: name, source: source, dev: dev }
+            ),
+            _ -> Err(schema_error(
+                "invalid-dependency",
+                "dependency `" + name + "` in `[" + table
+                    + "]` must be a version string or a table",
+            )),
+        }
+    }
+
+    /// Read a dependency's inline table.
+    ///
+    /// `path` and `version` are mutually exclusive. A dependency with both has
+    /// two sources of truth, and picking one silently is how a build ends up
+    /// using a working directory that the manifest appears to pin to a
+    /// published release.
+    fn parse_dep_source(
+        name: String,
+        fields: List<(String, Toml)>,
+        table: String,
+    ) -> Result<Source, ParseError> {
+        let context = "dependency `" + name + "`"
+        Result.and_then_result(
+            optional_string(fields, context, "path"),
+            \path -> Result.and_then_result(
+                optional_string(fields, context, "version"),
+                \version -> match (path, version) {
+                    (Some(_), Some(_)) -> Err(schema_error(
+                        "conflicting-dependency-source",
+                        "dependency `" + name + "` in `[" + table
+                            + "]` sets both `path` and `version`; it must set exactly one",
+                    )),
+                    (Some(found), None) -> Ok(FromPath(found)),
+                    (None, Some(requirement)) -> Ok(FromRegistry(requirement)),
+                    (None, None) -> Err(schema_error(
+                        "incomplete-dependency",
+                        "dependency `" + name + "` in `[" + table
+                            + "]` must set `path` or `version`",
+                    )),
+                }
+            )
+        )
+    }
+
+    // ── [lib] and [[bin]] ───────────────────────────────────────────
+
+    fn parse_lib(root: List<(String, Toml)>) -> Result<Option<String>, ParseError> {
+        match Value.get(root, "lib") {
+            None -> Ok(None),
+            Some(TTable(fields)) -> Result.map_result(
+                require_string(fields, "lib", "path"),
+                \path -> Some(path)
+            ),
+            Some(_) -> Err(schema_error("invalid-lib", "`lib` must be a table")),
+        }
+    }
+
+    fn parse_bins(root: List<(String, Toml)>) -> Result<List<Bin>, ParseError> {
+        match Value.get(root, "bin") {
+            None -> Ok([]),
+            Some(TArray(items)) -> collect_results(List.map(items, parse_bin)),
+            Some(_) -> Err(schema_error(
+                "invalid-bin",
+                "`bin` must be written as `[[bin]]`, an array of tables",
+            )),
+        }
+    }
+
+    fn parse_bin(item: Toml) -> Result<Bin, ParseError> {
+        match item {
+            TTable(fields) -> Result.and_then_result(
+                require_string(fields, "bin", "name"),
+                \name -> Result.map_result(
+                    require_string(fields, "bin", "path"),
+                    \path -> Bin { name: name, path: path }
+                )
+            ),
+            _ -> Err(schema_error("invalid-bin", "each `[[bin]]` entry must be a table")),
+        }
+    }
+
+    /// Append two lists.
+    ///
+    /// Local because `Flow.List.append` is private — the module directs
+    /// callers to the built-in `Semigroup` `++` operator, which the parser
+    /// does not currently accept.
+    fn concat<a>(front: List<a>, back: List<a>) -> List<a> {
+        match front {
+            [] -> back,
+            [head | rest] -> [head | concat(rest, back)],
+        }
+    }
+}
