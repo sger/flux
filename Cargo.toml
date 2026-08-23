@@ -382,6 +382,10 @@ name = "stdlib_process_tests"
 path = "tests/vm_runtime/stdlib_process_tests.rs"
 
 [[test]]
+name = "stdlib_discovery_tests"
+path = "tests/integration/stdlib_discovery_tests.rs"
+
+[[test]]
 name = "imported_constructor_types_tests"
 path = "tests/type_inference/imported_constructor_types_tests.rs"
 

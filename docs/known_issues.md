@@ -109,15 +109,6 @@ before the surface has real users, not after.
 in memory. `Crypto.sha256_file` streams internally and shows the shape a public
 streaming API could take.
 
-### KI-008 — The stdlib is found via a CWD-relative `lib/Flow`
-
-**Severity:** High · **Area:** Driver, tooling · **Tracked by:** [0177](proposals/0177_package_manager.md)
-
-`inject_flow_prelude` (`src/driver/frontend.rs`) resolves the stdlib relative to
-the current directory, and `find_project_root` keys on `Cargo.toml`. **Flux
-therefore only runs from inside this checkout**, which blocks installing it as a
-tool or shipping a binary. Proposal 0177 tracks the fix.
-
 ### KI-009 — TCP operations block the fiber scheduler
 
 **Severity:** Medium · **Area:** Runtime, `Flow.Tcp` · **Tracked by:** [0174](proposals/0174_async_effect_concurrency.md)
@@ -163,32 +154,81 @@ or three steps and poorly beyond that, which will press harder in
 
 ---
 
-### KI-013 — A recursive parser grammar over a recursive ADT crashes the native backend
+### KI-013 — `List.map` over a list of tuples yields a null element natively
 
 **Severity:** High · **Area:** LLVM backend · **Verified:** 2026-08-23
 
-`Flume.Toml` parses correctly on the VM and crashes on the native backend with
-`signal 5` (SIGTRAP) as soon as the input contains an integer, an array, an
-inline table, or a dotted key. Boolean and string values parse fine on both.
+Reduced 2026-08-23 from "the `Flume.Toml` grammar crashes" to a specific
+native-backend memory fault. The parser is not implicated: **parsing succeeds**
+and the crash is in rendering.
 
-```sh
-cargo run --features llvm -- --test --native tests/flux/flume_toml.flx
-# 58 tests: 21 passed, 37 failed
-#   native program terminated by signal 5 (signal): native program crashed
+Minimal reproduction — the smallest input that still crashes:
+
+```flux
+import Flume.Toml as Toml
+import Flume.Value as Value
+import Flume.Parse as Parse
+
+fn main() with IO {
+    print(match Toml.parse_toml("[a]\nx = \"1\"\n\n[b]\ny = { p = \"2\" }\nz = \"3\"\n") {
+        Ok(tree) -> Value.render_toml(tree),
+        Err(problem) -> "ERR " + Parse.error_kind(problem),
+    })
+}
 ```
 
-The crash is **not** a stack limit: `depth(10000)` runs natively without
-trouble. It is also not reproduced by any reduction attempted so far —
-`separated_by` alone, mutual recursion between two parser constructors via
-`lazy`, and a recursive ADT built by a recursive grammar all work natively in
-isolation. The trigger is some combination of these that only the full
-`Flume.Toml` grammar exhibits, so the minimal reproduction is currently the
-module itself.
+Deterministic: crashes on 3/3 native runs, correct on the VM
+(`{a={x="1"},b={y={p="2"},z="3"}}`). The trigger needs **two table headers, an
+inline table, and a following key** — any of those alone parses and renders
+fine natively.
+
+**What actually happens.** `Value.render_pair` receives a null. Breaking on it
+shows two calls: the first gets a valid heap pointer, the second gets
+`0x0000000000000000`. The call chain is
+`Flow_List_map` → `flux_call_closure` → `render_pair.closure_entry` →
+`render_pair`, so `List.map` reads a null where the list's second element
+should be.
+
+**Why it faults rather than misbehaves.** `render_pair` destructures a tuple,
+and the native backend lowers a tuple pattern to an unguarded dereference:
+
+```llvm
+%t0 = inttoptr i64 %v0 to ptr
+%t1 = getelementptr inbounds %FluxTuple, ptr %t0, i32 0, i32 5, i32 0
+```
+
+An ADT match in the same file emits `icmp ule i64 12, %v0` first — the
+sentinel/pointer guard described at `src/lir/emit_llvm.rs:3699`. Tuple patterns
+get no such guard, so a non-pointer value is dereferenced directly
+(`EXC_BAD_ACCESS` at address `0x8`).
+
+Two things to fix, and they are independent: `List.map` must not produce a null
+element, and tuple destructuring should carry the same pointer guard as ADT
+matching so a bad value fails loudly instead of segfaulting.
+
+**Refcounting is the prime suspect.** `Flow_List_map`'s loop emits six
+`flux_dup` calls and **no** `flux_drop` (module-wide the emitted IR runs 1546
+dups to 215 drops). The loop dups the list head twice — once when extracting it
+from the cons cell, again in the block that calls the mapped function. A plain
+dup-bias normally leaks rather than frees early, and `flux_dup` itself is
+correctly guarded (`rc.c:295` returns early for non-pointers and null), so the
+imbalance alone does not yet explain a null; the interaction with the tuple
+element's own ownership is the next thing to check.
+
+Tracing the list pointer across `map` iterations shows `0x6` (the EmptyList
+sentinel, the initial accumulator), then two valid pointers, then the fault.
+Aether's own verifier reports `ok` for all 117 functions and reports no
+dup/drop imbalance, so whatever is wrong is either below Aether or in how its
+decisions are lowered to LLVM.
+
+**Not yet reproduced in isolation.** `List.map` over a tuple list, over an empty
+tuple list, over a cons-built tuple list, a tuple whose second component is a
+recursive heap ADT, and `assoc_set`'s recursive rebuild all work natively on
+their own; the minimal case above is still the smallest known trigger.
 
 **Impact:** `tests/flume/flume_toml_tests.rs` and `flume_manifest_tests.rs` run
-their fixtures on the VM only, rather than through `assert_backends_agree`.
-`flume_resolve` and `flume_version` pass on both backends and still assert
-parity. Restore the parity assertion in both harnesses when this is fixed.
+their fixtures on the VM only rather than through `assert_backends_agree`.
+Restore the parity assertion in both when this is fixed.
 
 **Found alongside a bug this work did fix:** ordering comparisons on strings
 compared heap *addresses* on the native backend, because `flux_rt_lt/le/gt/ge`
@@ -196,8 +236,6 @@ in `runtime/c/flux_rt.c` handled only floats and ints and fell through to
 `flux_untag_int` on a string pointer. `"x" >= "a"` was `false` natively and
 `true` on the VM. Fixed by adding a `flux_string_cmp` lexicographic path to all
 four, matching the VM's byte ordering.
-
----
 
 ### KI-015 — A class whose variable appears only in the return position cannot dispatch
 
@@ -230,6 +268,42 @@ Reader<List<a>>` needs no higher-kinded types).
 
 Entries move here with the resolving commit rather than being deleted, so
 existing `#KI-nnn` references still explain themselves.
+
+### KI-008 — The stdlib is found via a CWD-relative `lib/Flow` — FIXED 2026-08-23
+
+**Severity:** High · **Area:** Driver, tooling · **Verified:** 2026-08-23 · **From:** [0177](proposals/0177_package_manager.md)
+
+`inject_flow_prelude` resolved the stdlib as the bare relative path `lib/Flow`
+against the process CWD and **returned silently** when it was missing;
+`collect_roots` did the same for `src` and `lib`. Running Flux from anywhere
+but this checkout produced an empty module root list:
+
+```
+Looked for module `Flow.List` under roots:  (imported from uses_stdlib.flx).
+```
+
+— no diagnosis, just nothing found. That blocked installing Flux as a tool or
+shipping a binary.
+
+Resolution is now `find_flow_dir` in `src/driver/frontend.rs`, tried in order:
+
+1. `$FLUX_LIB_DIR/Flow` — explicit override.
+2. `lib/Flow` walking up from the **entry file** — a project checkout, and the
+   workspace case where the prelude sits above the inner crate.
+3. `lib/Flow` walking up from the **executable** — an installed
+   `<prefix>/bin/flux` with `<prefix>/lib/Flow`, and a dev binary run from
+   `target/debug`.
+
+`collect_roots` also resolves `src`/`lib` relative to the entry file (keeping
+the CWD-relative pair, so invocations from a project root still work) and adds
+the stdlib's parent as a root.
+
+Verified end to end: a binary copied to `<prefix>/bin/flux` with the stdlib at
+`<prefix>/lib/Flow`, invoked from an unrelated directory with no environment
+variable, runs a program that imports `Flow.List`. Regression tests:
+`tests/integration/stdlib_discovery_tests.rs`.
+
+---
 
 ### KI-010 — The test suite is flaky under load: tests share one on-disk cache — FIXED 2026-08-23
 
