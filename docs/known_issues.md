@@ -300,6 +300,37 @@ Reader<List<a>>` needs no higher-kinded types).
 Entries move here with the resolving commit rather than being deleted, so
 existing `#KI-nnn` references still explain themselves.
 
+### KI-016 — An exported constructor field type kept its transparent alias — FIXED 2026-08-23
+
+**Severity:** High · **Area:** Module interfaces / HM inference · **Verified:** 2026-08-23
+
+A `public data` field declared with a transparent alias was exported with the
+alias unexpanded, so an importing module saw the alias where inference had
+produced the underlying type:
+
+```flux
+import Flow.Http as Http
+print("x" + Http.ok("hi").body)  // error[E300]: String and Bytes
+```
+
+`Bytes` is `public alias Bytes = String` in `lib/Flow/Http.flx`, so this
+compared a type against itself. It made `Flow.Http`'s response API unusable
+from any other module, and failed three `native_http_client_tests`.
+
+Aliases are expanded syntactically in the declaring program, before inference.
+Exported *schemes* are therefore already structural, but the `public_ctor_types`
+field metadata added for [KI-014](#ki-014) is collected from the **raw AST**,
+which still names the alias — so the two disagreed. Introduced with that field;
+before it, no unexpanded type crossed the boundary.
+
+Fixed by expanding aliases in the exported field types at interface-build time.
+`public_type_aliases` is also recorded so that changing an alias body
+invalidates importers whose field types were expanded through it; it is written
+for the fingerprint rather than read back. Covered by the
+`imported_constructor_types` fixture.
+
+---
+
 ### KI-014 — A constructor imported from another module infers as a type variable — FIXED 2026-08-23
 
 **Severity:** High · **Area:** HM inference / module interfaces · **Verified:** 2026-08-23

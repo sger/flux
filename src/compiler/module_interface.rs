@@ -22,7 +22,7 @@ use crate::{
         module_interface::{
             DependencyFingerprint, DependencyMissReason, MODULE_INTERFACE_FORMAT_VERSION,
             ModuleInterface, PublicClassEntry, PublicClassMethodEntry, PublicCtorTypeEntry,
-            PublicInstanceEntry, PublicInstanceMethodEntry,
+            PublicInstanceEntry, PublicInstanceMethodEntry, PublicTypeAliasEntry,
         },
         scheme::Scheme,
     },
@@ -164,6 +164,11 @@ pub fn build_interface(
         // Before the fingerprint: a changed field type changes how
         // importers infer the application.
         interface.public_ctor_types = collect_public_ctor_types(program, interner);
+        interface.public_type_aliases = collect_public_type_aliases(program, interner);
+        // Field types come from the raw AST, so they still name any alias.
+        // Schemes are built post-expansion; these must match or an importer
+        // sees `Bytes` where inference produced `String`.
+        expand_aliases_in_ctor_types(&mut interface.public_ctor_types, program);
         let mut ctor_symbols: HashSet<Symbol> = HashSet::new();
         for entry in interface.public_ctor_types.values() {
             ctor_symbols.insert(entry.adt_name);
@@ -174,6 +179,10 @@ pub fn build_interface(
             for field in &entry.fields {
                 collect_symbols_from_type_expr(field, &mut ctor_symbols);
             }
+        }
+        for entry in interface.public_type_aliases.values() {
+            ctor_symbols.extend(entry.params.iter().copied());
+            collect_symbols_from_type_expr(&entry.body, &mut ctor_symbols);
         }
         for sym in ctor_symbols {
             interface
@@ -231,6 +240,82 @@ fn collect_public_ctor_types(
                             },
                         );
                     }
+                }
+                Statement::Module { body, .. } => walk(&body.statements, interner, out),
+                _ => {}
+            }
+        }
+    }
+    let mut out = BTreeMap::new();
+    walk(&program.statements, interner, &mut out);
+    out
+}
+
+/// Collect `alias -> (params, body)` for every `public alias` declaration,
+/// walking top-level and module-nested statements.
+/// Expand transparent aliases in exported constructor field types.
+fn expand_aliases_in_ctor_types(
+    ctor_types: &mut BTreeMap<String, PublicCtorTypeEntry>,
+    program: &crate::syntax::program::Program,
+) {
+    use crate::syntax::statement::Statement;
+
+    fn collect(
+        statements: &[Statement],
+        out: &mut std::collections::HashMap<
+            crate::syntax::Identifier,
+            crate::syntax::statement::TypeAliasDecl,
+        >,
+    ) {
+        for statement in statements {
+            match statement {
+                Statement::TypeAlias(alias) => {
+                    out.insert(alias.name, alias.clone());
+                }
+                Statement::Module { body, .. } => collect(&body.statements, out),
+                _ => {}
+            }
+        }
+    }
+
+    let mut aliases = std::collections::HashMap::new();
+    collect(&program.statements, &mut aliases);
+    if aliases.is_empty() {
+        return;
+    }
+    // Diagnostics are discarded: the declaring module already reported any
+    // bad alias when it was compiled.
+    let mut discarded = Vec::new();
+    for entry in ctor_types.values_mut() {
+        for field in &mut entry.fields {
+            crate::ast::expand_type_aliases::expand_type(field, &aliases, "", &mut discarded);
+        }
+    }
+}
+
+fn collect_public_type_aliases(
+    program: &crate::syntax::program::Program,
+    interner: &Interner,
+) -> BTreeMap<String, PublicTypeAliasEntry> {
+    fn walk(
+        statements: &[crate::syntax::statement::Statement],
+        interner: &Interner,
+        out: &mut BTreeMap<String, PublicTypeAliasEntry>,
+    ) {
+        use crate::syntax::statement::Statement;
+        for statement in statements {
+            match statement {
+                Statement::TypeAlias(alias) => {
+                    if !alias.is_public {
+                        continue;
+                    }
+                    out.insert(
+                        interner.resolve(alias.name).to_string(),
+                        PublicTypeAliasEntry {
+                            params: alias.params.clone(),
+                            body: alias.body.clone(),
+                        },
+                    );
                 }
                 Statement::Module { body, .. } => walk(&body.statements, interner, out),
                 _ => {}
@@ -554,6 +639,8 @@ pub fn compute_interface_fingerprint(interface: &ModuleInterface) -> String {
         ctor_field_names: &'a BTreeMap<String, Vec<String>>,
         /// Importers infer constructor applications from these.
         public_ctor_types: &'a BTreeMap<String, PublicCtorTypeEntry>,
+        /// Importers expand these, so a changed alias body changes their types.
+        public_type_aliases: &'a BTreeMap<String, PublicTypeAliasEntry>,
     }
 
     let canonical = CanonicalInterface {
@@ -562,6 +649,7 @@ pub fn compute_interface_fingerprint(interface: &ModuleInterface) -> String {
         public_instances: &interface.public_instances,
         ctor_field_names: &interface.ctor_field_names,
         public_ctor_types: &interface.public_ctor_types,
+        public_type_aliases: &interface.public_type_aliases,
     };
 
     let bytes = serde_json::to_vec(&canonical).expect("canonical interface fingerprint");
@@ -979,6 +1067,7 @@ mod tests {
             public_instances: Vec::new(),
             ctor_field_names: BTreeMap::new(),
             public_ctor_types: BTreeMap::new(),
+            public_type_aliases: BTreeMap::new(),
         };
 
         let json = serde_json::to_string_pretty(&interface).unwrap();

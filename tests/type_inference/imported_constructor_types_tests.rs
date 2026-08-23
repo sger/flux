@@ -9,6 +9,11 @@
 //! Module interfaces now carry constructor field types, which seed inference on
 //! import. The fixture exercises every constructor shape (positional, nullary,
 //! named-field, generic) because they take different inference paths.
+//!
+//! It also covers a field whose declared type is a transparent alias. Field
+//! types are collected from the raw AST, which still names the alias, while
+//! schemes are built after expansion — so an unexpanded export made an importer
+//! see `Bytes` where inference produced `String`, breaking `Flow.Http`.
 
 use std::path::Path;
 use std::process::Command;
@@ -17,7 +22,9 @@ const FIXTURE: &str = "imported_constructor_types.flx";
 
 /// What the fixture must print, in order. Before the fix the run aborted at the
 /// first imported-constructor dispatch, having printed only the local one.
-const EXPECTED: &[&str] = &["int 7", "shape 12", "shape 0", "rect 12", "5", "shape 3"];
+const EXPECTED: &[&str] = &[
+    "int 7", "shape 12", "shape 0", "rect 12", "5", "tag!", "shape 3",
+];
 
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))

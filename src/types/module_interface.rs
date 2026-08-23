@@ -176,6 +176,24 @@ pub struct ModuleInterface {
     /// positional order.
     #[serde(default)]
     pub public_ctor_types: BTreeMap<String, PublicCtorTypeEntry>,
+    /// This module's `public alias` declarations, keyed by alias name.
+    ///
+    /// Recorded for the fingerprint rather than read back: exported types are
+    /// expanded through these aliases, so changing an alias body must
+    /// invalidate importers even when no other exported type changes shape.
+    ///
+    /// Sorted by alias name for stable fingerprinting.
+    #[serde(default)]
+    pub public_type_aliases: BTreeMap<String, PublicTypeAliasEntry>,
+}
+
+/// One public transparent type alias, as recorded in a module interface.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicTypeAliasEntry {
+    /// Alias parameters, in order (`alias Pair<a> = (a, a)`).
+    pub params: Vec<Identifier>,
+    /// The type the alias stands for.
+    pub body: TypeExpr,
 }
 
 /// Type metadata for one public ADT constructor.
@@ -266,6 +284,7 @@ impl ModuleInterface {
             public_instances: Vec::new(),
             ctor_field_names: BTreeMap::new(),
             public_ctor_types: BTreeMap::new(),
+            public_type_aliases: BTreeMap::new(),
         }
     }
 }
