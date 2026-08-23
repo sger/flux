@@ -42,50 +42,6 @@ Severity is about consequence, not effort:
 
 ## Open
 
-### KI-001 — A `let` read inside a `match` arm is `Uninit` after the match
-
-**Severity:** High · **Area:** VM backend, CFG lowering · **Verified:** 2026-08-22 on `038f51a8`
-
-On the VM backend, a `let` binding **read inside a statement-position `match`
-arm** is `Uninit` for the rest of the function. Correct inside the arm, corrupt
-after it. The LLVM backend is correct, so this is also a parity divergence.
-
-```flux
-fn main() with IO {
-    let n = 42
-    match Some(1) {
-        Some(x) -> println(to_string(n)),   // "42"       — correct
-        None -> println("none"),
-    }
-    println(to_string(n))                   // "<uninit>"  — no error
-}
-```
-
-The type decides how it fails. `String` aborts with `E1009: Cannot add String
-and Uninit values`; **`Int` prints `<uninit>` with no diagnostic at all.** The
-silent case is why this is High: a program produces wrong output and nothing
-says so.
-
-The trigger is narrow — it needs *both* a read in the arm *and* statement
-position:
-
-| Shape | Result |
-|---|---|
-| arm does not read the binding | fine |
-| `let r = match ...` (bound to a let) | fine |
-| same shape with `if`/`else` | fine |
-| `do { }` block vs single-expression arm | no difference — both break |
-
-Suspected liveness / register-allocation defect in VM-only CFG lowering
-(`src/cfg/`), in how statement-position match arms merge.
-
-**Workaround:** extract the arm body into a helper taking the value as a
-parameter.
-
-**Note:** the shape `let dir = ...; match Fs.list_dir(dir) { ... };
-Fs.remove_dir_all(dir)` is common in filesystem code, so this costs real
-debugging time — it looks like a bug in the code under test.
-
 ### KI-002 — `println` prints nothing for cons lists and arrays
 
 **Severity:** Medium · **Area:** VM runtime · **Verified:** 2026-08-22
@@ -381,6 +337,54 @@ Reader<List<a>>` needs no higher-kinded types).
 
 Entries move here with the resolving commit rather than being deleted, so
 existing `#KI-nnn` references still explain themselves.
+
+### KI-001 — A `let` read inside a `match` arm is `Uninit` after the match — FIXED 2026-08-23
+
+**Severity:** High · **Area:** VM backend, bytecode compiler · **Verified:** 2026-08-23
+
+On the VM backend, a `let` binding read inside a statement-position `match` arm
+was the VM's `Uninit` sentinel for the rest of the function — correct inside the
+arm, corrupt after it. `Int` printed `<uninit>` with no diagnostic; `String`
+aborted with `E1009: Cannot add Uninit and String values`. The LLVM backend was
+always correct, so this was also a parity divergence.
+
+```flux
+fn main() with IO {
+    let n = 42
+    match Some(1) {
+        Some(_) -> println(to_string(n)),   // "42"       — correct
+        None -> println("none"),
+    }
+    println(to_string(n))                   // "<uninit>"  — no error
+}
+```
+
+**Root cause.** The VM has two opcodes for reading a local: `OpGetLocal` copies,
+and `OpConsumeLocal` *moves* — `stack_take` replaces the slot with `Uninit` so
+`Rc::try_unwrap` can succeed downstream without a clone. The compiler picks the
+move when a binding's use count is exactly 1.
+
+`compile_match` (`src/compiler/expression.rs`) merged each arm body's use counts
+into the enclosing map with `or_insert`. For the arm's *own* pattern bindings
+that is right — the arm body is their whole lifetime. For a binding declared
+outside, it is not: the arm is one branch of the function, and `or_insert`
+silently installed the arm-local count of 1 as the whole-function count whenever
+the enclosing map had no entry for that symbol. The read after the match then
+found an emptied slot.
+
+**Fix.** Merge a symbol's arm-body count only when the symbol belongs to the
+arm's own scope (`exists_in_current_scope`, which is accurate at that point
+because `enter_block_scope` and `compile_pattern_bind` have already run). Arm
+bindings still compile to `OpConsumeLocal`, so the optimisation is narrowed
+rather than disabled.
+
+**A sharper trigger than originally recorded.** The bug reproduced *only in
+`main`*, whose body is not compiled under an enclosing use-count map; the same
+code inside a called helper was always correct. The first version of the
+regression fixture put its cases in helper functions and passed against the
+unfixed compiler. `tests/parity/match_arm_outer_binding.flx` therefore writes
+every case directly in `main`, and both its assertions were confirmed to fail
+without the fix.
 
 ### KI-012 — Class dispatch fails for a value built by a named-field constructor — FIXED 2026-08-23
 
