@@ -42,29 +42,6 @@ Severity is about consequence, not effort:
 
 ## Open
 
-### KI-002 — `println` prints nothing for cons lists and arrays
-
-**Severity:** Medium · **Area:** VM runtime · **Verified:** 2026-08-22
-
-`println(xs)` on a list or array produces no output. `to_string(xs)` and
-`print(xs)` both work, so the value and its formatter are fine — the defect is
-in `println`'s dispatch for collection values.
-
-**Workaround:** `println(to_string(xs))`.
-
-### KI-003 — The bare `contains` builtin returns false on primop-returned arrays
-
-**Severity:** Medium · **Area:** VM runtime / Base builtins · **Verified:** 2026-08-22
-
-The bare `contains` builtin returns `false` for arrays produced by a primop
-(such as `Fs.list_dir`), even when the element is present. `Array.contains` from
-`Flow.Array` is correct on the same value.
-
-Suggests the builtin is matching on a narrower representation than the one
-primops return.
-
-**Workaround:** use `Flow.Array.contains`.
-
 ### KI-004 — Native subprocess execution is POSIX-only
 
 **Severity:** Medium · **Area:** Native backend, `Flow.Process` · **Verified:** 2026-08-22 · **From:** [0178](proposals/implemented/0178_os_capabilities_for_tooling.md) Q8
@@ -268,6 +245,89 @@ Reader<List<a>>` needs no higher-kinded types).
 
 Entries move here with the resolving commit rather than being deleted, so
 existing `#KI-nnn` references still explain themselves.
+
+### KI-003 — A class-constrained stdlib function accepts the wrong container type — FIXED 2026-08-23
+
+Re-diagnosed and fixed 2026-08-23. The original report — "the bare `contains`
+builtin returns false on primop-returned arrays" — was accurate as a symptom but
+wrong about the cause, and understated the scope. There is **no bare `contains`
+builtin**: `Flow.List` is auto-exposed by the prelude, so bare `contains` is
+`List.contains`, and it returned `false` on an array because the array holds no
+cons cells. Array provenance was irrelevant — an array *literal* failed the same
+way, so `Fs.list_dir` was never implicated.
+
+The real defect was that the call type-checked at all. `List.contains` is
+declared `(List<a>, a) -> Bool`, so passing an `Array` must be an E300:
+
+```flux
+let arr = [|1, 2|]
+contains(arr, 1)         // was: false   → now: E300
+not_elem(arr, 1)         // was: true    → now: E300  (wrongly said "absent")
+nub(arr)                 // was: []      → now: E300
+contains(42, "x")        // was: false   → now: E300  (not even a container)
+```
+
+`nub` and `not_elem` are `Eq`-constrained and exist only in `Flow.List`, so this
+was never a `Flow.List` / `Flow.Array` name collision — the common factor was a
+**class constraint on the element type**.
+
+**Root cause.** `infer_call_fixed_arity_path` emitted its argument-mismatch
+diagnostic only when *both* the expected and actual types were
+`is_concrete()`. Unification genuinely failed (`List<Var>` vs `Array<Int>`), but
+an `Eq`-constrained element type leaves a free variable in the expected type, so
+`is_concrete()` was false and the failure was silently discarded. The guard was
+added for numeric defaulting, where a not-yet-defaulted `Num` variable can look
+transiently mismatched.
+
+**Fix.** `InferType::heads_conflict` reports a definitively incompatible pair of
+outermost type constructors, which stays decidable while free variables remain —
+no substitution turns `Array<Int>` into `List<a>`. The diagnostic now fires when
+both types are concrete *or* their heads conflict. Two guards keep the original
+suppression intact where it was load-bearing:
+
+- the callee must have no definition span, i.e. an already-generalized imported
+  scheme — a local function may still be having its own parameter types
+  inferred, so its provisional head is not yet fixed;
+- the argument type must be concrete, so an approximation is never reported as
+  the offending value;
+- the conflict is tested against the **unsubstituted** parameter type, so the
+  head must be written in the signature. `List<a>` in `nub`'s signature cannot
+  move; the `a` in `assert_eq<a>(a: a, b: a)` has no written head, and
+  substitution may have filled it from an approximation.
+
+All three guards were found by regression rather than by design, each from a
+different false positive: unannotated local functions, `List.first` piped into
+`upper`, and `assert_eq(List.first(xs), 1)`. The common source of the last two is
+that `List.first` returns `h` *or* `None` — a mixed return the stdlib
+deliberately leaves unannotated (`lib/Flow/List.flx:225`) — so inference
+approximates it as `Option<_>` while the runtime value is a bare `a`. Code that
+relies on this is ill-typed but works, and must not start failing to compile.
+
+Verified: the four cases above now error; numeric defaulting, float/string
+element types, every `examples/guide/` program, and all 51 `tests/flux/`
+fixtures still behave as before.
+
+### KI-002 — `println` prints nothing for cons lists and arrays — NOT REPRODUCIBLE 2026-08-23
+
+Retested 2026-08-23 on both backends. `println` prints lists and arrays
+correctly, including arrays returned from a primop (`Fs.list_dir`):
+
+```
+[1, 2, 3]
+[|1, 2, 3|]
+[]
+["a", "b"]
+```
+
+VM and native agree. No fix was made and no defect was found; the entry is kept
+so the `KI-002` reference still resolves.
+
+The original report most likely came from a filtered terminal transcript: a
+list prints as `[1, 2, 3]`, and a `grep -v '^\['` intended to drop the
+compiler's `[ 1 of 12] Compiling` progress lines removes every list output
+line too. `to_string(xs)` appeared to "work" because its output is quoted
+(`"[1, 2, 3]"`) and so survives that filter. Verified against raw stdout bytes
+rather than filtered output.
 
 ### KI-008 — The stdlib is found via a CWD-relative `lib/Flow` — FIXED 2026-08-23
 
