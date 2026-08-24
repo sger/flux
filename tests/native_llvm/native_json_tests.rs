@@ -39,6 +39,12 @@ fn run_source(source: &str) -> (String, String, bool) {
     // Private cache root: `--no-cache` does not isolate native
     // builds, which write shared artifacts regardless (KI-010).
     let scratch = Scratch::new("native-llvm");
+    // `CARGO_BIN_EXE_flux` is a path, not a snapshot: it resolves to whatever
+    // `flux` sits in the profile dir when this test runs. `cargo test
+    // --features llvm` reconciles that path itself, but a concurrent plain
+    // `cargo build` replaces it with a binary lacking the `llvm` feature, and
+    // the run then fails with "native backend features require `llvm`" even
+    // though this crate compiled with it. Same family as KI-010.
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--native", "--no-cache"])
