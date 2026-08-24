@@ -207,6 +207,10 @@ pub(crate) fn inject_flow_prelude(
 }
 
 /// Collects module search roots for the given entry file.
+///
+/// Roots are computed from the entry file and its project root, never from the
+/// process working directory, so `flux run foo/bar.flx` and
+/// `cd foo && flux run bar.flx` resolve the same set (proposal 0177 Phase 1).
 pub(crate) fn collect_roots(
     entry_path: &Path,
     extra_roots: &[PathBuf],
@@ -217,11 +221,14 @@ pub(crate) fn collect_roots(
         if let Some(parent) = entry_path.parent() {
             roots.push(parent.to_path_buf());
         }
-        // `src`/`lib` beside the entry file, then beside the CWD. The
-        // entry-relative pair is what lets a program run from anywhere; the
-        // CWD pair is kept so invocations from a project root still work.
+        // `src`/`lib` beside the entry file, then beside the project root.
+        // The entry-relative pair is what lets a program run from anywhere;
+        // the project-root pair replaces an earlier CWD-relative lookup, which
+        // made the resolved roots depend on the directory flux was invoked
+        // from.
         let entry_dir = entry_path.parent().map(Path::to_path_buf);
-        for base in [entry_dir.as_deref(), Some(Path::new("."))]
+        let project_dir = crate::shared::cache_paths::find_project_root(entry_path);
+        for base in [entry_dir.as_deref(), project_dir.as_deref()]
             .into_iter()
             .flatten()
         {
