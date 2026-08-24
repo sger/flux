@@ -177,6 +177,15 @@ fn test_two_tables_are_independent() with IO {
     assert_eq(render("[a]\nx = 1\n\n[b]\nx = 2\n"), "{a={x=1},b={x=2}}")
 }
 
+// Regression for KI-013: rebuilding a table after a second header must keep
+// tuple fields owned when the nested value is itself a table.
+fn test_nested_table_rebuild_preserves_tuple_elements() with IO {
+    assert_eq(
+        render("[a]\nx = \"1\"\n\n[b]\ny = { p = \"2\" }\nz = \"3\"\n"),
+        "{a={x=\"1\"},b={y={p=\"2\"},z=\"3\"}}",
+    )
+}
+
 // A parent header may follow a child: `[a.b]` creates `a` implicitly, and `[a]`
 // then fills it in. Only an *explicit* redefinition is an error.
 fn test_a_parent_table_may_be_written_after_its_child() with IO {

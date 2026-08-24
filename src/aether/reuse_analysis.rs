@@ -537,6 +537,7 @@ fn pat_field_binder_ids(pat: &crate::core::CorePat) -> Option<Vec<Option<CoreBin
 pub enum ReuseFailureReason {
     ShapeMismatch,
     TokenEscapesIntoFields,
+    BorrowedFieldToken,
     ProvenanceLost,
     BranchAmbiguity,
     EffectfulBoundary,
@@ -548,6 +549,7 @@ impl ReuseFailureReason {
         match self {
             ReuseFailureReason::ShapeMismatch => "ShapeMismatch",
             ReuseFailureReason::TokenEscapesIntoFields => "TokenEscapesIntoFields",
+            ReuseFailureReason::BorrowedFieldToken => "BorrowedFieldToken",
             ReuseFailureReason::ProvenanceLost => "ProvenanceLost",
             ReuseFailureReason::BranchAmbiguity => "BranchAmbiguity",
             ReuseFailureReason::EffectfulBoundary => "EffectfulBoundary",
@@ -1220,13 +1222,24 @@ where
 fn build_reuse_expr(
     token: &CoreVarRef,
     body: CoreExpr,
-    _env: &ReuseEnv,
+    env: &ReuseEnv,
     pat_tag: Option<&CoreTag>,
     blocked_outer_token: Option<CoreBinderId>,
 ) -> Result<CoreExpr, ReuseFailureReason> {
     let Some(token_binder) = token.binder else {
         return Err(ReuseFailureReason::ProvenanceLost);
     };
+    if blocked_outer_token.is_some()
+        && matches!(
+            env.origins.get(&token_binder),
+            Some(ReuseOrigin::Field { .. })
+        )
+    {
+        return Err(ReuseFailureReason::BorrowedFieldToken);
+    }
+    if blocked_outer_token.is_some() {
+        return Err(ReuseFailureReason::SharedBranchOnly);
+    }
     let (tag, fields, span) = into_constructor_shape_for_tag_aether(body, pat_tag)
         .ok_or(ReuseFailureReason::ShapeMismatch)?;
     if pat_tag.is_some_and(|expected| expected != &tag) {
