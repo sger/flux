@@ -1,5 +1,5 @@
 //! Project roots come from `flux.toml`, and module search roots are computed
-//! from the entry file rather than the process CWD (proposal 0177 Phase 1).
+//! from the entry file rather than the process CWD.
 //!
 //! `collect_roots` previously looked for `src`/`lib` beside `Path::new(".")`,
 //! so the resolved module roots depended on the directory `flux` was invoked

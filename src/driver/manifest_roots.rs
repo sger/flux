@@ -1,0 +1,167 @@
+//! Resolve a project's package roots by running the Flux manifest resolver.
+//!
+//! Manifest handling lives in Flux: `Flume.Roots` reads
+//! `flux.toml`, walks path dependencies, derives namespaces, and prints one
+//! record per resolved package. This module is the whole Rust side of that
+//! boundary — it runs the resolver and turns its output into scoped module
+//! roots. There is deliberately no TOML parsing here.
+//!
+//! The resolver is itself a Flux program compiled by this same driver, so the
+//! child invocation must not try to resolve a manifest of its own. The
+//! `FLUX_SKIP_MANIFEST_ENV` guard breaks that one level of recursion.
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use crate::syntax::module_graph::ModuleRoot;
+
+/// Set on the child process that runs the manifest resolver. While it is set,
+/// `resolve_project_roots` returns `None` immediately, so compiling the
+/// resolver cannot trigger another resolver run.
+pub const FLUX_SKIP_MANIFEST_ENV: &str = "FLUX_SKIP_MANIFEST";
+
+/// Write an entry file that calls `<module>.main`, and return its path.
+///
+/// A module's `main` cannot be invoked directly, so every Flume entry point is
+/// reached through a generated shim. Shims live in the cache directory rather
+/// than in `lib/`, so the stdlib stays free of compiler-private files. See
+/// KI-019.
+pub fn flume_shim(module: &str) -> Result<PathBuf, String> {
+    let dir = shim_dir()?;
+    let alias = module.rsplit('.').next().unwrap_or(module);
+    let source = format!("import {module} as {alias}\n\nfn main() with IO {{ {alias}.main() }}\n");
+    let shim = dir.join(format!("{}.flx", alias.to_lowercase()));
+    write_if_changed(&shim, &source)?;
+    Ok(shim)
+}
+
+/// Shims default to the user's cache directory so `flux init` works before a
+/// project (and therefore a project cache) exists.
+fn shim_dir() -> Result<PathBuf, String> {
+    let base = std::env::temp_dir().join("flux-flume-shims");
+    std::fs::create_dir_all(&base).map_err(|e| e.to_string())?;
+    Ok(base)
+}
+
+fn write_if_changed(path: &Path, source: &str) -> Result<(), String> {
+    if std::fs::read_to_string(path).ok().as_deref() != Some(source) {
+        std::fs::write(path, source).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Resolve the package roots declared by the `flux.toml` at `project_dir`.
+///
+/// Returns `None` when there is no manifest, when the guard is set, or when
+/// the resolver could not be run at all — every one of which means "this is
+/// not a package build", and the caller falls back to unscoped roots.
+///
+/// A manifest that exists but is *invalid* is different: that is a real error
+/// the user must see, so it is returned as `Err`.
+pub(crate) fn resolve_project_roots(
+    project_dir: &Path,
+    cache_dir: &Path,
+) -> Option<Result<Vec<ModuleRoot>, String>> {
+    if std::env::var_os(FLUX_SKIP_MANIFEST_ENV).is_some() {
+        return None;
+    }
+    if !project_dir.join("flux.toml").is_file() {
+        return None;
+    }
+
+    let shim = flume_shim("Flume.Roots").ok()?;
+    let exe = std::env::current_exe().ok()?;
+
+    let output = Command::new(exe)
+        .arg(&shim)
+        .arg("--cache-dir")
+        .arg(cache_dir)
+        .arg("--")
+        .arg(project_dir)
+        .env(FLUX_SKIP_MANIFEST_ENV, "1")
+        .env("NO_COLOR", "1")
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return Some(Err(format!(
+            "could not run the manifest resolver: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+
+    Some(parse_records(&String::from_utf8_lossy(&output.stdout)))
+}
+
+/// Parse the resolver's `ok`/`err` records into scoped roots.
+///
+/// The program prints a single quoted string, so surrounding quotes and
+/// escaped tabs/newlines are unwrapped before the records are read.
+fn parse_records(stdout: &str) -> Result<Vec<ModuleRoot>, String> {
+    let mut roots = Vec::new();
+    for line in unquote(stdout.trim()).lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let mut fields = line.split('\t');
+        match fields.next() {
+            Some("ok") => {
+                let (Some(package), Some(namespace), Some(dir)) =
+                    (fields.next(), fields.next(), fields.next())
+                else {
+                    return Err(format!("malformed root record: {line}"));
+                };
+                roots.push(ModuleRoot::package(PathBuf::from(dir), namespace, package));
+            }
+            Some("err") => {
+                return Err(fields.collect::<Vec<_>>().join("\t"));
+            }
+            _ => return Err(format!("malformed root record: {line}")),
+        }
+    }
+    Ok(roots)
+}
+
+/// Undo `print`'s string rendering: strip the wrapping quotes and turn the
+/// escaped separators back into real ones.
+fn unquote(text: &str) -> String {
+    let inner = text
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+        .unwrap_or(text);
+    inner.replace("\\t", "\t").replace("\\n", "\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_records, unquote};
+
+    #[test]
+    fn parses_ok_records_into_scoped_roots() {
+        let roots =
+            parse_records("\"ok\\tapp\\tApp\\t./src\\nok\\tshared\\tShared\\t../shared/src\"")
+                .expect("expected records");
+        assert_eq!(roots.len(), 2);
+        assert_eq!(roots[0].namespace.as_deref(), Some("App"));
+        assert_eq!(roots[1].namespace.as_deref(), Some("Shared"));
+        assert!(roots[1].path.ends_with("shared/src"));
+    }
+
+    #[test]
+    fn surfaces_the_resolvers_error_message() {
+        let err = parse_records("\"err\\tregistry dependency `json` is not supported\"")
+            .expect_err("expected an error");
+        assert!(err.contains("registry dependency"), "{err}");
+    }
+
+    #[test]
+    fn rejects_a_record_it_cannot_read() {
+        assert!(parse_records("\"what\\tis\\tthis\"").is_err());
+    }
+
+    #[test]
+    fn unquote_leaves_bare_text_alone() {
+        assert_eq!(unquote("ok\tA\tb"), "ok\tA\tb");
+    }
+}

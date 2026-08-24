@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use crate::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, types::ErrorType,
 };
+use crate::syntax::module_graph::ModuleRoot;
 use crate::syntax::{
     Identifier, interner::Interner, lexer::Lexer, module_graph::ModuleGraph, parser::Parser,
     program::Program, statement::Statement,
@@ -210,7 +211,7 @@ pub(crate) fn inject_flow_prelude(
 ///
 /// Roots are computed from the entry file and its project root, never from the
 /// process working directory, so `flux run foo/bar.flx` and
-/// `cd foo && flux run bar.flx` resolve the same set (proposal 0177 Phase 1).
+/// `cd foo && flux run bar.flx` resolve the same set.
 pub(crate) fn collect_roots(
     entry_path: &Path,
     extra_roots: &[PathBuf],
@@ -250,6 +251,49 @@ pub(crate) fn collect_roots(
         }
     }
     roots
+}
+
+/// Collect module search roots, scoping them to package namespaces when the
+/// entry file belongs to a project with a `flux.toml`.
+///
+/// Falls back to the unscoped roots `collect_roots` produces whenever there is
+/// no manifest, so script mode is unaffected. A manifest that exists but does
+/// not resolve is returned as an error rather than silently ignored.
+pub(crate) fn collect_module_roots(
+    entry_path: &Path,
+    extra_roots: &[PathBuf],
+    roots_only: bool,
+    cache_dir: &Path,
+) -> Result<Vec<ModuleRoot>, String> {
+    let base: Vec<ModuleRoot> = collect_roots(entry_path, extra_roots, roots_only)
+        .into_iter()
+        .map(ModuleRoot::unscoped)
+        .collect();
+
+    if roots_only {
+        return Ok(base);
+    }
+    let Some(project_dir) = crate::shared::cache_paths::find_project_root(entry_path) else {
+        return Ok(base);
+    };
+    let Some(resolved) =
+        crate::driver::manifest_roots::resolve_project_roots(&project_dir, cache_dir)
+    else {
+        return Ok(base);
+    };
+
+    // Package roots come first so a namespaced import resolves through its
+    // own package before the entry-relative and stdlib fallbacks.
+    match resolved {
+        Ok(mut roots) => {
+            roots.extend(base);
+            Ok(roots)
+        }
+        // The manifest error is the real diagnosis, but the caller still needs
+        // usable roots: reporting it alongside a cascade of "cannot find
+        // Flow.Option" would bury it.
+        Err(message) => Err(message),
+    }
 }
 
 /// Extracts the declared module name from a parsed program.

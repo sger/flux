@@ -162,6 +162,32 @@ Reader<List<a>>` needs no higher-kinded types).
 Entries move here with the resolving commit rather than being deleted, so
 existing `#KI-nnn` references still explain themselves.
 
+### KI-019 — Some CLI commands exit 0 after failing — FIXED 2026-08-24
+
+`run_command` ends with an unconditional `ExitCode::SUCCESS`, so a command that
+printed an error still exited `0` unless its own arm exited first. Scripts and
+CI could not detect the failure.
+
+**Fix.** The run and `fmt` paths exit non-zero where they report the error,
+matching the `std::process::exit(1)` convention already used across the driver.
+The cache commands instead *return* a success flag that the CLI turns into an
+exit code: they are called directly from unit tests, and exiting in-process
+would kill the test harness. Nine command paths were affected or unguarded:
+
+- the implicit `flux <file.flx>` run path and `flux eval`, whose shared
+  frontend error arm printed and fell through;
+- `fmt`, on both an unreadable and an unwritable file;
+- `cache-info`, which returned early on a missing file;
+- `module-cache-info` and `native-cache-info`, which had no existence check at
+  all and reported an empty cache for a path that did not exist.
+
+Success paths still exit `0`; `tokens`, `bytecode`, `lint`, `interface-info`,
+compile errors, and failing `--test` runs were already correct.
+
+Note `flux <file>.flx` for a program evaluating to `None` is *not* this bug:
+`[1, 2, 3][99]` is `None` by design since `Array.get` began returning `Option`
+(cache epoch 15), so exiting `0` is correct there.
+
 ### KI-013 — `List.map` over a list of tuples yields a null element natively — FIXED 2026-08-24
 
 The minimal TOML reproduction now renders identically on the VM and native

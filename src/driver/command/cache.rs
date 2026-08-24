@@ -37,7 +37,7 @@ use crate::{
 };
 
 /// Shows cache availability for the selected backend around the input program.
-pub fn show_cache_info(flags: &DriverFlags) {
+pub fn show_cache_info(flags: &DriverFlags) -> bool {
     let path = require_input_path(flags, "Usage: flux cache-info <file.flx>");
     print_native_cache_unavailable_if_needed(flags);
     let selection = CacheDisplaySelection::from_flags(flags);
@@ -46,19 +46,19 @@ pub fn show_cache_info(flags: &DriverFlags) {
         &flags.input.roots,
         flags.cache.cache_dir.as_deref(),
         selection,
-    );
+    )
 }
 
 /// Shows detailed VM module cache status for each module in the input graph.
-pub fn show_module_cache_info(flags: &DriverFlags) {
+pub fn show_module_cache_info(flags: &DriverFlags) -> bool {
     let path = require_input_path(flags, "Usage: flux module-cache-info <file.flx>");
-    show_module_cache_info_for_path(path, &flags.input.roots, flags.cache.cache_dir.as_deref());
+    show_module_cache_info_for_path(path, &flags.input.roots, flags.cache.cache_dir.as_deref())
 }
 
 /// Shows detailed native module cache status for each module in the input graph.
-pub fn show_native_cache_info(flags: &DriverFlags) {
+pub fn show_native_cache_info(flags: &DriverFlags) -> bool {
     let path = require_input_path(flags, "Usage: flux native-cache-info <file.flx>");
-    show_native_cache_info_for_path(path, &flags.input.roots, flags.cache.cache_dir.as_deref());
+    show_native_cache_info_for_path(path, &flags.input.roots, flags.cache.cache_dir.as_deref())
 }
 
 /// Removes the resolved driver cache directory.
@@ -91,10 +91,14 @@ pub(crate) fn show_cache_info_for_path(
     extra_roots: &[PathBuf],
     cache_dir: Option<&Path>,
     selection: CacheDisplaySelection,
-) {
+) -> bool {
     if !Path::new(path).exists() {
+        // Reporting "no cache" for a path that does not exist is
+        // indistinguishable from a typo (KI-019). The caller turns `false`
+        // into a non-zero exit; returning rather than exiting in-process keeps
+        // this callable from tests.
         eprintln!("Error: file not found: {}", path);
-        return;
+        return false;
     }
     let input = CacheCommandInput {
         path,
@@ -141,13 +145,18 @@ pub(crate) fn show_cache_info_for_path(
             }
         }
     }
+    true
 }
 
 pub(crate) fn show_module_cache_info_for_path(
     path: &str,
     extra_roots: &[PathBuf],
     cache_dir: Option<&Path>,
-) {
+) -> bool {
+    if !Path::new(path).exists() {
+        eprintln!("Error: file not found: {}", path);
+        return false;
+    }
     let input = CacheCommandInput {
         path,
         extra_roots,
@@ -167,13 +176,18 @@ pub(crate) fn show_module_cache_info_for_path(
             print_module_cache_summary(entry_path, &cache_layout, true, false);
         }
     }
+    true
 }
 
 pub(crate) fn show_native_cache_info_for_path(
     path: &str,
     extra_roots: &[PathBuf],
     cache_dir: Option<&Path>,
-) {
+) -> bool {
+    if !Path::new(path).exists() {
+        eprintln!("Error: file not found: {}", path);
+        return false;
+    }
     let input = CacheCommandInput {
         path,
         extra_roots,
@@ -182,7 +196,7 @@ pub(crate) fn show_native_cache_info_for_path(
     let (entry_path, cache_layout) = resolve_cache_layout_for_input(input);
     if !native_cache_available() {
         println!("{}", native_cache_unavailable_message());
-        return;
+        return true;
     }
     match load_cache_graph(input) {
         Ok(graph) => {
@@ -210,6 +224,7 @@ pub(crate) fn show_native_cache_info_for_path(
             print_native_cache_summary(entry_path, &cache_layout, true, false);
         }
     }
+    true
 }
 
 pub(crate) fn show_interface_info_file(path: &str) {
@@ -497,9 +512,11 @@ mod tests {
     use super::show_cache_info_for_path;
     use crate::driver::command::cache_support::CacheDisplaySelection;
 
+    /// A missing input is reported as a failure the CLI turns into a non-zero
+    /// exit, rather than being swallowed (KI-019).
     #[test]
-    fn cache_info_for_missing_file_returns_without_panic() {
-        show_cache_info_for_path(
+    fn cache_info_for_missing_file_reports_failure() {
+        let ok = show_cache_info_for_path(
             "definitely-missing.flx",
             &[],
             None,
@@ -508,5 +525,6 @@ mod tests {
                 show_native: false,
             },
         );
+        assert!(!ok, "a missing input must report failure");
     }
 }

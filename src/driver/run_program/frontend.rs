@@ -5,7 +5,9 @@ use std::{
 };
 
 use crate as flux;
-use crate::driver::frontend::{collect_roots, inject_flow_prelude, validate_no_primops_import};
+use crate::driver::frontend::{
+    collect_module_roots, collect_roots, inject_flow_prelude, validate_no_primops_import,
+};
 use crate::driver::shared::tag_and_attach_file;
 use flux::{
     diagnostics::Diagnostic,
@@ -54,6 +56,18 @@ pub(crate) fn build_program_context(
 /// diagnostic file tagging, but it need not exist on disk — this powers
 /// `flux eval`, which compiles a synthetic in-memory program rooted at the
 /// current directory.
+/// A manifest that exists but does not resolve is a hard error: the user asked
+/// for a package build and cannot get one.
+fn manifest_diagnostic(message: &str, path: &str) -> flux::diagnostics::Diagnostic {
+    use flux::diagnostics::position::{Position, Span};
+    flux::diagnostics::Diagnostic::make_error(
+        &flux::diagnostics::MANIFEST_UNRESOLVED,
+        &[message],
+        path.to_string(),
+        Span::new(Position::default(), Position::default()),
+    )
+}
+
 pub(crate) fn build_program_context_from_source(
     path: &str,
     source: String,
@@ -110,10 +124,25 @@ pub(crate) fn build_program_context_from_source(
     }
 
     let interner = parser.take_interner();
-    let roots = collect_roots(&entry_path, extra_roots, roots_only);
+    // Package roots come from the Flux manifest resolver when the entry file
+    // belongs to a project; otherwise these are the unscoped script-mode roots.
+    let roots =
+        match collect_module_roots(&entry_path, extra_roots, roots_only, cache_layout.root()) {
+            Ok(roots) => roots,
+            Err(message) => {
+                // Keep the unscoped roots so the stdlib still resolves: without
+                // them the manifest error is buried under a cascade of missing
+                // `Flow.*` imports.
+                all_diagnostics.push(manifest_diagnostic(&message, path));
+                collect_roots(&entry_path, extra_roots, roots_only)
+                    .into_iter()
+                    .map(flux::syntax::module_graph::ModuleRoot::unscoped)
+                    .collect()
+            }
+        };
 
     let mut graph_result =
-        ModuleGraph::build_with_entry_and_roots(&entry_path, &program, interner, &roots);
+        ModuleGraph::build_with_entry_and_module_roots(&entry_path, &program, interner, &roots);
     let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
     let mut graph_diags = std::mem::take(&mut graph_result.diagnostics);
     tag_and_attach_file(

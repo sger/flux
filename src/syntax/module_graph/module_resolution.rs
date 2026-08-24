@@ -27,7 +27,7 @@ use super::{
 /// whatever is imported.
 ///
 /// A scoped root belongs to a resolved package and may only satisfy imports
-/// whose first segment is that package's namespace (proposal 0177 Phase 1).
+/// whose first segment is that package's namespace.
 /// This is what lets two packages each ship a `Json` module: their roots are
 /// scoped to different namespaces, so `A.Json` and `B.Json` never collide.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,6 +35,9 @@ pub struct ModuleRoot {
     pub path: PathBuf,
     /// Package namespace this root serves, if any.
     pub namespace: Option<String>,
+    /// Declared package name, used to name the packages in a collision. Falls
+    /// back to the namespace when a root is scoped without one.
+    pub package: Option<String>,
 }
 
 impl ModuleRoot {
@@ -43,6 +46,7 @@ impl ModuleRoot {
         Self {
             path: path.into(),
             namespace: None,
+            package: None,
         }
     }
 
@@ -51,7 +55,29 @@ impl ModuleRoot {
         Self {
             path: path.into(),
             namespace: Some(namespace.into()),
+            package: None,
         }
+    }
+
+    /// A root scoped to `namespace` and owned by the named package.
+    pub fn package(
+        path: impl Into<PathBuf>,
+        namespace: impl Into<String>,
+        package: impl Into<String>,
+    ) -> Self {
+        Self {
+            path: path.into(),
+            namespace: Some(namespace.into()),
+            package: Some(package.into()),
+        }
+    }
+
+    /// How this root is named in diagnostics: its package, else its namespace.
+    fn label(&self) -> &str {
+        self.package
+            .as_deref()
+            .or(self.namespace.as_deref())
+            .unwrap_or("<unscoped>")
     }
 
     /// Whether this root may satisfy an import of `name`.
@@ -274,13 +300,15 @@ fn resolve_import_path(
         _ => {
             // Two scoped roots claiming one namespace is a packaging error, and
             // naming the packages explains it far better than listing files.
-            let namespaces: Vec<&str> = matches
+            let scoped: Vec<&ModuleRoot> = matches
                 .iter()
-                .filter_map(|(root, _)| root.namespace.as_deref())
+                .map(|(root, _)| *root)
+                .filter(|root| root.namespace.is_some())
                 .collect();
-            if namespaces.len() == matches.len()
-                && let [first, second, ..] = namespaces.as_slice()
+            if scoped.len() == matches.len()
+                && let [first, second, ..] = scoped.as_slice()
             {
+                let (first, second) = (first.label(), second.label());
                 let claimed = name.split_once('.').map_or(name, |(head, _)| head);
                 let error_spec = &NAMESPACE_COLLISION;
                 let hint = format!(
@@ -329,7 +357,7 @@ fn resolve_import_path(
 ///
 /// Roots scoped to a package namespace are skipped unless the import falls
 /// beneath that namespace, so a package's root cannot satisfy an unrelated
-/// import (proposal 0177 Phase 1).
+/// import.
 fn module_name_candidates<'a>(
     name: &str,
     roots: &'a [ModuleRoot],
@@ -367,6 +395,7 @@ pub(super) fn normalize_roots(roots: &[ModuleRoot]) -> Vec<ModuleRoot> {
             normalized.push(ModuleRoot {
                 path: canonical,
                 namespace: root.namespace.clone(),
+                package: root.package.clone(),
             });
         }
     }
