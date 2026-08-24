@@ -352,7 +352,10 @@ pub(crate) fn run_file(request: RunProgramRequest<'_>) {
                 emit_compile_diagnostics_or_exit(&ctx, request);
             }
 
-            if try_run_parallel_vm_fast_path(&mut ctx, request) {
+            // The fast path executes the program, so `build` / `check` must
+            // not take it.
+            if !request.flags.runtime.check_only && try_run_parallel_vm_fast_path(&mut ctx, request)
+            {
                 return;
             }
 
@@ -381,9 +384,21 @@ pub(crate) fn run_file(request: RunProgramRequest<'_>) {
                 return;
             }
 
+            // `flux build` / `flux check`: every compile-time error has been
+            // surfaced by this point, so stop before running `main`.
+            if request.flags.runtime.check_only {
+                return;
+            }
+
             dispatch_backend(&mut ctx, request);
         }
-        Err(e) => eprintln!("{e}"),
+        // A frontend failure here is an unreadable entry file or a broken
+        // module graph. Printing it and exiting 0 would hide the failure from
+        // scripts and CI (KI-019).
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
     }
 }
 
@@ -403,7 +418,13 @@ pub(crate) fn run_from_source(request: RunProgramRequest<'_>, source: String) {
             emit_compile_diagnostics_or_exit(&ctx, request);
             dispatch_backend(&mut ctx, request);
         }
-        Err(e) => eprintln!("{e}"),
+        // A frontend failure here is an unreadable entry file or a broken
+        // module graph. Printing it and exiting 0 would hide the failure from
+        // scripts and CI (KI-019).
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
     }
 }
 

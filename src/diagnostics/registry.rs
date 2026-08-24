@@ -195,9 +195,9 @@ pub fn default_diagnostic_category(code: &str) -> Option<DiagnosticCategory> {
         | "E446" | "E447" | "E448" | "E449" | "E450" | "E451" | "E452" | "E453" | "E455"
         | "E456" => Some(DiagnosticCategory::TypeInference),
         "E457" | "E458" => Some(DiagnosticCategory::ModuleSystem),
-        // E469 is the package-namespace collision (proposal 0177), a module
-        // resolution failure rather than a named-field inference error.
-        "E469" => Some(DiagnosticCategory::ModuleSystem),
+        // E469 is the package-namespace collision, a module resolution failure
+        // rather than a named-field inference error.
+        "E469" | "E470" => Some(DiagnosticCategory::ModuleSystem),
         "E460" | "E461" | "E462" | "E463" | "E464" | "E465" | "E466" | "E467" | "E468" => {
             Some(DiagnosticCategory::TypeInference)
         }

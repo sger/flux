@@ -87,7 +87,7 @@ pub fn resolve_cache_root(entry_file: &Path, cache_dir: Option<&Path>) -> PathBu
 
 /// Locate the project root by walking up from `entry_file`.
 ///
-/// A Flux project is marked by `flux.toml` (proposal 0177 Phase 1). The
+/// A Flux project is marked by `flux.toml`. The
 /// nearest such directory wins, so a package inside a larger workspace roots
 /// at its own manifest rather than at an ancestor's.
 ///

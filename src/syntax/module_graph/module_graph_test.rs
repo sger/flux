@@ -547,7 +547,7 @@ fn resolve_imports_ignores_synthetic_flow_import() {
     assert!(imports.is_empty());
 }
 
-// --- Package namespacing (proposal 0177 Phase 1) ---
+// --- Package namespacing ---
 
 /// Write a package root holding a single `Json.flx` that returns `tag`.
 fn write_json_package(root: &Path, tag: &str) {
@@ -593,9 +593,9 @@ fn normalize_roots_keeps_one_path_per_namespace() {
     assert_eq!(normalize_roots(&roots).len(), 2);
 }
 
-/// The regression from proposal 0177: two packages each shipping a `Json`
-/// module build together, because their roots are scoped to distinct
-/// namespaces and neither can satisfy the other's import.
+/// Two packages each shipping a `Json` module build together, because their
+/// roots are scoped to distinct namespaces and neither can satisfy the other's
+/// import.
 #[test]
 fn two_packages_may_each_ship_a_json_module() {
     let root = temp_dir("ns_two_json");

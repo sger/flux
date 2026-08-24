@@ -12,6 +12,7 @@ use crate::{
 };
 
 pub mod cmdline;
+pub mod package;
 pub mod render;
 pub(crate) mod shared;
 
@@ -34,17 +35,40 @@ fn run_command(command: CliCommand) -> ExitCode {
         CliCommand::Fmt { path, check } => inspect::fmt(&path, check),
         CliCommand::Eval { expr, flags } => entry::eval(&expr, flags),
         CliCommand::Repl { flags } => entry::repl(flags),
-        CliCommand::CacheInfo { flags } => cache::show_cache_info(&flags),
-        CliCommand::ModuleCacheInfo { flags } => cache::show_module_cache_info(&flags),
-        CliCommand::NativeCacheInfo { flags } => cache::show_native_cache_info(&flags),
+        // These report a missing input rather than exiting in-process, so the
+        // exit code is decided here (KI-019).
+        CliCommand::CacheInfo { flags } => return exit_status(cache::show_cache_info(&flags)),
+        CliCommand::ModuleCacheInfo { flags } => {
+            return exit_status(cache::show_module_cache_info(&flags));
+        }
+        CliCommand::NativeCacheInfo { flags } => {
+            return exit_status(cache::show_native_cache_info(&flags));
+        }
         CliCommand::Clean { flags } => cache::clean(&flags),
         CliCommand::InterfaceInfo { flags } => cache::show_interface_info(&flags),
         CliCommand::AnalyzeFreeVars { flags } => inspect::analyze_free_vars(&flags),
         CliCommand::AnalyzeTailCalls { flags } => inspect::analyze_tail_calls(&flags),
         CliCommand::ParityCheck { raw_args } => run_parity_check(&raw_args),
+        CliCommand::Init { name, is_lib } => return package::init(name.as_deref(), is_lib),
+        CliCommand::New { name, is_lib } => return package::new(&name, is_lib),
+        CliCommand::Package {
+            action,
+            flags,
+            bin,
+            program_args,
+        } => return package::package_command(action, flags, bin.as_deref(), program_args),
         CliCommand::Help => show_help(),
     }
     ExitCode::SUCCESS
+}
+
+/// Turns a command's success flag into a process exit code.
+fn exit_status(ok: bool) -> ExitCode {
+    if ok {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
 }
 
 /// Prints the top-level CLI help text.

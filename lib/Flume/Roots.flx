@@ -1,0 +1,199 @@
+import Flume.Manifest as Manifest
+import Flume.Manifest exposing (Manifest, Dep, FromPath, FromRegistry)
+import Flow.Fs as Fs
+import Flow.Path as Path
+import Flow.List as List
+import Flow.Array as Array
+import Flow.String as String
+import Flow.Env as Env
+
+/// Resolve a project's module search roots from its `flux.toml`.
+///
+/// This is the Flux half of the Rust/Flux boundary:
+/// Flux decides *what* to build, and hands the compiler a flat list of
+/// `namespace<TAB>path` records. The Rust side turns each record into a scoped
+/// module root and does no manifest parsing of its own.
+///
+/// Output format, one record per line on stdout:
+///
+/// ```text
+/// ok<TAB><namespace><TAB><module root directory>
+/// ```
+///
+/// A failure is reported as a single line:
+///
+/// ```text
+/// err<TAB><message>
+/// ```
+///
+/// Match arms in Flux take an expression, not a block, so the walk below is
+/// split into small helpers rather than written as nested `match` + `let`.
+module Flume.Roots {
+
+    /// One resolved package: the namespace it owns and the directory its
+    /// modules live under.
+    public data Root {
+        Root { package: String, namespace: String, dir: String }
+    }
+
+    public fn root_package(r: Root) -> String {
+        match r { Root { package, namespace: _, dir: _ } -> package }
+    }
+
+    public fn root_namespace(r: Root) -> String {
+        match r { Root { package: _, namespace, dir: _ } -> namespace }
+    }
+
+    public fn root_dir(r: Root) -> String {
+        match r { Root { package: _, namespace: _, dir } -> dir }
+    }
+
+    /// The directory a package's modules are rooted at.
+    ///
+    /// A package's `src` directory is the module root when it exists, so
+    /// `src/Json/Parse.flx` answers `Json.Parse`. Packages laying modules out
+    /// at the top level fall back to the package directory itself.
+    fn source_dir(package_dir: String) -> String with IO {
+        let candidate = Path.join(package_dir, "src")
+        if Fs.is_dir(candidate) { candidate } else { package_dir }
+    }
+
+    /// The root contributed by the package itself, before its dependencies.
+    fn own_root(manifest: Manifest, dir: String) -> Root with IO {
+        let package = Manifest.manifest_package(manifest)
+        Root {
+            package: Manifest.package_name(package),
+            namespace: Manifest.package_namespace(package),
+            dir: source_dir(dir),
+        }
+    }
+
+    /// Resolve `dir`'s manifest and every path dependency reachable from it.
+    ///
+    /// `seen` carries the package directories already visited so a dependency
+    /// cycle terminates instead of recursing forever.
+    fn resolve_from(dir: String, seen: List<String>) -> Result<List<Root>, String> with IO {
+        if List.contains(seen, dir) {
+            Ok([])
+        } else {
+            read_manifest(dir, seen)
+        }
+    }
+
+    fn read_manifest(dir: String, seen: List<String>) -> Result<List<Root>, String> with IO {
+        let manifest_path = Path.join(dir, "flux.toml")
+        match Fs.read_file(manifest_path) {
+            Err(_) -> Err("cannot read " + manifest_path),
+            Ok(text) -> parse_manifest(text, manifest_path, dir, seen),
+        }
+    }
+
+    fn parse_manifest(
+        text: String,
+        manifest_path: String,
+        dir: String,
+        seen: List<String>,
+    ) -> Result<List<Root>, String> with IO {
+        match Manifest.parse(text) {
+            Err(_) -> Err("cannot parse " + manifest_path),
+            Ok(manifest) -> walk_manifest(manifest, dir, seen),
+        }
+    }
+
+    fn walk_manifest(
+        manifest: Manifest,
+        dir: String,
+        seen: List<String>,
+    ) -> Result<List<Root>, String> with IO {
+        let own = own_root(manifest, dir)
+        resolve_deps(Manifest.manifest_deps(manifest), dir, [dir | seen], [own])
+    }
+
+    /// Walk a dependency list, accumulating roots.
+    ///
+    /// Registry and dev dependencies are rejected here rather than ignored:
+    /// Phase 1 has no resolver, and a silently dropped dependency would fail
+    /// later as a confusing missing module.
+    fn resolve_deps(
+        deps: List<Dep>,
+        base: String,
+        seen: List<String>,
+        acc: List<Root>,
+    ) -> Result<List<Root>, String> with IO {
+        match deps {
+            [] -> Ok(acc),
+            [dep | rest] -> resolve_dep(dep, rest, base, seen, acc),
+        }
+    }
+
+    fn resolve_dep(
+        dep: Dep,
+        rest: List<Dep>,
+        base: String,
+        seen: List<String>,
+        acc: List<Root>,
+    ) -> Result<List<Root>, String> with IO {
+        let name = Manifest.dep_name(dep)
+        if Manifest.dep_is_dev(dep) {
+            Err("dev-dependency `" + name + "` is not supported until Phase 2")
+        } else {
+            match Manifest.dep_source(dep) {
+                FromRegistry(_) ->
+                    Err(
+                        "registry dependency `" + name
+                            + "` is not supported until Phase 2",
+                    ),
+                FromPath(rel) ->
+                    descend(Path.normalize(Path.join(base, rel)), rest, base, seen, acc),
+            }
+        }
+    }
+
+    fn descend(
+        dep_dir: String,
+        rest: List<Dep>,
+        base: String,
+        seen: List<String>,
+        acc: List<Root>,
+    ) -> Result<List<Root>, String> with IO {
+        match resolve_from(dep_dir, seen) {
+            Err(message) -> Err(message),
+            Ok(found) ->
+                resolve_deps(rest, base, [dep_dir | seen], List.concat([acc, found])),
+        }
+    }
+
+    /// Resolve the roots for the project rooted at `dir`.
+    public fn resolve(dir: String) -> Result<List<Root>, String> with IO {
+        resolve_from(dir, [])
+    }
+
+    fn render(roots: List<Root>) -> String {
+        let lines = List.map(roots, fn(r) {
+            "ok\t" + root_package(r) + "\t" + root_namespace(r) + "\t" + root_dir(r)
+        })
+        String.join(List.to_array(lines), "\n")
+    }
+
+    /// Print the resolved roots for the project directory given as the first
+    /// argument, or `.` when none is supplied.
+    public fn main() with IO {
+        let args = Env.args()
+        report(resolve(project_dir(args)))
+    }
+
+    /// The project directory: the first argument, or the working directory.
+    fn project_dir(args: Array<String>) -> String {
+        match Array.get(args, 1) {
+            Some(dir) -> dir,
+            None -> ".",
+        }
+    }
+
+    fn report(resolved: Result<List<Root>, String>) with IO {
+        match resolved {
+            Err(message) -> print("err\t" + message),
+            Ok(roots) -> print(render(roots)),
+        }
+    }
+}

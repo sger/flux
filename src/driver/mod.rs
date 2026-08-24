@@ -9,6 +9,7 @@ pub mod backend_policy;
 pub mod command;
 pub mod flags;
 pub(crate) mod frontend;
+pub(crate) mod manifest_roots;
 pub mod mode;
 pub(crate) mod module_compile;
 pub mod pipeline;
