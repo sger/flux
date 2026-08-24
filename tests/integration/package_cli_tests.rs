@@ -440,3 +440,85 @@ fn test_discovers_tests_in_every_module() {
         combined(&out)
     );
 }
+
+/// `flux build` and `flux run` must be freely interleavable. `build` stops
+/// before execution and so compiles serially, while `run` takes the parallel
+/// VM fast path; a build that wrote module artifacts the run could not consume
+/// failed with "missing global mapping for local index".
+#[test]
+fn build_and_check_do_not_poison_a_later_run() {
+    let scratch = Scratch::new("cli-build-then-run");
+    let pkg = scratch.path().join("app");
+    std::fs::create_dir_all(&pkg).expect("create package dir");
+    assert!(flux(&["init"], &pkg).status.success(), "init failed");
+
+    for first in ["build", "check", "test"] {
+        let pre = flux(&[first], &pkg);
+        assert!(pre.status.success(), "{first} failed:\n{}", combined(&pre));
+
+        let run = flux(&["run"], &pkg);
+        assert!(
+            run.status.success(),
+            "run after {first} failed:\n{}",
+            combined(&run)
+        );
+        assert!(
+            combined(&run).contains("Hello from Flux"),
+            "run after {first} produced no output:\n{}",
+            combined(&run)
+        );
+    }
+}
+
+/// Resolved package roots are cached against every manifest that produced
+/// them, so editing a dependency's manifest is picked up rather than serving a
+/// stale answer.
+#[test]
+fn editing_a_manifest_invalidates_the_cached_roots() {
+    let scratch = Scratch::new("cli-roots-cache");
+
+    assert!(
+        flux(&["new", "shared", "--lib"], scratch.path())
+            .status
+            .success(),
+        "creating the dependency failed"
+    );
+    assert!(
+        flux(&["new", "app"], scratch.path()).status.success(),
+        "creating the app failed"
+    );
+
+    let app = scratch.path().join("app");
+    let manifest = std::fs::read_to_string(app.join("flux.toml")).expect("read manifest");
+    std::fs::write(
+        app.join("flux.toml"),
+        format!("{manifest}\n[dependencies]\nshared = {{ path = \"../shared\" }}\n"),
+    )
+    .expect("write manifest");
+    std::fs::write(
+        app.join("src").join("main.flx"),
+        "import Shared as Shared\n\nfn main() with IO { print(Shared.greet()) }\n",
+    )
+    .expect("write main");
+
+    let first = flux(&["run"], &app);
+    assert!(
+        first.status.success(),
+        "first run failed:\n{}",
+        combined(&first)
+    );
+
+    // Rename the dependency's namespace; the cached roots must not survive it.
+    std::fs::write(
+        scratch.path().join("shared").join("flux.toml"),
+        "[package]\nname = \"shared\"\nversion = \"0.1.0\"\nnamespace = \"Renamed\"\n",
+    )
+    .expect("rewrite dependency manifest");
+
+    let second = flux(&["run"], &app);
+    assert!(
+        !second.status.success(),
+        "the stale namespace must no longer resolve:\n{}",
+        combined(&second)
+    );
+}

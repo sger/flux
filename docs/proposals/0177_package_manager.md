@@ -61,10 +61,10 @@ a module outside its own namespace). `find_project_root` now keys on
 `flux.toml`, and `collect_roots` computes roots from the entry file and its
 project root rather than the process working directory.
 
-Deferred from Phase 1, neither blocking: `flux test --filter <s>` is specified
-in the CLI surface but not implemented, and the manifest resolver runs as a
-subprocess per compile (~0.11s warm) rather than caching its output against the
-manifest hash.
+The resolver's output is cached against the content of every manifest that
+produced it, so a warm package build does not re-spawn it. (The `--filter <s>`
+slot in the CLI surface is covered by the existing `--test-filter <s>`, which
+matches the qualified test name.)
 
 ## Motivation
 [motivation]: #motivation
