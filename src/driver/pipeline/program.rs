@@ -101,6 +101,17 @@ fn should_try_parallel_vm_fast_path(flags: &DriverFlags, is_multimodule: bool) -
     is_multimodule && flags.allow_vm_cache() && !flags.cache.no_cache
 }
 
+/// Whether this run may write VM cache artifacts.
+///
+/// `flux build` / `flux check` stop before execution, so they take the serial
+/// compile path while a later `flux run` takes the parallel one. The two write
+/// different module artifacts, and a run consuming what a build left behind
+/// fails with "missing global mapping". Until the two paths share a cache
+/// format, a check-only run compiles for its diagnostics and writes nothing.
+fn may_write_vm_cache(flags: &DriverFlags) -> bool {
+    !flags.runtime.check_only
+}
+
 /// Returns whether the compiled run should dispatch to the native backend.
 #[cfg_attr(not(feature = "llvm"), allow(dead_code))]
 fn should_dispatch_native_backend(flags: &DriverFlags) -> bool {
@@ -213,7 +224,10 @@ fn try_run_parallel_vm_fast_path(ctx: &mut RunContext, request: RunProgramReques
         graph: &ctx.graph,
         entry_canonical: entry_canonical.as_ref(),
         graph_interner: &ctx.compiler.interner,
-        cache: DriverCacheConfig::new(&ctx.cache_layout, request.flags.cache.no_cache),
+        cache: DriverCacheConfig::new(
+            &ctx.cache_layout,
+            request.flags.cache.no_cache || !may_write_vm_cache(request.flags),
+        ),
         compile: DriverCompileConfig::from(request.session),
         diagnostics: DriverDiagnosticConfig::from(request.session),
         runtime: DriverRuntimeConfig::from(request.flags),
@@ -234,7 +248,10 @@ fn compile_modules_for_run(ctx: &mut RunContext, request: RunProgramRequest<'_>)
         entry_path: &ctx.entry_path,
         failed_modules: &ctx.failed_modules,
         compiler: &mut ctx.compiler,
-        cache: DriverCacheConfig::new(&ctx.cache_layout, request.flags.cache.no_cache),
+        cache: DriverCacheConfig::new(
+            &ctx.cache_layout,
+            request.flags.cache.no_cache || !may_write_vm_cache(request.flags),
+        ),
         compile: DriverCompileConfig::from(request.session),
         runtime: DriverRuntimeConfig::from(request.flags),
         allow_cached_module_bytecode: request.flags.allow_vm_cache(),
@@ -305,7 +322,10 @@ fn dispatch_backend(ctx: &mut RunContext, request: RunProgramRequest<'_>) {
                 compile_start: ctx.compile_start,
                 all_diagnostics: &mut ctx.all_diagnostics,
             },
-            cache: DriverCacheConfig::new(&ctx.cache_layout, request.flags.cache.no_cache),
+            cache: DriverCacheConfig::new(
+                &ctx.cache_layout,
+                request.flags.cache.no_cache || !may_write_vm_cache(request.flags),
+            ),
             diagnostics: DriverDiagnosticConfig::from(request.session),
             compile: DriverCompileConfig::from(request.session),
             runtime: DriverRuntimeConfig::from(request.flags),
