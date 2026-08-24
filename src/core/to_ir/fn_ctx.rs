@@ -704,15 +704,7 @@ impl<'a> FnCtx<'a> {
                 });
                 dest
             }
-            AetherExpr::PrimOp { op, args, span } => self.lower_primop(
-                op,
-                &args
-                    .iter()
-                    .cloned()
-                    .map(|arg| arg.into_core())
-                    .collect::<Vec<_>>(),
-                *span,
-            ),
+            AetherExpr::PrimOp { op, args, span } => self.lower_primop_aether(op, args, *span),
             AetherExpr::MemberAccess {
                 object,
                 member,

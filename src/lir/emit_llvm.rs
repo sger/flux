@@ -3683,12 +3683,39 @@ impl<'a> FnEmitter<'a> {
         }
 
         // If there are sentinel arms, we need a two-level dispatch:
-        // switch on the value for sentinels, default to boxed dispatch.
+        // switch on the value for sentinels, then guard the fall-through
+        // before entering boxed dispatch.  The fall-through may still be a
+        // non-pointer sentinel (for example 0, 6, 8, or 10).
         if !switch_cases.is_empty() {
+            let guard_label = LabelId(format!("match.ptrguard.{}", self.next_tmp));
+            self.next_tmp += 1;
+            let guard_ok = LlvmLocal(format!("match.ptrck.{}", self.next_tmp));
+            self.next_tmp += 1;
+
+            self.extra_blocks.push(LlvmBlock {
+                label: guard_label.clone(),
+                instrs: vec![LlvmInstr::Icmp {
+                    dst: guard_ok.clone(),
+                    op: LlvmCmpOp::Ule,
+                    ty: LlvmType::i64(),
+                    lhs: LlvmOperand::Const(LlvmConst::Int {
+                        bits: 64,
+                        value: FLUX_MIN_PTR as i128,
+                    }),
+                    rhs: self.var(scrutinee),
+                }],
+                term: LlvmTerminator::CondBr {
+                    cond_ty: LlvmType::i1(),
+                    cond: LlvmOperand::Local(guard_ok),
+                    then_label: boxed_label.clone(),
+                    else_label: self.label(default),
+                },
+            });
+
             LlvmTerminator::Switch {
                 ty: LlvmType::i64(),
                 scrutinee: self.var(scrutinee),
-                default: boxed_label,
+                default: guard_label,
                 cases: switch_cases,
             }
         } else {

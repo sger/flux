@@ -1,4 +1,5 @@
 use crate::{
+    aether::AetherExpr,
     cfg::{IrBinaryOp, IrCallTarget, IrConst, IrExpr, IrInstr, IrMetadata, IrStringPart, IrVar},
     core::{CoreExpr, CoreLit, CorePrimOp},
     diagnostics::position::Span,
@@ -185,6 +186,85 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
 }
 
 impl<'a> super::fn_ctx::FnCtx<'a> {
+    /// Lower an Aether primop without erasing embedded Dup/Drop nodes.
+    ///
+    /// Collection constructors own their elements, so the Aether planner may
+    /// place a Dup directly around a pattern field argument.  Converting that
+    /// tree through `AetherExpr::into_core()` would erase the backend-only
+    /// ownership node.  The collection cases therefore lower their arguments
+    /// through `lower_expr_aether`; other primops retain the existing Core
+    /// lowering path because they cannot receive these constructor-owned
+    /// field expressions.
+    pub(super) fn lower_primop_aether(
+        &mut self,
+        op: &CorePrimOp,
+        args: &[AetherExpr],
+        span: Span,
+    ) -> IrVar {
+        match op {
+            CorePrimOp::MakeList
+            | CorePrimOp::MakeArray
+            | CorePrimOp::MakeTuple
+            | CorePrimOp::MakeHash => {
+                let dest = self.ctx.alloc_var();
+                let meta = IrMetadata::from_span(span);
+                match op {
+                    CorePrimOp::MakeList => {
+                        let values = args.iter().map(|arg| self.lower_expr_aether(arg)).collect();
+                        self.emit(IrInstr::Assign {
+                            dest,
+                            expr: IrExpr::MakeList(values),
+                            metadata: meta,
+                        });
+                    }
+                    CorePrimOp::MakeArray => {
+                        let values = args.iter().map(|arg| self.lower_expr_aether(arg)).collect();
+                        self.emit(IrInstr::Assign {
+                            dest,
+                            expr: IrExpr::MakeArray(values),
+                            metadata: meta,
+                        });
+                    }
+                    CorePrimOp::MakeTuple => {
+                        let values = args.iter().map(|arg| self.lower_expr_aether(arg)).collect();
+                        self.emit(IrInstr::Assign {
+                            dest,
+                            expr: IrExpr::MakeTuple(values),
+                            metadata: meta,
+                        });
+                    }
+                    CorePrimOp::MakeHash => {
+                        let pairs = args
+                            .chunks(2)
+                            .map(|chunk| {
+                                (
+                                    self.lower_expr_aether(&chunk[0]),
+                                    self.lower_expr_aether(&chunk[1]),
+                                )
+                            })
+                            .collect();
+                        self.emit(IrInstr::Assign {
+                            dest,
+                            expr: IrExpr::MakeHash(pairs),
+                            metadata: meta,
+                        });
+                    }
+                    _ => unreachable!(),
+                }
+                dest
+            }
+            _ => self.lower_primop(
+                op,
+                &args
+                    .iter()
+                    .cloned()
+                    .map(AetherExpr::into_core)
+                    .collect::<Vec<_>>(),
+                span,
+            ),
+        }
+    }
+
     /// Lower a `PrimOp` node.
     pub(super) fn lower_primop(&mut self, op: &CorePrimOp, args: &[CoreExpr], span: Span) -> IrVar {
         let dest = self.ctx.alloc_var();

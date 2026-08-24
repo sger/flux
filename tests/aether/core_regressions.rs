@@ -399,6 +399,7 @@ fn rebuild(xs) {
         _ -> [],
     }
 }
+
 fn main() { rebuild([1, 2, 3]) }
 "#;
     let core = lowered_core(src);
@@ -407,6 +408,39 @@ fn main() { rebuild([1, 2, 3]) }
             .iter()
             .flat_map(|def| collect_core_exprs(&def.expr))
             .any(|expr| matches!(expr, CoreExpr::Reuse { .. }))
+    );
+}
+
+#[test]
+fn pattern_fields_are_duplicated_before_collection_rebuild() {
+    let src = r#"
+fn rebuild(xs) {
+    match xs {
+        [(key, value) | rest] -> [(key, value) | rest],
+        _ -> [],
+    }
+}
+
+fn main() { rebuild([("key", [1, 2])]) }
+"#;
+    let core = lowered_core(src);
+    let has_owned_tuple = core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .any(|expr| {
+            matches!(
+                expr,
+                CoreExpr::PrimOp {
+                    op: flux::core::CorePrimOp::MakeTuple,
+                    args,
+                    ..
+                } if args.iter().any(|arg| matches!(arg, CoreExpr::Dup { .. }))
+            )
+        });
+    assert!(
+        has_owned_tuple,
+        "pattern fields transferred into a tuple must be duplicated"
     );
 }
 

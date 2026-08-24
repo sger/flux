@@ -10,23 +10,16 @@ use std::process::Command;
 #[path = "../support/stdlib_fixture.rs"]
 mod stdlib_fixture;
 
-use stdlib_fixture::assert_fixture_passes;
+use stdlib_fixture::assert_backends_agree;
 use stdlib_fixture::scratch::Scratch;
 
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// VM only, deliberately.
-///
-/// The native backend crashes on this grammar with SIGTRAP — see KI-013 in
-/// `docs/known_issues.md`. The bug is in the backend, not the fixture, and it
-/// is unrelated to what these tests assert. Restore `assert_backends_agree`
-/// when KI-013 is fixed; `flume_resolve` and `flume_version` still assert
-/// parity, so backend divergence is not going unwatched.
 #[test]
 fn flume_manifest_fixture_passes() {
-    assert_fixture_passes("flume_manifest.flx");
+    assert_backends_agree("flume_manifest.flx");
 }
 
 /// Phase 0's headline property: a manifest reader that provably cannot read a

@@ -130,90 +130,6 @@ or three steps and poorly beyond that, which will press harder in
 `Flume.Manifest`, where a TOML parser chains many more.
 
 ---
-
-### KI-013 — `List.map` over a list of tuples yields a null element natively
-
-**Severity:** High · **Area:** LLVM backend · **Verified:** 2026-08-23
-
-Reduced 2026-08-23 from "the `Flume.Toml` grammar crashes" to a specific
-native-backend memory fault. The parser is not implicated: **parsing succeeds**
-and the crash is in rendering.
-
-Minimal reproduction — the smallest input that still crashes:
-
-```flux
-import Flume.Toml as Toml
-import Flume.Value as Value
-import Flume.Parse as Parse
-
-fn main() with IO {
-    print(match Toml.parse_toml("[a]\nx = \"1\"\n\n[b]\ny = { p = \"2\" }\nz = \"3\"\n") {
-        Ok(tree) -> Value.render_toml(tree),
-        Err(problem) -> "ERR " + Parse.error_kind(problem),
-    })
-}
-```
-
-Deterministic: crashes on 3/3 native runs, correct on the VM
-(`{a={x="1"},b={y={p="2"},z="3"}}`). The trigger needs **two table headers, an
-inline table, and a following key** — any of those alone parses and renders
-fine natively.
-
-**What actually happens.** `Value.render_pair` receives a null. Breaking on it
-shows two calls: the first gets a valid heap pointer, the second gets
-`0x0000000000000000`. The call chain is
-`Flow_List_map` → `flux_call_closure` → `render_pair.closure_entry` →
-`render_pair`, so `List.map` reads a null where the list's second element
-should be.
-
-**Why it faults rather than misbehaves.** `render_pair` destructures a tuple,
-and the native backend lowers a tuple pattern to an unguarded dereference:
-
-```llvm
-%t0 = inttoptr i64 %v0 to ptr
-%t1 = getelementptr inbounds %FluxTuple, ptr %t0, i32 0, i32 5, i32 0
-```
-
-An ADT match in the same file emits `icmp ule i64 12, %v0` first — the
-sentinel/pointer guard described at `src/lir/emit_llvm.rs:3699`. Tuple patterns
-get no such guard, so a non-pointer value is dereferenced directly
-(`EXC_BAD_ACCESS` at address `0x8`).
-
-Two things to fix, and they are independent: `List.map` must not produce a null
-element, and tuple destructuring should carry the same pointer guard as ADT
-matching so a bad value fails loudly instead of segfaulting.
-
-**Refcounting is the prime suspect.** `Flow_List_map`'s loop emits six
-`flux_dup` calls and **no** `flux_drop` (module-wide the emitted IR runs 1546
-dups to 215 drops). The loop dups the list head twice — once when extracting it
-from the cons cell, again in the block that calls the mapped function. A plain
-dup-bias normally leaks rather than frees early, and `flux_dup` itself is
-correctly guarded (`rc.c:295` returns early for non-pointers and null), so the
-imbalance alone does not yet explain a null; the interaction with the tuple
-element's own ownership is the next thing to check.
-
-Tracing the list pointer across `map` iterations shows `0x6` (the EmptyList
-sentinel, the initial accumulator), then two valid pointers, then the fault.
-Aether's own verifier reports `ok` for all 117 functions and reports no
-dup/drop imbalance, so whatever is wrong is either below Aether or in how its
-decisions are lowered to LLVM.
-
-**Not yet reproduced in isolation.** `List.map` over a tuple list, over an empty
-tuple list, over a cons-built tuple list, a tuple whose second component is a
-recursive heap ADT, and `assoc_set`'s recursive rebuild all work natively on
-their own; the minimal case above is still the smallest known trigger.
-
-**Impact:** `tests/flume/flume_toml_tests.rs` and `flume_manifest_tests.rs` run
-their fixtures on the VM only rather than through `assert_backends_agree`.
-Restore the parity assertion in both when this is fixed.
-
-**Found alongside a bug this work did fix:** ordering comparisons on strings
-compared heap *addresses* on the native backend, because `flux_rt_lt/le/gt/ge`
-in `runtime/c/flux_rt.c` handled only floats and ints and fell through to
-`flux_untag_int` on a string pointer. `"x" >= "a"` was `false` natively and
-`true` on the VM. Fixed by adding a `flux_string_cmp` lexicographic path to all
-four, matching the VM's byte ordering.
-
 ### KI-015 — A class whose variable appears only in the return position cannot dispatch
 
 **Severity:** Medium · **Area:** Type classes / dispatch · **Verified:** 2026-08-23
@@ -245,6 +161,30 @@ Reader<List<a>>` needs no higher-kinded types).
 
 Entries move here with the resolving commit rather than being deleted, so
 existing `#KI-nnn` references still explain themselves.
+
+### KI-013 — `List.map` over a list of tuples yields a null element natively — FIXED 2026-08-24
+
+The minimal TOML reproduction now renders identically on the VM and native
+backends:
+
+```text
+{a={x="1"},b={y={p="2"},z="3"}}
+```
+
+**Root cause.** `Flume.Document.assoc_set` reconstructed a list cell from
+pattern-extracted `candidate` and `existing` fields. Aether treated those
+fields as borrowed views but allowed them to enter owning tuple/list
+constructors without a `Dup`. Its reuse/drop path then invalidated the nested
+table list, leaving a null list element. `List.map` was only where the damaged
+value became observable.
+
+**Fix.** Pattern fields are duplicated when transferred into owning collection
+constructors, Aether-only ownership nodes survive CFG lowering, and tuple
+matching applies the existing pointer/sentinel guard before extraction. The
+Flume TOML and manifest fixtures now run through VM/native parity assertions.
+
+See the [native-backend debugging guide](debugging-native-backend.md), which
+uses KI-013 as a worked example.
 
 ### KI-003 — A class-constrained stdlib function accepts the wrong container type — FIXED 2026-08-23
 
