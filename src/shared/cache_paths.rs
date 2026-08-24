@@ -85,14 +85,30 @@ pub fn resolve_cache_root(entry_file: &Path, cache_dir: Option<&Path>) -> PathBu
     entry_directory(entry_file).join(".flux").join("cache")
 }
 
+/// Locate the project root by walking up from `entry_file`.
+///
+/// A Flux project is marked by `flux.toml` (proposal 0177 Phase 1). The
+/// nearest such directory wins, so a package inside a larger workspace roots
+/// at its own manifest rather than at an ancestor's.
+///
+/// `Cargo.toml` remains a fallback purely for the compiler's own test corpus,
+/// which runs `.flx` fixtures from inside this Rust checkout and has no
+/// `flux.toml` of its own. It is consulted only after the whole ancestor chain
+/// has been searched for `flux.toml`, so a Flux project nested in a Rust
+/// workspace still roots at its own manifest.
 pub fn find_project_root(entry_file: &Path) -> Option<PathBuf> {
+    find_marker_upwards(entry_file, "flux.toml")
+        .or_else(|| find_marker_upwards(entry_file, "Cargo.toml"))
+}
+
+fn find_marker_upwards(entry_file: &Path, marker: &str) -> Option<PathBuf> {
     let mut current = absolutize(entry_file);
     if current.is_file() {
         current.pop();
     }
 
     loop {
-        if current.join("Cargo.toml").exists() {
+        if current.join(marker).exists() {
             return Some(current);
         }
         if !current.pop() {

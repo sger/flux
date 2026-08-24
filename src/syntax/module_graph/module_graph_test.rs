@@ -16,7 +16,7 @@ use super::{
     ImportEdge, ModuleGraph, ModuleId, ModuleKind, ModuleNode, import_binding_name,
     is_valid_module_alias, is_valid_module_name, module_binding_name,
     module_order::topo_order,
-    module_resolution::{normalize_roots, resolve_imports, validate_file_kind},
+    module_resolution::{ModuleRoot, normalize_roots, resolve_imports, validate_file_kind},
 };
 
 fn pos(line: usize, column: usize) -> Position {
@@ -59,7 +59,10 @@ fn module_binding_helpers() {
 #[test]
 fn normalize_roots_dedups() {
     let root = temp_dir("roots");
-    let roots = normalize_roots(&[root.clone(), root.clone()]);
+    let roots = normalize_roots(&[
+        ModuleRoot::unscoped(root.clone()),
+        ModuleRoot::unscoped(root.clone()),
+    ]);
     assert_eq!(roots.len(), 1);
 }
 
@@ -92,7 +95,7 @@ fn validate_file_kind_multiple_modules() {
         ..Default::default()
     };
 
-    let roots: Vec<PathBuf> = Vec::new();
+    let roots: Vec<ModuleRoot> = Vec::new();
     let path = Path::new("/tmp/Module.flx");
 
     let err = validate_file_kind(path, &program, true, &roots, &interner).unwrap_err();
@@ -103,7 +106,7 @@ fn validate_file_kind_multiple_modules() {
 fn validate_file_kind_script_not_importable() {
     let interner = Interner::new();
     let program = Program::new();
-    let roots: Vec<PathBuf> = Vec::new();
+    let roots: Vec<ModuleRoot> = Vec::new();
     let path = Path::new("/tmp/Script.flx");
 
     let err = validate_file_kind(path, &program, false, &roots, &interner).unwrap_err();
@@ -152,7 +155,10 @@ fn validate_file_kind_module_path_mismatch_uses_stable_display_path() {
         } else {
             format!("//?/{cwd}/src")
         }),
-    ];
+    ]
+    .into_iter()
+    .map(ModuleRoot::unscoped)
+    .collect::<Vec<_>>();
 
     let err = validate_file_kind(&path_buf, &program, false, &roots, &interner).unwrap_err();
     assert_eq!(err[0].code(), Some(MODULE_PATH_MISMATCH.code));
@@ -180,7 +186,7 @@ fn resolve_imports_invalid_name() {
         ..Default::default()
     };
 
-    let roots: Vec<PathBuf> = Vec::new();
+    let roots: Vec<ModuleRoot> = Vec::new();
     let path = Path::new("/tmp/main.flx");
 
     let err = resolve_imports(path, &program, &roots, &interner).unwrap_err();
@@ -205,7 +211,7 @@ fn resolve_imports_invalid_alias() {
         ..Default::default()
     };
 
-    let roots: Vec<PathBuf> = Vec::new();
+    let roots: Vec<ModuleRoot> = Vec::new();
     let path = Path::new("/tmp/main.flx");
 
     let err = resolve_imports(path, &program, &roots, &interner).unwrap_err();
@@ -230,7 +236,7 @@ fn resolve_imports_missing_module() {
     };
 
     let root = temp_dir("missing_module");
-    let roots = vec![root];
+    let roots = vec![ModuleRoot::unscoped(root)];
     let path = Path::new("/tmp/main.flx");
 
     let err = resolve_imports(path, &program, &roots, &interner).unwrap_err();
@@ -478,7 +484,10 @@ fn resolve_imports_missing_module_hint_uses_stable_display_paths() {
     };
 
     let source_path = make_verbatim("examples/diagnostics/module_cycle_error.flx");
-    let roots = vec![make_verbatim("examples/diagnostics"), make_verbatim("src")];
+    let roots = vec![
+        ModuleRoot::unscoped(make_verbatim("examples/diagnostics")),
+        ModuleRoot::unscoped(make_verbatim("src")),
+    ];
 
     let err = resolve_imports(&source_path, &program, &roots, &interner).unwrap_err();
     let rendered = err[0].render(None, None);
@@ -506,7 +515,7 @@ fn resolve_imports_no_imports_returns_empty() {
         ..Default::default()
     };
 
-    let roots: Vec<PathBuf> = Vec::new();
+    let roots: Vec<ModuleRoot> = Vec::new();
     let path = Path::new("/tmp/main.flx");
 
     let imports = resolve_imports(path, &program, &roots, &interner).unwrap();
@@ -531,9 +540,141 @@ fn resolve_imports_ignores_synthetic_flow_import() {
         ..Default::default()
     };
 
-    let roots: Vec<PathBuf> = Vec::new();
+    let roots: Vec<ModuleRoot> = Vec::new();
     let path = Path::new("/tmp/main.flx");
 
     let imports = resolve_imports(path, &program, &roots, &interner).unwrap();
     assert!(imports.is_empty());
+}
+
+// --- Package namespacing (proposal 0177 Phase 1) ---
+
+/// Write a package root holding a single `Json.flx` that returns `tag`.
+fn write_json_package(root: &Path, tag: &str) {
+    let dir = root.join("Json");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("Json.flx"),
+        format!("module Json.Json {{\n    public fn tag() -> String {{ \"{tag}\" }}\n}}\n"),
+    )
+    .unwrap();
+}
+
+#[test]
+fn an_unscoped_root_serves_every_import() {
+    let root = ModuleRoot::unscoped(PathBuf::from("/pkg"));
+    assert!(root.serves("Json"));
+    assert!(root.serves("Json.Parse"));
+    assert!(root.serves("Toml"));
+}
+
+#[test]
+fn a_scoped_root_serves_only_its_own_namespace() {
+    let root = ModuleRoot::scoped(PathBuf::from("/pkg"), "Json");
+    assert!(root.serves("Json"), "the namespace itself must resolve");
+    assert!(root.serves("Json.Parse"), "modules beneath it must resolve");
+    assert!(!root.serves("Toml"), "an unrelated import must not resolve");
+    assert!(
+        !root.serves("Jsonic"),
+        "a namespace is a whole segment, not a prefix"
+    );
+}
+
+#[test]
+fn normalize_roots_keeps_one_path_per_namespace() {
+    let dir = temp_dir("ns_dedup");
+    std::fs::create_dir_all(&dir).unwrap();
+    let roots = vec![
+        ModuleRoot::scoped(dir.clone(), "A"),
+        ModuleRoot::scoped(dir.clone(), "B"),
+        ModuleRoot::scoped(dir.clone(), "A"),
+    ];
+    // Same directory serving two packages is legitimate; the duplicate is not.
+    assert_eq!(normalize_roots(&roots).len(), 2);
+}
+
+/// The regression from proposal 0177: two packages each shipping a `Json`
+/// module build together, because their roots are scoped to distinct
+/// namespaces and neither can satisfy the other's import.
+#[test]
+fn two_packages_may_each_ship_a_json_module() {
+    let root = temp_dir("ns_two_json");
+    let a_root = root.join("a");
+    let b_root = root.join("b");
+    write_json_package(&a_root, "from-a");
+    write_json_package(&b_root, "from-b");
+
+    let mut interner = Interner::new();
+    let import_sym = interner.intern("Json.Json");
+    let entry_path = root.join("main.flx");
+    std::fs::write(&entry_path, "import Json.Json as J\n").unwrap();
+    let program = Program {
+        statements: vec![Statement::Import {
+            name: import_sym,
+            alias: None,
+            except: vec![],
+            exposing: crate::syntax::statement::ImportExposing::None,
+            span: span(1, 0),
+        }],
+        span: Span::default(),
+        ..Default::default()
+    };
+
+    // Only package `a` is scoped to `Json`, so the import is unambiguous even
+    // though `b` ships a file at the identical relative path.
+    let roots = vec![
+        ModuleRoot::scoped(a_root, "Json"),
+        ModuleRoot::scoped(b_root, "Toml"),
+    ];
+    let result =
+        ModuleGraph::build_with_entry_and_module_roots(&entry_path, &program, interner, &roots);
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected a clean build, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+/// Two packages claiming one namespace is reported as a namespace collision
+/// naming the packages, not as a bare `E027 Duplicate Module`.
+#[test]
+fn colliding_namespaces_report_the_packages() {
+    let root = temp_dir("ns_collision");
+    let a_root = root.join("a");
+    let b_root = root.join("b");
+    write_json_package(&a_root, "from-a");
+    write_json_package(&b_root, "from-b");
+
+    let mut interner = Interner::new();
+    let import_sym = interner.intern("Json.Json");
+    let entry_path = root.join("main.flx");
+    std::fs::write(&entry_path, "import Json.Json as J\n").unwrap();
+    let program = Program {
+        statements: vec![Statement::Import {
+            name: import_sym,
+            alias: None,
+            except: vec![],
+            exposing: crate::syntax::statement::ImportExposing::None,
+            span: span(1, 0),
+        }],
+        span: Span::default(),
+        ..Default::default()
+    };
+
+    let roots = vec![
+        ModuleRoot::scoped(a_root, "Json"),
+        ModuleRoot::scoped(b_root, "Json"),
+    ];
+    let result =
+        ModuleGraph::build_with_entry_and_module_roots(&entry_path, &program, interner, &roots);
+    let codes: Vec<&str> = result
+        .diagnostics
+        .iter()
+        .filter_map(|d| d.code.as_deref())
+        .collect();
+    assert!(
+        codes.contains(&"E469"),
+        "expected a namespace collision, got {codes:?}: {:#?}",
+        result.diagnostics
+    );
 }
