@@ -398,6 +398,14 @@ name = "project_root_tests"
 path = "tests/integration/project_root_tests.rs"
 
 [[test]]
+name = "package_build_tests"
+path = "tests/integration/package_build_tests.rs"
+
+[[test]]
+name = "package_cli_tests"
+path = "tests/integration/package_cli_tests.rs"
+
+[[test]]
 name = "imported_constructor_types_tests"
 path = "tests/type_inference/imported_constructor_types_tests.rs"
 

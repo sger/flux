@@ -235,7 +235,7 @@ pub const DUPLICATE_MODULE: ErrorCode = ErrorCode {
     hint: Some("Remove one of the duplicate module declarations."),
 };
 
-/// Proposal 0177 Phase 1: two resolved packages claim the same namespace, so
+/// Two resolved packages claim the same namespace, so
 /// an import beneath it is ambiguous. Reported at resolution time, where the
 /// package identities are known, rather than as a bare `E027 Duplicate Module`
 /// naming only the two colliding files.
@@ -248,6 +248,18 @@ pub const NAMESPACE_COLLISION: ErrorCode = ErrorCode {
         "Each package must own a distinct namespace. Rename one package, or set \
          a different `namespace` in its `flux.toml`.",
     ),
+};
+
+/// The project's `flux.toml` exists but its packages
+/// could not be resolved — an unreadable or malformed manifest, or a
+/// dependency kind Phase 1 does not support. The message comes from the Flux
+/// manifest resolver, which owns all manifest parsing.
+pub const MANIFEST_UNRESOLVED: ErrorCode = ErrorCode {
+    code: "E470",
+    title: "MANIFEST UNRESOLVED",
+    error_type: ErrorType::Compiler,
+    message: "Could not resolve the project manifest: {}.",
+    hint: Some("Check `flux.toml` and the path dependencies it declares."),
 };
 
 pub const INVALID_MODULE_FILE: ErrorCode = ErrorCode {

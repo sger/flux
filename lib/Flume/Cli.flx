@@ -1,0 +1,258 @@
+import Flume.Roots as Roots
+import Flume.Manifest as Manifest
+import Flume.Manifest exposing (Manifest, Bin)
+import Flow.Fs as Fs
+import Flow.Path as Path
+import Flow.List as List
+import Flow.Array as Array
+import Flow.String as String
+import Flow.Env as Env
+
+/// The package-manager command surface.
+///
+/// The package manager itself is written in Flux; the Rust CLI only forwards
+/// `flux init` / `new` / `build` / `run` / `test` / `check` here and reports
+/// the exit status. Every decision about manifests, scaffolding, and targets
+/// is made in this module.
+///
+/// Commands report to stdout and signal failure with an `err<TAB>...` line,
+/// the same convention `Flume.Roots` uses, so the Rust side needs no second
+/// error vocabulary.
+module Flume.Cli {
+
+    /// What a command produced: a line to print, and whether it failed.
+    public data Outcome {
+        Outcome { failed: Bool, message: String }
+    }
+
+    public fn outcome_failed(o: Outcome) -> Bool {
+        match o { Outcome { failed, message: _ } -> failed }
+    }
+
+    public fn outcome_message(o: Outcome) -> String {
+        match o { Outcome { failed: _, message } -> message }
+    }
+
+    fn ok(message: String) -> Outcome {
+        Outcome { failed: false, message: message }
+    }
+
+    fn fail(message: String) -> Outcome {
+        Outcome { failed: true, message: message }
+    }
+
+    // ── scaffolding ─────────────────────────────────────────────────
+
+    /// The manifest written by `init` and `new`.
+    fn manifest_template(name: String) -> String {
+        "[package]\nname = \"" + name + "\"\nversion = \"0.1.0\"\nedition = \"2026\"\n"
+    }
+
+    /// A binary package's entry point.
+    fn main_template() -> String {
+        "fn main() with IO {\n    print(\"Hello from Flux!\")\n}\n"
+    }
+
+    /// A library package's root module, the package's public face.
+    fn lib_template(namespace: String) -> String {
+        "module " + namespace + " {\n"
+            + "    public fn greet() -> String { \"Hello from "
+            + namespace + "!\" }\n}\n"
+    }
+
+    /// Scaffold a package into `dir`.
+    ///
+    /// A library gets `src/<Namespace>.flx` — the root module that is the
+    /// package's public face — and a binary gets `src/main.flx`.
+    public fn init(dir: String, name: String, is_lib: Bool) -> Outcome with IO {
+        let manifest_path = Path.join(dir, "flux.toml")
+        if Fs.exists(manifest_path) {
+            fail("a package already exists at " + manifest_path)
+        } else {
+            scaffold(dir, name, is_lib, manifest_path)
+        }
+    }
+
+    fn scaffold(dir: String, name: String, is_lib: Bool, manifest_path: String) -> Outcome with IO {
+        let namespace = Manifest.derive_namespace(name)
+        let src = Path.join(dir, "src")
+        match Fs.create_dir_all(src) {
+            Err(_) -> fail("could not create " + src),
+            Ok(_) -> write_scaffold(manifest_path, src, name, namespace, is_lib),
+        }
+    }
+
+    fn write_scaffold(
+        manifest_path: String,
+        src: String,
+        name: String,
+        namespace: String,
+        is_lib: Bool,
+    ) -> Outcome with IO {
+        let entry = if is_lib {
+            Path.join(src, namespace + ".flx")
+        } else {
+            Path.join(src, "main.flx")
+        }
+        let body = if is_lib { lib_template(namespace) } else { main_template() }
+        match Fs.write_file(manifest_path, manifest_template(name)) {
+            Err(_) -> fail("could not write " + manifest_path),
+            Ok(_) -> finish_scaffold(entry, body, name),
+        }
+    }
+
+    fn finish_scaffold(entry: String, body: String, name: String) -> Outcome with IO {
+        match Fs.write_file(entry, body) {
+            Err(_) -> fail("could not write " + entry),
+            Ok(_) -> ok("created package `" + name + "`"),
+        }
+    }
+
+    // ── target selection ────────────────────────────────────────────
+
+    /// The entry file a package builds or runs.
+    ///
+    /// `[[bin]]` and `[lib]` targets are honored when declared; otherwise the
+    /// conventional layout applies — `src/main.flx` for a binary, and the
+    /// namespace root module for a library.
+    public fn entry_file(dir: String) -> Result<String, String> with IO {
+        match read_manifest(dir) {
+            Err(message) -> Err(message),
+            Ok(manifest) -> resolve_entry(manifest, dir),
+        }
+    }
+
+    fn read_manifest(dir: String) -> Result<Manifest, String> with IO {
+        let path = Path.join(dir, "flux.toml")
+        match Fs.read_file(path) {
+            Err(_) -> Err("cannot read " + path),
+            Ok(text) -> parse_text(text, path),
+        }
+    }
+
+    fn parse_text(text: String, path: String) -> Result<Manifest, String> with IO {
+        match Manifest.parse(text) {
+            Err(_) -> Err("cannot parse " + path),
+            Ok(manifest) -> Ok(manifest),
+        }
+    }
+
+    /// The default target prefers the conventional entry point over a declared
+    /// `[[bin]]`. A package that declares extra binaries still runs its own
+    /// `src/main.flx` for a bare `flux run`; the others are reached by name
+    /// with `--bin`.
+    fn resolve_entry(manifest: Manifest, dir: String) -> Result<String, String> with IO {
+        let main = Path.join(Path.join(dir, "src"), "main.flx")
+        if Fs.exists(main) {
+            Ok(main)
+        } else {
+            first_bin_entry(manifest, dir)
+        }
+    }
+
+    fn first_bin_entry(manifest: Manifest, dir: String) -> Result<String, String> with IO {
+        match Manifest.manifest_bins(manifest) {
+            [bin | _] -> Ok(Path.join(dir, Manifest.bin_path(bin))),
+            [] -> resolve_lib_entry(manifest, dir),
+        }
+    }
+
+    fn resolve_lib_entry(manifest: Manifest, dir: String) -> Result<String, String> with IO {
+        match Manifest.manifest_lib(manifest) {
+            Some(path) -> Ok(Path.join(dir, path)),
+            None -> conventional_entry(manifest, dir),
+        }
+    }
+
+    fn conventional_entry(manifest: Manifest, dir: String) -> Result<String, String> with IO {
+        namespace_entry(manifest, dir)
+    }
+
+    fn namespace_entry(manifest: Manifest, dir: String) -> Result<String, String> with IO {
+        let namespace = Manifest.package_namespace(Manifest.manifest_package(manifest))
+        let candidate = Path.join(Path.join(dir, "src"), namespace + ".flx")
+        if Fs.exists(candidate) {
+            Ok(candidate)
+        } else {
+            Err("no entry point: expected src/main.flx or src/" + namespace + ".flx")
+        }
+    }
+
+    /// Named `[[bin]]` lookup for `flux run --bin <name>`.
+    public fn bin_entry(dir: String, name: String) -> Result<String, String> with IO {
+        match read_manifest(dir) {
+            Err(message) -> Err(message),
+            Ok(manifest) -> find_bin(Manifest.manifest_bins(manifest), dir, name),
+        }
+    }
+
+    fn find_bin(bins: List<Bin>, dir: String, name: String) -> Result<String, String> with IO {
+        match bins {
+            [] -> Err("no `[[bin]]` target named `" + name + "`"),
+            [bin | rest] ->
+                if Manifest.bin_name(bin) == name {
+                    Ok(Path.join(dir, Manifest.bin_path(bin)))
+                } else {
+                    find_bin(rest, dir, name)
+                },
+        }
+    }
+
+    // ── entry point ─────────────────────────────────────────────────
+
+    fn report(o: Outcome) with IO {
+        if outcome_failed(o) {
+            print("err\t" + outcome_message(o))
+        } else {
+            print("ok\t" + outcome_message(o))
+        }
+    }
+
+    fn arg(args: Array<String>, index: Int, fallback: String) -> String {
+        match Array.get(args, index) {
+            Some(value) -> value,
+            None -> fallback,
+        }
+    }
+
+    fn report_entry(resolved: Result<String, String>) with IO {
+        match resolved {
+            Err(message) -> print("err\t" + message),
+            Ok(path) -> print("ok\t" + path),
+        }
+    }
+
+    /// Dispatch a command.
+    ///
+    /// Invoked as `<command> <dir> [name] [--lib]`. `entry` and `bin` print
+    /// the resolved entry file so the Rust driver can compile it; the
+    /// scaffolding commands do their own work and report the result.
+    public fn main() with IO {
+        let args = Env.args()
+        let command = arg(args, 1, "help")
+        let dir = arg(args, 2, ".")
+        dispatch(command, dir, args)
+    }
+
+    fn dispatch(command: String, dir: String, args: Array<String>) with IO {
+        // `new` scaffolds into a directory the caller already created, so it
+        // is `init` once the directory exists.
+        if command == "init" || command == "new" {
+            report(init(dir, arg(args, 3, "package"), arg(args, 4, "") == "--lib"))
+        } else {
+            dispatch_query(command, dir, args)
+        }
+    }
+
+    fn dispatch_query(command: String, dir: String, args: Array<String>) with IO {
+        if command == "entry" {
+            report_entry(entry_file(dir))
+        } else {
+            if command == "bin" {
+                report_entry(bin_entry(dir, arg(args, 3, "")))
+            } else {
+                print("err\tunknown command `" + command + "`")
+            }
+        }
+    }
+}

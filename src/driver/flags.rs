@@ -38,6 +38,10 @@ pub struct DriverRuntimeFlags {
     /// Set by surfaces that recompile on every interaction (the REPL), where the
     /// progress chatter is noise rather than feedback.
     pub quiet: bool,
+    /// Run the frontend and compile, but stop before executing the program.
+    /// Backs `flux build` and `flux check`: both need every compile-time error
+    /// surfaced without running `main`.
+    pub check_only: bool,
 }
 
 /// Dump and inspection surfaces emitted by the driver.
