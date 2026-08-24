@@ -503,11 +503,37 @@ pub fn render_stack_trace(out: &mut String, stack_trace: &[StackTraceFrame], use
         out.push_str(colors.reset);
     }
 
-    for frame in stack_trace {
-        out.push_str("  at ");
-        out.push_str(&frame.text);
-        out.push('\n');
+    // A runaway recursion produces one frame per call, and printing all of
+    // them buries the error in megabytes of identical lines. The ends carry
+    // the information — where it started and where it died — so keep those
+    // and count what was dropped.
+    if stack_trace.len() <= STACK_TRACE_HEAD + STACK_TRACE_TAIL {
+        for frame in stack_trace {
+            render_stack_frame(out, frame);
+        }
+        return;
     }
+
+    for frame in &stack_trace[..STACK_TRACE_HEAD] {
+        render_stack_frame(out, frame);
+    }
+    let elided = stack_trace.len() - STACK_TRACE_HEAD - STACK_TRACE_TAIL;
+    out.push_str(&format!("  ... {elided} more frames ...\n"));
+    for frame in &stack_trace[stack_trace.len() - STACK_TRACE_TAIL..] {
+        render_stack_frame(out, frame);
+    }
+}
+
+/// Frames kept at the top of an elided trace: where the error was raised.
+const STACK_TRACE_HEAD: usize = 20;
+
+/// Frames kept at the bottom: how the recursion was entered.
+const STACK_TRACE_TAIL: usize = 10;
+
+fn render_stack_frame(out: &mut String, frame: &StackTraceFrame) {
+    out.push_str("  at ");
+    out.push_str(&frame.text);
+    out.push('\n');
 }
 
 fn ensure_section_spacing(out: &mut String) {
