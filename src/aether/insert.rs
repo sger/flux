@@ -4,7 +4,7 @@
 //! environment. `Dup` and `Drop` are emitted as local consequences of that
 //! environment instead of from whole-body use counts.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::core::{CoreBinder, CoreBinderId, CorePrimOp, CoreTag, CoreVarRef};
 use crate::diagnostics::position::Span;
@@ -320,6 +320,8 @@ fn plan_expr(
                     }
                 })
                 .collect();
+            let guarded_borrowed_args =
+                call_guard_mask(&args, &arg_modes, &tail_env, field_parents);
             let (args, env_after_args) =
                 plan_expr_list(args, tail_env, registry, scope, field_parents, |index| {
                     if arg_modes[index] == BorrowMode::Borrowed {
@@ -341,6 +343,7 @@ fn plan_expr(
                     func: Box::new(func_plan.expr),
                     args,
                     arg_modes,
+                    guarded_borrowed_args,
                     span,
                 },
                 env_before: func_plan.env_before,
@@ -350,6 +353,7 @@ fn plan_expr(
             func,
             args,
             arg_modes: existing_arg_modes,
+            guarded_borrowed_args: _,
             span,
         } => {
             let resolved_callee = registry.and_then(|reg| match func.as_ref() {
@@ -377,6 +381,8 @@ fn plan_expr(
             } else {
                 existing_arg_modes.clone()
             };
+            let guarded_borrowed_args =
+                call_guard_mask(&args, &arg_modes, &tail_env, field_parents);
             let (args, env_after_args) =
                 plan_expr_list(args, tail_env, registry, scope, field_parents, |index| {
                     match arg_modes[index] {
@@ -397,6 +403,7 @@ fn plan_expr(
                     func: Box::new(func_plan.expr),
                     args,
                     arg_modes,
+                    guarded_borrowed_args,
                     span,
                 },
                 env_before: func_plan.env_before,
@@ -869,6 +876,55 @@ fn plan_expr(
     }
 }
 
+/// Decide which borrowed call arguments need an owning reference while the
+/// callee runs. A borrowed parameter is normally safe to pass without a
+/// clone, but the callee's reuse analysis only sees the reference count. If
+/// the caller still owns the argument (or a live scrutinee owns an extracted
+/// field), that count can under-report reachability and let the callee mutate
+/// the caller's value in place.
+fn call_guard_mask(
+    args: &[CoreExpr],
+    arg_modes: &[BorrowMode],
+    tail_env: &AetherEnv,
+    field_parents: &FieldParents,
+) -> Vec<bool> {
+    args.iter()
+        .zip(arg_modes.iter())
+        .map(|(arg, mode)| {
+            if *mode != BorrowMode::Borrowed {
+                return false;
+            }
+
+            let CoreExpr::Var { var, .. } = arg else {
+                // A non-variable borrowed expression has no stable ownership
+                // provenance available at this point, so guard it
+                // conservatively.
+                return true;
+            };
+            let Some(mut current) = var.binder else {
+                return true;
+            };
+
+            if tail_env.is_live(current) {
+                return true;
+            }
+
+            let mut visited = HashSet::new();
+            while let Some(field) = field_parents.get(&current) {
+                if tail_env.is_live(field.parent) {
+                    return true;
+                }
+                if !visited.insert(current) || field.parent == current {
+                    break;
+                }
+                current = field.parent;
+            }
+
+            false
+        })
+        .collect()
+}
+
 fn plan_expr_list<F>(
     exprs: Vec<CoreExpr>,
     tail_env: AetherEnv,
@@ -1193,6 +1249,41 @@ mod tests {
         }
     }
 
+    fn borrowed_call_mask(expr: &CoreExpr) -> Option<Vec<bool>> {
+        match expr {
+            CoreExpr::AetherCall {
+                guarded_borrowed_args,
+                ..
+            } => Some(guarded_borrowed_args.clone()),
+            CoreExpr::Lam { body, .. }
+            | CoreExpr::Let { body, .. }
+            | CoreExpr::LetRec { body, .. }
+            | CoreExpr::Dup { body, .. }
+            | CoreExpr::Drop { body, .. }
+            | CoreExpr::Return { value: body, .. } => borrowed_call_mask(body),
+            CoreExpr::Con { fields, .. }
+            | CoreExpr::PrimOp { args: fields, .. }
+            | CoreExpr::Perform { args: fields, .. } => fields.iter().find_map(borrowed_call_mask),
+            CoreExpr::Case { alts, .. } => alts.iter().find_map(|alt| borrowed_call_mask(&alt.rhs)),
+            CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+                borrowed_call_mask(object)
+            }
+            _ => None,
+        }
+    }
+
+    fn borrowed_len_registry(interner: &mut Interner) -> BorrowRegistry {
+        let mut registry = BorrowRegistry::default();
+        registry.by_name.insert(
+            interner.intern("len"),
+            crate::aether::borrow_infer::BorrowSignature::new(
+                vec![BorrowMode::Borrowed],
+                crate::aether::borrow_infer::BorrowProvenance::BaseRuntime,
+            ),
+        );
+        registry
+    }
+
     fn count_binder_nodes<F>(expr: &CoreExpr, binder: CoreBinderId, predicate: &F) -> usize
     where
         F: Fn(&CoreExpr, CoreBinderId) -> bool,
@@ -1301,6 +1392,101 @@ mod tests {
             }
             other => panic!("expected AetherCall, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn borrowed_call_guards_follow_liveness_and_field_aliases() {
+        let mut interner = Interner::new();
+        let len = interner.intern("len");
+        let registry = borrowed_len_registry(&mut interner);
+        let pair = crate::core::CoreTag::Named(interner.intern("Pair"));
+
+        let linear = CoreExpr::Lam {
+            params: vec![binder(&mut interner, 1, "x")],
+            param_types: vec![],
+            result_ty: None,
+            body: Box::new(CoreExpr::App {
+                func: Box::new(CoreExpr::Var {
+                    var: CoreVarRef::unresolved(len),
+                    span: Span::default(),
+                }),
+                args: vec![var(binder(&mut interner, 1, "x"))],
+                span: Span::default(),
+            }),
+            span: Span::default(),
+        };
+        let linear = insert_dup_drop_with_registry(linear, &registry);
+        assert_eq!(borrowed_call_mask(&linear), Some(vec![false]));
+
+        let x = binder(&mut interner, 2, "x");
+        let live = CoreExpr::Lam {
+            params: vec![x],
+            param_types: vec![],
+            result_ty: None,
+            body: Box::new(CoreExpr::Con {
+                tag: pair.clone(),
+                fields: vec![
+                    CoreExpr::App {
+                        func: Box::new(CoreExpr::Var {
+                            var: CoreVarRef::unresolved(len),
+                            span: Span::default(),
+                        }),
+                        args: vec![var(x)],
+                        span: Span::default(),
+                    },
+                    var(x),
+                ],
+                span: Span::default(),
+            }),
+            span: Span::default(),
+        };
+        let live = insert_dup_drop_with_registry(live, &registry);
+        assert_eq!(borrowed_call_mask(&live), Some(vec![true]));
+
+        let xs = binder(&mut interner, 3, "xs");
+        let field = binder(&mut interner, 4, "field");
+        let nested = binder(&mut interner, 5, "nested");
+        let aliased = CoreExpr::Lam {
+            params: vec![xs],
+            param_types: vec![],
+            result_ty: None,
+            body: Box::new(CoreExpr::Let {
+                var: field,
+                rhs: Box::new(CoreExpr::TupleField {
+                    object: Box::new(var(xs)),
+                    index: 0,
+                    span: Span::default(),
+                }),
+                body: Box::new(CoreExpr::Let {
+                    var: nested,
+                    rhs: Box::new(CoreExpr::TupleField {
+                        object: Box::new(var(field)),
+                        index: 0,
+                        span: Span::default(),
+                    }),
+                    body: Box::new(CoreExpr::Con {
+                        tag: pair,
+                        fields: vec![
+                            CoreExpr::App {
+                                func: Box::new(CoreExpr::Var {
+                                    var: CoreVarRef::unresolved(len),
+                                    span: Span::default(),
+                                }),
+                                args: vec![var(nested)],
+                                span: Span::default(),
+                            },
+                            var(xs),
+                        ],
+                        span: Span::default(),
+                    }),
+                    span: Span::default(),
+                }),
+                span: Span::default(),
+            }),
+            span: Span::default(),
+        };
+        let aliased = insert_dup_drop_with_registry(aliased, &registry);
+        assert_eq!(borrowed_call_mask(&aliased), Some(vec![true]));
     }
 
     #[test]

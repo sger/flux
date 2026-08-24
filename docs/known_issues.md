@@ -186,6 +186,28 @@ Flume TOML and manifest fixtures now run through VM/native parity assertions.
 See the [native-backend debugging guide](debugging-native-backend.md), which
 uses KI-013 as a worked example.
 
+### KI-018 — Recursive rebuild mutates a list still held by the caller — FIXED 2026-08-24
+
+The native backend now preserves the caller's list when a recursive rebuild is
+performed through a borrowed argument. The regression is covered by
+`tests/flux/aether_collection_ownership.flx`, including independent rebuilds
+from the same source list.
+
+**Root cause.** A borrowed call argument does not add an owning reference. A
+callee containing `DropSpecialized` could nevertheless observe RC==1 and take
+its unique reuse arm, even though the caller still retained the value (often as
+a field of another list cell). The callee then mutated that shared cell in
+place. The existing `flux_rc_is_unique` check was correct; the ownership
+information at the call boundary was incomplete.
+
+**Fix.** Aether now marks borrowed call arguments whose caller-side binder or
+scrutinee remains live, following chained field aliases and conservatively
+guarding non-variable expressions. Native lowering emits a temporary `Dup` and
+matching `Drop` only for those mask entries, so the callee sees the true shared
+reference count without disabling reuse for genuinely linear borrowed calls.
+`--dump-aether` reports the planner-level `Reuses`/`FBIP` separately from the
+guard count and debug locations.
+
 ### KI-003 — A class-constrained stdlib function accepts the wrong container type — FIXED 2026-08-23
 
 Re-diagnosed and fixed 2026-08-23. The original report — "the bare `contains`
@@ -338,6 +360,18 @@ already had an equivalent private-cache scheme of its own.
 
 **Note for new tests.** A test that spawns `flux` must pass
 `Scratch::cache_args()`. `--no-cache` alone does not isolate it.
+
+There is a separate toolchain pitfall: `CARGO_BIN_EXE_flux` points at the
+shared `target/debug/flux` path. A plain `cargo build` can replace an
+LLVM-enabled binary with one built without `llvm`, causing native tests to fail
+before execution with `native backend features require llvm`. Always run native
+tests through the same command that builds their binary, for example:
+
+```text
+cargo test --features llvm --test native_json_tests
+```
+
+This is a stale-binary problem, not a JSON backend failure.
 
 ---
 

@@ -232,7 +232,7 @@ fn body() -> String with Async, AsyncFail {{
 "#
     ));
     let path = write_fixture(source);
-    let scratch = Scratch::new("cache-isolated");
+    let _scratch = Scratch::new("cache-isolated");
     let child = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--no-cache"])

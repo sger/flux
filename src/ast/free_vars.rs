@@ -141,22 +141,12 @@ impl FreeVarCollector {
 impl<'ast> Visitor<'ast> for FreeVarCollector {
     fn visit_stmt(&mut self, stmt: &'ast Statement) {
         match stmt {
-            Statement::Let {
-                name,
-                value,
-                span: _,
-                ..
-            } => {
+            Statement::Let { name, value, .. } => {
                 // Visit value before defining the binding (value can't reference itself).
                 self.visit_expr(value);
                 self.define(*name);
             }
-            Statement::LetDestructure {
-                pattern,
-                value,
-                span: _,
-                ..
-            } => {
+            Statement::LetDestructure { pattern, value, .. } => {
                 self.visit_expr(value);
                 self.define_pattern_bindings(pattern);
             }
@@ -164,7 +154,6 @@ impl<'ast> Visitor<'ast> for FreeVarCollector {
                 name,
                 parameters,
                 body,
-                span: _,
                 ..
             } => {
                 // Define function in outer scope first to support recursion.
@@ -196,10 +185,7 @@ impl<'ast> Visitor<'ast> for FreeVarCollector {
                 }
             }
             Expression::Function {
-                parameters,
-                body,
-                span: _,
-                ..
+                parameters, body, ..
             } => {
                 let params: Vec<Symbol> = parameters.to_vec();
                 self.with_scope(&params, |this| {

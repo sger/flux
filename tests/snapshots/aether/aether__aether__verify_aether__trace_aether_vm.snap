@@ -1,6 +1,5 @@
 ---
 source: tests/aether/cli_snapshots.rs
-assertion_line: 195
 ---
 [1 of 1] Compiling  verify_aether
 Warning: FBIP Contract Not Proven
@@ -44,8 +43,10 @@ modules: 1
 Aether Ownership Report
 =======================
 
+Note: Reuses and FBIP describe the Aether planner. BorrowedCallGuards are native call-site Dup/Drop safeguards; guarded calls may suppress a callee's reuse for those arguments.
+
 ── fn my_map @fip ──
-  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
   fbip: NotProvable
@@ -62,7 +63,7 @@ lam(xs, f) ->
     _ ->
       Nil
 ── fn option_map @fip ──
-  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
   fbip: NotProvable
@@ -77,7 +78,7 @@ lam(opt, f) ->
     _ ->
       None
 ── fn set_black ──
-  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  FBIP: fip
+  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 lam(t) ->
@@ -87,7 +88,7 @@ lam(t) ->
     _ ->
       t#10
 ── fn my_filter ──
-  Dups: 0  Drops: 1  Reuses: 1  DropSpecs: 0  FBIP: fip
+  Dups: 0  Drops: 1  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 lam(xs, f) ->
@@ -106,7 +107,7 @@ lam(xs, f) ->
     _ ->
       Nil
 ── fn main [handle×5] ──
-  Dups: 0  Drops: 21  Reuses: 0  DropSpecs: 0  FBIP: fbip(1)  Yields: 0  Handles: 5  HandlerArms: 11
+  Dups: 0  Drops: 21  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)  Yields: 0  Handles: 5  HandlerArms: 11
   FreshAllocs: 1
   verifier: ok
 lam() ->
@@ -123,7 +124,7 @@ lam() ->
         aether_call[owned] __resume_default#65(<sym:4000126>#126)
 
 ── Total ──
-  Dups: 0  Drops: 22  Reuses: 4  DropSpecs: 0  FBIP: fbip(1)  Yields: 0  Handles: 5  HandlerArms: 11
+  Dups: 0  Drops: 22  Reuses: 4  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)  Yields: 0  Handles: 5  HandlerArms: 11
   FreshAllocs: 1
 
 [cfg→vm] Running via CFG → bytecode VM backend...

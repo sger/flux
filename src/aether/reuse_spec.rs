@@ -66,6 +66,7 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
             func,
             args,
             arg_modes,
+            guarded_borrowed_args,
             span,
         } => CoreExpr::AetherCall {
             func: Box::new(specialize_with_env(*func, env)),
@@ -74,6 +75,7 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
                 .map(|arg| specialize_with_env(arg, env))
                 .collect(),
             arg_modes,
+            guarded_borrowed_args,
             span,
         },
         CoreExpr::Let {
@@ -308,6 +310,7 @@ fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
             func,
             args,
             arg_modes,
+            guarded_borrowed_args,
             span,
         } => AetherExpr::AetherCall {
             func: Box::new(specialize_with_env_aether(*func, env)),
@@ -316,6 +319,7 @@ fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
                 .map(|arg| specialize_with_env_aether(arg, env))
                 .collect(),
             arg_modes,
+            guarded_borrowed_args,
             span,
         },
         AetherExpr::Let {

@@ -16,6 +16,17 @@ Record both backends' outputs and whether the native result is:
 Run the same input repeatedly. A deterministic failure is easier to reduce and
 debug than a sporadic one.
 
+For native Rust integration tests, build and run with one consistent Cargo
+invocation. The test crate can have `llvm` enabled while `CARGO_BIN_EXE_flux`
+still points to a stale `target/debug/flux` binary built without it:
+
+```text
+cargo test --features llvm --test native_json_tests
+```
+
+Do not use a preceding plain `cargo build` as the native-binary preparation
+step; it can overwrite the shared executable with a non-LLVM build.
+
 For KI-013, the VM returned:
 
 ```text
@@ -142,6 +153,13 @@ Use progressively broader tests:
 
 For KI-013, this sequence covered the Aether reconstruction, tuple guard,
 TOML fixture, manifest fixture, and related Flume parity fixtures.
+
+When reviewing `--dump-aether`, distinguish planner output from emitted native
+code. `Reuses` and `FBIP` describe the Aether plan. `BorrowedCallGuards` and
+the debug locations identify the specific borrowed arguments whose provenance
+requires a temporary native `Dup`/`Drop` pair; genuinely linear borrowed calls
+remain unguarded and can retain FBIP reuse. This is the provenance-aware fix
+for KI-018.
 
 ## Practical checklist
 

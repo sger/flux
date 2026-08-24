@@ -128,7 +128,7 @@ fn run_flux_source_native_with_timeout(
     let path = dir.join("flow_task_native_source.flx");
     std::fs::write(&path, source).expect("write native Flow.Task fixture");
 
-    let scratch = Scratch::new("cache-isolated");
+    let _scratch = Scratch::new("cache-isolated");
     let child = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .env("FLUX_WORKERS", "4")

@@ -1020,7 +1020,6 @@ fn generate_from_statements(
                 type_args,
                 context,
                 methods,
-                span: _,
                 ..
             } => {
                 let Some(class_def) = resolve_instance_class_def(class_env, *class_name, interner)
