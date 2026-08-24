@@ -176,3 +176,94 @@ fn script_mode_is_unaffected_by_manifest_resolution() {
     assert!(ok, "script mode failed:\n{out}");
     assert!(out.contains("42"), "unexpected output:\n{out}");
 }
+
+/// A package may only declare modules under the namespace it owns, and the
+/// error must land at that package's own build with the corrected path.
+#[test]
+fn a_module_outside_its_package_namespace_is_rejected() {
+    let scratch = Scratch::new("pkg-namespace-escape");
+    let pkg = scratch.path().join("json");
+    write(
+        &pkg.join("flux.toml"),
+        "[package]\nname = \"json\"\nversion = \"0.1.0\"\n",
+    );
+    // Package `json` owns `Json`, so a bare `module Utils` escapes it.
+    write(
+        &pkg.join("src").join("Utils.flx"),
+        "module Utils {\n    public fn helper() -> String { \"x\" }\n}\n",
+    );
+    write(
+        &pkg.join("src").join("main.flx"),
+        "import Utils as Utils\n\nfn main() with IO { print(Utils.helper()) }\n",
+    );
+
+    let (out, ok) = run("src/main.flx", &pkg);
+    assert!(!ok, "a namespace escape must fail the build:\n{out}");
+    assert!(out.contains("E471"), "expected E471:\n{out}");
+    assert!(
+        out.contains("`json`") && out.contains("`Json`"),
+        "the error must name the package and its namespace:\n{out}"
+    );
+    assert!(
+        out.contains("src/Json/Utils.flx"),
+        "the hint must give the corrected path:\n{out}"
+    );
+}
+
+/// The namespace root module is the package's public face, and a module
+/// beneath the namespace is ordinary: neither may be flagged as an escape.
+#[test]
+fn modules_within_the_package_namespace_are_accepted() {
+    let scratch = Scratch::new("pkg-namespace-ok");
+    let pkg = scratch.path().join("json");
+    write(
+        &pkg.join("flux.toml"),
+        "[package]\nname = \"json\"\nversion = \"0.1.0\"\n",
+    );
+    // `src/Json.flx` is the namespace root; `src/Json/Utils.flx` sits beneath it.
+    write(
+        &pkg.join("src").join("Json.flx"),
+        "module Json {\n    public fn tag() -> String { \"root\" }\n}\n",
+    );
+    write(
+        &pkg.join("src").join("Json").join("Utils.flx"),
+        "module Json.Utils {\n    public fn helper() -> String { \"nested\" }\n}\n",
+    );
+    write(
+        &pkg.join("src").join("main.flx"),
+        "import Json as J\nimport Json.Utils as U\n\n         fn main() with IO { print(J.tag() + U.helper()) }\n",
+    );
+
+    let (out, ok) = run("src/main.flx", &pkg);
+    assert!(ok, "a correctly namespaced package must build:\n{out}");
+    assert!(out.contains("rootnested"), "unexpected output:\n{out}");
+}
+
+/// `--root` is the unscoped escape hatch: outside a package, any module name
+/// is still legal.
+#[test]
+fn unscoped_roots_do_not_enforce_a_namespace() {
+    let scratch = Scratch::new("pkg-namespace-unscoped");
+    write(
+        &scratch.path().join("lib").join("Utils.flx"),
+        "module Utils {\n    public fn helper() -> String { \"unscoped\" }\n}\n",
+    );
+    write(
+        &scratch.path().join("main.flx"),
+        "import Utils as U\n\nfn main() with IO { print(U.helper()) }\n",
+    );
+
+    let output = Command::new(flux_bin())
+        .current_dir(scratch.path())
+        .args(["main.flx", "--root", "lib", "--no-cache"])
+        .env("NO_COLOR", "1")
+        .output()
+        .expect("run flux");
+    let text = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
+    assert!(
+        output.status.success(),
+        "--root must not enforce a namespace:\n{text}{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(text.contains("unscoped"), "unexpected output:\n{text}");
+}
