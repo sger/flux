@@ -1,6 +1,6 @@
 - Feature Name: Flux package manager (`flux.toml`, `flux.lock`, `flux build/test/add`)
 - Start Date: 2026-08-20
-- Status: Partially implemented (Phases 0 and 1 shipped 2026-08-24; Phases 2–3 not started)
+- Status: Partially implemented (Phases 0 and 1 shipped 2026-08-24; Phase 2 resolution and lockfile shipped 2026-08-24, fetching deferred; Phase 3 not started)
 - Proposal PR:
 - Flux Issue:
 - Supersedes: [0015_package_module_workflow_mvp.md](0015_package_module_workflow_mvp.md) (the MVP sketch; this proposal subsumes and completes it)
@@ -29,7 +29,7 @@ specified in the [Reference-level explanation](#reference-level-explanation):
 |---|---|---|---|
 | **0** | Manifest parser, version arithmetic, resolver, `Flow.Path` — pure Flux, no I/O | The interesting logic, testable immediately | Shipped |
 | **1** | `flux.toml`, `init/build/run/test`, path deps, namespacing, stdlib-as-package | Flux works outside its own checkout | Shipped 2026-08-24 |
-| **2** | Registry index, semver resolution, `flux.lock`, `add/update/tree` | Third-party libraries | Not started |
+| **2** | Registry index, semver resolution, `flux.lock`, `add/update/tree` | Third-party libraries | Resolution + lockfile shipped 2026-08-24; fetching and `add/update/tree` not started |
 | **3** | Content-addressed store, `publish`, workspaces, `metadata` | An ecosystem | Not started |
 
 Phase 0 has no dependency on [0178](implemented/0178_os_capabilities_for_tooling.md) and can
@@ -65,6 +65,59 @@ The resolver's output is cached against the content of every manifest that
 produced it, so a warm package build does not re-spawn it. (The `--filter <s>`
 slot in the CLI surface is covered by the existing `--test-filter <s>`, which
 matches the qualified test name.)
+
+### What Phase 2 shipped
+
+Registry dependencies resolve, lock, and build. What a project declares in
+`[dependencies]` as a semver requirement is now settled by the Phase 0
+resolver against a local registry index, recorded in `flux.lock`, and turned
+into a scoped module root — the same kind of root a path dependency produces.
+
+Four Flux modules, all of them either pure or confined to I/O:
+
+- `lib/Flume/Lock.flx` reads and writes `flux.lock`: the format-version
+  preserve-what-you-find protocol, inline checksums, deterministic ordering,
+  and the rule that a registry entry without a checksum is rejected rather
+  than trusted. Pure.
+- `lib/Flume/Index.flx` reads the append-only index — one file per package,
+  one JSON object per line — into resolver candidates, tagging every
+  requirement with the package that declared it. Pure.
+- `lib/Flume/Plan.flx` joins manifest, index, resolver, and lockfile, and
+  decides whether the resolution changed. Pure.
+- `lib/Flume/Home.flx` is the only module here that touches the disk:
+  `$FLUX_HOME` layout, index reads, and an atomic lockfile write through a
+  temporary file and a rename.
+
+`lib/Flume/Roots.flx` no longer rejects registry dependencies. It walks path
+dependencies as before, collects registry requirements, resolves them once
+against the whole graph, writes the lockfile when it changed, and emits a root
+per resolved package. Dev dependencies are excluded from the build graph
+rather than rejected.
+
+**Minimal-change updating** is implemented as two resolution attempts, not as
+an ordering: first against a candidate set narrowed to what the lockfile
+already chose, then — only if that fails — against the full set. Ordering does
+not work, because the resolver sorts candidates highest-version-first
+internally and discards any order it is handed. A locked version therefore
+survives a newer publication, while an edited manifest re-resolves instead of
+failing.
+
+**Not yet shipped from this phase:** network fetching (the index and unpacked
+sources are read from `$FLUX_HOME`, never downloaded), `add` / `remove` /
+`update` / `tree`, the `--offline` / `--locked` / `--frozen` flags as CLI
+surface (`Flume.Plan.unsatisfied` implements the `--locked` check but nothing
+calls it yet), git dependencies, and index-state pinning.
+
+One defect was found and fixed in the process: the Phase 1 roots cache
+fingerprinted manifests only, so once resolution depended on `flux.lock` the
+cache replayed stale resolutions
+([KI-024](../known_issues.md#ki-024)). `CACHE_EPOCH` is now 21.
+
+Three language limitations were hit and documented rather than worked around
+silently: [KI-011](../known_issues.md#ki-011) (extended — the defect is
+invisible under `flux run` and appears only under `--test`),
+[KI-022](../known_issues.md#ki-022), and
+[KI-023](../known_issues.md#ki-023).
 
 ## Motivation
 [motivation]: #motivation
@@ -1144,6 +1197,48 @@ hard to add once resolution exists, because they change what counts as a valid
 solution. This is why the single-instance rule is encoded in the activation key
 now, even though the relaxation is deferred.
 
+**Build profiles are the right place for backend selection — but only if the
+backend is part of the cache key.** Flux is unusual among the ecosystems studied
+here in shipping *two* backends (bytecode VM and LLVM-native) from one frontend,
+so "which backend does `flux build` use?" is a question neither Cargo nor Cabal
+had to answer in quite this form. Their answers differ sharply, and only one is
+worth copying.
+
+Cabal models no code-generation backend at all. There is no `-fllvm` or `-fasm`
+in its source; `GhcObjectCode` and `GhcByteCode` are defined in
+`Distribution.Simple.Program.GHC` but never constructed. Bytecode is never a
+build backend — `cabal repl` goes through `--interactive` (GHCi defaults to
+bytecode implicitly, forced to `-O0`), and `--enable-library-bytecode` emits
+`.gbc` files *alongside* native objects, with bytecode-only builds an explicit
+error. Selecting LLVM means writing `ghc-options: -fllvm`, which Cabal passes
+through as an opaque string; it invalidates the package hash only incidentally,
+as part of `pkgHashProgramArgs`. There are also no dev/release profiles: a
+single `OptimisationLevel` axis defaults to `-O1` identically for `cabal build`
+and `cabal install`, and the "Build profile:" line in its output is cosmetic.
+
+Cargo makes the backend a **profile field** (`Profile::codegen_backend`) and —
+the part that matters — includes it in `Profile::comparable()`, which feeds both
+the fingerprint and the `-C metadata` hash. Switching backends therefore
+invalidates correctly and keeps artifacts separate rather than clobbering them.
+Three further details are worth adopting wholesale: profiles are ordinary data
+with only `dev` and `release` as roots (`test`/`bench`/`doc` merely `inherits`
+them, with cycle detection); `[profile.dev.package."*"]` is skipped for
+workspace members, which is what expresses "optimise my dependencies, not my
+code"; and the output directory comes from the profile *name* while everything
+else rides in the hash, so `dev` and `test` can share `target/debug` safely.
+
+Flux already has the two hard prerequisites — `CacheLayout::vm_dir()` /
+`native_dir()` keep the backends' artifacts apart, and `CACHE_EPOCH` plus
+interface fingerprinting give a working invalidation story. What is missing is
+the manifest surface. Two facts argue against simply defaulting `release` to the
+native backend, though, and both are recorded in
+[known_issues.md](../known_issues.md): the VM overflows on non-tail recursion at
+a depth the native backend survives ([KI-030](../known_issues.md#ki-030)), so a
+VM-dev / native-release split would put the *stricter* backend in the cheaper
+configuration; and TCP has no native parity yet
+([KI-009](../known_issues.md#ki-009)). Backend-per-profile should therefore land
+only once parity is close enough that the two configurations agree on what runs.
+
 **Alternative resolution strategies worth tracking:** minimal-version selection
 (simpler and more predictable than backtracking, but it depends on an
 import-compatibility discipline Flux does not enforce); nested dependency trees
@@ -1244,11 +1339,15 @@ unification.
 - **Distributed/shared build cache** — the content-addressed store makes this
   mostly a transport problem.
 - **Documentation generation and hosting** for published packages.
-- **Self-hosting the resolver and manifest layers in Flux**, once the OS-capability
-  gaps close. The analysis in *Implementation language* found no type-system
-  obstacle — only missing OS surface — and a package manager is a well-scoped,
-  genuinely useful dogfooding target that would exercise effect signatures on real
-  software (a pure manifest parser, an explicitly-effectful fetcher).
+- **Build profiles, with the backend as a profile field.** Flux ships two
+  backends from one frontend, and `flux build` currently has no way to choose.
+  Cargo's design is the one to copy (see *Prior art*): profiles as ordinary data
+  with `dev`/`release` as the only roots, the backend included in the cache key
+  so switching invalidates correctly, and the artifact directory keyed on the
+  profile name. `CacheLayout::vm_dir()` / `native_dir()` and `CACHE_EPOCH`
+  already provide the separation and invalidation this needs; what is missing is
+  the `flux.toml` surface. Gated on backend parity — see
+  [KI-030](../known_issues.md#ki-030) and [KI-009](../known_issues.md#ki-009).
 - **Effect-aware metadata**: Flux knows the effect signature of every public
   function, so a package index could expose "this library performs IO" — genuinely
   novel, and a supply-chain-transparency story that package managers for

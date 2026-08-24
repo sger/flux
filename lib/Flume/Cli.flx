@@ -41,7 +41,7 @@ module Flume.Cli {
         Outcome { failed: true, message: message }
     }
 
-    // ── scaffolding ─────────────────────────────────────────────────
+//| scaffolding
 
     /// The manifest written by `init` and `new`.
     fn manifest_template(name: String) -> String {
@@ -108,7 +108,7 @@ module Flume.Cli {
         }
     }
 
-    // ── target selection ────────────────────────────────────────────
+//| target selection
 
     /// The entry file a package builds or runs.
     ///
@@ -142,7 +142,7 @@ module Flume.Cli {
     /// `src/main.flx` for a bare `flux run`; the others are reached by name
     /// with `--bin`.
     fn resolve_entry(manifest: Manifest, dir: String) -> Result<String, String> with IO {
-        let main = Path.join(Path.join(dir, "src"), "main.flx")
+        let main = dir |> Path.join("src") |> Path.join("main.flx")
         if Fs.exists(main) {
             Ok(main)
         } else {
@@ -170,7 +170,7 @@ module Flume.Cli {
 
     fn namespace_entry(manifest: Manifest, dir: String) -> Result<String, String> with IO {
         let namespace = Manifest.package_namespace(Manifest.manifest_package(manifest))
-        let candidate = Path.join(Path.join(dir, "src"), namespace + ".flx")
+        let candidate = dir |> Path.join("src") |> Path.join(namespace + ".flx")
         if Fs.exists(candidate) {
             Ok(candidate)
         } else {
@@ -198,7 +198,7 @@ module Flume.Cli {
         }
     }
 
-    // ── entry point ─────────────────────────────────────────────────
+//| entry point
 
     fn report(o: Outcome) with IO {
         if outcome_failed(o) {

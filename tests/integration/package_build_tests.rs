@@ -117,8 +117,12 @@ fn two_packages_claiming_one_namespace_report_a_collision() {
 
 /// Registry dependencies parse but are rejected until Phase 2, rather than
 /// being silently ignored and failing later as a missing module.
+/// A registry dependency now resolves through the index. With no index
+/// entry for it, resolution fails naming the package rather than silently
+/// dropping it — the full registry path is covered by
+/// `package_registry_tests`.
 #[test]
-fn a_registry_dependency_is_rejected_until_phase_two() {
+fn a_registry_dependency_with_no_index_entry_is_reported() {
     let scratch = Scratch::new("pkg-registry-dep");
     let app = scratch.path().join("app");
     write(
@@ -131,11 +135,11 @@ fn a_registry_dependency_is_rejected_until_phase_two() {
     );
 
     let (out, ok) = run("src/main.flx", &app);
-    assert!(!ok, "expected a registry dependency to fail:\n{out}");
+    assert!(!ok, "expected an unresolvable dependency to fail:\n{out}");
     assert!(out.contains("E470"), "expected E470:\n{out}");
     assert!(
-        out.contains("registry dependency"),
-        "the resolver's own message must survive:\n{out}"
+        out.contains("json"),
+        "the failure must name the package:\n{out}"
     );
 }
 
@@ -145,10 +149,12 @@ fn a_registry_dependency_is_rejected_until_phase_two() {
 fn a_manifest_error_does_not_hide_behind_missing_stdlib_imports() {
     let scratch = Scratch::new("pkg-error-clarity");
     let app = scratch.path().join("app");
+    // A path dependency pointing nowhere: still a manifest error under
+    // Phase 2, where a dev-dependency is no longer one.
     write(
         &app.join("flux.toml"),
         "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n\
-         [dev-dependencies]\ntesting = { path = \"../testing\" }\n",
+         [dependencies]\nmissing = { path = \"../missing\" }\n",
     );
     write(
         &app.join("src").join("main.flx"),

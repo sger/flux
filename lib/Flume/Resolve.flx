@@ -1,18 +1,19 @@
 // Flume.Resolve — the dependency resolver.
 //
 // Pure: every function here has an empty effect row. The candidate set is a
-// *parameter*, not a fetch — Phase 2 supplies it from a registry, Phase 0 from
-// fixtures — and that seam is what keeps the resolver testable forever. It is
-// also what makes the purity claim meaningful: a solver that cannot reach the
-// network cannot make a resolution depend on when it ran.
+// *parameter*, not a fetch — the registry supplies it in a real build and a
+// fixture supplies it in a test — and that seam is what keeps the resolver
+// testable forever. It is also what makes the purity claim meaningful: a
+// solver that cannot reach the network cannot make a resolution depend on when
+// it ran.
 //
 // ## The problem
 //
-// One version per package name. Proposal 0177 explains why this is forced
-// rather than chosen: the VM linker keys globals by flat string name, and on a
-// collision `VmAssemblyContext::global_map_for` silently reuses the existing
-// global. Two versions of one package in one program would not error — they
-// would quietly alias each other's functions.
+// One version per package name. This is forced rather than chosen: the VM
+// linker keys globals by flat string name, and on a collision
+// `VmAssemblyContext::global_map_for` silently reuses the existing global. Two
+// versions of one package in one program would not error — they would quietly
+// alias each other's functions.
 //
 // That single-instance rule is exactly what makes resolution hard. If
 // duplicates were allowed, a conflict could almost always be settled by
@@ -46,12 +47,11 @@ import Flume.Version exposing (Version, Range, Ordering)
 
 module Flume.Resolve {
 
-    // ── inputs ──────────────────────────────────────────────────────
+//| inputs
 
     /// Where a constraint came from.
     ///
-    /// Provenance is a cross-cutting requirement of the proposal: "why is this
-    /// version pinned?" must be answerable. It is recorded at construction
+    /// "Why is this version pinned?" must be answerable. It is recorded at construction
     /// time because reconstructing it after a failed search is impossible —
     /// by then the branch that introduced it is gone.
     /// Every variant carries fields, even the three that have nothing to
@@ -101,7 +101,7 @@ module Flume.Resolve {
 
     /// Why resolution failed.
     ///
-    /// `culprits` is the **minimized conflict set** the proposal requires: the
+    /// `culprits` is the **minimized conflict set**: the
     /// requirements that actually collided, not the whole graph. A resolver
     /// that reports every constraint it saw is not much better than one that
     /// reports nothing.
@@ -110,7 +110,7 @@ module Flume.Resolve {
         Missing { name: String, culprits: List<Dep> },
     }
 
-    // ── accessors ───────────────────────────────────────────────────
+//| accessors
 
     public fn dep(name: String, range: Range, origin: Origin) -> Dep {
         Dep { name: name, range: range, origin: origin }
@@ -156,7 +156,7 @@ module Flume.Resolve {
         match resolution { Resolution { picks } -> picks }
     }
 
-    // ── search state ────────────────────────────────────────────────
+//| search state
 
     /// The state threaded through the search.
     ///
@@ -195,7 +195,7 @@ module Flume.Resolve {
         Stuck { conflict: Conflict, learned: List<Pick> },
     }
 
-    // ── entry point ─────────────────────────────────────────────────
+//| entry point
 
     /// Resolve `roots` against `available`.
     ///
@@ -219,7 +219,7 @@ module Flume.Resolve {
         List.sort_by(picks, pick_name)
     }
 
-    // ── the search ──────────────────────────────────────────────────
+//| the search
 
     /// One step: satisfy the most constrained pending requirement, or succeed
     /// when none remain.
@@ -435,7 +435,7 @@ module Flume.Resolve {
             && Version.equals(pick_version(left), pick_version(right))
     }
 
-    // ── candidate selection ─────────────────────────────────────────
+//| candidate selection
 
     /// The viable candidates for a requirement, best first.
     ///
@@ -521,7 +521,7 @@ module Flume.Resolve {
         }
     }
 
-    // ── explaining failure ──────────────────────────────────────────
+//| explaining failure
 
     /// Build the conflict that killed a goal.
     ///
@@ -624,7 +624,7 @@ module Flume.Resolve {
             && render_origin(dep_origin(left)) == render_origin(dep_origin(right))
     }
 
-    // ── rendering ───────────────────────────────────────────────────
+//| rendering
 
     // Rendering is a family of plain functions rather than a `Describe` type
     // class with one instance per type. The class is the better design — the
@@ -679,10 +679,10 @@ module Flume.Resolve {
     }
 
     fn join_lines(lines: List<String>) -> String {
-        Str.join(Array.from_list(lines), "\n")
+        lines |> Array.from_list |> Str.join("\n")
     }
 
-    // ── local helpers ───────────────────────────────────────────────
+//| local helpers
 
     /// Append two lists.
     ///

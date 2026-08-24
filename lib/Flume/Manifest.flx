@@ -1,6 +1,6 @@
 // Flume.Manifest — the manifest schema.
 //
-// The last stage of the three-stage funnel proposal 0177 specifies:
+// The last stage of a three-stage funnel:
 //
 //     text → Flume.Toml (generic value tree) → Manifest (domain model)
 //
@@ -9,7 +9,7 @@
 // ("`version` must be a string") and name a key. Fusing them would produce a
 // parser that reports "unexpected `=`" for a missing dependency field.
 //
-// Pure: every function here has an empty effect row, the property Phase 0
+// Pure: every function here has an empty effect row, the property
 // exists to demonstrate. A manifest parser that provably cannot read a file is
 // unusual enough to be worth enforcing, and `tests/flume/flume_manifest_tests.rs`
 // does enforce it.
@@ -32,14 +32,13 @@ import Flume.Value exposing (Toml, TString, TInt, TBool, TArray, TTable)
 
 module Flume.Manifest {
 
-    // ── domain model ────────────────────────────────────────────────
+//| domain model
 
     /// Where a dependency comes from.
     ///
-    /// `Registry` parses in Phase 0 even though Phase 1 rejects it: the
-    /// proposal requires registry dependencies to produce a "not supported
-    /// until Phase 2" diagnostic rather than being silently ignored, and that
-    /// is only possible if the parser represents them.
+    /// A registry dependency is represented here rather than dropped, so a
+    /// caller that cannot resolve one can say so by name instead of failing
+    /// later as a confusing missing module.
     public data Source {
         FromPath(String),
         FromRegistry(String),
@@ -128,7 +127,7 @@ module Flume.Manifest {
         match bin { Bin { name: _, path } -> path }
     }
 
-    // ── the schema layer ────────────────────────────────────────────
+//| the schema layer
 
     // Positions here are coarse: the schema layer works on the value tree,
     // which no longer knows offsets, so errors land at 1:1 and name the key
@@ -272,7 +271,7 @@ module Flume.Manifest {
         }
     }
 
-    // ── manifest entry points ───────────────────────────────────────
+//| manifest entry points
 
     /// Parse a manifest: TOML, then schema, then normalization.
     public fn parse(text: String) -> Result<Manifest, ParseError> {
@@ -304,7 +303,7 @@ module Flume.Manifest {
         }
     }
 
-    // ── [package] ───────────────────────────────────────────────────
+//| [package]
 
     fn parse_package(root: List<(String, Toml)>) -> Result<Package, ParseError> {
         match Value.get(root, "package") {
@@ -363,7 +362,7 @@ module Flume.Manifest {
     ///
     /// `flux-json` becomes `FluxJson`: split on `-` and `_`, capitalize each
     /// segment. The rule exists because every module-path segment must start
-    /// uppercase (proposal 0177, "The `Flume` namespace"), so a lowercase
+    /// uppercase, so a lowercase
     /// package name cannot be used verbatim.
     public fn derive_namespace(name: String) -> String {
         Str.chars(name)
@@ -422,7 +421,7 @@ module Flume.Manifest {
         }
     }
 
-    // ── [dependencies] ──────────────────────────────────────────────
+//| [dependencies]
 
     fn parse_all_deps(root: List<(String, Toml)>) -> Result<List<Dep>, ParseError> {
         Result.and_then_result(
@@ -477,7 +476,7 @@ module Flume.Manifest {
     /// Parse one dependency entry.
     ///
     /// Two spellings: `name = "1.2"` (registry) and
-    /// `name = { path = "../x" }`. Both parse; Phase 1 rejects the registry
+    /// `name = { path = "../x" }`. Both parse; a caller may reject the registry
     /// form downstream with its own diagnostic, which is why this does not
     /// reject it here.
     fn parse_dep(
@@ -538,7 +537,7 @@ module Flume.Manifest {
         )
     }
 
-    // ── [lib] and [[bin]] ───────────────────────────────────────────
+//| [lib] and [[bin]]
 
     fn parse_lib(root: List<(String, Toml)>) -> Result<Option<String>, ParseError> {
         match Value.get(root, "lib") {
