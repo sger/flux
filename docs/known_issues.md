@@ -42,66 +42,6 @@ Severity is about consequence, not effort:
 
 ## Open
 
-### KI-021 — `flux test` does not see path dependencies
-
-**Severity:** High · **Area:** CLI, test runner, packages · **Verified:** 2026-08-24
-
-The test path resolves modules with unscoped roots: `run_tests.rs` calls
-`collect_roots` where the run path calls `collect_module_roots`, so a project's
-package roots never reach it. A package that builds and runs fails to compile
-under `flux test`.
-
-Reproduction:
-
-```sh
-flux new hello
-flux new http-client --lib
-# hello/flux.toml: [dependencies] http-client = { path = "../http-client" }
-# hello/src/main.flx: import HttpClient as Http ... Http.greet()
-cd hello
-flux run     # "Hello from HttpClient!"
-flux build   # ok
-flux test    # error[E012]: Module `HttpClient` has no member named `greet`
-```
-
-`flux --test src/main.flx` fails identically, so this is the test path rather
-than the `flux test` package command.
-
-The fix is for `run_tests.rs` to use `collect_module_roots` and
-`ModuleGraph::build_with_entry_and_module_roots`, matching
-`run_program/frontend.rs`. It needs the cache directory at that call site,
-which the test request already carries.
-
----
-
-### KI-020 — `flux test` only runs the entry file's tests
-
-**Severity:** Medium · **Area:** CLI, test runner · **Verified:** 2026-08-24
-
-`test_*` discovery is per-file: the runner collects tests from the file it is
-given, not from every module in the package. `flux test` resolves the package's
-entry point and runs that, so tests living in other modules are silently never
-executed — the summary reports success without mentioning them.
-
-Reproduction:
-
-```sh
-flux init
-# src/main.flx        → fn test_in_main() { assert_eq(1, 1) }
-# src/Pkg/Extra.flx   → public fn test_in_module() { assert_eq(1, 1) }
-flux test          # "1 tests: 1 passed" — test_in_module never ran
-```
-
-Silent under-reporting is the danger here: a package can add whole modules of
-tests and see a green summary that never touched them.
-
-Fixing this needs the runner to walk the package's module graph and aggregate
-discovery across files, which also decides how per-module failures are
-attributed in the summary. `flux test --filter <s>`, specified in the CLI
-surface but not implemented, belongs with that work.
-
----
-
 ### KI-004 — Native subprocess execution is POSIX-only
 
 **Severity:** Medium · **Area:** Native backend, `Flow.Process` · **Verified:** 2026-08-22 · **From:** [0178](proposals/implemented/0178_os_capabilities_for_tooling.md) Q8
@@ -221,6 +161,40 @@ Reader<List<a>>` needs no higher-kinded types).
 
 Entries move here with the resolving commit rather than being deleted, so
 existing `#KI-nnn` references still explain themselves.
+
+### KI-020 — `flux test` only runs the entry file's tests — FIXED 2026-08-24
+
+`collect_test_functions` matched only a bare `test_*` name or the special-cased
+`Tests.test_*` module, so a test declared in any other module was never
+discovered even though it was compiled and present in the symbol table. A
+package could add whole modules of tests and see a green summary that never
+touched them.
+
+**Fix.** Discovery now matches on the *last* dot-separated segment, so
+`test_parses`, `Tests.test_parses`, and `Json.Parse.test_parses` are all found,
+and every compiled module in the graph contributes. Results are reported by
+qualified name. The check is deliberately on the function name rather than the
+path: a module named `test_utils` does not make all its members tests.
+
+`--test-filter` matches against the qualified name, so it can now select a
+whole module's tests as well as a single function.
+
+### KI-021 — `flux test` does not see path dependencies — FIXED 2026-08-24
+
+The test path resolved modules with unscoped roots: `run_tests.rs` called
+`collect_roots` where the run path called `collect_module_roots`, so a
+project's package roots never reached it. A package that built and ran failed
+to compile under `flux test` with `E012 Unknown Module Member`.
+
+**Fix.** `load_test_file` now resolves the cache layout and calls
+`collect_module_roots`, and the graph is built with
+`build_with_entry_and_module_roots`, matching the run path. The native test
+backend forwards only the user's explicit `--root` flags to its subprocess,
+which resolves the manifest itself — forwarding the resolved package roots
+would have re-added them unscoped, defeating the namespace rule.
+
+Script mode and `--root` under `--test` are unaffected, and the native
+`--test --native` path was verified against a package with a path dependency.
 
 ### KI-019 — Some CLI commands exit 0 after failing — FIXED 2026-08-24
 

@@ -349,3 +349,94 @@ fn package_commands_require_a_manifest() {
         combined(&out)
     );
 }
+
+/// KI-021: the test path resolved modules with unscoped roots, so a package
+/// that built and ran failed to compile under `flux test`.
+#[test]
+fn test_sees_path_dependencies() {
+    let scratch = Scratch::new("cli-test-deps");
+
+    assert!(
+        flux(&["new", "shared", "--lib"], scratch.path())
+            .status
+            .success(),
+        "creating the dependency failed"
+    );
+    assert!(
+        flux(&["new", "app"], scratch.path()).status.success(),
+        "creating the app failed"
+    );
+
+    let app = scratch.path().join("app");
+    let manifest = std::fs::read_to_string(app.join("flux.toml")).expect("read manifest");
+    std::fs::write(
+        app.join("flux.toml"),
+        format!("{manifest}\n[dependencies]\nshared = {{ path = \"../shared\" }}\n"),
+    )
+    .expect("write manifest");
+    std::fs::write(
+        app.join("src").join("main.flx"),
+        "import Shared as Shared\n\n\
+         fn main() with IO { print(Shared.greet()) }\n\n\
+         fn test_dependency_is_visible() {\n\
+         \u{20}   assert_eq(Shared.greet(), \"Hello from Shared!\")\n\
+         }\n",
+    )
+    .expect("write main");
+
+    // The run path already worked; the test path is what regressed.
+    let run = flux(&["run"], &app);
+    assert!(run.status.success(), "run failed:\n{}", combined(&run));
+
+    let test = flux(&["test"], &app);
+    assert!(
+        test.status.success(),
+        "test must see the dependency:\n{}",
+        combined(&test)
+    );
+    assert!(
+        combined(&test).contains("1 passed"),
+        "unexpected test summary:\n{}",
+        combined(&test)
+    );
+}
+
+/// KI-020: `flux test` collected tests only from the entry file, so tests in a
+/// package's other modules were silently never run.
+#[test]
+fn test_discovers_tests_in_every_module() {
+    let scratch = Scratch::new("cli-test-discovery");
+    let pkg = scratch.path().join("app");
+    std::fs::create_dir_all(&pkg).expect("create package dir");
+    assert!(flux(&["init"], &pkg).status.success(), "init failed");
+
+    std::fs::write(
+        pkg.join("src").join("main.flx"),
+        "import App.Extra as Extra\n\n\
+         fn main() with IO { print(Extra.helper()) }\n\n\
+         fn test_in_entry() { assert_eq(1, 1) }\n",
+    )
+    .expect("write main");
+    std::fs::create_dir_all(pkg.join("src").join("App")).expect("create module dir");
+    std::fs::write(
+        pkg.join("src").join("App").join("Extra.flx"),
+        "module App.Extra {\n\
+         \u{20}   public fn helper() -> Int { 42 }\n\
+         \u{20}   public fn test_in_module() { assert_eq(helper(), 42) }\n\
+         }\n",
+    )
+    .expect("write module");
+
+    let out = flux(&["test"], &pkg);
+    assert!(out.status.success(), "test failed:\n{}", combined(&out));
+    assert!(
+        combined(&out).contains("2 tests"),
+        "both modules' tests must run:\n{}",
+        combined(&out)
+    );
+    assert!(
+        combined(&out).contains("App.Extra.test_in_module"),
+        "a module test must be reported by its qualified name:\n{}",
+        combined(&out)
+    );
+}

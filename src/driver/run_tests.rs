@@ -1,3 +1,6 @@
+// `PathBuf` is used only by the native test path, which forwards `--root`
+// flags to a subprocess.
+#[cfg(feature = "llvm")]
 use std::path::PathBuf;
 use std::{fs, path::Path};
 
@@ -5,7 +8,7 @@ use std::{fs, path::Path};
 use super::backend_policy::should_run_tests_native;
 use super::{
     flags::DriverFlags,
-    frontend::{collect_roots, inject_flow_prelude, validate_no_primops_import},
+    frontend::{collect_module_roots, inject_flow_prelude, validate_no_primops_import},
     module_compile::{effective_module_strictness, tag_module_diagnostics},
     session::DriverSession,
     shared::{
@@ -35,7 +38,7 @@ pub(crate) struct TestRunRequest<'a> {
 /// Parsed source file plus module graph roots for a test run.
 struct ParsedTestFile {
     source: String,
-    roots: Vec<PathBuf>,
+    roots: Vec<flux::syntax::module_graph::ModuleRoot>,
     parser: Parser,
     program: flux::syntax::program::Program,
 }
@@ -51,11 +54,24 @@ fn load_test_file(path: &str, request: &TestRunRequest<'_>) -> ParsedTestFile {
     };
 
     let entry_path = Path::new(path);
-    let roots = collect_roots(
+    // Package roots, so a test file can import the project's path
+    // dependencies exactly as the run path does (KI-021).
+    let cache_layout = crate::shared::cache_paths::resolve_cache_layout(
+        entry_path,
+        request.session.cache_dir_path(),
+    );
+    let roots = match collect_module_roots(
         entry_path,
         &request.session.roots,
         request.session.roots_only,
-    );
+        cache_layout.root(),
+    ) {
+        Ok(roots) => roots,
+        Err(message) => {
+            eprintln!("error: could not resolve the project manifest: {message}");
+            std::process::exit(1);
+        }
+    };
     let lexer = Lexer::new(&source);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
@@ -412,7 +428,7 @@ pub(crate) fn run_test_file(path: &str, request: TestRunRequest<'_>) {
     );
     let interner = parser.take_interner();
     let graph_result =
-        ModuleGraph::build_with_entry_and_roots(entry_path, &program, interner, &roots);
+        ModuleGraph::build_with_entry_and_module_roots(entry_path, &program, interner, &roots);
     let mut graph_diags = graph_result.diagnostics;
     tag_and_attach_file(&mut graph_diags, DiagnosticPhase::ModuleGraph, path);
     all_diagnostics.extend(graph_diags);
@@ -499,7 +515,10 @@ pub(crate) fn run_test_file(path: &str, request: TestRunRequest<'_>) {
             file_name,
             source_path: path,
             source: &source,
-            roots: &roots,
+            // The child resolves the project manifest itself, so only the
+            // user's explicit `--root` flags are forwarded; passing the
+            // resolved package roots would re-add them unscoped.
+            roots: &request.session.roots,
             roots_only: request.session.roots_only,
             tests: &tests,
             enable_optimize: request.session.enable_optimize,
