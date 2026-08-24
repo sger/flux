@@ -1,6 +1,6 @@
 - Feature Name: Flux package manager (`flux.toml`, `flux.lock`, `flux build/test/add`)
 - Start Date: 2026-08-20
-- Status: Draft
+- Status: Partially implemented (Phases 0 and 1 shipped 2026-08-24; Phases 2–3 not started)
 - Proposal PR:
 - Flux Issue:
 - Supersedes: [0015_package_module_workflow_mvp.md](0015_package_module_workflow_mvp.md) (the MVP sketch; this proposal subsumes and completes it)
@@ -25,15 +25,46 @@ carrying interface fingerprints.
 The package manager is **written in Flux**. The work is staged across four phases,
 specified in the [Reference-level explanation](#reference-level-explanation):
 
-| Phase | Scope | Unblocks |
-|---|---|---|
-| **0** | Manifest parser, version arithmetic, resolver, `Flow.Path` — pure Flux, no I/O | The interesting logic, testable immediately |
-| **1** | `flux.toml`, `init/build/run/test`, path deps, namespacing, stdlib-as-package | Flux works outside its own checkout |
-| **2** | Registry index, semver resolution, `flux.lock`, `add/update/tree` | Third-party libraries |
-| **3** | Content-addressed store, `publish`, workspaces, `metadata` | An ecosystem |
+| Phase | Scope | Unblocks | Status |
+|---|---|---|---|
+| **0** | Manifest parser, version arithmetic, resolver, `Flow.Path` — pure Flux, no I/O | The interesting logic, testable immediately | Shipped |
+| **1** | `flux.toml`, `init/build/run/test`, path deps, namespacing, stdlib-as-package | Flux works outside its own checkout | Shipped 2026-08-24 |
+| **2** | Registry index, semver resolution, `flux.lock`, `add/update/tree` | Third-party libraries | Not started |
+| **3** | Content-addressed store, `publish`, workspaces, `metadata` | An ecosystem | Not started |
 
 Phase 0 has no dependency on [0178](implemented/0178_os_capabilities_for_tooling.md) and can
 begin immediately. Phase 1 is independently valuable and should land on its own.
+
+### What Phases 0 and 1 shipped
+
+Phase 0 lives in `lib/Flume/`: `Toml`/`Parse`/`Value`/`Document` (the TOML
+parser), `Manifest` (the schema and `derive_namespace`), `Version` (version
+arithmetic), and `Resolve` (the backtracking resolver), alongside
+`lib/Flow/Path.flx`.
+
+Phase 1 rests on two Flux modules and a thin Rust layer, keeping every
+packaging decision in Flux:
+
+- `lib/Flume/Roots.flx` reads `flux.toml`, walks path dependencies
+  transitively, derives each package's namespace, and emits one record per
+  resolved package. Registry and dev dependencies are rejected here with a
+  "not supported until Phase 2" message rather than being silently ignored.
+- `lib/Flume/Cli.flx` owns the manifest template, the scaffolding layout, and
+  entry-point selection (`[[bin]]`, `[lib]`, then the conventional layout).
+- `src/driver/manifest_roots.rs` runs the resolver and turns its records into
+  scoped module roots; `src/cli/package.rs` forwards the commands. Neither
+  parses TOML.
+
+Three diagnostics were added: `E469` (two packages claim one namespace),
+`E470` (a manifest exists but does not resolve), and `E471` (a package declares
+a module outside its own namespace). `find_project_root` now keys on
+`flux.toml`, and `collect_roots` computes roots from the entry file and its
+project root rather than the process working directory.
+
+Deferred from Phase 1, neither blocking: `flux test --filter <s>` is specified
+in the CLI surface but not implemented, and the manifest resolver runs as a
+subprocess per compile (~0.11s warm) rather than caching its output against the
+manifest hash.
 
 ## Motivation
 [motivation]: #motivation
@@ -1134,34 +1165,43 @@ if the Phase 2 resolver's error quality proves inadequate.
 2. **Namespace derivation** for names that do not capitalize cleanly
    (`http-client`, `json2`, single-character names). It affects every published
    package name forever.
-3. **How much of the toolchain should be Flux versus Rust over time.** The current
-   boundary — Flux decides what to build, Rust supplies module roots and reads
-   interface fingerprints — is deliberately thin and does not grow across phases.
+3. **How much of the toolchain should be Flux versus Rust over time.** Phases 0
+   and 1 held the line: all manifest parsing, namespace derivation, dependency
+   walking, and scaffolding are Flux, and the Rust side only runs the resolver
+   and converts its records into module roots. Whether that holds through
+   Phases 2–3 is still open.
 4. **Sequencing against [0178](implemented/0178_os_capabilities_for_tooling.md).** Phase 0 is
    unblocked; Phases 1–3 gate on specific stages. Whether 0178 proceeds in
    parallel or as a prerequisite is a scheduling decision.
 
-**Phase 0:**
+**Phase 0** — settled by the implementation:
 
-1. Exactly which TOML subset the Phase 0 parser accepts, and how it reports
-   constructs it does not support.
-2. Whether `Flume.Version` should follow semver strictly or permit a Flux-specific
-   relaxation (for example, two-component `1.2` versions in manifests).
-3. Whether the resolver's conflict type should be shared with the compiler's
-   diagnostic infrastructure or remain package-manager-local until Phase 1.
+1. ~~Which TOML subset the parser accepts.~~ `Flume.Toml` targets the manifest
+   schema: tables, arrays of tables, and string/integer/boolean values.
+2. ~~Strict semver or a Flux-specific relaxation.~~ `Flume.Version` accepts
+   two-component requirements such as `1.2` in manifests.
+3. ~~Whether the resolver's conflict type is shared with compiler
+   diagnostics.~~ It stays package-manager-local. The compiler surfaces
+   resolution failures through `E470`, carrying the resolver's own message.
 
 
-**Phase 1:**
+**Phase 1** — settled by the implementation:
 
-1. Namespace derivation for names that do not capitalize cleanly (`http-client`,
-   `json2`, single-character names). Is the explicit `namespace` field enough?
-2. Should the root module be `src/Json.flx` or `src/lib.flx` declaring
-   `module Json`? The former makes the namespace visible in the tree; the latter
-   keeps a fixed entry filename.
-3. How `flux test` aggregates across files — `test_*` discovery is per-file and
-   single-file only today.
-4. Whether `edition` should exist in the manifest at all before there is a second
-   edition.
+1. ~~Namespace derivation for names that do not capitalize cleanly.~~
+   `Flume.Manifest.derive_namespace` handles the common cases
+   (`http-client` → `HttpClient`), and the explicit `namespace` field covers
+   the rest. No case has yet needed more.
+2. ~~Root module `src/Json.flx` or `src/lib.flx`?~~ `src/Json.flx`: the
+   namespace is visible in the tree, and `flux init --lib` scaffolds it.
+3. ~~Whether `edition` should exist before there is a second edition.~~ It is
+   parsed and written by `flux init`, and otherwise unused. Kept so manifests
+   written today remain readable when a second edition exists.
+
+Still open, carried to [known_issues.md](../known_issues.md):
+
+- How `flux test` aggregates across files — `test_*` discovery is per-file and
+  single-file only, so `flux test` runs only the package entry point's tests
+  (KI-020).
 
 
 **Phase 2:**

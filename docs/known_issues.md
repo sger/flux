@@ -42,6 +42,66 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-021 — `flux test` does not see path dependencies
+
+**Severity:** High · **Area:** CLI, test runner, packages · **Verified:** 2026-08-24
+
+The test path resolves modules with unscoped roots: `run_tests.rs` calls
+`collect_roots` where the run path calls `collect_module_roots`, so a project's
+package roots never reach it. A package that builds and runs fails to compile
+under `flux test`.
+
+Reproduction:
+
+```sh
+flux new hello
+flux new http-client --lib
+# hello/flux.toml: [dependencies] http-client = { path = "../http-client" }
+# hello/src/main.flx: import HttpClient as Http ... Http.greet()
+cd hello
+flux run     # "Hello from HttpClient!"
+flux build   # ok
+flux test    # error[E012]: Module `HttpClient` has no member named `greet`
+```
+
+`flux --test src/main.flx` fails identically, so this is the test path rather
+than the `flux test` package command.
+
+The fix is for `run_tests.rs` to use `collect_module_roots` and
+`ModuleGraph::build_with_entry_and_module_roots`, matching
+`run_program/frontend.rs`. It needs the cache directory at that call site,
+which the test request already carries.
+
+---
+
+### KI-020 — `flux test` only runs the entry file's tests
+
+**Severity:** Medium · **Area:** CLI, test runner · **Verified:** 2026-08-24
+
+`test_*` discovery is per-file: the runner collects tests from the file it is
+given, not from every module in the package. `flux test` resolves the package's
+entry point and runs that, so tests living in other modules are silently never
+executed — the summary reports success without mentioning them.
+
+Reproduction:
+
+```sh
+flux init
+# src/main.flx        → fn test_in_main() { assert_eq(1, 1) }
+# src/Pkg/Extra.flx   → public fn test_in_module() { assert_eq(1, 1) }
+flux test          # "1 tests: 1 passed" — test_in_module never ran
+```
+
+Silent under-reporting is the danger here: a package can add whole modules of
+tests and see a green summary that never touched them.
+
+Fixing this needs the runner to walk the package's module graph and aggregate
+discovery across files, which also decides how per-module failures are
+attributed in the summary. `flux test --filter <s>`, specified in the CLI
+surface but not implemented, belongs with that work.
+
+---
+
 ### KI-004 — Native subprocess execution is POSIX-only
 
 **Severity:** Medium · **Area:** Native backend, `Flow.Process` · **Verified:** 2026-08-22 · **From:** [0178](proposals/implemented/0178_os_capabilities_for_tooling.md) Q8

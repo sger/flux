@@ -10,7 +10,7 @@ use crate::syntax::{
 use crate::diagnostics::{
     DUPLICATE_MODULE, Diagnostic, DiagnosticBuilder, IMPORT_NOT_FOUND, IMPORT_READ_FAILED,
     INVALID_MODULE_ALIAS, INVALID_MODULE_FILE, INVALID_MODULE_NAME, MODULE_PATH_MISMATCH,
-    MULTIPLE_MODULES, NAMESPACE_COLLISION, SCRIPT_NOT_IMPORTABLE,
+    MULTIPLE_MODULES, NAMESPACE_COLLISION, NAMESPACE_ESCAPE, SCRIPT_NOT_IMPORTABLE,
     position::{Position, Span},
     render_display_path,
 };
@@ -459,6 +459,8 @@ pub(super) fn validate_file_kind(
                 Span::new(position, position),
             );
             diagnostics.push(diag);
+        } else if let Some(escape) = namespace_escape(&module_name, path, roots) {
+            diagnostics.push(escape);
         } else if !module_name_matches_path(&module_name, path, roots) {
             let error_spec = &MODULE_PATH_MISMATCH;
             let display_path = render_display_path(&path.display().to_string()).into_owned();
@@ -489,6 +491,45 @@ pub(super) fn validate_file_kind(
     } else {
         Err(diagnostics)
     }
+}
+
+/// A module declared outside the namespace of the package that owns its file.
+///
+/// A package owning namespace `Json` may declare `Json` itself and anything
+/// beneath it; `module Utils` in that package is an error at *this* package's
+/// build, where the fix is obvious, rather than at a consumer's build where it
+/// would look like a missing or duplicate module.
+///
+/// Only scoped roots are checked: script mode and `--root` are deliberately
+/// unscoped, so a loose `module Utils` keeps working.
+fn namespace_escape(name: &str, path: &Path, roots: &[ModuleRoot]) -> Option<Diagnostic> {
+    let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    // The owning package is the innermost scoped root containing this file, so
+    // a package nested inside another's directory is judged by its own rule.
+    let owner = roots
+        .iter()
+        .filter(|root| root.namespace.is_some() && canonical.starts_with(&root.path))
+        .max_by_key(|root| root.path.as_os_str().len())?;
+    let namespace = owner.namespace.as_deref()?;
+
+    if owner.serves(name) {
+        return None;
+    }
+
+    let display_path = render_display_path(&canonical.display().to_string()).into_owned();
+    let expected = format!("{namespace}.{name}");
+    Some(
+        Diagnostic::make_error(
+            &NAMESPACE_ESCAPE,
+            &[owner.label(), namespace, name],
+            display_path,
+            Span::new(Position::default(), Position::default()),
+        )
+        .with_hint_text(format!(
+            "Rename it to `module {expected}` and move the file to `src/{}.flx`.",
+            expected.replace('.', "/")
+        )),
+    )
 }
 
 fn module_name_matches_path(name: &str, path: &Path, roots: &[ModuleRoot]) -> bool {

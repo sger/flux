@@ -23,22 +23,24 @@ fn flux_bin() -> &'static Path {
 /// entry file one level down in `foo/`. Importing `Helper` from `foo/bar.flx`
 /// only succeeds if `src` is reachable from the *project*, not from the CWD.
 fn write_project(dir: &Path) -> PathBuf {
-    std::fs::create_dir_all(dir.join("src")).expect("create src");
+    std::fs::create_dir_all(dir.join("src").join("Demo")).expect("create src");
     std::fs::create_dir_all(dir.join("foo")).expect("create foo");
     std::fs::write(
         dir.join("flux.toml"),
         "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
     )
     .expect("write flux.toml");
+    // The package is `demo`, so it owns the namespace `Demo` and its modules
+    // live beneath it.
     std::fs::write(
-        dir.join("src").join("Helper.flx"),
-        "module Helper {\n    public fn greet() -> String { \"hi\" }\n}\n",
+        dir.join("src").join("Demo").join("Helper.flx"),
+        "module Demo.Helper {\n    public fn greet() -> String { \"hi\" }\n}\n",
     )
     .expect("write Helper.flx");
     let entry = dir.join("foo").join("bar.flx");
     std::fs::write(
         &entry,
-        "import Helper as Helper\n\nfn main() with IO { print(Helper.greet()) }\n",
+        "import Demo.Helper as Helper\n\nfn main() with IO { print(Helper.greet()) }\n",
     )
     .expect("write bar.flx");
     entry

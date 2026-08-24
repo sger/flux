@@ -262,6 +262,19 @@ pub const MANIFEST_UNRESOLVED: ErrorCode = ErrorCode {
     hint: Some("Check `flux.toml` and the path dependencies it declares."),
 };
 
+/// A package declared a module outside the namespace it owns. Reported at the
+/// offending package's own build rather than at a consumer's, where it would
+/// surface as a confusing missing-module or duplicate-module error.
+pub const NAMESPACE_ESCAPE: ErrorCode = ErrorCode {
+    code: "E471",
+    title: "MODULE ESCAPES PACKAGE NAMESPACE",
+    error_type: ErrorType::Compiler,
+    message: "Package `{}` may only declare modules under `{}`, but this file declares `module {}`.",
+    hint: Some(
+        "Rename the module to sit under the package's namespace, and move the file to match.",
+    ),
+};
+
 pub const INVALID_MODULE_FILE: ErrorCode = ErrorCode {
     code: "E028",
     title: "INVALID MODULE FILE",
