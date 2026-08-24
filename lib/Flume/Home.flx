@@ -10,6 +10,7 @@ import Flume.Index as Index
 import Flume.Index exposing (Published)
 import Flume.Lock as Lock
 import Flume.Lock exposing (Lock)
+import Flume.Fail as Fail
 
 /// Where the toolchain keeps its registry state, and how it is read.
 ///
@@ -30,22 +31,6 @@ import Flume.Lock exposing (Lock)
 /// been fetched; nothing here can reach the network, which is what makes a
 /// build reproducible rather than dependent on when it ran.
 module Flume.Home {
-
-//| failure
-
-    /// Abort with a message.
-    ///
-    /// Declared here rather than shared: an effect imported from another
-    /// module is invisible under `flux --test`, see
-    /// docs/known_issues.md#ki-028.
-    effect Fail { fail: String -> Unit }
-
-    /// Abort with `message`. Returns `a` so it stands in any position; the
-    /// handler never resumes, so the value is unreachable.
-    fn abort<a>(message: String, unreachable: a) -> a with Fail {
-        perform Fail.fail(message)
-        unreachable
-    }
 
     /// The toolchain's home directory.
     ///
@@ -145,14 +130,14 @@ module Flume.Home {
 
     fn read_index_file(name: String, path: String) -> List<Published> with IO, Fail {
         match Fs.read_file(path) {
-            Err(_) -> abort("cannot read the index for `" + name + "` at " + path, []),
+            Err(_) -> Fail.abort("cannot read the index for `" + name + "` at " + path, []),
             Ok(text) -> parse_index(name, text),
         }
     }
 
     fn parse_index(name: String, text: String) -> List<Published> with IO, Fail {
         match Index.from_text(text) {
-            Err(message) -> abort(
+            Err(message) -> Fail.abort(
                 "the index for `" + name + "` is unreadable: " + message,
                 [],
             ),

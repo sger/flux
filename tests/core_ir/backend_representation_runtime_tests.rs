@@ -1,6 +1,9 @@
 //! Integration tests for backend representation-family parity.
 
-#![cfg(feature = "native")]
+// Gated on `llvm`, not `native`: `llvm = ["native"]` but not the reverse, so
+// `--features native` alone compiles these and then fails at runtime with
+// "native backend features require `llvm`".
+#![cfg(feature = "llvm")]
 
 use std::path::Path;
 use std::process::Command;

@@ -280,57 +280,49 @@ resolves correctly, including the abort path where the handler never calls
 `resume`. The handler must scope a call expression directly — wrapping it, as
 in `Ok(f(x)) handle E { ... }`, does not install the handler over `f`.
 
-### KI-028 — An imported effect is invisible under `flux --test`
+### KI-032 — An unannotated wrapper over a row-polymorphic function does not infer
 
-**Severity:** High · **Area:** Effect rows, test harness · **Verified:** 2026-08-24
+**Severity:** Medium · **Area:** Effect rows, inference · **Verified:** 2026-08-24
 
-A module that imports an effect from another module compiles and runs
-correctly, then fails to compile the moment a test fixture imports it. Every
-`with <Effect>` annotation and every `handle` block in the imported module is
-reported as referencing an unknown effect.
-
-```flux
-// Fail.flx
-module Fail {
-    effect Fail { fail: String -> Unit }
-    public fn abort<a>(message: String, unreachable: a) -> a with Fail {
-        perform Fail.fail(message)
-        unreachable
-    }
-}
-```
+Making `Flow.List.map` / `filter` effect-row polymorphic
+(`f: ((a) -> b with |e)`) let them accept effectful functions, but it broke
+*unannotated* wrappers around them:
 
 ```flux
-// User.flx
-import Flume.Fail as Fail
-
-module User {
-    fn check(n: Int) -> Int with Fail { ... }              // E407 under --test
-    public fn run(n: Int) -> Result<Int, String> {
-        wrap(n) handle Fail { fail(resume, m) -> Err(m) }  // E405 under --test
-    }
-}
+import Flow.List as L
+fn map(xs, f) { L.map(xs, f) }    // error[E419]: Unresolved Effect Row
 ```
 
-```sh
-$ flux run main.flx     # works
-$ flux --test probe.flx # error[E407] Unknown Effect, error[E405] Unknown Effect
+```
+error[E419]: I cannot resolve the effect variable `e` introduced by this call.
+  this call leaves an effect variable unconstrained
 ```
 
-`Flume.Lock`, rewritten to use a `Fail` effect, runs correctly but produces 17
-of these under `--test`.
+With no annotation on the wrapper there is nothing to fix `|e`, so the
+obligation escapes unresolved. Two `vm_tests` cases regressed this way
+(`test_list_comprehension_with_guard`, `test_list_comprehension_cons_list`);
+they pass against the pre-change `Flow.List` and fail after it — 119/119
+versus 117/119.
 
-**Same shape as [KI-011](#ki-011) and [KI-022](#ki-022)**: the module is fine
-under `flux run` and only the test path rejects it, so a green run is not
-evidence the module compiles everywhere. Here the effect *name resolution*
-itself differs between the two paths, rather than type inference.
+The two `vm_tests` cases turned out to carry the wrappers as vestigial
+scaffolding — list comprehensions are lowered natively, not desugared to
+`map`/`filter`/`flat_map` — so removing them restored 119/119. The underlying
+inference limitation is unchanged.
 
-**Consequence.** An effect declared in one module and used in another cannot be
-covered by a test fixture, which rules out effect-based library code in
-anything that has tests.
+**Workaround:** annotate the wrapper, propagating the row explicitly:
 
-**Workaround:** none for a tested module. Thread `Result` by hand, or declare
-the effect in the same module that uses it.
+```flux
+fn map<a, b>(xs: List<a>, f: ((a) -> b with |e)) -> List<b> with |e { L.map(xs, f) }
+```
+
+Verified working.
+
+**The trade.** Row polymorphism is what allows an effectful reader to be mapped
+over a list at all, which is why `Flow.List` now uses it; the cost is that
+point-free wrappers over those functions must carry a signature. Whether
+inference should instead default an otherwise-unconstrained row to empty is the
+open question — that would restore the unannotated form without giving up the
+polymorphism.
 
 ### KI-029 — A lambda cannot carry its enclosing function's effects
 
@@ -450,6 +442,52 @@ Reader<List<a>>` needs no higher-kinded types).
 ---
 
 ## Resolved
+
+### KI-028 — An imported effect was invisible under `flux --test` — FIXED 2026-08-24
+
+A module that imported an effect from another module compiled and ran
+correctly, then failed to compile the moment a test fixture imported it: every
+`with <Effect>` annotation raised `E407` and every `handle` block `E405`.
+
+**Root cause.** `collect_effect_declarations` resets `effect_ops_registry` from
+`preloaded_effect_ops_registry` at the start of each compile. The run drivers
+populate that preload by walking each dependency's AST
+(`preload_dependency_program`), but the test runner compiles every module
+through a single `Compiler` with no preload step — so a module's own effect
+declarations were discarded as soon as the next module began compiling. A
+`.flxi` interface does not close the gap: it records the effect *rows* on
+signatures, not the effect *declarations*.
+
+Instrumenting the registry showed the effect being registered while its own
+module compiled and absent immediately afterwards.
+
+**Fix.** `Compiler::promote_effect_declarations` copies the compiled module's
+effect registry into the preloaded set, and `run_tests.rs` calls it after each
+module. This is the same promotion the REPL already performed between lines
+(previously gated on `repl_mode`), for the same reason.
+
+**Consequence of the fix.** A shared effect module now works, so `Flume.Lock`,
+`Index`, `Plan`, `Home`, and `Roots` all import `Flume.Fail` instead of each
+declaring a private copy — about 20 duplicated lines removed per module.
+
+### KI-031 — Native tests gated on `native` instead of `llvm` fail under `--features native` — FIXED 2026-08-24
+
+`Cargo.toml` declares `llvm = ["native"]`, so `llvm` implies `native` but not the
+reverse. Two test files that spawn `flux --native` gated themselves on
+`#![cfg(feature = "native")]`, so `cargo test --features native` compiled them
+and then failed at runtime with the driver's own refusal:
+
+```
+Error: native backend features require `llvm`.
+```
+
+Four tests in `backend_representation_runtime_tests.rs` and two in
+`non_zero_type_tests.rs` were affected. Every other native-running test in the
+tree already gates on `llvm`.
+
+**Fix.** Both files now use `#![cfg(feature = "llvm")]`, with a comment
+recording why. Under `--features native` they compile out (0 tests); under
+`--features llvm` all six pass.
 
 ### KI-026 — `Flow.Result` had no applicative or traversal combinators — FIXED 2026-08-24
 
