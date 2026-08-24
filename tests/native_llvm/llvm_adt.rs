@@ -116,12 +116,40 @@ fn first(pair) {
 fn main() {
     first((10, 2))
 }
+
 "#,
     );
 
     assert!(
         rendered.contains("flux_make_tuple"),
         "expected tuple construction"
+    );
+}
+
+#[test]
+fn tuple_pattern_dispatch_guards_pointer_tagged_sentinels() {
+    let rendered = compile_to_llvm_ir(
+        r#"
+fn read_pair(pair) {
+    match pair {
+        (x, _) -> x,
+        _ -> 0,
+    }
+}
+
+fn main() {
+    read_pair((10, 2))
+}
+"#,
+    );
+
+    assert!(
+        rendered.contains("icmp ule i64 12"),
+        "tuple dispatch must guard pointer-tagged sentinels before dereference"
+    );
+    assert!(
+        rendered.contains("match.ptrck"),
+        "expected a dedicated tuple pointer-check block"
     );
 }
 
