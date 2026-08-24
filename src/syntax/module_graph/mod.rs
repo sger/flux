@@ -21,6 +21,7 @@ pub use module_binding::{
 };
 
 use module_order::topo_order;
+pub use module_resolution::ModuleRoot;
 use module_resolution::{normalize_roots, resolve_imports, validate_file_kind};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -96,11 +97,26 @@ pub struct GraphBuildResult {
 }
 
 impl ModuleGraph {
+    /// Build a graph from unscoped roots: every root satisfies every import.
+    /// This is script mode and the `--root` escape hatch.
     pub fn build_with_entry_and_roots(
         entry_path: &Path,
         entry_program: &Program,
         interner: Interner,
         roots: &[PathBuf],
+    ) -> GraphBuildResult {
+        let roots: Vec<ModuleRoot> = roots.iter().cloned().map(ModuleRoot::unscoped).collect();
+        Self::build_with_entry_and_module_roots(entry_path, entry_program, interner, &roots)
+    }
+
+    /// Build a graph from roots that may be scoped to package namespaces
+    /// (proposal 0177 Phase 1). A scoped root only satisfies imports beneath
+    /// its namespace, so two packages can each ship a `Json` module.
+    pub fn build_with_entry_and_module_roots(
+        entry_path: &Path,
+        entry_program: &Program,
+        interner: Interner,
+        roots: &[ModuleRoot],
     ) -> GraphBuildResult {
         let mut diagnostics = Vec::new();
         let mut failed_modules: HashSet<PathBuf> = HashSet::new();

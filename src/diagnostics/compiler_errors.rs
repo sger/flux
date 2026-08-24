@@ -235,6 +235,21 @@ pub const DUPLICATE_MODULE: ErrorCode = ErrorCode {
     hint: Some("Remove one of the duplicate module declarations."),
 };
 
+/// Proposal 0177 Phase 1: two resolved packages claim the same namespace, so
+/// an import beneath it is ambiguous. Reported at resolution time, where the
+/// package identities are known, rather than as a bare `E027 Duplicate Module`
+/// naming only the two colliding files.
+pub const NAMESPACE_COLLISION: ErrorCode = ErrorCode {
+    code: "E469",
+    title: "NAMESPACE COLLISION",
+    error_type: ErrorType::Compiler,
+    message: "Packages `{}` and `{}` both claim namespace `{}`.",
+    hint: Some(
+        "Each package must own a distinct namespace. Rename one package, or set \
+         a different `namespace` in its `flux.toml`.",
+    ),
+};
+
 pub const INVALID_MODULE_FILE: ErrorCode = ErrorCode {
     code: "E028",
     title: "INVALID MODULE FILE",
