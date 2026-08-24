@@ -468,6 +468,11 @@ pub(crate) fn run_test_file(path: &str, request: TestRunRequest<'_>) {
             request.session.enable_optimize,
             request.session.enable_analyze,
         );
+        // An effect declared here has to stay visible when a later module
+        // annotates `with <Effect>` or writes a `handle` block: each compile
+        // resets the effect registry from the preloaded set, so this module's
+        // declarations are promoted into it. See docs/known_issues.md#ki-028.
+        compiler.promote_effect_declarations();
         let mut compiler_warnings = compiler.take_warnings();
         tag_module_diagnostics(
             &mut compiler_warnings,

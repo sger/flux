@@ -16,6 +16,7 @@ import Flume.Lock exposing (Lock, Entry)
 import Flume.Index as Index
 import Flume.Index exposing (Published)
 import Flume.Version as Version
+import Flume.Fail as Fail
 
 /// Resolve a project's module search roots from its `flux.toml`.
 ///
@@ -39,30 +40,6 @@ import Flume.Version as Version
 /// Match arms in Flux take an expression, not a block, so the walk below is
 /// split into small helpers rather than written as nested `match` + `let`.
 module Flume.Roots {
-
-//| failure
-
-    /// Abort with a message.
-    ///
-    /// Declared here rather than shared: an effect imported from another
-    /// module is invisible under `flux --test`, see
-    /// docs/known_issues.md#ki-028.
-    effect Fail { fail: String -> Unit }
-
-    /// Abort with `message`. Returns `a` so it stands in any position; the
-    /// handler never resumes, so the value is unreachable.
-    fn abort<a>(message: String, unreachable: a) -> a with Fail {
-        perform Fail.fail(message)
-        unreachable
-    }
-
-    /// The `Ok` value, or abort with the `Err` as the message.
-    fn ok_or_abort<a>(result: Result<a, String>, fallback: a) -> a with Fail {
-        match result {
-            Ok(found) -> found,
-            Err(message) -> abort(message, fallback),
-        }
-    }
 
     /// One resolved package: the namespace it owns and the directory its
     /// modules live under.
@@ -251,9 +228,9 @@ module Flume.Roots {
         dir: String,
     ) -> List<Root> with IO, Fail {
         let names = List.map(requirements, first_of)
-        let available = ok_or_abort(Home.read_index(names), [])
-        let previous = ok_or_abort(Home.read_lock(dir), None)
-        let outcome = ok_or_abort(Plan.plan(requirements, available, previous), unchanged())
+        let available = Fail.ok_or_abort(Home.read_index(names), [])
+        let previous = Fail.ok_or_abort(Home.read_lock(dir), None)
+        let outcome = Fail.ok_or_abort(Plan.plan(requirements, available, previous), unchanged())
         persist(outcome, dir)
     }
 
@@ -271,7 +248,7 @@ module Flume.Roots {
     fn persist(outcome: Outcome, dir: String) -> List<Root> with IO, Fail {
         let resolved = Plan.outcome_lock(outcome)
         if Plan.outcome_changed(outcome) {
-            let _written = ok_or_abort(Home.write_lock(dir, resolved), "")
+            let _written = Fail.ok_or_abort(Home.write_lock(dir, resolved), "")
             locked_roots(resolved)
         } else {
             locked_roots(resolved)
@@ -300,7 +277,7 @@ module Flume.Roots {
         if Fs.is_dir(unpacked) {
             package_root(name, unpacked)
         } else {
-            abort(
+            Fail.abort(
                 "`" + name + "` " + version
                     + " is resolved but its sources are not in " + unpacked,
                 package_root(name, unpacked),
@@ -330,7 +307,7 @@ module Flume.Roots {
     }
 
     fn gather(dir: String) -> Result<List<Root>, String> with IO, Fail {
-        let paths = ok_or_abort(resolve_from(dir, []), [])
+        let paths = Fail.ok_or_abort(resolve_from(dir, []), [])
         let manifest = read_project_manifest(dir)
         Ok(List.concat([paths, registry_roots(manifest, dir)]))
     }
@@ -338,14 +315,14 @@ module Flume.Roots {
     fn read_project_manifest(dir: String) -> Manifest with IO, Fail {
         let manifest_path = Path.join(dir, "flux.toml")
         match Fs.read_file(manifest_path) {
-            Err(_) -> abort("cannot read " + manifest_path, empty_manifest()),
+            Err(_) -> Fail.abort("cannot read " + manifest_path, empty_manifest()),
             Ok(text) -> parse_project_manifest(text, manifest_path),
         }
     }
 
     fn parse_project_manifest(text: String, manifest_path: String) -> Manifest with IO, Fail {
         match Manifest.parse(text) {
-            Err(_) -> abort("cannot parse " + manifest_path, empty_manifest()),
+            Err(_) -> Fail.abort("cannot parse " + manifest_path, empty_manifest()),
             Ok(manifest) -> manifest,
         }
     }

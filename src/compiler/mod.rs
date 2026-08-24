@@ -2066,6 +2066,27 @@ impl Compiler {
     /// runner does not want, since it compiles every module itself. Field
     /// order alone is what named-field desugaring needs from a module it does
     /// not own.
+    /// Promote the effects this module declared into the preloaded set, so a
+    /// later module's `with <Effect>` annotations and `handle` blocks resolve.
+    ///
+    /// A `.flxi` interface records the effect *rows* on signatures but not the
+    /// effect *declarations* themselves, so an interface preload alone leaves
+    /// an imported effect unknown. The run drivers avoid this by also calling
+    /// `preload_dependency_program`, which walks the dependency AST; the test
+    /// runner instead compiles every module through one `Compiler`, and
+    /// `collect_effect_declarations` resets the registry from the preloaded set
+    /// at the start of each compile. Without this promotion an effect declared
+    /// in one module and used in another fails under `flux --test` with
+    /// E405/E407 while compiling and running correctly — see
+    /// docs/known_issues.md#ki-028.
+    ///
+    /// This is the same promotion the REPL performs between lines, for the same
+    /// reason; call it *after* compiling each module.
+    pub fn promote_effect_declarations(&mut self) {
+        self.preloaded_effect_ops_registry = self.effect_ops_registry.clone();
+        self.preloaded_effect_op_signatures = self.effect_op_signatures.clone();
+    }
+
     pub fn preload_ctor_field_names_from_program(&mut self, program: &Program) {
         let (ctor_field_names, adt_variants) =
             crate::ast::desugar_named_fields::collect_named_field_metadata(program);

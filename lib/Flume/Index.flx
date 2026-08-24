@@ -10,6 +10,7 @@ import Flume.Version as Version
 import Flume.Version exposing (Version, Range, Exact)
 import Flume.Resolve as Resolve
 import Flume.Resolve exposing (Dep, Package, Origin)
+import Flume.Fail as Fail
 
 /// The registry index: what versions exist, and what each one needs.
 ///
@@ -25,30 +26,6 @@ import Flume.Resolve exposing (Dep, Package, Origin)
 /// `from_text` takes the index *text*, not a path, so the whole resolution
 /// path stays testable without a directory on disk.
 module Flume.Index {
-
-//| failure
-
-    /// Abort a read with a message.
-    ///
-    /// Declared here rather than shared: an effect imported from another
-    /// module is invisible under `flux --test`, see
-    /// docs/known_issues.md#ki-028.
-    effect Fail { fail: String -> Unit }
-
-    /// Abort with `message`. Returns `a` so it stands in any position; the
-    /// handler never resumes, so the value is unreachable.
-    fn abort<a>(message: String, unreachable: a) -> a with Fail {
-        perform Fail.fail(message)
-        unreachable
-    }
-
-    /// The `Ok` value, or abort with the `Err` as the message.
-    fn ok_or_abort<a>(result: Result<a, String>, fallback: a) -> a with Fail {
-        match result {
-            Ok(found) -> found,
-            Err(message) -> abort(message, fallback),
-        }
-    }
 
 //| model
 
@@ -174,13 +151,13 @@ module Flume.Index {
     fn parse_json(line: String) -> Json with Fail {
         match Json.parse_result(line) {
             JsonOk(value) -> value,
-            JsonErr(_) -> abort("index entry is not valid JSON: " + line, Json.null()),
+            JsonErr(_) -> Fail.abort("index entry is not valid JSON: " + line, Json.null()),
         }
     }
 
     fn read_version(value: Json, name: String) -> Version with Fail {
         let text = field_string(value, "version")
-        ok_or_abort(
+        Fail.ok_or_abort(
             Result.map_err_result(
                 Version.parse(text),
                 \_ -> "`" + name + "` has an unreadable version `" + text + "` in the index",
@@ -207,7 +184,7 @@ module Flume.Index {
         version: Version,
     ) -> List<Dep> with Fail {
         match Json.as_array(found, "deps") {
-            JsonErr(_) -> abort("`" + name + "`'s `deps` must be an array", []),
+            JsonErr(_) -> Fail.abort("`" + name + "`'s `deps` must be an array", []),
             JsonOk(items) -> read_dep_items(items, name, version),
         }
     }
@@ -244,7 +221,7 @@ module Flume.Index {
     }
 
     fn parse_range(req: String, dep_name: String) -> Range with Fail {
-        ok_or_abort(
+        Fail.ok_or_abort(
             Result.map_err_result(
                 Version.parse_range(req),
                 \_ -> "`" + dep_name + "` has an unreadable requirement `" + req + "`",
@@ -265,14 +242,14 @@ module Flume.Index {
 
     fn field_string(value: Json, key: String) -> String with Fail {
         match field_opt(value, key) {
-            None -> abort("index entry is missing `" + key + "`", ""),
+            None -> Fail.abort("index entry is missing `" + key + "`", ""),
             Some(found) -> as_string(found, key),
         }
     }
 
     fn as_string(found: Json, key: String) -> String with Fail {
         match Json.as_string(found, key) {
-            JsonErr(_) -> abort("index entry's `" + key + "` must be a string", ""),
+            JsonErr(_) -> Fail.abort("index entry's `" + key + "` must be a string", ""),
             JsonOk(text) -> text,
         }
     }

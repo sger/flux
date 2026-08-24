@@ -11,6 +11,7 @@ import Flume.Index as Index
 import Flume.Index exposing (Published)
 import Flume.Lock as Lock
 import Flume.Lock exposing (Lock, Entry, LockedRegistry, LockedPath)
+import Flume.Fail as Fail
 
 /// Turn a manifest plus an index into a resolved graph, and back into a lock.
 ///
@@ -34,36 +35,13 @@ import Flume.Lock exposing (Lock, Entry, LockedRegistry, LockedPath)
 /// Narrowing the set is the only way to express a preference to a solver that
 /// picks its own order.
 module Flume.Plan {
-
-//| failure
-
-    /// Abort with a message.
-    ///
-    /// Declared here rather than shared: an effect imported from another
-    /// module is invisible under `flux --test`, see
-    /// docs/known_issues.md#ki-028.
-    effect Fail { fail: String -> Unit }
-
-    /// Abort with `message`. Returns `a` so it stands in any position; the
-    /// handler never resumes, so the value is unreachable.
-    fn abort<a>(message: String, unreachable: a) -> a with Fail {
-        perform Fail.fail(message)
-        unreachable
-    }
-
-    /// The `Ok` value, or abort with the `Err` as the message.
-    fn ok_or_abort<a>(result: Result<a, String>, fallback: a) -> a with Fail {
-        match result {
-            Ok(found) -> found,
-            Err(message) -> abort(message, fallback),
-        }
-    }
+//| model
 
     /// What a resolution attempt produced.
     ///
-    /// `Unchanged` is distinguished from `Updated` because the two have
-    /// different consequences for the caller: only `Updated` needs the
-    /// lockfile written, and only `Updated` may be refused under `--locked`.
+    /// `Unchanged` is distinguished from `Updated` because only `Updated` needs
+    /// the lockfile written, and only `Updated` may be refused under
+    /// `--locked`.
     public data Outcome {
         Unchanged { lock: Lock },
         Updated { lock: Lock },
@@ -111,7 +89,7 @@ module Flume.Plan {
     }
 
     fn parse_range(requirement: String, name: String) -> Range with Fail {
-        ok_or_abort(
+        Fail.ok_or_abort(
             Result.map_err_result(
                 Version.parse_range(requirement),
                 \_ -> "`" + name + "` has an unreadable version requirement `"
@@ -296,7 +274,7 @@ module Flume.Plan {
     fn entry_for(chosen: Pick, available: List<Published>) -> Entry with Fail {
         let name = Resolve.pick_name(chosen)
         match Index.find(available, name, Resolve.pick_version(chosen)) {
-            None -> abort(
+            None -> Fail.abort(
                 "resolved `" + name + "` to a version that is not in the index",
                 entry_of_nothing(name),
             ),
