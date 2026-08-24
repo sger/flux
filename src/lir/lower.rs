@@ -2143,13 +2143,21 @@ impl<'a> FnLower<'a> {
                     dst
                 }
             }
-            AetherExpr::App { func, args, .. } => self.lower_call_expr_aether(func, args, None),
+            AetherExpr::App { func, args, .. } => {
+                self.lower_call_expr_aether(func, args, None, None)
+            }
             AetherExpr::AetherCall {
                 func,
                 args,
                 arg_modes,
+                guarded_borrowed_args,
                 ..
-            } => self.lower_call_expr_aether(func, args, Some(arg_modes)),
+            } => self.lower_call_expr_aether(
+                func,
+                args,
+                Some(arg_modes),
+                Some(guarded_borrowed_args),
+            ),
             AetherExpr::Let { var, rhs, body, .. } => {
                 let rhs_var = self.lower_expr_aether(rhs);
                 self.bind(var.id, rhs_var);
@@ -3254,6 +3262,7 @@ impl<'a> FnLower<'a> {
         func: &AetherExpr,
         args: &[AetherExpr],
         arg_modes: Option<&[crate::aether::borrow_infer::BorrowMode]>,
+        guarded_borrowed_args: Option<&[bool]>,
     ) -> LirVar {
         let resolved_name = match func {
             AetherExpr::Var { var, .. } if var.binder.is_none() => {
@@ -3334,6 +3343,8 @@ impl<'a> FnLower<'a> {
 
         let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr_aether(a)).collect();
         self.dup_owned_call_args(&arg_vars, arg_modes);
+        let protected_borrowed_args =
+            self.dup_guarded_borrowed_call_args(&arg_vars, arg_modes, guarded_borrowed_args);
 
         if let Some(func_id) = direct_func_id {
             let cont_idx = self.new_block();
@@ -3355,6 +3366,7 @@ impl<'a> FnLower<'a> {
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
+            self.drop_protected_borrowed_call_args(&protected_borrowed_args);
             if let Some(bid) = callee_binder
                 && self.int_return_binders.contains(&bid)
             {
@@ -3385,6 +3397,7 @@ impl<'a> FnLower<'a> {
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
+            self.drop_protected_borrowed_call_args(&protected_borrowed_args);
             return result;
         }
 
@@ -3409,6 +3422,7 @@ impl<'a> FnLower<'a> {
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
+            self.drop_protected_borrowed_call_args(&protected_borrowed_args);
             return result;
         }
         if let Some(target) = self.direct_closure_vars.get(&func_var).cloned() {
@@ -3434,6 +3448,7 @@ impl<'a> FnLower<'a> {
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
+            self.drop_protected_borrowed_call_args(&protected_borrowed_args);
             return result;
         }
         if let Some(name) = self.global_var_names.get(&func_var).cloned()
@@ -3446,6 +3461,7 @@ impl<'a> FnLower<'a> {
                 op,
                 args: arg_vars,
             });
+            self.drop_protected_borrowed_call_args(&protected_borrowed_args);
             return dst;
         }
 
@@ -3465,6 +3481,7 @@ impl<'a> FnLower<'a> {
             yield_cont: None,
         });
         self.switch_to_block(cont_idx);
+        self.drop_protected_borrowed_call_args(&protected_borrowed_args);
         result
     }
 
@@ -3482,6 +3499,39 @@ impl<'a> FnLower<'a> {
             if arg_modes.get(index) == Some(&BorrowMode::Owned) {
                 self.emit(LirInstr::Dup { val: *arg_var });
             }
+        }
+    }
+
+    /// Keep a temporary owning reference for borrowed arguments whose Aether
+    /// provenance says that the caller still retains the value. Linear
+    /// borrowed arguments stay unguarded so FBIP reuse remains available.
+    fn dup_guarded_borrowed_call_args(
+        &mut self,
+        arg_vars: &[LirVar],
+        arg_modes: Option<&[crate::aether::borrow_infer::BorrowMode]>,
+        guard_mask: Option<&[bool]>,
+    ) -> Vec<LirVar> {
+        use crate::aether::borrow_infer::BorrowMode;
+
+        let (Some(arg_modes), Some(guard_mask)) = (arg_modes, guard_mask) else {
+            return Vec::new();
+        };
+
+        let mut protected = Vec::new();
+        for (index, arg_var) in arg_vars.iter().enumerate() {
+            if arg_modes.get(index) == Some(&BorrowMode::Borrowed)
+                && guard_mask.get(index) == Some(&true)
+            {
+                self.emit(LirInstr::Dup { val: *arg_var });
+                protected.push(*arg_var);
+            }
+        }
+        protected
+    }
+
+    fn drop_protected_borrowed_call_args(&mut self, arg_vars: &[LirVar]) {
+        for arg_var in arg_vars {
+            self.emit(LirInstr::Drop { val: *arg_var });
         }
     }
 

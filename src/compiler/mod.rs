@@ -735,6 +735,7 @@ fn resolve_pending_imported_public_instances(
 #[derive(Default)]
 struct AetherDebugDetails {
     call_sites: Vec<String>,
+    guarded_borrowed_call_sites: Vec<String>,
     dups: Vec<String>,
     drops: Vec<String>,
     reuses: Vec<String>,
@@ -766,18 +767,31 @@ fn collect_aether_debug_details(
                 func,
                 args,
                 arg_modes,
+                guarded_borrowed_args,
                 span,
             } => {
+                let callee = crate::aether::display::single_line_expr(func, interner);
                 details.call_sites.push(format!(
                     "line {}: {} [{}]",
                     span.start.line,
-                    crate::aether::display::single_line_expr(func, interner),
+                    callee,
                     arg_modes
                         .iter()
                         .map(format_borrow_mode)
                         .collect::<Vec<_>>()
                         .join(", ")
                 ));
+                let guarded = guarded_borrowed_args
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, guarded)| guarded.then_some(index))
+                    .collect::<Vec<_>>();
+                if !guarded.is_empty() {
+                    details.guarded_borrowed_call_sites.push(format!(
+                        "line {}: {} args {:?}",
+                        span.start.line, callee, guarded
+                    ));
+                }
                 walk(func, interner, details);
                 for arg in args {
                     walk(arg, interner, details);
@@ -5969,6 +5983,7 @@ impl Compiler {
         let mut out = String::new();
         out.push_str("Aether Ownership Report\n");
         out.push_str("=======================\n\n");
+        out.push_str("Note: Reuses and FBIP describe the Aether planner. BorrowedCallGuards are native call-site Dup/Drop safeguards; guarded calls may suppress a callee's reuse for those arguments.\n\n");
 
         let mut total = crate::aether::AetherStats::default();
 
@@ -5980,6 +5995,7 @@ impl Compiler {
                 && stats.drop_specs == 0
                 && stats.performs == 0
                 && stats.handles == 0
+                && stats.guarded_borrowed_args == 0
                 && def.fip.is_none()
             {
                 continue;
@@ -6059,6 +6075,10 @@ impl Compiler {
 
                 let debug_details = collect_aether_debug_details(&def.expr, &self.interner);
                 out.push_str(&render_debug_lines("call sites", &debug_details.call_sites));
+                out.push_str(&render_debug_lines(
+                    "guarded borrowed-call arguments",
+                    &debug_details.guarded_borrowed_call_sites,
+                ));
                 out.push_str(&render_debug_lines("dups", &debug_details.dups));
                 out.push_str(&render_debug_lines("drops", &debug_details.drops));
                 out.push_str(&render_debug_lines("reuse", &debug_details.reuses));
@@ -6077,6 +6097,7 @@ impl Compiler {
             total.performs += stats.performs;
             total.handles += stats.handles;
             total.handler_arms += stats.handler_arms;
+            total.guarded_borrowed_args += stats.guarded_borrowed_args;
         }
 
         out.push_str(&format!(

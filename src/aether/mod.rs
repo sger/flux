@@ -92,6 +92,11 @@ pub enum AetherExpr {
         func: Box<AetherExpr>,
         args: Vec<AetherExpr>,
         arg_modes: Vec<crate::aether::borrow_infer::BorrowMode>,
+        /// Native lowering must retain an owning reference for these
+        /// borrowed arguments across the call.  The mask is computed from
+        /// Aether provenance/liveness and is deliberately separate from the
+        /// callee's borrow mode.
+        guarded_borrowed_args: Vec<bool>,
         span: Span,
     },
     Let {
@@ -639,6 +644,8 @@ pub struct AetherStats {
     /// Proposal 0162 Phase 3: handler clauses across all `handle`s (shape
     /// of the prompt's dispatch table).
     pub handler_arms: usize,
+    /// Borrowed call arguments protected by a native call-site Dup/Drop pair.
+    pub guarded_borrowed_args: usize,
 }
 
 /// FBIP status auto-detected from Aether stats (Perceus Section 2.6).
@@ -677,8 +684,8 @@ impl std::fmt::Display for AetherStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Dups: {}  Drops: {}  Reuses: {}  DropSpecs: {}",
-            self.dups, self.drops, self.reuses, self.drop_specs
+            "Dups: {}  Drops: {}  Reuses: {}  DropSpecs: {}  BorrowedCallGuards: {}",
+            self.dups, self.drops, self.reuses, self.drop_specs, self.guarded_borrowed_args
         )?;
         match self.fbip_status() {
             FbipStatus::Fip => write!(f, "  FBIP: fip")?,
@@ -721,7 +728,22 @@ fn count_nodes(expr: &AetherExpr, stats: &mut AetherStats) {
         }
         AetherExpr::Var { .. } | AetherExpr::Lit(_, _) => {}
         AetherExpr::Lam { body, .. } => count_nodes(body, stats),
-        AetherExpr::App { func, args, .. } | AetherExpr::AetherCall { func, args, .. } => {
+        AetherExpr::App { func, args, .. } => {
+            count_nodes(func, stats);
+            for a in args {
+                count_nodes(a, stats);
+            }
+        }
+        AetherExpr::AetherCall {
+            func,
+            args,
+            guarded_borrowed_args,
+            ..
+        } => {
+            stats.guarded_borrowed_args += guarded_borrowed_args
+                .iter()
+                .filter(|guarded| **guarded)
+                .count();
             count_nodes(func, stats);
             for a in args {
                 count_nodes(a, stats);
@@ -961,8 +983,10 @@ pub fn run_aether_expr(expr: AetherExpr) -> AetherExpr {
     reuse_spec::specialize_reuse_aether(expr)
 }
 
-/// Run the Aether pipeline with a borrow registry for cross-function optimization.
-/// Arguments to borrowed parameters will skip Rc::clone.
+/// Run the Aether pipeline with a borrow registry for cross-function
+/// optimization. Arguments to borrowed parameters skip planner-level
+/// `Rc::clone`; provenance-sensitive native call guards are recorded on each
+/// `AetherCall` for the backend to materialize when needed.
 pub fn run_aether_pass_with_registry(
     expr: CoreExpr,
     registry: &borrow_infer::BorrowRegistry,

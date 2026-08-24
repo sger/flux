@@ -951,12 +951,7 @@ fn main() -> Unit {
     let call_expr = match &program.statements[1] {
         Statement::Function { body, .. } => match &body.statements[0] {
             Statement::Let {
-                value:
-                    Expression::Call {
-                        function: _,
-                        arguments: _,
-                        ..
-                    },
+                value: Expression::Call { .. },
                 ..
             } => {
                 if let Statement::Let {
@@ -1026,12 +1021,7 @@ fn main() -> Unit {
     let call_expr = match &program.statements[1] {
         Statement::Function { body, .. } => match &body.statements[0] {
             Statement::Let {
-                value:
-                    Expression::Call {
-                        function: _,
-                        arguments: _,
-                        ..
-                    },
+                value: Expression::Call { .. },
                 ..
             } => {
                 if let Statement::Let {
