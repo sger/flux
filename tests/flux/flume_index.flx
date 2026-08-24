@@ -1,0 +1,206 @@
+// Behavioural coverage for `Flume.Index`, the registry index reader.
+//
+// Reading the index is separated from reading a *file*: `from_text` is pure,
+// so these tests need no fixture directory and no cleanup. The `with IO` on
+// each test is for `assert_*` printing only.
+
+import Flume.Index as Index
+import Flume.Index exposing (Published)
+import Flume.Version as Version
+import Flume.Version exposing (Version)
+import Flume.Resolve as Resolve
+import Flow.Result as Result
+import Flow.Option as Option
+import Flow.List as List
+
+fn line(name: String, version: String) -> String {
+    "{\"name\":\"" + name + "\",\"version\":\"" + version
+        + "\",\"checksum\":\"sha256:ab\"}"
+}
+
+fn count_of(text: String) -> Int {
+    match Index.from_text(text) {
+        Err(_) -> -1,
+        Ok(entries) -> List.length(entries),
+    }
+}
+
+fn error_of(text: String) -> String {
+    match Index.from_text(text) {
+        Ok(_) -> "<ok>",
+        Err(message) -> message,
+    }
+}
+
+// ── reading lines ──────────────────────────────────────────────
+
+fn test_reads_no_entries_from_empty_text() with IO {
+    assert_eq(count_of(""), 0)
+}
+
+fn test_reads_one_entry() with IO {
+    assert_eq(count_of(line("json", "1.0.0")), 1)
+}
+
+fn test_reads_several_entries() with IO {
+    let text = line("json", "1.0.0") + "\n" + line("json", "1.1.0")
+    assert_eq(count_of(text), 2)
+}
+
+/// Blank lines are ignored so an index file may end with a newline.
+fn test_ignores_blank_lines() with IO {
+    let text = "\n" + line("json", "1.0.0") + "\n\n"
+    assert_eq(count_of(text), 1)
+}
+
+/// A malformed line fails the whole read rather than being skipped: an index
+/// that silently drops entries would resolve differently depending on which
+/// lines happened to parse.
+fn test_rejects_a_malformed_line() with IO {
+    let text = line("json", "1.0.0") + "\nnot json\n"
+    assert_true(String.str_contains(error_of(text), "not valid JSON"))
+}
+
+fn test_rejects_a_missing_name() with IO {
+    assert_true(String.str_contains(
+        error_of("{\"version\":\"1.0.0\",\"checksum\":\"sha256:ab\"}"),
+        "missing `name`",
+    ))
+}
+
+fn test_rejects_a_missing_checksum() with IO {
+    assert_true(String.str_contains(
+        error_of("{\"name\":\"json\",\"version\":\"1.0.0\"}"),
+        "missing `checksum`",
+    ))
+}
+
+fn test_rejects_an_unreadable_version() with IO {
+    assert_true(String.str_contains(
+        error_of(line("json", "not-a-version")),
+        "unreadable version",
+    ))
+}
+
+// ── fields ─────────────────────────────────────────────────────
+
+fn test_reads_the_checksum() with IO {
+    match Index.from_text(line("json", "1.0.0")) {
+        Err(_) -> assert_eq("parsed", "failed"),
+        Ok(entries) -> match entries {
+            [] -> assert_eq("one entry", "none"),
+            [head | _] -> assert_eq(Index.published_checksum(head), "sha256:ab"),
+        },
+    }
+}
+
+fn test_reads_no_dependencies_when_absent() with IO {
+    match Index.from_text(line("json", "1.0.0")) {
+        Err(_) -> assert_eq("parsed", "failed"),
+        Ok(entries) -> match entries {
+            [] -> assert_eq("one entry", "none"),
+            [head | _] -> assert_eq(List.length(Index.published_deps(head)), 0),
+        },
+    }
+}
+
+fn test_reads_dependencies() with IO {
+    let text = "{\"name\":\"json\",\"version\":\"1.0.0\",\"checksum\":\"sha256:ab\","
+        + "\"deps\":[{\"name\":\"core\",\"req\":\"^1.0\"}]}"
+    match Index.from_text(text) {
+        Err(_) -> assert_eq("parsed", "failed"),
+        Ok(entries) -> match entries {
+            [] -> assert_eq("one entry", "none"),
+            [head | _] -> assert_eq(List.length(Index.published_deps(head)), 1),
+        },
+    }
+}
+
+/// A requirement is tagged with the package that declared it, so a conflict
+/// can say which manifest introduced the constraint.
+fn test_records_dependency_provenance() with IO {
+    let text = "{\"name\":\"json\",\"version\":\"1.0.0\",\"checksum\":\"sha256:ab\","
+        + "\"deps\":[{\"name\":\"core\",\"req\":\"^1.0\"}]}"
+    match Index.from_text(text) {
+        Err(_) -> assert_eq("parsed", "failed"),
+        Ok(entries) -> match entries {
+            [] -> assert_eq("one entry", "none"),
+            [head | _] -> match Index.published_deps(head) {
+                [] -> assert_eq("one dep", "none"),
+                [dep | _] -> assert_eq(Resolve.dep_name(dep), "core"),
+            },
+        },
+    }
+}
+
+fn test_rejects_an_unreadable_requirement() with IO {
+    let text = "{\"name\":\"json\",\"version\":\"1.0.0\",\"checksum\":\"sha256:ab\","
+        + "\"deps\":[{\"name\":\"core\",\"req\":\"@@@\"}]}"
+    assert_true(String.str_contains(error_of(text), "unreadable requirement"))
+}
+
+fn test_rejects_a_non_array_deps() with IO {
+    let text = "{\"name\":\"json\",\"version\":\"1.0.0\",\"checksum\":\"sha256:ab\","
+        + "\"deps\":\"core\"}"
+    assert_true(String.str_contains(error_of(text), "must be an array"))
+}
+
+// ── lookup ─────────────────────────────────────────────────────
+
+fn sample() -> List<Published> {
+    match Index.from_text(
+        line("json", "1.0.0") + "\n" + line("json", "1.1.0") + "\n" + line("core", "2.0.0"),
+    ) {
+        Ok(entries) -> entries,
+        Err(_) -> [],
+    }
+}
+
+fn test_finds_a_published_version() with IO {
+    match Version.parse("1.1.0") {
+        Err(_) -> assert_eq("version", "unparsed"),
+        Ok(wanted) -> assert_true(Option.is_some(Index.find(sample(), "json", wanted))),
+    }
+}
+
+fn test_finds_nothing_for_an_absent_version() with IO {
+    match Version.parse("9.9.9") {
+        Err(_) -> assert_eq("version", "unparsed"),
+        Ok(wanted) -> assert_true(Option.is_none_opt(Index.find(sample(), "json", wanted))),
+    }
+}
+
+fn test_finds_nothing_for_an_absent_package() with IO {
+    match Version.parse("1.0.0") {
+        Err(_) -> assert_eq("version", "unparsed"),
+        Ok(wanted) -> assert_true(Option.is_none_opt(Index.find(sample(), "absent", wanted))),
+    }
+}
+
+fn test_lists_every_version_of_one_package() with IO {
+    assert_eq(List.length(Index.versions_of(sample(), "json")), 2)
+}
+
+fn test_lists_no_versions_of_an_absent_package() with IO {
+    assert_eq(List.length(Index.versions_of(sample(), "absent")), 0)
+}
+
+// ── candidates ─────────────────────────────────────────────────
+
+/// Index entries become resolver candidates unchanged in count, so the
+/// resolver sees exactly what was published.
+fn test_turns_entries_into_candidates() with IO {
+    assert_eq(List.length(Index.to_candidates(sample())), 3)
+}
+
+/// The checksum is deliberately dropped: the resolver decides which version to
+/// use and must not be able to depend on the bytes.
+fn test_a_candidate_keeps_its_name_and_version() with IO {
+    match sample() {
+        [] -> assert_eq("entries", "none"),
+        [head | _] -> assert_eq(
+            Resolve.package_name(Index.to_candidate(head)),
+            Index.published_name(head),
+        ),
+    }
+}

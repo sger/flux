@@ -1,0 +1,221 @@
+import Flow.Option as Option
+import Flow.Result as Result
+import Flow.String as Str
+import Flow.Array as Array
+import Flow.List as List
+import Flow.Fs as Fs
+import Flow.Env as Env
+import Flow.Path as Path
+import Flume.Index as Index
+import Flume.Index exposing (Published)
+import Flume.Lock as Lock
+import Flume.Lock exposing (Lock)
+
+/// Where the toolchain keeps its registry state, and how it is read.
+///
+/// This is the I/O half of the registry: every function here touches the disk, and
+/// the pure modules it feeds — `Flume.Index`, `Flume.Lock`, `Flume.Plan` —
+/// touch nothing. Keeping the split at a module boundary is what lets the
+/// whole resolution path be tested without a registry, and it is why this
+/// module contains no parsing of its own.
+///
+/// ```text
+/// $FLUX_HOME/                      (default ~/.flux)
+///   registry/index/<name>          one file per package, one JSON line per version
+///   registry/src/<name>/<version>  unpacked sources
+/// ```
+///
+/// Downloading is deliberately absent. The index and the unpacked sources are
+/// read from disk, so a build resolves offline against whatever has already
+/// been fetched; nothing here can reach the network, which is what makes a
+/// build reproducible rather than dependent on when it ran.
+module Flume.Home {
+
+//| failure
+
+    /// Abort with a message.
+    ///
+    /// Declared here rather than shared: an effect imported from another
+    /// module is invisible under `flux --test`, see
+    /// docs/known_issues.md#ki-028.
+    effect Fail { fail: String -> Unit }
+
+    /// Abort with `message`. Returns `a` so it stands in any position; the
+    /// handler never resumes, so the value is unreachable.
+    fn abort<a>(message: String, unreachable: a) -> a with Fail {
+        perform Fail.fail(message)
+        unreachable
+    }
+
+    /// The toolchain's home directory.
+    ///
+    /// `$FLUX_HOME` wins when set — it is what lets a test, or a CI job, point
+    /// at a scratch directory instead of the developer's real one. Otherwise
+    /// `~/.flux`, and finally `.flux` beside the working directory when the
+    /// home directory cannot be determined at all.
+    public fn dir() -> String with IO {
+        match Env.var("FLUX_HOME") {
+            Some(found) -> found,
+            None -> default_dir(),
+        }
+    }
+
+    fn default_dir() -> String with IO {
+        match Env.home_dir() {
+            Some(home) -> Path.join(home, ".flux"),
+            None -> ".flux",
+        }
+    }
+
+    /// The directory holding the registry index, one file per package.
+    public fn index_dir() -> String with IO {
+        dir() |> Path.join("registry") |> Path.join("index")
+    }
+
+    /// The index file for one package.
+    ///
+    /// One file per package rather than one index file: a package's versions
+    /// are appended to its own file, so publishing never rewrites a line that
+    /// another package's reader depends on.
+    public fn index_file(name: String) -> String with IO {
+        Path.join(index_dir(), name)
+    }
+
+    /// The directory holding unpacked sources, one per package version.
+    public fn src_dir() -> String with IO {
+        dir() |> Path.join("registry") |> Path.join("src")
+    }
+
+    /// Where the sources of one resolved version live.
+    public fn package_dir(name: String, version: String) -> String with IO {
+        src_dir() |> Path.join(name) |> Path.join(version)
+    }
+
+//| index
+
+    /// Read every published version of the named packages.
+    ///
+    /// Only the packages asked for are read, so an index holding thousands
+    /// costs nothing for a project using three. A package with no index file
+    /// contributes nothing rather than failing: "this package does not exist"
+    /// is the resolver's message, since only it knows what wanted it.
+    public fn read_index(names: List<String>) -> Result<List<Published>, String> with IO {
+        gather(names) handle Fail { fail(resume, message) -> Err(message) }
+    }
+
+    fn gather(names: List<String>) -> Result<List<Published>, String> with IO, Fail {
+        Ok(read_all(names))
+    }
+
+    /// Tail-recursive with an accumulator.
+    ///
+    /// The direct form re-concatenates the whole accumulated list per package,
+    /// which is quadratic, and holds a stack frame per package. Neither
+    /// matters at three dependencies and both do at three thousand.
+    fn read_all(names: List<String>) -> List<Published> with IO, Fail {
+        gather_all(names, [])
+    }
+
+    fn gather_all(
+        names: List<String>,
+        acc: List<Published>,
+    ) -> List<Published> with IO, Fail {
+        match names {
+            [] -> List.reverse(acc),
+            [head | rest] -> gather_all(rest, prepend_all(read_one(head), acc)),
+        }
+    }
+
+    /// Push each entry onto the accumulator, reversing it; `gather_all`
+    /// reverses once at the end to restore index order.
+    fn prepend_all(
+        entries: List<Published>,
+        acc: List<Published>,
+    ) -> List<Published> {
+        match entries {
+            [] -> acc,
+            [head | rest] -> prepend_all(rest, [head | acc]),
+        }
+    }
+
+    fn read_one(name: String) -> List<Published> with IO, Fail {
+        let path = index_file(name)
+        if Fs.is_file(path) { read_index_file(name, path) } else { [] }
+    }
+
+    fn read_index_file(name: String, path: String) -> List<Published> with IO, Fail {
+        match Fs.read_file(path) {
+            Err(_) -> abort("cannot read the index for `" + name + "` at " + path, []),
+            Ok(text) -> parse_index(name, text),
+        }
+    }
+
+    fn parse_index(name: String, text: String) -> List<Published> with IO, Fail {
+        match Index.from_text(text) {
+            Err(message) -> abort(
+                "the index for `" + name + "` is unreadable: " + message,
+                [],
+            ),
+            Ok(found) -> found,
+        }
+    }
+
+//| lockfile─
+
+    /// Where a project's lockfile lives.
+    public fn lock_path(project_dir: String) -> String {
+        Path.join(project_dir, "flux.lock")
+    }
+
+    /// Read a project's lockfile, or `None` when it has none.
+    ///
+    /// A missing lockfile and an unreadable one are different: the first is
+    /// the ordinary first-build case, and the second is an error the user must
+    /// see rather than silently re-resolve past.
+    public fn read_lock(project_dir: String) -> Result<Option<Lock>, String> with IO {
+        let path = lock_path(project_dir)
+        if Fs.is_file(path) {
+            read_existing_lock(path)
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn read_existing_lock(path: String) -> Result<Option<Lock>, String> with IO {
+        match Fs.read_file(path) {
+            Err(_) -> Err("cannot read " + path),
+            Ok(text) -> parse_lock(text),
+        }
+    }
+
+    fn parse_lock(text: String) -> Result<Option<Lock>, String> with IO {
+        Result.map_result(Lock.parse(text), \parsed -> Some(parsed))
+    }
+
+    /// Write a project's lockfile, returning the path written.
+    ///
+    /// Written through a temporary file and renamed into place, so an
+    /// interrupted write cannot leave a half-rendered lockfile that the next
+    /// build would read as authoritative.
+    public fn write_lock(project_dir: String, updated: Lock) -> Result<String, String> with IO {
+        let path = lock_path(project_dir)
+        let temporary = path + ".tmp"
+        match Fs.write_file(temporary, Lock.render(updated)) {
+            Err(_) -> Err("cannot write " + temporary),
+            Ok(_) -> rename_into_place(temporary, path),
+        }
+    }
+
+    fn rename_into_place(temporary: String, path: String) -> Result<String, String> with IO {
+        match Fs.rename(temporary, path) {
+            Err(_) -> Err("cannot replace " + path),
+            Ok(_) -> keep_path(path),
+        }
+    }
+
+    /// Pass the path through a parameter rather than returning it from the
+    /// match arm — see docs/known_issues.md#ki-022.
+    fn keep_path(path: String) -> Result<String, String> {
+        Ok(path)
+    }
+}

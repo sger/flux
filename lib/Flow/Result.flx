@@ -106,6 +106,63 @@ module Flow.Result {
         }
     }
 
+    // ── Combining ─────────────────────────────────────────────────────
+
+    /// Combine two results with `f`, short-circuiting on the first `Err`.
+    ///
+    /// Independent fallible reads combine without nesting: building a record
+    /// from five fields is five `map2`s rather than five nested closures.
+    public fn map2<a, b, c, e>(
+        ra: Result<a, e>,
+        rb: Result<b, e>,
+        f: (a, b) -> c,
+    ) -> Result<c, e> {
+        and_then_result(ra, fn(x) { map_result(rb, fn(y) { f(x, y) }) })
+    }
+
+    /// Combine three results with `f`.
+    public fn map3<a, b, c, d, e>(
+        ra: Result<a, e>,
+        rb: Result<b, e>,
+        rc: Result<c, e>,
+        f: (a, b, c) -> d,
+    ) -> Result<d, e> {
+        and_then_result(ra, fn(x) { map2(rb, rc, fn(y, z) { f(x, y, z) }) })
+    }
+
+    /// Apply a wrapped function to a wrapped value.
+    ///
+    /// The applicative primitive: `map2` is the common case, `apply` is what
+    /// longer chains are built from.
+    public fn apply<a, b, e>(rf: Result<(a) -> b, e>, ra: Result<a, e>) -> Result<b, e> {
+        and_then_result(rf, fn(f) { map_result(ra, f) })
+    }
+
+    /// Turn a list of results into a result of a list.
+    ///
+    /// Fails on the first `Err`. This is the operation every "read many, fail
+    /// once" loop is a hand-written copy of.
+    public fn sequence<a, e>(results: List<Result<a, e>>) -> Result<List<a>, e> {
+        match results {
+            [] -> Ok([]),
+            [head | rest] -> map2(head, sequence(rest), fn(x, xs) { [x | xs] }),
+        }
+    }
+
+    /// Map a fallible function over a list, failing on the first `Err`.
+    ///
+    /// Written directly rather than as `sequence(List.map(...))`: this module
+    /// is a stdlib base and does not import `Flow.List`.
+    public fn traverse<a, b, e>(
+        values: List<a>,
+        f: (a) -> Result<b, e>,
+    ) -> Result<List<b>, e> {
+        match values {
+            [] -> Ok([]),
+            [head | rest] -> map2(f(head), traverse(rest, f), fn(x, xs) { [x | xs] }),
+        }
+    }
+
     // ── Conversion ────────────────────────────────────────────────────
 
     /// Discard the error, turning `Ok(v)` into `Some(v)` and `Err(_)` into `None`.

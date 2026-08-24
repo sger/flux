@@ -42,7 +42,13 @@ use sha2::{Digest, Sha256};
 /// `EnvHomeDir` primops extend the primop table and the `IO` alias expansion.
 /// Epoch 17: the `Process` effect label and the `ProcRun` primop extend the
 /// primop table and the `IO` alias expansion.
-pub const CACHE_EPOCH: u16 = 20;
+/// Epoch 21: resolved package roots now depend on `flux.lock` as well as on the
+/// manifests, so the roots cache records a lockfile fingerprint that older
+/// entries do not carry.
+/// Epoch 22: `Flow.List.map` / `filter` became effect-row polymorphic and
+/// `Flow.Result` gained `map2` / `map3` / `apply` / `sequence` / `traverse`,
+/// changing both stdlib interfaces and their global layout.
+pub const CACHE_EPOCH: u16 = 22;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

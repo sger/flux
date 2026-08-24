@@ -1,0 +1,423 @@
+import Flow.Option as Option
+import Flow.Result as Result
+import Flow.String as Str
+import Flow.Array as Array
+import Flow.List as List
+import Flume.Version as Version
+import Flume.Version exposing (Version, Range, Exact)
+import Flume.Resolve as Resolve
+import Flume.Resolve exposing (Dep, Package, Pick, Resolution, Conflict, Unsatisfiable, Missing, Origin, FromRoot, FromPackage, FromLockfile, FromCommandLine)
+import Flume.Index as Index
+import Flume.Index exposing (Published)
+import Flume.Lock as Lock
+import Flume.Lock exposing (Lock, Entry, LockedRegistry, LockedPath)
+
+/// Turn a manifest plus an index into a resolved graph, and back into a lock.
+///
+/// This is the join between three pure pieces that otherwise do not know about
+/// each other: `Flume.Manifest` says what was asked for, `Flume.Index` says
+/// what exists, and `Flume.Resolve` decides. Nothing here does I/O — the
+/// caller supplies the manifest text, the index text, and the existing
+/// lockfile, and receives the lockfile that should be written. That is what
+/// makes the whole resolution path testable without a registry.
+///
+/// ## Minimal-change updating
+///
+/// A locked version is *preferred*, not pinned. Preference is expressed as two
+/// resolution attempts rather than as an ordering: first against a candidate
+/// set narrowed to what the lockfile already chose, and — only if that fails —
+/// against the full set. A project whose lock still works therefore keeps it,
+/// and one whose manifest moved past it re-resolves instead of failing.
+///
+/// Ordering the candidate list would not work: the resolver sorts candidates
+/// highest-version-first internally, so any order it is handed is discarded.
+/// Narrowing the set is the only way to express a preference to a solver that
+/// picks its own order.
+module Flume.Plan {
+
+//| failure
+
+    /// Abort with a message.
+    ///
+    /// Declared here rather than shared: an effect imported from another
+    /// module is invisible under `flux --test`, see
+    /// docs/known_issues.md#ki-028.
+    effect Fail { fail: String -> Unit }
+
+    /// Abort with `message`. Returns `a` so it stands in any position; the
+    /// handler never resumes, so the value is unreachable.
+    fn abort<a>(message: String, unreachable: a) -> a with Fail {
+        perform Fail.fail(message)
+        unreachable
+    }
+
+    /// The `Ok` value, or abort with the `Err` as the message.
+    fn ok_or_abort<a>(result: Result<a, String>, fallback: a) -> a with Fail {
+        match result {
+            Ok(found) -> found,
+            Err(message) -> abort(message, fallback),
+        }
+    }
+
+    /// What a resolution attempt produced.
+    ///
+    /// `Unchanged` is distinguished from `Updated` because the two have
+    /// different consequences for the caller: only `Updated` needs the
+    /// lockfile written, and only `Updated` may be refused under `--locked`.
+    public data Outcome {
+        Unchanged { lock: Lock },
+        Updated { lock: Lock },
+    }
+
+    public fn outcome_lock(o: Outcome) -> Lock {
+        match o {
+            Unchanged { lock } -> lock,
+            Updated { lock } -> lock,
+        }
+    }
+
+    public fn outcome_changed(o: Outcome) -> Bool {
+        match o {
+            Unchanged { lock: _ } -> false,
+            Updated { lock: _ } -> true,
+        }
+    }
+
+//| requirements
+
+    /// The registry requirements a manifest declares.
+    ///
+    /// Takes the manifest's dependencies already split into `(name,
+    /// requirement)` pairs rather than the manifest itself. `Flume.Manifest`
+    /// and `Flume.Resolve` both export a type named `Dep`, and an import
+    /// cannot rename what it exposes, so a signature here can name at most one
+    /// of them — see docs/known_issues.md#ki-023. Splitting the manifest is
+    /// the caller's job either way, since only it knows which dependency kinds
+    /// belong in the build graph.
+    public fn root_deps(requirements: List<(String, String)>) -> Result<List<Dep>, String> {
+        read_deps(requirements) handle Fail { fail(resume, message) -> Err(message) }
+    }
+
+    fn read_deps(requirements: List<(String, String)>) -> Result<List<Dep>, String> with Fail {
+        Ok(requirements |> List.map(registry_dep))
+    }
+
+    fn registry_dep(requirement: (String, String)) -> Dep with Fail {
+        match requirement { (name, range) -> requirement_dep(name, range) }
+    }
+
+    fn requirement_dep(name: String, requirement: String) -> Dep with Fail {
+        Resolve.dep(name, parse_range(requirement, name), Resolve.from_root())
+    }
+
+    fn parse_range(requirement: String, name: String) -> Range with Fail {
+        ok_or_abort(
+            Result.map_err_result(
+                Version.parse_range(requirement),
+                \_ -> "`" + name + "` has an unreadable version requirement `"
+                    + requirement + "`",
+            ),
+            Exact(Version.version(0, 0, 0)),
+        )
+    }
+
+//| resolution
+
+    /// Resolve a manifest's requirements against `available`.
+    ///
+    /// The one entry point a caller needs: it takes the requirements as
+    /// `(name, requirement)` pairs and returns the lockfile they resolve to.
+    /// Callers therefore never have to name `Flume.Resolve.Dep`, which they
+    /// often cannot — a module that also handles manifests already has a `Dep`
+    /// in scope, and an import cannot rename what it exposes. See
+    /// docs/known_issues.md#ki-023.
+    public fn plan(
+        requirements: List<(String, String)>,
+        available: List<Published>,
+        previous: Option<Lock>,
+    ) -> Result<Outcome, String> {
+        Result.and_then_result(root_deps(requirements), \deps ->
+            resolve(deps, available, previous))
+    }
+
+    /// Why `existing` fails to satisfy `requirements`, or `None` if it does.
+    ///
+    /// The pair-taking counterpart of `unsatisfied_by`, for the same reason.
+    public fn unsatisfied(
+        requirements: List<(String, String)>,
+        existing: Lock,
+    ) -> Option<String> {
+        match root_deps(requirements) {
+            Err(message) -> Some(message),
+            Ok(deps) -> unsatisfied_by(deps, existing),
+        }
+    }
+
+    /// Resolve `deps` against `available`, preferring what `previous` locked.
+    ///
+    /// The lock is consulted only to *order* candidates. The resolver still
+    /// runs, so an edited manifest re-resolves rather than failing, and a
+    /// resolution that can keep every locked version does.
+    public fn resolve(
+        deps: List<Dep>,
+        available: List<Published>,
+        previous: Option<Lock>,
+    ) -> Result<Outcome, String> {
+        match previous {
+            None -> resolve_against(deps, available, available, previous),
+            Some(existing) -> resolve_against(
+                deps,
+                locked_subset(available, existing),
+                available,
+                previous,
+            ),
+        }
+    }
+
+    /// Resolve against `preferred`, falling back to `full` if that fails.
+    ///
+    /// The fallback is what makes the lock a preference rather than a pin: a
+    /// manifest edit that the locked versions cannot satisfy re-resolves
+    /// instead of reporting a conflict the user cannot act on.
+    fn resolve_against(
+        deps: List<Dep>,
+        preferred: List<Published>,
+        full: List<Published>,
+        previous: Option<Lock>,
+    ) -> Result<Outcome, String> {
+        match Resolve.resolve(deps, Index.to_candidates(preferred)) {
+            Ok(resolution) -> build_outcome(resolution, full, previous),
+            Err(_) -> resolve_freely(deps, full, previous),
+        }
+    }
+
+    fn resolve_freely(
+        deps: List<Dep>,
+        full: List<Published>,
+        previous: Option<Lock>,
+    ) -> Result<Outcome, String> {
+        match Resolve.resolve(deps, Index.to_candidates(full)) {
+            Err(conflict) -> Err(render_conflict(conflict)),
+            Ok(resolution) -> build_outcome(resolution, full, previous),
+        }
+    }
+
+    /// The candidates the lockfile already chose.
+    ///
+    /// A package the lock says nothing about keeps every version, so adding a
+    /// dependency does not force the rest of the graph to re-resolve.
+    fn locked_subset(available: List<Published>, existing: Lock) -> List<Published> {
+        available |> List.filter(keeps_lock(existing))
+    }
+
+    /// A predicate bound to one lockfile, so `filter` can take it directly.
+    fn keeps_lock(existing: Lock) -> (Published) -> Bool {
+        \entry -> is_locked_or_unlocked(entry, existing)
+    }
+
+    fn is_locked_or_unlocked(entry: Published, existing: Lock) -> Bool {
+        match Lock.find(existing, Index.published_name(entry)) {
+            None -> true,
+            Some(locked) -> Version.equals(
+                Lock.entry_version(locked),
+                Index.published_version(entry),
+            ),
+        }
+    }
+
+    /// Turn a resolution into a lockfile, recovering each pick's checksum.
+    ///
+    /// The format version is taken from the existing lockfile rather than from
+    /// this build's default, so a lockfile does not oscillate between
+    /// toolchain versions.
+    fn build_outcome(
+        resolution: Resolution,
+        available: List<Published>,
+        previous: Option<Lock>,
+    ) -> Result<Outcome, String> {
+        entries_of(resolution, available, previous)
+            handle Fail { fail(resume, message) -> Err(message) }
+    }
+
+    fn entries_of(
+        resolution: Resolution,
+        available: List<Published>,
+        previous: Option<Lock>,
+    ) -> Result<Outcome, String> with Fail {
+        let picks = Resolve.resolution_picks(resolution)
+        let entries = collect_entries(picks, available)
+        Ok(classify(Lock.lock(format_of(previous), entries), previous))
+    }
+
+    fn format_of(previous: Option<Lock>) -> Int {
+        match previous {
+            None -> Lock.default_format(),
+            Some(existing) -> Lock.lock_format(existing),
+        }
+    }
+
+    /// A resolution equal to what was already locked needs no write.
+    ///
+    /// Compared by rendered form rather than field by field: rendering is the
+    /// canonical order, so two locks that render identically are identical for
+    /// every purpose the lockfile serves.
+    fn classify(built: Lock, previous: Option<Lock>) -> Outcome {
+        match previous {
+            None -> Updated { lock: built },
+            Some(existing) -> if Lock.render(existing) == Lock.render(built) {
+                Unchanged { lock: built }
+            } else {
+                Updated { lock: built }
+            },
+        }
+    }
+
+    /// Explicit recursion rather than `List.map`: the reader needs
+    /// `available`, and a lambda cannot carry the enclosing effect row — see
+    /// docs/known_issues.md#ki-029.
+    fn collect_entries(
+        picks: List<Pick>,
+        available: List<Published>,
+    ) -> List<Entry> with Fail {
+        match picks {
+            [] -> [],
+            [head | rest] -> [
+                entry_for(head, available)
+                | collect_entries(rest, available)
+            ],
+        }
+    }
+
+    /// The lockfile entry for one pick.
+    ///
+    /// A pick with no matching index entry is a bug in the resolver rather
+    /// than a user error, but it is reported rather than ignored: silently
+    /// dropping it would produce a lockfile that does not describe the build.
+    fn entry_for(chosen: Pick, available: List<Published>) -> Entry with Fail {
+        let name = Resolve.pick_name(chosen)
+        match Index.find(available, name, Resolve.pick_version(chosen)) {
+            None -> abort(
+                "resolved `" + name + "` to a version that is not in the index",
+                entry_of_nothing(name),
+            ),
+            Some(found) -> entry_of(found),
+        }
+    }
+
+    /// Unreachable placeholder for the aborting branch above.
+    fn entry_of_nothing(name: String) -> Entry {
+        Lock.entry(name, Version.version(0, 0, 0), LockedPath { path: "" }, None, [])
+    }
+
+    fn entry_of(found: Published) -> Entry {
+        Lock.entry(
+            Index.published_name(found),
+            Index.published_version(found),
+            LockedRegistry { url: registry_url() },
+            Some(Index.published_checksum(found)),
+            List.map(Index.published_deps(found), Resolve.dep_name),
+        )
+    }
+
+    /// The registry a resolved package came from.
+    ///
+    /// A single registry for now. It is written into every entry rather than
+    /// left implicit so that adding a second registry later changes what is
+    /// recorded, not the shape of what is recorded.
+    public fn registry_url() -> String {
+        "https://packages.flux-lang.org"
+    }
+
+//| verification
+
+    /// Why `existing` fails to satisfy `deps`, or `None` if it does.
+    ///
+    /// This is what `--locked` checks: the lockfile must already answer the
+    /// manifest, with no resolution run. The result is the *first* unmet
+    /// requirement rather than a flag, because "the lockfile is out of date"
+    /// alone does not tell anyone what to fix.
+    public fn unsatisfied_by(deps: List<Dep>, existing: Lock) -> Option<String> {
+        match deps {
+            [] -> None,
+            [head | rest] -> check_dep(head, rest, existing),
+        }
+    }
+
+    fn check_dep(head: Dep, rest: List<Dep>, existing: Lock) -> Option<String> {
+        let name = Resolve.dep_name(head)
+        match Lock.find(existing, name) {
+            None -> Some(
+                "`flux.lock` does not contain `" + name
+                    + "`, which `flux.toml` requires"
+            ),
+            Some(locked) -> check_range(head, rest, existing, locked, name),
+        }
+    }
+
+    fn check_range(
+        head: Dep,
+        rest: List<Dep>,
+        existing: Lock,
+        locked: Entry,
+        name: String,
+    ) -> Option<String> {
+        if Version.matches(Resolve.dep_range(head), Lock.entry_version(locked)) {
+            unsatisfied_by(rest, existing)
+        } else {
+            Some(
+                "`flux.lock` has `" + name + "` at "
+                    + Version.render(Lock.entry_version(locked))
+                    + ", which does not satisfy `"
+                    + Version.render_range(Resolve.dep_range(head))
+                    + "` from `flux.toml`"
+            )
+        }
+    }
+
+//| conflicts
+
+    /// Render a resolution failure as its minimized conflict set.
+    ///
+    /// The culprits are the requirements that actually collided, each named
+    /// with where it came from. A resolver that reported every constraint it
+    /// saw would not be much more useful than one that reported none.
+    fn render_conflict(conflict: Conflict) -> String {
+        match conflict {
+            Missing { name, culprits } ->
+                "no version of `" + name + "` is available"
+                    + render_culprits(culprits),
+            Unsatisfiable { name, culprits } ->
+                "no version of `" + name + "` satisfies every requirement"
+                    + render_culprits(culprits),
+        }
+    }
+
+    fn render_culprits(culprits: List<Dep>) -> String {
+        match culprits {
+            [] -> "",
+            _ -> ":\n" + render_culprit_lines(culprits),
+        }
+    }
+
+    fn render_culprit_lines(culprits: List<Dep>) -> String {
+        culprits
+            |> List.map(render_culprit)
+            |> Array.from_list
+            |> Str.join("\n")
+    }
+
+    fn render_culprit(culprit: Dep) -> String {
+        "  " + Version.render_range(Resolve.dep_range(culprit))
+            + " required by " + render_origin(Resolve.dep_origin(culprit))
+    }
+
+    fn render_origin(origin: Origin) -> String {
+        match origin {
+            FromRoot { unused: _ } -> "`flux.toml`",
+            FromPackage { name, version } ->
+                "`" + name + "` " + Version.render(version),
+            FromLockfile { unused: _ } -> "`flux.lock`",
+            FromCommandLine { unused: _ } -> "the command line",
+        }
+    }
+}
