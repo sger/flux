@@ -1015,6 +1015,7 @@ fn rewrite_nested_drop_sites(
             func,
             args,
             arg_modes,
+            guarded_borrowed_args,
             span,
         } => {
             let func_inner = rewrite_nested_drop_sites(*func, env, blocked_outer_token);
@@ -1028,6 +1029,7 @@ fn rewrite_nested_drop_sites(
                 func: Box::new(func_inner.expr),
                 args,
                 arg_modes,
+                guarded_borrowed_args,
                 span,
             };
             if reused {
@@ -1598,11 +1600,15 @@ fn rebuild_constructor_shape(
             span,
         },
         CoreExpr::AetherCall {
-            func, arg_modes, ..
+            func,
+            arg_modes,
+            guarded_borrowed_args,
+            ..
         } => CoreExpr::AetherCall {
             func,
             args: fields,
             arg_modes,
+            guarded_borrowed_args,
             span,
         },
         other => other,
@@ -2076,6 +2082,7 @@ mod tests {
                 func: Box::new(v(f)),
                 args: vec![v(h)],
                 arg_modes: vec![crate::aether::borrow_infer::BorrowMode::Owned],
+                guarded_borrowed_args: vec![false],
                 span: s(),
             }),
             body: Box::new(CoreExpr::Let {
@@ -2087,6 +2094,7 @@ mod tests {
                         crate::aether::borrow_infer::BorrowMode::Borrowed,
                         crate::aether::borrow_infer::BorrowMode::Borrowed,
                     ],
+                    guarded_borrowed_args: vec![false, false],
                     span: s(),
                 }),
                 body: Box::new(CoreExpr::Con {
@@ -2139,6 +2147,7 @@ mod tests {
                 func: Box::new(v(h)),
                 args: vec![v(xs)],
                 arg_modes: vec![crate::aether::borrow_infer::BorrowMode::Owned],
+                guarded_borrowed_args: vec![false],
                 span: s(),
             }),
             body: Box::new(CoreExpr::Con {

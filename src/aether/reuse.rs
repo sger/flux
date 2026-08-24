@@ -183,6 +183,7 @@ fn rewrite_with_ctx(
             func,
             args,
             arg_modes,
+            guarded_borrowed_args,
             span,
         } => CoreExpr::AetherCall {
             func: Box::new(rewrite_with_ctx(
@@ -196,6 +197,7 @@ fn rewrite_with_ctx(
                 .map(|a| rewrite_with_ctx(a, pat_binders, pat_tag, blocked_outer_token))
                 .collect(),
             arg_modes,
+            guarded_borrowed_args,
             span,
         },
         CoreExpr::Case {

@@ -76,18 +76,12 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
             name,
             type_annotation: _,
             value,
-            span: _,
             ..
         } => {
             visitor.visit_identifier(name);
             visitor.visit_expr(value);
         }
-        Statement::LetDestructure {
-            pattern,
-            value,
-            span: _,
-            ..
-        } => {
+        Statement::LetDestructure { pattern, value, .. } => {
             visitor.visit_pat(pattern);
             visitor.visit_expr(value);
         }

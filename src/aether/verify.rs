@@ -22,6 +22,7 @@ pub enum AetherErrorKind {
     UnresolvedAetherVar,
     UnsafeDrop,
     InvalidAetherCallModes,
+    InvalidAetherCallGuards,
     InvalidReuseTag,
     ReuseTokenEscapesIntoFields,
     InvalidFieldMask,
@@ -86,6 +87,7 @@ fn check_contract(expr: &AetherExpr, errors: &mut Vec<AetherError>) {
             func,
             args,
             arg_modes,
+            guarded_borrowed_args,
             ..
         } => {
             if args.len() != arg_modes.len() {
@@ -95,6 +97,16 @@ fn check_contract(expr: &AetherExpr, errors: &mut Vec<AetherError>) {
                         "aether_call argument count {} does not match mode count {}",
                         args.len(),
                         arg_modes.len()
+                    ),
+                });
+            }
+            if args.len() != guarded_borrowed_args.len() {
+                errors.push(AetherError {
+                    kind: AetherErrorKind::InvalidAetherCallGuards,
+                    message: format!(
+                        "aether_call argument count {} does not match guard count {}",
+                        args.len(),
+                        guarded_borrowed_args.len()
                     ),
                 });
             }
@@ -725,6 +737,7 @@ mod tests {
             func: Box::new(v(f)),
             args: vec![v(x)],
             arg_modes: vec![],
+            guarded_borrowed_args: vec![false],
             span: s(),
         };
         let err = verify_contract(&expr).expect_err("expected invalid aether_call mode count");
