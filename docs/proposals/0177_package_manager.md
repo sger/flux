@@ -1197,11 +1197,11 @@ if the Phase 2 resolver's error quality proves inadequate.
    parsed and written by `flux init`, and otherwise unused. Kept so manifests
    written today remain readable when a second edition exists.
 
-Still open, carried to [known_issues.md](../known_issues.md):
-
-- How `flux test` aggregates across files — `test_*` discovery is per-file and
-  single-file only, so `flux test` runs only the package entry point's tests
-  (KI-020).
+4. ~~How `flux test` aggregates across files.~~ Discovery matches the last
+   dot-separated segment of a global's name, so every compiled module in the
+   graph contributes its tests and they are reported by qualified name
+   (KI-020). `--test-filter` matches the qualified name, covering the
+   `--filter <s>` slot in the CLI surface under an existing flag name.
 
 
 **Phase 2:**
