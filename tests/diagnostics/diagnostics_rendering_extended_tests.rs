@@ -2,7 +2,7 @@
 mod diagnostics_env;
 
 use flux::diagnostics::{
-    Diagnostic, DiagnosticBuilder, EXPECTED_EXPRESSION, ErrorType, Severity,
+    Diagnostic, DiagnosticBuilder, EXPECTED_EXPRESSION, ErrorType, Severity, StackTraceFrame,
     position::{Position, Span},
 };
 
@@ -132,4 +132,42 @@ fn color_output_toggle() {
 
     let color = render_with_color(&diag, source, "test.flx", true);
     assert!(color.contains("\u{1b}["));
+}
+
+/// A trace shorter than the elision threshold is printed whole.
+#[test]
+fn short_stack_traces_are_printed_in_full() {
+    let frames = (0..12).map(|i| StackTraceFrame::new(format!("f{i} (a.flx:{i}:1)")));
+    let diag = Diagnostic::make_error(&EXPECTED_EXPRESSION, &["x"], "a.flx", span(1, 0, 1, 1))
+        .with_stack_trace(frames);
+
+    let out = render_with_color(&diag, "let x = 1\n", "a.flx", false);
+
+    assert!(out.contains("f0 (a.flx:0:1)"));
+    assert!(out.contains("f11 (a.flx:11:1)"));
+    assert!(!out.contains("more frames"));
+}
+
+/// A runaway recursion is elided in the middle: the raise site and the entry
+/// point survive, and the dropped count is reported rather than the frames.
+#[test]
+fn deep_stack_traces_elide_the_middle() {
+    let frames = (0..5000).map(|i| StackTraceFrame::new(format!("f{i} (a.flx:{i}:1)")));
+    let diag = Diagnostic::make_error(&EXPECTED_EXPRESSION, &["x"], "a.flx", span(1, 0, 1, 1))
+        .with_stack_trace(frames);
+
+    let out = render_with_color(&diag, "let x = 1\n", "a.flx", false);
+
+    // Both ends kept.
+    assert!(out.contains("f0 (a.flx:0:1)"));
+    assert!(out.contains("f4999 (a.flx:4999:1)"));
+    // The middle is gone, replaced by an accurate count.
+    assert!(!out.contains("f2500 (a.flx:2500:1)"));
+    assert!(out.contains("... 4970 more frames ..."));
+
+    let printed = out
+        .lines()
+        .filter(|l| l.trim_start().starts_with("at "))
+        .count();
+    assert_eq!(printed, 30);
 }

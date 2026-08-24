@@ -352,30 +352,40 @@ the lambda existed only to close over extra arguments.
 
 ### KI-030 — Non-tail recursion overflows the VM at a depth the native backend survives
 
-**Severity:** Medium · **Area:** VM, native backend, parity · **Verified:** 2026-08-24
+**Severity:** Low · **Area:** VM, native backend, parity · **Verified:** 2026-08-24
 
 Flux has no loops, so every iteration is recursion. Tail-recursive functions are
 optimised on both backends, but *non-tail* recursion — the natural shape for
 building a list, `[f(head) | recurse(rest)]` — consumes a stack frame per
-element, and the two backends tolerate very different depths:
+element, and the two backends tolerate different depths:
 
 | Form | Depth | VM | Native (`--native`) |
 |---|---|---|---|
-| non-tail | 50k | works | works |
-| non-tail | 80k | works | works |
-| non-tail | 120k | **`E1009` stack overflow** | works |
-| non-tail | 200k | **`E1009` stack overflow** | works |
+| non-tail | 300k | works | works |
+| non-tail | 400k | **`E1009` stack overflow** | works |
 | tail + accumulator | 200k | works | works |
 
 The tail-recursive form survives every depth tested on both backends, including
 through an effect row (`with Fail`), so tail-call optimisation is applied even
 when the function performs effects.
 
-**Consequence.** A program that builds a long list by non-tail recursion can
-pass a native build and crash under the VM. Since the VM is the default backend
-and native is opt-in, the failure shows up in the *cheaper* configuration — the
-opposite of the usual "works in debug, fails in release" direction, and easy to
-mistake for a data problem rather than a backend one.
+**Consequence.** A program that builds a very long list by non-tail recursion
+can pass a native build and fail under the VM. The boundary is high enough
+(between 300k and 400k frames) that ordinary programs do not reach it.
+
+**Prior art.** GHC has the same divergence in kind, and treats it as a constant
+factor rather than a defect. GHCi and compiled code share one stack mechanism —
+a heap-allocated `StgStack` grown in 32 KiB chunks by `threadStackOverflow`
+(`rts/Threads.c:645-706`), bounded by `-K`, which defaults to 80% of physical
+memory (`rts/RtsFlags.c:139-150`). There is no interpreter-specific limit; a
+program can still overflow in GHCi and not when compiled, because bytecode
+frames are fatter and unoptimised, so the same depth consumes more of the same
+budget. Flux's VM/native gap has the same character.
+
+The lesson worth taking is the growth strategy: GHC's stack is heap-allocated
+and grows on demand, so "overflow" means memory exhaustion rather than a fixed
+ceiling. Should the VM's limit ever bind in practice, chunked growth is the
+established fix.
 
 **Guidance.** For any list whose length is driven by input rather than by a
 fixed small bound, use the accumulator form and reverse at the end:
@@ -391,6 +401,12 @@ fn all(xs: List<a>, acc: List<b>) -> List<b> {
 
 Flume's own recursions (dependency lists, lockfile entries, index lines) are
 far below the limit and are left in the direct form, which reads better.
+
+**Correction.** This entry previously reported the VM overflowing between 80k
+and 120k frames. That was measured with a harness whose `main` never ran — the
+test file wrapped `main` in a named module, so the program produced no output
+at any depth and every run was read as a failure. Re-measured with a top-level
+`main`, the VM reaches 300k. The severity is lowered from Medium accordingly.
 
 ### KI-027 — Match on a tuple of two `Result`s is reported non-exhaustive
 
@@ -442,6 +458,29 @@ Reader<List<a>>` needs no higher-kinded types).
 ---
 
 ## Resolved
+
+### KI-033 — A deep stack trace printed one line per frame — FIXED 2026-08-24
+
+A runtime error raised deep in a recursion rendered every frame it unwound. A
+stack overflow at ~350k frames produced **11.7 MB** of output, almost all of it
+the identical line `at build (Deep.flx:2:29)`, burying the error message and the
+source snippet above it.
+
+**Root cause.** `render_stack_trace` looped over the whole frame vector with no
+cap (`src/diagnostics/rendering/renderer.rs`), and the driver formatted a
+`String` per frame before that (`src/driver/reporting/runtime_errors.rs`).
+
+**Fix.** The renderer keeps the first 20 frames and the last 10 — the raise site
+and the entry point, which are the informative ends — and replaces the middle
+with `... N more frames ...`. The 11.7 MB case now renders in 1,764 bytes.
+
+GHC caps the same way, and for the stated reason: `MAX_DEPTH = 10` guards `-xc`
+CAF chains with the comment *"don't print gigantic chains of stacks"*
+(`rts/Profiling.c:934`), and libdw unwinding stops at 5000 frames
+(`rts/Libdw.c:19`). Both truncate silently; reporting the elided count is a
+small improvement on that.
+
+**Found by** re-measuring KI-030, whose depth table was itself wrong.
 
 ### KI-028 — An imported effect was invisible under `flux --test` — FIXED 2026-08-24
 
