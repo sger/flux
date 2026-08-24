@@ -13,6 +13,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::bytecode::bytecode_cache::hash_bytes;
 use crate::syntax::module_graph::ModuleRoot;
 
 /// Set on the child process that runs the manifest resolver. While it is set,
@@ -69,6 +70,14 @@ pub(crate) fn resolve_project_roots(
         return None;
     }
 
+    // Resolving spawns a compile of the Flux resolver, which dominates an
+    // otherwise fully-cached build. The result only depends on the manifests
+    // it read, so it is cached against their contents.
+    let cache_file = roots_cache_path(cache_dir, project_dir);
+    if let Some(cached) = read_cached_roots(&cache_file) {
+        return Some(Ok(cached));
+    }
+
     let shim = flume_shim("Flume.Roots").ok()?;
     let exe = std::env::current_exe().ok()?;
 
@@ -90,7 +99,112 @@ pub(crate) fn resolve_project_roots(
         )));
     }
 
-    Some(parse_records(&String::from_utf8_lossy(&output.stdout)))
+    let resolved = parse_records(&String::from_utf8_lossy(&output.stdout));
+    if let Ok(roots) = &resolved {
+        write_cached_roots(&cache_file, project_dir, roots);
+    }
+    Some(resolved)
+}
+
+/// Where the resolved roots for `project_dir` are cached.
+///
+/// The path is keyed on the project directory so two projects sharing a cache
+/// root do not collide.
+fn roots_cache_path(cache_dir: &Path, project_dir: &Path) -> PathBuf {
+    let key = hash_bytes(project_dir.to_string_lossy().as_bytes());
+    cache_dir
+        .join("manifest")
+        .join(format!("roots-{}.txt", hex(&key[..8])))
+}
+
+/// A cache entry: the epoch, then one line per manifest fingerprint, then the
+/// records themselves. Reading it back re-checks every fingerprint, so editing
+/// *any* manifest in the dependency graph invalidates the entry.
+fn read_cached_roots(cache_file: &Path) -> Option<Vec<ModuleRoot>> {
+    let text = std::fs::read_to_string(cache_file).ok()?;
+    let mut lines = text.lines();
+    if lines.next()? != epoch_line() {
+        return None;
+    }
+
+    let mut records = String::new();
+    for line in lines {
+        match line.split_once('\t') {
+            // `manifest<TAB><path><TAB><hash>`: still current?
+            Some(("manifest", rest)) => {
+                let (path, hash) = rest.split_once('\t')?;
+                if manifest_fingerprint(Path::new(path))? != hash {
+                    return None;
+                }
+            }
+            _ => {
+                records.push_str(line);
+                records.push('\n');
+            }
+        }
+    }
+    parse_records(&records).ok()
+}
+
+fn write_cached_roots(cache_file: &Path, project_dir: &Path, roots: &[ModuleRoot]) {
+    let Some(parent) = cache_file.parent() else {
+        return;
+    };
+    if std::fs::create_dir_all(parent).is_err() {
+        return;
+    }
+
+    let mut out = String::new();
+    out.push_str(&epoch_line());
+    out.push('\n');
+
+    // Every manifest that could change the answer: the project's own, and one
+    // per resolved package (a path dependency's manifest names its own deps).
+    let mut manifests: Vec<PathBuf> = vec![project_dir.join("flux.toml")];
+    for root in roots {
+        // A package root is `<pkg>/src`, so its manifest sits one level up;
+        // a package laid out flat roots at the package directory itself.
+        for dir in [root.path.parent(), Some(root.path.as_path())]
+            .into_iter()
+            .flatten()
+        {
+            let candidate = dir.join("flux.toml");
+            if candidate.is_file() && !manifests.contains(&candidate) {
+                manifests.push(candidate);
+            }
+        }
+    }
+    for manifest in &manifests {
+        let Some(hash) = manifest_fingerprint(manifest) else {
+            // A manifest we cannot read is a manifest we cannot invalidate on.
+            return;
+        };
+        out.push_str(&format!("manifest\t{}\t{hash}\n", manifest.display()));
+    }
+
+    for root in roots {
+        out.push_str(&format!(
+            "ok\t{}\t{}\t{}\n",
+            root.package.as_deref().unwrap_or_default(),
+            root.namespace.as_deref().unwrap_or_default(),
+            root.path.display()
+        ));
+    }
+    let _ = std::fs::write(cache_file, out);
+}
+
+/// Entries are invalidated wholesale when the cache epoch moves.
+fn epoch_line() -> String {
+    format!("epoch {}", crate::shared::cache_paths::CACHE_EPOCH)
+}
+
+fn manifest_fingerprint(path: &Path) -> Option<String> {
+    let bytes = std::fs::read(path).ok()?;
+    Some(hex(&hash_bytes(&bytes)[..8]))
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Parse the resolver's `ok`/`err` records into scoped roots.
