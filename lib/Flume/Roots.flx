@@ -1,11 +1,21 @@
 import Flume.Manifest as Manifest
-import Flume.Manifest exposing (Manifest, Dep, FromPath, FromRegistry)
+import Flume.Manifest exposing (Manifest, Package, Dep, FromPath, FromRegistry)
 import Flow.Fs as Fs
 import Flow.Path as Path
 import Flow.List as List
 import Flow.Array as Array
 import Flow.String as String
 import Flow.Env as Env
+import Flow.Result as Result
+import Flow.Option as Option
+import Flume.Home as Home
+import Flume.Plan as Plan
+import Flume.Plan exposing (Outcome)
+import Flume.Lock as Lock
+import Flume.Lock exposing (Lock, Entry)
+import Flume.Index as Index
+import Flume.Index exposing (Published)
+import Flume.Version as Version
 
 /// Resolve a project's module search roots from its `flux.toml`.
 ///
@@ -29,6 +39,30 @@ import Flow.Env as Env
 /// Match arms in Flux take an expression, not a block, so the walk below is
 /// split into small helpers rather than written as nested `match` + `let`.
 module Flume.Roots {
+
+//| failure
+
+    /// Abort with a message.
+    ///
+    /// Declared here rather than shared: an effect imported from another
+    /// module is invisible under `flux --test`, see
+    /// docs/known_issues.md#ki-028.
+    effect Fail { fail: String -> Unit }
+
+    /// Abort with `message`. Returns `a` so it stands in any position; the
+    /// handler never resumes, so the value is unreachable.
+    fn abort<a>(message: String, unreachable: a) -> a with Fail {
+        perform Fail.fail(message)
+        unreachable
+    }
+
+    /// The `Ok` value, or abort with the `Err` as the message.
+    fn ok_or_abort<a>(result: Result<a, String>, fallback: a) -> a with Fail {
+        match result {
+            Ok(found) -> found,
+            Err(message) -> abort(message, fallback),
+        }
+    }
 
     /// One resolved package: the namespace it owns and the directory its
     /// modules live under.
@@ -111,9 +145,14 @@ module Flume.Roots {
 
     /// Walk a dependency list, accumulating roots.
     ///
-    /// Registry and dev dependencies are rejected here rather than ignored:
-    /// Phase 1 has no resolver, and a silently dropped dependency would fail
-    /// later as a confusing missing module.
+    /// Only path dependencies are followed here: they are resolved by graph
+    /// walk, because there is nothing to choose between. Registry
+    /// dependencies are collected separately and settled by the solver once
+    /// the whole graph is known — resolving them one at a time would defeat
+    /// the point of a solver, which is to consider every requirement together.
+    ///
+    /// Dev dependencies are excluded from the build graph: they belong to a
+    /// package's own tests, not to anything that depends on it.
     fn resolve_deps(
         deps: List<Dep>,
         base: String,
@@ -133,16 +172,11 @@ module Flume.Roots {
         seen: List<String>,
         acc: List<Root>,
     ) -> Result<List<Root>, String> with IO {
-        let name = Manifest.dep_name(dep)
         if Manifest.dep_is_dev(dep) {
-            Err("dev-dependency `" + name + "` is not supported until Phase 2")
+            resolve_deps(rest, base, seen, acc)
         } else {
             match Manifest.dep_source(dep) {
-                FromRegistry(_) ->
-                    Err(
-                        "registry dependency `" + name
-                            + "` is not supported until Phase 2",
-                    ),
+                FromRegistry(_) -> resolve_deps(rest, base, seen, acc),
                 FromPath(rel) ->
                     descend(Path.normalize(Path.join(base, rel)), rest, base, seen, acc),
             }
@@ -163,16 +197,183 @@ module Flume.Roots {
         }
     }
 
+//| registry dependencies
+
+    /// The registry requirements declared by the project's own manifest.
+    ///
+    /// Only the root manifest is read. A dependency's own requirements come
+    /// from the index; reading them from an unpacked manifest would make
+    /// resolution depend on which versions happened to be unpacked already.
+    fn registry_requirements(manifest: Manifest) -> List<(String, String)> {
+        Manifest.manifest_deps(manifest)
+            |> List.filter(is_registry_dep)
+            |> List.map(requirement_of)
+    }
+
+    fn is_registry_dep(dep: Dep) -> Bool {
+        if Manifest.dep_is_dev(dep) {
+            false
+        } else {
+            match Manifest.dep_source(dep) {
+                FromPath(_) -> false,
+                FromRegistry(_) -> true,
+            }
+        }
+    }
+
+    fn requirement_of(dep: Dep) -> (String, String) {
+        match Manifest.dep_source(dep) {
+            FromRegistry(range) -> (Manifest.dep_name(dep), range),
+            // Unreachable: the list is filtered to registry deps first.
+            FromPath(_) -> (Manifest.dep_name(dep), ""),
+        }
+    }
+
+    /// Resolve the project's registry dependencies into module roots.
+    ///
+    /// A project with no registry dependencies never reads the index and never
+    /// runs the solver, so the common case costs nothing.
+    fn registry_roots(
+        manifest: Manifest,
+        dir: String,
+    ) -> List<Root> with IO, Fail {
+        match registry_requirements(manifest) {
+            [] -> [],
+            requirements -> resolve_registry(requirements, dir),
+        }
+    }
+
+    /// Read the index, read the lock, resolve, write if changed.
+    ///
+    /// Each step aborts on failure, so this reads as the sequence it is.
+    fn resolve_registry(
+        requirements: List<(String, String)>,
+        dir: String,
+    ) -> List<Root> with IO, Fail {
+        let names = List.map(requirements, first_of)
+        let available = ok_or_abort(Home.read_index(names), [])
+        let previous = ok_or_abort(Home.read_lock(dir), None)
+        let outcome = ok_or_abort(Plan.plan(requirements, available, previous), unchanged())
+        persist(outcome, dir)
+    }
+
+    fn first_of(pair: (String, String)) -> String {
+        match pair { (name, _) -> name }
+    }
+
+    /// Unreachable placeholder for the aborting branch above.
+    fn unchanged() -> Outcome {
+        Unchanged { lock: Lock.lock(Lock.default_format(), []) }
+    }
+
+    /// The lockfile is written as part of building, so a build is always
+    /// described by a lockfile that matches it.
+    fn persist(outcome: Outcome, dir: String) -> List<Root> with IO, Fail {
+        let resolved = Plan.outcome_lock(outcome)
+        if Plan.outcome_changed(outcome) {
+            let _written = ok_or_abort(Home.write_lock(dir, resolved), "")
+            locked_roots(resolved)
+        } else {
+            locked_roots(resolved)
+        }
+    }
+
+    /// One root per locked package, rooted at its unpacked sources.
+    ///
+    /// A resolved-but-unpacked package is reported by name: the resolution is
+    /// sound, the sources are simply not on disk yet.
+    fn locked_roots(resolved: Lock) -> List<Root> with IO, Fail {
+        collect_locked(Lock.lock_packages(resolved))
+    }
+
+    fn collect_locked(entries: List<Entry>) -> List<Root> with IO, Fail {
+        match entries {
+            [] -> [],
+            [head | rest] -> [locked_root(head) | collect_locked(rest)],
+        }
+    }
+
+    fn locked_root(entry: Entry) -> Root with IO, Fail {
+        let name = Lock.entry_name(entry)
+        let version = Version.render(Lock.entry_version(entry))
+        let unpacked = Home.package_dir(name, version)
+        if Fs.is_dir(unpacked) {
+            package_root(name, unpacked)
+        } else {
+            abort(
+                "`" + name + "` " + version
+                    + " is resolved but its sources are not in " + unpacked,
+                package_root(name, unpacked),
+            )
+        }
+    }
+
+    /// The root a registry package contributes.
+    ///
+    /// Its namespace is derived from its name the same way a path package's
+    /// is, so a package owns the same namespace however it was obtained.
+    fn package_root(name: String, unpacked: String) -> Root with IO {
+        Root {
+            package: name,
+            namespace: Manifest.derive_namespace(name),
+            dir: source_dir(unpacked),
+        }
+    }
+
     /// Resolve the roots for the project rooted at `dir`.
+    ///
+    /// Path dependencies are walked first, then registry dependencies are
+    /// resolved and appended. `Fail` is discharged here, so the public result
+    /// is an ordinary `Result`.
     public fn resolve(dir: String) -> Result<List<Root>, String> with IO {
-        resolve_from(dir, [])
+        gather(dir) handle Fail { fail(resume, message) -> Err(message) }
+    }
+
+    fn gather(dir: String) -> Result<List<Root>, String> with IO, Fail {
+        let paths = ok_or_abort(resolve_from(dir, []), [])
+        let manifest = read_project_manifest(dir)
+        Ok(List.concat([paths, registry_roots(manifest, dir)]))
+    }
+
+    fn read_project_manifest(dir: String) -> Manifest with IO, Fail {
+        let manifest_path = Path.join(dir, "flux.toml")
+        match Fs.read_file(manifest_path) {
+            Err(_) -> abort("cannot read " + manifest_path, empty_manifest()),
+            Ok(text) -> parse_project_manifest(text, manifest_path),
+        }
+    }
+
+    fn parse_project_manifest(text: String, manifest_path: String) -> Manifest with IO, Fail {
+        match Manifest.parse(text) {
+            Err(_) -> abort("cannot parse " + manifest_path, empty_manifest()),
+            Ok(manifest) -> manifest,
+        }
+    }
+
+    /// Unreachable placeholder for the aborting branches above.
+    fn empty_manifest() -> Manifest {
+        Manifest {
+            package: Package {
+                name: "",
+                version: "",
+                edition: "",
+                namespace: "",
+            },
+            deps: [],
+            lib: None,
+            bins: [],
+        }
     }
 
     fn render(roots: List<Root>) -> String {
-        let lines = List.map(roots, fn(r) {
-            "ok\t" + root_package(r) + "\t" + root_namespace(r) + "\t" + root_dir(r)
-        })
-        String.join(List.to_array(lines), "\n")
+        roots
+            |> List.map(render_root)
+            |> List.to_array
+            |> String.join("\n")
+    }
+
+    fn render_root(r: Root) -> String {
+        "ok\t" + root_package(r) + "\t" + root_namespace(r) + "\t" + root_dir(r)
     }
 
     /// Print the resolved roots for the project directory given as the first

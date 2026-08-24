@@ -24,7 +24,7 @@ import Flume.Value exposing (Toml, TString, TInt, TBool, TArray, TTable)
 
 module Flume.Document {
 
-    // ── association-list helpers ────────────────────────────────────
+//| association-list helpers
 
     /// Append two lists.
     ///
@@ -69,7 +69,7 @@ module Flume.Document {
         }
     }
 
-    // ── document assembly ───────────────────────────────────────────
+//| document assembly
 
     // A document is built by folding each parsed item into an accumulating
     // table. The three insertion routines differ in what they permit to exist
@@ -189,7 +189,7 @@ module Flume.Document {
         }
     }
 
-    // ── document structure ──────────────────────────────────────────
+//| document structure
 
     /// One top-level item: a table header or a key/value pair.
     ///
@@ -208,7 +208,7 @@ module Flume.Document {
         }
     }
 
-    // ── folding items into a document ───────────────────────────────
+//| folding items into a document
 
     /// The state the fold threads: the document so far, the current table path
     /// that bare keys land under, and the set of explicitly-written headers.

@@ -1,0 +1,279 @@
+import Flow.Option as Option
+import Flow.Result as Result
+import Flow.String as Str
+import Flow.Array as Array
+import Flow.List as List
+import Flow.Json as Json
+import Flow.Map as Map
+import Flow.Json exposing (Json, JsonOk, JsonErr)
+import Flume.Version as Version
+import Flume.Version exposing (Version, Range, Exact)
+import Flume.Resolve as Resolve
+import Flume.Resolve exposing (Dep, Package, Origin)
+
+/// The registry index: what versions exist, and what each one needs.
+///
+/// An append-only log, one file per package, one JSON object per line:
+///
+/// ```json
+/// {"name":"json","version":"1.2.0","checksum":"sha256:9f2a","deps":[{"name":"core","req":"^1.0"}]}
+/// ```
+///
+/// Append-only-ness is what makes published versions immutable, which is what
+/// makes a download cache sound.
+///
+/// `from_text` takes the index *text*, not a path, so the whole resolution
+/// path stays testable without a directory on disk.
+module Flume.Index {
+
+//| failure
+
+    /// Abort a read with a message.
+    ///
+    /// Declared here rather than shared: an effect imported from another
+    /// module is invisible under `flux --test`, see
+    /// docs/known_issues.md#ki-028.
+    effect Fail { fail: String -> Unit }
+
+    /// Abort with `message`. Returns `a` so it stands in any position; the
+    /// handler never resumes, so the value is unreachable.
+    fn abort<a>(message: String, unreachable: a) -> a with Fail {
+        perform Fail.fail(message)
+        unreachable
+    }
+
+    /// The `Ok` value, or abort with the `Err` as the message.
+    fn ok_or_abort<a>(result: Result<a, String>, fallback: a) -> a with Fail {
+        match result {
+            Ok(found) -> found,
+            Err(message) -> abort(message, fallback),
+        }
+    }
+
+//| model
+
+    /// One published version, before it becomes a resolver candidate.
+    ///
+    /// Carries the checksum, which the resolver has no use for but the
+    /// lockfile records and the fetcher verifies.
+    public data Published {
+        Published {
+            name: String,
+            version: Version,
+            checksum: String,
+            deps: List<Dep>,
+        }
+    }
+
+    public fn published_name(p: Published) -> String {
+        match p { Published { name, version: _, checksum: _, deps: _ } -> name }
+    }
+
+    public fn published_version(p: Published) -> Version {
+        match p { Published { name: _, version, checksum: _, deps: _ } -> version }
+    }
+
+    public fn published_checksum(p: Published) -> String {
+        match p { Published { name: _, version: _, checksum, deps: _ } -> checksum }
+    }
+
+    public fn published_deps(p: Published) -> List<Dep> {
+        match p { Published { name: _, version: _, checksum: _, deps } -> deps }
+    }
+
+//| candidates
+
+    /// The resolver candidate for a published version.
+    ///
+    /// The checksum is dropped: the resolver decides *which* version to use
+    /// and must not be able to depend on the bytes.
+    public fn to_candidate(p: Published) -> Package {
+        Resolve.package(published_name(p), published_version(p), published_deps(p))
+    }
+
+    public fn to_candidates(entries: List<Published>) -> List<Package> {
+        List.map(entries, to_candidate)
+    }
+
+    /// One published version, by name and exact version.
+    ///
+    /// How a resolution recovers checksums: each pick is looked up here.
+    public fn find(
+        entries: List<Published>,
+        name: String,
+        version: Version,
+    ) -> Option<Published> {
+        find_entry(entries, name, version)
+    }
+
+    fn find_entry(
+        entries: List<Published>,
+        name: String,
+        version: Version,
+    ) -> Option<Published> {
+        match entries {
+            [] -> None,
+            [head | rest] -> if matches_entry(head, name, version) {
+                Some(head)
+            } else {
+                find_entry(rest, name, version)
+            },
+        }
+    }
+
+    fn matches_entry(entry: Published, name: String, version: Version) -> Bool {
+        published_name(entry) == name
+            && Version.equals(published_version(entry), version)
+    }
+
+    /// Every published version of one package.
+    public fn versions_of(entries: List<Published>, name: String) -> List<Published> {
+        List.filter(entries, \entry -> published_name(entry) == name)
+    }
+
+//| parsing
+
+    /// Parse index text: one JSON object per line, blank lines ignored.
+    ///
+    /// Reads abort through `Fail`, so each field below is an ordinary `let`.
+    /// A malformed line fails the whole read rather than being skipped — an
+    /// index that silently drops entries resolves differently depending on
+    /// which lines happened to parse.
+    public fn from_text(text: String) -> Result<List<Published>, String> {
+        read(text) handle Fail { fail(resume, message) -> Err(message) }
+    }
+
+    fn read(text: String) -> Result<List<Published>, String> with Fail {
+        Ok(List.map(non_empty_lines(text), from_line))
+    }
+
+    fn non_empty_lines(text: String) -> List<String> {
+        split(text, "\n")
+            |> Array.to_list
+            |> List.filter(is_non_empty)
+    }
+
+    fn is_non_empty(line: String) -> Bool {
+        len(trim(line)) > 0
+    }
+
+    fn from_line(line: String) -> Published with Fail {
+        let value = parse_json(trim(line))
+        let name = field_string(value, "name")
+        let version = read_version(value, name)
+        let checksum = field_string(value, "checksum")
+        let deps = read_deps(value, name, version)
+        Published {
+            name: name,
+            version: version,
+            checksum: checksum,
+            deps: deps,
+        }
+    }
+
+    fn parse_json(line: String) -> Json with Fail {
+        match Json.parse_result(line) {
+            JsonOk(value) -> value,
+            JsonErr(_) -> abort("index entry is not valid JSON: " + line, Json.null()),
+        }
+    }
+
+    fn read_version(value: Json, name: String) -> Version with Fail {
+        let text = field_string(value, "version")
+        ok_or_abort(
+            Result.map_err_result(
+                Version.parse(text),
+                \_ -> "`" + name + "` has an unreadable version `" + text + "` in the index",
+            ),
+            Version.version(0, 0, 0),
+        )
+    }
+
+    /// Read `deps`, tagging every requirement with the package that declared
+    /// it.
+    ///
+    /// Provenance is recorded now because it cannot be reconstructed after the
+    /// search backtracks past the branch that introduced the constraint.
+    fn read_deps(value: Json, name: String, version: Version) -> List<Dep> with Fail {
+        match field_opt(value, "deps") {
+            None -> [],
+            Some(found) -> read_dep_array(found, name, version),
+        }
+    }
+
+    fn read_dep_array(
+        found: Json,
+        name: String,
+        version: Version,
+    ) -> List<Dep> with Fail {
+        match Json.as_array(found, "deps") {
+            JsonErr(_) -> abort("`" + name + "`'s `deps` must be an array", []),
+            JsonOk(items) -> read_dep_items(items, name, version),
+        }
+    }
+
+    /// Explicit recursion rather than `List.map`: the reader needs `name` and
+    /// `version`, and a lambda cannot carry the enclosing effect row — see
+    /// docs/known_issues.md#ki-029.
+    fn read_dep_items(
+        items: Array<Json>,
+        name: String,
+        version: Version,
+    ) -> List<Dep> with Fail {
+        read_dep_list(Array.to_list(items), name, version)
+    }
+
+    fn read_dep_list(
+        items: List<Json>,
+        name: String,
+        version: Version,
+    ) -> List<Dep> with Fail {
+        match items {
+            [] -> [],
+            [head | rest] -> [
+                read_dep(head, name, version)
+                | read_dep_list(rest, name, version)
+            ],
+        }
+    }
+
+    fn read_dep(item: Json, name: String, version: Version) -> Dep with Fail {
+        let dep_name = field_string(item, "name")
+        let req = field_string(item, "req")
+        Resolve.dep(dep_name, parse_range(req, dep_name), Resolve.from_package(name, version))
+    }
+
+    fn parse_range(req: String, dep_name: String) -> Range with Fail {
+        ok_or_abort(
+            Result.map_err_result(
+                Version.parse_range(req),
+                \_ -> "`" + dep_name + "` has an unreadable requirement `" + req + "`",
+            ),
+            Exact(Version.version(0, 0, 0)),
+        )
+    }
+
+//| fields
+
+    /// One field of a JSON object, treating a non-object as absent.
+    fn field_opt(value: Json, key: String) -> Option<Json> {
+        match Json.as_object(value, key) {
+            JsonErr(_) -> None,
+            JsonOk(fields) -> Map.get(fields, key),
+        }
+    }
+
+    fn field_string(value: Json, key: String) -> String with Fail {
+        match field_opt(value, key) {
+            None -> abort("index entry is missing `" + key + "`", ""),
+            Some(found) -> as_string(found, key),
+        }
+    }
+
+    fn as_string(found: Json, key: String) -> String with Fail {
+        match Json.as_string(found, key) {
+            JsonErr(_) -> abort("index entry's `" + key + "` must be a string", ""),
+            JsonOk(text) -> text,
+        }
+    }
+}

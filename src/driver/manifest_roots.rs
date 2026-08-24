@@ -74,7 +74,7 @@ pub(crate) fn resolve_project_roots(
     // otherwise fully-cached build. The result only depends on the manifests
     // it read, so it is cached against their contents.
     let cache_file = roots_cache_path(cache_dir, project_dir);
-    if let Some(cached) = read_cached_roots(&cache_file) {
+    if let Some(cached) = read_cached_roots(&cache_file, project_dir) {
         return Some(Ok(cached));
     }
 
@@ -120,7 +120,8 @@ fn roots_cache_path(cache_dir: &Path, project_dir: &Path) -> PathBuf {
 /// A cache entry: the epoch, then one line per manifest fingerprint, then the
 /// records themselves. Reading it back re-checks every fingerprint, so editing
 /// *any* manifest in the dependency graph invalidates the entry.
-fn read_cached_roots(cache_file: &Path) -> Option<Vec<ModuleRoot>> {
+fn read_cached_roots(cache_file: &Path, project_dir: &Path) -> Option<Vec<ModuleRoot>> {
+    let lock_path = project_dir.join("flux.lock");
     let text = std::fs::read_to_string(cache_file).ok()?;
     let mut lines = text.lines();
     if lines.next()? != epoch_line() {
@@ -134,6 +135,13 @@ fn read_cached_roots(cache_file: &Path) -> Option<Vec<ModuleRoot>> {
             Some(("manifest", rest)) => {
                 let (path, hash) = rest.split_once('\t')?;
                 if manifest_fingerprint(Path::new(path))? != hash {
+                    return None;
+                }
+            }
+            // `lock<TAB><hash|absent>`: has the lockfile appeared, changed, or
+            // been deleted since this entry was written?
+            Some(("lock", recorded)) => {
+                if fingerprint_or_absent(&lock_path) != recorded {
                     return None;
                 }
             }
@@ -157,6 +165,16 @@ fn write_cached_roots(cache_file: &Path, project_dir: &Path, roots: &[ModuleRoot
     let mut out = String::new();
     out.push_str(&epoch_line());
     out.push('\n');
+
+    // The lockfile is an input, not an output, as far as caching goes: it
+    // decides which version of a registry dependency the resolver settles on.
+    // Its *absence* is recorded too, so deleting it re-resolves rather than
+    // replaying the versions it used to pin.
+    out.push_str(&format!(
+        "lock	{}
+",
+        fingerprint_or_absent(&project_dir.join("flux.lock"))
+    ));
 
     // Every manifest that could change the answer: the project's own, and one
     // per resolved package (a path dependency's manifest names its own deps).
@@ -201,6 +219,15 @@ fn epoch_line() -> String {
 fn manifest_fingerprint(path: &Path) -> Option<String> {
     let bytes = std::fs::read(path).ok()?;
     Some(hex(&hash_bytes(&bytes)[..8]))
+}
+
+/// A file's fingerprint, or a marker meaning it was not there.
+///
+/// A file that does not exist is as much a cache input as one that does: a
+/// resolution made without a lockfile must not be replayed once one appears,
+/// and vice versa.
+fn fingerprint_or_absent(path: &Path) -> String {
+    manifest_fingerprint(path).unwrap_or_else(|| "absent".to_string())
 }
 
 fn hex(bytes: &[u8]) -> String {

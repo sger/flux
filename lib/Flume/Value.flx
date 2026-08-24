@@ -3,7 +3,7 @@
 // Its own module because three others depend on it and none of them should
 // depend on each other: `Flume.Toml` produces it, `Flume.Document` assembles
 // it, and `Flume.Manifest` reads it. It is the stable serialization contract
-// proposal 0177 asks for — replacing the parser, which Phase 3's richer
+// asked for — replacing the parser, which richer
 // manifests will require, touches nothing downstream of this type.
 //
 // Pure: every function here has an empty effect row.
@@ -14,13 +14,13 @@ import Flow.List as List
 
 module Flume.Value {
 
-    // ── generic TOML value tree ─────────────────────────────────────
+//| generic TOML value tree
 
     /// A parsed TOML value.
     ///
-    /// This is the stable serialization contract the proposal asks for: the
+    /// The stable serialization contract: the
     /// schema layer reads only this type, so replacing the parser — which
-    /// Phase 3's richer manifests will require — touches nothing downstream.
+    /// richer manifests will require — touches nothing downstream.
     ///
     /// Tables are association lists rather than maps. `Flow.Map` exposes only
     /// `has` today, manifests have a handful of keys, and a list preserves
@@ -34,7 +34,7 @@ module Flume.Value {
         TTable(List<(String, Toml)>),
     }
 
-    // ── association-list helpers ────────────────────────────────────
+//| association-list helpers
 
     /// Append two lists.
     ///
@@ -79,7 +79,7 @@ module Flume.Value {
         }
     }
 
-    // ── rendering, for tests and diagnostics ────────────────────────
+//| rendering, for tests and diagnostics
 
     /// Render a TOML value to a canonical single-line form.
     ///
@@ -96,7 +96,7 @@ module Flume.Value {
     }
 
     fn join_rendered(pieces: List<String>) -> String {
-        Str.join(Array.from_list(pieces), ",")
+        pieces |> Array.from_list |> Str.join(",")
     }
 
     fn render_pair(pair: (String, Toml)) -> String {

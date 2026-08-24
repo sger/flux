@@ -70,7 +70,7 @@ module Flume.Parse {
             + error_message(error)
     }
 
-    // ── the parser type ─────────────────────────────────────────────
+//| the parser type
 
     /// The immutable input: the source as single characters, plus the line and
     /// column of every offset.
@@ -212,7 +212,7 @@ module Flume.Parse {
         }
     }
 
-    // ── core combinators ────────────────────────────────────────────
+//| core combinators
 
     // These four are the whole vocabulary. Every parser below is built from
     // them, which is why none of the grammar functions ever mentions an
@@ -304,7 +304,7 @@ module Flume.Parse {
         pos_line(failed) != pos_line(start) || pos_column(failed) != pos_column(start)
     }
 
-    // ── derived combinators ─────────────────────────────────────────
+//| derived combinators
 
     // The payoff of the combinator style: each of these would otherwise be a
     // separate recursive function, written once per element type.
@@ -410,7 +410,7 @@ module Flume.Parse {
         }
     }
 
-    // ── character-level parsers ─────────────────────────────────────
+//| character-level parsers
 
     /// Consume one character satisfying `predicate`.
     public fn satisfy(predicate: (String) -> Bool, description: String) -> Parser<String> {
@@ -513,7 +513,7 @@ module Flume.Parse {
         })
     }
 
-    // ── character classes ───────────────────────────────────────────
+//| character classes
 
     public fn is_digit(character: String) -> Bool {
         character >= "0" && character <= "9"

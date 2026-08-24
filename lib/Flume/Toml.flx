@@ -29,7 +29,7 @@ import Flume.Document exposing (Item, TableHeader, KeyValue)
 
 module Flume.Toml {
 
-    // ── whitespace and comments ─────────────────────────────────────
+//| whitespace and comments
 
     /// Spaces and tabs, stopping at a newline.
     fn spaces() -> Parser<String> {
@@ -77,7 +77,7 @@ module Flume.Toml {
         )
     }
 
-    // ── keys ────────────────────────────────────────────────────────
+//| keys
 
     /// One key segment: bare (`name`) or quoted (`"name"`).
     fn key_segment() -> Parser<String> {
@@ -108,7 +108,7 @@ module Flume.Toml {
         ))
     }
 
-    // ── strings ─────────────────────────────────────────────────────
+//| strings
 
     /// A basic (double-quoted) string.
     ///
@@ -190,7 +190,7 @@ module Flume.Toml {
         ])
     }
 
-    // ── numbers ─────────────────────────────────────────────────────
+//| numbers
 
     /// An integer, with an optional sign and `_` digit separators.
     ///
@@ -266,7 +266,7 @@ module Flume.Toml {
         }
     }
 
-    // ── values ──────────────────────────────────────────────────────
+//| values
 
     /// Any TOML value: string, boolean, array, inline table, or integer.
     ///
@@ -431,7 +431,7 @@ module Flume.Toml {
         match pair { (key, _) -> key }
     }
 
-    // ── document structure ──────────────────────────────────────────
+//| document structure
 
     /// One top-level item: a table header or a key/value pair.
     ///
@@ -522,11 +522,11 @@ module Flume.Toml {
         )
     }
 
-    // ── the TOML entry point ────────────────────────────────────────
+//| the TOML entry point
 
     /// Parse a whole TOML document into a table.
     ///
-    /// Public because Phase 2's lockfile reader wants the generic tree without
+    /// Public because the lockfile reader wants the generic tree without
     /// the manifest schema on top.
     public fn parse_toml(text: String) -> Result<Toml, ParseError> {
         Parse.parse_with(document(), text)

@@ -95,7 +95,7 @@ concurrent TCP tests are not yet possible. Needs the mio reactor wiring.
 
 ### KI-011 — Re-wrapping `Err(e)` into a `Result` with a different success type fails inference
 
-**Severity:** Medium · **Area:** HM inference · **Verified:** 2026-08-23
+**Severity:** Medium · **Area:** HM inference · **Verified:** 2026-08-24
 
 The standard error short-circuit — match a `Result`, pass `Err` through
 unchanged, produce a different success type — does not infer:
@@ -129,7 +129,299 @@ combinator form for exactly this reason. The workaround reads acceptably for two
 or three steps and poorly beyond that, which will press harder in
 `Flume.Manifest`, where a TOML parser chains many more.
 
+**A module can carry the defect invisibly (verified 2026-08-24).** For a
+function in an *imported* module the check runs only under `flux --test`, so a
+module full of `Err(e) -> Err(e)` compiles, runs, and produces correct output
+under `flux run`, then fails to compile the moment a test fixture imports it:
+
+```sh
+$ flux run demo.flx            # imports Mini, which re-wraps Err — works
+$ flux --test demo.flx         # error[E430] at Mini.flx, in the imported module
+```
+
+`--test` turns on strict mode, and `effective_module_strictness` exempts only
+`Flow.*`; every other imported module is validated. `--strict` on a plain run
+does *not* reproduce it, so strict mode alone is not the trigger — the test path
+is. The practical consequence is that the workaround must be applied when the
+code is written, because a green `flux run` is not evidence the module is clean.
+
+Reconstructing the payload rather than forwarding it also avoids the error
+(`Err(message) -> Err(message + "")` infers), which is further evidence the
+failure is about the *forwarded binding* and not the surrounding types.
+
 ---
+### KI-022 — Forwarding a payload destructured from an imported constructor fails inference under `--test`
+
+**Severity:** Medium · **Area:** HM inference, strict types · **Verified:** 2026-08-24
+
+Matching a value whose constructor comes from *another module* and returning the
+bound payload unchanged does not infer, but only when strict types run — which
+for an imported module means only under `flux --test`:
+
+```flux
+// Mini.flx
+import Flume.Value exposing (Toml, TString)
+
+module Mini {
+    public fn unwrap(item: Toml) -> Result<String, String> {
+        match item {
+            TString(text) -> Ok(text),   // error[E430] under `flux --test`
+            _ -> Err("not a string"),
+        }
+    }
+}
+```
+
+```sh
+$ flux run  main.flx    # imports Mini — compiles and runs
+$ flux --test main.flx  # error[E430]: Could Not Infer Concrete Type, at Mini.flx
+```
+
+The inferred type is reported as `(_) -> Result<String, String>`: the
+constructor application is left unapplied, with the payload an unresolved
+variable, exactly as in [KI-014](#ki-014) — an imported constructor infers as a
+type variable. Here the declared return type should have fixed it.
+
+**Distinct from [KI-011](#ki-011).** KI-011 is about forwarding an `Err` payload
+across a change of success type and reproduces with a locally-declared type.
+This one reproduces with `Ok`, needs no change of type parameters, and does
+*not* reproduce when the matched type is declared in the same module — the
+imported constructor is the trigger.
+
+**Workaround:** reconstruct the payload instead of forwarding it, so the
+constructor application is not the residue — e.g. `Ok(text + "")` for a string,
+or route the value through a helper that takes it as an ordinary parameter:
+
+```flux
+fn as_string(text: String) -> Result<String, String> { Ok(text) }
+
+match item {
+    TString(text) -> as_string(text),
+    _ -> Err("not a string"),
+}
+```
+
+**Why it matters:** every schema reader over a TOML or JSON value tree has this
+shape, so it is hit immediately when writing one. As with KI-011, a green
+`flux run` is not evidence the module is clean — the failure appears only once a
+test fixture imports it.
+
+### KI-023 — `exposing` cannot rename, so two modules' same-named types cannot both be used
+
+**Severity:** Low · **Area:** Module system · **Verified:** 2026-08-24
+
+A type may be written in a signature only by its bare name: a qualified type
+(`Manifest.Dep`) is a parse error in type position, so the only way to name an
+imported type is `import M exposing (Dep)`. But `exposing` has no rename form,
+so when two modules each export a type of the same name, a signature can name at
+most one of them:
+
+```flux
+import Flume.Manifest exposing (Dep)   // Manifest's Dep
+import Flume.Resolve exposing (Dep)    // shadows it — no way to name both
+```
+
+`Flume.Manifest.Dep` (a manifest entry) and `Flume.Resolve.Dep` (a solver
+requirement) are exactly this case.
+
+**Workaround:** keep the two types out of one module. `Flume.Plan` takes the
+manifest's dependencies pre-split into `(name, requirement)` pairs rather than
+taking `Manifest.Dep` values, so only the resolver's `Dep` is ever named there.
+That is a reasonable shape on its own — the caller decides which dependency
+kinds enter the build graph — but it was forced, not chosen.
+
+**Why it matters:** it is a naming collision that cannot be worked around
+locally; it has to be designed around at the module boundary. The cost grows
+with the number of modules, since "some other module might export this name"
+is not checkable from where the signature is written.
+
+Two candidate fixes: allow `exposing (Dep as ManifestDep)`, or accept qualified
+type names in type position. The second also removes the reason most `Flume`
+modules carry a second `exposing` import beside their `as` alias.
+
+### KI-025 — A stale bytecode cache can desync effect-operation symbols
+
+**Severity:** Medium · **Area:** Bytecode cache, effect handlers · **Verified:** 2026-08-24
+
+Effect operations are identified at runtime by interned `Identifier` symbols.
+The cache stores raw symbol ids, which are meaningless in a fresh interner, so
+`Compiler::remap_cached_constant_symbols` re-interns `PerformDescriptor` and
+`HandlerDescriptor` constants by *name* when cached module bytecode is
+hydrated.
+
+When a cache entry survives from a **different compiler build**, that remap can
+leave the `perform` site and the handler arms holding different symbols for the
+same operation, and the handler silently stops matching:
+
+```
+error[E1009]: unhandled operation: Fail.fail
+```
+
+Instrumenting the arm lookup showed the mismatch directly — the perform site
+carried `Symbol(9)` while the only handler arm carried `Symbol(10)`, for the
+same name `fail`.
+
+**Reproduced during compiler development**, by running a program against a
+cache written by a previous build of `flux`. It does **not** reproduce from a
+clean cache: with caches cleared, the same sources run correctly cold, warm,
+after editing the entry file, and after adding an operation to the effect
+declaration. `--no-cache` always works.
+
+**Consequence.** Rare for users, but a real trap while working on the compiler:
+the failure looks like a language limitation ("custom effects don't work across
+modules") when it is a stale artifact. `CACHE_EPOCH` guards format changes, not
+interner-layout changes.
+
+**Workaround:** `--no-cache`, or clear the cache after changing the compiler.
+
+**Note.** Custom module-declared effects *do* work: an effect declared inside a
+module, imported with `import M as M`, and handled with `expr handle M { ... }`
+resolves correctly, including the abort path where the handler never calls
+`resume`. The handler must scope a call expression directly — wrapping it, as
+in `Ok(f(x)) handle E { ... }`, does not install the handler over `f`.
+
+### KI-028 — An imported effect is invisible under `flux --test`
+
+**Severity:** High · **Area:** Effect rows, test harness · **Verified:** 2026-08-24
+
+A module that imports an effect from another module compiles and runs
+correctly, then fails to compile the moment a test fixture imports it. Every
+`with <Effect>` annotation and every `handle` block in the imported module is
+reported as referencing an unknown effect.
+
+```flux
+// Fail.flx
+module Fail {
+    effect Fail { fail: String -> Unit }
+    public fn abort<a>(message: String, unreachable: a) -> a with Fail {
+        perform Fail.fail(message)
+        unreachable
+    }
+}
+```
+
+```flux
+// User.flx
+import Flume.Fail as Fail
+
+module User {
+    fn check(n: Int) -> Int with Fail { ... }              // E407 under --test
+    public fn run(n: Int) -> Result<Int, String> {
+        wrap(n) handle Fail { fail(resume, m) -> Err(m) }  // E405 under --test
+    }
+}
+```
+
+```sh
+$ flux run main.flx     # works
+$ flux --test probe.flx # error[E407] Unknown Effect, error[E405] Unknown Effect
+```
+
+`Flume.Lock`, rewritten to use a `Fail` effect, runs correctly but produces 17
+of these under `--test`.
+
+**Same shape as [KI-011](#ki-011) and [KI-022](#ki-022)**: the module is fine
+under `flux run` and only the test path rejects it, so a green run is not
+evidence the module compiles everywhere. Here the effect *name resolution*
+itself differs between the two paths, rather than type inference.
+
+**Consequence.** An effect declared in one module and used in another cannot be
+covered by a test fixture, which rules out effect-based library code in
+anything that has tests.
+
+**Workaround:** none for a tested module. Thread `Result` by hand, or declare
+the effect in the same module that uses it.
+
+### KI-029 — A lambda cannot carry its enclosing function's effects
+
+**Severity:** Medium · **Area:** Effect rows, closures · **Verified:** 2026-08-24
+
+A lambda body is checked against the empty effect row, so calling an effectful
+function inside one fails even when the enclosing function declares that
+effect. Passing the same function *by reference* works:
+
+```flux
+fn check(n: Int) -> Int with Fail { ... }
+
+// Works — direct reference, row propagates through `List.map`'s `|e`.
+fn all_direct(xs: List<Int>) -> List<Int> with Fail { List.map(xs, check) }
+
+// error[E400]: Call to `check` requires effect `Fail` in this function signature
+fn all_lambda(xs: List<Int>) -> List<Int> with Fail { List.map(xs, \x -> check(x)) }
+```
+
+**Consequence.** Any effectful map/filter has to be expressed as a named
+function rather than a lambda, so a call needing extra arguments cannot be
+written inline — it needs a helper that takes them as parameters. This is the
+main source of small named helpers in `Flume.Index` and `Flume.Lock`.
+
+**Workaround:** pass a direct function reference, adding a named helper when
+the lambda existed only to close over extra arguments.
+
+### KI-030 — Non-tail recursion overflows the VM at a depth the native backend survives
+
+**Severity:** Medium · **Area:** VM, native backend, parity · **Verified:** 2026-08-24
+
+Flux has no loops, so every iteration is recursion. Tail-recursive functions are
+optimised on both backends, but *non-tail* recursion — the natural shape for
+building a list, `[f(head) | recurse(rest)]` — consumes a stack frame per
+element, and the two backends tolerate very different depths:
+
+| Form | Depth | VM | Native (`--native`) |
+|---|---|---|---|
+| non-tail | 50k | works | works |
+| non-tail | 80k | works | works |
+| non-tail | 120k | **`E1009` stack overflow** | works |
+| non-tail | 200k | **`E1009` stack overflow** | works |
+| tail + accumulator | 200k | works | works |
+
+The tail-recursive form survives every depth tested on both backends, including
+through an effect row (`with Fail`), so tail-call optimisation is applied even
+when the function performs effects.
+
+**Consequence.** A program that builds a long list by non-tail recursion can
+pass a native build and crash under the VM. Since the VM is the default backend
+and native is opt-in, the failure shows up in the *cheaper* configuration — the
+opposite of the usual "works in debug, fails in release" direction, and easy to
+mistake for a data problem rather than a backend one.
+
+**Guidance.** For any list whose length is driven by input rather than by a
+fixed small bound, use the accumulator form and reverse at the end:
+
+```flux
+fn all(xs: List<a>, acc: List<b>) -> List<b> {
+    match xs {
+        [] -> List.reverse(acc),
+        [h | t] -> all(t, [f(h) | acc]),
+    }
+}
+```
+
+Flume's own recursions (dependency lists, lockfile entries, index lines) are
+far below the limit and are left in the direct form, which reads better.
+
+### KI-027 — Match on a tuple of two `Result`s is reported non-exhaustive
+
+**Severity:** Low · **Area:** Exhaustiveness checking · **Verified:** 2026-08-24
+
+```flux
+match (ra, rb) {
+    (Ok(a), Ok(b)) -> Ok(a + b),
+    (Err(e), _)    -> Err(e),
+    (_, Err(e))    -> Err(e),
+}
+```
+
+```
+error[E015]: Non-Exhaustive Match — 1 missing pattern
+```
+
+The three arms do cover every inhabitant: `(Ok, Ok)`, then any `Err` in either
+position. The checker does not see that the wildcards close the space.
+
+**Workaround:** nest the matches, or express the combination with
+`and_then_result` / `map_result`.
+
 ### KI-015 — A class whose variable appears only in the return position cannot dispatch
 
 **Severity:** Medium · **Area:** Type classes / dispatch · **Verified:** 2026-08-23
@@ -158,6 +450,57 @@ Reader<List<a>>` needs no higher-kinded types).
 ---
 
 ## Resolved
+
+### KI-026 — `Flow.Result` had no applicative or traversal combinators — FIXED 2026-08-24
+
+`Flow.Result` exposed `map_result`, `map_err_result`, `and_then_result`, and
+`or_else_result` — functor and monad, but no applicative and no traversal.
+Combining several independent fallible reads into one record could only be
+written as a nesting of `and_then_result`, one level per field, and every
+"read many, fail once" loop was a hand-written `collect` (three near-identical
+copies existed across `Flume.Lock`, `Flume.Index`, and `Flume.Plan`).
+
+**Fix.** Added `map2`, `map3`, `apply`, `sequence`, and `traverse`. All are
+defined in terms of the existing combinators and short-circuit on the first
+`Err`. `traverse` is written directly rather than as `sequence(List.map(..))`
+because `Flow.Result` is a stdlib base module and does not import `Flow.List`.
+
+**Related fix.** `Flow.List.map` and `Flow.List.filter` were monomorphic in
+their effect row (`f: (a) -> b`), so they rejected an effectful function with
+`E300 Parameter Type Mismatch`. They are now effect-row polymorphic
+(`f: ((a) -> b with |e)`), which is what lets a `Fail`-carrying reader be
+mapped over a list. The language already supported row polymorphism; the
+stdlib simply was not using it. `CACHE_EPOCH` moved to 22, since both stdlib
+interfaces changed.
+
+### KI-024 — The resolved-roots cache ignored `flux.lock` — FIXED 2026-08-24
+
+The Phase 1 roots cache fingerprinted every manifest in the dependency graph,
+which was complete while path dependencies were the only kind. Once registry
+dependencies were resolved through the lockfile, the lockfile became an input
+the cache did not track: deleting `flux.lock`, editing it, or publishing a new
+version left the previous resolution in place, so a build silently used a
+version the lockfile no longer named.
+
+**Reproduction (before the fix).** With `json = "^1.0"` in `flux.toml` and
+`1.2.0` locked, publish `1.5.0` to the index and delete `flux.lock`:
+
+```sh
+$ rm flux.lock && flux run     # still built json 1.2.0, and wrote no lockfile
+```
+
+**Fix.** `write_cached_roots` records a `lock<TAB><hash|absent>` line and
+`read_cached_roots` re-checks it. The absent marker matters as much as the
+hash: a resolution made without a lockfile must not be replayed once one
+appears, and one made with a lockfile must not survive its deletion.
+`CACHE_EPOCH` moved to 21, because entries written before the fix carry no
+`lock` line and would otherwise keep validating.
+
+Verified in both directions: deleting the lock re-resolves to the newest
+matching version and writes a new lock; restoring a lock pinning an older
+version rebuilds against that version.
+
+
 
 Entries move here with the resolving commit rather than being deleted, so
 existing `#KI-nnn` references still explain themselves.
