@@ -46,7 +46,7 @@ impl VmAssemblyContext {
 
         let mut constants = artifact.constants.clone();
         for value in &mut constants {
-            patch_value(value, constant_base, &global_map)?;
+            patch_value(value, constant_base, &global_map, &mut self.interner)?;
         }
 
         let mut instructions = artifact.instructions.clone();
@@ -116,11 +116,58 @@ fn patch_value(
     value: &mut Value,
     constant_base: usize,
     global_map: &HashMap<usize, usize>,
+    interner: &mut Interner,
 ) -> Result<(), String> {
-    if let Value::Function(function) = value {
-        let mut compiled = (**function).clone();
-        patch_instructions(&mut compiled.instructions, constant_base, global_map)?;
-        *value = Value::Function(Arc::new(compiled));
+    match value {
+        Value::Function(function) => {
+            let mut compiled = (**function).clone();
+            patch_instructions(&mut compiled.instructions, constant_base, global_map)?;
+            *value = Value::Function(Arc::new(compiled));
+        }
+        Value::HandlerDescriptor(desc) => {
+            let mut remapped = (**desc).clone();
+            remapped.effect = interner.intern(&remapped.effect_name);
+            remapped.ops = remapped
+                .op_names
+                .iter()
+                .map(|name| interner.intern(name))
+                .collect();
+            *value = Value::HandlerDescriptor(std::rc::Rc::new(remapped));
+        }
+        Value::PerformDescriptor(desc) => {
+            let mut remapped = (**desc).clone();
+            remapped.effect = interner.intern(&remapped.effect_name);
+            remapped.op = interner.intern(&remapped.op_name);
+            *value = Value::PerformDescriptor(std::rc::Rc::new(remapped));
+        }
+        Value::Array(values) | Value::Tuple(values) => {
+            let mut remapped = (**values).clone();
+            for nested in &mut remapped {
+                patch_value(nested, constant_base, global_map, interner)?;
+            }
+            let remapped = std::rc::Rc::new(remapped);
+            *value = match value {
+                Value::Array(_) => Value::Array(remapped),
+                Value::Tuple(_) => Value::Tuple(remapped),
+                _ => unreachable!(),
+            };
+        }
+        Value::Some(inner)
+        | Value::Left(inner)
+        | Value::Right(inner)
+        | Value::ReturnValue(inner) => {
+            let mut remapped = (**inner).clone();
+            patch_value(&mut remapped, constant_base, global_map, interner)?;
+            let remapped = std::rc::Rc::new(remapped);
+            *value = match value {
+                Value::Some(_) => Value::Some(remapped),
+                Value::Left(_) => Value::Left(remapped),
+                Value::Right(_) => Value::Right(remapped),
+                Value::ReturnValue(_) => Value::ReturnValue(remapped),
+                _ => unreachable!(),
+            };
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -516,5 +563,44 @@ mod tests {
         assert_eq!(b_instructions[2], 5);
         assert_eq!(b_instructions[3], OpCode::OpCall0 as u8);
         assert_eq!(b_instructions[4], OpCode::OpTailCall1 as u8);
+    }
+
+    #[test]
+    fn remaps_effect_descriptor_symbols_when_linking_modules() {
+        use crate::runtime::{
+            handler_descriptor::HandlerDescriptor, perform_descriptor::PerformDescriptor,
+        };
+        use crate::syntax::Identifier;
+
+        let handler = Value::HandlerDescriptor(std::rc::Rc::new(HandlerDescriptor {
+            effect: Identifier::new(7),
+            effect_name: "Console".into(),
+            ops: vec![Identifier::new(8)],
+            op_names: vec!["print".into()],
+            has_state: false,
+            is_discard: false,
+        }));
+        let perform = Value::PerformDescriptor(std::rc::Rc::new(PerformDescriptor {
+            effect: Identifier::new(107),
+            op: Identifier::new(108),
+            effect_name: "Console".into(),
+            op_name: "print".into(),
+        }));
+
+        let linked = link_two_modules(
+            module_with(vec![global_def("A.x", 0)], vec![handler], vec![]),
+            module_with(vec![global_def("B.x", 0)], vec![perform], vec![]),
+        );
+
+        let Value::HandlerDescriptor(linked_handler) = &linked.constants[0] else {
+            panic!("expected linked handler descriptor");
+        };
+        let Value::PerformDescriptor(linked_perform) = &linked.constants[1] else {
+            panic!("expected linked perform descriptor");
+        };
+        assert_eq!(linked_handler.effect, linked_perform.effect);
+        assert_eq!(linked_handler.ops[0], linked_perform.op);
+        assert_eq!(linked_handler.effect_name.as_ref(), "Console");
+        assert_eq!(linked_perform.op_name.as_ref(), "print");
     }
 }
