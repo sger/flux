@@ -1,5 +1,7 @@
 import Flume.Manifest as Manifest
-import Flume.Manifest exposing (Manifest, Package, Dep, FromPath, FromRegistry)
+import Flume.Manifest exposing (Manifest, Package, Dep, FromPath, FromRegistry, FromGit, GitSource)
+import Flume.Git as Git
+import Flume.Git exposing (Checkout)
 import Flow.Fs as Fs
 import Flow.Path as Path
 import Flow.List as List
@@ -156,6 +158,7 @@ module Flume.Roots {
                 FromRegistry(_) -> resolve_deps(rest, base, seen, acc),
                 FromPath(rel) ->
                     descend(Path.normalize(Path.join(base, rel)), rest, base, seen, acc),
+                FromGit(source) -> descend_git(source, rest, base, seen, acc),
             }
         }
     }
@@ -172,6 +175,71 @@ module Flume.Roots {
             Ok(found) ->
                 resolve_deps(rest, base, [dep_dir | seen], List.concat([acc, found])),
         }
+    }
+
+//| git dependencies
+
+    /// Fetch a git dependency and walk it like any other package.
+    ///
+    /// A fetched checkout is an ordinary package directory, so it descends
+    /// through the same walk as a path dependency: its own `flux.toml` is
+    /// read, and its own dependencies are resolved beneath it. Nothing about
+    /// having arrived over the network changes what it contributes.
+    ///
+    /// Fetching happens during the walk rather than in a separate pass because
+    /// a git dependency's *own* dependencies are unknowable until its manifest
+    /// is on disk — unlike a registry, a repository publishes no index to read
+    /// them from ahead of time.
+    fn descend_git(
+        source: GitSource,
+        rest: List<Dep>,
+        base: String,
+        seen: List<String>,
+        acc: List<Root>,
+    ) -> Result<List<Root>, String> with IO {
+        match Git.fetch(source) {
+            Err(message) -> Err(message),
+            Ok(checkout) -> after_fetch(checkout, rest, base, seen, acc),
+        }
+    }
+
+    /// Report a download, then walk the fetched package.
+    ///
+    /// The report is a record rather than a printed line because the resolver
+    /// speaks to the compiler over stdout: the Rust side renders it. A
+    /// checkout that was already on disk reports nothing, so a warm build
+    /// stays silent.
+    fn after_fetch(
+        checkout: Checkout,
+        rest: List<Dep>,
+        base: String,
+        seen: List<String>,
+        acc: List<Root>,
+    ) -> Result<List<Root>, String> with IO {
+        let noted = note_fetch(checkout, acc)
+        descend(Git.checkout_dir(checkout), rest, base, seen, noted)
+    }
+
+    /// Report a completed download as it happens.
+    ///
+    /// Printed immediately rather than accumulated with the roots, so it lands
+    /// next to the `fetching` line it answers. Batching them to the end put
+    /// every "Updating" before every "Fetched", which reads as though nothing
+    /// finished until everything had.
+    fn note_fetch(checkout: Checkout, acc: List<Root>) -> List<Root> with IO {
+        if Git.checkout_fetched(checkout) {
+            announce_fetched(checkout, acc)
+        } else {
+            acc
+        }
+    }
+
+    fn announce_fetched(checkout: Checkout, acc: List<Root>) -> List<Root> with IO {
+        print(
+            "fetched\t" + Git.checkout_url(checkout)
+                + "\t" + Git.checkout_commit(checkout),
+        )
+        acc
     }
 
 //| registry dependencies
@@ -193,6 +261,7 @@ module Flume.Roots {
         } else {
             match Manifest.dep_source(dep) {
                 FromPath(_) -> false,
+                FromGit(_) -> false,
                 FromRegistry(_) -> true,
             }
         }
@@ -203,6 +272,7 @@ module Flume.Roots {
             FromRegistry(range) -> (Manifest.dep_name(dep), range),
             // Unreachable: the list is filtered to registry deps first.
             FromPath(_) -> (Manifest.dep_name(dep), ""),
+            FromGit(_) -> (Manifest.dep_name(dep), ""),
         }
     }
 

@@ -49,6 +49,7 @@ pub(crate) fn base_flags() -> DriverFlags {
         cache: DriverCacheFlags {
             cache_dir: None,
             no_cache: false,
+            clean_deps: false,
         },
         language: DriverLanguageFlags {
             enable_optimize: false,

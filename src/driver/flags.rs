@@ -68,6 +68,11 @@ pub struct DriverDiagnosticFlags {
 pub struct DriverCacheFlags {
     pub cache_dir: Option<PathBuf>,
     pub no_cache: bool,
+    /// Also remove downloaded git dependencies. Backs `flux clean --deps`.
+    /// Separate from the build cache because refetching costs the network,
+    /// while recompiling costs only CPU — so the two are worth clearing on
+    /// different occasions.
+    pub clean_deps: bool,
 }
 
 /// Frontend/lowering semantic knobs that affect compilation behavior.
