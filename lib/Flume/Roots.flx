@@ -656,6 +656,124 @@ module Flume.Roots {
         }
     }
 
+
+//| update
+
+    /// What `flux update` did to one dependency.
+    ///
+    /// `before` is the commit `flux.lock` recorded, if it held one at all;
+    /// `after` is what the fresh resolution chose. A dependency whose two
+    /// agree was already current, and one with no `before` is newly locked.
+    public data Change {
+        Change { package: String, before: Option<String>, after: String }
+    }
+
+    public fn change_package(c: Change) -> String {
+        match c { Change { package, before: _, after: _ } -> package }
+    }
+
+    public fn change_before(c: Change) -> Option<String> {
+        match c { Change { package: _, before, after: _ } -> before }
+    }
+
+    public fn change_after(c: Change) -> String {
+        match c { Change { package: _, before: _, after } -> after }
+    }
+
+    /// Re-resolve `dir`, releasing the lockfile's pins.
+    ///
+    /// `only` names the packages to update; an empty list updates everything.
+    /// Releasing a pin is the whole mechanism: `fetch_locked` re-resolves a
+    /// tag or branch exactly when no commit is supplied for it, so dropping a
+    /// dependency's entry from the pins is what makes it move. Every pin left
+    /// in place holds its sibling where it is, which is what makes
+    /// `flux update -p one` conservative without a second code path.
+    ///
+    /// A `rev` pin does not move: it names a commit in the manifest, and no
+    /// resolution can choose otherwise. That is not reported as a failure —
+    /// the dependency is simply already at what it asks for.
+    public fn update(dir: String, only: List<String>) -> Result<List<Change>, String> with IO {
+        updating(dir, only) handle Fail { fail(resume, message) -> Err(message) }
+    }
+
+    fn updating(dir: String, only: List<String>) -> Result<List<Change>, String> with IO, Fail {
+        let before = git_pins(dir)
+        let _checked = check_named(only, before, dir)
+        let pins = Pins {
+            locked: retained(before, only),
+            offline: false,
+            frozen: false,
+        }
+        let walked = Fail.ok_or_abort(resolve_from(dir, [], pins), [])
+        let markers = List.filter(walked, is_resolved_marker)
+        let _lock = rewrite_lock(dir, markers, before)
+        Ok(changes(markers, before))
+    }
+
+    /// Reject `-p <name>` for something the project does not depend on.
+    ///
+    /// Checked against the lockfile rather than the manifest because an
+    /// unlocked dependency has nothing to release, so `-p` on one would be a
+    /// no-op that silently reported success.
+    fn check_named(only: List<String>, before: List<(String, String)>, dir: String) -> Bool with Fail {
+        match List.filter(only, \name -> !List.any(before, \pair -> pair_name(pair) == name)) {
+            [] -> true,
+            [missing | _] -> Fail.abort(
+                "`" + missing + "` is not a locked dependency of "
+                    + Path.join(dir, "flux.lock"),
+                false,
+            ),
+        }
+    }
+
+    /// The pins that survive: everything not being updated.
+    fn retained(
+        before: List<(String, String)>,
+        only: List<String>,
+    ) -> List<(String, String)> {
+        match only {
+            [] -> [],
+            _ -> List.filter(before, \pair -> !List.contains(only, pair_name(pair))),
+        }
+    }
+
+    /// Write the lockfile unless the resolution came back identical.
+    ///
+    /// The same rule `write_git_lock` follows, minus the `--locked` check:
+    /// `update` is the command whose whole purpose is to change the lockfile,
+    /// so a flag forbidding that has no meaning here.
+    fn rewrite_lock(
+        dir: String,
+        markers: List<Root>,
+        before: List<(String, String)>,
+    ) -> Bool with IO {
+        if same_resolution(markers, before) {
+            false
+        } else {
+            persist_git_lock(dir, markers)
+        }
+    }
+
+    /// One `Change` per dependency that moved.
+    fn changes(markers: List<Root>, before: List<(String, String)>) -> List<Change> {
+        List.filter(List.map(markers, \m -> change_of(m, before)), moved)
+    }
+
+    fn change_of(marker: Root, before: List<(String, String)>) -> Change {
+        Change {
+            package: root_package(marker),
+            before: lookup(before, root_package(marker)),
+            after: marker_commit(marker),
+        }
+    }
+
+    fn moved(c: Change) -> Bool {
+        match change_before(c) {
+            None -> true,
+            Some(commit) -> commit != change_after(c),
+        }
+    }
+
     fn read_project_manifest(dir: String) -> Manifest with IO, Fail {
         let manifest_path = Path.join(dir, "flux.toml")
         match Fs.read_file(manifest_path) {

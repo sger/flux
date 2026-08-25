@@ -158,6 +158,19 @@ pub fn entry_file(project_dir: &Path, bin: Option<&str>) -> Result<PathBuf, Stri
     Ok(PathBuf::from(reply.message))
 }
 
+/// The `Flume.Cli` command a manifest- or lockfile-editing action invokes.
+///
+/// `None` for the actions that compile, which take the entry-point path below
+/// instead.
+fn editing_verb(action: PackageAction) -> Option<&'static str> {
+    match action {
+        PackageAction::Add => Some("add"),
+        PackageAction::Remove => Some("remove"),
+        PackageAction::Update => Some("update"),
+        _ => None,
+    }
+}
+
 /// Run `build` / `run` / `test` / `check` against the current package.
 ///
 /// The entry file comes from `Flume.Cli`, which honours `[[bin]]` and `[lib]`
@@ -183,15 +196,11 @@ pub fn package_command(
         return report(call_flume(&["tree", &project.to_string_lossy()]));
     }
 
-    // `add` and `remove` edit the manifest; like `tree` they compile nothing,
-    // and the arguments after the subcommand are the dependency and its
-    // source, forwarded verbatim to the package manager.
-    if matches!(action, PackageAction::Add | PackageAction::Remove) {
-        let verb = if action == PackageAction::Add {
-            "add"
-        } else {
-            "remove"
-        };
+    // `add`, `remove`, and `update` edit the manifest or the lockfile; like
+    // `tree` they compile nothing, and the arguments after the subcommand are
+    // the dependency and its source (or the `-p` selection), forwarded
+    // verbatim to the package manager.
+    if let Some(verb) = editing_verb(action) {
         let dir = project.to_string_lossy().into_owned();
         let mut call = vec![verb, &dir];
         call.extend(program_args.iter().map(String::as_str));
