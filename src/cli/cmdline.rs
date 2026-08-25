@@ -100,6 +100,8 @@ pub enum PackageAction {
     Add,
     /// Drop a dependency from `flux.toml`.
     Remove,
+    /// Re-resolve dependencies and rewrite `flux.lock`.
+    Update,
 }
 
 /// Parses process arguments into a concrete CLI command plus grouped driver flags.
@@ -293,10 +295,14 @@ fn parse_package_subcommand(
         .position(|a| a == "--bin")
         .and_then(|idx| args.get(idx + 1))
         .cloned();
-    // `add` and `remove` take their own arguments — the dependency name and
-    // where it comes from — which the package manager parses. Every other
-    // package command's arguments are consumed here, so they carry none.
-    let program_args = if matches!(action, PackageAction::Add | PackageAction::Remove) {
+    // `add`, `remove`, and `update` take their own arguments — the dependency
+    // name and where it comes from, or the `-p` selection — which the package
+    // manager parses. Every other package command's arguments are consumed
+    // here, so they carry none.
+    let program_args = if matches!(
+        action,
+        PackageAction::Add | PackageAction::Remove | PackageAction::Update
+    ) {
         args.iter().skip(2).cloned().collect()
     } else {
         Vec::new()
@@ -348,6 +354,7 @@ fn parse_subcommand(
         "tree" => Ok(parse_package_subcommand(PackageAction::Tree, args, flags)),
         "add" => Ok(parse_package_subcommand(PackageAction::Add, args, flags)),
         "remove" => Ok(parse_package_subcommand(PackageAction::Remove, args, flags)),
+        "update" => Ok(parse_package_subcommand(PackageAction::Update, args, flags)),
         "eval" => parse_eval_subcommand(args, flags),
         "repl" => Ok(CliCommand::Repl {
             flags: flags.clone(),
