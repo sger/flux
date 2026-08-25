@@ -10,10 +10,10 @@
 // and an unsatisfiable graph must produce a **minimized conflict set naming
 // the actual culprits**, not the whole graph.
 
-import Flume.Resolve as Resolve
-import Flume.Resolve exposing (Dep, Package, Resolution, Conflict, Origin, Pick)
-import Flume.Version as Version
-import Flume.Version exposing (Version, Range)
+import Flume.Resolve.Solver as Resolve
+import Flume.Resolve.Solver exposing (Dep, Package, Resolution, Conflict, Origin, Pick)
+import Flume.Resolve.Version as Version
+import Flume.Resolve.Version exposing (Version, Range)
 import Flow.List as List
 import Flow.Array as Array
 import Flow.String as Str

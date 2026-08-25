@@ -7,9 +7,9 @@
 //
 // Pure, so no fixture directory and no cleanup. `with IO` is for `assert_*`.
 
-import Flume.Manifest as Manifest
-import Flume.Manifest exposing (Source, Dep, Manifest, Package, Bin, FromGit, GitSource, GitPin, GitRev, GitTag, GitBranch, GitDefault)
-import Flume.Parse as Parse
+import Flume.Schema.Manifest as Manifest
+import Flume.Schema.Manifest exposing (Source, Dep, Manifest, Package, Bin, FromGit, GitSource, GitPin, GitRev, GitTag, GitBranch, GitDefault)
+import Flume.Toml.Parse as Parse
 import Flow.List as List
 import Flow.Array as Array
 import Flow.String as Str

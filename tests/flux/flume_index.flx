@@ -4,11 +4,11 @@
 // so these tests need no fixture directory and no cleanup. The `with IO` on
 // each test is for `assert_*` printing only.
 
-import Flume.Index as Index
-import Flume.Index exposing (Published)
-import Flume.Version as Version
-import Flume.Version exposing (Version)
-import Flume.Resolve as Resolve
+import Flume.Schema.Index as Index
+import Flume.Schema.Index exposing (Published)
+import Flume.Resolve.Version as Version
+import Flume.Resolve.Version exposing (Version)
+import Flume.Resolve.Solver as Resolve
 import Flow.Result as Result
 import Flow.Option as Option
 import Flow.List as List
