@@ -17,9 +17,14 @@ fn flux_bin() -> &'static Path {
 }
 
 fn flux(args: &[&str], cwd: &Path) -> Output {
+    let cache_dir = cwd.join(".flux-cache");
     Command::new(flux_bin())
         .current_dir(cwd)
         .args(args)
+        .args([
+            "--cache-dir",
+            cache_dir.to_str().expect("cache path is UTF-8"),
+        ])
         .env("NO_COLOR", "1")
         .output()
         .expect("run flux")

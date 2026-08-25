@@ -60,10 +60,15 @@ pub fn split_continuations_with_options(mut program: LirProgram, force: bool) ->
     // processes one function's call sites and may append more functions to
     // the program; those new indices are added to the queue.
     let async_funcs = crate::lir::direct_async_func_ids(&program);
+    let suspending_externs = program.suspending_extern_symbols.clone();
     let mut queue: std::collections::VecDeque<usize> = (0..program.functions.len()).collect();
 
     while let Some(func_idx) = queue.pop_front() {
-        let sites = collect_call_sites(&program.functions[func_idx], &async_funcs);
+        let sites = collect_call_sites(
+            &program.functions[func_idx],
+            &async_funcs,
+            &suspending_externs,
+        );
         if sites.is_empty() {
             continue;
         }
@@ -130,6 +135,7 @@ struct CallSite {
 fn collect_call_sites(
     func: &LirFunction,
     async_funcs: &std::collections::HashSet<LirFuncId>,
+    suspending_externs: &std::collections::HashSet<String>,
 ) -> Vec<CallSite> {
     let mut sites = Vec::new();
     for block in &func.blocks {
@@ -146,7 +152,7 @@ fn collect_call_sites(
                 // Already populated (e.g., by a previous pass run) — skip.
                 continue;
             }
-            if !crate::lir::call_kind_is_direct_async(kind, async_funcs) {
+            if !crate::lir::call_kind_is_direct_async_in(kind, async_funcs, suspending_externs) {
                 continue;
             }
             // We can't allocate the synth id here without &mut program; defer
@@ -461,7 +467,7 @@ mod tests {
 
         // Manually drive (skipping env gate).
         // Run the synthesis directly — no sites found → no changes.
-        let sites = collect_call_sites(&program.functions[0], &HashSet::new());
+        let sites = collect_call_sites(&program.functions[0], &HashSet::new(), &HashSet::new());
         assert!(sites.is_empty());
         assert_eq!(program.functions.len(), before);
     }
@@ -557,7 +563,7 @@ mod tests {
             terminator: LirTerminator::Return(v_dst),
         });
 
-        assert!(collect_call_sites(&f, &HashSet::new()).is_empty());
+        assert!(collect_call_sites(&f, &HashSet::new(), &HashSet::new()).is_empty());
     }
 
     #[test]
@@ -589,6 +595,6 @@ mod tests {
             terminator: LirTerminator::Return(v_dst),
         });
 
-        assert!(collect_call_sites(&f, &HashSet::new()).is_empty());
+        assert!(collect_call_sites(&f, &HashSet::new(), &HashSet::new()).is_empty());
     }
 }

@@ -2098,6 +2098,27 @@ impl Compiler {
         for (adt, variants) in adt_variants {
             self.preloaded_adt_variants.entry(adt).or_insert(variants);
         }
+        self.preload_ctor_types_from_program(program);
+    }
+
+    /// Record the constructor field types of `program`'s public ADTs so a
+    /// module compiled later in this run infers an application of one of its
+    /// constructors as the ADT rather than as an unresolved type variable.
+    ///
+    /// [`Self::preload_module_interface`] does this from a cached `.flxi`, but
+    /// a dependency compiled in the same run has no interface to read back —
+    /// and the test runner compiles the whole graph through one `Compiler`
+    /// with no interface step at all. Without this the KI-014 metadata reaches
+    /// an importer only through a warm cache, so a payload bound by an
+    /// imported constructor's pattern stays unresolved and forwarding it
+    /// unchanged fails strict types with E430 (KI-022).
+    fn preload_ctor_types_from_program(&mut self, program: &Program) {
+        for (ctor, entry) in crate::compiler::module_interface::collect_dependency_ctor_types(
+            program,
+            &self.interner,
+        ) {
+            self.preloaded_ctor_types.entry(ctor).or_insert(entry);
+        }
     }
 
     pub fn preload_dependency_program(&mut self, program: &Program) {
@@ -2105,6 +2126,11 @@ impl Compiler {
             crate::ast::desugar_named_fields::collect_named_field_metadata(program);
         self.preloaded_ctor_field_names.extend(ctor_field_names);
         self.preloaded_adt_variants.extend(adt_variants);
+        // Constructor field types, so an imported constructor infers as its ADT
+        // rather than an unresolved variable. `preload_module_interface` does
+        // this from a cached `.flxi`; a dependency compiled in this same run has
+        // no interface to read back, so it seeds from the AST instead (KI-022).
+        self.preload_ctor_types_from_program(program);
         self.collect_module_function_visibility(program);
         self.collect_module_adt_constructors(program);
         // Register dep ADT types so cross-module type references in function
@@ -2180,6 +2206,7 @@ impl Compiler {
                         .get(&(*module_name, *member_name))
                         .copied()
                         .unwrap_or(false),
+                    can_suspend: self.native_scheme_can_suspend(scheme),
                 }
             });
         }
@@ -2202,6 +2229,7 @@ impl Compiler {
                             .get(&(*module_name, *member_name))
                             .copied()
                             .unwrap_or(false),
+                        can_suspend: self.native_scheme_can_suspend(scheme),
                     },
                 );
             }
@@ -2218,6 +2246,7 @@ impl Compiler {
                             symbol: format!("flux_{}_{}", target_name.replace('.', "_"), member),
                             arity: method.arity,
                             is_value: false,
+                            can_suspend: true,
                         });
                 }
             }
@@ -2254,6 +2283,7 @@ impl Compiler {
                                 .get(&(*mod_name, *member_name))
                                 .copied()
                                 .unwrap_or(false),
+                            can_suspend: self.native_scheme_can_suspend(scheme),
                         },
                     );
                 }
@@ -2280,6 +2310,7 @@ impl Compiler {
                                         .get(&(*mod_name, *member_name))
                                         .copied()
                                         .unwrap_or(false),
+                                    can_suspend: self.native_scheme_can_suspend(scheme),
                                 },
                             );
                         }
@@ -2299,6 +2330,7 @@ impl Compiler {
                                     ),
                                     arity: method.arity,
                                     is_value: false,
+                                    can_suspend: true,
                                 }
                             });
                         }
@@ -2325,6 +2357,7 @@ impl Compiler {
                                         .get(&(*module_name, *member_name))
                                         .copied()
                                         .unwrap_or(false),
+                                    can_suspend: self.native_scheme_can_suspend(scheme),
                                 },
                             );
                         }
@@ -2345,6 +2378,7 @@ impl Compiler {
                                         ),
                                         arity: method.arity,
                                         is_value: false,
+                                        can_suspend: true,
                                     }
                                 });
                             }
@@ -2369,6 +2403,7 @@ impl Compiler {
                     symbol: native_symbol,
                     arity: Self::native_function_arity(scheme),
                     is_value: false,
+                    can_suspend: self.native_scheme_can_suspend(scheme),
                 }
             });
         }
@@ -3178,6 +3213,44 @@ impl Compiler {
             InferType::Fun(params, _, _) => params.len() + scheme.constraints.len(),
             _ => 0,
         }
+    }
+
+    /// Whether calling a function with this scheme can suspend natively.
+    ///
+    /// True when the declared effect row is anything other than provably
+    /// direct-path. The synchronous built-in effects (`Console`,
+    /// `FileSystem`, `Stdin`, `Env`, `Process`, and `Clock`, plus their `IO` /
+    /// `Time` aliases) lower to straight C calls that always return a real value
+    /// (`native_builtin_effect_uses_direct_path` in `lir::lower`); every other
+    /// effect — user-defined ones included — lowers to a `YieldTo` that
+    /// unwinds by returning the yield sentinel.
+    ///
+    /// An open row (one with a tail variable) counts as suspending: the caller
+    /// may instantiate it with anything, so the conservative answer is the
+    /// only sound one. Over-reporting costs a redundant `flux_is_yielding`
+    /// test; under-reporting corrupts memory (KI-034).
+    fn native_scheme_can_suspend(&self, scheme: &Scheme) -> bool {
+        let InferType::Fun(_, _, effects) = &scheme.infer_type else {
+            return false;
+        };
+        if effects.tail().is_some() {
+            return true;
+        }
+        effects.concrete().iter().any(|effect| {
+            !matches!(
+                self.interner.try_resolve(*effect),
+                Some(
+                    crate::syntax::builtin_effects::CONSOLE
+                        | crate::syntax::builtin_effects::FILESYSTEM
+                        | crate::syntax::builtin_effects::STDIN
+                        | crate::syntax::builtin_effects::CLOCK
+                        | crate::syntax::builtin_effects::ENV
+                        | crate::syntax::builtin_effects::PROCESS
+                        | crate::syntax::builtin_effects::IO
+                        | crate::syntax::builtin_effects::TIME
+                )
+            )
+        })
     }
 
     fn build_preloaded_hm_member_schemes(

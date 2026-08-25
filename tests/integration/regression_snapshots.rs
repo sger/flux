@@ -60,9 +60,31 @@ fn strip_ansi(input: &str) -> String {
     out
 }
 
+fn normalize_type_variable_ids(input: &str) -> String {
+    const MARKER: &str = "unresolved type variable #";
+    let mut normalized = String::with_capacity(input.len());
+    let mut rest = input;
+
+    while let Some(offset) = rest.find(MARKER) {
+        let (prefix, after_marker) = rest.split_at(offset + MARKER.len());
+        normalized.push_str(&prefix[..offset]);
+        normalized.push_str(MARKER);
+        let digit_count = after_marker
+            .chars()
+            .take_while(|ch| ch.is_ascii_digit())
+            .count();
+        normalized.push('N');
+        rest = &after_marker[digit_count..];
+    }
+
+    normalized.push_str(rest);
+    normalized
+}
+
 fn normalize_output(output: &str, workspace_root: &Path) -> String {
     let mut normalized = output.replace("\r\n", "\n").replace('\\', "/");
     normalized = strip_ansi(&normalized);
+    normalized = normalize_type_variable_ids(&normalized);
 
     let mut prefixes = vec![workspace_root.to_string_lossy().replace('\\', "/")];
     if let Ok(canonical) = workspace_root.canonicalize() {

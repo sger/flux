@@ -92,7 +92,7 @@ fn parse_positive(n: Int) -> Either<String, Int> {
     if n > 0 { Right(n) } else { Left(to_string(n) + " is not positive") }
 }
 
-fn test_collecting_all_failures_rather_than_the_first() {
+fn test_collecting_all_failures_rather_than_the_first() with Console {
     let checked = map([1, -2, 3, -4], parse_positive)
     let (errors, values) = Either.partition_eithers(checked)
     assert_eq(len(errors), 2)
@@ -100,7 +100,7 @@ fn test_collecting_all_failures_rather_than_the_first() {
     assert_eq(first(errors), "-2 is not positive")
 }
 
-fn test_a_fully_valid_batch_yields_no_errors() {
+fn test_a_fully_valid_batch_yields_no_errors() with Console {
     let checked = map([1, 2, 3], parse_positive)
     let (errors, values) = Either.partition_eithers(checked)
     assert_eq(errors, [])
