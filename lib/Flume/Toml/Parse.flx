@@ -27,7 +27,7 @@ import Flow.String as Str
 import Flow.Array as Array
 import Flow.List as List
 
-module Flume.Parse {
+module Flume.Toml.Parse {
 
     /// A position in the source, 1-based, as users count lines.
     public data Pos {

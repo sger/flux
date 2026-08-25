@@ -452,6 +452,70 @@ for a named function, not for a lambda literal.
 
 ---
 
+### KI-036 — An effect performed in a callee crashes when the caller is not the entry module
+
+**Severity:** Medium · **Area:** effects, module graph · **Verified:** 2026-08-25 · **From:** [0177](proposals/0177_package_manager.md) `flux update`
+
+`Flume.Git.announce_then_populate` performs `Console` through an ordinary
+`print`, inside a call reached from `Flume.Roots.resolve_from`. Run as the
+entry module — the way `src/driver/manifest_roots.rs` spawns `Flume.Roots` in
+its own process — this works, and a cold git fetch prints its `fetching` and
+`fetched` lines normally.
+
+Called *in-process from another module* it aborts:
+
+```
+error[E1009]: unhandled effect: Console (no matching handle block)
+  lib/Flume/Git.flx:381:9
+    |
+381 |         print("fetching\t" + url)
+```
+
+The reproduction is `Flume.Cli.update` calling `Flume.Roots.update`, which was
+the first call from `Flume.Cli` into `Flume.Roots`; every other `Flume.Cli`
+command reads manifests directly and never crosses that boundary. The minimal
+two-module case — a `handle Fail` block in module A scoping a `print` in module
+B — composes correctly, so this is narrower than "effects do not cross
+modules", and unrelated to [KI-028](#ki-028), which was about `--test`.
+
+What differs on the crashing path is that the `Console` arises several frames
+below a `handle Fail` block in a module that is not the entry module. Whether
+the handler's row is what truncates `Console`, or the entry-module distinction
+is itself the trigger, is not yet established.
+
+**Workaround.** Run the resolution in the `Flume.Roots` process, as builds
+already do, rather than calling it in-process from `Flume.Cli`.
+
+---
+
+### KI-037 — `--no-cache` loads modules under bare names, colliding with local types
+
+**Severity:** Medium · **Area:** module graph, caching · **Verified:** 2026-08-25
+
+`flux --no-cache <file>` resolves the Flume module graph to 34 modules named
+`Cli`, `Roots`, `Plan`; the ordinary cached path resolves 36 named `Flume.Cli`,
+`Flume.Roots`, `Flume.Plan`. Under the bare naming, `Flume.Plan`'s public
+`Outcome` collides with the `Outcome` that `Flume.Cli` declares for itself, and
+every match on the local type reports spurious missing patterns:
+
+```
+error[E015]: Non-Exhaustive Match
+Match is not exhaustive: 2 missing patterns.
+  lib/Flume/Cli.flx:35:9
+   |
+35 |         match o { Outcome { failed, message: _ } -> failed }
+```
+
+`lib/Flume/Cli.flx` therefore fails to compile under `--no-cache` while
+building cleanly without it. Reproduced on `b839e8b5` with no local changes, so
+it predates the `flux update` work that surfaced it.
+
+The practical trap is that `--no-cache` is the flag reached for when a cache
+problem is suspected, and here it manufactures errors that do not otherwise
+exist — a misleading signal exactly when the cache is under suspicion.
+
+---
+
 ## Resolved
 
 ### KI-022 — Forwarding an imported constructor's payload failed strict types — FIXED 2026-08-25

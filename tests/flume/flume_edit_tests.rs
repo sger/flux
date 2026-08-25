@@ -1,4 +1,4 @@
-//! Integration tests for `Flume.Edit`, the format-preserving `flux.toml` editor.
+//! Integration tests for `Flume.Schema.Edit`, the format-preserving `flux.toml` editor.
 //!
 //! The behavioural coverage lives in the Flux fixture and runs on both
 //! backends. Asserted here are the two properties the fixture cannot check
@@ -35,7 +35,7 @@ fn every_public_function_is_pure() {
     let file = scratch.write(
         "purity.flx",
         r#"
-import Flume.Edit as Edit
+import Flume.Schema.Edit as Edit
 
 // No `with` clause anywhere: if any callee were effectful, this would not
 // compile.
@@ -69,7 +69,7 @@ fn main() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
-        "Flume.Edit must be callable from a function with an empty effect row \
+        "Flume.Schema.Edit must be callable from a function with an empty effect row \
          — an effect leaked into the public surface:\n{stdout}{stderr}"
     );
 }
@@ -86,7 +86,7 @@ fn an_edit_changes_only_its_own_line() {
     let file = scratch.write(
         "minimal.flx",
         r##"
-import Flume.Edit as Edit
+import Flume.Schema.Edit as Edit
 import Flow.Array as Array
 import Flow.List as List
 

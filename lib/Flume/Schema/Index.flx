@@ -6,10 +6,10 @@ import Flow.List as List
 import Flow.Json as Json
 import Flow.Map as Map
 import Flow.Json exposing (Json, JsonOk, JsonErr)
-import Flume.Version as Version
-import Flume.Version exposing (Version, Range, Exact)
-import Flume.Resolve as Resolve
-import Flume.Resolve exposing (Dep, Package, Origin)
+import Flume.Resolve.Version as Version
+import Flume.Resolve.Version exposing (Version, Range, Exact)
+import Flume.Resolve.Solver as Resolve
+import Flume.Resolve.Solver exposing (Dep, Package, Origin)
 import Flume.Fail as Fail
 
 /// The registry index: what versions exist, and what each one needs.
@@ -25,7 +25,7 @@ import Flume.Fail as Fail
 ///
 /// `from_text` takes the index *text*, not a path, so the whole resolution
 /// path stays testable without a directory on disk.
-module Flume.Index {
+module Flume.Schema.Index {
 
 //| model
 

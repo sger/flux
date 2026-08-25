@@ -42,10 +42,10 @@ import Flow.Result as Result
 import Flow.String as Str
 import Flow.Array as Array
 import Flow.List as List
-import Flume.Version as Version
-import Flume.Version exposing (Version, Range, Ordering)
+import Flume.Resolve.Version as Version
+import Flume.Resolve.Version exposing (Version, Range, Ordering)
 
-module Flume.Resolve {
+module Flume.Resolve.Solver {
 
 //| inputs
 

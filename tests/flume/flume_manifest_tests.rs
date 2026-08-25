@@ -1,4 +1,4 @@
-//! Integration tests for `Flume.Manifest` (proposal 0177, Phase 0).
+//! Integration tests for `Flume.Schema.Manifest` (proposal 0177, Phase 0).
 //!
 //! The behavioural coverage lives in the Flux fixture and runs on both
 //! backends. Asserted here is the property the fixture cannot check about
@@ -34,8 +34,8 @@ fn every_public_function_is_pure() {
     let file = scratch.write(
         "purity.flx",
         r#"
-import Flume.Manifest as Manifest
-import Flume.Parse as Parse
+import Flume.Schema.Manifest as Manifest
+import Flume.Toml.Parse as Parse
 
 fn exercise() -> Bool {
     let source = "[package]\nname = \"demo\"\nversion = \"1.0.0\"\n"
@@ -69,7 +69,7 @@ fn main() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
-        "Flume.Manifest must be callable from a function with an empty effect \
+        "Flume.Schema.Manifest must be callable from a function with an empty effect \
          row — an effect leaked into the public surface:\n{stdout}{stderr}"
     );
 }

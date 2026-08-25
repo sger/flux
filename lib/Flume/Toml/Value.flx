@@ -12,7 +12,7 @@ import Flow.String as Str
 import Flow.Array as Array
 import Flow.List as List
 
-module Flume.Value {
+module Flume.Toml.Value {
 
 //| generic TOML value tree
 
