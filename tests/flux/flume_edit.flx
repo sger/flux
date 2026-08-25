@@ -1,4 +1,4 @@
-// Behavioural coverage for `Flume.Edit`, the format-preserving `flux.toml`
+// Behavioural coverage for `Flume.Schema.Edit`, the format-preserving `flux.toml`
 // editor behind `flux add` and `flux remove`.
 //
 // The property under test throughout is that *only* the intended line changes.
@@ -9,7 +9,7 @@
 // Every function under test is pure; the `with IO` on each test is for
 // `assert_*` printing only.
 
-import Flume.Edit as Edit
+import Flume.Schema.Edit as Edit
 import Flow.String as String
 import Flow.Result as Result
 

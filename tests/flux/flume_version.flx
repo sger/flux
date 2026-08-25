@@ -4,7 +4,7 @@
 // empty effect row, so these tests need no fixture directory, no temp files,
 // and no cleanup. The `with IO` on each test is for `assert_*` printing only.
 
-import Flume.Version as V
+import Flume.Resolve.Version as V
 import Flow.Result as Result
 import Flow.Option as Option
 

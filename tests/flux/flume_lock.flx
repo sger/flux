@@ -4,10 +4,10 @@
 // directory, no temp files, and no cleanup. The `with IO` on each test is for
 // `assert_*` printing only.
 
-import Flume.Lock as L
-import Flume.Lock exposing (Lock, Entry, LockedRegistry, LockedPath, LockedGit)
-import Flume.Version as Version
-import Flume.Version exposing (Version)
+import Flume.Schema.Lock as L
+import Flume.Schema.Lock exposing (Lock, Entry, LockedRegistry, LockedPath, LockedGit)
+import Flume.Resolve.Version as Version
+import Flume.Resolve.Version exposing (Version)
 import Flow.Result as Result
 import Flow.Option as Option
 import Flow.List as List
