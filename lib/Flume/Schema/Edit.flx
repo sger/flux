@@ -24,7 +24,7 @@ import Flow.List as List
 /// `[dependencies]` is written some other legal way — as a dotted key, or
 /// inline in the root table — is reported as unsupported rather than edited
 /// wrongly.
-module Flume.Edit {
+module Flume.Schema.Edit {
 
 //| lines
 

@@ -1,4 +1,4 @@
-//! Integration tests for `Flume.Version` (proposal 0177, Phase 0).
+//! Integration tests for `Flume.Resolve.Version` (proposal 0177, Phase 0).
 //!
 //! The behavioural coverage lives in the Flux fixture and runs on both
 //! backends. Asserted here is the property the fixture cannot check about
@@ -38,7 +38,7 @@ fn every_public_function_is_pure() {
     let file = scratch.write(
         "purity.flx",
         r#"
-import Flume.Version as V
+import Flume.Resolve.Version as V
 import Flow.Result as Result
 
 // No `with` clause anywhere: if any callee were effectful, this would not
@@ -77,7 +77,7 @@ fn main() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
-        "Flume.Version must be callable from a function with an empty effect \
+        "Flume.Resolve.Version must be callable from a function with an empty effect \
          row — an effect leaked into the public surface:\n{stdout}{stderr}"
     );
 }

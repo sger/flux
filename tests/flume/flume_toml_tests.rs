@@ -1,5 +1,5 @@
 //! Integration tests for the parsing stack (proposal 0177, Phase 0):
-//! `Flume.Parse`, `Flume.Value`, `Flume.Toml`, and `Flume.Document`.
+//! `Flume.Toml.Parse`, `Flume.Toml.Value`, `Flume.Toml`, and `Flume.Toml.Document`.
 //!
 //! The behavioural coverage lives in the Flux fixture and runs on both
 //! backends. Asserted here is the property the fixture cannot check about
@@ -40,8 +40,8 @@ fn every_public_function_is_pure() {
         "purity.flx",
         r#"
 import Flume.Toml as Toml
-import Flume.Value as Value
-import Flume.Parse as Parse
+import Flume.Toml.Value as Value
+import Flume.Toml.Parse as Parse
 
 // No `with` clause anywhere: if any callee were effectful, this would not
 // compile.
@@ -77,7 +77,7 @@ fn main() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
-        "Flume.Parse and Flume.Toml must be callable from a function with an \
+        "Flume.Toml.Parse and Flume.Toml must be callable from a function with an \
          empty effect row — an effect leaked into the public surface:\n{stdout}{stderr}"
     );
 }

@@ -1,4 +1,4 @@
-//! Integration tests for `Flume.Plan`, the join between the manifest, the
+//! Integration tests for `Flume.Resolve.Plan`, the join between the manifest, the
 //! registry index, the resolver, and the lockfile.
 //!
 //! The behavioural coverage lives in the Flux fixture and runs on both
@@ -37,9 +37,9 @@ fn every_public_function_is_pure() {
     let file = scratch.write(
         "purity.flx",
         r#"
-import Flume.Plan as Plan
-import Flume.Index as Index
-import Flume.Lock as Lock
+import Flume.Resolve.Plan as Plan
+import Flume.Schema.Index as Index
+import Flume.Schema.Lock as Lock
 
 // No `with` clause anywhere: if any callee were effectful, this would not
 // compile.

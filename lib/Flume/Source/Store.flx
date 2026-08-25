@@ -6,10 +6,10 @@ import Flow.List as List
 import Flow.Fs as Fs
 import Flow.Env as Env
 import Flow.Path as Path
-import Flume.Index as Index
-import Flume.Index exposing (Published)
-import Flume.Lock as Lock
-import Flume.Lock exposing (Lock)
+import Flume.Schema.Index as Index
+import Flume.Schema.Index exposing (Published)
+import Flume.Schema.Lock as Lock
+import Flume.Schema.Lock exposing (Lock)
 import Flume.Fail as Fail
 
 /// Where the toolchain keeps its registry state, and how it is read.
@@ -30,7 +30,7 @@ import Flume.Fail as Fail
 /// read from disk, so a build resolves offline against whatever has already
 /// been fetched; nothing here can reach the network, which is what makes a
 /// build reproducible rather than dependent on when it ran.
-module Flume.Home {
+module Flume.Source.Store {
 
     /// The toolchain's home directory.
     ///

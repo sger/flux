@@ -4,10 +4,10 @@ import Flow.String as Str
 import Flow.Array as Array
 import Flow.List as List
 import Flume.Toml as Toml
-import Flume.Value as Value
-import Flume.Value exposing (Toml, TString, TInt, TBool, TArray, TTable)
-import Flume.Version as Version
-import Flume.Version exposing (Version)
+import Flume.Toml.Value as Value
+import Flume.Toml.Value exposing (Toml, TString, TInt, TBool, TArray, TTable)
+import Flume.Resolve.Version as Version
+import Flume.Resolve.Version exposing (Version)
 import Flume.Fail as Fail
 
 /// `flux.lock` — the resolved dependency graph.
@@ -28,7 +28,7 @@ import Flume.Fail as Fail
 ///
 /// Path packages carry no `source` and no `checksum`: a local directory has
 /// nothing portable to record and nothing stable to hash.
-module Flume.Lock {
+module Flume.Schema.Lock {
 
 //| format
 

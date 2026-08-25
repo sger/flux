@@ -1,4 +1,4 @@
-//! Integration tests for `Flume.Resolve` (proposal 0177, Phase 0).
+//! Integration tests for `Flume.Resolve.Solver` (proposal 0177, Phase 0).
 //!
 //! The behavioural coverage lives in the Flux fixture and runs on both
 //! backends. Asserted here is the property the fixture cannot check about
@@ -34,9 +34,9 @@ fn every_public_function_is_pure() {
     let file = scratch.write(
         "purity.flx",
         r#"
-import Flume.Resolve as Resolve
-import Flume.Version as Version
-import Flume.Version exposing (Range)
+import Flume.Resolve.Solver as Resolve
+import Flume.Resolve.Version as Version
+import Flume.Resolve.Version exposing (Range)
 
 // `exposing` rather than `Version.Range`: a qualified type is not accepted in
 // type position.
@@ -91,7 +91,7 @@ fn main() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
-        "Flume.Resolve must be callable from a function with an empty effect \
+        "Flume.Resolve.Solver must be callable from a function with an empty effect \
          row — an effect leaked into the resolver:\n{stdout}{stderr}"
     );
 }
