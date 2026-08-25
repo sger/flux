@@ -1,7 +1,7 @@
-import Flume.Manifest as Manifest
-import Flume.Manifest exposing (Manifest, Package, Dep, FromPath, FromRegistry, FromGit, GitSource)
-import Flume.Git as Git
-import Flume.Git exposing (Checkout)
+import Flume.Schema.Manifest as Manifest
+import Flume.Schema.Manifest exposing (Manifest, Package, Dep, FromPath, FromRegistry, FromGit, GitSource)
+import Flume.Source.Git as Git
+import Flume.Source.Git exposing (Checkout)
 import Flow.Fs as Fs
 import Flow.Path as Path
 import Flow.List as List
@@ -10,14 +10,14 @@ import Flow.String as String
 import Flow.Env as Env
 import Flow.Result as Result
 import Flow.Option as Option
-import Flume.Home as Home
-import Flume.Plan as Plan
-import Flume.Plan exposing (Outcome)
-import Flume.Lock as Lock
-import Flume.Lock exposing (Lock, Entry, LockedGit)
-import Flume.Index as Index
-import Flume.Index exposing (Published)
-import Flume.Version as Version
+import Flume.Source.Store as Store
+import Flume.Resolve.Plan as Plan
+import Flume.Resolve.Plan exposing (Outcome)
+import Flume.Schema.Lock as Lock
+import Flume.Schema.Lock exposing (Lock, Entry, LockedGit)
+import Flume.Schema.Index as Index
+import Flume.Schema.Index exposing (Published)
+import Flume.Resolve.Version as Version
 import Flume.Fail as Fail
 
 /// Resolve a project's module search roots from its `flux.toml`.
@@ -41,7 +41,7 @@ import Flume.Fail as Fail
 ///
 /// Match arms in Flux take an expression, not a block, so the walk below is
 /// split into small helpers rather than written as nested `match` + `let`.
-module Flume.Roots {
+module Flume.Build.Graph {
 
     /// The lockfile pins, plus what the caller allows the resolution to do.
     ///
@@ -397,8 +397,8 @@ module Flume.Roots {
         dir: String,
     ) -> List<Root> with IO, Fail {
         let names = List.map(requirements, first_of)
-        let available = Fail.ok_or_abort(Home.read_index(names), [])
-        let previous = Fail.ok_or_abort(Home.read_lock(dir), None)
+        let available = Fail.ok_or_abort(Store.read_index(names), [])
+        let previous = Fail.ok_or_abort(Store.read_lock(dir), None)
         let outcome = Fail.ok_or_abort(Plan.plan(requirements, available, previous), unchanged())
         persist(outcome, dir)
     }
@@ -417,7 +417,7 @@ module Flume.Roots {
     fn persist(outcome: Outcome, dir: String) -> List<Root> with IO, Fail {
         let resolved = Plan.outcome_lock(outcome)
         if Plan.outcome_changed(outcome) {
-            let _written = Fail.ok_or_abort(Home.write_lock(dir, resolved), "")
+            let _written = Fail.ok_or_abort(Store.write_lock(dir, resolved), "")
             locked_roots(resolved)
         } else {
             locked_roots(resolved)
@@ -442,7 +442,7 @@ module Flume.Roots {
     fn locked_root(entry: Entry) -> Root with IO, Fail {
         let name = Lock.entry_name(entry)
         let version = Version.render(Lock.entry_version(entry))
-        let unpacked = Home.package_dir(name, version)
+        let unpacked = Store.package_dir(name, version)
         if Fs.is_dir(unpacked) {
             package_root(name, unpacked)
         } else {
@@ -573,7 +573,7 @@ module Flume.Roots {
     }
 
     fn persist_git_lock(dir: String, markers: List<Root>) -> Bool with IO {
-        match Home.write_lock(dir, Lock.lock(Lock.default_format(), git_entries(markers))) {
+        match Store.write_lock(dir, Lock.lock(Lock.default_format(), git_entries(markers))) {
             Err(_) -> false,
             Ok(_) -> true,
         }
@@ -639,7 +639,7 @@ module Flume.Roots {
     /// yields no pins rather than failing: the first build of a project has
     /// none, and that is the ordinary case rather than an error.
     fn git_pins(dir: String) -> List<(String, String)> with IO {
-        match Home.read_lock(dir) {
+        match Store.read_lock(dir) {
             Err(_) -> [],
             Ok(None) -> [],
             Ok(Some(found)) -> git_pins_of(Lock.lock_packages(found)),
@@ -704,7 +704,8 @@ module Flume.Roots {
             offline: false,
             frozen: false,
         }
-        let walked = Fail.ok_or_abort(resolve_from(dir, [], pins), [])
+        let resolved = resolve_from(dir, [], pins)
+        let walked = Fail.ok_or_abort(resolved, [])
         let markers = List.filter(walked, is_resolved_marker)
         let _lock = rewrite_lock(dir, markers, before)
         Ok(changes(markers, before))
@@ -715,7 +716,7 @@ module Flume.Roots {
     /// Checked against the lockfile rather than the manifest because an
     /// unlocked dependency has nothing to release, so `-p` on one would be a
     /// no-op that silently reported success.
-    fn check_named(only: List<String>, before: List<(String, String)>, dir: String) -> Bool with Fail {
+    fn check_named(only: List<String>, before: List<(String, String)>, dir: String) -> Bool with IO, Fail {
         match List.filter(only, \name -> !List.any(before, \pair -> pair_name(pair) == name)) {
             [] -> true,
             [missing | _] -> Fail.abort(
@@ -817,15 +818,83 @@ module Flume.Roots {
 
     /// Print the resolved roots for the project directory given as the first
     /// argument, or `.` when none is supplied.
+    ///
+    /// `--update` runs `update` instead and prints what moved. It is a mode of
+    /// this module's own entry point rather than something `Flume.Cli` calls,
+    /// because resolution reaches `Flume.Source.Git`, which performs `Console`
+    /// while fetching: run here that effect reaches the runtime handler, and
+    /// called in-process from another module it aborts unhandled
+    /// (docs/known_issues.md#ki-036).
     public fn main() with IO {
         let args = Env.args()
-        report(
-            resolve_with(
-                project_dir(args),
-                has_flag(args, "--offline"),
-                has_flag(args, "--locked"),
-            ),
-        )
+        if has_flag(args, "--update") {
+            report_update(update(project_dir(args), package_flags(args)))
+        } else {
+            report(
+                resolve_with(
+                    project_dir(args),
+                    has_flag(args, "--offline"),
+                    has_flag(args, "--locked"),
+                ),
+            )
+        }
+    }
+
+    /// Every `-p <name>` in the argument vector.
+    ///
+    /// Repeatable, so `flux update -p a -p b` updates exactly those two: the
+    /// alternative would be one name per invocation, which re-resolves the
+    /// whole graph once per package and can settle them differently than
+    /// asking for both at once would.
+    fn package_flags(args: Array<String>) -> List<String> {
+        values_after(Array.to_list(args), "-p")
+    }
+
+    fn values_after(args: List<String>, flag: String) -> List<String> {
+        match args {
+            [] -> [],
+            [head | rest] -> if head == flag {
+                take_value(rest, flag)
+            } else {
+                values_after(rest, flag)
+            },
+        }
+    }
+
+    fn take_value(rest: List<String>, flag: String) -> List<String> {
+        match rest {
+            [] -> [],
+            [value | tail] -> [value | values_after(tail, flag)],
+        }
+    }
+
+    /// Report what `update` moved, in the `ok`/`err` record protocol.
+    fn report_update(updated: Result<List<Change>, String>) with IO {
+        match updated {
+            Err(message) -> print("err\t" + message),
+            Ok([]) -> print("ok\teverything is up to date"),
+            Ok(moved_deps) -> print("ok\t" + join_lines(List.map(moved_deps, update_line))),
+        }
+    }
+
+    fn update_line(change: Change) -> String {
+        let name = change_package(change)
+        let after = short_commit(change_after(change))
+        match change_before(change) {
+            None -> "locked " + name + " at " + after,
+            Some(before) -> "updated " + name + " " + short_commit(before)
+                + " -> " + after,
+        }
+    }
+
+    /// Commits are shown abbreviated: seven characters identify a revision in
+    /// any repository small enough to read a dependency tree of.
+    fn short_commit(commit: String) -> String {
+        if len(commit) > 7 { String.string_slice(commit, 0, 7) } else { commit }
+    }
+
+    fn join_lines(lines: List<String>) -> String {
+        lines |> List.to_array |> String.join("\n")
     }
 
     /// Whether `flag` appears in the argument vector.

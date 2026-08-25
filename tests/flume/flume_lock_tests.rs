@@ -1,4 +1,4 @@
-//! Integration tests for `Flume.Lock`, the `flux.lock` reader and writer.
+//! Integration tests for `Flume.Schema.Lock`, the `flux.lock` reader and writer.
 //!
 //! The behavioural coverage lives in the Flux fixture and runs on both
 //! backends. Asserted here are the two properties the fixture cannot check
@@ -35,7 +35,7 @@ fn every_public_function_is_pure() {
     let file = scratch.write(
         "purity.flx",
         r#"
-import Flume.Lock as Lock
+import Flume.Schema.Lock as Lock
 
 // No `with` clause anywhere: if any callee were effectful, this would not
 // compile.
@@ -65,7 +65,7 @@ fn main() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
-        "Flume.Lock must be callable from a function with an empty effect row \
+        "Flume.Schema.Lock must be callable from a function with an empty effect row \
          — an effect leaked into the public surface:\n{stdout}{stderr}"
     );
 }
@@ -82,7 +82,7 @@ fn rendering_is_stable_across_a_round_trip() {
     let file = scratch.write(
         "stable.flx",
         r#"
-import Flume.Lock as Lock
+import Flume.Schema.Lock as Lock
 
 fn round_trip(text: String) -> String {
     match Lock.parse(text) {

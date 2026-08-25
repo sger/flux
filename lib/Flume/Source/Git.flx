@@ -8,9 +8,9 @@ import Flow.Path as Path
 import Flow.Process as Proc
 import Flow.Process exposing (ProcOutput)
 import Flow.IoError exposing (IoError)
-import Flume.Manifest as Manifest
-import Flume.Manifest exposing (GitSource, GitPin, GitRev, GitTag, GitBranch, GitDefault)
-import Flume.Home as Home
+import Flume.Schema.Manifest as Manifest
+import Flume.Schema.Manifest exposing (GitSource, GitPin, GitRev, GitTag, GitBranch, GitDefault)
+import Flume.Source.Store as Store
 
 /// Fetching git dependencies by driving the `git` binary.
 ///
@@ -35,7 +35,7 @@ import Flume.Home as Home
 /// Every function reports failure as `Result<_, String>` carrying a message
 /// already fit to show a user, since a `git` failure's own stderr is usually
 /// the best explanation available.
-module Flume.Git {
+module Flume.Source.Git {
 
 //| model
 
@@ -74,7 +74,7 @@ module Flume.Git {
 
     /// Where every git checkout lives.
     public fn checkouts_dir() -> String with IO {
-        Home.dir() |> Path.join("git") |> Path.join("checkouts")
+        Store.dir() |> Path.join("git") |> Path.join("checkouts")
     }
 
     /// A filesystem-safe directory name for a repository URL.

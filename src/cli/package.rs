@@ -21,7 +21,12 @@ struct Reply {
 
 /// Run `Flume.Cli` with `args` and read its single `ok`/`err` record.
 fn call_flume(args: &[&str]) -> Result<Reply, String> {
-    let shim = flume_shim("Flume.Cli")?;
+    call_module("Flume.Cli", args)
+}
+
+/// Run `module`'s entry point with `args` and read its `ok`/`err` record.
+fn call_module(module: &str, args: &[&str]) -> Result<Reply, String> {
+    let shim = flume_shim(module)?;
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
 
     let output = Command::new(exe)
@@ -158,15 +163,14 @@ pub fn entry_file(project_dir: &Path, bin: Option<&str>) -> Result<PathBuf, Stri
     Ok(PathBuf::from(reply.message))
 }
 
-/// The `Flume.Cli` command a manifest- or lockfile-editing action invokes.
+/// The `Flume.Cli` command a manifest-editing action invokes.
 ///
-/// `None` for the actions that compile, which take the entry-point path below
-/// instead.
+/// `None` for the actions that compile, and for `update`, which runs in the
+/// `Flume.Build.Graph` process instead — see `package_command`.
 fn editing_verb(action: PackageAction) -> Option<&'static str> {
     match action {
         PackageAction::Add => Some("add"),
         PackageAction::Remove => Some("remove"),
-        PackageAction::Update => Some("update"),
         _ => None,
     }
 }
@@ -196,10 +200,22 @@ pub fn package_command(
         return report(call_flume(&["tree", &project.to_string_lossy()]));
     }
 
-    // `add`, `remove`, and `update` edit the manifest or the lockfile; like
-    // `tree` they compile nothing, and the arguments after the subcommand are
-    // the dependency and its source (or the `-p` selection), forwarded
-    // verbatim to the package manager.
+    // `update` re-resolves and rewrites `flux.lock`. It runs in the
+    // `Flume.Build.Graph` process rather than through `Flume.Cli`, because
+    // resolution reaches `Flume.Source.Git`, which performs `Console` while
+    // fetching: that effect is handled when `Flume.Build.Graph` is the entry
+    // module and aborts unhandled when another module calls it in-process
+    // (docs/known_issues.md#ki-036).
+    if action == PackageAction::Update {
+        let dir = project.to_string_lossy().into_owned();
+        let mut call = vec![dir.as_str(), "--update"];
+        call.extend(program_args.iter().map(String::as_str));
+        return report(call_module("Flume.Build.Graph", &call));
+    }
+
+    // `add` and `remove` edit the manifest; like `tree` they compile nothing,
+    // and the arguments after the subcommand are the dependency and its
+    // source, forwarded verbatim to the package manager.
     if let Some(verb) = editing_verb(action) {
         let dir = project.to_string_lossy().into_owned();
         let mut call = vec![verb, &dir];

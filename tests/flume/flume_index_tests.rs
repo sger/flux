@@ -1,4 +1,4 @@
-//! Integration tests for `Flume.Index`, the registry index reader.
+//! Integration tests for `Flume.Schema.Index`, the registry index reader.
 //!
 //! The behavioural coverage lives in the Flux fixture and runs on both
 //! backends. Asserted here is the property the fixture cannot check about
@@ -35,7 +35,7 @@ fn every_public_function_is_pure() {
     let file = scratch.write(
         "purity.flx",
         r#"
-import Flume.Index as Index
+import Flume.Schema.Index as Index
 import Flow.List as List
 
 // No `with` clause anywhere: if any callee were effectful, this would not
@@ -66,7 +66,7 @@ fn main() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
-        "Flume.Index must be callable from a function with an empty effect row \
+        "Flume.Schema.Index must be callable from a function with an empty effect row \
          — an effect leaked into the public surface:\n{stdout}{stderr}"
     );
 }

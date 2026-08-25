@@ -15,7 +15,7 @@ import Flow.String as Str
 import Flow.Array as Array
 import Flow.List as List
 
-module Flume.Version {
+module Flume.Resolve.Version {
 
     /// A semantic version. `pre` is the pre-release tag without its leading
     /// `-`, so `1.0.0-alpha.1` parses to `pre = Some("alpha.1")`.

@@ -118,7 +118,7 @@ pub(crate) fn resolve_project_roots(
         return Some(Ok(cached));
     }
 
-    let shim = flume_shim("Flume.Roots").ok()?;
+    let shim = flume_shim("Flume.Build.Graph").ok()?;
     let exe = std::env::current_exe().ok()?;
 
     let mut child = Command::new(exe)

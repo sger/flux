@@ -3,14 +3,14 @@ import Flow.Result as Result
 import Flow.String as Str
 import Flow.Array as Array
 import Flow.List as List
-import Flume.Version as Version
-import Flume.Version exposing (Version, Range, Exact)
-import Flume.Resolve as Resolve
-import Flume.Resolve exposing (Dep, Package, Pick, Resolution, Conflict, Unsatisfiable, Missing, Origin, FromRoot, FromPackage, FromLockfile, FromCommandLine)
-import Flume.Index as Index
-import Flume.Index exposing (Published)
-import Flume.Lock as Lock
-import Flume.Lock exposing (Lock, Entry, LockedRegistry, LockedPath)
+import Flume.Resolve.Version as Version
+import Flume.Resolve.Version exposing (Version, Range, Exact)
+import Flume.Resolve.Solver as Resolve
+import Flume.Resolve.Solver exposing (Dep, Package, Pick, Resolution, Conflict, Unsatisfiable, Missing, Origin, FromRoot, FromPackage, FromLockfile, FromCommandLine)
+import Flume.Schema.Index as Index
+import Flume.Schema.Index exposing (Published)
+import Flume.Schema.Lock as Lock
+import Flume.Schema.Lock exposing (Lock, Entry, LockedRegistry, LockedPath)
 import Flume.Fail as Fail
 
 /// Turn a manifest plus an index into a resolved graph, and back into a lock.
@@ -34,7 +34,7 @@ import Flume.Fail as Fail
 /// highest-version-first internally, so any order it is handed is discarded.
 /// Narrowing the set is the only way to express a preference to a solver that
 /// picks its own order.
-module Flume.Plan {
+module Flume.Resolve.Plan {
 //| model
 
     /// What a resolution attempt produced.

@@ -17,12 +17,12 @@ import Flow.Result as Result
 import Flow.String as Str
 import Flow.Array as Array
 import Flow.List as List
-import Flume.Parse as Parse
-import Flume.Parse exposing (ParseError, Pos)
-import Flume.Value as Value
-import Flume.Value exposing (Toml, TString, TInt, TBool, TArray, TTable)
+import Flume.Toml.Parse as Parse
+import Flume.Toml.Parse exposing (ParseError, Pos)
+import Flume.Toml.Value as Value
+import Flume.Toml.Value exposing (Toml, TString, TInt, TBool, TArray, TTable)
 
-module Flume.Document {
+module Flume.Toml.Document {
 
 //| association-list helpers
 
