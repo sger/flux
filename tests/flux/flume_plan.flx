@@ -5,15 +5,15 @@
 // lockfile leaves as text, so these tests need no registry and no fixture
 // directory. The `with IO` on each test is for `assert_*` printing only.
 
-import Flume.Plan as Plan
-import Flume.Plan exposing (Outcome, Unchanged, Updated)
-import Flume.Index as Index
-import Flume.Index exposing (Published)
-import Flume.Lock as Lock
-import Flume.Lock exposing (Lock, Entry)
-import Flume.Version as Version
-import Flume.Resolve as Resolve
-import Flume.Resolve exposing (Dep)
+import Flume.Resolve.Plan as Plan
+import Flume.Resolve.Plan exposing (Outcome, Unchanged, Updated)
+import Flume.Schema.Index as Index
+import Flume.Schema.Index exposing (Published)
+import Flume.Schema.Lock as Lock
+import Flume.Schema.Lock exposing (Lock, Entry)
+import Flume.Resolve.Version as Version
+import Flume.Resolve.Solver as Resolve
+import Flume.Resolve.Solver exposing (Dep)
 import Flow.Result as Result
 import Flow.Option as Option
 import Flow.List as List

@@ -11,8 +11,8 @@
 // produced, not just the field that differed.
 
 import Flume.Toml as Toml
-import Flume.Value as Value
-import Flume.Parse as Parse
+import Flume.Toml.Value as Value
+import Flume.Toml.Parse as Parse
 
 /// A parsed document, flattened, or `ERR <kind>` when parsing failed.
 ///
