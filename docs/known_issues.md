@@ -420,6 +420,38 @@ Reader<List<a>>` needs no higher-kinded types).
 
 ---
 
+### KI-035 — `Flow.Http` has no TLS, so no HTTPS host is reachable
+
+**Severity:** High · **Area:** `Flow.Http`, runtime · **Verified:** 2026-08-25 · **From:** [0177](proposals/0177_package_manager.md) Phase 2 fetching
+
+`parse_url` ([../src/runtime/http/mod.rs:332](../src/runtime/http/mod.rs#L332))
+rejects any URL that does not begin with `http://`:
+
+```
+error[E1009]: AsyncError: ProtocolError(0, "only http:// URLs are supported in this phase")
+```
+
+Plain HTTP works end to end — `Http.get("http://example.com")` returns
+`status=200` with a 559-byte body — so this is a missing TLS layer, not a
+broken client. There is no `https://` support anywhere in the runtime.
+
+The consequence is that **no real code-hosting or package host is reachable**:
+GitHub, GitLab, and crates.io-style registries are all HTTPS-only and either
+redirect or refuse plain HTTP. Anything that must fetch over the network has to
+shell out to a program that brings its own TLS.
+
+This is why [0177](proposals/0177_package_manager.md)'s git dependencies fetch
+by invoking `git` through `Flow.Process` rather than over `Flow.Http`: the
+system `git` binary supplies TLS. The same restriction blocks a future
+HTTP-based registry client, which cannot be built until TLS lands.
+
+Two adjacent gaps matter to any future fetcher: `Response.body` is `Bytes` but
+I/O is `String`-based ([KI-006](#ki-006)), so an archive cannot round-trip
+through the filesystem; and `Flow.Async.run_async` discharges `AsyncFail` only
+for a named function, not for a lambda literal.
+
+---
+
 ## Resolved
 
 ### KI-022 — Forwarding an imported constructor's payload failed strict types — FIXED 2026-08-25

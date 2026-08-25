@@ -34,14 +34,52 @@ module Flume.Manifest {
 
 //| domain model
 
+    /// Which commit of a git dependency to build.
+    ///
+    /// The three forms are mutually exclusive and ordered by how tightly they
+    /// pin: a `rev` names one commit outright, a `tag` names one that is
+    /// conventionally never moved, and a `branch` names one that moves by
+    /// design. `GitDefault` follows the repository's own default branch.
+    ///
+    /// A branch is resolved to a commit once and then recorded in the
+    /// lockfile, so "moves by design" means *between updates*, not between
+    /// builds.
+    public data GitPin {
+        GitRev(String),
+        GitTag(String),
+        GitBranch(String),
+        GitDefault,
+    }
+
     /// Where a dependency comes from.
     ///
     /// A registry dependency is represented here rather than dropped, so a
     /// caller that cannot resolve one can say so by name instead of failing
-    /// later as a confusing missing module.
+    /// later as a confusing missing module. Flux has no registry to resolve
+    /// one against yet — a hosted index is deliberately deferred until there
+    /// is something to host — so `FromGit` is how a third-party package is
+    /// actually obtained today.
+    /// A git dependency's repository and the commit to build from it.
+    ///
+    /// Its own type rather than fields on the `Source` variant: `Source`'s
+    /// other variants are positional, and a data type cannot mix positional
+    /// and named-field variants.
+    public data GitSource {
+        GitSource { url: String, pin: GitPin }
+    }
+
     public data Source {
         FromPath(String),
         FromRegistry(String),
+        FromGit(GitSource),
+    }
+
+    public fn git_source_url(g: GitSource) -> String {
+        match g { GitSource { url, pin: _ } -> url }
+    }
+
+    public fn git_source_pin(g: GitSource) -> GitPin {
+        match g { GitSource { url: _, pin } -> pin }
     }
 
     /// One entry of `[dependencies]` or `[dev-dependencies]`.
@@ -475,10 +513,10 @@ module Flume.Manifest {
 
     /// Parse one dependency entry.
     ///
-    /// Two spellings: `name = "1.2"` (registry) and
-    /// `name = { path = "../x" }`. Both parse; a caller may reject the registry
-    /// form downstream with its own diagnostic, which is why this does not
-    /// reject it here.
+    /// Three spellings: `name = "1.2"` (registry), `name = { path = "../x" }`,
+    /// and `name = { git = "https://…", tag = "v1.2.0" }`. All parse; a caller
+    /// may reject the registry form downstream with its own diagnostic, which
+    /// is why this does not reject it here.
     fn parse_dep(
         name: String,
         value: Toml,
@@ -505,10 +543,10 @@ module Flume.Manifest {
 
     /// Read a dependency's inline table.
     ///
-    /// `path` and `version` are mutually exclusive. A dependency with both has
-    /// two sources of truth, and picking one silently is how a build ends up
-    /// using a working directory that the manifest appears to pin to a
-    /// published release.
+    /// `path`, `version`, and `git` are mutually exclusive. A dependency with
+    /// more than one has two sources of truth, and picking one silently is how
+    /// a build ends up using a working directory that the manifest appears to
+    /// pin to a published release.
     fn parse_dep_source(
         name: String,
         fields: List<(String, Toml)>,
@@ -519,22 +557,147 @@ module Flume.Manifest {
             optional_string(fields, context, "path"),
             \path -> Result.and_then_result(
                 optional_string(fields, context, "version"),
-                \version -> match (path, version) {
-                    (Some(_), Some(_)) -> Err(schema_error(
-                        "conflicting-dependency-source",
-                        "dependency `" + name + "` in `[" + table
-                            + "]` sets both `path` and `version`; it must set exactly one",
-                    )),
-                    (Some(found), None) -> Ok(FromPath(found)),
-                    (None, Some(requirement)) -> Ok(FromRegistry(requirement)),
-                    (None, None) -> Err(schema_error(
-                        "incomplete-dependency",
-                        "dependency `" + name + "` in `[" + table
-                            + "]` must set `path` or `version`",
-                    )),
-                }
+                \version -> Result.and_then_result(
+                    optional_string(fields, context, "git"),
+                    \git -> choose_dep_source(
+                        DepFields { name: name, table: table, fields: fields },
+                        path,
+                        version,
+                        git,
+                    )
+                )
             )
         )
+    }
+
+    /// What `choose_dep_source` needs besides the three source keys.
+    ///
+    /// Grouped into a record because the alternative is a six-parameter
+    /// function whose arguments are three `Option<String>`s in a row.
+    data DepFields {
+        DepFields { name: String, table: String, fields: List<(String, Toml)> }
+    }
+
+    /// Pick the one source the table declares, or explain why it cannot.
+    ///
+    /// Written over the count of declared sources rather than as a nine-arm
+    /// match on the triple: the error for "two sources" is the same whichever
+    /// two they are, and enumerating the pairs adds arms without adding
+    /// meaning.
+    fn choose_dep_source(
+        d: DepFields,
+        path: Option<String>,
+        version: Option<String>,
+        git: Option<String>,
+    ) -> Result<Source, ParseError> {
+        let declared = count_some(path) + count_some(version) + count_some(git)
+        if declared > 1 {
+            Err(schema_error(
+                "conflicting-dependency-source",
+                "dependency `" + dep_fields_name(d) + "` in `["
+                    + dep_fields_table(d)
+                    + "]` sets more than one of `path`, `version`, and `git`;"
+                    + " it must set exactly one",
+            ))
+        } else {
+            single_dep_source(d, path, version, git)
+        }
+    }
+
+    fn single_dep_source(
+        d: DepFields,
+        path: Option<String>,
+        version: Option<String>,
+        git: Option<String>,
+    ) -> Result<Source, ParseError> {
+        match (path, version, git) {
+            (Some(found), None, None) -> Ok(FromPath(found)),
+            (None, Some(requirement), None) -> Ok(FromRegistry(requirement)),
+            (None, None, Some(url)) -> parse_git_source(d, url),
+            _ -> Err(schema_error(
+                "incomplete-dependency",
+                "dependency `" + dep_fields_name(d) + "` in `["
+                    + dep_fields_table(d)
+                    + "]` must set `path`, `version`, or `git`",
+            )),
+        }
+    }
+
+    fn count_some(value: Option<String>) -> Int {
+        match value {
+            Some(_) -> 1,
+            None -> 0,
+        }
+    }
+
+    fn dep_fields_name(d: DepFields) -> String {
+        match d { DepFields { name, table: _, fields: _ } -> name }
+    }
+
+    fn dep_fields_table(d: DepFields) -> String {
+        match d { DepFields { name: _, table, fields: _ } -> table }
+    }
+
+    fn dep_fields_fields(d: DepFields) -> List<(String, Toml)> {
+        match d { DepFields { name: _, table: _, fields } -> fields }
+    }
+
+//| git dependencies
+
+    /// Read a git dependency's `rev` / `tag` / `branch`.
+    ///
+    /// At most one may be set. All three absent is not an error — it means the
+    /// repository's default branch, which is the form a quick dependency on a
+    /// repository's tip is written in.
+    fn parse_git_source(d: DepFields, url: String) -> Result<Source, ParseError> {
+        let fields = dep_fields_fields(d)
+        let context = "dependency `" + dep_fields_name(d) + "`"
+        Result.and_then_result(
+            optional_string(fields, context, "rev"),
+            \rev -> Result.and_then_result(
+                optional_string(fields, context, "tag"),
+                \tag -> Result.and_then_result(
+                    optional_string(fields, context, "branch"),
+                    \branch -> Result.map_result(
+                        choose_git_pin(d, rev, tag, branch),
+                        \pin -> FromGit(GitSource { url: url, pin: pin })
+                    )
+                )
+            )
+        )
+    }
+
+    fn choose_git_pin(
+        d: DepFields,
+        rev: Option<String>,
+        tag: Option<String>,
+        branch: Option<String>,
+    ) -> Result<GitPin, ParseError> {
+        let declared = count_some(rev) + count_some(tag) + count_some(branch)
+        if declared > 1 {
+            Err(schema_error(
+                "conflicting-git-pin",
+                "dependency `" + dep_fields_name(d) + "` in `["
+                    + dep_fields_table(d)
+                    + "]` sets more than one of `rev`, `tag`, and `branch`;"
+                    + " it may set at most one",
+            ))
+        } else {
+            Ok(single_git_pin(rev, tag, branch))
+        }
+    }
+
+    fn single_git_pin(
+        rev: Option<String>,
+        tag: Option<String>,
+        branch: Option<String>,
+    ) -> GitPin {
+        match (rev, tag, branch) {
+            (Some(found), _, _) -> GitRev(found),
+            (None, Some(found), _) -> GitTag(found),
+            (None, None, Some(found)) -> GitBranch(found),
+            (None, None, None) -> GitDefault,
+        }
     }
 
 //| [lib] and [[bin]]

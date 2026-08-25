@@ -36,6 +36,10 @@ pub(crate) struct ParsedCliRuntimeFlags {
     pub(crate) trace_aether: bool,
     pub(crate) show_stats: bool,
     pub(crate) profiling: bool,
+    /// Suppress `[n of m] Compiling …` lines. Set by `--quiet`, and by the
+    /// manifest resolver's child invocation, whose compile progress describes
+    /// the resolver rather than the user's build.
+    pub(crate) quiet: bool,
 }
 
 /// Parsed language-related CLI flags that affect compilation semantics.
@@ -73,6 +77,7 @@ impl Default for ParsedCliDumpFlags {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct ParsedCliExecutionFlags {
     pub(crate) no_cache: bool,
+    pub(crate) clean_deps: bool,
     pub(crate) roots_only: bool,
     pub(crate) test_mode: bool,
     pub(crate) all_errors: bool,
@@ -156,6 +161,7 @@ pub(crate) fn extract_cli_flag_groups(args: &mut Vec<String>) -> ParsedCliFlags 
     while i < args.len() {
         match args[i].as_str() {
             "--verbose" => flags.runtime.verbose = remove_bool_flag(args, i),
+            "--quiet" => flags.runtime.quiet = remove_bool_flag(args, i),
             "--leak-detector" => flags.runtime.leak_detector = remove_bool_flag(args, i),
             "--trace" => flags.runtime.trace = remove_bool_flag(args, i),
             "--trace-aether" => flags.runtime.trace_aether = remove_bool_flag(args, i),
@@ -186,6 +192,7 @@ pub(crate) fn extract_cli_flag_groups(args: &mut Vec<String>) -> ParsedCliFlags 
             "--emit-llvm" => flags.backend.emit_llvm = remove_bool_flag(args, i),
             "--emit-binary" => flags.backend.emit_binary = remove_bool_flag(args, i),
             "--no-cache" => flags.execution.no_cache = remove_bool_flag(args, i),
+            "--deps" => flags.execution.clean_deps = remove_bool_flag(args, i),
             _ => {
                 i += 1;
             }
@@ -291,7 +298,7 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
             trace_aether: parsed.runtime.trace_aether,
             show_stats: parsed.runtime.show_stats,
             profiling: parsed.runtime.profiling,
-            quiet: false,
+            quiet: parsed.runtime.quiet,
             check_only: false,
         },
         dumps: DriverDumpFlags {
@@ -310,6 +317,7 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
         cache: DriverCacheFlags {
             cache_dir: values.paths.cache_dir,
             no_cache: parsed.execution.no_cache,
+            clean_deps: parsed.execution.clean_deps,
         },
         language: DriverLanguageFlags {
             enable_optimize: parsed.language.enable_optimize,
