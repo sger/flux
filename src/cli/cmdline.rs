@@ -94,6 +94,12 @@ pub enum PackageAction {
     Test,
     /// Type-check without producing artifacts.
     Check,
+    /// Print the resolved dependency graph.
+    Tree,
+    /// Record a dependency in `flux.toml`.
+    Add,
+    /// Drop a dependency from `flux.toml`.
+    Remove,
 }
 
 /// Parses process arguments into a concrete CLI command plus grouped driver flags.
@@ -149,12 +155,20 @@ fn attach_program_args(command: CliCommand, program_args: Vec<String>) -> CliCom
             action,
             flags,
             bin,
-            program_args: _,
+            program_args: claimed,
         } => CliCommand::Package {
             action,
             flags,
             bin,
-            program_args,
+            // `add` and `remove` already claimed their arguments from the
+            // command line; anything after `--` belongs to a program being
+            // run, and these run none. Overwriting here would discard the
+            // dependency they were asked to record.
+            program_args: if claimed.is_empty() {
+                program_args
+            } else {
+                claimed
+            },
         },
         other => other,
     }
@@ -203,6 +217,12 @@ fn reject_unknown_flag_tokens(args: &[String]) -> Result<(), String> {
         "run",
         "test",
         "check",
+        "tree",
+        // `add` and `remove` take flags the package manager parses —
+        // `--git`, `--tag`, `--path`, and the rest — so the driver must not
+        // reject them as unknown before forwarding.
+        "add",
+        "remove",
     ];
     if args
         .get(1)
@@ -273,11 +293,19 @@ fn parse_package_subcommand(
         .position(|a| a == "--bin")
         .and_then(|idx| args.get(idx + 1))
         .cloned();
+    // `add` and `remove` take their own arguments — the dependency name and
+    // where it comes from — which the package manager parses. Every other
+    // package command's arguments are consumed here, so they carry none.
+    let program_args = if matches!(action, PackageAction::Add | PackageAction::Remove) {
+        args.iter().skip(2).cloned().collect()
+    } else {
+        Vec::new()
+    };
     CliCommand::Package {
         action,
         flags: flags.clone(),
         bin,
-        program_args: Vec::new(),
+        program_args,
     }
 }
 
@@ -317,6 +345,9 @@ fn parse_subcommand(
             Ok(parse_package_subcommand(PackageAction::Test, args, flags))
         }
         "check" => Ok(parse_package_subcommand(PackageAction::Check, args, flags)),
+        "tree" => Ok(parse_package_subcommand(PackageAction::Tree, args, flags)),
+        "add" => Ok(parse_package_subcommand(PackageAction::Add, args, flags)),
+        "remove" => Ok(parse_package_subcommand(PackageAction::Remove, args, flags)),
         "eval" => parse_eval_subcommand(args, flags),
         "repl" => Ok(CliCommand::Repl {
             flags: flags.clone(),

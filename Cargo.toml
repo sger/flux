@@ -434,6 +434,10 @@ name = "flume_index_tests"
 path = "tests/flume/flume_index_tests.rs"
 
 [[test]]
+name = "flume_edit_tests"
+path = "tests/flume/flume_edit_tests.rs"
+
+[[test]]
 name = "flume_lock_tests"
 path = "tests/flume/flume_lock_tests.rs"
 

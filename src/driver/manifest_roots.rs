@@ -23,6 +23,39 @@ use crate::syntax::module_graph::ModuleRoot;
 /// resolver cannot trigger another resolver run.
 pub const FLUX_SKIP_MANIFEST_ENV: &str = "FLUX_SKIP_MANIFEST";
 
+/// Set when `--offline` forbids the resolution from reaching the network, and
+/// when `--locked` forbids it from changing `flux.lock`.
+///
+/// Carried in the environment rather than as a parameter because these are
+/// properties of the whole invocation rather than of one module's roots, and
+/// because the resolver runs as a child process that has to be told either
+/// way. `resolve_project_roots` sits several layers below flag parsing, and
+/// widening every signature between them would thread a process-wide mode
+/// through code that has no other use for it.
+pub const FLUX_OFFLINE_ENV: &str = "FLUX_OFFLINE";
+pub const FLUX_LOCKED_ENV: &str = "FLUX_LOCKED";
+
+/// Record the resolution mode for the rest of this process.
+pub fn set_resolution_mode(offline: bool, locked: bool) {
+    if offline {
+        unsafe { std::env::set_var(FLUX_OFFLINE_ENV, "1") };
+    }
+    if locked {
+        unsafe { std::env::set_var(FLUX_LOCKED_ENV, "1") };
+    }
+}
+
+fn mode_flags() -> Vec<&'static str> {
+    let mut flags = Vec::new();
+    if std::env::var_os(FLUX_OFFLINE_ENV).is_some() {
+        flags.push("--offline");
+    }
+    if std::env::var_os(FLUX_LOCKED_ENV).is_some() {
+        flags.push("--locked");
+    }
+    flags
+}
+
 /// Write an entry file that calls `<module>.main`, and return its path.
 ///
 /// A module's `main` cannot be invoked directly, so every Flume entry point is
@@ -75,8 +108,13 @@ pub(crate) fn resolve_project_roots(
     // Resolving spawns a compile of the Flux resolver, which dominates an
     // otherwise fully-cached build. The result only depends on the manifests
     // it read, so it is cached against their contents.
+    // `--locked` and `--offline` are checks, and a cached result would skip
+    // them: a lockfile that stopped matching its manifest must fail under
+    // `--locked` even when the previous run's roots are still on disk.
     let cache_file = roots_cache_path(cache_dir, project_dir);
-    if let Some(cached) = read_cached_roots(&cache_file, project_dir) {
+    if mode_flags().is_empty()
+        && let Some(cached) = read_cached_roots(&cache_file, project_dir)
+    {
         return Some(Ok(cached));
     }
 
@@ -90,6 +128,7 @@ pub(crate) fn resolve_project_roots(
         .arg(cache_dir)
         .arg("--")
         .arg(project_dir)
+        .args(mode_flags())
         .env(FLUX_SKIP_MANIFEST_ENV, "1")
         .env("NO_COLOR", "1")
         .stdout(Stdio::piped())

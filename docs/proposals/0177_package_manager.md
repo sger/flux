@@ -1,6 +1,6 @@
 - Feature Name: Flux package manager (`flux.toml`, `flux.lock`, `flux build/test/add`)
 - Start Date: 2026-08-20
-- Status: Partially implemented (Phases 0 and 1 shipped 2026-08-24; Phase 2 resolution and lockfile shipped 2026-08-24, fetching deferred; Phase 3 not started)
+- Status: Partially implemented (Phases 0 and 1 shipped 2026-08-24; Phase 2 resolution and lockfile shipped 2026-08-24; git dependencies, their lockfile entries, `tree`, `add`, `remove`, and the `--offline` / `--locked` / `--frozen` flags shipped 2026-08-25; registry fetching deferred until there is a registry to fetch from; Phase 3 not started)
 - Proposal PR:
 - Flux Issue:
 - Supersedes: [0015_package_module_workflow_mvp.md](0015_package_module_workflow_mvp.md) (the MVP sketch; this proposal subsumes and completes it)
@@ -29,7 +29,7 @@ specified in the [Reference-level explanation](#reference-level-explanation):
 |---|---|---|---|
 | **0** | Manifest parser, version arithmetic, resolver, `Flow.Path` — pure Flux, no I/O | The interesting logic, testable immediately | Shipped |
 | **1** | `flux.toml`, `init/build/run/test`, path deps, namespacing, stdlib-as-package | Flux works outside its own checkout | Shipped 2026-08-24 |
-| **2** | Registry index, semver resolution, `flux.lock`, `add/update/tree` | Third-party libraries | Resolution + lockfile shipped 2026-08-24; fetching and `add/update/tree` not started |
+| **2** | Registry index, semver resolution, `flux.lock`, `add/update/tree` | Third-party libraries | Resolution + lockfile shipped 2026-08-24; git dependencies and `tree` shipped 2026-08-25; registry fetching deferred, `add`/`remove`/`update` not started |
 | **3** | Content-addressed store, `publish`, workspaces, `metadata` | An ecosystem | Not started |
 
 Phase 0 has no dependency on [0178](implemented/0178_os_capabilities_for_tooling.md) and can
@@ -102,11 +102,32 @@ internally and discards any order it is handed. A locked version therefore
 survives a newer publication, while an edited manifest re-resolves instead of
 failing.
 
-**Not yet shipped from this phase:** network fetching (the index and unpacked
-sources are read from `$FLUX_HOME`, never downloaded), `add` / `remove` /
-`update` / `tree`, the `--offline` / `--locked` / `--frozen` flags as CLI
-surface (`Flume.Plan.unsatisfied` implements the `--locked` check but nothing
-calls it yet), git dependencies, and index-state pinning.
+**Git dependencies shipped 2026-08-25**, and are how a third-party package is
+obtained today. A dependency may name a repository with `git`, pinned by `rev`,
+`tag`, or `branch`; checkouts live in `$FLUX_HOME/git/checkouts/<slug>/<commit>`
+keyed by resolved commit, and the commit is recorded in `flux.lock` as
+`source = "git+<url>#<commit>"`, so a locked build is reproducible and needs no
+network. `flux tree` renders the resolved graph.
+
+Fetching drives the `git` binary rather than `Flow.Http`, which speaks no TLS
+and therefore cannot reach any HTTPS host
+([KI-035](../known_issues.md#ki-035)). That restriction is what defers the
+registry client rather than the registry itself: a hosted index is not worth
+standing up before the language has users, and git repositories on GitHub or
+GitLab need no hosting at all.
+
+**Not yet shipped from this phase:** registry network fetching (the index and
+unpacked sources are read from `$FLUX_HOME`, never downloaded), `add` /
+`update`, and index-state pinning.
+
+`flux add` and `flux remove` shipped 2026-08-25. The format-preserving
+requirement is met by editing the manifest's source lines directly
+(`Flume.Edit`) rather than round-tripping through the Phase 0 parser, which
+discards comments — exactly the "separate editing path" this phase anticipated.
+
+`--offline`, `--locked`, and `--frozen` shipped 2026-08-25 for git
+dependencies. The registry path still relies on `Flume.Plan.unsatisfied`, which
+implements the same check for semver requirements but is not yet called.
 
 One defect was found and fixed in the process: the Phase 1 roots cache
 fingerprinted manifests only, so once resolution depended on `flux.lock` the

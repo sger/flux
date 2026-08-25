@@ -50,8 +50,15 @@ fn parse_reply(stdout: &str) -> Result<Reply, String> {
         .unwrap_or(text)
         .replace("\\t", "\t")
         .replace("\\n", "\n");
-    let line = inner.lines().next_back().unwrap_or("").trim();
-    match line.split_once('\t') {
+    // The record is the last line that opens one, and its message runs to the
+    // end of the output: a reply may be multi-line — `tree` renders a whole
+    // graph — so the message cannot be assumed to stop at a newline. Anything
+    // printed before the record is the resolver's own progress and is skipped.
+    let Some(record) = last_record(&inner) else {
+        let last = inner.lines().next_back().unwrap_or("").trim();
+        return Err(format!("unexpected reply from the package manager: {last}"));
+    };
+    match record.split_once('\t') {
         Some(("ok", message)) => Ok(Reply {
             failed: false,
             message: message.to_string(),
@@ -60,8 +67,25 @@ fn parse_reply(stdout: &str) -> Result<Reply, String> {
             failed: true,
             message: message.to_string(),
         }),
-        _ => Err(format!("unexpected reply from the package manager: {line}")),
+        _ => Err(format!(
+            "unexpected reply from the package manager: {record}"
+        )),
     }
+}
+
+/// The tail of `text` starting at the last line that opens an `ok`/`err`
+/// record.
+fn last_record(text: &str) -> Option<&str> {
+    let mut offset = None;
+    let mut at = 0usize;
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("ok\t") || trimmed.starts_with("err\t") {
+            offset = Some(at + (line.len() - trimmed.len()));
+        }
+        at += line.len();
+    }
+    offset.map(|start| text[start..].trim_end())
 }
 
 fn report(result: Result<Reply, String>) -> ExitCode {
@@ -151,6 +175,28 @@ pub fn package_command(
         eprintln!("error: no `flux.toml` found in this directory or any parent");
         return ExitCode::FAILURE;
     };
+
+    // `tree` reads manifests and prints; it compiles nothing, so it takes none
+    // of the entry-point resolution below — a package with no entry point
+    // still has a dependency graph worth showing.
+    if action == PackageAction::Tree {
+        return report(call_flume(&["tree", &project.to_string_lossy()]));
+    }
+
+    // `add` and `remove` edit the manifest; like `tree` they compile nothing,
+    // and the arguments after the subcommand are the dependency and its
+    // source, forwarded verbatim to the package manager.
+    if matches!(action, PackageAction::Add | PackageAction::Remove) {
+        let verb = if action == PackageAction::Add {
+            "add"
+        } else {
+            "remove"
+        };
+        let dir = project.to_string_lossy().into_owned();
+        let mut call = vec![verb, &dir];
+        call.extend(program_args.iter().map(String::as_str));
+        return report(call_flume(&call));
+    }
 
     let entry = match entry_file(&project, bin) {
         Ok(entry) => entry,

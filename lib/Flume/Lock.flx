@@ -50,6 +50,25 @@ module Flume.Lock {
     public data LockedOrigin {
         LockedRegistry { url: String },
         LockedPath { path: String },
+        LockedGit { url: String, commit: String },
+    }
+
+    /// The commit a git-sourced entry is pinned to, if it is one.
+    public fn origin_commit(o: LockedOrigin) -> Option<String> {
+        match o {
+            LockedGit { url: _, commit } -> Some(commit),
+            LockedRegistry { url: _ } -> None,
+            LockedPath { path: _ } -> None,
+        }
+    }
+
+    /// The repository URL a git-sourced entry came from, if it is one.
+    public fn origin_url(o: LockedOrigin) -> Option<String> {
+        match o {
+            LockedGit { url, commit: _ } -> Some(url),
+            LockedRegistry { url: _ } -> None,
+            LockedPath { path: _ } -> None,
+        }
     }
 
     /// One `[[package]]`. `deps` holds names, not requirements: the graph is
@@ -137,6 +156,7 @@ module Flume.Lock {
         match o {
             LockedRegistry { url: _ } -> true,
             LockedPath { path: _ } -> false,
+            LockedGit { url: _, commit: _ } -> false,
         }
     }
 
@@ -243,12 +263,12 @@ module Flume.Lock {
         )
     }
 
-    /// A `source` field makes an entry a registry package; its absence makes
-    /// it a path package.
+    /// A `source` field's prefix says where an entry came from; its absence
+    /// makes the entry a path package.
     fn read_origin(fields: List<(String, Toml)>) -> LockedOrigin with Fail {
         match Value.get(fields, "source") {
             None -> LockedPath { path: optional_string(fields, "path") },
-            Some(TString(text)) -> LockedRegistry { url: strip_registry(text) },
+            Some(TString(text)) -> read_source(text),
             Some(_) -> Fail.abort(
                 "a `[[package]]` `source` must be a string",
                 LockedPath { path: "" },
@@ -256,8 +276,54 @@ module Flume.Lock {
         }
     }
 
-    /// `source` is `registry+<url>`, so later source kinds are told apart by
-    /// prefix rather than guessed.
+    /// `source` is `<kind>+<url>`, so source kinds are told apart by prefix
+    /// rather than guessed from the URL's shape.
+    fn read_source(text: String) -> LockedOrigin with Fail {
+        if Str.starts_with(text, "git+") {
+            read_git_source(Str.string_slice(text, 4, len(text)))
+        } else {
+            LockedRegistry { url: strip_registry(text) }
+        }
+    }
+
+    /// A git source is `git+<url>#<commit>`.
+    ///
+    /// The commit is what makes the lockfile reproducible: a branch that has
+    /// moved, or a tag that was repointed, still builds the revision recorded
+    /// here. A source without one is rejected rather than resolved afresh,
+    /// which would silently turn a locked build into an unlocked one.
+    fn read_git_source(rest: String) -> LockedOrigin with Fail {
+        match index_of(rest, "#") {
+            None -> Fail.abort(
+                "a git `source` must be `git+<url>#<commit>`, but `" + rest
+                    + "` records no commit",
+                LockedPath { path: "" },
+            ),
+            Some(at) -> LockedGit {
+                url: Str.string_slice(rest, 0, at),
+                commit: Str.string_slice(rest, at + 1, len(rest)),
+            },
+        }
+    }
+
+    /// The first index of `needle`, or `None`.
+    ///
+    /// A local helper because `Flow.String` exposes no search: a URL may
+    /// contain no `#` at all, and scanning for one is the whole check.
+    fn index_of(s: String, needle: String) -> Option<Int> {
+        index_of_from(s, needle, 0)
+    }
+
+    fn index_of_from(s: String, needle: String, i: Int) -> Option<Int> {
+        if i >= len(s) {
+            None
+        } else if Str.string_slice(s, i, i + 1) == needle {
+            Some(i)
+        } else {
+            index_of_from(s, needle, i + 1)
+        }
+    }
+
     fn strip_registry(text: String) -> String {
         if Str.starts_with(text, "registry+") {
             Str.string_slice(text, 9, len(text))
@@ -352,6 +418,8 @@ module Flume.Lock {
         match o {
             LockedRegistry { url } -> "source = " + quote("registry+" + url) + "\n",
             LockedPath { path: _ } -> "",
+            LockedGit { url, commit } ->
+                "source = " + quote("git+" + url + "#" + commit) + "\n",
         }
     }
 
