@@ -68,6 +68,10 @@ pub struct DriverDiagnosticFlags {
 pub struct DriverCacheFlags {
     pub cache_dir: Option<PathBuf>,
     pub no_cache: bool,
+    /// Forbid network access while resolving dependencies. Backs `--offline`.
+    pub offline: bool,
+    /// Make any change to `flux.lock` an error. Backs `--locked`.
+    pub locked: bool,
     /// Also remove downloaded git dependencies. Backs `flux clean --deps`.
     /// Separate from the build cache because refetching costs the network,
     /// while recompiling costs only CPU — so the two are worth clearing on

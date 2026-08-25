@@ -5,7 +5,7 @@
 // `assert_*` printing only.
 
 import Flume.Lock as L
-import Flume.Lock exposing (Lock, Entry, LockedRegistry, LockedPath)
+import Flume.Lock exposing (Lock, Entry, LockedRegistry, LockedPath, LockedGit)
 import Flume.Version as Version
 import Flume.Version exposing (Version)
 import Flow.Result as Result
@@ -106,6 +106,7 @@ fn test_strips_the_registry_prefix() with IO {
             Some(e) -> match L.entry_origin(e) {
                 LockedRegistry { url } -> assert_eq(url, "https://example.org"),
                 LockedPath { path: _ } -> assert_eq("registry", "path"),
+                LockedGit { url: _, commit: _ } -> assert_eq("registry", "git"),
             },
         },
     }
@@ -160,6 +161,48 @@ fn test_finds_nothing_for_an_absent_package() with IO {
     }
 }
 
+/// A git source records the commit that was built, which is what makes a
+/// locked build reproducible: a branch that has since moved still resolves to
+/// the revision written here.
+fn test_reads_a_git_source_with_its_commit() with IO {
+    let git_text = "version = 1\n\n[[package]]\nname = \"greeter\"\nversion = \"0.0.0\"\n"
+        + "source = \"git+https://github.com/u/greeter#abc123\"\n"
+    match L.parse(git_text) {
+        Err(_) -> assert_eq("parsed", "failed"),
+        Ok(l) -> match L.find(l, "greeter") {
+            None -> assert_eq("found", "missing"),
+            Some(e) -> match L.entry_origin(e) {
+                LockedGit { url, commit } -> assert_eq(
+                    url + "@" + commit,
+                    "https://github.com/u/greeter@abc123",
+                ),
+                LockedRegistry { url: _ } -> assert_eq("git", "registry"),
+                LockedPath { path: _ } -> assert_eq("git", "path"),
+            },
+        },
+    }
+}
+
+/// A git source with no `#<commit>` names no revision, so it cannot pin a
+/// build. Rejected rather than resolved afresh, which would silently turn a
+/// locked build into an unlocked one.
+fn test_rejects_a_git_source_without_a_commit() with IO {
+    let bad_git = "version = 1\n\n[[package]]\nname = \"greeter\"\nversion = \"0.0.0\"\n"
+        + "source = \"git+https://github.com/u/greeter\"\n"
+    assert_true(String.str_contains(parse_err(bad_git), "records no commit"))
+}
+
+/// A git package needs no checksum: the commit hash already identifies the
+/// exact bytes, so there is nothing a second digest would add.
+fn test_accepts_a_git_package_without_a_checksum() with IO {
+    let git_text2 = "version = 1\n\n[[package]]\nname = \"greeter\"\nversion = \"0.0.0\"\n"
+        + "source = \"git+https://github.com/u/greeter#abc123\"\n"
+    match L.parse(git_text2) {
+        Err(_) -> assert_eq("parsed", "failed"),
+        Ok(l) -> assert_true(Option.is_some(L.find(l, "greeter"))),
+    }
+}
+
 // ── rendering ──────────────────────────────────────────────────
 
 fn sample() -> Lock {
@@ -192,6 +235,22 @@ fn test_omits_the_source_for_a_path_package() with IO {
         L.entry("shared", v("0.1.0"), LockedPath { path: "../shared" }, None, []),
     ]))
     assert_true(!String.str_contains(rendered, "source ="))
+}
+
+/// A git entry round-trips through `git+<url>#<commit>`.
+fn test_renders_a_git_source_with_its_commit() with IO {
+    let rendered = L.render(L.lock(1, [
+        L.entry(
+            "greeter",
+            v("0.0.0"),
+            LockedGit { url: "https://github.com/u/greeter", commit: "abc123" },
+            None,
+            [],
+        ),
+    ]))
+    assert_true(
+        String.str_contains(rendered, "source = \"git+https://github.com/u/greeter#abc123\""),
+    )
 }
 
 fn test_omits_an_empty_dependency_list() with IO {

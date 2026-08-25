@@ -16,6 +16,10 @@ Packages (in a directory holding a flux.toml):
   flux run                    Build and run the package
   flux test                   Run the package's test_* functions
   flux check                  Report errors without running
+  flux tree                   Print the resolved dependency graph
+  flux add <name> --git <url> [--tag|--branch|--rev <ref>]
+  flux add <name> --path <dir> | --version <req> [--dev]
+  flux remove <name> [--dev]  Drop a dependency from flux.toml
 
 Other:
   flux tokens <file.flx>
@@ -45,6 +49,9 @@ Flags:
   --leak-detector    Print approximate allocation stats after run
   --no-cache         Disable bytecode cache for this run
   --deps             With `clean`: also remove downloaded git dependencies
+  --offline          Resolve dependencies without network access
+  --locked           Fail if `flux.lock` would change (for CI)
+  --frozen           Both --offline and --locked
   --cache-dir <dir>  Override cache root (default: nearest Cargo.toml target/flux, else .flux/cache)
   --optimize, -O     Enable AST optimizations (desugar + constant fold)
   --analyze, -A      Enable analysis passes (free vars + tail calls)

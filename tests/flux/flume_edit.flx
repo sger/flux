@@ -1,0 +1,178 @@
+// Behavioural coverage for `Flume.Edit`, the format-preserving `flux.toml`
+// editor behind `flux add` and `flux remove`.
+//
+// The property under test throughout is that *only* the intended line changes.
+// A parse-and-re-render editor would pass a test that checked the result was
+// valid TOML while still destroying the user's comments and spacing, so most
+// of these assert on what survived rather than on what was written.
+//
+// Every function under test is pure; the `with IO` on each test is for
+// `assert_*` printing only.
+
+import Flume.Edit as Edit
+import Flow.String as String
+import Flow.Result as Result
+
+/// The edited text, or the error message, so a failure names what broke.
+fn edited(r: Result<String, String>) -> String {
+    match r {
+        Ok(text) -> text,
+        Err(message) -> "err: " + message,
+    }
+}
+
+/// A manifest with the things an editor is most likely to destroy: a leading
+/// comment, a trailing comment aligned by hand, a comment inside the
+/// dependency table, and a blank line at the end.
+fn sample() -> String {
+    "# my project\n"
+        + "[package]\n"
+        + "name = \"demo\"\n"
+        + "version = \"0.1.0\"    # aligned\n"
+        + "\n"
+        + "[dependencies]\n"
+        + "# about alpha\n"
+        + "alpha = { path = \"../alpha\" }\n"
+}
+
+fn add(name: String, value: String) -> String {
+    edited(Edit.add_dependency(sample(), "dependencies", name, value))
+}
+
+// ── preserving what was already there ──────────────────────────
+
+/// The headline property: an edit keeps every comment.
+fn test_keeps_comments() with IO {
+    let result = add("beta", "\"1.0\"")
+    assert_true(String.str_contains(result, "# my project"))
+    assert_true(String.str_contains(result, "# about alpha"))
+}
+
+/// Hand-aligned trailing comments are spacing the user chose, and reformatting
+/// them is the diff nobody asked for.
+fn test_keeps_hand_alignment() with IO {
+    assert_true(String.str_contains(add("beta", "\"1.0\""), "version = \"0.1.0\"    # aligned"))
+}
+
+fn test_keeps_the_table_headers() with IO {
+    let result = add("beta", "\"1.0\"")
+    assert_true(String.str_contains(result, "[package]"))
+    assert_true(String.str_contains(result, "[dependencies]"))
+}
+
+/// An untouched dependency is left exactly as written, quotes and all.
+fn test_keeps_other_dependencies_verbatim() with IO {
+    assert_true(String.str_contains(add("beta", "\"1.0\""), "alpha = { path = \"../alpha\" }"))
+}
+
+/// Adding one dependency adds one line and changes nothing else, which is the
+/// whole claim `flux add` makes about a diff.
+fn test_adds_exactly_one_line() with IO {
+    assert_eq(line_count(add("beta", "\"1.0\"")), line_count(sample()) + 1)
+}
+
+fn line_count(text: String) -> Int {
+    len(split(text, "\n"))
+}
+
+// ── adding ─────────────────────────────────────────────────────
+
+fn test_adds_the_entry() with IO {
+    assert_true(String.str_contains(add("beta", "\"1.0\""), "beta = \"1.0\""))
+}
+
+/// A second `add` of the same name replaces rather than duplicating, so the
+/// command is idempotent and the entry keeps its place among its neighbours.
+fn test_replaces_an_existing_entry() with IO {
+    let once = edited(Edit.add_dependency(sample(), "dependencies", "alpha", "\"2.0\""))
+    assert_true(String.str_contains(once, "alpha = \"2.0\""))
+    assert_true(!String.str_contains(once, "path = \"../alpha\""))
+    assert_eq(line_count(once), line_count(sample()))
+}
+
+/// A manifest with no `[dependencies]` gains one rather than failing.
+fn test_creates_a_missing_table() with IO {
+    let bare = "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n"
+    let result = edited(Edit.add_dependency(bare, "dependencies", "beta", "\"1.0\""))
+    assert_true(String.str_contains(result, "[dependencies]"))
+    assert_true(String.str_contains(result, "beta = \"1.0\""))
+}
+
+/// Dev dependencies go to their own table, and creating it must not disturb
+/// the build dependencies above it.
+fn test_writes_into_the_named_table() with IO {
+    let result = edited(Edit.add_dependency(sample(), "dev-dependencies", "t", "\"1.0\""))
+    assert_true(String.str_contains(result, "[dev-dependencies]"))
+    assert_true(String.str_contains(result, "alpha = { path = \"../alpha\" }"))
+}
+
+// ── removing ───────────────────────────────────────────────────
+
+fn test_removes_the_entry() with IO {
+    let result = edited(Edit.remove_dependency(sample(), "dependencies", "alpha"))
+    assert_true(!String.str_contains(result, "alpha ="))
+    assert_eq(line_count(result), line_count(sample()) - 1)
+}
+
+/// Removing leaves the surrounding comments alone: the note about a
+/// dependency is the user's text, not the entry's property.
+fn test_removing_keeps_comments() with IO {
+    let result = edited(Edit.remove_dependency(sample(), "dependencies", "alpha"))
+    assert_true(String.str_contains(result, "# my project"))
+    assert_true(String.str_contains(result, "# about alpha"))
+}
+
+/// A dependency that is not there is an error rather than a silent success,
+/// which would hide a typo until the build failed for an unrelated reason.
+fn test_removing_an_absent_entry_fails() with IO {
+    assert_true(
+        String.str_contains(
+            edited(Edit.remove_dependency(sample(), "dependencies", "nope")),
+            "is not in",
+        ),
+    )
+}
+
+fn test_removing_from_an_absent_table_fails() with IO {
+    assert_true(
+        String.str_contains(
+            edited(Edit.remove_dependency(sample(), "dev-dependencies", "alpha")),
+            "is not in",
+        ),
+    )
+}
+
+// ── rendered values ────────────────────────────────────────────
+
+fn test_renders_a_git_value_with_a_pin() with IO {
+    assert_eq(
+        Edit.git_value("https://h/r", "tag", "v1.0"),
+        "{ git = \"https://h/r\", tag = \"v1.0\" }",
+    )
+}
+
+/// No pin means the repository's default branch, and an empty `tag = ""` would
+/// mean something different and wrong.
+fn test_renders_a_git_value_without_a_pin() with IO {
+    assert_eq(Edit.git_value("https://h/r", "", ""), "{ git = \"https://h/r\" }")
+}
+
+fn test_renders_a_path_value() with IO {
+    assert_eq(Edit.path_value("../shared"), "{ path = \"../shared\" }")
+}
+
+/// The registry form is a bare string, not a table.
+fn test_renders_a_version_value() with IO {
+    assert_eq(Edit.version_value("^1.2"), "\"^1.2\"")
+}
+
+// ── round trip ─────────────────────────────────────────────────
+
+/// Adding then removing returns the original text byte for byte.
+///
+/// The strongest statement of the module's contract: an edit and its inverse
+/// leave no trace, so nothing is being quietly normalised along the way.
+fn test_add_then_remove_restores_the_original() with IO {
+    let added = edited(Edit.add_dependency(sample(), "dependencies", "beta", "\"1.0\""))
+    assert_eq(edited(Edit.remove_dependency(added, "dependencies", "beta")), sample())
+}

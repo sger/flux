@@ -14,7 +14,7 @@ import Flume.Home as Home
 import Flume.Plan as Plan
 import Flume.Plan exposing (Outcome)
 import Flume.Lock as Lock
-import Flume.Lock exposing (Lock, Entry)
+import Flume.Lock exposing (Lock, Entry, LockedGit)
 import Flume.Index as Index
 import Flume.Index exposing (Published)
 import Flume.Version as Version
@@ -42,6 +42,32 @@ import Flume.Fail as Fail
 /// Match arms in Flux take an expression, not a block, so the walk below is
 /// split into small helpers rather than written as nested `match` + `let`.
 module Flume.Roots {
+
+    /// The lockfile pins, plus what the caller allows the resolution to do.
+    ///
+    /// Bundled into one record because they travel together through every
+    /// step of the walk: each git dependency needs its pin, and needs to know
+    /// whether it may reach the network to resolve one it lacks.
+    public data Pins {
+        Pins {
+            locked: List<(String, String)>,
+            offline: Bool,
+            frozen: Bool,
+        }
+    }
+
+    fn pins_locked(p: Pins) -> List<(String, String)> {
+        match p { Pins { locked, offline: _, frozen: _ } -> locked }
+    }
+
+    fn pins_offline(p: Pins) -> Bool {
+        match p { Pins { locked: _, offline, frozen: _ } -> offline }
+    }
+
+    /// Whether the lockfile must already answer the manifest.
+    fn pins_frozen(p: Pins) -> Bool {
+        match p { Pins { locked: _, offline: _, frozen } -> frozen }
+    }
 
     /// One resolved package: the namespace it owns and the directory its
     /// modules live under.
@@ -85,19 +111,27 @@ module Flume.Roots {
     ///
     /// `seen` carries the package directories already visited so a dependency
     /// cycle terminates instead of recursing forever.
-    fn resolve_from(dir: String, seen: List<String>) -> Result<List<Root>, String> with IO {
+    fn resolve_from(
+        dir: String,
+        seen: List<String>,
+        locked: Pins,
+    ) -> Result<List<Root>, String> with IO {
         if List.contains(seen, dir) {
             Ok([])
         } else {
-            read_manifest(dir, seen)
+            read_manifest(dir, seen, locked)
         }
     }
 
-    fn read_manifest(dir: String, seen: List<String>) -> Result<List<Root>, String> with IO {
+    fn read_manifest(
+        dir: String,
+        seen: List<String>,
+        locked: Pins,
+    ) -> Result<List<Root>, String> with IO {
         let manifest_path = Path.join(dir, "flux.toml")
         match Fs.read_file(manifest_path) {
             Err(_) -> Err("cannot read " + manifest_path),
-            Ok(text) -> parse_manifest(text, manifest_path, dir, seen),
+            Ok(text) -> parse_manifest(text, manifest_path, dir, seen, locked),
         }
     }
 
@@ -106,10 +140,11 @@ module Flume.Roots {
         manifest_path: String,
         dir: String,
         seen: List<String>,
+        locked: Pins,
     ) -> Result<List<Root>, String> with IO {
         match Manifest.parse(text) {
             Err(_) -> Err("cannot parse " + manifest_path),
-            Ok(manifest) -> walk_manifest(manifest, dir, seen),
+            Ok(manifest) -> walk_manifest(manifest, dir, seen, locked),
         }
     }
 
@@ -117,9 +152,10 @@ module Flume.Roots {
         manifest: Manifest,
         dir: String,
         seen: List<String>,
+        locked: Pins,
     ) -> Result<List<Root>, String> with IO {
         let own = own_root(manifest, dir)
-        resolve_deps(Manifest.manifest_deps(manifest), dir, [dir | seen], [own])
+        resolve_deps(Manifest.manifest_deps(manifest), dir, [dir | seen], [own], locked)
     }
 
     /// Walk a dependency list, accumulating roots.
@@ -137,10 +173,11 @@ module Flume.Roots {
         base: String,
         seen: List<String>,
         acc: List<Root>,
+        locked: Pins,
     ) -> Result<List<Root>, String> with IO {
         match deps {
             [] -> Ok(acc),
-            [dep | rest] -> resolve_dep(dep, rest, base, seen, acc),
+            [dep | rest] -> resolve_dep(dep, rest, base, seen, acc, locked),
         }
     }
 
@@ -150,15 +187,17 @@ module Flume.Roots {
         base: String,
         seen: List<String>,
         acc: List<Root>,
+        locked: Pins,
     ) -> Result<List<Root>, String> with IO {
         if Manifest.dep_is_dev(dep) {
-            resolve_deps(rest, base, seen, acc)
+            resolve_deps(rest, base, seen, acc, locked)
         } else {
             match Manifest.dep_source(dep) {
-                FromRegistry(_) -> resolve_deps(rest, base, seen, acc),
+                FromRegistry(_) -> resolve_deps(rest, base, seen, acc, locked),
                 FromPath(rel) ->
-                    descend(Path.normalize(Path.join(base, rel)), rest, base, seen, acc),
-                FromGit(source) -> descend_git(source, rest, base, seen, acc),
+                    descend(Path.normalize(Path.join(base, rel)), rest, base, seen, acc, locked),
+                FromGit(source) ->
+                    descend_git(source, Manifest.dep_name(dep), rest, base, seen, acc, locked),
             }
         }
     }
@@ -169,11 +208,12 @@ module Flume.Roots {
         base: String,
         seen: List<String>,
         acc: List<Root>,
+        locked: Pins,
     ) -> Result<List<Root>, String> with IO {
-        match resolve_from(dep_dir, seen) {
+        match resolve_from(dep_dir, seen, locked) {
             Err(message) -> Err(message),
             Ok(found) ->
-                resolve_deps(rest, base, [dep_dir | seen], List.concat([acc, found])),
+                resolve_deps(rest, base, [dep_dir | seen], List.concat([acc, found]), locked),
         }
     }
 
@@ -192,14 +232,44 @@ module Flume.Roots {
     /// them from ahead of time.
     fn descend_git(
         source: GitSource,
+        name: String,
         rest: List<Dep>,
         base: String,
         seen: List<String>,
         acc: List<Root>,
+        locked: Pins,
     ) -> Result<List<Root>, String> with IO {
-        match Git.fetch(source) {
+        match fetch_for(source, name, locked) {
             Err(message) -> Err(message),
-            Ok(checkout) -> after_fetch(checkout, rest, base, seen, acc),
+            Ok(checkout) -> after_fetch(checkout, name, rest, base, seen, acc, locked),
+        }
+    }
+
+    /// Fetch a git dependency, honouring `--offline`.
+    fn fetch_for(
+        source: GitSource,
+        name: String,
+        pins: Pins,
+    ) -> Result<Checkout, String> with IO {
+        let pin = lookup(pins_locked(pins), name)
+        if pins_offline(pins) {
+            Git.fetch_offline(source, pin)
+        } else {
+            Git.fetch_locked(source, pin)
+        }
+    }
+
+    /// The commit `flux.lock` recorded for this dependency, if any.
+    fn lookup(locked: List<(String, String)>, name: String) -> Option<String> {
+        match locked {
+            [] -> None,
+            [pair | rest] -> match pair {
+                (found, commit) -> if found == name {
+                    Some(commit)
+                } else {
+                    lookup(rest, name)
+                },
+            },
         }
     }
 
@@ -211,13 +281,42 @@ module Flume.Roots {
     /// stays silent.
     fn after_fetch(
         checkout: Checkout,
+        name: String,
         rest: List<Dep>,
         base: String,
         seen: List<String>,
         acc: List<Root>,
+        locked: Pins,
     ) -> Result<List<Root>, String> with IO {
         let noted = note_fetch(checkout, acc)
-        descend(Git.checkout_dir(checkout), rest, base, seen, noted)
+        let recorded = note_resolved(name, checkout, noted)
+        descend(Git.checkout_dir(checkout), rest, base, seen, recorded, locked)
+    }
+
+    /// Record what this dependency resolved to, for the lockfile.
+    ///
+    /// Carried on the accumulator as a marker root — an empty namespace, which
+    /// no real package has — because the walk already threads one list through
+    /// every step, and a second one would have to be returned back up through
+    /// all of them. `partition_resolved` separates the two at the end.
+    ///
+    /// Recorded for every git dependency, fetched or cached, because the
+    /// lockfile describes the whole resolution rather than the subset that
+    /// happened to need downloading.
+    fn note_resolved(name: String, checkout: Checkout, acc: List<Root>) -> List<Root> {
+        List.concat([acc, [resolved_marker(name, checkout)]])
+    }
+
+    fn resolved_marker(name: String, checkout: Checkout) -> Root {
+        Root {
+            package: name,
+            namespace: "",
+            dir: Git.checkout_url(checkout) + "#" + Git.checkout_commit(checkout),
+        }
+    }
+
+    fn is_resolved_marker(r: Root) -> Bool {
+        root_namespace(r) == ""
     }
 
     /// Report a completed download as it happens.
@@ -373,13 +472,188 @@ module Flume.Roots {
     /// resolved and appended. `Fail` is discharged here, so the public result
     /// is an ordinary `Result`.
     public fn resolve(dir: String) -> Result<List<Root>, String> with IO {
-        gather(dir) handle Fail { fail(resume, message) -> Err(message) }
+        resolve_with(dir, false, false)
     }
 
-    fn gather(dir: String) -> Result<List<Root>, String> with IO, Fail {
-        let paths = Fail.ok_or_abort(resolve_from(dir, []), [])
+    /// Resolve, refusing to reach the network or to change the lockfile.
+    ///
+    /// `offline` forbids fetching anything not already cached; `frozen` makes
+    /// any change to `flux.lock` an error. They are separate because they
+    /// answer different questions — "may this build download?" and "may this
+    /// build decide something new?" — and CI usually wants both.
+    public fn resolve_with(
+        dir: String,
+        offline: Bool,
+        frozen: Bool,
+    ) -> Result<List<Root>, String> with IO {
+        gather(dir, offline, frozen) handle Fail { fail(resume, message) -> Err(message) }
+    }
+
+    fn gather(dir: String, offline: Bool, frozen: Bool) -> Result<List<Root>, String> with IO, Fail {
+        let pins = Pins {
+            locked: git_pins(dir),
+            offline: offline,
+            frozen: frozen,
+        }
+        let walked = Fail.ok_or_abort(resolve_from(dir, [], pins), [])
         let manifest = read_project_manifest(dir)
+        let paths = List.filter(walked, is_package_root)
+        let _lock = write_git_lock(dir, List.filter(walked, is_resolved_marker), pins)
         Ok(List.concat([paths, registry_roots(manifest, dir)]))
+    }
+
+    fn is_package_root(r: Root) -> Bool {
+        !is_resolved_marker(r)
+    }
+
+    /// Write `flux.lock` when the git resolution differs from what it records.
+    ///
+    /// Rewriting unconditionally would touch the file on every build, which
+    /// shows up as a dirty working tree and a spurious diff in every commit.
+    /// The comparison is against the pins read at the start, so a build that
+    /// resolved to exactly what was locked writes nothing.
+    ///
+    /// A failure to write is reported but not fatal: the build itself is
+    /// sound — every dependency is on disk at a known commit — and a
+    /// read-only checkout should still build.
+    fn write_git_lock(
+        dir: String,
+        markers: List<Root>,
+        pins: Pins,
+    ) -> Bool with IO, Fail {
+        if same_resolution(markers, pins_locked(pins)) {
+            false
+        } else if pins_frozen(pins) {
+            Fail.abort(lock_changed_message(markers, pins_locked(pins)), false)
+        } else {
+            persist_git_lock(dir, markers)
+        }
+    }
+
+    /// What `--locked` refuses, named precisely.
+    ///
+    /// "The lockfile is out of date" alone does not say what to fix, so the
+    /// first dependency that disagrees is reported: either it is absent from
+    /// the lock, or it resolved to a different commit than the one recorded.
+    fn lock_changed_message(markers: List<Root>, locked: List<(String, String)>) -> String {
+        match List.filter(markers, \m -> !marker_matches(m, locked)) {
+            [changed | _] -> lock_change_detail(changed, locked),
+            // Every dependency the manifest declares matches, so the lockfile
+            // holds entries for dependencies it no longer declares — the shape
+            // a removed dependency leaves behind.
+            [] -> stale_entries_message(markers, locked),
+        }
+    }
+
+    fn stale_entries_message(markers: List<Root>, locked: List<(String, String)>) -> String {
+        match List.filter(locked, \pair -> !is_declared(pair, markers)) {
+            [] -> "`flux.lock` does not match `flux.toml`, and `--locked` forbids updating it",
+            [stale | _] -> "`--locked` was given, but `" + pair_name(stale)
+                + "` is in `flux.lock` and is no longer a dependency",
+        }
+    }
+
+    fn is_declared(pair: (String, String), markers: List<Root>) -> Bool {
+        List.any(markers, \m -> root_package(m) == pair_name(pair))
+    }
+
+    fn pair_name(pair: (String, String)) -> String {
+        match pair { (name, _) -> name }
+    }
+
+    fn lock_change_detail(marker: Root, locked: List<(String, String)>) -> String {
+        let name = root_package(marker)
+        match lookup(locked, name) {
+            None -> "`--locked` was given, but `" + name
+                + "` is not in `flux.lock`; run without `--locked` to record it",
+            Some(commit) -> "`--locked` was given, but `" + name
+                + "` resolves to " + marker_commit(marker)
+                + " rather than the locked " + commit,
+        }
+    }
+
+    fn persist_git_lock(dir: String, markers: List<Root>) -> Bool with IO {
+        match Home.write_lock(dir, Lock.lock(Lock.default_format(), git_entries(markers))) {
+            Err(_) -> false,
+            Ok(_) -> true,
+        }
+    }
+
+    /// Whether every marker matches the commit already locked for it.
+    fn same_resolution(markers: List<Root>, locked: List<(String, String)>) -> Bool {
+        List.length(markers) == List.length(locked)
+            && List.all(markers, \m -> marker_matches(m, locked))
+    }
+
+    fn marker_matches(marker: Root, locked: List<(String, String)>) -> Bool {
+        match lookup(locked, root_package(marker)) {
+            None -> false,
+            Some(commit) -> commit == marker_commit(marker),
+        }
+    }
+
+    /// One `[[package]]` entry per resolved git dependency.
+    fn git_entries(markers: List<Root>) -> List<Entry> {
+        List.map(markers, git_entry)
+    }
+
+    fn git_entry(marker: Root) -> Entry {
+        Lock.entry(
+            root_package(marker),
+            Version.version(0, 0, 0),
+            LockedGit { url: marker_url(marker), commit: marker_commit(marker) },
+            None,
+            [],
+        )
+    }
+
+    /// A marker's `dir` holds `<url>#<commit>`; these split it back apart.
+    fn marker_url(marker: Root) -> String {
+        match split_marker(root_dir(marker)) { (url, _) -> url }
+    }
+
+    fn marker_commit(marker: Root) -> String {
+        match split_marker(root_dir(marker)) { (_, commit) -> commit }
+    }
+
+    fn split_marker(text: String) -> (String, String) {
+        split_marker_from(text, len(text) - 1)
+    }
+
+    /// Scans from the right: a URL may contain `#`, but the commit cannot, so
+    /// the last one is the separator.
+    fn split_marker_from(text: String, i: Int) -> (String, String) {
+        if i < 0 {
+            (text, "")
+        } else if String.string_slice(text, i, i + 1) == "#" {
+            (String.string_slice(text, 0, i), String.string_slice(text, i + 1, len(text)))
+        } else {
+            split_marker_from(text, i - 1)
+        }
+    }
+
+    /// The commits `flux.lock` pins each git dependency to.
+    ///
+    /// Read once, before the walk, so every git dependency in the graph is
+    /// resolved against the same lockfile. A missing or unreadable lockfile
+    /// yields no pins rather than failing: the first build of a project has
+    /// none, and that is the ordinary case rather than an error.
+    fn git_pins(dir: String) -> List<(String, String)> with IO {
+        match Home.read_lock(dir) {
+            Err(_) -> [],
+            Ok(None) -> [],
+            Ok(Some(found)) -> git_pins_of(Lock.lock_packages(found)),
+        }
+    }
+
+    fn git_pins_of(entries: List<Entry>) -> List<(String, String)> {
+        match entries {
+            [] -> [],
+            [head | rest] -> match Lock.origin_commit(Lock.entry_origin(head)) {
+                None -> git_pins_of(rest),
+                Some(commit) -> [(Lock.entry_name(head), commit) | git_pins_of(rest)],
+            },
+        }
     }
 
     fn read_project_manifest(dir: String) -> Manifest with IO, Fail {
@@ -427,14 +701,38 @@ module Flume.Roots {
     /// argument, or `.` when none is supplied.
     public fn main() with IO {
         let args = Env.args()
-        report(resolve(project_dir(args)))
+        report(
+            resolve_with(
+                project_dir(args),
+                has_flag(args, "--offline"),
+                has_flag(args, "--locked"),
+            ),
+        )
+    }
+
+    /// Whether `flag` appears in the argument vector.
+    ///
+    /// `--frozen` is expanded by the caller into both flags rather than being
+    /// a third state here, so this module never has to reason about one flag
+    /// implying another.
+    fn has_flag(args: Array<String>, flag: String) -> Bool {
+        List.contains(Array.to_list(args), flag)
     }
 
     /// The project directory: the first argument, or the working directory.
     fn project_dir(args: Array<String>) -> String {
-        match Array.get(args, 1) {
-            Some(dir) -> dir,
-            None -> ".",
+        first_non_flag(Array.to_list(args), 0)
+    }
+
+    /// The first argument that is not a flag, skipping the program name.
+    fn first_non_flag(args: List<String>, index: Int) -> String {
+        match args {
+            [] -> ".",
+            [head | rest] -> if index == 0 || String.starts_with(head, "--") {
+                first_non_flag(rest, index + 1)
+            } else {
+                head
+            },
         }
     }
 

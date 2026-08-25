@@ -8,7 +8,7 @@
 // Pure, so no fixture directory and no cleanup. `with IO` is for `assert_*`.
 
 import Flume.Manifest as Manifest
-import Flume.Manifest exposing (Source, Dep, Manifest, Package, Bin)
+import Flume.Manifest exposing (Source, Dep, Manifest, Package, Bin, FromGit, GitSource, GitPin, GitRev, GitTag, GitBranch, GitDefault)
 import Flume.Parse as Parse
 import Flow.List as List
 import Flow.Array as Array
@@ -65,6 +65,17 @@ fn describe_source(source: Source) -> String {
     match source {
         FromPath(path) -> "path:" + path,
         FromRegistry(requirement) -> "registry:" + requirement,
+        FromGit(git) -> "git:" + Manifest.git_source_url(git)
+            + "@" + describe_pin(Manifest.git_source_pin(git)),
+    }
+}
+
+fn describe_pin(pin: GitPin) -> String {
+    match pin {
+        GitRev(rev) -> "rev/" + rev,
+        GitTag(tag) -> "tag/" + tag,
+        GitBranch(branch) -> "branch/" + branch,
+        GitDefault -> "default",
     }
 }
 
@@ -168,6 +179,47 @@ fn test_reads_a_registry_dependency_in_table_form() with IO {
     assert_eq(
         field(manifest_with("[dependencies]\na = { version = \"1.0\" }\n"), deps_of),
         "a=registry:1.0",
+    )
+}
+
+// Git dependencies are how a third-party package is obtained while there is
+// no registry: the four pin forms are the whole surface.
+fn test_reads_a_git_dependency_with_a_tag() with IO {
+    assert_eq(
+        field(
+            manifest_with("[dependencies]\na = { git = \"https://h/r\", tag = \"v1.0\" }\n"),
+            deps_of,
+        ),
+        "a=git:https://h/r@tag/v1.0",
+    )
+}
+
+fn test_reads_a_git_dependency_with_a_branch() with IO {
+    assert_eq(
+        field(
+            manifest_with("[dependencies]\na = { git = \"https://h/r\", branch = \"main\" }\n"),
+            deps_of,
+        ),
+        "a=git:https://h/r@branch/main",
+    )
+}
+
+fn test_reads_a_git_dependency_with_a_rev() with IO {
+    assert_eq(
+        field(
+            manifest_with("[dependencies]\na = { git = \"https://h/r\", rev = \"abc123\" }\n"),
+            deps_of,
+        ),
+        "a=git:https://h/r@rev/abc123",
+    )
+}
+
+// No pin means the repository's default branch, which is the form a quick
+// dependency on a repository's tip is written in.
+fn test_reads_a_git_dependency_with_no_pin() with IO {
+    assert_eq(
+        field(manifest_with("[dependencies]\na = { git = \"https://h/r\" }\n"), deps_of),
+        "a=git:https://h/r@default",
     )
 }
 
@@ -290,6 +342,26 @@ fn test_a_dependency_with_neither_path_nor_version_is_rejected() with IO {
     assert_eq(
         kind_of(manifest_with("[dependencies]\na = {}\n")),
         "incomplete-dependency",
+    )
+}
+
+// `git` is a third source alongside `path` and `version`, and the same
+// two-sources-of-truth argument applies to any pair of them.
+fn test_a_dependency_with_both_git_and_path_is_rejected() with IO {
+    assert_eq(
+        kind_of(manifest_with("[dependencies]\na = { git = \"u\", path = \"p\" }\n")),
+        "conflicting-dependency-source",
+    )
+}
+
+// A pin says which commit to build. Two pins name two, and picking one
+// silently would build something the manifest does not unambiguously ask for.
+fn test_a_git_dependency_with_two_pins_is_rejected() with IO {
+    assert_eq(
+        kind_of(
+            manifest_with("[dependencies]\na = { git = \"u\", tag = \"v1\", branch = \"m\" }\n"),
+        ),
+        "conflicting-git-pin",
     )
 }
 
