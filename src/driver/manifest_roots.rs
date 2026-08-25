@@ -10,10 +10,12 @@
 //! child invocation must not try to resolve a manifest of its own. The
 //! `FLUX_SKIP_MANIFEST_ENV` guard breaks that one level of recursion.
 
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::bytecode::bytecode_cache::hash_bytes;
+use crate::driver::spinner::Spinner;
 use crate::syntax::module_graph::ModuleRoot;
 
 /// Set on the child process that runs the manifest resolver. While it is set,
@@ -81,17 +83,39 @@ pub(crate) fn resolve_project_roots(
     let shim = flume_shim("Flume.Roots").ok()?;
     let exe = std::env::current_exe().ok()?;
 
-    let output = Command::new(exe)
+    let mut child = Command::new(exe)
         .arg(&shim)
+        .arg("--quiet")
         .arg("--cache-dir")
         .arg(cache_dir)
         .arg("--")
         .arg(project_dir)
         .env(FLUX_SKIP_MANIFEST_ENV, "1")
         .env("NO_COLOR", "1")
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .ok()?;
 
+    // Read stdout as it arrives rather than after the child exits: a git
+    // dependency announces itself before cloning, and a download that takes
+    // seconds must say so while it is happening. Records accumulate here and
+    // are parsed once the stream ends.
+    let mut records = String::new();
+    let mut spinner: Option<Spinner> = None;
+    if let Some(stdout) = child.stdout.take() {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if !report_progress(&line, &mut spinner) {
+                records.push_str(&line);
+                records.push('\n');
+            }
+        }
+    }
+    // A resolver that failed mid-fetch never printed the matching `fetched`
+    // line, so the spinner is still running. Dropping it erases the line.
+    drop(spinner);
+
+    let output = child.wait_with_output().ok()?;
     if !output.status.success() {
         return Some(Err(format!(
             "could not run the manifest resolver: {}",
@@ -99,11 +123,48 @@ pub(crate) fn resolve_project_roots(
         )));
     }
 
-    let resolved = parse_records(&String::from_utf8_lossy(&output.stdout));
+    let resolved = parse_records(&records);
     if let Ok(roots) = &resolved {
         write_cached_roots(&cache_file, project_dir, roots);
     }
     Some(resolved)
+}
+
+/// Render one streamed progress line, reporting whether it was one.
+///
+/// Progress is printed as it arrives rather than parsed with the records: it
+/// describes work in flight, and a download that takes seconds has to say so
+/// while it is happening. A line this does not recognise is a record and is
+/// returned to the caller to accumulate.
+fn report_progress(line: &str, spinner: &mut Option<Spinner>) -> bool {
+    let line = unquote_line(line.trim());
+    if let Some(url) = line.strip_prefix("fetching\t") {
+        eprintln!("{:>12} {url}", "Updating");
+        // Held across the clone, which is the whole silent stretch: the child
+        // prints nothing again until the download lands.
+        *spinner = Some(Spinner::start("fetching…"));
+        return true;
+    }
+    if let Some(rest) = line.strip_prefix("fetched\t") {
+        // Stop before printing, so the erase cannot land on top of the line
+        // that reports the result.
+        spinner.take();
+        let (url, commit) = rest.split_once('\t').unwrap_or((rest, ""));
+        let short = &commit[..commit.len().min(7)];
+        eprintln!("{:>12} {url} ({short})", "Fetched");
+        return true;
+    }
+    false
+}
+
+/// Strip `print`'s wrapping quotes from a single streamed line.
+///
+/// Each record arrives as its own `print`, so the quotes wrap the line rather
+/// than the whole stream, and the tab separators survive unescaped.
+fn unquote_line(line: &str) -> &str {
+    line.strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+        .unwrap_or(line)
 }
 
 /// Where the resolved roots for `project_dir` are cached.

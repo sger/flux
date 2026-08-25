@@ -61,7 +61,8 @@ pub fn show_native_cache_info(flags: &DriverFlags) -> bool {
     show_native_cache_info_for_path(path, &flags.input.roots, flags.cache.cache_dir.as_deref())
 }
 
-/// Removes the resolved driver cache directory.
+/// Removes the resolved driver cache directory, and with `--deps` the
+/// downloaded git dependencies too.
 pub fn clean(flags: &DriverFlags) {
     let entry = flags
         .input
@@ -69,15 +70,40 @@ pub fn clean(flags: &DriverFlags) {
         .as_deref()
         .map_or(Path::new("."), Path::new);
     let layout = cache_paths::resolve_cache_layout(entry, flags.cache.cache_dir.as_deref());
-    let root = layout.root();
+    remove_tree(layout.root(), "cache");
+    if flags.cache.clean_deps {
+        remove_tree(&git_checkouts_dir(), "git checkouts");
+    }
+}
+
+/// Removes one cache tree, reporting what happened either way.
+///
+/// A missing directory is reported rather than passed over in silence: the
+/// point of running `clean` is to know the state afterwards, and "nothing was
+/// there" is a different answer from "removed it".
+fn remove_tree(root: &Path, what: &str) {
     if root.exists() {
         match std::fs::remove_dir_all(root) {
-            Ok(()) => println!("Removed cache: {}", root.display()),
-            Err(e) => eprintln!("Failed to remove cache {}: {e}", root.display()),
+            Ok(()) => println!("Removed {what}: {}", root.display()),
+            Err(e) => eprintln!("Failed to remove {what} {}: {e}", root.display()),
         }
     } else {
-        println!("No cache found at {}", root.display());
+        println!("No {what} found at {}", root.display());
     }
+}
+
+/// Where git dependencies are checked out.
+///
+/// Mirrors `Flume.Home.dir()`: `$FLUX_HOME` wins, then `~/.flux`, then `.flux`
+/// beside the working directory. The two must agree — a `clean` that resolved
+/// the path differently from the fetcher would report success while leaving
+/// the real checkouts in place.
+fn git_checkouts_dir() -> PathBuf {
+    let home = std::env::var_os("FLUX_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::home_dir().map(|h| h.join(".flux")))
+        .unwrap_or_else(|| PathBuf::from(".flux"));
+    home.join("git").join("checkouts")
 }
 
 /// Prints the serialized module interface metadata for one `.flxi` file.

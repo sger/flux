@@ -8,6 +8,16 @@ Flux CLI
 Usage:
   flux <file.flx>
   flux run <file.flx>
+
+Packages (in a directory holding a flux.toml):
+  flux new <name> [--lib]     Create a package in a new directory
+  flux init [--lib]           Create a package in the current directory
+  flux build                  Compile the package and its dependencies
+  flux run                    Build and run the package
+  flux test                   Run the package's test_* functions
+  flux check                  Report errors without running
+
+Other:
   flux tokens <file.flx>
   flux bytecode <file.flx>
   flux lint <file.flx>
@@ -18,7 +28,7 @@ Usage:
   flux module-cache-info <file.flx>
   flux native-cache-info <file.flx>
   flux interface-info <file.flxi>
-  flux clean [<file.flx>]
+  flux clean [--deps] [<file.flx>]
   flux analyze-free-vars <file.flx>
   flux analyze-tail-calls <file.flx>
   flux parity-check <file-or-dir> [--ways vm,llvm] [--root <path> ...]
@@ -27,12 +37,14 @@ Usage:
 
 Flags:
   --verbose          Show cache status (hit/miss/store)
+  --quiet            Suppress per-module compile progress lines
   --trace            Print VM instruction trace
   --trace-aether     Print Aether report plus backend/execution path, then run
   --test             Run test_* functions and report results
   --test-filter <s>  Only run tests whose names contain <s>
   --leak-detector    Print approximate allocation stats after run
   --no-cache         Disable bytecode cache for this run
+  --deps             With `clean`: also remove downloaded git dependencies
   --cache-dir <dir>  Override cache root (default: nearest Cargo.toml target/flux, else .flux/cache)
   --optimize, -O     Enable AST optimizations (desugar + constant fold)
   --analyze, -A      Enable analysis passes (free vars + tail calls)

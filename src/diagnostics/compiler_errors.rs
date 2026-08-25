@@ -259,7 +259,7 @@ pub const MANIFEST_UNRESOLVED: ErrorCode = ErrorCode {
     title: "MANIFEST UNRESOLVED",
     error_type: ErrorType::Compiler,
     message: "Could not resolve the project manifest: {}.",
-    hint: Some("Check `flux.toml` and the path dependencies it declares."),
+    hint: Some("Check `flux.toml` and the dependencies it declares."),
 };
 
 /// A package declared a module outside the namespace it owns. Reported at the

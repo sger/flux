@@ -18,6 +18,7 @@ pub(crate) mod run_program;
 pub(crate) mod run_tests;
 pub mod session;
 pub(crate) mod shared;
+pub(crate) mod spinner;
 pub(crate) mod support;
 #[cfg(test)]
 pub(crate) mod test_support;
