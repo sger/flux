@@ -1,4 +1,5 @@
 import Flume.Roots as Roots
+import Flume.Roots exposing (Change)
 import Flume.Manifest as Manifest
 import Flume.Manifest exposing (Manifest, Bin, Dep, FromPath, FromRegistry, FromGit, GitSource, GitRev, GitTag, GitBranch, GitDefault, GitPin)
 import Flume.Lock as Lock
@@ -522,6 +523,67 @@ module Flume.Cli {
         lines |> List.to_array |> String.join("\n")
     }
 
+//| update
+
+    /// `flux update [-p <name>]...`
+    ///
+    /// Re-resolve the dependencies whose pins the lockfile holds, and record
+    /// what they moved to. Without `-p` every dependency is released; with it
+    /// only the named ones are, so the rest stay exactly where the lockfile
+    /// put them — a conservative update, which is what makes the command
+    /// usable on a graph one dependency of which needs to move.
+    ///
+    /// The report names the old and new commits, because "updated" without
+    /// them cannot be checked against the diff `flux.lock` now shows.
+    public fn update(dir: String, args: Array<String>) -> Outcome with IO {
+        report_update(Roots.update(dir, package_flags(args)))
+    }
+
+    fn report_update(updated: Result<List<Change>, String>) -> Outcome {
+        match updated {
+            Err(message) -> fail(message),
+            Ok([]) -> ok("everything is up to date"),
+            Ok(changes) -> ok(join_lines(List.map(changes, update_line))),
+        }
+    }
+
+    fn update_line(change: Change) -> String {
+        let name = Roots.change_package(change)
+        let after = short(Roots.change_after(change))
+        match Roots.change_before(change) {
+            None -> "locked " + name + " at " + after,
+            Some(before) -> "updated " + name + " " + short(before) + " -> " + after,
+        }
+    }
+
+    /// Every `-p <name>` in the argument vector.
+    ///
+    /// Repeatable, so `flux update -p a -p b` updates exactly those two: the
+    /// alternative would be one name per invocation, which re-resolves the
+    /// whole graph once per package and can settle them differently than
+    /// asking for both at once would.
+    fn package_flags(args: Array<String>) -> List<String> {
+        values_after(Array.to_list(args), "-p")
+    }
+
+    fn values_after(args: List<String>, flag: String) -> List<String> {
+        match args {
+            [] -> [],
+            [head | rest] -> if head == flag {
+                take_value(rest, flag)
+            } else {
+                values_after(rest, flag)
+            },
+        }
+    }
+
+    fn take_value(rest: List<String>, flag: String) -> List<String> {
+        match rest {
+            [] -> [],
+            [value | tail] -> [value | values_after(tail, flag)],
+        }
+    }
+
 //| add and remove
 
     /// What `flux add` was asked to record.
@@ -752,6 +814,8 @@ module Flume.Cli {
             report(remove(dir, args))
         } else if command == "tree" {
             report(tree(dir))
+        } else if command == "update" {
+            report(update(dir, args))
         } else if command == "entry" {
             report_entry(entry_file(dir))
         } else {

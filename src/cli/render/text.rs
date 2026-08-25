@@ -20,6 +20,7 @@ Packages (in a directory holding a flux.toml):
   flux add <name> --git <url> [--tag|--branch|--rev <ref>]
   flux add <name> --path <dir> | --version <req> [--dev]
   flux remove <name> [--dev]  Drop a dependency from flux.toml
+  flux update [-p <name>]     Re-resolve dependencies and rewrite flux.lock
 
 Other:
   flux tokens <file.flx>
