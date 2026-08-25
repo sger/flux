@@ -53,8 +53,15 @@ struct NativeParallelModuleResult {
     miss_reason: Option<String>,
 }
 
-fn native_cache_hit_is_usable(interface_present: bool, _module_kind: ModuleKind) -> bool {
-    interface_present
+fn native_cache_hit_is_usable(
+    interface_present: bool,
+    _module_kind: ModuleKind,
+    is_entry_module: bool,
+) -> bool {
+    // The entry module is never imported by another module, so it has no
+    // interface to load. Its native object is still fully reusable between
+    // the per-test child processes used by the native test runner.
+    interface_present || is_entry_module
 }
 
 fn native_miss_reason(
@@ -109,7 +116,11 @@ fn compile_parallel_native_module(
         ) {
             Ok(object_path) => {
                 let interface = load_cached_interface(request.cache_layout.root(), &node.path).ok();
-                if native_cache_hit_is_usable(interface.is_some(), node.kind) {
+                if native_cache_hit_is_usable(
+                    interface.is_some(),
+                    node.kind,
+                    request.is_entry_module,
+                ) {
                     return NativeParallelModuleResult {
                         path: node.path.clone(),
                         object_path,
@@ -554,11 +565,20 @@ mod tests {
     use crate::syntax::module_graph::ModuleKind;
 
     #[test]
-    fn native_cache_hit_requires_interface_for_every_module() {
-        assert!(native_cache_hit_is_usable(true, ModuleKind::FlowStdlib));
-        assert!(!native_cache_hit_is_usable(false, ModuleKind::FlowStdlib));
-        assert!(native_cache_hit_is_usable(true, ModuleKind::User));
-        assert!(!native_cache_hit_is_usable(false, ModuleKind::User));
+    fn native_cache_hit_requires_interface_except_for_entry_module() {
+        assert!(native_cache_hit_is_usable(
+            true,
+            ModuleKind::FlowStdlib,
+            false
+        ));
+        assert!(!native_cache_hit_is_usable(
+            false,
+            ModuleKind::FlowStdlib,
+            false
+        ));
+        assert!(native_cache_hit_is_usable(true, ModuleKind::User, false));
+        assert!(!native_cache_hit_is_usable(false, ModuleKind::User, false));
+        assert!(native_cache_hit_is_usable(false, ModuleKind::User, true));
     }
 
     #[test]

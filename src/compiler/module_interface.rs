@@ -775,6 +775,28 @@ pub fn load_valid_interface(
     Ok(interface)
 }
 
+/// Collect `constructor Symbol -> type metadata` for every `public data`
+/// declaration in `program`, with transparent aliases expanded in field types.
+///
+/// The interface path ([`collect_public_ctor_types`]) keys by name because a
+/// `.flxi` is serialized across sessions and its `Symbol`s must be remapped on
+/// load. A dependency compiled in *this* run has no interface to read back —
+/// its AST is already in-session — so importers seed inference straight from
+/// the program, keyed by the live `Symbol`. Without this the KI-014 metadata
+/// reaches an importer only through a warm cache, and a fresh build infers an
+/// imported constructor's payload as an unresolved variable (KI-022).
+pub fn collect_dependency_ctor_types(
+    program: &crate::syntax::program::Program,
+    interner: &Interner,
+) -> std::collections::HashMap<Symbol, PublicCtorTypeEntry> {
+    let mut by_name = collect_public_ctor_types(program, interner);
+    expand_aliases_in_ctor_types(&mut by_name, program);
+    by_name
+        .into_iter()
+        .filter_map(|(name, entry)| interner.lookup(&name).map(|sym| (sym, entry)))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;

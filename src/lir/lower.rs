@@ -20,6 +20,20 @@ pub struct ImportedNativeSymbol {
     pub symbol: String,
     pub arity: usize,
     pub is_value: bool,
+    /// True when calling this imported function can suspend — its declared
+    /// effect row carries an effect that yields rather than taking the direct
+    /// path.
+    ///
+    /// A yield unwinds by returning `FLUX_YIELD_SENTINEL` up the stack, so
+    /// every caller must test `flux_is_yielding` after the call and propagate
+    /// instead of using the result. `cont_split` decides which call sites get
+    /// that check, and for a cross-module call it has only the symbol name to
+    /// go on — `direct_async_func_ids` reasons over `LirFuncId`s, which are
+    /// module-local. Without this bit the only cross-module suspension it
+    /// could see was a hardcoded `Flow_Async_*` allowlist, so a user-defined
+    /// effect performed in another module miscompiled: the caller ran on with
+    /// the sentinel in hand and dereferenced it (KI-034).
+    pub can_suspend: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -173,7 +187,10 @@ fn native_builtin_effect_uses_direct_path(
         match name {
             crate::syntax::builtin_effects::CONSOLE
             | crate::syntax::builtin_effects::FILESYSTEM
-            | crate::syntax::builtin_effects::STDIN => {
+            | crate::syntax::builtin_effects::STDIN
+            | crate::syntax::builtin_effects::ENV
+            | crate::syntax::builtin_effects::PROCESS
+            | crate::syntax::builtin_effects::IO => {
                 parameterized_name == crate::syntax::builtin_effects::IO
             }
             crate::syntax::builtin_effects::CLOCK => {
@@ -194,17 +211,43 @@ fn native_builtin_effect_uses_direct_path(
             | crate::syntax::builtin_effects::FILESYSTEM
             | crate::syntax::builtin_effects::STDIN
             | crate::syntax::builtin_effects::CLOCK
+            | crate::syntax::builtin_effects::ENV
+            | crate::syntax::builtin_effects::PROCESS
+            | crate::syntax::builtin_effects::IO
+            | crate::syntax::builtin_effects::TIME
     )
 }
 
-fn effect_expr_contains_async(
+/// True when a function declaring this effect row can suspend, so its indirect
+/// call sites must be marked `async_capable` and get yield checks.
+///
+/// Every effect yields except the six that lower to plain C calls always
+/// returning a real value (`native_builtin_effect_uses_direct_path`). This used
+/// to test only for `Async`, which meant a user-defined effect left its callers
+/// marked `async_capable: false` — so `cont_split` skipped them and the yield
+/// sentinel escaped into straight-line code (KI-034).
+///
+/// Over-reporting only costs a redundant `flux_is_yielding` test;
+/// under-reporting corrupts memory, so an unresolvable name counts as
+/// suspending.
+fn effect_expr_can_suspend(
     effect: &crate::syntax::effect_expr::EffectExpr,
     interner: Option<&Interner>,
 ) -> bool {
     effect.normalized_concrete_names().into_iter().any(|name| {
-        interner
-            .and_then(|i| i.try_resolve(name))
-            .is_some_and(|resolved| resolved == crate::syntax::builtin_effects::ASYNC)
+        !matches!(
+            interner.and_then(|i| i.try_resolve(name)),
+            Some(
+                crate::syntax::builtin_effects::CONSOLE
+                    | crate::syntax::builtin_effects::FILESYSTEM
+                    | crate::syntax::builtin_effects::STDIN
+                    | crate::syntax::builtin_effects::CLOCK
+                    | crate::syntax::builtin_effects::ENV
+                    | crate::syntax::builtin_effects::PROCESS
+                    | crate::syntax::builtin_effects::IO
+                    | crate::syntax::builtin_effects::TIME
+            )
+        )
     })
 }
 
@@ -218,7 +261,7 @@ fn collect_async_effect_function_names(
             CoreTopLevelItem::Function { name, effects, .. }
                 if effects
                     .iter()
-                    .any(|effect| effect_expr_contains_async(effect, interner)) =>
+                    .any(|effect| effect_expr_can_suspend(effect, interner)) =>
             {
                 out.insert(*name);
             }
@@ -504,6 +547,18 @@ pub fn lower_program_with_interner_and_externs(
 ) -> LirProgram {
     let mut lir = LirProgram::new();
 
+    // Record which imported symbols can suspend, from the declared effect row
+    // of each import. `cont_split` needs this to decide whether a cross-module
+    // call site gets a yield check; `LirFuncId`-based reasoning cannot see past
+    // the module boundary (KI-034).
+    if let Some(externs) = extern_symbols {
+        lir.suspending_extern_symbols = externs
+            .values()
+            .filter(|sym| sym.can_suspend)
+            .map(|sym| sym.symbol.clone())
+            .collect();
+    }
+
     // Build module-qualified names from the CoreTopLevelItem tree.
     let qualified_names = build_qualified_names(program, interner, entry_qualifier);
 
@@ -657,6 +712,18 @@ pub fn lower_aether_program_with_interner_and_externs(
 ) -> LirProgram {
     let core = program.as_core();
     let mut lir = LirProgram::new();
+
+    // Record which imported symbols can suspend, from the declared effect row
+    // of each import. `cont_split` needs this to decide whether a cross-module
+    // call site gets a yield check; `LirFuncId`-based reasoning cannot see past
+    // the module boundary (KI-034).
+    if let Some(externs) = extern_symbols {
+        lir.suspending_extern_symbols = externs
+            .values()
+            .filter(|sym| sym.can_suspend)
+            .map(|sym| sym.symbol.clone())
+            .collect();
+    }
 
     let qualified_names = build_qualified_names(core, interner, entry_qualifier);
     // Compiler-wide tags first — see the note in
@@ -1064,6 +1131,23 @@ impl<'a> FnLower<'a> {
     fn resolve_external_symbol(&self, source_name: &str) -> Option<ImportedNativeSymbol> {
         self.extern_symbols
             .and_then(|symbols| symbols.get(source_name).cloned())
+    }
+
+    /// Resolve an explicitly qualified imported member by its source-level
+    /// module binding (for example, `Json.as_string`). This lookup is
+    /// authoritative: a same-named local binder must not capture a qualified
+    /// access before the imported symbol gets a chance to resolve.
+    fn resolve_qualified_external_symbol(
+        &self,
+        object: crate::syntax::Identifier,
+        member: crate::syntax::Identifier,
+    ) -> Option<ImportedNativeSymbol> {
+        let qualified = format!(
+            "{}.{}",
+            self.resolve_name(object),
+            self.resolve_name(member)
+        );
+        self.resolve_external_symbol(&qualified)
     }
 
     fn emit_extern_value_getter(&mut self, symbol: String) -> LirVar {
@@ -1932,6 +2016,25 @@ impl<'a> FnLower<'a> {
                     }
                 }
 
+                // An explicitly qualified imported member is authoritative.
+                // Resolve it before the bare-name binder map so a local
+                // `as_string` cannot capture `Json.as_string` in native mode.
+                if let CoreExpr::Var { var, .. } = object.as_ref()
+                    && let Some(extern_fn) =
+                        self.resolve_qualified_external_symbol(var.name, *member)
+                {
+                    if extern_fn.is_value {
+                        return self.emit_extern_value_getter(extern_fn.symbol);
+                    }
+                    let dst = self.fresh_var();
+                    self.emit(LirInstr::MakeExternClosure {
+                        dst,
+                        symbol: extern_fn.symbol,
+                        arity: extern_fn.arity,
+                    });
+                    return dst;
+                }
+
                 // No globals_map (LLVM native path): resolve via binder env
                 // or binder_func_id_map (lazy closure creation). If the object
                 // is a module alias like `Array`, prefer a binder whose
@@ -1977,24 +2080,6 @@ impl<'a> FnLower<'a> {
                     }
                 }
 
-                if let CoreExpr::Var { var, .. } = object.as_ref() {
-                    let object_name = self.resolve_name(var.name);
-                    let member_name = self.resolve_name(*member);
-                    let qualified = format!("{object_name}.{member_name}");
-                    if let Some(extern_fn) = self.resolve_external_symbol(&qualified)
-                        && extern_fn.is_value
-                    {
-                        return self.emit_extern_value_getter(extern_fn.symbol);
-                    } else if let Some(extern_fn) = self.resolve_external_symbol(&qualified) {
-                        let dst = self.fresh_var();
-                        self.emit(LirInstr::MakeExternClosure {
-                            dst,
-                            symbol: extern_fn.symbol,
-                            arity: extern_fn.arity,
-                        });
-                        return dst;
-                    }
-                }
                 let member_name = self.resolve_name(*member);
                 if let Some(extern_fn) = self.resolve_external_symbol(&member_name)
                     && extern_fn.is_value
@@ -2533,6 +2618,22 @@ impl<'a> FnLower<'a> {
                     }
                 }
 
+                if let AetherExpr::Var { var, .. } = object.as_ref()
+                    && let Some(extern_fn) =
+                        self.resolve_qualified_external_symbol(var.name, *member)
+                {
+                    if extern_fn.is_value {
+                        return self.emit_extern_value_getter(extern_fn.symbol);
+                    }
+                    let dst = self.fresh_var();
+                    self.emit(LirInstr::MakeExternClosure {
+                        dst,
+                        symbol: extern_fn.symbol,
+                        arity: extern_fn.arity,
+                    });
+                    return dst;
+                }
+
                 if let Some(binders) = self.name_binder_map.get(member) {
                     let member_str = self.resolve_name(*member);
                     let preferred_suffix = if let AetherExpr::Var { var, .. } = object.as_ref() {
@@ -2569,25 +2670,6 @@ impl<'a> FnLower<'a> {
                             self.direct_func_vars.insert(var, func_id);
                             return var;
                         }
-                    }
-                }
-
-                if let AetherExpr::Var { var, .. } = object.as_ref() {
-                    let object_name = self.resolve_name(var.name);
-                    let member_name = self.resolve_name(*member);
-                    let qualified = format!("{object_name}.{member_name}");
-                    if let Some(extern_fn) = self.resolve_external_symbol(&qualified)
-                        && extern_fn.is_value
-                    {
-                        return self.emit_extern_value_getter(extern_fn.symbol);
-                    } else if let Some(extern_fn) = self.resolve_external_symbol(&qualified) {
-                        let dst = self.fresh_var();
-                        self.emit(LirInstr::MakeExternClosure {
-                            dst,
-                            symbol: extern_fn.symbol,
-                            arity: extern_fn.arity,
-                        });
-                        return dst;
                     }
                 }
 
@@ -3088,16 +3170,12 @@ impl<'a> FnLower<'a> {
                     self.resolve_external_symbol(&self.resolve_name(var.name))
                 }
                 CoreExpr::MemberAccess { object, member, .. } => {
-                    let member_name = self.resolve_name(*member);
                     let qualified = if let CoreExpr::Var { var, .. } = object.as_ref() {
-                        Some(format!("{}.{}", self.resolve_name(var.name), member_name))
+                        self.resolve_qualified_external_symbol(var.name, *member)
                     } else {
                         None
                     };
-                    qualified
-                        .as_ref()
-                        .and_then(|name| self.resolve_external_symbol(name))
-                        .or_else(|| self.resolve_external_symbol(&member_name))
+                    qualified.or_else(|| self.resolve_external_symbol(&self.resolve_name(*member)))
                 }
                 _ => None,
             }
@@ -3324,16 +3402,12 @@ impl<'a> FnLower<'a> {
                     self.resolve_external_symbol(&self.resolve_name(var.name))
                 }
                 AetherExpr::MemberAccess { object, member, .. } => {
-                    let member_name = self.resolve_name(*member);
                     let qualified = if let AetherExpr::Var { var, .. } = object.as_ref() {
-                        Some(format!("{}.{}", self.resolve_name(var.name), member_name))
+                        self.resolve_qualified_external_symbol(var.name, *member)
                     } else {
                         None
                     };
-                    qualified
-                        .as_ref()
-                        .and_then(|name| self.resolve_external_symbol(name))
-                        .or_else(|| self.resolve_external_symbol(&member_name))
+                    qualified.or_else(|| self.resolve_external_symbol(&self.resolve_name(*member)))
                 }
                 _ => None,
             }

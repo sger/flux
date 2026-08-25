@@ -414,6 +414,10 @@ name = "imported_constructor_types_tests"
 path = "tests/type_inference/imported_constructor_types_tests.rs"
 
 [[test]]
+name = "imported_ctor_payload_forwarding_tests"
+path = "tests/type_inference/imported_ctor_payload_forwarding_tests.rs"
+
+[[test]]
 name = "flume_version_tests"
 path = "tests/flume/flume_version_tests.rs"
 
@@ -517,6 +521,14 @@ path = "tests/native_llvm/native_http_client_tests.rs"
 [[test]]
 name = "native_json_tests"
 path = "tests/native_llvm/native_json_tests.rs"
+
+[[test]]
+name = "native_resolution_tests"
+path = "tests/native_llvm/native_resolution_tests.rs"
+
+[[test]]
+name = "native_cross_module_effect_tests"
+path = "tests/native_llvm/native_cross_module_effect_tests.rs"
 
 [[test]]
 name = "native_stream_tests"

@@ -55,10 +55,21 @@ fn yield_checks_enabled() -> bool {
 fn program_has_yield_sites(program: &LirProgram) -> bool {
     for func in &program.functions {
         for block in &func.blocks {
-            if let crate::lir::LirTerminator::Call { kind, .. } = &block.terminator
-                && matches!(kind, crate::lir::CallKind::YieldTo)
-            {
-                return true;
+            if let crate::lir::LirTerminator::Call { kind, .. } = &block.terminator {
+                // A local `perform`.
+                if matches!(kind, crate::lir::CallKind::YieldTo) {
+                    return true;
+                }
+                // A call into another module that can suspend. This module has
+                // no `perform` of its own, but the sentinel still unwinds
+                // through it, so its call sites need yield checks too — this
+                // test used to be `YieldTo`-only, which is why a `perform` in a
+                // dependency miscompiled every caller (KI-034).
+                if let crate::lir::CallKind::DirectExtern { symbol } = kind
+                    && program.suspending_extern_symbols.contains(symbol)
+                {
+                    return true;
+                }
             }
         }
     }
