@@ -49,12 +49,21 @@ fn call_module(module: &str, args: &[&str]) -> Result<Reply, String> {
 /// Read the `ok<TAB>message` / `err<TAB>message` record the command printed.
 fn parse_reply(stdout: &str) -> Result<Reply, String> {
     let text = stdout.trim();
+    // A fetch may print progress before the final record. Each `print` is
+    // rendered as one quoted Flux string, so decode line-by-line; decoding
+    // only the whole stdout value would leave the quotes around the final
+    // record and make `last_record` miss it.
     let inner = text
-        .strip_prefix('"')
-        .and_then(|rest| rest.strip_suffix('"'))
-        .unwrap_or(text)
-        .replace("\\t", "\t")
-        .replace("\\n", "\n");
+        .lines()
+        .map(|line| {
+            line.strip_prefix('"')
+                .and_then(|rest| rest.strip_suffix('"'))
+                .unwrap_or(line)
+                .replace("\\t", "\t")
+                .replace("\\n", "\n")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     // The record is the last line that opens one, and its message runs to the
     // end of the output: a reply may be multi-line — `tree` renders a whole
     // graph — so the message cannot be assumed to stop at a newline. Anything
@@ -200,12 +209,8 @@ pub fn package_command(
         return report(call_flume(&["tree", &project.to_string_lossy()]));
     }
 
-    // `update` re-resolves and rewrites `flux.lock`. It runs in the
-    // `Flume.Build.Graph` process rather than through `Flume.Cli`, because
-    // resolution reaches `Flume.Source.Git`, which performs `Console` while
-    // fetching: that effect is handled when `Flume.Build.Graph` is the entry
-    // module and aborts unhandled when another module calls it in-process
-    // (docs/known_issues.md#ki-036).
+    // `update` re-resolves and rewrites `flux.lock` through the graph module,
+    // which owns the resolver's progress and final package-manager record.
     if action == PackageAction::Update {
         let dir = project.to_string_lossy().into_owned();
         let mut call = vec![dir.as_str(), "--update"];
@@ -274,5 +279,13 @@ mod tests {
     #[test]
     fn rejects_a_record_it_cannot_read() {
         assert!(parse_reply("\"something else\"").is_err());
+    }
+
+    #[test]
+    fn reads_a_reply_after_quoted_fetch_progress() {
+        let reply =
+            parse_reply("\"fetching\\turl\"\n\"ok\\tupdated dep\"").expect("reply after progress");
+        assert!(!reply.failed);
+        assert_eq!(reply.message, "updated dep");
     }
 }
