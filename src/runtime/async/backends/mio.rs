@@ -1222,24 +1222,35 @@ mod tests {
     #[test]
     fn tcp_connect_to_closed_port_reports_error() {
         use std::net::TcpListener;
-        // Bind then drop, leaving the address unbound and refusing
-        // subsequent connects. (Linux may be slow to reject; we give a
-        // generous timeout.)
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        drop(listener);
-
         let backend = MioBackend::new();
         backend.start().unwrap();
-        backend.tcp_connect(RequestId(7), addr);
-        let completion =
-            wait_for(&backend, Duration::from_secs(5)).expect("connect must report something");
-        assert_eq!(completion.request_id, RequestId(7));
-        match completion.payload {
-            CompletionPayload::Error(_) => {}
-            other => panic!("expected Error, got {other:?}"),
+
+        // Bind then drop, leaving the address unbound. A parallel test or
+        // another local process can reclaim that ephemeral port before the
+        // reactor connects, so retry when that happens rather than treating a
+        // legitimate connection as a failed-connect result.
+        for attempt in 0..8 {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            drop(listener);
+
+            let req = RequestId(7 + attempt);
+            backend.tcp_connect(req, addr);
+            let completion =
+                wait_for(&backend, Duration::from_secs(5)).expect("connect must report something");
+            assert_eq!(completion.request_id, req);
+            match completion.payload {
+                CompletionPayload::Error(_) => {
+                    backend.shutdown().unwrap();
+                    return;
+                }
+                CompletionPayload::TcpHandle(handle) => backend.tcp_close(handle),
+                other => panic!("expected Error or reclaimed TcpHandle, got {other:?}"),
+            }
         }
+
         backend.shutdown().unwrap();
+        panic!("could not obtain a closed loopback port after several attempts");
     }
 
     #[test]
