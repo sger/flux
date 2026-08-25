@@ -150,62 +150,6 @@ Reconstructing the payload rather than forwarding it also avoids the error
 failure is about the *forwarded binding* and not the surrounding types.
 
 ---
-### KI-022 — Forwarding a payload destructured from an imported constructor fails inference under `--test`
-
-**Severity:** Medium · **Area:** HM inference, strict types · **Verified:** 2026-08-24
-
-Matching a value whose constructor comes from *another module* and returning the
-bound payload unchanged does not infer, but only when strict types run — which
-for an imported module means only under `flux --test`:
-
-```flux
-// Mini.flx
-import Flume.Value exposing (Toml, TString)
-
-module Mini {
-    public fn unwrap(item: Toml) -> Result<String, String> {
-        match item {
-            TString(text) -> Ok(text),   // error[E430] under `flux --test`
-            _ -> Err("not a string"),
-        }
-    }
-}
-```
-
-```sh
-$ flux run  main.flx    # imports Mini — compiles and runs
-$ flux --test main.flx  # error[E430]: Could Not Infer Concrete Type, at Mini.flx
-```
-
-The inferred type is reported as `(_) -> Result<String, String>`: the
-constructor application is left unapplied, with the payload an unresolved
-variable, exactly as in [KI-014](#ki-014) — an imported constructor infers as a
-type variable. Here the declared return type should have fixed it.
-
-**Distinct from [KI-011](#ki-011).** KI-011 is about forwarding an `Err` payload
-across a change of success type and reproduces with a locally-declared type.
-This one reproduces with `Ok`, needs no change of type parameters, and does
-*not* reproduce when the matched type is declared in the same module — the
-imported constructor is the trigger.
-
-**Workaround:** reconstruct the payload instead of forwarding it, so the
-constructor application is not the residue — e.g. `Ok(text + "")` for a string,
-or route the value through a helper that takes it as an ordinary parameter:
-
-```flux
-fn as_string(text: String) -> Result<String, String> { Ok(text) }
-
-match item {
-    TString(text) -> as_string(text),
-    _ -> Err("not a string"),
-}
-```
-
-**Why it matters:** every schema reader over a TOML or JSON value tree has this
-shape, so it is hit immediately when writing one. As with KI-011, a green
-`flux run` is not evidence the module is clean — the failure appears only once a
-test fixture imports it.
-
 ### KI-023 — `exposing` cannot rename, so two modules' same-named types cannot both be used
 
 **Severity:** Low · **Area:** Module system · **Verified:** 2026-08-24
@@ -373,19 +317,38 @@ when the function performs effects.
 can pass a native build and fail under the VM. The boundary is high enough
 (between 300k and 400k frames) that ordinary programs do not reach it.
 
+**What actually binds.** Not an allocation failure: the VM stack already grows
+on demand. `ensure_stack_capacity_with_headroom` (`src/vm/mod.rs`) resizes by
+1.5x or `STACK_GROW_MIN_CHUNK` (4096 slots), whichever is larger, from an
+`INITIAL_STACK_SIZE` of 2048. Overflow is the ceiling being reached:
+
+```rust
+const MAX_STACK_SIZE: usize = 1 << 20; // 1,048,576 slots
+```
+
+The observed boundary fits — roughly 350k frames at about 3 slots each. With
+NaN-boxing that ceiling is about 8 MB.
+
 **Prior art.** GHC has the same divergence in kind, and treats it as a constant
 factor rather than a defect. GHCi and compiled code share one stack mechanism —
 a heap-allocated `StgStack` grown in 32 KiB chunks by `threadStackOverflow`
 (`rts/Threads.c:645-706`), bounded by `-K`, which defaults to 80% of physical
-memory (`rts/RtsFlags.c:139-150`). There is no interpreter-specific limit; a
-program can still overflow in GHCi and not when compiled, because bytecode
-frames are fatter and unoptimised, so the same depth consumes more of the same
-budget. Flux's VM/native gap has the same character.
+memory (`rts/RtsFlags.c:139-150`); 8 MB is only its fallback when memory
+detection fails. There is no interpreter-specific limit; a program can still
+overflow in GHCi and not when compiled, because bytecode frames are fatter and
+unoptimised, so the same depth consumes more of the same budget. Flux's VM/native
+gap has the same character.
 
-The lesson worth taking is the growth strategy: GHC's stack is heap-allocated
-and grows on demand, so "overflow" means memory exhaustion rather than a fixed
-ceiling. Should the VM's limit ever bind in practice, chunked growth is the
-established fix.
+GHC's chunk *chain*, linked by `UNDERFLOW_FRAME`, exists because a live
+`StgStack` cannot be moved once heap pointers refer to it. The VM's stack is a
+`Vec` that can be reallocated wholesale, so contiguous growth is both simpler
+and sufficient; there is nothing to copy there.
+
+**If the limit ever binds** the change is to `MAX_STACK_SIZE`, not to frame
+management — and the part of GHC's design worth taking is that `-K` is a *flag*.
+Ours is a hard-coded constant, so the policy is not the user's to set. Raising
+it trades a diagnostic with a stack trace for OOM-killer behaviour, which is why
+a ceiling is deliberate rather than a limitation.
 
 **Guidance.** For any list whose length is driven by input rather than by a
 fixed small bound, use the accumulator form and reverse at the end:
@@ -458,6 +421,115 @@ Reader<List<a>>` needs no higher-kinded types).
 ---
 
 ## Resolved
+
+### KI-022 — Forwarding an imported constructor's payload failed strict types — FIXED 2026-08-25
+
+Matching a value whose constructor comes from another module and returning the
+bound payload unchanged failed to infer, but only when strict types run — which
+for an imported module means only under `flux --test`:
+
+```flux
+// Mini.flx
+import Flume.Value exposing (Toml, TString)
+
+module Mini {
+    public fn unwrap(item: Toml) -> Result<String, String> {
+        match item {
+            TString(text) -> Ok(text),   // error[E430] under `flux --test`
+            _ -> Err("not a string"),
+        }
+    }
+}
+```
+
+**Root cause.** [KI-014](#ki-014) gave `ModuleInterface` a `public_ctor_types`
+map so an imported constructor infers as its ADT, but only
+`preload_module_interface` — the *cached* `.flxi` path — ever populated it. Two
+paths that compile a dependency fresh in the same run did not:
+`preload_dependency_program` collected field *names* but no field types, and the
+test runner compiles the whole module graph through one `Compiler` with no
+interface step at all. So `TString` was absent from `adt_constructor_types`, its
+pattern bound `text` to an unresolved variable, the enclosing `Ok(...)` never
+got an argument type, and strict types rejected the residue.
+
+The original report blamed the declared return type for not fixing it. The
+return type *was* fixed; the unresolved half was the argument, arriving from the
+pattern side. That is also why reconstructing the payload (`Ok(text + "")`)
+worked as a workaround — it supplies the constraint the pattern failed to.
+
+**Fix.** `Compiler::preload_ctor_types_from_program` seeds the constructor field
+types of a dependency's public ADTs straight from its in-session AST, called
+from both fresh-compile paths. `CACHE_EPOCH` bumped 22 → 23. Regression test:
+`tests/type_inference/imported_ctor_payload_forwarding_tests.rs`, covering the
+positional, generic, and named-field constructor shapes — each forwarding its
+payload unchanged, since a fixture that reconstructs passes against the unfixed
+compiler.
+
+### KI-034 — A `perform` in another module corrupted every native caller — FIXED 2026-08-25
+
+A user-defined effect performed in one module and handled in another crashed
+the native backend with SIGSEGV (or SIGBUS, depending where the bad value
+landed). The VM was always correct, so this was also a parity divergence.
+
+```flux
+// Effectful.flx — the effect and the perform
+module Effectful {
+    effect MyFail { boom: String -> Unit }
+    public fn abort_it(msg: String) -> String with MyFail {
+        perform MyFail.boom(msg)
+        ""
+    }
+}
+
+// main.flx — the handler
+fn parse_it(s: String) -> String with MyFail { Effectful.abort_it("bad") }
+fn go(line: String) -> Result<Int, String> {
+    Ok(from_line(line)) handle MyFail { boom(resume, m) -> Err(m) }
+}
+```
+
+The same code with the effect and the handler in **one** module always worked —
+the module boundary was the trigger.
+
+**Root cause.** A yield unwinds by returning `FLUX_YIELD_SENTINEL` (the raw
+value `10`) up the stack, so every caller must test `flux_is_yielding` after a
+call that can suspend and propagate instead of using the result. Three separate
+places decided that per module, and each was blind across the boundary:
+
+1. `effect_expr_contains_async` (`src/lir/lower.rs`) marked a function's
+   indirect call sites `async_capable` only when its row named `Async`. A
+   user-defined effect left every caller marked `async_capable: false`.
+2. `is_direct_async_extern_symbol` (`src/lir/mod.rs`) answered "can this
+   cross-module call suspend?" from a hardcoded 55-entry allowlist of
+   `Flow_Async_*` / `Flow_Task_*` / `Flow_Channel_*` symbols. No user effect
+   could ever match. `direct_async_func_ids` computes a transitive fixpoint,
+   but only over `LirFuncId`s, which are unique within one module.
+3. `program_has_yield_sites` (`src/lir/emit_llvm.rs`) enabled yield checks for
+   a module only if it contained a `YieldTo` of its own, i.e. a literal
+   `perform`. A module that merely *called* a suspending import got none.
+
+So the caller ran straight on with the sentinel in hand. In the reported case
+`Flume.Index.from_line` passed it through `field_string` into `Version.parse`
+into `trim`, where `flux_string_len(10)` dereferenced address `0xe`.
+
+**Fix.** Make "can suspend" a property that travels with the import.
+`ImportedNativeSymbol` gains `can_suspend`, derived from the declared effect row
+(`Compiler::native_scheme_can_suspend`); `LirProgram` carries the resulting
+`suspending_extern_symbols`; and all three sites consult it. The name-based
+allowlist stays as a fallback for stdlib async symbols, which reach lowering
+without a scheme.
+
+The rule matches the one lowering already used for local `perform`: every
+effect suspends except `Console`, `FileSystem`, `Stdin`, and `Clock`, which
+lower to plain C calls that always return a real value. An open row (one with a
+tail variable) counts as suspending — over-reporting costs a redundant
+`flux_is_yielding` test, under-reporting corrupts memory.
+
+`CACHE_EPOCH` bumped 23 → 24: cached native objects lack the new checks.
+Regression test: `tests/native_llvm/native_cross_module_effect_tests.rs`.
+
+**Found by** bisecting a SIGSEGV in `flume_index_tests`, which surfaced after
+the qualified-resolution fix removed the SIGBUS that had been masking it.
 
 ### KI-033 — A deep stack trace printed one line per frame — FIXED 2026-08-24
 

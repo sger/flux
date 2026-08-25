@@ -234,7 +234,7 @@ fn test_truncate_goes_toward_zero_unlike_floor() {
 
 /// The numeric helpers compose with the collection combinators like anything
 /// else — nothing about them is special-cased.
-fn test_numeric_predicates_compose_with_list_combinators() {
+fn test_numeric_predicates_compose_with_list_combinators() with Console {
     let evens = filter([1, 2, 3, 4, 5, 6], Num.even)
     assert_eq(evens, [2, 4, 6])
     assert_eq(len(filter([1, 2, 3, 4, 5, 6], Num.odd)), 3)

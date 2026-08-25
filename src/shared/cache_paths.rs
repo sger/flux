@@ -48,7 +48,13 @@ use sha2::{Digest, Sha256};
 /// Epoch 22: `Flow.List.map` / `filter` became effect-row polymorphic and
 /// `Flow.Result` gained `map2` / `map3` / `apply` / `sequence` / `traverse`,
 /// changing both stdlib interfaces and their global layout.
-pub const CACHE_EPOCH: u16 = 22;
+/// Epoch 23: a module compiled fresh now seeds inference with its dependencies'
+/// constructor field types (KI-022), so a module whose imported-constructor
+/// payloads previously inferred as unresolved variables compiles differently.
+/// Epoch 24: native lowering marks any non-direct-path effect as suspending, so
+/// callers of a cross-module `perform` gain yield checks they did not emit
+/// before (KI-034). Cached native objects from epoch 23 lack them.
+pub const CACHE_EPOCH: u16 = 24;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {
