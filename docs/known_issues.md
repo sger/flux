@@ -452,39 +452,30 @@ for a named function, not for a lambda literal.
 
 ---
 
-### KI-036 — An effect performed in a callee crashes when the caller is not the entry module
+### KI-036 — Linked modules used incompatible effect identities
 
-**Severity:** Medium · **Area:** effects, module graph · **Verified:** 2026-08-25 · **From:** [0177](proposals/0177_package_manager.md) `flux update`
+**Status:** Fixed · **Area:** effects, module linker · **Verified:** 2026-08-25 · **From:** [0177](proposals/0177_package_manager.md) `flux update`
 
-`Flume.Git.announce_then_populate` performs `Console` through an ordinary
-`print`, inside a call reached from `Flume.Roots.resolve_from`. Run as the
-entry module — the way `src/driver/manifest_roots.rs` spawns `Flume.Roots` in
-its own process — this works, and a cold git fetch prints its `fetching` and
-`fetched` lines normally.
-
-Called *in-process from another module* it aborts:
+The VM linker originally preserved the compiler-local numeric identifiers in
+`HandlerDescriptor` and `PerformDescriptor` constants. Each module has its own
+symbol interner, so a `Console` or `Fail` operation compiled in a dependency
+could not match the handler installed by the entry module. The runtime then
+reported:
 
 ```
 error[E1009]: unhandled effect: Console (no matching handle block)
-  lib/Flume/Git.flx:381:9
-    |
-381 |         print("fetching\t" + url)
 ```
 
-The reproduction is `Flume.Cli.update` calling `Flume.Roots.update`, which was
-the first call from `Flume.Cli` into `Flume.Roots`; every other `Flume.Cli`
-command reads manifests directly and never crosses that boundary. The minimal
-two-module case — a `handle Fail` block in module A scoping a `print` in module
-B — composes correctly, so this is narrower than "effects do not cross
-modules", and unrelated to [KI-028](#ki-028), which was about `--test`.
+This was exposed by `flux update`: a cold file-backed git fetch performs
+`Console` several calls below `Flume.Build.Graph.update`. The handler was
+present; only its numeric identity differed. The linker now interns descriptor
+effect and operation names in the shared linked-module interner before the VM
+executes the program. A module-linker regression test covers mismatched local
+identifiers, and the end-to-end update path moves a dependency pin from v1 to
+v2 successfully.
 
-What differs on the crashing path is that the `Console` arises several frames
-below a `handle Fail` block in a module that is not the entry module. Whether
-the handler's row is what truncates `Console`, or the entry-module distinction
-is itself the trigger, is not yet established.
-
-**Workaround.** Run the resolution in the `Flume.Roots` process, as builds
-already do, rather than calling it in-process from `Flume.Cli`.
+The package CLI also decodes quoted progress lines before reading the final
+`ok`/`err` record, so fetch progress does not corrupt the update reply.
 
 ---
 
