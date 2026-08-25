@@ -78,6 +78,8 @@ impl Default for ParsedCliDumpFlags {
 pub(crate) struct ParsedCliExecutionFlags {
     pub(crate) no_cache: bool,
     pub(crate) clean_deps: bool,
+    pub(crate) offline: bool,
+    pub(crate) locked: bool,
     pub(crate) roots_only: bool,
     pub(crate) test_mode: bool,
     pub(crate) all_errors: bool,
@@ -193,6 +195,15 @@ pub(crate) fn extract_cli_flag_groups(args: &mut Vec<String>) -> ParsedCliFlags 
             "--emit-binary" => flags.backend.emit_binary = remove_bool_flag(args, i),
             "--no-cache" => flags.execution.no_cache = remove_bool_flag(args, i),
             "--deps" => flags.execution.clean_deps = remove_bool_flag(args, i),
+            "--offline" => flags.execution.offline = remove_bool_flag(args, i),
+            "--locked" => flags.execution.locked = remove_bool_flag(args, i),
+            // `--frozen` is the pair, not a third mode: a build that may
+            // neither download nor decide anything new.
+            "--frozen" => {
+                let set = remove_bool_flag(args, i);
+                flags.execution.offline |= set;
+                flags.execution.locked |= set;
+            }
             _ => {
                 i += 1;
             }
@@ -277,6 +288,13 @@ pub(crate) fn extract_cli_value_options(args: &mut Vec<String>) -> Result<CliVal
 
 /// Builds grouped driver flags from parsed CLI flag groups and value options.
 pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions) -> DriverFlags {
+    // Recorded for the whole process here, at the one place every command's
+    // flags are assembled: the manifest resolver runs far below this and as a
+    // child process, and both need to know.
+    crate::driver::manifest_roots::set_resolution_mode(
+        parsed.execution.offline,
+        parsed.execution.locked,
+    );
     DriverFlags {
         backend: DriverBackendFlags {
             selected: Backend::Vm,
@@ -318,6 +336,8 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
             cache_dir: values.paths.cache_dir,
             no_cache: parsed.execution.no_cache,
             clean_deps: parsed.execution.clean_deps,
+            offline: parsed.execution.offline,
+            locked: parsed.execution.locked,
         },
         language: DriverLanguageFlags {
             enable_optimize: parsed.language.enable_optimize,

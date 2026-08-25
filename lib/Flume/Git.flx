@@ -274,6 +274,74 @@ module Flume.Git {
     /// notices a moved tag — while a commit directory that already exists is
     /// reused untouched.
     public fn fetch(source: GitSource) -> Result<Checkout, String> with IO {
+        fetch_locked(source, None)
+    }
+
+    /// Fetch a git dependency without touching the network.
+    ///
+    /// What `--offline` calls: a commit already known — from the lockfile or a
+    /// `rev` — whose checkout is on disk is used, and anything else is an
+    /// error naming what would have had to be downloaded. Failing is the
+    /// point: the flag exists so that a build which *would* have reached the
+    /// network says so instead of quietly doing it.
+    public fn fetch_offline(
+        source: GitSource,
+        locked: Option<String>,
+    ) -> Result<Checkout, String> with IO {
+        let url = Manifest.git_source_url(source)
+        match pinned_commit(source, locked) {
+            None -> Err(
+                "`--offline` was given, but " + url
+                    + " has no locked commit to build; run without `--offline` once to resolve it",
+            ),
+            Some(commit) -> offline_checkout(url, commit),
+        }
+    }
+
+    fn offline_checkout(url: String, commit: String) -> Result<Checkout, String> with IO {
+        let dir = commit_dir(url, commit)
+        if is_populated(dir) {
+            Ok(Checkout { url: url, commit: commit, dir: dir, fetched: false })
+        } else {
+            Err(
+                "`--offline` was given, but " + url + " at " + commit
+                    + " is not in the local cache",
+            )
+        }
+    }
+
+    /// Fetch a git dependency, preferring a commit the lockfile already chose.
+    ///
+    /// `locked` is the commit recorded for this dependency by a previous
+    /// resolution, if there is one. Supplying it is what makes a locked build
+    /// reproducible *and* offline: the pin is not re-resolved, so a branch
+    /// that has since moved, or a tag that was repointed, still builds the
+    /// revision the lockfile names, and a cached checkout needs no network at
+    /// all.
+    ///
+    /// A `rev` pin ignores the lock, because it already names a commit — and
+    /// if the two disagree, the manifest is the newer statement of intent.
+    public fn fetch_locked(
+        source: GitSource,
+        locked: Option<String>,
+    ) -> Result<Checkout, String> with IO {
+        match pinned_commit(source, locked) {
+            Some(commit) -> checkout_at(Manifest.git_source_url(source), commit),
+            None -> fetch_resolving(source),
+        }
+    }
+
+    /// The commit to build without asking the network, if one is known.
+    fn pinned_commit(source: GitSource, locked: Option<String>) -> Option<String> {
+        match Manifest.git_source_pin(source) {
+            GitRev(rev) -> Some(rev),
+            GitTag(_) -> locked,
+            GitBranch(_) -> locked,
+            GitDefault -> locked,
+        }
+    }
+
+    fn fetch_resolving(source: GitSource) -> Result<Checkout, String> with IO {
         match resolve_commit(source) {
             Err(message) -> Err(message),
             Ok(commit) -> checkout_at(Manifest.git_source_url(source), commit),
