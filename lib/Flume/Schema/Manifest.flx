@@ -382,6 +382,31 @@ module Flume.Schema.Manifest {
         match bin { Bin { name: _, path } -> path }
     }
 
+    /// Smart constructors used by the schema parser. The public data
+    /// constructors remain available for compatibility, while all parsed
+    /// values pass through one normalization point.
+    fn make_package(
+        name: String,
+        version: String,
+        edition: String,
+        namespace: Option<String>,
+    ) -> Package {
+        Package {
+            name: name,
+            version: version,
+            edition: edition,
+            namespace: Option.unwrap_or(namespace, derive_namespace(name)),
+        }
+    }
+
+    fn make_dependency(name: String, source: Source, dev: Bool) -> Dep {
+        Dep { name: name, source: source, dev: dev }
+    }
+
+    fn make_git_source(url: String, pin: GitPin) -> GitSource {
+        GitSource { url: url, pin: pin }
+    }
+
 //| the schema layer
 
     // Positions here are coarse: the schema layer works on the value tree,
@@ -599,12 +624,12 @@ module Flume.Schema.Manifest {
                     optional_string(fields, "package", "edition"),
                     \edition -> Result.map_result(
                         optional_string(fields, "package", "namespace"),
-                        \namespace -> Package {
-                            name: name,
-                            version: version,
-                            edition: Option.unwrap_or(edition, default_edition()),
-                            namespace: Option.unwrap_or(namespace, derive_namespace(name)),
-                        }
+                        \namespace -> make_package(
+                            name,
+                            version,
+                            Option.unwrap_or(edition, default_edition()),
+                            namespace,
+                        )
                     )
                 )
             )
@@ -791,14 +816,10 @@ module Flume.Schema.Manifest {
         table: String,
     ) -> Result<Dep, ParseError> {
         match value {
-            TString(requirement) -> Ok(Dep {
-                name: name,
-                source: FromRegistry(requirement),
-                dev: dev,
-            }),
+            TString(requirement) -> Ok(make_dependency(name, FromRegistry(requirement), dev)),
             TTable(fields) -> Result.map_result(
                 parse_dep_source(name, fields, table),
-                \source -> Dep { name: name, source: source, dev: dev }
+                \source -> make_dependency(name, source, dev)
             ),
             _ -> Err(schema_error(
                 "invalid-dependency",
@@ -927,7 +948,7 @@ module Flume.Schema.Manifest {
                     optional_string(fields, context, "branch"),
                     \branch -> Result.map_result(
                         choose_git_pin(d, rev, tag, branch),
-                        \pin -> FromGit(GitSource { url: url, pin: pin })
+                        \pin -> FromGit(make_git_source(url, pin))
                     )
                 )
             )

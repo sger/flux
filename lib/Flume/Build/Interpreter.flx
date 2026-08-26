@@ -7,9 +7,10 @@ import Flow.Fs as Fs
 import Flow.List as List
 import Flow.Result as Result
 import Flow.IoError as Io
+import Flow.Path as Path
 import Flume.Error as Error
 import Flume.Build.Plan as Plan
-import Flume.Build.Plan exposing (GraphPlan, GraphRequest, GraphResponse, Pure, Request, ReadManifest, IsDirectory, ReadIndex, ReadLock, FetchGit, WriteLock, ReportFetched, ManifestRead, DirectoryChecked, IndexRead, LockRead, GitFetched, LockWritten, FetchReported)
+import Flume.Build.Plan exposing (GraphPlan, GraphRequest, GraphResponse, GraphRoot, Pure, Request, ReadManifest, IsDirectory, ReadIndex, ReadLock, FetchGit, WriteLock, ReportFetched, LocatePackage, ManifestRead, DirectoryChecked, IndexRead, LockRead, GitFetched, LockWritten, FetchReported, PackageLocated)
 import Flume.Source.Store as Store
 import Flume.Source.Git as Git
 import Flume.Schema.Manifest as Manifest
@@ -44,6 +45,7 @@ module Flume.Build.Interpreter {
                 run(next(git_fetched(source, locked, offline))),
             WriteLock { project_dir, lock } -> run(next(lock_written(project_dir, lock))),
             ReportFetched { checkout } -> run(next(report_fetched(checkout))),
+            LocatePackage { name, version } -> run(next(package_located(name, version))),
         }
     }
 
@@ -108,6 +110,26 @@ module Flume.Build.Interpreter {
             )
         }
         FetchReported { value: Ok(unit_value()) }
+    }
+
+    fn package_located(name: String, version: String) -> GraphResponse with IO {
+        let dir = Store.package_dir(name, version)
+        if !Fs.is_dir(dir) {
+            PackageLocated {
+                value: Err(Error.resolution_error(
+                    "`" + name + "` " + version + " is resolved but its sources are not in " + dir,
+                )),
+            }
+        } else {
+            let source = Path.join(dir, "src")
+            PackageLocated {
+                value: Ok(GraphRoot {
+                    package: name,
+                    namespace: Manifest.derive_namespace(name),
+                    dir: if Fs.is_dir(source) { source } else { dir },
+                }),
+            }
+        }
     }
 
     // ── deterministic fake interpreter ───────────────────────────────
@@ -194,6 +216,39 @@ module Flume.Build.Interpreter {
             FetchGit { source, name, locked: _, offline: _ } -> fake_git_response(source, name, fake_checkouts(env)),
             WriteLock { project_dir: _, lock: _ } -> LockWritten { value: Ok(unit_value()) },
             ReportFetched { checkout: _ } -> FetchReported { value: Ok(unit_value()) },
+            LocatePackage { name, version } -> fake_package_location(name, version, fake_directories(env)),
+        }
+    }
+
+    fn fake_package_location(
+        name: String,
+        version: String,
+        directories: List<String>,
+    ) -> GraphResponse {
+        let dir = name + "/" + version
+        let source = dir + "/src"
+        if List.contains(directories, source) {
+            PackageLocated {
+                value: Ok(GraphRoot {
+                    package: name,
+                    namespace: Manifest.derive_namespace(name),
+                    dir: source,
+                }),
+            }
+        } else if List.contains(directories, dir) {
+            PackageLocated {
+                value: Ok(GraphRoot {
+                    package: name,
+                    namespace: Manifest.derive_namespace(name),
+                    dir: dir,
+                }),
+            }
+        } else {
+            PackageLocated {
+                value: Err(Error.resolution_error(
+                    "fake package sources not found for `" + name + "` " + version,
+                )),
+            }
         }
     }
 

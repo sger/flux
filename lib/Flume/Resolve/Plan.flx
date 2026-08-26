@@ -12,6 +12,8 @@ import Flume.Schema.Index exposing (Published)
 import Flume.Schema.Lock as Lock
 import Flume.Schema.Lock exposing (Lock, Entry, LockedRegistry, LockedPath)
 import Flume.Fail as Fail
+import Flume.Error exposing (FlumeError)
+import Flume.Error as Error
 
 /// Turn a manifest plus an index into a resolved graph, and back into a lock.
 ///
@@ -116,6 +118,20 @@ module Flume.Resolve.Plan {
     ) -> Result<Outcome, String> {
         Result.and_then_result(root_deps(requirements), \deps ->
             resolve(deps, available, previous))
+    }
+
+    /// Typed counterpart for effect interpreters and other domain planners.
+    /// The legacy `plan` function remains String-based for callers that expose
+    /// its diagnostics directly.
+    public fn plan_typed(
+        requirements: List<(String, String)>,
+        available: List<Published>,
+        previous: Option<Lock>,
+    ) -> Result<Outcome, FlumeError> {
+        match plan(requirements, available, previous) {
+            Err(message) -> Err(Error.resolution_error(message)),
+            Ok(outcome) -> Ok(outcome),
+        }
     }
 
     /// Why `existing` fails to satisfy `requirements`, or `None` if it does.
