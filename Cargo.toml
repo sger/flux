@@ -402,6 +402,10 @@ name = "package_registry_tests"
 path = "tests/integration/package_registry_tests.rs"
 
 [[test]]
+name = "package_git_tests"
+path = "tests/integration/package_git_tests.rs"
+
+[[test]]
 name = "package_build_tests"
 path = "tests/integration/package_build_tests.rs"
 
