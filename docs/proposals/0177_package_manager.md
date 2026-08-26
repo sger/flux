@@ -1,6 +1,6 @@
 - Feature Name: Flux package manager (`flux.toml`, `flux.lock`, `flux build/test/add`)
 - Start Date: 2026-08-20
-- Status: Partially implemented (Phases 0 and 1 shipped 2026-08-24; Phase 2 resolution and lockfile shipped 2026-08-24; git dependencies, their lockfile entries, `tree`, `add`, `remove`, and the `--offline` / `--locked` / `--frozen` flags shipped 2026-08-25; registry fetching deferred until there is a registry to fetch from; Phase 3 not started)
+- Status: Partially implemented for the pre-release scope (Phases 0 and 1 shipped 2026-08-24; Phase 2 local resolution and lockfile shipped 2026-08-24; git dependencies, their lockfile entries, `tree`, `add`, `remove`, `update`, and the `--offline` / `--locked` / `--frozen` flags shipped 2026-08-25; registry fetching, registry-aware updating, and index-state pinning are deferred until there is a registry to fetch from; Phase 3 not started)
 - Proposal PR:
 - Flux Issue:
 - Supersedes: [0015_package_module_workflow_mvp.md](0015_package_module_workflow_mvp.md) (the MVP sketch; this proposal subsumes and completes it)
@@ -29,7 +29,7 @@ specified in the [Reference-level explanation](#reference-level-explanation):
 |---|---|---|---|
 | **0** | Manifest parser, version arithmetic, resolver, `Flow.Path` — pure Flux, no I/O | The interesting logic, testable immediately | Shipped |
 | **1** | `flux.toml`, `init/build/run/test`, path deps, namespacing, stdlib-as-package | Flux works outside its own checkout | Shipped 2026-08-24 |
-| **2** | Registry index, semver resolution, `flux.lock`, `add/update/tree` | Third-party libraries | Resolution + lockfile shipped 2026-08-24; git dependencies and `tree` shipped 2026-08-25; registry fetching deferred, `add`/`remove`/`update` not started |
+| **2** | Registry index, semver resolution, `flux.lock`, `add/update/tree` | Third-party libraries | Local index resolution and lockfile shipped 2026-08-24; git/path dependencies, `tree`, `add`, `remove`, `update`, and offline/locked modes shipped 2026-08-25; network registry work deferred |
 | **3** | Content-addressed store, `publish`, workspaces, `metadata` | An ecosystem | Not started |
 
 Phase 0 has no dependency on [0178](implemented/0178_os_capabilities_for_tooling.md) and can
@@ -68,10 +68,13 @@ matches the qualified test name.)
 
 ### What Phase 2 shipped
 
-Registry dependencies resolve, lock, and build. What a project declares in
-`[dependencies]` as a semver requirement is now settled by the Phase 0
-resolver against a local registry index, recorded in `flux.lock`, and turned
-into a scoped module root — the same kind of root a path dependency produces.
+Registry-shaped dependencies resolve, lock, and build from locally available
+registry state. What a project declares in `[dependencies]` as a semver
+requirement is settled by the Phase 0 resolver against a local registry index,
+recorded in `flux.lock`, and turned into a scoped module root — the same kind
+of root a path dependency produces. The implementation does not fetch an
+index or package archive from a registry yet; the index and unpacked sources
+must already be present under `$FLUX_HOME`.
 
 Four Flux modules, all of them either pure or confined to I/O:
 
@@ -117,13 +120,19 @@ standing up before the language has users, and git repositories on GitHub or
 GitLab need no hosting at all.
 
 **Not yet shipped from this phase:** registry network fetching (the index and
-unpacked sources are read from `$FLUX_HOME`, never downloaded), `add` /
-`update`, and index-state pinning.
+unpacked sources are read from `$FLUX_HOME`, never downloaded), registry-aware
+`update`, and index-state pinning. The existing `update`
+command is intentionally limited to refreshing git branch/tag dependencies.
 
 `flux add` and `flux remove` shipped 2026-08-25. The format-preserving
 requirement is met by editing the manifest's source lines directly
 (`Flume.Edit`) rather than round-tripping through the Phase 0 parser, which
 discards comments — exactly the "separate editing path" this phase anticipated.
+
+The registry-independent workflow is covered end to end by
+`tests/integration/package_git_tests.rs`: local `file://` repositories verify
+commit locking, offline reuse, `tree`, format-preserving `add`/`remove`, and
+branch `update` without requiring a registry or external network access.
 
 `--offline`, `--locked`, and `--frozen` shipped 2026-08-25 for git
 dependencies. The registry path still relies on `Flume.Plan.unsatisfied`, which

@@ -56,9 +56,13 @@ fn parse_reply(stdout: &str) -> Result<Reply, String> {
     let inner = text
         .lines()
         .map(|line| {
+            // A single-line print has both quotes, while a multiline Flux
+            // string has the opening quote on its first line and the closing
+            // quote on its last. Strip either boundary independently.
             line.strip_prefix('"')
-                .and_then(|rest| rest.strip_suffix('"'))
                 .unwrap_or(line)
+                .strip_suffix('"')
+                .unwrap_or(line.strip_prefix('"').unwrap_or(line))
                 .replace("\\t", "\t")
                 .replace("\\n", "\n")
         })
@@ -287,5 +291,13 @@ mod tests {
             parse_reply("\"fetching\\turl\"\n\"ok\\tupdated dep\"").expect("reply after progress");
         assert!(!reply.failed);
         assert_eq!(reply.message, "updated dep");
+    }
+
+    #[test]
+    fn reads_a_multiline_reply() {
+        let reply = parse_reply("\"ok\\tapp v0.1.0\n└── shared (git: local#abc123)\"")
+            .expect("multiline reply");
+        assert!(!reply.failed);
+        assert_eq!(reply.message, "app v0.1.0\n└── shared (git: local#abc123)");
     }
 }
