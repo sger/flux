@@ -1,25 +1,17 @@
-import Flume.Schema.Manifest as Manifest
-import Flume.Schema.Manifest exposing (Manifest, Package, Profiles, PartialProfile, Dep, FromPath, FromRegistry, FromGit, GitSource)
-import Flume.Source.Git as Git
-import Flume.Source.Git exposing (Checkout)
 import Flow.Path as Path
 import Flow.List as List
 import Flow.Array as Array
 import Flow.String as String
 import Flow.Env as Env
 import Flow.Result as Result
-import Flow.Option as Option
-import Flume.Source.Store as Store
 import Flume.Resolve.Plan as ResolvePlan
 import Flume.Resolve.Plan exposing (Outcome)
 import Flume.Schema.Lock as Lock
 import Flume.Schema.Lock exposing (Lock, Entry, LockedGit)
-import Flume.Schema.Index as Index
-import Flume.Schema.Index exposing (Published)
 import Flume.Resolve.Version as Version
 import Flume.Fail as Fail
 import Flume.Build.Plan as BuildPlan
-import Flume.Build.Plan exposing (ManifestRead, DirectoryChecked, IndexRead, LockRead, GitFetched, LockWritten, FetchReported)
+import Flume.Build.Plan exposing (GraphDiscovery, GraphRoot, GitResolution, LockRead, LockWritten)
 import Flume.Build.Interpreter as BuildInterpreter
 import Flume.Error as FlumeErrors
 
@@ -50,50 +42,11 @@ module Flume.Build.Graph {
 
     /// Compatibility adapters keep Graph's public string-based API stable
     /// while all external operations are represented by typed plan requests.
-    fn planned_manifest(path: String) -> Result<String, String> with IO {
-        match BuildInterpreter.run(BuildPlan.read_manifest(path)) {
-            Err(problem) -> Err(FlumeErrors.render(problem)),
-            Ok(ManifestRead { value }) -> match value {
-                Err(_) -> Err("cannot read " + path),
-                Ok(text) -> Ok(text),
-            },
-            Ok(_) -> Err("invalid manifest response for " + path),
-        }
-    }
-
-    fn planned_directory(path: String) -> Bool with IO {
-        match BuildInterpreter.run(BuildPlan.is_directory(path)) {
-            Ok(DirectoryChecked { value }) -> value,
-            _ -> false,
-        }
-    }
-
-    fn planned_index(names: List<String>) -> Result<List<Published>, String> with IO {
-        match BuildInterpreter.run(BuildPlan.read_index(names)) {
-            Err(problem) -> Err(FlumeErrors.render(problem)),
-            Ok(IndexRead { value }) -> value |> Result.map_err_result(FlumeErrors.render),
-            Ok(_) -> Err("invalid index response"),
-        }
-    }
-
     fn planned_lock(dir: String) -> Result<Option<Lock>, String> with IO {
         match BuildInterpreter.run(BuildPlan.read_lock(dir)) {
             Err(problem) -> Err(FlumeErrors.render(problem)),
             Ok(LockRead { value }) -> value |> Result.map_err_result(FlumeErrors.render),
             Ok(_) -> Err("invalid lock response"),
-        }
-    }
-
-    fn planned_git(
-        source: GitSource,
-        name: String,
-        pin: Option<String>,
-        offline: Bool,
-    ) -> Result<Checkout, String> with IO {
-        match BuildInterpreter.run(BuildPlan.fetch_git(source, name, pin, offline)) {
-            Err(problem) -> Err(FlumeErrors.render(problem)),
-            Ok(GitFetched { value }) -> value |> Result.map_err_result(FlumeErrors.render),
-            Ok(_) -> Err("invalid git response for " + name),
         }
     }
 
@@ -105,11 +58,48 @@ module Flume.Build.Graph {
         }
     }
 
-    fn planned_report_fetched(checkout: Checkout) -> Result<Unit, String> with IO {
-        match BuildInterpreter.run(BuildPlan.report_fetched(checkout)) {
+    /// Interpret the complete pure structural plan. Graph only adapts its
+    /// typed result to the legacy String boundary; traversal itself lives in
+    /// `Flume.Build.Plan`.
+    fn planned_discovery(
+        dir: String,
+        locked: List<(String, String)>,
+        offline: Bool,
+    ) -> Result<GraphDiscovery, String> with IO {
+        match BuildInterpreter.run(BuildPlan.discover_with_git(dir, locked, offline)) {
             Err(problem) -> Err(FlumeErrors.render(problem)),
-            Ok(FetchReported { value }) -> value |> Result.map_err_result(FlumeErrors.render),
-            Ok(_) -> Err("invalid fetch report response"),
+            Ok(Err(problem)) -> Err(FlumeErrors.render(problem)),
+            Ok(Ok(discovery)) -> Ok(discovery),
+        }
+    }
+
+    fn empty_discovery() -> GraphDiscovery {
+        GraphDiscovery { roots: [], git: [], registry: [] }
+    }
+
+    fn roots_of_discovery(discovery: GraphDiscovery) -> List<Root> {
+        List.map(BuildPlan.discovery_roots(discovery), root_of_graph_root)
+    }
+
+    fn root_of_graph_root(root: GraphRoot) -> Root {
+        Root {
+            package: BuildPlan.graph_root_package(root),
+            namespace: BuildPlan.graph_root_namespace(root),
+            dir: BuildPlan.graph_root_dir(root),
+        }
+    }
+
+    fn markers_of_discovery(discovery: GraphDiscovery) -> List<Root> {
+        List.map(BuildPlan.discovery_git(discovery), marker_of_git)
+    }
+
+    fn marker_of_git(git: GitResolution) -> Root {
+        Root {
+            package: BuildPlan.git_resolution_package(git),
+            namespace: "",
+            dir: BuildPlan.git_resolution_url(git)
+                + "#"
+                + BuildPlan.git_resolution_commit(git),
         }
     }
 
@@ -157,447 +147,45 @@ module Flume.Build.Graph {
         match r { Root { package: _, namespace: _, dir } -> dir }
     }
 
-    /// The directory a package's modules are rooted at.
-    ///
-    /// A package's `src` directory is the module root when it exists, so
-    /// `src/Json/Parse.flx` answers `Json.Parse`. Packages laying modules out
-    /// at the top level fall back to the package directory itself.
-    fn source_dir(package_dir: String) -> String with IO {
-        let candidate = Path.join(package_dir, "src")
-        if planned_directory(candidate) { candidate } else { package_dir }
-    }
-
-    /// The root contributed by the package itself, before its dependencies.
-    fn own_root(manifest: Manifest, dir: String) -> Root with IO {
-        let package = Manifest.manifest_package(manifest)
-        Root {
-            package: Manifest.package_name(package),
-            namespace: Manifest.package_namespace(package),
-            dir: source_dir(dir),
-        }
-    }
-
-    /// Resolve `dir`'s manifest and every path dependency reachable from it.
-    ///
-    /// `seen` carries the package directories already visited so a dependency
-    /// cycle terminates instead of recursing forever.
-    fn resolve_from(
-        dir: String,
-        seen: List<String>,
-        locked: Pins,
-    ) -> Result<List<Root>, String> with IO {
-        if List.contains(seen, dir) {
-            Ok([])
-        } else {
-            read_manifest(dir, seen, locked)
-        }
-    }
-
-    fn read_manifest(
-        dir: String,
-        seen: List<String>,
-        locked: Pins,
-    ) -> Result<List<Root>, String> with IO {
-        let manifest_path = Path.join(dir, "flux.toml")
-        match planned_manifest(manifest_path) {
-            Err(_) -> Err("cannot read " + manifest_path),
-            Ok(text) -> parse_manifest(text, manifest_path, dir, seen, locked),
-        }
-    }
-
-    fn parse_manifest(
-        text: String,
-        manifest_path: String,
-        dir: String,
-        seen: List<String>,
-        locked: Pins,
-    ) -> Result<List<Root>, String> with IO {
-        match Manifest.parse(text) {
-            Err(_) -> Err("cannot parse " + manifest_path),
-            Ok(manifest) -> walk_manifest(manifest, dir, seen, locked),
-        }
-    }
-
-    fn walk_manifest(
-        manifest: Manifest,
-        dir: String,
-        seen: List<String>,
-        locked: Pins,
-    ) -> Result<List<Root>, String> with IO {
-        let package = Manifest.manifest_package(manifest)
-        let deps = Manifest.manifest_deps(manifest)
-        if Manifest.package_name(package) == "" {
-            resolve_deps(deps, dir, [dir | seen], [], locked)
-        } else {
-            let own = own_root(manifest, dir)
-            resolve_deps(deps, dir, [dir | seen], [own], locked)
-        }
-    }
-
-    /// Return the normalized directories named by a workspace's member list.
-    fn member_paths(manifest: Manifest, dir: String) -> List<String> with IO {
-        match Manifest.manifest_workspace(manifest) {
-            None -> [],
-            Some(workspace) -> List.map(
-                Manifest.workspace_members(workspace),
-                \member -> Path.normalize(Path.join(dir, member)),
-            ),
-        }
-    }
-
-    /// Resolve each member as an additional root. Path dependencies between
-    /// members still go through `resolve_from`, so the graph stays uniform.
-    fn resolve_members(
-        members: List<String>,
-        base: String,
-        seen: List<String>,
-        locked: Pins,
-    ) -> Result<List<Root>, String> with IO {
-        match members {
-            [] -> Ok([]),
-            [member | rest] -> match resolve_from(
-                Path.normalize(Path.join(base, member)), seen, locked
-            ) {
-                Err(message) -> Err(message),
-                Ok(found) -> match resolve_members(rest, base, seen, locked) {
-                    Err(message) -> Err(message),
-                    Ok(more) -> Ok(List.concat([found, more])),
-                },
-            },
-        }
-    }
-
-    fn member_requirements(paths: List<String>) -> List<(String, String)> with IO {
-        match paths {
-            [] -> [],
-            [path | rest] -> match read_manifest_only(path) {
-                Err(_) -> member_requirements(rest),
-                Ok(manifest) -> List.concat([
-                    registry_requirements(manifest),
-                    member_requirements(rest),
-                ]),
-            },
-        }
-    }
-
-    fn read_manifest_only(dir: String) -> Result<Manifest, String> with IO {
-        let path = Path.join(dir, "flux.toml")
-        match planned_manifest(path) {
-            Err(_) -> Err("cannot read " + path),
-            Ok(text) -> match Manifest.parse(text) {
-                Err(_) -> Err("cannot parse " + path),
-                Ok(manifest) -> Ok(manifest),
-            },
-        }
-    }
-
-    /// Walk a dependency list, accumulating roots.
-    ///
-    /// Only path dependencies are followed here: they are resolved by graph
-    /// walk, because there is nothing to choose between. Registry
-    /// dependencies are collected separately and settled by the solver once
-    /// the whole graph is known — resolving them one at a time would defeat
-    /// the point of a solver, which is to consider every requirement together.
-    ///
-    /// Dev dependencies are excluded from the build graph: they belong to a
-    /// package's own tests, not to anything that depends on it.
-    fn resolve_deps(
-        deps: List<Dep>,
-        base: String,
-        seen: List<String>,
-        acc: List<Root>,
-        locked: Pins,
-    ) -> Result<List<Root>, String> with IO {
-        match deps {
-            [] -> Ok(acc),
-            [dep | rest] -> resolve_dep(dep, rest, base, seen, acc, locked),
-        }
-    }
-
-    fn resolve_dep(
-        dep: Dep,
-        rest: List<Dep>,
-        base: String,
-        seen: List<String>,
-        acc: List<Root>,
-        locked: Pins,
-    ) -> Result<List<Root>, String> with IO {
-        if Manifest.dep_is_dev(dep) {
-            resolve_deps(rest, base, seen, acc, locked)
-        } else {
-            match Manifest.dep_source(dep) {
-                FromRegistry(_) -> resolve_deps(rest, base, seen, acc, locked),
-                FromPath(rel) ->
-                    descend(Path.normalize(Path.join(base, rel)), rest, base, seen, acc, locked),
-                FromGit(source) ->
-                    descend_git(source, Manifest.dep_name(dep), rest, base, seen, acc, locked),
-            }
-        }
-    }
-
-    fn descend(
-        dep_dir: String,
-        rest: List<Dep>,
-        base: String,
-        seen: List<String>,
-        acc: List<Root>,
-        locked: Pins,
-    ) -> Result<List<Root>, String> with IO {
-        match resolve_from(dep_dir, seen, locked) {
-            Err(message) -> Err(message),
-            Ok(found) ->
-                resolve_deps(rest, base, [dep_dir | seen], List.concat([acc, found]), locked),
-        }
-    }
-
-//| git dependencies
-
-    /// Fetch a git dependency and walk it like any other package.
-    ///
-    /// A fetched checkout is an ordinary package directory, so it descends
-    /// through the same walk as a path dependency: its own `flux.toml` is
-    /// read, and its own dependencies are resolved beneath it. Nothing about
-    /// having arrived over the network changes what it contributes.
-    ///
-    /// Fetching happens during the walk rather than in a separate pass because
-    /// a git dependency's *own* dependencies are unknowable until its manifest
-    /// is on disk — unlike a registry, a repository publishes no index to read
-    /// them from ahead of time.
-    fn descend_git(
-        source: GitSource,
-        name: String,
-        rest: List<Dep>,
-        base: String,
-        seen: List<String>,
-        acc: List<Root>,
-        locked: Pins,
-    ) -> Result<List<Root>, String> with IO {
-        match fetch_for(source, name, locked) {
-            Err(message) -> Err(message),
-            Ok(checkout) -> after_fetch(checkout, name, rest, base, seen, acc, locked),
-        }
-    }
-
-    /// Fetch a git dependency, honouring `--offline`.
-    fn fetch_for(
-        source: GitSource,
-        name: String,
-        pins: Pins,
-    ) -> Result<Checkout, String> with IO {
-        let pin = lookup(pins_locked(pins), name)
-        planned_git(source, name, pin, pins_offline(pins))
-    }
-
-    /// The commit `flux.lock` recorded for this dependency, if any.
-    fn lookup(locked: List<(String, String)>, name: String) -> Option<String> {
-        match locked {
-            [] -> None,
-            [pair | rest] -> match pair {
-                (found, commit) -> if found == name {
-                    Some(commit)
-                } else {
-                    lookup(rest, name)
-                },
-            },
-        }
-    }
-
-    /// Report a download, then walk the fetched package.
-    ///
-    /// The report is a record rather than a printed line because the resolver
-    /// speaks to the compiler over stdout: the Rust side renders it. A
-    /// checkout that was already on disk reports nothing, so a warm build
-    /// stays silent.
-    fn after_fetch(
-        checkout: Checkout,
-        name: String,
-        rest: List<Dep>,
-        base: String,
-        seen: List<String>,
-        acc: List<Root>,
-        locked: Pins,
-    ) -> Result<List<Root>, String> with IO {
-        let noted = note_fetch(checkout, acc)
-        let recorded = note_resolved(name, checkout, noted)
-        descend(Git.checkout_dir(checkout), rest, base, seen, recorded, locked)
-    }
-
-    /// Record what this dependency resolved to, for the lockfile.
-    ///
-    /// Carried on the accumulator as a marker root — an empty namespace, which
-    /// no real package has — because the walk already threads one list through
-    /// every step, and a second one would have to be returned back up through
-    /// all of them. `partition_resolved` separates the two at the end.
-    ///
-    /// Recorded for every git dependency, fetched or cached, because the
-    /// lockfile describes the whole resolution rather than the subset that
-    /// happened to need downloading.
-    fn note_resolved(name: String, checkout: Checkout, acc: List<Root>) -> List<Root> {
-        List.concat([acc, [resolved_marker(name, checkout)]])
-    }
-
-    fn resolved_marker(name: String, checkout: Checkout) -> Root {
-        Root {
-            package: name,
-            namespace: "",
-            dir: Git.checkout_url(checkout) + "#" + Git.checkout_commit(checkout),
-        }
-    }
-
-    fn is_resolved_marker(r: Root) -> Bool {
-        root_namespace(r) == ""
-    }
-
-    /// Report a completed download as it happens.
-    ///
-    /// Printed immediately rather than accumulated with the roots, so it lands
-    /// next to the `fetching` line it answers. Batching them to the end put
-    /// every "Updating" before every "Fetched", which reads as though nothing
-    /// finished until everything had.
-    fn note_fetch(checkout: Checkout, acc: List<Root>) -> List<Root> with IO {
-        if Git.checkout_fetched(checkout) {
-            announce_fetched(checkout, acc)
-        } else {
-            acc
-        }
-    }
-
-    fn announce_fetched(checkout: Checkout, acc: List<Root>) -> List<Root> with IO {
-        let _reported = planned_report_fetched(checkout)
-        acc
-    }
-
-//| registry dependencies
-
-    /// The registry requirements declared by the project's own manifest.
-    ///
-    /// Only the root manifest is read. A dependency's own requirements come
-    /// from the index; reading them from an unpacked manifest would make
-    /// resolution depend on which versions happened to be unpacked already.
-    fn registry_requirements(manifest: Manifest) -> List<(String, String)> {
-        Manifest.manifest_deps(manifest)
-            |> List.filter(is_registry_dep)
-            |> List.map(requirement_of)
-    }
-
-    fn is_registry_dep(dep: Dep) -> Bool {
-        if Manifest.dep_is_dev(dep) {
-            false
-        } else {
-            match Manifest.dep_source(dep) {
-                FromPath(_) -> false,
-                FromGit(_) -> false,
-                FromRegistry(_) -> true,
-            }
-        }
-    }
-
-    fn requirement_of(dep: Dep) -> (String, String) {
-        match Manifest.dep_source(dep) {
-            FromRegistry(range) -> (Manifest.dep_name(dep), range),
-            // Unreachable: the list is filtered to registry deps first.
-            FromPath(_) -> (Manifest.dep_name(dep), ""),
-            FromGit(_) -> (Manifest.dep_name(dep), ""),
-        }
-    }
-
-    /// Resolve the project's registry dependencies into module roots.
-    ///
-    /// A project with no registry dependencies never reads the index and never
-    /// runs the solver, so the common case costs nothing.
-    fn registry_roots(
-        manifest: Manifest,
-        dir: String,
-    ) -> List<Root> with IO, Fail {
-        match registry_requirements(manifest) {
-            [] -> [],
-            requirements -> resolve_registry(requirements, dir),
-        }
-    }
-
     /// Read the index, read the lock, resolve, write if changed.
     ///
     /// Each step aborts on failure, so this reads as the sequence it is.
     fn resolve_registry(
         requirements: List<(String, String)>,
         dir: String,
+        frozen: Bool,
     ) -> List<Root> with IO, Fail {
-        let outcome = Fail.ok_or_abort(planned_registry(requirements, dir), unchanged())
-        locked_roots(ResolvePlan.outcome_lock(outcome))
+        let outcome = Fail.ok_or_abort(planned_registry(requirements, dir, frozen), unchanged())
+        let roots = Fail.ok_or_abort(
+            planned_registry_roots(ResolvePlan.outcome_lock(outcome)),
+            [],
+        )
+        List.map(roots, root_of_graph_root)
     }
 
     fn planned_registry(
         requirements: List<(String, String)>,
         dir: String,
+        frozen: Bool,
     ) -> Result<Outcome, String> with IO {
-        match BuildInterpreter.run(BuildPlan.registry(requirements, dir)) {
+        match BuildInterpreter.run(BuildPlan.registry_with(requirements, dir, frozen)) {
             Err(problem) -> Err(FlumeErrors.render(problem)),
             Ok(Err(problem)) -> Err(FlumeErrors.render(problem)),
             Ok(Ok(outcome)) -> Ok(outcome),
         }
     }
 
-    fn first_of(pair: (String, String)) -> String {
-        match pair { (name, _) -> name }
+    fn planned_registry_roots(lock: Lock) -> Result<List<GraphRoot>, String> with IO {
+        match BuildInterpreter.run(BuildPlan.registry_roots(lock)) {
+            Err(problem) -> Err(FlumeErrors.render(problem)),
+            Ok(Err(problem)) -> Err(FlumeErrors.render(problem)),
+            Ok(Ok(roots)) -> Ok(roots),
+        }
     }
 
     /// Unreachable placeholder for the aborting branch above.
     fn unchanged() -> Outcome {
         Unchanged { lock: Lock.lock(Lock.default_format(), []) }
-    }
-
-    /// The lockfile is written as part of building, so a build is always
-    /// described by a lockfile that matches it.
-    fn persist(outcome: Outcome, dir: String) -> List<Root> with IO, Fail {
-        let resolved = ResolvePlan.outcome_lock(outcome)
-        if ResolvePlan.outcome_changed(outcome) {
-            let _written = Fail.ok_or_abort(planned_write_lock(dir, resolved), unit_value())
-            locked_roots(resolved)
-        } else {
-            locked_roots(resolved)
-        }
-    }
-
-    /// One root per locked package, rooted at its unpacked sources.
-    ///
-    /// A resolved-but-unpacked package is reported by name: the resolution is
-    /// sound, the sources are simply not on disk yet.
-    fn locked_roots(resolved: Lock) -> List<Root> with IO, Fail {
-        collect_locked(Lock.lock_packages(resolved))
-    }
-
-    fn collect_locked(entries: List<Entry>) -> List<Root> with IO, Fail {
-        match entries {
-            [] -> [],
-            [head | rest] -> [locked_root(head) | collect_locked(rest)],
-        }
-    }
-
-    fn locked_root(entry: Entry) -> Root with IO, Fail {
-        let name = Lock.entry_name(entry)
-        let version = Version.render(Lock.entry_version(entry))
-        let unpacked = Store.package_dir(name, version)
-        if planned_directory(unpacked) {
-            package_root(name, unpacked)
-        } else {
-            Fail.abort(
-                "`" + name + "` " + version
-                    + " is resolved but its sources are not in " + unpacked,
-                package_root(name, unpacked),
-            )
-        }
-    }
-
-    /// The root a registry package contributes.
-    ///
-    /// Its namespace is derived from its name the same way a path package's
-    /// is, so a package owns the same namespace however it was obtained.
-    fn package_root(name: String, unpacked: String) -> Root with IO {
-        Root {
-            package: name,
-            namespace: Manifest.derive_namespace(name),
-            dir: source_dir(unpacked),
-        }
     }
 
     /// Resolve the roots for the project rooted at `dir`.
@@ -629,35 +217,26 @@ module Flume.Build.Graph {
             offline: offline,
             frozen: frozen,
         }
-        let manifest = read_project_manifest(dir)
-        let walked = Fail.ok_or_abort(resolve_from(dir, [], pins), [])
-        let members = member_paths(manifest, dir)
-        let member_roots = Fail.ok_or_abort(
-            resolve_members(members, dir, [dir], pins),
-            [],
+        let discovery = Fail.ok_or_abort(
+            planned_discovery(dir, pins_locked(pins), offline),
+            empty_discovery(),
         )
-        let all_roots = List.concat([walked, member_roots])
-        let package_roots = List.filter(all_roots, is_package_root)
-        let _lock = write_git_lock(dir, List.filter(all_roots, is_resolved_marker), pins)
-        let requirements = List.concat([
-            registry_requirements(manifest),
-            member_requirements(members),
-        ])
-        Ok(List.concat([package_roots, registry_roots_for(requirements, dir)]))
+        let markers = markers_of_discovery(discovery)
+        let _lock = write_git_lock(dir, markers, pins)
+        let package_roots = roots_of_discovery(discovery)
+        let requirements = BuildPlan.discovery_registry(discovery)
+        Ok(List.concat([package_roots, registry_roots_for(requirements, dir, frozen)]))
     }
 
     fn registry_roots_for(
         requirements: List<(String, String)>,
         dir: String,
+        frozen: Bool,
     ) -> List<Root> with IO, Fail {
         match requirements {
             [] -> [],
-            _ -> resolve_registry(requirements, dir),
+            _ -> resolve_registry(requirements, dir, frozen),
         }
-    }
-
-    fn is_package_root(r: Root) -> Bool {
-        !is_resolved_marker(r)
     }
 
     /// Write `flux.lock` when the git resolution differs from what it records.
@@ -858,9 +437,11 @@ module Flume.Build.Graph {
             offline: false,
             frozen: false,
         }
-        let resolved = resolve_from(dir, [], pins)
-        let walked = Fail.ok_or_abort(resolved, [])
-        let markers = List.filter(walked, is_resolved_marker)
+        let discovery = Fail.ok_or_abort(
+            planned_discovery(dir, pins_locked(pins), false),
+            empty_discovery(),
+        )
+        let markers = markers_of_discovery(discovery)
         let _lock = rewrite_lock(dir, markers, before)
         Ok(changes(markers, before))
     }
@@ -926,41 +507,6 @@ module Flume.Build.Graph {
         match change_before(c) {
             None -> true,
             Some(commit) -> commit != change_after(c),
-        }
-    }
-
-    fn read_project_manifest(dir: String) -> Manifest with IO, Fail {
-        let manifest_path = Path.join(dir, "flux.toml")
-        match planned_manifest(manifest_path) {
-            Err(_) -> Fail.abort("cannot read " + manifest_path, empty_manifest()),
-            Ok(text) -> parse_project_manifest(text, manifest_path),
-        }
-    }
-
-    fn parse_project_manifest(text: String, manifest_path: String) -> Manifest with IO, Fail {
-        match Manifest.parse(text) {
-            Err(_) -> Fail.abort("cannot parse " + manifest_path, empty_manifest()),
-            Ok(manifest) -> manifest,
-        }
-    }
-
-    /// Unreachable placeholder for the aborting branches above.
-    fn empty_manifest() -> Manifest {
-        Manifest {
-            package: Package {
-                name: "",
-                version: "",
-                edition: "",
-                namespace: "",
-            },
-            deps: [],
-            lib: None,
-            bins: [],
-            workspace: None,
-            profiles: Profiles {
-                dev: PartialProfile { backend: None, optimize: None },
-                release: PartialProfile { backend: None, optimize: None },
-            },
         }
     }
 

@@ -10,11 +10,12 @@ import Flume.Error as Error
 import Flume.Schema.Manifest as Manifest
 import Flume.Schema.Manifest exposing (Manifest, GitSource, Dep, FromPath, FromRegistry, FromGit)
 import Flume.Schema.Index exposing (Published)
-import Flume.Schema.Lock exposing (Lock)
+import Flume.Schema.Lock exposing (Lock, Entry)
 import Flume.Source.Git as Git
 import Flume.Source.Git exposing (Checkout)
 import Flume.Resolve.Plan as ResolvePlan
 import Flume.Resolve.Plan exposing (Outcome, Unchanged)
+import Flume.Resolve.Version as Version
 import Flow.List as List
 import Flow.Path as Path
 
@@ -34,6 +35,7 @@ module Flume.Build.Plan {
         },
         WriteLock { project_dir: String, lock: Lock },
         ReportFetched { checkout: Checkout },
+        LocatePackage { name: String, version: String },
     }
 
     /// Responses are closed because Flux cannot express a response indexed by
@@ -46,6 +48,7 @@ module Flume.Build.Plan {
         GitFetched { value: Result<Checkout, FlumeError> },
         LockWritten { value: Result<Unit, FlumeError> },
         FetchReported { value: Result<Unit, FlumeError> },
+        PackageLocated { value: Result<GraphRoot, FlumeError> },
     }
 
     /// A pure computation which either returns a value or requests one domain
@@ -103,6 +106,22 @@ module Flume.Build.Plan {
         GraphRoot { package: String, namespace: String, dir: String }
     }
 
+    /// A Git dependency resolved during graph discovery. Kept separate from
+    /// `GraphRoot` so lockfile metadata is not recovered from a sentinel root.
+    public data GitResolution {
+        GitResolution { package: String, url: String, commit: String }
+    }
+
+    /// Pure structural discovery plus the metadata needed by lock/update
+    /// operations and the registry plan.
+    public data GraphDiscovery {
+        GraphDiscovery {
+            roots: List<GraphRoot>,
+            git: List<GitResolution>,
+            registry: List<(String, String)>,
+        }
+    }
+
     public fn graph_root_package(root: GraphRoot) -> String {
         match root { GraphRoot { package, namespace: _, dir: _ } -> package }
     }
@@ -113,6 +132,30 @@ module Flume.Build.Plan {
 
     public fn graph_root_dir(root: GraphRoot) -> String {
         match root { GraphRoot { package: _, namespace: _, dir } -> dir }
+    }
+
+    public fn git_resolution_package(git: GitResolution) -> String {
+        match git { GitResolution { package, url: _, commit: _ } -> package }
+    }
+
+    public fn git_resolution_url(git: GitResolution) -> String {
+        match git { GitResolution { package: _, url, commit: _ } -> url }
+    }
+
+    public fn git_resolution_commit(git: GitResolution) -> String {
+        match git { GitResolution { package: _, url: _, commit } -> commit }
+    }
+
+    public fn discovery_roots(discovery: GraphDiscovery) -> List<GraphRoot> {
+        match discovery { GraphDiscovery { roots, git: _, registry: _ } -> roots }
+    }
+
+    public fn discovery_git(discovery: GraphDiscovery) -> List<GitResolution> {
+        match discovery { GraphDiscovery { roots: _, git, registry: _ } -> git }
+    }
+
+    public fn discovery_registry(discovery: GraphDiscovery) -> List<(String, String)> {
+        match discovery { GraphDiscovery { roots: _, git: _, registry } -> registry }
     }
 
     public data GraphOptions {
@@ -129,21 +172,39 @@ module Flume.Build.Plan {
         locked: List<(String, String)>,
         offline: Bool,
     ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+        map(
+            discover_with_git(root, locked, offline),
+            \result -> match result {
+                Err(problem) -> Err(problem),
+                Ok(discovery) -> Ok(discovery_roots(discovery)),
+            },
+        )
+    }
+
+    /// Build the complete pure structural discovery result. The root and
+    /// workspace members contribute registry requirements; path and Git
+    /// dependencies contribute source roots and Git lock metadata.
+    public fn discover_with_git(
+        root: String,
+        locked: List<(String, String)>,
+        offline: Bool,
+    ) -> GraphPlan<Result<GraphDiscovery, FlumeError>> {
         let options = GraphOptions { locked: locked, offline: offline }
-        discover_from(root, [], options)
+        discover_from(root, [], options, true)
     }
 
     fn discover_from(
         dir: String,
         seen: List<String>,
         options: GraphOptions,
-    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+        collect_registry: Bool,
+    ) -> GraphPlan<Result<GraphDiscovery, FlumeError>> {
         if List.contains(seen, dir) {
-            pure(Ok([]))
+            pure(Ok(GraphDiscovery { roots: [], git: [], registry: [] }))
         } else {
             request(
                 ReadManifest { path: Path.join(dir, "flux.toml") },
-                \response -> discover_manifest(response, dir, seen, options),
+                \response -> discover_manifest(response, dir, seen, options, collect_registry),
             )
         }
     }
@@ -153,12 +214,13 @@ module Flume.Build.Plan {
         dir: String,
         seen: List<String>,
         options: GraphOptions,
-    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+        collect_registry: Bool,
+    ) -> GraphPlan<Result<GraphDiscovery, FlumeError>> {
         match response {
             ManifestRead { value: Err(problem) } -> pure(Err(problem)),
             ManifestRead { value: Ok(text) } -> match Manifest.parse(text) {
                 Err(problem) -> pure(Err(Error.manifest_error(problem))),
-                Ok(manifest) -> discover_package(manifest, dir, seen, options),
+                Ok(manifest) -> discover_package(manifest, dir, seen, options, collect_registry),
             },
             _ -> pure(Err(Error.resolution_error("invalid manifest response"))),
         }
@@ -169,11 +231,20 @@ module Flume.Build.Plan {
         dir: String,
         seen: List<String>,
         options: GraphOptions,
-    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+        collect_registry: Bool,
+    ) -> GraphPlan<Result<GraphDiscovery, FlumeError>> {
         let candidate = Path.join(dir, "src")
         request(
             IsDirectory { path: candidate },
-            \response -> after_source_check(response, manifest, dir, candidate, seen, options),
+            \response -> after_source_check(
+                response,
+                manifest,
+                dir,
+                candidate,
+                seen,
+                options,
+                collect_registry,
+            ),
         )
     }
 
@@ -184,9 +255,18 @@ module Flume.Build.Plan {
         candidate: String,
         seen: List<String>,
         options: GraphOptions,
-    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+        collect_registry: Bool,
+    ) -> GraphPlan<Result<GraphDiscovery, FlumeError>> {
         match response {
-            DirectoryChecked { value } -> after_source_value(value, manifest, dir, candidate, seen, options),
+            DirectoryChecked { value } -> after_source_value(
+                value,
+                manifest,
+                dir,
+                candidate,
+                seen,
+                options,
+                collect_registry,
+            ),
             _ -> pure(Err(Error.resolution_error("invalid directory response"))),
         }
     }
@@ -198,7 +278,8 @@ module Flume.Build.Plan {
         candidate: String,
         seen: List<String>,
         options: GraphOptions,
-    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+        collect_registry: Bool,
+    ) -> GraphPlan<Result<GraphDiscovery, FlumeError>> {
         let source = if has_source { candidate } else { dir }
         let package = Manifest.manifest_package(manifest)
         let roots = if Manifest.package_name(package) == "" {
@@ -210,16 +291,39 @@ module Flume.Build.Plan {
                 dir: source,
             }]
         }
-        walk_deps(Manifest.manifest_deps(manifest), dir, [dir | seen], roots, options)
+        let registry = if collect_registry {
+            registry_requirements(Manifest.manifest_deps(manifest))
+        } else {
+            []
+        }
+        and_then(
+            walk_deps(
+                Manifest.manifest_deps(manifest),
+                dir,
+                [dir | seen],
+                GraphDiscovery { roots: roots, git: [], registry: registry },
+                options,
+            ),
+            \found -> match found {
+                Err(problem) -> pure(Err(problem)),
+                Ok(discovered) -> discover_members(
+                    manifest,
+                    dir,
+                    [dir | seen],
+                    discovered,
+                    options,
+                ),
+            },
+        )
     }
 
     fn walk_deps(
         deps: List<Dep>,
         base: String,
         seen: List<String>,
-        acc: List<GraphRoot>,
+        acc: GraphDiscovery,
         options: GraphOptions,
-    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+    ) -> GraphPlan<Result<GraphDiscovery, FlumeError>> {
         match deps {
             [] -> pure(Ok(acc)),
             [dep | rest] -> if Manifest.dep_is_dev(dep) {
@@ -254,11 +358,11 @@ module Flume.Build.Plan {
         rest: List<Dep>,
         base: String,
         seen: List<String>,
-        acc: List<GraphRoot>,
+        acc: GraphDiscovery,
         options: GraphOptions,
-    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+    ) -> GraphPlan<Result<GraphDiscovery, FlumeError>> {
         and_then(
-            discover_from(dir, seen, options),
+            discover_from(dir, seen, options, false),
             \found -> continue_deps(found, rest, base, [dir | seen], acc, options),
         )
     }
@@ -269,9 +373,9 @@ module Flume.Build.Plan {
         rest: List<Dep>,
         base: String,
         seen: List<String>,
-        acc: List<GraphRoot>,
+        acc: GraphDiscovery,
         options: GraphOptions,
-    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+    ) -> GraphPlan<Result<GraphDiscovery, FlumeError>> {
         request(
             FetchGit {
                 source: source,
@@ -289,18 +393,31 @@ module Flume.Build.Plan {
         rest: List<Dep>,
         base: String,
         seen: List<String>,
-        acc: List<GraphRoot>,
+        acc: GraphDiscovery,
         options: GraphOptions,
-    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+    ) -> GraphPlan<Result<GraphDiscovery, FlumeError>> {
         match response {
             GitFetched { value: Err(problem) } -> pure(Err(problem)),
             GitFetched { value: Ok(checkout) } -> if Git.checkout_fetched(checkout) {
                 request(
                     ReportFetched { checkout: checkout },
-                    \reported -> after_git_report(reported, checkout, rest, base, seen, acc, options),
+                    \reported -> after_git_report(
+                        reported,
+                        checkout,
+                        name,
+                        rest,
+                        base,
+                        seen,
+                        acc,
+                        options,
+                    ),
                 )
             } else {
-                discover_dependency(Git.checkout_dir(checkout), rest, base, seen, acc, options)
+                after_git_discovery(
+                    discover_dependency(Git.checkout_dir(checkout), rest, base, seen, acc, options),
+                    checkout,
+                    name,
+                )
             },
             _ -> pure(Err(Error.resolution_error("invalid git response for " + name))),
         }
@@ -309,31 +426,152 @@ module Flume.Build.Plan {
     fn after_git_report(
         response: GraphResponse,
         checkout: Checkout,
+        name: String,
         rest: List<Dep>,
         base: String,
         seen: List<String>,
-        acc: List<GraphRoot>,
+        acc: GraphDiscovery,
         options: GraphOptions,
-    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+    ) -> GraphPlan<Result<GraphDiscovery, FlumeError>> {
         match response {
             FetchReported { value: Err(problem) } -> pure(Err(problem)),
             FetchReported { value: Ok(_) } ->
-                discover_dependency(Git.checkout_dir(checkout), rest, base, seen, acc, options),
+                after_git_discovery(
+                    discover_dependency(Git.checkout_dir(checkout), rest, base, seen, acc, options),
+                    checkout,
+                    name,
+                ),
             _ -> pure(Err(Error.resolution_error("invalid fetch report response"))),
         }
     }
 
+    fn after_git_discovery(
+        plan: GraphPlan<Result<GraphDiscovery, FlumeError>>,
+        checkout: Checkout,
+        name: String,
+    ) -> GraphPlan<Result<GraphDiscovery, FlumeError>> {
+        and_then(
+            plan,
+            \found -> match found {
+                Err(problem) -> pure(Err(problem)),
+                Ok(discovery) -> pure(Ok(add_git_resolution(discovery, checkout, name))),
+            },
+        )
+    }
+
+    fn add_git_resolution(
+        discovery: GraphDiscovery,
+        checkout: Checkout,
+        name: String,
+    ) -> GraphDiscovery {
+        GraphDiscovery {
+            roots: discovery_roots(discovery),
+            git: List.concat([
+                discovery_git(discovery),
+                [GitResolution {
+                    package: name,
+                    url: Git.checkout_url(checkout),
+                    commit: Git.checkout_commit(checkout),
+                }],
+            ]),
+            registry: discovery_registry(discovery),
+        }
+    }
+
+    fn discover_members(
+        manifest: Manifest,
+        base: String,
+        seen: List<String>,
+        acc: GraphDiscovery,
+        options: GraphOptions,
+    ) -> GraphPlan<Result<GraphDiscovery, FlumeError>> {
+        match Manifest.manifest_workspace(manifest) {
+            None -> pure(Ok(acc)),
+            Some(workspace) -> discover_members_from(
+                Manifest.workspace_members(workspace),
+                base,
+                seen,
+                acc,
+                options,
+            ),
+        }
+    }
+
+    fn discover_members_from(
+        members: List<String>,
+        base: String,
+        seen: List<String>,
+        acc: GraphDiscovery,
+        options: GraphOptions,
+    ) -> GraphPlan<Result<GraphDiscovery, FlumeError>> {
+        match members {
+            [] -> pure(Ok(acc)),
+            [member | rest] -> and_then(
+                discover_from(
+                    Path.normalize(Path.join(base, member)),
+                    seen,
+                    options,
+                    true,
+                ),
+                \found -> match found {
+                    Err(problem) -> pure(Err(problem)),
+                    Ok(discovered) -> discover_members_from(
+                        rest,
+                        base,
+                        seen,
+                        combine_discovery(acc, discovered),
+                        options,
+                    ),
+                },
+            ),
+        }
+    }
+
+    fn combine_discovery(left: GraphDiscovery, right: GraphDiscovery) -> GraphDiscovery {
+        GraphDiscovery {
+            roots: List.concat([discovery_roots(left), discovery_roots(right)]),
+            git: List.concat([discovery_git(left), discovery_git(right)]),
+            registry: List.concat([discovery_registry(left), discovery_registry(right)]),
+        }
+    }
+
+    fn registry_requirements(deps: List<Dep>) -> List<(String, String)> {
+        deps
+            |> List.filter(is_registry_dependency)
+            |> List.map(registry_requirement)
+    }
+
+    fn is_registry_dependency(dep: Dep) -> Bool {
+        if Manifest.dep_is_dev(dep) {
+            false
+        } else {
+            match Manifest.dep_source(dep) {
+                FromRegistry(_) -> true,
+                FromPath(_) -> false,
+                FromGit(_) -> false,
+            }
+        }
+    }
+
+    fn registry_requirement(dep: Dep) -> (String, String) {
+        match Manifest.dep_source(dep) {
+            FromRegistry(requirement) -> (Manifest.dep_name(dep), requirement),
+            FromPath(_) -> (Manifest.dep_name(dep), ""),
+            FromGit(_) -> (Manifest.dep_name(dep), ""),
+        }
+    }
+
     fn continue_deps(
-        found: Result<List<GraphRoot>, FlumeError>,
+        found: Result<GraphDiscovery, FlumeError>,
         rest: List<Dep>,
         base: String,
         seen: List<String>,
-        acc: List<GraphRoot>,
+        acc: GraphDiscovery,
         options: GraphOptions,
-    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+    ) -> GraphPlan<Result<GraphDiscovery, FlumeError>> {
         match found {
             Err(problem) -> pure(Err(problem)),
-            Ok(roots) -> walk_deps(rest, base, seen, List.concat([acc, roots]), options),
+            Ok(found) -> walk_deps(rest, base, seen, combine_discovery(acc, found), options),
         }
     }
 
@@ -363,11 +601,20 @@ module Flume.Build.Plan {
         requirements: List<(String, String)>,
         project_dir: String,
     ) -> GraphPlan<Result<Outcome, FlumeError>> {
+        registry_with(requirements, project_dir, false)
+    }
+
+    /// Registry resolution with an optional frozen lockfile policy.
+    public fn registry_with(
+        requirements: List<(String, String)>,
+        project_dir: String,
+        frozen: Bool,
+    ) -> GraphPlan<Result<Outcome, FlumeError>> {
         match requirements {
             [] -> pure(Ok(Unchanged { lock: Lock.lock(Lock.default_format(), []) })),
             _ -> request(
                 ReadIndex { names: List.map(requirements, requirement_name) },
-                \response -> registry_index_response(response, requirements, project_dir),
+                \response -> registry_index_response(response, requirements, project_dir, frozen),
             ),
         }
     }
@@ -376,6 +623,7 @@ module Flume.Build.Plan {
         response: GraphResponse,
         requirements: List<(String, String)>,
         project_dir: String,
+        frozen: Bool,
     ) -> GraphPlan<Result<Outcome, FlumeError>> {
         match response {
             IndexRead { value: Err(problem) } -> pure(Err(problem)),
@@ -386,6 +634,7 @@ module Flume.Build.Plan {
                     requirements,
                     available,
                     project_dir,
+                    frozen,
                 ),
             ),
             _ -> pure(Err(Error.resolution_error("invalid index response"))),
@@ -397,11 +646,12 @@ module Flume.Build.Plan {
         requirements: List<(String, String)>,
         available: List<Published>,
         project_dir: String,
+        frozen: Bool,
     ) -> GraphPlan<Result<Outcome, FlumeError>> {
         match response {
             LockRead { value: Err(problem) } -> pure(Err(problem)),
             LockRead { value: Ok(previous) } ->
-                registry_resolution(requirements, available, previous, project_dir),
+                registry_resolution(requirements, available, previous, project_dir, frozen),
             _ -> pure(Err(Error.lock_error("invalid lock response"))),
         }
     }
@@ -411,10 +661,15 @@ module Flume.Build.Plan {
         available: List<Published>,
         previous: Option<Lock>,
         project_dir: String,
+        frozen: Bool,
     ) -> GraphPlan<Result<Outcome, FlumeError>> {
-        match ResolvePlan.plan(requirements, available, previous) {
-            Err(message) -> pure(Err(Error.resolution_error(message))),
-            Ok(outcome) -> if ResolvePlan.outcome_changed(outcome) {
+        match ResolvePlan.plan_typed(requirements, available, previous) {
+            Err(problem) -> pure(Err(problem)),
+            Ok(outcome) -> if ResolvePlan.outcome_changed(outcome) && frozen {
+                pure(Err(Error.lock_error(
+                    "`--locked` was given, but `flux.lock` would change",
+                )))
+            } else if ResolvePlan.outcome_changed(outcome) {
                 request(
                     WriteLock {
                         project_dir: project_dir,
@@ -436,6 +691,47 @@ module Flume.Build.Plan {
             LockWritten { value: Err(problem) } -> pure(Err(problem)),
             LockWritten { value: Ok(_) } -> pure(Ok(outcome)),
             _ -> pure(Err(Error.lock_error("invalid lock write response"))),
+        }
+    }
+
+    /// Locate the unpacked roots selected by a registry resolution. The
+    /// package directory is environment-dependent, so locating it is a
+    /// domain request interpreted by the production or fake interpreter.
+    public fn registry_roots(
+        resolved: Lock,
+    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+        locate_registry_entries(Lock.lock_packages(resolved))
+    }
+
+    fn locate_registry_entries(
+        entries: List<Entry>,
+    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+        match entries {
+            [] -> pure(Ok([])),
+            [entry | rest] -> request(
+                LocatePackage {
+                    name: Lock.entry_name(entry),
+                    version: Version.render(Lock.entry_version(entry)),
+                },
+                \response -> after_package_location(response, rest),
+            ),
+        }
+    }
+
+    fn after_package_location(
+        response: GraphResponse,
+        rest: List<Entry>,
+    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+        match response {
+            PackageLocated { value: Err(problem) } -> pure(Err(problem)),
+            PackageLocated { value: Ok(root) } -> and_then(
+                locate_registry_entries(rest),
+                \tail -> match tail {
+                    Err(problem) -> pure(Err(problem)),
+                    Ok(roots) -> pure(Ok([root | roots])),
+                },
+            ),
+            _ -> pure(Err(Error.resolution_error("invalid package location response"))),
         }
     }
 
