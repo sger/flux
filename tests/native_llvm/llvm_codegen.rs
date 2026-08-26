@@ -16,7 +16,7 @@ use flux::{
         BlockId, LirBlock, LirConst, LirFuncId, LirFunction, LirInstr, LirProgram, LirTerminator,
         LirVar, emit_llvm::emit_llvm_ir, lower::lower_program_with_interner,
     },
-    llvm::{LlvmModule, emit_prelude_and_arith, render_module},
+    llvm::{LlvmModule, emit_prelude_and_arith, pipeline::compile_ir_to_object, render_module},
     syntax::{expression::ExprId, interner::Interner, lexer::Lexer, parser::Parser},
     types::infer_type::InferType,
 };
@@ -52,6 +52,24 @@ fn llvm_function_text<'a>(ll: &'a str, name: &str) -> &'a str {
     let rest = &ll[function_start..];
     let end = rest.find("\ndefine ").unwrap_or(rest.len());
     &rest[..end]
+}
+
+#[test]
+fn optimization_level_changes_native_object_output() {
+    let root = std::env::temp_dir().join(format!("flux-profile-opt-{}", std::process::id()));
+    let _ = fs::create_dir_all(&root);
+    let o0 = root.join("o0.o");
+    let o2 = root.join("o2.o");
+    let source = r#"
+        define i32 @main() {
+          %value = add i32 20, 22
+          ret i32 %value
+        }
+    "#;
+    compile_ir_to_object(source, &o0, 0).expect("-O0 native compilation should succeed");
+    compile_ir_to_object(source, &o2, 2).expect("-O2 native compilation should succeed");
+    assert_ne!(fs::read(&o0).unwrap(), fs::read(&o2).unwrap());
+    let _ = fs::remove_dir_all(root);
 }
 
 #[test]

@@ -54,8 +54,8 @@ use sha2::{Digest, Sha256};
 /// Epoch 24: native lowering marks any non-direct-path effect as suspending, so
 /// callers of a cross-module `perform` gain yield checks they did not emit
 /// before (KI-034). Cached native objects from epoch 23 lack them.
-/// Epoch 26: Phase 3 content-addressed unit-store metadata and ABI separation.
-pub const CACHE_EPOCH: u16 = 26;
+/// Epoch 27: package build profiles and default-eliding semantic config keys.
+pub const CACHE_EPOCH: u16 = 27;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

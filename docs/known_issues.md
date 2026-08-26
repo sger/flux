@@ -1163,3 +1163,39 @@ made one arm appear to work.
 **Fix.** Carry the original id onto the synthesized call.
 
 ---
+### KI-038 — VM slow-path arithmetic is unchecked
+
+**Severity:** High · **Area:** VM backend · **Verified:** 2026-08-26
+
+`src/vm/binary_ops.rs` uses plain `+`, `-`, and `*` on its slow path, while
+`src/vm/dispatch.rs` uses wrapping operations on the fast path. With Cargo's
+current `overflow-checks = false` the difference is hidden; enabling checks
+would make integer semantics depend on the emitted opcode shape. Reproduce with
+an integer expression that forces the slow path and compare it with the fast
+path equivalent.
+
+### KI-039 — Native integers truncate values that the VM boxes
+
+**Severity:** High · **Area:** VM/native parity · **Verified:** 2026-08-26
+
+The VM nanobox falls back to a heap box for integers outside its inline payload,
+but native `flux_tag_int` has no equivalent fallback. For example, `2^62`
+round-trips on the VM and becomes truncated garbage natively. Reproduce by
+printing that value under both backends.
+
+### KI-040 — `i64::MIN / -1` is unguarded
+
+**Severity:** High · **Area:** arithmetic · **Verified:** 2026-08-26
+
+The VM integer division path and native `sdiv` both leave the two's-complement
+minimum divided by `-1` unguarded. Reproduce with `(-9223372036854775807 - 1) /
+-1` and compare the backend behavior.
+
+### KI-041 — E1010 and E060 describe unwired overflow behavior
+
+**Severity:** Medium · **Area:** diagnostics · **Verified:** 2026-08-26
+
+`INTEGER_OVERFLOW` (E1010) and `CONST_OVERFLOW` (E060) are registered and
+documented, but have no construction sites. Their documented behavior is not
+currently observable. Reproduce by searching the source for constructors of
+both diagnostics; either wire the codes to defined semantics or remove them.

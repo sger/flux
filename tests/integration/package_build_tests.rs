@@ -76,6 +76,41 @@ fn a_path_dependency_resolves_through_its_namespace() {
     assert!(out.contains("shared"), "unexpected output:\n{out}");
 }
 
+#[test]
+fn dev_profile_is_the_vm_default_and_release_requires_llvm() {
+    let scratch = Scratch::new("pkg-profiles");
+    let app = scratch.path().join("app");
+    write(
+        &app.join("flux.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+    );
+    write(
+        &app.join("src/main.flx"),
+        "fn main() with IO { print(\"profile\") }\n",
+    );
+
+    let (dev, ok) = run("src/main.flx", &app);
+    assert!(ok, "default dev profile failed:\n{dev}");
+    assert!(dev.contains("[cfg→vm]"), "default should use VM:\n{dev}");
+
+    let output = Command::new(flux_bin())
+        .current_dir(&app)
+        .args(["build", "--profile", "release", "--no-cache"])
+        .env("NO_COLOR", "1")
+        .output()
+        .expect("run release build");
+    let mut release = String::from_utf8_lossy(&output.stdout).to_string();
+    release.push_str(&String::from_utf8_lossy(&output.stderr));
+    #[cfg(not(feature = "llvm"))]
+    {
+        assert!(!output.status.success(), "release should require LLVM");
+        assert!(
+            release.contains("profile `release` selects the native backend"),
+            "{release}"
+        );
+    }
+}
+
 /// The regression this phase exists to fix: two packages each shipping a
 /// module at the same relative path used to collide as `E027`.
 #[test]

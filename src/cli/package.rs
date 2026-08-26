@@ -13,8 +13,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use sha2::{Digest, Sha256};
 
 use crate::cli::cmdline::PackageAction;
+use crate::cli::render::text::profile_native_without_llvm;
 use crate::driver::manifest_roots::{FLUX_SKIP_MANIFEST_ENV, flume_shim};
-use crate::driver::{RunMode, flags::DriverFlags, pipeline::RunTarget};
+use crate::driver::{
+    RunMode,
+    backend::Backend,
+    backend_policy::validate_flags,
+    flags::{DriverFlags, Profile},
+    pipeline::RunTarget,
+};
+
+const PACKAGE_FORMAT_VERSION: u64 = 1;
 
 /// What the package manager reported: its message, and whether it failed.
 struct Reply {
@@ -217,6 +226,12 @@ pub fn package_command(
     let package_project =
         crate::shared::cache_paths::find_package_root(&cwd).unwrap_or_else(|| project.clone());
 
+    let is_plan = action == PackageAction::Build && program_args.iter().any(|arg| arg == "--plan");
+    if let Err(message) = apply_package_profile(&project, &mut flags, action, !is_plan) {
+        eprintln!("error: {message}");
+        return ExitCode::FAILURE;
+    }
+
     // `tree` reads manifests and prints; it compiles nothing, so it takes none
     // of the entry-point resolution below — a package with no entry point
     // still has a dependency graph worth showing.
@@ -225,7 +240,7 @@ pub fn package_command(
     }
 
     if action == PackageAction::Metadata {
-        return phase3_metadata(&project, flags.diagnostics.diagnostics_format);
+        return phase3_metadata(&project, flags.diagnostics.diagnostics_format, &flags);
     }
 
     if action == PackageAction::Publish {
@@ -288,8 +303,74 @@ pub fn package_command(
     ExitCode::SUCCESS
 }
 
+/// Resolve the package profile through Flume, then layer explicit CLI
+/// overrides over the resolved settings.
+fn apply_package_profile(
+    project: &Path,
+    flags: &mut DriverFlags,
+    action: PackageAction,
+    validate_backend: bool,
+) -> Result<(), String> {
+    let name = flags
+        .profile
+        .name
+        .clone()
+        .unwrap_or_else(|| "dev".to_string());
+    let dir = project.to_string_lossy().into_owned();
+    let reply = call_flume(&["profile", &dir, &name])?;
+    if reply.failed {
+        return Err(reply.message);
+    }
+    let mut fields = reply.message.split('\t');
+    let backend = match fields.next() {
+        Some("vm") => Backend::Vm,
+        Some("native") => Backend::Native,
+        Some(found) => return Err(format!("invalid backend in profile reply: {found}")),
+        None => return Err("profile resolver returned no backend".to_string()),
+    };
+    let optimize = match fields.next() {
+        Some("true") => true,
+        Some("false") => false,
+        Some(found) => return Err(format!("invalid optimize value in profile reply: {found}")),
+        None => return Err("profile resolver returned no optimize value".to_string()),
+    };
+    if fields.next().is_some() {
+        return Err("profile resolver returned too many fields".to_string());
+    }
+
+    let profile = Profile { backend, optimize };
+    flags.profile.resolved = Some(profile);
+    flags.backend.use_llvm = flags
+        .profile
+        .cli_use_llvm
+        .unwrap_or(profile.backend == Backend::Native);
+    flags.language.enable_optimize = flags.profile.cli_optimize.unwrap_or(profile.optimize);
+    *flags = flags.clone().finalize_backend();
+
+    if validate_backend
+        && matches!(
+            action,
+            PackageAction::Build | PackageAction::Run | PackageAction::Test | PackageAction::Check
+        )
+        && let Err(error) = validate_flags(flags, action == PackageAction::Test)
+    {
+        if profile.backend == Backend::Native
+            && flags.profile.cli_use_llvm != Some(false)
+            && !cfg!(feature = "llvm")
+        {
+            return Err(profile_native_without_llvm(&name));
+        }
+        return Err(error.to_string());
+    }
+    Ok(())
+}
+
 /// Emit the stable, versioned graph consumed by external tooling.
-fn phase3_metadata(project: &Path, format: crate::driver::DiagnosticOutputFormat) -> ExitCode {
+fn phase3_metadata(
+    project: &Path,
+    format: crate::driver::DiagnosticOutputFormat,
+    flags: &DriverFlags,
+) -> ExitCode {
     let dir = project.to_string_lossy().into_owned();
     let reply = match resolve_graph(&dir) {
         Ok(reply) => reply,
@@ -308,12 +389,20 @@ fn phase3_metadata(project: &Path, format: crate::driver::DiagnosticOutputFormat
         return ExitCode::FAILURE;
     }
     let members = workspace_members(project);
+    let profile_name = flags.profile.name.as_deref().unwrap_or("dev");
+    let backend = if flags.is_native_backend() {
+        "native"
+    } else {
+        "vm"
+    };
     let value = serde_json::json!({
-        "format_version": 1,
+        "format_version": PACKAGE_FORMAT_VERSION,
         "workspace": { "root": project, "members": members },
         "packages": packages,
         "targets": {
-            "backend": "vm",
+            "backend": backend,
+            "profile": profile_name,
+            "optimize": flags.language.enable_optimize,
             "cache_root": crate::shared::cache_paths::resolve_cache_root(project, None),
             "store_root": crate::driver::artifact_store::store_root(),
         }
@@ -397,6 +486,7 @@ fn phase3_build_plan(project: &Path, flags: &DriverFlags) -> ExitCode {
                 "target": "lib",
                 "mode": "program",
                 "backend": backend,
+                "profile": flags.profile.name.as_deref().unwrap_or("dev"),
                 "unit_hash": hash,
                 "source": source,
             })
@@ -405,11 +495,16 @@ fn phase3_build_plan(project: &Path, flags: &DriverFlags) -> ExitCode {
     println!(
         "{}",
         serde_json::to_string_pretty(&serde_json::json!({
-            "format_version": 1,
+            "format_version": PACKAGE_FORMAT_VERSION,
             "workspace_root": project,
             "units": units,
         }))
-        .unwrap_or_else(|_| "{\"format_version\":1,\"units\":[]}".into())
+        .unwrap_or_else(|_| {
+            format!(
+                "{{\"format_version\":{},\"units\":[]}}",
+                PACKAGE_FORMAT_VERSION
+            )
+        })
     );
     ExitCode::SUCCESS
 }

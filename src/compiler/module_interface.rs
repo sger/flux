@@ -588,11 +588,13 @@ fn collect_symbols_from_effect_expr(
 }
 
 pub fn compute_semantic_config_hash(strict_mode: bool, optimize_mode: bool) -> [u8; 32] {
-    let marker = format!(
-        "strict={}\noptimize={}\n",
-        u8::from(strict_mode),
-        u8::from(optimize_mode)
-    );
+    let mut marker = String::new();
+    if optimize_mode {
+        marker.push_str("optimize: 1\n");
+    }
+    if strict_mode {
+        marker.push_str("strict: 1\n");
+    }
     hash_bytes(marker.as_bytes())
 }
 

@@ -88,8 +88,7 @@ fn compile_parallel_module(
         effective_module_strictness(node.kind, entry_module_kind, request.compile.strict_mode);
     let semantic_config_hash =
         compute_semantic_config_hash(strict_mode, request.compile.enable_optimize);
-    let strict_hash = hash_bytes(format!("strict={}\n", u8::from(strict_mode)).as_bytes());
-    let cache_key = hash_cache_key(&source_hash, &strict_hash);
+    let cache_key = hash_cache_key(&source_hash, &semantic_config_hash);
     let module_cache = ModuleBytecodeCache::new(request.cache.cache_layout.vm_dir());
     let store_deps = collect_dependency_fingerprints(&node.imports, loaded_interfaces)
         .into_iter()

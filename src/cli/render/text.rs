@@ -12,10 +12,10 @@ Usage:
 Packages (in a directory holding a flux.toml):
   flux new <name> [--lib]     Create a package in a new directory
   flux init [--lib]           Create a package in the current directory
-  flux build                  Compile the package and its dependencies
-  flux run                    Build and run the package
-  flux test                   Run the package's test_* functions
-  flux check                  Report errors without running
+  flux build [--profile <name>] Compile the package and its dependencies
+  flux run [--profile <name>]   Build and run the package
+  flux test [--profile <name>]  Run the package's test_* functions
+  flux check [--profile <name>] Report errors without running
   flux tree                   Print the resolved dependency graph
   flux add <name> --git <url> [--tag|--branch|--rev <ref>]
   flux add <name> --path <dir> | --version <req> [--dev]
@@ -58,6 +58,8 @@ Flags:
   --frozen           Both --offline and --locked
   --cache-dir <dir>  Override cache root (default: nearest Cargo.toml target/flux, else .flux/cache)
   --optimize, -O     Enable AST optimizations (desugar + constant fold)
+  --no-optimize       Disable optimization, overriding the selected profile
+  --profile <name>    Package profile: dev (default) or release
   --analyze, -A      Enable analysis passes (free vars + tail calls)
   --format <f>       Diagnostics format: text|json|json-compact (default: text)
   --max-errors <n>   Limit displayed errors (default: 50)
@@ -75,6 +77,7 @@ Flags:
   --dump-aether=debug
                     Show detailed Aether debug report (borrow signatures, call modes, dup/drop, reuse)
   --native           Compile via Core IR -> LLVM text IR -> native binary (requires LLVM tools)
+  --vm               Compile via the bytecode VM, overriding a package profile
   --emit-llvm        Emit LLVM IR text (.ll) to stdout (with --native)
   --emit-binary      Compile to native binary via opt + llc + cc (with --native)
   -o <path>          Output path for --emit-llvm or --emit-binary
@@ -85,6 +88,21 @@ Optimization & Analysis:
   --analyze          Collect analysis data (free vars, tail calls)
   -O -A              Both optimization and analysis
 "
+}
+
+/// Error shown when a package-only profile is supplied to a source-file run.
+pub fn profile_source_error() -> &'static str {
+    "Error: --profile applies to package commands (build, run, test, check), not to a source file."
+}
+
+/// Error shown when a native release profile is unavailable in this build.
+pub fn profile_native_without_llvm(name: &str) -> String {
+    format!(
+        "Error: profile `{name}` selects the native backend, but this flux was built\n\
+         without LLVM support.\n\
+         help: rebuild the compiler with `cargo build --features llvm`\n\
+         help: or build with `--profile dev`"
+    )
 }
 
 /// Returns the `fmt` usage text shown when formatter arguments are missing.
@@ -131,6 +149,7 @@ mod tests {
         assert!(text.contains("flux run <file.flx>"));
         assert!(text.contains("--dump-core"));
         assert!(text.contains("--format <f>"));
+        assert!(text.contains("--profile <name>"));
     }
 
     #[test]
