@@ -23,6 +23,7 @@ fn workspace_root() -> &'static Path {
 fn run_flux_test(fixture: &str) -> (String, bool) {
     let dir = workspace_root().join("tests").join("flux");
     let path = dir.join(fixture);
+    let scratch = Scratch::new("module-local-shadowing-suite");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([
@@ -32,6 +33,7 @@ fn run_flux_test(fixture: &str) -> (String, bool) {
             dir.to_str().unwrap(),
             "--no-cache",
         ])
+        .args(scratch.cache_args())
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux --test on {fixture}: {e}"));
 
@@ -65,6 +67,7 @@ fn run_program(case: &str, module_name: &str, module_src: &str, main_src: &str) 
             dir.to_str().unwrap(),
             "--no-cache",
         ])
+        .args(scratch.cache_args())
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux for {case}: {e}"));
 

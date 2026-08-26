@@ -53,7 +53,20 @@ pub fn run_native_with_env(fixture: &str, env: &[(&str, &str)]) -> (String, bool
         .replace("\r\n", "\n")
         .trim()
         .to_string();
-    (stdout, output.status.success())
+    if output.status.success() {
+        return (stdout, true);
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr)
+        .replace("\r\n", "\n")
+        .trim()
+        .to_string();
+    if stderr.is_empty() {
+        (stdout, false)
+    } else if stdout.is_empty() {
+        (stderr, false)
+    } else {
+        (format!("{stdout}\n── stderr ──\n{stderr}"), false)
+    }
 }
 
 /// Run a parity fixture through the bytecode VM backend. Returns trimmed stdout.

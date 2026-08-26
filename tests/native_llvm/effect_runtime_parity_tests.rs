@@ -9,7 +9,7 @@
 #[path = "../support/primop_parity.rs"]
 mod primop_parity;
 
-use primop_parity::{run_native_with_env, run_vm};
+use primop_parity::{run_native_with_env, run_vm, scratch::Scratch};
 use std::process::Command;
 
 fn assert_parity_with_yield_checks(fixture: &str, expected: &str) {
@@ -36,10 +36,16 @@ fn assert_parity_with_yield_checks(fixture: &str, expected: &str) {
 
 fn run_guide_fixture(path: &str, native: bool) -> (Vec<String>, bool) {
     let full_path = primop_parity::workspace_root().join(path);
+    let scratch = Scratch::new(&format!(
+        "effect-runtime-{}{}",
+        path.replace('/', "-").replace('.', "-"),
+        if native { "-native" } else { "-vm" }
+    ));
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_flux"));
     cmd.current_dir(primop_parity::workspace_root())
         .arg(full_path.to_str().unwrap())
-        .arg("--no-cache");
+        .arg("--no-cache")
+        .args(scratch.cache_args());
     if native {
         cmd.arg("--native");
     }

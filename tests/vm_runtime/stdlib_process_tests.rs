@@ -30,10 +30,11 @@ fn scratch_file(name: &str, source: &str) -> (Scratch, PathBuf) {
     (scratch, file)
 }
 
-fn compile(file: &Path) -> (String, String, bool) {
+fn compile(file: &Path, scratch: &Scratch) -> (String, String, bool) {
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args(["run", file.to_str().unwrap(), "--no-cache"])
+        .args(scratch.cache_args())
         .output()
         .expect("run flux");
     (
@@ -57,7 +58,7 @@ fn stdlib_process_fixture_passes_on_both_backends() {
 /// Running a subprocess is a capability, so it must be declared.
 #[test]
 fn running_a_subprocess_requires_the_process_effect() {
-    let (_guard, file) = scratch_file(
+    let (guard, file) = scratch_file(
         "proc_effect.flx",
         r#"
 import Flow.Process as Proc
@@ -75,7 +76,7 @@ fn main() -> Unit with Console {
 }
 "#,
     );
-    let (stdout, stderr, success) = compile(&file);
+    let (stdout, stderr, success) = compile(&file, &guard);
     assert!(
         !success,
         "an undeclared Process effect must be rejected:\n{stdout}"
@@ -91,7 +92,7 @@ fn main() -> Unit with Console {
 /// into another capability and signatures no longer mean what they say.
 #[test]
 fn the_filesystem_effect_does_not_authorise_subprocesses() {
-    let (_guard, file) = scratch_file(
+    let (guard, file) = scratch_file(
         "proc_not_fs.flx",
         r#"
 import Flow.Process as Proc
@@ -109,7 +110,7 @@ fn main() -> Unit with IO {
 }
 "#,
     );
-    let (stdout, stderr, success) = compile(&file);
+    let (stdout, stderr, success) = compile(&file, &guard);
     assert!(
         !success,
         "FileSystem must not cover Process:\n{stdout}{stderr}"
@@ -124,7 +125,7 @@ fn main() -> Unit with IO {
 /// subprocess without naming `Process` separately.
 #[test]
 fn the_io_alias_covers_the_process_effect() {
-    let (_guard, file) = scratch_file(
+    let (guard, file) = scratch_file(
         "proc_io_alias.flx",
         r#"
 import Flow.Process as Proc
@@ -138,7 +139,7 @@ fn main() -> Unit with IO {
 }
 "#,
     );
-    let (stdout, stderr, success) = compile(&file);
+    let (stdout, stderr, success) = compile(&file, &guard);
     assert!(success, "IO must cover Process:\n{stdout}\n{stderr}");
     assert!(stdout.contains("covered"), "got:\n{stdout}");
 }
