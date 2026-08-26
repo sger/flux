@@ -422,7 +422,7 @@ Reader<List<a>>` needs no higher-kinded types).
 
 ### KI-035 — `Flow.Http` has no TLS, so no HTTPS host is reachable
 
-**Severity:** High · **Area:** `Flow.Http`, runtime · **Verified:** 2026-08-25 · **From:** [0177](proposals/0177_package_manager.md) Phase 2 fetching
+**Severity:** High · **Area:** `Flow.Http`, runtime · **Verified:** 2026-08-25 · **From:** [0177](proposals/implemented/0177_package_manager.md) Phase 2 fetching
 
 `parse_url` ([../src/runtime/http/mod.rs:332](../src/runtime/http/mod.rs#L332))
 rejects any URL that does not begin with `http://`:
@@ -440,7 +440,7 @@ GitHub, GitLab, and crates.io-style registries are all HTTPS-only and either
 redirect or refuse plain HTTP. Anything that must fetch over the network has to
 shell out to a program that brings its own TLS.
 
-This is why [0177](proposals/0177_package_manager.md)'s git dependencies fetch
+This is why [0177](proposals/implemented/0177_package_manager.md)'s git dependencies fetch
 by invoking `git` through `Flow.Process` rather than over `Flow.Http`: the
 system `git` binary supplies TLS. The same restriction blocks a future
 HTTP-based registry client, which cannot be built until TLS lands.
@@ -454,7 +454,7 @@ for a named function, not for a lambda literal.
 
 ### KI-036 — Linked modules used incompatible effect identities
 
-**Status:** Fixed · **Area:** effects, module linker · **Verified:** 2026-08-25 · **From:** [0177](proposals/0177_package_manager.md) `flux update`
+**Status:** Fixed · **Area:** effects, module linker · **Verified:** 2026-08-25 · **From:** [0177](proposals/implemented/0177_package_manager.md) `flux update`
 
 The VM linker originally preserved the compiler-local numeric identifiers in
 `HandlerDescriptor` and `PerformDescriptor` constants. Each module has its own
@@ -932,7 +932,7 @@ rather than filtered output.
 
 ### KI-008 — The stdlib is found via a CWD-relative `lib/Flow` — FIXED 2026-08-23
 
-**Severity:** High · **Area:** Driver, tooling · **Verified:** 2026-08-23 · **From:** [0177](proposals/0177_package_manager.md)
+**Severity:** High · **Area:** Driver, tooling · **Verified:** 2026-08-23 · **From:** [0177](proposals/implemented/0177_package_manager.md)
 
 `inject_flow_prelude` resolved the stdlib as the bare relative path `lib/Flow`
 against the process CWD and **returned silently** when it was missing;
@@ -1199,3 +1199,68 @@ minimum divided by `-1` unguarded. Reproduce with `(-9223372036854775807 - 1) /
 documented, but have no construction sites. Their documented behavior is not
 currently observable. Reproduce by searching the source for constructors of
 both diagnostics; either wire the codes to defined semantics or remove them.
+
+### KI-042 — Package-store garbage collection policy is undecided
+
+**Severity:** Low · **Area:** package store · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
+
+The content-addressed store supports explicit `flux clean --store`, but it has
+no automatic LRU or reachability-based garbage collection. The policy can be
+chosen after the store has real usage data.
+
+### KI-043 — Workspace field inheritance is incomplete
+
+**Severity:** Medium · **Area:** package manager, workspaces · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
+
+Workspace member discovery, shared cache placement, shared lockfiles, and
+version inheritance are implemented. Members cannot yet inherit `license` or
+common dependencies from the workspace root.
+
+### KI-044 — Registry hosting and package naming policy are deferred
+
+**Severity:** Medium · **Area:** package registry · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
+
+Flux has no hosted registry yet, so registry ownership, naming, squatting rules,
+and the initial hosting policy remain undecided. This is intentionally deferred
+until Flux is released and has users; local index and Git workflows remain
+available.
+
+### KI-045 — Registry yanking semantics are undecided
+
+**Severity:** Medium · **Area:** package registry · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
+
+The future registry has not settled whether and how versions can be yanked,
+including how a yanked version behaves when it is already present in a lockfile.
+
+### KI-046 — Registry publish-age preference is undecided
+
+**Severity:** Low · **Area:** package registry, supply chain · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
+
+No default policy exists for preferring or delaying newly published versions.
+This remains a registry design question rather than a local package-manager
+requirement.
+
+### KI-047 — Lockfile v1 serialization needs external compatibility validation
+
+**Severity:** Low · **Area:** package manager, lockfiles · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
+
+The v1 lockfile has deterministic ordering, inline checksums, and format
+preservation, but it has not yet been validated against real multi-contributor
+merge-conflict patterns. The format should remain stable while this evidence is
+collected.
+
+### KI-048 — Windows store path limits are not validated
+
+**Severity:** Medium · **Area:** package store, Windows · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
+
+The store layout has not been tested against long package names, compiler ABI
+segments, and nested target paths on Windows. A path-shortening strategy may be
+needed before Windows becomes a supported package-manager target.
+
+### KI-049 — One-version-per-package remains a linker limitation
+
+**Severity:** Medium · **Area:** package resolver, linker · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
+
+The resolver permits only one version of a package name in a graph because the
+current linker uses flat global names. Per-package symbol mangling would be
+required before semver-incompatible duplicate versions can be supported safely.

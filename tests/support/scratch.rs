@@ -102,11 +102,19 @@ impl Scratch {
     /// is irrelevant to what is being tested — it is cheaper, and both keep a
     /// test off the shared cache.
     pub fn cache_args(&self) -> Vec<String> {
-        vec![
-            "--cache-dir".to_string(),
-            self.cache_dir().to_string_lossy().into_owned(),
-        ]
+        cache_args_for(&self.cache_dir())
     }
+}
+
+/// Build cache arguments for a caller that already has an isolated cache
+/// path. Keeping the argument construction here prevents integration tests
+/// from independently inventing legacy `.flux-cache` locations.
+#[allow(dead_code)]
+pub fn cache_args_for(cache_dir: &Path) -> Vec<String> {
+    vec![
+        "--cache-dir".to_string(),
+        cache_dir.to_string_lossy().into_owned(),
+    ]
 }
 
 impl Drop for Scratch {

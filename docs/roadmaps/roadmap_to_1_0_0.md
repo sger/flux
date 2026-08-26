@@ -84,7 +84,7 @@ Exit criteria:
 Core blockers:
 
 - [0030_flow.md](../proposals/0030_flow.md)
-- [0177_package_manager.md](../proposals/0177_package_manager.md) (supersedes 0015; Phases 0–3 specified inline)
+- [0177_package_manager.md](../proposals/implemented/0177_package_manager.md) (supersedes 0015; Phases 0–3 specified inline)
 - [0003_stdlib_proposal.md](../proposals/0003_stdlib_proposal.md)
 - [0029_base_and_flow.md](../proposals/0029_base_and_flow.md)
 

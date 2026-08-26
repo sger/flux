@@ -268,41 +268,28 @@ module Flume.Build.Graph {
     /// "The lockfile is out of date" alone does not say what to fix, so the
     /// first dependency that disagrees is reported: either it is absent from
     /// the lock, or it resolved to a different commit than the one recorded.
-    fn lock_changed_message(markers: List<Root>, locked: List<(String, String)>) -> String {
-        match List.filter(markers, \m -> !marker_matches(m, locked)) {
-            [changed | _] -> lock_change_detail(changed, locked),
-            // Every dependency the manifest declares matches, so the lockfile
-            // holds entries for dependencies it no longer declares — the shape
-            // a removed dependency leaves behind.
-            [] -> stale_entries_message(markers, locked),
-        }
-    }
-
-    fn stale_entries_message(markers: List<Root>, locked: List<(String, String)>) -> String {
-        match List.filter(locked, \pair -> !is_declared(pair, markers)) {
-            [] -> "`flux.lock` does not match `flux.toml`, and `--locked` forbids updating it",
-            [stale | _] -> "`--locked` was given, but `" + pair_name(stale)
-                + "` is in `flux.lock` and is no longer a dependency",
-        }
-    }
-
-    fn is_declared(pair: (String, String), markers: List<Root>) -> Bool {
-        List.any(markers, \m -> root_package(m) == pair_name(pair))
-    }
-
     fn pair_name(pair: (String, String)) -> String {
         match pair { (name, _) -> name }
     }
 
-    fn lock_change_detail(marker: Root, locked: List<(String, String)>) -> String {
-        let name = root_package(marker)
-        match lookup(locked, name) {
-            None -> "`--locked` was given, but `" + name
-                + "` is not in `flux.lock`; run without `--locked` to record it",
-            Some(commit) -> "`--locked` was given, but `" + name
-                + "` resolves to " + marker_commit(marker)
-                + " rather than the locked " + commit,
-        }
+    /// Compatibility wrapper for the pure planner's lock comparison.
+    public fn lock_changed_message(
+        markers: List<Root>,
+        locked: List<(String, String)>,
+    ) -> String {
+        BuildPlan.lock_changed_message(List.map(markers, marker_pair), locked)
+    }
+
+    /// Compatibility wrapper for the pure planner's lock comparison.
+    public fn lock_change_detail(
+        marker: Root,
+        locked: List<(String, String)>,
+    ) -> String {
+        BuildPlan.lock_change_detail(
+            root_package(marker),
+            marker_commit(marker),
+            locked,
+        )
     }
 
     fn persist_git_lock(dir: String, markers: List<Root>) -> Bool with IO {
@@ -313,16 +300,15 @@ module Flume.Build.Graph {
     }
 
     /// Whether every marker matches the commit already locked for it.
-    fn same_resolution(markers: List<Root>, locked: List<(String, String)>) -> Bool {
-        List.length(markers) == List.length(locked)
-            && List.all(markers, \m -> marker_matches(m, locked))
+    public fn same_resolution(
+        markers: List<Root>,
+        locked: List<(String, String)>,
+    ) -> Bool {
+        BuildPlan.same_resolution(List.map(markers, marker_pair), locked)
     }
 
-    fn marker_matches(marker: Root, locked: List<(String, String)>) -> Bool {
-        match lookup(locked, root_package(marker)) {
-            None -> false,
-            Some(commit) -> commit == marker_commit(marker),
-        }
+    fn marker_pair(marker: Root) -> (String, String) {
+        (root_package(marker), marker_commit(marker))
     }
 
     /// One `[[package]]` entry per resolved git dependency.
