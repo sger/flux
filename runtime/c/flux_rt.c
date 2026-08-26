@@ -418,7 +418,7 @@ static int32_t flux_io_kind_tag(
     }
 }
 
-int64_t flux_try_read_file(FLUX_IO_TAGS_DECL, int64_t path) {
+static int64_t flux_try_read_file_sync(FLUX_IO_TAGS_DECL, int64_t path) {
     const char *path_str = flux_string_data(path);
     uint32_t    path_len = flux_string_len(path);
     char        msg_buf[256];
@@ -517,17 +517,17 @@ static int flux_fs_stat_path(int64_t path, struct stat *out) {
     return ok;
 }
 
-int64_t flux_fs_exists(int64_t path) {
+static int64_t flux_fs_exists_sync(int64_t path) {
     struct stat st;
     return flux_make_bool(flux_fs_stat_path(path, &st));
 }
 
-int64_t flux_fs_is_dir(int64_t path) {
+static int64_t flux_fs_is_dir_sync(int64_t path) {
     struct stat st;
     return flux_make_bool(flux_fs_stat_path(path, &st) && S_ISDIR(st.st_mode));
 }
 
-int64_t flux_fs_is_file(int64_t path) {
+static int64_t flux_fs_is_file_sync(int64_t path) {
     struct stat st;
     return flux_make_bool(flux_fs_stat_path(path, &st) && S_ISREG(st.st_mode));
 }
@@ -579,7 +579,7 @@ char *flux_io_cstr(int64_t s) {
 
 #define FLUX_IO_TAGS_ARGS FLUX_IO_TAGS_DECL
 
-int64_t flux_fs_write_file(FLUX_IO_TAGS_ARGS, int64_t path, int64_t contents) {
+static int64_t flux_fs_write_file_sync(FLUX_IO_TAGS_ARGS, int64_t path, int64_t contents) {
     FluxIoTags tags = FLUX_IO_TAGS_INIT;
     char *cpath = flux_io_cstr(path);
     if (!cpath) return flux_io_fail(tags, ENOMEM, path);
@@ -604,7 +604,7 @@ int64_t flux_fs_write_file(FLUX_IO_TAGS_ARGS, int64_t path, int64_t contents) {
 }
 
 /* mkdir -p: walk the path creating each missing component. */
-int64_t flux_fs_create_dir_all(FLUX_IO_TAGS_ARGS, int64_t path) {
+static int64_t flux_fs_create_dir_all_sync(FLUX_IO_TAGS_ARGS, int64_t path) {
     FluxIoTags tags = FLUX_IO_TAGS_INIT;
     char *cpath = flux_io_cstr(path);
     if (!cpath) return flux_io_fail(tags, ENOMEM, path);
@@ -628,7 +628,7 @@ int64_t flux_fs_create_dir_all(FLUX_IO_TAGS_ARGS, int64_t path) {
     return flux_io_unit_ok(tags);
 }
 
-int64_t flux_fs_remove_file(FLUX_IO_TAGS_ARGS, int64_t path) {
+static int64_t flux_fs_remove_file_sync(FLUX_IO_TAGS_ARGS, int64_t path) {
     FluxIoTags tags = FLUX_IO_TAGS_INIT;
     char *cpath = flux_io_cstr(path);
     if (!cpath) return flux_io_fail(tags, ENOMEM, path);
@@ -667,7 +667,7 @@ static int flux_fs_rm_tree(const char *path, int *err_out) {
     return 1;
 }
 
-int64_t flux_fs_remove_dir_all(FLUX_IO_TAGS_ARGS, int64_t path) {
+static int64_t flux_fs_remove_dir_all_sync(FLUX_IO_TAGS_ARGS, int64_t path) {
     FluxIoTags tags = FLUX_IO_TAGS_INIT;
     char *cpath = flux_io_cstr(path);
     if (!cpath) return flux_io_fail(tags, ENOMEM, path);
@@ -677,7 +677,7 @@ int64_t flux_fs_remove_dir_all(FLUX_IO_TAGS_ARGS, int64_t path) {
     return ok ? flux_io_unit_ok(tags) : flux_io_fail(tags, err, path);
 }
 
-int64_t flux_fs_rename(FLUX_IO_TAGS_ARGS, int64_t from, int64_t to) {
+static int64_t flux_fs_rename_sync(FLUX_IO_TAGS_ARGS, int64_t from, int64_t to) {
     FluxIoTags tags = FLUX_IO_TAGS_INIT;
     char *cfrom = flux_io_cstr(from);
     if (!cfrom) return flux_io_fail(tags, ENOMEM, to);
@@ -698,7 +698,7 @@ int64_t flux_fs_rename(FLUX_IO_TAGS_ARGS, int64_t from, int64_t to) {
  * Entries are bare file names excluding "." and "..", matching the VM's use
  * of std::fs::read_dir. A failure part-way through fails the whole call,
  * so a caller never mistakes a truncated listing for a complete one. */
-int64_t flux_fs_list_dir(FLUX_IO_TAGS_ARGS, int64_t path) {
+static int64_t flux_fs_list_dir_sync(FLUX_IO_TAGS_ARGS, int64_t path) {
     FluxIoTags tags = FLUX_IO_TAGS_INIT;
     char *cpath = flux_io_cstr(path);
     if (!cpath) return flux_io_fail(tags, ENOMEM, path);
@@ -760,7 +760,7 @@ int64_t flux_fs_list_dir(FLUX_IO_TAGS_ARGS, int64_t path) {
  * FileMeta field order (size, modified, is_dir, is_file) must match Flow.Fs.
  * `modified` is milliseconds since the Unix epoch, 0 when unavailable —
  * the same convention the VM uses. */
-int64_t flux_fs_metadata(FLUX_IO_TAGS_ARGS, int32_t file_meta_tag, int64_t path) {
+static int64_t flux_fs_metadata_sync(FLUX_IO_TAGS_ARGS, int32_t file_meta_tag, int64_t path) {
     FluxIoTags tags = FLUX_IO_TAGS_INIT;
     char *cpath = flux_io_cstr(path);
     if (!cpath) return flux_io_fail(tags, ENOMEM, path);
@@ -780,6 +780,212 @@ int64_t flux_fs_metadata(FLUX_IO_TAGS_ARGS, int32_t file_meta_tag, int64_t path)
     fields[3] = flux_make_bool(S_ISREG(st.st_mode));
     int64_t meta = flux_io_make_adt(file_meta_tag, fields, 4);
     return flux_io_make_adt(tags.ok_tag, &meta, 1);
+}
+
+/* Async-aware public filesystem entry points. The synchronous implementations
+ * above remain the fallback outside an active fiber scheduler. In an active
+ * scheduler, the Rust backend copies the string arguments before submitting
+ * the operation to its blocking pool and returns the suspension sentinel. */
+static FluxFsTags flux_fs_tags_from_args(FLUX_IO_TAGS_DECL) {
+    return (FluxFsTags){
+        ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
+        already_exists_tag, not_a_directory_tag, is_a_directory_tag,
+        directory_not_empty_tag, interrupted_tag, other_tag, 0
+    };
+}
+
+int64_t flux_try_read_file(FLUX_IO_TAGS_DECL, int64_t path) {
+    if (flux_async_is_active()) {
+        FluxFsTags tags = flux_fs_tags_from_args(
+            ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
+            already_exists_tag, not_a_directory_tag, is_a_directory_tag,
+            directory_not_empty_tag, interrupted_tag, other_tag
+        );
+        uint64_t req = flux_async_fs_request(
+            0, (const uint8_t *)flux_string_data(path), flux_string_len(path),
+            NULL, 0, &tags
+        );
+        if (req != 0) return flux_async_suspend_request(req);
+    }
+    return flux_try_read_file_sync(
+        ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
+        already_exists_tag, not_a_directory_tag, is_a_directory_tag,
+        directory_not_empty_tag, interrupted_tag, other_tag, path
+    );
+}
+
+int64_t flux_fs_exists(int64_t path) {
+    if (flux_async_is_active()) {
+        uint64_t req = flux_async_fs_request(
+            1, (const uint8_t *)flux_string_data(path), flux_string_len(path),
+            NULL, 0, NULL
+        );
+        if (req != 0) return flux_async_suspend_request(req);
+    }
+    return flux_fs_exists_sync(path);
+}
+
+int64_t flux_fs_is_dir(int64_t path) {
+    if (flux_async_is_active()) {
+        uint64_t req = flux_async_fs_request(
+            2, (const uint8_t *)flux_string_data(path), flux_string_len(path),
+            NULL, 0, NULL
+        );
+        if (req != 0) return flux_async_suspend_request(req);
+    }
+    return flux_fs_is_dir_sync(path);
+}
+
+int64_t flux_fs_is_file(int64_t path) {
+    if (flux_async_is_active()) {
+        uint64_t req = flux_async_fs_request(
+            3, (const uint8_t *)flux_string_data(path), flux_string_len(path),
+            NULL, 0, NULL
+        );
+        if (req != 0) return flux_async_suspend_request(req);
+    }
+    return flux_fs_is_file_sync(path);
+}
+
+int64_t flux_fs_write_file(FLUX_IO_TAGS_DECL, int64_t path, int64_t contents) {
+    if (flux_async_is_active()) {
+        FluxFsTags tags = flux_fs_tags_from_args(
+            ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
+            already_exists_tag, not_a_directory_tag, is_a_directory_tag,
+            directory_not_empty_tag, interrupted_tag, other_tag
+        );
+        uint64_t req = flux_async_fs_request(
+            4, (const uint8_t *)flux_string_data(path), flux_string_len(path),
+            (const uint8_t *)flux_string_data(contents), flux_string_len(contents), &tags
+        );
+        if (req != 0) return flux_async_suspend_request(req);
+    }
+    return flux_fs_write_file_sync(
+        ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
+        already_exists_tag, not_a_directory_tag, is_a_directory_tag,
+        directory_not_empty_tag, interrupted_tag, other_tag, path, contents
+    );
+}
+
+int64_t flux_fs_create_dir_all(FLUX_IO_TAGS_DECL, int64_t path) {
+    if (flux_async_is_active()) {
+        FluxFsTags tags = flux_fs_tags_from_args(
+            ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
+            already_exists_tag, not_a_directory_tag, is_a_directory_tag,
+            directory_not_empty_tag, interrupted_tag, other_tag
+        );
+        uint64_t req = flux_async_fs_request(
+            5, (const uint8_t *)flux_string_data(path), flux_string_len(path),
+            NULL, 0, &tags
+        );
+        if (req != 0) return flux_async_suspend_request(req);
+    }
+    return flux_fs_create_dir_all_sync(
+        ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
+        already_exists_tag, not_a_directory_tag, is_a_directory_tag,
+        directory_not_empty_tag, interrupted_tag, other_tag, path
+    );
+}
+
+int64_t flux_fs_remove_file(FLUX_IO_TAGS_DECL, int64_t path) {
+    if (flux_async_is_active()) {
+        FluxFsTags tags = flux_fs_tags_from_args(
+            ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
+            already_exists_tag, not_a_directory_tag, is_a_directory_tag,
+            directory_not_empty_tag, interrupted_tag, other_tag
+        );
+        uint64_t req = flux_async_fs_request(
+            6, (const uint8_t *)flux_string_data(path), flux_string_len(path),
+            NULL, 0, &tags
+        );
+        if (req != 0) return flux_async_suspend_request(req);
+    }
+    return flux_fs_remove_file_sync(
+        ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
+        already_exists_tag, not_a_directory_tag, is_a_directory_tag,
+        directory_not_empty_tag, interrupted_tag, other_tag, path
+    );
+}
+
+int64_t flux_fs_remove_dir_all(FLUX_IO_TAGS_DECL, int64_t path) {
+    if (flux_async_is_active()) {
+        FluxFsTags tags = flux_fs_tags_from_args(
+            ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
+            already_exists_tag, not_a_directory_tag, is_a_directory_tag,
+            directory_not_empty_tag, interrupted_tag, other_tag
+        );
+        uint64_t req = flux_async_fs_request(
+            7, (const uint8_t *)flux_string_data(path), flux_string_len(path),
+            NULL, 0, &tags
+        );
+        if (req != 0) return flux_async_suspend_request(req);
+    }
+    return flux_fs_remove_dir_all_sync(
+        ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
+        already_exists_tag, not_a_directory_tag, is_a_directory_tag,
+        directory_not_empty_tag, interrupted_tag, other_tag, path
+    );
+}
+
+int64_t flux_fs_rename(FLUX_IO_TAGS_DECL, int64_t from, int64_t to) {
+    if (flux_async_is_active()) {
+        FluxFsTags tags = flux_fs_tags_from_args(
+            ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
+            already_exists_tag, not_a_directory_tag, is_a_directory_tag,
+            directory_not_empty_tag, interrupted_tag, other_tag
+        );
+        uint64_t req = flux_async_fs_request(
+            8, (const uint8_t *)flux_string_data(from), flux_string_len(from),
+            (const uint8_t *)flux_string_data(to), flux_string_len(to), &tags
+        );
+        if (req != 0) return flux_async_suspend_request(req);
+    }
+    return flux_fs_rename_sync(
+        ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
+        already_exists_tag, not_a_directory_tag, is_a_directory_tag,
+        directory_not_empty_tag, interrupted_tag, other_tag, from, to
+    );
+}
+
+int64_t flux_fs_list_dir(FLUX_IO_TAGS_DECL, int64_t path) {
+    if (flux_async_is_active()) {
+        FluxFsTags tags = flux_fs_tags_from_args(
+            ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
+            already_exists_tag, not_a_directory_tag, is_a_directory_tag,
+            directory_not_empty_tag, interrupted_tag, other_tag
+        );
+        uint64_t req = flux_async_fs_request(
+            9, (const uint8_t *)flux_string_data(path), flux_string_len(path),
+            NULL, 0, &tags
+        );
+        if (req != 0) return flux_async_suspend_request(req);
+    }
+    return flux_fs_list_dir_sync(
+        ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
+        already_exists_tag, not_a_directory_tag, is_a_directory_tag,
+        directory_not_empty_tag, interrupted_tag, other_tag, path
+    );
+}
+
+int64_t flux_fs_metadata(FLUX_IO_TAGS_DECL, int32_t file_meta_tag, int64_t path) {
+    if (flux_async_is_active()) {
+        FluxFsTags tags = flux_fs_tags_from_args(
+            ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
+            already_exists_tag, not_a_directory_tag, is_a_directory_tag,
+            directory_not_empty_tag, interrupted_tag, other_tag
+        );
+        tags.file_meta_tag = file_meta_tag;
+        uint64_t req = flux_async_fs_request(
+            10, (const uint8_t *)flux_string_data(path), flux_string_len(path),
+            NULL, 0, &tags
+        );
+        if (req != 0) return flux_async_suspend_request(req);
+    }
+    return flux_fs_metadata_sync(
+        ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
+        already_exists_tag, not_a_directory_tag, is_a_directory_tag,
+        directory_not_empty_tag, interrupted_tag, other_tag, file_meta_tag, path
+    );
 }
 
 /* ── Subprocess execution (proposal 0178, item 6) ───────────────────── */

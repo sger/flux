@@ -263,6 +263,9 @@ typedef struct FluxAsyncCallbacks {
     int64_t (*wrap_some)(int64_t value);
     int64_t (*make_adt0)(int32_t ctor_tag);
     int64_t (*make_adt1)(int32_t ctor_tag, int64_t value);
+    int64_t (*make_adt_fields)(int32_t ctor_tag, const int64_t *fields, int32_t count);
+    int64_t (*make_bool)(int32_t value);
+    int64_t (*make_array)(const int64_t *elements, uintptr_t len);
     int64_t (*suspend)(int64_t request_id, int64_t resume_value);
     int32_t (*is_suspended)(void);
     int64_t (*current_request)(void);
@@ -282,8 +285,27 @@ typedef struct FluxAsyncCallbacks {
     void    (*deregister_root_task)(int64_t task_id);
 } FluxAsyncCallbacks;
 
+typedef struct FluxFsTags {
+    int32_t ok_tag;
+    int32_t err_tag;
+    int32_t io_error_tag;
+    int32_t not_found_tag;
+    int32_t permission_denied_tag;
+    int32_t already_exists_tag;
+    int32_t not_a_directory_tag;
+    int32_t is_a_directory_tag;
+    int32_t directory_not_empty_tag;
+    int32_t interrupted_tag;
+    int32_t other_tag;
+    int32_t file_meta_tag;
+} FluxFsTags;
+
 int32_t  flux_async_set_callbacks(const FluxAsyncCallbacks *callbacks);
 int32_t  flux_async_runtime_init(void);
+int32_t  flux_async_is_active(void);
+uint64_t flux_async_fs_request(int32_t kind, const uint8_t *path, uintptr_t path_len,
+                               const uint8_t *extra, uintptr_t extra_len,
+                               const FluxFsTags *tags);
 int64_t  flux_async_run_root(int64_t root_closure);
 int32_t  flux_async_last_run_failed(void);
 int64_t  flux_async_run_root_with(int64_t worker_count, int64_t fs_pool_size, int64_t dns_pool_size, int64_t root_closure);
@@ -328,6 +350,9 @@ int64_t  flux_async_make_tuple2(int64_t left, int64_t right);
 int64_t  flux_async_wrap_some(int64_t value);
 int64_t  flux_async_make_adt0(int32_t ctor_tag);
 int64_t  flux_async_make_adt1(int32_t ctor_tag, int64_t value);
+int64_t  flux_async_make_adt_fields(int32_t ctor_tag, const int64_t *fields, int32_t count);
+int64_t  flux_async_make_bool(int32_t value);
+int64_t  flux_async_make_array(const int64_t *elements, uintptr_t len);
 void     flux_async_promote(int64_t value);
 void     flux_async_enter_worker_thread(void);
 int64_t  flux_async_make_string(const uint8_t *data, uintptr_t len);

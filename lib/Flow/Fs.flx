@@ -4,6 +4,11 @@
 // missing file is something the caller handles rather than a crash.
 //
 // The prelude's `read_file` still aborts and is unchanged.
+//
+// Inside `Flow.Async.run_async`, these same operations are scheduled on the
+// runtime's blocking filesystem pool and suspend the current fiber until the
+// host result is ready. Outside an async boundary their synchronous behavior
+// is unchanged.
 
 import Flow.IoError as IoError
 import Flow.Result as Result

@@ -3241,7 +3241,6 @@ impl Compiler {
                 self.interner.try_resolve(*effect),
                 Some(
                     crate::syntax::builtin_effects::CONSOLE
-                        | crate::syntax::builtin_effects::FILESYSTEM
                         | crate::syntax::builtin_effects::STDIN
                         | crate::syntax::builtin_effects::CLOCK
                         | crate::syntax::builtin_effects::ENV

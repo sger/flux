@@ -9,6 +9,11 @@
 
 # Proposal 0174: Async Effect & Concurrency Roadmap
 
+The Phase 1 blocking filesystem service is now consumed by `Flow.Fs`: calls
+inside `Async.run_async` suspend on the configured filesystem pool, while calls
+outside an async boundary retain synchronous behavior. This resolves KI-005;
+the existing `RuntimeConfig.fs_pool_size` and `FLUX_FS_THREADS` controls apply.
+
 ## Summary
 
 Introduce concurrency to Flux as a layered runtime whose task manager and
@@ -80,6 +85,10 @@ target the original proposal aimed at.
 | 2-viii — Blocking pool + DNS resolver | ✅ | [`src/runtime/async/blocking_pool.rs`](../../src/runtime/async/blocking_pool.rs) adds the blocking-worker substrate used by `MioBackend` DNS resolution. `AsyncBackend::dns_resolve` and `CompletionPayload::AddressList` route hostname lookups through `ToSocketAddrs` on the DNS pool, then submit the real TCP connect under the same request id. `Tcp.connect("localhost", port)` now works on VM and LLVM; `Tcp.listen` remains numeric-bind-only. Coverage: backend DNS unit tests, [`tests/integration/vm_runtime_config.rs`](../../tests/integration/vm_runtime_config.rs), and [`tests/parity/tcp_connect_hostname.flx`](../../tests/parity/tcp_connect_hostname.flx). |
 | 2-ix — Transparent type aliases | ✅ | `alias Name = ...` now accepts ordinary type expressions as transparent compile-time aliases while preserving effect-row aliases. Detailed spec in [Required language features](#required-language-features). Unblocks `alias Stream<a> = () -> Option<a> with Async`. |
 | 2-x — `Sendable` ADT auto-derivation | ✅ | Closed under closer audit: `synthesize_sendable_instances` in [`src/types/class_env.rs`](../../src/types/class_env.rs) walks `data` declarations, skips function-typed fields and explicit opaque runtime handles, generates `instance <a: Sendable, b: Sendable> => Sendable<Foo<a, b>>` for parameterized ADTs, and is invoked from `register_user_classes`. Verified by [`tests/type_inference/sendable_tests.rs`](../../tests/type_inference/sendable_tests.rs) plus Flow.Task integration coverage for non-sendable TCP handles. |
+
+The `fs_pool_size` field in slice 2-vii is now active: `Flow.Fs` operations
+inside `Async.run_async` suspend on that blocking pool, configured explicitly
+or through `FLUX_FS_THREADS`; calls outside the boundary remain synchronous.
 | **Phase 3** — HTTP/1.1 + JSON + Streams (remainder) | ⏳ in progress | HTTP server Track 3-A is complete: [`lib/Flow/Http.flx`](../../lib/Flow/Http.flx) exposes the pinned `ServerConfig` / `ServerHandle` / `serve_config` / `serve` / `shutdown` / `shutdown_now` surface with `alias Bytes = String`; `AsyncError.ProtocolError` is available; the source-level server manager runs as a long-lived background accept fiber; graceful shutdown drains active connections; forced shutdown closes listener/active sockets and cancels the server scope; handler timeouts return 504; VM and LLVM/native use the same Flux handler path with Rust/C parser-writer shims. HTTP client Track 3-B is complete: `get` / `post` route through the Flux-level TCP request flow on VM and LLVM/native, native response parsing preserves `status` / `headers` / `body`, and coverage lives in [`vm_http_client.rs`](../../tests/integration/vm_http_client.rs) plus [`native_http_client_tests.rs`](../../tests/native_llvm/native_http_client_tests.rs). JSON Track 3-C is complete: `JsonNumber` is split into exact `JsonInt(Int)` and compact `JsonFloat(Float)`, VM/native parser-stringifier paths preserve all JSON variants, and decode failures use structured `JsonErr(JsonError { path, message })`. [`src/runtime/http/`](../../src/runtime/http/) remains the scratch-built parser/writer foundation. Remaining Phase 3 work: Streams refinements. |
 | **Phase 4** — TLS + database client | ⏳ | |
 | **Phase 5** — `io_uring` backend (optional) | ⏳ | |

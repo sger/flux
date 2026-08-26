@@ -28,6 +28,62 @@ pub struct RequestId(pub u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct IoHandle(pub u64);
 
+/// Filesystem work submitted to the async backend. Paths and contents are
+/// owned host strings; no Flux heap values cross the blocking-pool boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FsOperation {
+    ReadFile { path: String },
+    Exists { path: String },
+    IsDir { path: String },
+    IsFile { path: String },
+    WriteFile { path: String, contents: String },
+    CreateDirAll { path: String },
+    RemoveFile { path: String },
+    RemoveDirAll { path: String },
+    Rename { from: String, to: String },
+    ListDir { path: String },
+    Metadata { path: String },
+}
+
+/// Portable error information returned by a filesystem worker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FsErrorKind {
+    NotFound,
+    PermissionDenied,
+    AlreadyExists,
+    NotADirectory,
+    IsADirectory,
+    DirectoryNotEmpty,
+    Interrupted,
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FsError {
+    pub kind: FsErrorKind,
+    pub message: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FsMetadata {
+    pub size: u64,
+    pub modified: i64,
+    pub is_dir: bool,
+    pub is_file: bool,
+}
+
+/// Host-owned filesystem result. Conversion to Flux values belongs to the
+/// scheduler/owning worker, never to a blocking filesystem thread.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FsCompletion {
+    ReadFile(Result<Vec<u8>, FsError>),
+    Predicate(bool),
+    Unit(Result<(), FsError>),
+    ListDir(Result<Vec<String>, FsError>),
+    Metadata(Result<FsMetadata, FsError>),
+}
+
 /// Payload delivered when a request completes.
 ///
 /// Phase 0 keeps this small on purpose. Phase 1a extends it with the variants
@@ -46,6 +102,8 @@ pub enum CompletionPayload {
     TcpHandle(IoHandle),
     /// Platform DNS resolution result.
     AddressList(Vec<std::net::SocketAddr>),
+    /// Filesystem completion containing only host-owned data.
+    Filesystem(FsCompletion),
 }
 
 /// A delivered completion, ready for the scheduler to route to its target.
@@ -81,6 +139,11 @@ pub trait AsyncBackend {
     /// now. Phase 1a-iii will add a blocking variant once the worker pool
     /// exists; today the scheduler/test driver polls.
     fn next_completion(&self) -> Option<Completion>;
+
+    /// Submit filesystem work to the backend's blocking pool.
+    fn fs_request(&self, _req: RequestId, _operation: FsOperation) {
+        panic!("AsyncBackend::fs_request not implemented for this backend");
+    }
 
     /// Resolve `host:port` on the backend's blocking DNS pool. Completion
     /// carries `AddressList` or `Error`.

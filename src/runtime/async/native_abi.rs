@@ -15,8 +15,12 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use super::await_coordinator::{AwaitCoordinator, AwaitEvent};
-use super::backend::{AsyncBackend, CompletionPayload, IoHandle, RequestId};
-use super::backends::mio::{MioBackend, configure_default_dns_pool_size};
+use super::backend::{
+    AsyncBackend, CompletionPayload, FsCompletion, FsErrorKind, FsOperation, IoHandle, RequestId,
+};
+use super::backends::mio::{
+    MioBackend, configure_default_dns_pool_size, configure_default_fs_pool_size,
+};
 use super::fiber_trace::{self, FiberEvent};
 
 static BACKEND: OnceLock<MioBackend> = OnceLock::new();
@@ -106,6 +110,9 @@ pub struct FluxAsyncCallbacks {
     wrap_some: unsafe extern "C" fn(i64) -> i64,
     make_adt0: unsafe extern "C" fn(i32) -> i64,
     make_adt1: unsafe extern "C" fn(i32, i64) -> i64,
+    make_adt_fields: unsafe extern "C" fn(i32, *const i64, i32) -> i64,
+    make_bool: unsafe extern "C" fn(i32) -> i64,
+    make_array: unsafe extern "C" fn(*const i64, usize) -> i64,
     suspend: unsafe extern "C" fn(i64, i64) -> i64,
     is_suspended: unsafe extern "C" fn() -> i32,
     current_request: unsafe extern "C" fn() -> i64,
@@ -123,6 +130,28 @@ pub struct FluxAsyncCallbacks {
     task_cancel: unsafe extern "C" fn(i64) -> i64,
     register_root_task: unsafe extern "C" fn(i64),
     deregister_root_task: unsafe extern "C" fn(i64),
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct FluxFsTags {
+    ok_tag: i32,
+    err_tag: i32,
+    io_error_tag: i32,
+    not_found_tag: i32,
+    permission_denied_tag: i32,
+    already_exists_tag: i32,
+    not_a_directory_tag: i32,
+    is_a_directory_tag: i32,
+    directory_not_empty_tag: i32,
+    interrupted_tag: i32,
+    other_tag: i32,
+    file_meta_tag: i32,
+}
+
+#[derive(Clone, Copy)]
+struct NativeFsRequest {
+    tags: FluxFsTags,
 }
 
 fn callbacks() -> Option<&'static FluxAsyncCallbacks> {
@@ -208,6 +237,7 @@ struct NativeRun {
     /// or explicitly cancels the handle. Closes the OS-thread leak hole for
     /// `Task.spawn` invoked inside `run_async` without a matching await.
     root_tasks: HashSet<i64>,
+    fs_requests: HashMap<u64, NativeFsRequest>,
     panicked_ctor_tag: i32,
     root_result: Option<FiberOutcome>,
     running: usize,
@@ -262,6 +292,7 @@ impl NativeRun {
             cancelled_fibers: HashSet::new(),
             scope_tasks: HashMap::new(),
             root_tasks: HashSet::new(),
+            fs_requests: HashMap::new(),
             panicked_ctor_tag: 0,
             root_result: None,
             running: 0,
@@ -728,6 +759,7 @@ impl NativeRun {
             if let Some(req) = self.fiber_request.remove(id) {
                 backend().cancel(RequestId(req));
                 self.cancelled_requests.insert(req);
+                self.fs_requests.remove(&req);
                 if let Some(fiber) = self.suspended.remove(&req) {
                     let fiber_id = fiber.id;
                     release_cancelled_fiber(fiber);
@@ -760,8 +792,68 @@ impl NativeRun {
         }
     }
 
+    fn fs_completion_value(&mut self, req: u64, completion: FsCompletion) -> i64 {
+        let Some(request) = self.fs_requests.remove(&req) else {
+            return FLUX_NONE;
+        };
+        match completion {
+            FsCompletion::ReadFile(result) => match result {
+                Ok(bytes) => {
+                    let Some(cb) = callbacks() else {
+                        return FLUX_NONE;
+                    };
+                    let value = unsafe { (cb.make_string)(bytes.as_ptr(), bytes.len()) };
+                    unsafe { (cb.make_adt1)(request.tags.ok_tag, value) }
+                }
+                Err(error) => native_fs_error(request.tags, &error),
+            },
+            FsCompletion::Predicate(value) => callbacks()
+                .map(|cb| unsafe { (cb.make_bool)(i32::from(value)) })
+                .unwrap_or(FLUX_NONE),
+            FsCompletion::Unit(result) => match result {
+                Ok(()) => callbacks()
+                    .map(|cb| unsafe { (cb.make_adt1)(request.tags.ok_tag, FLUX_NONE) })
+                    .unwrap_or(FLUX_NONE),
+                Err(error) => native_fs_error(request.tags, &error),
+            },
+            FsCompletion::ListDir(result) => match result {
+                Ok(names) => {
+                    let Some(cb) = callbacks() else {
+                        return FLUX_NONE;
+                    };
+                    let values: Vec<i64> = names
+                        .iter()
+                        .map(|name| unsafe { (cb.make_string)(name.as_ptr(), name.len()) })
+                        .collect();
+                    let array = unsafe { (cb.make_array)(values.as_ptr(), values.len()) };
+                    unsafe { (cb.make_adt1)(request.tags.ok_tag, array) }
+                }
+                Err(error) => native_fs_error(request.tags, &error),
+            },
+            FsCompletion::Metadata(result) => match result {
+                Ok(meta) => {
+                    let Some(cb) = callbacks() else {
+                        return FLUX_NONE;
+                    };
+                    let fields = [
+                        tag_int(meta.size),
+                        tag_int(meta.modified as u64),
+                        unsafe { (cb.make_bool)(i32::from(meta.is_dir)) },
+                        unsafe { (cb.make_bool)(i32::from(meta.is_file)) },
+                    ];
+                    let value = unsafe {
+                        (cb.make_adt_fields)(request.tags.file_meta_tag, fields.as_ptr(), 4)
+                    };
+                    unsafe { (cb.make_adt1)(request.tags.ok_tag, value) }
+                }
+                Err(error) => native_fs_error(request.tags, &error),
+            },
+        }
+    }
+
     fn route_backend_completion(&mut self, req: u64, payload: CompletionPayload) {
         if self.cancelled_requests.remove(&req) {
+            self.fs_requests.remove(&req);
             return;
         }
 
@@ -779,8 +871,34 @@ impl NativeRun {
             return;
         }
 
-        self.wake(req, FiberOutcome::Value(completion_payload_value(payload)));
+        let value = match payload {
+            CompletionPayload::Filesystem(completion) => self.fs_completion_value(req, completion),
+            other => completion_payload_value(other),
+        };
+        self.wake(req, FiberOutcome::Value(value));
     }
+}
+
+fn native_fs_error(tags: FluxFsTags, error: &super::backend::FsError) -> i64 {
+    let Some(cb) = callbacks() else {
+        return FLUX_NONE;
+    };
+    let kind_tag = match error.kind {
+        FsErrorKind::NotFound => tags.not_found_tag,
+        FsErrorKind::PermissionDenied => tags.permission_denied_tag,
+        FsErrorKind::AlreadyExists => tags.already_exists_tag,
+        FsErrorKind::NotADirectory => tags.not_a_directory_tag,
+        FsErrorKind::IsADirectory => tags.is_a_directory_tag,
+        FsErrorKind::DirectoryNotEmpty => tags.directory_not_empty_tag,
+        FsErrorKind::Interrupted => tags.interrupted_tag,
+        FsErrorKind::Other => tags.other_tag,
+    };
+    let kind = unsafe { (cb.make_adt0)(kind_tag) };
+    let message = unsafe { (cb.make_string)(error.message.as_ptr(), error.message.len()) };
+    let path = unsafe { (cb.make_string)(error.path.as_ptr(), error.path.len()) };
+    let fields = [kind, message, path];
+    let io_error = unsafe { (cb.make_adt_fields)(tags.io_error_tag, fields.as_ptr(), 3) };
+    unsafe { (cb.make_adt1)(tags.err_tag, io_error) }
 }
 
 fn completion_payload_value(payload: CompletionPayload) -> i64 {
@@ -791,6 +909,7 @@ fn completion_payload_value(payload: CompletionPayload) -> i64 {
             .map(|cb| unsafe { (cb.make_string)(bytes.as_ptr(), bytes.len()) })
             .unwrap_or(FLUX_NONE),
         CompletionPayload::AddressList(_) => FLUX_NONE,
+        CompletionPayload::Filesystem(_) => FLUX_NONE,
     }
 }
 
@@ -1152,6 +1271,12 @@ pub extern "C" fn flux_async_runtime_init() -> i32 {
     }
 }
 
+/// True while a native async scheduler owns the current process run.
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_is_active() -> i32 {
+    i32::from(active_run().is_some())
+}
+
 /// Shut down the process-global native async backend.
 ///
 /// The current native driver runs a short-lived executable per Flux program,
@@ -1162,6 +1287,81 @@ pub extern "C" fn flux_async_shutdown() -> i32 {
         Ok(()) => 0,
         Err(_) => -1,
     }
+}
+
+/// Submit one filesystem operation from an LLVM-generated native call.
+/// `kind` selects the operation, `path` is its primary path, and `extra` is
+/// the contents (write) or destination (rename). Constructor tags are copied
+/// into the active run and used only when the host completion is resumed.
+#[unsafe(no_mangle)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub extern "C" fn flux_async_fs_request(
+    kind: i32,
+    path: *const u8,
+    path_len: usize,
+    extra: *const u8,
+    extra_len: usize,
+    tags: *const FluxFsTags,
+) -> u64 {
+    if active_run().is_none() || flux_async_runtime_init() != 0 {
+        return 0;
+    }
+    let Some(path) = string_from_raw(path, path_len) else {
+        return 0;
+    };
+    let extra = if extra.is_null() {
+        None
+    } else {
+        string_from_raw(extra, extra_len)
+    };
+    let tags = if tags.is_null() {
+        FluxFsTags {
+            ok_tag: 0,
+            err_tag: 0,
+            io_error_tag: 0,
+            not_found_tag: 0,
+            permission_denied_tag: 0,
+            already_exists_tag: 0,
+            not_a_directory_tag: 0,
+            is_a_directory_tag: 0,
+            directory_not_empty_tag: 0,
+            interrupted_tag: 0,
+            other_tag: 0,
+            file_meta_tag: 0,
+        }
+    } else {
+        unsafe { *tags }
+    };
+
+    let operation = match kind {
+        0 => FsOperation::ReadFile { path },
+        1 => FsOperation::Exists { path },
+        2 => FsOperation::IsDir { path },
+        3 => FsOperation::IsFile { path },
+        4 => {
+            let Some(contents) = extra else { return 0 };
+            FsOperation::WriteFile { path, contents }
+        }
+        5 => FsOperation::CreateDirAll { path },
+        6 => FsOperation::RemoveFile { path },
+        7 => FsOperation::RemoveDirAll { path },
+        8 => {
+            let Some(to) = extra else { return 0 };
+            FsOperation::Rename { from: path, to }
+        }
+        9 => FsOperation::ListDir { path },
+        10 => FsOperation::Metadata { path },
+        _ => return 0,
+    };
+
+    let req = next_request_id();
+    let Some(()) = with_run(|run| {
+        run.fs_requests.insert(req, NativeFsRequest { tags });
+    }) else {
+        return 0;
+    };
+    backend().fs_request(RequestId(req), operation);
+    req
 }
 
 /// Allocate a timer request and submit it to the Rust `mio` backend.
@@ -1647,10 +1847,13 @@ pub extern "C" fn flux_async_task_spawn_scoped_move(scope: u64, closure: i64) ->
 #[unsafe(no_mangle)]
 pub extern "C" fn flux_async_run_root_with(
     worker_count: i64,
-    _fs_pool_size: i64,
+    fs_pool_size: i64,
     dns_pool_size: i64,
     root_closure: i64,
 ) -> i64 {
+    if fs_pool_size > 0 {
+        configure_default_fs_pool_size(fs_pool_size as usize);
+    }
     if dns_pool_size > 0 {
         configure_default_dns_pool_size(dns_pool_size as usize);
     }
@@ -1843,7 +2046,8 @@ pub extern "C" fn flux_async_poll_dispatch(req: u64) -> i32 {
                 CompletionPayload::Bytes(_)
                 | CompletionPayload::TcpHandle(_)
                 | CompletionPayload::AddressList(_)
-                | CompletionPayload::Error(_) => {
+                | CompletionPayload::Error(_)
+                | CompletionPayload::Filesystem(_) => {
                     if completion.request_id.0 == req {
                         return -1;
                     }

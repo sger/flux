@@ -54,18 +54,6 @@ This is the only deliberate behavioural difference between the two backends in
 the OS-capability surface, and it must close before Windows is a supported
 target for Flux tooling.
 
-### KI-005 — `Flow.Fs` is not async-aware
-
-**Severity:** Medium · **Area:** `Flow.Fs`, `Flow.Async` · **From:** [0178](proposals/implemented/0178_os_capabilities_for_tooling.md) Q5
-
-`Flow.Fs` operations are blocking. `Flow.Async` already maintains a filesystem
-thread pool (`fs_pool`), and [0174](proposals/0174_async_effect_concurrency.md)
-documents blocking calls inside a fiber as a known hazard — so calling `Flow.Fs`
-from a fiber stalls a scheduler worker.
-
-Unresolved: whether `Flow.Fs` should route through `fs_pool` automatically,
-expose async variants, or keep blocking semantics and document the hazard.
-
 ### KI-006 — I/O uses `String`, so binary data cannot round-trip
 
 **Severity:** Medium · **Area:** `Flow.Fs`, stdlib API surface · **From:** [0178](proposals/implemented/0178_os_capabilities_for_tooling.md) Q7
@@ -508,6 +496,18 @@ exist — a misleading signal exactly when the cache is under suspicion.
 ---
 
 ## Resolved
+
+### KI-005 — `Flow.Fs` is async-aware — FIXED 2026-08-26
+
+`Flow.Fs` now routes reads, predicates, mutations, directory listing, and
+metadata through the configured blocking filesystem pool while running inside
+`Async.run_async`. Calls outside an async boundary retain their synchronous
+behavior. Cancellation suppresses completion delivery while allowing the
+underlying OS operation to finish safely.
+
+Verified with the VM/native `tests/parity/fs_async.flx` fixture, synchronous
+filesystem regression tests, native async runtime tests, and the configured
+filesystem-pool path. See [`changes/2026-08-26-flow-fs-async.md`](../changes/2026-08-26-flow-fs-async.md).
 
 ### KI-022 — Forwarding an imported constructor's payload failed strict types — FIXED 2026-08-25
 

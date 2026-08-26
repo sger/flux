@@ -611,11 +611,33 @@ fn function_has_direct_async_site(
     async_funcs: &HashSet<LirFuncId>,
     suspending_externs: &HashSet<String>,
 ) -> bool {
-    func.blocks.iter().any(|block| match &block.terminator {
-        LirTerminator::Call { kind, .. } | LirTerminator::TailCall { kind, .. } => {
-            call_kind_is_direct_async_in(kind, async_funcs, suspending_externs)
-        }
-        _ => false,
+    func.blocks.iter().any(|block| {
+        let has_async_call = match &block.terminator {
+            LirTerminator::Call { kind, .. } | LirTerminator::TailCall { kind, .. } => {
+                call_kind_is_direct_async_in(kind, async_funcs, suspending_externs)
+            }
+            _ => false,
+        };
+        let has_async_filesystem_primop = block.instrs.iter().any(|instr| {
+            matches!(
+                instr,
+                LirInstr::PrimCall {
+                    op: crate::core::CorePrimOp::TryReadFile
+                        | crate::core::CorePrimOp::FsExists
+                        | crate::core::CorePrimOp::FsIsDir
+                        | crate::core::CorePrimOp::FsIsFile
+                        | crate::core::CorePrimOp::FsWriteFile
+                        | crate::core::CorePrimOp::FsCreateDirAll
+                        | crate::core::CorePrimOp::FsRemoveFile
+                        | crate::core::CorePrimOp::FsRemoveDirAll
+                        | crate::core::CorePrimOp::FsRename
+                        | crate::core::CorePrimOp::FsListDir
+                        | crate::core::CorePrimOp::FsMetadata,
+                    ..
+                }
+            )
+        });
+        has_async_call || has_async_filesystem_primop
     })
 }
 
