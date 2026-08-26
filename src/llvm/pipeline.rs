@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 static NEXT_NATIVE_BUILD_ID: AtomicUsize = AtomicUsize::new(0);
 static TOOLCHAIN_INFO_CACHE: OnceLock<String> = OnceLock::new();
@@ -683,6 +684,15 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
     };
     let lib_path = runtime_c_dir.join(lib_name);
 
+    // The runtime source tree is shared by every native Flux process. A
+    // parallel test run can therefore enter this function once per child
+    // process, and compiling directly to runtime/c/*.o plus ar-ing directly
+    // to libflux_rt.a lets those processes observe half-written artifacts.
+    // Serialize the check/build/recheck sequence across processes. The lock
+    // is deliberately a small create_new file so this works without an extra
+    // platform-specific dependency.
+    let _lock = RuntimeBuildLock::acquire(runtime_c_dir)?;
+
     if lib_path.exists() {
         // Check if any .c or .h file is newer than the library
         let lib_mtime = std::fs::metadata(&lib_path).and_then(|m| m.modified()).ok();
@@ -796,6 +806,52 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
     }
 
     Ok(())
+}
+
+/// Cross-process lock protecting the generated C runtime in `runtime/c`.
+///
+/// A stale lock is recoverable after five minutes, which is well above the
+/// normal runtime build time but prevents a killed test process from wedging
+/// every later native invocation forever.
+struct RuntimeBuildLock {
+    path: PathBuf,
+}
+
+impl RuntimeBuildLock {
+    fn acquire(runtime_c_dir: &Path) -> Result<Self, PipelineError> {
+        let path = runtime_c_dir.join(".flux_rt.lock");
+        loop {
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(mut file) => {
+                    writeln!(file, "pid={}", std::process::id())?;
+                    return Ok(Self { path });
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    let stale = fs::metadata(&path)
+                        .and_then(|metadata| metadata.modified())
+                        .ok()
+                        .and_then(|modified| modified.elapsed().ok())
+                        .is_some_and(|age| age > Duration::from_secs(5 * 60));
+                    if stale {
+                        let _ = fs::remove_file(&path);
+                        continue;
+                    }
+                    std::thread::sleep(Duration::from_millis(25));
+                }
+                Err(error) => return Err(PipelineError::Io(error)),
+            }
+        }
+    }
+}
+
+impl Drop for RuntimeBuildLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
 }
 
 /// Locate an LLVM tool, searching:

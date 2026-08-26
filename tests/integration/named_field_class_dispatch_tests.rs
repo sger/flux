@@ -33,6 +33,7 @@ fn run_source(name: &str, source: &str) -> (String, String, bool) {
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args(["run", file.to_str().unwrap(), "--no-cache"])
+        .args(scratch.cache_args())
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux on {name}: {e}"));
     (

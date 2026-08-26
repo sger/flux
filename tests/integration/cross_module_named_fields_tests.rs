@@ -43,6 +43,7 @@ fn run_project(case: &str, module_name: &str, module_src: &str, main_src: &str) 
             dir.to_str().unwrap(),
             "--no-cache",
         ])
+        .args(scratch.cache_args())
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux for {case}: {e}"));
 

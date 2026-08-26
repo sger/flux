@@ -32,6 +32,7 @@ fn run_source(name: &str, source: &str) -> (String, String, bool) {
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args(["run", file.to_str().unwrap(), "--no-cache"])
+        .args(scratch.cache_args())
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux on {name}: {e}"));
     (
@@ -86,9 +87,11 @@ fn qualified_class_method_calls_still_dispatch_to_their_instances() {
         if !path.exists() {
             continue;
         }
+        let scratch = Scratch::new("qualified-class-method-example");
         let output = Command::new(env!("CARGO_BIN_EXE_flux"))
             .current_dir(workspace_root())
             .args(["run", path.to_str().unwrap(), "--no-cache"])
+            .args(scratch.cache_args())
             .output()
             .unwrap_or_else(|e| panic!("failed to run {example}: {e}"));
         let stdout = String::from_utf8_lossy(&output.stdout);
