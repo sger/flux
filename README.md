@@ -213,6 +213,7 @@ cargo test --all --all-features
 
 - [`docs/guide/`](docs/guide/) — the user-facing language guide (start at
   [`01_getting_started.md`](docs/guide/01_getting_started.md))
+- [`lib/Flume/README.md`](lib/Flume/README.md) — package-manager usage and manifest reference
 - [`docs/internals/`](docs/internals/) — compiler internals (architecture, IRs, type/effect
   system, diagnostics, error codes)
 - [`docs/proposals/`](docs/proposals/) — RFCs (e.g. proposal 0174 for async)

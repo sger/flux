@@ -414,6 +414,10 @@ name = "package_cli_tests"
 path = "tests/integration/package_cli_tests.rs"
 
 [[test]]
+name = "package_store_publish_workspace_tests"
+path = "tests/integration/package_store_publish_workspace_tests.rs"
+
+[[test]]
 name = "imported_constructor_types_tests"
 path = "tests/type_inference/imported_constructor_types_tests.rs"
 

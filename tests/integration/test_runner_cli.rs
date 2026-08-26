@@ -1809,8 +1809,10 @@ fn run_flux_repl(script: &str) -> Output {
     use std::io::Write;
     use std::process::Stdio;
 
+    let scratch = Scratch::new("test-runner-repl");
     let mut child = Command::new(env!("CARGO_BIN_EXE_flux"))
         .arg("repl")
+        .args(scratch.cache_args())
         .env("NO_COLOR", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

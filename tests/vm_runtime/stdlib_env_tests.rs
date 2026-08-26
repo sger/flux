@@ -30,8 +30,12 @@ fn scratch_file(name: &str, source: &str) -> (Scratch, PathBuf) {
 }
 
 /// Run a program with extra arguments after `--`.
-fn run_with_args(file: &Path, program_args: &[&str]) -> (String, String, bool) {
+fn run_with_args(file: &Path, scratch: &Scratch, program_args: &[&str]) -> (String, String, bool) {
+    let cache_args = scratch.cache_args();
     let mut args = vec!["run", file.to_str().unwrap(), "--no-cache"];
+    // Cache options must precede the argument separator; everything after it
+    // is intentionally forwarded to the Flux program as user argv (KI-010).
+    args.extend(cache_args.iter().map(String::as_str));
     if !program_args.is_empty() {
         args.push("--");
         args.extend_from_slice(program_args);
@@ -66,8 +70,8 @@ fn stdlib_env_fixture_passes_on_the_vm() {
 /// With no `--`, the program still sees its own path as argv[0].
 #[test]
 fn args_contains_only_the_program_path_when_none_are_passed() {
-    let (_guard, file) = scratch_file("env_argv_none.flx", ARGV_PROGRAM);
-    let (stdout, stderr, success) = run_with_args(&file, &[]);
+    let (guard, file) = scratch_file("env_argv_none.flx", ARGV_PROGRAM);
+    let (stdout, stderr, success) = run_with_args(&file, &guard, &[]);
     assert!(success, "run failed:\n{stdout}\n{stderr}");
     assert!(stdout.contains("argc=1"), "got:\n{stdout}");
     assert!(
@@ -79,8 +83,8 @@ fn args_contains_only_the_program_path_when_none_are_passed() {
 /// Arguments after `--` reach the program, in order, after the script path.
 #[test]
 fn arguments_after_the_separator_reach_the_program() {
-    let (_guard, file) = scratch_file("env_argv_some.flx", ARGV_PROGRAM);
-    let (stdout, stderr, success) = run_with_args(&file, &["build", "release"]);
+    let (guard, file) = scratch_file("env_argv_some.flx", ARGV_PROGRAM);
+    let (stdout, stderr, success) = run_with_args(&file, &guard, &["build", "release"]);
     assert!(success, "run failed:\n{stdout}\n{stderr}");
     assert!(stdout.contains("argc=3"), "got:\n{stdout}");
     assert!(stdout.contains("|build|release"), "got:\n{stdout}");
@@ -90,8 +94,8 @@ fn arguments_after_the_separator_reach_the_program() {
 /// itself would otherwise claim, or reject as unknown.
 #[test]
 fn a_program_can_receive_flags_that_flux_would_otherwise_reject() {
-    let (_guard, file) = scratch_file("env_argv_flags.flx", ARGV_PROGRAM);
-    let (stdout, stderr, success) = run_with_args(&file, &["--native", "--verbose"]);
+    let (guard, file) = scratch_file("env_argv_flags.flx", ARGV_PROGRAM);
+    let (stdout, stderr, success) = run_with_args(&file, &guard, &["--native", "--verbose"]);
     assert!(
         success,
         "flags after `--` must not be parsed by flux:\n{stdout}\n{stderr}"
@@ -103,7 +107,7 @@ fn a_program_can_receive_flags_that_flux_would_otherwise_reject() {
 /// Reading the environment is a capability, so it must be declared.
 #[test]
 fn reading_the_environment_requires_the_env_effect() {
-    let (_guard, file) = scratch_file(
+    let (guard, file) = scratch_file(
         "env_effect.flx",
         r#"
 import Flow.Env as Env
@@ -117,7 +121,7 @@ fn main() -> Unit with Console {
 }
 "#,
     );
-    let (stdout, stderr, success) = run_with_args(&file, &[]);
+    let (stdout, stderr, success) = run_with_args(&file, &guard, &[]);
     assert!(
         !success,
         "an undeclared Env effect must be rejected:\n{stdout}"
@@ -132,7 +136,7 @@ fn main() -> Unit with Console {
 /// environment without naming `Env` separately.
 #[test]
 fn the_io_alias_covers_the_env_effect() {
-    let (_guard, file) = scratch_file(
+    let (guard, file) = scratch_file(
         "env_io_alias.flx",
         r#"
 import Flow.Env as Env
@@ -142,7 +146,7 @@ fn main() -> Unit with IO {
 }
 "#,
     );
-    let (stdout, stderr, success) = run_with_args(&file, &[]);
+    let (stdout, stderr, success) = run_with_args(&file, &guard, &[]);
     assert!(success, "IO must cover Env:\n{stdout}\n{stderr}");
     assert!(stdout.contains("true"), "got:\n{stdout}");
 }
