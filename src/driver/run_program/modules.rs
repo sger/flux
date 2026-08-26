@@ -5,6 +5,7 @@ use std::{
 
 use crate as flux;
 use crate::driver::{
+    artifact_store,
     backend::Backend,
     frontend::extract_module_name_and_sym,
     module_compile::{ModuleBuildState, effective_module_strictness, log_interface_diff},
@@ -192,6 +193,32 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
         let module_source_hash = hash_bytes(module_source.as_bytes());
         let module_strict_hash = request.strict_hash;
         let module_cache_key = hash_cache_key(&module_source_hash, &module_strict_hash);
+        let module_store_deps: Vec<(String, String)> = node
+            .imports
+            .iter()
+            .filter_map(|dep| {
+                loaded_interfaces.get(&dep.target_path).map(|interface| {
+                    (
+                        dep.target_path.to_string_lossy().to_string(),
+                        interface.interface_fingerprint.clone(),
+                    )
+                })
+            })
+            .collect();
+        let unit_hash = artifact_store::unit_hash(
+            &node.path,
+            &module_source,
+            &module_semantic_config_hash,
+            request.backend,
+            &module_store_deps,
+        );
+        if !request.cache.no_cache
+            && request.allow_cached_module_bytecode
+            && request.backend == Backend::Vm
+        {
+            let local = module_cache.cache_path(&node.path, &module_cache_key);
+            let _ = artifact_store::hydrate(&local, &unit_hash, request.backend);
+        }
         let old_interface = if !request.cache.no_cache {
             flux::compiler::module_interface::load_cached_interface(
                 request.cache.cache_layout.root(),
@@ -385,7 +412,10 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
             })
             .collect();
 
-        if !request.cache.no_cache && request.allow_cached_module_bytecode {
+        if !request.cache.no_cache
+            && request.allow_cached_module_bytecode
+            && request.backend == Backend::Vm
+        {
             let cached_module = request
                 .compiler
                 .build_cached_module_bytecode(module_snapshot);
@@ -402,6 +432,12 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
                     node.path.display()
                 );
             }
+            artifact_store::publish(
+                &module_cache.cache_path(&node.path, &module_cache_key),
+                &unit_hash,
+                request.backend,
+                "module artifact compiled from stable source and interface inputs",
+            );
         }
         if !request.cache.no_cache && request.backend == Backend::Native && is_entry_module {
             let marker_path = request.cache.cache_layout.vm_dir().join(cache_key_filename(

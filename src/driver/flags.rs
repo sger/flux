@@ -77,6 +77,8 @@ pub struct DriverCacheFlags {
     /// while recompiling costs only CPU — so the two are worth clearing on
     /// different occasions.
     pub clean_deps: bool,
+    /// Remove the global content-addressed build-artifact store.
+    pub clean_store: bool,
 }
 
 /// Frontend/lowering semantic knobs that affect compilation behavior.

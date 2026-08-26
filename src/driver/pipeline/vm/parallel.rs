@@ -21,6 +21,7 @@ use crate::{
 use rayon::prelude::*;
 
 use crate::driver::{
+    artifact_store,
     frontend::extract_module_name_and_sym,
     module_compile::{ModuleBuildState, build_module_compiler, effective_module_strictness},
     pipeline::parallel_shared::{
@@ -90,6 +91,21 @@ fn compile_parallel_module(
     let strict_hash = hash_bytes(format!("strict={}\n", u8::from(strict_mode)).as_bytes());
     let cache_key = hash_cache_key(&source_hash, &strict_hash);
     let module_cache = ModuleBytecodeCache::new(request.cache.cache_layout.vm_dir());
+    let store_deps = collect_dependency_fingerprints(&node.imports, loaded_interfaces)
+        .into_iter()
+        .map(|dep| (dep.source_path, dep.interface_fingerprint))
+        .collect::<Vec<_>>();
+    let unit_hash = artifact_store::unit_hash(
+        &node.path,
+        &module_source,
+        &semantic_config_hash,
+        crate::driver::backend::Backend::Vm,
+        &store_deps,
+    );
+    if !request.cache.no_cache {
+        let local = module_cache.cache_path(&node.path, &cache_key);
+        let _ = artifact_store::hydrate(&local, &unit_hash, crate::driver::backend::Backend::Vm);
+    }
     let old_interface = if !request.cache.no_cache {
         load_cached_interface(request.cache.cache_layout.root(), &node.path).ok()
     } else {
@@ -234,6 +250,12 @@ fn compile_parallel_module(
             env!("CARGO_PKG_VERSION"),
             &artifact,
             &module_deps,
+        );
+        artifact_store::publish(
+            &module_cache.cache_path(&node.path, &cache_key),
+            &unit_hash,
+            crate::driver::backend::Backend::Vm,
+            "module artifact compiled from stable source and interface inputs",
         );
         save_interface_if_enabled(
             request.cache.no_cache,

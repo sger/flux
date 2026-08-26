@@ -4,6 +4,7 @@
 //! command helpers, and user-facing reporting. It should not introduce new compiler IR stages or
 //! backend-agnostic semantic behavior; that work belongs in the compiler pipeline itself.
 
+pub(crate) mod artifact_store;
 pub mod backend;
 pub mod backend_policy;
 pub mod command;
