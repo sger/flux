@@ -3,7 +3,7 @@
 // consumes the same request data without touching the host filesystem.
 
 import Flume.Build.Plan as Plan
-import Flume.Build.Plan exposing (GraphPlan, GraphResponse, GraphRoot, ReadManifest, IsDirectory, ReadIndex, ReadLock, FetchGit, WriteLock, ReportFetched, ManifestRead, DirectoryChecked, IndexRead, LockRead, GitFetched, LockWritten, FetchReported)
+import Flume.Build.Plan exposing (GraphPlan, GraphResponse, GraphRoot, GraphDiscovery, ReadManifest, IsDirectory, ReadIndex, ReadLock, FetchGit, WriteLock, ReportFetched, ManifestRead, DirectoryChecked, IndexRead, LockRead, GitFetched, LockWritten, FetchReported)
 import Flume.Build.Interpreter as Interpreter
 import Flume.Build.Interpreter exposing (FakeRun, FakeEnvironment)
 import Flume.Error exposing (FlumeError)
@@ -142,6 +142,32 @@ fn test_pure_discovery_traverses_path_dependencies() with IO {
     assert_eq(request_count(run), 4)
 }
 
+fn workspace_graph_env() -> FakeEnvironment {
+    Interpreter.fake_environment(
+        [
+            ("root/flux.toml", "[workspace]\nmembers = [\"member\"]"),
+            ("root/member/flux.toml", "[package]\nname = \"member\"\nversion = \"0.1.0\"\n\n[dependencies]\njson = \"^1.0\""),
+        ],
+        [],
+        [],
+        [],
+        [],
+    )
+}
+
+fn test_pure_discovery_includes_workspace_registry_requirements() with IO {
+    let run = Interpreter.run_fake(Plan.discover_with_git("root", [], true), workspace_graph_env())
+    match Interpreter.fake_result(run) {
+        Ok(Ok(discovery)) -> check_workspace_discovery(discovery),
+        _ -> assert_eq("workspace discovery", "failed"),
+    }
+}
+
+fn check_workspace_discovery(discovery: GraphDiscovery) with IO {
+    assert_eq(List.length(Plan.discovery_roots(discovery)), 1)
+    assert_eq(List.length(Plan.discovery_registry(discovery)), 1)
+}
+
 fn test_fake_interprets_a_manifest_and_directory_plan() with IO {
     let run = Interpreter.run_fake(read_then_check(), env())
     assert_true(succeeds(run))
@@ -230,6 +256,25 @@ fn test_registry_plan_resolves_and_writes_changed_lock() with IO {
         [ReadIndex { names: _ } | [ReadLock { project_dir: _ } | [WriteLock { project_dir: _, lock: _ } | []]]] -> assert_true(true),
         _ -> assert_eq("registry request trace", "wrong"),
     }
+}
+
+fn test_frozen_registry_plan_stops_before_lock_write() with IO {
+    let configured = Interpreter.fake_environment(
+        [],
+        [],
+        [("json", registry_entries())],
+        [],
+        [],
+    )
+    let run = Interpreter.run_fake(
+        Plan.registry_with([("json", "^1.0")], "root", true),
+        configured,
+    )
+    match Interpreter.fake_result(run) {
+        Ok(Err(problem)) -> assert_eq(Error.kind(problem), "lock"),
+        _ -> assert_eq("frozen registry", "unexpected success"),
+    }
+    assert_eq(request_count(run), 2)
 }
 
 fn test_typed_errors_have_stable_kinds_and_messages() with IO {

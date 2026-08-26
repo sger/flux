@@ -17,6 +17,7 @@ import Flume.Resolve.Solver exposing (Dep)
 import Flow.Result as Result
 import Flow.Option as Option
 import Flow.List as List
+import Flume.Error as Error
 
 /// One index line, with no dependencies.
 fn line(name: String, version: String) -> String {
@@ -124,6 +125,13 @@ fn test_reports_a_missing_package() with IO {
         failure([("absent", "^1.0")], line("json", "1.0.0")),
         "no version of `absent` is available",
     ))
+}
+
+fn test_typed_resolution_preserves_the_error_boundary() with IO {
+    match Plan.plan_typed([("absent", "^1.0")], [], None) {
+        Err(problem) -> assert_eq(Error.kind(problem), "resolution"),
+        Ok(_) -> assert_eq("typed resolution", "unexpected success"),
+    }
 }
 
 /// A conflict names the requirements that actually collided, with where each
