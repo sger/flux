@@ -1,0 +1,505 @@
+// Flume.Build.Plan — a closed, pure free plan for package-manager effects.
+//
+// Flux does not have higher-kinded types or GADTs, so this uses one closed
+// request/response vocabulary and a typed continuation at the plan boundary.
+// Building a plan is pure; interpreting it is where IO, Process, and Git are
+// granted.
+
+import Flume.Error exposing (FlumeError)
+import Flume.Error as Error
+import Flume.Schema.Manifest as Manifest
+import Flume.Schema.Manifest exposing (Manifest, GitSource, Dep, FromPath, FromRegistry, FromGit)
+import Flume.Schema.Index exposing (Published)
+import Flume.Schema.Lock exposing (Lock)
+import Flume.Source.Git as Git
+import Flume.Source.Git exposing (Checkout)
+import Flume.Resolve.Plan as ResolvePlan
+import Flume.Resolve.Plan exposing (Outcome, Unchanged)
+import Flow.List as List
+import Flow.Path as Path
+
+module Flume.Build.Plan {
+
+    /// Domain-level operations needed by graph discovery and persistence.
+    public data GraphRequest {
+        ReadManifest { path: String },
+        IsDirectory { path: String },
+        ReadIndex { names: List<String> },
+        ReadLock { project_dir: String },
+        FetchGit {
+            source: GitSource,
+            name: String,
+            locked: Option<String>,
+            offline: Bool,
+        },
+        WriteLock { project_dir: String, lock: Lock },
+        ReportFetched { checkout: Checkout },
+    }
+
+    /// Responses are closed because Flux cannot express a response indexed by
+    /// the request's result type. Every continuation must handle this sum.
+    public data GraphResponse {
+        ManifestRead { value: Result<String, FlumeError> },
+        DirectoryChecked { value: Bool },
+        IndexRead { value: Result<List<Published>, FlumeError> },
+        LockRead { value: Result<Option<Lock>, FlumeError> },
+        GitFetched { value: Result<Checkout, FlumeError> },
+        LockWritten { value: Result<Unit, FlumeError> },
+        FetchReported { value: Result<Unit, FlumeError> },
+    }
+
+    /// A pure computation which either returns a value or requests one domain
+    /// operation and continues from its response.
+    public data GraphPlan<a> {
+        Pure { value: a },
+        Request { operation: GraphRequest, next: (GraphResponse) -> GraphPlan<a> },
+    }
+
+    public fn pure<a>(value: a) -> GraphPlan<a> {
+        Pure { value: value }
+    }
+
+    public fn request<a>(
+        operation: GraphRequest,
+        next: (GraphResponse) -> GraphPlan<a>,
+    ) -> GraphPlan<a> {
+        Request { operation: operation, next: next }
+    }
+
+    /// Transform a completed plan without changing the requests it emits.
+    /// This is the ordinary functor operation for the closed free plan.
+    public fn map<a, b>(plan: GraphPlan<a>, transform: (a) -> b) -> GraphPlan<b> {
+        match plan {
+            Pure { value } -> Pure { value: transform(value) },
+            Request { operation, next } -> Request {
+                operation: operation,
+                next: \response -> map(next(response), transform),
+            },
+        }
+    }
+
+    /// Continue a plan from its pure result. Since the response vocabulary is
+    /// closed, the continuation is typed at the plan boundary while effects
+    /// remain entirely in the interpreter.
+    public fn and_then<a, b>(
+        plan: GraphPlan<a>,
+        continue_with: (a) -> GraphPlan<b>,
+    ) -> GraphPlan<b> {
+        match plan {
+            Pure { value } -> continue_with(value),
+            Request { operation, next } -> Request {
+                operation: operation,
+                next: \response -> and_then(next(response), continue_with),
+            },
+        }
+    }
+
+    // ── pure structural graph discovery ───────────────────────────────
+
+    /// A package root discovered by the pure graph planner. Registry
+    /// packages are resolved by the index/lock operations below; path and Git
+    /// packages are discovered directly from their manifests.
+    public data GraphRoot {
+        GraphRoot { package: String, namespace: String, dir: String }
+    }
+
+    public fn graph_root_package(root: GraphRoot) -> String {
+        match root { GraphRoot { package, namespace: _, dir: _ } -> package }
+    }
+
+    public fn graph_root_namespace(root: GraphRoot) -> String {
+        match root { GraphRoot { package: _, namespace, dir: _ } -> namespace }
+    }
+
+    public fn graph_root_dir(root: GraphRoot) -> String {
+        match root { GraphRoot { package: _, namespace: _, dir } -> dir }
+    }
+
+    public data GraphOptions {
+        GraphOptions { locked: List<(String, String)>, offline: Bool }
+    }
+
+    /// Build a pure plan for the structural part of graph resolution.
+    ///
+    /// `locked` is passed to Git requests as a preference/pin and `offline`
+    /// is carried to the interpreter. No filesystem or Git operation occurs
+    /// while constructing this value.
+    public fn discover(
+        root: String,
+        locked: List<(String, String)>,
+        offline: Bool,
+    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+        let options = GraphOptions { locked: locked, offline: offline }
+        discover_from(root, [], options)
+    }
+
+    fn discover_from(
+        dir: String,
+        seen: List<String>,
+        options: GraphOptions,
+    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+        if List.contains(seen, dir) {
+            pure(Ok([]))
+        } else {
+            request(
+                ReadManifest { path: Path.join(dir, "flux.toml") },
+                \response -> discover_manifest(response, dir, seen, options),
+            )
+        }
+    }
+
+    fn discover_manifest(
+        response: GraphResponse,
+        dir: String,
+        seen: List<String>,
+        options: GraphOptions,
+    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+        match response {
+            ManifestRead { value: Err(problem) } -> pure(Err(problem)),
+            ManifestRead { value: Ok(text) } -> match Manifest.parse(text) {
+                Err(problem) -> pure(Err(Error.manifest_error(problem))),
+                Ok(manifest) -> discover_package(manifest, dir, seen, options),
+            },
+            _ -> pure(Err(Error.resolution_error("invalid manifest response"))),
+        }
+    }
+
+    fn discover_package(
+        manifest: Manifest,
+        dir: String,
+        seen: List<String>,
+        options: GraphOptions,
+    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+        let candidate = Path.join(dir, "src")
+        request(
+            IsDirectory { path: candidate },
+            \response -> after_source_check(response, manifest, dir, candidate, seen, options),
+        )
+    }
+
+    fn after_source_check(
+        response: GraphResponse,
+        manifest: Manifest,
+        dir: String,
+        candidate: String,
+        seen: List<String>,
+        options: GraphOptions,
+    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+        match response {
+            DirectoryChecked { value } -> after_source_value(value, manifest, dir, candidate, seen, options),
+            _ -> pure(Err(Error.resolution_error("invalid directory response"))),
+        }
+    }
+
+    fn after_source_value(
+        has_source: Bool,
+        manifest: Manifest,
+        dir: String,
+        candidate: String,
+        seen: List<String>,
+        options: GraphOptions,
+    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+        let source = if has_source { candidate } else { dir }
+        let package = Manifest.manifest_package(manifest)
+        let roots = if Manifest.package_name(package) == "" {
+            []
+        } else {
+            [GraphRoot {
+                package: Manifest.package_name(package),
+                namespace: Manifest.package_namespace(package),
+                dir: source,
+            }]
+        }
+        walk_deps(Manifest.manifest_deps(manifest), dir, [dir | seen], roots, options)
+    }
+
+    fn walk_deps(
+        deps: List<Dep>,
+        base: String,
+        seen: List<String>,
+        acc: List<GraphRoot>,
+        options: GraphOptions,
+    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+        match deps {
+            [] -> pure(Ok(acc)),
+            [dep | rest] -> if Manifest.dep_is_dev(dep) {
+                walk_deps(rest, base, seen, acc, options)
+            } else {
+                match Manifest.dep_source(dep) {
+                    FromRegistry(_) -> walk_deps(rest, base, seen, acc, options),
+                    FromPath(relative) -> discover_dependency(
+                        Path.normalize(Path.join(base, relative)),
+                        rest,
+                        base,
+                        seen,
+                        acc,
+                        options,
+                    ),
+                    FromGit(source) -> discover_git_dependency(
+                        source,
+                        Manifest.dep_name(dep),
+                        rest,
+                        base,
+                        seen,
+                        acc,
+                        options,
+                    ),
+                }
+            },
+        }
+    }
+
+    fn discover_dependency(
+        dir: String,
+        rest: List<Dep>,
+        base: String,
+        seen: List<String>,
+        acc: List<GraphRoot>,
+        options: GraphOptions,
+    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+        and_then(
+            discover_from(dir, seen, options),
+            \found -> continue_deps(found, rest, base, [dir | seen], acc, options),
+        )
+    }
+
+    fn discover_git_dependency(
+        source: GitSource,
+        name: String,
+        rest: List<Dep>,
+        base: String,
+        seen: List<String>,
+        acc: List<GraphRoot>,
+        options: GraphOptions,
+    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+        request(
+            FetchGit {
+                source: source,
+                name: name,
+                locked: lookup_pin(graph_options_locked(options), name),
+                offline: graph_options_offline(options),
+            },
+            \response -> after_git_fetch(response, name, rest, base, seen, acc, options),
+        )
+    }
+
+    fn after_git_fetch(
+        response: GraphResponse,
+        name: String,
+        rest: List<Dep>,
+        base: String,
+        seen: List<String>,
+        acc: List<GraphRoot>,
+        options: GraphOptions,
+    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+        match response {
+            GitFetched { value: Err(problem) } -> pure(Err(problem)),
+            GitFetched { value: Ok(checkout) } -> if Git.checkout_fetched(checkout) {
+                request(
+                    ReportFetched { checkout: checkout },
+                    \reported -> after_git_report(reported, checkout, rest, base, seen, acc, options),
+                )
+            } else {
+                discover_dependency(Git.checkout_dir(checkout), rest, base, seen, acc, options)
+            },
+            _ -> pure(Err(Error.resolution_error("invalid git response for " + name))),
+        }
+    }
+
+    fn after_git_report(
+        response: GraphResponse,
+        checkout: Checkout,
+        rest: List<Dep>,
+        base: String,
+        seen: List<String>,
+        acc: List<GraphRoot>,
+        options: GraphOptions,
+    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+        match response {
+            FetchReported { value: Err(problem) } -> pure(Err(problem)),
+            FetchReported { value: Ok(_) } ->
+                discover_dependency(Git.checkout_dir(checkout), rest, base, seen, acc, options),
+            _ -> pure(Err(Error.resolution_error("invalid fetch report response"))),
+        }
+    }
+
+    fn continue_deps(
+        found: Result<List<GraphRoot>, FlumeError>,
+        rest: List<Dep>,
+        base: String,
+        seen: List<String>,
+        acc: List<GraphRoot>,
+        options: GraphOptions,
+    ) -> GraphPlan<Result<List<GraphRoot>, FlumeError>> {
+        match found {
+            Err(problem) -> pure(Err(problem)),
+            Ok(roots) -> walk_deps(rest, base, seen, List.concat([acc, roots]), options),
+        }
+    }
+
+    fn graph_options_locked(options: GraphOptions) -> List<(String, String)> {
+        match options { GraphOptions { locked, offline: _ } -> locked }
+    }
+
+    fn graph_options_offline(options: GraphOptions) -> Bool {
+        match options { GraphOptions { locked: _, offline } -> offline }
+    }
+
+    fn lookup_pin(locked: List<(String, String)>, name: String) -> Option<String> {
+        match locked {
+            [] -> None,
+            [(found, commit) | rest] -> if found == name { Some(commit) } else {
+                lookup_pin(rest, name)
+            },
+        }
+    }
+
+    // ── pure registry resolution plan ─────────────────────────────────
+
+    /// Plan the registry half of resolution. The solver itself stays pure;
+    /// this function only describes the ordered index/lock/read, resolve, and
+    /// conditional lock-write sequence.
+    public fn registry(
+        requirements: List<(String, String)>,
+        project_dir: String,
+    ) -> GraphPlan<Result<Outcome, FlumeError>> {
+        match requirements {
+            [] -> pure(Ok(Unchanged { lock: Lock.lock(Lock.default_format(), []) })),
+            _ -> request(
+                ReadIndex { names: List.map(requirements, requirement_name) },
+                \response -> registry_index_response(response, requirements, project_dir),
+            ),
+        }
+    }
+
+    fn registry_index_response(
+        response: GraphResponse,
+        requirements: List<(String, String)>,
+        project_dir: String,
+    ) -> GraphPlan<Result<Outcome, FlumeError>> {
+        match response {
+            IndexRead { value: Err(problem) } -> pure(Err(problem)),
+            IndexRead { value: Ok(available) } -> request(
+                ReadLock { project_dir: project_dir },
+                \lock_response -> registry_lock_response(
+                    lock_response,
+                    requirements,
+                    available,
+                    project_dir,
+                ),
+            ),
+            _ -> pure(Err(Error.resolution_error("invalid index response"))),
+        }
+    }
+
+    fn registry_lock_response(
+        response: GraphResponse,
+        requirements: List<(String, String)>,
+        available: List<Published>,
+        project_dir: String,
+    ) -> GraphPlan<Result<Outcome, FlumeError>> {
+        match response {
+            LockRead { value: Err(problem) } -> pure(Err(problem)),
+            LockRead { value: Ok(previous) } ->
+                registry_resolution(requirements, available, previous, project_dir),
+            _ -> pure(Err(Error.lock_error("invalid lock response"))),
+        }
+    }
+
+    fn registry_resolution(
+        requirements: List<(String, String)>,
+        available: List<Published>,
+        previous: Option<Lock>,
+        project_dir: String,
+    ) -> GraphPlan<Result<Outcome, FlumeError>> {
+        match ResolvePlan.plan(requirements, available, previous) {
+            Err(message) -> pure(Err(Error.resolution_error(message))),
+            Ok(outcome) -> if ResolvePlan.outcome_changed(outcome) {
+                request(
+                    WriteLock {
+                        project_dir: project_dir,
+                        lock: ResolvePlan.outcome_lock(outcome),
+                    },
+                    \response -> registry_write_response(response, outcome),
+                )
+            } else {
+                pure(Ok(outcome))
+            },
+        }
+    }
+
+    fn registry_write_response(
+        response: GraphResponse,
+        outcome: Outcome,
+    ) -> GraphPlan<Result<Outcome, FlumeError>> {
+        match response {
+            LockWritten { value: Err(problem) } -> pure(Err(problem)),
+            LockWritten { value: Ok(_) } -> pure(Ok(outcome)),
+            _ -> pure(Err(Error.lock_error("invalid lock write response"))),
+        }
+    }
+
+    fn requirement_name(requirement: (String, String)) -> String {
+        match requirement { (name, _) -> name }
+    }
+
+    /// Lift one operation into a plan whose result is its closed response.
+    public fn read_manifest(path: String) -> GraphPlan<GraphResponse> {
+        request(
+            ReadManifest { path: path },
+            \response -> pure(response),
+        )
+    }
+
+    public fn is_directory(path: String) -> GraphPlan<GraphResponse> {
+        request(
+            IsDirectory { path: path },
+            \response -> pure(response),
+        )
+    }
+
+    public fn read_index(names: List<String>) -> GraphPlan<GraphResponse> {
+        request(
+            ReadIndex { names: names },
+            \response -> pure(response),
+        )
+    }
+
+    public fn read_lock(project_dir: String) -> GraphPlan<GraphResponse> {
+        request(
+            ReadLock { project_dir: project_dir },
+            \response -> pure(response),
+        )
+    }
+
+    public fn fetch_git(
+        source: GitSource,
+        name: String,
+        locked: Option<String>,
+        offline: Bool,
+    ) -> GraphPlan<GraphResponse> {
+        request(
+            FetchGit {
+                source: source,
+                name: name,
+                locked: locked,
+                offline: offline,
+            },
+            \response -> pure(response),
+        )
+    }
+
+    public fn write_lock(project_dir: String, lock: Lock) -> GraphPlan<GraphResponse> {
+        request(
+            WriteLock { project_dir: project_dir, lock: lock },
+            \response -> pure(response),
+        )
+    }
+
+    public fn report_fetched(checkout: Checkout) -> GraphPlan<GraphResponse> {
+        request(
+            ReportFetched { checkout: checkout },
+            \response -> pure(response),
+        )
+    }
+}

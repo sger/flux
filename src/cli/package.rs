@@ -41,8 +41,12 @@ fn call_module(module: &str, args: &[&str]) -> Result<Reply, String> {
     let shim = flume_shim(module)?;
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
 
-    let output = Command::new(exe)
-        .arg(&shim)
+    let mut command = Command::new(exe);
+    command.arg(&shim);
+    if let Some(cache_dir) = module_cache_dir(args) {
+        command.arg("--cache-dir").arg(cache_dir);
+    }
+    let output = command
         .arg("--")
         .args(args)
         .env(FLUX_SKIP_MANIFEST_ENV, "1")
@@ -56,6 +60,15 @@ fn call_module(module: &str, args: &[&str]) -> Result<Reply, String> {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     parse_reply(&stdout)
+}
+
+/// Return the normal project cache for a package-manager shim. Flume shims
+/// live outside the project tree, so their default cache would otherwise be
+/// derived from the shim location and shared by concurrent test processes.
+fn module_cache_dir(args: &[&str]) -> Option<PathBuf> {
+    args.iter()
+        .find(|arg| !arg.starts_with('-') && Path::new(arg).is_dir())
+        .map(|dir| Path::new(dir).join("target").join("flux"))
 }
 
 /// Read the `ok<TAB>message` / `err<TAB>message` record the command printed.
@@ -372,7 +385,7 @@ fn phase3_metadata(
     flags: &DriverFlags,
 ) -> ExitCode {
     let dir = project.to_string_lossy().into_owned();
-    let reply = match resolve_graph(&dir) {
+    let reply = match resolve_graph(&dir, flags.cache.cache_dir.as_deref()) {
         Ok(reply) => reply,
         Err(error) => {
             eprintln!("error: {error}");
@@ -426,7 +439,7 @@ fn phase3_metadata(
 
 fn phase3_build_plan(project: &Path, flags: &DriverFlags) -> ExitCode {
     let dir = project.to_string_lossy().into_owned();
-    let reply = match resolve_graph(&dir) {
+    let reply = match resolve_graph(&dir, flags.cache.cache_dir.as_deref()) {
         Ok(reply) => reply,
         Err(error) => {
             eprintln!("error: {error}");
@@ -513,11 +526,16 @@ fn phase3_build_plan(project: &Path, flags: &DriverFlags) -> ExitCode {
 /// intentionally returns one final reply for command-style modules, whereas
 /// the graph protocol is a stream of `ok<TAB>package<TAB>namespace<TAB>root`
 /// records.
-fn resolve_graph(dir: &str) -> Result<String, String> {
+fn resolve_graph(dir: &str, configured_cache_dir: Option<&Path>) -> Result<String, String> {
     let shim = flume_shim("Flume.Build.Graph")?;
     let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    let cache_dir = configured_cache_dir
+        .map(PathBuf::from)
+        .unwrap_or_else(|| Path::new(dir).join("target").join("flux"));
     let output = Command::new(exe)
         .arg(shim)
+        .arg("--cache-dir")
+        .arg(cache_dir)
         .arg("--")
         .arg(dir)
         .arg("--quiet")
@@ -731,7 +749,25 @@ fn now_nanos() -> u128 {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_reply;
+    use std::path::PathBuf;
+
+    use super::{module_cache_dir, parse_reply};
+
+    #[test]
+    fn finds_the_project_directory_in_graph_style_arguments() {
+        assert_eq!(
+            module_cache_dir(&[".", "--update"]),
+            Some(PathBuf::from("./target/flux"))
+        );
+    }
+
+    #[test]
+    fn finds_the_project_directory_in_command_style_arguments() {
+        assert_eq!(
+            module_cache_dir(&["profile", ".", "dev"]),
+            Some(PathBuf::from("./target/flux"))
+        );
+    }
 
     #[test]
     fn reads_an_ok_record() {

@@ -1,0 +1,64 @@
+// Flume.Error — the package manager's typed failure vocabulary.
+//
+// Pure layers keep their domain errors until the outer command boundary. The
+// CLI may still need a String for its `err<TAB>...` protocol, so rendering is
+// deliberately centralized here rather than scattered through the graph walk.
+
+import Flow.IoError exposing (IoError)
+import Flume.Toml.Parse exposing (ParseError)
+import Flume.Toml.Parse as Parse
+import Flow.IoError as IoErrors
+
+module Flume.Error {
+
+    /// A failure classified by the layer that owns its meaning.
+    public data FlumeError {
+        Manifest(ParseError),
+        Io(IoError),
+        Git(String),
+        Resolution(String),
+        Lock(String),
+    }
+
+    public fn manifest_error(error: ParseError) -> FlumeError {
+        Manifest(error)
+    }
+
+    public fn io_error(error: IoError) -> FlumeError {
+        Io(error)
+    }
+
+    public fn git_error(message: String) -> FlumeError {
+        Git(message)
+    }
+
+    public fn resolution_error(message: String) -> FlumeError {
+        Resolution(message)
+    }
+
+    public fn lock_error(message: String) -> FlumeError {
+        Lock(message)
+    }
+
+    /// Stable layer name for diagnostics and tests.
+    public fn kind(error: FlumeError) -> String {
+        match error {
+            Manifest(_) -> "manifest",
+            Io(_) -> "io",
+            Git(_) -> "git",
+            Resolution(_) -> "resolution",
+            Lock(_) -> "lock",
+        }
+    }
+
+    /// Convert a typed failure to the existing human-readable CLI text.
+    public fn render(error: FlumeError) -> String {
+        match error {
+            Manifest(problem) -> Parse.render_error(problem),
+            Io(problem) -> IoErrors.describe(problem),
+            Git(message) -> message,
+            Resolution(message) -> message,
+            Lock(message) -> message,
+        }
+    }
+}

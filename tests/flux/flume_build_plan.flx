@@ -1,0 +1,239 @@
+// Behavioural coverage for the free graph plan and its deterministic fake
+// interpreter. The fixture deliberately never grants IO: fake interpretation
+// consumes the same request data without touching the host filesystem.
+
+import Flume.Build.Plan as Plan
+import Flume.Build.Plan exposing (GraphPlan, GraphResponse, GraphRoot, ReadManifest, IsDirectory, ReadIndex, ReadLock, FetchGit, WriteLock, ReportFetched, ManifestRead, DirectoryChecked, IndexRead, LockRead, GitFetched, LockWritten, FetchReported)
+import Flume.Build.Interpreter as Interpreter
+import Flume.Build.Interpreter exposing (FakeRun, FakeEnvironment)
+import Flume.Error exposing (FlumeError)
+import Flume.Schema.Manifest exposing (GitSource, GitDefault)
+import Flume.Schema.Lock as Lock
+import Flume.Schema.Index as Index
+import Flume.Schema.Index exposing (Published)
+import Flume.Source.Git exposing (Checkout)
+import Flume.Error as Error
+import Flow.List as List
+
+fn env() -> FakeEnvironment {
+    Interpreter.fake_environment(
+        [("root/flux.toml", "name = root")],
+        ["root/src"],
+        [],
+        [],
+        [],
+    )
+}
+
+fn read_then_check() -> GraphPlan<Bool> {
+    Plan.request(
+        ReadManifest { path: "root/flux.toml" },
+        \first -> match first {
+            ManifestRead { value: Ok(text) } -> Plan.request(
+                IsDirectory { path: "root/src" },
+                \second -> match second {
+                    DirectoryChecked { value } -> Plan.pure(value && text == "name = root"),
+                    _ -> Plan.pure(false),
+                },
+            ),
+            _ -> Plan.pure(false),
+        },
+    )
+}
+
+fn failed_read_stops() -> GraphPlan<Bool> {
+    Plan.request(
+        ReadManifest { path: "missing/flux.toml" },
+        \response -> match response {
+            ManifestRead { value: Err(_) } -> Plan.pure(true),
+            _ -> Plan.request(IsDirectory { path: "must-not-run" }, \_ -> Plan.pure(false)),
+        },
+    )
+}
+
+fn git_fetch_then_report() -> GraphPlan<String> {
+    let source = GitSource { url: "https://example.test/repo.git", pin: GitDefault }
+    Plan.request(
+        FetchGit {
+            source: source,
+            name: "repo",
+            locked: None,
+            offline: false,
+        },
+        \response -> match response {
+            GitFetched { value: Ok(checkout) } -> Plan.request(
+                ReportFetched { checkout: checkout },
+                \reported -> match reported {
+                    FetchReported { value: Ok(_) } -> Plan.pure("reported"),
+                    _ -> Plan.pure("report failed"),
+                },
+            ),
+            _ -> Plan.pure("fetch failed"),
+        },
+    )
+}
+
+fn index_then_lock() -> GraphPlan<Bool> {
+    Plan.request(
+        ReadIndex { names: ["json"] },
+        \response -> match response {
+            IndexRead { value: Ok(entries) } -> Plan.request(
+                ReadLock { project_dir: "root" },
+                \lock_response -> match lock_response {
+                    LockRead { value: Ok(None) } -> Plan.pure(List.length(entries) == 0),
+                    _ -> Plan.pure(false),
+                },
+            ),
+            _ -> Plan.pure(false),
+        },
+    )
+}
+
+fn succeeds(run: FakeRun<Bool>) -> Bool {
+    match Interpreter.fake_result(run) {
+        Ok(value) -> value,
+        Err(_) -> false,
+    }
+}
+
+fn request_count<a>(run: FakeRun<a>) -> Int {
+    List.length(Interpreter.fake_requests(run))
+}
+
+fn discovery_roots(
+    run: FakeRun<Result<List<GraphRoot>, FlumeError>>,
+) -> List<GraphRoot> {
+    match Interpreter.fake_result(run) {
+        Err(_) -> [],
+        Ok(Err(_)) -> [],
+        Ok(Ok(roots)) -> roots,
+    }
+}
+
+fn path_graph_env() -> FakeEnvironment {
+    Interpreter.fake_environment(
+        [
+            ("root/flux.toml", "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nshared = { path = \"shared\" }"),
+            ("root/shared/flux.toml", "[package]\nname = \"shared\"\nversion = \"0.1.0\"\n\n[dependencies]\napp = { path = \"..\" }"),
+        ],
+        [],
+        [],
+        [],
+        [],
+    )
+}
+
+fn check_path_roots(roots: List<GraphRoot>) with IO {
+    assert_eq(List.length(roots), 2)
+    match roots {
+        [root | [dependency | []]] -> check_path_root_values(root, dependency),
+        _ -> assert_eq("path graph", "wrong roots"),
+    }
+}
+
+fn check_path_root_values(root: GraphRoot, dependency: GraphRoot) with IO {
+    assert_eq(Plan.graph_root_package(root), "app")
+    assert_eq(Plan.graph_root_package(dependency), "shared")
+}
+
+fn test_pure_discovery_traverses_path_dependencies() with IO {
+    let run = Interpreter.run_fake(Plan.discover("root", [], true), path_graph_env())
+    check_path_roots(discovery_roots(run))
+    assert_eq(request_count(run), 4)
+}
+
+fn test_fake_interprets_a_manifest_and_directory_plan() with IO {
+    let run = Interpreter.run_fake(read_then_check(), env())
+    assert_true(succeeds(run))
+    assert_eq(request_count(run), 2)
+    match Interpreter.fake_requests(run) {
+        [ReadManifest { path } | [IsDirectory { path: directory } | []]] -> check_manifest_trace(path, directory),
+        _ -> assert_eq("request trace", "wrong"),
+    }
+}
+
+fn check_manifest_trace(path: String, directory: String) with IO {
+    assert_eq(path, "root/flux.toml")
+    assert_eq(directory, "root/src")
+}
+
+fn test_failures_terminate_without_later_requests() with IO {
+    let run = Interpreter.run_fake(failed_read_stops(), env())
+    assert_true(succeeds(run))
+    assert_eq(request_count(run), 1)
+}
+
+fn test_fake_interprets_git_fetch_and_progress() with IO {
+    let checkout = Checkout {
+        url: "https://example.test/repo.git",
+        commit: "0123456789abcdef",
+        dir: "cache/repo",
+        fetched: true,
+    }
+    let configured = Interpreter.fake_environment([], [], [], [], [("https://example.test/repo.git", checkout)])
+    let run = Interpreter.run_fake(git_fetch_then_report(), configured)
+    match Interpreter.fake_result(run) {
+        Ok(value) -> assert_eq(value, "reported"),
+        Err(_) -> assert_eq("git plan", "failed"),
+    }
+    assert_eq(request_count(run), 2)
+}
+
+fn test_fake_interprets_index_and_lock_reads_in_order() with IO {
+    let run = Interpreter.run_fake(index_then_lock(), env())
+    assert_true(succeeds(run))
+    assert_eq(request_count(run), 2)
+    match Interpreter.fake_requests(run) {
+        [ReadIndex { names } | [ReadLock { project_dir } | []]] -> check_index_trace(names, project_dir),
+        _ -> assert_eq("request trace", "wrong"),
+    }
+}
+
+fn check_index_trace(names: List<String>, project_dir: String) with IO {
+    assert_eq(List.length(names), 1)
+    assert_eq(project_dir, "root")
+}
+
+fn test_fake_records_lock_writes() with IO {
+    let run = Interpreter.run_fake(Plan.write_lock("root", Lock.lock(1, [])), env())
+    match Interpreter.fake_result(run) {
+        Ok(LockWritten { value: Ok(_) }) -> assert_eq(request_count(run), 1),
+        _ -> assert_eq("lock write", "failed"),
+    }
+    match Interpreter.fake_requests(run) {
+        [WriteLock { project_dir, lock: _ } | []] -> assert_eq(project_dir, "root"),
+        _ -> assert_eq("request trace", "wrong"),
+    }
+}
+
+fn registry_entries() -> List<Published> {
+    match Index.from_text("{\"name\":\"json\",\"version\":\"1.0.0\",\"checksum\":\"sha256:x\"}") {
+        Ok(entries) -> entries,
+        Err(_) -> [],
+    }
+}
+
+fn test_registry_plan_resolves_and_writes_changed_lock() with IO {
+    let configured = Interpreter.fake_environment(
+        [],
+        [],
+        [("json", registry_entries())],
+        [],
+        [],
+    )
+    let run = Interpreter.run_fake(Plan.registry([("json", "^1.0")], "root"), configured)
+    match Interpreter.fake_result(run) {
+        Ok(Ok(_)) -> assert_eq(request_count(run), 3),
+        _ -> assert_eq("registry plan", "failed"),
+    }
+    match Interpreter.fake_requests(run) {
+        [ReadIndex { names: _ } | [ReadLock { project_dir: _ } | [WriteLock { project_dir: _, lock: _ } | []]]] -> assert_true(true),
+        _ -> assert_eq("registry request trace", "wrong"),
+    }
+}
+
+fn test_typed_errors_have_stable_kinds_and_messages() with IO {
+    let error = Error.git_error("checkout failed")
+    assert_eq(Error.kind(error), "git")
+    assert_eq(Error.render(error), "checkout failed")
+}
