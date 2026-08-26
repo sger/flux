@@ -212,25 +212,47 @@ module Flume.Schema.Manifest {
                 dev: empty_partial_profile(),
                 release: empty_partial_profile(),
             }),
-            Some(TTable(fields)) -> Result.and_then_result(
-                validate_profile_names(fields),
-                \_ -> Result.and_then_result(
-                    parse_profile_named(fields, "dev"),
-                    \dev -> Result.map_result(
-                        parse_profile_named(fields, "release"),
-                        \release -> Profiles { dev: dev, release: release }
-                    )
-                )
+            Some(TTable(fields)) -> parse_profiles_fields(
+                fields,
+                empty_partial_profile(),
+                empty_partial_profile(),
             ),
             Some(_) -> Err(schema_error("invalid-profile", "`profile` must be a table")),
         }
     }
 
-    fn validate_profile_names(fields: List<(String, Toml)>) -> Result<Bool, ParseError> {
+    /// Walk the profile table once. Repeated lookups through nested callbacks
+    /// make the native ownership planner treat the borrowed table as reusable
+    /// after one of its values has been extracted.
+    fn parse_profiles_fields(
+        fields: List<(String, Toml)>,
+        dev: PartialProfile,
+        release: PartialProfile,
+    ) -> Result<Profiles, ParseError> {
         match fields {
-            [] -> Ok(true),
-            [(name, _) | rest] -> if name == "dev" || name == "release" {
-                validate_profile_names(rest)
+            [] -> Ok(Profiles { dev: dev, release: release }),
+            [(name, value) | rest] -> if name == "dev" {
+                match value {
+                    TTable(profile_fields) -> match parse_partial_profile(profile_fields, name) {
+                        Err(problem) -> Err(problem),
+                        Ok(parsed) -> parse_profiles_fields(rest, parsed, release),
+                    },
+                    _ -> Err(schema_error(
+                        "invalid-profile",
+                        "`profile.dev` must be a table",
+                    )),
+                }
+            } else if name == "release" {
+                match value {
+                    TTable(profile_fields) -> match parse_partial_profile(profile_fields, name) {
+                        Err(problem) -> Err(problem),
+                        Ok(parsed) -> parse_profiles_fields(rest, dev, parsed),
+                    },
+                    _ -> Err(schema_error(
+                        "invalid-profile",
+                        "`profile.release` must be a table",
+                    )),
+                }
             } else {
                 Err(schema_error(
                     "unknown-profile",
@@ -240,46 +262,56 @@ module Flume.Schema.Manifest {
         }
     }
 
-    fn parse_profile_named(
-        fields: List<(String, Toml)>,
-        name: String,
-    ) -> Result<PartialProfile, ParseError> {
-        match Value.get(fields, name) {
-            None -> Ok(empty_partial_profile()),
-            Some(TTable(profile_fields)) -> parse_partial_profile(profile_fields, name),
-            Some(_) -> Err(schema_error(
-                "invalid-profile",
-                "`profile." + name + "` must be a table",
-            )),
-        }
-    }
-
     fn parse_partial_profile(
         fields: List<(String, Toml)>,
         name: String,
     ) -> Result<PartialProfile, ParseError> {
-        Result.and_then_result(
-            optional_backend(fields, name),
-            \backend -> Result.map_result(
-                optional(bool_reader(), fields, "profile." + name, "optimize"),
-                \optimize -> PartialProfile { backend: backend, optimize: optimize }
-            )
-        )
+        parse_partial_profile_fields(fields, name, None, None)
     }
 
-    fn optional_backend(
+    /// Read one partial profile in one pass, retaining absent fields as None.
+    fn parse_partial_profile_fields(
         fields: List<(String, Toml)>,
         name: String,
-    ) -> Result<Option<Backend>, ParseError> {
-        match optional(string_reader(), fields, "profile." + name, "backend") {
-            Err(problem) -> Err(problem),
-            Ok(None) -> Ok(None),
-            Ok(Some(text)) -> match parse_backend(text) {
-                Ok(backend) -> Ok(Some(backend)),
-                Err(_) -> Err(schema_error(
-                    "invalid-backend",
-                    "`profile." + name + ".backend` must be \"vm\" or \"native\"",
-                )),
+        backend: Option<Backend>,
+        optimize: Option<Bool>,
+    ) -> Result<PartialProfile, ParseError> {
+        match fields {
+            [] -> Ok(PartialProfile { backend: backend, optimize: optimize }),
+            [(key, value) | rest] -> if key == "backend" {
+                match reader_read(string_reader(), value) {
+                    None -> Err(schema_error(
+                        "wrong-type",
+                        "`profile." + name + ".backend` must be a string",
+                    )),
+                    Some(text) -> match parse_backend(text) {
+                        Err(_) -> Err(schema_error(
+                            "invalid-backend",
+                            "`profile." + name + ".backend` must be \"vm\" or \"native\"",
+                        )),
+                        Ok(parsed) -> parse_partial_profile_fields(
+                            rest,
+                            name,
+                            Some(parsed),
+                            optimize,
+                        ),
+                    },
+                }
+            } else if key == "optimize" {
+                match reader_read(bool_reader(), value) {
+                    None -> Err(schema_error(
+                        "wrong-type",
+                        "`profile." + name + ".optimize` must be a boolean",
+                    )),
+                    Some(flag) -> parse_partial_profile_fields(
+                        rest,
+                        name,
+                        backend,
+                        Some(flag),
+                    ),
+                }
+            } else {
+                parse_partial_profile_fields(rest, name, backend, optimize)
             },
         }
     }
