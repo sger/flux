@@ -526,5 +526,5 @@ $FLUX_HOME/registry/. For CI, set FLUX_HOME to a prepared directory and use
 - Package features and conditional compilation are not supported.
 - A package name can resolve to only one version in a build graph.
 
-See [proposal 0177](../../docs/proposals/0177_package_manager.md) for design
+See [proposal 0177](../../docs/proposals/implemented/0177_package_manager.md) for design
 and implementation details.

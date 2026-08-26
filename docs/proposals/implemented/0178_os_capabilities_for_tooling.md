@@ -3,7 +3,7 @@
 - Status: Draft
 - Proposal PR:
 - Flux Issue:
-- Required by: [0177_package_manager.md](../0177_package_manager.md) — a Flux-written package manager is blocked on every capability here
+- Required by: [0177_package_manager.md](0177_package_manager.md) — a Flux-written package manager is blocked on every capability here
 - Builds on: the primop contract ([0164](0164_internal_primop_contract_and_stdlib_surface.md)), the effect system ([0161](0161_effect_system_decomposition_and_capabilities.md)), and the I/O effect-handler migration ([0165](0165_io_primop_migration_to_effect_handlers.md))
 
 # Proposal 0178: OS Capabilities for Tooling
@@ -17,7 +17,7 @@ process environment and arguments, subprocess execution, and — the one that is
 semantic change rather than an addition — **recoverable I/O errors**.
 
 The motivating consumer is a Flux-written package manager
-([0177](../0177_package_manager.md)), but nothing here is package-manager-specific.
+([0177](0177_package_manager.md)), but nothing here is package-manager-specific.
 These are the capabilities that separate a language that can compute from one
 that can write its own tooling.
 
@@ -26,7 +26,7 @@ that can write its own tooling.
 
 ### The gap is real, and it is narrow
 
-An investigation for [0177](../0177_package_manager.md) asked whether a package
+An investigation for [0177](0177_package_manager.md) asked whether a package
 manager could be written in Flux. The result was sharper than expected: **there
 is no type-system gap.** Flux's ADTs, exhaustive matching, generics, HAMT maps,
 effect tracking, and structured concurrency are already sufficient to express a
@@ -240,11 +240,11 @@ module is neither auto-injected nor effectful), and unit tests in
 | `metadata` | `String -> Result<FileMeta, IoError>` | `FileSystem` |
 
 `rename` is called out because atomic rename is what makes a content-addressed
-store safe against concurrent writers ([0177](../0177_package_manager.md)); it must
+store safe against concurrent writers ([0177](0177_package_manager.md)); it must
 map to the platform's atomic primitive, not to copy-then-delete.
 
 `FileMeta` should carry size and modification time. Note that
-[0177](../0177_package_manager.md) requires build caches never to *hash* an mtime —
+[0177](0177_package_manager.md) requires build caches never to *hash* an mtime —
 exposing it is still correct, because comparing mtimes is fine; hashing them is
 not.
 
@@ -468,7 +468,7 @@ ownership, file watching, and terminal control.
 ## Future possibilities
 [future-possibilities]: #future-possibilities
 
-- **A Flux-written package manager** ([0177](../0177_package_manager.md)) — the
+- **A Flux-written package manager** ([0177](0177_package_manager.md)) — the
   immediate consumer, and the one that would demonstrate the whole stack.
 - **Self-hosted developer tooling**: formatter, linter, and documentation
   generator, all currently Rust-side.

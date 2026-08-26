@@ -10,21 +10,20 @@ use std::process::{Command, Output};
 
 #[path = "../support/scratch.rs"]
 mod scratch;
-use scratch::Scratch;
+use scratch::{Scratch, cache_args_for, workspace_root};
 
 fn flux_bin() -> &'static Path {
     Path::new(env!("CARGO_BIN_EXE_flux"))
 }
 
 fn flux(args: &[&str], cwd: &Path) -> Output {
-    let cache_dir = cwd.join(".flux-cache");
     Command::new(flux_bin())
         .current_dir(cwd)
         .args(args)
-        .args([
-            "--cache-dir",
-            cache_dir.to_str().expect("cache path is UTF-8"),
-        ])
+        // Keep package tests on the project-local target cache. In
+        // particular, never derive a repository-level `.flux-cache` from the
+        // process working directory.
+        .args(cache_args_for(&cwd.join("target").join("flux")))
         .env("NO_COLOR", "1")
         .output()
         .expect("run flux")
@@ -34,6 +33,19 @@ fn combined(output: &Output) -> String {
     let mut text = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
     text.push_str(&String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n"));
     text
+}
+
+#[test]
+fn package_tests_do_not_leave_legacy_repository_caches() {
+    let root = workspace_root();
+    assert!(
+        !root.join(".flux-cache").exists(),
+        "package tests must not create a repository .flux-cache"
+    );
+    assert!(
+        !root.join(".flux").join("cache").exists(),
+        "package tests must not create a repository .flux/cache"
+    );
 }
 
 #[test]
