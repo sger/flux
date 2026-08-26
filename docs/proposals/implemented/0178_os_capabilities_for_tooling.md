@@ -448,8 +448,11 @@ same benefit with less ceremony.
 
 **During implementation:**
 
-5. Whether `Flow.Fs` operations should be async-aware — tracked as
-   [KI-005](../../known_issues.md#ki-005-flowfs-is-not-async-aware).
+5. ~~Whether `Flow.Fs` operations should be async-aware — tracked as
+   [KI-005](../../known_issues.md#ki-005-flowfs-is-not-async-aware).~~
+   **Resolved:** `Flow.Fs` automatically uses the async blocking filesystem
+   pool inside `Async.run_async`; synchronous behavior remains unchanged
+   outside an async boundary.
 6. Streaming reads for large files — tracked as
    [KI-007](../../known_issues.md#ki-007-no-streaming-reads-for-large-files).
 7. Whether `Bytes` should be the I/O currency instead of `String` — tracked as

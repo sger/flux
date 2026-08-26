@@ -92,7 +92,7 @@ impl Scratch {
 
     /// This test's private cache directory.
     pub fn cache_dir(&self) -> PathBuf {
-        self.dir.join(".flux-cache")
+        self.dir.join("flux-cache")
     }
 
     /// CLI arguments pinning `flux` to this test's private cache.

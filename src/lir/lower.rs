@@ -186,7 +186,6 @@ fn native_builtin_effect_uses_direct_path(
         };
         match name {
             crate::syntax::builtin_effects::CONSOLE
-            | crate::syntax::builtin_effects::FILESYSTEM
             | crate::syntax::builtin_effects::STDIN
             | crate::syntax::builtin_effects::ENV
             | crate::syntax::builtin_effects::PROCESS
@@ -208,7 +207,6 @@ fn native_builtin_effect_uses_direct_path(
     matches!(
         name,
         crate::syntax::builtin_effects::CONSOLE
-            | crate::syntax::builtin_effects::FILESYSTEM
             | crate::syntax::builtin_effects::STDIN
             | crate::syntax::builtin_effects::CLOCK
             | crate::syntax::builtin_effects::ENV
@@ -239,7 +237,6 @@ fn effect_expr_can_suspend(
             interner.and_then(|i| i.try_resolve(name)),
             Some(
                 crate::syntax::builtin_effects::CONSOLE
-                    | crate::syntax::builtin_effects::FILESYSTEM
                     | crate::syntax::builtin_effects::STDIN
                     | crate::syntax::builtin_effects::CLOCK
                     | crate::syntax::builtin_effects::ENV

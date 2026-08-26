@@ -10,7 +10,9 @@ use std::time::{Instant, SystemTime};
 
 use crate::core::CorePrimOp;
 use crate::runtime::RuntimeContext;
-use crate::runtime::r#async::backend::AsyncBackend;
+use crate::runtime::r#async::backend::{
+    AsyncBackend, FsCompletion, FsError, FsErrorKind, FsOperation,
+};
 use crate::runtime::r#async::fiber_trace::{self, FiberEvent};
 use crate::runtime::hamt as rc_hamt;
 use crate::runtime::hash_key::HashKey;
@@ -278,7 +280,9 @@ mod vm_async {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use crate::runtime::r#async::backend::{AsyncBackend, RequestId};
-    use crate::runtime::r#async::backends::mio::{MioBackend, configure_default_dns_pool_size};
+    use crate::runtime::r#async::backends::mio::{
+        MioBackend, configure_default_dns_pool_size, configure_default_fs_pool_size,
+    };
 
     static BACKEND: OnceLock<&'static MioBackend> = OnceLock::new();
     static NEXT_REQ: AtomicU64 = AtomicU64::new(1);
@@ -302,6 +306,10 @@ mod vm_async {
 
     pub fn configure_dns_pool_size(size: usize) {
         configure_default_dns_pool_size(size);
+    }
+
+    pub fn configure_fs_pool_size(size: usize) {
+        configure_default_fs_pool_size(size);
     }
 }
 
@@ -548,12 +556,17 @@ mod vm_fibers {
         });
         if depth == 0 {
             // Phase 2 slice 2-vii: respect the pending `RuntimeConfig`
-            // knobs set by `FiberRunAsyncWith`. `fs_pool_size` is stored for
-            // API parity but has no VM filesystem pool to configure yet.
+            // knobs set by `FiberRunAsyncWith`. Both blocking services are
+            // configured before the process-global backend is first started.
             if let Some(cfg) = PENDING_RUN_CONFIG.with(|c| c.get())
                 && cfg.dns_pool_size > 0
             {
                 vm_async::configure_dns_pool_size(cfg.dns_pool_size as usize);
+            }
+            if let Some(cfg) = PENDING_RUN_CONFIG.with(|c| c.get())
+                && cfg.fs_pool_size > 0
+            {
+                vm_async::configure_fs_pool_size(cfg.fs_pool_size as usize);
             }
             let n_workers = resolved_worker_count().max(1);
             SCHED.with(|s| {
@@ -1728,6 +1741,12 @@ mod vm_fibers {
                             );
                         }
                         CompletionPayload::AddressList(_) => unreachable!("handled above"),
+                        CompletionPayload::Filesystem(payload) => {
+                            set_resume_outcome(
+                                c.request_id.0,
+                                FiberOutcome::Value(super::vm_fs_completion(payload.clone())),
+                            );
+                        }
                     }
                     // If this completion is the timer half of a FiberTimeout
                     // await, set the parent's resume value to None and cancel
@@ -2583,6 +2602,9 @@ mod vm_fibers {
                 CompletionPayload::Unit => FiberOutcome::Value(Value::None),
                 CompletionPayload::Error(e) => FiberOutcome::Error(async_panicked(e.clone())),
                 CompletionPayload::AddressList(_) => unreachable!("handled above"),
+                CompletionPayload::Filesystem(payload) => {
+                    FiberOutcome::Value(super::vm_fs_completion(payload.clone()))
+                }
             };
             // Timeout routing.
             if let Some(body_child) = try_route_timer_for_timeout_shared(c.request_id.0, shared) {
@@ -2711,6 +2733,46 @@ mod vm_fibers {
     }
 }
 
+/// Park a filesystem primop operation until its completion is available.
+fn park_fs_op(
+    ctx: &mut dyn RuntimeContext,
+    req: crate::runtime::r#async::backend::RequestId,
+) -> Result<Value, String> {
+    if let Some((boundary_frame, boundary_sp)) = vm_fibers::boundary() {
+        if vm_fibers::is_current_cancelled() {
+            if let Ok(backend) = vm_async::backend() {
+                backend.cancel(req);
+            }
+            vm_fibers::signal_cancel_error();
+            return Err("__fiber_error__".to_string());
+        }
+        let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+        vm_fibers::signal_park(req, cont);
+        if let Err(e) = propagate_if_park_cancelled() {
+            if let Ok(backend) = vm_async::backend() {
+                backend.cancel(req);
+            }
+            return Err(e);
+        }
+        Err("__fiber_park__".to_string())
+    } else {
+        let backend = vm_async::backend()?;
+        loop {
+            if let Some(c) = backend.next_completion()
+                && c.request_id == req
+            {
+                return match c.payload {
+                    crate::runtime::r#async::backend::CompletionPayload::Filesystem(payload) => {
+                        Ok(vm_fs_completion(payload))
+                    }
+                    other => Err(format!("filesystem: unexpected completion {other:?}")),
+                };
+            }
+            std::thread::park_timeout(std::time::Duration::from_millis(1));
+        }
+    }
+}
+
 /// Park a TCP primop operation until its completion is available.
 /// If inside Async.run_async, captures the continuation and parks the fiber.
 /// Otherwise, synchronously pumps the backend (single-fiber fallback path).
@@ -2762,6 +2824,9 @@ fn park_tcp_op(
                         };
                         backend.tcp_connect(req, *addr);
                         continue;
+                    }
+                    CompletionPayload::Filesystem(_) => {
+                        return Err("tcp: unexpected filesystem completion".into());
                     }
                 };
             }
@@ -3169,55 +3234,106 @@ pub fn execute_core_primop(
         }
         TryReadFile => {
             let path = estr(&args[0], "try_read_file")?;
-            Ok(match fs::read_to_string(path) {
-                Ok(content) => vm_io_ok(Value::String(content.into())),
-                Err(err) => vm_io_err(&err, path),
-            })
+            dispatch_fs(
+                ctx,
+                FsOperation::ReadFile {
+                    path: path.to_owned(),
+                },
+            )
         }
         FsExists => {
             let path = estr(&args[0], "fs_exists")?;
-            Ok(Value::Boolean(std::path::Path::new(path).exists()))
+            dispatch_fs(
+                ctx,
+                FsOperation::Exists {
+                    path: path.to_owned(),
+                },
+            )
         }
         FsIsDir => {
             let path = estr(&args[0], "fs_is_dir")?;
-            Ok(Value::Boolean(std::path::Path::new(path).is_dir()))
+            dispatch_fs(
+                ctx,
+                FsOperation::IsDir {
+                    path: path.to_owned(),
+                },
+            )
         }
         FsIsFile => {
             let path = estr(&args[0], "fs_is_file")?;
-            Ok(Value::Boolean(std::path::Path::new(path).is_file()))
+            dispatch_fs(
+                ctx,
+                FsOperation::IsFile {
+                    path: path.to_owned(),
+                },
+            )
         }
         FsWriteFile => {
             let path = estr(&args[0], "fs_write_file")?;
             let contents = estr(&args[1], "fs_write_file")?;
-            Ok(vm_io_unit_result(fs::write(path, contents), path))
+            dispatch_fs(
+                ctx,
+                FsOperation::WriteFile {
+                    path: path.to_owned(),
+                    contents: contents.to_owned(),
+                },
+            )
         }
         FsCreateDirAll => {
             let path = estr(&args[0], "fs_create_dir_all")?;
-            Ok(vm_io_unit_result(fs::create_dir_all(path), path))
+            dispatch_fs(
+                ctx,
+                FsOperation::CreateDirAll {
+                    path: path.to_owned(),
+                },
+            )
         }
         FsRemoveFile => {
             let path = estr(&args[0], "fs_remove_file")?;
-            Ok(vm_io_unit_result(fs::remove_file(path), path))
+            dispatch_fs(
+                ctx,
+                FsOperation::RemoveFile {
+                    path: path.to_owned(),
+                },
+            )
         }
         FsRemoveDirAll => {
             let path = estr(&args[0], "fs_remove_dir_all")?;
-            Ok(vm_io_unit_result(fs::remove_dir_all(path), path))
+            dispatch_fs(
+                ctx,
+                FsOperation::RemoveDirAll {
+                    path: path.to_owned(),
+                },
+            )
         }
         FsRename => {
             let from = estr(&args[0], "fs_rename")?;
             let to = estr(&args[1], "fs_rename")?;
-            // The error names the destination: a rename fails far more often
-            // because the target directory is missing or on another device
-            // than because the source is unreadable.
-            Ok(vm_io_unit_result(fs::rename(from, to), to))
+            dispatch_fs(
+                ctx,
+                FsOperation::Rename {
+                    from: from.to_owned(),
+                    to: to.to_owned(),
+                },
+            )
         }
         FsListDir => {
             let path = estr(&args[0], "fs_list_dir")?;
-            Ok(vm_fs_list_dir(path))
+            dispatch_fs(
+                ctx,
+                FsOperation::ListDir {
+                    path: path.to_owned(),
+                },
+            )
         }
         FsMetadata => {
             let path = estr(&args[0], "fs_metadata")?;
-            Ok(vm_fs_metadata(path))
+            dispatch_fs(
+                ctx,
+                FsOperation::Metadata {
+                    path: path.to_owned(),
+                },
+            )
         }
         Sha256 => {
             let data = estr(&args[0], "sha256")?;
@@ -3497,8 +3613,8 @@ pub fn execute_core_primop(
         // fiber_run_async_with: `FiberRunAsync` plus explicit RuntimeConfig
         // knobs (proposal 0174 Phase 2 slice 2-vii). Args:
         //   args[0] = worker_count   (Int; 0 means "default")
-        //   args[1] = fs_pool_size   (Int; 0 means "default"; consulted by 2-viii)
-        //   args[2] = dns_pool_size  (Int; 0 means "default"; consulted by 2-viii)
+        //   args[1] = fs_pool_size   (Int; 0 means "default")
+        //   args[2] = dns_pool_size  (Int; 0 means "default")
         //   args[3] = action closure
         // Sets the pending RuntimeConfig before entering the boundary so
         // `enter_run_async` picks it up; the rest of the path is identical
@@ -4663,6 +4779,106 @@ fn vm_io_ok(value: Value) -> Value {
     Value::Adt(Rc::new(AdtValue {
         constructor: Rc::new("Ok".to_string()),
         fields: AdtFields::One(value),
+    }))
+}
+
+fn dispatch_fs(ctx: &mut dyn RuntimeContext, operation: FsOperation) -> Result<Value, String> {
+    if vm_fibers::boundary().is_none() {
+        return Ok(execute_fs_sync(&operation));
+    }
+
+    let backend = vm_async::backend()?;
+    let req = vm_async::alloc_request_id();
+    backend.fs_request(req, operation);
+    park_fs_op(ctx, req)
+}
+
+fn execute_fs_sync(operation: &FsOperation) -> Value {
+    match operation {
+        FsOperation::ReadFile { path } => match fs::read_to_string(path) {
+            Ok(content) => vm_io_ok(Value::String(content.into())),
+            Err(err) => vm_io_err(&err, path),
+        },
+        FsOperation::Exists { path } => Value::Boolean(std::path::Path::new(path).exists()),
+        FsOperation::IsDir { path } => Value::Boolean(std::path::Path::new(path).is_dir()),
+        FsOperation::IsFile { path } => Value::Boolean(std::path::Path::new(path).is_file()),
+        FsOperation::WriteFile { path, contents } => {
+            vm_io_unit_result(fs::write(path, contents), path)
+        }
+        FsOperation::CreateDirAll { path } => vm_io_unit_result(fs::create_dir_all(path), path),
+        FsOperation::RemoveFile { path } => vm_io_unit_result(fs::remove_file(path), path),
+        FsOperation::RemoveDirAll { path } => vm_io_unit_result(fs::remove_dir_all(path), path),
+        FsOperation::Rename { from, to } => vm_io_unit_result(fs::rename(from, to), to),
+        FsOperation::ListDir { path } => vm_fs_list_dir(path),
+        FsOperation::Metadata { path } => vm_fs_metadata(path),
+    }
+}
+
+fn vm_fs_completion(completion: FsCompletion) -> Value {
+    match completion {
+        FsCompletion::ReadFile(result) => match result {
+            Ok(bytes) => vm_io_ok(Value::String(
+                String::from_utf8_lossy(&bytes).into_owned().into(),
+            )),
+            Err(err) => vm_fs_error(&err),
+        },
+        FsCompletion::Predicate(value) => Value::Boolean(value),
+        FsCompletion::Unit(result) => match result {
+            Ok(()) => vm_io_ok(Value::None),
+            Err(err) => vm_fs_error(&err),
+        },
+        FsCompletion::ListDir(result) => match result {
+            Ok(names) => vm_io_ok(Value::Array(
+                names
+                    .into_iter()
+                    .map(|name| Value::String(name.into()))
+                    .collect::<Vec<_>>()
+                    .into(),
+            )),
+            Err(err) => vm_fs_error(&err),
+        },
+        FsCompletion::Metadata(result) => match result {
+            Ok(meta) => {
+                use crate::runtime::value::{AdtFields, AdtValue};
+                vm_io_ok(Value::Adt(Rc::new(AdtValue {
+                    constructor: Rc::new("FileMeta".to_string()),
+                    fields: AdtFields::from_vec(vec![
+                        Value::Integer(meta.size as i64),
+                        Value::Integer(meta.modified),
+                        Value::Boolean(meta.is_dir),
+                        Value::Boolean(meta.is_file),
+                    ]),
+                })))
+            }
+            Err(err) => vm_fs_error(&err),
+        },
+    }
+}
+
+fn vm_fs_error(error: &FsError) -> Value {
+    use crate::runtime::value::{AdtFields, AdtValue};
+    let kind_name = match error.kind {
+        FsErrorKind::NotFound => "NotFound",
+        FsErrorKind::PermissionDenied => "PermissionDenied",
+        FsErrorKind::AlreadyExists => "AlreadyExists",
+        FsErrorKind::NotADirectory => "NotADirectory",
+        FsErrorKind::IsADirectory => "IsADirectory",
+        FsErrorKind::DirectoryNotEmpty => "DirectoryNotEmpty",
+        FsErrorKind::Interrupted => "Interrupted",
+        FsErrorKind::Other => "Other",
+    };
+    let kind = Value::AdtUnit(Rc::new(kind_name.to_string()));
+    let io_error = Value::Adt(Rc::new(AdtValue {
+        constructor: Rc::new("IoError".to_string()),
+        fields: AdtFields::Three(
+            kind,
+            Value::String(error.message.clone().into()),
+            Value::String(error.path.clone().into()),
+        ),
+    }));
+    Value::Adt(Rc::new(AdtValue {
+        constructor: Rc::new("Err".to_string()),
+        fields: AdtFields::One(io_error),
     }))
 }
 
