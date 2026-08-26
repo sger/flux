@@ -87,6 +87,33 @@ fn effect_tr_nested_parity() {
 }
 
 #[test]
+fn flow_fs_async_parity() {
+    let (vm_lines, vm_ok) = run_guide_fixture("tests/parity/fs_async.flx", false);
+    let (native_lines, native_ok) = run_guide_fixture("tests/parity/fs_async.flx", true);
+    assert!(vm_ok, "VM filesystem async fixture failed: {vm_lines:?}");
+    assert!(
+        native_ok,
+        "native filesystem async fixture failed: {native_lines:?}"
+    );
+    assert_eq!(
+        vm_lines, native_lines,
+        "VM/native filesystem output differs"
+    );
+    let expected = vec![
+        "\"made=true\"".to_string(),
+        "\"missing=true\"".to_string(),
+        "\"wrote=true\"".to_string(),
+        "\"predicates=true\"".to_string(),
+        "\"read=async payload:true\"".to_string(),
+        "\"listed=true\"".to_string(),
+        "\"metadata=true\"".to_string(),
+        "\"renamed=true\"".to_string(),
+        "\"removed=true\"".to_string(),
+    ];
+    assert_eq!(vm_lines, expected);
+}
+
+#[test]
 fn effect_tr_reader_parity() {
     assert_parity_with_yield_checks("effect_tr_reader.flx", "\"flux-server\"");
 }
