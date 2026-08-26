@@ -21,6 +21,8 @@ Packages (in a directory holding a flux.toml):
   flux add <name> --path <dir> | --version <req> [--dev]
   flux remove <name> [--dev]  Drop a dependency from flux.toml
   flux update [-p <name>]     Re-resolve dependencies and rewrite flux.lock
+  flux publish [--dry-run]    Verify and package the current project
+  flux metadata --format json Emit the resolved graph as JSON
 
 Other:
   flux tokens <file.flx>
@@ -33,7 +35,7 @@ Other:
   flux module-cache-info <file.flx>
   flux native-cache-info <file.flx>
   flux interface-info <file.flxi>
-  flux clean [--deps] [<file.flx>]
+  flux clean [--deps] [--store] [<file.flx>]
   flux analyze-free-vars <file.flx>
   flux analyze-tail-calls <file.flx>
   flux parity-check <file-or-dir> [--ways vm,llvm] [--root <path> ...]
@@ -43,6 +45,7 @@ Other:
 Flags:
   --verbose          Show cache status (hit/miss/store)
   --quiet            Suppress per-module compile progress lines
+  --explain-rebuild  Explain why package units were rebuilt
   --trace            Print VM instruction trace
   --trace-aether     Print Aether report plus backend/execution path, then run
   --test             Run test_* functions and report results

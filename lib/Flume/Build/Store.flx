@@ -1,0 +1,59 @@
+import Flow.Crypto as Crypto
+import Flow.Fs as Fs
+import Flow.Path as Path
+import Flow.List as List
+import Flow.String as String
+import Flow.Result as Result
+import Flume.Source.Store as SourceStore
+
+/// The content-addressed build-artifact store.
+///
+/// This module owns the stable naming/layout contract. Archive and bytecode
+/// contents stay outside Flux's `String`-based file API; callers pass paths and
+/// the Rust driver performs the final artifact copy atomically.
+module Flume.Build.Store {
+
+    public fn compiler_abi() -> String {
+        "flux-fxmc-26"
+    }
+
+    public fn dir() -> String with IO {
+        Path.join(SourceStore.dir(), "store")
+    }
+
+    /// Hash the complete stable unit-input description. Callers should pass
+    /// relative source identities and dependency unit/interface hashes.
+    /// mtimes and absolute paths deliberately have no place in this function.
+    public fn unit_key(
+        package: String,
+        relative_source: String,
+        source_hash: String,
+        dependencies: List<String>,
+        compiler_version: String,
+        abi: String,
+        backend: String,
+        flags: List<String>,
+    ) -> String {
+        let closure = package + "\n" + relative_source + "\n" + source_hash
+            + "\n" + join(dependencies) + "\n" + compiler_version
+            + "\n" + abi + "\n" + backend + "\n" + join(flags)
+        Crypto.sha256(closure)
+    }
+
+    public fn entry(key: String, backend: String) -> String with IO {
+        Path.join(Path.join(Path.join(dir(), compiler_abi()), key), backend)
+    }
+
+    /// Make the incoming directory used by an atomic artifact adoption.
+    public fn prepare(key: String, backend: String) -> Result<String, String> with IO {
+        let path = entry(key, backend)
+        match Fs.create_dir_all(path) {
+            Err(_) -> Err("cannot create store entry " + path),
+            Ok(_) -> Ok(path),
+        }
+    }
+
+    fn join(values: List<String>) -> String {
+        values |> List.to_array |> String.join("\n")
+    }
+}

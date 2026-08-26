@@ -102,6 +102,10 @@ pub enum PackageAction {
     Remove,
     /// Re-resolve dependencies and rewrite `flux.lock`.
     Update,
+    /// Publish and locally verify the current package.
+    Publish,
+    /// Emit the resolved package graph as machine-readable JSON.
+    Metadata,
 }
 
 /// Parses process arguments into a concrete CLI command plus grouped driver flags.
@@ -220,6 +224,8 @@ fn reject_unknown_flag_tokens(args: &[String]) -> Result<(), String> {
         "test",
         "check",
         "tree",
+        "publish",
+        "metadata",
         // `add` and `remove` take flags the package manager parses —
         // `--git`, `--tag`, `--path`, and the rest — so the driver must not
         // reject them as unknown before forwarding.
@@ -301,7 +307,12 @@ fn parse_package_subcommand(
     // here, so they carry none.
     let program_args = if matches!(
         action,
-        PackageAction::Add | PackageAction::Remove | PackageAction::Update
+        PackageAction::Add
+            | PackageAction::Remove
+            | PackageAction::Update
+            | PackageAction::Build
+            | PackageAction::Publish
+            | PackageAction::Metadata
     ) {
         args.iter().skip(2).cloned().collect()
     } else {
@@ -355,6 +366,16 @@ fn parse_subcommand(
         "add" => Ok(parse_package_subcommand(PackageAction::Add, args, flags)),
         "remove" => Ok(parse_package_subcommand(PackageAction::Remove, args, flags)),
         "update" => Ok(parse_package_subcommand(PackageAction::Update, args, flags)),
+        "publish" => Ok(parse_package_subcommand(
+            PackageAction::Publish,
+            args,
+            flags,
+        )),
+        "metadata" => Ok(parse_package_subcommand(
+            PackageAction::Metadata,
+            args,
+            flags,
+        )),
         "eval" => parse_eval_subcommand(args, flags),
         "repl" => Ok(CliCommand::Repl {
             flags: flags.clone(),
@@ -562,7 +583,7 @@ fn is_flx_file(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        CliCommand, clean_command, is_flx_file, optional_flx_input, parse_args,
+        CliCommand, PackageAction, clean_command, is_flx_file, optional_flx_input, parse_args,
         parse_flx_subcommand, parse_fmt_command, require_flx_arg, require_flxi_arg,
         run_mode_from_flags,
     };
@@ -1009,5 +1030,39 @@ mod tests {
 
         assert!(err.contains("wat"));
         assert!(err.contains("valid subcommand"));
+    }
+
+    #[test]
+    fn parses_phase3_package_commands_and_their_private_flags() {
+        let publish = parse_args(cli(&["flux", "publish", "--dry-run"])).unwrap();
+        match publish {
+            CliCommand::Package {
+                action,
+                program_args,
+                ..
+            } => {
+                assert_eq!(action, PackageAction::Publish);
+                assert!(program_args.contains(&"--dry-run".to_string()));
+            }
+            other => panic!("expected publish command, got {other:?}"),
+        }
+
+        let metadata = parse_args(cli(&["flux", "metadata", "--format", "json"])).unwrap();
+        match metadata {
+            CliCommand::Package { action, flags, .. } => {
+                assert_eq!(action, PackageAction::Metadata);
+                assert_eq!(
+                    flags.diagnostics.diagnostics_format,
+                    crate::driver::DiagnosticOutputFormat::Json
+                );
+            }
+            other => panic!("expected metadata command, got {other:?}"),
+        }
+
+        let clean = parse_args(cli(&["flux", "clean", "--store"])).unwrap();
+        match clean {
+            CliCommand::Clean { flags } => assert!(flags.cache.clean_store),
+            other => panic!("expected clean command, got {other:?}"),
+        }
     }
 }

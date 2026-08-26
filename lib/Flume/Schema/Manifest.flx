@@ -92,6 +92,10 @@ module Flume.Schema.Manifest {
         Bin { name: String, path: String }
     }
 
+    public data Workspace {
+        Workspace { members: List<String> }
+    }
+
     /// The `[package]` table. `namespace` is optional in the manifest and
     /// derived from `name` when absent — see `derive_namespace`.
     public data Package {
@@ -110,23 +114,32 @@ module Flume.Schema.Manifest {
             deps: List<Dep>,
             lib: Option<String>,
             bins: List<Bin>,
+            workspace: Option<Workspace>,
         }
     }
 
     public fn manifest_package(manifest: Manifest) -> Package {
-        match manifest { Manifest { package, deps: _, lib: _, bins: _ } -> package }
+        match manifest { Manifest { package, deps: _, lib: _, bins: _, workspace: _ } -> package }
     }
 
     public fn manifest_deps(manifest: Manifest) -> List<Dep> {
-        match manifest { Manifest { package: _, deps, lib: _, bins: _ } -> deps }
+        match manifest { Manifest { package: _, deps, lib: _, bins: _, workspace: _ } -> deps }
     }
 
     public fn manifest_lib(manifest: Manifest) -> Option<String> {
-        match manifest { Manifest { package: _, deps: _, lib, bins: _ } -> lib }
+        match manifest { Manifest { package: _, deps: _, lib, bins: _, workspace: _ } -> lib }
     }
 
     public fn manifest_bins(manifest: Manifest) -> List<Bin> {
-        match manifest { Manifest { package: _, deps: _, lib: _, bins } -> bins }
+        match manifest { Manifest { package: _, deps: _, lib: _, bins, workspace: _ } -> bins }
+    }
+
+    public fn manifest_workspace(manifest: Manifest) -> Option<Workspace> {
+        match manifest { Manifest { package: _, deps: _, lib: _, bins: _, workspace } -> workspace }
+    }
+
+    public fn workspace_members(workspace: Workspace) -> List<String> {
+        match workspace { Workspace { members } -> members }
     }
 
     public fn package_name(package: Package) -> String {
@@ -325,14 +338,18 @@ module Flume.Schema.Manifest {
                     parse_all_deps(root),
                     \deps -> Result.and_then_result(
                         parse_lib(root),
-                        \lib -> Result.map_result(
+                        \lib -> Result.and_then_result(
                             parse_bins(root),
-                            \bins -> Manifest {
-                                package: package,
-                                deps: deps,
-                                lib: lib,
-                                bins: bins,
-                            }
+                            \bins -> Result.and_then_result(
+                                parse_workspace(root),
+                                \workspace -> Ok(Manifest {
+                                    package: package,
+                                    deps: deps,
+                                    lib: lib,
+                                    bins: bins,
+                                    workspace: workspace,
+                                })
+                            )
                         )
                     )
                 )
@@ -345,20 +362,31 @@ module Flume.Schema.Manifest {
 
     fn parse_package(root: List<(String, Toml)>) -> Result<Package, ParseError> {
         match Value.get(root, "package") {
-            None -> Err(schema_error(
-                "missing-package",
-                "a manifest must have a `[package]` table",
-            )),
-            Some(TTable(fields)) -> build_package(fields),
+            None -> match Value.get(root, "workspace") {
+                Some(TTable(_)) -> Ok(Package {
+                    name: "",
+                    version: "",
+                    edition: default_edition(),
+                    namespace: "",
+                }),
+                _ -> Err(schema_error(
+                    "missing-package",
+                    "a manifest must have a `[package]` table",
+                )),
+            },
+            Some(TTable(fields)) -> build_package(fields, workspace_package_version(root)),
             Some(_) -> Err(schema_error("invalid-package", "`package` must be a table")),
         }
     }
 
-    fn build_package(fields: List<(String, Toml)>) -> Result<Package, ParseError> {
+    fn build_package(
+        fields: List<(String, Toml)>,
+        inherited_version: Option<String>,
+    ) -> Result<Package, ParseError> {
         Result.and_then_result(
             require_string(fields, "package", "name"),
             \name -> Result.and_then_result(
-                require_string(fields, "package", "version"),
+                version_or_inherited(fields, inherited_version),
                 \version -> Result.and_then_result(
                     optional_string(fields, "package", "edition"),
                     \edition -> Result.map_result(
@@ -373,6 +401,37 @@ module Flume.Schema.Manifest {
                 )
             )
         )
+    }
+
+    fn version_or_inherited(
+        fields: List<(String, Toml)>,
+        inherited: Option<String>,
+    ) -> Result<String, ParseError> {
+        match optional_string(fields, "package", "version") {
+            Err(problem) -> Err(problem),
+            Ok(Some(version)) -> Ok(version),
+            Ok(None) -> match inherited {
+                Some(version) -> Ok(version),
+                None -> Err(schema_error(
+                    "missing-field",
+                    "`package` is missing required field `version`",
+                )),
+            },
+        }
+    }
+
+    /// Read `[workspace.package].version` when a member inherits it.
+    fn workspace_package_version(root: List<(String, Toml)>) -> Option<String> {
+        match Value.get(root, "workspace") {
+            Some(TTable(workspace)) -> match Value.get(workspace, "package") {
+                Some(TTable(package)) -> match Value.get(package, "version") {
+                    Some(value) -> reader_read(string_reader(), value),
+                    None -> None,
+                },
+                _ -> None,
+            },
+            _ -> None,
+        }
     }
 
     // Named wrappers for the reader every `[package]` field happens to use.
@@ -721,6 +780,17 @@ module Flume.Schema.Manifest {
                 "invalid-bin",
                 "`bin` must be written as `[[bin]]`, an array of tables",
             )),
+        }
+    }
+
+    fn parse_workspace(root: List<(String, Toml)>) -> Result<Option<Workspace>, ParseError> {
+        match Value.get(root, "workspace") {
+            None -> Ok(None),
+            Some(TTable(fields)) -> Result.map_result(
+                require(array_of(string_reader()), fields, "workspace", "members"),
+                \members -> Some(Workspace { members: members })
+            ),
+            Some(_) -> Err(schema_error("invalid-workspace", "`workspace` must be a table")),
         }
     }
 
