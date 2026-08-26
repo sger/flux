@@ -22,7 +22,7 @@ use crate::{
 /// Parsed backend-related CLI flags that affect backend selection or backend outputs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct ParsedCliBackendFlags {
-    pub(crate) use_llvm: bool,
+    pub(crate) use_llvm: Option<bool>,
     pub(crate) emit_llvm: bool,
     pub(crate) emit_binary: bool,
 }
@@ -45,7 +45,7 @@ pub(crate) struct ParsedCliRuntimeFlags {
 /// Parsed language-related CLI flags that affect compilation semantics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct ParsedCliLanguageFlags {
-    pub(crate) enable_optimize: bool,
+    pub(crate) enable_optimize: Option<bool>,
     pub(crate) enable_analyze: bool,
     pub(crate) strict_mode: bool,
 }
@@ -102,6 +102,7 @@ pub(crate) struct CliValueOptions {
     pub(crate) paths: CliPathOptions,
     pub(crate) diagnostics: CliDiagnosticOptions,
     pub(crate) command: CliCommandValueOptions,
+    pub(crate) profile: Option<String>,
 }
 
 /// Path-like CLI values collected during value-option parsing.
@@ -153,6 +154,7 @@ impl Default for CliValueOptions {
             paths: CliPathOptions::default(),
             diagnostics: CliDiagnosticOptions::default(),
             command: CliCommandValueOptions::default(),
+            profile: None,
         }
     }
 }
@@ -170,7 +172,11 @@ pub(crate) fn extract_cli_flag_groups(args: &mut Vec<String>) -> ParsedCliFlags 
             "--trace-aether" => flags.runtime.trace_aether = remove_bool_flag(args, i),
             "--prof" => flags.runtime.profiling = remove_bool_flag(args, i),
             "--roots-only" => flags.execution.roots_only = remove_bool_flag(args, i),
-            "--optimize" | "-O" => flags.language.enable_optimize = remove_bool_flag(args, i),
+            "--optimize" | "-O" => flags.language.enable_optimize = Some(remove_bool_flag(args, i)),
+            "--no-optimize" => {
+                args.remove(i);
+                flags.language.enable_optimize = Some(false);
+            }
             "--analyze" | "-A" => flags.language.enable_analyze = remove_bool_flag(args, i),
             "--stats" => flags.runtime.show_stats = remove_bool_flag(args, i),
             "--test" => flags.execution.test_mode = remove_bool_flag(args, i),
@@ -191,7 +197,11 @@ pub(crate) fn extract_cli_flag_groups(args: &mut Vec<String>) -> ParsedCliFlags 
             }
             "--dump-lir" => flags.dumps.dump_lir = remove_bool_flag(args, i),
             "--dump-lir-llvm" => flags.dumps.dump_lir_llvm = remove_bool_flag(args, i),
-            "--native" => flags.backend.use_llvm = remove_bool_flag(args, i),
+            "--native" => flags.backend.use_llvm = Some(remove_bool_flag(args, i)),
+            "--vm" => {
+                args.remove(i);
+                flags.backend.use_llvm = Some(false);
+            }
             "--emit-llvm" => flags.backend.emit_llvm = remove_bool_flag(args, i),
             "--emit-binary" => flags.backend.emit_binary = remove_bool_flag(args, i),
             "--no-cache" => flags.execution.no_cache = remove_bool_flag(args, i),
@@ -235,6 +245,18 @@ pub(crate) fn extract_cli_value_options(args: &mut Vec<String>) -> Result<CliVal
             "Error: --cache-dir requires a directory path.",
         )? {
             values.paths.cache_dir = Some(PathBuf::from(value));
+            continue;
+        }
+        if let Some(profile) = take_required_long_option(
+            args,
+            &mut i,
+            "--profile",
+            "Error: --profile requires a profile name.",
+        )? {
+            if profile.is_empty() {
+                return Err("Error: --profile requires a profile name.".to_string());
+            }
+            values.profile = Some(profile);
             continue;
         }
         if let Some(value) = consume_short_value_option(args, &mut i, "-o")? {
@@ -300,7 +322,7 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
     DriverFlags {
         backend: DriverBackendFlags {
             selected: Backend::Vm,
-            use_llvm: parsed.backend.use_llvm,
+            use_llvm: parsed.backend.use_llvm.unwrap_or(false),
             emit_llvm: parsed.backend.emit_llvm,
             emit_binary: parsed.backend.emit_binary,
             output_path: values.paths.output_path,
@@ -343,9 +365,15 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
             locked: parsed.execution.locked,
         },
         language: DriverLanguageFlags {
-            enable_optimize: parsed.language.enable_optimize,
+            enable_optimize: parsed.language.enable_optimize.unwrap_or(false),
             enable_analyze: parsed.language.enable_analyze,
             strict_mode: parsed.language.strict_mode,
+        },
+        profile: crate::driver::flags::DriverProfileFlags {
+            name: values.profile,
+            resolved: None,
+            cli_use_llvm: parsed.backend.use_llvm,
+            cli_optimize: parsed.language.enable_optimize,
         },
     }
     .finalize_backend()
@@ -483,7 +511,7 @@ mod tests {
         let parsed = extract_cli_flag_groups(&mut args);
 
         assert!(parsed.runtime.verbose);
-        assert!(parsed.language.enable_optimize);
+        assert_eq!(parsed.language.enable_optimize, Some(true));
         assert_eq!(parsed.dumps.dump_aether, AetherDumpMode::Debug);
         assert!(parsed.backend.emit_binary);
         assert!(parsed.runtime.profiling);
@@ -502,7 +530,7 @@ mod tests {
 
         let parsed = extract_cli_flag_groups(&mut args);
 
-        assert!(parsed.backend.use_llvm);
+        assert_eq!(parsed.backend.use_llvm, Some(true));
         assert!(parsed.dumps.dump_lir_llvm);
         assert_eq!(args, vec!["flux".to_string(), "file.flx".to_string()]);
     }
@@ -625,7 +653,7 @@ mod tests {
                     ..ParsedCliRuntimeFlags::default()
                 },
                 language: ParsedCliLanguageFlags {
-                    enable_optimize: true,
+                    enable_optimize: Some(true),
                     ..ParsedCliLanguageFlags::default()
                 },
                 dumps: ParsedCliDumpFlags {
@@ -648,6 +676,7 @@ mod tests {
                 },
                 diagnostics: CliDiagnosticOptions::default(),
                 command: CliCommandValueOptions::default(),
+                profile: None,
             },
         );
 

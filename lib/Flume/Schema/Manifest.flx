@@ -92,6 +92,22 @@ module Flume.Schema.Manifest {
         Bin { name: String, path: String }
     }
 
+    public data Backend { Vm, Native }
+
+    /// The profile fields written in the manifest. Missing fields inherit the
+    /// built-in defaults for the selected profile.
+    public data PartialProfile {
+        PartialProfile { backend: Option<Backend>, optimize: Option<Bool> }
+    }
+
+    /// The two package profiles, before their fields are resolved.
+    public data Profiles {
+        Profiles { dev: PartialProfile, release: PartialProfile }
+    }
+
+    /// The concrete settings used by one package build.
+    public data Profile { Profile { backend: Backend, optimize: Bool } }
+
     public data Workspace {
         Workspace { members: List<String> }
     }
@@ -115,27 +131,183 @@ module Flume.Schema.Manifest {
             lib: Option<String>,
             bins: List<Bin>,
             workspace: Option<Workspace>,
+            profiles: Profiles,
         }
     }
 
     public fn manifest_package(manifest: Manifest) -> Package {
-        match manifest { Manifest { package, deps: _, lib: _, bins: _, workspace: _ } -> package }
+        match manifest { Manifest { package, deps: _, lib: _, bins: _, workspace: _, profiles: _ } -> package }
     }
 
     public fn manifest_deps(manifest: Manifest) -> List<Dep> {
-        match manifest { Manifest { package: _, deps, lib: _, bins: _, workspace: _ } -> deps }
+        match manifest { Manifest { package: _, deps, lib: _, bins: _, workspace: _, profiles: _ } -> deps }
     }
 
     public fn manifest_lib(manifest: Manifest) -> Option<String> {
-        match manifest { Manifest { package: _, deps: _, lib, bins: _, workspace: _ } -> lib }
+        match manifest { Manifest { package: _, deps: _, lib, bins: _, workspace: _, profiles: _ } -> lib }
     }
 
     public fn manifest_bins(manifest: Manifest) -> List<Bin> {
-        match manifest { Manifest { package: _, deps: _, lib: _, bins, workspace: _ } -> bins }
+        match manifest { Manifest { package: _, deps: _, lib: _, bins, workspace: _, profiles: _ } -> bins }
     }
 
     public fn manifest_workspace(manifest: Manifest) -> Option<Workspace> {
-        match manifest { Manifest { package: _, deps: _, lib: _, bins: _, workspace } -> workspace }
+        match manifest { Manifest { package: _, deps: _, lib: _, bins: _, workspace, profiles: _ } -> workspace }
+    }
+
+    public fn manifest_profiles(manifest: Manifest) -> Profiles {
+        match manifest { Manifest { package: _, deps: _, lib: _, bins: _, workspace: _, profiles } -> profiles }
+    }
+
+    public fn profiles_dev(profiles: Profiles) -> PartialProfile {
+        match profiles { Profiles { dev, release: _ } -> dev }
+    }
+
+    public fn profiles_release(profiles: Profiles) -> PartialProfile {
+        match profiles { Profiles { dev: _, release } -> release }
+    }
+
+    public fn partial_backend(profile: PartialProfile) -> Option<Backend> {
+        match profile { PartialProfile { backend, optimize: _ } -> backend }
+    }
+
+    public fn partial_optimize(profile: PartialProfile) -> Option<Bool> {
+        match profile { PartialProfile { backend: _, optimize } -> optimize }
+    }
+
+    public fn profile_backend(profile: Profile) -> Backend {
+        match profile { Profile { backend, optimize: _ } -> backend }
+    }
+
+    public fn profile_optimize(profile: Profile) -> Bool {
+        match profile { Profile { backend: _, optimize } -> optimize }
+    }
+
+    public fn parse_backend(text: String) -> Result<Backend, String> {
+        if text == "vm" {
+            Ok(Vm)
+        } else if text == "native" {
+            Ok(Native)
+        } else {
+            Err("unknown backend `" + text + "`; expected `vm` or `native`" )
+        }
+    }
+
+    public fn backend_name(backend: Backend) -> String {
+        match backend {
+            Vm -> "vm",
+            Native -> "native",
+        }
+    }
+
+    fn empty_partial_profile() -> PartialProfile {
+        PartialProfile { backend: None, optimize: None }
+    }
+
+    /// Parse `[profile]`, retaining absent fields so profile defaults can be
+    /// applied only once, at resolution time.
+    public fn parse_profiles(root: List<(String, Toml)>) -> Result<Profiles, ParseError> {
+        match Value.get(root, "profile") {
+            None -> Ok(Profiles {
+                dev: empty_partial_profile(),
+                release: empty_partial_profile(),
+            }),
+            Some(TTable(fields)) -> Result.and_then_result(
+                validate_profile_names(fields),
+                \_ -> Result.and_then_result(
+                    parse_profile_named(fields, "dev"),
+                    \dev -> Result.map_result(
+                        parse_profile_named(fields, "release"),
+                        \release -> Profiles { dev: dev, release: release }
+                    )
+                )
+            ),
+            Some(_) -> Err(schema_error("invalid-profile", "`profile` must be a table")),
+        }
+    }
+
+    fn validate_profile_names(fields: List<(String, Toml)>) -> Result<Bool, ParseError> {
+        match fields {
+            [] -> Ok(true),
+            [(name, _) | rest] -> if name == "dev" || name == "release" {
+                validate_profile_names(rest)
+            } else {
+                Err(schema_error(
+                    "unknown-profile",
+                    "unknown profile `" + name + "`; expected `dev` or `release`",
+                ))
+            },
+        }
+    }
+
+    fn parse_profile_named(
+        fields: List<(String, Toml)>,
+        name: String,
+    ) -> Result<PartialProfile, ParseError> {
+        match Value.get(fields, name) {
+            None -> Ok(empty_partial_profile()),
+            Some(TTable(profile_fields)) -> parse_partial_profile(profile_fields, name),
+            Some(_) -> Err(schema_error(
+                "invalid-profile",
+                "`profile." + name + "` must be a table",
+            )),
+        }
+    }
+
+    fn parse_partial_profile(
+        fields: List<(String, Toml)>,
+        name: String,
+    ) -> Result<PartialProfile, ParseError> {
+        Result.and_then_result(
+            optional_backend(fields, name),
+            \backend -> Result.map_result(
+                optional(bool_reader(), fields, "profile." + name, "optimize"),
+                \optimize -> PartialProfile { backend: backend, optimize: optimize }
+            )
+        )
+    }
+
+    fn optional_backend(
+        fields: List<(String, Toml)>,
+        name: String,
+    ) -> Result<Option<Backend>, ParseError> {
+        match optional(string_reader(), fields, "profile." + name, "backend") {
+            Err(problem) -> Err(problem),
+            Ok(None) -> Ok(None),
+            Ok(Some(text)) -> match parse_backend(text) {
+                Ok(backend) -> Ok(Some(backend)),
+                Err(_) -> Err(schema_error(
+                    "invalid-backend",
+                    "`profile." + name + ".backend` must be \"vm\" or \"native\"",
+                )),
+            },
+        }
+    }
+
+    public fn default_profile(name: String) -> Profile {
+        if name == "release" {
+            Profile { backend: Native, optimize: true }
+        } else {
+            Profile { backend: Vm, optimize: false }
+        }
+    }
+
+    public fn resolve_profile(name: String, partial: PartialProfile) -> Profile {
+        let defaults = default_profile(name)
+        Profile {
+            backend: Option.unwrap_or(partial_backend(partial), profile_backend(defaults)),
+            optimize: Option.unwrap_or(partial_optimize(partial), profile_optimize(defaults)),
+        }
+    }
+
+    public fn resolve_named_profile(profiles: Profiles, name: String) -> Result<Profile, String> {
+        if name == "dev" {
+            Ok(resolve_profile(name, profiles_dev(profiles)))
+        } else if name == "release" {
+            Ok(resolve_profile(name, profiles_release(profiles)))
+        } else {
+            Err("unknown profile `" + name + "`; expected `dev` or `release`")
+        }
     }
 
     public fn workspace_members(workspace: Workspace) -> List<String> {
@@ -342,13 +514,17 @@ module Flume.Schema.Manifest {
                             parse_bins(root),
                             \bins -> Result.and_then_result(
                                 parse_workspace(root),
-                                \workspace -> Ok(Manifest {
-                                    package: package,
-                                    deps: deps,
-                                    lib: lib,
-                                    bins: bins,
-                                    workspace: workspace,
-                                })
+                                \workspace -> Result.map_result(
+                                    parse_profiles(root),
+                                    \profiles -> Manifest {
+                                        package: package,
+                                        deps: deps,
+                                        lib: lib,
+                                        bins: bins,
+                                        workspace: workspace,
+                                        profiles: profiles,
+                                    }
+                                )
                             )
                         )
                     )

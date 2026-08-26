@@ -3,7 +3,10 @@
 use std::{ffi::OsString, path::Path};
 
 use crate::{
-    cli::render::text::{expected_flx, expected_flxi, fmt_check_usage, fmt_usage, unknown_command},
+    cli::render::text::{
+        expected_flx, expected_flxi, fmt_check_usage, fmt_usage, profile_source_error,
+        unknown_command,
+    },
     cli::shared::{
         ParsedCliFlags, build_driver_flags, extract_cli_flag_groups, extract_cli_value_options,
     },
@@ -120,6 +123,13 @@ pub fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<CliCommand
     // does not) without the CLI parser claiming or rejecting them.
     let program_args = split_program_args(&mut args);
     let (parsed, mut flags) = parse_driver_flags(&mut args)?;
+
+    if flags.profile.name.is_some()
+        && (args.get(1).is_some_and(|arg| is_flx_file(arg))
+            || (args.get(1).is_some_and(|arg| arg == "run") && args_name_a_file(&args)))
+    {
+        return Err(profile_source_error().to_string());
+    }
 
     if has_no_command_or_input(&args) {
         return Ok(CliCommand::Help);
@@ -1063,6 +1073,44 @@ mod tests {
         match clean {
             CliCommand::Clean { flags } => assert!(flags.cache.clean_store),
             other => panic!("expected clean command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_profile_and_cli_backend_override() {
+        let command = parse_args(cli(&["flux", "build", "--profile=release", "--vm"])).unwrap();
+        match command {
+            CliCommand::Package { flags, .. } => {
+                assert_eq!(flags.profile.name.as_deref(), Some("release"));
+                assert_eq!(flags.profile.cli_use_llvm, Some(false));
+                assert!(!flags.is_native_backend());
+            }
+            other => panic!("expected package command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_profile_without_a_name() {
+        let err = parse_args(cli(&["flux", "build", "--profile"])).unwrap_err();
+        assert!(err.contains("--profile requires a profile name"));
+    }
+
+    #[test]
+    fn parses_no_optimize_as_an_explicit_override() {
+        let command = parse_args(cli(&[
+            "flux",
+            "build",
+            "--profile",
+            "release",
+            "--no-optimize",
+        ]))
+        .unwrap();
+        match command {
+            CliCommand::Package { flags, .. } => {
+                assert_eq!(flags.profile.cli_optimize, Some(false));
+                assert!(!flags.language.enable_optimize);
+            }
+            other => panic!("expected package command, got {other:?}"),
         }
     }
 }

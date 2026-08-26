@@ -1380,6 +1380,19 @@ if the Phase 2 resolver's error quality proves inadequate.
 cross-compilation, binary artifact distribution, and workspace-wide version
 unification.
 
+## Build profiles
+
+Flux supports `dev` and `release` build profiles in `flux.toml`. `dev` is the
+default and selects the VM without optimization; `release` selects the native
+backend and enables LLVM optimization. A command-line `--profile` selection is
+resolved by Flume, and `--native`/`--vm` plus `--optimize`/`--no-optimize`
+override the manifest for that invocation. Profile names are not cache-key
+inputs: effective backend and semantic settings are, while VM and native cache
+directories remain separate.
+
+The profile feature intentionally does not add Rust-shaped `debug-assertions`
+or `overflow-checks` fields. Those semantics are not defined by Flux.
+
 ## Future possibilities
 [future-possibilities]: #future-possibilities
 
@@ -1393,15 +1406,6 @@ unification.
 - **Distributed/shared build cache** — the content-addressed store makes this
   mostly a transport problem.
 - **Documentation generation and hosting** for published packages.
-- **Build profiles, with the backend as a profile field.** Flux ships two
-  backends from one frontend, and `flux build` currently has no way to choose.
-  Cargo's design is the one to copy (see *Prior art*): profiles as ordinary data
-  with `dev`/`release` as the only roots, the backend included in the cache key
-  so switching invalidates correctly, and the artifact directory keyed on the
-  profile name. `CacheLayout::vm_dir()` / `native_dir()` and `CACHE_EPOCH`
-  already provide the separation and invalidation this needs; what is missing is
-  the `flux.toml` surface. Gated on backend parity — see
-  [KI-030](../known_issues.md#ki-030) and [KI-009](../known_issues.md#ki-009).
 - **Effect-aware metadata**: Flux knows the effect signature of every public
   function, so a package index could expose "this library performs IO" — genuinely
   novel, and a supply-chain-transparency story that package managers for

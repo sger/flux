@@ -29,7 +29,6 @@ pub(crate) struct CompileModulesRequest<'a> {
     pub(crate) runtime: DriverRuntimeConfig,
     pub(crate) allow_cached_module_bytecode: bool,
     pub(crate) backend: Backend,
-    pub(crate) strict_hash: [u8; 32],
     pub(crate) entry_has_errors: bool,
     pub(crate) all_diagnostics: &'a mut Vec<Diagnostic>,
 }
@@ -191,8 +190,7 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
             );
         let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
         let module_source_hash = hash_bytes(module_source.as_bytes());
-        let module_strict_hash = request.strict_hash;
-        let module_cache_key = hash_cache_key(&module_source_hash, &module_strict_hash);
+        let module_cache_key = hash_cache_key(&module_source_hash, &module_semantic_config_hash);
         let module_store_deps: Vec<(String, String)> = node
             .imports
             .iter()

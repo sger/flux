@@ -59,6 +59,7 @@ pub(crate) fn base_flags() -> DriverFlags {
             enable_analyze: false,
             strict_mode: false,
         },
+        profile: Default::default(),
     }
 }
 

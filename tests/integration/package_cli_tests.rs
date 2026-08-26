@@ -265,6 +265,85 @@ fn package_commands_operate_on_the_current_package() {
     );
 }
 
+#[test]
+fn package_metadata_reports_the_selected_profile() {
+    let scratch = Scratch::new("cli-package-profile-metadata");
+    let pkg = scratch.path().join("app");
+    std::fs::create_dir_all(&pkg).expect("create package dir");
+    assert!(flux(&["init"], &pkg).status.success(), "init failed");
+    std::fs::write(
+        pkg.join("flux.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[profile.release]\noptimize = false\n",
+    )
+    .expect("write manifest");
+
+    let out = flux(
+        &["metadata", "--profile", "release", "--format", "json"],
+        &pkg,
+    );
+    assert!(out.status.success(), "metadata failed:\n{}", combined(&out));
+    let value: serde_json::Value = serde_json::from_str(&combined(&out)).expect("metadata json");
+    assert_eq!(value["targets"]["backend"], "native");
+    assert_eq!(value["targets"]["profile"], "release");
+    assert_eq!(value["targets"]["optimize"], false);
+}
+
+#[test]
+fn build_plan_reports_backend_and_profile() {
+    let scratch = Scratch::new("cli-package-plan-profile");
+    let pkg = scratch.path().join("app");
+    std::fs::create_dir_all(&pkg).expect("create package dir");
+    assert!(flux(&["init"], &pkg).status.success(), "init failed");
+
+    let out = flux(&["build", "--plan"], &pkg);
+    assert!(
+        out.status.success(),
+        "build plan failed:\n{}",
+        combined(&out)
+    );
+    let value: serde_json::Value = serde_json::from_str(&combined(&out)).expect("plan json");
+    assert_eq!(value["format_version"], 1);
+    assert_eq!(value["units"][0]["backend"], "vm");
+    assert_eq!(value["units"][0]["profile"], "dev");
+}
+
+#[test]
+fn profile_is_rejected_for_standalone_source_files() {
+    let scratch = Scratch::new("cli-profile-source");
+    let source = scratch.write("main.flx", "fn main() with IO { print(\"ok\") }\n");
+    let out = flux(
+        &[
+            source.file_name().unwrap().to_str().unwrap(),
+            "--profile",
+            "release",
+        ],
+        scratch.path(),
+    );
+    assert!(!out.status.success(), "profile should be package-only");
+    assert!(
+        combined(&out).contains("--profile applies to package commands"),
+        "unexpected output:\n{}",
+        combined(&out)
+    );
+}
+
+#[test]
+fn unknown_package_profile_fails_before_building() {
+    let scratch = Scratch::new("cli-profile-unknown");
+    let pkg = scratch.path().join("app");
+    std::fs::create_dir_all(&pkg).expect("create package dir");
+    assert!(flux(&["init"], &pkg).status.success(), "init failed");
+
+    let out = flux(&["build", "--profile", "shipping"], &pkg);
+    assert!(!out.status.success(), "unknown profile should fail");
+    assert!(
+        combined(&out).contains("unknown profile `shipping`")
+            && combined(&out).contains("expected `dev` or `release`"),
+        "unexpected output:\n{}",
+        combined(&out)
+    );
+}
+
 /// A compile error must fail `build` and `check`, or CI cannot use them.
 #[test]
 fn build_and_check_fail_on_a_compile_error() {

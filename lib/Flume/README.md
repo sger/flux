@@ -268,6 +268,45 @@ Pass program arguments after --:
 flux run -- --name Flux
 ~~~
 
+## Build profiles
+
+Profiles choose the compilation backend and its optimization setting. With no
+profile table, package commands use `dev` by default:
+
+~~~toml
+[profile.dev]
+backend = "vm"
+optimize = false
+
+[profile.release]
+backend = "native"
+optimize = true
+~~~
+
+`dev` uses the bytecode VM without optimization. `release` selects the native
+LLVM pipeline and enables LLVM optimization. Native optimization is a large
+code-generation tier change; optimization on the VM is a smaller improvement.
+Profiles affect compilation and optimization, not Flux language semantics.
+
+Choose a profile for one package command with `--profile`:
+
+~~~sh
+flux build --profile dev
+flux run --profile release
+flux test --profile release
+~~~
+
+The native release profile requires a compiler built with LLVM support:
+
+~~~sh
+cargo build --features llvm
+~~~
+
+`--native` and `--vm` override the profile backend. Likewise, `--optimize`
+(`-O`) and `--no-optimize` override the profile optimization setting. These
+overrides apply only to the current command. The Flume resolver always runs on
+the VM, regardless of the package profile.
+
 Useful flags include:
 
 ~~~sh

@@ -8,6 +8,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use crate::bytecode::bytecode_cache::{BytecodeCache, hash_bytes, hash_cache_key};
+use crate::compiler::module_interface::compute_semantic_config_hash;
 use crate::shared::cache_paths;
 
 use super::normalize::{
@@ -360,10 +361,13 @@ fn cache_keys_for_fixture(file: &Path, extra_args: &[String]) -> ([u8; 32], [u8;
     let source = std::fs::read(file).unwrap_or_default();
     let source_hash = hash_bytes(&source);
     let roots_hash = hash_bytes(roots_marker(file, extra_args).as_bytes());
-    let strict_hash = hash_bytes(b"strict=0\n");
-    let bytecode_key = hash_cache_key(&hash_cache_key(&source_hash, &roots_hash), &strict_hash);
-    let module_key = hash_cache_key(&source_hash, &strict_hash);
-    let native_key = hash_cache_key(&source_hash, &strict_hash);
+    let semantic_config_hash = compute_semantic_config_hash(false, false);
+    let bytecode_key = hash_cache_key(
+        &hash_cache_key(&source_hash, &roots_hash),
+        &semantic_config_hash,
+    );
+    let module_key = hash_cache_key(&source_hash, &semantic_config_hash);
+    let native_key = hash_cache_key(&source_hash, &semantic_config_hash);
     (bytecode_key, module_key, native_key)
 }
 
