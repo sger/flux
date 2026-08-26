@@ -8,6 +8,9 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use sha2::{Digest, Sha256};
 
 use crate::cli::cmdline::PackageAction;
 use crate::driver::manifest_roots::{FLUX_SKIP_MANIFEST_ENV, flume_shim};
@@ -200,17 +203,40 @@ pub fn package_command(
     bin: Option<&str>,
     program_args: Vec<String>,
 ) -> ExitCode {
+    if action == PackageAction::Build && program_args.iter().any(|arg| arg == "--explain-rebuild") {
+        // The compiler already records detailed interface/cache miss reasons
+        // behind verbose reporting; expose that diagnostic surface under the
+        // package-manager spelling as well.
+        flags.runtime.verbose = true;
+    }
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let Some(project) = crate::shared::cache_paths::find_project_root(&cwd) else {
         eprintln!("error: no `flux.toml` found in this directory or any parent");
         return ExitCode::FAILURE;
     };
+    let package_project =
+        crate::shared::cache_paths::find_package_root(&cwd).unwrap_or_else(|| project.clone());
 
     // `tree` reads manifests and prints; it compiles nothing, so it takes none
     // of the entry-point resolution below — a package with no entry point
     // still has a dependency graph worth showing.
     if action == PackageAction::Tree {
         return report(call_flume(&["tree", &project.to_string_lossy()]));
+    }
+
+    if action == PackageAction::Metadata {
+        return phase3_metadata(&project, flags.diagnostics.diagnostics_format);
+    }
+
+    if action == PackageAction::Publish {
+        return publish_package(
+            &package_project,
+            program_args.iter().any(|arg| arg == "--dry-run"),
+        );
+    }
+
+    if action == PackageAction::Build && program_args.iter().any(|arg| arg == "--plan") {
+        return phase3_build_plan(&project, &flags);
     }
 
     // `update` re-resolves and rewrites `flux.lock` through the graph module,
@@ -232,7 +258,7 @@ pub fn package_command(
         return report(call_flume(&call));
     }
 
-    let entry = match entry_file(&project, bin) {
+    let entry = match entry_file(&package_project, bin) {
         Ok(entry) => entry,
         Err(message) => {
             eprintln!("error: {message}");
@@ -260,6 +286,352 @@ pub fn package_command(
         },
     );
     ExitCode::SUCCESS
+}
+
+/// Emit the stable, versioned graph consumed by external tooling.
+fn phase3_metadata(project: &Path, format: crate::driver::DiagnosticOutputFormat) -> ExitCode {
+    let dir = project.to_string_lossy().into_owned();
+    let reply = match resolve_graph(&dir) {
+        Ok(reply) => reply,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let packages = graph_records(&reply);
+    if packages.is_empty() {
+        let message = reply
+            .lines()
+            .find_map(|line| line.strip_prefix("err\t"))
+            .unwrap_or("resolver returned no package roots");
+        eprintln!("error: {message}");
+        return ExitCode::FAILURE;
+    }
+    let members = workspace_members(project);
+    let value = serde_json::json!({
+        "format_version": 1,
+        "workspace": { "root": project, "members": members },
+        "packages": packages,
+        "targets": {
+            "backend": "vm",
+            "cache_root": crate::shared::cache_paths::resolve_cache_root(project, None),
+            "store_root": crate::driver::artifact_store::store_root(),
+        }
+    });
+    let output = if matches!(format, crate::driver::DiagnosticOutputFormat::Json) {
+        serde_json::to_string_pretty(&value)
+    } else {
+        serde_json::to_string(&value)
+    };
+    match output {
+        Ok(text) => {
+            println!("{text}");
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("error: could not encode metadata: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn phase3_build_plan(project: &Path, flags: &DriverFlags) -> ExitCode {
+    let dir = project.to_string_lossy().into_owned();
+    let reply = match resolve_graph(&dir) {
+        Ok(reply) => reply,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let backend = if flags.is_native_backend() {
+        "native"
+    } else {
+        "vm"
+    };
+    let records = graph_records(&reply);
+    if records.is_empty() {
+        eprintln!(
+            "error: {}",
+            reply
+                .lines()
+                .find_map(|line| line.strip_prefix("err\t"))
+                .unwrap_or("resolver returned no build units")
+        );
+        return ExitCode::FAILURE;
+    }
+    let units = records
+        .into_iter()
+        .map(|package| {
+            let root = package
+                .get("root")
+                .and_then(serde_json::Value::as_str)
+                .map(PathBuf::from)
+                .unwrap_or_else(|| project.join("src"));
+            let namespace = package
+                .get("namespace")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("main");
+            let source = [root.join("main.flx"), root.join(format!("{namespace}.flx"))]
+                .into_iter()
+                .find(|candidate| candidate.is_file())
+                .unwrap_or(root);
+            let source_text = std::fs::read_to_string(&source).unwrap_or_default();
+            let semantic = crate::compiler::module_interface::compute_semantic_config_hash(
+                flags.language.strict_mode,
+                flags.language.enable_optimize,
+            );
+            let hash = crate::driver::artifact_store::unit_hash(
+                &source,
+                &source_text,
+                &semantic,
+                if backend == "native" {
+                    crate::driver::backend::Backend::Native
+                } else {
+                    crate::driver::backend::Backend::Vm
+                },
+                &[],
+            );
+            serde_json::json!({
+                "package": package.get("name").cloned().unwrap_or(serde_json::Value::Null),
+                "target": "lib",
+                "mode": "program",
+                "backend": backend,
+                "unit_hash": hash,
+                "source": source,
+            })
+        })
+        .collect::<Vec<_>>();
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "format_version": 1,
+            "workspace_root": project,
+            "units": units,
+        }))
+        .unwrap_or_else(|_| "{\"format_version\":1,\"units\":[]}".into())
+    );
+    ExitCode::SUCCESS
+}
+
+/// Run the graph entry module while retaining every root record. `call_module`
+/// intentionally returns one final reply for command-style modules, whereas
+/// the graph protocol is a stream of `ok<TAB>package<TAB>namespace<TAB>root`
+/// records.
+fn resolve_graph(dir: &str) -> Result<String, String> {
+    let shim = flume_shim("Flume.Build.Graph")?;
+    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    let output = Command::new(exe)
+        .arg(shim)
+        .arg("--")
+        .arg(dir)
+        .arg("--quiet")
+        .env(FLUX_SKIP_MANIFEST_ENV, "1")
+        .env("NO_COLOR", "1")
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|line| {
+            line.trim()
+                .strip_prefix('"')
+                .unwrap_or(line.trim())
+                .strip_suffix('"')
+                .unwrap_or(line.trim())
+                .replace("\\t", "\t")
+                .replace("\\n", "\n")
+        })
+        .collect::<Vec<_>>()
+        .join("\n"))
+}
+
+fn graph_records(reply: &str) -> Vec<serde_json::Map<String, serde_json::Value>> {
+    reply
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split('\t');
+            if fields.next()? != "ok" {
+                return None;
+            }
+            let name = fields.next()?.to_string();
+            let namespace = fields.next()?.to_string();
+            let root = fields.next()?.to_string();
+            Some(serde_json::Map::from_iter([
+                ("name".into(), serde_json::Value::String(name)),
+                ("namespace".into(), serde_json::Value::String(namespace)),
+                ("root".into(), serde_json::Value::String(root)),
+            ]))
+        })
+        .collect()
+}
+
+/// Create an archive, build it from a fresh extraction, and optionally stop
+/// before the future registry upload.
+fn publish_package(project: &Path, dry_run: bool) -> ExitCode {
+    let (name, version) = manifest_identity(project);
+    let output_dir = project.join("target").join("flux").join("publish");
+    if let Err(error) = std::fs::create_dir_all(&output_dir) {
+        eprintln!("error: cannot create publish directory: {error}");
+        return ExitCode::FAILURE;
+    }
+    let archive = output_dir.join(format!("{name}-{version}.tar"));
+    let tar = Command::new("tar")
+        .args([
+            "-cf",
+            &archive.to_string_lossy(),
+            "--exclude=target",
+            "--exclude=.git",
+            "--exclude=.flux",
+            "--exclude=.DS_Store",
+            "--exclude=*.swp",
+            "--exclude=*~",
+            "-C",
+            &project.to_string_lossy(),
+            ".",
+        ])
+        .output();
+    match tar {
+        Ok(output) if output.status.success() => {}
+        Ok(output) => {
+            eprintln!(
+                "error: could not create package archive: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+            return ExitCode::FAILURE;
+        }
+        Err(error) => {
+            eprintln!("error: could not run tar: {error}");
+            return ExitCode::FAILURE;
+        }
+    }
+    let verify = std::env::temp_dir().join(format!(
+        "flux-publish-{}-{}",
+        std::process::id(),
+        now_nanos()
+    ));
+    if let Err(error) = std::fs::create_dir_all(&verify) {
+        eprintln!("error: could not create verification directory: {error}");
+        return ExitCode::FAILURE;
+    }
+    let unpack = Command::new("tar")
+        .args([
+            "-xf",
+            &archive.to_string_lossy(),
+            "-C",
+            &verify.to_string_lossy(),
+        ])
+        .output();
+    if !matches!(unpack, Ok(ref output) if output.status.success()) {
+        eprintln!("error: could not unpack package for verification");
+        let _ = std::fs::remove_dir_all(&verify);
+        return ExitCode::FAILURE;
+    }
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(error) => {
+            eprintln!("error: could not locate flux for verification: {error}");
+            let _ = std::fs::remove_dir_all(&verify);
+            return ExitCode::FAILURE;
+        }
+    };
+    let build = Command::new(exe)
+        .current_dir(&verify)
+        .args(["build", "--no-cache", "--quiet"])
+        .env("NO_COLOR", "1")
+        .output();
+    let verified = matches!(build, Ok(ref output) if output.status.success());
+    if !verified {
+        if let Ok(output) = build {
+            eprintln!(
+                "error: clean-checkout verification failed:\n{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        let _ = std::fs::remove_dir_all(&verify);
+        return ExitCode::FAILURE;
+    }
+    let checksum = match file_sha256(&archive) {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("error: cannot hash package archive: {error}");
+            let _ = std::fs::remove_dir_all(&verify);
+            return ExitCode::FAILURE;
+        }
+    };
+    let _ = std::fs::remove_dir_all(&verify);
+    println!("created {}", archive.display());
+    println!("sha256:{checksum}");
+    println!("verified clean checkout");
+    if !dry_run {
+        eprintln!("error: upload is unavailable (KI-035: HTTPS registry upload is not supported)");
+        return ExitCode::FAILURE;
+    }
+    ExitCode::SUCCESS
+}
+
+fn file_sha256(path: &Path) -> std::io::Result<String> {
+    let bytes = std::fs::read(path)?;
+    Ok(format!("{:x}", Sha256::digest(bytes)))
+}
+
+fn manifest_identity(project: &Path) -> (String, String) {
+    let text = std::fs::read_to_string(project.join("flux.toml")).unwrap_or_default();
+    let mut name = "package".to_string();
+    let mut version = "0.0.0".to_string();
+    let mut package = false;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            package = line == "[package]";
+        }
+        if package && let Some((key, value)) = line.split_once('=') {
+            let value = value.trim().trim_matches('"').to_string();
+            if key.trim() == "name" {
+                name = value.clone();
+            }
+            if key.trim() == "version" {
+                version = value;
+            }
+        }
+    }
+    (name, version)
+}
+
+fn workspace_members(project: &Path) -> Vec<String> {
+    let text = std::fs::read_to_string(project.join("flux.toml")).unwrap_or_default();
+    let mut workspace = false;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            workspace = line == "[workspace]";
+        }
+        if workspace
+            && line.starts_with("members")
+            && let Some((_, value)) = line.split_once('=')
+        {
+            return value
+                .trim()
+                .trim_matches(|ch| ch == '[' || ch == ']')
+                .split(',')
+                .filter_map(|member| {
+                    let member = member.trim().trim_matches('"');
+                    (!member.is_empty()).then_some(member.to_string())
+                })
+                .collect();
+        }
+    }
+    vec![".".into()]
+}
+
+fn now_nanos() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

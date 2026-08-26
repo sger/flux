@@ -1,6 +1,6 @@
 - Feature Name: Flux package manager (`flux.toml`, `flux.lock`, `flux build/test/add`)
 - Start Date: 2026-08-20
-- Status: Partially implemented for the pre-release scope (Phases 0 and 1 shipped 2026-08-24; Phase 2 local resolution and lockfile shipped 2026-08-24; git dependencies, their lockfile entries, `tree`, `add`, `remove`, `update`, and the `--offline` / `--locked` / `--frozen` flags shipped 2026-08-25; registry fetching, registry-aware updating, and index-state pinning are deferred until there is a registry to fetch from; Phase 3 not started)
+- Status: Phase 3 shipped 2026-08-26 (content-addressed VM artifacts, workspace members and root discovery, clean-checkout `publish --dry-run`, and versioned metadata/build-plan JSON); registry upload remains deferred by KI-035
 - Proposal PR:
 - Flux Issue:
 - Supersedes: [0015_package_module_workflow_mvp.md](0015_package_module_workflow_mvp.md) (the MVP sketch; this proposal subsumes and completes it)
@@ -30,7 +30,7 @@ specified in the [Reference-level explanation](#reference-level-explanation):
 | **0** | Manifest parser, version arithmetic, resolver, `Flow.Path` — pure Flux, no I/O | The interesting logic, testable immediately | Shipped |
 | **1** | `flux.toml`, `init/build/run/test`, path deps, namespacing, stdlib-as-package | Flux works outside its own checkout | Shipped 2026-08-24 |
 | **2** | Registry index, semver resolution, `flux.lock`, `add/update/tree` | Third-party libraries | Local index resolution and lockfile shipped 2026-08-24; git/path dependencies, `tree`, `add`, `remove`, `update`, and offline/locked modes shipped 2026-08-25; network registry work deferred |
-| **3** | Content-addressed store, `publish`, workspaces, `metadata` | An ecosystem | Not started |
+| **3** | Content-addressed store, `publish`, workspaces, `metadata` | An ecosystem | Shipped 2026-08-26 |
 
 Phase 0 has no dependency on [0178](implemented/0178_os_capabilities_for_tooling.md) and can
 begin immediately. Phase 1 is independently valuable and should land on its own.
@@ -142,6 +142,30 @@ One defect was found and fixed in the process: the Phase 1 roots cache
 fingerprinted manifests only, so once resolution depended on `flux.lock` the
 cache replayed stale resolutions
 ([KI-024](../known_issues.md#ki-024)). `CACHE_EPOCH` is now 21.
+
+### What Phase 3 shipped
+
+Build module artifacts are copied into the immutable
+`$FLUX_HOME/store/<compiler-abi>/<unit-hash>/<backend>/` store after a
+successful VM build and hydrated into project caches on later builds. Unit
+digests include source content, package-relative module identity, compiler and
+ABI, backend, semantic cache inputs, and dependency interface fingerprints;
+absolute paths and mtimes are excluded. Store writes use an incoming directory
+and an atomic no-replace rename, so a racing build adopts the winner.
+`--explain-rebuild` exposes cache miss reasons and `flux clean --store` removes
+the global artifact store.
+
+`[workspace] members = [...]` is accepted by the manifest schema. Workspace
+members are additional graph roots and use the same resolution/lockfile as the
+workspace root. Project-root discovery walks to a containing workspace while
+entry selection still uses the nearest member manifest.
+
+`flux metadata --format json` emits format version 1 with workspace, resolved
+package roots, and target/cache layout. `flux build --plan json` emits the
+versioned unit plan. `flux publish --dry-run` creates a tar archive through the
+host archiver, excludes build/VCS/editor state, hashes it as `sha256:<hex>`,
+and builds an extracted clean checkout. The final HTTPS upload intentionally
+fails with the documented KI-035 message until the registry transport exists.
 
 Three language limitations were hit and documented rather than worked around
 silently: [KI-011](../known_issues.md#ki-011) (extended — the defect is

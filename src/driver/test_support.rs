@@ -50,6 +50,7 @@ pub(crate) fn base_flags() -> DriverFlags {
             cache_dir: None,
             no_cache: false,
             clean_deps: false,
+            clean_store: false,
             offline: false,
             locked: false,
         },

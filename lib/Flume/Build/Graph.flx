@@ -154,8 +154,71 @@ module Flume.Build.Graph {
         seen: List<String>,
         locked: Pins,
     ) -> Result<List<Root>, String> with IO {
-        let own = own_root(manifest, dir)
-        resolve_deps(Manifest.manifest_deps(manifest), dir, [dir | seen], [own], locked)
+        let package = Manifest.manifest_package(manifest)
+        let deps = Manifest.manifest_deps(manifest)
+        if Manifest.package_name(package) == "" {
+            resolve_deps(deps, dir, [dir | seen], [], locked)
+        } else {
+            let own = own_root(manifest, dir)
+            resolve_deps(deps, dir, [dir | seen], [own], locked)
+        }
+    }
+
+    /// Return the normalized directories named by a workspace's member list.
+    fn member_paths(manifest: Manifest, dir: String) -> List<String> with IO {
+        match Manifest.manifest_workspace(manifest) {
+            None -> [],
+            Some(workspace) -> List.map(
+                Manifest.workspace_members(workspace),
+                \member -> Path.normalize(Path.join(dir, member)),
+            ),
+        }
+    }
+
+    /// Resolve each member as an additional root. Path dependencies between
+    /// members still go through `resolve_from`, so the graph stays uniform.
+    fn resolve_members(
+        members: List<String>,
+        base: String,
+        seen: List<String>,
+        locked: Pins,
+    ) -> Result<List<Root>, String> with IO {
+        match members {
+            [] -> Ok([]),
+            [member | rest] -> match resolve_from(
+                Path.normalize(Path.join(base, member)), seen, locked
+            ) {
+                Err(message) -> Err(message),
+                Ok(found) -> match resolve_members(rest, base, seen, locked) {
+                    Err(message) -> Err(message),
+                    Ok(more) -> Ok(List.concat([found, more])),
+                },
+            },
+        }
+    }
+
+    fn member_requirements(paths: List<String>) -> List<(String, String)> with IO {
+        match paths {
+            [] -> [],
+            [path | rest] -> match read_manifest_only(path) {
+                Err(_) -> member_requirements(rest),
+                Ok(manifest) -> List.concat([
+                    registry_requirements(manifest),
+                    member_requirements(rest),
+                ]),
+            },
+        }
+    }
+
+    fn read_manifest_only(dir: String) -> Result<Manifest, String> with IO {
+        let path = Path.join(dir, "flux.toml")
+        match Fs.read_file(path) {
+            Err(_) -> Err("cannot read " + path),
+            Ok(text) -> match Manifest.parse(text) {
+                Err(_) -> Err("cannot parse " + path),
+                Ok(manifest) -> Ok(manifest),
+            },
+        }
     }
 
     /// Walk a dependency list, accumulating roots.
@@ -495,11 +558,31 @@ module Flume.Build.Graph {
             offline: offline,
             frozen: frozen,
         }
-        let walked = Fail.ok_or_abort(resolve_from(dir, [], pins), [])
         let manifest = read_project_manifest(dir)
-        let paths = List.filter(walked, is_package_root)
-        let _lock = write_git_lock(dir, List.filter(walked, is_resolved_marker), pins)
-        Ok(List.concat([paths, registry_roots(manifest, dir)]))
+        let walked = Fail.ok_or_abort(resolve_from(dir, [], pins), [])
+        let members = member_paths(manifest, dir)
+        let member_roots = Fail.ok_or_abort(
+            resolve_members(members, dir, [dir], pins),
+            [],
+        )
+        let all_roots = List.concat([walked, member_roots])
+        let package_roots = List.filter(all_roots, is_package_root)
+        let _lock = write_git_lock(dir, List.filter(all_roots, is_resolved_marker), pins)
+        let requirements = List.concat([
+            registry_requirements(manifest),
+            member_requirements(members),
+        ])
+        Ok(List.concat([package_roots, registry_roots_for(requirements, dir)]))
+    }
+
+    fn registry_roots_for(
+        requirements: List<(String, String)>,
+        dir: String,
+    ) -> List<Root> with IO, Fail {
+        match requirements {
+            [] -> [],
+            _ -> resolve_registry(requirements, dir),
+        }
     }
 
     fn is_package_root(r: Root) -> Bool {
@@ -802,6 +885,7 @@ module Flume.Build.Graph {
             deps: [],
             lib: None,
             bins: [],
+            workspace: None,
         }
     }
 

@@ -74,6 +74,12 @@ pub fn clean(flags: &DriverFlags) {
     if flags.cache.clean_deps {
         remove_tree(&git_checkouts_dir(), "git checkouts");
     }
+    if flags.cache.clean_store {
+        remove_tree(
+            &crate::driver::artifact_store::store_root(),
+            "artifact store",
+        );
+    }
 }
 
 /// Removes one cache tree, reporting what happened either way.
@@ -94,7 +100,7 @@ fn remove_tree(root: &Path, what: &str) {
 
 /// Where git dependencies are checked out.
 ///
-/// Mirrors `Flume.Home.dir()`: `$FLUX_HOME` wins, then `~/.flux`, then `.flux`
+/// Mirrors `Flume.Source.Store.dir()`: `$FLUX_HOME` wins, then `~/.flux`, then `.flux`
 /// beside the working directory. The two must agree — a `clean` that resolved
 /// the path differently from the fetcher would report success while leaving
 /// the real checkouts in place.

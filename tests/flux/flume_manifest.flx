@@ -113,6 +113,11 @@ fn test_reads_the_package_version() with IO {
     assert_eq(field(manifest_with(""), version_of), "1.0.0")
 }
 
+fn test_workspace_package_version_is_inherited() with IO {
+    let source = "[workspace]\nmembers = [\"member\"]\n\n[workspace.package]\nversion = \"2.0.0\"\n\n[package]\nname = \"member\"\n"
+    assert_eq(field(source, version_of), "2.0.0")
+}
+
 fn test_reads_an_explicit_edition() with IO {
     assert_eq(field(manifest_with("edition = \"2027\"\n"), edition_of), "2027")
 }

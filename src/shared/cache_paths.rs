@@ -54,7 +54,8 @@ use sha2::{Digest, Sha256};
 /// Epoch 24: native lowering marks any non-direct-path effect as suspending, so
 /// callers of a cross-module `perform` gain yield checks they did not emit
 /// before (KI-034). Cached native objects from epoch 23 lack them.
-pub const CACHE_EPOCH: u16 = 25;
+/// Epoch 26: Phase 3 content-addressed unit-store metadata and ABI separation.
+pub const CACHE_EPOCH: u16 = 26;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {
@@ -99,9 +100,9 @@ pub fn resolve_cache_root(entry_file: &Path, cache_dir: Option<&Path>) -> PathBu
 
 /// Locate the project root by walking up from `entry_file`.
 ///
-/// A Flux project is marked by `flux.toml`. The
-/// nearest such directory wins, so a package inside a larger workspace roots
-/// at its own manifest rather than at an ancestor's.
+/// A Flux package normally roots at its nearest `flux.toml`. When that
+/// package is named by an ancestor workspace, the workspace manifest wins so
+/// all members share cache and lockfile state.
 ///
 /// `Cargo.toml` remains a fallback purely for the compiler's own test corpus,
 /// which runs `.flx` fixtures from inside this Rust checkout and has no
@@ -109,8 +110,65 @@ pub fn resolve_cache_root(entry_file: &Path, cache_dir: Option<&Path>) -> PathBu
 /// has been searched for `flux.toml`, so a Flux project nested in a Rust
 /// workspace still roots at its own manifest.
 pub fn find_project_root(entry_file: &Path) -> Option<PathBuf> {
-    find_marker_upwards(entry_file, "flux.toml")
+    let nearest = find_marker_upwards(entry_file, "flux.toml");
+    nearest
+        .as_ref()
+        .and_then(|root| workspace_root_for(root))
+        .or(nearest)
         .or_else(|| find_marker_upwards(entry_file, "Cargo.toml"))
+}
+
+/// Locate the nearest package manifest, even when it belongs to a workspace.
+/// This is used for selecting the member's entry target; [`find_project_root`]
+/// remains the workspace-wide cache and lockfile root.
+pub fn find_package_root(entry_file: &Path) -> Option<PathBuf> {
+    find_marker_upwards(entry_file, "flux.toml")
+}
+
+fn workspace_root_for(package_root: &Path) -> Option<PathBuf> {
+    let mut current = package_root.to_path_buf();
+    loop {
+        if current.join("flux.toml").is_file()
+            && current != package_root
+            && workspace_contains(&current, package_root)
+        {
+            return Some(current);
+        }
+        if !current.pop() {
+            return None;
+        }
+    }
+}
+
+/// Small, deliberately conservative reader used only for root discovery. The
+/// authoritative TOML parser remains Flume; accepting only a normal
+/// `members = ["..."]` declaration here avoids making cache-root discovery a
+/// second manifest parser.
+fn workspace_contains(workspace_root: &Path, package_root: &Path) -> bool {
+    let Ok(text) = fs::read_to_string(workspace_root.join("flux.toml")) else {
+        return false;
+    };
+    let relative = package_root
+        .strip_prefix(workspace_root)
+        .ok()
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_default();
+    let mut in_workspace = false;
+    let mut members = String::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            in_workspace = trimmed == "[workspace]";
+        } else if in_workspace
+            && (trimmed.starts_with("members")
+                || (!members.is_empty() && !trimmed.starts_with(']')))
+        {
+            members.push_str(trimmed);
+        }
+    }
+    members.split('"').enumerate().any(|(index, value)| {
+        index % 2 == 1 && (value == relative || (relative.is_empty() && value == "."))
+    })
 }
 
 fn find_marker_upwards(entry_file: &Path, marker: &str) -> Option<PathBuf> {

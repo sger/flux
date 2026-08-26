@@ -78,6 +78,7 @@ impl Default for ParsedCliDumpFlags {
 pub(crate) struct ParsedCliExecutionFlags {
     pub(crate) no_cache: bool,
     pub(crate) clean_deps: bool,
+    pub(crate) clean_store: bool,
     pub(crate) offline: bool,
     pub(crate) locked: bool,
     pub(crate) roots_only: bool,
@@ -195,6 +196,7 @@ pub(crate) fn extract_cli_flag_groups(args: &mut Vec<String>) -> ParsedCliFlags 
             "--emit-binary" => flags.backend.emit_binary = remove_bool_flag(args, i),
             "--no-cache" => flags.execution.no_cache = remove_bool_flag(args, i),
             "--deps" => flags.execution.clean_deps = remove_bool_flag(args, i),
+            "--store" => flags.execution.clean_store = remove_bool_flag(args, i),
             "--offline" => flags.execution.offline = remove_bool_flag(args, i),
             "--locked" => flags.execution.locked = remove_bool_flag(args, i),
             // `--frozen` is the pair, not a third mode: a build that may
@@ -336,6 +338,7 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
             cache_dir: values.paths.cache_dir,
             no_cache: parsed.execution.no_cache,
             clean_deps: parsed.execution.clean_deps,
+            clean_store: parsed.execution.clean_store,
             offline: parsed.execution.offline,
             locked: parsed.execution.locked,
         },

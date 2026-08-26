@@ -1,6 +1,6 @@
 //! Resolve a project's package roots by running the Flux manifest resolver.
 //!
-//! Manifest handling lives in Flux: `Flume.Roots` reads
+//! Manifest handling lives in Flux: `Flume.Build.Graph` reads
 //! `flux.toml`, walks path dependencies, derives namespaces, and prints one
 //! record per resolved package. This module is the whole Rust side of that
 //! boundary — it runs the resolver and turns its output into scoped module
