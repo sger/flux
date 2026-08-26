@@ -205,7 +205,7 @@ fn safe_divide(x: Int, d: Int) -> Option<Int> {
 
 ### M5: Package Workflow MVP (0015) — Week 6
 
-**Proposal:** [0177_package_manager.md](../proposals/0177_package_manager.md) Phase 1 (supersedes the 0015 MVP sketch)
+**Proposal:** [0177_package_manager.md](../proposals/implemented/0177_package_manager.md) Phase 1 (supersedes the 0015 MVP sketch)
 
 **MVP scope (explicitly narrow):**
 

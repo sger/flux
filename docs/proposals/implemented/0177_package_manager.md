@@ -1,12 +1,13 @@
 - Feature Name: Flux package manager (`flux.toml`, `flux.lock`, `flux build/test/add`)
 - Start Date: 2026-08-20
-- Status: Phase 3 shipped 2026-08-26 (content-addressed VM artifacts, workspace members and root discovery, clean-checkout `publish --dry-run`, and versioned metadata/build-plan JSON); registry upload remains deferred by KI-035
+- Status: Implemented
+- Completion Date: 2026-08-26
 - Proposal PR:
 - Flux Issue:
 - Supersedes: [0015_package_module_workflow_mvp.md](0015_package_module_workflow_mvp.md) (the MVP sketch; this proposal subsumes and completes it)
-- Requires (for a Flux implementation): [0178_os_capabilities_for_tooling.md](implemented/0178_os_capabilities_for_tooling.md)
-- Builds on: the module graph ([../../src/syntax/module_graph/module_resolution.rs](../../src/syntax/module_graph/module_resolution.rs)), module interfaces ([../../src/types/module_interface.rs](../../src/types/module_interface.rs)), the cache layout ([../../src/shared/cache_paths.rs](../../src/shared/cache_paths.rs)), and the CLI driver split ([0154](implemented/0154_cli_driver_split.md))
-- Relates to: [0163_flux_language_server.md](0163_flux_language_server.md), [0175_interactive_repl.md](0175_interactive_repl.md), [0011_phase2_module_system_enhancements.md](0011_phase2_module_system_enhancements.md)
+- Requires (for a Flux implementation): [0178_os_capabilities_for_tooling.md](0178_os_capabilities_for_tooling.md)
+- Builds on: the module graph ([../../src/syntax/module_graph/module_resolution.rs](../../src/syntax/module_graph/module_resolution.rs)), module interfaces ([../../src/types/module_interface.rs](../../src/types/module_interface.rs)), the cache layout ([../../src/shared/cache_paths.rs](../../src/shared/cache_paths.rs)), and the CLI driver split ([0154](0154_cli_driver_split.md))
+- Relates to: [0163_flux_language_server.md](../0163_flux_language_server.md), [0175_interactive_repl.md](../0175_interactive_repl.md), [0011_phase2_module_system_enhancements.md](../0011_phase2_module_system_enhancements.md)
 
 # Proposal 0177: Flux Package Manager
 
@@ -29,10 +30,10 @@ specified in the [Reference-level explanation](#reference-level-explanation):
 |---|---|---|---|
 | **0** | Manifest parser, version arithmetic, resolver, `Flow.Path` — pure Flux, no I/O | The interesting logic, testable immediately | Shipped |
 | **1** | `flux.toml`, `init/build/run/test`, path deps, namespacing, stdlib-as-package | Flux works outside its own checkout | Shipped 2026-08-24 |
-| **2** | Registry index, semver resolution, `flux.lock`, `add/update/tree` | Third-party libraries | Local index resolution and lockfile shipped 2026-08-24; git/path dependencies, `tree`, `add`, `remove`, `update`, and offline/locked modes shipped 2026-08-25; network registry work deferred |
+| **2** | Registry index, semver resolution, `flux.lock`, `add/update/tree` | Third-party libraries | Local index resolution and lockfile shipped 2026-08-24; git/path dependencies, `tree`, `add`, `remove`, `update`, and offline/locked modes shipped 2026-08-25; hosted registry transport deferred pending KI-035 |
 | **3** | Content-addressed store, `publish`, workspaces, `metadata` | An ecosystem | Shipped 2026-08-26 |
 
-Phase 0 has no dependency on [0178](implemented/0178_os_capabilities_for_tooling.md) and can
+Phase 0 has no dependency on [0178](0178_os_capabilities_for_tooling.md) and can
 begin immediately. Phase 1 is independently valuable and should land on its own.
 
 ### What Phases 0 and 1 shipped
@@ -114,15 +115,17 @@ network. `flux tree` renders the resolved graph.
 
 Fetching drives the `git` binary rather than `Flow.Http`, which speaks no TLS
 and therefore cannot reach any HTTPS host
-([KI-035](../known_issues.md#ki-035)). That restriction is what defers the
+([KI-035](../../known_issues.md#ki-035)). That restriction is what defers the
 registry client rather than the registry itself: a hosted index is not worth
 standing up before the language has users, and git repositories on GitHub or
 GitLab need no hosting at all.
 
-**Not yet shipped from this phase:** registry network fetching (the index and
-unpacked sources are read from `$FLUX_HOME`, never downloaded), registry-aware
-`update`, and index-state pinning. The existing `update`
-command is intentionally limited to refreshing git branch/tag dependencies.
+**Deferred from this phase:** registry network fetching (the index and unpacked
+sources are read from `$FLUX_HOME`, never downloaded), registry-aware `update`,
+and index-state pinning. Hosted registry transport is intentionally deferred
+until Flux is released and has users; KI-035 tracks the current HTTPS blocker.
+The existing `update` command is intentionally limited to refreshing git
+branch/tag dependencies.
 
 `flux add` and `flux remove` shipped 2026-08-25. The format-preserving
 requirement is met by editing the manifest's source lines directly
@@ -141,7 +144,7 @@ implements the same check for semver requirements but is not yet called.
 One defect was found and fixed in the process: the Phase 1 roots cache
 fingerprinted manifests only, so once resolution depended on `flux.lock` the
 cache replayed stale resolutions
-([KI-024](../known_issues.md#ki-024)). `CACHE_EPOCH` is now 21.
+([KI-024](../../known_issues.md#ki-024)). `CACHE_EPOCH` is now 21.
 
 ### What Phase 3 shipped
 
@@ -158,7 +161,9 @@ the global artifact store.
 `[workspace] members = [...]` is accepted by the manifest schema. Workspace
 members are additional graph roots and use the same resolution/lockfile as the
 workspace root. Project-root discovery walks to a containing workspace while
-entry selection still uses the nearest member manifest.
+entry selection still uses the nearest member manifest. Workspace field
+inheritance for license and common dependencies is not implemented; only
+member discovery and version inheritance are currently supported.
 
 `flux metadata --format json` emits format version 1 with workspace, resolved
 package roots, and target/cache layout. `flux build --plan json` emits the
@@ -168,10 +173,10 @@ and builds an extracted clean checkout. The final HTTPS upload intentionally
 fails with the documented KI-035 message until the registry transport exists.
 
 Three language limitations were hit and documented rather than worked around
-silently: [KI-011](../known_issues.md#ki-011) (extended — the defect is
+silently: [KI-011](../../known_issues.md#ki-011) (extended — the defect is
 invisible under `flux run` and appears only under `--test`),
-[KI-022](../known_issues.md#ki-022), and
-[KI-023](../known_issues.md#ki-023).
+[KI-022](../../known_issues.md#ki-022), and
+[KI-023](../../known_issues.md#ki-023).
 
 ## Motivation
 [motivation]: #motivation
@@ -269,9 +274,9 @@ this, not reinvent it.
 
 ### Roadmap position
 
-[`roadmap_to_1_0_0.md`](../roadmaps/roadmap_to_1_0_0.md) lists "a coherent
+[`roadmap_to_1_0_0.md`](../../roadmaps/roadmap_to_1_0_0.md) lists "a coherent
 standard library and package/module workflow" as a 1.0 requirement, and
-[`roadmap_v0.0.6.md`](../roadmaps/roadmap_v0.0.6.md) M5 scopes a package MVP.
+[`roadmap_v0.0.6.md`](../../roadmaps/roadmap_v0.0.6.md) M5 scopes a package MVP.
 The existing [0015](0015_package_module_workflow_mvp.md) is a normalization-damaged
 stub (duplicated headings, elided body text, no resolver/lock/store design); it is
 not implementable as written. This proposal replaces it.
@@ -408,7 +413,7 @@ Build the package manager's pure logic — path manipulation, manifest parsing,
 version and range arithmetic, and the dependency resolver — as Flux libraries
 with no I/O, tested against in-memory fixtures. This phase writes no files, opens
 no sockets, and adds no primops. It depends on nothing in
-[0178](implemented/0178_os_capabilities_for_tooling.md).
+[0178](0178_os_capabilities_for_tooling.md).
 
 It is worth doing first for three reasons. It is **unblocked** — recursive ADTs,
 exhaustive matching, generics, HAMT maps, and the string primops all work today,
@@ -425,7 +430,7 @@ is a design smell worth investigating.
 #### `Flow.Path`
 
 Path manipulation is string manipulation; it needs no OS access. This module is
-specified in [0178 Item 2](implemented/0178_os_capabilities_for_tooling.md) and is listed
+specified in [0178 Item 2](0178_os_capabilities_for_tooling.md) and is listed
 there as stage 0 precisely because it belongs to this phase.
 
 ```flux
@@ -569,7 +574,7 @@ version solving — every dependency is a local path.
 later phase is ever built: fixing stdlib discovery alone converts Flux from a
 language that runs inside its own repository into one that can be installed.
 
-Requires [0178](implemented/0178_os_capabilities_for_tooling.md) stages 1–4 (recoverable I/O,
+Requires [0178](0178_os_capabilities_for_tooling.md) stages 1–4 (recoverable I/O,
 `Flow.Fs`, `Flow.Env`).
 
 #### Manifest (Phase 1 subset)
@@ -702,7 +707,7 @@ resolve identically, and tampering is detected rather than executed.
 cache rests on, which must be enforced by the index from the first published
 package because it cannot be introduced later.
 
-Requires [0178](implemented/0178_os_capabilities_for_tooling.md) stage 3 (`Flow.Crypto`), and
+Requires [0178](0178_os_capabilities_for_tooling.md) stage 3 (`Flow.Crypto`), and
 stage 5 (`Flow.Process`) for git dependencies.
 
 #### Resolution
@@ -838,7 +843,7 @@ Phase 2 uses `$FLUX_HOME` for the index, download cache, and unpacked sources. T
 #### Git dependencies
 
 Git dependencies require subprocess execution
-([0178](implemented/0178_os_capabilities_for_tooling.md) stage 5) to shell out to `git`. They
+([0178](0178_os_capabilities_for_tooling.md) stage 5) to shell out to `git`. They
 pin to a resolved commit hash in the lockfile, and — like path dependencies —
 carry no registry `source`.
 
@@ -1012,7 +1017,7 @@ The question of whether Flux is *ready* was investigated empirically against the
 current toolchain. **Verdict: the resolver and manifest layers can be written
 today; four OS capabilities are missing, and every one is a library/primop
 addition rather than a type-system or language-semantics change.** Those four are
-specified separately as [0178](implemented/0178_os_capabilities_for_tooling.md).
+specified separately as [0178](0178_os_capabilities_for_tooling.md).
 
 #### What already works (verified by running Flux programs)
 
@@ -1074,7 +1079,7 @@ networking (proposal 0174) rather than by tooling.
 
 #### Plan
 
-The four gaps are specified as [0178](implemented/0178_os_capabilities_for_tooling.md), which
+The four gaps are specified as [0178](0178_os_capabilities_for_tooling.md), which
 this proposal depends on for Phases 1–3. Their cost is now measured
 rather than estimated: a throwaway spike added a working `file_exists` primop
 end-to-end in about nine edit sites, and the compiler's exhaustiveness checking
@@ -1142,7 +1147,7 @@ implementation begins.
 8. **Publishing is irreversible**, so the archive format and validation rules must
    be right before the first package ships.
 9. **Building in Flux adds a dependency and a bootstrap question.** Phases 1–3
-   gate on [0178](implemented/0178_os_capabilities_for_tooling.md), and a Flux-written package
+   gate on [0178](0178_os_capabilities_for_tooling.md), and a Flux-written package
    manager cannot be distributed *by* the package manager — it ships with the
    toolchain. Both are accepted deliberately: the goal is to learn what Flux can
    express, and a tool the language cannot write is itself the more important
@@ -1286,11 +1291,11 @@ Flux already has the two hard prerequisites — `CacheLayout::vm_dir()` /
 interface fingerprinting give a working invalidation story. What is missing is
 the manifest surface. Two facts argue against simply defaulting `release` to the
 native backend, though, and both are recorded in
-[known_issues.md](../known_issues.md): the VM overflows on non-tail recursion at
-a depth the native backend survives ([KI-030](../known_issues.md#ki-030)), so a
+[known_issues.md](../../known_issues.md): the VM overflows on non-tail recursion at
+a depth the native backend survives ([KI-030](../../known_issues.md#ki-030)), so a
 VM-dev / native-release split would put the *stricter* backend in the cheaper
 configuration; and TCP has no native parity yet
-([KI-009](../known_issues.md#ki-009)). Backend-per-profile should therefore land
+([KI-009](../../known_issues.md#ki-009)). Backend-per-profile should therefore land
 only once parity is close enough that the two configurations agree on what runs.
 
 **Alternative resolution strategies worth tracking:** minimal-version selection
@@ -1319,7 +1324,7 @@ if the Phase 2 resolver's error quality proves inadequate.
    walking, and scaffolding are Flux, and the Rust side only runs the resolver
    and converts its records into module roots. Whether that holds through
    Phases 2–3 is still open.
-4. **Sequencing against [0178](implemented/0178_os_capabilities_for_tooling.md).** Phase 0 is
+4. **Sequencing against [0178](0178_os_capabilities_for_tooling.md).** Phase 0 is
    unblocked; Phases 1–3 gate on specific stages. Whether 0178 proceeds in
    parallel or as a prerequisite is a scheduling decision.
 
@@ -1358,20 +1363,23 @@ if the Phase 2 resolver's error quality proves inadequate.
 1. Registry hosting, naming policy, and squatting rules.
 2. Exact lockfile v1 serialization, validated against real merge conflicts.
 3. Whether yanking is available at launch, and what it means for an existing lock.
-4. Whether git dependencies ship in this phase or wait for
-   [0178](implemented/0178_os_capabilities_for_tooling.md) stage 5.
+4. ~~Whether git dependencies ship in this phase or wait for
+   [0178](0178_os_capabilities_for_tooling.md) stage 5.~~ Git dependencies
+   shipped on 2026-08-25.
 5. Publish-age preference defaults — the supply-chain mitigation the index format
    must leave room for.
 
 
 **Phase 3:**
 
-1. Store garbage collection: LRU by access time, explicit `flux clean --store`, or
-   both.
+1. ~~Store garbage collection: LRU by access time, explicit `flux clean --store`, or
+   both.~~ Explicit `flux clean --store` shipped; automatic LRU remains open in
+   [KI-042](../../known_issues.md#ki-042).
 2. Whether Phase 2's `target/flux/` dependency builds should be migrated into the
    store or left as a fallback.
-3. Exact archive format and what it excludes (`target/`, VCS metadata, editor
-   files).
+3. ~~Exact archive format and what it excludes (`target/`, VCS metadata, editor
+   files).~~ `publish --dry-run` now creates and verifies the tar archive with
+   those exclusions.
 4. Whether workspace field inheritance ships with this phase or later.
 5. Path-length limits on Windows, which constrain how long store paths may be.
 

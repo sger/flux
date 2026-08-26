@@ -17,6 +17,7 @@ import Flume.Resolve.Plan as ResolvePlan
 import Flume.Resolve.Plan exposing (Outcome, Unchanged)
 import Flume.Resolve.Version as Version
 import Flow.List as List
+import Flow.Option as Option
 import Flow.Path as Path
 
 module Flume.Build.Plan {
@@ -666,9 +667,7 @@ module Flume.Build.Plan {
         match ResolvePlan.plan_typed(requirements, available, previous) {
             Err(problem) -> pure(Err(problem)),
             Ok(outcome) -> if ResolvePlan.outcome_changed(outcome) && frozen {
-                pure(Err(Error.lock_error(
-                    "`--locked` was given, but `flux.lock` would change",
-                )))
+                pure(Err(Error.lock_error(registry_lock_change_message(requirements, previous))))
             } else if ResolvePlan.outcome_changed(outcome) {
                 request(
                     WriteLock {
@@ -679,6 +678,104 @@ module Flume.Build.Plan {
                 )
             } else {
                 pure(Ok(outcome))
+            },
+        }
+    }
+
+    /// Explain why a registry resolution cannot be accepted under `--locked`.
+    ///
+    /// Keep the stable prefix used by the CLI, but add the first requirement
+    /// that the existing lock cannot answer. This is deliberately pure so the
+    /// fake interpreter and resolver fixtures can assert the exact message.
+    fn registry_lock_change_message(
+        requirements: List<(String, String)>,
+        previous: Option<Lock>,
+    ) -> String {
+        let prefix = "`--locked` was given, but `flux.lock` would change"
+        match previous {
+            None -> prefix + ": `flux.lock` is missing; run without `--locked` to create it",
+            Some(existing) -> match ResolvePlan.unsatisfied(requirements, existing) {
+                Some(detail) -> prefix + ": " + detail,
+                None -> prefix,
+            },
+        }
+    }
+
+    // ── pure lock-diff helpers ───────────────────────────────────────
+
+    /// Whether every resolved `(package, revision)` pair matches the lock.
+    ///
+    /// The graph adapter still accepts its historical `Root` representation;
+    /// these pair-based helpers keep lock comparison independent of effects
+    /// and of the compatibility protocol.
+    public fn same_resolution(
+        resolved: List<(String, String)>,
+        locked: List<(String, String)>,
+    ) -> Bool {
+        List.length(resolved) == List.length(locked)
+            && List.all(resolved, \pair -> pair_matches(pair, locked))
+    }
+
+    /// Explain the first lock mismatch, including stale lock entries.
+    public fn lock_changed_message(
+        resolved: List<(String, String)>,
+        locked: List<(String, String)>,
+    ) -> String {
+        match List.filter(resolved, \pair -> !pair_matches(pair, locked)) {
+            [changed | _] -> lock_change_detail(pair_name(changed), pair_value(changed), locked),
+            [] -> stale_entries_message(resolved, locked),
+        }
+    }
+
+    /// Explain one resolved package that differs from the lock.
+    public fn lock_change_detail(
+        name: String,
+        revision: String,
+        locked: List<(String, String)>,
+    ) -> String {
+        match lookup(locked, name) {
+            None -> "`--locked` was given, but `" + name
+                + "` is not in `flux.lock`; run without `--locked` to record it",
+            Some(previous) -> "`--locked` was given, but `" + name
+                + "` resolves to " + revision + " rather than the locked " + previous,
+        }
+    }
+
+    fn stale_entries_message(
+        resolved: List<(String, String)>,
+        locked: List<(String, String)>,
+    ) -> String {
+        match List.filter(locked, \pair -> !is_declared(pair_name(pair), resolved)) {
+            [] -> "`flux.lock` does not match `flux.toml`, and `--locked` forbids updating it",
+            [stale | _] -> "`--locked` was given, but `" + pair_name(stale)
+                + "` is in `flux.lock` and is no longer a dependency",
+        }
+    }
+
+    fn is_declared(name: String, resolved: List<(String, String)>) -> Bool {
+        List.any(resolved, \pair -> pair_name(pair) == name)
+    }
+
+    fn pair_matches(pair: (String, String), locked: List<(String, String)>) -> Bool {
+        match lookup(locked, pair_name(pair)) {
+            None -> false,
+            Some(revision) -> revision == pair_value(pair),
+        }
+    }
+
+    fn pair_name(pair: (String, String)) -> String {
+        match pair { (name, _) -> name }
+    }
+
+    fn pair_value(pair: (String, String)) -> String {
+        match pair { (_, value) -> value }
+    }
+
+    fn lookup(pairs: List<(String, String)>, name: String) -> Option<String> {
+        match pairs {
+            [] -> None,
+            [(found, value) | rest] -> if found == name { Some(value) } else {
+                lookup(rest, name)
             },
         }
     }

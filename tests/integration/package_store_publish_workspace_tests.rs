@@ -107,6 +107,10 @@ fn workspace_member_metadata_uses_the_workspace_root() {
     let value: serde_json::Value =
         serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("metadata JSON");
     assert_eq!(value["workspace"]["root"], root.to_string_lossy().as_ref());
+    assert_eq!(
+        value["targets"]["cache_root"],
+        root.join("target/flux").to_string_lossy().as_ref()
+    );
     assert!(
         value["packages"]
             .as_array()

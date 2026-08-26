@@ -38,7 +38,7 @@ fn run_guide_fixture(path: &str, native: bool) -> (Vec<String>, bool) {
     let full_path = primop_parity::workspace_root().join(path);
     let scratch = Scratch::new(&format!(
         "effect-runtime-{}{}",
-        path.replace('/', "-").replace('.', "-"),
+        path.replace(['/', '.'], "-"),
         if native { "-native" } else { "-vm" }
     ));
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_flux"));
