@@ -36,7 +36,6 @@ use crate::driver::{
 #[cfg(feature = "llvm")]
 use flux::llvm::pipeline::toolchain_info;
 use flux::{
-    bytecode::bytecode_cache::hash_bytes,
     compiler::Compiler,
     diagnostics::{Diagnostic, Severity},
     shared::cache_paths::CacheLayout,
@@ -74,7 +73,6 @@ struct RunContext {
     module_count: usize,
     is_multimodule: bool,
     entry_has_errors: bool,
-    strict_hash: [u8; 32],
 }
 
 /// Determines whether dump handling needs a whole-program merged view.
@@ -178,8 +176,6 @@ fn finish_run_context(request: RunProgramRequest<'_>, context: ProgramContext) -
         cache_layout,
     } = context;
 
-    let strict_hash =
-        hash_bytes(format!("strict={}\n", u8::from(request.session.strict_mode)).as_bytes());
     let module_count = graph_result.graph.module_count();
     let is_multimodule = module_count > 1;
 
@@ -209,7 +205,6 @@ fn finish_run_context(request: RunProgramRequest<'_>, context: ProgramContext) -
         module_count,
         is_multimodule,
         entry_has_errors,
-        strict_hash,
     }
 }
 
@@ -256,7 +251,6 @@ fn compile_modules_for_run(ctx: &mut RunContext, request: RunProgramRequest<'_>)
         runtime: DriverRuntimeConfig::from(request.flags),
         allow_cached_module_bytecode: request.flags.allow_vm_cache(),
         backend: request.flags.backend.selected,
-        strict_hash: ctx.strict_hash,
         entry_has_errors: ctx.entry_has_errors,
         all_diagnostics: &mut ctx.all_diagnostics,
     });

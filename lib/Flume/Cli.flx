@@ -5,6 +5,7 @@ import Flume.Schema.Lock exposing (Lock, Entry)
 import Flume.Source.Store as Store
 import Flume.Source.Git as Git
 import Flume.Schema.Edit as Edit
+import Flume.Toml.Parse as Parse
 import Flow.Fs as Fs
 import Flow.Path as Path
 import Flow.List as List
@@ -136,8 +137,28 @@ module Flume.Cli {
 
     fn parse_text(text: String, path: String) -> Result<Manifest, String> with IO {
         match Manifest.parse(text) {
-            Err(_) -> Err("cannot parse " + path),
+            Err(problem) -> Err(
+                Parse.error_kind(problem) + ": " + Parse.error_message(problem)
+            ),
             Ok(manifest) -> Ok(manifest),
+        }
+    }
+
+    /// Resolve one named package profile for the Rust driver.
+    public fn profile(dir: String, name: String) -> Result<String, String> with IO {
+        match read_manifest(dir) {
+            Err(message) -> Err(message),
+            Ok(manifest) -> match Manifest.resolve_named_profile(
+                Manifest.manifest_profiles(manifest),
+                name,
+            ) {
+                Err(message) -> Err(message),
+                Ok(found) -> Ok(
+                    Manifest.backend_name(Manifest.profile_backend(found))
+                        + "\t"
+                        + (if Manifest.profile_optimize(found) { "true" } else { "false" })
+                ),
+            },
         }
     }
 
@@ -223,6 +244,13 @@ module Flume.Cli {
         match resolved {
             Err(message) -> print("err\t" + message),
             Ok(path) -> print("ok\t" + path),
+        }
+    }
+
+    fn report_profile(resolved: Result<String, String>) with IO {
+        match resolved {
+            Err(message) -> print("err\t" + message),
+            Ok(value) -> print("ok\t" + value),
         }
     }
 
@@ -753,6 +781,8 @@ module Flume.Cli {
             report(tree(dir))
         } else if command == "entry" {
             report_entry(entry_file(dir))
+        } else if command == "profile" {
+            report_profile(profile(dir, arg(args, 3, "dev")))
         } else {
             if command == "bin" {
                 report_entry(bin_entry(dir, arg(args, 3, "")))

@@ -1,5 +1,5 @@
 import Flume.Schema.Manifest as Manifest
-import Flume.Schema.Manifest exposing (Manifest, Package, Dep, FromPath, FromRegistry, FromGit, GitSource)
+import Flume.Schema.Manifest exposing (Manifest, Package, Profiles, PartialProfile, Dep, FromPath, FromRegistry, FromGit, GitSource)
 import Flume.Source.Git as Git
 import Flume.Source.Git exposing (Checkout)
 import Flow.Fs as Fs
@@ -886,6 +886,10 @@ module Flume.Build.Graph {
             lib: None,
             bins: [],
             workspace: None,
+            profiles: Profiles {
+                dev: PartialProfile { backend: None, optimize: None },
+                release: PartialProfile { backend: None, optimize: None },
+            },
         }
     }
 

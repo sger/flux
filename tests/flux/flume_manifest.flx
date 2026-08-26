@@ -440,3 +440,83 @@ fn summarize(manifest: Manifest) -> String {
         bins_of(manifest),
     ], " | ")
 }
+
+// ── build profiles ────────────────────────────────────────────
+
+fn resolved_profile(source: String, name: String) -> String {
+    match Manifest.parse(source) {
+        Err(problem) -> "ERR " + Parse.error_kind(problem),
+        Ok(manifest) -> match Manifest.resolve_named_profile(
+            Manifest.manifest_profiles(manifest),
+            name,
+        ) {
+            Err(message) -> "ERR " + message,
+            Ok(profile) -> Manifest.backend_name(Manifest.profile_backend(profile))
+                + ":"
+                + (if Manifest.profile_optimize(profile) { "true" } else { "false" }),
+        },
+    }
+}
+
+fn test_profiles_default_to_dev_and_release_settings() with IO {
+    let source = manifest_with("")
+    assert_eq(resolved_profile(source, "dev"), "vm:false")
+    assert_eq(resolved_profile(source, "release"), "native:true")
+}
+
+fn test_profiles_accept_valid_overrides() with IO {
+    let source = manifest_with(
+        "[profile.dev]\nbackend = \"native\"\noptimize = true\n"
+            + "[profile.release]\noptimize = false\n",
+    )
+    assert_eq(resolved_profile(source, "dev"), "native:true")
+    assert_eq(resolved_profile(source, "release"), "native:false")
+}
+
+fn test_profile_option_bool_preserves_absent_and_false() with IO {
+    let source = manifest_with("[profile.dev]\noptimize = false\n")
+    assert_eq(profile_optimize_state(source, "dev"), "some:false")
+    assert_eq(profile_optimize_state(source, "release"), "none")
+}
+
+fn profile_optimize_state(source: String, name: String) -> String {
+    match Manifest.parse(source) {
+        Err(problem) -> "ERR " + Parse.error_kind(problem),
+        Ok(manifest) -> profile_optimize_state_of(Manifest.manifest_profiles(manifest), name),
+    }
+}
+
+fn profile_optimize_state_of(profiles, name: String) -> String {
+    let partial = if name == "dev" {
+        Manifest.profiles_dev(profiles)
+    } else {
+        Manifest.profiles_release(profiles)
+    }
+    match Manifest.partial_optimize(partial) {
+        None -> "none",
+        Some(flag) -> "some:" + (if flag { "true" } else { "false" }),
+    }
+}
+
+fn test_unknown_profile_name_is_rejected() with IO {
+    assert_eq(
+        kind_of(manifest_with("[profile.ship]\noptimize = true\n")),
+        "unknown-profile",
+    )
+    assert_eq(
+        resolved_profile(manifest_with(""), "ship"),
+        "ERR unknown profile `ship`; expected `dev` or `release`",
+    )
+}
+
+fn test_invalid_profile_values_are_rejected() with IO {
+    assert_eq(kind_of("profile = 1\n" + manifest_with("")), "invalid-profile")
+    assert_eq(
+        kind_of(manifest_with("[profile.dev]\nbackend = \"gpu\"\n")),
+        "invalid-backend",
+    )
+    assert_eq(
+        kind_of(manifest_with("[profile.dev]\noptimize = \"yes\"\n")),
+        "wrong-type",
+    )
+}

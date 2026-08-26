@@ -89,6 +89,23 @@ pub struct DriverLanguageFlags {
     pub strict_mode: bool,
 }
 
+/// The selected package build profile and the parse-time overrides that must
+/// remain available until the package manifest has been resolved.
+#[derive(Debug, Clone, Default)]
+pub struct DriverProfileFlags {
+    pub name: Option<String>,
+    pub resolved: Option<Profile>,
+    pub cli_use_llvm: Option<bool>,
+    pub cli_optimize: Option<bool>,
+}
+
+/// Concrete settings returned by the Flume profile resolver.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Profile {
+    pub backend: Backend,
+    pub optimize: bool,
+}
+
 /// All per-invocation driver options, grouped by concern.
 ///
 /// This keeps command parsing explicit while avoiding a single flat "bag of flags"
@@ -102,6 +119,7 @@ pub struct DriverFlags {
     pub diagnostics: DriverDiagnosticFlags,
     pub cache: DriverCacheFlags,
     pub language: DriverLanguageFlags,
+    pub profile: DriverProfileFlags,
 }
 
 impl DriverFlags {

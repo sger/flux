@@ -46,19 +46,30 @@ pub fn show_cache_info(flags: &DriverFlags) -> bool {
         &flags.input.roots,
         flags.cache.cache_dir.as_deref(),
         selection,
+        flags.language.enable_optimize,
     )
 }
 
 /// Shows detailed VM module cache status for each module in the input graph.
 pub fn show_module_cache_info(flags: &DriverFlags) -> bool {
     let path = require_input_path(flags, "Usage: flux module-cache-info <file.flx>");
-    show_module_cache_info_for_path(path, &flags.input.roots, flags.cache.cache_dir.as_deref())
+    show_module_cache_info_for_path(
+        path,
+        &flags.input.roots,
+        flags.cache.cache_dir.as_deref(),
+        flags.language.enable_optimize,
+    )
 }
 
 /// Shows detailed native module cache status for each module in the input graph.
 pub fn show_native_cache_info(flags: &DriverFlags) -> bool {
     let path = require_input_path(flags, "Usage: flux native-cache-info <file.flx>");
-    show_native_cache_info_for_path(path, &flags.input.roots, flags.cache.cache_dir.as_deref())
+    show_native_cache_info_for_path(
+        path,
+        &flags.input.roots,
+        flags.cache.cache_dir.as_deref(),
+        flags.language.enable_optimize,
+    )
 }
 
 /// Removes the resolved driver cache directory, and with `--deps` the
@@ -123,6 +134,7 @@ pub(crate) fn show_cache_info_for_path(
     extra_roots: &[PathBuf],
     cache_dir: Option<&Path>,
     selection: CacheDisplaySelection,
+    optimize_mode: bool,
 ) -> bool {
     if !Path::new(path).exists() {
         // Reporting "no cache" for a path that does not exist is
@@ -147,10 +159,22 @@ pub(crate) fn show_cache_info_for_path(
             println!("modules: {}", graph.topo_order().len());
             for node in graph.topo_order() {
                 if selection.show_vm {
-                    print_module_cache_summary(&node.path, &cache_layout, false, false);
+                    print_module_cache_summary(
+                        &node.path,
+                        &cache_layout,
+                        false,
+                        false,
+                        optimize_mode,
+                    );
                 }
                 if selection.show_native {
-                    print_native_cache_summary(&node.path, &cache_layout, false, false);
+                    print_native_cache_summary(
+                        &node.path,
+                        &cache_layout,
+                        false,
+                        false,
+                        optimize_mode,
+                    );
                 }
             }
             #[cfg(feature = "llvm")]
@@ -170,10 +194,10 @@ pub(crate) fn show_cache_info_for_path(
         Err(err) => {
             println!("module graph: unavailable ({err})");
             if selection.show_vm {
-                print_module_cache_summary(entry_path, &cache_layout, false, false);
+                print_module_cache_summary(entry_path, &cache_layout, false, false, optimize_mode);
             }
             if selection.show_native {
-                print_native_cache_summary(entry_path, &cache_layout, false, false);
+                print_native_cache_summary(entry_path, &cache_layout, false, false, optimize_mode);
             }
         }
     }
@@ -184,6 +208,7 @@ pub(crate) fn show_module_cache_info_for_path(
     path: &str,
     extra_roots: &[PathBuf],
     cache_dir: Option<&Path>,
+    optimize_mode: bool,
 ) -> bool {
     if !Path::new(path).exists() {
         eprintln!("Error: file not found: {}", path);
@@ -199,13 +224,13 @@ pub(crate) fn show_module_cache_info_for_path(
         Ok(graph) => {
             println!("cache root: {}", cache_layout.root().display());
             for node in graph.topo_order() {
-                print_module_cache_summary(&node.path, &cache_layout, true, false);
+                print_module_cache_summary(&node.path, &cache_layout, true, false, optimize_mode);
             }
         }
         Err(err) => {
             println!("cache root: {}", cache_layout.root().display());
             println!("module graph: unavailable ({err})");
-            print_module_cache_summary(entry_path, &cache_layout, true, false);
+            print_module_cache_summary(entry_path, &cache_layout, true, false, optimize_mode);
         }
     }
     true
@@ -215,6 +240,7 @@ pub(crate) fn show_native_cache_info_for_path(
     path: &str,
     extra_roots: &[PathBuf],
     cache_dir: Option<&Path>,
+    optimize_mode: bool,
 ) -> bool {
     if !Path::new(path).exists() {
         eprintln!("Error: file not found: {}", path);
@@ -234,7 +260,7 @@ pub(crate) fn show_native_cache_info_for_path(
         Ok(graph) => {
             println!("cache root: {}", cache_layout.root().display());
             for node in graph.topo_order() {
-                print_native_cache_summary(&node.path, &cache_layout, true, false);
+                print_native_cache_summary(&node.path, &cache_layout, true, false, optimize_mode);
             }
             #[cfg(feature = "llvm")]
             {
@@ -253,7 +279,7 @@ pub(crate) fn show_native_cache_info_for_path(
         Err(err) => {
             println!("cache root: {}", cache_layout.root().display());
             println!("module graph: unavailable ({err})");
-            print_native_cache_summary(entry_path, &cache_layout, true, false);
+            print_native_cache_summary(entry_path, &cache_layout, true, false, optimize_mode);
         }
     }
     true
@@ -341,6 +367,7 @@ fn print_module_cache_summary(
     cache_layout: &CacheLayout,
     verbose: bool,
     strict_mode: bool,
+    optimize_mode: bool,
 ) {
     let source = match fs::read_to_string(module_path) {
         Ok(source) => source,
@@ -351,7 +378,7 @@ fn print_module_cache_summary(
         }
     };
     let source_hash = hash_bytes(source.as_bytes());
-    let semantic_config_hash = compute_semantic_config_hash(strict_mode, false);
+    let semantic_config_hash = compute_semantic_config_hash(strict_mode, optimize_mode);
     let cache_key = hash_cache_key(&source_hash, &semantic_config_hash);
     let interface_path = interface_path(cache_layout.root(), module_path);
 
@@ -467,6 +494,7 @@ fn print_native_cache_summary(
     cache_layout: &CacheLayout,
     verbose: bool,
     strict_mode: bool,
+    optimize_mode: bool,
 ) {
     let source = match fs::read_to_string(module_path) {
         Ok(source) => source,
@@ -480,7 +508,7 @@ fn print_native_cache_summary(
         }
     };
     let source_hash = hash_bytes(source.as_bytes());
-    let semantic_config_hash = compute_semantic_config_hash(strict_mode, false);
+    let semantic_config_hash = compute_semantic_config_hash(strict_mode, optimize_mode);
     let cache_key = compute_native_cache_key(&source_hash, &semantic_config_hash);
     let native_cache = NativeModuleCache::new(cache_layout.native_dir());
 
@@ -536,6 +564,7 @@ fn print_native_cache_summary(
     _cache_layout: &CacheLayout,
     _verbose: bool,
     _strict_mode: bool,
+    _optimize_mode: bool,
 ) {
 }
 
@@ -556,6 +585,7 @@ mod tests {
                 show_vm: true,
                 show_native: false,
             },
+            false,
         );
         assert!(!ok, "a missing input must report failure");
     }
