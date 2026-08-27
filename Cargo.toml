@@ -13,7 +13,7 @@ clipboard-win = { path = "vendor/clipboard-win-stub" }
 
 [package]
 name = "flux"
-version = "0.0.6"
+version = "0.0.7"
 edition = "2024"
 authors = ["Spiros Gerokostas <spiros.gerokostas@gmail.com>"]
 license = "MIT"
@@ -298,6 +298,187 @@ name = "stdlib_list_tail_recursive"
 path = "tests/vm_runtime/stdlib_list_tail_recursive.rs"
 
 [[test]]
+name = "stdlib_path_tests"
+path = "tests/vm_runtime/stdlib_path_tests.rs"
+
+[[test]]
+name = "stdlib_result_tests"
+path = "tests/vm_runtime/stdlib_result_tests.rs"
+
+[[test]]
+name = "stdlib_io_tests"
+path = "tests/vm_runtime/stdlib_io_tests.rs"
+
+[[test]]
+name = "stdlib_fs_tests"
+path = "tests/vm_runtime/stdlib_fs_tests.rs"
+
+[[test]]
+name = "stdlib_crypto_tests"
+path = "tests/vm_runtime/stdlib_crypto_tests.rs"
+
+[[test]]
+name = "stdlib_list_tests"
+path = "tests/vm_runtime/stdlib_list_tests.rs"
+
+[[test]]
+name = "aether_collection_ownership_tests"
+path = "tests/vm_runtime/aether_collection_ownership_tests.rs"
+
+[[test]]
+name = "stdlib_list_native_tests"
+path = "tests/native_llvm/stdlib_list_native_tests.rs"
+
+[[test]]
+name = "aether_collection_ownership_native_tests"
+path = "tests/native_llvm/aether_collection_ownership_tests.rs"
+
+[[test]]
+name = "stdlib_option_tests"
+path = "tests/vm_runtime/stdlib_option_tests.rs"
+
+[[test]]
+name = "stdlib_either_tests"
+path = "tests/vm_runtime/stdlib_either_tests.rs"
+
+[[test]]
+name = "stdlib_map_tests"
+path = "tests/vm_runtime/stdlib_map_tests.rs"
+
+[[test]]
+name = "stdlib_array_tests"
+path = "tests/vm_runtime/stdlib_array_tests.rs"
+
+[[test]]
+name = "stdlib_string_numeric_math_tests"
+path = "tests/vm_runtime/stdlib_string_numeric_math_tests.rs"
+
+[[test]]
+name = "stdlib_stream_tests"
+path = "tests/vm_runtime/stdlib_stream_tests.rs"
+
+[[test]]
+name = "stdlib_option_native_tests"
+path = "tests/native_llvm/stdlib_option_native_tests.rs"
+
+[[test]]
+name = "stdlib_either_native_tests"
+path = "tests/native_llvm/stdlib_either_native_tests.rs"
+
+[[test]]
+name = "stdlib_map_native_tests"
+path = "tests/native_llvm/stdlib_map_native_tests.rs"
+
+[[test]]
+name = "stdlib_array_native_tests"
+path = "tests/native_llvm/stdlib_array_native_tests.rs"
+
+[[test]]
+name = "qualified_class_method_dispatch_tests"
+path = "tests/integration/qualified_class_method_dispatch_tests.rs"
+
+[[test]]
+name = "named_field_class_dispatch_tests"
+path = "tests/integration/named_field_class_dispatch_tests.rs"
+
+[[test]]
+name = "stdlib_env_tests"
+path = "tests/vm_runtime/stdlib_env_tests.rs"
+
+[[test]]
+name = "stdlib_process_tests"
+path = "tests/vm_runtime/stdlib_process_tests.rs"
+
+[[test]]
+name = "stdlib_discovery_tests"
+path = "tests/integration/stdlib_discovery_tests.rs"
+
+[[test]]
+name = "project_root_tests"
+path = "tests/integration/project_root_tests.rs"
+
+[[test]]
+name = "package_registry_tests"
+path = "tests/integration/package_registry_tests.rs"
+
+[[test]]
+name = "package_git_tests"
+path = "tests/integration/package_git_tests.rs"
+
+[[test]]
+name = "package_build_tests"
+path = "tests/integration/package_build_tests.rs"
+
+[[test]]
+name = "package_cli_tests"
+path = "tests/integration/package_cli_tests.rs"
+
+[[test]]
+name = "package_store_publish_workspace_tests"
+path = "tests/integration/package_store_publish_workspace_tests.rs"
+
+[[test]]
+name = "package_tree_tests"
+path = "tests/integration/package_tree_tests.rs"
+
+[[test]]
+name = "imported_constructor_types_tests"
+path = "tests/type_inference/imported_constructor_types_tests.rs"
+
+[[test]]
+name = "imported_ctor_payload_forwarding_tests"
+path = "tests/type_inference/imported_ctor_payload_forwarding_tests.rs"
+
+[[test]]
+name = "flume_version_tests"
+path = "tests/flume/flume_version_tests.rs"
+
+[[test]]
+name = "flume_toml_tests"
+path = "tests/flume/flume_toml_tests.rs"
+
+[[test]]
+name = "flume_plan_tests"
+path = "tests/flume/flume_plan_tests.rs"
+
+[[test]]
+name = "flume_build_plan_tests"
+path = "tests/flume/flume_build_plan_tests.rs"
+
+[[test]]
+name = "flume_index_tests"
+path = "tests/flume/flume_index_tests.rs"
+
+[[test]]
+name = "flume_edit_tests"
+path = "tests/flume/flume_edit_tests.rs"
+
+[[test]]
+name = "flume_lock_tests"
+path = "tests/flume/flume_lock_tests.rs"
+
+[[test]]
+name = "flume_manifest_tests"
+path = "tests/flume/flume_manifest_tests.rs"
+
+[[test]]
+name = "flume_resolve_tests"
+path = "tests/flume/flume_resolve_tests.rs"
+
+[[test]]
+name = "native_constructor_tag_tests"
+path = "tests/native_llvm/native_constructor_tag_tests.rs"
+required-features = ["llvm"]
+
+[[test]]
+name = "cross_module_named_fields_tests"
+path = "tests/integration/cross_module_named_fields_tests.rs"
+
+[[test]]
+name = "module_local_shadowing_tests"
+path = "tests/integration/module_local_shadowing_tests.rs"
+
+[[test]]
 name = "map_contract_tests"
 path = "tests/vm_runtime/map_contract_tests.rs"
 
@@ -360,6 +541,14 @@ path = "tests/native_llvm/native_http_client_tests.rs"
 [[test]]
 name = "native_json_tests"
 path = "tests/native_llvm/native_json_tests.rs"
+
+[[test]]
+name = "native_resolution_tests"
+path = "tests/native_llvm/native_resolution_tests.rs"
+
+[[test]]
+name = "native_cross_module_effect_tests"
+path = "tests/native_llvm/native_cross_module_effect_tests.rs"
 
 [[test]]
 name = "native_stream_tests"
@@ -504,6 +693,10 @@ path = "tests/type_inference/pattern_validation.rs"
 [[test]]
 name = "match_some_pattern_tests"
 path = "tests/type_inference/match_some_pattern_tests.rs"
+
+[[test]]
+name = "match_arm_outer_binding_tests"
+path = "tests/vm_runtime/match_arm_outer_binding_tests.rs"
 
 [[test]]
 name = "perf_type_infer"

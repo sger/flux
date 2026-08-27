@@ -1,0 +1,492 @@
+// Behavioural coverage for `Flume.Resolve` (proposal 0177, Phase 0).
+//
+// The resolver is a pure function from a dependency graph and a candidate set
+// to either a resolution or a conflict, so every test here is an in-memory
+// fixture — no registry, no temp directory, no network. That is the seam the
+// proposal calls out as what keeps the resolver testable forever.
+//
+// Two properties carry most of the weight. Any returned resolution must
+// **satisfy every constraint** and hold **exactly one version per package**;
+// and an unsatisfiable graph must produce a **minimized conflict set naming
+// the actual culprits**, not the whole graph.
+
+import Flume.Resolve.Solver as Resolve
+import Flume.Resolve.Solver exposing (Dep, Package, Resolution, Conflict, Origin, Pick)
+import Flume.Resolve.Version as Version
+import Flume.Resolve.Version exposing (Version, Range)
+import Flow.List as List
+import Flow.Array as Array
+import Flow.String as Str
+
+// ── fixture builders ───────────────────────────────────────────
+
+// Requirements and candidates are written from strings so a test reads like the
+// graph it describes. A malformed spec is a bug in the test, so these panic
+// rather than widening every helper to a `Result`.
+
+fn range_of(spec: String) -> Range {
+    match Version.parse_range(spec) {
+        Ok(range) -> range,
+        Err(problem) -> panic("bad range in fixture: " + spec + ": " + problem),
+    }
+}
+
+fn version_of(text: String) -> Version {
+    match Version.parse(text) {
+        Ok(version) -> version,
+        Err(problem) -> panic("bad version in fixture: " + text + ": " + problem),
+    }
+}
+
+/// A requirement of the root project.
+fn need(name: String, spec: String) -> Dep {
+    Resolve.dep(name, range_of(spec), Resolve.from_root())
+}
+
+/// A requirement introduced by another package — the case where provenance
+/// actually matters, since the user has to be told who asked.
+fn need_from(owner: String, owner_version: String, name: String, spec: String) -> Dep {
+    Resolve.dep(name, range_of(spec), Resolve.from_package(owner, version_of(owner_version)))
+}
+
+fn have(name: String, version: String, deps: List<Dep>) -> Package {
+    Resolve.package(name, version_of(version), deps)
+}
+
+/// A leaf candidate: exists, requires nothing.
+fn leaf(name: String, version: String) -> Package {
+    have(name, version, [])
+}
+
+// ── observation helpers ────────────────────────────────────────
+
+/// The resolution as `name version` pairs joined by `;`, or `CONFLICT`.
+///
+/// `resolve` sorts picks by name, so this is stable regardless of the order the
+/// search happened to visit goals in — the property a lockfile depends on.
+fn solved(roots: List<Dep>, available: List<Package>) -> String {
+    match Resolve.resolve(roots, available) {
+        Ok(resolution) -> Str.join(
+            Array.from_list(List.map(Resolve.resolution_picks(resolution), Resolve.render_pick)),
+            ";",
+        ),
+        Err(_) -> "CONFLICT",
+    }
+}
+
+/// The name the conflict blames, or `ok` when resolution succeeded.
+fn blamed(roots: List<Dep>, available: List<Package>) -> String {
+    match Resolve.resolve(roots, available) {
+        Ok(_) -> "ok",
+        Err(conflict) -> blame_of(conflict),
+    }
+}
+
+// Extracted rather than nested inside the `Err` arm: a `match` on a value bound
+// by an enclosing pattern does not infer its type (E430), so the annotation on
+// this parameter is what fixes it.
+fn blame_of(conflict: Conflict) -> String {
+    match conflict {
+        Missing { name, culprits: _ } -> "missing " + name,
+        Unsatisfiable { name, culprits: _ } -> "unsatisfiable " + name,
+    }
+}
+
+/// The conflict's culprits, rendered — the minimized set with provenance.
+fn culprits(roots: List<Dep>, available: List<Package>) -> String {
+    match Resolve.resolve(roots, available) {
+        Ok(_) -> "ok",
+        Err(conflict) -> render_deps(culprits_of(conflict)),
+    }
+}
+
+fn culprits_of(conflict: Conflict) -> List<Dep> {
+    match conflict {
+        Missing { name: _, culprits } -> culprits,
+        Unsatisfiable { name: _, culprits } -> culprits,
+    }
+}
+
+fn render_deps(deps: List<Dep>) -> String {
+    Str.join(Array.from_list(List.map(deps, Resolve.render_dep)), " | ")
+}
+
+fn culprit_count(roots: List<Dep>, available: List<Package>) -> Int {
+    match Resolve.resolve(roots, available) {
+        Ok(_) -> 0,
+        Err(conflict) -> List.length(culprits_of(conflict)),
+    }
+}
+
+// ── trivial cases ──────────────────────────────────────────────
+
+fn test_no_requirements_resolves_to_nothing() with IO {
+    assert_eq(solved([], [leaf("a", "1.0.0")]), "")
+}
+
+fn test_a_single_requirement_resolves() with IO {
+    assert_eq(solved([need("a", "^1.0")], [leaf("a", "1.0.0")]), "a 1.0.0")
+}
+
+fn test_two_independent_requirements_both_resolve() with IO {
+    assert_eq(
+        solved([need("a", "^1.0"), need("b", "^2.0")], [leaf("a", "1.0.0"), leaf("b", "2.0.0")]),
+        "a 1.0.0;b 2.0.0",
+    )
+}
+
+// ── version selection ──────────────────────────────────────────
+
+// Highest-version-first: the first solution found should also be the newest, so
+// resolving does not silently pin a user to an old release.
+
+fn test_the_highest_matching_version_wins() with IO {
+    assert_eq(
+        solved([need("a", "^1.0")], [leaf("a", "1.0.0"), leaf("a", "1.2.0"), leaf("a", "1.1.0")]),
+        "a 1.2.0",
+    )
+}
+
+fn test_versions_outside_the_range_are_not_chosen() with IO {
+    assert_eq(
+        solved([need("a", "^1.0")], [leaf("a", "1.2.0"), leaf("a", "2.0.0")]),
+        "a 1.2.0",
+    )
+}
+
+fn test_candidate_order_does_not_matter() with IO {
+    assert_eq(
+        solved([need("a", "^1.0")], [leaf("a", "1.2.0"), leaf("a", "1.0.0")]),
+        solved([need("a", "^1.0")], [leaf("a", "1.0.0"), leaf("a", "1.2.0")]),
+    )
+}
+
+fn test_an_exact_requirement_picks_that_version() with IO {
+    assert_eq(
+        solved([need("a", "=1.0.0")], [leaf("a", "1.0.0"), leaf("a", "1.2.0")]),
+        "a 1.0.0",
+    )
+}
+
+// A pre-release must not be selected by a range that does not name one.
+fn test_prereleases_are_not_selected_by_a_plain_range() with IO {
+    assert_eq(
+        solved([need("a", "^1.0")], [leaf("a", "1.0.0"), leaf("a", "1.1.0-rc")]),
+        "a 1.0.0",
+    )
+}
+
+// ── transitive dependencies ────────────────────────────────────
+
+fn test_a_transitive_dependency_is_resolved() with IO {
+    assert_eq(
+        solved([need("app", "^1.0")], [
+            have("app", "1.0.0", [need_from("app", "1.0.0", "lib", "^1.0")]),
+            leaf("lib", "1.5.0"),
+        ]),
+        "app 1.0.0;lib 1.5.0",
+    )
+}
+
+fn test_a_three_level_chain_is_resolved() with IO {
+    assert_eq(
+        solved([need("a", "^1.0")], [
+            have("a", "1.0.0", [need_from("a", "1.0.0", "b", "^1.0")]),
+            have("b", "1.0.0", [need_from("b", "1.0.0", "c", "^1.0")]),
+            leaf("c", "1.0.0"),
+        ]),
+        "a 1.0.0;b 1.0.0;c 1.0.0",
+    )
+}
+
+// A diamond where both sides agree: `core` must appear once, not twice.
+fn test_a_satisfiable_diamond_shares_one_version() with IO {
+    assert_eq(
+        solved([need("left", "^1.0"), need("right", "^1.0")], [
+            have("left", "1.0.0", [need_from("left", "1.0.0", "core", "^1.0")]),
+            have("right", "1.0.0", [need_from("right", "1.0.0", "core", "^1.0")]),
+            leaf("core", "1.0.0"),
+        ]),
+        "core 1.0.0;left 1.0.0;right 1.0.0",
+    )
+}
+
+// Two ranges on one package intersect rather than conflict: `>=1.1` and `^1.0`
+// together admit `1.1.0` but not `1.0.0`.
+fn test_intersecting_ranges_narrow_the_choice() with IO {
+    assert_eq(
+        solved([need("left", "^1.0"), need("right", "^1.0")], [
+            have("left", "1.0.0", [need_from("left", "1.0.0", "core", "^1.0")]),
+            have("right", "1.0.0", [need_from("right", "1.0.0", "core", ">=1.1, <1.3")]),
+            leaf("core", "1.0.0"),
+            leaf("core", "1.2.0"),
+            leaf("core", "1.5.0"),
+        ]),
+        "core 1.2.0;left 1.0.0;right 1.0.0",
+    )
+}
+
+// ── backtracking ───────────────────────────────────────────────
+
+// The property that distinguishes a resolver from a graph walk. The newest
+// `app` needs `lib 2.x`, but `tool` pins `lib 1.x`; under the one-version rule
+// the only solution is to give up the newest `app` and take `1.0.0`.
+fn test_the_resolver_backtracks_to_an_older_version() with IO {
+    assert_eq(
+        solved([need("app", ">=1.0"), need("tool", "^1.0")], [
+            have("app", "2.0.0", [need_from("app", "2.0.0", "lib", "^2.0")]),
+            have("app", "1.0.0", [need_from("app", "1.0.0", "lib", "^1.0")]),
+            have("tool", "1.0.0", [need_from("tool", "1.0.0", "lib", "^1.0")]),
+            leaf("lib", "2.0.0"),
+            leaf("lib", "1.0.0"),
+        ]),
+        "app 1.0.0;lib 1.0.0;tool 1.0.0",
+    )
+}
+
+// Backtracking must survive more than one level: the choice that has to be
+// revised is two steps above where the failure is discovered.
+fn test_backtracking_works_through_a_transitive_chain() with IO {
+    assert_eq(
+        solved([need("app", ">=1.0"), need("pin", "^1.0")], [
+            have("app", "2.0.0", [need_from("app", "2.0.0", "mid", "^2.0")]),
+            have("app", "1.0.0", [need_from("app", "1.0.0", "mid", "^1.0")]),
+            have("mid", "2.0.0", [need_from("mid", "2.0.0", "base", "^2.0")]),
+            have("mid", "1.0.0", [need_from("mid", "1.0.0", "base", "^1.0")]),
+            have("pin", "1.0.0", [need_from("pin", "1.0.0", "base", "^1.0")]),
+            leaf("base", "2.0.0"),
+            leaf("base", "1.0.0"),
+        ]),
+        "app 1.0.0;base 1.0.0;mid 1.0.0;pin 1.0.0",
+    )
+}
+
+// The resolver must skip an intermediate version too, not just fall to the
+// oldest: `app 2.0.0` and `1.5.0` both fail, `1.0.0` succeeds.
+fn test_backtracking_skips_every_unusable_version() with IO {
+    assert_eq(
+        solved([need("app", ">=1.0"), need("tool", "^1.0")], [
+            have("app", "2.0.0", [need_from("app", "2.0.0", "lib", "^3.0")]),
+            have("app", "1.5.0", [need_from("app", "1.5.0", "lib", "^2.0")]),
+            have("app", "1.0.0", [need_from("app", "1.0.0", "lib", "^1.0")]),
+            have("tool", "1.0.0", [need_from("tool", "1.0.0", "lib", "^1.0")]),
+            leaf("lib", "3.0.0"),
+            leaf("lib", "2.0.0"),
+            leaf("lib", "1.0.0"),
+        ]),
+        "app 1.0.0;lib 1.0.0;tool 1.0.0",
+    )
+}
+
+// ── the one-version rule ───────────────────────────────────────
+
+// Proposal 0177: the VM linker keys globals by flat name and silently reuses an
+// existing global on collision, so two versions of one package would alias each
+// other's functions. The resolver forbids it outright rather than admitting a
+// second copy.
+fn test_two_incompatible_requirements_do_not_admit_two_copies() with IO {
+    assert_eq(
+        blamed([need("left", "^1.0"), need("right", "^1.0")], [
+            have("left", "1.0.0", [need_from("left", "1.0.0", "core", "^1.0")]),
+            have("right", "1.0.0", [need_from("right", "1.0.0", "core", "^2.0")]),
+            leaf("core", "1.0.0"),
+            leaf("core", "2.0.0"),
+        ]),
+        "unsatisfiable core",
+    )
+}
+
+// ── conflicts ──────────────────────────────────────────────────
+
+fn test_an_unknown_package_is_reported_as_missing() with IO {
+    assert_eq(blamed([need("ghost", "^1.0")], [leaf("a", "1.0.0")]), "missing ghost")
+}
+
+// A package that exists but has no matching version is a different failure from
+// one that does not exist at all, and the two need different fixes.
+fn test_a_known_package_with_no_matching_version_is_unsatisfiable() with IO {
+    assert_eq(blamed([need("a", "^2.0")], [leaf("a", "1.0.0")]), "unsatisfiable a")
+}
+
+fn test_a_missing_transitive_dependency_is_reported() with IO {
+    assert_eq(
+        blamed([need("app", "^1.0")], [
+            have("app", "1.0.0", [need_from("app", "1.0.0", "ghost", "^1.0")]),
+        ]),
+        "missing ghost",
+    )
+}
+
+// ── conflict minimization ──────────────────────────────────────
+
+// The proposal requires a *minimized* conflict set naming the actual culprits.
+// A resolver that reports the whole graph is barely better than one that
+// reports nothing.
+
+fn test_a_conflict_names_the_contested_package_not_its_dependents() with IO {
+    assert_eq(
+        blamed([need("left", "^1.0"), need("right", "^1.0"), need("spare", "^1.0")], [
+            have("left", "1.0.0", [need_from("left", "1.0.0", "core", "^1.0")]),
+            have("right", "1.0.0", [need_from("right", "1.0.0", "core", "^2.0")]),
+            leaf("spare", "1.0.0"),
+            leaf("core", "1.0.0"),
+            leaf("core", "2.0.0"),
+        ]),
+        "unsatisfiable core",
+    )
+}
+
+fn test_a_conflict_reports_both_colliding_requirements() with IO {
+    assert_eq(
+        culprits([need("left", "^1.0"), need("right", "^1.0")], [
+            have("left", "1.0.0", [need_from("left", "1.0.0", "core", "^1.0")]),
+            have("right", "1.0.0", [need_from("right", "1.0.0", "core", "^2.0")]),
+            leaf("core", "1.0.0"),
+            leaf("core", "2.0.0"),
+        ]),
+        "core ^1.0.0 (required by left 1.0.0) | core ^2.0.0 (required by right 1.0.0)",
+    )
+}
+
+// An innocent bystander must not appear in the conflict set. `extra` requires
+// `core` too, but compatibly, so it is not part of why resolution failed.
+fn test_a_compatible_requirement_is_excluded_from_the_conflict_set() with IO {
+    assert_eq(
+        culprit_count([need("left", "^1.0"), need("right", "^1.0"), need("extra", "^1.0")], [
+            have("left", "1.0.0", [need_from("left", "1.0.0", "core", "^1.0")]),
+            have("right", "1.0.0", [need_from("right", "1.0.0", "core", "^2.0")]),
+            have("extra", "1.0.0", [need_from("extra", "1.0.0", "core", ">=1.0")]),
+            leaf("core", "1.0.0"),
+            leaf("core", "2.0.0"),
+        ]),
+        2,
+    )
+}
+
+// ── provenance ─────────────────────────────────────────────────
+
+// "Why is this version pinned?" must be answerable, so every constraint records
+// where it came from.
+
+fn test_a_root_requirement_names_the_project() with IO {
+    assert_eq(
+        culprits([need("a", "^2.0")], [leaf("a", "1.0.0")]),
+        "a ^2.0.0 (required by this project)",
+    )
+}
+
+fn test_a_transitive_requirement_names_the_package_that_asked() with IO {
+    assert_eq(
+        culprits([need("app", "^1.0")], [
+            have("app", "1.0.0", [need_from("app", "1.0.0", "ghost", "^1.0")]),
+        ]),
+        "ghost ^1.0.0 (required by app 1.0.0)",
+    )
+}
+
+fn test_lockfile_provenance_renders() with IO {
+    assert_eq(Resolve.render_origin(Resolve.from_lockfile()), "flux.lock")
+}
+
+fn test_command_line_provenance_renders() with IO {
+    assert_eq(Resolve.render_origin(Resolve.from_command_line()), "--constraint")
+}
+
+// ── resolution invariants ──────────────────────────────────────
+
+// The two properties the proposal names as what makes a backtracking resolver
+// trustworthy: whatever comes back satisfies every constraint, and holds
+// exactly one version per name.
+
+/// Whether every requirement in the graph is satisfied by the picks.
+fn all_constraints_hold(resolution: Resolution, requirements: List<Dep>) -> Bool {
+    List.all(requirements, \requirement -> match find_pick(resolution, Resolve.dep_name(requirement)) {
+        None -> false,
+        Some(chosen) -> Version.matches(
+            Resolve.dep_range(requirement),
+            Resolve.pick_version(chosen),
+        ),
+    })
+}
+
+fn find_pick(resolution: Resolution, name: String) -> Option<Pick> {
+    List.find(Resolve.resolution_picks(resolution), \chosen -> Resolve.pick_name(chosen) == name)
+}
+
+fn pick_names(resolution: Resolution) -> List<String> {
+    List.map(Resolve.resolution_picks(resolution), Resolve.pick_name)
+}
+
+fn test_a_resolution_satisfies_every_root_constraint() with IO {
+    let roots = [need("app", ">=1.0"), need("tool", "^1.0")]
+    let available = [
+        have("app", "2.0.0", [need_from("app", "2.0.0", "lib", "^2.0")]),
+        have("app", "1.0.0", [need_from("app", "1.0.0", "lib", "^1.0")]),
+        have("tool", "1.0.0", [need_from("tool", "1.0.0", "lib", "^1.0")]),
+        leaf("lib", "2.0.0"),
+        leaf("lib", "1.0.0"),
+    ]
+    match Resolve.resolve(roots, available) {
+        Err(_) -> assert_msg(false, "this graph is satisfiable"),
+        Ok(resolution) -> assert_msg(
+            all_constraints_hold(resolution, roots),
+            "every root constraint must hold in the resolution",
+        ),
+    }
+}
+
+fn test_a_resolution_holds_exactly_one_version_per_package() with IO {
+    let roots = [need("left", "^1.0"), need("right", "^1.0")]
+    let available = [
+        have("left", "1.0.0", [need_from("left", "1.0.0", "core", "^1.0")]),
+        have("right", "1.0.0", [need_from("right", "1.0.0", "core", "^1.0")]),
+        leaf("core", "1.0.0"),
+        leaf("core", "1.2.0"),
+    ]
+    match Resolve.resolve(roots, available) {
+        Err(_) -> assert_msg(false, "this graph is satisfiable"),
+        Ok(resolution) -> assert_eq(
+            List.length(List.nub(pick_names(resolution))),
+            List.length(pick_names(resolution)),
+        ),
+    }
+}
+
+// Picks come back sorted by name regardless of the order the search visited
+// goals in — the property a committed lockfile depends on.
+fn test_picks_are_reported_in_name_order() with IO {
+    assert_eq(
+        solved([need("zebra", "^1.0"), need("alpha", "^1.0")], [
+            leaf("zebra", "1.0.0"),
+            leaf("alpha", "1.0.0"),
+        ]),
+        "alpha 1.0.0;zebra 1.0.0",
+    )
+}
+
+// ── conflict rendering ─────────────────────────────────────────
+
+fn rendered_conflict(roots: List<Dep>, available: List<Package>) -> String {
+    match Resolve.resolve(roots, available) {
+        Ok(_) -> "RESOLVED",
+        Err(conflict) -> Resolve.render_conflict(conflict),
+    }
+}
+
+// Both arms of `render_conflict` build the same closure over `indent_dep`.
+// Each arm must get its own: sharing one across arms produced native IR whose
+// closure did not dominate its uses, and LLVM rejected the module.
+fn test_a_missing_package_is_rendered_with_its_culprits() with IO {
+    let rendered = rendered_conflict([need("ghost", "^1.0")], [])
+    assert_msg(len(rendered) > 0, "a missing package must render an explanation")
+    assert_msg(rendered != "RESOLVED", "`ghost` does not exist, so this conflicts")
+}
+
+fn test_an_unsatisfiable_graph_is_rendered_with_its_culprits() with IO {
+    let rendered = rendered_conflict(
+        [need("core", "^1.0"), need("core", "^2.0")],
+        [leaf("core", "1.0.0"), leaf("core", "2.0.0")],
+    )
+    assert_msg(len(rendered) > 0, "an unsatisfiable graph must render an explanation")
+    assert_msg(rendered != "RESOLVED", "`^1.0` and `^2.0` cannot both hold")
+}

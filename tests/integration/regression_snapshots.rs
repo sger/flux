@@ -2,6 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 fn discover_fixtures(root: &Path) -> Vec<PathBuf> {
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
         let entries = fs::read_dir(dir).unwrap_or_else(|e| {
@@ -56,9 +60,31 @@ fn strip_ansi(input: &str) -> String {
     out
 }
 
+fn normalize_type_variable_ids(input: &str) -> String {
+    const MARKER: &str = "unresolved type variable #";
+    let mut normalized = String::with_capacity(input.len());
+    let mut rest = input;
+
+    while let Some(offset) = rest.find(MARKER) {
+        let (prefix, after_marker) = rest.split_at(offset + MARKER.len());
+        normalized.push_str(&prefix[..offset]);
+        normalized.push_str(MARKER);
+        let digit_count = after_marker
+            .chars()
+            .take_while(|ch| ch.is_ascii_digit())
+            .count();
+        normalized.push('N');
+        rest = &after_marker[digit_count..];
+    }
+
+    normalized.push_str(rest);
+    normalized
+}
+
 fn normalize_output(output: &str, workspace_root: &Path) -> String {
     let mut normalized = output.replace("\r\n", "\n").replace('\\', "/");
     normalized = strip_ansi(&normalized);
+    normalized = normalize_type_variable_ids(&normalized);
 
     let mut prefixes = vec![workspace_root.to_string_lossy().replace('\\', "/")];
     if let Ok(canonical) = workspace_root.canonicalize() {
@@ -107,9 +133,14 @@ fn regression_fixtures_cli_output() {
             .to_string_lossy()
             .replace('\\', "/");
 
+        // Private cache root: `--no-cache` does not isolate native builds,
+        // which write shared artifacts under the cache root regardless
+        // (KI-010).
+        let scratch = Scratch::new("regression-snapshots");
         let output = Command::new(&flux_bin)
             .arg("--no-cache")
             .arg(&fixture)
+            .args(scratch.cache_args())
             .env("NO_COLOR", "1")
             .output()
             .unwrap_or_else(|e| panic!("failed to run flux for `{}`: {e}", fixture.display()));

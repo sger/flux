@@ -1,0 +1,454 @@
+import Flow.Option as Option
+import Flow.Result as Result
+import Flow.String as Str
+import Flow.Array as Array
+import Flow.List as List
+import Flume.Toml as Toml
+import Flume.Toml.Value as Value
+import Flume.Toml.Value exposing (Toml, TString, TInt, TBool, TArray, TTable)
+import Flume.Resolve.Version as Version
+import Flume.Resolve.Version exposing (Version)
+import Flume.Fail as Fail
+
+/// `flux.lock` — the resolved dependency graph.
+///
+/// A lockfile records a *resolution*, not constraints: it is read back rather
+/// than recomputed, so a build today and a build in a year agree.
+///
+/// ```toml
+/// version = 1
+///
+/// [[package]]
+/// name = "json"
+/// version = "1.2.0"
+/// source = "registry+https://packages.flux-lang.org"
+/// checksum = "sha256:9f2a..."
+/// dependencies = ["core-utils"]
+/// ```
+///
+/// Path packages carry no `source` and no `checksum`: a local directory has
+/// nothing portable to record and nothing stable to hash.
+module Flume.Schema.Lock {
+
+//| format
+
+    /// Format version written for a *new* lockfile.
+    ///
+    /// An existing lockfile keeps the version it has, so a project's lockfile
+    /// does not oscillate between toolchain versions.
+    public fn default_format() -> Int { 1 }
+
+    /// Newest format this build understands.
+    public fn max_format() -> Int { 1 }
+
+//| model
+
+    /// Where a locked package came from.
+    ///
+    /// The `Locked` prefix avoids colliding with `Flume.Resolve.Origin` and
+    /// `Flume.Manifest.Source` variants — see docs/known_issues.md#ki-023.
+    public data LockedOrigin {
+        LockedRegistry { url: String },
+        LockedPath { path: String },
+        LockedGit { url: String, commit: String },
+    }
+
+    /// The commit a git-sourced entry is pinned to, if it is one.
+    public fn origin_commit(o: LockedOrigin) -> Option<String> {
+        match o {
+            LockedGit { url: _, commit } -> Some(commit),
+            LockedRegistry { url: _ } -> None,
+            LockedPath { path: _ } -> None,
+        }
+    }
+
+    /// The repository URL a git-sourced entry came from, if it is one.
+    public fn origin_url(o: LockedOrigin) -> Option<String> {
+        match o {
+            LockedGit { url, commit: _ } -> Some(url),
+            LockedRegistry { url: _ } -> None,
+            LockedPath { path: _ } -> None,
+        }
+    }
+
+    /// One `[[package]]`. `deps` holds names, not requirements: the graph is
+    /// already resolved.
+    public data Entry {
+        Entry {
+            name: String,
+            version: Version,
+            origin: LockedOrigin,
+            checksum: Option<String>,
+            deps: List<String>,
+        }
+    }
+
+    /// A parsed lockfile.
+    public data Lock {
+        Lock { format: Int, packages: List<Entry> }
+    }
+
+    public fn entry(
+        name: String,
+        version: Version,
+        origin: LockedOrigin,
+        checksum: Option<String>,
+        deps: List<String>,
+    ) -> Entry {
+        Entry {
+            name: name,
+            version: version,
+            origin: origin,
+            checksum: checksum,
+            deps: deps,
+        }
+    }
+
+    public fn entry_name(e: Entry) -> String {
+        match e { Entry { name, version: _, origin: _, checksum: _, deps: _ } -> name }
+    }
+
+    public fn entry_version(e: Entry) -> Version {
+        match e { Entry { name: _, version, origin: _, checksum: _, deps: _ } -> version }
+    }
+
+    public fn entry_origin(e: Entry) -> LockedOrigin {
+        match e { Entry { name: _, version: _, origin, checksum: _, deps: _ } -> origin }
+    }
+
+    public fn entry_checksum(e: Entry) -> Option<String> {
+        match e { Entry { name: _, version: _, origin: _, checksum, deps: _ } -> checksum }
+    }
+
+    public fn entry_deps(e: Entry) -> List<String> {
+        match e { Entry { name: _, version: _, origin: _, checksum: _, deps } -> deps }
+    }
+
+    public fn lock(format: Int, packages: List<Entry>) -> Lock {
+        Lock { format: format, packages: packages }
+    }
+
+    public fn lock_format(l: Lock) -> Int {
+        match l { Lock { format, packages: _ } -> format }
+    }
+
+    public fn lock_packages(l: Lock) -> List<Entry> {
+        match l { Lock { format: _, packages } -> packages }
+    }
+
+    /// The locked entry for `name`, if present.
+    public fn find(l: Lock, name: String) -> Option<Entry> {
+        find_entry(lock_packages(l), name)
+    }
+
+    fn find_entry(entries: List<Entry>, name: String) -> Option<Entry> {
+        match entries {
+            [] -> None,
+            [head | rest] -> if entry_name(head) == name {
+                Some(head)
+            } else {
+                find_entry(rest, name)
+            },
+        }
+    }
+
+    fn is_registry(o: LockedOrigin) -> Bool {
+        match o {
+            LockedRegistry { url: _ } -> true,
+            LockedPath { path: _ } -> false,
+            LockedGit { url: _, commit: _ } -> false,
+        }
+    }
+
+//| parsing
+
+    /// Parse `flux.lock`.
+    ///
+    /// Reads abort through `Fail`, so each field below is an ordinary `let`.
+    /// `Result` appears once, here, where the effect is discharged.
+    public fn parse(text: String) -> Result<Lock, String> {
+        read(text) handle Fail { fail(resume, message) -> Err(message) }
+    }
+
+    fn read(text: String) -> Result<Lock, String> with Fail {
+        Ok(from_document(parse_toml(text)))
+    }
+
+    fn parse_toml(text: String) -> Toml with Fail {
+        Fail.ok_or_abort(
+            Result.map_err_result(Toml.parse_toml(text), \_ -> "`flux.lock` is not valid TOML"),
+            TTable([]),
+        )
+    }
+
+    fn from_document(document: Toml) -> Lock with Fail {
+        let root = as_table(document)
+        Lock { format: read_format(root), packages: read_packages(root) }
+    }
+
+    fn as_table(document: Toml) -> List<(String, Toml)> with Fail {
+        match document {
+            TTable(root) -> root,
+            _ -> Fail.abort("`flux.lock` must be a table", []),
+        }
+    }
+
+    /// Read `version`, refusing a lockfile newer than this build understands.
+    ///
+    /// A future format is a clearer failure than a partial read: the unknown
+    /// fields are the ones that would change the resolution.
+    fn read_format(root: List<(String, Toml)>) -> Int with Fail {
+        match Value.get(root, "version") {
+            None -> Fail.abort("`flux.lock` must have a `version` field", 0),
+            Some(TInt(found)) -> check_format(found),
+            Some(_) -> Fail.abort("`flux.lock`'s `version` must be an integer", 0),
+        }
+    }
+
+    fn check_format(found: Int) -> Int with Fail {
+        if found > max_format() {
+            Fail.abort(
+                "`flux.lock` is version " + to_string(found)
+                    + ", which this toolchain does not understand (it supports up to version "
+                    + to_string(max_format()) + ")",
+                0,
+            )
+        } else if found < 1 {
+            Fail.abort("`flux.lock`'s `version` must be at least 1", 0)
+        } else {
+            found
+        }
+    }
+
+    fn read_packages(root: List<(String, Toml)>) -> List<Entry> with Fail {
+        match Value.get(root, "package") {
+            None -> [],
+            Some(TArray(items)) -> List.map(items, read_entry),
+            Some(_) -> Fail.abort("`package` must be written as `[[package]]`", []),
+        }
+    }
+
+    /// One entry: five flat reads, each aborting with its own message.
+    fn read_entry(item: Toml) -> Entry with Fail {
+        let fields = entry_fields(item)
+        let name = require_string(fields, "name")
+        let version = read_version(fields, name)
+        let origin = read_origin(fields)
+        let checksum = read_checksum(fields, name, origin)
+        let deps = read_deps(fields)
+        Entry {
+            name: name,
+            version: version,
+            origin: origin,
+            checksum: checksum,
+            deps: deps,
+        }
+    }
+
+    fn entry_fields(item: Toml) -> List<(String, Toml)> with Fail {
+        match item {
+            TTable(fields) -> fields,
+            _ -> Fail.abort("each `[[package]]` entry must be a table", []),
+        }
+    }
+
+    fn read_version(fields: List<(String, Toml)>, name: String) -> Version with Fail {
+        let text = require_string(fields, "version")
+        Fail.ok_or_abort(
+            Result.map_err_result(
+                Version.parse(text),
+                \_ -> "`" + name + "` has an unreadable version `" + text + "` in `flux.lock`",
+            ),
+            Version.version(0, 0, 0),
+        )
+    }
+
+    /// A `source` field's prefix says where an entry came from; its absence
+    /// makes the entry a path package.
+    fn read_origin(fields: List<(String, Toml)>) -> LockedOrigin with Fail {
+        match Value.get(fields, "source") {
+            None -> LockedPath { path: optional_string(fields, "path") },
+            Some(TString(text)) -> read_source(text),
+            Some(_) -> Fail.abort(
+                "a `[[package]]` `source` must be a string",
+                LockedPath { path: "" },
+            ),
+        }
+    }
+
+    /// `source` is `<kind>+<url>`, so source kinds are told apart by prefix
+    /// rather than guessed from the URL's shape.
+    fn read_source(text: String) -> LockedOrigin with Fail {
+        if Str.starts_with(text, "git+") {
+            read_git_source(Str.string_slice(text, 4, len(text)))
+        } else {
+            LockedRegistry { url: strip_registry(text) }
+        }
+    }
+
+    /// A git source is `git+<url>#<commit>`.
+    ///
+    /// The commit is what makes the lockfile reproducible: a branch that has
+    /// moved, or a tag that was repointed, still builds the revision recorded
+    /// here. A source without one is rejected rather than resolved afresh,
+    /// which would silently turn a locked build into an unlocked one.
+    fn read_git_source(rest: String) -> LockedOrigin with Fail {
+        match index_of(rest, "#") {
+            None -> Fail.abort(
+                "a git `source` must be `git+<url>#<commit>`, but `" + rest
+                    + "` records no commit",
+                LockedPath { path: "" },
+            ),
+            Some(at) -> LockedGit {
+                url: Str.string_slice(rest, 0, at),
+                commit: Str.string_slice(rest, at + 1, len(rest)),
+            },
+        }
+    }
+
+    /// The first index of `needle`, or `None`.
+    ///
+    /// A local helper because `Flow.String` exposes no search: a URL may
+    /// contain no `#` at all, and scanning for one is the whole check.
+    fn index_of(s: String, needle: String) -> Option<Int> {
+        index_of_from(s, needle, 0)
+    }
+
+    fn index_of_from(s: String, needle: String, i: Int) -> Option<Int> {
+        if i >= len(s) {
+            None
+        } else if Str.string_slice(s, i, i + 1) == needle {
+            Some(i)
+        } else {
+            index_of_from(s, needle, i + 1)
+        }
+    }
+
+    fn strip_registry(text: String) -> String {
+        if Str.starts_with(text, "registry+") {
+            Str.string_slice(text, 9, len(text))
+        } else {
+            text
+        }
+    }
+
+    fn read_checksum(
+        fields: List<(String, Toml)>,
+        name: String,
+        origin: LockedOrigin,
+    ) -> Option<String> with Fail {
+        match Value.get(fields, "checksum") {
+            None -> missing_checksum(name, origin),
+            Some(TString(text)) -> Some(text),
+            Some(_) -> Fail.abort("a `[[package]]` `checksum` must be a string", None),
+        }
+    }
+
+    /// A registry package without a checksum cannot be verified, so it is
+    /// rejected rather than trusted.
+    fn missing_checksum(name: String, origin: LockedOrigin) -> Option<String> with Fail {
+        if is_registry(origin) {
+            Fail.abort(
+                "`" + name + "` is a registry package in `flux.lock` with no `checksum`",
+                None,
+            )
+        } else {
+            None
+        }
+    }
+
+    fn read_deps(fields: List<(String, Toml)>) -> List<String> with Fail {
+        match Value.get(fields, "dependencies") {
+            None -> [],
+            Some(TArray(items)) -> List.map(items, read_dep_name),
+            Some(_) -> Fail.abort("a `[[package]]` `dependencies` must be an array", []),
+        }
+    }
+
+    fn read_dep_name(item: Toml) -> String with Fail {
+        match item {
+            TString(text) -> text,
+            _ -> Fail.abort("each `dependencies` entry must be a string", ""),
+        }
+    }
+
+//| fields
+
+    fn require_string(fields: List<(String, Toml)>, key: String) -> String with Fail {
+        match Value.get(fields, key) {
+            None -> Fail.abort("a `[[package]]` entry is missing `" + key + "`", ""),
+            Some(TString(text)) -> text,
+            Some(_) -> Fail.abort("a `[[package]]` `" + key + "` must be a string", ""),
+        }
+    }
+
+    fn optional_string(fields: List<(String, Toml)>, key: String) -> String {
+        match Value.get(fields, key) {
+            Some(TString(text)) -> text,
+            _ -> "",
+        }
+    }
+
+//| rendering
+
+    /// Render a lockfile.
+    ///
+    /// Sorted by name, one inline block per entry, so two branches adding
+    /// different dependencies touch disjoint lines.
+    public fn render(l: Lock) -> String {
+        let blocks = lock_packages(l)
+            |> List.sort_by(entry_name)
+            |> List.map(render_entry)
+            |> List.to_array
+            |> Str.join("")
+        "version = " + to_string(lock_format(l)) + "\n" + blocks
+    }
+
+    fn render_entry(e: Entry) -> String {
+        "\n[[package]]\n"
+            + "name = " + quote(entry_name(e)) + "\n"
+            + "version = " + quote(Version.render(entry_version(e))) + "\n"
+            + render_origin(entry_origin(e))
+            + render_checksum(entry_checksum(e))
+            + render_deps(entry_deps(e))
+    }
+
+    /// A path package has no portable source, so the field is omitted.
+    fn render_origin(o: LockedOrigin) -> String {
+        match o {
+            LockedRegistry { url } -> "source = " + quote("registry+" + url) + "\n",
+            LockedPath { path: _ } -> "",
+            LockedGit { url, commit } ->
+                "source = " + quote("git+" + url + "#" + commit) + "\n",
+        }
+    }
+
+    fn render_checksum(checksum: Option<String>) -> String {
+        match checksum {
+            None -> "",
+            Some(text) -> "checksum = " + quote(text) + "\n",
+        }
+    }
+
+    fn render_deps(deps: List<String>) -> String {
+        match deps {
+            [] -> "",
+            _ -> "dependencies = [" + render_dep_names(deps) + "]\n",
+        }
+    }
+
+    fn render_dep_names(deps: List<String>) -> String {
+        deps
+            |> List.sort_by(itself)
+            |> List.map(quote)
+            |> List.to_array
+            |> Str.join(", ")
+    }
+
+    /// `sort_by` needs a key function; dependency names are their own key.
+    fn itself(name: String) -> String { name }
+
+    fn quote(text: String) -> String {
+        "\"" + text + "\""
+    }
+}

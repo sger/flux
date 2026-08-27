@@ -796,6 +796,9 @@ static void flux_async_register_callbacks(void) {
         flux_async_wrap_some,
         flux_async_make_adt0,
         flux_async_make_adt1,
+        flux_async_make_adt_fields,
+        flux_async_make_bool,
+        flux_async_make_array,
         flux_async_suspend,
         flux_async_is_suspended,
         flux_async_current_request,
@@ -909,6 +912,21 @@ int64_t flux_async_make_adt1(int32_t ctor_tag, int64_t value) {
     int64_t *fields = (int64_t *)((char *)mem + 8);
     fields[0] = value;
     return flux_tag_ptr(mem);
+}
+
+int64_t flux_async_make_adt_fields(int32_t ctor_tag, const int64_t *fields, int32_t count) {
+    return flux_io_make_adt(ctor_tag, fields, count);
+}
+
+int64_t flux_async_make_bool(int32_t value) {
+    return flux_make_bool(value != 0);
+}
+
+int64_t flux_async_make_array(const int64_t *elements, uintptr_t len) {
+    if (len > INT32_MAX) {
+        return flux_array_new(NULL, 0);
+    }
+    return flux_array_new((int64_t *)elements, (int32_t)len);
 }
 
 void flux_async_promote(int64_t value) {

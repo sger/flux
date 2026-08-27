@@ -11,6 +11,10 @@ use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(1);
 static NATIVE_HTTP_CLIENT_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -43,9 +47,13 @@ fn write_fixture(source: String) -> PathBuf {
 
 fn run_source(source: String) -> (String, String, bool) {
     let path = write_fixture(source);
+    // Private cache root: `--no-cache` does not isolate native
+    // builds, which write shared artifacts regardless (KI-010).
+    let scratch = Scratch::new("native-llvm");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--native", "--no-cache"])
+        .args(scratch.cache_args())
         .output()
         .expect("run native flux");
     let _ = std::fs::remove_file(&path);

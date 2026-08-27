@@ -20,15 +20,10 @@
 - [ ] VM smoke run (if relevant)
 - [ ] JIT smoke run (if relevant)
 
-## Changelog
-
-- [ ] Added changelog fragment under `changes/*.md`
-- [ ] Not needed (`no-changelog`) — explain why:
-
 ## Release Impact
 
 - [ ] No user-facing change
-- [ ] User-facing change reflected in `CHANGELOG.md` via fragment
+- [ ] User-facing change — this PR's description is the changelog entry
 - [ ] Docs updated (`README.md`, `docs/versions/*`, or proposal docs)
 
 ## Notes for Reviewers

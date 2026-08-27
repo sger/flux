@@ -1,2 +1,0 @@
-- VM `Task.spawn` now runs task bodies on Rust worker threads through a sendable deep-copy boundary into isolated worker VMs, then rehydrates results back into normal Rc-backed VM values. `Task.await` on the VM now parks only the current fiber and resumes from a task completion queue, matching native's fiber-suspending shape.
-- Added VM task parallelism coverage for CPU-bound overlap, nonblocking `Task.await`, ADT round trips, and the worker scheduler barrier case; updated async/task docs and examples to remove the old sequential VM caveat.

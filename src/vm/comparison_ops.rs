@@ -119,6 +119,13 @@ impl VM {
                 OpCode::OpNotEqual => Ok(l != r),
                 _ => Err(format!("cannot compare Tuple with {:?}", opcode)),
             },
+            // Structural, element-by-element, like tuples. Ordering is not
+            // defined for arrays, so only equality is offered.
+            (Value::Array(l), Value::Array(r)) => match opcode {
+                OpCode::OpEqual => Ok(l == r),
+                OpCode::OpNotEqual => Ok(l != r),
+                _ => Err(format!("cannot compare Array with {:?}", opcode)),
+            },
             (Value::None, Value::None) => match opcode {
                 OpCode::OpEqual => Ok(true),
                 OpCode::OpNotEqual => Ok(false),

@@ -265,12 +265,7 @@ fn instantiate_context_type_expr(
                 .map(|elem| instantiate_context_type_expr(elem, subst, interner))
                 .collect::<Option<Vec<_>>>()?,
         )),
-        TypeExpr::Function {
-            params,
-            ret,
-            effects: _,
-            ..
-        } => Some(InferType::Fun(
+        TypeExpr::Function { params, ret, .. } => Some(InferType::Fun(
             params
                 .iter()
                 .map(|param| instantiate_context_type_expr(param, subst, interner))

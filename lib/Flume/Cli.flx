@@ -1,0 +1,794 @@
+import Flume.Schema.Manifest as Manifest
+import Flume.Schema.Manifest exposing (Manifest, Bin, Dep, FromPath, FromRegistry, FromGit, GitSource, GitRev, GitTag, GitBranch, GitDefault, GitPin)
+import Flume.Schema.Lock as Lock
+import Flume.Schema.Lock exposing (Lock, Entry)
+import Flume.Source.Store as Store
+import Flume.Source.Git as Git
+import Flume.Schema.Edit as Edit
+import Flume.Toml.Parse as Parse
+import Flow.Fs as Fs
+import Flow.Path as Path
+import Flow.List as List
+import Flow.Array as Array
+import Flow.String as String
+import Flow.Env as Env
+
+/// The package-manager command surface.
+///
+/// The package manager itself is written in Flux; the Rust CLI only forwards
+/// `flux init` / `new` / `build` / `run` / `test` / `check` here and reports
+/// the exit status. Every decision about manifests, scaffolding, and targets
+/// is made in this module.
+///
+/// Commands report to stdout and signal failure with an `err<TAB>...` line,
+/// the same convention `Flume.Roots` uses, so the Rust side needs no second
+/// error vocabulary.
+module Flume.Cli {
+
+    /// What a command produced: a line to print, and whether it failed.
+    public data Outcome {
+        Outcome { failed: Bool, message: String }
+    }
+
+    public fn outcome_failed(o: Outcome) -> Bool {
+        match o { Outcome { failed, message: _ } -> failed }
+    }
+
+    public fn outcome_message(o: Outcome) -> String {
+        match o { Outcome { failed: _, message } -> message }
+    }
+
+    fn ok(message: String) -> Outcome {
+        Outcome { failed: false, message: message }
+    }
+
+    fn fail(message: String) -> Outcome {
+        Outcome { failed: true, message: message }
+    }
+
+//| scaffolding
+
+    /// The manifest written by `init` and `new`.
+    fn manifest_template(name: String) -> String {
+        "[package]\nname = \"" + name + "\"\nversion = \"0.1.0\"\nedition = \"2026\"\n"
+    }
+
+    /// A binary package's entry point.
+    fn main_template() -> String {
+        "fn main() with IO {\n    print(\"Hello from Flux!\")\n}\n"
+    }
+
+    /// A library package's root module, the package's public face.
+    fn lib_template(namespace: String) -> String {
+        "module " + namespace + " {\n"
+            + "    public fn greet() -> String { \"Hello from "
+            + namespace + "!\" }\n}\n"
+    }
+
+    /// Scaffold a package into `dir`.
+    ///
+    /// A library gets `src/<Namespace>.flx` — the root module that is the
+    /// package's public face — and a binary gets `src/main.flx`.
+    public fn init(dir: String, name: String, is_lib: Bool) -> Outcome with IO {
+        let manifest_path = Path.join(dir, "flux.toml")
+        if Fs.exists(manifest_path) {
+            fail("a package already exists at " + manifest_path)
+        } else {
+            scaffold(dir, name, is_lib, manifest_path)
+        }
+    }
+
+    fn scaffold(dir: String, name: String, is_lib: Bool, manifest_path: String) -> Outcome with IO {
+        let namespace = Manifest.derive_namespace(name)
+        let src = Path.join(dir, "src")
+        match Fs.create_dir_all(src) {
+            Err(_) -> fail("could not create " + src),
+            Ok(_) -> write_scaffold(manifest_path, src, name, namespace, is_lib),
+        }
+    }
+
+    fn write_scaffold(
+        manifest_path: String,
+        src: String,
+        name: String,
+        namespace: String,
+        is_lib: Bool,
+    ) -> Outcome with IO {
+        let entry = if is_lib {
+            Path.join(src, namespace + ".flx")
+        } else {
+            Path.join(src, "main.flx")
+        }
+        let body = if is_lib { lib_template(namespace) } else { main_template() }
+        match Fs.write_file(manifest_path, manifest_template(name)) {
+            Err(_) -> fail("could not write " + manifest_path),
+            Ok(_) -> finish_scaffold(entry, body, name),
+        }
+    }
+
+    fn finish_scaffold(entry: String, body: String, name: String) -> Outcome with IO {
+        match Fs.write_file(entry, body) {
+            Err(_) -> fail("could not write " + entry),
+            Ok(_) -> ok("created package `" + name + "`"),
+        }
+    }
+
+//| target selection
+
+    /// The entry file a package builds or runs.
+    ///
+    /// `[[bin]]` and `[lib]` targets are honored when declared; otherwise the
+    /// conventional layout applies — `src/main.flx` for a binary, and the
+    /// namespace root module for a library.
+    public fn entry_file(dir: String) -> Result<String, String> with IO {
+        match read_manifest(dir) {
+            Err(message) -> Err(message),
+            Ok(manifest) -> resolve_entry(manifest, dir),
+        }
+    }
+
+    fn read_manifest(dir: String) -> Result<Manifest, String> with IO {
+        let path = Path.join(dir, "flux.toml")
+        match Fs.read_file(path) {
+            Err(_) -> Err("cannot read " + path),
+            Ok(text) -> parse_text(text, path),
+        }
+    }
+
+    fn parse_text(text: String, path: String) -> Result<Manifest, String> with IO {
+        match Manifest.parse(text) {
+            Err(problem) -> Err(
+                Parse.error_kind(problem) + ": " + Parse.error_message(problem)
+            ),
+            Ok(manifest) -> Ok(manifest),
+        }
+    }
+
+    /// Resolve one named package profile for the Rust driver.
+    public fn profile(dir: String, name: String) -> Result<String, String> with IO {
+        match read_manifest(dir) {
+            Err(message) -> Err(message),
+            Ok(manifest) -> match Manifest.resolve_named_profile(
+                Manifest.manifest_profiles(manifest),
+                name,
+            ) {
+                Err(message) -> Err(message),
+                Ok(found) -> Ok(
+                    Manifest.backend_name(Manifest.profile_backend(found))
+                        + "\t"
+                        + (if Manifest.profile_optimize(found) { "true" } else { "false" })
+                ),
+            },
+        }
+    }
+
+    /// The default target prefers the conventional entry point over a declared
+    /// `[[bin]]`. A package that declares extra binaries still runs its own
+    /// `src/main.flx` for a bare `flux run`; the others are reached by name
+    /// with `--bin`.
+    fn resolve_entry(manifest: Manifest, dir: String) -> Result<String, String> with IO {
+        let main = dir |> Path.join("src") |> Path.join("main.flx")
+        if Fs.exists(main) {
+            Ok(main)
+        } else {
+            first_bin_entry(manifest, dir)
+        }
+    }
+
+    fn first_bin_entry(manifest: Manifest, dir: String) -> Result<String, String> with IO {
+        match Manifest.manifest_bins(manifest) {
+            [bin | _] -> Ok(Path.join(dir, Manifest.bin_path(bin))),
+            [] -> resolve_lib_entry(manifest, dir),
+        }
+    }
+
+    fn resolve_lib_entry(manifest: Manifest, dir: String) -> Result<String, String> with IO {
+        match Manifest.manifest_lib(manifest) {
+            Some(path) -> Ok(Path.join(dir, path)),
+            None -> conventional_entry(manifest, dir),
+        }
+    }
+
+    fn conventional_entry(manifest: Manifest, dir: String) -> Result<String, String> with IO {
+        namespace_entry(manifest, dir)
+    }
+
+    fn namespace_entry(manifest: Manifest, dir: String) -> Result<String, String> with IO {
+        let namespace = Manifest.package_namespace(Manifest.manifest_package(manifest))
+        let candidate = dir |> Path.join("src") |> Path.join(namespace + ".flx")
+        if Fs.exists(candidate) {
+            Ok(candidate)
+        } else {
+            Err("no entry point: expected src/main.flx or src/" + namespace + ".flx")
+        }
+    }
+
+    /// Named `[[bin]]` lookup for `flux run --bin <name>`.
+    public fn bin_entry(dir: String, name: String) -> Result<String, String> with IO {
+        match read_manifest(dir) {
+            Err(message) -> Err(message),
+            Ok(manifest) -> find_bin(Manifest.manifest_bins(manifest), dir, name),
+        }
+    }
+
+    fn find_bin(bins: List<Bin>, dir: String, name: String) -> Result<String, String> with IO {
+        match bins {
+            [] -> Err("no `[[bin]]` target named `" + name + "`"),
+            [bin | rest] ->
+                if Manifest.bin_name(bin) == name {
+                    Ok(Path.join(dir, Manifest.bin_path(bin)))
+                } else {
+                    find_bin(rest, dir, name)
+                },
+        }
+    }
+
+//| entry point
+
+    fn report(o: Outcome) with IO {
+        if outcome_failed(o) {
+            print("err\t" + outcome_message(o))
+        } else {
+            print("ok\t" + outcome_message(o))
+        }
+    }
+
+    fn arg(args: Array<String>, index: Int, fallback: String) -> String {
+        match Array.get(args, index) {
+            Some(value) -> value,
+            None -> fallback,
+        }
+    }
+
+    fn report_entry(resolved: Result<String, String>) with IO {
+        match resolved {
+            Err(message) -> print("err\t" + message),
+            Ok(path) -> print("ok\t" + path),
+        }
+    }
+
+    fn report_profile(resolved: Result<String, String>) with IO {
+        match resolved {
+            Err(message) -> print("err\t" + message),
+            Ok(value) -> print("ok\t" + value),
+        }
+    }
+
+    /// Dispatch a command.
+    ///
+    /// Invoked as `<command> <dir> [name] [--lib]`. `entry` and `bin` print
+    /// the resolved entry file so the Rust driver can compile it; the
+    /// scaffolding commands do their own work and report the result.
+//| tree
+
+    /// Render the dependency graph as a tree.
+    ///
+    /// ```text
+    /// greeter-app v0.1.0
+    /// └── flux-greeter (git: https://github.com/sger/flux-greeter#50543e1)
+    ///     └── base (path: ../base)
+    /// ```
+    ///
+    /// Each dependency is annotated with where it comes from, because "which
+    /// version of this am I building?" is the question a tree is usually
+    /// opened to answer, and for a git dependency the answer is a commit
+    /// rather than a version number. Locked commits are preferred over the
+    /// manifest's pin, since the lockfile is what the build will actually use.
+    ///
+    /// A package already shown is marked `(*)` instead of being expanded
+    /// again: the graph may be a DAG, and repeating a shared dependency's
+    /// whole subtree makes a tree that is mostly duplicates.
+    public fn tree(dir: String) -> Outcome with IO {
+        match read_manifest(dir) {
+            Err(message) -> fail(message),
+            Ok(manifest) -> render_tree(manifest, dir),
+        }
+    }
+
+    fn render_tree(manifest: Manifest, dir: String) -> Outcome with IO {
+        let package = Manifest.manifest_package(manifest)
+        let heading = Manifest.package_name(package)
+            + " v" + Manifest.package_version(package)
+        let locked = git_pins(dir)
+        let lines = branches(
+            build_deps(manifest),
+            dir,
+            "",
+            [Manifest.package_name(package)],
+            locked,
+        )
+        ok(join_lines([heading | lines]))
+    }
+
+    /// Dependencies that take part in the build.
+    ///
+    /// Dev dependencies are excluded, matching what `Flume.Roots` resolves: a
+    /// tree that showed them would not describe the graph being built.
+    fn build_deps(manifest: Manifest) -> List<Dep> {
+        List.filter(Manifest.manifest_deps(manifest), \d -> !Manifest.dep_is_dev(d))
+    }
+
+    /// Render one level, then recurse into each child.
+    ///
+    /// `prefix` is the indentation carried down from the parent, and `seen`
+    /// the packages already displayed. The last child of a level draws `└──`
+    /// and indents with spaces; every other draws `├──` and carries a `│`, so
+    /// the vertical rules line up with the branches that are still open.
+    fn branches(
+        deps: List<Dep>,
+        base: String,
+        prefix: String,
+        seen: List<String>,
+        locked: List<(String, String)>,
+    ) -> List<String> with IO {
+        match drawn(deps, base, prefix, seen, locked) { (lines, _) -> lines }
+    }
+
+    /// Render a level, returning the lines *and* everything now shown.
+    ///
+    /// `seen` has to come back out rather than only going in: a package first
+    /// reached inside one sibling's subtree must be recognised as already
+    /// shown when a later sibling reaches it too. Passing `seen` down alone
+    /// would mark repeats only along a single path, so a diamond would be
+    /// drawn in full twice.
+    fn drawn(
+        deps: List<Dep>,
+        base: String,
+        prefix: String,
+        seen: List<String>,
+        locked: List<(String, String)>,
+    ) -> (List<String>, List<String>) with IO {
+        match deps {
+            [] -> ([], seen),
+            [dep | rest] -> drawn_rest(dep, rest, base, prefix, seen, locked),
+        }
+    }
+
+    fn drawn_rest(
+        dep: Dep,
+        rest: List<Dep>,
+        base: String,
+        prefix: String,
+        seen: List<String>,
+        locked: List<(String, String)>,
+    ) -> (List<String>, List<String>) with IO {
+        match branch(dep, List.length(rest) == 0, base, prefix, seen, locked) {
+            (lines, after) -> match drawn(rest, base, prefix, after, locked) {
+                (more, final_seen) -> (List.concat([lines, more]), final_seen),
+            },
+        }
+    }
+
+    fn branch(
+        dep: Dep,
+        is_last: Bool,
+        base: String,
+        prefix: String,
+        seen: List<String>,
+        locked: List<(String, String)>,
+    ) -> (List<String>, List<String>) with IO {
+        let name = Manifest.dep_name(dep)
+        let label = prefix + connector(is_last) + name + " " + describe(dep, locked)
+        if List.contains(seen, name) {
+            ([label + " (*)"], seen)
+        } else {
+            expand(dep, label, base, prefix + continuation(is_last), [name | seen], locked)
+        }
+    }
+
+    fn expand(
+        dep: Dep,
+        label: String,
+        base: String,
+        prefix: String,
+        seen: List<String>,
+        locked: List<(String, String)>,
+    ) -> (List<String>, List<String>) with IO {
+        match children(dep, base, prefix, seen, locked) {
+            (lines, after) -> ([label | lines], after),
+        }
+    }
+
+    fn connector(is_last: Bool) -> String {
+        if is_last { "└── " } else { "├── " }
+    }
+
+    fn continuation(is_last: Bool) -> String {
+        if is_last { "    " } else { "│   " }
+    }
+
+    /// A dependency's own dependencies, when its manifest can be read.
+    ///
+    /// A package that is not on disk contributes no children rather than
+    /// failing: `tree` describes what the manifests say, and refusing to draw
+    /// anything because one dependency has not been fetched would make the
+    /// command useless exactly when it is most wanted.
+    fn children(
+        dep: Dep,
+        base: String,
+        prefix: String,
+        seen: List<String>,
+        locked: List<(String, String)>,
+    ) -> (List<String>, List<String>) with IO {
+        match dep_dir(dep, base, locked) {
+            None -> ([], seen),
+            Some(dir) -> child_manifest(dir, prefix, seen, locked),
+        }
+    }
+
+    fn child_manifest(
+        dir: String,
+        prefix: String,
+        seen: List<String>,
+        locked: List<(String, String)>,
+    ) -> (List<String>, List<String>) with IO {
+        match read_manifest(dir) {
+            Err(_) -> ([], seen),
+            Ok(found) -> drawn(build_deps(found), dir, prefix, seen, locked),
+        }
+    }
+
+    /// Where a dependency's sources are, if they can be located without a
+    /// network round trip.
+    fn dep_dir(
+        dep: Dep,
+        base: String,
+        locked: List<(String, String)>,
+    ) -> Option<String> with IO {
+        match Manifest.dep_source(dep) {
+            FromPath(rel) -> Some(Path.normalize(Path.join(base, rel))),
+            FromRegistry(_) -> None,
+            FromGit(source) -> git_dir(source, Manifest.dep_name(dep), locked),
+        }
+    }
+
+    /// A git dependency's checkout, when its commit is already known.
+    ///
+    /// Only a commit the lockfile records, or a `rev` written in the manifest,
+    /// locates a directory: resolving a tag or branch means asking the remote,
+    /// and `tree` should not reach the network to draw a picture.
+    fn git_dir(
+        source: GitSource,
+        name: String,
+        locked: List<(String, String)>,
+    ) -> Option<String> with IO {
+        match known_commit(source, name, locked) {
+            None -> None,
+            Some(commit) -> Some(Git.commit_dir(Manifest.git_source_url(source), commit)),
+        }
+    }
+
+    fn known_commit(
+        source: GitSource,
+        name: String,
+        locked: List<(String, String)>,
+    ) -> Option<String> {
+        match Manifest.git_source_pin(source) {
+            GitRev(rev) -> Some(rev),
+            GitTag(_) -> lookup(locked, name),
+            GitBranch(_) -> lookup(locked, name),
+            GitDefault -> lookup(locked, name),
+        }
+    }
+
+//| annotations
+
+    /// How a dependency is written, in one parenthesised phrase.
+    fn describe(dep: Dep, locked: List<(String, String)>) -> String {
+        match Manifest.dep_source(dep) {
+            FromPath(rel) -> "(path: " + rel + ")",
+            FromRegistry(req) -> "(registry: " + req + ")",
+            FromGit(source) -> describe_git(source, Manifest.dep_name(dep), locked),
+        }
+    }
+
+    /// A git dependency shows the commit it resolves to when one is known,
+    /// and the ref it asks for otherwise.
+    fn describe_git(
+        source: GitSource,
+        name: String,
+        locked: List<(String, String)>,
+    ) -> String {
+        let url = Manifest.git_source_url(source)
+        match known_commit(source, name, locked) {
+            Some(commit) -> "(git: " + url + "#" + short(commit) + ")",
+            None -> "(git: " + url + " " + describe_pin(Manifest.git_source_pin(source)) + ")",
+        }
+    }
+
+    fn describe_pin(pin: GitPin) -> String {
+        match pin {
+            GitRev(rev) -> "rev " + short(rev),
+            GitTag(tag) -> "tag " + tag,
+            GitBranch(branch) -> "branch " + branch,
+            GitDefault -> "default branch",
+        }
+    }
+
+    /// Commits are shown abbreviated: seven characters identify a revision in
+    /// any repository small enough to read a dependency tree of.
+    fn short(commit: String) -> String {
+        if len(commit) > 7 { String.string_slice(commit, 0, 7) } else { commit }
+    }
+
+//| lockfile
+
+    /// The commits `flux.lock` pins each git dependency to.
+    fn git_pins(dir: String) -> List<(String, String)> with IO {
+        match Store.read_lock(dir) {
+            Err(_) -> [],
+            Ok(None) -> [],
+            Ok(Some(found)) -> git_pins_of(Lock.lock_packages(found)),
+        }
+    }
+
+    fn git_pins_of(entries: List<Entry>) -> List<(String, String)> {
+        match entries {
+            [] -> [],
+            [head | rest] -> match Lock.origin_commit(Lock.entry_origin(head)) {
+                None -> git_pins_of(rest),
+                Some(commit) -> [(Lock.entry_name(head), commit) | git_pins_of(rest)],
+            },
+        }
+    }
+
+    fn lookup(locked: List<(String, String)>, name: String) -> Option<String> {
+        match locked {
+            [] -> None,
+            [pair | rest] -> match pair {
+                (found, commit) -> if found == name {
+                    Some(commit)
+                } else {
+                    lookup(rest, name)
+                },
+            },
+        }
+    }
+
+    fn join_lines(lines: List<String>) -> String {
+        lines |> List.to_array |> String.join("\n")
+    }
+
+//| add and remove
+
+    /// What `flux add` was asked to record.
+    ///
+    /// The source is already rendered by the time it gets here, so this is the
+    /// pair of things `add` still has to decide about: which table to write
+    /// into, and whether the dependency should be verified before it is.
+    data AddSpec {
+        AddSpec { name: String, value: String, dev: Bool }
+    }
+
+    /// `flux add <name> --git <url> [--tag|--branch|--rev <ref>]`
+    ///
+    /// Also `--path <dir>` and `--version <req>`. The manifest is edited
+    /// textually rather than reparsed and rendered, so comments, key order,
+    /// and spacing survive — see `Flume.Edit`.
+    public fn add(dir: String, args: Array<String>) -> Outcome with IO {
+        match parse_add(args) {
+            Err(message) -> fail(message),
+            Ok(spec) -> apply_add(dir, spec),
+        }
+    }
+
+    fn apply_add(dir: String, spec: AddSpec) -> Outcome with IO {
+        let table = dependency_table(spec)
+        match edit_manifest(dir, \text ->
+            Edit.add_dependency(text, table, add_name(spec), add_value(spec))
+        ) {
+            Err(message) -> fail(message),
+            Ok(_) -> ok("added `" + add_name(spec) + "` to [" + table + "]"),
+        }
+    }
+
+    /// `flux remove <name>`
+    public fn remove(dir: String, args: Array<String>) -> Outcome with IO {
+        let name = arg(args, 3, "")
+        if len(name) == 0 {
+            fail("`flux remove` needs a dependency name")
+        } else {
+            apply_remove(dir, name, has_flag(args, "--dev"))
+        }
+    }
+
+    fn apply_remove(dir: String, name: String, dev: Bool) -> Outcome with IO {
+        let table = table_for(dev)
+        match edit_manifest(dir, \text -> Edit.remove_dependency(text, table, name)) {
+            Err(message) -> fail(message),
+            Ok(_) -> ok("removed `" + name + "` from [" + table + "]"),
+        }
+    }
+
+    /// Read the manifest, apply `change`, write it back.
+    ///
+    /// Written through a temporary file and renamed, so an interrupted write
+    /// cannot leave a half-edited manifest that the next build would read as
+    /// authoritative — the same discipline `Flume.Home` uses for the lockfile.
+    fn edit_manifest(
+        dir: String,
+        change: (String) -> Result<String, String>,
+    ) -> Result<String, String> with IO {
+        let path = Path.join(dir, "flux.toml")
+        match Fs.read_file(path) {
+            Err(_) -> Err("cannot read " + path),
+            Ok(text) -> write_manifest(path, change(text)),
+        }
+    }
+
+    fn write_manifest(path: String, changed: Result<String, String>) -> Result<String, String> with IO {
+        match changed {
+            Err(message) -> Err(message),
+            Ok(text) -> write_atomically(path, text),
+        }
+    }
+
+    fn write_atomically(path: String, text: String) -> Result<String, String> with IO {
+        let temporary = path + ".tmp"
+        match Fs.write_file(temporary, text) {
+            Err(_) -> Err("cannot write " + temporary),
+            Ok(_) -> rename_manifest(temporary, path),
+        }
+    }
+
+    fn rename_manifest(temporary: String, path: String) -> Result<String, String> with IO {
+        match Fs.rename(temporary, path) {
+            Err(_) -> Err("cannot replace " + path),
+            Ok(_) -> keep(path),
+        }
+    }
+
+    /// Returned through a parameter — see docs/known_issues.md#ki-022.
+    fn keep(path: String) -> Result<String, String> {
+        Ok(path)
+    }
+
+//| parsing `add` arguments
+
+    fn parse_add(args: Array<String>) -> Result<AddSpec, String> {
+        let name = arg(args, 3, "")
+        if len(name) == 0 {
+            Err("`flux add` needs a dependency name")
+        } else {
+            parse_add_source(args, name)
+        }
+    }
+
+    fn parse_add_source(args: Array<String>, name: String) -> Result<AddSpec, String> {
+        let dev = has_flag(args, "--dev")
+        let git = flag_value(args, "--git")
+        let path = flag_value(args, "--path")
+        let version = flag_value(args, "--version")
+        match (git, path, version) {
+            (Some(url), None, None) -> Ok(AddSpec {
+                name: name,
+                value: git_dependency_value(args, url),
+                dev: dev,
+            }),
+            (None, Some(dir), None) -> Ok(AddSpec {
+                name: name,
+                value: Edit.path_value(dir),
+                dev: dev,
+            }),
+            (None, None, Some(req)) -> Ok(AddSpec {
+                name: name,
+                value: Edit.version_value(req),
+                dev: dev,
+            }),
+            (None, None, None) -> Err(
+                "`flux add " + name + "` needs one of `--git`, `--path`, or `--version`",
+            ),
+            _ -> Err("`flux add` takes only one of `--git`, `--path`, and `--version`"),
+        }
+    }
+
+    /// A git dependency's pin, if one was named.
+    ///
+    /// At most one of `--tag`, `--branch`, and `--rev`; none means the
+    /// repository's default branch, which is the form `flux add --git <url>`
+    /// alone should produce.
+    fn git_dependency_value(args: Array<String>, url: String) -> String {
+        match flag_value(args, "--tag") {
+            Some(tag) -> Edit.git_value(url, "tag", tag),
+            None -> git_branch_value(args, url),
+        }
+    }
+
+    fn git_branch_value(args: Array<String>, url: String) -> String {
+        match flag_value(args, "--branch") {
+            Some(branch) -> Edit.git_value(url, "branch", branch),
+            None -> git_rev_value(args, url),
+        }
+    }
+
+    fn git_rev_value(args: Array<String>, url: String) -> String {
+        match flag_value(args, "--rev") {
+            Some(rev) -> Edit.git_value(url, "rev", rev),
+            None -> Edit.git_value(url, "", ""),
+        }
+    }
+
+    fn dependency_table(spec: AddSpec) -> String {
+        table_for(add_dev(spec))
+    }
+
+    fn table_for(dev: Bool) -> String {
+        if dev { "dev-dependencies" } else { "dependencies" }
+    }
+
+    fn add_name(spec: AddSpec) -> String {
+        match spec { AddSpec { name, value: _, dev: _ } -> name }
+    }
+
+    fn add_value(spec: AddSpec) -> String {
+        match spec { AddSpec { name: _, value, dev: _ } -> value }
+    }
+
+    fn add_dev(spec: AddSpec) -> Bool {
+        match spec { AddSpec { name: _, value: _, dev } -> dev }
+    }
+
+    /// The value following `flag`, if the flag is present with one.
+    fn flag_value(args: Array<String>, flag: String) -> Option<String> {
+        value_after(Array.to_list(args), flag)
+    }
+
+    fn value_after(args: List<String>, flag: String) -> Option<String> {
+        match args {
+            [] -> None,
+            [head | rest] -> if head == flag {
+                first_of(rest)
+            } else {
+                value_after(rest, flag)
+            },
+        }
+    }
+
+    fn first_of(args: List<String>) -> Option<String> {
+        match args {
+            [] -> None,
+            [head | _] -> Some(head),
+        }
+    }
+
+    fn has_flag(args: Array<String>, flag: String) -> Bool {
+        List.contains(Array.to_list(args), flag)
+    }
+
+    public fn main() with IO {
+        let args = Env.args()
+        let command = arg(args, 1, "help")
+        let dir = arg(args, 2, ".")
+        dispatch(command, dir, args)
+    }
+
+    fn dispatch(command: String, dir: String, args: Array<String>) with IO {
+        // `new` scaffolds into a directory the caller already created, so it
+        // is `init` once the directory exists.
+        if command == "init" || command == "new" {
+            report(init(dir, arg(args, 3, "package"), arg(args, 4, "") == "--lib"))
+        } else {
+            dispatch_query(command, dir, args)
+        }
+    }
+
+    fn dispatch_query(command: String, dir: String, args: Array<String>) with IO {
+        if command == "add" {
+            report(add(dir, args))
+        } else if command == "remove" {
+            report(remove(dir, args))
+        } else if command == "tree" {
+            report(tree(dir))
+        } else if command == "entry" {
+            report_entry(entry_file(dir))
+        } else if command == "profile" {
+            report_profile(profile(dir, arg(args, 3, "dev")))
+        } else {
+            if command == "bin" {
+                report_entry(bin_entry(dir, arg(args, 3, "")))
+            } else {
+                print("err\tunknown command `" + command + "`")
+            }
+        }
+    }
+}

@@ -1,0 +1,272 @@
+// parity-expected-stdout-begin
+// "── map / filter / fold pipeline ──"
+// "400"
+// "600"
+// "── sorting and taking ──"
+// "["ada", "grace"]"
+// "── partition into two lists ──"
+// "["ada", "grace", "barbara"]"
+// "["alan", "edsger"]"
+// "── ADTs through a pipeline ──"
+// "["senior", "mid", "junior", "mid", "junior"]"
+// "1"
+// "── grouping via sort then group_by ──"
+// "[("eng", 3), ("sales", 2)]"
+// "── Option threading ──"
+// "Some("ada")"
+// "None"
+// "ada"
+// "nobody"
+// "── Result threading ──"
+// "290"
+// "-1"
+// "── zip / enumerate / unzip ──"
+// "["ada=160", "grace=145"]"
+// "["0:ada", "1:grace", "2:alan"]"
+// "true"
+// "── scanl: running totals ──"
+// "[0, 160, 305, 400, 520, 600]"
+// "── flat_map and nested structure ──"
+// "["a", "g", "a", "b", "e"]"
+// "── take_while / drop_while ──"
+// "[160, 145, 120]"
+// "[95, 80]"
+// "── Array pipeline ──"
+// "425"
+// "5"
+// "── generation: range, iterate, unfold ──"
+// "[1, 4, 9, 16, 25]"
+// "[1, 3, 9, 27, 81]"
+// "[3, 2, 1]"
+// "── composition into a single reduction ──"
+// "42"
+// parity-expected-stdout-end
+
+/*
+Higher-order pipelines over the Flow standard library.
+
+This example is the "everything together" one: `Flow.List` and `Flow.Array`
+combinators chained with `|>`, lambdas and named functions used
+interchangeably, `Option` and `Result` threaded through, ADTs destructured in
+pattern matches, and records built and read — all in the order the data flows.
+
+Every function here is pure. Nothing in this file needs an effect except
+`main`, which prints.
+*/
+
+import Flow.List as List
+import Flow.Array as Array
+import Flow.Option as Option
+import Flow.Result as Result
+import Flow.String as Str
+
+// ── domain ──────────────────────────────────────────────────────────
+
+data Employee {
+    Employee { name: String, dept: String, salary: Int, years: Int }
+}
+
+data Tier { Junior, Mid, Senior }
+
+fn staff() -> List<Employee> {
+    [
+        Employee { name: "ada",     dept: "eng",   salary: 160, years: 9 },
+        Employee { name: "grace",   dept: "eng",   salary: 145, years: 6 },
+        Employee { name: "alan",    dept: "eng",   salary: 95,  years: 2 },
+        Employee { name: "barbara", dept: "sales", salary: 120, years: 7 },
+        Employee { name: "edsger",  dept: "sales", salary: 80,  years: 1 },
+    ]
+}
+
+// ── field accessors, used point-free in pipelines ───────────────────
+
+fn name_of(e: Employee) -> String {
+    match e { Employee { name, dept: _, salary: _, years: _ } -> name }
+}
+
+fn dept_of(e: Employee) -> String {
+    match e { Employee { name: _, dept, salary: _, years: _ } -> dept }
+}
+
+fn salary_of(e: Employee) -> Int {
+    match e { Employee { name: _, dept: _, salary, years: _ } -> salary }
+}
+
+fn years_of(e: Employee) -> Int {
+    match e { Employee { name: _, dept: _, salary: _, years } -> years }
+}
+
+/// Classification as a pattern match over a guard chain, returning an ADT
+/// rather than a string — so a typo becomes a compile error, not a bug.
+fn tier_of(e: Employee) -> Tier {
+    let y = years_of(e)
+    if y >= 8 { Senior } else { if y >= 5 { Mid } else { Junior } }
+}
+
+fn tier_name(t: Tier) -> String {
+    match t {
+        Senior -> "senior",
+        Mid    -> "mid",
+        Junior -> "junior",
+    }
+}
+
+fn main() with IO {
+    print("── map / filter / fold pipeline ──")
+
+    // Filter, project, reduce — reads top to bottom in data order.
+    let eng_payroll = staff()
+        |> List.filter(\e -> dept_of(e) == "eng")
+        |> List.map(salary_of)
+        |> List.fold(0, \(acc, s) -> acc + s)
+    print(to_string(eng_payroll))
+
+    // The same shape, but summing with the dedicated combinator.
+    let total = staff() |> List.map(salary_of) |> List.sum
+    print(to_string(total))
+
+    print("── sorting and taking ──")
+
+    // Top two earners, by name. sort_by then take then map.
+    let top_two = staff()
+        |> List.sort_by(\e -> 0 - salary_of(e))
+        |> List.take(2)
+        |> List.map(name_of)
+    print(to_string(top_two))
+
+    print("── partition into two lists ──")
+
+    // partition returns a pair; destructure it in a let.
+    let (veterans, newer) = List.partition(staff(), \e -> years_of(e) >= 6)
+    print(to_string(List.map(veterans, name_of)))
+    print(to_string(List.map(newer, name_of)))
+
+    print("── ADTs through a pipeline ──")
+
+    // Map to an ADT, then render it. The intermediate list is List<Tier>.
+    let tiers = staff()
+        |> List.map(tier_of)
+        |> List.map(tier_name)
+    print(to_string(tiers))
+
+    // Count without materialising an intermediate list.
+    let senior_count = List.count(staff(), \e -> match tier_of(e) {
+        Senior -> true,
+        _ -> false,
+    })
+    print(to_string(senior_count))
+
+    print("── grouping via sort then group_by ──")
+
+    // group_by groups *adjacent* equals, so sorting by the key comes first.
+    let by_dept = staff()
+        |> List.sort_by(dept_of)
+        |> List.group_by(\(a, b) -> dept_of(a) == dept_of(b))
+        |> List.map(\group -> (
+            List.first(group) |> dept_of,
+            List.length(group)
+        ))
+    print(to_string(by_dept))
+
+    print("── Option threading ──")
+
+    // find returns Option; map_option transforms inside it without unwrapping.
+    let first_senior = staff()
+        |> List.find(\e -> years_of(e) >= 8)
+        |> Option.map_option(name_of)
+    print(to_string(first_senior))
+
+    let no_match = staff()
+        |> List.find(\e -> years_of(e) > 100)
+        |> Option.map_option(name_of)
+    print(to_string(no_match))
+
+    // unwrap_or supplies the default at the edge, once.
+    print(Option.unwrap_or(first_senior, "nobody"))
+    print(Option.unwrap_or(no_match, "nobody"))
+
+    print("── Result threading ──")
+
+    // A fallible lookup expressed as Result, chained with and_then.
+    let found = lookup_salary("grace") |> Result.map_result(\s -> s * 2)
+    print(to_string(Result.unwrap_or_result(found, 0)))
+
+    let missing = lookup_salary("nobody") |> Result.map_result(\s -> s * 2)
+    print(to_string(Result.unwrap_or_result(missing, -1)))
+
+    print("── zip / enumerate / unzip ──")
+
+    let names = staff() |> List.map(name_of)
+    let salaries = staff() |> List.map(salary_of)
+
+    // zip_with combines two lists without building pairs first.
+    let labelled = List.zip_with(names, salaries, \(n, s) -> n + "=" + to_string(s))
+    print(to_string(List.take(labelled, 2)))
+
+    // enumerate pairs each element with its index.
+    let indexed = names |> List.enumerate |> List.map(\p -> to_string(p.0) + ":" + p.1)
+    print(to_string(List.take(indexed, 3)))
+
+    // unzip is the inverse of zip.
+    let (ns, ss) = List.unzip(List.zip(names, salaries))
+    print(to_string(List.length(ns) == List.length(ss)))
+
+    print("── scanl: running totals ──")
+
+    // scanl keeps every intermediate accumulator, unlike fold.
+    let running = salaries |> List.scanl(0, \(acc, s) -> acc + s)
+    print(to_string(running))
+
+    print("── flat_map and nested structure ──")
+
+    // One element in, many out — then flattened in a single pass.
+    let initials = staff()
+        |> List.flat_map(\e -> [Str.string_slice(name_of(e), 0, 1)])
+    print(to_string(initials))
+
+    print("── take_while / drop_while ──")
+
+    // Order-sensitive: both stop at the first element that fails.
+    let descending = salaries |> List.sort_by(\s -> 0 - s)
+    print(to_string(List.take_while(descending, \s -> s >= 120)))
+    print(to_string(List.drop_while(descending, \s -> s >= 120)))
+
+    print("── Array pipeline ──")
+
+    // The same style over Array, which is indexed rather than cons-based.
+    let arr = List.to_array(salaries)
+    let arr_total = arr |> Array.filter(\s -> s >= 100) |> Array.sum
+    print(to_string(arr_total))
+    print(to_string(Array.length(arr)))
+
+    print("── generation: range, iterate, unfold ──")
+
+    // range is half-open, so this is 1..=5.
+    let squares = List.range(1, 6) |> List.map(\n -> n * n)
+    print(to_string(squares))
+
+    // iterate applies a function n times, collecting each step.
+    print(to_string(List.iterate(1, \n -> n * 3, 5)))
+
+    // unfold builds until the generator returns None.
+    let countdown = List.unfold(3, \n -> if n > 0 { Some((n, n - 1)) } else { None })
+    print(to_string(countdown))
+
+    print("── composition into a single reduction ──")
+
+    // The whole thing as one expression: filter, project, transform, reduce.
+    let bonus_pool = staff()
+        |> List.filter(\e -> years_of(e) >= 5)
+        |> List.map(\e -> salary_of(e) / 10)
+        |> List.fold(0, \(acc, b) -> acc + b)
+    print(to_string(bonus_pool))
+}
+
+/// A fallible lookup returning `Result`, so callers must acknowledge the
+/// miss at the call site rather than receiving a sentinel.
+fn lookup_salary(who: String) -> Result<Int, String> {
+    match List.find(staff(), \e -> name_of(e) == who) {
+        Some(e) -> Ok(salary_of(e)),
+        None -> Err("no such employee: " + who),
+    }
+}

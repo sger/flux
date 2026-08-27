@@ -152,9 +152,15 @@ pub fn fmt(path: &str, check: bool) {
             }
             if let Err(err) = fs::write(path, formatted) {
                 eprintln!("Error writing {}: {}", path, err);
+                std::process::exit(1);
             }
         }
-        Err(e) => eprintln!("Error reading {}: {}", path, e),
+        Err(e) => {
+            // Reporting the failure and exiting 0 makes `flux fmt` unusable in
+            // a pre-commit hook or CI check (KI-019).
+            eprintln!("Error reading {}: {}", path, e);
+            std::process::exit(1);
+        }
     }
 }
 

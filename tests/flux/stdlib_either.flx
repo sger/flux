@@ -1,0 +1,108 @@
+// Tests for Flow.Either.
+//
+// `Either<L, R>` is built in, so `Left` and `Right` need no import. The
+// convention this module follows is Haskell's: `Left` carries the error or
+// the unusual case, `Right` the ordinary one.
+//
+// Order preservation is asserted throughout — every function here is an
+// accumulator that reverses at the end, which is where such functions break.
+
+import Flow.Either as Either
+
+// ── case analysis ──────────────────────────────────────────────
+
+fn test_either_applies_the_branch_matching_the_constructor() {
+    let l: Either<String, Int> = Left("boom")
+    let r: Either<String, Int> = Right(42)
+    assert_eq(Either.either(l, \s -> "L:" + s, \n -> "R:" + to_string(n)), "L:boom")
+    assert_eq(Either.either(r, \s -> "L:" + s, \n -> "R:" + to_string(n)), "R:42")
+}
+
+/// Both branches must produce the same type, which is what makes `either` a
+/// total elimination rather than a partial accessor.
+fn test_either_collapses_both_sides_to_one_type() {
+    let l: Either<Int, Int> = Left(1)
+    let r: Either<Int, Int> = Right(2)
+    assert_eq(Either.either(l, \x -> x * 10, \y -> y * 100), 10)
+    assert_eq(Either.either(r, \x -> x * 10, \y -> y * 100), 200)
+}
+
+// ── extraction ─────────────────────────────────────────────────
+
+fn mixed() -> List<Either<String, Int>> {
+    [Left("a"), Right(1), Left("b"), Right(2), Right(3)]
+}
+
+fn test_lefts_keeps_only_left_values_in_order() {
+    assert_eq(Either.lefts(mixed()), ["a", "b"])
+}
+
+fn test_rights_keeps_only_right_values_in_order() {
+    assert_eq(Either.rights(mixed()), [1, 2, 3])
+}
+
+fn test_lefts_and_rights_of_the_empty_list_are_empty() {
+    let none: List<Either<String, Int>> = []
+    assert_eq(Either.lefts(none), [])
+    assert_eq(Either.rights(none), [])
+}
+
+fn test_lefts_is_empty_when_everything_is_right() {
+    let all_right: List<Either<String, Int>> = [Right(1), Right(2)]
+    assert_eq(Either.lefts(all_right), [])
+    assert_eq(Either.rights(all_right), [1, 2])
+}
+
+fn test_rights_is_empty_when_everything_is_left() {
+    let all_left: List<Either<String, Int>> = [Left("x"), Left("y")]
+    assert_eq(Either.lefts(all_left), ["x", "y"])
+    assert_eq(Either.rights(all_left), [])
+}
+
+// ── partitioning ───────────────────────────────────────────────
+
+fn test_partition_eithers_splits_in_one_pass() {
+    assert_eq(Either.partition_eithers(mixed()), (["a", "b"], [1, 2, 3]))
+}
+
+/// `partition_eithers` must agree with running `lefts` and `rights`
+/// separately — it exists only to do both in a single traversal.
+fn test_partition_eithers_agrees_with_lefts_and_rights() {
+    let (ls, rs) = Either.partition_eithers(mixed())
+    assert_eq(ls, Either.lefts(mixed()))
+    assert_eq(rs, Either.rights(mixed()))
+}
+
+fn test_partition_eithers_of_the_empty_list_is_two_empty_lists() {
+    let none: List<Either<String, Int>> = []
+    assert_eq(Either.partition_eithers(none), ([], []))
+}
+
+/// Nothing is lost: the two halves always account for every element.
+fn test_partitioning_preserves_the_total_count() {
+    let (ls, rs) = Either.partition_eithers(mixed())
+    assert_eq(len(ls) + len(rs), len(mixed()))
+}
+
+// ── validation pipeline ────────────────────────────────────────
+
+/// The idiomatic use: validate many inputs, then report every failure at once
+/// rather than stopping at the first.
+fn parse_positive(n: Int) -> Either<String, Int> {
+    if n > 0 { Right(n) } else { Left(to_string(n) + " is not positive") }
+}
+
+fn test_collecting_all_failures_rather_than_the_first() with Console {
+    let checked = map([1, -2, 3, -4], parse_positive)
+    let (errors, values) = Either.partition_eithers(checked)
+    assert_eq(len(errors), 2)
+    assert_eq(values, [1, 3])
+    assert_eq(first(errors), "-2 is not positive")
+}
+
+fn test_a_fully_valid_batch_yields_no_errors() with Console {
+    let checked = map([1, 2, 3], parse_positive)
+    let (errors, values) = Either.partition_eithers(checked)
+    assert_eq(errors, [])
+    assert_eq(values, [1, 2, 3])
+}

@@ -1,0 +1,136 @@
+// Tests for Flow.Crypto.
+//
+// The digests below are the published FIPS 180-4 / NIST test vectors. They are
+// the reason this file exists: SHA-256 is implemented twice — the `sha2` crate
+// on the VM, hand-written C on the native backend — and a divergence between
+// them is a silent wrong answer rather than a crash.
+
+import Flow.Crypto as Crypto
+import Flow.Fs as Fs
+import Flow.IoError as Io
+import Flow.Result as Result
+
+// ── published test vectors ─────────────────────────────────────
+
+fn test_the_empty_string_hashes_to_the_known_digest() with Console {
+    assert_eq(
+        Crypto.sha256(""),
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    )
+}
+
+fn test_abc_hashes_to_the_known_digest() with Console {
+    assert_eq(
+        Crypto.sha256("abc"),
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    )
+}
+
+/// 56 bytes — crosses the padding boundary, where the length no longer fits
+/// in the final block and a second compression round is required.
+fn test_a_multi_block_message_hashes_correctly() with Console {
+    assert_eq(
+        Crypto.sha256("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
+        "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
+    )
+}
+
+// ── shape ──────────────────────────────────────────────────────
+
+fn test_a_digest_is_sixty_four_hex_characters() with Console {
+    assert_eq(len(Crypto.sha256("")), 64)
+    assert_eq(len(Crypto.sha256("anything at all")), 64)
+}
+
+fn test_digests_are_lowercase() with Console {
+    let d = Crypto.sha256("abc")
+    assert_eq(d, lower(d))
+}
+
+// ── the properties callers actually rely on ────────────────────
+
+fn test_hashing_is_deterministic() with Console {
+    assert_eq(Crypto.sha256("same input"), Crypto.sha256("same input"))
+}
+
+fn test_different_inputs_produce_different_digests() with Console {
+    assert_true(Crypto.sha256("a") != Crypto.sha256("b"))
+}
+
+/// A one-character change must not produce a similar digest. This is the
+/// property content addressing depends on.
+fn test_a_small_change_changes_the_whole_digest() with Console {
+    assert_true(Crypto.sha256("hello") != Crypto.sha256("hellp"))
+}
+
+fn test_verify_accepts_a_matching_digest() with Console {
+    assert_true(Crypto.verify_sha256(
+        "abc",
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    ))
+}
+
+fn test_verify_rejects_a_mismatched_digest() with Console {
+    assert_false(Crypto.verify_sha256("abc", Crypto.sha256("xyz")))
+    assert_false(Crypto.verify_sha256("abc", "not a digest"))
+}
+
+// ── purity ─────────────────────────────────────────────────────
+
+/// `sha256` carries no effect, so it must be callable from a function with no
+/// effect annotation at all. This is what lets a manifest parser be provably
+/// pure while the fetcher that feeds it wears its I/O in its type.
+fn hash_in_a_pure_function(name: String) -> String {
+    Crypto.sha256(name)
+}
+
+fn test_sha256_is_callable_from_a_pure_function() with Console {
+    assert_eq(hash_in_a_pure_function("abc"), Crypto.sha256("abc"))
+}
+
+// ── sha256_file ────────────────────────────────────────────────
+
+fn test_hashing_a_file_agrees_with_hashing_its_contents() with FileSystem, Console {
+    let dir = "target/test-scratch/flux_crypto_file"
+    assert_true(Result.is_ok(Fs.create_dir_all(dir)))
+    let path = dir + "/payload.txt"
+    assert_true(Result.is_ok(Fs.write_file(path, "abc")))
+    match Crypto.sha256_file(path) {
+        Ok(h) -> assert_eq(h, Crypto.sha256("abc")),
+        Err(e) -> assert_true(false),
+    }
+    assert_true(Result.is_ok(Fs.remove_dir_all(dir)))
+}
+
+fn test_hashing_an_empty_file_gives_the_empty_digest() with FileSystem, Console {
+    let dir = "target/test-scratch/flux_crypto_empty"
+    assert_true(Result.is_ok(Fs.create_dir_all(dir)))
+    let path = dir + "/empty.txt"
+    assert_true(Result.is_ok(Fs.write_file(path, "")))
+    match Crypto.sha256_file(path) {
+        Ok(h) -> assert_eq(h, Crypto.sha256("")),
+        Err(e) -> assert_true(false),
+    }
+    assert_true(Result.is_ok(Fs.remove_dir_all(dir)))
+}
+
+fn test_hashing_a_missing_file_is_recoverable() with FileSystem, Console {
+    match Crypto.sha256_file("/nonexistent/nope.bin") {
+        Ok(_) -> assert_true(false),
+        Err(e) -> assert_true(Io.is_not_found(e)),
+    }
+}
+
+fn test_hashing_a_directory_is_an_error_not_a_success() with FileSystem, Console {
+    match Crypto.sha256_file("src") {
+        Ok(_) -> assert_true(false),
+        Err(e) -> assert_true(Io.kind_name(Io.error_kind(e)) != "NotFound"),
+    }
+}
+
+fn test_hashing_a_missing_file_reports_the_path() with FileSystem, Console {
+    match Crypto.sha256_file("/nonexistent/named.bin") {
+        Ok(_) -> assert_true(false),
+        Err(e) -> assert_eq(Io.error_path(e), "/nonexistent/named.bin"),
+    }
+}

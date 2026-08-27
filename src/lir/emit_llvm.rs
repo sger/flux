@@ -55,10 +55,21 @@ fn yield_checks_enabled() -> bool {
 fn program_has_yield_sites(program: &LirProgram) -> bool {
     for func in &program.functions {
         for block in &func.blocks {
-            if let crate::lir::LirTerminator::Call { kind, .. } = &block.terminator
-                && matches!(kind, crate::lir::CallKind::YieldTo)
-            {
-                return true;
+            if let crate::lir::LirTerminator::Call { kind, .. } = &block.terminator {
+                // A local `perform`.
+                if matches!(kind, crate::lir::CallKind::YieldTo) {
+                    return true;
+                }
+                // A call into another module that can suspend. This module has
+                // no `perform` of its own, but the sentinel still unwinds
+                // through it, so its call sites need yield checks too — this
+                // test used to be `YieldTo`-only, which is why a `perform` in a
+                // dependency miscompiled every caller (KI-034).
+                if let crate::lir::CallKind::DirectExtern { symbol } = kind
+                    && program.suspending_extern_symbols.contains(symbol)
+                {
+                    return true;
+                }
             }
         }
     }
@@ -723,6 +734,43 @@ impl<'a> FnEmitter<'a> {
             bits: 64,
             value: value as i128,
         })
+    }
+
+    /// Constructor tags for `Result` / `IoError`, in the order the C runtime's
+    /// recoverable-I/O functions expect them.
+    ///
+    /// Tags are assigned per compilation from the program's data
+    /// declarations, so they cannot be fixed in the runtime. The fallbacks
+    /// only apply when a program never declares the constructor, in which case
+    /// the value is unreachable anyway.
+    fn io_result_tag_args(&self) -> Vec<(LlvmType, LlvmOperand)> {
+        let tag = |name: &str, fallback: i32| {
+            self.program
+                .constructor_tags
+                .get(name)
+                .copied()
+                .unwrap_or(fallback)
+        };
+        // Every IoErrorKind variant declared in Flow.IoError must appear here.
+        // A kind that is missing is one the native backend can never report,
+        // which surfaces as a VM/native parity divergence rather than a build
+        // error. Order must match FLUX_IO_TAGS_DECL in flux_rt.h.
+        vec![
+            (LlvmType::i32(), self.i32_const(tag("Ok", 16))),
+            (LlvmType::i32(), self.i32_const(tag("Err", 17))),
+            (LlvmType::i32(), self.i32_const(tag("IoError", 18))),
+            (LlvmType::i32(), self.i32_const(tag("NotFound", 19))),
+            (LlvmType::i32(), self.i32_const(tag("PermissionDenied", 20))),
+            (LlvmType::i32(), self.i32_const(tag("AlreadyExists", 21))),
+            (LlvmType::i32(), self.i32_const(tag("NotADirectory", 22))),
+            (LlvmType::i32(), self.i32_const(tag("IsADirectory", 23))),
+            (
+                LlvmType::i32(),
+                self.i32_const(tag("DirectoryNotEmpty", 24)),
+            ),
+            (LlvmType::i32(), self.i32_const(tag("Interrupted", 25))),
+            (LlvmType::i32(), self.i32_const(tag("Other", 26))),
+        ]
     }
 
     fn i32_const(&self, value: i32) -> LlvmOperand {
@@ -2109,6 +2157,104 @@ impl<'a> FnEmitter<'a> {
                 ],
                 ret_ty,
             );
+            return;
+        }
+
+        // TryReadFile builds Ok/Err/IoError values, so the C runtime needs
+        // this program's constructor tags. Tags are assigned per compilation.
+        // Fs mutations return Result<Unit, IoError>, so the C runtime needs
+        // this program's constructor tags. Predicates return Bool and are
+        // plain calls handled by the generic path.
+        if matches!(
+            op,
+            CorePrimOp::FsWriteFile
+                | CorePrimOp::FsCreateDirAll
+                | CorePrimOp::FsRemoveFile
+                | CorePrimOp::FsRemoveDirAll
+                | CorePrimOp::FsRename
+                | CorePrimOp::FsListDir
+                | CorePrimOp::Sha256File
+                | CorePrimOp::EnvCwd
+        ) {
+            let c_name = match op {
+                CorePrimOp::FsWriteFile => "flux_fs_write_file",
+                CorePrimOp::FsCreateDirAll => "flux_fs_create_dir_all",
+                CorePrimOp::FsRemoveFile => "flux_fs_remove_file",
+                CorePrimOp::FsRemoveDirAll => "flux_fs_remove_dir_all",
+                CorePrimOp::FsListDir => "flux_fs_list_dir",
+                CorePrimOp::Sha256File => "flux_sha256_file",
+                CorePrimOp::EnvCwd => "flux_env_cwd",
+                _ => "flux_fs_rename",
+            };
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            let mut call_args = self.io_result_tag_args();
+            for arg in args {
+                call_args.push((LlvmType::i64(), self.var(*arg)));
+            }
+            self.call_c(dst_local, c_name, call_args, ret_ty);
+            return;
+        }
+
+        // FsMetadata builds a FileMeta record, so it needs that constructor's
+        // tag in addition to the shared Result/IoError ones.
+        if let CorePrimOp::FsMetadata = op {
+            let file_meta_tag = self
+                .program
+                .constructor_tags
+                .get("FileMeta")
+                .copied()
+                .unwrap_or(27);
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            let mut call_args = self.io_result_tag_args();
+            call_args.push((LlvmType::i32(), self.i32_const(file_meta_tag)));
+            call_args.push((LlvmType::i64(), self.var(args[0])));
+            self.call_c(dst_local, "flux_fs_metadata", call_args, ret_ty);
+            return;
+        }
+
+        // ProcRun builds a ProcOutput record, so like FsMetadata it needs that
+        // constructor's tag alongside the shared Result/IoError ones.
+        if let CorePrimOp::ProcRun = op {
+            let proc_output_tag = self
+                .program
+                .constructor_tags
+                .get("ProcOutput")
+                .copied()
+                .unwrap_or(28);
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            let mut call_args = self.io_result_tag_args();
+            call_args.push((LlvmType::i32(), self.i32_const(proc_output_tag)));
+            call_args.push((LlvmType::i64(), self.var(args[0])));
+            call_args.push((LlvmType::i64(), self.var(args[1])));
+            self.call_c(dst_local, "flux_proc_run", call_args, ret_ty);
+            return;
+        }
+
+        if let CorePrimOp::TryReadFile = op {
+            let dst_local = dst.map(|d| self.var_local(d));
+            let ret_ty = if dst.is_some() {
+                LlvmType::i64()
+            } else {
+                LlvmType::Void
+            };
+            let mut call_args = self.io_result_tag_args();
+            call_args.push((LlvmType::i64(), self.var(args[0])));
+            self.call_c(dst_local, "flux_try_read_file", call_args, ret_ty);
             return;
         }
 
@@ -3548,12 +3694,39 @@ impl<'a> FnEmitter<'a> {
         }
 
         // If there are sentinel arms, we need a two-level dispatch:
-        // switch on the value for sentinels, default to boxed dispatch.
+        // switch on the value for sentinels, then guard the fall-through
+        // before entering boxed dispatch.  The fall-through may still be a
+        // non-pointer sentinel (for example 0, 6, 8, or 10).
         if !switch_cases.is_empty() {
+            let guard_label = LabelId(format!("match.ptrguard.{}", self.next_tmp));
+            self.next_tmp += 1;
+            let guard_ok = LlvmLocal(format!("match.ptrck.{}", self.next_tmp));
+            self.next_tmp += 1;
+
+            self.extra_blocks.push(LlvmBlock {
+                label: guard_label.clone(),
+                instrs: vec![LlvmInstr::Icmp {
+                    dst: guard_ok.clone(),
+                    op: LlvmCmpOp::Ule,
+                    ty: LlvmType::i64(),
+                    lhs: LlvmOperand::Const(LlvmConst::Int {
+                        bits: 64,
+                        value: FLUX_MIN_PTR as i128,
+                    }),
+                    rhs: self.var(scrutinee),
+                }],
+                term: LlvmTerminator::CondBr {
+                    cond_ty: LlvmType::i1(),
+                    cond: LlvmOperand::Local(guard_ok),
+                    then_label: boxed_label.clone(),
+                    else_label: self.label(default),
+                },
+            });
+
             LlvmTerminator::Switch {
                 ty: LlvmType::i64(),
                 scrutinee: self.var(scrutinee),
-                default: boxed_label,
+                default: guard_label,
                 cases: switch_cases,
             }
         } else {
@@ -3648,6 +3821,24 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::DebugTrace => "debug_trace",
         CorePrimOp::ToString => "to_string",
         CorePrimOp::ReadFile => "read_file",
+        CorePrimOp::TryReadFile => "try_read_file",
+        CorePrimOp::FsExists => "fs_exists",
+        CorePrimOp::FsIsDir => "fs_is_dir",
+        CorePrimOp::FsIsFile => "fs_is_file",
+        CorePrimOp::FsWriteFile => "fs_write_file",
+        CorePrimOp::FsCreateDirAll => "fs_create_dir_all",
+        CorePrimOp::FsRemoveFile => "fs_remove_file",
+        CorePrimOp::FsRemoveDirAll => "fs_remove_dir_all",
+        CorePrimOp::FsRename => "fs_rename",
+        CorePrimOp::FsListDir => "fs_list_dir",
+        CorePrimOp::FsMetadata => "fs_metadata",
+        CorePrimOp::Sha256 => "sha256",
+        CorePrimOp::Sha256File => "sha256_file",
+        CorePrimOp::EnvVar => "env_var",
+        CorePrimOp::EnvArgs => "env_args",
+        CorePrimOp::EnvCwd => "env_cwd",
+        CorePrimOp::EnvHomeDir => "env_home_dir",
+        CorePrimOp::ProcRun => "proc_run",
         CorePrimOp::WriteFile => "write_file",
         CorePrimOp::ReadStdin => "read_stdin",
         CorePrimOp::ReadLines => "read_lines",
@@ -4133,6 +4324,111 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_http_is_shutting_down" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_http_server_stopped" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_http_is_server_stopped" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        // Recoverable I/O: eight leading i32 constructor tags, then the
+        // i64 arguments. Must match the C declarations in flux_rt.h.
+        "flux_try_read_file"
+        | "flux_fs_create_dir_all"
+        | "flux_fs_remove_file"
+        | "flux_fs_remove_dir_all"
+        | "flux_fs_list_dir"
+        | "flux_sha256_file" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i64(),
+            ],
+        ),
+        "flux_fs_write_file" | "flux_fs_rename" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+            ],
+        ),
+        "flux_fs_metadata" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i64(),
+            ],
+        ),
+        // 11 shared Result/IoError tags, then the ProcOutput tag, then
+        // (cmd, argv).
+        "flux_proc_run" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+            ],
+        ),
+        "flux_sha256" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_env_var" => (LlvmType::i64(), vec![LlvmType::i64()]),
+        "flux_env_args" | "flux_env_home_dir" => (LlvmType::i64(), vec![]),
+        // env_cwd takes the eleven leading constructor tags, like the other
+        // Result-returning runtime calls, and no further arguments.
+        "flux_env_cwd" => (
+            LlvmType::i64(),
+            vec![
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+                LlvmType::i32(),
+            ],
+        ),
+        "flux_fs_exists" | "flux_fs_is_dir" | "flux_fs_is_file" => {
+            (LlvmType::i64(), vec![LlvmType::i64()])
+        }
         "flux_json_parse" => (
             LlvmType::i64(),
             vec![

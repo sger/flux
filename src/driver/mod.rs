@@ -4,11 +4,13 @@
 //! command helpers, and user-facing reporting. It should not introduce new compiler IR stages or
 //! backend-agnostic semantic behavior; that work belongs in the compiler pipeline itself.
 
+pub(crate) mod artifact_store;
 pub mod backend;
 pub mod backend_policy;
 pub mod command;
 pub mod flags;
 pub(crate) mod frontend;
+pub(crate) mod manifest_roots;
 pub mod mode;
 pub(crate) mod module_compile;
 pub mod pipeline;
@@ -17,6 +19,7 @@ pub(crate) mod run_program;
 pub(crate) mod run_tests;
 pub mod session;
 pub(crate) mod shared;
+pub(crate) mod spinner;
 pub(crate) mod support;
 #[cfg(test)]
 pub(crate) mod test_support;

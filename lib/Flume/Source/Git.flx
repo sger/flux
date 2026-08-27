@@ -1,0 +1,547 @@
+import Flow.Option as Option
+import Flow.Result as Result
+import Flow.String as Str
+import Flow.Array as Array
+import Flow.List as List
+import Flow.Fs as Fs
+import Flow.Path as Path
+import Flow.Process as Proc
+import Flow.Process exposing (ProcOutput)
+import Flow.IoError exposing (IoError)
+import Flume.Schema.Manifest as Manifest
+import Flume.Schema.Manifest exposing (GitSource, GitPin, GitRev, GitTag, GitBranch, GitDefault)
+import Flume.Source.Store as Store
+
+/// Fetching git dependencies by driving the `git` binary.
+///
+/// Flux cannot fetch these itself: `Flow.Http` speaks no TLS, so no HTTPS host
+/// — GitHub and GitLab included — is reachable from inside the language
+/// ([docs/known_issues.md#ki-035](../../docs/known_issues.md)). Shelling out to
+/// `git` borrows TLS, authentication, and the whole transport from a program
+/// that already has them, and it keeps archive bytes out of Flux, where
+/// `String`-based I/O could not carry them ([#ki-006]).
+///
+/// A checkout is keyed by **resolved commit**, not by the ref that named it:
+///
+/// ```text
+/// $FLUX_HOME/git/checkouts/<slug>/<commit>/
+/// ```
+///
+/// A commit is immutable, so a populated directory is never refetched and
+/// never goes stale — which is what makes a tag that someone moves, or a
+/// branch that advances, a *resolution*-time question rather than a build-time
+/// one. Resolving happens once and the answer is recorded in the lockfile.
+///
+/// Every function reports failure as `Result<_, String>` carrying a message
+/// already fit to show a user, since a `git` failure's own stderr is usually
+/// the best explanation available.
+module Flume.Source.Git {
+
+//| model
+
+    /// A git dependency resolved to one commit.
+    ///
+    /// `fetched` says whether *this* call cloned the repository or reused a
+    /// checkout that was already on disk. It exists so the caller can report a
+    /// download without having to compare directory listings before and after,
+    /// and so a cached build stays silent.
+    public data Checkout {
+        Checkout { url: String, commit: String, dir: String, fetched: Bool }
+    }
+
+    public fn checkout_fetched(c: Checkout) -> Bool {
+        match c { Checkout { url: _, commit: _, dir: _, fetched } -> fetched }
+    }
+
+    public fn checkout_url(c: Checkout) -> String {
+        match c { Checkout { url, commit: _, dir: _, fetched: _ } -> url }
+    }
+
+    /// The full 40-character commit SHA this dependency resolved to.
+    ///
+    /// What the lockfile records: it pins the build exactly, and it is what a
+    /// later build compares against to decide whether anything moved.
+    public fn checkout_commit(c: Checkout) -> String {
+        match c { Checkout { url: _, commit, dir: _, fetched: _ } -> commit }
+    }
+
+    /// The directory holding this commit's working tree.
+    public fn checkout_dir(c: Checkout) -> String {
+        match c { Checkout { url: _, commit: _, dir, fetched: _ } -> dir }
+    }
+
+//| paths
+
+    /// Where every git checkout lives.
+    public fn checkouts_dir() -> String with IO {
+        Store.dir() |> Path.join("git") |> Path.join("checkouts")
+    }
+
+    /// A filesystem-safe directory name for a repository URL.
+    ///
+    /// `https://github.com/user/repo.git` becomes `github.com-user-repo`. The
+    /// slug is for humans reading the cache directory; correctness rests on
+    /// the commit below it, so a collision between two slugs would be
+    /// cosmetic rather than a build hazard.
+    public fn slug(url: String) -> String {
+        url
+            |> strip_scheme
+            |> strip_git_suffix
+            |> Str.chars
+            |> replace_separators
+    }
+
+    fn strip_scheme(url: String) -> String {
+        let after_https = drop_prefix(url, "https://")
+        let after_http = drop_prefix(after_https, "http://")
+        drop_prefix(after_http, "git://")
+    }
+
+    fn drop_prefix(text: String, prefix: String) -> String {
+        if Str.starts_with(text, prefix) {
+            substring(text, len(prefix), len(text))
+        } else {
+            text
+        }
+    }
+
+    fn strip_git_suffix(url: String) -> String {
+        if Str.ends_with(url, ".git") {
+            substring(url, 0, len(url) - 4)
+        } else {
+            url
+        }
+    }
+
+    /// Map every character that cannot appear in a path segment to `-`.
+    fn replace_separators(chars: Array<String>) -> String {
+        Str.join(Array.map(chars, safe_char), "")
+    }
+
+    fn safe_char(ch: String) -> String {
+        if is_safe(ch) { ch } else { "-" }
+    }
+
+    fn is_safe(ch: String) -> Bool {
+        ch != "/" && ch != "\\" && ch != ":" && ch != "?" && ch != "*"
+            && ch != "\"" && ch != "<" && ch != ">" && ch != "|" && ch != " "
+    }
+
+    /// Where one resolved commit of one repository is checked out.
+    public fn commit_dir(url: String, commit: String) -> String with IO {
+        checkouts_dir() |> Path.join(slug(url)) |> Path.join(commit)
+    }
+
+//| driving git
+
+    /// Run `git` with prompting disabled.
+    ///
+    /// A private or misspelled repository otherwise makes `git` ask for a
+    /// username on the terminal, which turns a failed dependency into a build
+    /// that hangs — and in CI, one that hangs until the job times out. Empty
+    /// `credential.helper` stops the helper chain from supplying one
+    /// interactively, and `core.askPass=true` points the fallback prompt at
+    /// `true`, which exits successfully having asked nothing.
+    ///
+    /// Both are passed as flags rather than set in the environment because
+    /// `Flow.Process` runs a child with the parent's environment and offers no
+    /// way to add to it.
+    fn run_git(args: List<String>) -> Result<ProcOutput, IoError> with IO {
+        Proc.run("git", Array.from_list(List.concat([non_interactive(), args])))
+    }
+
+    fn non_interactive() -> List<String> {
+        ["-c", "credential.helper=", "-c", "core.askPass=true"]
+    }
+
+//| resolving a ref to a commit
+
+    /// The commit a dependency's pin names.
+    ///
+    /// A `rev` is already a commit and is taken at face value — resolving it
+    /// would require a repository on disk, and a wrong one fails loudly at
+    /// checkout anyway. A tag or branch is resolved with `git ls-remote`,
+    /// which asks the server for its refs without cloning anything.
+    public fn resolve_commit(source: GitSource) -> Result<String, String> with IO {
+        let url = Manifest.git_source_url(source)
+        match Manifest.git_source_pin(source) {
+            GitRev(rev) -> Ok(rev),
+            GitTag(tag) -> resolve_ref(url, tag_ref(tag), "tag `" + tag + "`"),
+            GitBranch(branch) ->
+                resolve_ref(url, branch_ref(branch), "branch `" + branch + "`"),
+            GitDefault -> resolve_head(url),
+        }
+    }
+
+    /// Tags are matched by their exact ref rather than by name.
+    ///
+    /// `git ls-remote <url> v1.0.0` also matches a *branch* named `v1.0.0`,
+    /// and would then report two refs for one query. Asking for
+    /// `refs/tags/v1.0.0` cannot be ambiguous.
+    fn tag_ref(tag: String) -> String {
+        "refs/tags/" + tag
+    }
+
+    fn branch_ref(branch: String) -> String {
+        "refs/heads/" + branch
+    }
+
+    fn resolve_ref(
+        url: String,
+        reference: String,
+        described: String,
+    ) -> Result<String, String> with IO {
+        match run_git(["ls-remote", url, reference]) {
+            Err(_) -> Err(git_missing()),
+            Ok(out) -> read_ls_remote(out, url, described),
+        }
+    }
+
+    /// The default branch's commit, read from the remote's `HEAD`.
+    fn resolve_head(url: String) -> Result<String, String> with IO {
+        match run_git(["ls-remote", url, "HEAD"]) {
+            Err(_) -> Err(git_missing()),
+            Ok(out) -> read_ls_remote(out, url, "the default branch"),
+        }
+    }
+
+    /// Read the commit out of `ls-remote` output.
+    ///
+    /// Each line is `<commit><TAB><ref>`. An empty result means the ref does
+    /// not exist, which is reported as such rather than as a git failure: a
+    /// missing tag is a manifest mistake, not a broken toolchain.
+    fn read_ls_remote(
+        out: ProcOutput,
+        url: String,
+        described: String,
+    ) -> Result<String, String> with IO {
+        if Proc.succeeded(out) {
+            first_commit(Proc.stdout_of(out), url, described)
+        } else {
+            Err(
+                "git could not read " + url + ": "
+                    + trim(Proc.stderr_of(out)),
+            )
+        }
+    }
+
+    fn first_commit(
+        stdout: String,
+        url: String,
+        described: String,
+    ) -> Result<String, String> with IO {
+        match non_empty_lines(stdout) {
+            [] -> Err(url + " has no " + described),
+            [line | _] -> commit_of_line(line, url, described),
+        }
+    }
+
+    fn commit_of_line(
+        line: String,
+        url: String,
+        described: String,
+    ) -> Result<String, String> with IO {
+        match Array.to_list(split(line, "\t")) {
+            [] -> Err(url + " has no " + described),
+            [commit | _] -> require_commit(trim(commit), url, described),
+        }
+    }
+
+    fn require_commit(
+        commit: String,
+        url: String,
+        described: String,
+    ) -> Result<String, String> with IO {
+        if len(commit) == 0 {
+            Err(url + " has no " + described)
+        } else {
+            Ok(commit)
+        }
+    }
+
+    fn non_empty_lines(text: String) -> List<String> {
+        split(text, "\n")
+            |> Array.to_list
+            |> List.filter(\line -> len(trim(line)) > 0)
+    }
+
+//| fetching
+
+    /// Fetch a git dependency, returning where its sources landed.
+    ///
+    /// Resolution and download are one step from a caller's view, but only the
+    /// download is skippable: the commit is resolved every time — that is what
+    /// notices a moved tag — while a commit directory that already exists is
+    /// reused untouched.
+    public fn fetch(source: GitSource) -> Result<Checkout, String> with IO {
+        fetch_locked(source, None)
+    }
+
+    /// Fetch a git dependency without touching the network.
+    ///
+    /// What `--offline` calls: a commit already known — from the lockfile or a
+    /// `rev` — whose checkout is on disk is used, and anything else is an
+    /// error naming what would have had to be downloaded. Failing is the
+    /// point: the flag exists so that a build which *would* have reached the
+    /// network says so instead of quietly doing it.
+    public fn fetch_offline(
+        source: GitSource,
+        locked: Option<String>,
+    ) -> Result<Checkout, String> with IO {
+        let url = Manifest.git_source_url(source)
+        match pinned_commit(source, locked) {
+            None -> Err(
+                "`--offline` was given, but " + url
+                    + " has no locked commit to build; run without `--offline` once to resolve it",
+            ),
+            Some(commit) -> offline_checkout(url, commit),
+        }
+    }
+
+    fn offline_checkout(url: String, commit: String) -> Result<Checkout, String> with IO {
+        let dir = commit_dir(url, commit)
+        if is_populated(dir) {
+            Ok(Checkout { url: url, commit: commit, dir: dir, fetched: false })
+        } else {
+            Err(
+                "`--offline` was given, but " + url + " at " + commit
+                    + " is not in the local cache",
+            )
+        }
+    }
+
+    /// Fetch a git dependency, preferring a commit the lockfile already chose.
+    ///
+    /// `locked` is the commit recorded for this dependency by a previous
+    /// resolution, if there is one. Supplying it is what makes a locked build
+    /// reproducible *and* offline: the pin is not re-resolved, so a branch
+    /// that has since moved, or a tag that was repointed, still builds the
+    /// revision the lockfile names, and a cached checkout needs no network at
+    /// all.
+    ///
+    /// A `rev` pin ignores the lock, because it already names a commit — and
+    /// if the two disagree, the manifest is the newer statement of intent.
+    public fn fetch_locked(
+        source: GitSource,
+        locked: Option<String>,
+    ) -> Result<Checkout, String> with IO {
+        match pinned_commit(source, locked) {
+            Some(commit) -> checkout_at(Manifest.git_source_url(source), commit),
+            None -> fetch_resolving(source),
+        }
+    }
+
+    /// The commit to build without asking the network, if one is known.
+    fn pinned_commit(source: GitSource, locked: Option<String>) -> Option<String> {
+        match Manifest.git_source_pin(source) {
+            GitRev(rev) -> Some(rev),
+            GitTag(_) -> locked,
+            GitBranch(_) -> locked,
+            GitDefault -> locked,
+        }
+    }
+
+    fn fetch_resolving(source: GitSource) -> Result<Checkout, String> with IO {
+        match resolve_commit(source) {
+            Err(message) -> Err(message),
+            Ok(commit) -> checkout_at(Manifest.git_source_url(source), commit),
+        }
+    }
+
+    /// Fetch one already-resolved commit.
+    ///
+    /// What a locked build calls: the lockfile already names the commit, so
+    /// nothing is asked of the network when the checkout is present.
+    public fn fetch_commit(url: String, commit: String) -> Result<Checkout, String> with IO {
+        checkout_at(url, commit)
+    }
+
+    fn checkout_at(url: String, commit: String) -> Result<Checkout, String> with IO {
+        let dir = commit_dir(url, commit)
+        if is_populated(dir) {
+            Ok(Checkout { url: url, commit: commit, dir: dir, fetched: false })
+        } else {
+            announce_then_populate(url, commit, dir)
+        }
+    }
+
+    /// Say what is about to be downloaded, then download it.
+    ///
+    /// Printed *before* the clone, because that is the only moment the message
+    /// is useful: a clone takes seconds, and a line that appears after it has
+    /// finished explains a wait the user has already sat through. The resolver
+    /// speaks to the compiler over stdout a record at a time, and the compiler
+    /// streams that pipe, so this reaches the terminal while `git` is still
+    /// running.
+    fn announce_then_populate(
+        url: String,
+        commit: String,
+        dir: String,
+    ) -> Result<Checkout, String> with IO {
+        print("fetching\t" + url)
+        populate(url, commit, dir)
+    }
+
+    /// Whether a checkout finished.
+    ///
+    /// The directory alone is not the signal — an interrupted clone leaves one
+    /// behind, and treating that as a checkout builds against a partial tree.
+    /// The sentinel is written last, after the working tree is in place, so
+    /// its presence means the whole sequence ran.
+    fn is_populated(dir: String) -> Bool with IO {
+        Fs.is_file(sentinel_path(dir))
+    }
+
+    fn sentinel_path(dir: String) -> String {
+        Path.join(dir, ".flux-checkout-ok")
+    }
+
+    /// Clone the repository and check the commit out.
+    ///
+    /// Cloned into a temporary directory and renamed into place, so a
+    /// concurrent build either sees no directory or sees a finished one, never
+    /// a half-written tree. `--no-checkout` keeps the clone from materializing
+    /// a working tree that the `checkout` below would immediately replace.
+    fn populate(url: String, commit: String, dir: String) -> Result<Checkout, String> with IO {
+        let temporary = dir + ".tmp"
+        match Fs.remove_dir_all(temporary) {
+            Err(_) -> clone_into(url, commit, dir, temporary),
+            Ok(_) -> clone_into(url, commit, dir, temporary),
+        }
+    }
+
+    fn clone_into(
+        url: String,
+        commit: String,
+        dir: String,
+        temporary: String,
+    ) -> Result<Checkout, String> with IO {
+        match Fs.create_dir_all(parent_of(dir)) {
+            Err(_) -> Err("cannot create " + parent_of(dir)),
+            Ok(_) -> run_clone(url, commit, dir, temporary),
+        }
+    }
+
+    fn run_clone(
+        url: String,
+        commit: String,
+        dir: String,
+        temporary: String,
+    ) -> Result<Checkout, String> with IO {
+        match run_git(["clone", "--no-checkout", "--quiet", url, temporary]) {
+            Err(_) -> Err(git_missing()),
+            Ok(out) -> after_clone(out, url, commit, dir, temporary),
+        }
+    }
+
+    fn after_clone(
+        out: ProcOutput,
+        url: String,
+        commit: String,
+        dir: String,
+        temporary: String,
+    ) -> Result<Checkout, String> with IO {
+        if Proc.succeeded(out) {
+            run_checkout(url, commit, dir, temporary)
+        } else {
+            Err("cannot clone " + url + ": " + trim(Proc.stderr_of(out)))
+        }
+    }
+
+    fn run_checkout(
+        url: String,
+        commit: String,
+        dir: String,
+        temporary: String,
+    ) -> Result<Checkout, String> with IO {
+        match run_git(["-C", temporary, "checkout", "--quiet", commit]) {
+            Err(_) -> Err(git_missing()),
+            Ok(out) -> after_checkout(out, url, commit, dir, temporary),
+        }
+    }
+
+    fn after_checkout(
+        out: ProcOutput,
+        url: String,
+        commit: String,
+        dir: String,
+        temporary: String,
+    ) -> Result<Checkout, String> with IO {
+        if Proc.succeeded(out) {
+            finish(url, commit, dir, temporary)
+        } else {
+            Err(
+                url + " has no commit " + commit + ": "
+                    + trim(Proc.stderr_of(out)),
+            )
+        }
+    }
+
+    /// Mark the checkout complete and move it into place.
+    ///
+    /// The sentinel is written *before* the rename, so the directory becomes
+    /// visible at its final path already marked finished; writing it after
+    /// would leave a window where a concurrent build sees an unmarked tree.
+    fn finish(
+        url: String,
+        commit: String,
+        dir: String,
+        temporary: String,
+    ) -> Result<Checkout, String> with IO {
+        match Fs.write_file(sentinel_path(temporary), commit + "\n") {
+            Err(_) -> Err("cannot finish the checkout in " + temporary),
+            Ok(_) -> rename_into_place(url, commit, dir, temporary),
+        }
+    }
+
+    /// A rename that loses is not an error.
+    ///
+    /// Two builds racing on one dependency both clone, and the loser's rename
+    /// fails because the winner already put a finished tree there. Since the
+    /// destination is keyed by commit, that tree is byte-identical to the one
+    /// being discarded, so the loser adopts it.
+    fn rename_into_place(
+        url: String,
+        commit: String,
+        dir: String,
+        temporary: String,
+    ) -> Result<Checkout, String> with IO {
+        match Fs.rename(temporary, dir) {
+            Ok(_) -> Ok(Checkout { url: url, commit: commit, dir: dir, fetched: true }),
+            Err(_) -> adopt_existing(url, commit, dir, temporary),
+        }
+    }
+
+    fn adopt_existing(
+        url: String,
+        commit: String,
+        dir: String,
+        temporary: String,
+    ) -> Result<Checkout, String> with IO {
+        if is_populated(dir) {
+            discard(temporary, Checkout { url: url, commit: commit, dir: dir, fetched: true })
+        } else {
+            Err("cannot move the checkout of " + url + " into " + dir)
+        }
+    }
+
+    fn discard(temporary: String, result: Checkout) -> Result<Checkout, String> with IO {
+        match Fs.remove_dir_all(temporary) {
+            Err(_) -> Ok(result),
+            Ok(_) -> Ok(result),
+        }
+    }
+
+    fn parent_of(dir: String) -> String {
+        Path.parent(dir)
+    }
+
+    /// The message for `git` not being runnable at all.
+    ///
+    /// Distinguished from a `git` command that ran and failed: this one is
+    /// about the developer's machine, and the fix is installing git rather
+    /// than correcting the manifest.
+    fn git_missing() -> String {
+        "cannot run `git`; a git dependency needs git installed and on PATH"
+    }
+}

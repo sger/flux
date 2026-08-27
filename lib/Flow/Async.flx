@@ -141,9 +141,9 @@ module Flow.Async {
     ///   thread; on native they are real OS worker slots.
     ///   `None` means "use the runtime default" — `available_parallelism()`
     ///   on platforms that report it, falling back to 2 logical workers.
-    /// - `fs_pool_size`: blocking-thread pool size for filesystem ops.
-    ///   Accepted today and stored; consulted once filesystem blocking
-    ///   consumers land. `0` means "use default".
+    /// - `fs_pool_size`: blocking-thread pool size for filesystem ops inside
+    ///   `run_async`. `0` means "use `FLUX_FS_THREADS` or the runtime
+    ///   default".
     /// - `dns_pool_size`: blocking-thread pool size for DNS resolution.
     ///   `0` means use `FLUX_DNS_THREADS` or the runtime default.
     public data RuntimeConfig {
@@ -178,6 +178,15 @@ module Flow.Async {
         RuntimeConfig {
             worker_count:  Some(n),
             fs_pool_size:  0,
+            dns_pool_size: 0,
+        }
+    }
+
+    /// Builder helper for filesystem-heavy runs.
+    public fn with_fs_pool_size(n: Int) -> RuntimeConfig {
+        RuntimeConfig {
+            worker_count:  None,
+            fs_pool_size:  n,
             dns_pool_size: 0,
         }
     }

@@ -1,0 +1,150 @@
+// Flow.IoError — the shared error type for recoverable I/O.
+//
+// OS operations report failure as `Result<a, IoError>`. `IoError` carries a
+// `kind` to branch on, plus a message and path for humans.
+//
+// Branch on `kind`, never on `message` — message text is not stable.
+//
+// It lives in its own module because Fs, Crypto, Env, and Process all report
+// failures this way, so callers match one error type whatever produced it.
+//
+// Named `IoError` not `Io`: `Io.flx` would collide with `IO.flx` on
+// case-insensitive filesystems.
+
+module Flow.IoError {
+
+    /// What went wrong, in a form a caller can branch on.
+    ///
+    /// `Other` is the escape hatch for platform errors that do not map onto a
+    /// named kind. It carries no extra structure on purpose: code that needs
+    /// the detail should read `message`, and a new named kind should be added
+    /// here rather than encoded into the text.
+    public data IoErrorKind {
+        /// The path does not exist.
+        NotFound,
+        /// The path exists but the process lacks permission for the operation.
+        PermissionDenied,
+        /// The path already exists and the operation requires that it not.
+        AlreadyExists,
+        /// A directory was required but the path names something else.
+        NotADirectory,
+        /// A file was required but the path names a directory.
+        IsADirectory,
+        /// The directory is not empty and the operation requires that it be.
+        DirectoryNotEmpty,
+        /// The operation was interrupted or timed out and may succeed if
+        /// retried; distinguishing this from a permanent failure is what lets
+        /// a caller decide whether retrying is sensible.
+        Interrupted,
+        /// Anything else the platform reported. Read `message` for detail.
+        Other,
+    }
+
+    /// A recoverable I/O failure.
+    ///
+    /// `path` is the path the operation was attempted on, or `""` for
+    /// operations that are not path-based. `message` is for humans and is not
+    /// part of the compatibility surface — branch on `kind` instead.
+    public data IoError {
+        IoError { kind: IoErrorKind, message: String, path: String }
+    }
+
+    // ── Construction ──────────────────────────────────────────────────
+
+    /// Build an error for a path-based operation.
+    public fn io_error(kind: IoErrorKind, message: String, path: String) -> IoError {
+        IoError { kind: kind, message: message, path: path }
+    }
+
+    /// Build an error for an operation that is not path-based.
+    public fn io_error_no_path(kind: IoErrorKind, message: String) -> IoError {
+        IoError { kind: kind, message: message, path: "" }
+    }
+
+    // ── Inspection ────────────────────────────────────────────────────
+
+    /// The machine-readable kind. Branch on this, not on `message`.
+    public fn error_kind(error: IoError) -> IoErrorKind {
+        match error {
+            IoError { kind, message: _, path: _ } -> kind,
+        }
+    }
+
+    /// The human-readable message. For display and logging only.
+    public fn error_message(error: IoError) -> String {
+        match error {
+            IoError { kind: _, message, path: _ } -> message,
+        }
+    }
+
+    /// The path the failed operation was attempted on, or `""` if none.
+    public fn error_path(error: IoError) -> String {
+        match error {
+            IoError { kind: _, message: _, path } -> path,
+        }
+    }
+
+    // ── Classification ────────────────────────────────────────────────
+
+    /// True when the failure was a missing path.
+    public fn is_not_found(error: IoError) -> Bool {
+        match error_kind(error) {
+            NotFound -> true,
+            _ -> false,
+        }
+    }
+
+    /// True when the failure was a permission problem.
+    public fn is_permission_denied(error: IoError) -> Bool {
+        match error_kind(error) {
+            PermissionDenied -> true,
+            _ -> false,
+        }
+    }
+
+    /// True when the failure was that something already exists.
+    public fn is_already_exists(error: IoError) -> Bool {
+        match error_kind(error) {
+            AlreadyExists -> true,
+            _ -> false,
+        }
+    }
+
+    /// True when retrying the operation might succeed. Callers that implement
+    /// a retry policy should gate on this rather than on a specific kind, so
+    /// new transient kinds are picked up automatically.
+    public fn is_retryable(error: IoError) -> Bool {
+        match error_kind(error) {
+            Interrupted -> true,
+            _ -> false,
+        }
+    }
+
+    // ── Rendering ─────────────────────────────────────────────────────
+
+    /// A stable, human-readable name for a kind. Useful for logs and for
+    /// tests that want to assert on the kind without matching every variant.
+    public fn kind_name(kind: IoErrorKind) -> String {
+        match kind {
+            NotFound -> "NotFound",
+            PermissionDenied -> "PermissionDenied",
+            AlreadyExists -> "AlreadyExists",
+            NotADirectory -> "NotADirectory",
+            IsADirectory -> "IsADirectory",
+            DirectoryNotEmpty -> "DirectoryNotEmpty",
+            Interrupted -> "Interrupted",
+            Other -> "Other",
+        }
+    }
+
+    /// Render an error for display: `kind: message (path)`, with the
+    /// parenthesised path omitted when there is none.
+    public fn describe(error: IoError) -> String {
+        match error {
+            IoError { kind, message, path } -> match path {
+                "" -> kind_name(kind) + ": " + message,
+                _ -> kind_name(kind) + ": " + message + " (" + path + ")",
+            },
+        }
+    }
+}

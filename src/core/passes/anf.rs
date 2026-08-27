@@ -194,7 +194,24 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         | CorePrimOp::Println
         | CorePrimOp::DebugTrace
         | CorePrimOp::WriteFile => FluxRep::UnitRep,
-        CorePrimOp::ReadFile | CorePrimOp::ReadStdin | CorePrimOp::ReadLines => FluxRep::BoxedRep,
+        CorePrimOp::ReadFile
+        | CorePrimOp::TryReadFile
+        | CorePrimOp::FsWriteFile
+        | CorePrimOp::FsCreateDirAll
+        | CorePrimOp::FsRemoveFile
+        | CorePrimOp::FsRemoveDirAll
+        | CorePrimOp::FsRename
+        | CorePrimOp::FsListDir
+        | CorePrimOp::FsMetadata
+        | CorePrimOp::Sha256
+        | CorePrimOp::Sha256File
+        | CorePrimOp::EnvVar
+        | CorePrimOp::EnvArgs
+        | CorePrimOp::EnvCwd
+        | CorePrimOp::EnvHomeDir
+        | CorePrimOp::ProcRun
+        | CorePrimOp::ReadStdin
+        | CorePrimOp::ReadLines => FluxRep::BoxedRep,
 
         // Polymorphic / unknown → TaggedRep
         _ => FluxRep::TaggedRep,

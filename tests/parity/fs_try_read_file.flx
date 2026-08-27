@@ -1,0 +1,22 @@
+// parity: vm, llvm
+// expect: success
+// value. The two backends classify failures independently — the VM matches on
+// Rust's io::ErrorKind, the C runtime on errno — so identical output here is a
+// real invariant, not a shared code path.
+
+import Flow.Fs as Fs
+import Flow.IoError as Io
+
+fn probe(label: String, path: String) -> Unit with IO {
+    match Fs.read_file(path) {
+        Ok(content) -> println(label + " ok nonempty=" + to_string(len(content) > 0)),
+        Err(e) -> println(label + " err " + Io.kind_name(Io.error_kind(e))),
+    }
+}
+
+fn main() -> Unit with IO {
+    probe("existing", "Cargo.toml")
+    probe("missing", "/nonexistent/definitely/absent.txt")
+    probe("directory", "src")
+    println(Fs.read_file_or("/nonexistent/fallback.txt", "defaulted"))
+}

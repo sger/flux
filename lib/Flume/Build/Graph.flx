@@ -1,0 +1,623 @@
+import Flow.Path as Path
+import Flow.List as List
+import Flow.Array as Array
+import Flow.String as String
+import Flow.Env as Env
+import Flow.Result as Result
+import Flume.Resolve.Plan as ResolvePlan
+import Flume.Resolve.Plan exposing (Outcome)
+import Flume.Schema.Lock as Lock
+import Flume.Schema.Lock exposing (Lock, Entry, LockedGit)
+import Flume.Resolve.Version as Version
+import Flume.Fail as Fail
+import Flume.Build.Plan as BuildPlan
+import Flume.Build.Plan exposing (GraphDiscovery, GraphRoot, GitResolution, LockRead, LockWritten)
+import Flume.Build.Interpreter as BuildInterpreter
+import Flume.Error as FlumeErrors
+
+/// Resolve a project's module search roots from its `flux.toml`.
+///
+/// This is the Flux half of the Rust/Flux boundary:
+/// Flux decides *what* to build, and hands the compiler a flat list of
+/// `namespace<TAB>path` records. The Rust side turns each record into a scoped
+/// module root and does no manifest parsing of its own.
+///
+/// Output format, one record per line on stdout:
+///
+/// ```text
+/// ok<TAB><namespace><TAB><module root directory>
+/// ```
+///
+/// A failure is reported as a single line:
+///
+/// ```text
+/// err<TAB><message>
+/// ```
+///
+/// Match arms in Flux take an expression, not a block, so the walk below is
+/// split into small helpers rather than written as nested `match` + `let`.
+module Flume.Build.Graph {
+
+    fn unit_value() -> Unit {}
+
+    /// Compatibility adapters keep Graph's public string-based API stable
+    /// while all external operations are represented by typed plan requests.
+    fn planned_lock(dir: String) -> Result<Option<Lock>, String> with IO {
+        match BuildInterpreter.run(BuildPlan.read_lock(dir)) {
+            Err(problem) -> Err(FlumeErrors.render(problem)),
+            Ok(LockRead { value }) -> value |> Result.map_err_result(FlumeErrors.render),
+            Ok(_) -> Err("invalid lock response"),
+        }
+    }
+
+    fn planned_write_lock(dir: String, lock: Lock) -> Result<Unit, String> with IO {
+        match BuildInterpreter.run(BuildPlan.write_lock(dir, lock)) {
+            Err(problem) -> Err(FlumeErrors.render(problem)),
+            Ok(LockWritten { value }) -> value |> Result.map_err_result(FlumeErrors.render),
+            Ok(_) -> Err("invalid lock write response"),
+        }
+    }
+
+    /// Interpret the complete pure structural plan. Graph only adapts its
+    /// typed result to the legacy String boundary; traversal itself lives in
+    /// `Flume.Build.Plan`.
+    fn planned_discovery(
+        dir: String,
+        locked: List<(String, String)>,
+        offline: Bool,
+    ) -> Result<GraphDiscovery, String> with IO {
+        match BuildInterpreter.run(BuildPlan.discover_with_git(dir, locked, offline)) {
+            Err(problem) -> Err(FlumeErrors.render(problem)),
+            Ok(Err(problem)) -> Err(FlumeErrors.render(problem)),
+            Ok(Ok(discovery)) -> Ok(discovery),
+        }
+    }
+
+    fn empty_discovery() -> GraphDiscovery {
+        GraphDiscovery { roots: [], git: [], registry: [] }
+    }
+
+    fn roots_of_discovery(discovery: GraphDiscovery) -> List<Root> {
+        List.map(BuildPlan.discovery_roots(discovery), root_of_graph_root)
+    }
+
+    fn root_of_graph_root(root: GraphRoot) -> Root {
+        Root {
+            package: BuildPlan.graph_root_package(root),
+            namespace: BuildPlan.graph_root_namespace(root),
+            dir: BuildPlan.graph_root_dir(root),
+        }
+    }
+
+    fn markers_of_discovery(discovery: GraphDiscovery) -> List<Root> {
+        List.map(BuildPlan.discovery_git(discovery), marker_of_git)
+    }
+
+    fn marker_of_git(git: GitResolution) -> Root {
+        Root {
+            package: BuildPlan.git_resolution_package(git),
+            namespace: "",
+            dir: BuildPlan.git_resolution_url(git)
+                + "#"
+                + BuildPlan.git_resolution_commit(git),
+        }
+    }
+
+    /// The lockfile pins, plus what the caller allows the resolution to do.
+    ///
+    /// Bundled into one record because they travel together through every
+    /// step of the walk: each git dependency needs its pin, and needs to know
+    /// whether it may reach the network to resolve one it lacks.
+    public data Pins {
+        Pins {
+            locked: List<(String, String)>,
+            offline: Bool,
+            frozen: Bool,
+        }
+    }
+
+    fn pins_locked(p: Pins) -> List<(String, String)> {
+        match p { Pins { locked, offline: _, frozen: _ } -> locked }
+    }
+
+    fn pins_offline(p: Pins) -> Bool {
+        match p { Pins { locked: _, offline, frozen: _ } -> offline }
+    }
+
+    /// Whether the lockfile must already answer the manifest.
+    fn pins_frozen(p: Pins) -> Bool {
+        match p { Pins { locked: _, offline: _, frozen } -> frozen }
+    }
+
+    /// One resolved package: the namespace it owns and the directory its
+    /// modules live under.
+    public data Root {
+        Root { package: String, namespace: String, dir: String }
+    }
+
+    public fn root_package(r: Root) -> String {
+        match r { Root { package, namespace: _, dir: _ } -> package }
+    }
+
+    public fn root_namespace(r: Root) -> String {
+        match r { Root { package: _, namespace, dir: _ } -> namespace }
+    }
+
+    public fn root_dir(r: Root) -> String {
+        match r { Root { package: _, namespace: _, dir } -> dir }
+    }
+
+    /// Read the index, read the lock, resolve, write if changed.
+    ///
+    /// Each step aborts on failure, so this reads as the sequence it is.
+    fn resolve_registry(
+        requirements: List<(String, String)>,
+        dir: String,
+        frozen: Bool,
+    ) -> List<Root> with IO, Fail {
+        let outcome = Fail.ok_or_abort(planned_registry(requirements, dir, frozen), unchanged())
+        let roots = Fail.ok_or_abort(
+            planned_registry_roots(ResolvePlan.outcome_lock(outcome)),
+            [],
+        )
+        List.map(roots, root_of_graph_root)
+    }
+
+    fn planned_registry(
+        requirements: List<(String, String)>,
+        dir: String,
+        frozen: Bool,
+    ) -> Result<Outcome, String> with IO {
+        match BuildInterpreter.run(BuildPlan.registry_with(requirements, dir, frozen)) {
+            Err(problem) -> Err(FlumeErrors.render(problem)),
+            Ok(Err(problem)) -> Err(FlumeErrors.render(problem)),
+            Ok(Ok(outcome)) -> Ok(outcome),
+        }
+    }
+
+    fn planned_registry_roots(lock: Lock) -> Result<List<GraphRoot>, String> with IO {
+        match BuildInterpreter.run(BuildPlan.registry_roots(lock)) {
+            Err(problem) -> Err(FlumeErrors.render(problem)),
+            Ok(Err(problem)) -> Err(FlumeErrors.render(problem)),
+            Ok(Ok(roots)) -> Ok(roots),
+        }
+    }
+
+    /// Unreachable placeholder for the aborting branch above.
+    fn unchanged() -> Outcome {
+        Unchanged { lock: Lock.lock(Lock.default_format(), []) }
+    }
+
+    /// Resolve the roots for the project rooted at `dir`.
+    ///
+    /// Path dependencies are walked first, then registry dependencies are
+    /// resolved and appended. `Fail` is discharged here, so the public result
+    /// is an ordinary `Result`.
+    public fn resolve(dir: String) -> Result<List<Root>, String> with IO {
+        resolve_with(dir, false, false)
+    }
+
+    /// Resolve, refusing to reach the network or to change the lockfile.
+    ///
+    /// `offline` forbids fetching anything not already cached; `frozen` makes
+    /// any change to `flux.lock` an error. They are separate because they
+    /// answer different questions — "may this build download?" and "may this
+    /// build decide something new?" — and CI usually wants both.
+    public fn resolve_with(
+        dir: String,
+        offline: Bool,
+        frozen: Bool,
+    ) -> Result<List<Root>, String> with IO {
+        gather(dir, offline, frozen) handle Fail { fail(resume, message) -> Err(message) }
+    }
+
+    fn gather(dir: String, offline: Bool, frozen: Bool) -> Result<List<Root>, String> with IO, Fail {
+        let pins = Pins {
+            locked: git_pins(dir),
+            offline: offline,
+            frozen: frozen,
+        }
+        let discovery = Fail.ok_or_abort(
+            planned_discovery(dir, pins_locked(pins), offline),
+            empty_discovery(),
+        )
+        let markers = markers_of_discovery(discovery)
+        let _lock = write_git_lock(dir, markers, pins)
+        let package_roots = roots_of_discovery(discovery)
+        let requirements = BuildPlan.discovery_registry(discovery)
+        Ok(List.concat([package_roots, registry_roots_for(requirements, dir, frozen)]))
+    }
+
+    fn registry_roots_for(
+        requirements: List<(String, String)>,
+        dir: String,
+        frozen: Bool,
+    ) -> List<Root> with IO, Fail {
+        match requirements {
+            [] -> [],
+            _ -> resolve_registry(requirements, dir, frozen),
+        }
+    }
+
+    /// Write `flux.lock` when the git resolution differs from what it records.
+    ///
+    /// Rewriting unconditionally would touch the file on every build, which
+    /// shows up as a dirty working tree and a spurious diff in every commit.
+    /// The comparison is against the pins read at the start, so a build that
+    /// resolved to exactly what was locked writes nothing.
+    ///
+    /// A failure to write is reported but not fatal: the build itself is
+    /// sound — every dependency is on disk at a known commit — and a
+    /// read-only checkout should still build.
+    fn write_git_lock(
+        dir: String,
+        markers: List<Root>,
+        pins: Pins,
+    ) -> Bool with IO, Fail {
+        if same_resolution(markers, pins_locked(pins)) {
+            false
+        } else if pins_frozen(pins) {
+            Fail.abort(lock_changed_message(markers, pins_locked(pins)), false)
+        } else {
+            persist_git_lock(dir, markers)
+        }
+    }
+
+    /// What `--locked` refuses, named precisely.
+    ///
+    /// "The lockfile is out of date" alone does not say what to fix, so the
+    /// first dependency that disagrees is reported: either it is absent from
+    /// the lock, or it resolved to a different commit than the one recorded.
+    fn pair_name(pair: (String, String)) -> String {
+        match pair { (name, _) -> name }
+    }
+
+    /// Compatibility wrapper for the pure planner's lock comparison.
+    public fn lock_changed_message(
+        markers: List<Root>,
+        locked: List<(String, String)>,
+    ) -> String {
+        BuildPlan.lock_changed_message(List.map(markers, marker_pair), locked)
+    }
+
+    /// Compatibility wrapper for the pure planner's lock comparison.
+    public fn lock_change_detail(
+        marker: Root,
+        locked: List<(String, String)>,
+    ) -> String {
+        BuildPlan.lock_change_detail(
+            root_package(marker),
+            marker_commit(marker),
+            locked,
+        )
+    }
+
+    fn persist_git_lock(dir: String, markers: List<Root>) -> Bool with IO {
+        match planned_write_lock(dir, Lock.lock(Lock.default_format(), git_entries(markers))) {
+            Err(_) -> false,
+            Ok(_) -> true,
+        }
+    }
+
+    /// Whether every marker matches the commit already locked for it.
+    public fn same_resolution(
+        markers: List<Root>,
+        locked: List<(String, String)>,
+    ) -> Bool {
+        BuildPlan.same_resolution(List.map(markers, marker_pair), locked)
+    }
+
+    fn marker_pair(marker: Root) -> (String, String) {
+        (root_package(marker), marker_commit(marker))
+    }
+
+    /// One `[[package]]` entry per resolved git dependency.
+    fn git_entries(markers: List<Root>) -> List<Entry> {
+        List.map(markers, git_entry)
+    }
+
+    fn git_entry(marker: Root) -> Entry {
+        Lock.entry(
+            root_package(marker),
+            Version.version(0, 0, 0),
+            LockedGit { url: marker_url(marker), commit: marker_commit(marker) },
+            None,
+            [],
+        )
+    }
+
+    /// A marker's `dir` holds `<url>#<commit>`; these split it back apart.
+    fn marker_url(marker: Root) -> String {
+        match split_marker(root_dir(marker)) { (url, _) -> url }
+    }
+
+    fn marker_commit(marker: Root) -> String {
+        match split_marker(root_dir(marker)) { (_, commit) -> commit }
+    }
+
+    fn split_marker(text: String) -> (String, String) {
+        split_marker_from(text, len(text) - 1)
+    }
+
+    /// Scans from the right: a URL may contain `#`, but the commit cannot, so
+    /// the last one is the separator.
+    fn split_marker_from(text: String, i: Int) -> (String, String) {
+        if i < 0 {
+            (text, "")
+        } else if String.string_slice(text, i, i + 1) == "#" {
+            (String.string_slice(text, 0, i), String.string_slice(text, i + 1, len(text)))
+        } else {
+            split_marker_from(text, i - 1)
+        }
+    }
+
+    /// The commits `flux.lock` pins each git dependency to.
+    ///
+    /// Read once, before the walk, so every git dependency in the graph is
+    /// resolved against the same lockfile. A missing or unreadable lockfile
+    /// yields no pins rather than failing: the first build of a project has
+    /// none, and that is the ordinary case rather than an error.
+    fn git_pins(dir: String) -> List<(String, String)> with IO {
+        match planned_lock(dir) {
+            Err(_) -> [],
+            Ok(None) -> [],
+            Ok(Some(found)) -> git_pins_of(Lock.lock_packages(found)),
+        }
+    }
+
+    fn git_pins_of(entries: List<Entry>) -> List<(String, String)> {
+        match entries {
+            [] -> [],
+            [head | rest] -> match Lock.origin_commit(Lock.entry_origin(head)) {
+                None -> git_pins_of(rest),
+                Some(commit) -> [(Lock.entry_name(head), commit) | git_pins_of(rest)],
+            },
+        }
+    }
+
+
+//| update
+
+    /// What `flux update` did to one dependency.
+    ///
+    /// `before` is the commit `flux.lock` recorded, if it held one at all;
+    /// `after` is what the fresh resolution chose. A dependency whose two
+    /// agree was already current, and one with no `before` is newly locked.
+    public data Change {
+        Change { package: String, before: Option<String>, after: String }
+    }
+
+    public fn change_package(c: Change) -> String {
+        match c { Change { package, before: _, after: _ } -> package }
+    }
+
+    public fn change_before(c: Change) -> Option<String> {
+        match c { Change { package: _, before, after: _ } -> before }
+    }
+
+    public fn change_after(c: Change) -> String {
+        match c { Change { package: _, before: _, after } -> after }
+    }
+
+    /// Re-resolve `dir`, releasing the lockfile's pins.
+    ///
+    /// `only` names the packages to update; an empty list updates everything.
+    /// Releasing a pin is the whole mechanism: `fetch_locked` re-resolves a
+    /// tag or branch exactly when no commit is supplied for it, so dropping a
+    /// dependency's entry from the pins is what makes it move. Every pin left
+    /// in place holds its sibling where it is, which is what makes
+    /// `flux update -p one` conservative without a second code path.
+    ///
+    /// A `rev` pin does not move: it names a commit in the manifest, and no
+    /// resolution can choose otherwise. That is not reported as a failure —
+    /// the dependency is simply already at what it asks for.
+    public fn update(dir: String, only: List<String>) -> Result<List<Change>, String> with IO {
+        updating(dir, only) handle Fail { fail(resume, message) -> Err(message) }
+    }
+
+    fn updating(dir: String, only: List<String>) -> Result<List<Change>, String> with IO, Fail {
+        let before = git_pins(dir)
+        let _checked = check_named(only, before, dir)
+        let pins = Pins {
+            locked: retained(before, only),
+            offline: false,
+            frozen: false,
+        }
+        let discovery = Fail.ok_or_abort(
+            planned_discovery(dir, pins_locked(pins), false),
+            empty_discovery(),
+        )
+        let markers = markers_of_discovery(discovery)
+        let _lock = rewrite_lock(dir, markers, before)
+        Ok(changes(markers, before))
+    }
+
+    /// Reject `-p <name>` for something the project does not depend on.
+    ///
+    /// Checked against the lockfile rather than the manifest because an
+    /// unlocked dependency has nothing to release, so `-p` on one would be a
+    /// no-op that silently reported success.
+    fn check_named(only: List<String>, before: List<(String, String)>, dir: String) -> Bool with IO, Fail {
+        match List.filter(only, \name -> !List.any(before, \pair -> pair_name(pair) == name)) {
+            [] -> true,
+            [missing | _] -> Fail.abort(
+                "`" + missing + "` is not a locked dependency of "
+                    + Path.join(dir, "flux.lock"),
+                false,
+            ),
+        }
+    }
+
+    /// The pins that survive: everything not being updated.
+    fn retained(
+        before: List<(String, String)>,
+        only: List<String>,
+    ) -> List<(String, String)> {
+        match only {
+            [] -> [],
+            _ -> List.filter(before, \pair -> !List.contains(only, pair_name(pair))),
+        }
+    }
+
+    /// Write the lockfile unless the resolution came back identical.
+    ///
+    /// The same rule `write_git_lock` follows, minus the `--locked` check:
+    /// `update` is the command whose whole purpose is to change the lockfile,
+    /// so a flag forbidding that has no meaning here.
+    fn rewrite_lock(
+        dir: String,
+        markers: List<Root>,
+        before: List<(String, String)>,
+    ) -> Bool with IO {
+        if same_resolution(markers, before) {
+            false
+        } else {
+            persist_git_lock(dir, markers)
+        }
+    }
+
+    /// One `Change` per dependency that moved.
+    fn changes(markers: List<Root>, before: List<(String, String)>) -> List<Change> {
+        List.filter(List.map(markers, \m -> change_of(m, before)), moved)
+    }
+
+    fn change_of(marker: Root, before: List<(String, String)>) -> Change {
+        Change {
+            package: root_package(marker),
+            before: lookup(before, root_package(marker)),
+            after: marker_commit(marker),
+        }
+    }
+
+    fn moved(c: Change) -> Bool {
+        match change_before(c) {
+            None -> true,
+            Some(commit) -> commit != change_after(c),
+        }
+    }
+
+    fn render(roots: List<Root>) -> String {
+        roots
+            |> List.map(render_root)
+            |> List.to_array
+            |> String.join("\n")
+    }
+
+    fn render_root(r: Root) -> String {
+        "ok\t" + root_package(r) + "\t" + root_namespace(r) + "\t" + root_dir(r)
+    }
+
+    /// Print the resolved roots for the project directory given as the first
+    /// argument, or `.` when none is supplied.
+    ///
+    /// `--update` runs `update` instead and prints what moved. It is a mode of
+    /// this module's own entry point rather than something `Flume.Cli` calls,
+    /// because resolution reaches `Flume.Source.Git`, which performs `Console`
+    /// while fetching: run here that effect reaches the runtime handler, and
+    /// called in-process from another module it aborts unhandled
+    /// (docs/known_issues.md#ki-036).
+    public fn main() with IO {
+        let args = Env.args()
+        if has_flag(args, "--update") {
+            report_update(update(project_dir(args), package_flags(args)))
+        } else {
+            report(
+                resolve_with(
+                    project_dir(args),
+                    has_flag(args, "--offline"),
+                    has_flag(args, "--locked"),
+                ),
+            )
+        }
+    }
+
+    /// Every `-p <name>` in the argument vector.
+    ///
+    /// Repeatable, so `flux update -p a -p b` updates exactly those two: the
+    /// alternative would be one name per invocation, which re-resolves the
+    /// whole graph once per package and can settle them differently than
+    /// asking for both at once would.
+    fn package_flags(args: Array<String>) -> List<String> {
+        values_after(Array.to_list(args), "-p")
+    }
+
+    fn values_after(args: List<String>, flag: String) -> List<String> {
+        match args {
+            [] -> [],
+            [head | rest] -> if head == flag {
+                take_value(rest, flag)
+            } else {
+                values_after(rest, flag)
+            },
+        }
+    }
+
+    fn take_value(rest: List<String>, flag: String) -> List<String> {
+        match rest {
+            [] -> [],
+            [value | tail] -> [value | values_after(tail, flag)],
+        }
+    }
+
+    /// Report what `update` moved, in the `ok`/`err` record protocol.
+    fn report_update(updated: Result<List<Change>, String>) with IO {
+        match updated {
+            Err(message) -> print("err\t" + message),
+            Ok([]) -> print("ok\teverything is up to date"),
+            Ok(moved_deps) -> print("ok\t" + join_lines(List.map(moved_deps, update_line))),
+        }
+    }
+
+    fn update_line(change: Change) -> String {
+        let name = change_package(change)
+        let after = short_commit(change_after(change))
+        match change_before(change) {
+            None -> "locked " + name + " at " + after,
+            Some(before) -> "updated " + name + " " + short_commit(before)
+                + " -> " + after,
+        }
+    }
+
+    /// Commits are shown abbreviated: seven characters identify a revision in
+    /// any repository small enough to read a dependency tree of.
+    fn short_commit(commit: String) -> String {
+        if len(commit) > 7 { String.string_slice(commit, 0, 7) } else { commit }
+    }
+
+    fn join_lines(lines: List<String>) -> String {
+        lines |> List.to_array |> String.join("\n")
+    }
+
+    /// Whether `flag` appears in the argument vector.
+    ///
+    /// `--frozen` is expanded by the caller into both flags rather than being
+    /// a third state here, so this module never has to reason about one flag
+    /// implying another.
+    fn has_flag(args: Array<String>, flag: String) -> Bool {
+        List.contains(Array.to_list(args), flag)
+    }
+
+    /// The project directory: the first argument, or the working directory.
+    fn project_dir(args: Array<String>) -> String {
+        first_non_flag(Array.to_list(args), 0)
+    }
+
+    /// The first argument that is not a flag, skipping the program name.
+    fn first_non_flag(args: List<String>, index: Int) -> String {
+        match args {
+            [] -> ".",
+            [head | rest] -> if index == 0 || String.starts_with(head, "--") {
+                first_non_flag(rest, index + 1)
+            } else {
+                head
+            },
+        }
+    }
+
+    fn report(resolved: Result<List<Root>, String>) with IO {
+        match resolved {
+            Err(message) -> print("err\t" + message),
+            Ok(roots) -> print(render(roots)),
+        }
+    }
+}

@@ -39,12 +39,16 @@
 //!     reactor out of a blocking `poll` — used for shutdown, new timers,
 //!     and new TCP commands.
 
-use super::super::backend::{AsyncBackend, Completion, CompletionPayload, IoHandle, RequestId};
+use super::super::backend::{
+    AsyncBackend, Completion, CompletionPayload, FsCompletion, FsError, FsErrorKind, FsMetadata,
+    FsOperation, IoHandle, RequestId,
+};
 use super::super::blocking_pool::BlockingPool;
 use mio::net::TcpStream as MioTcpStream;
 use mio::{Events, Interest, Poll, Token, Waker};
 use std::cmp::Ordering as CmpOrdering;
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::fs;
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
@@ -57,10 +61,16 @@ use std::time::{Duration, Instant};
 /// TCP-source tokens above this; the registry will own that allocation.
 const WAKER_TOKEN: Token = Token(0);
 const DEFAULT_DNS_POOL_SIZE: usize = 4;
+const DEFAULT_FS_POOL_SIZE: usize = 4;
 static DEFAULT_DNS_POOL_OVERRIDE: AtomicUsize = AtomicUsize::new(0);
+static DEFAULT_FS_POOL_OVERRIDE: AtomicUsize = AtomicUsize::new(0);
 
 pub fn configure_default_dns_pool_size(size: usize) {
     DEFAULT_DNS_POOL_OVERRIDE.store(size, Ordering::Relaxed);
+}
+
+pub fn configure_default_fs_pool_size(size: usize) {
+    DEFAULT_FS_POOL_OVERRIDE.store(size, Ordering::Relaxed);
 }
 
 fn configured_dns_pool_size(raw: usize) -> usize {
@@ -76,6 +86,26 @@ fn configured_dns_pool_size(raw: usize) -> usize {
         .and_then(|s| s.parse::<usize>().ok())
         .filter(|n| *n > 0)
         .unwrap_or(DEFAULT_DNS_POOL_SIZE)
+}
+
+fn configured_fs_pool_size(raw: usize) -> usize {
+    if raw > 0 {
+        return raw;
+    }
+    let override_size = DEFAULT_FS_POOL_OVERRIDE.load(Ordering::Relaxed);
+    if override_size > 0 {
+        return override_size;
+    }
+    std::env::var("FLUX_FS_THREADS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .or_else(|| {
+            std::thread::available_parallelism()
+                .ok()
+                .map(|n| n.get().min(4))
+        })
+        .unwrap_or(DEFAULT_FS_POOL_SIZE)
 }
 
 /// One scheduled timer.
@@ -153,6 +183,7 @@ struct ReactorShared {
     tcp_commands: Mutex<VecDeque<TcpCommand>>,
     next_handle: AtomicU64,
     dns_pool: BlockingPool,
+    fs_pool: BlockingPool,
 }
 
 /// `mio`-backed async backend.
@@ -160,6 +191,7 @@ struct ReactorShared {
 pub struct MioBackend {
     inner: Mutex<Option<Inner>>,
     dns_pool_size: usize,
+    fs_pool_size: usize,
 }
 
 #[derive(Debug)]
@@ -176,13 +208,18 @@ impl Default for MioBackend {
 
 impl MioBackend {
     pub fn new() -> Self {
-        Self::new_with_dns_pool_size(0)
+        Self::new_with_pool_sizes(0, 0)
     }
 
     pub fn new_with_dns_pool_size(dns_pool_size: usize) -> Self {
+        Self::new_with_pool_sizes(dns_pool_size, 0)
+    }
+
+    pub fn new_with_pool_sizes(dns_pool_size: usize, fs_pool_size: usize) -> Self {
         Self {
             inner: Mutex::new(None),
             dns_pool_size,
+            fs_pool_size,
         }
     }
 
@@ -196,6 +233,8 @@ impl MioBackend {
         let waker = Waker::new(poll.registry(), WAKER_TOKEN)?;
         let dns_pool = BlockingPool::new("dns", configured_dns_pool_size(self.dns_pool_size))
             .map_err(io::Error::other)?;
+        let fs_pool = BlockingPool::new("fs", configured_fs_pool_size(self.fs_pool_size))
+            .map_err(io::Error::other)?;
         let shared = Arc::new(ReactorShared {
             waker,
             shutdown: AtomicBool::new(false),
@@ -205,6 +244,7 @@ impl MioBackend {
             tcp_commands: Mutex::new(VecDeque::new()),
             next_handle: AtomicU64::new(1),
             dns_pool,
+            fs_pool,
         });
 
         let thread_shared = Arc::clone(&shared);
@@ -229,6 +269,7 @@ impl MioBackend {
         inner.shared.shutdown.store(true, Ordering::SeqCst);
         let _ = inner.shared.waker.wake();
         inner.shared.dns_pool.shutdown().map_err(io::Error::other)?;
+        inner.shared.fs_pool.shutdown().map_err(io::Error::other)?;
 
         if let Some(handle) = inner.handle.take()
             && let Err(e) = handle.join()
@@ -328,6 +369,25 @@ impl AsyncBackend for MioBackend {
                 .pop_front()
         })
         .flatten()
+    }
+
+    fn fs_request(&self, req: RequestId, operation: FsOperation) {
+        let _ = self.with_shared(|shared| {
+            let job_shared = Arc::clone(shared);
+            let operation_kind = operation.clone();
+            let submit_result = shared.fs_pool.submit(move || {
+                let payload = execute_fs_operation(operation);
+                push_completion_if_live(&job_shared, req, CompletionPayload::Filesystem(payload));
+                let _ = job_shared.waker.wake();
+            });
+            if let Err(e) = submit_result {
+                push_completion(
+                    shared,
+                    req,
+                    CompletionPayload::Filesystem(fs_submit_error(operation_kind, e)),
+                );
+            }
+        });
     }
 
     fn dns_resolve(&self, req: RequestId, host: String, port: u16) {
@@ -910,6 +970,121 @@ fn push_completion(shared: &ReactorShared, req: RequestId, payload: CompletionPa
         });
 }
 
+fn fs_error(err: std::io::Error, path: impl Into<String>) -> FsError {
+    let kind = match err.kind() {
+        std::io::ErrorKind::NotFound => FsErrorKind::NotFound,
+        std::io::ErrorKind::PermissionDenied => FsErrorKind::PermissionDenied,
+        std::io::ErrorKind::AlreadyExists => FsErrorKind::AlreadyExists,
+        std::io::ErrorKind::NotADirectory => FsErrorKind::NotADirectory,
+        std::io::ErrorKind::IsADirectory => FsErrorKind::IsADirectory,
+        std::io::ErrorKind::DirectoryNotEmpty => FsErrorKind::DirectoryNotEmpty,
+        std::io::ErrorKind::Interrupted
+        | std::io::ErrorKind::TimedOut
+        | std::io::ErrorKind::WouldBlock => FsErrorKind::Interrupted,
+        _ => FsErrorKind::Other,
+    };
+    FsError {
+        kind,
+        message: err.to_string(),
+        path: path.into(),
+    }
+}
+
+fn execute_fs_operation(operation: FsOperation) -> FsCompletion {
+    match operation {
+        FsOperation::ReadFile { path } => match fs::read_to_string(&path) {
+            Ok(contents) => FsCompletion::ReadFile(Ok(contents.into_bytes())),
+            Err(err) => FsCompletion::ReadFile(Err(fs_error(err, path))),
+        },
+        FsOperation::Exists { path } => FsCompletion::Predicate(fs::metadata(path).is_ok()),
+        FsOperation::IsDir { path } => {
+            FsCompletion::Predicate(fs::metadata(path).is_ok_and(|meta| meta.is_dir()))
+        }
+        FsOperation::IsFile { path } => {
+            FsCompletion::Predicate(fs::metadata(path).is_ok_and(|meta| meta.is_file()))
+        }
+        FsOperation::WriteFile { path, contents } => {
+            FsCompletion::Unit(fs::write(&path, contents).map_err(|err| fs_error(err, path)))
+        }
+        FsOperation::CreateDirAll { path } => {
+            FsCompletion::Unit(fs::create_dir_all(&path).map_err(|err| fs_error(err, path)))
+        }
+        FsOperation::RemoveFile { path } => {
+            FsCompletion::Unit(fs::remove_file(&path).map_err(|err| fs_error(err, path)))
+        }
+        FsOperation::RemoveDirAll { path } => {
+            FsCompletion::Unit(fs::remove_dir_all(&path).map_err(|err| fs_error(err, path)))
+        }
+        FsOperation::Rename { from, to } => {
+            FsCompletion::Unit(fs::rename(from, &to).map_err(|err| fs_error(err, to)))
+        }
+        FsOperation::ListDir { path } => {
+            let entries = match fs::read_dir(&path) {
+                Ok(entries) => entries,
+                Err(err) => return FsCompletion::ListDir(Err(fs_error(err, path))),
+            };
+            let mut names = Vec::new();
+            for entry in entries {
+                match entry {
+                    Ok(entry) => names.push(entry.file_name().to_string_lossy().into_owned()),
+                    Err(err) => return FsCompletion::ListDir(Err(fs_error(err, path))),
+                }
+            }
+            FsCompletion::ListDir(Ok(names))
+        }
+        FsOperation::Metadata { path } => match fs::metadata(&path) {
+            Ok(meta) => {
+                let modified = meta
+                    .modified()
+                    .ok()
+                    .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|duration| duration.as_millis() as i64)
+                    .unwrap_or(0);
+                FsCompletion::Metadata(Ok(FsMetadata {
+                    size: meta.len(),
+                    modified,
+                    is_dir: meta.is_dir(),
+                    is_file: meta.is_file(),
+                }))
+            }
+            Err(err) => FsCompletion::Metadata(Err(fs_error(err, path))),
+        },
+    }
+}
+
+fn fs_submit_error(operation: FsOperation, message: String) -> FsCompletion {
+    let error = FsError {
+        kind: FsErrorKind::Other,
+        message,
+        path: match &operation {
+            FsOperation::Rename { to, .. } => to.clone(),
+            FsOperation::WriteFile { path, .. }
+            | FsOperation::ReadFile { path }
+            | FsOperation::Exists { path }
+            | FsOperation::IsDir { path }
+            | FsOperation::IsFile { path }
+            | FsOperation::CreateDirAll { path }
+            | FsOperation::RemoveFile { path }
+            | FsOperation::RemoveDirAll { path }
+            | FsOperation::ListDir { path }
+            | FsOperation::Metadata { path } => path.clone(),
+        },
+    };
+    match operation {
+        FsOperation::ReadFile { .. } => FsCompletion::ReadFile(Err(error)),
+        FsOperation::Exists { .. } | FsOperation::IsDir { .. } | FsOperation::IsFile { .. } => {
+            FsCompletion::Predicate(false)
+        }
+        FsOperation::WriteFile { .. }
+        | FsOperation::CreateDirAll { .. }
+        | FsOperation::RemoveFile { .. }
+        | FsOperation::RemoveDirAll { .. }
+        | FsOperation::Rename { .. } => FsCompletion::Unit(Err(error)),
+        FsOperation::ListDir { .. } => FsCompletion::ListDir(Err(error)),
+        FsOperation::Metadata { .. } => FsCompletion::Metadata(Err(error)),
+    }
+}
+
 fn push_completion_if_live(shared: &ReactorShared, req: RequestId, payload: CompletionPayload) {
     if shared
         .cancelled
@@ -1222,24 +1397,35 @@ mod tests {
     #[test]
     fn tcp_connect_to_closed_port_reports_error() {
         use std::net::TcpListener;
-        // Bind then drop, leaving the address unbound and refusing
-        // subsequent connects. (Linux may be slow to reject; we give a
-        // generous timeout.)
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        drop(listener);
-
         let backend = MioBackend::new();
         backend.start().unwrap();
-        backend.tcp_connect(RequestId(7), addr);
-        let completion =
-            wait_for(&backend, Duration::from_secs(5)).expect("connect must report something");
-        assert_eq!(completion.request_id, RequestId(7));
-        match completion.payload {
-            CompletionPayload::Error(_) => {}
-            other => panic!("expected Error, got {other:?}"),
+
+        // Bind then drop, leaving the address unbound. A parallel test or
+        // another local process can reclaim that ephemeral port before the
+        // reactor connects, so retry when that happens rather than treating a
+        // legitimate connection as a failed-connect result.
+        for attempt in 0..8 {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            drop(listener);
+
+            let req = RequestId(7 + attempt);
+            backend.tcp_connect(req, addr);
+            let completion =
+                wait_for(&backend, Duration::from_secs(5)).expect("connect must report something");
+            assert_eq!(completion.request_id, req);
+            match completion.payload {
+                CompletionPayload::Error(_) => {
+                    backend.shutdown().unwrap();
+                    return;
+                }
+                CompletionPayload::TcpHandle(handle) => backend.tcp_close(handle),
+                other => panic!("expected Error or reclaimed TcpHandle, got {other:?}"),
+            }
         }
+
         backend.shutdown().unwrap();
+        panic!("could not obtain a closed loopback port after several attempts");
     }
 
     #[test]
@@ -1289,6 +1475,163 @@ mod tests {
         let completion = wait_for(&backend, Duration::from_millis(250));
         assert_eq!(completion, None);
         backend.shutdown().unwrap();
+    }
+
+    #[test]
+    fn filesystem_pool_returns_host_owned_payloads_for_every_operation() {
+        let backend = MioBackend::new_with_pool_sizes(1, 1);
+        backend.start().unwrap();
+
+        let base = std::env::temp_dir().join(format!("flux-fs-{}", std::process::id()));
+        let nested = base.join("nested");
+        let path = nested.join("value.txt");
+        let renamed = nested.join("renamed.txt");
+        let _ = fs::remove_dir_all(&base);
+
+        backend.fs_request(
+            RequestId(300),
+            FsOperation::CreateDirAll {
+                path: nested.to_string_lossy().into_owned(),
+            },
+        );
+        assert!(matches!(
+            wait_for(&backend, Duration::from_secs(2)).unwrap().payload,
+            CompletionPayload::Filesystem(FsCompletion::Unit(Ok(())))
+        ));
+
+        backend.fs_request(
+            RequestId(301),
+            FsOperation::WriteFile {
+                path: path.to_string_lossy().into_owned(),
+                contents: "payload".into(),
+            },
+        );
+        assert!(matches!(
+            wait_for(&backend, Duration::from_secs(2)).unwrap().payload,
+            CompletionPayload::Filesystem(FsCompletion::Unit(Ok(())))
+        ));
+
+        backend.fs_request(
+            RequestId(302),
+            FsOperation::ReadFile {
+                path: path.to_string_lossy().into_owned(),
+            },
+        );
+        assert!(matches!(
+            wait_for(&backend, Duration::from_secs(2)).unwrap().payload,
+            CompletionPayload::Filesystem(FsCompletion::ReadFile(Ok(bytes)))
+                if bytes == b"payload".to_vec()
+        ));
+
+        for (request, operation) in [
+            (
+                303,
+                FsOperation::Exists {
+                    path: path.to_string_lossy().into_owned(),
+                },
+            ),
+            (
+                304,
+                FsOperation::IsFile {
+                    path: path.to_string_lossy().into_owned(),
+                },
+            ),
+            (
+                305,
+                FsOperation::IsDir {
+                    path: nested.to_string_lossy().into_owned(),
+                },
+            ),
+        ] {
+            backend.fs_request(RequestId(request), operation);
+            assert!(matches!(
+                wait_for(&backend, Duration::from_secs(2)).unwrap().payload,
+                CompletionPayload::Filesystem(FsCompletion::Predicate(true))
+            ));
+        }
+
+        backend.fs_request(
+            RequestId(306),
+            FsOperation::ListDir {
+                path: nested.to_string_lossy().into_owned(),
+            },
+        );
+        assert!(matches!(
+            wait_for(&backend, Duration::from_secs(2)).unwrap().payload,
+            CompletionPayload::Filesystem(FsCompletion::ListDir(Ok(entries)))
+                if entries == vec![String::from("value.txt")]
+        ));
+
+        backend.fs_request(
+            RequestId(307),
+            FsOperation::Metadata {
+                path: path.to_string_lossy().into_owned(),
+            },
+        );
+        assert!(matches!(
+            wait_for(&backend, Duration::from_secs(2)).unwrap().payload,
+            CompletionPayload::Filesystem(FsCompletion::Metadata(Ok(meta)))
+                if meta.size == 7 && meta.is_file && !meta.is_dir
+        ));
+
+        backend.fs_request(
+            RequestId(308),
+            FsOperation::Rename {
+                from: path.to_string_lossy().into_owned(),
+                to: renamed.to_string_lossy().into_owned(),
+            },
+        );
+        assert!(matches!(
+            wait_for(&backend, Duration::from_secs(2)).unwrap().payload,
+            CompletionPayload::Filesystem(FsCompletion::Unit(Ok(())))
+        ));
+
+        backend.fs_request(
+            RequestId(309),
+            FsOperation::RemoveFile {
+                path: renamed.to_string_lossy().into_owned(),
+            },
+        );
+        assert!(matches!(
+            wait_for(&backend, Duration::from_secs(2)).unwrap().payload,
+            CompletionPayload::Filesystem(FsCompletion::Unit(Ok(())))
+        ));
+        backend.fs_request(
+            RequestId(310),
+            FsOperation::RemoveDirAll {
+                path: base.to_string_lossy().into_owned(),
+            },
+        );
+        assert!(matches!(
+            wait_for(&backend, Duration::from_secs(2)).unwrap().payload,
+            CompletionPayload::Filesystem(FsCompletion::Unit(Ok(())))
+        ));
+
+        backend.shutdown().unwrap();
+    }
+
+    #[test]
+    fn cancelled_filesystem_request_does_not_deliver_completion() {
+        let backend = MioBackend::new_with_pool_sizes(1, 1);
+        backend.start().unwrap();
+        backend.fs_request(
+            RequestId(311),
+            FsOperation::ReadFile {
+                path: std::env::temp_dir()
+                    .join(format!("flux-missing-{}", std::process::id()))
+                    .to_string_lossy()
+                    .into_owned(),
+            },
+        );
+        backend.cancel(RequestId(311));
+        assert!(wait_for(&backend, Duration::from_millis(250)).is_none());
+        backend.shutdown().unwrap();
+    }
+
+    #[test]
+    fn filesystem_pool_configuration_prefers_explicit_size() {
+        assert_eq!(configured_fs_pool_size(7), 7);
+        assert!(configured_fs_pool_size(0) >= 1);
     }
 
     #[test]

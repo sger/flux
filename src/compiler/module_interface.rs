@@ -4,7 +4,7 @@
 //! compiled module. Consumers can later preload this metadata without
 //! recompiling the dependency from source.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -15,14 +15,14 @@ use crate::{
     bytecode::bytecode_cache::hash_bytes,
     core::CoreProgram,
     runtime::function_contract::FunctionContract,
-    shared::cache_paths,
+    shared::{cache_paths, hex},
     syntax::{Identifier, interner::Interner, symbol::Symbol},
     types::{
         class_env::ClassEnv,
         module_interface::{
             DependencyFingerprint, DependencyMissReason, MODULE_INTERFACE_FORMAT_VERSION,
-            ModuleInterface, PublicClassEntry, PublicClassMethodEntry, PublicInstanceEntry,
-            PublicInstanceMethodEntry,
+            ModuleInterface, PublicClassEntry, PublicClassMethodEntry, PublicCtorTypeEntry,
+            PublicInstanceEntry, PublicInstanceMethodEntry, PublicTypeAliasEntry,
         },
         scheme::Scheme,
     },
@@ -95,6 +95,7 @@ pub fn build_interface(
     class_env: Option<&ClassEnv>,
     dependency_fingerprints: Vec<DependencyFingerprint>,
     interner: &Interner,
+    ast_program: Option<&crate::syntax::program::Program>,
 ) -> ModuleInterface {
     let mut interface = ModuleInterface::new(
         module_name,
@@ -154,8 +155,218 @@ pub fn build_interface(
             .insert(sym.as_u32(), interner.resolve(sym).to_string());
     }
 
+    // record declared field order for this module's public
+    // record-style constructors so importing modules can desugar named-field
+    // syntax. Must run before the fingerprint so a changed field order (which
+    // changes the positional lowering) invalidates downstream caches.
+    if let Some(program) = ast_program {
+        interface.ctor_field_names = collect_public_ctor_field_names(program, interner);
+        // Before the fingerprint: a changed field type changes how
+        // importers infer the application.
+        interface.public_ctor_types = collect_public_ctor_types(program, interner);
+        interface.public_type_aliases = collect_public_type_aliases(program, interner);
+        // Field types come from the raw AST, so they still name any alias.
+        // Schemes are built post-expansion; these must match or an importer
+        // sees `Bytes` where inference produced `String`.
+        expand_aliases_in_ctor_types(&mut interface.public_ctor_types, program);
+        let mut ctor_symbols: HashSet<Symbol> = HashSet::new();
+        for entry in interface.public_ctor_types.values() {
+            ctor_symbols.insert(entry.adt_name);
+            ctor_symbols.extend(entry.type_params.iter().copied());
+            if let Some(names) = entry.field_names.as_ref() {
+                ctor_symbols.extend(names.iter().copied());
+            }
+            for field in &entry.fields {
+                collect_symbols_from_type_expr(field, &mut ctor_symbols);
+            }
+        }
+        for entry in interface.public_type_aliases.values() {
+            ctor_symbols.extend(entry.params.iter().copied());
+            collect_symbols_from_type_expr(&entry.body, &mut ctor_symbols);
+        }
+        for sym in ctor_symbols {
+            interface
+                .symbol_table
+                .insert(sym.as_u32(), interner.resolve(sym).to_string());
+        }
+    }
+
     interface.interface_fingerprint = compute_interface_fingerprint(&interface);
     interface
+}
+
+/// collect `constructor -> [field names]` for every `public
+/// data` declaration in `program`, walking both top-level and module-nested
+/// statements.
+///
+/// Only public declarations are recorded: a private constructor is not
+/// nameable from another module, so its field order is not part of the
+/// interface. Field order is preserved exactly — it is the positional order
+/// that named-field desugaring emits.
+/// Collect `constructor -> type metadata` for every `public data` declaration,
+/// walking top-level and module-nested statements.
+///
+/// Private constructors are skipped: they are not nameable from another module.
+fn collect_public_ctor_types(
+    program: &crate::syntax::program::Program,
+    interner: &Interner,
+) -> BTreeMap<String, PublicCtorTypeEntry> {
+    fn walk(
+        statements: &[crate::syntax::statement::Statement],
+        interner: &Interner,
+        out: &mut BTreeMap<String, PublicCtorTypeEntry>,
+    ) {
+        use crate::syntax::statement::Statement;
+        for statement in statements {
+            match statement {
+                Statement::Data {
+                    name,
+                    is_public,
+                    type_params,
+                    variants,
+                    ..
+                } => {
+                    if !is_public {
+                        continue;
+                    }
+                    for variant in variants {
+                        out.insert(
+                            interner.resolve(variant.name).to_string(),
+                            PublicCtorTypeEntry {
+                                adt_name: *name,
+                                type_params: type_params.clone(),
+                                fields: variant.fields.clone(),
+                                field_names: variant.field_names.clone(),
+                            },
+                        );
+                    }
+                }
+                Statement::Module { body, .. } => walk(&body.statements, interner, out),
+                _ => {}
+            }
+        }
+    }
+    let mut out = BTreeMap::new();
+    walk(&program.statements, interner, &mut out);
+    out
+}
+
+/// Collect `alias -> (params, body)` for every `public alias` declaration,
+/// walking top-level and module-nested statements.
+/// Expand transparent aliases in exported constructor field types.
+fn expand_aliases_in_ctor_types(
+    ctor_types: &mut BTreeMap<String, PublicCtorTypeEntry>,
+    program: &crate::syntax::program::Program,
+) {
+    use crate::syntax::statement::Statement;
+
+    fn collect(
+        statements: &[Statement],
+        out: &mut std::collections::HashMap<
+            crate::syntax::Identifier,
+            crate::syntax::statement::TypeAliasDecl,
+        >,
+    ) {
+        for statement in statements {
+            match statement {
+                Statement::TypeAlias(alias) => {
+                    out.insert(alias.name, alias.clone());
+                }
+                Statement::Module { body, .. } => collect(&body.statements, out),
+                _ => {}
+            }
+        }
+    }
+
+    let mut aliases = std::collections::HashMap::new();
+    collect(&program.statements, &mut aliases);
+    if aliases.is_empty() {
+        return;
+    }
+    // Diagnostics are discarded: the declaring module already reported any
+    // bad alias when it was compiled.
+    let mut discarded = Vec::new();
+    for entry in ctor_types.values_mut() {
+        for field in &mut entry.fields {
+            crate::ast::expand_type_aliases::expand_type(field, &aliases, "", &mut discarded);
+        }
+    }
+}
+
+fn collect_public_type_aliases(
+    program: &crate::syntax::program::Program,
+    interner: &Interner,
+) -> BTreeMap<String, PublicTypeAliasEntry> {
+    fn walk(
+        statements: &[crate::syntax::statement::Statement],
+        interner: &Interner,
+        out: &mut BTreeMap<String, PublicTypeAliasEntry>,
+    ) {
+        use crate::syntax::statement::Statement;
+        for statement in statements {
+            match statement {
+                Statement::TypeAlias(alias) => {
+                    if !alias.is_public {
+                        continue;
+                    }
+                    out.insert(
+                        interner.resolve(alias.name).to_string(),
+                        PublicTypeAliasEntry {
+                            params: alias.params.clone(),
+                            body: alias.body.clone(),
+                        },
+                    );
+                }
+                Statement::Module { body, .. } => walk(&body.statements, interner, out),
+                _ => {}
+            }
+        }
+    }
+    let mut out = BTreeMap::new();
+    walk(&program.statements, interner, &mut out);
+    out
+}
+
+fn collect_public_ctor_field_names(
+    program: &crate::syntax::program::Program,
+    interner: &Interner,
+) -> BTreeMap<String, Vec<String>> {
+    fn walk(
+        statements: &[crate::syntax::statement::Statement],
+        interner: &Interner,
+        out: &mut BTreeMap<String, Vec<String>>,
+    ) {
+        use crate::syntax::statement::Statement;
+        for statement in statements {
+            match statement {
+                Statement::Data {
+                    is_public,
+                    variants,
+                    ..
+                } => {
+                    if !is_public {
+                        continue;
+                    }
+                    for variant in variants {
+                        if let Some(names) = variant.field_names.as_ref() {
+                            out.insert(
+                                interner.resolve(variant.name).to_string(),
+                                names
+                                    .iter()
+                                    .map(|n| interner.resolve(*n).to_string())
+                                    .collect(),
+                            );
+                        }
+                    }
+                }
+                Statement::Module { body, .. } => walk(&body.statements, interner, out),
+                _ => {}
+            }
+        }
+    }
+    let mut out = BTreeMap::new();
+    walk(&program.statements, interner, &mut out);
+    out
 }
 
 /// Proposal 0151, Phase 2: extract every `public class` declared in
@@ -377,11 +588,13 @@ fn collect_symbols_from_effect_expr(
 }
 
 pub fn compute_semantic_config_hash(strict_mode: bool, optimize_mode: bool) -> [u8; 32] {
-    let marker = format!(
-        "strict={}\noptimize={}\n",
-        u8::from(strict_mode),
-        u8::from(optimize_mode)
-    );
+    let mut marker = String::new();
+    if optimize_mode {
+        marker.push_str("optimize: 1\n");
+    }
+    if strict_mode {
+        marker.push_str("strict: 1\n");
+    }
     hash_bytes(marker.as_bytes())
 }
 
@@ -422,12 +635,23 @@ pub fn compute_interface_fingerprint(interface: &ModuleInterface) -> String {
         exports: &'a [CanonicalExport<'a>],
         public_classes: &'a [PublicClassEntry],
         public_instances: &'a [PublicInstanceEntry],
+        /// constructor field order participates in the
+        /// fingerprint because it determines the positional form that
+        /// named-field syntax desugars to in *importing* modules.
+        ctor_field_names: &'a BTreeMap<String, Vec<String>>,
+        /// Importers infer constructor applications from these.
+        public_ctor_types: &'a BTreeMap<String, PublicCtorTypeEntry>,
+        /// Importers expand these, so a changed alias body changes their types.
+        public_type_aliases: &'a BTreeMap<String, PublicTypeAliasEntry>,
     }
 
     let canonical = CanonicalInterface {
         exports: &exports,
         public_classes: &interface.public_classes,
         public_instances: &interface.public_instances,
+        ctor_field_names: &interface.ctor_field_names,
+        public_ctor_types: &interface.public_ctor_types,
+        public_type_aliases: &interface.public_type_aliases,
     };
 
     let bytes = serde_json::to_vec(&canonical).expect("canonical interface fingerprint");
@@ -553,10 +777,26 @@ pub fn load_valid_interface(
     Ok(interface)
 }
 
-mod hex {
-    pub fn encode(bytes: &[u8]) -> String {
-        bytes.iter().map(|b| format!("{b:02x}")).collect()
-    }
+/// Collect `constructor Symbol -> type metadata` for every `public data`
+/// declaration in `program`, with transparent aliases expanded in field types.
+///
+/// The interface path ([`collect_public_ctor_types`]) keys by name because a
+/// `.flxi` is serialized across sessions and its `Symbol`s must be remapped on
+/// load. A dependency compiled in *this* run has no interface to read back —
+/// its AST is already in-session — so importers seed inference straight from
+/// the program, keyed by the live `Symbol`. Without this the KI-014 metadata
+/// reaches an importer only through a warm cache, and a fresh build infers an
+/// imported constructor's payload as an unresolved variable (KI-022).
+pub fn collect_dependency_ctor_types(
+    program: &crate::syntax::program::Program,
+    interner: &Interner,
+) -> std::collections::HashMap<Symbol, PublicCtorTypeEntry> {
+    let mut by_name = collect_public_ctor_types(program, interner);
+    expand_aliases_in_ctor_types(&mut by_name, program);
+    by_name
+        .into_iter()
+        .filter_map(|(name, entry)| interner.lookup(&name).map(|sym| (sym, entry)))
+        .collect()
 }
 
 #[cfg(test)]
@@ -661,6 +901,7 @@ mod tests {
                 interface_fingerprint: "abc".to_string(),
             }],
             &interner,
+            None,
         );
 
         assert_eq!(interface.module_name, "Base.List");
@@ -723,6 +964,7 @@ mod tests {
             None,
             Vec::new(),
             &interner,
+            None,
         );
 
         // Symbol table should contain both the ADT and effect symbols.
@@ -786,6 +1028,7 @@ mod tests {
             None,
             Vec::new(),
             &interner,
+            None,
         );
 
         assert!(
@@ -846,6 +1089,9 @@ mod tests {
             symbol_table: HashMap::new(),
             public_classes: Vec::new(),
             public_instances: Vec::new(),
+            ctor_field_names: BTreeMap::new(),
+            public_ctor_types: BTreeMap::new(),
+            public_type_aliases: BTreeMap::new(),
         };
 
         let json = serde_json::to_string_pretty(&interface).unwrap();
@@ -884,6 +1130,49 @@ mod tests {
         b.interface_fingerprint = compute_interface_fingerprint(&b);
 
         assert_eq!(a.interface_fingerprint, b.interface_fingerprint);
+    }
+
+    /// constructor field *order* determines the positional form
+    /// that named-field syntax desugars to in importing modules, so reordering
+    /// fields is an interface-breaking change and must move the fingerprint.
+    #[test]
+    fn ctor_field_order_changes_the_interface_fingerprint() {
+        let mut a = ModuleInterface::new("M", "src", "cfg");
+        a.ctor_field_names.insert(
+            "IoError".to_string(),
+            vec!["kind".to_string(), "message".to_string()],
+        );
+        let fingerprint_a = compute_interface_fingerprint(&a);
+
+        let mut b = ModuleInterface::new("M", "src", "cfg");
+        b.ctor_field_names.insert(
+            "IoError".to_string(),
+            vec!["message".to_string(), "kind".to_string()],
+        );
+        let fingerprint_b = compute_interface_fingerprint(&b);
+
+        assert_ne!(
+            fingerprint_a, fingerprint_b,
+            "swapping two constructor field names must change the fingerprint; \
+             importers desugar named fields to this order"
+        );
+    }
+
+    /// Adding a record constructor to a module changes what importers can
+    /// desugar, so it must invalidate downstream caches too.
+    #[test]
+    fn adding_a_record_constructor_changes_the_interface_fingerprint() {
+        let bare = ModuleInterface::new("M", "src", "cfg");
+        let mut with_ctor = ModuleInterface::new("M", "src", "cfg");
+        with_ctor
+            .ctor_field_names
+            .insert("IoError".to_string(), vec!["kind".to_string()]);
+
+        assert_ne!(
+            compute_interface_fingerprint(&bare),
+            compute_interface_fingerprint(&with_ctor),
+            "adding a record constructor must change the fingerprint"
+        );
     }
 
     /// Proposal 0151, Phase 2: an empty `.flxi` round-trips its
@@ -1033,6 +1322,7 @@ mod tests {
             Some(&env_empty),
             Vec::new(),
             &interner,
+            None,
         );
 
         // Same module, but with one PRIVATE class registered.
@@ -1064,6 +1354,7 @@ mod tests {
             Some(&env_priv),
             Vec::new(),
             &interner,
+            None,
         );
 
         assert_eq!(

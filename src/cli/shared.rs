@@ -22,7 +22,7 @@ use crate::{
 /// Parsed backend-related CLI flags that affect backend selection or backend outputs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct ParsedCliBackendFlags {
-    pub(crate) use_llvm: bool,
+    pub(crate) use_llvm: Option<bool>,
     pub(crate) emit_llvm: bool,
     pub(crate) emit_binary: bool,
 }
@@ -36,12 +36,16 @@ pub(crate) struct ParsedCliRuntimeFlags {
     pub(crate) trace_aether: bool,
     pub(crate) show_stats: bool,
     pub(crate) profiling: bool,
+    /// Suppress `[n of m] Compiling …` lines. Set by `--quiet`, and by the
+    /// manifest resolver's child invocation, whose compile progress describes
+    /// the resolver rather than the user's build.
+    pub(crate) quiet: bool,
 }
 
 /// Parsed language-related CLI flags that affect compilation semantics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct ParsedCliLanguageFlags {
-    pub(crate) enable_optimize: bool,
+    pub(crate) enable_optimize: Option<bool>,
     pub(crate) enable_analyze: bool,
     pub(crate) strict_mode: bool,
 }
@@ -73,6 +77,10 @@ impl Default for ParsedCliDumpFlags {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct ParsedCliExecutionFlags {
     pub(crate) no_cache: bool,
+    pub(crate) clean_deps: bool,
+    pub(crate) clean_store: bool,
+    pub(crate) offline: bool,
+    pub(crate) locked: bool,
     pub(crate) roots_only: bool,
     pub(crate) test_mode: bool,
     pub(crate) all_errors: bool,
@@ -94,6 +102,7 @@ pub(crate) struct CliValueOptions {
     pub(crate) paths: CliPathOptions,
     pub(crate) diagnostics: CliDiagnosticOptions,
     pub(crate) command: CliCommandValueOptions,
+    pub(crate) profile: Option<String>,
 }
 
 /// Path-like CLI values collected during value-option parsing.
@@ -145,6 +154,7 @@ impl Default for CliValueOptions {
             paths: CliPathOptions::default(),
             diagnostics: CliDiagnosticOptions::default(),
             command: CliCommandValueOptions::default(),
+            profile: None,
         }
     }
 }
@@ -156,12 +166,17 @@ pub(crate) fn extract_cli_flag_groups(args: &mut Vec<String>) -> ParsedCliFlags 
     while i < args.len() {
         match args[i].as_str() {
             "--verbose" => flags.runtime.verbose = remove_bool_flag(args, i),
+            "--quiet" => flags.runtime.quiet = remove_bool_flag(args, i),
             "--leak-detector" => flags.runtime.leak_detector = remove_bool_flag(args, i),
             "--trace" => flags.runtime.trace = remove_bool_flag(args, i),
             "--trace-aether" => flags.runtime.trace_aether = remove_bool_flag(args, i),
             "--prof" => flags.runtime.profiling = remove_bool_flag(args, i),
             "--roots-only" => flags.execution.roots_only = remove_bool_flag(args, i),
-            "--optimize" | "-O" => flags.language.enable_optimize = remove_bool_flag(args, i),
+            "--optimize" | "-O" => flags.language.enable_optimize = Some(remove_bool_flag(args, i)),
+            "--no-optimize" => {
+                args.remove(i);
+                flags.language.enable_optimize = Some(false);
+            }
             "--analyze" | "-A" => flags.language.enable_analyze = remove_bool_flag(args, i),
             "--stats" => flags.runtime.show_stats = remove_bool_flag(args, i),
             "--test" => flags.execution.test_mode = remove_bool_flag(args, i),
@@ -182,10 +197,25 @@ pub(crate) fn extract_cli_flag_groups(args: &mut Vec<String>) -> ParsedCliFlags 
             }
             "--dump-lir" => flags.dumps.dump_lir = remove_bool_flag(args, i),
             "--dump-lir-llvm" => flags.dumps.dump_lir_llvm = remove_bool_flag(args, i),
-            "--native" => flags.backend.use_llvm = remove_bool_flag(args, i),
+            "--native" => flags.backend.use_llvm = Some(remove_bool_flag(args, i)),
+            "--vm" => {
+                args.remove(i);
+                flags.backend.use_llvm = Some(false);
+            }
             "--emit-llvm" => flags.backend.emit_llvm = remove_bool_flag(args, i),
             "--emit-binary" => flags.backend.emit_binary = remove_bool_flag(args, i),
             "--no-cache" => flags.execution.no_cache = remove_bool_flag(args, i),
+            "--deps" => flags.execution.clean_deps = remove_bool_flag(args, i),
+            "--store" => flags.execution.clean_store = remove_bool_flag(args, i),
+            "--offline" => flags.execution.offline = remove_bool_flag(args, i),
+            "--locked" => flags.execution.locked = remove_bool_flag(args, i),
+            // `--frozen` is the pair, not a third mode: a build that may
+            // neither download nor decide anything new.
+            "--frozen" => {
+                let set = remove_bool_flag(args, i);
+                flags.execution.offline |= set;
+                flags.execution.locked |= set;
+            }
             _ => {
                 i += 1;
             }
@@ -215,6 +245,18 @@ pub(crate) fn extract_cli_value_options(args: &mut Vec<String>) -> Result<CliVal
             "Error: --cache-dir requires a directory path.",
         )? {
             values.paths.cache_dir = Some(PathBuf::from(value));
+            continue;
+        }
+        if let Some(profile) = take_required_long_option(
+            args,
+            &mut i,
+            "--profile",
+            "Error: --profile requires a profile name.",
+        )? {
+            if profile.is_empty() {
+                return Err("Error: --profile requires a profile name.".to_string());
+            }
+            values.profile = Some(profile);
             continue;
         }
         if let Some(value) = consume_short_value_option(args, &mut i, "-o")? {
@@ -270,10 +312,17 @@ pub(crate) fn extract_cli_value_options(args: &mut Vec<String>) -> Result<CliVal
 
 /// Builds grouped driver flags from parsed CLI flag groups and value options.
 pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions) -> DriverFlags {
+    // Recorded for the whole process here, at the one place every command's
+    // flags are assembled: the manifest resolver runs far below this and as a
+    // child process, and both need to know.
+    crate::driver::manifest_roots::set_resolution_mode(
+        parsed.execution.offline,
+        parsed.execution.locked,
+    );
     DriverFlags {
         backend: DriverBackendFlags {
             selected: Backend::Vm,
-            use_llvm: parsed.backend.use_llvm,
+            use_llvm: parsed.backend.use_llvm.unwrap_or(false),
             emit_llvm: parsed.backend.emit_llvm,
             emit_binary: parsed.backend.emit_binary,
             output_path: values.paths.output_path,
@@ -291,7 +340,8 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
             trace_aether: parsed.runtime.trace_aether,
             show_stats: parsed.runtime.show_stats,
             profiling: parsed.runtime.profiling,
-            quiet: false,
+            quiet: parsed.runtime.quiet,
+            check_only: false,
         },
         dumps: DriverDumpFlags {
             dump_repr: parsed.dumps.dump_repr,
@@ -309,11 +359,21 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
         cache: DriverCacheFlags {
             cache_dir: values.paths.cache_dir,
             no_cache: parsed.execution.no_cache,
+            clean_deps: parsed.execution.clean_deps,
+            clean_store: parsed.execution.clean_store,
+            offline: parsed.execution.offline,
+            locked: parsed.execution.locked,
         },
         language: DriverLanguageFlags {
-            enable_optimize: parsed.language.enable_optimize,
+            enable_optimize: parsed.language.enable_optimize.unwrap_or(false),
             enable_analyze: parsed.language.enable_analyze,
             strict_mode: parsed.language.strict_mode,
+        },
+        profile: crate::driver::flags::DriverProfileFlags {
+            name: values.profile,
+            resolved: None,
+            cli_use_llvm: parsed.backend.use_llvm,
+            cli_optimize: parsed.language.enable_optimize,
         },
     }
     .finalize_backend()
@@ -451,7 +511,7 @@ mod tests {
         let parsed = extract_cli_flag_groups(&mut args);
 
         assert!(parsed.runtime.verbose);
-        assert!(parsed.language.enable_optimize);
+        assert_eq!(parsed.language.enable_optimize, Some(true));
         assert_eq!(parsed.dumps.dump_aether, AetherDumpMode::Debug);
         assert!(parsed.backend.emit_binary);
         assert!(parsed.runtime.profiling);
@@ -470,7 +530,7 @@ mod tests {
 
         let parsed = extract_cli_flag_groups(&mut args);
 
-        assert!(parsed.backend.use_llvm);
+        assert_eq!(parsed.backend.use_llvm, Some(true));
         assert!(parsed.dumps.dump_lir_llvm);
         assert_eq!(args, vec!["flux".to_string(), "file.flx".to_string()]);
     }
@@ -593,7 +653,7 @@ mod tests {
                     ..ParsedCliRuntimeFlags::default()
                 },
                 language: ParsedCliLanguageFlags {
-                    enable_optimize: true,
+                    enable_optimize: Some(true),
                     ..ParsedCliLanguageFlags::default()
                 },
                 dumps: ParsedCliDumpFlags {
@@ -616,6 +676,7 @@ mod tests {
                 },
                 diagnostics: CliDiagnosticOptions::default(),
                 command: CliCommandValueOptions::default(),
+                profile: None,
             },
         );
 

@@ -1,5 +1,6 @@
 ---
 source: tests/native_llvm/llvm_adt.rs
+assertion_line: 350
 expression: render_module(&module)
 ---
 source_filename = "flux_lir"
@@ -562,7 +563,7 @@ entry:
 
 define fastcc i64 @flux_fold(i64 %v0) nounwind uwtable {
 bb0:
-  switch i64 %v0, label %match.boxed.1 [
+  switch i64 %v0, label %match.ptrguard.10 [
     i64 6, label %bb2
   ]
 match.extract.3.2:
@@ -588,6 +589,9 @@ match.boxed.1:
   %match.ot.8 = load i8, ptr %match.otptr.7, align 1
   %match.isadt.9 = icmp eq i8 %match.ot.8, 242
   br i1 %match.isadt.9, label %match.adt.3, label %bb4
+match.ptrguard.10:
+  %match.ptrck.11 = icmp ule i64 12, %v0
+  br i1 %match.ptrck.11, label %match.boxed.1, label %bb4
 bb1:
   %v1 = phi i64 [ %v4, %bb2 ], [ %v10, %bb5 ]
   ret i64 %v1
@@ -604,8 +608,8 @@ bb5:
   %v7 = ashr i64 %v2, 1
   %v8 = ashr i64 %v5, 1
   %v9 = add i64 %v7, %v8
-  %t10 = shl i64 %v9, 1
-  %v10 = or i64 %t10, 1
+  %t12 = shl i64 %v9, 1
+  %v10 = or i64 %t12, 1
   br label %bb1
 }
 

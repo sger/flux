@@ -18,6 +18,10 @@ mod binary_ops;
 mod channel;
 mod comparison_ops;
 mod core_dispatch;
+
+/// Install the running program's arguments, read back by the `EnvArgs`
+/// primop. Called once by the driver; see `Flow.Env.args`.
+pub use core_dispatch::{program_args_snapshot, set_program_args};
 mod dispatch;
 mod event;
 mod function_call;

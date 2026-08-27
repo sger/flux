@@ -136,11 +136,13 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             func,
             args,
             arg_modes,
+            guarded_borrowed_args,
             span,
         } => CoreExpr::AetherCall {
             func: Box::new(transform(*func)),
             args: args.into_iter().map(transform).collect(),
             arg_modes,
+            guarded_borrowed_args,
             span,
         },
         CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
@@ -623,6 +625,7 @@ fn rewrite_mode(
             func,
             args,
             arg_modes,
+            guarded_borrowed_args,
             span,
         } => CoreExpr::AetherCall {
             func: Box::new(rewrite_mode(func, mode, scrutinee_id, duped_fields)),
@@ -631,6 +634,7 @@ fn rewrite_mode(
                 .map(|arg| rewrite_mode(arg, mode, scrutinee_id, duped_fields))
                 .collect(),
             arg_modes: arg_modes.clone(),
+            guarded_borrowed_args: guarded_borrowed_args.clone(),
             span: *span,
         },
         CoreExpr::Case {

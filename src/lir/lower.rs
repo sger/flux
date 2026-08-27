@@ -20,6 +20,20 @@ pub struct ImportedNativeSymbol {
     pub symbol: String,
     pub arity: usize,
     pub is_value: bool,
+    /// True when calling this imported function can suspend — its declared
+    /// effect row carries an effect that yields rather than taking the direct
+    /// path.
+    ///
+    /// A yield unwinds by returning `FLUX_YIELD_SENTINEL` up the stack, so
+    /// every caller must test `flux_is_yielding` after the call and propagate
+    /// instead of using the result. `cont_split` decides which call sites get
+    /// that check, and for a cross-module call it has only the symbol name to
+    /// go on — `direct_async_func_ids` reasons over `LirFuncId`s, which are
+    /// module-local. Without this bit the only cross-module suspension it
+    /// could see was a hardcoded `Flow_Async_*` allowlist, so a user-defined
+    /// effect performed in another module miscompiled: the caller ran on with
+    /// the sentinel in hand and dereferenced it (KI-034).
+    pub can_suspend: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -172,8 +186,10 @@ fn native_builtin_effect_uses_direct_path(
         };
         match name {
             crate::syntax::builtin_effects::CONSOLE
-            | crate::syntax::builtin_effects::FILESYSTEM
-            | crate::syntax::builtin_effects::STDIN => {
+            | crate::syntax::builtin_effects::STDIN
+            | crate::syntax::builtin_effects::ENV
+            | crate::syntax::builtin_effects::PROCESS
+            | crate::syntax::builtin_effects::IO => {
                 parameterized_name == crate::syntax::builtin_effects::IO
             }
             crate::syntax::builtin_effects::CLOCK => {
@@ -191,20 +207,44 @@ fn native_builtin_effect_uses_direct_path(
     matches!(
         name,
         crate::syntax::builtin_effects::CONSOLE
-            | crate::syntax::builtin_effects::FILESYSTEM
             | crate::syntax::builtin_effects::STDIN
             | crate::syntax::builtin_effects::CLOCK
+            | crate::syntax::builtin_effects::ENV
+            | crate::syntax::builtin_effects::PROCESS
+            | crate::syntax::builtin_effects::IO
+            | crate::syntax::builtin_effects::TIME
     )
 }
 
-fn effect_expr_contains_async(
+/// True when a function declaring this effect row can suspend, so its indirect
+/// call sites must be marked `async_capable` and get yield checks.
+///
+/// Every effect yields except the six that lower to plain C calls always
+/// returning a real value (`native_builtin_effect_uses_direct_path`). This used
+/// to test only for `Async`, which meant a user-defined effect left its callers
+/// marked `async_capable: false` — so `cont_split` skipped them and the yield
+/// sentinel escaped into straight-line code (KI-034).
+///
+/// Over-reporting only costs a redundant `flux_is_yielding` test;
+/// under-reporting corrupts memory, so an unresolvable name counts as
+/// suspending.
+fn effect_expr_can_suspend(
     effect: &crate::syntax::effect_expr::EffectExpr,
     interner: Option<&Interner>,
 ) -> bool {
     effect.normalized_concrete_names().into_iter().any(|name| {
-        interner
-            .and_then(|i| i.try_resolve(name))
-            .is_some_and(|resolved| resolved == crate::syntax::builtin_effects::ASYNC)
+        !matches!(
+            interner.and_then(|i| i.try_resolve(name)),
+            Some(
+                crate::syntax::builtin_effects::CONSOLE
+                    | crate::syntax::builtin_effects::STDIN
+                    | crate::syntax::builtin_effects::CLOCK
+                    | crate::syntax::builtin_effects::ENV
+                    | crate::syntax::builtin_effects::PROCESS
+                    | crate::syntax::builtin_effects::IO
+                    | crate::syntax::builtin_effects::TIME
+            )
+        )
     })
 }
 
@@ -218,7 +258,7 @@ fn collect_async_effect_function_names(
             CoreTopLevelItem::Function { name, effects, .. }
                 if effects
                     .iter()
-                    .any(|effect| effect_expr_contains_async(effect, interner)) =>
+                    .any(|effect| effect_expr_can_suspend(effect, interner)) =>
             {
                 out.insert(*name);
             }
@@ -504,20 +544,39 @@ pub fn lower_program_with_interner_and_externs(
 ) -> LirProgram {
     let mut lir = LirProgram::new();
 
+    // Record which imported symbols can suspend, from the declared effect row
+    // of each import. `cont_split` needs this to decide whether a cross-module
+    // call site gets a yield check; `LirFuncId`-based reasoning cannot see past
+    // the module boundary (KI-034).
+    if let Some(externs) = extern_symbols {
+        lir.suspending_extern_symbols = externs
+            .values()
+            .filter(|sym| sym.can_suspend)
+            .map(|sym| sym.symbol.clone())
+            .collect();
+    }
+
     // Build module-qualified names from the CoreTopLevelItem tree.
     let qualified_names = build_qualified_names(program, interner, entry_qualifier);
 
-    // Collect user-defined ADT constructor tags from Data declarations.
-    collect_constructor_tags(
-        &program.top_level_items,
-        &mut lir.constructor_tags,
-        interner,
-    );
+    // Seed with the compiler-wide tags first. They are assigned once across
+    // the whole program, so a constructor declared in another module keeps the
+    // same tag here as in the module that defined it. Collecting locally first
+    // would let a local constructor claim a number an imported one already
+    // owns, and values would then be built with one tag and matched with
+    // another.
     if let Some(imported) = imported_constructor_tags {
         for (name, tag) in imported {
             lir.constructor_tags.entry(name.clone()).or_insert(*tag);
         }
     }
+    // Then number any constructor the program declares that the compiler-wide
+    // map did not cover.
+    collect_constructor_tags(
+        &program.top_level_items,
+        &mut lir.constructor_tags,
+        interner,
+    );
 
     // Find the main def — it could be at any position in defs[].
     let main_idx = if emit_main {
@@ -651,13 +710,27 @@ pub fn lower_aether_program_with_interner_and_externs(
     let core = program.as_core();
     let mut lir = LirProgram::new();
 
+    // Record which imported symbols can suspend, from the declared effect row
+    // of each import. `cont_split` needs this to decide whether a cross-module
+    // call site gets a yield check; `LirFuncId`-based reasoning cannot see past
+    // the module boundary (KI-034).
+    if let Some(externs) = extern_symbols {
+        lir.suspending_extern_symbols = externs
+            .values()
+            .filter(|sym| sym.can_suspend)
+            .map(|sym| sym.symbol.clone())
+            .collect();
+    }
+
     let qualified_names = build_qualified_names(core, interner, entry_qualifier);
-    collect_constructor_tags(&core.top_level_items, &mut lir.constructor_tags, interner);
+    // Compiler-wide tags first — see the note in
+    // `lower_program_with_interner_and_externs`.
     if let Some(imported) = imported_constructor_tags {
         for (name, tag) in imported {
             lir.constructor_tags.entry(name.clone()).or_insert(*tag);
         }
     }
+    collect_constructor_tags(&core.top_level_items, &mut lir.constructor_tags, interner);
 
     let main_idx = if emit_main {
         if let Some(interner) = interner {
@@ -922,6 +995,15 @@ fn promote_tail_calls(program: &mut LirProgram) {
 struct FnLower<'a> {
     /// Mapping from Core binder IDs to LIR variables.
     env: HashMap<CoreBinderId, LirVar>,
+    /// Closures created lazily for top-level functions used as values, keyed by
+    /// the block that created them.
+    ///
+    /// These cannot go in `env`: it is function-scoped, so a sibling block —
+    /// another match arm — would reuse an SSA value it does not dominate, and
+    /// LLVM rejects the module ("Instruction does not dominate all uses").
+    /// Keying on the block keeps the dedup within one block, where reuse is
+    /// always dominated.
+    block_func_closures: HashMap<(usize, CoreBinderId), LirVar>,
     /// The function being built.
     func: LirFunction,
     /// Index of the currently active block.
@@ -1005,6 +1087,7 @@ impl<'a> FnLower<'a> {
         };
         Self {
             env: HashMap::new(),
+            block_func_closures: HashMap::new(),
             func: LirFunction {
                 name,
                 id,
@@ -1055,6 +1138,23 @@ impl<'a> FnLower<'a> {
     fn resolve_external_symbol(&self, source_name: &str) -> Option<ImportedNativeSymbol> {
         self.extern_symbols
             .and_then(|symbols| symbols.get(source_name).cloned())
+    }
+
+    /// Resolve an explicitly qualified imported member by its source-level
+    /// module binding (for example, `Json.as_string`). This lookup is
+    /// authoritative: a same-named local binder must not capture a qualified
+    /// access before the imported symbol gets a chance to resolve.
+    fn resolve_qualified_external_symbol(
+        &self,
+        object: crate::syntax::Identifier,
+        member: crate::syntax::Identifier,
+    ) -> Option<ImportedNativeSymbol> {
+        let qualified = format!(
+            "{}.{}",
+            self.resolve_name(object),
+            self.resolve_name(member)
+        );
+        self.resolve_external_symbol(&qualified)
     }
 
     fn emit_extern_value_getter(&mut self, symbol: String) -> LirVar {
@@ -1223,6 +1323,24 @@ impl<'a> FnLower<'a> {
         self.env.insert(binder, var);
     }
 
+    /// The closure for a top-level function used as a value in this block,
+    /// creating it if this block has not made one yet.
+    fn func_closure_in_block(&mut self, binder: CoreBinderId, func_id: LirFuncId) -> LirVar {
+        if let Some(&var) = self.block_func_closures.get(&(self.current_block, binder)) {
+            return var;
+        }
+        let var = self.fresh_var();
+        self.emit(LirInstr::MakeClosure {
+            dst: var,
+            func_id,
+            captures: Vec::new(),
+        });
+        self.block_func_closures
+            .insert((self.current_block, binder), var);
+        self.direct_func_vars.insert(var, func_id);
+        var
+    }
+
     /// Look up a Core binder, returning its LIR variable.
     fn lookup(&self, binder: CoreBinderId) -> LirVar {
         *self
@@ -1259,15 +1377,7 @@ impl<'a> FnLower<'a> {
                     // Not in env — check if it's a top-level function.
                     // Create a closure lazily (only when used as a value).
                     if let Some(&func_id) = self.binder_func_id_map.get(&binder) {
-                        let var = self.fresh_var();
-                        self.emit(LirInstr::MakeClosure {
-                            dst: var,
-                            func_id,
-                            captures: Vec::new(),
-                        });
-                        self.bind(binder, var);
-                        self.direct_func_vars.insert(var, func_id);
-                        return var;
+                        return self.func_closure_in_block(binder, func_id);
                     }
                     // Fallback: emit None for unknown binders.
                     let dst = self.fresh_var();
@@ -1289,15 +1399,7 @@ impl<'a> FnLower<'a> {
                             return lowered;
                         }
                         if let Some(&func_id) = self.binder_func_id_map.get(&binder) {
-                            let var = self.fresh_var();
-                            self.emit(LirInstr::MakeClosure {
-                                dst: var,
-                                func_id,
-                                captures: Vec::new(),
-                            });
-                            self.bind(binder, var);
-                            self.direct_func_vars.insert(var, func_id);
-                            return var;
+                            return self.func_closure_in_block(binder, func_id);
                         }
                     }
                     if let Some(&global_idx) = globals.get(&name) {
@@ -1346,15 +1448,7 @@ impl<'a> FnLower<'a> {
                                 return lir_var;
                             }
                             if let Some(&func_id) = self.binder_func_id_map.get(&bid) {
-                                let var = self.fresh_var();
-                                self.emit(LirInstr::MakeClosure {
-                                    dst: var,
-                                    func_id,
-                                    captures: Vec::new(),
-                                });
-                                self.bind(bid, var);
-                                self.direct_func_vars.insert(var, func_id);
-                                return var;
+                                return self.func_closure_in_block(bid, func_id);
                             }
                         }
                         let dst = self.fresh_var();
@@ -1923,6 +2017,25 @@ impl<'a> FnLower<'a> {
                     }
                 }
 
+                // An explicitly qualified imported member is authoritative.
+                // Resolve it before the bare-name binder map so a local
+                // `as_string` cannot capture `Json.as_string` in native mode.
+                if let CoreExpr::Var { var, .. } = object.as_ref()
+                    && let Some(extern_fn) =
+                        self.resolve_qualified_external_symbol(var.name, *member)
+                {
+                    if extern_fn.is_value {
+                        return self.emit_extern_value_getter(extern_fn.symbol);
+                    }
+                    let dst = self.fresh_var();
+                    self.emit(LirInstr::MakeExternClosure {
+                        dst,
+                        symbol: extern_fn.symbol,
+                        arity: extern_fn.arity,
+                    });
+                    return dst;
+                }
+
                 // No globals_map (LLVM native path): resolve via binder env
                 // or binder_func_id_map (lazy closure creation). If the object
                 // is a module alias like `Array`, prefer a binder whose
@@ -1955,37 +2068,11 @@ impl<'a> FnLower<'a> {
                         }
                         // Not in env — create closure lazily for top-level function.
                         if let Some(&func_id) = self.binder_func_id_map.get(&bid) {
-                            let var = self.fresh_var();
-                            self.emit(LirInstr::MakeClosure {
-                                dst: var,
-                                func_id,
-                                captures: Vec::new(),
-                            });
-                            self.bind(bid, var);
-                            self.direct_func_vars.insert(var, func_id);
-                            return var;
+                            return self.func_closure_in_block(bid, func_id);
                         }
                     }
                 }
 
-                if let CoreExpr::Var { var, .. } = object.as_ref() {
-                    let object_name = self.resolve_name(var.name);
-                    let member_name = self.resolve_name(*member);
-                    let qualified = format!("{object_name}.{member_name}");
-                    if let Some(extern_fn) = self.resolve_external_symbol(&qualified)
-                        && extern_fn.is_value
-                    {
-                        return self.emit_extern_value_getter(extern_fn.symbol);
-                    } else if let Some(extern_fn) = self.resolve_external_symbol(&qualified) {
-                        let dst = self.fresh_var();
-                        self.emit(LirInstr::MakeExternClosure {
-                            dst,
-                            symbol: extern_fn.symbol,
-                            arity: extern_fn.arity,
-                        });
-                        return dst;
-                    }
-                }
                 let member_name = self.resolve_name(*member);
                 if let Some(extern_fn) = self.resolve_external_symbol(&member_name)
                     && extern_fn.is_value
@@ -2134,13 +2221,21 @@ impl<'a> FnLower<'a> {
                     dst
                 }
             }
-            AetherExpr::App { func, args, .. } => self.lower_call_expr_aether(func, args, None),
+            AetherExpr::App { func, args, .. } => {
+                self.lower_call_expr_aether(func, args, None, None)
+            }
             AetherExpr::AetherCall {
                 func,
                 args,
                 arg_modes,
+                guarded_borrowed_args,
                 ..
-            } => self.lower_call_expr_aether(func, args, Some(arg_modes)),
+            } => self.lower_call_expr_aether(
+                func,
+                args,
+                Some(arg_modes),
+                Some(guarded_borrowed_args),
+            ),
             AetherExpr::Let { var, rhs, body, .. } => {
                 let rhs_var = self.lower_expr_aether(rhs);
                 self.bind(var.id, rhs_var);
@@ -2516,6 +2611,22 @@ impl<'a> FnLower<'a> {
                     }
                 }
 
+                if let AetherExpr::Var { var, .. } = object.as_ref()
+                    && let Some(extern_fn) =
+                        self.resolve_qualified_external_symbol(var.name, *member)
+                {
+                    if extern_fn.is_value {
+                        return self.emit_extern_value_getter(extern_fn.symbol);
+                    }
+                    let dst = self.fresh_var();
+                    self.emit(LirInstr::MakeExternClosure {
+                        dst,
+                        symbol: extern_fn.symbol,
+                        arity: extern_fn.arity,
+                    });
+                    return dst;
+                }
+
                 if let Some(binders) = self.name_binder_map.get(member) {
                     let member_str = self.resolve_name(*member);
                     let preferred_suffix = if let AetherExpr::Var { var, .. } = object.as_ref() {
@@ -2542,35 +2653,8 @@ impl<'a> FnLower<'a> {
                             return lir_var;
                         }
                         if let Some(&func_id) = self.binder_func_id_map.get(&bid) {
-                            let var = self.fresh_var();
-                            self.emit(LirInstr::MakeClosure {
-                                dst: var,
-                                func_id,
-                                captures: Vec::new(),
-                            });
-                            self.bind(bid, var);
-                            self.direct_func_vars.insert(var, func_id);
-                            return var;
+                            return self.func_closure_in_block(bid, func_id);
                         }
-                    }
-                }
-
-                if let AetherExpr::Var { var, .. } = object.as_ref() {
-                    let object_name = self.resolve_name(var.name);
-                    let member_name = self.resolve_name(*member);
-                    let qualified = format!("{object_name}.{member_name}");
-                    if let Some(extern_fn) = self.resolve_external_symbol(&qualified)
-                        && extern_fn.is_value
-                    {
-                        return self.emit_extern_value_getter(extern_fn.symbol);
-                    } else if let Some(extern_fn) = self.resolve_external_symbol(&qualified) {
-                        let dst = self.fresh_var();
-                        self.emit(LirInstr::MakeExternClosure {
-                            dst,
-                            symbol: extern_fn.symbol,
-                            arity: extern_fn.arity,
-                        });
-                        return dst;
                     }
                 }
 
@@ -3071,16 +3155,12 @@ impl<'a> FnLower<'a> {
                     self.resolve_external_symbol(&self.resolve_name(var.name))
                 }
                 CoreExpr::MemberAccess { object, member, .. } => {
-                    let member_name = self.resolve_name(*member);
                     let qualified = if let CoreExpr::Var { var, .. } = object.as_ref() {
-                        Some(format!("{}.{}", self.resolve_name(var.name), member_name))
+                        self.resolve_qualified_external_symbol(var.name, *member)
                     } else {
                         None
                     };
-                    qualified
-                        .as_ref()
-                        .and_then(|name| self.resolve_external_symbol(name))
-                        .or_else(|| self.resolve_external_symbol(&member_name))
+                    qualified.or_else(|| self.resolve_external_symbol(&self.resolve_name(*member)))
                 }
                 _ => None,
             }
@@ -3245,6 +3325,7 @@ impl<'a> FnLower<'a> {
         func: &AetherExpr,
         args: &[AetherExpr],
         arg_modes: Option<&[crate::aether::borrow_infer::BorrowMode]>,
+        guarded_borrowed_args: Option<&[bool]>,
     ) -> LirVar {
         let resolved_name = match func {
             AetherExpr::Var { var, .. } if var.binder.is_none() => {
@@ -3306,16 +3387,12 @@ impl<'a> FnLower<'a> {
                     self.resolve_external_symbol(&self.resolve_name(var.name))
                 }
                 AetherExpr::MemberAccess { object, member, .. } => {
-                    let member_name = self.resolve_name(*member);
                     let qualified = if let AetherExpr::Var { var, .. } = object.as_ref() {
-                        Some(format!("{}.{}", self.resolve_name(var.name), member_name))
+                        self.resolve_qualified_external_symbol(var.name, *member)
                     } else {
                         None
                     };
-                    qualified
-                        .as_ref()
-                        .and_then(|name| self.resolve_external_symbol(name))
-                        .or_else(|| self.resolve_external_symbol(&member_name))
+                    qualified.or_else(|| self.resolve_external_symbol(&self.resolve_name(*member)))
                 }
                 _ => None,
             }
@@ -3325,6 +3402,8 @@ impl<'a> FnLower<'a> {
 
         let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr_aether(a)).collect();
         self.dup_owned_call_args(&arg_vars, arg_modes);
+        let protected_borrowed_args =
+            self.dup_guarded_borrowed_call_args(&arg_vars, arg_modes, guarded_borrowed_args);
 
         if let Some(func_id) = direct_func_id {
             let cont_idx = self.new_block();
@@ -3346,6 +3425,7 @@ impl<'a> FnLower<'a> {
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
+            self.drop_protected_borrowed_call_args(&protected_borrowed_args);
             if let Some(bid) = callee_binder
                 && self.int_return_binders.contains(&bid)
             {
@@ -3376,6 +3456,7 @@ impl<'a> FnLower<'a> {
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
+            self.drop_protected_borrowed_call_args(&protected_borrowed_args);
             return result;
         }
 
@@ -3400,6 +3481,7 @@ impl<'a> FnLower<'a> {
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
+            self.drop_protected_borrowed_call_args(&protected_borrowed_args);
             return result;
         }
         if let Some(target) = self.direct_closure_vars.get(&func_var).cloned() {
@@ -3425,6 +3507,7 @@ impl<'a> FnLower<'a> {
                 yield_cont: None,
             });
             self.switch_to_block(cont_idx);
+            self.drop_protected_borrowed_call_args(&protected_borrowed_args);
             return result;
         }
         if let Some(name) = self.global_var_names.get(&func_var).cloned()
@@ -3437,6 +3520,7 @@ impl<'a> FnLower<'a> {
                 op,
                 args: arg_vars,
             });
+            self.drop_protected_borrowed_call_args(&protected_borrowed_args);
             return dst;
         }
 
@@ -3456,6 +3540,7 @@ impl<'a> FnLower<'a> {
             yield_cont: None,
         });
         self.switch_to_block(cont_idx);
+        self.drop_protected_borrowed_call_args(&protected_borrowed_args);
         result
     }
 
@@ -3473,6 +3558,39 @@ impl<'a> FnLower<'a> {
             if arg_modes.get(index) == Some(&BorrowMode::Owned) {
                 self.emit(LirInstr::Dup { val: *arg_var });
             }
+        }
+    }
+
+    /// Keep a temporary owning reference for borrowed arguments whose Aether
+    /// provenance says that the caller still retains the value. Linear
+    /// borrowed arguments stay unguarded so FBIP reuse remains available.
+    fn dup_guarded_borrowed_call_args(
+        &mut self,
+        arg_vars: &[LirVar],
+        arg_modes: Option<&[crate::aether::borrow_infer::BorrowMode]>,
+        guard_mask: Option<&[bool]>,
+    ) -> Vec<LirVar> {
+        use crate::aether::borrow_infer::BorrowMode;
+
+        let (Some(arg_modes), Some(guard_mask)) = (arg_modes, guard_mask) else {
+            return Vec::new();
+        };
+
+        let mut protected = Vec::new();
+        for (index, arg_var) in arg_vars.iter().enumerate() {
+            if arg_modes.get(index) == Some(&BorrowMode::Borrowed)
+                && guard_mask.get(index) == Some(&true)
+            {
+                self.emit(LirInstr::Dup { val: *arg_var });
+                protected.push(*arg_var);
+            }
+        }
+        protected
+    }
+
+    fn drop_protected_borrowed_call_args(&mut self, arg_vars: &[LirVar]) {
+        for arg_var in arg_vars {
+            self.emit(LirInstr::Drop { val: *arg_var });
         }
     }
 

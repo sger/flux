@@ -68,6 +68,41 @@ const ROUTED_PRIMOPS: &[RoutedPrimop] = &[
         returns_unit: false,
     },
     RoutedPrimop {
+        effect: be::ENV,
+        operation: "env_var",
+        internal_name: "__primop_env_var",
+        arity: 1,
+        returns_unit: false,
+    },
+    RoutedPrimop {
+        effect: be::ENV,
+        operation: "env_args",
+        internal_name: "__primop_env_args",
+        arity: 0,
+        returns_unit: false,
+    },
+    RoutedPrimop {
+        effect: be::ENV,
+        operation: "env_cwd",
+        internal_name: "__primop_env_cwd",
+        arity: 0,
+        returns_unit: false,
+    },
+    RoutedPrimop {
+        effect: be::ENV,
+        operation: "env_home_dir",
+        internal_name: "__primop_env_home_dir",
+        arity: 0,
+        returns_unit: false,
+    },
+    RoutedPrimop {
+        effect: be::PROCESS,
+        operation: "proc_run",
+        internal_name: "__primop_proc_run",
+        arity: 2,
+        returns_unit: false,
+    },
+    RoutedPrimop {
         effect: be::CLOCK,
         operation: "clock_now",
         internal_name: "__primop_clock_now",
@@ -120,8 +155,16 @@ pub fn route_effectful_primops_and_synthesize_handlers(
     let mut ids = ExprIdGen::resuming_past_program(&owned);
     let mut changed = false;
     let mut routed_call_perform_ids: HashSet<ExprId> = HashSet::new();
+    let mut top_level_shadowed: ShadowedNames = HashSet::new();
+    collect_function_names(&owned.statements, &mut top_level_shadowed);
     for stmt in &mut owned.statements {
-        changed |= route_stmt(stmt, interner, false, &mut routed_call_perform_ids);
+        changed |= route_stmt(
+            stmt,
+            interner,
+            false,
+            &mut routed_call_perform_ids,
+            &top_level_shadowed,
+        );
     }
     for stmt in &mut owned.statements {
         changed |= synthesize_stmt_entry_handlers(
@@ -203,6 +246,12 @@ fn collect_default_effects_from_annotation(
                 Some(be::STDIN) => {
                     out.insert(be::STDIN);
                 }
+                Some(be::ENV) => {
+                    out.insert(be::ENV);
+                }
+                Some(be::PROCESS) => {
+                    out.insert(be::PROCESS);
+                }
                 Some(be::CLOCK) => {
                     out.insert(be::CLOCK);
                 }
@@ -210,7 +259,7 @@ fn collect_default_effects_from_annotation(
                     out.insert(be::DEBUG);
                 }
                 Some(be::IO) => {
-                    out.extend([be::CONSOLE, be::FILESYSTEM, be::STDIN]);
+                    out.extend([be::CONSOLE, be::FILESYSTEM, be::STDIN, be::ENV, be::PROCESS]);
                 }
                 Some(be::TIME) => {
                     out.insert(be::CLOCK);
@@ -311,22 +360,34 @@ fn type_expr_is_named(type_expr: &TypeExpr, expected: &str, interner: &Interner)
     )
 }
 
+/// Names of functions defined in the enclosing scope (top level or the
+/// current module body). A routed primop whose name appears here is
+/// user-defined at the call site, so it must NOT be rewritten into a
+/// `perform` — the local definition shadows the builtin.
+///
+/// Collected per scope before descending, so a call above its definition is
+/// still recognized as shadowed (function scope is whole-body, not textual).
+type ShadowedNames = HashSet<Identifier>;
+
 fn route_stmt(
     stmt: &mut Statement,
     interner: &mut Interner,
     skip: bool,
     routed_ids: &mut HashSet<ExprId>,
+    shadowed: &ShadowedNames,
 ) -> bool {
     match stmt {
         Statement::Let { value, .. }
         | Statement::LetDestructure { value, .. }
-        | Statement::Assign { value, .. } => route_expr(value, interner, skip, routed_ids),
+        | Statement::Assign { value, .. } => {
+            route_expr(value, interner, skip, routed_ids, shadowed)
+        }
         Statement::Return {
             value: Some(value), ..
-        } => route_expr(value, interner, skip, routed_ids),
+        } => route_expr(value, interner, skip, routed_ids, shadowed),
         Statement::Return { value: None, .. } => false,
         Statement::Expression { expression, .. } => {
-            route_expr(expression, interner, skip, routed_ids)
+            route_expr(expression, interner, skip, routed_ids, shadowed)
         }
         Statement::Function {
             intrinsic,
@@ -339,11 +400,15 @@ fn route_stmt(
                 || interner
                     .try_resolve(*name)
                     .is_some_and(|name| name.starts_with("__primop_"));
-            route_block(body, interner, skip_body, routed_ids)
+            route_block(body, interner, skip_body, routed_ids, shadowed)
         }
         Statement::Module { name, body, .. } => {
             let skip_module = skip || interner.try_resolve(*name) == Some("Flow.Primops");
-            route_block(body, interner, skip_module, routed_ids)
+            // A module body introduces its own function names; they shadow
+            // routed primops for every bare call inside that module.
+            let mut inner = shadowed.clone();
+            collect_function_names(&body.statements, &mut inner);
+            route_block(body, interner, skip_module, routed_ids, &inner)
         }
         Statement::Import { .. }
         | Statement::Data { .. }
@@ -360,12 +425,22 @@ fn route_block(
     interner: &mut Interner,
     skip: bool,
     routed_ids: &mut HashSet<ExprId>,
+    shadowed: &ShadowedNames,
 ) -> bool {
     let mut changed = false;
     for stmt in &mut block.statements {
-        changed |= route_stmt(stmt, interner, skip, routed_ids);
+        changed |= route_stmt(stmt, interner, skip, routed_ids, shadowed);
     }
     changed
+}
+
+/// Collect the names of `fn` declarations directly in `statements`.
+fn collect_function_names(statements: &[Statement], out: &mut ShadowedNames) {
+    for stmt in statements {
+        if let Statement::Function { name, .. } = stmt {
+            out.insert(*name);
+        }
+    }
 }
 
 fn route_expr(
@@ -373,6 +448,7 @@ fn route_expr(
     interner: &mut Interner,
     skip: bool,
     routed_ids: &mut HashSet<ExprId>,
+    shadowed: &ShadowedNames,
 ) -> bool {
     if skip {
         return false;
@@ -385,11 +461,11 @@ fn route_expr(
             span,
             id,
         } => {
-            changed |= route_expr(function, interner, false, routed_ids);
+            changed |= route_expr(function, interner, false, routed_ids, shadowed);
             for arg in arguments.iter_mut() {
-                changed |= route_expr(arg, interner, false, routed_ids);
+                changed |= route_expr(arg, interner, false, routed_ids, shadowed);
             }
-            if let Some(routed) = routed_call(function, arguments.len(), interner) {
+            if let Some(routed) = routed_call(function, arguments.len(), interner, shadowed) {
                 let args = std::mem::take(arguments);
                 let perform_id = *id;
                 *expr = Expression::Perform {
@@ -404,7 +480,7 @@ fn route_expr(
             }
         }
         Expression::Function { body, .. } | Expression::DoBlock { block: body, .. } => {
-            changed |= route_block(body, interner, false, routed_ids);
+            changed |= route_block(body, interner, false, routed_ids, shadowed);
         }
         Expression::If {
             condition,
@@ -412,33 +488,33 @@ fn route_expr(
             alternative,
             ..
         } => {
-            changed |= route_expr(condition, interner, false, routed_ids);
-            changed |= route_block(consequence, interner, false, routed_ids);
+            changed |= route_expr(condition, interner, false, routed_ids, shadowed);
+            changed |= route_block(consequence, interner, false, routed_ids, shadowed);
             if let Some(alt) = alternative {
-                changed |= route_block(alt, interner, false, routed_ids);
+                changed |= route_block(alt, interner, false, routed_ids, shadowed);
             }
         }
         Expression::Match {
             scrutinee, arms, ..
         } => {
-            changed |= route_expr(scrutinee, interner, false, routed_ids);
+            changed |= route_expr(scrutinee, interner, false, routed_ids, shadowed);
             for arm in arms {
                 if let Some(guard) = arm.guard.as_mut() {
-                    changed |= route_expr(guard, interner, false, routed_ids);
+                    changed |= route_expr(guard, interner, false, routed_ids, shadowed);
                 }
-                changed |= route_expr(&mut arm.body, interner, false, routed_ids);
+                changed |= route_expr(&mut arm.body, interner, false, routed_ids, shadowed);
             }
         }
         Expression::Infix { left, right, .. } => {
-            changed |= route_expr(left, interner, false, routed_ids);
-            changed |= route_expr(right, interner, false, routed_ids);
+            changed |= route_expr(left, interner, false, routed_ids, shadowed);
+            changed |= route_expr(right, interner, false, routed_ids, shadowed);
         }
         Expression::Prefix { right, .. } => {
-            changed |= route_expr(right, interner, false, routed_ids)
+            changed |= route_expr(right, interner, false, routed_ids, shadowed)
         }
         Expression::Perform { args, .. } => {
             for arg in args {
-                changed |= route_expr(arg, interner, false, routed_ids);
+                changed |= route_expr(arg, interner, false, routed_ids, shadowed);
             }
         }
         Expression::Handle {
@@ -447,12 +523,12 @@ fn route_expr(
             arms,
             ..
         } => {
-            changed |= route_expr(handled, interner, false, routed_ids);
+            changed |= route_expr(handled, interner, false, routed_ids, shadowed);
             if let Some(parameter) = parameter {
-                changed |= route_expr(parameter, interner, false, routed_ids);
+                changed |= route_expr(parameter, interner, false, routed_ids, shadowed);
             }
             for arm in arms {
-                changed |= route_expr(&mut arm.body, interner, false, routed_ids);
+                changed |= route_expr(&mut arm.body, interner, false, routed_ids, shadowed);
             }
         }
         Expression::Sealing { expr, .. }
@@ -461,50 +537,50 @@ fn route_expr(
         | Expression::Some { value: expr, .. }
         | Expression::Left { value: expr, .. }
         | Expression::Right { value: expr, .. } => {
-            changed |= route_expr(expr, interner, false, routed_ids)
+            changed |= route_expr(expr, interner, false, routed_ids, shadowed)
         }
         Expression::Index { left, index, .. } => {
-            changed |= route_expr(left, interner, false, routed_ids);
-            changed |= route_expr(index, interner, false, routed_ids);
+            changed |= route_expr(left, interner, false, routed_ids, shadowed);
+            changed |= route_expr(index, interner, false, routed_ids, shadowed);
         }
         Expression::ListLiteral { elements, .. }
         | Expression::ArrayLiteral { elements, .. }
         | Expression::TupleLiteral { elements, .. } => {
             for elem in elements {
-                changed |= route_expr(elem, interner, false, routed_ids);
+                changed |= route_expr(elem, interner, false, routed_ids, shadowed);
             }
         }
         Expression::Hash { pairs, .. } => {
             for (key, value) in pairs {
-                changed |= route_expr(key, interner, false, routed_ids);
-                changed |= route_expr(value, interner, false, routed_ids);
+                changed |= route_expr(key, interner, false, routed_ids, shadowed);
+                changed |= route_expr(value, interner, false, routed_ids, shadowed);
             }
         }
         Expression::Cons { head, tail, .. } => {
-            changed |= route_expr(head, interner, false, routed_ids);
-            changed |= route_expr(tail, interner, false, routed_ids);
+            changed |= route_expr(head, interner, false, routed_ids, shadowed);
+            changed |= route_expr(tail, interner, false, routed_ids, shadowed);
         }
         Expression::InterpolatedString { parts, .. } => {
             for part in parts {
                 if let StringPart::Interpolation(expr) = part {
-                    changed |= route_expr(expr, interner, false, routed_ids);
+                    changed |= route_expr(expr, interner, false, routed_ids, shadowed);
                 }
             }
         }
         Expression::NamedConstructor { fields, .. } => {
             for field in fields {
                 if let Some(value) = field.value.as_mut() {
-                    changed |= route_expr(value, interner, false, routed_ids);
+                    changed |= route_expr(value, interner, false, routed_ids, shadowed);
                 }
             }
         }
         Expression::Spread {
             base, overrides, ..
         } => {
-            changed |= route_expr(base, interner, false, routed_ids);
+            changed |= route_expr(base, interner, false, routed_ids, shadowed);
             for field in overrides {
                 if let Some(value) = field.value.as_mut() {
-                    changed |= route_expr(value, interner, false, routed_ids);
+                    changed |= route_expr(value, interner, false, routed_ids, shadowed);
                 }
             }
         }
@@ -519,7 +595,19 @@ fn route_expr(
     changed
 }
 
-fn routed_call(function: &Expression, arity: usize, interner: &Interner) -> Option<RoutedPrimop> {
+fn routed_call(
+    function: &Expression,
+    arity: usize,
+    interner: &Interner,
+    shadowed: &ShadowedNames,
+) -> Option<RoutedPrimop> {
+    // A user-defined function of the same name shadows the builtin, so the
+    // call must stay an ordinary call rather than becoming a `perform`.
+    if let Expression::Identifier { name, .. } = function
+        && shadowed.contains(name)
+    {
+        return None;
+    }
     let name = function_name(function, interner)?;
     ROUTED_PRIMOPS
         .iter()
@@ -665,7 +753,15 @@ fn wrap_block_with_default_handlers(
         id: ctx.ids.next_id(),
     };
 
-    for effect in [be::CONSOLE, be::FILESYSTEM, be::STDIN, be::CLOCK, be::DEBUG] {
+    for effect in [
+        be::CONSOLE,
+        be::FILESYSTEM,
+        be::STDIN,
+        be::ENV,
+        be::PROCESS,
+        be::CLOCK,
+        be::DEBUG,
+    ] {
         if !required_effects.contains(effect) {
             continue;
         }
@@ -823,6 +919,12 @@ fn collect_default_effects_expr(
                 }
                 Some(be::STDIN) => {
                     out.insert(be::STDIN);
+                }
+                Some(be::ENV) => {
+                    out.insert(be::ENV);
+                }
+                Some(be::PROCESS) => {
+                    out.insert(be::PROCESS);
                 }
                 Some(be::CLOCK) => {
                     out.insert(be::CLOCK);
@@ -1015,5 +1117,190 @@ fn default_handler_arm(
         params,
         body,
         span,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::syntax::{lexer::Lexer, parser::Parser};
+
+    /// Parse `source` and run the routing pass over it.
+    fn route(source: &str) -> (Program, Interner) {
+        let lexer = Lexer::new(source);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        assert!(
+            parser.errors.is_empty(),
+            "fixture failed to parse: {:?}",
+            parser.errors
+        );
+        let mut interner = parser.take_interner();
+        let result = route_effectful_primops_and_synthesize_handlers(
+            &program,
+            &mut interner,
+            &HashSet::new(),
+        );
+        (result.program, interner)
+    }
+
+    /// Count `Perform` nodes naming `operation` anywhere in the program.
+    fn count_performs(program: &Program, interner: &Interner, operation: &str) -> usize {
+        fn in_expr(expr: &Expression, interner: &Interner, op: &str, n: &mut usize) {
+            match expr {
+                Expression::Perform {
+                    operation, args, ..
+                } => {
+                    if interner.try_resolve(*operation) == Some(op) {
+                        *n += 1;
+                    }
+                    for a in args {
+                        in_expr(a, interner, op, n);
+                    }
+                }
+                Expression::Call {
+                    function,
+                    arguments,
+                    ..
+                } => {
+                    in_expr(function, interner, op, n);
+                    for a in arguments {
+                        in_expr(a, interner, op, n);
+                    }
+                }
+                Expression::Function { body, .. } | Expression::DoBlock { block: body, .. } => {
+                    in_block(body, interner, op, n)
+                }
+                _ => {}
+            }
+        }
+        fn in_block(block: &Block, interner: &Interner, op: &str, n: &mut usize) {
+            for stmt in &block.statements {
+                in_stmt(stmt, interner, op, n);
+            }
+        }
+        fn in_stmt(stmt: &Statement, interner: &Interner, op: &str, n: &mut usize) {
+            match stmt {
+                Statement::Let { value, .. } => in_expr(value, interner, op, n),
+                Statement::Expression { expression, .. } => in_expr(expression, interner, op, n),
+                Statement::Function { body, .. } | Statement::Module { body, .. } => {
+                    in_block(body, interner, op, n)
+                }
+                _ => {}
+            }
+        }
+
+        let mut n = 0;
+        for stmt in &program.statements {
+            in_stmt(stmt, interner, operation, &mut n);
+        }
+        n
+    }
+
+    #[test]
+    fn bare_effectful_builtin_is_routed_to_a_perform() {
+        // Baseline: with no local definition in scope, `read_file` becomes a
+        // `perform FileSystem.read_file`.
+        let (program, interner) =
+            route(r#"fn reader(p: String) -> String with FileSystem { read_file(p) }"#);
+        assert_eq!(
+            count_performs(&program, &interner, "read_file"),
+            1,
+            "an unshadowed read_file should route to a perform"
+        );
+    }
+
+    #[test]
+    fn a_top_level_definition_prevents_routing() {
+        // The user's own `read_file` shadows the builtin, so the call must stay
+        // an ordinary call rather than becoming an effect operation.
+        let (program, interner) = route(
+            r#"
+fn read_file(p: String) -> String { "local" }
+fn reader(p: String) -> String { read_file(p) }
+"#,
+        );
+        assert_eq!(
+            count_performs(&program, &interner, "read_file"),
+            0,
+            "a locally defined read_file must not be routed to a perform"
+        );
+    }
+
+    #[test]
+    fn a_module_member_prevents_routing_inside_its_module() {
+        // The regression this pass caused: module members were invisible here,
+        // so bare calls inside the module were rewritten into performs and the
+        // builtin ran in place of the local definition.
+        let (program, interner) = route(
+            r#"
+module Fs {
+    public fn read_file(p: String) -> String { "local" }
+    public fn caller(p: String) -> String { read_file(p) }
+}
+"#,
+        );
+        assert_eq!(
+            count_performs(&program, &interner, "read_file"),
+            0,
+            "a module member must shadow the builtin for bare calls in its module"
+        );
+    }
+
+    #[test]
+    fn shadowing_applies_to_calls_above_the_definition() {
+        // Module scope is whole-body, not textual: a call placed above the
+        // definition must still shadow.
+        let (program, interner) = route(
+            r#"
+module Fs {
+    public fn caller(p: String) -> String { read_file(p) }
+    public fn read_file(p: String) -> String { "local" }
+}
+"#,
+        );
+        assert_eq!(
+            count_performs(&program, &interner, "read_file"),
+            0,
+            "forward references must shadow too"
+        );
+    }
+
+    #[test]
+    fn shadowing_does_not_leak_out_of_the_module() {
+        // `Fs` defines `read_file`; the top level does not. The top-level call
+        // must still route, or the guard would be far too broad.
+        let (program, interner) = route(
+            r#"
+module Fs {
+    public fn read_file(p: String) -> String { "local" }
+}
+
+fn outside(p: String) -> String with FileSystem { read_file(p) }
+"#,
+        );
+        assert_eq!(
+            count_performs(&program, &interner, "read_file"),
+            1,
+            "a module's shadowing must not suppress routing outside that module"
+        );
+    }
+
+    #[test]
+    fn an_unrelated_local_does_not_suppress_other_builtins() {
+        // Defining `read_file` must not stop `println` from routing.
+        let (program, interner) = route(
+            r#"
+module Fs {
+    public fn read_file(p: String) -> String { "local" }
+    public fn shout(s: String) -> Unit with Console { println(s) }
+}
+"#,
+        );
+        assert_eq!(
+            count_performs(&program, &interner, "println"),
+            1,
+            "shadowing one builtin must not affect the others"
+        );
     }
 }

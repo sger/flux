@@ -28,7 +28,34 @@ use sha2::{Digest, Sha256};
 /// with value getters.
 /// Epoch 9: parameterized handlers and default-handler unit resumes update
 /// cached module bytecode/global relocation shape.
-pub const CACHE_EPOCH: u16 = 10;
+/// Epoch 11: module interfaces record record-style constructor field order
+/// (`ctor_field_names`) so importing modules can desugar named-field syntax;
+/// the `TryReadFile` primop changes the primop table and cached lowering.
+/// Epoch 13: the `FsListDir` and `FsMetadata` primops extend the primop table
+/// and change cached lowering; recoverable-I/O runtime calls now take eleven
+/// constructor tags rather than eight, changing the native calling convention.
+/// Epoch 14: the `Sha256` and `Sha256File` primops extend the primop table.
+/// Epoch 15: `Array.get` now returns `Some(x)` rather than the bare element,
+/// and array equality is structural on both backends — both change results
+/// baked into cached artifacts.
+/// Epoch 16: the `Env` effect label and the `EnvVar` / `EnvArgs` / `EnvCwd` /
+/// `EnvHomeDir` primops extend the primop table and the `IO` alias expansion.
+/// Epoch 17: the `Process` effect label and the `ProcRun` primop extend the
+/// primop table and the `IO` alias expansion.
+/// Epoch 21: resolved package roots now depend on `flux.lock` as well as on the
+/// manifests, so the roots cache records a lockfile fingerprint that older
+/// entries do not carry.
+/// Epoch 22: `Flow.List.map` / `filter` became effect-row polymorphic and
+/// `Flow.Result` gained `map2` / `map3` / `apply` / `sequence` / `traverse`,
+/// changing both stdlib interfaces and their global layout.
+/// Epoch 23: a module compiled fresh now seeds inference with its dependencies'
+/// constructor field types (KI-022), so a module whose imported-constructor
+/// payloads previously inferred as unresolved variables compiles differently.
+/// Epoch 24: native lowering marks any non-direct-path effect as suspending, so
+/// callers of a cross-module `perform` gain yield checks they did not emit
+/// before (KI-034). Cached native objects from epoch 23 lack them.
+/// Epoch 27: package build profiles and default-eliding semantic config keys.
+pub const CACHE_EPOCH: u16 = 28;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {
@@ -71,14 +98,87 @@ pub fn resolve_cache_root(entry_file: &Path, cache_dir: Option<&Path>) -> PathBu
     entry_directory(entry_file).join(".flux").join("cache")
 }
 
+/// Locate the project root by walking up from `entry_file`.
+///
+/// A Flux package normally roots at its nearest `flux.toml`. When that
+/// package is named by an ancestor workspace, the workspace manifest wins so
+/// all members share cache and lockfile state.
+///
+/// `Cargo.toml` remains a fallback purely for the compiler's own test corpus,
+/// which runs `.flx` fixtures from inside this Rust checkout and has no
+/// `flux.toml` of its own. It is consulted only after the whole ancestor chain
+/// has been searched for `flux.toml`, so a Flux project nested in a Rust
+/// workspace still roots at its own manifest.
 pub fn find_project_root(entry_file: &Path) -> Option<PathBuf> {
+    let nearest = find_marker_upwards(entry_file, "flux.toml");
+    nearest
+        .as_ref()
+        .and_then(|root| workspace_root_for(root))
+        .or(nearest)
+        .or_else(|| find_marker_upwards(entry_file, "Cargo.toml"))
+}
+
+/// Locate the nearest package manifest, even when it belongs to a workspace.
+/// This is used for selecting the member's entry target; [`find_project_root`]
+/// remains the workspace-wide cache and lockfile root.
+pub fn find_package_root(entry_file: &Path) -> Option<PathBuf> {
+    find_marker_upwards(entry_file, "flux.toml")
+}
+
+fn workspace_root_for(package_root: &Path) -> Option<PathBuf> {
+    let mut current = package_root.to_path_buf();
+    loop {
+        if current.join("flux.toml").is_file()
+            && current != package_root
+            && workspace_contains(&current, package_root)
+        {
+            return Some(current);
+        }
+        if !current.pop() {
+            return None;
+        }
+    }
+}
+
+/// Small, deliberately conservative reader used only for root discovery. The
+/// authoritative TOML parser remains Flume; accepting only a normal
+/// `members = ["..."]` declaration here avoids making cache-root discovery a
+/// second manifest parser.
+fn workspace_contains(workspace_root: &Path, package_root: &Path) -> bool {
+    let Ok(text) = fs::read_to_string(workspace_root.join("flux.toml")) else {
+        return false;
+    };
+    let relative = package_root
+        .strip_prefix(workspace_root)
+        .ok()
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_default();
+    let mut in_workspace = false;
+    let mut members = String::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            in_workspace = trimmed == "[workspace]";
+        } else if in_workspace
+            && (trimmed.starts_with("members")
+                || (!members.is_empty() && !trimmed.starts_with(']')))
+        {
+            members.push_str(trimmed);
+        }
+    }
+    members.split('"').enumerate().any(|(index, value)| {
+        index % 2 == 1 && (value == relative || (relative.is_empty() && value == "."))
+    })
+}
+
+fn find_marker_upwards(entry_file: &Path, marker: &str) -> Option<PathBuf> {
     let mut current = absolutize(entry_file);
     if current.is_file() {
         current.pop();
     }
 
     loop {
-        if current.join("Cargo.toml").exists() {
+        if current.join(marker).exists() {
             return Some(current);
         }
         if !current.pop() {
