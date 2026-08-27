@@ -811,7 +811,82 @@ pub enum CorePrimOp {
     ChanTrySendMove = 225,
     /// Create a channel-send event by ownership transfer.
     EventSendMove = 226,
-    // ── Next free ID: 227 ─────────────────────────────────────────────
+
+    // ── Recoverable filesystem operations (proposal 0178) ─────────────
+    /// Read a file, reporting failure instead of aborting.
+    /// Args: (path) -> Result<String, IoError>.
+    ///
+    /// `ReadFile` panics on failure and is kept for existing code.
+    TryReadFile = 227,
+    /// True when the path exists. Args: (path) -> Bool.
+    ///
+    /// Predicates answer `false` for any failure; they do not distinguish
+    /// "absent" from "unreadable".
+    FsExists = 228,
+    /// True when the path exists and is a directory. Args: (path) -> Bool.
+    FsIsDir = 229,
+    /// True when the path exists and is a regular file. Args: (path) -> Bool.
+    FsIsFile = 230,
+    /// Write text to a file, replacing it. Args: (path, contents) -> Result<Unit, IoError>.
+    FsWriteFile = 231,
+    /// Create a directory and any missing parents, like `mkdir -p`.
+    /// Args: (path) -> Result<Unit, IoError>.
+    FsCreateDirAll = 232,
+    /// Remove a single file. Args: (path) -> Result<Unit, IoError>.
+    FsRemoveFile = 233,
+    /// Remove a directory and everything under it. Args: (path) -> Result<Unit, IoError>.
+    FsRemoveDirAll = 234,
+    /// Rename a path, atomically where the platform allows.
+    /// Args: (from, to) -> Result<Unit, IoError>.
+    ///
+    /// Must map to the platform primitive, not copy-then-delete — callers rely
+    /// on the atomicity.
+    FsRename = 235,
+    /// List a directory's entries. Args: (path) -> Result<Array<String>, IoError>.
+    ///
+    /// Entries are bare file names, not full paths, and exclude `.` and `..`.
+    /// Order is whatever the platform reports; callers that need determinism
+    /// sort it themselves.
+    FsListDir = 236,
+    /// Stat a path. Args: (path) -> Result<FileMeta, IoError>.
+    ///
+    /// Follows symlinks, like the predicates.
+    FsMetadata = 237,
+    // ── Hashing (proposal 0178) ───────────────────────────────────────
+    /// SHA-256 of a string, as lowercase hex. Args: (data) -> String.
+    ///
+    /// Pure: same input, same output, no effect. Hashing observes nothing
+    /// outside its argument.
+    Sha256 = 238,
+    /// SHA-256 of a file's contents, as lowercase hex.
+    /// Args: (path) -> Result<String, IoError>.
+    ///
+    /// Separate from `Sha256` so large files stream rather than being read
+    /// fully into memory.
+    Sha256File = 239,
+    // ── Process environment (proposal 0178) ───────────────────────────
+    /// Read an environment variable. Args: (name) -> Option<String>.
+    ///
+    /// An unset variable is an ordinary condition, not an error, so this is
+    /// `Option` rather than `Result`.
+    EnvVar = 240,
+    /// The process's own arguments. Args: () -> Array<String>.
+    ///
+    /// The first element is the script path, matching argv[0] elsewhere.
+    EnvArgs = 241,
+    /// The current working directory. Args: () -> Result<String, IoError>.
+    ///
+    /// Fallible: the directory can be deleted out from under the process.
+    EnvCwd = 242,
+    /// The user's home directory. Args: () -> Option<String>.
+    EnvHomeDir = 243,
+    /// Run a subprocess to completion and capture its output.
+    /// Args: (cmd: String, args: Array<String>) -> Result<ProcOutput, IoError>.
+    ///
+    /// The argument vector is passed to `execvp` directly — there is no shell,
+    /// so quoting is not a concern and injection is not possible.
+    ProcRun = 244,
+    // ── Next free ID: 245 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -921,6 +996,24 @@ impl CorePrimOp {
             "HttpWriteRequest" => return Some(Self::HttpWriteRequest),
             "HttpParseResponse" => return Some(Self::HttpParseResponse),
             "JsonParse" => return Some(Self::JsonParse),
+            "TryReadFile" => return Some(Self::TryReadFile),
+            "FsExists" => return Some(Self::FsExists),
+            "FsIsDir" => return Some(Self::FsIsDir),
+            "FsIsFile" => return Some(Self::FsIsFile),
+            "FsWriteFile" => return Some(Self::FsWriteFile),
+            "FsCreateDirAll" => return Some(Self::FsCreateDirAll),
+            "FsRemoveFile" => return Some(Self::FsRemoveFile),
+            "FsRemoveDirAll" => return Some(Self::FsRemoveDirAll),
+            "FsRename" => return Some(Self::FsRename),
+            "FsListDir" => return Some(Self::FsListDir),
+            "FsMetadata" => return Some(Self::FsMetadata),
+            "Sha256" => return Some(Self::Sha256),
+            "Sha256File" => return Some(Self::Sha256File),
+            "EnvVar" => return Some(Self::EnvVar),
+            "EnvArgs" => return Some(Self::EnvArgs),
+            "EnvCwd" => return Some(Self::EnvCwd),
+            "EnvHomeDir" => return Some(Self::EnvHomeDir),
+            "ProcRun" => return Some(Self::ProcRun),
             "JsonStringify" => return Some(Self::JsonStringify),
             "HttpWriteChunkedHead" => return Some(Self::HttpWriteChunkedHead),
             "HttpWriteChunk" => return Some(Self::HttpWriteChunk),
@@ -969,6 +1062,24 @@ impl CorePrimOp {
             Self::Println => Some("println"),
             Self::DebugTrace => Some("__primop_debug_trace"),
             Self::ReadFile => Some("read_file"),
+            Self::TryReadFile => Some("try_read_file"),
+            Self::FsExists => Some("fs_exists"),
+            Self::FsIsDir => Some("fs_is_dir"),
+            Self::FsIsFile => Some("fs_is_file"),
+            Self::FsWriteFile => Some("fs_write_file"),
+            Self::FsCreateDirAll => Some("fs_create_dir_all"),
+            Self::FsRemoveFile => Some("fs_remove_file"),
+            Self::FsRemoveDirAll => Some("fs_remove_dir_all"),
+            Self::FsRename => Some("fs_rename"),
+            Self::FsListDir => Some("fs_list_dir"),
+            Self::FsMetadata => Some("fs_metadata"),
+            Self::Sha256 => Some("sha256"),
+            Self::Sha256File => Some("sha256_file"),
+            Self::EnvVar => Some("env_var"),
+            Self::EnvArgs => Some("env_args"),
+            Self::EnvCwd => Some("env_cwd"),
+            Self::EnvHomeDir => Some("env_home_dir"),
+            Self::ProcRun => Some("proc_run"),
             Self::WriteFile => Some("write_file"),
             Self::ReadStdin => Some("read_stdin"),
             Self::ReadLines => Some("read_lines"),
@@ -1142,6 +1253,24 @@ impl CorePrimOp {
             48 => Print,
             49 => Println,
             50 => ReadFile,
+            227 => TryReadFile,
+            228 => FsExists,
+            229 => FsIsDir,
+            230 => FsIsFile,
+            231 => FsWriteFile,
+            232 => FsCreateDirAll,
+            233 => FsRemoveFile,
+            234 => FsRemoveDirAll,
+            235 => FsRename,
+            236 => FsListDir,
+            237 => FsMetadata,
+            238 => Sha256,
+            239 => Sha256File,
+            240 => EnvVar,
+            241 => EnvArgs,
+            242 => EnvCwd,
+            243 => EnvHomeDir,
+            244 => ProcRun,
             51 => WriteFile,
             52 => ReadStdin,
             53 => ReadLines,
@@ -1325,6 +1454,24 @@ impl CorePrimOp {
             ("__primop_print", 1, CorePrimOp::Print),
             ("__primop_println", 1, CorePrimOp::Println),
             ("__primop_read_file", 1, CorePrimOp::ReadFile),
+            ("__primop_try_read_file", 1, CorePrimOp::TryReadFile),
+            ("__primop_fs_exists", 1, CorePrimOp::FsExists),
+            ("__primop_fs_is_dir", 1, CorePrimOp::FsIsDir),
+            ("__primop_fs_is_file", 1, CorePrimOp::FsIsFile),
+            ("__primop_fs_write_file", 2, CorePrimOp::FsWriteFile),
+            ("__primop_fs_create_dir_all", 1, CorePrimOp::FsCreateDirAll),
+            ("__primop_fs_remove_file", 1, CorePrimOp::FsRemoveFile),
+            ("__primop_fs_remove_dir_all", 1, CorePrimOp::FsRemoveDirAll),
+            ("__primop_fs_rename", 2, CorePrimOp::FsRename),
+            ("__primop_fs_list_dir", 1, CorePrimOp::FsListDir),
+            ("__primop_fs_metadata", 1, CorePrimOp::FsMetadata),
+            ("__primop_sha256", 1, CorePrimOp::Sha256),
+            ("__primop_sha256_file", 1, CorePrimOp::Sha256File),
+            ("__primop_env_var", 1, CorePrimOp::EnvVar),
+            ("__primop_env_args", 0, CorePrimOp::EnvArgs),
+            ("__primop_env_cwd", 0, CorePrimOp::EnvCwd),
+            ("__primop_env_home_dir", 0, CorePrimOp::EnvHomeDir),
+            ("__primop_proc_run", 2, CorePrimOp::ProcRun),
             ("__primop_read_lines", 1, CorePrimOp::ReadLines),
             ("__primop_read_stdin", 0, CorePrimOp::ReadStdin),
             ("__primop_write_file", 2, CorePrimOp::WriteFile),
@@ -1548,7 +1695,10 @@ impl CorePrimOp {
             | FiberNewScope
             | FiberCheckCancelled
             | FiberCurrentWorkerCount
-            | EventNever => 0,
+            | EventNever
+            | EnvArgs
+            | EnvCwd
+            | EnvHomeDir => 0,
             Abs
             | ArrayLen
             | DebugTrace
@@ -1568,6 +1718,18 @@ impl CorePrimOp {
             | Print
             | Println
             | ReadFile
+            | TryReadFile
+            | FsExists
+            | FsIsDir
+            | FsIsFile
+            | FsCreateDirAll
+            | FsRemoveFile
+            | FsRemoveDirAll
+            | FsListDir
+            | FsMetadata
+            | Sha256
+            | Sha256File
+            | EnvVar
             | ReadLines
             | StringLength
             | ToString
@@ -1690,6 +1852,8 @@ impl CorePrimOp {
             | Split
             | StringConcat
             | WriteFile
+            | FsWriteFile
+            | FsRename
             | SafeDiv
             | SafeMod
             | BitAnd
@@ -1717,7 +1881,8 @@ impl CorePrimOp {
             | HttpWriteResponse
             | HttpRegisterConnection
             | HttpUnregisterConnection
-            | HttpParseRequest => 2,
+            | HttpParseRequest
+            | ProcRun => 2,
             ArraySet | ArraySlice | HamtSet | Replace | StringSlice | Substring
             | HttpServeConfig => 3,
             FiberRunAsyncWith => 4,

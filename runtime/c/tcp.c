@@ -408,7 +408,7 @@ int64_t flux_http_write_request(
     int64_t key_count_val = flux_array_len(keys);
     int64_t key_count = flux_untag_int(key_count_val);
     for (int64_t i = 0; i < key_count; i++) {
-        int64_t key = flux_array_get(keys, flux_tag_int(i));
+        int64_t key = flux_array_at(keys, flux_tag_int(i));
         int64_t value = flux_hamt_get(headers_val, key);
         if (http_header_name_eq(key, "Host")) has_host = 1;
         else if (http_header_name_eq(key, "Connection")) has_connection = 1;
@@ -1032,7 +1032,7 @@ int64_t flux_http_write_chunked_head(int64_t response_val) {
     if (flux_is_array(keys)) {
         uint32_t key_count = flux_array_len(keys);
         for (uint32_t i = 0; i < key_count; i++) {
-            int64_t key = flux_array_get(keys, flux_tag_int((int64_t)i));
+            int64_t key = flux_array_at(keys, flux_tag_int((int64_t)i));
             if (!http_is_string_value(key)) continue;
             if (http_header_name_eq(key, "Content-Length")) continue;
             if (http_header_name_eq(key, "Transfer-Encoding")) continue;

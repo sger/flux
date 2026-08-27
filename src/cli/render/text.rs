@@ -8,6 +8,23 @@ Flux CLI
 Usage:
   flux <file.flx>
   flux run <file.flx>
+
+Packages (in a directory holding a flux.toml):
+  flux new <name> [--lib]     Create a package in a new directory
+  flux init [--lib]           Create a package in the current directory
+  flux build [--profile <name>] Compile the package and its dependencies
+  flux run [--profile <name>]   Build and run the package
+  flux test [--profile <name>]  Run the package's test_* functions
+  flux check [--profile <name>] Report errors without running
+  flux tree                   Print the resolved dependency graph
+  flux add <name> --git <url> [--tag|--branch|--rev <ref>]
+  flux add <name> --path <dir> | --version <req> [--dev]
+  flux remove <name> [--dev]  Drop a dependency from flux.toml
+  flux update [-p <name>]     Re-resolve dependencies and rewrite flux.lock
+  flux publish [--dry-run]    Verify and package the current project
+  flux metadata --format json Emit the resolved graph as JSON
+
+Other:
   flux tokens <file.flx>
   flux bytecode <file.flx>
   flux lint <file.flx>
@@ -18,7 +35,7 @@ Usage:
   flux module-cache-info <file.flx>
   flux native-cache-info <file.flx>
   flux interface-info <file.flxi>
-  flux clean [<file.flx>]
+  flux clean [--deps] [--store] [<file.flx>]
   flux analyze-free-vars <file.flx>
   flux analyze-tail-calls <file.flx>
   flux parity-check <file-or-dir> [--ways vm,llvm] [--root <path> ...]
@@ -27,14 +44,22 @@ Usage:
 
 Flags:
   --verbose          Show cache status (hit/miss/store)
+  --quiet            Suppress per-module compile progress lines
+  --explain-rebuild  Explain why package units were rebuilt
   --trace            Print VM instruction trace
   --trace-aether     Print Aether report plus backend/execution path, then run
   --test             Run test_* functions and report results
   --test-filter <s>  Only run tests whose names contain <s>
   --leak-detector    Print approximate allocation stats after run
   --no-cache         Disable bytecode cache for this run
+  --deps             With `clean`: also remove downloaded git dependencies
+  --offline          Resolve dependencies without network access
+  --locked           Fail if `flux.lock` would change (for CI)
+  --frozen           Both --offline and --locked
   --cache-dir <dir>  Override cache root (default: nearest Cargo.toml target/flux, else .flux/cache)
   --optimize, -O     Enable AST optimizations (desugar + constant fold)
+  --no-optimize       Disable optimization, overriding the selected profile
+  --profile <name>    Package profile: dev (default) or release
   --analyze, -A      Enable analysis passes (free vars + tail calls)
   --format <f>       Diagnostics format: text|json|json-compact (default: text)
   --max-errors <n>   Limit displayed errors (default: 50)
@@ -52,6 +77,7 @@ Flags:
   --dump-aether=debug
                     Show detailed Aether debug report (borrow signatures, call modes, dup/drop, reuse)
   --native           Compile via Core IR -> LLVM text IR -> native binary (requires LLVM tools)
+  --vm               Compile via the bytecode VM, overriding a package profile
   --emit-llvm        Emit LLVM IR text (.ll) to stdout (with --native)
   --emit-binary      Compile to native binary via opt + llc + cc (with --native)
   -o <path>          Output path for --emit-llvm or --emit-binary
@@ -62,6 +88,21 @@ Optimization & Analysis:
   --analyze          Collect analysis data (free vars, tail calls)
   -O -A              Both optimization and analysis
 "
+}
+
+/// Error shown when a package-only profile is supplied to a source-file run.
+pub fn profile_source_error() -> &'static str {
+    "Error: --profile applies to package commands (build, run, test, check), not to a source file."
+}
+
+/// Error shown when a native release profile is unavailable in this build.
+pub fn profile_native_without_llvm(name: &str) -> String {
+    format!(
+        "Error: profile `{name}` selects the native backend, but this flux was built\n\
+         without LLVM support.\n\
+         help: rebuild the compiler with `cargo build --features llvm`\n\
+         help: or build with `--profile dev`"
+    )
 }
 
 /// Returns the `fmt` usage text shown when formatter arguments are missing.
@@ -108,6 +149,7 @@ mod tests {
         assert!(text.contains("flux run <file.flx>"));
         assert!(text.contains("--dump-core"));
         assert!(text.contains("--format <f>"));
+        assert!(text.contains("--profile <name>"));
     }
 
     #[test]

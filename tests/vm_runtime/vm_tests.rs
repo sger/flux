@@ -1807,9 +1807,6 @@ fn test_list_comprehension_single_generator() {
 fn test_list_comprehension_with_guard() {
     assert_eq!(
         run(r#"import Flow.List as L
-fn map(xs, f) { L.map(xs, f) }
-fn filter(xs, pred) { L.filter(xs, pred) }
-fn flat_map(xs, f) { L.flat_map(xs, f) }
 L.fold([x * 2 | x <- [1, 2, 3, 4, 5], x > 3], 0, fn(a, x) { a + x });"#),
         Value::Integer(18)
     );
@@ -1844,9 +1841,6 @@ fn test_list_comprehension_cons_list() {
     // Comprehension over cons lists should return a cons list
     assert_eq!(
         run(r#"import Flow.List as L
-fn map(xs, f) { L.map(xs, f) }
-fn filter(xs, pred) { L.filter(xs, pred) }
-fn flat_map(xs, f) { L.flat_map(xs, f) }
 let xs = list(1, 2, 3); L.fold([x * 10 | x <- xs], 0, fn(a, x) { a + x });"#),
         Value::Integer(60)
     );

@@ -1,0 +1,1050 @@
+// Flume.Manifest — the manifest schema.
+//
+// The last stage of a three-stage funnel:
+//
+//     text → Flume.Toml (generic value tree) → Manifest (domain model)
+//
+// The stages are separate modules because they fail differently. TOML errors
+// are about syntax and point at a character; schema errors are about meaning
+// ("`version` must be a string") and name a key. Fusing them would produce a
+// parser that reports "unexpected `=`" for a missing dependency field.
+//
+// Pure: every function here has an empty effect row, the property
+// exists to demonstrate. A manifest parser that provably cannot read a file is
+// unusual enough to be worth enforcing, and `tests/flume/flume_manifest_tests.rs`
+// does enforce it.
+//
+// Positions here are coarse: this layer works on the value tree, which no
+// longer knows offsets, so errors land at 1:1 and name the key instead. That is
+// the right trade — a missing `[package] name` is a fact about the document,
+// not about a character.
+
+import Flow.Option as Option
+import Flow.Result as Result
+import Flow.String as Str
+import Flow.Array as Array
+import Flow.List as List
+import Flume.Toml.Parse as Parse
+import Flume.Toml.Parse exposing (ParseError, Pos)
+import Flume.Toml as Toml
+import Flume.Toml.Value as Value
+import Flume.Toml.Value exposing (Toml, TString, TInt, TBool, TArray, TTable)
+
+module Flume.Schema.Manifest {
+
+//| domain model
+
+    /// Which commit of a git dependency to build.
+    ///
+    /// The three forms are mutually exclusive and ordered by how tightly they
+    /// pin: a `rev` names one commit outright, a `tag` names one that is
+    /// conventionally never moved, and a `branch` names one that moves by
+    /// design. `GitDefault` follows the repository's own default branch.
+    ///
+    /// A branch is resolved to a commit once and then recorded in the
+    /// lockfile, so "moves by design" means *between updates*, not between
+    /// builds.
+    public data GitPin {
+        GitRev(String),
+        GitTag(String),
+        GitBranch(String),
+        GitDefault,
+    }
+
+    /// Where a dependency comes from.
+    ///
+    /// A registry dependency is represented here rather than dropped, so a
+    /// caller that cannot resolve one can say so by name instead of failing
+    /// later as a confusing missing module. Flux has no registry to resolve
+    /// one against yet — a hosted index is deliberately deferred until there
+    /// is something to host — so `FromGit` is how a third-party package is
+    /// actually obtained today.
+    /// A git dependency's repository and the commit to build from it.
+    ///
+    /// Its own type rather than fields on the `Source` variant: `Source`'s
+    /// other variants are positional, and a data type cannot mix positional
+    /// and named-field variants.
+    public data GitSource {
+        GitSource { url: String, pin: GitPin }
+    }
+
+    public data Source {
+        FromPath(String),
+        FromRegistry(String),
+        FromGit(GitSource),
+    }
+
+    public fn git_source_url(g: GitSource) -> String {
+        match g { GitSource { url, pin: _ } -> url }
+    }
+
+    public fn git_source_pin(g: GitSource) -> GitPin {
+        match g { GitSource { url: _, pin } -> pin }
+    }
+
+    /// One entry of `[dependencies]` or `[dev-dependencies]`.
+    public data Dep {
+        Dep { name: String, source: Source, dev: Bool }
+    }
+
+    /// A `[[bin]]` target.
+    public data Bin {
+        Bin { name: String, path: String }
+    }
+
+    public data Backend { Vm, Native }
+
+    /// The profile fields written in the manifest. Missing fields inherit the
+    /// built-in defaults for the selected profile.
+    public data PartialProfile {
+        PartialProfile { backend: Option<Backend>, optimize: Option<Bool> }
+    }
+
+    /// The two package profiles, before their fields are resolved.
+    public data Profiles {
+        Profiles { dev: PartialProfile, release: PartialProfile }
+    }
+
+    /// The concrete settings used by one package build.
+    public data Profile { Profile { backend: Backend, optimize: Bool } }
+
+    public data Workspace {
+        Workspace { members: List<String> }
+    }
+
+    /// The `[package]` table. `namespace` is optional in the manifest and
+    /// derived from `name` when absent — see `derive_namespace`.
+    public data Package {
+        Package {
+            name: String,
+            version: String,
+            edition: String,
+            namespace: String,
+        }
+    }
+
+    /// A parsed and normalized manifest.
+    public data Manifest {
+        Manifest {
+            package: Package,
+            deps: List<Dep>,
+            lib: Option<String>,
+            bins: List<Bin>,
+            workspace: Option<Workspace>,
+            profiles: Profiles,
+        }
+    }
+
+    public fn manifest_package(manifest: Manifest) -> Package {
+        match manifest { Manifest { package, deps: _, lib: _, bins: _, workspace: _, profiles: _ } -> package }
+    }
+
+    public fn manifest_deps(manifest: Manifest) -> List<Dep> {
+        match manifest { Manifest { package: _, deps, lib: _, bins: _, workspace: _, profiles: _ } -> deps }
+    }
+
+    public fn manifest_lib(manifest: Manifest) -> Option<String> {
+        match manifest { Manifest { package: _, deps: _, lib, bins: _, workspace: _, profiles: _ } -> lib }
+    }
+
+    public fn manifest_bins(manifest: Manifest) -> List<Bin> {
+        match manifest { Manifest { package: _, deps: _, lib: _, bins, workspace: _, profiles: _ } -> bins }
+    }
+
+    public fn manifest_workspace(manifest: Manifest) -> Option<Workspace> {
+        match manifest { Manifest { package: _, deps: _, lib: _, bins: _, workspace, profiles: _ } -> workspace }
+    }
+
+    public fn manifest_profiles(manifest: Manifest) -> Profiles {
+        match manifest { Manifest { package: _, deps: _, lib: _, bins: _, workspace: _, profiles } -> profiles }
+    }
+
+    public fn profiles_dev(profiles: Profiles) -> PartialProfile {
+        match profiles { Profiles { dev, release: _ } -> dev }
+    }
+
+    public fn profiles_release(profiles: Profiles) -> PartialProfile {
+        match profiles { Profiles { dev: _, release } -> release }
+    }
+
+    public fn partial_backend(profile: PartialProfile) -> Option<Backend> {
+        match profile { PartialProfile { backend, optimize: _ } -> backend }
+    }
+
+    public fn partial_optimize(profile: PartialProfile) -> Option<Bool> {
+        match profile { PartialProfile { backend: _, optimize } -> optimize }
+    }
+
+    public fn profile_backend(profile: Profile) -> Backend {
+        match profile { Profile { backend, optimize: _ } -> backend }
+    }
+
+    public fn profile_optimize(profile: Profile) -> Bool {
+        match profile { Profile { backend: _, optimize } -> optimize }
+    }
+
+    public fn parse_backend(text: String) -> Result<Backend, String> {
+        if text == "vm" {
+            Ok(Vm)
+        } else if text == "native" {
+            Ok(Native)
+        } else {
+            Err("unknown backend `" + text + "`; expected `vm` or `native`" )
+        }
+    }
+
+    public fn backend_name(backend: Backend) -> String {
+        match backend {
+            Vm -> "vm",
+            Native -> "native",
+        }
+    }
+
+    fn empty_partial_profile() -> PartialProfile {
+        PartialProfile { backend: None, optimize: None }
+    }
+
+    /// Parse `[profile]`, retaining absent fields so profile defaults can be
+    /// applied only once, at resolution time.
+    public fn parse_profiles(root: List<(String, Toml)>) -> Result<Profiles, ParseError> {
+        match Value.get(root, "profile") {
+            None -> Ok(Profiles {
+                dev: empty_partial_profile(),
+                release: empty_partial_profile(),
+            }),
+            Some(TTable(fields)) -> parse_profiles_fields(
+                fields,
+                empty_partial_profile(),
+                empty_partial_profile(),
+            ),
+            Some(_) -> Err(schema_error("invalid-profile", "`profile` must be a table")),
+        }
+    }
+
+    /// Walk the profile table once. Repeated lookups through nested callbacks
+    /// make the native ownership planner treat the borrowed table as reusable
+    /// after one of its values has been extracted.
+    fn parse_profiles_fields(
+        fields: List<(String, Toml)>,
+        dev: PartialProfile,
+        release: PartialProfile,
+    ) -> Result<Profiles, ParseError> {
+        match fields {
+            [] -> Ok(Profiles { dev: dev, release: release }),
+            [(name, value) | rest] -> if name == "dev" {
+                match value {
+                    TTable(profile_fields) -> match parse_partial_profile(profile_fields, name) {
+                        Err(problem) -> Err(problem),
+                        Ok(parsed) -> parse_profiles_fields(rest, parsed, release),
+                    },
+                    _ -> Err(schema_error(
+                        "invalid-profile",
+                        "`profile.dev` must be a table",
+                    )),
+                }
+            } else if name == "release" {
+                match value {
+                    TTable(profile_fields) -> match parse_partial_profile(profile_fields, name) {
+                        Err(problem) -> Err(problem),
+                        Ok(parsed) -> parse_profiles_fields(rest, dev, parsed),
+                    },
+                    _ -> Err(schema_error(
+                        "invalid-profile",
+                        "`profile.release` must be a table",
+                    )),
+                }
+            } else {
+                Err(schema_error(
+                    "unknown-profile",
+                    "unknown profile `" + name + "`; expected `dev` or `release`",
+                ))
+            },
+        }
+    }
+
+    fn parse_partial_profile(
+        fields: List<(String, Toml)>,
+        name: String,
+    ) -> Result<PartialProfile, ParseError> {
+        parse_partial_profile_fields(fields, name, None, None)
+    }
+
+    /// Read one partial profile in one pass, retaining absent fields as None.
+    fn parse_partial_profile_fields(
+        fields: List<(String, Toml)>,
+        name: String,
+        backend: Option<Backend>,
+        optimize: Option<Bool>,
+    ) -> Result<PartialProfile, ParseError> {
+        match fields {
+            [] -> Ok(PartialProfile { backend: backend, optimize: optimize }),
+            [(key, value) | rest] -> if key == "backend" {
+                match reader_read(string_reader(), value) {
+                    None -> Err(schema_error(
+                        "wrong-type",
+                        "`profile." + name + ".backend` must be a string",
+                    )),
+                    Some(text) -> match parse_backend(text) {
+                        Err(_) -> Err(schema_error(
+                            "invalid-backend",
+                            "`profile." + name + ".backend` must be \"vm\" or \"native\"",
+                        )),
+                        Ok(parsed) -> parse_partial_profile_fields(
+                            rest,
+                            name,
+                            Some(parsed),
+                            optimize,
+                        ),
+                    },
+                }
+            } else if key == "optimize" {
+                match reader_read(bool_reader(), value) {
+                    None -> Err(schema_error(
+                        "wrong-type",
+                        "`profile." + name + ".optimize` must be a boolean",
+                    )),
+                    Some(flag) -> parse_partial_profile_fields(
+                        rest,
+                        name,
+                        backend,
+                        Some(flag),
+                    ),
+                }
+            } else {
+                parse_partial_profile_fields(rest, name, backend, optimize)
+            },
+        }
+    }
+
+    public fn default_profile(name: String) -> Profile {
+        if name == "release" {
+            Profile { backend: Native, optimize: true }
+        } else {
+            Profile { backend: Vm, optimize: false }
+        }
+    }
+
+    public fn resolve_profile(name: String, partial: PartialProfile) -> Profile {
+        let defaults = default_profile(name)
+        Profile {
+            backend: Option.unwrap_or(partial_backend(partial), profile_backend(defaults)),
+            optimize: Option.unwrap_or(partial_optimize(partial), profile_optimize(defaults)),
+        }
+    }
+
+    public fn resolve_named_profile(profiles: Profiles, name: String) -> Result<Profile, String> {
+        if name == "dev" {
+            Ok(resolve_profile(name, profiles_dev(profiles)))
+        } else if name == "release" {
+            Ok(resolve_profile(name, profiles_release(profiles)))
+        } else {
+            Err("unknown profile `" + name + "`; expected `dev` or `release`")
+        }
+    }
+
+    public fn workspace_members(workspace: Workspace) -> List<String> {
+        match workspace { Workspace { members } -> members }
+    }
+
+    public fn package_name(package: Package) -> String {
+        match package { Package { name, version: _, edition: _, namespace: _ } -> name }
+    }
+
+    public fn package_version(package: Package) -> String {
+        match package { Package { name: _, version, edition: _, namespace: _ } -> version }
+    }
+
+    public fn package_edition(package: Package) -> String {
+        match package { Package { name: _, version: _, edition, namespace: _ } -> edition }
+    }
+
+    public fn package_namespace(package: Package) -> String {
+        match package { Package { name: _, version: _, edition: _, namespace } -> namespace }
+    }
+
+    public fn dep_name(dep: Dep) -> String {
+        match dep { Dep { name, source: _, dev: _ } -> name }
+    }
+
+    public fn dep_source(dep: Dep) -> Source {
+        match dep { Dep { name: _, source, dev: _ } -> source }
+    }
+
+    public fn dep_is_dev(dep: Dep) -> Bool {
+        match dep { Dep { name: _, source: _, dev } -> dev }
+    }
+
+    public fn bin_name(bin: Bin) -> String {
+        match bin { Bin { name, path: _ } -> name }
+    }
+
+    public fn bin_path(bin: Bin) -> String {
+        match bin { Bin { name: _, path } -> path }
+    }
+
+    /// Smart constructors used by the schema parser. The public data
+    /// constructors remain available for compatibility, while all parsed
+    /// values pass through one normalization point.
+    fn make_package(
+        name: String,
+        version: String,
+        edition: String,
+        namespace: Option<String>,
+    ) -> Package {
+        Package {
+            name: name,
+            version: version,
+            edition: edition,
+            namespace: Option.unwrap_or(namespace, derive_namespace(name)),
+        }
+    }
+
+    fn make_dependency(name: String, source: Source, dev: Bool) -> Dep {
+        Dep { name: name, source: source, dev: dev }
+    }
+
+    fn make_git_source(url: String, pin: GitPin) -> GitSource {
+        GitSource { url: url, pin: pin }
+    }
+
+//| the schema layer
+
+    // Positions here are coarse: the schema layer works on the value tree,
+    // which no longer knows offsets, so errors land at 1:1 and name the key
+    // instead. That is the right trade — a missing `[package] name` is a fact
+    // about the document, not about a character.
+
+    /// How to read one typed value out of a TOML tree.
+    ///
+    /// A first-class *reader* rather than a type class. The natural spelling
+    /// is a class — `fn from_toml(value) -> Result<a, _>`, one instance per
+    /// field type, selected by what the caller expects. Flux cannot dispatch
+    /// that: a class whose variable appears only in the return position
+    /// resolves against the argument type instead, so three `FromToml`
+    /// instances all collapse onto `FromToml<Toml>` and fail to resolve.
+    ///
+    /// Reifying the choice as a value recovers the same property — one reader
+    /// per field type, and a caller names the type it wants rather than
+    /// spelling out the match — and composes further than the class would
+    /// have: `array_of` builds a reader from a reader, which an instance head
+    /// cannot express without higher-kinded types.
+    public data Reader<a> {
+        Reader { expected: String, read: (Toml) -> Option<a> }
+    }
+
+    fn reader_expected<a>(reader: Reader<a>) -> String {
+        match reader { Reader { expected, read: _ } -> expected }
+    }
+
+    fn reader_read<a>(reader: Reader<a>, value: Toml) -> Option<a> {
+        match reader { Reader { expected: _, read } -> read(value) }
+    }
+
+    public fn string_reader() -> Reader<String> {
+        Reader { expected: "a string", read: as_string }
+    }
+
+    public fn int_reader() -> Reader<Int> {
+        Reader { expected: "an integer", read: as_int }
+    }
+
+    public fn bool_reader() -> Reader<Bool> {
+        Reader { expected: "a boolean", read: as_bool }
+    }
+
+    /// A reader for a homogeneous array, built from the element reader.
+    ///
+    /// The combinator a type class could not have given: `Reader` is an
+    /// ordinary value, so readers compose the way parsers do.
+    public fn array_of<a>(element: Reader<a>) -> Reader<List<a>> {
+        Reader {
+            expected: "an array of " + reader_expected(element),
+            read: \value -> match value {
+                TArray(items) -> traverse_option(List.map(items, \item ->
+                    reader_read(element, item)
+                )),
+                _ -> None,
+            },
+        }
+    }
+
+    fn as_string(value: Toml) -> Option<String> {
+        match value { TString(text) -> Some(text), _ -> None }
+    }
+
+    fn as_int(value: Toml) -> Option<Int> {
+        match value { TInt(number) -> Some(number), _ -> None }
+    }
+
+    fn as_bool(value: Toml) -> Option<Bool> {
+        match value { TBool(flag) -> Some(flag), _ -> None }
+    }
+
+    /// A list of options into an option of a list — `None` if any is `None`.
+    fn traverse_option<a>(items: List<Option<a>>) -> Option<List<a>> {
+        List.foldr(items, Some([]), cons_option)
+    }
+
+    fn cons_option<a>(head: Option<a>, rest: Option<List<a>>) -> Option<List<a>> {
+        match head {
+            None -> None,
+            Some(value) -> match rest {
+                None -> None,
+                Some(values) -> Some([value | values]),
+            },
+        }
+    }
+
+    /// A schema failure, at the nominal head of the document.
+    ///
+    /// Returns the bare error rather than a `Result`: a generic `Err` whose
+    /// success type is still free does not infer (KI-011). Callers wrap it,
+    /// where their own return annotation has already fixed the type.
+    fn schema_error(kind: String, message: String) -> ParseError {
+        ParseError {
+            kind: kind,
+            message: message,
+            pos: Pos { line: 1, column: 1 },
+        }
+    }
+
+    /// Read a required field with the given reader.
+    fn require<a>(
+        reader: Reader<a>,
+        table: List<(String, Toml)>,
+        context: String,
+        key: String,
+    ) -> Result<a, ParseError> {
+        match Value.get(table, key) {
+            None -> Err(schema_error(
+                "missing-field",
+                "`" + context + "` is missing required field `" + key + "`",
+            )),
+            Some(value) -> match reader_read(reader, value) {
+                Some(read) -> Ok(read),
+                None -> Err(schema_error(
+                    "wrong-type",
+                    "`" + context + "." + key + "` must be "
+                        + reader_expected(reader),
+                )),
+            },
+        }
+    }
+
+    /// Read an optional field with the given reader.
+    fn optional<a>(
+        reader: Reader<a>,
+        table: List<(String, Toml)>,
+        context: String,
+        key: String,
+    ) -> Result<Option<a>, ParseError> {
+        match Value.get(table, key) {
+            None -> Ok(None),
+            Some(value) -> match reader_read(reader, value) {
+                Some(read) -> Ok(Some(read)),
+                None -> Err(schema_error(
+                    "wrong-type",
+                    "`" + context + "." + key + "` must be "
+                        + reader_expected(reader),
+                )),
+            },
+        }
+    }
+
+//| manifest entry points
+
+    /// Parse a manifest: TOML, then schema, then normalization.
+    public fn parse(text: String) -> Result<Manifest, ParseError> {
+        Result.and_then_result(Toml.parse_toml(text), from_toml_document)
+    }
+
+    /// Build a manifest from an already-parsed TOML document.
+    public fn from_toml_document(document: Toml) -> Result<Manifest, ParseError> {
+        match document {
+            TTable(root) -> Result.and_then_result(
+                parse_package(root),
+                \package -> Result.and_then_result(
+                    parse_all_deps(root),
+                    \deps -> Result.and_then_result(
+                        parse_lib(root),
+                        \lib -> Result.and_then_result(
+                            parse_bins(root),
+                            \bins -> Result.and_then_result(
+                                parse_workspace(root),
+                                \workspace -> Result.map_result(
+                                    parse_profiles(root),
+                                    \profiles -> Manifest {
+                                        package: package,
+                                        deps: deps,
+                                        lib: lib,
+                                        bins: bins,
+                                        workspace: workspace,
+                                        profiles: profiles,
+                                    }
+                                )
+                            )
+                        )
+                    )
+                )
+            ),
+            _ -> Err(schema_error("invalid-manifest", "a manifest must be a table")),
+        }
+    }
+
+//| [package]
+
+    fn parse_package(root: List<(String, Toml)>) -> Result<Package, ParseError> {
+        match Value.get(root, "package") {
+            None -> match Value.get(root, "workspace") {
+                Some(TTable(_)) -> Ok(Package {
+                    name: "",
+                    version: "",
+                    edition: default_edition(),
+                    namespace: "",
+                }),
+                _ -> Err(schema_error(
+                    "missing-package",
+                    "a manifest must have a `[package]` table",
+                )),
+            },
+            Some(TTable(fields)) -> build_package(fields, workspace_package_version(root)),
+            Some(_) -> Err(schema_error("invalid-package", "`package` must be a table")),
+        }
+    }
+
+    fn build_package(
+        fields: List<(String, Toml)>,
+        inherited_version: Option<String>,
+    ) -> Result<Package, ParseError> {
+        Result.and_then_result(
+            require_string(fields, "package", "name"),
+            \name -> Result.and_then_result(
+                version_or_inherited(fields, inherited_version),
+                \version -> Result.and_then_result(
+                    optional_string(fields, "package", "edition"),
+                    \edition -> Result.map_result(
+                        optional_string(fields, "package", "namespace"),
+                        \namespace -> make_package(
+                            name,
+                            version,
+                            Option.unwrap_or(edition, default_edition()),
+                            namespace,
+                        )
+                    )
+                )
+            )
+        )
+    }
+
+    fn version_or_inherited(
+        fields: List<(String, Toml)>,
+        inherited: Option<String>,
+    ) -> Result<String, ParseError> {
+        match optional_string(fields, "package", "version") {
+            Err(problem) -> Err(problem),
+            Ok(Some(version)) -> Ok(version),
+            Ok(None) -> match inherited {
+                Some(version) -> Ok(version),
+                None -> Err(schema_error(
+                    "missing-field",
+                    "`package` is missing required field `version`",
+                )),
+            },
+        }
+    }
+
+    /// Read `[workspace.package].version` when a member inherits it.
+    fn workspace_package_version(root: List<(String, Toml)>) -> Option<String> {
+        match Value.get(root, "workspace") {
+            Some(TTable(workspace)) -> match Value.get(workspace, "package") {
+                Some(TTable(package)) -> match Value.get(package, "version") {
+                    Some(value) -> reader_read(string_reader(), value),
+                    None -> None,
+                },
+                _ -> None,
+            },
+            _ -> None,
+        }
+    }
+
+    // Named wrappers for the reader every `[package]` field happens to use.
+    // Worth having because these four call sites all read strings, and the
+    // reader argument would otherwise be repeated at each one.
+    fn require_string(
+        table: List<(String, Toml)>,
+        context: String,
+        key: String,
+    ) -> Result<String, ParseError> {
+        require(string_reader(), table, context, key)
+    }
+
+    fn optional_string(
+        table: List<(String, Toml)>,
+        context: String,
+        key: String,
+    ) -> Result<Option<String>, ParseError> {
+        optional(string_reader(), table, context, key)
+    }
+
+    fn default_edition() -> String { "2026" }
+
+    /// Derive a module namespace from a package name.
+    ///
+    /// `flux-json` becomes `FluxJson`: split on `-` and `_`, capitalize each
+    /// segment. The rule exists because every module-path segment must start
+    /// uppercase, so a lowercase
+    /// package name cannot be used verbatim.
+    public fn derive_namespace(name: String) -> String {
+        Str.chars(name)
+            |> split_segments
+            |> drop_empty
+            |> capitalize_each
+            |> Array.from_list
+            |> concat_all
+    }
+
+    fn drop_empty(segments: List<String>) -> List<String> {
+        List.filter(segments, is_non_empty)
+    }
+
+    fn is_non_empty(segment: String) -> Bool {
+        len(segment) > 0
+    }
+
+    fn capitalize_each(segments: List<String>) -> List<String> {
+        List.map(segments, capitalize)
+    }
+
+    fn concat_all(segments: Array<String>) -> String {
+        Str.join(segments, "")
+    }
+
+    fn split_segments(characters: Array<String>) -> List<String> {
+        List.reverse(split_segments_from(characters, 0, "", []))
+    }
+
+    fn split_segments_from(
+        characters: Array<String>,
+        index: Int,
+        current: String,
+        acc: List<String>,
+    ) -> List<String> {
+        if index >= Array.length(characters) {
+            [current | acc]
+        } else {
+            match Array.get(characters, index) {
+                None -> [current | acc],
+                Some(character) -> if character == "-" || character == "_" {
+                    split_segments_from(characters, index + 1, "", [current | acc])
+                } else {
+                    split_segments_from(characters, index + 1, current + character, acc)
+                },
+            }
+        }
+    }
+
+    fn capitalize(text: String) -> String {
+        if len(text) == 0 {
+            text
+        } else {
+            upper(Str.string_slice(text, 0, 1)) + Str.string_slice(text, 1, len(text))
+        }
+    }
+
+//| [dependencies]
+
+    fn parse_all_deps(root: List<(String, Toml)>) -> Result<List<Dep>, ParseError> {
+        Result.and_then_result(
+            parse_dep_table(root, "dependencies", false),
+            \normal -> Result.map_result(
+                parse_dep_table(root, "dev-dependencies", true),
+                \dev -> concat(normal, dev)
+            )
+        )
+    }
+
+    fn parse_dep_table(
+        root: List<(String, Toml)>,
+        table: String,
+        dev: Bool,
+    ) -> Result<List<Dep>, ParseError> {
+        match Value.get(root, table) {
+            None -> Ok([]),
+            Some(TTable(entries)) -> collect_results(
+                List.map(entries, \entry -> match entry {
+                    (name, value) -> parse_dep(name, value, dev, table)
+                })
+            ),
+            Some(_) -> Err(schema_error(
+                "invalid-dependencies",
+                "`" + table + "` must be a table",
+            )),
+        }
+    }
+
+    /// Turn a list of results into a result of a list, keeping the first
+    /// error.
+    ///
+    /// The generic version of the "parse every entry, fail on the first bad
+    /// one" loop that each of the three tables would otherwise spell out.
+    fn collect_results<a>(
+        results: List<Result<a, ParseError>>,
+    ) -> Result<List<a>, ParseError> {
+        List.foldr(results, Ok([]), cons_result)
+    }
+
+    fn cons_result<a>(
+        head: Result<a, ParseError>,
+        rest: Result<List<a>, ParseError>,
+    ) -> Result<List<a>, ParseError> {
+        Result.and_then_result(
+            head,
+            \value -> Result.map_result(rest, \values -> [value | values])
+        )
+    }
+
+    /// Parse one dependency entry.
+    ///
+    /// Three spellings: `name = "1.2"` (registry), `name = { path = "../x" }`,
+    /// and `name = { git = "https://…", tag = "v1.2.0" }`. All parse; a caller
+    /// may reject the registry form downstream with its own diagnostic, which
+    /// is why this does not reject it here.
+    fn parse_dep(
+        name: String,
+        value: Toml,
+        dev: Bool,
+        table: String,
+    ) -> Result<Dep, ParseError> {
+        match value {
+            TString(requirement) -> Ok(make_dependency(name, FromRegistry(requirement), dev)),
+            TTable(fields) -> Result.map_result(
+                parse_dep_source(name, fields, table),
+                \source -> make_dependency(name, source, dev)
+            ),
+            _ -> Err(schema_error(
+                "invalid-dependency",
+                "dependency `" + name + "` in `[" + table
+                    + "]` must be a version string or a table",
+            )),
+        }
+    }
+
+    /// Read a dependency's inline table.
+    ///
+    /// `path`, `version`, and `git` are mutually exclusive. A dependency with
+    /// more than one has two sources of truth, and picking one silently is how
+    /// a build ends up using a working directory that the manifest appears to
+    /// pin to a published release.
+    fn parse_dep_source(
+        name: String,
+        fields: List<(String, Toml)>,
+        table: String,
+    ) -> Result<Source, ParseError> {
+        let context = "dependency `" + name + "`"
+        Result.and_then_result(
+            optional_string(fields, context, "path"),
+            \path -> Result.and_then_result(
+                optional_string(fields, context, "version"),
+                \version -> Result.and_then_result(
+                    optional_string(fields, context, "git"),
+                    \git -> choose_dep_source(
+                        DepFields { name: name, table: table, fields: fields },
+                        path,
+                        version,
+                        git,
+                    )
+                )
+            )
+        )
+    }
+
+    /// What `choose_dep_source` needs besides the three source keys.
+    ///
+    /// Grouped into a record because the alternative is a six-parameter
+    /// function whose arguments are three `Option<String>`s in a row.
+    data DepFields {
+        DepFields { name: String, table: String, fields: List<(String, Toml)> }
+    }
+
+    /// Pick the one source the table declares, or explain why it cannot.
+    ///
+    /// Written over the count of declared sources rather than as a nine-arm
+    /// match on the triple: the error for "two sources" is the same whichever
+    /// two they are, and enumerating the pairs adds arms without adding
+    /// meaning.
+    fn choose_dep_source(
+        d: DepFields,
+        path: Option<String>,
+        version: Option<String>,
+        git: Option<String>,
+    ) -> Result<Source, ParseError> {
+        let declared = count_some(path) + count_some(version) + count_some(git)
+        if declared > 1 {
+            Err(schema_error(
+                "conflicting-dependency-source",
+                "dependency `" + dep_fields_name(d) + "` in `["
+                    + dep_fields_table(d)
+                    + "]` sets more than one of `path`, `version`, and `git`;"
+                    + " it must set exactly one",
+            ))
+        } else {
+            single_dep_source(d, path, version, git)
+        }
+    }
+
+    fn single_dep_source(
+        d: DepFields,
+        path: Option<String>,
+        version: Option<String>,
+        git: Option<String>,
+    ) -> Result<Source, ParseError> {
+        match (path, version, git) {
+            (Some(found), None, None) -> Ok(FromPath(found)),
+            (None, Some(requirement), None) -> Ok(FromRegistry(requirement)),
+            (None, None, Some(url)) -> parse_git_source(d, url),
+            _ -> Err(schema_error(
+                "incomplete-dependency",
+                "dependency `" + dep_fields_name(d) + "` in `["
+                    + dep_fields_table(d)
+                    + "]` must set `path`, `version`, or `git`",
+            )),
+        }
+    }
+
+    fn count_some(value: Option<String>) -> Int {
+        match value {
+            Some(_) -> 1,
+            None -> 0,
+        }
+    }
+
+    fn dep_fields_name(d: DepFields) -> String {
+        match d { DepFields { name, table: _, fields: _ } -> name }
+    }
+
+    fn dep_fields_table(d: DepFields) -> String {
+        match d { DepFields { name: _, table, fields: _ } -> table }
+    }
+
+    fn dep_fields_fields(d: DepFields) -> List<(String, Toml)> {
+        match d { DepFields { name: _, table: _, fields } -> fields }
+    }
+
+//| git dependencies
+
+    /// Read a git dependency's `rev` / `tag` / `branch`.
+    ///
+    /// At most one may be set. All three absent is not an error — it means the
+    /// repository's default branch, which is the form a quick dependency on a
+    /// repository's tip is written in.
+    fn parse_git_source(d: DepFields, url: String) -> Result<Source, ParseError> {
+        let fields = dep_fields_fields(d)
+        let context = "dependency `" + dep_fields_name(d) + "`"
+        Result.and_then_result(
+            optional_string(fields, context, "rev"),
+            \rev -> Result.and_then_result(
+                optional_string(fields, context, "tag"),
+                \tag -> Result.and_then_result(
+                    optional_string(fields, context, "branch"),
+                    \branch -> Result.map_result(
+                        choose_git_pin(d, rev, tag, branch),
+                        \pin -> FromGit(make_git_source(url, pin))
+                    )
+                )
+            )
+        )
+    }
+
+    fn choose_git_pin(
+        d: DepFields,
+        rev: Option<String>,
+        tag: Option<String>,
+        branch: Option<String>,
+    ) -> Result<GitPin, ParseError> {
+        let declared = count_some(rev) + count_some(tag) + count_some(branch)
+        if declared > 1 {
+            Err(schema_error(
+                "conflicting-git-pin",
+                "dependency `" + dep_fields_name(d) + "` in `["
+                    + dep_fields_table(d)
+                    + "]` sets more than one of `rev`, `tag`, and `branch`;"
+                    + " it may set at most one",
+            ))
+        } else {
+            Ok(single_git_pin(rev, tag, branch))
+        }
+    }
+
+    fn single_git_pin(
+        rev: Option<String>,
+        tag: Option<String>,
+        branch: Option<String>,
+    ) -> GitPin {
+        match (rev, tag, branch) {
+            (Some(found), _, _) -> GitRev(found),
+            (None, Some(found), _) -> GitTag(found),
+            (None, None, Some(found)) -> GitBranch(found),
+            (None, None, None) -> GitDefault,
+        }
+    }
+
+//| [lib] and [[bin]]
+
+    fn parse_lib(root: List<(String, Toml)>) -> Result<Option<String>, ParseError> {
+        match Value.get(root, "lib") {
+            None -> Ok(None),
+            Some(TTable(fields)) -> Result.map_result(
+                require_string(fields, "lib", "path"),
+                \path -> Some(path)
+            ),
+            Some(_) -> Err(schema_error("invalid-lib", "`lib` must be a table")),
+        }
+    }
+
+    fn parse_bins(root: List<(String, Toml)>) -> Result<List<Bin>, ParseError> {
+        match Value.get(root, "bin") {
+            None -> Ok([]),
+            Some(TArray(items)) -> collect_results(List.map(items, parse_bin)),
+            Some(_) -> Err(schema_error(
+                "invalid-bin",
+                "`bin` must be written as `[[bin]]`, an array of tables",
+            )),
+        }
+    }
+
+    fn parse_workspace(root: List<(String, Toml)>) -> Result<Option<Workspace>, ParseError> {
+        match Value.get(root, "workspace") {
+            None -> Ok(None),
+            Some(TTable(fields)) -> Result.map_result(
+                require(array_of(string_reader()), fields, "workspace", "members"),
+                \members -> Some(Workspace { members: members })
+            ),
+            Some(_) -> Err(schema_error("invalid-workspace", "`workspace` must be a table")),
+        }
+    }
+
+    fn parse_bin(item: Toml) -> Result<Bin, ParseError> {
+        match item {
+            TTable(fields) -> Result.and_then_result(
+                require_string(fields, "bin", "name"),
+                \name -> Result.map_result(
+                    require_string(fields, "bin", "path"),
+                    \path -> Bin { name: name, path: path }
+                )
+            ),
+            _ -> Err(schema_error("invalid-bin", "each `[[bin]]` entry must be a table")),
+        }
+    }
+
+    /// Append two lists.
+    ///
+    /// Local because `Flow.List.append` is private — the module directs
+    /// callers to the built-in `Semigroup` `++` operator, which the parser
+    /// does not currently accept.
+    fn concat<a>(front: List<a>, back: List<a>) -> List<a> {
+        match front {
+            [] -> back,
+            [head | rest] -> [head | concat(rest, back)],
+        }
+    }
+}

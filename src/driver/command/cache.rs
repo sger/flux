@@ -37,7 +37,7 @@ use crate::{
 };
 
 /// Shows cache availability for the selected backend around the input program.
-pub fn show_cache_info(flags: &DriverFlags) {
+pub fn show_cache_info(flags: &DriverFlags) -> bool {
     let path = require_input_path(flags, "Usage: flux cache-info <file.flx>");
     print_native_cache_unavailable_if_needed(flags);
     let selection = CacheDisplaySelection::from_flags(flags);
@@ -46,22 +46,34 @@ pub fn show_cache_info(flags: &DriverFlags) {
         &flags.input.roots,
         flags.cache.cache_dir.as_deref(),
         selection,
-    );
+        flags.language.enable_optimize,
+    )
 }
 
 /// Shows detailed VM module cache status for each module in the input graph.
-pub fn show_module_cache_info(flags: &DriverFlags) {
+pub fn show_module_cache_info(flags: &DriverFlags) -> bool {
     let path = require_input_path(flags, "Usage: flux module-cache-info <file.flx>");
-    show_module_cache_info_for_path(path, &flags.input.roots, flags.cache.cache_dir.as_deref());
+    show_module_cache_info_for_path(
+        path,
+        &flags.input.roots,
+        flags.cache.cache_dir.as_deref(),
+        flags.language.enable_optimize,
+    )
 }
 
 /// Shows detailed native module cache status for each module in the input graph.
-pub fn show_native_cache_info(flags: &DriverFlags) {
+pub fn show_native_cache_info(flags: &DriverFlags) -> bool {
     let path = require_input_path(flags, "Usage: flux native-cache-info <file.flx>");
-    show_native_cache_info_for_path(path, &flags.input.roots, flags.cache.cache_dir.as_deref());
+    show_native_cache_info_for_path(
+        path,
+        &flags.input.roots,
+        flags.cache.cache_dir.as_deref(),
+        flags.language.enable_optimize,
+    )
 }
 
-/// Removes the resolved driver cache directory.
+/// Removes the resolved driver cache directory, and with `--deps` the
+/// downloaded git dependencies too.
 pub fn clean(flags: &DriverFlags) {
     let entry = flags
         .input
@@ -69,15 +81,46 @@ pub fn clean(flags: &DriverFlags) {
         .as_deref()
         .map_or(Path::new("."), Path::new);
     let layout = cache_paths::resolve_cache_layout(entry, flags.cache.cache_dir.as_deref());
-    let root = layout.root();
+    remove_tree(layout.root(), "cache");
+    if flags.cache.clean_deps {
+        remove_tree(&git_checkouts_dir(), "git checkouts");
+    }
+    if flags.cache.clean_store {
+        remove_tree(
+            &crate::driver::artifact_store::store_root(),
+            "artifact store",
+        );
+    }
+}
+
+/// Removes one cache tree, reporting what happened either way.
+///
+/// A missing directory is reported rather than passed over in silence: the
+/// point of running `clean` is to know the state afterwards, and "nothing was
+/// there" is a different answer from "removed it".
+fn remove_tree(root: &Path, what: &str) {
     if root.exists() {
         match std::fs::remove_dir_all(root) {
-            Ok(()) => println!("Removed cache: {}", root.display()),
-            Err(e) => eprintln!("Failed to remove cache {}: {e}", root.display()),
+            Ok(()) => println!("Removed {what}: {}", root.display()),
+            Err(e) => eprintln!("Failed to remove {what} {}: {e}", root.display()),
         }
     } else {
-        println!("No cache found at {}", root.display());
+        println!("No {what} found at {}", root.display());
     }
+}
+
+/// Where git dependencies are checked out.
+///
+/// Mirrors `Flume.Source.Store.dir()`: `$FLUX_HOME` wins, then `~/.flux`, then `.flux`
+/// beside the working directory. The two must agree — a `clean` that resolved
+/// the path differently from the fetcher would report success while leaving
+/// the real checkouts in place.
+fn git_checkouts_dir() -> PathBuf {
+    let home = std::env::var_os("FLUX_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::home_dir().map(|h| h.join(".flux")))
+        .unwrap_or_else(|| PathBuf::from(".flux"));
+    home.join("git").join("checkouts")
 }
 
 /// Prints the serialized module interface metadata for one `.flxi` file.
@@ -91,10 +134,15 @@ pub(crate) fn show_cache_info_for_path(
     extra_roots: &[PathBuf],
     cache_dir: Option<&Path>,
     selection: CacheDisplaySelection,
-) {
+    optimize_mode: bool,
+) -> bool {
     if !Path::new(path).exists() {
+        // Reporting "no cache" for a path that does not exist is
+        // indistinguishable from a typo (KI-019). The caller turns `false`
+        // into a non-zero exit; returning rather than exiting in-process keeps
+        // this callable from tests.
         eprintln!("Error: file not found: {}", path);
-        return;
+        return false;
     }
     let input = CacheCommandInput {
         path,
@@ -111,10 +159,22 @@ pub(crate) fn show_cache_info_for_path(
             println!("modules: {}", graph.topo_order().len());
             for node in graph.topo_order() {
                 if selection.show_vm {
-                    print_module_cache_summary(&node.path, &cache_layout, false, false);
+                    print_module_cache_summary(
+                        &node.path,
+                        &cache_layout,
+                        false,
+                        false,
+                        optimize_mode,
+                    );
                 }
                 if selection.show_native {
-                    print_native_cache_summary(&node.path, &cache_layout, false, false);
+                    print_native_cache_summary(
+                        &node.path,
+                        &cache_layout,
+                        false,
+                        false,
+                        optimize_mode,
+                    );
                 }
             }
             #[cfg(feature = "llvm")]
@@ -134,20 +194,26 @@ pub(crate) fn show_cache_info_for_path(
         Err(err) => {
             println!("module graph: unavailable ({err})");
             if selection.show_vm {
-                print_module_cache_summary(entry_path, &cache_layout, false, false);
+                print_module_cache_summary(entry_path, &cache_layout, false, false, optimize_mode);
             }
             if selection.show_native {
-                print_native_cache_summary(entry_path, &cache_layout, false, false);
+                print_native_cache_summary(entry_path, &cache_layout, false, false, optimize_mode);
             }
         }
     }
+    true
 }
 
 pub(crate) fn show_module_cache_info_for_path(
     path: &str,
     extra_roots: &[PathBuf],
     cache_dir: Option<&Path>,
-) {
+    optimize_mode: bool,
+) -> bool {
+    if !Path::new(path).exists() {
+        eprintln!("Error: file not found: {}", path);
+        return false;
+    }
     let input = CacheCommandInput {
         path,
         extra_roots,
@@ -158,22 +224,28 @@ pub(crate) fn show_module_cache_info_for_path(
         Ok(graph) => {
             println!("cache root: {}", cache_layout.root().display());
             for node in graph.topo_order() {
-                print_module_cache_summary(&node.path, &cache_layout, true, false);
+                print_module_cache_summary(&node.path, &cache_layout, true, false, optimize_mode);
             }
         }
         Err(err) => {
             println!("cache root: {}", cache_layout.root().display());
             println!("module graph: unavailable ({err})");
-            print_module_cache_summary(entry_path, &cache_layout, true, false);
+            print_module_cache_summary(entry_path, &cache_layout, true, false, optimize_mode);
         }
     }
+    true
 }
 
 pub(crate) fn show_native_cache_info_for_path(
     path: &str,
     extra_roots: &[PathBuf],
     cache_dir: Option<&Path>,
-) {
+    optimize_mode: bool,
+) -> bool {
+    if !Path::new(path).exists() {
+        eprintln!("Error: file not found: {}", path);
+        return false;
+    }
     let input = CacheCommandInput {
         path,
         extra_roots,
@@ -182,13 +254,13 @@ pub(crate) fn show_native_cache_info_for_path(
     let (entry_path, cache_layout) = resolve_cache_layout_for_input(input);
     if !native_cache_available() {
         println!("{}", native_cache_unavailable_message());
-        return;
+        return true;
     }
     match load_cache_graph(input) {
         Ok(graph) => {
             println!("cache root: {}", cache_layout.root().display());
             for node in graph.topo_order() {
-                print_native_cache_summary(&node.path, &cache_layout, true, false);
+                print_native_cache_summary(&node.path, &cache_layout, true, false, optimize_mode);
             }
             #[cfg(feature = "llvm")]
             {
@@ -207,9 +279,10 @@ pub(crate) fn show_native_cache_info_for_path(
         Err(err) => {
             println!("cache root: {}", cache_layout.root().display());
             println!("module graph: unavailable ({err})");
-            print_native_cache_summary(entry_path, &cache_layout, true, false);
+            print_native_cache_summary(entry_path, &cache_layout, true, false, optimize_mode);
         }
     }
+    true
 }
 
 pub(crate) fn show_interface_info_file(path: &str) {
@@ -294,6 +367,7 @@ fn print_module_cache_summary(
     cache_layout: &CacheLayout,
     verbose: bool,
     strict_mode: bool,
+    optimize_mode: bool,
 ) {
     let source = match fs::read_to_string(module_path) {
         Ok(source) => source,
@@ -304,7 +378,7 @@ fn print_module_cache_summary(
         }
     };
     let source_hash = hash_bytes(source.as_bytes());
-    let semantic_config_hash = compute_semantic_config_hash(strict_mode, false);
+    let semantic_config_hash = compute_semantic_config_hash(strict_mode, optimize_mode);
     let cache_key = hash_cache_key(&source_hash, &semantic_config_hash);
     let interface_path = interface_path(cache_layout.root(), module_path);
 
@@ -420,6 +494,7 @@ fn print_native_cache_summary(
     cache_layout: &CacheLayout,
     verbose: bool,
     strict_mode: bool,
+    optimize_mode: bool,
 ) {
     let source = match fs::read_to_string(module_path) {
         Ok(source) => source,
@@ -433,7 +508,7 @@ fn print_native_cache_summary(
         }
     };
     let source_hash = hash_bytes(source.as_bytes());
-    let semantic_config_hash = compute_semantic_config_hash(strict_mode, false);
+    let semantic_config_hash = compute_semantic_config_hash(strict_mode, optimize_mode);
     let cache_key = compute_native_cache_key(&source_hash, &semantic_config_hash);
     let native_cache = NativeModuleCache::new(cache_layout.native_dir());
 
@@ -489,6 +564,7 @@ fn print_native_cache_summary(
     _cache_layout: &CacheLayout,
     _verbose: bool,
     _strict_mode: bool,
+    _optimize_mode: bool,
 ) {
 }
 
@@ -497,9 +573,11 @@ mod tests {
     use super::show_cache_info_for_path;
     use crate::driver::command::cache_support::CacheDisplaySelection;
 
+    /// A missing input is reported as a failure the CLI turns into a non-zero
+    /// exit, rather than being swallowed (KI-019).
     #[test]
-    fn cache_info_for_missing_file_returns_without_panic() {
-        show_cache_info_for_path(
+    fn cache_info_for_missing_file_reports_failure() {
+        let ok = show_cache_info_for_path(
             "definitely-missing.flx",
             &[],
             None,
@@ -507,6 +585,8 @@ mod tests {
                 show_vm: true,
                 show_native: false,
             },
+            false,
         );
+        assert!(!ok, "a missing input must report failure");
     }
 }

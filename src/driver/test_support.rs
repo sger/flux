@@ -31,6 +31,7 @@ pub(crate) fn base_flags() -> DriverFlags {
             show_stats: false,
             profiling: false,
             quiet: false,
+            check_only: false,
         },
         dumps: DriverDumpFlags {
             dump_repr: false,
@@ -48,12 +49,17 @@ pub(crate) fn base_flags() -> DriverFlags {
         cache: DriverCacheFlags {
             cache_dir: None,
             no_cache: false,
+            clean_deps: false,
+            clean_store: false,
+            offline: false,
+            locked: false,
         },
         language: DriverLanguageFlags {
             enable_optimize: false,
             enable_analyze: false,
             strict_mode: false,
         },
+        profile: Default::default(),
     }
 }
 

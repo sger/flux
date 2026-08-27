@@ -83,6 +83,24 @@ fn is_wrapper_primop(op: CorePrimOp) -> bool {
             | CorePrimOp::Println
             | CorePrimOp::DebugTrace
             | CorePrimOp::ReadFile
+            | CorePrimOp::TryReadFile
+            | CorePrimOp::FsExists
+            | CorePrimOp::FsIsDir
+            | CorePrimOp::FsIsFile
+            | CorePrimOp::FsWriteFile
+            | CorePrimOp::FsCreateDirAll
+            | CorePrimOp::FsRemoveFile
+            | CorePrimOp::FsRemoveDirAll
+            | CorePrimOp::FsRename
+            | CorePrimOp::FsListDir
+            | CorePrimOp::FsMetadata
+            | CorePrimOp::Sha256
+            | CorePrimOp::Sha256File
+            | CorePrimOp::EnvVar
+            | CorePrimOp::EnvArgs
+            | CorePrimOp::EnvCwd
+            | CorePrimOp::EnvHomeDir
+            | CorePrimOp::ProcRun
             | CorePrimOp::WriteFile
             | CorePrimOp::ReadStdin
             | CorePrimOp::ReadLines

@@ -373,12 +373,7 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
                 self.visit_expr(value);
                 self.define_binding(*name, span.start, BindingKind::Let);
             }
-            Statement::LetDestructure {
-                pattern,
-                value,
-                span: _,
-                ..
-            } => {
+            Statement::LetDestructure { pattern, value, .. } => {
                 self.visit_expr(value);
                 self.extract_pattern_bindings(pattern);
             }

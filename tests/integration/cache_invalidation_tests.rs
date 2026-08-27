@@ -5,10 +5,24 @@
 //! fingerprint changed).
 
 use flux::{
+    bytecode::bytecode_cache::hash_bytes,
     compiler::{Compiler, module_interface},
     syntax::{lexer::Lexer, parser::Parser},
     types::module_interface::ModuleInterface,
 };
+
+#[test]
+fn semantic_config_hash_is_default_eliding_and_optimize_aware() {
+    let default = module_interface::compute_semantic_config_hash(false, false);
+    let default_document = hash_bytes(b"");
+    let optimized = module_interface::compute_semantic_config_hash(false, true);
+    let strict = module_interface::compute_semantic_config_hash(true, false);
+
+    assert_eq!(default, default_document);
+    assert_ne!(default, optimized);
+    assert_ne!(default, strict);
+    assert_ne!(optimized, strict);
+}
 
 fn compile_and_build_interface(source: &str) -> ModuleInterface {
     let lexer = Lexer::new(source);
@@ -41,6 +55,7 @@ fn compile_and_build_interface(source: &str) -> ModuleInterface {
         Some(compiler.class_env()),
         Vec::new(),
         &compiler.interner,
+        Some(&program),
     )
 }
 

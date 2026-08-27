@@ -6,6 +6,10 @@ use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(1);
 static NEXT_PORT: AtomicUsize = AtomicUsize::new(19880);
 static VM_HTTP_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -34,9 +38,11 @@ fn run_source(source: String) -> (String, String, bool) {
     let mutex = VM_HTTP_TEST_LOCK.get_or_init(|| Mutex::new(()));
     let _guard = mutex.lock().unwrap_or_else(|e| e.into_inner());
     let path = write_fixture(source);
+    let scratch = Scratch::new("cache-isolated");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--no-cache"])
+        .args(scratch.cache_args())
         .output()
         .expect("run flux");
     let _ = std::fs::remove_file(&path);
@@ -226,9 +232,11 @@ fn body() -> String with Async, AsyncFail {{
 "#
     ));
     let path = write_fixture(source);
+    let scratch = Scratch::new("cache-isolated");
     let child = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--no-cache"])
+        .args(scratch.cache_args())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -280,9 +288,11 @@ fn body() -> String with Async, AsyncFail {{
 "#
     ));
     let path = write_fixture(source);
+    let scratch = Scratch::new("cache-isolated");
     let child = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--no-cache"])
+        .args(scratch.cache_args())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()

@@ -18,7 +18,7 @@ use crate::{
     compiler::module_interface,
     diagnostics::position::Span,
     runtime::value::Value,
-    shared::cache_paths,
+    shared::{cache_paths, hex},
     types::module_interface::DependencyMissReason,
 };
 
@@ -390,12 +390,6 @@ fn read_binding(reader: &mut File) -> Option<CachedModuleBinding> {
             _ => return None,
         },
     })
-}
-
-mod hex {
-    pub fn encode(bytes: &[u8]) -> String {
-        bytes.iter().map(|b| format!("{b:02x}")).collect()
-    }
 }
 
 #[cfg(test)]

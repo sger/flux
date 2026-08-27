@@ -537,6 +537,7 @@ fn pat_field_binder_ids(pat: &crate::core::CorePat) -> Option<Vec<Option<CoreBin
 pub enum ReuseFailureReason {
     ShapeMismatch,
     TokenEscapesIntoFields,
+    BorrowedFieldToken,
     ProvenanceLost,
     BranchAmbiguity,
     EffectfulBoundary,
@@ -548,6 +549,7 @@ impl ReuseFailureReason {
         match self {
             ReuseFailureReason::ShapeMismatch => "ShapeMismatch",
             ReuseFailureReason::TokenEscapesIntoFields => "TokenEscapesIntoFields",
+            ReuseFailureReason::BorrowedFieldToken => "BorrowedFieldToken",
             ReuseFailureReason::ProvenanceLost => "ProvenanceLost",
             ReuseFailureReason::BranchAmbiguity => "BranchAmbiguity",
             ReuseFailureReason::EffectfulBoundary => "EffectfulBoundary",
@@ -1013,6 +1015,7 @@ fn rewrite_nested_drop_sites(
             func,
             args,
             arg_modes,
+            guarded_borrowed_args,
             span,
         } => {
             let func_inner = rewrite_nested_drop_sites(*func, env, blocked_outer_token);
@@ -1026,6 +1029,7 @@ fn rewrite_nested_drop_sites(
                 func: Box::new(func_inner.expr),
                 args,
                 arg_modes,
+                guarded_borrowed_args,
                 span,
             };
             if reused {
@@ -1220,13 +1224,24 @@ where
 fn build_reuse_expr(
     token: &CoreVarRef,
     body: CoreExpr,
-    _env: &ReuseEnv,
+    env: &ReuseEnv,
     pat_tag: Option<&CoreTag>,
     blocked_outer_token: Option<CoreBinderId>,
 ) -> Result<CoreExpr, ReuseFailureReason> {
     let Some(token_binder) = token.binder else {
         return Err(ReuseFailureReason::ProvenanceLost);
     };
+    if blocked_outer_token.is_some()
+        && matches!(
+            env.origins.get(&token_binder),
+            Some(ReuseOrigin::Field { .. })
+        )
+    {
+        return Err(ReuseFailureReason::BorrowedFieldToken);
+    }
+    if blocked_outer_token.is_some() {
+        return Err(ReuseFailureReason::SharedBranchOnly);
+    }
     let (tag, fields, span) = into_constructor_shape_for_tag_aether(body, pat_tag)
         .ok_or(ReuseFailureReason::ShapeMismatch)?;
     if pat_tag.is_some_and(|expected| expected != &tag) {
@@ -1585,11 +1600,15 @@ fn rebuild_constructor_shape(
             span,
         },
         CoreExpr::AetherCall {
-            func, arg_modes, ..
+            func,
+            arg_modes,
+            guarded_borrowed_args,
+            ..
         } => CoreExpr::AetherCall {
             func,
             args: fields,
             arg_modes,
+            guarded_borrowed_args,
             span,
         },
         other => other,
@@ -2063,6 +2082,7 @@ mod tests {
                 func: Box::new(v(f)),
                 args: vec![v(h)],
                 arg_modes: vec![crate::aether::borrow_infer::BorrowMode::Owned],
+                guarded_borrowed_args: vec![false],
                 span: s(),
             }),
             body: Box::new(CoreExpr::Let {
@@ -2074,6 +2094,7 @@ mod tests {
                         crate::aether::borrow_infer::BorrowMode::Borrowed,
                         crate::aether::borrow_infer::BorrowMode::Borrowed,
                     ],
+                    guarded_borrowed_args: vec![false, false],
                     span: s(),
                 }),
                 body: Box::new(CoreExpr::Con {
@@ -2126,6 +2147,7 @@ mod tests {
                 func: Box::new(v(h)),
                 args: vec![v(xs)],
                 arg_modes: vec![crate::aether::borrow_infer::BorrowMode::Owned],
+                guarded_borrowed_args: vec![false],
                 span: s(),
             }),
             body: Box::new(CoreExpr::Con {

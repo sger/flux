@@ -1,0 +1,324 @@
+import Flow.Option as Option
+import Flow.Result as Result
+import Flow.String as Str
+import Flow.Array as Array
+import Flow.List as List
+
+/// Editing `flux.toml` without reformatting it.
+///
+/// `flux add` and `flux remove` change one line of a file a human wrote and
+/// keeps writing. Everything else in it — comments, blank lines, key order,
+/// the choice of quotes, the alignment somebody lined up by hand — has to
+/// survive untouched, or the command that adds one dependency also produces a
+/// diff nobody asked for.
+///
+/// That rules out parsing and re-rendering. `Flume.Toml` skips comments as
+/// whitespace and `Flume.Document` builds semantic values, so a round trip
+/// through them returns a *correct* document that is not the user's document.
+/// This module works on the source lines instead: it finds the line to change,
+/// changes that line, and leaves every other byte where it was.
+///
+/// The trade-off is that this understands less TOML than the parser does. It
+/// recognises table headers and the `name = ...` form at the start of a line,
+/// which is what a dependency table contains. A manifest whose
+/// `[dependencies]` is written some other legal way — as a dotted key, or
+/// inline in the root table — is reported as unsupported rather than edited
+/// wrongly.
+module Flume.Schema.Edit {
+
+//| lines
+
+    /// Split into lines, keeping them exactly as written.
+    ///
+    /// `split` on `"\n"` gives back a trailing empty element for a file that
+    /// ends in a newline, which is what makes `join_lines` reproduce the
+    /// original: dropping it would silently strip the final newline from every
+    /// file this touches.
+    fn lines(text: String) -> List<String> {
+        Array.to_list(split(text, "\n"))
+    }
+
+    fn join_lines(all: List<String>) -> String {
+        all |> List.to_array |> Str.join("\n")
+    }
+
+//| recognising structure
+
+    /// Whether a line opens a table, and which one.
+    ///
+    /// `[dependencies]` and `[dev-dependencies]` both answer here; the caller
+    /// decides which it wanted. Leading whitespace is allowed because TOML
+    /// permits it, even though nothing writes it that way.
+    fn table_name(line: String) -> Option<String> {
+        let text = trim(line)
+        if Str.starts_with(text, "[") && Str.ends_with(text, "]") {
+            Some(trim(substring(text, 1, len(text) - 1)))
+        } else {
+            None
+        }
+    }
+
+    /// The key a line assigns to, if it assigns to one.
+    ///
+    /// A line inside a table is `name = value`. The name is read up to the
+    /// first `=`, so `flux-greeter = { git = "..." }` answers `flux-greeter`
+    /// rather than being confused by the `=` inside the inline table.
+    fn assigned_key(line: String) -> Option<String> {
+        match index_of(line, "=") {
+            None -> None,
+            Some(at) -> non_empty(trim(substring(line, 0, at))),
+        }
+    }
+
+    fn non_empty(text: String) -> Option<String> {
+        if len(text) == 0 { None } else { Some(text) }
+    }
+
+    fn index_of(s: String, needle: String) -> Option<Int> {
+        index_of_from(s, needle, 0)
+    }
+
+    fn index_of_from(s: String, needle: String, i: Int) -> Option<Int> {
+        if i >= len(s) {
+            None
+        } else if substring(s, i, i + 1) == needle {
+            Some(i)
+        } else {
+            index_of_from(s, needle, i + 1)
+        }
+    }
+
+    /// Whether a line is a comment or blank.
+    ///
+    /// Trailing blank lines and comments belong to whatever comes *after* them
+    /// as much as to what precedes, so an insertion goes above them rather
+    /// than below: appending after a table's last real entry keeps a comment
+    /// that introduces the next section attached to that section.
+    fn is_filler(line: String) -> Bool {
+        let text = trim(line)
+        len(text) == 0 || Str.starts_with(text, "#")
+    }
+
+//| adding
+
+    /// Add or replace `name` in `[<table>]`, returning the new text.
+    ///
+    /// An existing entry is replaced in place, so `add` twice is the same as
+    /// `add` once and the entry keeps its position among its neighbours. A
+    /// manifest with no such table gains one at the end.
+    public fn add_dependency(
+        text: String,
+        table: String,
+        name: String,
+        value: String,
+    ) -> Result<String, String> {
+        let entry = name + " = " + value
+        let all = lines(text)
+        match find_table(all, table, 0) {
+            None -> Ok(join_lines(append_table(all, table, entry))),
+            Some(at) -> Ok(join_lines(insert_into(all, table, at, name, entry))),
+        }
+    }
+
+    /// The index of the line opening `[<table>]`.
+    fn find_table(all: List<String>, table: String, index: Int) -> Option<Int> {
+        match all {
+            [] -> None,
+            [head | rest] -> match table_name(head) {
+                Some(found) -> if found == table {
+                    Some(index)
+                } else {
+                    find_table(rest, table, index + 1)
+                },
+                None -> find_table(rest, table, index + 1),
+            },
+        }
+    }
+
+    /// A new table at the end of the file.
+    ///
+    /// Separated by a blank line unless the file already ends with one, so
+    /// adding a first dependency to a manifest does not glue the new header
+    /// onto the last line of `[package]`.
+    fn append_table(all: List<String>, table: String, entry: String) -> List<String> {
+        let trimmed = drop_trailing_blanks(all)
+        List.concat([trimmed, ["", "[" + table + "]", entry, ""]])
+    }
+
+    fn drop_trailing_blanks(all: List<String>) -> List<String> {
+        List.reverse(drop_leading_blanks(List.reverse(all)))
+    }
+
+    fn drop_leading_blanks(all: List<String>) -> List<String> {
+        match all {
+            [] -> [],
+            [head | rest] -> if len(trim(head)) == 0 {
+                drop_leading_blanks(rest)
+            } else {
+                all
+            },
+        }
+    }
+
+    /// Put `entry` into the table opening at `at`.
+    fn insert_into(
+        all: List<String>,
+        table: String,
+        at: Int,
+        name: String,
+        entry: String,
+    ) -> List<String> {
+        let body_start = at + 1
+        let body_end = table_end(all, body_start)
+        match existing_entry(all, name, body_start, body_end) {
+            Some(index) -> replace_at(all, index, entry, 0),
+            None -> insert_at(all, insertion_point(all, body_start, body_end), entry, 0),
+        }
+    }
+
+    /// Where a table's body stops: the next table header, or end of file.
+    fn table_end(all: List<String>, index: Int) -> Int {
+        match List.nth(all, index) {
+            None -> index,
+            Some(line) -> match table_name(line) {
+                Some(_) -> index,
+                None -> table_end(all, index + 1),
+            },
+        }
+    }
+
+    /// The line already assigning to `name` within the body, if there is one.
+    fn existing_entry(
+        all: List<String>,
+        name: String,
+        index: Int,
+        stop: Int,
+    ) -> Option<Int> {
+        if index >= stop {
+            None
+        } else {
+            match List.nth(all, index) {
+                None -> None,
+                Some(line) -> if assigned_key(line) == Some(name) {
+                    Some(index)
+                } else {
+                    existing_entry(all, name, index + 1, stop)
+                },
+            }
+        }
+    }
+
+    /// Where a new entry goes: after the table's last real line, before any
+    /// trailing blanks or comments that lead into whatever follows.
+    fn insertion_point(all: List<String>, start: Int, stop: Int) -> Int {
+        last_content(all, start, stop, start)
+    }
+
+    fn last_content(all: List<String>, index: Int, stop: Int, best: Int) -> Int {
+        if index >= stop {
+            best
+        } else {
+            match List.nth(all, index) {
+                None -> best,
+                Some(line) -> if is_filler(line) {
+                    last_content(all, index + 1, stop, best)
+                } else {
+                    last_content(all, index + 1, stop, index + 1)
+                },
+            }
+        }
+    }
+
+//| removing
+
+    /// Remove `name` from `[<table>]`.
+    ///
+    /// A dependency that is not there is an error rather than a no-op: the
+    /// user named something specific, and silently succeeding would hide a
+    /// typo until the build failed for an unrelated-looking reason.
+    public fn remove_dependency(
+        text: String,
+        table: String,
+        name: String,
+    ) -> Result<String, String> {
+        let all = lines(text)
+        match find_table(all, table, 0) {
+            None -> Err("`" + name + "` is not in `[" + table + "]`"),
+            Some(at) -> remove_from(all, table, at, name),
+        }
+    }
+
+    fn remove_from(
+        all: List<String>,
+        table: String,
+        at: Int,
+        name: String,
+    ) -> Result<String, String> {
+        let body_start = at + 1
+        let body_end = table_end(all, body_start)
+        match existing_entry(all, name, body_start, body_end) {
+            None -> Err("`" + name + "` is not in `[" + table + "]`"),
+            Some(index) -> Ok(join_lines(delete_at(all, index, 0))),
+        }
+    }
+
+//| list surgery
+
+    fn replace_at(all: List<String>, at: Int, line: String, index: Int) -> List<String> {
+        match all {
+            [] -> [],
+            [head | rest] -> if index == at {
+                [line | rest]
+            } else {
+                [head | replace_at(rest, at, line, index + 1)]
+            },
+        }
+    }
+
+    fn insert_at(all: List<String>, at: Int, line: String, index: Int) -> List<String> {
+        match all {
+            [] -> [line],
+            [head | rest] -> if index == at {
+                [line | all]
+            } else {
+                [head | insert_at(rest, at, line, index + 1)]
+            },
+        }
+    }
+
+    fn delete_at(all: List<String>, at: Int, index: Int) -> List<String> {
+        match all {
+            [] -> [],
+            [head | rest] -> if index == at {
+                rest
+            } else {
+                [head | delete_at(rest, at, index + 1)]
+            },
+        }
+    }
+
+//| rendering a dependency value
+
+    /// The inline table for a git dependency.
+    public fn git_value(url: String, pin: String, reference: String) -> String {
+        if len(reference) == 0 {
+            "{ git = " + quote(url) + " }"
+        } else {
+            "{ git = " + quote(url) + ", " + pin + " = " + quote(reference) + " }"
+        }
+    }
+
+    /// The inline table for a path dependency.
+    public fn path_value(path: String) -> String {
+        "{ path = " + quote(path) + " }"
+    }
+
+    /// A bare version requirement, which is the registry form.
+    public fn version_value(requirement: String) -> String {
+        quote(requirement)
+    }
+
+    fn quote(text: String) -> String {
+        "\"" + text + "\""
+    }
+}

@@ -456,6 +456,17 @@ pub struct LirProgram {
     /// Built-in constructors (Some=1, Left=2, Right=3, Cons=4) are implicit.
     /// User constructors start at 5 and are assigned sequentially.
     pub constructor_tags: HashMap<String, i32>,
+    /// Native symbols of imported functions whose call can suspend, taken from
+    /// the declared effect row of each import (`can_suspend` on
+    /// `ImportedNativeSymbol`).
+    ///
+    /// `direct_async_func_ids` reasons over `LirFuncId`s, which are unique only
+    /// within one module, so a call into another module is a `DirectExtern`
+    /// carrying nothing but a symbol name. This set is how that call site
+    /// learns the callee can yield; before it existed the only answer was the
+    /// hardcoded `Flow_Async_*` allowlist in `is_direct_async_extern_symbol`,
+    /// which no user-defined effect could ever match (KI-034).
+    pub suspending_extern_symbols: std::collections::HashSet<String>,
     /// Monotonic allocator for synthetic nested-function IDs.
     next_synthetic_func_id: u32,
 }
@@ -538,11 +549,29 @@ pub fn is_direct_async_extern_symbol(symbol: &str) -> bool {
 }
 
 pub fn call_kind_is_direct_async(kind: &CallKind, async_funcs: &HashSet<LirFuncId>) -> bool {
+    call_kind_is_direct_async_in(kind, async_funcs, &HashSet::new())
+}
+
+/// As [`call_kind_is_direct_async`], but also treating a `DirectExtern` call as
+/// suspending when its symbol is in `suspending_externs` — the set built from
+/// the imports' declared effect rows.
+///
+/// The name-based [`is_direct_async_extern_symbol`] stays as a fallback for the
+/// stdlib async surface, whose symbols reach lowering without a scheme. It
+/// cannot answer for a user-defined effect, which is what made cross-module
+/// `perform` miscompile (KI-034).
+pub fn call_kind_is_direct_async_in(
+    kind: &CallKind,
+    async_funcs: &HashSet<LirFuncId>,
+    suspending_externs: &HashSet<String>,
+) -> bool {
     match kind {
         CallKind::Direct { func_id } | CallKind::DirectClosure { func_id, .. } => {
             async_funcs.contains(func_id)
         }
-        CallKind::DirectExtern { symbol } => is_direct_async_extern_symbol(symbol),
+        CallKind::DirectExtern { symbol } => {
+            is_direct_async_extern_symbol(symbol) || suspending_externs.contains(symbol)
+        }
         CallKind::Indirect { async_capable } => *async_capable,
         CallKind::YieldTo => true,
     }
@@ -560,7 +589,11 @@ pub fn direct_async_func_ids(program: &LirProgram) -> HashSet<LirFuncId> {
             if async_funcs.contains(&func.id) {
                 continue;
             }
-            if function_has_direct_async_site(func, &async_funcs) {
+            if function_has_direct_async_site(
+                func,
+                &async_funcs,
+                &program.suspending_extern_symbols,
+            ) {
                 async_funcs.insert(func.id);
                 changed = true;
             }
@@ -573,12 +606,38 @@ pub fn direct_async_func_ids(program: &LirProgram) -> HashSet<LirFuncId> {
     async_funcs
 }
 
-fn function_has_direct_async_site(func: &LirFunction, async_funcs: &HashSet<LirFuncId>) -> bool {
-    func.blocks.iter().any(|block| match &block.terminator {
-        LirTerminator::Call { kind, .. } | LirTerminator::TailCall { kind, .. } => {
-            call_kind_is_direct_async(kind, async_funcs)
-        }
-        _ => false,
+fn function_has_direct_async_site(
+    func: &LirFunction,
+    async_funcs: &HashSet<LirFuncId>,
+    suspending_externs: &HashSet<String>,
+) -> bool {
+    func.blocks.iter().any(|block| {
+        let has_async_call = match &block.terminator {
+            LirTerminator::Call { kind, .. } | LirTerminator::TailCall { kind, .. } => {
+                call_kind_is_direct_async_in(kind, async_funcs, suspending_externs)
+            }
+            _ => false,
+        };
+        let has_async_filesystem_primop = block.instrs.iter().any(|instr| {
+            matches!(
+                instr,
+                LirInstr::PrimCall {
+                    op: crate::core::CorePrimOp::TryReadFile
+                        | crate::core::CorePrimOp::FsExists
+                        | crate::core::CorePrimOp::FsIsDir
+                        | crate::core::CorePrimOp::FsIsFile
+                        | crate::core::CorePrimOp::FsWriteFile
+                        | crate::core::CorePrimOp::FsCreateDirAll
+                        | crate::core::CorePrimOp::FsRemoveFile
+                        | crate::core::CorePrimOp::FsRemoveDirAll
+                        | crate::core::CorePrimOp::FsRename
+                        | crate::core::CorePrimOp::FsListDir
+                        | crate::core::CorePrimOp::FsMetadata,
+                    ..
+                }
+            )
+        });
+        has_async_call || has_async_filesystem_primop
     })
 }
 
@@ -632,6 +691,7 @@ impl LirProgram {
             string_pool: Vec::new(),
             func_index: HashMap::new(),
             constructor_tags: HashMap::new(),
+            suspending_extern_symbols: std::collections::HashSet::new(),
             next_synthetic_func_id: u32::MAX,
         }
     }

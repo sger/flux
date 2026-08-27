@@ -263,6 +263,9 @@ typedef struct FluxAsyncCallbacks {
     int64_t (*wrap_some)(int64_t value);
     int64_t (*make_adt0)(int32_t ctor_tag);
     int64_t (*make_adt1)(int32_t ctor_tag, int64_t value);
+    int64_t (*make_adt_fields)(int32_t ctor_tag, const int64_t *fields, int32_t count);
+    int64_t (*make_bool)(int32_t value);
+    int64_t (*make_array)(const int64_t *elements, uintptr_t len);
     int64_t (*suspend)(int64_t request_id, int64_t resume_value);
     int32_t (*is_suspended)(void);
     int64_t (*current_request)(void);
@@ -282,8 +285,27 @@ typedef struct FluxAsyncCallbacks {
     void    (*deregister_root_task)(int64_t task_id);
 } FluxAsyncCallbacks;
 
+typedef struct FluxFsTags {
+    int32_t ok_tag;
+    int32_t err_tag;
+    int32_t io_error_tag;
+    int32_t not_found_tag;
+    int32_t permission_denied_tag;
+    int32_t already_exists_tag;
+    int32_t not_a_directory_tag;
+    int32_t is_a_directory_tag;
+    int32_t directory_not_empty_tag;
+    int32_t interrupted_tag;
+    int32_t other_tag;
+    int32_t file_meta_tag;
+} FluxFsTags;
+
 int32_t  flux_async_set_callbacks(const FluxAsyncCallbacks *callbacks);
 int32_t  flux_async_runtime_init(void);
+int32_t  flux_async_is_active(void);
+uint64_t flux_async_fs_request(int32_t kind, const uint8_t *path, uintptr_t path_len,
+                               const uint8_t *extra, uintptr_t extra_len,
+                               const FluxFsTags *tags);
 int64_t  flux_async_run_root(int64_t root_closure);
 int32_t  flux_async_last_run_failed(void);
 int64_t  flux_async_run_root_with(int64_t worker_count, int64_t fs_pool_size, int64_t dns_pool_size, int64_t root_closure);
@@ -328,6 +350,9 @@ int64_t  flux_async_make_tuple2(int64_t left, int64_t right);
 int64_t  flux_async_wrap_some(int64_t value);
 int64_t  flux_async_make_adt0(int32_t ctor_tag);
 int64_t  flux_async_make_adt1(int32_t ctor_tag, int64_t value);
+int64_t  flux_async_make_adt_fields(int32_t ctor_tag, const int64_t *fields, int32_t count);
+int64_t  flux_async_make_bool(int32_t value);
+int64_t  flux_async_make_array(const int64_t *elements, uintptr_t len);
 void     flux_async_promote(int64_t value);
 void     flux_async_enter_worker_thread(void);
 int64_t  flux_async_make_string(const uint8_t *data, uintptr_t len);
@@ -471,7 +496,93 @@ void    flux_println(int64_t value);
 void    flux_debug_trace(int64_t value);
 int64_t flux_read_line(void);
 int64_t flux_read_file(int64_t path);
+
+/* Recoverable I/O: every fallible operation returns Result<_, IoError> and
+ * takes the constructor tags it needs as leading arguments, because tags are
+ * assigned per compilation rather than fixed.
+ *
+ * The IoErrorKind tags must cover every variant declared in Flow.IoError —
+ * a kind missing here is a kind the native backend can never report, which
+ * shows up as a VM/native parity divergence. */
+#define FLUX_IO_TAGS_DECL                                                      \
+    int32_t ok_tag, int32_t err_tag, int32_t io_error_tag,                     \
+    int32_t not_found_tag, int32_t permission_denied_tag,                      \
+    int32_t already_exists_tag, int32_t not_a_directory_tag,                   \
+    int32_t is_a_directory_tag, int32_t directory_not_empty_tag,               \
+    int32_t interrupted_tag, int32_t other_tag
+
+/* The same tags as a struct, for helpers shared across translation units. */
+typedef struct {
+    int32_t ok_tag;
+    int32_t err_tag;
+    int32_t io_error_tag;
+    int32_t not_found_tag;
+    int32_t permission_denied_tag;
+    int32_t already_exists_tag;
+    int32_t not_a_directory_tag;
+    int32_t is_a_directory_tag;
+    int32_t directory_not_empty_tag;
+    int32_t interrupted_tag;
+    int32_t other_tag;
+} FluxIoTags;
+
+/* Bind the FLUX_IO_TAGS_DECL parameters into a FluxIoTags. */
+#define FLUX_IO_TAGS_INIT                                                      \
+    { ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,     \
+      already_exists_tag, not_a_directory_tag, is_a_directory_tag,             \
+      directory_not_empty_tag, interrupted_tag, other_tag }
+
+/* Shared by every fallible operation, including those in other .c files. */
+int64_t flux_io_make_adt(int32_t ctor_tag, const int64_t *fields, int32_t count);
+int64_t flux_io_fail(FluxIoTags tags, int errnum, int64_t path);
+char   *flux_io_cstr(int64_t s);   /* null-terminate a Flux string; caller frees */
+
+/* Recoverable read: returns Result<String, IoError> instead of aborting. */
+int64_t flux_try_read_file(FLUX_IO_TAGS_DECL, int64_t path);
+
+/* Filesystem predicates: FLUX_TRUE / FLUX_FALSE, false on any failure. */
+int64_t flux_fs_exists(int64_t path);
+int64_t flux_fs_is_dir(int64_t path);
+int64_t flux_fs_is_file(int64_t path);
+
+/* Filesystem mutations: Result<Unit, IoError>. */
+int64_t flux_fs_write_file(FLUX_IO_TAGS_DECL, int64_t path, int64_t contents);
+int64_t flux_fs_create_dir_all(FLUX_IO_TAGS_DECL, int64_t path);
+int64_t flux_fs_remove_file(FLUX_IO_TAGS_DECL, int64_t path);
+int64_t flux_fs_remove_dir_all(FLUX_IO_TAGS_DECL, int64_t path);
+int64_t flux_fs_rename(FLUX_IO_TAGS_DECL, int64_t from, int64_t to);
+
+/* Directory listing: Result<Array<String>, IoError>. Entries are bare file
+ * names excluding "." and "..". */
+int64_t flux_fs_list_dir(FLUX_IO_TAGS_DECL, int64_t path);
+
+/* Stat: Result<FileMeta, IoError>. Takes one extra leading tag for the
+ * FileMeta constructor, since it builds a record rather than Unit. */
+int64_t flux_fs_metadata(FLUX_IO_TAGS_DECL, int32_t file_meta_tag, int64_t path);
+
+/* Run a subprocess to completion, capturing stdout and stderr.
+   No shell: `argv` is passed to execvp directly, so quoting cannot become
+   injection. Returns Result<ProcOutput, IoError>. */
+int64_t flux_proc_run(FLUX_IO_TAGS_DECL, int32_t proc_output_tag, int64_t cmd,
+                      int64_t argv);
+
 int64_t flux_write_file(int64_t path, int64_t content);
+
+/* ── Hashing (proposal 0178) ────────────────────────────────────────── */
+
+/* SHA-256 as 64 lowercase hex characters. Pure: no tags, no effect. */
+int64_t flux_sha256(int64_t data);
+/* SHA-256 of a file's contents; streams rather than loading it whole. */
+int64_t flux_sha256_file(FLUX_IO_TAGS_DECL, int64_t path);
+
+/* ── Process environment (proposal 0178) ────────────────────────────── */
+
+/* Stash the process argv; called from main() before anything runs. */
+void    flux_env_set_args(int argc, char **argv);
+int64_t flux_env_args(void);                  /* -> Array<String>, argv[0] first */
+int64_t flux_env_var(int64_t name);           /* -> Option<String> */
+int64_t flux_env_cwd(FLUX_IO_TAGS_DECL);      /* -> Result<String, IoError> */
+int64_t flux_env_home_dir(void);              /* -> Option<String> */
 
 /* ── Runtime lifecycle ──────────────────────────────────────────────── */
 
@@ -502,7 +613,8 @@ uint32_t    flux_string_len(int64_t s);
 
 int64_t flux_array_new(int64_t *elements, int32_t len);
 int64_t flux_array_len(int64_t arr);
-int64_t flux_array_get(int64_t arr, int64_t index);
+int64_t flux_array_get(int64_t arr, int64_t index);   /* -> Option<a>, for Flux */
+int64_t flux_array_at(int64_t arr, int64_t index);    /* -> raw element, internal */
 int64_t flux_array_set(int64_t arr, int64_t index, int64_t value);
 int64_t flux_array_push(int64_t arr, int64_t value);
 int64_t flux_array_concat(int64_t a, int64_t b);

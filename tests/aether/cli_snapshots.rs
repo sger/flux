@@ -514,7 +514,7 @@ fn dump_aether_and_trace_aether_share_report_content() {
     for needle in [
         "── fn my_map @fip ──",
         "── fn option_map @fip ──",
-        "── fn main [handle×3] ──",
+        "── fn main [handle×5] ──",
     ] {
         assert!(
             normalized_report.contains(needle) && normalized_stderr.contains(needle),
@@ -555,7 +555,7 @@ fn dump_aether_and_native_trace_aether_share_report_content() {
     for needle in [
         "── fn my_map @fip ──",
         "── fn option_map @fip ──",
-        "── fn main [handle×3] ──",
+        "── fn main [handle×5] ──",
     ] {
         assert!(
             normalized_report.contains(needle) && normalized_stderr.contains(needle),

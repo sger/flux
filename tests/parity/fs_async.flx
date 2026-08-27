@@ -1,0 +1,56 @@
+// parity: vm, llvm
+// expect: success
+// Flow.Fs operations use the blocking filesystem pool inside run_async.
+
+import Flow.Async exposing (run_async_with, with_fs_pool_size)
+import Flow.Fs as Fs
+import Flow.Result as Result
+
+fn setup(base: String, dir: String, path: String) -> Unit with Async, FileSystem, Console {
+        let initial_cleanup = Fs.remove_dir_all(base)
+        let missing = Fs.read_file(base + "/missing.txt")
+        let made = Fs.create_dir_all(dir)
+        let wrote = Fs.write_file(path, "async payload")
+
+        println("made=" + to_string(Result.is_ok(made)))
+        println("missing=" + to_string(Result.is_err(missing)))
+        println("wrote=" + to_string(Result.is_ok(wrote)))
+}
+
+fn inspect(dir: String, path: String) -> Unit with Async, FileSystem, Console {
+        let dir_predicate = Fs.is_dir(dir)
+        let file_predicate = Fs.is_file(path)
+        let read_back = Fs.read_file_or(path, "missing")
+        let read_exists = Fs.exists(path)
+        let listed = Fs.list_dir(dir)
+        let meta = Fs.metadata(path)
+
+        println("predicates=" + to_string(dir_predicate && file_predicate))
+        println("read=" + read_back + ":" + to_string(read_exists))
+        println("listed=" + to_string(Result.is_ok(listed)))
+        println("metadata=" + to_string(Result.is_ok(meta)))
+}
+
+fn finish(base: String, path: String, renamed: String) -> Unit with Async, FileSystem, Console {
+        let renamed_result = Fs.rename(path, renamed)
+        let removed_file = Fs.remove_file(renamed)
+        let removed_dir = Fs.remove_dir_all(base)
+
+        println("renamed=" + to_string(Result.is_ok(renamed_result)))
+        println("removed=" + to_string(Result.is_ok(removed_file) && Result.is_ok(removed_dir)))
+}
+
+fn body() -> Unit with Async, FileSystem, Console {
+        let base = "target/test-scratch/fs_async"
+        let dir = base + "/nested"
+        let path = dir + "/value.txt"
+        let renamed = dir + "/renamed.txt"
+
+        let setup_result = setup(base, dir, path)
+        let inspected = inspect(dir, path)
+        let finished = finish(base, path, renamed)
+}
+
+fn main() -> Unit with IO {
+    let completed = run_async_with(with_fs_pool_size(1), body)
+}

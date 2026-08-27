@@ -1,2 +1,0 @@
-### Changed
-- `Flow.Async.yield_now()` now performs a real cooperative reschedule on both the bytecode VM and the LLVM native backend (proposal 0174 slice 2-vi): the calling fiber is moved to the tail of its run-queue so other ready fibers make progress before it resumes. It remains a no-op only when called outside an active `run_async` scheduler (e.g. the `main() with Async` host handler). The cancellation-checkpoint behavior of `yield_now()` is unchanged.

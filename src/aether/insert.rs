@@ -4,9 +4,9 @@
 //! environment. `Dup` and `Drop` are emitted as local consequences of that
 //! environment instead of from whole-body use counts.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use crate::core::{CoreBinder, CoreBinderId, CoreTag, CoreVarRef};
+use crate::core::{CoreBinder, CoreBinderId, CorePrimOp, CoreTag, CoreVarRef};
 use crate::diagnostics::position::Span;
 
 use super::analysis::{
@@ -19,12 +19,21 @@ type CoreExpr = AetherExpr;
 
 type Scope = HashMap<CoreBinderId, CoreBinder>;
 
-/// Maps pattern binder ID → scrutinee binder ID.
+/// Maps an extracted field binder to its scrutinee and provenance.
 /// Tracks which variables were extracted from which scrutinee via
 /// constructor pattern matching. Used to prevent dropping a scrutinee
 /// while its destructured fields are still live, and to dup fields
 /// from borrowed scrutinees when used in constructors (owned demand).
-type FieldParents = HashMap<CoreBinderId, (CoreBinderId, Option<CoreTag>)>;
+#[derive(Clone)]
+struct FieldParent {
+    parent: CoreBinderId,
+    tag: Option<CoreTag>,
+    pattern: bool,
+    tuple_pattern: bool,
+    nested_pattern: bool,
+}
+
+type FieldParents = HashMap<CoreBinderId, FieldParent>;
 
 /// Insert Dup/Drop annotations into a Core IR expression.
 pub fn insert_dup_drop(expr: CoreExpr) -> CoreExpr {
@@ -97,7 +106,16 @@ fn plan_expr(
                 && let CoreExpr::Var { var: obj_var, .. } = object.as_ref()
                 && let Some(parent_id) = obj_var.binder
             {
-                field_parents.insert(var.id, (parent_id, None));
+                field_parents.insert(
+                    var.id,
+                    FieldParent {
+                        parent: parent_id,
+                        tag: None,
+                        pattern: false,
+                        tuple_pattern: false,
+                        nested_pattern: false,
+                    },
+                );
             }
 
             let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
@@ -302,6 +320,8 @@ fn plan_expr(
                     }
                 })
                 .collect();
+            let guarded_borrowed_args =
+                call_guard_mask(&args, &arg_modes, &tail_env, field_parents);
             let (args, env_after_args) =
                 plan_expr_list(args, tail_env, registry, scope, field_parents, |index| {
                     if arg_modes[index] == BorrowMode::Borrowed {
@@ -323,6 +343,7 @@ fn plan_expr(
                     func: Box::new(func_plan.expr),
                     args,
                     arg_modes,
+                    guarded_borrowed_args,
                     span,
                 },
                 env_before: func_plan.env_before,
@@ -332,6 +353,7 @@ fn plan_expr(
             func,
             args,
             arg_modes: existing_arg_modes,
+            guarded_borrowed_args: _,
             span,
         } => {
             let resolved_callee = registry.and_then(|reg| match func.as_ref() {
@@ -359,6 +381,8 @@ fn plan_expr(
             } else {
                 existing_arg_modes.clone()
             };
+            let guarded_borrowed_args =
+                call_guard_mask(&args, &arg_modes, &tail_env, field_parents);
             let (args, env_after_args) =
                 plan_expr_list(args, tail_env, registry, scope, field_parents, |index| {
                     match arg_modes[index] {
@@ -379,6 +403,7 @@ fn plan_expr(
                     func: Box::new(func_plan.expr),
                     args,
                     arg_modes,
+                    guarded_borrowed_args,
                     span,
                 },
                 env_before: func_plan.env_before,
@@ -415,7 +440,16 @@ fn plan_expr(
                 if let Some(sv) = scrutinee_var.as_ref() {
                     let parent_tag = pat_constructor_tag(&pat);
                     for &bid in &pat_ids {
-                        field_parents.insert(bid, (sv.id, parent_tag.clone()));
+                        field_parents.insert(
+                            bid,
+                            FieldParent {
+                                parent: sv.id,
+                                tag: parent_tag.clone(),
+                                pattern: true,
+                                tuple_pattern: matches!(pat, crate::core::CorePat::Tuple(_)),
+                                nested_pattern: pat_binder_is_nested(&pat, bid),
+                            },
+                        );
                     }
                 }
 
@@ -448,23 +482,9 @@ fn plan_expr(
 
                 let mut rhs = rhs_plan.expr;
 
-                // Check if the scrutinee is still live in the RHS.
-                // If so, destructured pattern binders are borrowed views
-                // into the scrutinee — dropping them would free memory
-                // the scrutinee still references (use-after-free).
-                let scrutinee_live_in_rhs = scrutinee_var.as_ref().is_some_and(|sv| {
-                    rhs_plan.env_before.is_live(sv.id) || expr_uses_binder(&rhs, sv.id)
-                });
-
-                for binder_id in pat_ids.iter().rev().cloned() {
-                    if !rhs_plan.env_before.is_live(binder_id)
-                        && !expr_uses_binder(&rhs, binder_id)
-                        && !scrutinee_live_in_rhs
-                        && let Some(binder) = find_binder_in_pat(&pat, binder_id)
-                    {
-                        rhs = wrap_drop(binder, rhs, alt_span);
-                    }
-                }
+                // Pattern binders are borrowed views into the scrutinee.  The
+                // scrutinee owns their storage, so unused pattern fields are
+                // never released independently.
 
                 let mut env_without_pats = branch_env.clone();
                 env_without_pats.remove_all(pat_ids.iter().cloned());
@@ -475,48 +495,59 @@ fn plan_expr(
                     && !expr_uses_binder(&rhs, scrut_binder.id)
                     && has_compatible_con(&pat, &rhs)
                 {
+                    // Pattern fields are borrowed from the scrutinee.  The
+                    // field-demand planner has already inserted Dup for every
+                    // owning use before the scrutinee is discharged.
                     rhs = wrap_drop(*scrut_binder, rhs, alt_span);
                 }
 
-                branch_plans.push((pat, guard, rhs, alt_span, env_without_pats));
+                branch_plans.push((pat, guard, rhs, alt_span, env_without_pats, pat_ids));
             }
 
             let joined = join_branch_envs(
                 &branch_plans
                     .iter()
-                    .map(|(_, _, _, _, env_without_pats)| env_without_pats.clone())
+                    .map(|(_, _, _, _, env_without_pats, _)| env_without_pats.clone())
                     .collect::<Vec<_>>(),
             );
 
             let alts = branch_plans
                 .into_iter()
-                .map(|(pat, guard, rhs, alt_span, env_without_pats)| {
+                .map(|(pat, guard, rhs, alt_span, env_without_pats, pat_ids)| {
                     let compensation: Vec<_> = joined
                         .owned
                         .iter()
                         .cloned()
+                        // Pattern fields are borrowed views into the
+                        // scrutinee; they are not independent allocations
+                        // and must never be released on their own.
+                        .filter(|binder_id| !pat_ids.contains(binder_id))
                         .filter(|binder_id| {
                             !env_without_pats.is_live(*binder_id) && !tail_env.is_live(*binder_id)
                         })
                         .filter(|binder_id| {
-                            let Some((parent_id, _)) = field_parents.get(binder_id).cloned() else {
+                            !field_parents
+                                .get(binder_id)
+                                .is_some_and(|field| field.pattern)
+                        })
+                        .filter(|binder_id| {
+                            let Some(field) = field_parents.get(binder_id).cloned() else {
                                 return true;
                             };
-                            !env_without_pats.is_live(parent_id)
-                                && !expr_uses_binder(&rhs, parent_id)
+                            !env_without_pats.is_live(field.parent)
+                                && !expr_uses_binder(&rhs, field.parent)
                         })
                         .filter(|binder_id| {
                             let mut child_tag = None;
-                            let child_used =
-                                field_parents.iter().any(|(child_id, (parent_id, tag))| {
-                                    let used = *parent_id == *binder_id
-                                        && (env_without_pats.is_live(*child_id)
-                                            || expr_uses_binder(&rhs, *child_id));
-                                    if used && child_tag.is_none() {
-                                        child_tag = tag.clone();
-                                    }
-                                    used
-                                });
+                            let child_used = field_parents.iter().any(|(child_id, field)| {
+                                let used = field.parent == *binder_id
+                                    && (env_without_pats.is_live(*child_id)
+                                        || expr_uses_binder(&rhs, *child_id));
+                                if used && child_tag.is_none() {
+                                    child_tag = field.tag.clone();
+                                }
+                                used
+                            });
                             !child_used
                                 || child_tag.is_some_and(|tag| rhs_has_compatible_tag(&rhs, &tag))
                         })
@@ -568,9 +599,17 @@ fn plan_expr(
             }
         }
         CoreExpr::PrimOp { op, args, span } => {
+            let argument_demand = match op {
+                // Collection constructors take ownership of their elements.
+                CorePrimOp::MakeTuple
+                | CorePrimOp::MakeList
+                | CorePrimOp::MakeArray
+                | CorePrimOp::MakeHash => ValueDemand::Owned,
+                _ => ValueDemand::Borrowed,
+            };
             let (args, env_before) =
                 plan_expr_list(args, tail_env, registry, scope, field_parents, |_| {
-                    ValueDemand::Borrowed
+                    argument_demand
                 });
             AetherPlan {
                 expr: CoreExpr::PrimOp { op, args, span },
@@ -837,6 +876,55 @@ fn plan_expr(
     }
 }
 
+/// Decide which borrowed call arguments need an owning reference while the
+/// callee runs. A borrowed parameter is normally safe to pass without a
+/// clone, but the callee's reuse analysis only sees the reference count. If
+/// the caller still owns the argument (or a live scrutinee owns an extracted
+/// field), that count can under-report reachability and let the callee mutate
+/// the caller's value in place.
+fn call_guard_mask(
+    args: &[CoreExpr],
+    arg_modes: &[BorrowMode],
+    tail_env: &AetherEnv,
+    field_parents: &FieldParents,
+) -> Vec<bool> {
+    args.iter()
+        .zip(arg_modes.iter())
+        .map(|(arg, mode)| {
+            if *mode != BorrowMode::Borrowed {
+                return false;
+            }
+
+            let CoreExpr::Var { var, .. } = arg else {
+                // A non-variable borrowed expression has no stable ownership
+                // provenance available at this point, so guard it
+                // conservatively.
+                return true;
+            };
+            let Some(mut current) = var.binder else {
+                return true;
+            };
+
+            if tail_env.is_live(current) {
+                return true;
+            }
+
+            let mut visited = HashSet::new();
+            while let Some(field) = field_parents.get(&current) {
+                if tail_env.is_live(field.parent) {
+                    return true;
+                }
+                if !visited.insert(current) || field.parent == current {
+                    break;
+                }
+                current = field.parent;
+            }
+
+            false
+        })
+        .collect()
+}
+
 fn plan_expr_list<F>(
     exprs: Vec<CoreExpr>,
     tail_env: AetherEnv,
@@ -872,7 +960,7 @@ fn plan_var(
     mut tail_env: AetherEnv,
     demand: ValueDemand,
     scope: &Scope,
-    _field_parents: &FieldParents,
+    field_parents: &FieldParents,
 ) -> AetherPlan {
     let Some(id) = var.binder else {
         return AetherPlan {
@@ -894,7 +982,19 @@ fn plan_var(
             }
         }
         ValueDemand::Owned => {
-            let needs_dup = tail_env.is_live(id);
+            let tuple_pattern_field = field_parents
+                .get(&id)
+                .is_some_and(|field| field.pattern && field.tuple_pattern);
+            let borrowed_parent = field_parents
+                .get(&id)
+                .is_some_and(|field| tail_env.is_borrowed(field.parent));
+            let nested_pattern_field = field_parents
+                .get(&id)
+                .is_some_and(|field| field.nested_pattern);
+            let needs_dup = tail_env.is_live(id)
+                || tuple_pattern_field
+                || nested_pattern_field
+                || borrowed_parent;
             tail_env.mark_owned(id);
             let expr = if needs_dup {
                 if let Some(binder) = scope.get(&id).cloned() {
@@ -985,6 +1085,30 @@ fn pat_constructor_tag(pat: &crate::core::CorePat) -> Option<CoreTag> {
     match pat {
         crate::core::CorePat::Con { tag, .. } => Some(tag.clone()),
         _ => None,
+    }
+}
+
+fn pat_binder_is_nested(pat: &crate::core::CorePat, target: CoreBinderId) -> bool {
+    match pat {
+        crate::core::CorePat::Con { fields, .. } | crate::core::CorePat::Tuple(fields) => {
+            fields.iter().any(|field| match field {
+                crate::core::CorePat::Var(_) => false,
+                nested => contains_pat_binder(nested, target),
+            })
+        }
+        _ => false,
+    }
+}
+
+fn contains_pat_binder(pat: &crate::core::CorePat, target: CoreBinderId) -> bool {
+    match pat {
+        crate::core::CorePat::Var(binder) => binder.id == target,
+        crate::core::CorePat::Con { fields, .. } | crate::core::CorePat::Tuple(fields) => fields
+            .iter()
+            .any(|field| contains_pat_binder(field, target)),
+        crate::core::CorePat::Lit(_)
+        | crate::core::CorePat::Wildcard
+        | crate::core::CorePat::EmptyList => false,
     }
 }
 
@@ -1125,6 +1249,41 @@ mod tests {
         }
     }
 
+    fn borrowed_call_mask(expr: &CoreExpr) -> Option<Vec<bool>> {
+        match expr {
+            CoreExpr::AetherCall {
+                guarded_borrowed_args,
+                ..
+            } => Some(guarded_borrowed_args.clone()),
+            CoreExpr::Lam { body, .. }
+            | CoreExpr::Let { body, .. }
+            | CoreExpr::LetRec { body, .. }
+            | CoreExpr::Dup { body, .. }
+            | CoreExpr::Drop { body, .. }
+            | CoreExpr::Return { value: body, .. } => borrowed_call_mask(body),
+            CoreExpr::Con { fields, .. }
+            | CoreExpr::PrimOp { args: fields, .. }
+            | CoreExpr::Perform { args: fields, .. } => fields.iter().find_map(borrowed_call_mask),
+            CoreExpr::Case { alts, .. } => alts.iter().find_map(|alt| borrowed_call_mask(&alt.rhs)),
+            CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+                borrowed_call_mask(object)
+            }
+            _ => None,
+        }
+    }
+
+    fn borrowed_len_registry(interner: &mut Interner) -> BorrowRegistry {
+        let mut registry = BorrowRegistry::default();
+        registry.by_name.insert(
+            interner.intern("len"),
+            crate::aether::borrow_infer::BorrowSignature::new(
+                vec![BorrowMode::Borrowed],
+                crate::aether::borrow_infer::BorrowProvenance::BaseRuntime,
+            ),
+        );
+        registry
+    }
+
     fn count_binder_nodes<F>(expr: &CoreExpr, binder: CoreBinderId, predicate: &F) -> usize
     where
         F: Fn(&CoreExpr, CoreBinderId) -> bool,
@@ -1233,6 +1392,101 @@ mod tests {
             }
             other => panic!("expected AetherCall, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn borrowed_call_guards_follow_liveness_and_field_aliases() {
+        let mut interner = Interner::new();
+        let len = interner.intern("len");
+        let registry = borrowed_len_registry(&mut interner);
+        let pair = crate::core::CoreTag::Named(interner.intern("Pair"));
+
+        let linear = CoreExpr::Lam {
+            params: vec![binder(&mut interner, 1, "x")],
+            param_types: vec![],
+            result_ty: None,
+            body: Box::new(CoreExpr::App {
+                func: Box::new(CoreExpr::Var {
+                    var: CoreVarRef::unresolved(len),
+                    span: Span::default(),
+                }),
+                args: vec![var(binder(&mut interner, 1, "x"))],
+                span: Span::default(),
+            }),
+            span: Span::default(),
+        };
+        let linear = insert_dup_drop_with_registry(linear, &registry);
+        assert_eq!(borrowed_call_mask(&linear), Some(vec![false]));
+
+        let x = binder(&mut interner, 2, "x");
+        let live = CoreExpr::Lam {
+            params: vec![x],
+            param_types: vec![],
+            result_ty: None,
+            body: Box::new(CoreExpr::Con {
+                tag: pair.clone(),
+                fields: vec![
+                    CoreExpr::App {
+                        func: Box::new(CoreExpr::Var {
+                            var: CoreVarRef::unresolved(len),
+                            span: Span::default(),
+                        }),
+                        args: vec![var(x)],
+                        span: Span::default(),
+                    },
+                    var(x),
+                ],
+                span: Span::default(),
+            }),
+            span: Span::default(),
+        };
+        let live = insert_dup_drop_with_registry(live, &registry);
+        assert_eq!(borrowed_call_mask(&live), Some(vec![true]));
+
+        let xs = binder(&mut interner, 3, "xs");
+        let field = binder(&mut interner, 4, "field");
+        let nested = binder(&mut interner, 5, "nested");
+        let aliased = CoreExpr::Lam {
+            params: vec![xs],
+            param_types: vec![],
+            result_ty: None,
+            body: Box::new(CoreExpr::Let {
+                var: field,
+                rhs: Box::new(CoreExpr::TupleField {
+                    object: Box::new(var(xs)),
+                    index: 0,
+                    span: Span::default(),
+                }),
+                body: Box::new(CoreExpr::Let {
+                    var: nested,
+                    rhs: Box::new(CoreExpr::TupleField {
+                        object: Box::new(var(field)),
+                        index: 0,
+                        span: Span::default(),
+                    }),
+                    body: Box::new(CoreExpr::Con {
+                        tag: pair,
+                        fields: vec![
+                            CoreExpr::App {
+                                func: Box::new(CoreExpr::Var {
+                                    var: CoreVarRef::unresolved(len),
+                                    span: Span::default(),
+                                }),
+                                args: vec![var(nested)],
+                                span: Span::default(),
+                            },
+                            var(xs),
+                        ],
+                        span: Span::default(),
+                    }),
+                    span: Span::default(),
+                }),
+                span: Span::default(),
+            }),
+            span: Span::default(),
+        };
+        let aliased = insert_dup_drop_with_registry(aliased, &registry);
+        assert_eq!(borrowed_call_mask(&aliased), Some(vec![true]));
     }
 
     #[test]

@@ -3,7 +3,10 @@
 use std::{ffi::OsString, path::Path};
 
 use crate::{
-    cli::render::text::{expected_flx, expected_flxi, fmt_check_usage, fmt_usage, unknown_command},
+    cli::render::text::{
+        expected_flx, expected_flxi, fmt_check_usage, fmt_usage, profile_source_error,
+        unknown_command,
+    },
     cli::shared::{
         ParsedCliFlags, build_driver_flags, extract_cli_flag_groups, extract_cli_value_options,
     },
@@ -61,7 +64,51 @@ pub enum CliCommand {
     ParityCheck {
         raw_args: Vec<String>,
     },
+    /// `flux init [name] [--lib]` — scaffold a package in place.
+    Init {
+        name: Option<String>,
+        is_lib: bool,
+    },
+    /// `flux new <name> [--lib]` — scaffold a package into a new directory.
+    New {
+        name: String,
+        is_lib: bool,
+    },
+    /// `flux build` / `run` / `test` / `check` — operate on the current
+    /// package. The entry file comes from `Flume.Cli`, so these carry the
+    /// selected `[[bin]]` rather than a path.
+    Package {
+        action: PackageAction,
+        flags: DriverFlags,
+        bin: Option<String>,
+        program_args: Vec<String>,
+    },
     Help,
+}
+
+/// Which package command was invoked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PackageAction {
+    /// Compile the package without running it.
+    Build,
+    /// Compile and run the package's entry point.
+    Run,
+    /// Run the package's `test_*` functions.
+    Test,
+    /// Type-check without producing artifacts.
+    Check,
+    /// Print the resolved dependency graph.
+    Tree,
+    /// Record a dependency in `flux.toml`.
+    Add,
+    /// Drop a dependency from `flux.toml`.
+    Remove,
+    /// Re-resolve dependencies and rewrite `flux.lock`.
+    Update,
+    /// Publish and locally verify the current package.
+    Publish,
+    /// Emit the resolved package graph as machine-readable JSON.
+    Metadata,
 }
 
 /// Parses process arguments into a concrete CLI command plus grouped driver flags.
@@ -71,7 +118,18 @@ pub enum CliCommand {
 /// positional arguments then drive subcommand selection.
 pub fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<CliCommand, String> {
     let mut args = collect_cli_args(args);
+    // Everything after a `--` belongs to the program, not to flux. Split it
+    // off first so the program may take flags that flux also understands (or
+    // does not) without the CLI parser claiming or rejecting them.
+    let program_args = split_program_args(&mut args);
     let (parsed, mut flags) = parse_driver_flags(&mut args)?;
+
+    if flags.profile.name.is_some()
+        && (args.get(1).is_some_and(|arg| is_flx_file(arg))
+            || (args.get(1).is_some_and(|arg| arg == "run") && args_name_a_file(&args)))
+    {
+        return Err(profile_source_error().to_string());
+    }
 
     if has_no_command_or_input(&args) {
         return Ok(CliCommand::Help);
@@ -82,10 +140,54 @@ pub fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<CliCommand
     let run_mode = run_mode_from_flags(parsed.execution.test_mode);
 
     if let Some(command) = parse_implicit_file_command(&args, flags.clone(), run_mode)? {
-        return Ok(command);
+        return Ok(attach_program_args(command, program_args));
     }
 
-    parse_subcommand(&args, &mut flags, run_mode)
+    parse_subcommand(&args, &mut flags, run_mode).map(|c| attach_program_args(c, program_args))
+}
+
+/// Removes a `--` separator and everything after it, returning the tail.
+///
+/// The separator itself is dropped. A trailing bare `--` yields an empty
+/// argument list, which is distinct from never having written one only in
+/// that it is still an explicit choice; both give the program no arguments.
+fn split_program_args(args: &mut Vec<String>) -> Vec<String> {
+    match args.iter().position(|a| a == "--") {
+        Some(idx) => args.split_off(idx).into_iter().skip(1).collect(),
+        None => Vec::new(),
+    }
+}
+
+/// Attaches program arguments to a run command; other commands ignore them.
+fn attach_program_args(command: CliCommand, program_args: Vec<String>) -> CliCommand {
+    match command {
+        CliCommand::Run { flags, mut target } => {
+            target.program_args = program_args;
+            CliCommand::Run { flags, target }
+        }
+        // `flux run -- args` forwards to the package's entry point just as
+        // `flux run file.flx -- args` does.
+        CliCommand::Package {
+            action,
+            flags,
+            bin,
+            program_args: claimed,
+        } => CliCommand::Package {
+            action,
+            flags,
+            bin,
+            // `add` and `remove` already claimed their arguments from the
+            // command line; anything after `--` belongs to a program being
+            // run, and these run none. Overwriting here would discard the
+            // dependency they were asked to record.
+            program_args: if claimed.is_empty() {
+                program_args
+            } else {
+                claimed
+            },
+        },
+        other => other,
+    }
 }
 
 /// Converts raw process arguments into an owned CLI buffer.
@@ -119,9 +221,30 @@ fn has_no_command_or_input(args: &[String]) -> bool {
 /// `parity-check` forwards raw arguments to its own parser, and `eval` takes a
 /// free-form expression (which may contain `-`-leading tokens), so their tails are exempt.
 fn reject_unknown_flag_tokens(args: &[String]) -> Result<(), String> {
+    // `parity-check` forwards raw arguments to its own parser, `eval` takes a
+    // free-form expression, and the package commands take their own flags
+    // (`--lib`, `--bin <name>`, `--filter <s>`).
+    const OWN_FLAGS: &[&str] = &[
+        "parity-check",
+        "eval",
+        "init",
+        "new",
+        "build",
+        "run",
+        "test",
+        "check",
+        "tree",
+        "publish",
+        "metadata",
+        // `add` and `remove` take flags the package manager parses —
+        // `--git`, `--tag`, `--path`, and the rest — so the driver must not
+        // reject them as unknown before forwarding.
+        "add",
+        "remove",
+    ];
     if args
         .get(1)
-        .is_some_and(|arg| arg == "parity-check" || arg == "eval")
+        .is_some_and(|arg| OWN_FLAGS.contains(&arg.as_str()))
     {
         return Ok(());
     }
@@ -158,6 +281,67 @@ fn parse_implicit_file_command(
     Ok(Some(run_command(flags, path, run_mode)))
 }
 
+/// `flux init [name] [--lib]`. The name defaults to the directory name.
+fn parse_init_subcommand(args: &[String]) -> CliCommand {
+    let is_lib = args.iter().any(|a| a == "--lib");
+    let name = args.iter().skip(2).find(|a| !a.starts_with("--")).cloned();
+    CliCommand::Init { name, is_lib }
+}
+
+/// `flux new <name> [--lib]`. Unlike `init`, the name is required.
+fn parse_new_subcommand(args: &[String]) -> Result<CliCommand, String> {
+    let is_lib = args.iter().any(|a| a == "--lib");
+    let name = args
+        .iter()
+        .skip(2)
+        .find(|a| !a.starts_with("--"))
+        .cloned()
+        .ok_or_else(|| "Usage: flux new <name> [--lib]".to_string())?;
+    Ok(CliCommand::New { name, is_lib })
+}
+
+/// Builds a package command, reading `--bin <name>` from the argument list.
+fn parse_package_subcommand(
+    action: PackageAction,
+    args: &[String],
+    flags: &DriverFlags,
+) -> CliCommand {
+    let bin = args
+        .iter()
+        .position(|a| a == "--bin")
+        .and_then(|idx| args.get(idx + 1))
+        .cloned();
+    // `add`, `remove`, and `update` take their own arguments — the dependency
+    // name and where it comes from, or the `-p` selection — which the package
+    // manager parses. Every other package command's arguments are consumed
+    // here, so they carry none.
+    let program_args = if matches!(
+        action,
+        PackageAction::Add
+            | PackageAction::Remove
+            | PackageAction::Update
+            | PackageAction::Build
+            | PackageAction::Publish
+            | PackageAction::Metadata
+    ) {
+        args.iter().skip(2).cloned().collect()
+    } else {
+        Vec::new()
+    };
+    CliCommand::Package {
+        action,
+        flags: flags.clone(),
+        bin,
+        program_args,
+    }
+}
+
+/// Whether the arguments name a file, distinguishing `flux test` (the package
+/// command) from any future file-taking form.
+fn args_name_a_file(args: &[String]) -> bool {
+    args.iter().skip(2).any(|a| is_flx_file(a))
+}
+
 /// Parses the explicit subcommand form after flag extraction and validation.
 fn parse_subcommand(
     args: &[String],
@@ -181,6 +365,27 @@ fn parse_subcommand(
             CliCommand::Lint { flags }
         }),
         "fmt" => parse_fmt_subcommand(args),
+        "init" => Ok(parse_init_subcommand(args)),
+        "new" => parse_new_subcommand(args),
+        "build" => Ok(parse_package_subcommand(PackageAction::Build, args, flags)),
+        "test" if !args_name_a_file(args) => {
+            Ok(parse_package_subcommand(PackageAction::Test, args, flags))
+        }
+        "check" => Ok(parse_package_subcommand(PackageAction::Check, args, flags)),
+        "tree" => Ok(parse_package_subcommand(PackageAction::Tree, args, flags)),
+        "add" => Ok(parse_package_subcommand(PackageAction::Add, args, flags)),
+        "remove" => Ok(parse_package_subcommand(PackageAction::Remove, args, flags)),
+        "update" => Ok(parse_package_subcommand(PackageAction::Update, args, flags)),
+        "publish" => Ok(parse_package_subcommand(
+            PackageAction::Publish,
+            args,
+            flags,
+        )),
+        "metadata" => Ok(parse_package_subcommand(
+            PackageAction::Metadata,
+            args,
+            flags,
+        )),
         "eval" => parse_eval_subcommand(args, flags),
         "repl" => Ok(CliCommand::Repl {
             flags: flags.clone(),
@@ -239,7 +444,11 @@ fn parse_subcommand(
 fn run_command(flags: DriverFlags, path: String, mode: RunMode) -> CliCommand {
     CliCommand::Run {
         flags,
-        target: RunTarget { path, mode },
+        target: RunTarget {
+            path,
+            mode,
+            program_args: Vec::new(),
+        },
     }
 }
 
@@ -249,6 +458,11 @@ fn parse_run_subcommand(
     flags: &DriverFlags,
     run_mode: RunMode,
 ) -> Result<CliCommand, String> {
+    // `flux run` with no file runs the current package; `flux run <file.flx>`
+    // keeps its script-mode meaning.
+    if !args_name_a_file(args) {
+        return Ok(parse_package_subcommand(PackageAction::Run, args, flags));
+    }
     let path = require_flx_arg(args, 2, "Usage: flux run <file.flx>")?;
     Ok(run_command(flags.clone(), path, run_mode))
 }
@@ -379,7 +593,7 @@ fn is_flx_file(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        CliCommand, clean_command, is_flx_file, optional_flx_input, parse_args,
+        CliCommand, PackageAction, clean_command, is_flx_file, optional_flx_input, parse_args,
         parse_flx_subcommand, parse_fmt_command, require_flx_arg, require_flxi_arg,
         run_mode_from_flags,
     };
@@ -826,5 +1040,77 @@ mod tests {
 
         assert!(err.contains("wat"));
         assert!(err.contains("valid subcommand"));
+    }
+
+    #[test]
+    fn parses_phase3_package_commands_and_their_private_flags() {
+        let publish = parse_args(cli(&["flux", "publish", "--dry-run"])).unwrap();
+        match publish {
+            CliCommand::Package {
+                action,
+                program_args,
+                ..
+            } => {
+                assert_eq!(action, PackageAction::Publish);
+                assert!(program_args.contains(&"--dry-run".to_string()));
+            }
+            other => panic!("expected publish command, got {other:?}"),
+        }
+
+        let metadata = parse_args(cli(&["flux", "metadata", "--format", "json"])).unwrap();
+        match metadata {
+            CliCommand::Package { action, flags, .. } => {
+                assert_eq!(action, PackageAction::Metadata);
+                assert_eq!(
+                    flags.diagnostics.diagnostics_format,
+                    crate::driver::DiagnosticOutputFormat::Json
+                );
+            }
+            other => panic!("expected metadata command, got {other:?}"),
+        }
+
+        let clean = parse_args(cli(&["flux", "clean", "--store"])).unwrap();
+        match clean {
+            CliCommand::Clean { flags } => assert!(flags.cache.clean_store),
+            other => panic!("expected clean command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_profile_and_cli_backend_override() {
+        let command = parse_args(cli(&["flux", "build", "--profile=release", "--vm"])).unwrap();
+        match command {
+            CliCommand::Package { flags, .. } => {
+                assert_eq!(flags.profile.name.as_deref(), Some("release"));
+                assert_eq!(flags.profile.cli_use_llvm, Some(false));
+                assert!(!flags.is_native_backend());
+            }
+            other => panic!("expected package command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_profile_without_a_name() {
+        let err = parse_args(cli(&["flux", "build", "--profile"])).unwrap_err();
+        assert!(err.contains("--profile requires a profile name"));
+    }
+
+    #[test]
+    fn parses_no_optimize_as_an_explicit_override() {
+        let command = parse_args(cli(&[
+            "flux",
+            "build",
+            "--profile",
+            "release",
+            "--no-optimize",
+        ]))
+        .unwrap();
+        match command {
+            CliCommand::Package { flags, .. } => {
+                assert_eq!(flags.profile.cli_optimize, Some(false));
+                assert!(!flags.language.enable_optimize);
+            }
+            other => panic!("expected package command, got {other:?}"),
+        }
     }
 }

@@ -1,0 +1,312 @@
+// Behavioural coverage for `Flume.Lock`, the `flux.lock` reader and writer.
+//
+// Every function under test is pure, so these tests need no fixture
+// directory, no temp files, and no cleanup. The `with IO` on each test is for
+// `assert_*` printing only.
+
+import Flume.Schema.Lock as L
+import Flume.Schema.Lock exposing (Lock, Entry, LockedRegistry, LockedPath, LockedGit)
+import Flume.Resolve.Version as Version
+import Flume.Resolve.Version exposing (Version)
+import Flow.Result as Result
+import Flow.Option as Option
+import Flow.List as List
+
+fn v(s: String) -> Version {
+    match Version.parse(s) {
+        Ok(parsed) -> parsed,
+        Err(_) -> Version.version(0, 0, 0),
+    }
+}
+
+/// Parse, then report a single field, so a failure names what broke.
+fn parse_err(text: String) -> String {
+    match L.parse(text) {
+        Ok(_) -> "<ok>",
+        Err(message) -> message,
+    }
+}
+
+fn names_of(text: String) -> String {
+    match L.parse(text) {
+        Err(_) -> "<err>",
+        Ok(l) -> String.join(
+            List.to_array(List.map(L.lock_packages(l), L.entry_name)),
+            ",",
+        ),
+    }
+}
+
+// ── format version ─────────────────────────────────────────────
+
+fn test_reads_the_format_version() with IO {
+    match L.parse("version = 1\n") {
+        Ok(l) -> assert_eq(L.lock_format(l), 1),
+        Err(_) -> assert_eq("parsed", "failed"),
+    }
+}
+
+fn test_rejects_a_missing_version() with IO {
+    assert_eq(parse_err(""), "`flux.lock` must have a `version` field")
+}
+
+/// A lockfile from a newer toolchain is refused rather than partially read:
+/// the unknown fields are exactly the ones that would change the resolution.
+fn test_rejects_a_future_format() with IO {
+    assert_true(String.str_contains(parse_err("version = 99\n"), "does not understand"))
+}
+
+fn test_rejects_a_zero_format() with IO {
+    assert_true(String.str_contains(parse_err("version = 0\n"), "at least 1"))
+}
+
+fn test_rejects_a_non_integer_format() with IO {
+    assert_true(String.str_contains(parse_err("version = \"1\"\n"), "must be an integer"))
+}
+
+// ── packages ───────────────────────────────────────────────────
+
+fn test_reads_no_packages() with IO {
+    assert_eq(names_of("version = 1\n"), "")
+}
+
+fn test_reads_a_path_package() with IO {
+    let text1 = "version = 1\n\n[[package]]\nname = \"shared\"\nversion = \"0.1.0\"\n"
+    assert_eq(names_of(text1), "shared")
+}
+
+fn test_reads_several_packages() with IO {
+    let text2 = "version = 1\n"
+        + "\n[[package]]\nname = \"a\"\nversion = \"1.0.0\"\n"
+        + "\n[[package]]\nname = \"b\"\nversion = \"2.0.0\"\n"
+    assert_eq(names_of(text2), "a,b")
+}
+
+fn test_reads_a_registry_package() with IO {
+    let text3 = "version = 1\n\n[[package]]\nname = \"json\"\nversion = \"1.2.0\"\n"
+        + "source = \"registry+https://example.org\"\nchecksum = \"sha256:ab\"\n"
+    match L.parse(text3) {
+        Err(_) -> assert_eq("parsed", "failed"),
+        Ok(l) -> match L.find(l, "json") {
+            None -> assert_eq("found", "missing"),
+            Some(e) -> assert_eq(Version.render(L.entry_version(e)), "1.2.0"),
+        },
+    }
+}
+
+/// `source` is stored with its `registry+` prefix stripped, so later source
+/// kinds can be told apart by prefix rather than by guessing.
+fn test_strips_the_registry_prefix() with IO {
+    let text4 = "version = 1\n\n[[package]]\nname = \"json\"\nversion = \"1.0.0\"\n"
+        + "source = \"registry+https://example.org\"\nchecksum = \"sha256:ab\"\n"
+    match L.parse(text4) {
+        Err(_) -> assert_eq("parsed", "failed"),
+        Ok(l) -> match L.find(l, "json") {
+            None -> assert_eq("found", "missing"),
+            Some(e) -> match L.entry_origin(e) {
+                LockedRegistry { url } -> assert_eq(url, "https://example.org"),
+                LockedPath { path: _ } -> assert_eq("registry", "path"),
+                LockedGit { url: _, commit: _ } -> assert_eq("registry", "git"),
+            },
+        },
+    }
+}
+
+/// A registry package with no checksum cannot be verified, so the lockfile is
+/// rejected rather than silently trusted.
+fn test_rejects_a_registry_package_without_a_checksum() with IO {
+    let text5 = "version = 1\n\n[[package]]\nname = \"json\"\nversion = \"1.0.0\"\n"
+        + "source = \"registry+https://example.org\"\n"
+    assert_true(String.str_contains(parse_err(text5), "no `checksum`"))
+}
+
+/// A path package has nothing stable to hash, so its checksum stays absent.
+fn test_allows_a_path_package_without_a_checksum() with IO {
+    let text6 = "version = 1\n\n[[package]]\nname = \"shared\"\nversion = \"0.1.0\"\n"
+    match L.parse(text6) {
+        Err(_) -> assert_eq("parsed", "failed"),
+        Ok(l) -> match L.find(l, "shared") {
+            None -> assert_eq("found", "missing"),
+            Some(e) -> assert_true(Option.is_none_opt(L.entry_checksum(e))),
+        },
+    }
+}
+
+fn test_rejects_a_package_without_a_name() with IO {
+    let text7 = "version = 1\n\n[[package]]\nversion = \"1.0.0\"\n"
+    assert_true(String.str_contains(parse_err(text7), "missing `name`"))
+}
+
+fn test_rejects_an_unreadable_version() with IO {
+    let text8 = "version = 1\n\n[[package]]\nname = \"x\"\nversion = \"not-a-version\"\n"
+    assert_true(String.str_contains(parse_err(text8), "unreadable version"))
+}
+
+fn test_reads_dependency_names() with IO {
+    let text9 = "version = 1\n\n[[package]]\nname = \"a\"\nversion = \"1.0.0\"\n"
+        + "dependencies = [\"b\", \"c\"]\n"
+    match L.parse(text9) {
+        Err(_) -> assert_eq("parsed", "failed"),
+        Ok(l) -> match L.find(l, "a") {
+            None -> assert_eq("found", "missing"),
+            Some(e) -> assert_eq(List.length(L.entry_deps(e)), 2),
+        },
+    }
+}
+
+fn test_finds_nothing_for_an_absent_package() with IO {
+    match L.parse("version = 1\n") {
+        Err(_) -> assert_eq("parsed", "failed"),
+        Ok(l) -> assert_true(Option.is_none_opt(L.find(l, "absent"))),
+    }
+}
+
+/// A git source records the commit that was built, which is what makes a
+/// locked build reproducible: a branch that has since moved still resolves to
+/// the revision written here.
+fn test_reads_a_git_source_with_its_commit() with IO {
+    let git_text = "version = 1\n\n[[package]]\nname = \"greeter\"\nversion = \"0.0.0\"\n"
+        + "source = \"git+https://github.com/u/greeter#abc123\"\n"
+    match L.parse(git_text) {
+        Err(_) -> assert_eq("parsed", "failed"),
+        Ok(l) -> match L.find(l, "greeter") {
+            None -> assert_eq("found", "missing"),
+            Some(e) -> match L.entry_origin(e) {
+                LockedGit { url, commit } -> assert_eq(
+                    url + "@" + commit,
+                    "https://github.com/u/greeter@abc123",
+                ),
+                LockedRegistry { url: _ } -> assert_eq("git", "registry"),
+                LockedPath { path: _ } -> assert_eq("git", "path"),
+            },
+        },
+    }
+}
+
+/// A git source with no `#<commit>` names no revision, so it cannot pin a
+/// build. Rejected rather than resolved afresh, which would silently turn a
+/// locked build into an unlocked one.
+fn test_rejects_a_git_source_without_a_commit() with IO {
+    let bad_git = "version = 1\n\n[[package]]\nname = \"greeter\"\nversion = \"0.0.0\"\n"
+        + "source = \"git+https://github.com/u/greeter\"\n"
+    assert_true(String.str_contains(parse_err(bad_git), "records no commit"))
+}
+
+/// A git package needs no checksum: the commit hash already identifies the
+/// exact bytes, so there is nothing a second digest would add.
+fn test_accepts_a_git_package_without_a_checksum() with IO {
+    let git_text2 = "version = 1\n\n[[package]]\nname = \"greeter\"\nversion = \"0.0.0\"\n"
+        + "source = \"git+https://github.com/u/greeter#abc123\"\n"
+    match L.parse(git_text2) {
+        Err(_) -> assert_eq("parsed", "failed"),
+        Ok(l) -> assert_true(Option.is_some(L.find(l, "greeter"))),
+    }
+}
+
+// ── rendering ──────────────────────────────────────────────────
+
+fn sample() -> Lock {
+    L.lock(1, [
+        L.entry(
+            "json",
+            v("1.2.0"),
+            LockedRegistry { url: "https://example.org" },
+            Some("sha256:ab"),
+            ["core"],
+        ),
+        L.entry("shared", v("0.1.0"), LockedPath { path: "../shared" }, None, []),
+    ])
+}
+
+fn test_renders_the_format_version_first() with IO {
+    assert_true(String.starts_with(L.render(sample()), "version = 1\n"))
+}
+
+fn test_renders_a_registry_source_with_its_prefix() with IO {
+    assert_true(
+        String.str_contains(L.render(sample()), "source = \"registry+https://example.org\""),
+    )
+}
+
+/// A path package has no portable source, so the field is omitted rather than
+/// written as an empty string.
+fn test_omits_the_source_for_a_path_package() with IO {
+    let rendered = L.render(L.lock(1, [
+        L.entry("shared", v("0.1.0"), LockedPath { path: "../shared" }, None, []),
+    ]))
+    assert_true(!String.str_contains(rendered, "source ="))
+}
+
+/// A git entry round-trips through `git+<url>#<commit>`.
+fn test_renders_a_git_source_with_its_commit() with IO {
+    let rendered = L.render(L.lock(1, [
+        L.entry(
+            "greeter",
+            v("0.0.0"),
+            LockedGit { url: "https://github.com/u/greeter", commit: "abc123" },
+            None,
+            [],
+        ),
+    ]))
+    assert_true(
+        String.str_contains(rendered, "source = \"git+https://github.com/u/greeter#abc123\""),
+    )
+}
+
+fn test_omits_an_empty_dependency_list() with IO {
+    let rendered = L.render(L.lock(1, [
+        L.entry("shared", v("0.1.0"), LockedPath { path: "../shared" }, None, []),
+    ]))
+    assert_true(!String.str_contains(rendered, "dependencies"))
+}
+
+/// Packages render in name order so that two branches adding different
+/// dependencies touch disjoint runs of lines.
+fn test_renders_packages_in_name_order() with IO {
+    let rendered = L.render(L.lock(1, [
+        L.entry("zeta", v("1.0.0"), LockedPath { path: "z" }, None, []),
+        L.entry("alpha", v("1.0.0"), LockedPath { path: "a" }, None, []),
+    ]))
+    match L.parse(rendered) {
+        Err(_) -> assert_eq("reparsed", "failed"),
+        Ok(l) -> assert_eq(
+            String.join(
+                List.to_array(List.map(L.lock_packages(l), L.entry_name)),
+                ",",
+            ),
+            "alpha,zeta",
+        ),
+    }
+}
+
+// ── round trip ─────────────────────────────────────────────────
+
+/// The property the format exists for: what is written is what is read back.
+fn test_round_trips_through_render_and_parse() with IO {
+    match L.parse(L.render(sample())) {
+        Err(_) -> assert_eq("reparsed", "failed"),
+        Ok(l) -> assert_eq(L.render(l), L.render(sample())),
+    }
+}
+
+fn test_round_trip_preserves_the_registry_checksum() with IO {
+    match L.parse(L.render(sample())) {
+        Err(_) -> assert_eq("reparsed", "failed"),
+        Ok(l) -> match L.find(l, "json") {
+            None -> assert_eq("found", "missing"),
+            Some(e) -> match L.entry_checksum(e) {
+                Some(sum) -> assert_eq(sum, "sha256:ab"),
+                None -> assert_eq("checksum", "missing"),
+            },
+        },
+    }
+}
+
+/// An existing lockfile keeps the format version it already carries rather
+/// than being rewritten to this build's default.
+fn test_round_trip_preserves_the_on_disk_format() with IO {
+    match L.parse("version = 1\n") {
+        Err(_) -> assert_eq("parsed", "failed"),
+        Ok(l) -> assert_true(String.starts_with(L.render(l), "version = 1\n")),
+    }
+}

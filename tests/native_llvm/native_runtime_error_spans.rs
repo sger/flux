@@ -3,6 +3,10 @@
 use std::path::Path;
 use std::process::Command;
 
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
@@ -12,9 +16,13 @@ fn run_native(fixture: &str) -> String {
         .join("examples")
         .join("runtime_errors")
         .join(fixture);
+    // Private cache root: `--no-cache` does not isolate native
+    // builds, which write shared artifacts regardless (KI-010).
+    let scratch = Scratch::new("native-llvm");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--native", "--no-cache"])
+        .args(scratch.cache_args())
         .env("NO_COLOR", "1")
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux --native on {fixture}: {e}"));

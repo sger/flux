@@ -36,7 +36,6 @@ use crate::driver::{
 #[cfg(feature = "llvm")]
 use flux::llvm::pipeline::toolchain_info;
 use flux::{
-    bytecode::bytecode_cache::hash_bytes,
     compiler::Compiler,
     diagnostics::{Diagnostic, Severity},
     shared::cache_paths::CacheLayout,
@@ -74,7 +73,6 @@ struct RunContext {
     module_count: usize,
     is_multimodule: bool,
     entry_has_errors: bool,
-    strict_hash: [u8; 32],
 }
 
 /// Determines whether dump handling needs a whole-program merged view.
@@ -99,6 +97,17 @@ fn merge_programs<'a>(programs: impl IntoIterator<Item = &'a Program>) -> Progra
 /// Returns whether the cached parallel VM fast-path is eligible for this run.
 fn should_try_parallel_vm_fast_path(flags: &DriverFlags, is_multimodule: bool) -> bool {
     is_multimodule && flags.allow_vm_cache() && !flags.cache.no_cache
+}
+
+/// Whether this run may write VM cache artifacts.
+///
+/// `flux build` / `flux check` stop before execution, so they take the serial
+/// compile path while a later `flux run` takes the parallel one. The two write
+/// different module artifacts, and a run consuming what a build left behind
+/// fails with "missing global mapping". Until the two paths share a cache
+/// format, a check-only run compiles for its diagnostics and writes nothing.
+fn may_write_vm_cache(flags: &DriverFlags) -> bool {
+    !flags.runtime.check_only
 }
 
 /// Returns whether the compiled run should dispatch to the native backend.
@@ -167,8 +176,6 @@ fn finish_run_context(request: RunProgramRequest<'_>, context: ProgramContext) -
         cache_layout,
     } = context;
 
-    let strict_hash =
-        hash_bytes(format!("strict={}\n", u8::from(request.session.strict_mode)).as_bytes());
     let module_count = graph_result.graph.module_count();
     let is_multimodule = module_count > 1;
 
@@ -198,7 +205,6 @@ fn finish_run_context(request: RunProgramRequest<'_>, context: ProgramContext) -
         module_count,
         is_multimodule,
         entry_has_errors,
-        strict_hash,
     }
 }
 
@@ -213,7 +219,10 @@ fn try_run_parallel_vm_fast_path(ctx: &mut RunContext, request: RunProgramReques
         graph: &ctx.graph,
         entry_canonical: entry_canonical.as_ref(),
         graph_interner: &ctx.compiler.interner,
-        cache: DriverCacheConfig::new(&ctx.cache_layout, request.flags.cache.no_cache),
+        cache: DriverCacheConfig::new(
+            &ctx.cache_layout,
+            request.flags.cache.no_cache || !may_write_vm_cache(request.flags),
+        ),
         compile: DriverCompileConfig::from(request.session),
         diagnostics: DriverDiagnosticConfig::from(request.session),
         runtime: DriverRuntimeConfig::from(request.flags),
@@ -234,12 +243,14 @@ fn compile_modules_for_run(ctx: &mut RunContext, request: RunProgramRequest<'_>)
         entry_path: &ctx.entry_path,
         failed_modules: &ctx.failed_modules,
         compiler: &mut ctx.compiler,
-        cache: DriverCacheConfig::new(&ctx.cache_layout, request.flags.cache.no_cache),
+        cache: DriverCacheConfig::new(
+            &ctx.cache_layout,
+            request.flags.cache.no_cache || !may_write_vm_cache(request.flags),
+        ),
         compile: DriverCompileConfig::from(request.session),
         runtime: DriverRuntimeConfig::from(request.flags),
         allow_cached_module_bytecode: request.flags.allow_vm_cache(),
         backend: request.flags.backend.selected,
-        strict_hash: ctx.strict_hash,
         entry_has_errors: ctx.entry_has_errors,
         all_diagnostics: &mut ctx.all_diagnostics,
     });
@@ -305,7 +316,10 @@ fn dispatch_backend(ctx: &mut RunContext, request: RunProgramRequest<'_>) {
                 compile_start: ctx.compile_start,
                 all_diagnostics: &mut ctx.all_diagnostics,
             },
-            cache: DriverCacheConfig::new(&ctx.cache_layout, request.flags.cache.no_cache),
+            cache: DriverCacheConfig::new(
+                &ctx.cache_layout,
+                request.flags.cache.no_cache || !may_write_vm_cache(request.flags),
+            ),
             diagnostics: DriverDiagnosticConfig::from(request.session),
             compile: DriverCompileConfig::from(request.session),
             runtime: DriverRuntimeConfig::from(request.flags),
@@ -352,7 +366,10 @@ pub(crate) fn run_file(request: RunProgramRequest<'_>) {
                 emit_compile_diagnostics_or_exit(&ctx, request);
             }
 
-            if try_run_parallel_vm_fast_path(&mut ctx, request) {
+            // The fast path executes the program, so `build` / `check` must
+            // not take it.
+            if !request.flags.runtime.check_only && try_run_parallel_vm_fast_path(&mut ctx, request)
+            {
                 return;
             }
 
@@ -381,9 +398,21 @@ pub(crate) fn run_file(request: RunProgramRequest<'_>) {
                 return;
             }
 
+            // `flux build` / `flux check`: every compile-time error has been
+            // surfaced by this point, so stop before running `main`.
+            if request.flags.runtime.check_only {
+                return;
+            }
+
             dispatch_backend(&mut ctx, request);
         }
-        Err(e) => eprintln!("{e}"),
+        // A frontend failure here is an unreadable entry file or a broken
+        // module graph. Printing it and exiting 0 would hide the failure from
+        // scripts and CI (KI-019).
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
     }
 }
 
@@ -403,7 +432,13 @@ pub(crate) fn run_from_source(request: RunProgramRequest<'_>, source: String) {
             emit_compile_diagnostics_or_exit(&ctx, request);
             dispatch_backend(&mut ctx, request);
         }
-        Err(e) => eprintln!("{e}"),
+        // A frontend failure here is an unreadable entry file or a broken
+        // module graph. Printing it and exiting 0 would hide the failure from
+        // scripts and CI (KI-019).
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
     }
 }
 

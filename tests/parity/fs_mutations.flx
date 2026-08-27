@@ -1,0 +1,31 @@
+// parity: vm, llvm
+// expect: success
+// The VM classifies io::ErrorKind, the C runtime classifies errno. Nothing is
+// shared, so both backends must be checked to agree.
+
+import Flow.Fs as Fs
+import Flow.IoError as Io
+import Flow.Result as Result
+
+fn kind(label: String, r: Result<Unit, IoError>) -> Unit with IO {
+    match r {
+        Ok(_) -> println(label + " ok"),
+        Err(e) -> println(label + " " + Io.kind_name(Io.error_kind(e))),
+    }
+}
+
+fn main() -> Unit with IO {
+    let base = "target/test-scratch/parity_fs"
+    kind("mkdir", Fs.create_dir_all(base + "/a/b"))
+    kind("write", Fs.write_file(base + "/a/b/f.txt", "payload"))
+    println("is_file=" + to_string(Fs.is_file(base + "/a/b/f.txt")))
+    println("is_dir=" + to_string(Fs.is_dir(base + "/a/b")))
+    kind("rename", Fs.rename(base + "/a/b/f.txt", base + "/a/b/g.txt"))
+    println("content=" + Fs.read_file_or(base + "/a/b/g.txt", "MISSING"))
+    kind("mkdir_again", Fs.create_dir_all(base + "/a/b"))
+    kind("rm_missing", Fs.remove_file(base + "/a/b/absent.txt"))
+    kind("write_no_parent", Fs.write_file(base + "/no/parent/f.txt", "x"))
+    kind("rename_missing", Fs.rename(base + "/absent", base + "/t"))
+    kind("rmtree", Fs.remove_dir_all(base))
+    println("gone=" + to_string(Fs.exists(base) == false))
+}

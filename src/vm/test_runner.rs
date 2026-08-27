@@ -20,9 +20,10 @@ pub struct TestResult {
 
 /// Collects test function names and their global slot indices from the symbol table.
 ///
-/// Discovers:
-/// - Top-level functions whose name starts with `"test_"`
-/// - Functions inside a `Tests` module (`"Tests.test_*"`)
+/// Discovers any function whose name — or whose final module-qualified
+/// segment — starts with `"test_"`, so `test_parses`, `Tests.test_parses`, and
+/// `Json.Parse.test_parses` are all found. Every compiled module in the graph
+/// contributes, not just the entry file.
 ///
 /// Results are sorted by global index to preserve definition order.
 pub fn collect_test_functions(
@@ -34,19 +35,24 @@ pub fn collect_test_functions(
         .into_iter()
         .filter_map(|(sym, idx)| {
             let name = interner.resolve(sym);
-            if name.starts_with("test_")
-                || (name.starts_with("Tests.") && name["Tests.".len()..].starts_with("test_"))
-            {
-                Some((name.to_string(), idx))
-            } else {
-                None
-            }
+            is_test_name(name).then(|| (name.to_string(), idx))
         })
         .collect();
 
     // Sort by global slot index to preserve source definition order.
     tests.sort_by_key(|(_, idx)| *idx);
     tests
+}
+
+/// Whether a global's name marks it as a test.
+///
+/// The check is on the last dot-separated segment, so a module's tests are
+/// found wherever the module sits in the namespace. A leading segment that
+/// itself begins with `test_` does not qualify — only the function name does.
+fn is_test_name(name: &str) -> bool {
+    name.rsplit('.')
+        .next()
+        .is_some_and(|segment| segment.starts_with("test_"))
 }
 
 /// Runs a resolved list of `(name, Value)` test functions via `invoke_value`
@@ -205,4 +211,34 @@ fn red(s: &str) -> String {
 
 fn cyan_dim(s: &str) -> String {
     format!("\x1b[36;2m{}\x1b[0m", s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_test_name;
+
+    #[test]
+    fn plain_test_functions_are_discovered() {
+        assert!(is_test_name("test_arith"));
+        assert!(!is_test_name("helper"));
+        assert!(
+            !is_test_name("testing"),
+            "the `test_` prefix requires the underscore"
+        );
+    }
+
+    #[test]
+    fn module_qualified_tests_are_discovered() {
+        assert!(is_test_name("Tests.test_arith"));
+        assert!(is_test_name("Json.Parse.test_parses"));
+        assert!(!is_test_name("Json.Parse.helper"));
+    }
+
+    /// The check is on the function name, not the module path: a module named
+    /// `test_utils` does not make all its members tests.
+    #[test]
+    fn a_module_named_like_a_test_does_not_qualify_its_members() {
+        assert!(!is_test_name("test_utils.helper"));
+        assert!(is_test_name("test_utils.test_real"));
+    }
 }

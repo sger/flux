@@ -1,0 +1,382 @@
+// Behavioural coverage for `Flume.Version` (proposal 0177, Phase 0).
+//
+// Phase 0's headline property is purity: every function under test has an
+// empty effect row, so these tests need no fixture directory, no temp files,
+// and no cleanup. The `with IO` on each test is for `assert_*` printing only.
+
+import Flume.Resolve.Version as V
+import Flow.Result as Result
+import Flow.Option as Option
+
+fn parsed(s: String) -> String {
+    match V.parse(s) {
+        Ok(v) -> V.render(v),
+        Err(_) -> "<err>",
+    }
+}
+
+fn err_of(s: String) -> String {
+    match V.parse(s) {
+        Ok(_) -> "<ok>",
+        Err(e) -> e,
+    }
+}
+
+// ── parsing ────────────────────────────────────────────────────
+
+fn test_parses_a_plain_release() with IO {
+    assert_eq(parsed("1.2.3"), "1.2.3")
+}
+
+fn test_parses_all_zeroes() with IO {
+    assert_eq(parsed("0.0.0"), "0.0.0")
+}
+
+fn test_parses_multi_digit_components() with IO {
+    assert_eq(parsed("10.20.30"), "10.20.30")
+}
+
+fn test_parses_a_prerelease() with IO {
+    assert_eq(parsed("1.0.0-alpha.1"), "1.0.0-alpha.1")
+}
+
+// Semver says build metadata is ignored for precedence and equality, so
+// keeping it would produce values that compare equal but are not identical.
+fn test_build_metadata_is_discarded() with IO {
+    assert_eq(parsed("1.2.3+build.5"), "1.2.3")
+}
+
+fn test_build_metadata_after_a_prerelease_is_discarded() with IO {
+    assert_eq(parsed("1.2.3-rc.1+sha.abc"), "1.2.3-rc.1")
+}
+
+fn test_surrounding_whitespace_is_ignored() with IO {
+    assert_eq(parsed("  1.2.3  "), "1.2.3")
+}
+
+// ── parse errors ───────────────────────────────────────────────
+
+fn test_empty_input_is_an_error() with IO {
+    assert_eq(err_of(""), "empty version string")
+}
+
+fn test_two_components_is_an_error() with IO {
+    assert_msg(err_of("2.0") != "<ok>", "`2.0` is not a full version")
+}
+
+fn test_four_components_is_an_error() with IO {
+    assert_msg(err_of("1.2.3.4") != "<ok>", "four components is not a version")
+}
+
+fn test_a_non_numeric_component_is_an_error() with IO {
+    assert_msg(err_of("1.2.x") != "<ok>", "`x` is not a number")
+}
+
+// Semver forbids leading zeroes so that each version has exactly one spelling.
+fn test_a_leading_zero_is_an_error() with IO {
+    assert_msg(err_of("01.2.3") != "<ok>", "`01` is not a valid component")
+}
+
+fn test_zero_itself_is_not_treated_as_a_leading_zero() with IO {
+    assert_eq(parsed("0.1.0"), "0.1.0")
+}
+
+fn test_the_error_names_the_offending_component() with IO {
+    assert_msg(err_of("1.2.x") != err_of("1.x.3"),
+               "errors should distinguish which component was bad")
+}
+
+// A component too large for Int must be rejected, not wrapped: a truncated
+// version would compare and resolve as a different release.
+fn test_an_overflowing_component_is_an_error() with IO {
+    assert_msg(err_of("99999999999999999999.0.0") != "<ok>",
+               "an overflowing major is not a valid component")
+    assert_msg(err_of("1.99999999999999999999.0") != "<ok>",
+               "an overflowing minor is not a valid component")
+    assert_msg(err_of("1.0.99999999999999999999") != "<ok>",
+               "an overflowing patch is not a valid component")
+}
+
+fn test_a_large_but_representable_component_still_parses() with IO {
+    assert_eq(parsed("999999999.1.2"), "999999999.1.2")
+}
+
+// ── round-trip ─────────────────────────────────────────────────
+
+fn test_parse_render_round_trips() with IO {
+    assert_eq(parsed("1.2.3"), "1.2.3")
+    assert_eq(parsed("0.0.1"), "0.0.1")
+    assert_eq(parsed("1.0.0-beta"), "1.0.0-beta")
+    assert_eq(parsed("99.99.99"), "99.99.99")
+}
+
+fn test_render_of_a_constructed_version() with IO {
+    assert_eq(V.render(V.version(1, 2, 3)), "1.2.3")
+    assert_eq(V.render(V.pre_version(1, 0, 0, "rc.1")), "1.0.0-rc.1")
+}
+
+// ── ordering ───────────────────────────────────────────────────
+
+fn test_major_dominates() with IO {
+    assert_msg(V.less_than(V.version(1, 9, 9), V.version(2, 0, 0)), "1.9.9 < 2.0.0")
+}
+
+fn test_minor_breaks_a_major_tie() with IO {
+    assert_msg(V.less_than(V.version(1, 2, 9), V.version(1, 3, 0)), "1.2.9 < 1.3.0")
+}
+
+fn test_patch_breaks_a_minor_tie() with IO {
+    assert_msg(V.less_than(V.version(1, 2, 3), V.version(1, 2, 4)), "1.2.3 < 1.2.4")
+}
+
+fn test_equal_versions_compare_equal() with IO {
+    assert_msg(V.equals(V.version(1, 2, 3), V.version(1, 2, 3)), "identical versions are equal")
+    assert_msg(!V.less_than(V.version(1, 2, 3), V.version(1, 2, 3)), "not less than itself")
+    assert_msg(!V.greater_than(V.version(1, 2, 3), V.version(1, 2, 3)), "not greater than itself")
+}
+
+// The subtle rule: a pre-release precedes its own release.
+fn test_a_prerelease_precedes_its_release() with IO {
+    assert_msg(V.less_than(V.pre_version(1, 0, 0, "alpha"), V.version(1, 0, 0)),
+               "1.0.0-alpha < 1.0.0")
+}
+
+fn test_prerelease_tags_order_alphabetically() with IO {
+    assert_msg(V.less_than(V.pre_version(1, 0, 0, "alpha"), V.pre_version(1, 0, 0, "beta")),
+               "alpha < beta")
+}
+
+// Numeric identifiers compare numerically, so 2 precedes 10 — lexically it would not.
+fn test_numeric_prerelease_identifiers_compare_numerically() with IO {
+    assert_msg(V.less_than(V.pre_version(1, 0, 0, "2"), V.pre_version(1, 0, 0, "10")),
+               "-2 < -10 numerically")
+}
+
+// Semver: numeric identifiers always rank below alphanumeric ones.
+fn test_numeric_identifiers_rank_below_alphanumeric() with IO {
+    assert_msg(V.less_than(V.pre_version(1, 0, 0, "1"), V.pre_version(1, 0, 0, "alpha")),
+               "numeric < alphanumeric")
+}
+
+// A tag that runs out of identifiers first is the smaller one.
+fn test_a_shorter_prerelease_tag_precedes_a_longer_prefix() with IO {
+    assert_msg(V.less_than(V.pre_version(1, 0, 0, "alpha"), V.pre_version(1, 0, 0, "alpha.1")),
+               "alpha < alpha.1")
+}
+
+// The full precedence chain from the semver specification.
+fn test_the_semver_spec_precedence_example() with IO {
+    assert_msg(V.less_than(V.pre_version(1, 0, 0, "alpha"), V.pre_version(1, 0, 0, "alpha.1")), "1")
+    assert_msg(V.less_than(V.pre_version(1, 0, 0, "alpha.1"), V.pre_version(1, 0, 0, "alpha.beta")), "2")
+    assert_msg(V.less_than(V.pre_version(1, 0, 0, "alpha.beta"), V.pre_version(1, 0, 0, "beta")), "3")
+    assert_msg(V.less_than(V.pre_version(1, 0, 0, "beta"), V.pre_version(1, 0, 0, "beta.2")), "4")
+    assert_msg(V.less_than(V.pre_version(1, 0, 0, "beta.2"), V.pre_version(1, 0, 0, "beta.11")), "5")
+    assert_msg(V.less_than(V.pre_version(1, 0, 0, "beta.11"), V.pre_version(1, 0, 0, "rc.1")), "6")
+    assert_msg(V.less_than(V.pre_version(1, 0, 0, "rc.1"), V.version(1, 0, 0)), "7")
+}
+
+fn test_ordering_is_antisymmetric() with IO {
+    let a = V.version(1, 2, 3)
+    let b = V.version(1, 2, 4)
+    assert_msg(V.less_than(a, b), "a < b")
+    assert_msg(V.greater_than(b, a), "b > a")
+    assert_msg(!V.less_than(b, a), "not b < a")
+}
+
+// ── prerelease predicate ───────────────────────────────────────
+
+fn test_is_prerelease() with IO {
+    assert_msg(V.is_prerelease(V.pre_version(1, 0, 0, "rc")), "rc is a prerelease")
+    assert_msg(!V.is_prerelease(V.version(1, 0, 0)), "a release is not")
+}
+
+// ── compatibility classes ──────────────────────────────────────
+
+// "Same leftmost nonzero digit": 1.x are mutually compatible.
+fn test_one_dot_x_versions_are_compatible() with IO {
+    assert_msg(V.compatible(V.version(1, 2, 0), V.version(1, 9, 9)), "1.2.0 ~ 1.9.9")
+}
+
+fn test_different_majors_are_incompatible() with IO {
+    assert_msg(!V.compatible(V.version(1, 0, 0), V.version(2, 0, 0)), "1.x !~ 2.x")
+}
+
+// Below 1.0.0 each minor bump is breaking, which is what 0.x means in practice.
+fn test_zero_dot_x_treats_minor_as_breaking() with IO {
+    assert_msg(!V.compatible(V.version(0, 2, 0), V.version(0, 3, 0)), "0.2 !~ 0.3")
+    assert_msg(V.compatible(V.version(0, 2, 0), V.version(0, 2, 9)), "0.2.0 ~ 0.2.9")
+}
+
+// And below 0.1.0 every patch is its own class.
+fn test_zero_zero_z_treats_patch_as_breaking() with IO {
+    assert_msg(!V.compatible(V.version(0, 0, 1), V.version(0, 0, 2)), "0.0.1 !~ 0.0.2")
+    assert_msg(V.compatible(V.version(0, 0, 1), V.version(0, 0, 1)), "0.0.1 ~ 0.0.1")
+}
+
+fn test_compatibility_classes_do_not_cross_tiers() with IO {
+    assert_msg(!V.compatible(V.version(1, 0, 0), V.version(0, 1, 0)), "Major !~ Minor")
+    assert_msg(!V.compatible(V.version(0, 1, 0), V.version(0, 0, 1)), "Minor !~ Patch")
+}
+
+// ── ranges ─────────────────────────────────────────────────────
+
+// Added with `Range.parse` / `Range.matches`, which `Flume.Resolve` depends on.
+
+/// Whether `candidate` satisfies `requirement`, or `<err>` if either failed to
+/// parse — so a malformed fixture shows up as a failure rather than a `false`.
+fn admits(requirement: String, candidate: String) -> String {
+    match V.parse_range(requirement) {
+        Err(_) -> "<err>",
+        Ok(range) -> match V.parse(candidate) {
+            Err(_) -> "<err>",
+            Ok(version) -> if V.matches(range, version) { "yes" } else { "no" },
+        },
+    }
+}
+
+fn range_text(requirement: String) -> String {
+    match V.parse_range(requirement) {
+        Ok(range) -> V.render_range(range),
+        Err(problem) -> problem,
+    }
+}
+
+// ── caret ──────────────────────────────────────────────────────
+
+// "Same leftmost nonzero digit" — the rule `compat` encodes, applied as a bound.
+
+fn test_caret_admits_a_later_minor() with IO {
+    assert_eq(admits("^1.2.3", "1.9.0"), "yes")
+}
+
+fn test_caret_excludes_the_next_major() with IO {
+    assert_eq(admits("^1.2.3", "2.0.0"), "no")
+}
+
+fn test_caret_excludes_an_earlier_version() with IO {
+    assert_eq(admits("^1.2.3", "1.2.2"), "no")
+}
+
+// Below 1.0.0 every minor bump is breaking, which is what `0.x` means in
+// practice.
+fn test_caret_on_a_zero_major_pins_the_minor() with IO {
+    assert_eq(admits("^0.2.3", "0.2.9"), "yes")
+    assert_eq(admits("^0.2.3", "0.3.0"), "no")
+}
+
+fn test_caret_on_a_zero_minor_pins_the_patch() with IO {
+    assert_eq(admits("^0.0.3", "0.0.3"), "yes")
+    assert_eq(admits("^0.0.3", "0.0.4"), "no")
+}
+
+// ── tilde ──────────────────────────────────────────────────────
+
+fn test_tilde_admits_a_later_patch() with IO {
+    assert_eq(admits("~1.2.0", "1.2.9"), "yes")
+}
+
+fn test_tilde_excludes_the_next_minor() with IO {
+    assert_eq(admits("~1.2.0", "1.3.0"), "no")
+}
+
+// ── comparisons and conjunctions ───────────────────────────────
+
+fn test_greater_or_equal_includes_the_bound() with IO {
+    assert_eq(admits(">=1.0.0", "1.0.0"), "yes")
+    assert_eq(admits(">=1.0.0", "0.9.9"), "no")
+}
+
+fn test_less_than_excludes_the_bound() with IO {
+    assert_eq(admits("<2.0.0", "1.9.9"), "yes")
+    assert_eq(admits("<2.0.0", "2.0.0"), "no")
+}
+
+fn test_exact_admits_only_that_version() with IO {
+    assert_eq(admits("=1.2.3", "1.2.3"), "yes")
+    assert_eq(admits("=1.2.3", "1.2.4"), "no")
+}
+
+fn test_a_comma_separated_requirement_is_a_conjunction() with IO {
+    assert_eq(admits(">=1.0.0, <2.0.0", "1.5.0"), "yes")
+    assert_eq(admits(">=1.0.0, <2.0.0", "2.0.0"), "no")
+    assert_eq(admits(">=1.0.0, <2.0.0", "0.9.0"), "no")
+}
+
+fn test_three_conjuncts_all_apply() with IO {
+    assert_eq(admits(">=1.0.0, <2.0.0, =1.5.0", "1.5.0"), "yes")
+    assert_eq(admits(">=1.0.0, <2.0.0, =1.5.0", "1.6.0"), "no")
+}
+
+// ── partial and bare requirements ──────────────────────────────
+
+// Requirements are routinely written `^1.2`; the missing components default to
+// zero. `parse` itself stays strict — only a *requirement* may be abbreviated.
+
+fn test_a_two_component_requirement_pads_with_zero() with IO {
+    assert_eq(range_text("^1.2"), "^1.2.0")
+}
+
+fn test_a_one_component_requirement_pads_with_zeroes() with IO {
+    assert_eq(range_text("^1"), "^1.0.0")
+}
+
+// A bare version means caret, as in Cargo.
+fn test_a_bare_requirement_means_caret() with IO {
+    assert_eq(range_text("1.2.3"), "^1.2.3")
+    assert_eq(admits("1.2", "1.9.0"), "yes")
+    assert_eq(admits("1.2", "2.0.0"), "no")
+}
+
+fn test_surrounding_whitespace_in_a_conjunction_is_ignored() with IO {
+    assert_eq(range_text(" >=1.0.0 ,  <2.0.0 "), ">=1.0.0, <2.0.0")
+}
+
+// ── pre-releases in ranges ─────────────────────────────────────
+
+// The subtle rule the proposal calls out: pre-releases are excluded unless the
+// range itself names one, so `^1.0.0` must not silently pull in `2.0.0-alpha`.
+
+fn test_a_plain_range_excludes_prereleases() with IO {
+    assert_eq(admits("^1.0.0", "1.5.0-rc"), "no")
+}
+
+fn test_a_range_naming_a_prerelease_admits_that_version() with IO {
+    assert_eq(admits(">=1.0.0-rc", "1.0.0-rc1"), "yes")
+}
+
+// Opting into `1.0.0`'s pre-releases must not opt into a different version's.
+fn test_a_prerelease_bound_does_not_admit_other_prereleases() with IO {
+    assert_eq(admits(">=1.0.0-rc", "2.0.0-alpha"), "no")
+}
+
+fn test_a_release_still_satisfies_a_prerelease_bound() with IO {
+    assert_eq(admits(">=1.0.0-rc", "1.0.0"), "yes")
+}
+
+// ── round-trip ─────────────────────────────────────────────────
+
+fn test_a_range_renders_back_to_its_syntax() with IO {
+    assert_eq(range_text("^1.2.3"), "^1.2.3")
+    assert_eq(range_text("~1.2.3"), "~1.2.3")
+    assert_eq(range_text(">=1.2.3"), ">=1.2.3")
+    assert_eq(range_text("<1.2.3"), "<1.2.3")
+    assert_eq(range_text("=1.2.3"), "=1.2.3")
+}
+
+fn test_a_conjunction_renders_with_commas() with IO {
+    assert_eq(range_text(">=1.0.0, <2.0.0"), ">=1.0.0, <2.0.0")
+}
+
+// ── range errors ───────────────────────────────────────────────
+
+fn test_an_empty_requirement_is_an_error() with IO {
+    assert_msg(admits("", "1.0.0") == "<err>", "an empty requirement is not valid")
+}
+
+fn test_a_non_numeric_requirement_is_an_error() with IO {
+    assert_msg(admits("^x.y.z", "1.0.0") == "<err>", "`x.y.z` is not a version")
+}
+
+fn test_a_four_component_requirement_is_an_error() with IO {
+    assert_msg(admits("^1.2.3.4", "1.0.0") == "<err>", "four components is not a version")
+}

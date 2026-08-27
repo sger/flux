@@ -120,11 +120,13 @@ fn fuse(expr: CoreExpr) -> CoreExpr {
             func,
             args,
             arg_modes,
+            guarded_borrowed_args,
             span,
         } => CoreExpr::AetherCall {
             func: Box::new(fuse(*func)),
             args: args.into_iter().map(fuse).collect(),
             arg_modes,
+            guarded_borrowed_args,
             span,
         },
         CoreExpr::Case {

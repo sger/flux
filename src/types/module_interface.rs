@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -157,6 +157,60 @@ pub struct ModuleInterface {
     /// by `(class_module, class_name, head_type_repr)`.
     #[serde(default)]
     pub public_instances: Vec<PublicInstanceEntry>,
+    /// Field names for this module's record-style constructors, e.g.
+    /// `IoError -> ["kind", "message", "path"]`.
+    ///
+    /// Named-field syntax is desugared to positional form using the declared
+    /// field order. That lookup only sees the current program's AST, so an
+    /// importing module needs the order from here.
+    ///
+    /// Sorted by constructor name for stable fingerprinting. The field vectors
+    /// are never sorted — their order is the positional layout.
+    #[serde(default)]
+    pub ctor_field_names: BTreeMap<String, Vec<String>>,
+    /// Field types for this module's public constructors, keyed by constructor
+    /// name. `ctor_field_names` above carries names only; importers need the
+    /// types to infer a constructor application.
+    ///
+    /// Sorted by constructor name for stable fingerprinting; `fields` keeps
+    /// positional order.
+    #[serde(default)]
+    pub public_ctor_types: BTreeMap<String, PublicCtorTypeEntry>,
+    /// This module's `public alias` declarations, keyed by alias name.
+    ///
+    /// Recorded for the fingerprint rather than read back: exported types are
+    /// expanded through these aliases, so changing an alias body must
+    /// invalidate importers even when no other exported type changes shape.
+    ///
+    /// Sorted by alias name for stable fingerprinting.
+    #[serde(default)]
+    pub public_type_aliases: BTreeMap<String, PublicTypeAliasEntry>,
+}
+
+/// One public transparent type alias, as recorded in a module interface.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicTypeAliasEntry {
+    /// Alias parameters, in order (`alias Pair<a> = (a, a)`).
+    pub params: Vec<Identifier>,
+    /// The type the alias stands for.
+    pub body: TypeExpr,
+}
+
+/// Type metadata for one public ADT constructor.
+///
+/// Mirrors the inference-side `AdtConstructorTypeInfo`. Symbols are remapped
+/// through the interface's `symbol_table` on load.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicCtorTypeEntry {
+    /// The ADT this constructor belongs to.
+    pub adt_name: Identifier,
+    /// The ADT's declared type parameters, in order.
+    pub type_params: Vec<Identifier>,
+    /// Field types in positional order.
+    pub fields: Vec<TypeExpr>,
+    /// Field names for named-field variants; `None` for positional ones.
+    #[serde(default)]
+    pub field_names: Option<Vec<Identifier>>,
 }
 
 /// Sub-reason for a dependency fingerprint cache miss.
@@ -228,6 +282,9 @@ impl ModuleInterface {
             symbol_table: HashMap::new(),
             public_classes: Vec::new(),
             public_instances: Vec::new(),
+            ctor_field_names: BTreeMap::new(),
+            public_ctor_types: BTreeMap::new(),
+            public_type_aliases: BTreeMap::new(),
         }
     }
 }

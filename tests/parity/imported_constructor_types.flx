@@ -1,0 +1,29 @@
+// A constructor imported from another module must infer as its ADT, so
+// anything keyed on that type — class dispatch above all — resolves.
+
+import ImportedCtor.Shapes as Shapes
+import ImportedCtor.Shapes exposing (Shape, Rect, Boxed, Circle, Empty)
+
+class Describe<a> { fn describe(value: a) -> String }
+instance Describe<Int>   { fn describe(value) { "int " + to_string(value) } }
+instance Describe<Shape> { fn describe(value) { "shape " + to_string(Shapes.area(value)) } }
+instance Describe<Rect>  { fn describe(value) { "rect " + to_string(Shapes.rect_area(value)) } }
+
+fn main() {
+    // Dispatch on a locally-typed value still works.
+    print(describe(7))
+
+    // Each imported constructor shape, applied directly at the call site.
+    print(describe(Circle(2.0)))
+    print(describe(Empty))
+    print(describe(Rect { width: 3.0, height: 4.0 }))
+
+    // The inferred type must survive a let binding too.
+    let boxed = Boxed(5)
+    print(to_string(Shapes.unbox(boxed)))
+
+    // A field whose declared type is a transparent alias must arrive expanded,
+    // so it is usable as the type the alias stands for.
+    print(Shapes.tagged("tag").label + "!")
+    print(describe(Circle(1.0)))
+}

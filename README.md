@@ -204,8 +204,8 @@ cargo test --all --all-features
 
 - Tests are organized by pipeline stage under [`tests/`](tests/); snapshot tests use
   [`insta`](https://insta.rs/) (`cargo insta review` to accept).
-- Every PR adds a changelog fragment under [`changes/`](changes/) (CI enforces this);
-  [`CHANGELOG.md`](CHANGELOG.md) is rebuilt from fragments at release time.
+- [`CHANGELOG.md`](CHANGELOG.md) is written from the merged PRs at release time; a PR's
+  description is its changelog entry.
 - Contributor and architecture notes live in [`CLAUDE.md`](CLAUDE.md) and
   [`docs/internals/`](docs/internals/).
 
@@ -213,6 +213,7 @@ cargo test --all --all-features
 
 - [`docs/guide/`](docs/guide/) — the user-facing language guide (start at
   [`01_getting_started.md`](docs/guide/01_getting_started.md))
+- [`lib/Flume/README.md`](lib/Flume/README.md) — package-manager usage and manifest reference
 - [`docs/internals/`](docs/internals/) — compiler internals (architecture, IRs, type/effect
   system, diagnostics, error codes)
 - [`docs/proposals/`](docs/proposals/) — RFCs (e.g. proposal 0174 for async)

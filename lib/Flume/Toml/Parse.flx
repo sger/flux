@@ -1,0 +1,548 @@
+// Flume.Parse — a parser-combinator library.
+//
+// Generic over what is being parsed: nothing here knows about TOML. It exists
+// as its own module because a combinator library is the reusable half of any
+// parser, and because `Flume.Toml` is easier to read when the machinery it is
+// built from lives somewhere else.
+//
+// Pure: every function has an empty effect row.
+//
+// ## Why combinators
+//
+// Flux is a pure functional language, and a recursive-descent parser written
+// the imperative way — thread a mutable cursor, rebind it at every step — is
+// the shape the language is least suited to. Match arms take an expression,
+// not a statement block, so `let next = advance(current)` cannot appear inside
+// one at all.
+//
+// Rather than fight that, this leans into it. A `Parser<a>` is a first-class
+// function value; `and_then` threads the position so no grammar rule ever
+// names it; and `many`, `separated_by`, and `choice` are ordinary higher-order
+// values that a hand-rolled parser would have spelled out as near-identical
+// recursive loops. The grammar then reads like the grammar.
+
+import Flow.Option as Option
+import Flow.Result as Result
+import Flow.String as Str
+import Flow.Array as Array
+import Flow.List as List
+
+module Flume.Toml.Parse {
+
+    /// A position in the source, 1-based, as users count lines.
+    public data Pos {
+        Pos { line: Int, column: Int }
+    }
+
+    /// A parse failure, carrying the position of the offending text.
+    ///
+    /// `kind` is a machine-readable tag and `message` the human sentence. Both
+    /// exist because callers render these as compiler diagnostics, which want
+    /// to key on the kind rather than match on prose.
+    public data ParseError {
+        ParseError { kind: String, message: String, pos: Pos }
+    }
+
+    public fn error_kind(error: ParseError) -> String {
+        match error { ParseError { kind, message: _, pos: _ } -> kind }
+    }
+
+    public fn error_message(error: ParseError) -> String {
+        match error { ParseError { kind: _, message, pos: _ } -> message }
+    }
+
+    public fn error_pos(error: ParseError) -> Pos {
+        match error { ParseError { kind: _, message: _, pos } -> pos }
+    }
+
+    public fn pos_line(at: Pos) -> Int {
+        match at { Pos { line, column: _ } -> line }
+    }
+
+    public fn pos_column(at: Pos) -> Int {
+        match at { Pos { line: _, column } -> column }
+    }
+
+    /// Render an error the way a compiler diagnostic would.
+    public fn render_error(error: ParseError) -> String {
+        to_string(pos_line(error_pos(error))) + ":"
+            + to_string(pos_column(error_pos(error))) + ": "
+            + error_message(error)
+    }
+
+//| the parser type
+
+    /// The immutable input: the source as single characters, plus the line and
+    /// column of every offset.
+    ///
+    /// `Str.chars` is called once and indexed thereafter, because Flux's
+    /// string primops are slice-based and re-slicing per character would be
+    /// quadratic. `lines` and `columns` are precomputed for the same reason:
+    /// every error needs a position, and rescanning the prefix to find one
+    /// would be quadratic in a file that is mostly errors.
+    public data Input {
+        Input { chars: Array<String>, lines: Array<Int>, columns: Array<Int> }
+    }
+
+    /// Where a parser is: the input, and how far into it we are.
+    ///
+    /// A record rather than two arguments because a parser is then a genuine
+    /// one-argument function, which is what makes `and_then` a plain
+    /// composition instead of something that has to re-pair its operands.
+    public data State {
+        State { input: Input, offset: Int }
+    }
+
+    fn state_input(state: State) -> Input {
+        match state { State { input, offset: _ } -> input }
+    }
+
+    fn state_offset(state: State) -> Int {
+        match state { State { input: _, offset } -> offset }
+    }
+
+    /// Move to a new offset in the same input.
+    fn seek(state: State, offset: Int) -> State {
+        State { input: state_input(state), offset: offset }
+    }
+
+    /// A parser: a function from a state to either a value and the state after
+    /// it, or an error.
+    ///
+    /// Wrapping the function in an ADT rather than using the bare function
+    /// type is what lets `Parser<a>` appear in a type-class instance head and
+    /// keeps the combinator signatures readable.
+    public data Parser<a> {
+        Parser((State) -> Result<(a, State), ParseError>)
+    }
+
+    /// Apply a parser to a state.
+    public fn run_parser<a>(
+        parser: Parser<a>,
+        state: State,
+    ) -> Result<(a, State), ParseError> {
+        match parser { Parser(step) -> step(state) }
+    }
+
+    /// Apply a parser to the start of some text.
+    public fn parse_with<a>(parser: Parser<a>, text: String) -> Result<(a, State), ParseError> {
+        run_parser(parser, State { input: make_input(text), offset: 0 })
+    }
+
+    fn here(state: State) -> Pos {
+        position_of(state_input(state), state_offset(state))
+    }
+
+    fn error_here<a>(state: State, kind: String, message: String) -> Result<a, ParseError> {
+        Err(ParseError { kind: kind, message: message, pos: here(state) })
+    }
+
+    fn make_input(text: String) -> Input {
+        let characters = Str.chars(text)
+        Input {
+            chars: characters,
+            lines: scan_positions(characters, true),
+            columns: scan_positions(characters, false),
+        }
+    }
+
+    /// Precompute the line (or column) of every offset in one left-to-right
+    /// pass, so `position_of` is a constant-time lookup.
+    ///
+    /// One function for both because the recurrences differ only in which
+    /// counter a newline resets, and two copies of this scan would be two
+    /// places for an off-by-one to hide.
+    fn scan_positions(characters: Array<String>, want_lines: Bool) -> Array<Int> {
+        Array.from_list(
+            List.reverse(scan_positions_from(characters, 0, 1, 1, want_lines, []))
+        )
+    }
+
+    fn scan_positions_from(
+        characters: Array<String>,
+        index: Int,
+        line: Int,
+        column: Int,
+        want_lines: Bool,
+        acc: List<Int>,
+    ) -> List<Int> {
+        if index > Array.length(characters) {
+            acc
+        } else {
+            let here = if want_lines { line } else { column }
+            match Array.get(characters, index) {
+                None -> [here | acc],
+                Some(character) -> if character == "\n" {
+                    scan_positions_from(
+                        characters, index + 1, line + 1, 1, want_lines,
+                        [here | acc],
+                    )
+                } else {
+                    scan_positions_from(
+                        characters, index + 1, line, column + 1, want_lines,
+                        [here | acc],
+                    )
+                },
+            }
+        }
+    }
+
+    fn position_of(input: Input, offset: Int) -> Pos {
+        match input {
+            Input { chars: _, lines, columns } -> Pos {
+                line: Option.unwrap_or(Array.get(lines, offset), 1),
+                column: Option.unwrap_or(Array.get(columns, offset), 1),
+            }
+        }
+    }
+
+    fn char_at(input: Input, offset: Int) -> Option<String> {
+        match input { Input { chars, lines: _, columns: _ } -> Array.get(chars, offset) }
+    }
+
+    fn input_length(input: Input) -> Int {
+        match input { Input { chars, lines: _, columns: _ } -> Array.length(chars) }
+    }
+
+    /// The source text between two offsets.
+    fn slice_of(input: Input, from: Int, upto: Int) -> String {
+        match input {
+            Input { chars, lines: _, columns: _ } ->
+                Str.join(Array.take(Array.drop(chars, from), upto - from), "")
+        }
+    }
+
+//| core combinators
+
+    // These four are the whole vocabulary. Every parser below is built from
+    // them, which is why none of the grammar functions ever mentions an
+    // offset: `and_then` is the only thing that threads one.
+
+    /// A parser that consumes nothing and yields `value`.
+    public fn succeed<a>(value: a) -> Parser<a> {
+        Parser(\state -> Ok((value, state)))
+    }
+
+    /// A parser that consumes nothing and fails where it stands.
+    public fn fail_with<a>(kind: String, message: String) -> Parser<a> {
+        Parser(\state -> error_here(state, kind, message))
+    }
+
+    /// Sequence two parsers, the second chosen by the first one's result.
+    ///
+    /// Monadic bind. Chained with `Result.and_then_result` rather than a match
+    /// with an `Err(error) -> Err(error)` arm, which does not infer (KI-011).
+    public fn and_then<a, b>(parser: Parser<a>, next: (a) -> Parser<b>) -> Parser<b> {
+        Parser(\state -> Result.and_then_result(
+            run_parser(parser, state),
+            \step -> match step {
+                (value, after) -> run_parser(next(value), after)
+            }
+        ))
+    }
+
+    /// Transform a parser's result.
+    public fn map_parser<a, b>(parser: Parser<a>, transform: (a) -> b) -> Parser<b> {
+        Parser(\state -> Result.map_result(
+            run_parser(parser, state),
+            \step -> match step { (value, after) -> (transform(value), after) }
+        ))
+    }
+
+    /// Try `parser`; if it fails **without consuming input**, try `fallback`.
+    ///
+    /// The no-consumption rule is what keeps error messages useful. Once a
+    /// parser has committed — an opening `"` has been seen — a later failure
+    /// should report "unterminated string", not "expected a value"; letting
+    /// the alternative swallow that would lose the specific message.
+    public fn or_else<a>(parser: Parser<a>, fallback: Parser<a>) -> Parser<a> {
+        Parser(\state -> Result.or_else_result(
+            run_parser(parser, state),
+            \error -> if consumed(error, state) {
+                Err(error)
+            } else {
+                run_parser(fallback, state)
+            }
+        ))
+    }
+
+    /// Whether an error was raised past where the parser started — the test
+    /// for "this alternative had committed", which is what makes `or_else`
+    /// preserve the specific message instead of the generic one.
+    /// Defer building a parser until it is applied.
+    ///
+    /// Flux is strict, so a recursive grammar — `value` contains `array_value`
+    /// contains `value` — would build an infinite parser graph before reading
+    /// a character. Taking the parser as a thunk breaks the cycle: the
+    /// recursive branch is only constructed once the input reaches it.
+    ///
+    /// This is what laziness gives a combinator library for free, and it is
+    /// the one place the technique needs a name in a strict language.
+    public fn lazy<a>(build: (String) -> Parser<a>) -> Parser<a> {
+        Parser(\state -> run_parser(build(""), state))
+    }
+
+    /// Run `parser`, and on failure report the error as if nothing had been
+    /// consumed, so an enclosing `or_else` will still try its alternative.
+    ///
+    /// The escape hatch for the commit rule. Needed wherever deciding between
+    /// two alternatives requires looking past something both of them share.
+    public fn attempt<a>(parser: Parser<a>) -> Parser<a> {
+        Parser(\state -> Result.or_else_result(
+            run_parser(parser, state),
+            \error -> Err(ParseError {
+                kind: error_kind(error),
+                message: error_message(error),
+                pos: here(state),
+            })
+        ))
+    }
+
+    fn consumed(error: ParseError, state: State) -> Bool {
+        let start = here(state)
+        let failed = error_pos(error)
+        pos_line(failed) != pos_line(start) || pos_column(failed) != pos_column(start)
+    }
+
+//| derived combinators
+
+    // The payoff of the combinator style: each of these would otherwise be a
+    // separate recursive function, written once per element type.
+
+    /// Run two parsers in order, keeping the second's result.
+    public fn skip_then<a, b>(first: Parser<a>, second: Parser<b>) -> Parser<b> {
+        and_then(first, \_ -> second)
+    }
+
+    /// Run two parsers in order, keeping the first's result.
+    public fn then_skip<a, b>(first: Parser<a>, second: Parser<b>) -> Parser<a> {
+        and_then(first, \value -> map_parser(second, \_ -> value))
+    }
+
+    /// Apply `parser` repeatedly until it fails, collecting the results.
+    ///
+    /// Terminates because `or_else` only recovers from a failure that consumed
+    /// nothing, and a parser that consumed nothing cannot loop forever.
+    ///
+    /// Written as a loop over states rather than as `or_else(and_then(parser,
+    /// ... many(parser) ...), succeed([]))`. The combinator form rebuilds the
+    /// whole parser on every iteration, which the VM absorbs but which crashes
+    /// the native backend outright once the grammar is also recursive.
+    public fn many<a>(parser: Parser<a>) -> Parser<List<a>> {
+        Parser(\state -> gather(parser, state, []))
+    }
+
+    /// Collect results until `parser` fails, returning them in order.
+    ///
+    /// A failure that *consumed input* is propagated rather than treated as the
+    /// end of the list: once an alternative has committed — an opening quote
+    /// seen, a `.` consumed — its own error is the useful one, and swallowing
+    /// it here would degrade every specific message to whatever the enclosing
+    /// rule says when it finds unexpected text.
+    fn gather<a>(
+        parser: Parser<a>,
+        state: State,
+        acc: List<a>,
+    ) -> Result<(List<a>, State), ParseError> {
+        match run_parser(parser, state) {
+            Err(problem) -> if consumed(problem, state) {
+                Err(problem)
+            } else {
+                Ok((List.reverse(acc), state))
+            },
+            Ok(step) -> match step {
+                // A parser that consumed nothing would loop forever, so stop
+                // before this result rather than after it.
+                (value, after) -> if state_offset(after) == state_offset(state) {
+                    Ok((List.reverse(acc), state))
+                } else {
+                    gather(parser, after, [value | acc])
+                },
+            },
+        }
+    }
+
+    /// Zero or more `element`, separated by `separator`, allowing a trailing
+    /// separator.
+    ///
+    /// The trailing case is not laxness: TOML permits it in arrays, and it is
+    /// how hand-written manifests are usually formatted.
+    public fn separated_by<a, b>(
+        element: Parser<a>,
+        separator: Parser<b>,
+    ) -> Parser<List<a>> {
+        or_else(
+            and_then(element, \head -> map_parser(
+                then_skip(
+                    many(attempt(skip_then(separator, element))),
+                    optional_separator(separator),
+                ),
+                \tail -> [head | tail]
+            )),
+            succeed([]),
+        )
+    }
+
+    /// A trailing separator, if present.
+    ///
+    /// `attempt` on the repeated element above is what makes this reachable:
+    /// the final `,` is consumed while looking for another element, so without
+    /// backtracking the list parser would fail rather than stop.
+    fn optional_separator<b>(separator: Parser<b>) -> Parser<String> {
+        or_else(map_parser(separator, discard), succeed(""))
+    }
+
+    fn discard<a>(ignored: a) -> String {
+        ""
+    }
+
+    /// The first parser in the list that succeeds.
+    ///
+    /// An empty list cannot happen at any call site here, so it reports an
+    /// internal error rather than widening every caller's type.
+    public fn choice<a>(alternatives: List<Parser<a>>) -> Parser<a> {
+        match alternatives {
+            [] -> fail_with("expected-value", "no alternative matched"),
+            [head | rest] -> match rest {
+                [] -> head,
+                [_ | _] -> or_else(head, choice(rest)),
+            },
+        }
+    }
+
+//| character-level parsers
+
+    /// Consume one character satisfying `predicate`.
+    public fn satisfy(predicate: (String) -> Bool, description: String) -> Parser<String> {
+        Parser(\state -> match char_at(state_input(state), state_offset(state)) {
+            None -> error_here(
+                state,
+                "unexpected-end",
+                "unexpected end of input; expected " + description,
+            ),
+            Some(character) -> if predicate(character) {
+                Ok((character, seek(state, state_offset(state) + 1)))
+            } else {
+                error_here(
+                    state,
+                    "unexpected-character",
+                    "expected " + description + "; found `" + character + "`",
+                )
+            },
+        })
+    }
+
+    /// Consume exactly the given character.
+    public fn character(expected: String) -> Parser<String> {
+        satisfy(\found -> found == expected, "`" + expected + "`")
+    }
+
+    /// Consume exactly the given text.
+    public fn literal(expected: String) -> Parser<String> {
+        Parser(\state -> {
+            let stop = state_offset(state) + len(expected)
+            if slice_of(state_input(state), state_offset(state), stop) == expected {
+                Ok((expected, seek(state, stop)))
+            } else {
+                error_here(state, "expected-literal", "expected `" + expected + "`")
+            }
+        })
+    }
+
+    /// Succeed only at end of input.
+    ///
+    /// Yields the empty string rather than a unit value: `()` does not unify
+    /// with `Unit` in Flux today, and the parsers whose result is discarded
+    /// are more useful yielding the text they matched.
+    public fn end_of_input() -> Parser<String> {
+        Parser(\state -> if state_offset(state) >= input_length(state_input(state)) {
+            Ok(("", state))
+        } else {
+            error_here(
+                state,
+                "trailing-content",
+                "unexpected text; expected end of input",
+            )
+        })
+    }
+
+    /// Succeed without consuming when `parser` would fail, and vice versa.
+    ///
+    /// Needed for the `true`/`false` keywords, which must not match the prefix
+    /// of a longer bare word like `truthy`.
+    public fn not_followed_by<a>(parser: Parser<a>) -> Parser<String> {
+        Parser(\state -> match run_parser(parser, state) {
+            Ok(_) -> error_here(
+                state,
+                "unexpected-character",
+                "unexpected trailing characters",
+            ),
+            Err(_) -> Ok(("", state)),
+        })
+    }
+
+    /// Consume characters while `predicate` holds, yielding the run as text.
+    ///
+    /// Written directly rather than as `many(satisfy(...))` because the direct
+    /// form does not allocate a list of one-character strings per token, and
+    /// this is the hottest parser in the grammar.
+    public fn take_while(predicate: (String) -> Bool) -> Parser<String> {
+        Parser(\state -> {
+            let stop = scan_while(state_input(state), predicate, state_offset(state))
+            Ok((slice_of(state_input(state), state_offset(state), stop), seek(state, stop)))
+        })
+    }
+
+    fn scan_while(input: Input, predicate: (String) -> Bool, index: Int) -> Int {
+        match char_at(input, index) {
+            None -> index,
+            Some(character) -> if predicate(character) {
+                scan_while(input, predicate, index + 1)
+            } else {
+                index
+            },
+        }
+    }
+
+    /// Like `take_while`, but requires at least one character.
+    public fn take_while1(predicate: (String) -> Bool, description: String) -> Parser<String> {
+        and_then(take_while(predicate), \text -> if len(text) == 0 {
+            fail_with("expected-" + description, "expected " + description)
+        } else {
+            succeed(text)
+        })
+    }
+
+//| character classes
+
+    public fn is_digit(character: String) -> Bool {
+        character >= "0" && character <= "9"
+    }
+
+    /// A bare-key character, per TOML: letters, digits, `_` and `-`.
+    public fn is_bare_key_char(character: String) -> Bool {
+        is_digit(character)
+            || (character >= "a" && character <= "z")
+            || (character >= "A" && character <= "Z")
+            || character == "_"
+            || character == "-"
+    }
+
+    /// Horizontal whitespace only. Newlines are significant in TOML — they
+    /// terminate key/value pairs — so they are never in this class.
+    public fn is_horizontal_space(character: String) -> Bool {
+        character == " " || character == "\t" || character == "\r"
+    }
+
+    /// Capture the position before running `parser`, pairing it with the
+    /// result — so an item's error points at the item, not at wherever the
+    /// fold happens to notice the problem.
+    public fn positioned<a>(parser: Parser<a>) -> Parser<(a, Pos)> {
+        Parser(\state -> Result.map_result(
+            Parse.run_parser(parser, state),
+            \step -> match step {
+                (value, after) -> ((value, Parse.here(state)), after)
+            }
+        ))
+    }
+}

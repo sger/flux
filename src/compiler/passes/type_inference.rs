@@ -103,6 +103,16 @@ impl Compiler {
                 ctor_field_names.extend(preloaded_field_names);
                 adt_variants.extend(preloaded_variants);
             }
+            // fold in field order for constructors declared in
+            // *imported* modules, which have no `data` statement in this
+            // program. Inserted first-wins order: a locally declared
+            // constructor of the same name keeps its own field order, matching
+            // the shadowing behaviour everywhere else.
+            for (ctor, fields) in &self.preloaded_ctor_field_names {
+                ctor_field_names
+                    .entry(*ctor)
+                    .or_insert_with(|| fields.clone());
+            }
             let mut ctx = NamedFieldDesugarCtx {
                 ctor_field_names: &ctor_field_names,
                 adt_variants: &adt_variants,
