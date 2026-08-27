@@ -7,6 +7,10 @@ use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(1);
 static NATIVE_JSON_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -32,9 +36,19 @@ fn run_source(source: &str) -> (String, String, bool) {
         .lock()
         .expect("native JSON test lock poisoned");
     let path = write_fixture(source);
+    // Private cache root: `--no-cache` does not isolate native
+    // builds, which write shared artifacts regardless (KI-010).
+    let scratch = Scratch::new("native-llvm");
+    // `CARGO_BIN_EXE_flux` is a path, not a snapshot: it resolves to whatever
+    // `flux` sits in the profile dir when this test runs. `cargo test
+    // --features llvm` reconciles that path itself, but a concurrent plain
+    // `cargo build` replaces it with a binary lacking the `llvm` feature, and
+    // the run then fails with "native backend features require `llvm`" even
+    // though this crate compiled with it. Same family as KI-010.
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--native", "--no-cache"])
+        .args(scratch.cache_args())
         .output()
         .expect("run native flux");
     let _ = std::fs::remove_file(&path);

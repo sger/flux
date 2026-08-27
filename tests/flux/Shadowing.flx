@@ -1,0 +1,61 @@
+// Fixture for module_local_shadowing.flx.
+//
+// Every function here is deliberately named after a builtin and returns a
+// marker string instead of the builtin's behaviour, so a test can tell which
+// one actually ran.
+
+module Shadowing {
+
+    // A call placed ABOVE its definition: module scope is whole-body, so
+    // `defined_later` must shadow here too.
+    public fn call_before_definition(p: String) -> String {
+        defined_later(p)
+    }
+
+    // ── locals that shadow builtins ────────────────────────────
+
+    /// Shadows the prelude-exposed `read_file`, which normally routes through
+    /// a `perform FileSystem.read_file`. This one is pure.
+    public fn read_file(p: String) -> String {
+        "LOCAL-read_file"
+    }
+
+    /// Shadows the name+arity builtin `trim`.
+    public fn trim(s: String) -> String {
+        "LOCAL-trim"
+    }
+
+    /// Shadows the builtin `split`, at a *different* arity (1 vs 2).
+    public fn split(s: String) -> String {
+        "LOCAL-split"
+    }
+
+    public fn defined_later(p: String) -> String {
+        "LOCAL-defined-later"
+    }
+
+    // ── bare call sites (what the tests exercise) ──────────────
+
+    public fn call_read_file(p: String) -> String {
+        read_file(p)
+    }
+
+    /// Declares no effects. If `read_file` still resolved to the builtin this
+    /// would fail to compile with E400 rather than returning a value.
+    public fn pure_caller() -> String {
+        read_file("/nonexistent/path")
+    }
+
+    public fn call_trim(s: String) -> String {
+        trim(s)
+    }
+
+    public fn call_split(s: String) -> String {
+        split(s)
+    }
+
+    /// No local `upper` exists, so this must reach the builtin.
+    public fn call_upper(s: String) -> String {
+        upper(s)
+    }
+}

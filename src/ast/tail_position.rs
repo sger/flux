@@ -73,7 +73,6 @@ impl<'ast> Visitor<'ast> for TailPositionAnalyzer {
                 name: _,
                 parameters: _,
                 body,
-                span: _,
                 ..
             } => {
                 // Enter a new tail context for the function body
@@ -159,7 +158,6 @@ impl<'ast> Visitor<'ast> for TailPositionAnalyzer {
             Expression::Function {
                 parameters: _,
                 body,
-                span: _,
                 ..
             } => {
                 // Enter a new tail context for the lambda body

@@ -235,6 +235,46 @@ pub const DUPLICATE_MODULE: ErrorCode = ErrorCode {
     hint: Some("Remove one of the duplicate module declarations."),
 };
 
+/// Two resolved packages claim the same namespace, so
+/// an import beneath it is ambiguous. Reported at resolution time, where the
+/// package identities are known, rather than as a bare `E027 Duplicate Module`
+/// naming only the two colliding files.
+pub const NAMESPACE_COLLISION: ErrorCode = ErrorCode {
+    code: "E469",
+    title: "NAMESPACE COLLISION",
+    error_type: ErrorType::Compiler,
+    message: "Packages `{}` and `{}` both claim namespace `{}`.",
+    hint: Some(
+        "Each package must own a distinct namespace. Rename one package, or set \
+         a different `namespace` in its `flux.toml`.",
+    ),
+};
+
+/// The project's `flux.toml` exists but its packages
+/// could not be resolved — an unreadable or malformed manifest, or a
+/// dependency kind Phase 1 does not support. The message comes from the Flux
+/// manifest resolver, which owns all manifest parsing.
+pub const MANIFEST_UNRESOLVED: ErrorCode = ErrorCode {
+    code: "E470",
+    title: "MANIFEST UNRESOLVED",
+    error_type: ErrorType::Compiler,
+    message: "Could not resolve the project manifest: {}.",
+    hint: Some("Check `flux.toml` and the dependencies it declares."),
+};
+
+/// A package declared a module outside the namespace it owns. Reported at the
+/// offending package's own build rather than at a consumer's, where it would
+/// surface as a confusing missing-module or duplicate-module error.
+pub const NAMESPACE_ESCAPE: ErrorCode = ErrorCode {
+    code: "E471",
+    title: "MODULE ESCAPES PACKAGE NAMESPACE",
+    error_type: ErrorType::Compiler,
+    message: "Package `{}` may only declare modules under `{}`, but this file declares `module {}`.",
+    hint: Some(
+        "Rename the module to sit under the package's namespace, and move the file to match.",
+    ),
+};
+
 pub const INVALID_MODULE_FILE: ErrorCode = ErrorCode {
     code: "E028",
     title: "INVALID MODULE FILE",

@@ -534,6 +534,12 @@ impl Compiler {
                     if !self.try_emit_consumed_local(name) {
                         self.load_symbol(&symbol);
                     }
+                } else if let Some(member) = self.current_module_member(name) {
+                    // A sibling member of the enclosing module. Stored under the
+                    // qualified key, so the bare lookup above misses it — without
+                    // this it would fall through to `exposed_bindings` and load the
+                    // prelude's binding of the same name instead of the local one.
+                    self.load_symbol(&member);
                 } else if let Some(&qualified) = self.exposed_bindings.get(&name) {
                     // Unqualified access to an exposed module member.
                     if let Some(symbol) = self.resolve_visible_symbol(qualified) {
@@ -1759,6 +1765,16 @@ impl Compiler {
     }
 
     fn check_direct_builtin_effect_call(&mut self, function: &Expression) -> CompileResult<()> {
+        // A local definition shadows the builtin, so the builtin's effect
+        // requirement no longer applies: a pure `fn read_file(p)` in this
+        // module must not force `with FileSystem` on its callers.
+        if let Expression::Identifier { name, .. } = function
+            && (self.resolve_visible_symbol(*name).is_some()
+                || self.module_member_shadows_builtin(*name))
+        {
+            return Ok(());
+        }
+
         let required_name = match function {
             Expression::Identifier { name, .. } => self
                 .lookup_effect_alias(*name)
@@ -2776,13 +2792,28 @@ impl Compiler {
             // once in the arm body (e.g. `left`, `right` in a Node pattern) are emitted
             // as `OpConsumeLocal` instead of `OpGetLocal`, keeping Rc strong_count == 1
             // and enabling `Rc::try_unwrap` to succeed in `OpAdtFields2` / `OpAdtField`.
+            //
+            // Only the arm's *own* bindings may take their count from the arm body.
+            // For anything declared outside, the arm body is one branch of the
+            // function, not the whole of it: a binding read once here may be read
+            // again after the match, and consuming it there leaves the slot
+            // `Uninit` for that later read (KI-001). Merging those outer symbols
+            // with `or_insert` was exactly that mistake — when the outer map had no
+            // entry for them, the arm-local count of 1 became the whole-function
+            // count.
+            //
+            // `enter_block_scope` and `compile_pattern_bind` have already run, so
+            // the arm's pattern bindings are the ones in the current scope, and
+            // `exists_in_current_scope` distinguishes them.
             let merged_counts = {
                 let outer_clone = self.current_consumable_local_use_counts().cloned();
                 if let Some(mut merged) = outer_clone {
                     let mut arm_body_counts: HashMap<Symbol, usize> = HashMap::new();
                     self.collect_consumable_param_uses(&arm.body, &mut arm_body_counts);
                     for (sym, count) in arm_body_counts {
-                        merged.entry(sym).or_insert(count);
+                        if self.symbol_table.exists_in_current_scope(sym) {
+                            merged.entry(sym).or_insert(count);
+                        }
                     }
                     Some(merged)
                 } else {
@@ -3500,6 +3531,19 @@ impl Compiler {
 
         // Shadowed names must resolve through the regular call path.
         if self.resolve_visible_symbol(*name).is_some() {
+            return Ok(false);
+        }
+
+        // A bare call inside `module M` may name a sibling member. Module
+        // members live in the symbol table under the *qualified* key `M.name`,
+        // so neither bare lookup above can see them — without this, a
+        // module-level `public fn trim(s)` loses to the builtin `trim` for every
+        // bare call in its own module, and the builtin silently runs instead.
+        //
+        // Locals win over builtins (see `docs/internals/primops_vs_base.md`).
+        // Where the builtin also has a qualified name it stays reachable as
+        // `Flow.Primops.<name>`; the demotion here is scoped to bare calls.
+        if self.module_member_shadows_builtin(*name) {
             return Ok(false);
         }
 

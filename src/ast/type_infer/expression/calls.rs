@@ -372,25 +372,70 @@ impl<'a> InferCtx<'a> {
                     self.subst = std::mem::take(&mut self.subst).compose(&subst);
                 }
                 Err(_) => {
-                    // Resolve only in the error path for the diagnostic check.
-                    let expected_resolved = expected_param_ty.apply_type_subst(&self.subst);
-                    let actual_resolved = arg_ty.apply_type_subst(&self.subst);
-                    if expected_resolved.is_concrete() && actual_resolved.is_concrete() {
-                        let exp_str = self.display_type(&expected_resolved);
-                        let act_str = self.display_type(&actual_resolved);
-                        self.errors.push(call_arg_type_mismatch(
-                            self.file_path.clone(),
-                            arg_expr.span(),
-                            fn_name,
-                            index + 1,
-                            fn_def_span,
-                            &exp_str,
-                            &act_str,
-                        ));
-                    }
+                    self.report_call_arg_mismatch(
+                        expected_param_ty,
+                        &arg_ty,
+                        arg_expr.span(),
+                        fn_name,
+                        index + 1,
+                        fn_def_span,
+                    );
                 }
             }
         }
+    }
+
+    /// Emit the argument-level mismatch diagnostic for a failed unification,
+    /// when the failure is decidable rather than an artifact of a type still
+    /// being solved.
+    ///
+    /// Reported when both types are concrete, and also when their outermost
+    /// type constructors conflict — no substitution turns `Array<Int>` into
+    /// `List<a>`, so a still-free element variable must not silence the
+    /// mismatch. The head-conflict case carries two extra guards:
+    ///
+    /// - `fn_def_span` must be `None`, i.e. an already-generalized imported
+    ///   scheme. A local function may still be having its own parameter types
+    ///   inferred, so its provisional head is not yet fixed.
+    /// - the argument type must be concrete, so the approximation inferred for
+    ///   an untyped stdlib function (`List.first` returns `a` *or* `None`, and
+    ///   is deliberately unannotated) is never what gets reported.
+    fn report_call_arg_mismatch(
+        &mut self,
+        expected_param_ty: &InferType,
+        arg_ty: &InferType,
+        arg_span: Span,
+        fn_name: Option<&str>,
+        arg_index: usize,
+        fn_def_span: Option<Span>,
+    ) {
+        // Resolve only here: this is the error path.
+        let expected = expected_param_ty.apply_type_subst(&self.subst);
+        let actual = arg_ty.apply_type_subst(&self.subst);
+
+        // The head conflict is tested against the *unsubstituted* parameter,
+        // so the head must come from the signature itself. A bare `Var`
+        // parameter — `assert_eq<a>(a: a, b: a)`, where the first argument
+        // already bound `a` — has no written head, and substitution may have
+        // filled it from an approximation rather than from a real type.
+        let heads_conflict = fn_def_span.is_none()
+            && actual.is_concrete()
+            && expected_param_ty.heads_conflict(&actual);
+        if !((expected.is_concrete() && actual.is_concrete()) || heads_conflict) {
+            return;
+        }
+
+        let exp_str = self.display_type(&expected);
+        let act_str = self.display_type(&actual);
+        self.errors.push(call_arg_type_mismatch(
+            self.file_path.clone(),
+            arg_span,
+            fn_name,
+            arg_index,
+            fn_def_span,
+            &exp_str,
+            &act_str,
+        ));
     }
 
     /// Fallback inference when callee type is unresolved.
@@ -454,29 +499,54 @@ impl<'a> InferCtx<'a> {
                 })
             }
             Expression::MemberAccess { object, member, .. } => {
-                let Expression::Identifier {
-                    name: module_name, ..
-                } = object.as_ref()
-                else {
-                    return None;
-                };
-                if !self
-                    .module_member_schemes
-                    .contains_key(&(*module_name, *member))
-                {
-                    return None;
-                }
-                let class_name = self.lookup_class_method(*member)?;
-                Some(ResolvedClassMethodCall {
-                    class_name,
-                    method_name: *member,
-                    first_arg_id,
-                    function_expr_id: function.expr_id(),
-                    span,
-                })
+                self.qualified_class_method_call(object, *member, function, first_arg_id, span)
             }
             _ => None,
         }
+    }
+
+    /// Recognize a *qualified* class-method call, `Module.method(..)`.
+    ///
+    /// A qualified call dispatches as a class method only when the qualifier
+    /// names that class. `Foldable.fold` and `Comparable.same` do;
+    /// `Stream.append` does not — there the qualifier is a module that happens
+    /// to export a function sharing a name with the built-in `Semigroup`
+    /// method, and the module's own function must win.
+    ///
+    /// Matching on the class's declaring path does not work as a rule: an
+    /// instance may live in a different module from its class, and the
+    /// qualifier at the call site is an import alias rather than a path.
+    fn qualified_class_method_call(
+        &self,
+        object: &Expression,
+        member: Identifier,
+        function: &Expression,
+        first_arg_id: ExprId,
+        span: Span,
+    ) -> Option<ResolvedClassMethodCall> {
+        let Expression::Identifier {
+            name: module_name, ..
+        } = object
+        else {
+            return None;
+        };
+        if !self
+            .module_member_schemes
+            .contains_key(&(*module_name, member))
+        {
+            return None;
+        }
+        let class_name = self.lookup_class_method(member)?;
+        if member != class_name && *module_name != class_name {
+            return None;
+        }
+        Some(ResolvedClassMethodCall {
+            class_name,
+            method_name: member,
+            first_arg_id,
+            function_expr_id: function.expr_id(),
+            span,
+        })
     }
 
     /// Resolve a class-method call's first-argument type to a concrete instance.

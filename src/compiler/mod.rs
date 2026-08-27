@@ -735,6 +735,7 @@ fn resolve_pending_imported_public_instances(
 #[derive(Default)]
 struct AetherDebugDetails {
     call_sites: Vec<String>,
+    guarded_borrowed_call_sites: Vec<String>,
     dups: Vec<String>,
     drops: Vec<String>,
     reuses: Vec<String>,
@@ -766,18 +767,31 @@ fn collect_aether_debug_details(
                 func,
                 args,
                 arg_modes,
+                guarded_borrowed_args,
                 span,
             } => {
+                let callee = crate::aether::display::single_line_expr(func, interner);
                 details.call_sites.push(format!(
                     "line {}: {} [{}]",
                     span.start.line,
-                    crate::aether::display::single_line_expr(func, interner),
+                    callee,
                     arg_modes
                         .iter()
                         .map(format_borrow_mode)
                         .collect::<Vec<_>>()
                         .join(", ")
                 ));
+                let guarded = guarded_borrowed_args
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, guarded)| guarded.then_some(index))
+                    .collect::<Vec<_>>();
+                if !guarded.is_empty() {
+                    details.guarded_borrowed_call_sites.push(format!(
+                        "line {}: {} args {:?}",
+                        span.start.line, callee, guarded
+                    ));
+                }
                 walk(func, interner, details);
                 for arg in args {
                     walk(arg, interner, details);
@@ -1042,6 +1056,11 @@ pub struct Compiler {
     pub(super) native_constructor_tags: HashMap<Symbol, i32>,
     pub(super) next_native_constructor_tag: i32,
     pub(super) preloaded_ctor_field_names: HashMap<Symbol, Vec<Symbol>>,
+    /// Constructor type metadata from imported interfaces, keyed by
+    /// constructor name. Seeds HM inference so imported constructor
+    /// applications infer as their ADT rather than a fresh type variable.
+    pub(super) preloaded_ctor_types:
+        HashMap<Symbol, crate::types::module_interface::PublicCtorTypeEntry>,
     pub(super) preloaded_adt_variants: HashMap<Symbol, Vec<Symbol>>,
     pub(super) adt_contract_specs: HashMap<Symbol, AdtContractSpec>,
     pub(crate) preloaded_imported_globals: HashSet<Symbol>,
@@ -1308,6 +1327,7 @@ impl Compiler {
             native_constructor_tags: HashMap::new(),
             next_native_constructor_tag: 5,
             preloaded_ctor_field_names: HashMap::new(),
+            preloaded_ctor_types: HashMap::new(),
             preloaded_adt_variants: HashMap::new(),
             adt_contract_specs: HashMap::new(),
             preloaded_imported_globals: HashSet::new(),
@@ -1558,7 +1578,7 @@ impl Compiler {
         self.lower_core_from_program(&program_to_lower, false, elaborate_dictionaries)
     }
 
-    /// Proposal 0152: run the named-field AST desugar in place. No-op when
+    /// run the named-field AST desugar in place. No-op when
     /// the program declares no named-field variants.
     fn apply_named_field_desugar(&self, program: &mut Program) {
         use crate::ast::desugar_named_fields::{
@@ -1882,6 +1902,22 @@ impl Compiler {
         // interner that is session-specific.
         let symbol_remap = interface.build_symbol_remap(&mut self.interner);
         let module_name = self.interner.intern(&interface.module_name);
+
+        // preload declared field order for this interface's
+        // record-style constructors so named-field syntax naming an imported
+        // constructor can be desugared to its positional form. Without this the
+        // desugaring finds no field order and silently emits a zero-field
+        // constructor, surfacing as a bogus arity mismatch (E082 / E085).
+        for (ctor_name, field_names) in &interface.ctor_field_names {
+            let ctor = self.interner.intern(ctor_name);
+            let fields = field_names
+                .iter()
+                .map(|name| self.interner.intern(name))
+                .collect();
+            self.preloaded_ctor_field_names
+                .entry(ctor)
+                .or_insert(fields);
+        }
         for (member_name, scheme) in &interface.schemes {
             let member = self.interner.intern(member_name);
             let qualified = self.interner.intern_join(module_name, member);
@@ -1919,6 +1955,32 @@ impl Compiler {
             self.cached_member_borrow_signatures
                 .insert((module_name, member), signature.clone());
         }
+        for (ctor_name, entry) in &interface.public_ctor_types {
+            let ctor = self.interner.intern(ctor_name);
+            self.preloaded_ctor_types.insert(
+                ctor,
+                crate::types::module_interface::PublicCtorTypeEntry {
+                    adt_name: remap_identifier(entry.adt_name, &symbol_remap),
+                    type_params: entry
+                        .type_params
+                        .iter()
+                        .map(|tp| remap_identifier(*tp, &symbol_remap))
+                        .collect(),
+                    fields: entry
+                        .fields
+                        .iter()
+                        .map(|ty| remap_type_expr(ty, &symbol_remap))
+                        .collect(),
+                    field_names: entry.field_names.as_ref().map(|names| {
+                        names
+                            .iter()
+                            .map(|n| remap_identifier(*n, &symbol_remap))
+                            .collect()
+                    }),
+                },
+            );
+        }
+
         for (member_name, runtime_contract) in &interface.runtime_contracts {
             let member = self.interner.intern(member_name);
             let qualified = self.interner.intern_join(module_name, member);
@@ -1996,11 +2058,79 @@ impl Compiler {
         );
     }
 
+    /// record record-style constructor field order from
+    /// `program` without the rest of the dependency preload.
+    ///
+    /// `preload_dependency_program` does this too, but it also collects
+    /// visibility, contracts, effects, and constructor tags — work the test
+    /// runner does not want, since it compiles every module itself. Field
+    /// order alone is what named-field desugaring needs from a module it does
+    /// not own.
+    /// Promote the effects this module declared into the preloaded set, so a
+    /// later module's `with <Effect>` annotations and `handle` blocks resolve.
+    ///
+    /// A `.flxi` interface records the effect *rows* on signatures but not the
+    /// effect *declarations* themselves, so an interface preload alone leaves
+    /// an imported effect unknown. The run drivers avoid this by also calling
+    /// `preload_dependency_program`, which walks the dependency AST; the test
+    /// runner instead compiles every module through one `Compiler`, and
+    /// `collect_effect_declarations` resets the registry from the preloaded set
+    /// at the start of each compile. Without this promotion an effect declared
+    /// in one module and used in another fails under `flux --test` with
+    /// E405/E407 while compiling and running correctly — see
+    /// docs/known_issues.md#ki-028.
+    ///
+    /// This is the same promotion the REPL performs between lines, for the same
+    /// reason; call it *after* compiling each module.
+    pub fn promote_effect_declarations(&mut self) {
+        self.preloaded_effect_ops_registry = self.effect_ops_registry.clone();
+        self.preloaded_effect_op_signatures = self.effect_op_signatures.clone();
+    }
+
+    pub fn preload_ctor_field_names_from_program(&mut self, program: &Program) {
+        let (ctor_field_names, adt_variants) =
+            crate::ast::desugar_named_fields::collect_named_field_metadata(program);
+        for (ctor, fields) in ctor_field_names {
+            self.preloaded_ctor_field_names
+                .entry(ctor)
+                .or_insert(fields);
+        }
+        for (adt, variants) in adt_variants {
+            self.preloaded_adt_variants.entry(adt).or_insert(variants);
+        }
+        self.preload_ctor_types_from_program(program);
+    }
+
+    /// Record the constructor field types of `program`'s public ADTs so a
+    /// module compiled later in this run infers an application of one of its
+    /// constructors as the ADT rather than as an unresolved type variable.
+    ///
+    /// [`Self::preload_module_interface`] does this from a cached `.flxi`, but
+    /// a dependency compiled in the same run has no interface to read back —
+    /// and the test runner compiles the whole graph through one `Compiler`
+    /// with no interface step at all. Without this the KI-014 metadata reaches
+    /// an importer only through a warm cache, so a payload bound by an
+    /// imported constructor's pattern stays unresolved and forwarding it
+    /// unchanged fails strict types with E430 (KI-022).
+    fn preload_ctor_types_from_program(&mut self, program: &Program) {
+        for (ctor, entry) in crate::compiler::module_interface::collect_dependency_ctor_types(
+            program,
+            &self.interner,
+        ) {
+            self.preloaded_ctor_types.entry(ctor).or_insert(entry);
+        }
+    }
+
     pub fn preload_dependency_program(&mut self, program: &Program) {
         let (ctor_field_names, adt_variants) =
             crate::ast::desugar_named_fields::collect_named_field_metadata(program);
         self.preloaded_ctor_field_names.extend(ctor_field_names);
         self.preloaded_adt_variants.extend(adt_variants);
+        // Constructor field types, so an imported constructor infers as its ADT
+        // rather than an unresolved variable. `preload_module_interface` does
+        // this from a cached `.flxi`; a dependency compiled in this same run has
+        // no interface to read back, so it seeds from the AST instead (KI-022).
+        self.preload_ctor_types_from_program(program);
         self.collect_module_function_visibility(program);
         self.collect_module_adt_constructors(program);
         // Register dep ADT types so cross-module type references in function
@@ -2076,6 +2206,7 @@ impl Compiler {
                         .get(&(*module_name, *member_name))
                         .copied()
                         .unwrap_or(false),
+                    can_suspend: self.native_scheme_can_suspend(scheme),
                 }
             });
         }
@@ -2098,6 +2229,7 @@ impl Compiler {
                             .get(&(*module_name, *member_name))
                             .copied()
                             .unwrap_or(false),
+                        can_suspend: self.native_scheme_can_suspend(scheme),
                     },
                 );
             }
@@ -2114,6 +2246,7 @@ impl Compiler {
                             symbol: format!("flux_{}_{}", target_name.replace('.', "_"), member),
                             arity: method.arity,
                             is_value: false,
+                            can_suspend: true,
                         });
                 }
             }
@@ -2150,6 +2283,7 @@ impl Compiler {
                                 .get(&(*mod_name, *member_name))
                                 .copied()
                                 .unwrap_or(false),
+                            can_suspend: self.native_scheme_can_suspend(scheme),
                         },
                     );
                 }
@@ -2176,6 +2310,7 @@ impl Compiler {
                                         .get(&(*mod_name, *member_name))
                                         .copied()
                                         .unwrap_or(false),
+                                    can_suspend: self.native_scheme_can_suspend(scheme),
                                 },
                             );
                         }
@@ -2195,6 +2330,7 @@ impl Compiler {
                                     ),
                                     arity: method.arity,
                                     is_value: false,
+                                    can_suspend: true,
                                 }
                             });
                         }
@@ -2221,6 +2357,7 @@ impl Compiler {
                                         .get(&(*module_name, *member_name))
                                         .copied()
                                         .unwrap_or(false),
+                                    can_suspend: self.native_scheme_can_suspend(scheme),
                                 },
                             );
                         }
@@ -2241,6 +2378,7 @@ impl Compiler {
                                         ),
                                         arity: method.arity,
                                         is_value: false,
+                                        can_suspend: true,
                                     }
                                 });
                             }
@@ -2265,6 +2403,7 @@ impl Compiler {
                     symbol: native_symbol,
                     arity: Self::native_function_arity(scheme),
                     is_value: false,
+                    can_suspend: self.native_scheme_can_suspend(scheme),
                 }
             });
         }
@@ -2572,6 +2711,8 @@ impl Compiler {
         let console_sym = self.interner.intern(be::CONSOLE);
         let filesystem_sym = self.interner.intern(be::FILESYSTEM);
         let stdin_sym = self.interner.intern(be::STDIN);
+        let env_sym = self.interner.intern(be::ENV);
+        let process_sym = self.interner.intern(be::PROCESS);
         let clock_sym = self.interner.intern(be::CLOCK);
         let io_sym = self.interner.intern(be::IO);
         let time_sym = self.interner.intern(be::TIME);
@@ -2583,9 +2724,16 @@ impl Compiler {
             span,
         };
 
+        // IO = <Console | FileSystem | Stdin | Env | Process>
         let io_expansion = add(
-            add(named(console_sym), named(filesystem_sym)),
-            named(stdin_sym),
+            add(
+                add(
+                    add(named(console_sym), named(filesystem_sym)),
+                    named(stdin_sym),
+                ),
+                named(env_sym),
+            ),
+            named(process_sym),
         );
         self.effect_row_aliases
             .entry(io_sym)
@@ -2668,6 +2816,15 @@ impl Compiler {
             mono(vec![string(), string()], unit()),
         );
         add_op(be::STDIN, "read_stdin", mono(vec![], string()));
+        add_op(be::ENV, "env_var", mono(vec![string()], string()));
+        add_op(be::ENV, "env_args", mono(vec![], array_string()));
+        add_op(be::ENV, "env_cwd", mono(vec![], string()));
+        add_op(be::ENV, "env_home_dir", mono(vec![], string()));
+        add_op(
+            be::PROCESS,
+            "proc_run",
+            mono(vec![string(), array_string()], string()),
+        );
         add_op(be::CLOCK, "clock_now", mono(vec![], int()));
         add_op(be::CLOCK, "now_ms", mono(vec![], int()));
         // Debug effect: single low-level `trace` operation takes a
@@ -2769,6 +2926,33 @@ impl Compiler {
         for statement in &program.statements {
             self.collect_module_adt_constructors_from_statement(statement, None);
         }
+    }
+
+    /// Assign native constructor tags for `program` before compiling anything.
+    ///
+    /// Native builds compile each module with its own `Compiler`, so a module
+    /// only sees the tags for constructors it happens to preload. Numbering
+    /// then restarts per module and the same constructor gets different tags
+    /// in different objects — a value built in one module is matched against
+    /// the wrong tag in another. Seeding every module up front, in one order,
+    /// gives one numbering for the whole program.
+    pub fn seed_native_constructor_tags(&mut self, program: &Program) {
+        self.collect_native_constructor_tags(program);
+    }
+
+    /// The tags assigned so far, plus the next free tag, for handing to
+    /// another `Compiler` that must agree on the numbering.
+    pub fn native_constructor_tag_state(&self) -> (HashMap<Symbol, i32>, i32) {
+        (
+            self.native_constructor_tags.clone(),
+            self.next_native_constructor_tag,
+        )
+    }
+
+    /// Adopt a tag numbering produced by [`Self::native_constructor_tag_state`].
+    pub fn adopt_native_constructor_tags(&mut self, tags: HashMap<Symbol, i32>, next: i32) {
+        self.native_constructor_tags = tags;
+        self.next_native_constructor_tag = next;
     }
 
     fn collect_native_constructor_tags(&mut self, program: &Program) {
@@ -3031,6 +3215,43 @@ impl Compiler {
         }
     }
 
+    /// Whether calling a function with this scheme can suspend natively.
+    ///
+    /// True when the declared effect row is anything other than provably
+    /// direct-path. The synchronous built-in effects (`Console`,
+    /// `FileSystem`, `Stdin`, `Env`, `Process`, and `Clock`, plus their `IO` /
+    /// `Time` aliases) lower to straight C calls that always return a real value
+    /// (`native_builtin_effect_uses_direct_path` in `lir::lower`); every other
+    /// effect — user-defined ones included — lowers to a `YieldTo` that
+    /// unwinds by returning the yield sentinel.
+    ///
+    /// An open row (one with a tail variable) counts as suspending: the caller
+    /// may instantiate it with anything, so the conservative answer is the
+    /// only sound one. Over-reporting costs a redundant `flux_is_yielding`
+    /// test; under-reporting corrupts memory (KI-034).
+    fn native_scheme_can_suspend(&self, scheme: &Scheme) -> bool {
+        let InferType::Fun(_, _, effects) = &scheme.infer_type else {
+            return false;
+        };
+        if effects.tail().is_some() {
+            return true;
+        }
+        effects.concrete().iter().any(|effect| {
+            !matches!(
+                self.interner.try_resolve(*effect),
+                Some(
+                    crate::syntax::builtin_effects::CONSOLE
+                        | crate::syntax::builtin_effects::STDIN
+                        | crate::syntax::builtin_effects::CLOCK
+                        | crate::syntax::builtin_effects::ENV
+                        | crate::syntax::builtin_effects::PROCESS
+                        | crate::syntax::builtin_effects::IO
+                        | crate::syntax::builtin_effects::TIME
+                )
+            )
+        })
+    }
+
     fn build_preloaded_hm_member_schemes(
         &self,
         program: &Program,
@@ -3184,6 +3405,56 @@ impl Compiler {
         }
     }
 
+    /// `data` statements to predeclare before inferring this program: the REPL
+    /// session's own declarations plus imported public ADTs.
+    ///
+    /// Imported constructors are grouped back into one statement per ADT so
+    /// inference registers each ADT's full variant set.
+    fn preloaded_adt_data_statements(&self) -> Vec<Statement> {
+        use crate::syntax::data_variant::DataVariant;
+
+        struct AdtGroup {
+            name: Symbol,
+            type_params: Vec<Symbol>,
+            variants: Vec<DataVariant>,
+        }
+
+        // Keyed by symbol id rather than Symbol, which is not Ord.
+        let mut by_adt: std::collections::BTreeMap<u32, AdtGroup> =
+            std::collections::BTreeMap::new();
+        for (ctor, entry) in &self.preloaded_ctor_types {
+            by_adt
+                .entry(entry.adt_name.as_u32())
+                .or_insert_with(|| AdtGroup {
+                    name: entry.adt_name,
+                    type_params: entry.type_params.clone(),
+                    variants: Vec::new(),
+                })
+                .variants
+                .push(DataVariant {
+                    name: *ctor,
+                    fields: entry.fields.clone(),
+                    field_names: entry.field_names.clone(),
+                    span: Span::default(),
+                });
+        }
+
+        let mut statements = self.repl_session_adt_data.clone();
+        for (_, mut group) in by_adt {
+            // Symbol ids vary with interning order; sort for determinism.
+            group.variants.sort_by_key(|variant| variant.name.as_u32());
+            statements.push(Statement::Data {
+                is_public: true,
+                name: group.name,
+                type_params: group.type_params,
+                variants: group.variants,
+                deriving: Vec::new(),
+                span: Span::default(),
+            });
+        }
+        statements
+    }
+
     pub fn build_infer_config(&mut self, program: &Program) -> InferProgramConfig {
         let preloaded_member_schemes = self.build_preloaded_hm_member_schemes(program);
         let (task_module_bindings, task_spawn_exposed) = self.task_spawn_import_metadata(program);
@@ -3250,7 +3521,7 @@ impl Compiler {
             class_env,
             preloaded_effect_op_signatures: self.effect_op_signatures.clone(),
             effect_row_aliases: self.effect_row_aliases.clone(),
-            preloaded_adt_data: self.repl_session_adt_data.clone(),
+            preloaded_adt_data: self.preloaded_adt_data_statements(),
         }
     }
 
@@ -4850,6 +5121,10 @@ impl Compiler {
             .interner
             .intern(crate::syntax::builtin_effects::FILESYSTEM);
         let stdin_effect = self.interner.intern(crate::syntax::builtin_effects::STDIN);
+        let env_effect = self.interner.intern(crate::syntax::builtin_effects::ENV);
+        let process_effect = self
+            .interner
+            .intern(crate::syntax::builtin_effects::PROCESS);
         let clock_effect = self.interner.intern(crate::syntax::builtin_effects::CLOCK);
         let inferred = self.contract_effect_sets();
 
@@ -4877,6 +5152,8 @@ impl Compiler {
                     && *effect != console_effect
                     && *effect != filesystem_effect
                     && *effect != stdin_effect
+                    && *effect != env_effect
+                    && *effect != process_effect
                     && *effect != clock_effect
                     && *effect != debug_effect
             })
@@ -5186,6 +5463,8 @@ impl Compiler {
                     crate::syntax::builtin_effects::CONSOLE
                         | crate::syntax::builtin_effects::FILESYSTEM
                         | crate::syntax::builtin_effects::STDIN
+                        | crate::syntax::builtin_effects::ENV
+                        | crate::syntax::builtin_effects::PROCESS
                         | crate::syntax::builtin_effects::CLOCK
                 )
             {
@@ -5797,6 +6076,7 @@ impl Compiler {
         let mut out = String::new();
         out.push_str("Aether Ownership Report\n");
         out.push_str("=======================\n\n");
+        out.push_str("Note: Reuses and FBIP describe the Aether planner. BorrowedCallGuards are native call-site Dup/Drop safeguards; guarded calls may suppress a callee's reuse for those arguments.\n\n");
 
         let mut total = crate::aether::AetherStats::default();
 
@@ -5808,6 +6088,7 @@ impl Compiler {
                 && stats.drop_specs == 0
                 && stats.performs == 0
                 && stats.handles == 0
+                && stats.guarded_borrowed_args == 0
                 && def.fip.is_none()
             {
                 continue;
@@ -5887,6 +6168,10 @@ impl Compiler {
 
                 let debug_details = collect_aether_debug_details(&def.expr, &self.interner);
                 out.push_str(&render_debug_lines("call sites", &debug_details.call_sites));
+                out.push_str(&render_debug_lines(
+                    "guarded borrowed-call arguments",
+                    &debug_details.guarded_borrowed_call_sites,
+                ));
                 out.push_str(&render_debug_lines("dups", &debug_details.dups));
                 out.push_str(&render_debug_lines("drops", &debug_details.drops));
                 out.push_str(&render_debug_lines("reuse", &debug_details.reuses));
@@ -5905,6 +6190,7 @@ impl Compiler {
             total.performs += stats.performs;
             total.handles += stats.handles;
             total.handler_arms += stats.handler_arms;
+            total.guarded_borrowed_args += stats.guarded_borrowed_args;
         }
 
         out.push_str(&format!(
@@ -7228,6 +7514,30 @@ impl Compiler {
 
     pub(super) fn resolve_visible_symbol(&mut self, name: Symbol) -> Option<Binding> {
         self.symbol_table.resolve(name)
+    }
+
+    /// Resolve a bare `name` to a sibling member of the enclosing module.
+    ///
+    /// Module members live in the symbol table under the qualified key
+    /// (`M.name`), so a bare-name lookup misses them. Callers use this to give
+    /// a local definition priority over a same-named builtin, which resolves
+    /// through a separate name+arity channel that never consults scope.
+    ///
+    /// Forward references are covered because `compile_module_statement`
+    /// predeclares every member under its qualified name (PASS 1) before any
+    /// body is compiled, so a call appearing above its definition still finds
+    /// the member here.
+    pub(super) fn current_module_member(&mut self, name: Symbol) -> Option<Binding> {
+        let prefix = self.current_module_prefix?;
+        let qualified = self.interner.intern_join(prefix, name);
+        self.resolve_visible_symbol(qualified)
+    }
+
+    /// Whether a bare `name` inside the current module names a sibling member,
+    /// and therefore shadows any same-named builtin. See
+    /// [`current_module_member`](Self::current_module_member).
+    pub(super) fn module_member_shadows_builtin(&mut self, name: Symbol) -> bool {
+        self.current_module_member(name).is_some()
     }
 
     pub(super) fn resolve_library_primop(

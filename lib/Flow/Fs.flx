@@ -1,0 +1,179 @@
+// Flow.Fs — filesystem access with recoverable errors.
+//
+// Fallible operations return `Result<a, IoError>` instead of aborting, so a
+// missing file is something the caller handles rather than a crash.
+//
+// The prelude's `read_file` still aborts and is unchanged.
+//
+// Inside `Flow.Async.run_async`, these same operations are scheduled on the
+// runtime's blocking filesystem pool and suspend the current fiber until the
+// host result is ready. Outside an async boundary their synchronous behavior
+// is unchanged.
+
+import Flow.IoError as IoError
+import Flow.Result as Result
+
+module Flow.Fs {
+
+    intrinsic fn try_read_file_prim(path: String) -> Result<String, IoError>
+        with FileSystem = primop TryReadFile
+
+    /// Read a whole file as text.
+    ///
+    /// Returns `Err` with kind `NotFound` when the path does not exist and
+    /// `PermissionDenied` when it cannot be opened, rather than aborting.
+    public fn read_file(path: String) -> Result<String, IoError> with FileSystem {
+        try_read_file_prim(path)
+    }
+
+    /// Read a file, falling back to `default` on any failure.
+    ///
+    /// A convenience for the common "config file is optional" shape, where the
+    /// distinction between missing and unreadable does not matter.
+    public fn read_file_or(path: String, default: String) -> String with FileSystem {
+        Result.unwrap_or_result(read_file(path), default)
+    }
+
+    // ── Predicates ────────────────────────────────────────────────────
+    //
+    // These return `Bool`, not `Result`: the answer can go stale before the
+    // caller acts on it. If you need to know *why* something failed, attempt
+    // the operation and read the `IoError`.
+
+    intrinsic fn fs_exists_prim(path: String) -> Bool with FileSystem = primop FsExists
+    intrinsic fn fs_is_dir_prim(path: String) -> Bool with FileSystem = primop FsIsDir
+    intrinsic fn fs_is_file_prim(path: String) -> Bool with FileSystem = primop FsIsFile
+
+    /// True when something exists at `path`.
+    public fn exists(path: String) -> Bool with FileSystem {
+        fs_exists_prim(path)
+    }
+
+    /// True when `path` exists and is a directory.
+    public fn is_dir(path: String) -> Bool with FileSystem {
+        fs_is_dir_prim(path)
+    }
+
+    /// True when `path` exists and is a regular file.
+    public fn is_file(path: String) -> Bool with FileSystem {
+        fs_is_file_prim(path)
+    }
+
+    // ── Mutation ──────────────────────────────────────────────────────
+
+    intrinsic fn fs_write_file_prim(path: String, contents: String)
+        -> Result<Unit, IoError> with FileSystem = primop FsWriteFile
+    intrinsic fn fs_create_dir_all_prim(path: String)
+        -> Result<Unit, IoError> with FileSystem = primop FsCreateDirAll
+    intrinsic fn fs_remove_file_prim(path: String)
+        -> Result<Unit, IoError> with FileSystem = primop FsRemoveFile
+    intrinsic fn fs_remove_dir_all_prim(path: String)
+        -> Result<Unit, IoError> with FileSystem = primop FsRemoveDirAll
+    intrinsic fn fs_rename_prim(from: String, to: String)
+        -> Result<Unit, IoError> with FileSystem = primop FsRename
+
+    /// Write text to `path`, replacing any existing file.
+    ///
+    /// The parent directory must already exist; use `create_dir_all` first if
+    /// that is not guaranteed.
+    public fn write_file(path: String, contents: String)
+        -> Result<Unit, IoError> with FileSystem {
+        fs_write_file_prim(path, contents)
+    }
+
+    /// Create `path` and any missing parent directories.
+    ///
+    /// Succeeds when the directory already exists, like `mkdir -p`, so callers
+    /// do not have to check first.
+    public fn create_dir_all(path: String) -> Result<Unit, IoError> with FileSystem {
+        fs_create_dir_all_prim(path)
+    }
+
+    /// Remove a single file.
+    public fn remove_file(path: String) -> Result<Unit, IoError> with FileSystem {
+        fs_remove_file_prim(path)
+    }
+
+    /// Remove a directory and everything beneath it.
+    public fn remove_dir_all(path: String) -> Result<Unit, IoError> with FileSystem {
+        fs_remove_dir_all_prim(path)
+    }
+
+    /// Rename `from` to `to`, atomically where the platform allows.
+    ///
+    /// Atomic rename is what makes "write to a temp path, then swap it in"
+    /// safe against concurrent writers. Renaming across filesystems is not
+    /// atomic and usually fails.
+    public fn rename(from: String, to: String) -> Result<Unit, IoError> with FileSystem {
+        fs_rename_prim(from, to)
+    }
+
+    // ── Inspection ────────────────────────────────────────────────────
+
+    intrinsic fn fs_list_dir_prim(path: String)
+        -> Result<Array<String>, IoError> with FileSystem = primop FsListDir
+
+    /// List the entries in a directory.
+    ///
+    /// Entries are bare file names, not full paths, and `.` and `..` are
+    /// excluded. Join them onto the directory with `Flow.Path.join` when you
+    /// need a usable path — that is the only place that knows the separator.
+    ///
+    /// The order is whatever the platform reports and is not guaranteed
+    /// stable; sort the result if you need determinism.
+    public fn list_dir(path: String) -> Result<Array<String>, IoError> with FileSystem {
+        fs_list_dir_prim(path)
+    }
+
+    /// What `metadata` reports about a path.
+    ///
+    /// `size` is in bytes and is meaningful only for files. `modified` is
+    /// milliseconds since the Unix epoch, and is `0` when the platform does
+    /// not record one.
+    ///
+    /// Comparing `modified` between runs is fine; hashing it is not — a build
+    /// cache keyed on an mtime is not reproducible.
+    public data FileMeta {
+        FileMeta { size: Int, modified: Int, is_dir: Bool, is_file: Bool }
+    }
+
+    intrinsic fn fs_metadata_prim(path: String)
+        -> Result<FileMeta, IoError> with FileSystem = primop FsMetadata
+
+    /// Stat a path, following symlinks.
+    ///
+    /// Prefer this over calling `is_dir` and `is_file` separately when you
+    /// want several facts at once: it is one syscall, and the answers are
+    /// consistent with each other rather than sampled at different moments.
+    public fn metadata(path: String) -> Result<FileMeta, IoError> with FileSystem {
+        fs_metadata_prim(path)
+    }
+
+    /// The size of a file in bytes.
+    public fn file_size(meta: FileMeta) -> Int {
+        match meta {
+            FileMeta { size, modified: _, is_dir: _, is_file: _ } -> size,
+        }
+    }
+
+    /// Milliseconds since the Unix epoch, or `0` when unavailable.
+    public fn modified_time(meta: FileMeta) -> Int {
+        match meta {
+            FileMeta { size: _, modified, is_dir: _, is_file: _ } -> modified,
+        }
+    }
+
+    /// True when the stat'd path is a directory.
+    public fn meta_is_dir(meta: FileMeta) -> Bool {
+        match meta {
+            FileMeta { size: _, modified: _, is_dir, is_file: _ } -> is_dir,
+        }
+    }
+
+    /// True when the stat'd path is a regular file.
+    public fn meta_is_file(meta: FileMeta) -> Bool {
+        match meta {
+            FileMeta { size: _, modified: _, is_dir: _, is_file } -> is_file,
+        }
+    }
+}

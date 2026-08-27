@@ -21,16 +21,22 @@ use std::process::Command;
 #[cfg(feature = "llvm")]
 use std::time::Duration;
 
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
 
 fn run_flux_test(fixture: &str) -> (String, bool) {
     let path = workspace_root().join("tests").join("flux").join(fixture);
+    let scratch = Scratch::new("cache-isolated");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .env("FLUX_WORKERS", "4")
         .args(["--test", path.to_str().unwrap(), "--no-cache"])
+        .args(scratch.cache_args())
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux --test on {fixture}: {e}"));
 
@@ -54,10 +60,12 @@ fn run_flux_source(source: &str) -> (String, String, bool) {
     let path = dir.join("flow_task_d1.flx");
     std::fs::write(&path, source).expect("write Flow.Task D1 fixture");
 
+    let scratch = Scratch::new("cache-isolated");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .env("FLUX_WORKERS", "4")
         .args([path.to_str().unwrap(), "--no-cache"])
+        .args(scratch.cache_args())
         .output()
         .expect("run flux on Flow.Task D1 fixture");
 
@@ -82,10 +90,12 @@ fn run_flux_source_native(source: &str, tag: &str) -> (String, String, bool) {
     let path = dir.join("flow_task_native_source.flx");
     std::fs::write(&path, source).expect("write native Flow.Task fixture");
 
+    let scratch = Scratch::new("cache-isolated");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .env("FLUX_WORKERS", "4")
         .args([path.to_str().unwrap(), "--native", "--no-cache"])
+        .args(scratch.cache_args())
         .output()
         .expect("run native flux on Flow.Task fixture");
 
@@ -118,10 +128,12 @@ fn run_flux_source_native_with_timeout(
     let path = dir.join("flow_task_native_source.flx");
     std::fs::write(&path, source).expect("write native Flow.Task fixture");
 
+    let scratch = Scratch::new("cache-isolated");
     let child = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .env("FLUX_WORKERS", "4")
         .args([path.to_str().unwrap(), "--native", "--no-cache"])
+        .args(scratch.cache_args())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -655,9 +667,11 @@ fn main() with IO {
     )
     .expect("write main.flx fixture");
 
+    let scratch = Scratch::new("cache-isolated");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([main_path.to_str().unwrap(), "--no-cache", "--dump-cfg"])
+        .args(scratch.cache_args())
         .output()
         .expect("run non-task spawn fixture");
     let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
@@ -680,9 +694,11 @@ fn flow_task_native_compiles_and_passes() {
         .join("tests")
         .join("flux")
         .join("flow_task_native.flx");
+    let scratch = Scratch::new("cache-isolated");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args(["--test", path.to_str().unwrap(), "--native", "--no-cache"])
+        .args(scratch.cache_args())
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux --test --native: {e}"));
 

@@ -38,6 +38,10 @@ pub struct DriverRuntimeFlags {
     /// Set by surfaces that recompile on every interaction (the REPL), where the
     /// progress chatter is noise rather than feedback.
     pub quiet: bool,
+    /// Run the frontend and compile, but stop before executing the program.
+    /// Backs `flux build` and `flux check`: both need every compile-time error
+    /// surfaced without running `main`.
+    pub check_only: bool,
 }
 
 /// Dump and inspection surfaces emitted by the driver.
@@ -64,6 +68,17 @@ pub struct DriverDiagnosticFlags {
 pub struct DriverCacheFlags {
     pub cache_dir: Option<PathBuf>,
     pub no_cache: bool,
+    /// Forbid network access while resolving dependencies. Backs `--offline`.
+    pub offline: bool,
+    /// Make any change to `flux.lock` an error. Backs `--locked`.
+    pub locked: bool,
+    /// Also remove downloaded git dependencies. Backs `flux clean --deps`.
+    /// Separate from the build cache because refetching costs the network,
+    /// while recompiling costs only CPU — so the two are worth clearing on
+    /// different occasions.
+    pub clean_deps: bool,
+    /// Remove the global content-addressed build-artifact store.
+    pub clean_store: bool,
 }
 
 /// Frontend/lowering semantic knobs that affect compilation behavior.
@@ -72,6 +87,23 @@ pub struct DriverLanguageFlags {
     pub enable_optimize: bool,
     pub enable_analyze: bool,
     pub strict_mode: bool,
+}
+
+/// The selected package build profile and the parse-time overrides that must
+/// remain available until the package manifest has been resolved.
+#[derive(Debug, Clone, Default)]
+pub struct DriverProfileFlags {
+    pub name: Option<String>,
+    pub resolved: Option<Profile>,
+    pub cli_use_llvm: Option<bool>,
+    pub cli_optimize: Option<bool>,
+}
+
+/// Concrete settings returned by the Flume profile resolver.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Profile {
+    pub backend: Backend,
+    pub optimize: bool,
 }
 
 /// All per-invocation driver options, grouped by concern.
@@ -87,6 +119,7 @@ pub struct DriverFlags {
     pub diagnostics: DriverDiagnosticFlags,
     pub cache: DriverCacheFlags,
     pub language: DriverLanguageFlags,
+    pub profile: DriverProfileFlags,
 }
 
 impl DriverFlags {

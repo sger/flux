@@ -10,7 +10,10 @@ import Flow.Array as Array
 module Flow.List {
 
     /// Apply `f` to every element, returning a new list of the results.
-    public fn map<a, b>(xs: List<a>, f: (a) -> b) -> List<b> {
+    ///
+    /// Effect-row polymorphic: `f` may perform effects, and they propagate to
+    /// the caller. Without the `|e` row this would be fixed to pure functions.
+    public fn map<a, b>(xs: List<a>, f: ((a) -> b with |e)) -> List<b> with |e {
         fn map_acc(ys, acc) {
             match ys {
                 [h | t] -> map_acc(t, [f(h) | acc]),
@@ -21,7 +24,9 @@ module Flow.List {
     }
 
     /// Keep only the elements for which `pred` returns `true`.
-    public fn filter<a>(xs: List<a>, pred: (a) -> Bool) -> List<a> {
+    ///
+    /// Effect-row polymorphic, like `map`.
+    public fn filter<a>(xs: List<a>, pred: ((a) -> Bool with |e)) -> List<a> with |e {
         fn filter_acc(ys, acc) {
             match ys {
                 [h | t] -> if pred(h) { filter_acc(t, [h | acc]) } else { filter_acc(t, acc) },

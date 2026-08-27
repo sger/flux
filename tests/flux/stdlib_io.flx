@@ -1,0 +1,111 @@
+// Tests for Flow.IoError.
+//
+// Flow.IoError is pure: it declares the error type every fallible OS operation will
+// report and the helpers for inspecting one. No filesystem access, no effects,
+// so these tests are hermetic.
+//
+// The invariant worth protecting is that callers branch on `kind` and never on
+// `message` — `message` is explicitly not a compatibility surface.
+
+import Flow.IoError as Io
+import Flow.Result as Result
+
+// ── construction and accessors ─────────────────────────────────
+
+fn test_io_error_round_trips_its_three_fields() {
+    let e = Io.io_error(NotFound, "no such file", "/tmp/x")
+    assert_eq(Io.kind_name(Io.error_kind(e)), "NotFound")
+    assert_eq(Io.error_message(e), "no such file")
+    assert_eq(Io.error_path(e), "/tmp/x")
+}
+
+fn test_io_error_no_path_leaves_the_path_empty() {
+    let e = Io.io_error_no_path(Other, "bad")
+    assert_eq(Io.error_path(e), "")
+    assert_eq(Io.error_message(e), "bad")
+}
+
+// ── classification ─────────────────────────────────────────────
+
+fn test_is_not_found_only_matches_not_found() {
+    assert_true(Io.is_not_found(Io.io_error(NotFound, "m", "p")))
+    assert_false(Io.is_not_found(Io.io_error(PermissionDenied, "m", "p")))
+    assert_false(Io.is_not_found(Io.io_error(Other, "m", "p")))
+}
+
+fn test_is_permission_denied_only_matches_permission_denied() {
+    assert_true(Io.is_permission_denied(Io.io_error(PermissionDenied, "m", "p")))
+    assert_false(Io.is_permission_denied(Io.io_error(NotFound, "m", "p")))
+}
+
+fn test_is_already_exists_only_matches_already_exists() {
+    assert_true(Io.is_already_exists(Io.io_error(AlreadyExists, "m", "p")))
+    assert_false(Io.is_already_exists(Io.io_error(NotFound, "m", "p")))
+}
+
+fn test_only_interrupted_is_retryable() {
+    assert_true(Io.is_retryable(Io.io_error(Interrupted, "m", "p")))
+    assert_false(Io.is_retryable(Io.io_error(NotFound, "m", "p")))
+    assert_false(Io.is_retryable(Io.io_error(PermissionDenied, "m", "p")))
+    assert_false(Io.is_retryable(Io.io_error(Other, "m", "p")))
+}
+
+// ── rendering ──────────────────────────────────────────────────
+
+fn test_kind_name_covers_every_kind() {
+    assert_eq(Io.kind_name(NotFound), "NotFound")
+    assert_eq(Io.kind_name(PermissionDenied), "PermissionDenied")
+    assert_eq(Io.kind_name(AlreadyExists), "AlreadyExists")
+    assert_eq(Io.kind_name(NotADirectory), "NotADirectory")
+    assert_eq(Io.kind_name(IsADirectory), "IsADirectory")
+    assert_eq(Io.kind_name(DirectoryNotEmpty), "DirectoryNotEmpty")
+    assert_eq(Io.kind_name(Interrupted), "Interrupted")
+    assert_eq(Io.kind_name(Other), "Other")
+}
+
+fn test_describe_includes_the_path_when_there_is_one() {
+    let e = Io.io_error(NotFound, "no such file", "/tmp/x")
+    assert_eq(Io.describe(e), "NotFound: no such file (/tmp/x)")
+}
+
+fn test_describe_omits_the_parenthesised_path_when_empty() {
+    let e = Io.io_error_no_path(Other, "bad")
+    assert_eq(Io.describe(e), "Other: bad")
+}
+
+// ── composition with Result ────────────────────────────────────
+
+fn test_io_error_composes_as_the_error_half_of_a_result() {
+    let ok: Result<Int, IoError> = Ok(1)
+    let bad: Result<Int, IoError> = Err(Io.io_error(NotFound, "gone", "/p"))
+    assert_true(Result.is_ok(ok))
+    assert_true(Result.is_err(bad))
+    assert_eq(Result.unwrap_or_result(bad, 0), 0)
+    assert_eq(Io.error_path(Result.unwrap_err_result(bad)), "/p")
+}
+
+fn test_a_caller_can_recover_by_branching_on_kind() {
+    fn read_or_default(r: Result<Int, IoError>) -> Int {
+        match r {
+            Ok(v) -> v,
+            Err(e) -> match Io.is_not_found(e) {
+                true -> 0,
+                false -> -1,
+            },
+        }
+    }
+    assert_eq(read_or_default(Ok(5)), 5)
+    assert_eq(read_or_default(Err(Io.io_error(NotFound, "m", "p"))), 0)
+    assert_eq(read_or_default(Err(Io.io_error(PermissionDenied, "m", "p"))), -1)
+}
+
+// ── direct pattern matching ────────────────────────────────────
+
+fn test_callers_may_match_the_record_directly() {
+    let e = Io.io_error(AlreadyExists, "exists", "/d")
+    match e {
+        IoError { kind, message, path } ->
+            assert_eq(Io.kind_name(kind) + "|" + message + "|" + path,
+                      "AlreadyExists|exists|/d"),
+    }
+}

@@ -1,4 +1,5 @@
 use crate::{
+    aether::AetherExpr,
     cfg::{IrBinaryOp, IrCallTarget, IrConst, IrExpr, IrInstr, IrMetadata, IrStringPart, IrVar},
     core::{CoreExpr, CoreLit, CorePrimOp},
     diagnostics::position::Span,
@@ -16,6 +17,24 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
         CorePrimOp::Println => "println",
         CorePrimOp::DebugTrace => "__primop_debug_trace",
         CorePrimOp::ReadFile => "read_file",
+        CorePrimOp::TryReadFile => "try_read_file",
+        CorePrimOp::FsExists => "fs_exists",
+        CorePrimOp::FsIsDir => "fs_is_dir",
+        CorePrimOp::FsIsFile => "fs_is_file",
+        CorePrimOp::FsCreateDirAll => "fs_create_dir_all",
+        CorePrimOp::FsRemoveFile => "fs_remove_file",
+        CorePrimOp::FsRemoveDirAll => "fs_remove_dir_all",
+        CorePrimOp::FsWriteFile => "fs_write_file",
+        CorePrimOp::FsRename => "fs_rename",
+        CorePrimOp::FsListDir => "fs_list_dir",
+        CorePrimOp::FsMetadata => "fs_metadata",
+        CorePrimOp::Sha256 => "sha256",
+        CorePrimOp::Sha256File => "sha256_file",
+        CorePrimOp::EnvVar => "env_var",
+        CorePrimOp::EnvArgs => "env_args",
+        CorePrimOp::EnvCwd => "env_cwd",
+        CorePrimOp::EnvHomeDir => "env_home_dir",
+        CorePrimOp::ProcRun => "proc_run",
         CorePrimOp::WriteFile => "write_file",
         CorePrimOp::ReadStdin => "read_stdin",
         CorePrimOp::ReadLines => "read_lines",
@@ -167,6 +186,85 @@ fn promoted_primop_name(op: &CorePrimOp) -> &'static str {
 }
 
 impl<'a> super::fn_ctx::FnCtx<'a> {
+    /// Lower an Aether primop without erasing embedded Dup/Drop nodes.
+    ///
+    /// Collection constructors own their elements, so the Aether planner may
+    /// place a Dup directly around a pattern field argument.  Converting that
+    /// tree through `AetherExpr::into_core()` would erase the backend-only
+    /// ownership node.  The collection cases therefore lower their arguments
+    /// through `lower_expr_aether`; other primops retain the existing Core
+    /// lowering path because they cannot receive these constructor-owned
+    /// field expressions.
+    pub(super) fn lower_primop_aether(
+        &mut self,
+        op: &CorePrimOp,
+        args: &[AetherExpr],
+        span: Span,
+    ) -> IrVar {
+        match op {
+            CorePrimOp::MakeList
+            | CorePrimOp::MakeArray
+            | CorePrimOp::MakeTuple
+            | CorePrimOp::MakeHash => {
+                let dest = self.ctx.alloc_var();
+                let meta = IrMetadata::from_span(span);
+                match op {
+                    CorePrimOp::MakeList => {
+                        let values = args.iter().map(|arg| self.lower_expr_aether(arg)).collect();
+                        self.emit(IrInstr::Assign {
+                            dest,
+                            expr: IrExpr::MakeList(values),
+                            metadata: meta,
+                        });
+                    }
+                    CorePrimOp::MakeArray => {
+                        let values = args.iter().map(|arg| self.lower_expr_aether(arg)).collect();
+                        self.emit(IrInstr::Assign {
+                            dest,
+                            expr: IrExpr::MakeArray(values),
+                            metadata: meta,
+                        });
+                    }
+                    CorePrimOp::MakeTuple => {
+                        let values = args.iter().map(|arg| self.lower_expr_aether(arg)).collect();
+                        self.emit(IrInstr::Assign {
+                            dest,
+                            expr: IrExpr::MakeTuple(values),
+                            metadata: meta,
+                        });
+                    }
+                    CorePrimOp::MakeHash => {
+                        let pairs = args
+                            .chunks(2)
+                            .map(|chunk| {
+                                (
+                                    self.lower_expr_aether(&chunk[0]),
+                                    self.lower_expr_aether(&chunk[1]),
+                                )
+                            })
+                            .collect();
+                        self.emit(IrInstr::Assign {
+                            dest,
+                            expr: IrExpr::MakeHash(pairs),
+                            metadata: meta,
+                        });
+                    }
+                    _ => unreachable!(),
+                }
+                dest
+            }
+            _ => self.lower_primop(
+                op,
+                &args
+                    .iter()
+                    .cloned()
+                    .map(AetherExpr::into_core)
+                    .collect::<Vec<_>>(),
+                span,
+            ),
+        }
+    }
+
     /// Lower a `PrimOp` node.
     pub(super) fn lower_primop(&mut self, op: &CorePrimOp, args: &[CoreExpr], span: Span) -> IrVar {
         let dest = self.ctx.alloc_var();
@@ -299,6 +397,24 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             | CorePrimOp::Println
             | CorePrimOp::DebugTrace
             | CorePrimOp::ReadFile
+            | CorePrimOp::TryReadFile
+            | CorePrimOp::FsExists
+            | CorePrimOp::FsIsDir
+            | CorePrimOp::FsIsFile
+            | CorePrimOp::FsCreateDirAll
+            | CorePrimOp::FsRemoveFile
+            | CorePrimOp::FsRemoveDirAll
+            | CorePrimOp::FsWriteFile
+            | CorePrimOp::FsRename
+            | CorePrimOp::FsListDir
+            | CorePrimOp::FsMetadata
+            | CorePrimOp::Sha256
+            | CorePrimOp::Sha256File
+            | CorePrimOp::EnvVar
+            | CorePrimOp::EnvArgs
+            | CorePrimOp::EnvCwd
+            | CorePrimOp::EnvHomeDir
+            | CorePrimOp::ProcRun
             | CorePrimOp::WriteFile
             | CorePrimOp::ReadStdin
             | CorePrimOp::ReadLines

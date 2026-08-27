@@ -1,0 +1,351 @@
+// Flume.Build.Interpreter — effectful interpreters for Build.Plan.
+//
+// The plan module is pure data. This module is the only place that turns a
+// graph request into filesystem, process, store, Git, or console activity.
+
+import Flow.Fs as Fs
+import Flow.List as List
+import Flow.Result as Result
+import Flow.IoError as Io
+import Flow.Path as Path
+import Flume.Error as Error
+import Flume.Build.Plan as Plan
+import Flume.Build.Plan exposing (GraphPlan, GraphRequest, GraphResponse, GraphRoot, Pure, Request, ReadManifest, IsDirectory, ReadIndex, ReadLock, FetchGit, WriteLock, ReportFetched, LocatePackage, ManifestRead, DirectoryChecked, IndexRead, LockRead, GitFetched, LockWritten, FetchReported, PackageLocated)
+import Flume.Source.Store as Store
+import Flume.Source.Git as Git
+import Flume.Schema.Manifest as Manifest
+import Flume.Schema.Index as Index
+import Flume.Schema.Lock exposing (Lock)
+
+module Flume.Build.Interpreter {
+
+    fn unit_value() -> Unit {}
+
+    /// Interpret a pure graph plan with the production package-manager
+    /// effects. A response error is kept in the response so the continuation
+    /// decides whether it can recover; interpreter failures never bypass the
+    /// plan's own control flow.
+    public fn run<a>(plan: GraphPlan<a>) -> Result<a, FlumeError> with IO {
+        match plan {
+            Pure { value } -> Ok(value),
+            Request { operation, next } -> execute(operation, next),
+        }
+    }
+
+    fn execute<a>(
+        operation: GraphRequest,
+        next: (GraphResponse) -> GraphPlan<a>,
+    ) -> Result<a, FlumeError> with IO {
+        match operation {
+            ReadManifest { path } -> run(next(read_manifest(path))),
+            IsDirectory { path } -> run(next(directory_checked(path))),
+            ReadIndex { names } -> run(next(index_read(names))),
+            ReadLock { project_dir } -> run(next(lock_read(project_dir))),
+            FetchGit { source, name: _, locked, offline } ->
+                run(next(git_fetched(source, locked, offline))),
+            WriteLock { project_dir, lock } -> run(next(lock_written(project_dir, lock))),
+            ReportFetched { checkout } -> run(next(report_fetched(checkout))),
+            LocatePackage { name, version } -> run(next(package_located(name, version))),
+        }
+    }
+
+    fn read_manifest(path: String) -> GraphResponse with IO {
+        match Fs.read_file(path) {
+            Err(problem) -> ManifestRead { value: Err(Error.io_error(problem)) },
+            Ok(text) -> ManifestRead { value: Ok(text) },
+        }
+    }
+
+    fn directory_checked(path: String) -> GraphResponse with IO {
+        DirectoryChecked { value: Fs.is_dir(path) }
+    }
+
+    fn index_read(names: List<String>) -> GraphResponse with IO {
+        IndexRead {
+            value: Result.map_err_result(
+                Store.read_index(names),
+                Error.resolution_error,
+            ),
+        }
+    }
+
+    fn lock_read(project_dir: String) -> GraphResponse with IO {
+        LockRead {
+            value: Result.map_err_result(
+                Store.read_lock(project_dir),
+                Error.lock_error,
+            ),
+        }
+    }
+
+    fn git_fetched(
+        source,
+        locked: Option<String>,
+        offline: Bool,
+    ) -> GraphResponse with IO {
+        let result = if offline {
+            Git.fetch_offline(source, locked)
+        } else {
+            Git.fetch_locked(source, locked)
+        }
+        GitFetched {
+            value: Result.map_err_result(result, Error.git_error),
+        }
+    }
+
+    fn lock_written(project_dir: String, lock) -> GraphResponse with IO {
+        LockWritten {
+            value: Result.map_result(
+                Result.map_err_result(Store.write_lock(project_dir, lock), Error.lock_error),
+                \_ -> unit_value(),
+            ),
+        }
+    }
+
+    fn report_fetched(checkout) -> GraphResponse with IO {
+        if Git.checkout_fetched(checkout) {
+            print(
+                "fetched\t" + Git.checkout_url(checkout)
+                    + "\t" + Git.checkout_commit(checkout),
+            )
+        }
+        FetchReported { value: Ok(unit_value()) }
+    }
+
+    fn package_located(name: String, version: String) -> GraphResponse with IO {
+        let dir = Store.package_dir(name, version)
+        if !Fs.is_dir(dir) {
+            PackageLocated {
+                value: Err(Error.resolution_error(
+                    "`" + name + "` " + version + " is resolved but its sources are not in " + dir,
+                )),
+            }
+        } else {
+            let source = Path.join(dir, "src")
+            PackageLocated {
+                value: Ok(GraphRoot {
+                    package: name,
+                    namespace: Manifest.derive_namespace(name),
+                    dir: if Fs.is_dir(source) { source } else { dir },
+                }),
+            }
+        }
+    }
+
+    // ── deterministic fake interpreter ───────────────────────────────
+
+    /// Fixture-backed inputs for tests. Lists keep the fake pure and make
+    /// request fixtures easy to construct directly in Flux tests.
+    public data FakeEnvironment {
+        FakeEnvironment {
+            files: List<(String, String)>,
+            directories: List<String>,
+            indexes: List<(String, List<Published>)>,
+            locks: List<(String, Option<Lock>)>,
+            checkouts: List<(String, Checkout)>,
+        }
+    }
+
+    public data FakeRun<a> {
+        FakeRun { result: Result<a, FlumeError>, requests: List<GraphRequest> }
+    }
+
+    public fn fake_environment(
+        files: List<(String, String)>,
+        directories: List<String>,
+        indexes: List<(String, List<Published>)>,
+        locks: List<(String, Option<Lock>)>,
+        checkouts: List<(String, Checkout)>,
+    ) -> FakeEnvironment {
+        FakeEnvironment {
+            files: files,
+            directories: directories,
+            indexes: indexes,
+            locks: locks,
+            checkouts: checkouts,
+        }
+    }
+
+    /// Interpret a plan without granting any effects. The request trace is
+    /// returned in execution order so tests can assert that failed plans do
+    /// not issue later operations.
+    public fn run_fake<a>(plan: GraphPlan<a>, env: FakeEnvironment) -> FakeRun<a> {
+        match plan {
+            Pure { value } -> FakeRun { result: Ok(value), requests: [] },
+            Request { operation, next } -> run_fake_request(operation, next, env),
+        }
+    }
+
+    fn run_fake_request<a>(
+        operation: GraphRequest,
+        next: (GraphResponse) -> GraphPlan<a>,
+        env: FakeEnvironment,
+    ) -> FakeRun<a> {
+        let response = fake_response(operation, env)
+        let tail = run_fake(next(response), env)
+        FakeRun {
+            result: fake_result(tail),
+            requests: [operation | fake_requests(tail)],
+        }
+    }
+
+    public fn fake_result<a>(run: FakeRun<a>) -> Result<a, FlumeError> {
+        match run { FakeRun { result, requests: _ } -> result }
+    }
+
+    public fn fake_requests<a>(run: FakeRun<a>) -> List<GraphRequest> {
+        match run { FakeRun { result: _, requests } -> requests }
+    }
+
+    fn fake_response(operation: GraphRequest, env: FakeEnvironment) -> GraphResponse {
+        match operation {
+            ReadManifest { path } -> match fake_file(path, fake_files(env)) {
+                None -> ManifestRead {
+                    value: Err(Error.io_error(Io.io_error(NotFound, "fake file not found", path))),
+                },
+                Some(text) -> ManifestRead { value: Ok(text) },
+            },
+            IsDirectory { path } ->
+                DirectoryChecked { value: List.contains(fake_directories(env), path) },
+            ReadIndex { names } -> IndexRead {
+                value: Ok(fake_index(names, fake_indexes(env))),
+            },
+            ReadLock { project_dir } -> LockRead {
+                value: Ok(fake_lock(project_dir, fake_locks(env))),
+            },
+            FetchGit { source, name, locked: _, offline: _ } -> fake_git_response(source, name, fake_checkouts(env)),
+            WriteLock { project_dir: _, lock: _ } -> LockWritten { value: Ok(unit_value()) },
+            ReportFetched { checkout: _ } -> FetchReported { value: Ok(unit_value()) },
+            LocatePackage { name, version } -> fake_package_location(name, version, fake_directories(env)),
+        }
+    }
+
+    fn fake_package_location(
+        name: String,
+        version: String,
+        directories: List<String>,
+    ) -> GraphResponse {
+        let dir = name + "/" + version
+        let source = dir + "/src"
+        if List.contains(directories, source) {
+            PackageLocated {
+                value: Ok(GraphRoot {
+                    package: name,
+                    namespace: Manifest.derive_namespace(name),
+                    dir: source,
+                }),
+            }
+        } else if List.contains(directories, dir) {
+            PackageLocated {
+                value: Ok(GraphRoot {
+                    package: name,
+                    namespace: Manifest.derive_namespace(name),
+                    dir: dir,
+                }),
+            }
+        } else {
+            PackageLocated {
+                value: Err(Error.resolution_error(
+                    "fake package sources not found for `" + name + "` " + version,
+                )),
+            }
+        }
+    }
+
+    fn fake_git_response(
+        source: GitSource,
+        name: String,
+        checkouts: List<(String, Checkout)>,
+    ) -> GraphResponse {
+        let url = Manifest.git_source_url(source)
+        match fake_checkout(url, checkouts) {
+            None -> GitFetched {
+                value: Err(Error.git_error("fake checkout not found for " + name)),
+            },
+            Some(checkout) -> GitFetched { value: Ok(checkout) },
+        }
+    }
+
+    fn fake_files(env: FakeEnvironment) -> List<(String, String)> {
+        match env {
+            FakeEnvironment { files, directories: _, indexes: _, locks: _, checkouts: _ } -> files,
+        }
+    }
+
+    fn fake_directories(env: FakeEnvironment) -> List<String> {
+        match env {
+            FakeEnvironment { files: _, directories, indexes: _, locks: _, checkouts: _ } -> directories,
+        }
+    }
+
+    fn fake_indexes(env: FakeEnvironment) -> List<(String, List<Published>)> {
+        match env {
+            FakeEnvironment { files: _, directories: _, indexes, locks: _, checkouts: _ } -> indexes,
+        }
+    }
+
+    fn fake_locks(env: FakeEnvironment) -> List<(String, Option<Lock>)> {
+        match env {
+            FakeEnvironment { files: _, directories: _, indexes: _, locks, checkouts: _ } -> locks,
+        }
+    }
+
+    fn fake_checkouts(env: FakeEnvironment) -> List<(String, Checkout)> {
+        match env {
+            FakeEnvironment { files: _, directories: _, indexes: _, locks: _, checkouts } -> checkouts,
+        }
+    }
+
+    fn fake_file(path: String, files: List<(String, String)>) -> Option<String> {
+        match files {
+            [] -> None,
+            [(found, text) | rest] -> if found == path { Some(text) } else { fake_file(path, rest) },
+        }
+    }
+
+    fn fake_index(
+        names: List<String>,
+        indexes: List<(String, List<Published>)>,
+    ) -> List<Published> {
+        match names {
+            [] -> [],
+            [name | rest] -> List.concat([fake_index_one(name, indexes), fake_index(rest, indexes)]),
+        }
+    }
+
+    fn fake_index_one(
+        name: String,
+        indexes: List<(String, List<Published>)>,
+    ) -> List<Published> {
+        match indexes {
+            [] -> [],
+            [(found, entries) | rest] -> if found == name { entries } else {
+                fake_index_one(name, rest)
+            },
+        }
+    }
+
+    fn fake_lock(
+        project_dir: String,
+        locks: List<(String, Option<Lock>)>,
+    ) -> Option<Lock> {
+        match locks {
+            [] -> None,
+            [(found, lock) | rest] -> if found == project_dir { lock } else {
+                fake_lock(project_dir, rest)
+            },
+        }
+    }
+
+    fn fake_checkout(
+        url: String,
+        checkouts: List<(String, Checkout)>,
+    ) -> Option<Checkout> {
+        match checkouts {
+            [] -> None,
+            [(found, checkout) | rest] -> if found == url { Some(checkout) } else {
+                fake_checkout(url, rest)
+            },
+        }
+    }
+}

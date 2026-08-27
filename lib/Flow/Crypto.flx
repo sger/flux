@@ -1,0 +1,56 @@
+// Flow.Crypto — cryptographic hashing.
+//
+// SHA-256 only, for now. The motivating use is content addressing: naming an
+// artifact by the hash of its bytes, so a store can tell two downloads apart
+// without trusting their filenames (proposal 0177).
+//
+// Hashing a value is pure — same input, same output, nothing observed outside
+// the argument — so `sha256` carries no effect. `sha256_file` reads the
+// filesystem and says so.
+//
+// Not a general crypto library: no signing, no encryption, no MACs. Do not
+// use `sha256` to store passwords; a general-purpose hash is the wrong tool
+// for that, and a password hash needs a work factor this does not have.
+
+import Flow.IoError as IoError
+import Flow.Result as Result
+
+module Flow.Crypto {
+
+    intrinsic fn sha256_prim(bytes: String) -> String = primop Sha256
+
+    /// The SHA-256 digest of `bytes`, as 64 lowercase hex characters.
+    ///
+    /// The output matches what `sha256sum` and `git hash-object` print, so a
+    /// digest computed here can be compared against other tools directly.
+    ///
+    /// Pure: no effect annotation is needed to call it.
+    public fn sha256(bytes: String) -> String {
+        sha256_prim(bytes)
+    }
+
+    intrinsic fn sha256_file_prim(path: String)
+        -> Result<String, IoError> with FileSystem = primop Sha256File
+
+    /// The SHA-256 digest of a file's contents, as lowercase hex.
+    ///
+    /// Reads the file in chunks rather than loading it whole, so hashing a
+    /// large artifact costs a fixed buffer instead of its full size in
+    /// memory. That is the reason to prefer this over
+    /// `sha256(Fs.read_file(path))`, which must hold the entire file.
+    ///
+    /// The digest is of the raw bytes, so it agrees with `sha256` on the same
+    /// content only when that content is valid UTF-8 text.
+    public fn sha256_file(path: String) -> Result<String, IoError> with FileSystem {
+        sha256_file_prim(path)
+    }
+
+    /// True when `bytes` hashes to `expected`.
+    ///
+    /// Compares digests, not contents, so it is the cheap way to check an
+    /// artifact against a manifest. The comparison is not constant-time and
+    /// is not meant for secrets — it is for integrity, not authentication.
+    public fn verify_sha256(bytes: String, expected: String) -> Bool {
+        sha256(bytes) == expected
+    }
+}

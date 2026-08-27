@@ -14,6 +14,10 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
@@ -39,6 +43,7 @@ fn run_native(fixture: &str) -> (String, bool) {
     let _ = std::fs::create_dir_all(&run_dir);
     let output_path = run_dir.join("program");
     let cache_dir = run_dir.join("cache");
+    let scratch = Scratch::new("cache-isolated");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([
@@ -50,6 +55,7 @@ fn run_native(fixture: &str) -> (String, bool) {
             "--cache-dir",
             cache_dir.to_string_lossy().as_ref(),
         ])
+        .args(scratch.cache_args())
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux --native on {fixture}: {e}"));
 
@@ -63,9 +69,11 @@ fn run_native(fixture: &str) -> (String, bool) {
 /// Run a Flux program with the VM backend and return stdout.
 fn run_vm(fixture: &str) -> String {
     let path = workspace_root().join("tests").join("parity").join(fixture);
+    let scratch = Scratch::new("cache-isolated");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--no-cache"])
+        .args(scratch.cache_args())
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux on {fixture}: {e}"));
 

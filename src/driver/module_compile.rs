@@ -83,6 +83,12 @@ pub(crate) fn build_module_compiler(
     compiler.set_current_module_kind(node.kind);
     compiler.set_strict_require_main(is_entry_module);
     compiler.set_strict_mode(strict_mode);
+    // Number every module's constructors before compiling this one, in a
+    // fixed path order. Each module is compiled by its own `Compiler`, so
+    // without a shared numbering the same constructor is tagged differently
+    // in different objects and a value built in one module fails to match in
+    // another.
+    seed_native_constructor_tags(&mut compiler, nodes_by_path);
     for dep in &node.imports {
         if let Some(interface) = loaded_interfaces.get(&dep.target_path) {
             compiler.preload_module_interface(interface);
@@ -110,6 +116,22 @@ pub(crate) fn build_module_compiler(
         }
     }
     compiler
+}
+
+/// Give `compiler` one constructor-tag numbering covering every module in the
+/// build, assigned in sorted path order so it does not depend on map iteration
+/// order or on which modules a given module imports.
+fn seed_native_constructor_tags(
+    compiler: &mut Compiler,
+    nodes_by_path: &HashMap<PathBuf, ModuleNode>,
+) {
+    let mut paths: Vec<&PathBuf> = nodes_by_path.keys().collect();
+    paths.sort();
+    for path in paths {
+        if let Some(node) = nodes_by_path.get(path) {
+            compiler.seed_native_constructor_tags(&node.program);
+        }
+    }
 }
 
 pub(crate) fn effective_module_strictness(

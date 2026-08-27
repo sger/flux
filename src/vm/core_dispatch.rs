@@ -10,7 +10,9 @@ use std::time::{Instant, SystemTime};
 
 use crate::core::CorePrimOp;
 use crate::runtime::RuntimeContext;
-use crate::runtime::r#async::backend::AsyncBackend;
+use crate::runtime::r#async::backend::{
+    AsyncBackend, FsCompletion, FsError, FsErrorKind, FsOperation,
+};
 use crate::runtime::r#async::fiber_trace::{self, FiberEvent};
 use crate::runtime::hamt as rc_hamt;
 use crate::runtime::hash_key::HashKey;
@@ -278,7 +280,9 @@ mod vm_async {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use crate::runtime::r#async::backend::{AsyncBackend, RequestId};
-    use crate::runtime::r#async::backends::mio::{MioBackend, configure_default_dns_pool_size};
+    use crate::runtime::r#async::backends::mio::{
+        MioBackend, configure_default_dns_pool_size, configure_default_fs_pool_size,
+    };
 
     static BACKEND: OnceLock<&'static MioBackend> = OnceLock::new();
     static NEXT_REQ: AtomicU64 = AtomicU64::new(1);
@@ -302,6 +306,10 @@ mod vm_async {
 
     pub fn configure_dns_pool_size(size: usize) {
         configure_default_dns_pool_size(size);
+    }
+
+    pub fn configure_fs_pool_size(size: usize) {
+        configure_default_fs_pool_size(size);
     }
 }
 
@@ -548,12 +556,17 @@ mod vm_fibers {
         });
         if depth == 0 {
             // Phase 2 slice 2-vii: respect the pending `RuntimeConfig`
-            // knobs set by `FiberRunAsyncWith`. `fs_pool_size` is stored for
-            // API parity but has no VM filesystem pool to configure yet.
+            // knobs set by `FiberRunAsyncWith`. Both blocking services are
+            // configured before the process-global backend is first started.
             if let Some(cfg) = PENDING_RUN_CONFIG.with(|c| c.get())
                 && cfg.dns_pool_size > 0
             {
                 vm_async::configure_dns_pool_size(cfg.dns_pool_size as usize);
+            }
+            if let Some(cfg) = PENDING_RUN_CONFIG.with(|c| c.get())
+                && cfg.fs_pool_size > 0
+            {
+                vm_async::configure_fs_pool_size(cfg.fs_pool_size as usize);
             }
             let n_workers = resolved_worker_count().max(1);
             SCHED.with(|s| {
@@ -1728,6 +1741,12 @@ mod vm_fibers {
                             );
                         }
                         CompletionPayload::AddressList(_) => unreachable!("handled above"),
+                        CompletionPayload::Filesystem(payload) => {
+                            set_resume_outcome(
+                                c.request_id.0,
+                                FiberOutcome::Value(super::vm_fs_completion(payload.clone())),
+                            );
+                        }
                     }
                     // If this completion is the timer half of a FiberTimeout
                     // await, set the parent's resume value to None and cancel
@@ -2583,6 +2602,9 @@ mod vm_fibers {
                 CompletionPayload::Unit => FiberOutcome::Value(Value::None),
                 CompletionPayload::Error(e) => FiberOutcome::Error(async_panicked(e.clone())),
                 CompletionPayload::AddressList(_) => unreachable!("handled above"),
+                CompletionPayload::Filesystem(payload) => {
+                    FiberOutcome::Value(super::vm_fs_completion(payload.clone()))
+                }
             };
             // Timeout routing.
             if let Some(body_child) = try_route_timer_for_timeout_shared(c.request_id.0, shared) {
@@ -2711,6 +2733,46 @@ mod vm_fibers {
     }
 }
 
+/// Park a filesystem primop operation until its completion is available.
+fn park_fs_op(
+    ctx: &mut dyn RuntimeContext,
+    req: crate::runtime::r#async::backend::RequestId,
+) -> Result<Value, String> {
+    if let Some((boundary_frame, boundary_sp)) = vm_fibers::boundary() {
+        if vm_fibers::is_current_cancelled() {
+            if let Ok(backend) = vm_async::backend() {
+                backend.cancel(req);
+            }
+            vm_fibers::signal_cancel_error();
+            return Err("__fiber_error__".to_string());
+        }
+        let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+        vm_fibers::signal_park(req, cont);
+        if let Err(e) = propagate_if_park_cancelled() {
+            if let Ok(backend) = vm_async::backend() {
+                backend.cancel(req);
+            }
+            return Err(e);
+        }
+        Err("__fiber_park__".to_string())
+    } else {
+        let backend = vm_async::backend()?;
+        loop {
+            if let Some(c) = backend.next_completion()
+                && c.request_id == req
+            {
+                return match c.payload {
+                    crate::runtime::r#async::backend::CompletionPayload::Filesystem(payload) => {
+                        Ok(vm_fs_completion(payload))
+                    }
+                    other => Err(format!("filesystem: unexpected completion {other:?}")),
+                };
+            }
+            std::thread::park_timeout(std::time::Duration::from_millis(1));
+        }
+    }
+}
+
 /// Park a TCP primop operation until its completion is available.
 /// If inside Async.run_async, captures the continuation and parks the fiber.
 /// Otherwise, synchronously pumps the backend (single-fiber fallback path).
@@ -2762,6 +2824,9 @@ fn park_tcp_op(
                         };
                         backend.tcp_connect(req, *addr);
                         continue;
+                    }
+                    CompletionPayload::Filesystem(_) => {
+                        return Err("tcp: unexpected filesystem completion".into());
                     }
                 };
             }
@@ -2909,7 +2974,10 @@ pub fn execute_core_primop(
                     if index < 0 || index as usize >= items.len() {
                         Ok(Value::None)
                     } else {
-                        Ok(items[index as usize].clone())
+                        // Declared `-> Option<a>`, so the hit must be wrapped.
+                        // Returning the bare element made every Option
+                        // combinator read a present value as absent.
+                        Ok(Value::Some(Rc::new(items[index as usize].clone())))
                     }
                 }
                 other => Err(terr("array_get", "Array", other)),
@@ -3164,6 +3232,154 @@ pub fn execute_core_primop(
                 .map_err(|e| format!("read_file failed for '{}': {}", path, e))?;
             Ok(Value::String(content.into()))
         }
+        TryReadFile => {
+            let path = estr(&args[0], "try_read_file")?;
+            dispatch_fs(
+                ctx,
+                FsOperation::ReadFile {
+                    path: path.to_owned(),
+                },
+            )
+        }
+        FsExists => {
+            let path = estr(&args[0], "fs_exists")?;
+            dispatch_fs(
+                ctx,
+                FsOperation::Exists {
+                    path: path.to_owned(),
+                },
+            )
+        }
+        FsIsDir => {
+            let path = estr(&args[0], "fs_is_dir")?;
+            dispatch_fs(
+                ctx,
+                FsOperation::IsDir {
+                    path: path.to_owned(),
+                },
+            )
+        }
+        FsIsFile => {
+            let path = estr(&args[0], "fs_is_file")?;
+            dispatch_fs(
+                ctx,
+                FsOperation::IsFile {
+                    path: path.to_owned(),
+                },
+            )
+        }
+        FsWriteFile => {
+            let path = estr(&args[0], "fs_write_file")?;
+            let contents = estr(&args[1], "fs_write_file")?;
+            dispatch_fs(
+                ctx,
+                FsOperation::WriteFile {
+                    path: path.to_owned(),
+                    contents: contents.to_owned(),
+                },
+            )
+        }
+        FsCreateDirAll => {
+            let path = estr(&args[0], "fs_create_dir_all")?;
+            dispatch_fs(
+                ctx,
+                FsOperation::CreateDirAll {
+                    path: path.to_owned(),
+                },
+            )
+        }
+        FsRemoveFile => {
+            let path = estr(&args[0], "fs_remove_file")?;
+            dispatch_fs(
+                ctx,
+                FsOperation::RemoveFile {
+                    path: path.to_owned(),
+                },
+            )
+        }
+        FsRemoveDirAll => {
+            let path = estr(&args[0], "fs_remove_dir_all")?;
+            dispatch_fs(
+                ctx,
+                FsOperation::RemoveDirAll {
+                    path: path.to_owned(),
+                },
+            )
+        }
+        FsRename => {
+            let from = estr(&args[0], "fs_rename")?;
+            let to = estr(&args[1], "fs_rename")?;
+            dispatch_fs(
+                ctx,
+                FsOperation::Rename {
+                    from: from.to_owned(),
+                    to: to.to_owned(),
+                },
+            )
+        }
+        FsListDir => {
+            let path = estr(&args[0], "fs_list_dir")?;
+            dispatch_fs(
+                ctx,
+                FsOperation::ListDir {
+                    path: path.to_owned(),
+                },
+            )
+        }
+        FsMetadata => {
+            let path = estr(&args[0], "fs_metadata")?;
+            dispatch_fs(
+                ctx,
+                FsOperation::Metadata {
+                    path: path.to_owned(),
+                },
+            )
+        }
+        Sha256 => {
+            let data = estr(&args[0], "sha256")?;
+            Ok(Value::String(vm_sha256_hex(data.as_bytes()).into()))
+        }
+        Sha256File => {
+            let path = estr(&args[0], "sha256_file")?;
+            Ok(vm_sha256_file(path))
+        }
+        EnvVar => {
+            let name = estr(&args[0], "env_var")?;
+            Ok(match std::env::var(name) {
+                Ok(value) => Value::Some(Rc::new(Value::String(value.into()))),
+                // Absent and not-unicode are both "no usable value here".
+                Err(_) => Value::None,
+            })
+        }
+        EnvArgs => Ok(Value::Array(
+            program_args()
+                .iter()
+                .map(|a| Value::String(a.clone().into()))
+                .collect::<Vec<_>>()
+                .into(),
+        )),
+        EnvCwd => Ok(match std::env::current_dir() {
+            Ok(dir) => vm_io_ok(Value::String(dir.to_string_lossy().into_owned().into())),
+            // The cwd can be deleted out from under a running process, so
+            // this is genuinely fallible. `""` as the path: the failure is
+            // not about a path the caller named.
+            Err(err) => vm_io_err(&err, ""),
+        }),
+        EnvHomeDir => Ok(match home_dir() {
+            Some(dir) => Value::Some(Rc::new(Value::String(dir.into()))),
+            None => Value::None,
+        }),
+        ProcRun => {
+            let cmd = estr(&args[0], "proc_run")?;
+            let Value::Array(items) = &args[1] else {
+                return Err(terr("proc_run", "Array", &args[1]));
+            };
+            let mut argv = Vec::with_capacity(items.len());
+            for item in items.iter() {
+                argv.push(estr(item, "proc_run")?.to_string());
+            }
+            Ok(vm_proc_run(cmd, &argv))
+        }
         WriteFile => {
             let path = estr(&args[0], "write_file")?;
             let content = estr(&args[1], "write_file")?;
@@ -3397,8 +3613,8 @@ pub fn execute_core_primop(
         // fiber_run_async_with: `FiberRunAsync` plus explicit RuntimeConfig
         // knobs (proposal 0174 Phase 2 slice 2-vii). Args:
         //   args[0] = worker_count   (Int; 0 means "default")
-        //   args[1] = fs_pool_size   (Int; 0 means "default"; consulted by 2-viii)
-        //   args[2] = dns_pool_size  (Int; 0 means "default"; consulted by 2-viii)
+        //   args[1] = fs_pool_size   (Int; 0 means "default")
+        //   args[2] = dns_pool_size  (Int; 0 means "default")
         //   args[3] = action closure
         // Sets the pending RuntimeConfig before entering the boundary so
         // `enter_run_async` picks it up; the rest of the path is identical
@@ -4551,6 +4767,349 @@ fn vm_json_stringify(args: &[Value]) -> Result<Value, String> {
     Ok(Value::String(
         crate::runtime::json::stringify(&value).into(),
     ))
+}
+
+/// Wrap a value as `Flow.Result`'s `Ok`.
+///
+/// Both outcomes come back as `Ok(Value::Adt(..))` — the Flux `Result` is the
+/// return value. Rust-level `Err` is reserved for real VM faults like a
+/// wrong-typed argument.
+fn vm_io_ok(value: Value) -> Value {
+    use crate::runtime::value::{AdtFields, AdtValue};
+    Value::Adt(Rc::new(AdtValue {
+        constructor: Rc::new("Ok".to_string()),
+        fields: AdtFields::One(value),
+    }))
+}
+
+fn dispatch_fs(ctx: &mut dyn RuntimeContext, operation: FsOperation) -> Result<Value, String> {
+    if vm_fibers::boundary().is_none() {
+        return Ok(execute_fs_sync(&operation));
+    }
+
+    let backend = vm_async::backend()?;
+    let req = vm_async::alloc_request_id();
+    backend.fs_request(req, operation);
+    park_fs_op(ctx, req)
+}
+
+fn execute_fs_sync(operation: &FsOperation) -> Value {
+    match operation {
+        FsOperation::ReadFile { path } => match fs::read_to_string(path) {
+            Ok(content) => vm_io_ok(Value::String(content.into())),
+            Err(err) => vm_io_err(&err, path),
+        },
+        FsOperation::Exists { path } => Value::Boolean(std::path::Path::new(path).exists()),
+        FsOperation::IsDir { path } => Value::Boolean(std::path::Path::new(path).is_dir()),
+        FsOperation::IsFile { path } => Value::Boolean(std::path::Path::new(path).is_file()),
+        FsOperation::WriteFile { path, contents } => {
+            vm_io_unit_result(fs::write(path, contents), path)
+        }
+        FsOperation::CreateDirAll { path } => vm_io_unit_result(fs::create_dir_all(path), path),
+        FsOperation::RemoveFile { path } => vm_io_unit_result(fs::remove_file(path), path),
+        FsOperation::RemoveDirAll { path } => vm_io_unit_result(fs::remove_dir_all(path), path),
+        FsOperation::Rename { from, to } => vm_io_unit_result(fs::rename(from, to), to),
+        FsOperation::ListDir { path } => vm_fs_list_dir(path),
+        FsOperation::Metadata { path } => vm_fs_metadata(path),
+    }
+}
+
+fn vm_fs_completion(completion: FsCompletion) -> Value {
+    match completion {
+        FsCompletion::ReadFile(result) => match result {
+            Ok(bytes) => vm_io_ok(Value::String(
+                String::from_utf8_lossy(&bytes).into_owned().into(),
+            )),
+            Err(err) => vm_fs_error(&err),
+        },
+        FsCompletion::Predicate(value) => Value::Boolean(value),
+        FsCompletion::Unit(result) => match result {
+            Ok(()) => vm_io_ok(Value::None),
+            Err(err) => vm_fs_error(&err),
+        },
+        FsCompletion::ListDir(result) => match result {
+            Ok(names) => vm_io_ok(Value::Array(
+                names
+                    .into_iter()
+                    .map(|name| Value::String(name.into()))
+                    .collect::<Vec<_>>()
+                    .into(),
+            )),
+            Err(err) => vm_fs_error(&err),
+        },
+        FsCompletion::Metadata(result) => match result {
+            Ok(meta) => {
+                use crate::runtime::value::{AdtFields, AdtValue};
+                vm_io_ok(Value::Adt(Rc::new(AdtValue {
+                    constructor: Rc::new("FileMeta".to_string()),
+                    fields: AdtFields::from_vec(vec![
+                        Value::Integer(meta.size as i64),
+                        Value::Integer(meta.modified),
+                        Value::Boolean(meta.is_dir),
+                        Value::Boolean(meta.is_file),
+                    ]),
+                })))
+            }
+            Err(err) => vm_fs_error(&err),
+        },
+    }
+}
+
+fn vm_fs_error(error: &FsError) -> Value {
+    use crate::runtime::value::{AdtFields, AdtValue};
+    let kind_name = match error.kind {
+        FsErrorKind::NotFound => "NotFound",
+        FsErrorKind::PermissionDenied => "PermissionDenied",
+        FsErrorKind::AlreadyExists => "AlreadyExists",
+        FsErrorKind::NotADirectory => "NotADirectory",
+        FsErrorKind::IsADirectory => "IsADirectory",
+        FsErrorKind::DirectoryNotEmpty => "DirectoryNotEmpty",
+        FsErrorKind::Interrupted => "Interrupted",
+        FsErrorKind::Other => "Other",
+    };
+    let kind = Value::AdtUnit(Rc::new(kind_name.to_string()));
+    let io_error = Value::Adt(Rc::new(AdtValue {
+        constructor: Rc::new("IoError".to_string()),
+        fields: AdtFields::Three(
+            kind,
+            Value::String(error.message.clone().into()),
+            Value::String(error.path.clone().into()),
+        ),
+    }));
+    Value::Adt(Rc::new(AdtValue {
+        constructor: Rc::new("Err".to_string()),
+        fields: AdtFields::One(io_error),
+    }))
+}
+
+/// Turn a `std::io::Result<()>` into `Result<Unit, IoError>`.
+///
+/// `Ok` is a one-field constructor, so the unit case still carries a payload:
+/// `Value::None`, the VM's unit representation.
+fn vm_io_unit_result(result: std::io::Result<()>, path: &str) -> Value {
+    match result {
+        Ok(()) => vm_io_ok(Value::None),
+        Err(err) => vm_io_err(&err, path),
+    }
+}
+
+/// Wrap an `std::io::Error` as `Err(IoError { .. })`.
+///
+/// Field order must match `Flow.IoError` (`kind`, `message`, `path`) — record
+/// fields are positional at runtime.
+fn vm_io_err(err: &std::io::Error, path: &str) -> Value {
+    use crate::runtime::value::{AdtFields, AdtValue};
+    use std::io::ErrorKind;
+
+    // Each kind is a nullary constructor, named as declared in Flow.IoError.
+    let kind_name = match err.kind() {
+        ErrorKind::NotFound => "NotFound",
+        ErrorKind::PermissionDenied => "PermissionDenied",
+        ErrorKind::AlreadyExists => "AlreadyExists",
+        ErrorKind::NotADirectory => "NotADirectory",
+        ErrorKind::IsADirectory => "IsADirectory",
+        ErrorKind::DirectoryNotEmpty => "DirectoryNotEmpty",
+        ErrorKind::Interrupted | ErrorKind::TimedOut | ErrorKind::WouldBlock => "Interrupted",
+        _ => "Other",
+    };
+    let kind = Value::AdtUnit(Rc::new(kind_name.to_string()));
+    let io_error = Value::Adt(Rc::new(AdtValue {
+        constructor: Rc::new("IoError".to_string()),
+        fields: AdtFields::Three(
+            kind,
+            Value::String(err.to_string().into()),
+            Value::String(path.to_string().into()),
+        ),
+    }));
+    Value::Adt(Rc::new(AdtValue {
+        constructor: Rc::new("Err".to_string()),
+        fields: AdtFields::One(io_error),
+    }))
+}
+
+/// The arguments handed to the running Flux program.
+///
+/// Set once by the driver before execution. Empty when the driver never set
+/// them (an embedded VM, a test harness), which is a valid answer rather than
+/// an error — the program simply received no arguments.
+static PROGRAM_ARGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
+/// Install the program's arguments. First element is the script path.
+///
+/// Only the first call takes effect; later ones are ignored, so a nested or
+/// repeated driver invocation cannot rewrite what the program already saw.
+pub fn set_program_args(args: Vec<String>) {
+    let _ = PROGRAM_ARGS.set(args);
+}
+
+fn program_args() -> &'static [String] {
+    PROGRAM_ARGS.get().map(Vec::as_slice).unwrap_or(&[])
+}
+
+/// The installed argv, for surfaces outside the VM.
+///
+/// The native backend needs it to forward arguments to the binary it spawns,
+/// which is a separate process and cannot see this one's statics.
+pub fn program_args_snapshot() -> &'static [String] {
+    program_args()
+}
+
+/// The user's home directory, or `None` when the platform does not say.
+///
+/// Read from the environment rather than the password database: `HOME` is the
+/// value a user can actually override, which is what a tool should honour.
+fn home_dir() -> Option<String> {
+    if let Ok(home) = std::env::var("HOME")
+        && !home.is_empty()
+    {
+        return Some(home);
+    }
+    // Windows spells it differently and may split it in two.
+    if let Ok(profile) = std::env::var("USERPROFILE")
+        && !profile.is_empty()
+    {
+        return Some(profile);
+    }
+    match (std::env::var("HOMEDRIVE"), std::env::var("HOMEPATH")) {
+        (Ok(drive), Ok(path)) if !drive.is_empty() && !path.is_empty() => {
+            Some(format!("{drive}{path}"))
+        }
+        _ => None,
+    }
+}
+
+/// SHA-256 of `bytes`, as lowercase hex.
+///
+/// Shares `shared::hex` with the cache fingerprints so a digest computed in
+/// Flux and one computed by the compiler are spelled identically.
+fn vm_sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256 as Sha256Hasher};
+
+    let mut hasher = Sha256Hasher::new();
+    hasher.update(bytes);
+    crate::shared::hex::encode(&hasher.finalize())
+}
+
+/// SHA-256 of a file's contents as `Result<String, IoError>`.
+///
+/// Reads in chunks rather than slurping the file, so hashing a large artifact
+/// costs a fixed buffer rather than its full size in memory — the reason this
+/// is a separate primop from `Sha256` instead of `sha256(read_file(p))`.
+fn vm_sha256_file(path: &str) -> Value {
+    use sha2::{Digest, Sha256 as Sha256Hasher};
+    use std::io::Read;
+
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(err) => return vm_io_err(&err, path),
+    };
+    let mut hasher = Sha256Hasher::new();
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        match file.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => hasher.update(&buf[..n]),
+            // A retryable interruption is not a failure: reads resume.
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(err) => return vm_io_err(&err, path),
+        }
+    }
+    vm_io_ok(Value::String(
+        crate::shared::hex::encode(&hasher.finalize()).into(),
+    ))
+}
+
+/// List a directory as `Result<Array<String>, IoError>`.
+///
+/// Entries are bare file names, not joined paths — callers compose with
+/// `Flow.Path.join`, which is the only thing that knows the right separator.
+/// `.` and `..` are excluded, matching `std::fs::read_dir`.
+///
+/// Order is the platform's. A failure part-way through the walk fails the
+/// whole call rather than returning a partial listing, so a caller never
+/// mistakes a truncated directory for a complete one.
+fn vm_fs_list_dir(path: &str) -> Value {
+    let entries = match fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(err) => return vm_io_err(&err, path),
+    };
+    let mut names = Vec::new();
+    for entry in entries {
+        match entry {
+            Ok(entry) => {
+                names.push(Value::String(
+                    entry.file_name().to_string_lossy().into_owned().into(),
+                ));
+            }
+            Err(err) => return vm_io_err(&err, path),
+        }
+    }
+    vm_io_ok(Value::Array(names.into()))
+}
+
+/// Stat a path as `Result<FileMeta, IoError>`.
+///
+/// Field order must match `Flow.Fs`'s `FileMeta` (`size`, `modified`,
+/// `is_dir`, `is_file`) — record fields are positional at runtime.
+///
+/// `modified` is milliseconds since the Unix epoch, and is `0` when the
+/// platform does not record one. Proposal 0177 requires build caches to
+/// compare mtimes but never hash them.
+fn vm_fs_metadata(path: &str) -> Value {
+    use crate::runtime::value::{AdtFields, AdtValue};
+
+    let meta = match fs::metadata(path) {
+        Ok(meta) => meta,
+        Err(err) => return vm_io_err(&err, path),
+    };
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+
+    vm_io_ok(Value::Adt(Rc::new(AdtValue {
+        constructor: Rc::new("FileMeta".to_string()),
+        fields: AdtFields::from_vec(vec![
+            Value::Integer(meta.len() as i64),
+            Value::Integer(modified),
+            Value::Boolean(meta.is_dir()),
+            Value::Boolean(meta.is_file()),
+        ]),
+    })))
+}
+
+/// Run a subprocess to completion and capture both output streams.
+///
+/// The argument vector is handed to the OS directly — no shell is involved, so
+/// a value containing spaces, quotes, or `;` is one argument and cannot become
+/// a second command.
+///
+/// A non-zero exit status is a successful *run*, not an error: the process was
+/// started and reported a result. `Err` is reserved for failing to run it at
+/// all (missing binary, no permission). Output is decoded lossily, since a
+/// subprocess is under no obligation to emit UTF-8.
+fn vm_proc_run(cmd: &str, argv: &[String]) -> Value {
+    use crate::runtime::value::{AdtFields, AdtValue};
+
+    let output = match std::process::Command::new(cmd).args(argv).output() {
+        Ok(output) => output,
+        Err(err) => return vm_io_err(&err, cmd),
+    };
+
+    // A signal-terminated child has no code; -1 distinguishes it from any
+    // status a process can exit with normally.
+    let status = output.status.code().unwrap_or(-1) as i64;
+
+    vm_io_ok(Value::Adt(Rc::new(AdtValue {
+        constructor: Rc::new("ProcOutput".to_string()),
+        fields: AdtFields::from_vec(vec![
+            Value::Integer(status),
+            Value::String(String::from_utf8_lossy(&output.stdout).into_owned().into()),
+            Value::String(String::from_utf8_lossy(&output.stderr).into_owned().into()),
+        ]),
+    })))
 }
 
 fn json_ok_value(value: Value) -> Value {

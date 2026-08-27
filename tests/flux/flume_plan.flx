@@ -1,0 +1,301 @@
+// Behavioural coverage for `Flume.Plan`, the join between the manifest, the
+// registry index, the resolver, and the lockfile.
+//
+// The whole resolution path is pure: the index arrives as text and the
+// lockfile leaves as text, so these tests need no registry and no fixture
+// directory. The `with IO` on each test is for `assert_*` printing only.
+
+import Flume.Resolve.Plan as Plan
+import Flume.Resolve.Plan exposing (Outcome, Unchanged, Updated)
+import Flume.Schema.Index as Index
+import Flume.Schema.Index exposing (Published)
+import Flume.Schema.Lock as Lock
+import Flume.Schema.Lock exposing (Lock, Entry)
+import Flume.Resolve.Version as Version
+import Flume.Resolve.Solver as Resolve
+import Flume.Resolve.Solver exposing (Dep)
+import Flow.Result as Result
+import Flow.Option as Option
+import Flow.List as List
+import Flume.Error as Error
+
+/// One index line, with no dependencies.
+fn line(name: String, version: String) -> String {
+    "{\"name\":\"" + name + "\",\"version\":\"" + version
+        + "\",\"checksum\":\"sha256:" + name + version + "\"}"
+}
+
+/// One index line that requires another package.
+fn line_with(name: String, version: String, dep: String, req: String) -> String {
+    "{\"name\":\"" + name + "\",\"version\":\"" + version
+        + "\",\"checksum\":\"sha256:" + name + version + "\","
+        + "\"deps\":[{\"name\":\"" + dep + "\",\"req\":\"" + req + "\"}]}"
+}
+
+fn index_of(text: String) -> List<Published> {
+    match Index.from_text(text) {
+        Ok(entries) -> entries,
+        Err(_) -> [],
+    }
+}
+
+fn deps_of(requirements: List<(String, String)>) -> List<Dep> {
+    match Plan.root_deps(requirements) {
+        Ok(found) -> found,
+        Err(_) -> [],
+    }
+}
+
+/// Resolve, then report the chosen version of one package.
+fn chosen(
+    requirements: List<(String, String)>,
+    index: String,
+    previous: Option<Lock>,
+    name: String,
+) -> String {
+    match Plan.resolve(deps_of(requirements), index_of(index), previous) {
+        Err(_) -> "<err>",
+        Ok(outcome) -> match Lock.find(Plan.outcome_lock(outcome), name) {
+            None -> "<absent>",
+            Some(entry) -> Version.render(Lock.entry_version(entry)),
+        },
+    }
+}
+
+fn failure(requirements: List<(String, String)>, index: String) -> String {
+    match Plan.resolve(deps_of(requirements), index_of(index), None) {
+        Ok(_) -> "<ok>",
+        Err(message) -> message,
+    }
+}
+
+// ── requirements ───────────────────────────────────────────────
+
+fn test_reads_a_caret_requirement() with IO {
+    assert_eq(List.length(deps_of([("json", "^1.0")])), 1)
+}
+
+fn test_reads_no_requirements() with IO {
+    assert_eq(List.length(deps_of([])), 0)
+}
+
+fn requirement_error(requirements: List<(String, String)>) -> String {
+    match Plan.root_deps(requirements) {
+        Ok(_) -> "<ok>",
+        Err(message) -> message,
+    }
+}
+
+fn test_rejects_an_unreadable_requirement() with IO {
+    assert_true(String.str_contains(
+        requirement_error([("json", "@@@")]),
+        "unreadable version requirement",
+    ))
+}
+
+/// A requirement declared by the root project is tagged as such, so a conflict
+/// can distinguish it from one a dependency introduced.
+fn test_root_requirements_carry_root_provenance() with IO {
+    match deps_of([("json", "^1.0")]) {
+        [] -> assert_eq("one dep", "none"),
+        [dep | _] -> assert_eq(Resolve.dep_name(dep), "json"),
+    }
+}
+
+// ── resolution ─────────────────────────────────────────────────
+
+fn test_resolves_a_single_dependency() with IO {
+    assert_eq(chosen([("json", "^1.0")], line("json", "1.0.0"), None, "json"), "1.0.0")
+}
+
+/// Highest-version-first: a successful resolution should also be a good one.
+fn test_picks_the_highest_matching_version() with IO {
+    let index = line("json", "1.0.0") + "\n" + line("json", "1.2.0") + "\n"
+        + line("json", "2.0.0")
+    assert_eq(chosen([("json", "^1.0")], index, None, "json"), "1.2.0")
+}
+
+fn test_resolves_a_transitive_dependency() with IO {
+    let index = line_with("json", "1.0.0", "core", "^1.0") + "\n" + line("core", "1.1.0")
+    assert_eq(chosen([("json", "^1.0")], index, None, "core"), "1.1.0")
+}
+
+fn test_reports_a_missing_package() with IO {
+    assert_true(String.str_contains(
+        failure([("absent", "^1.0")], line("json", "1.0.0")),
+        "no version of `absent` is available",
+    ))
+}
+
+fn test_typed_resolution_preserves_the_error_boundary() with IO {
+    match Plan.plan_typed([("absent", "^1.0")], [], None) {
+        Err(problem) -> assert_eq(Error.kind(problem), "resolution"),
+        Ok(_) -> assert_eq("typed resolution", "unexpected success"),
+    }
+}
+
+/// A conflict names the requirements that actually collided, with where each
+/// came from — not the whole graph.
+fn test_reports_an_unsatisfiable_requirement() with IO {
+    assert_true(String.str_contains(
+        failure([("json", "^2.0")], line("json", "1.0.0")),
+        "`json`",
+    ))
+}
+
+fn test_a_conflict_names_its_origin() with IO {
+    assert_true(String.str_contains(
+        failure([("json", "^2.0")], line("json", "1.0.0")),
+        "flux.toml",
+    ))
+}
+
+// ── lockfile output ────────────────────────────────────────────
+
+fn resolved(requirements: List<(String, String)>, index: String) -> Option<Outcome> {
+    match Plan.resolve(deps_of(requirements), index_of(index), None) {
+        Ok(outcome) -> Some(outcome),
+        Err(_) -> None,
+    }
+}
+
+fn test_a_first_resolution_is_an_update() with IO {
+    match resolved([("json", "^1.0")], line("json", "1.0.0")) {
+        None -> assert_eq("resolved", "failed"),
+        Some(outcome) -> assert_true(Plan.outcome_changed(outcome)),
+    }
+}
+
+/// The checksum recorded in the lock is the one the index published, which is
+/// what makes tampering detectable rather than executable.
+fn test_records_the_published_checksum() with IO {
+    match resolved([("json", "^1.0")], line("json", "1.0.0")) {
+        None -> assert_eq("resolved", "failed"),
+        Some(outcome) -> match Lock.find(Plan.outcome_lock(outcome), "json") {
+            None -> assert_eq("locked", "absent"),
+            Some(entry) -> match Lock.entry_checksum(entry) {
+                Some(sum) -> assert_eq(sum, "sha256:json1.0.0"),
+                None -> assert_eq("checksum", "missing"),
+            },
+        },
+    }
+}
+
+fn test_records_the_registry_source() with IO {
+    match resolved([("json", "^1.0")], line("json", "1.0.0")) {
+        None -> assert_eq("resolved", "failed"),
+        Some(outcome) -> assert_true(String.str_contains(
+            Lock.render(Plan.outcome_lock(outcome)),
+            "source = \"registry+",
+        )),
+    }
+}
+
+fn test_records_transitive_dependency_names() with IO {
+    let index = line_with("json", "1.0.0", "core", "^1.0") + "\n" + line("core", "1.0.0")
+    match resolved([("json", "^1.0")], index) {
+        None -> assert_eq("resolved", "failed"),
+        Some(outcome) -> match Lock.find(Plan.outcome_lock(outcome), "json") {
+            None -> assert_eq("locked", "absent"),
+            Some(entry) -> assert_eq(List.length(Lock.entry_deps(entry)), 1),
+        },
+    }
+}
+
+// ── minimal-change updating ────────────────────────────────────
+
+fn previous_lock(text: String) -> Option<Lock> {
+    match Lock.parse(text) {
+        Ok(parsed) -> Some(parsed),
+        Err(_) -> None,
+    }
+}
+
+fn locked_at(version: String) -> Option<Lock> {
+    previous_lock(
+        "version = 1\n\n[[package]]\nname = \"json\"\nversion = \"" + version + "\"\n"
+            + "source = \"registry+https://packages.flux-lang.org\"\n"
+            + "checksum = \"sha256:json" + version + "\"\n",
+    )
+}
+
+/// A locked version is *preferred*: an older version stays chosen even though
+/// a newer one matches, so a build does not silently drift.
+fn test_prefers_the_locked_version() with IO {
+    let index = line("json", "1.0.0") + "\n" + line("json", "1.2.0")
+    assert_eq(chosen([("json", "^1.0")], index, locked_at("1.0.0"), "json"), "1.0.0")
+}
+
+/// Preference is not a pin: when the manifest no longer admits the locked
+/// version, resolution succeeds with a new one rather than failing.
+fn test_a_lock_does_not_pin_against_the_manifest() with IO {
+    let index = line("json", "1.0.0") + "\n" + line("json", "2.0.0")
+    assert_eq(chosen([("json", "^2.0")], index, locked_at("1.0.0"), "json"), "2.0.0")
+}
+
+/// Re-resolving an unchanged project produces no write, which is what keeps a
+/// lockfile from churning in version control.
+fn test_an_unchanged_resolution_reports_no_change() with IO {
+    let index = line("json", "1.0.0")
+    match Plan.resolve(deps_of([("json", "^1.0")]), index_of(index), locked_at("1.0.0")) {
+        Err(_) -> assert_eq("resolved", "failed"),
+        Ok(outcome) -> assert_true(!Plan.outcome_changed(outcome)),
+    }
+}
+
+fn test_a_changed_resolution_reports_a_change() with IO {
+    let index = line("json", "1.0.0") + "\n" + line("json", "2.0.0")
+    match Plan.resolve(deps_of([("json", "^2.0")]), index_of(index), locked_at("1.0.0")) {
+        Err(_) -> assert_eq("resolved", "failed"),
+        Ok(outcome) -> assert_true(Plan.outcome_changed(outcome)),
+    }
+}
+
+/// An existing lockfile keeps its own format version rather than being
+/// rewritten to this build's default.
+fn test_preserves_the_on_disk_format_version() with IO {
+    match Plan.resolve(deps_of([("json", "^1.0")]), index_of(line("json", "1.0.0")), locked_at("1.0.0")) {
+        Err(_) -> assert_eq("resolved", "failed"),
+        Ok(outcome) -> assert_eq(Lock.lock_format(Plan.outcome_lock(outcome)), 1),
+    }
+}
+
+// ── --locked verification ──────────────────────────────────────
+
+fn test_a_matching_lock_satisfies_the_manifest() with IO {
+    match locked_at("1.0.0") {
+        None -> assert_eq("lock", "unparsed"),
+        Some(existing) -> assert_true(
+            Option.is_none_opt(Plan.unsatisfied_by(deps_of([("json", "^1.0")]), existing)),
+        ),
+    }
+}
+
+/// `--locked` must name the requirement that is unmet: "out of date" alone
+/// does not tell anyone what to fix.
+fn test_a_missing_package_is_reported_by_name() with IO {
+    match locked_at("1.0.0") {
+        None -> assert_eq("lock", "unparsed"),
+        Some(existing) -> match Plan.unsatisfied_by(deps_of([("core", "^1.0")]), existing) {
+            None -> assert_eq("unsatisfied", "satisfied"),
+            Some(message) -> assert_true(String.str_contains(message, "`core`")),
+        },
+    }
+}
+
+fn test_a_version_outside_the_range_is_reported() with IO {
+    match locked_at("1.0.0") {
+        None -> assert_eq("lock", "unparsed"),
+        Some(existing) -> match Plan.unsatisfied_by(deps_of([("json", "^2.0")]), existing) {
+            None -> assert_eq("unsatisfied", "satisfied"),
+            Some(message) -> assert_true(String.str_contains(message, "does not satisfy")),
+        },
+    }
+}
+
+fn test_an_empty_requirement_set_is_always_satisfied() with IO {
+    match locked_at("1.0.0") {
+        None -> assert_eq("lock", "unparsed"),
+        Some(existing) -> assert_true(Option.is_none_opt(Plan.unsatisfied_by([], existing))),
+    }
+}

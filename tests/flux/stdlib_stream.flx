@@ -1,0 +1,353 @@
+// Tests for Flow.Stream.
+//
+// Streams are lazy pull-based sequences: nothing is computed until something
+// consumes them, and consumption requires the `Async` effect. Because inline
+// closures cannot carry `with Async` (parser limitation), every consumer is a
+// named top-level function driven through `run_async`.
+//
+// Laziness is the property worth testing and the one invisible in the eager
+// modules. The tests that matter most here are the ones over *infinite*
+// streams — `repeat` and unbounded `unfold` — which terminate only because
+// `take` and `take_while` stop pulling. An implementation that evaluated
+// eagerly would hang rather than fail, so these double as liveness checks.
+
+import Flow.Async exposing (..)
+import Flow.Stream as Stream
+import Flow.Array as Array
+import Flow.List as List
+
+// ── construction and basic consumption ─────────────────────────
+
+fn body_empty_to_array() -> Array<Int> with Async {
+    Stream.to_array(Stream.empty())
+}
+
+fn test_the_empty_stream_yields_nothing() {
+    assert_eq(len(run_async(body_empty_to_array)), 0)
+}
+
+fn body_once_to_array() -> Array<Int> with Async {
+    Stream.to_array(Stream.once(7))
+}
+
+fn test_once_yields_exactly_one_element() {
+    let got = run_async(body_once_to_array)
+    assert_eq(len(got), 1)
+    assert_eq(got, [|7|])
+}
+
+fn body_from_array_round_trip() -> Array<Int> with Async {
+    Stream.to_array(Stream.from_array([|1, 2, 3|]))
+}
+
+fn test_from_array_round_trips_through_to_array() {
+    assert_eq(run_async(body_from_array_round_trip), [|1, 2, 3|])
+}
+
+fn body_from_list_round_trip() -> List<Int> with Async {
+    Stream.to_list(Stream.from_list([1, 2, 3]))
+}
+
+fn test_from_list_round_trips_through_to_list() {
+    assert_eq(run_async(body_from_list_round_trip), [1, 2, 3])
+}
+
+// ── next: the primitive pull ───────────────────────────────────
+
+/// `next` returns the head and the *rest of the stream*, which is how a
+/// consumer walks it one element at a time.
+fn body_next_on_a_populated_stream() -> Int with Async {
+    match Stream.next(Stream.from_array([|5, 6|])) {
+        Some((head, _rest)) -> head,
+        None -> -1,
+    }
+}
+
+fn test_next_returns_the_head() {
+    assert_eq(run_async(body_next_on_a_populated_stream), 5)
+}
+
+fn body_next_on_empty_is_none() -> Bool with Async {
+    match Stream.next(Stream.empty()) {
+        Some((_h, _t)) -> false,
+        None -> true,
+    }
+}
+
+fn test_next_on_the_empty_stream_is_none() {
+    assert_true(run_async(body_next_on_empty_is_none))
+}
+
+// ── transformation is lazy but order-preserving ────────────────
+
+fn body_map() -> Array<Int> with Async {
+    Stream.to_array(Stream.map(Stream.from_array([|1, 2, 3|]), \x -> x * 2))
+}
+
+fn test_map_transforms_every_element_in_order() {
+    assert_eq(run_async(body_map), [|2, 4, 6|])
+}
+
+fn body_filter() -> Array<Int> with Async {
+    Stream.to_array(Stream.filter(Stream.from_array([|1, 2, 3, 4|]), \x -> x % 2 == 0))
+}
+
+fn test_filter_keeps_matching_elements() {
+    assert_eq(run_async(body_filter), [|2, 4|])
+}
+
+fn body_filter_nothing() -> Array<Int> with Async {
+    Stream.to_array(Stream.filter(Stream.from_array([|1, 2, 3|]), \x -> x > 99))
+}
+
+fn test_filter_matching_nothing_drains_to_empty() {
+    assert_eq(len(run_async(body_filter_nothing)), 0)
+}
+
+fn body_flat_map() -> Array<Int> with Async {
+    Stream.to_array(Stream.flat_map(Stream.from_array([|1, 2|]), \x -> Stream.from_array([|x, x * 10|])))
+}
+
+fn test_flat_map_splices_sub_streams_in_order() {
+    assert_eq(run_async(body_flat_map), [|1, 10, 2, 20|])
+}
+
+// ── folding and counting ───────────────────────────────────────
+
+fn body_fold() -> Int with Async {
+    Stream.fold(Stream.from_array([|1, 2, 3, 4|]), 0, \(acc, x) -> acc + x)
+}
+
+fn test_fold_reduces_the_whole_stream() {
+    assert_eq(run_async(body_fold), 10)
+}
+
+fn body_fold_empty() -> Int with Async {
+    Stream.fold(Stream.empty(), 99, \(acc, x) -> acc + x)
+}
+
+fn test_folding_an_empty_stream_returns_the_seed() {
+    assert_eq(run_async(body_fold_empty), 99)
+}
+
+fn body_count() -> Int with Async {
+    Stream.count(Stream.from_array([|1, 2, 3|]))
+}
+
+fn test_count_counts_elements() {
+    assert_eq(run_async(body_count), 3)
+}
+
+// ── take / drop ────────────────────────────────────────────────
+
+fn body_take() -> Array<Int> with Async {
+    Stream.to_array(Stream.take(Stream.from_array([|1, 2, 3, 4|]), 2))
+}
+
+fn test_take_stops_after_n_elements() {
+    assert_eq(run_async(body_take), [|1, 2|])
+}
+
+fn body_take_more_than_available() -> Array<Int> with Async {
+    Stream.to_array(Stream.take(Stream.from_array([|1, 2|]), 99))
+}
+
+fn test_taking_more_than_available_clamps() {
+    assert_eq(run_async(body_take_more_than_available), [|1, 2|])
+}
+
+fn body_take_zero() -> Array<Int> with Async {
+    Stream.to_array(Stream.take(Stream.from_array([|1, 2|]), 0))
+}
+
+fn test_taking_zero_yields_nothing() {
+    assert_eq(len(run_async(body_take_zero)), 0)
+}
+
+fn body_drop() -> Array<Int> with Async {
+    Stream.to_array(Stream.drop(Stream.from_array([|1, 2, 3, 4|]), 2))
+}
+
+fn test_drop_skips_the_first_n() {
+    assert_eq(run_async(body_drop), [|3, 4|])
+}
+
+fn body_take_while() -> Array<Int> with Async {
+    Stream.to_array(Stream.take_while(Stream.from_array([|1, 2, 3, 1|]), \x -> x < 3))
+}
+
+/// Stops at the first failure and does not resume, even though a later
+/// element would satisfy the predicate.
+fn test_take_while_stops_at_the_first_failure() {
+    assert_eq(run_async(body_take_while), [|1, 2|])
+}
+
+// ── laziness over infinite streams ─────────────────────────────
+//
+// These terminate only because the consumer stops pulling. Eager evaluation
+// would not fail here — it would hang.
+
+fn body_take_from_repeat() -> Array<Int> with Async {
+    Stream.to_array(Stream.take(Stream.repeat(9), 3))
+}
+
+fn test_take_bounds_an_infinite_repeat() {
+    assert_eq(run_async(body_take_from_repeat), [|9, 9, 9|])
+}
+
+fn body_take_from_infinite_unfold() -> Array<Int> with Async {
+    // The generator never returns None, so this stream is infinite.
+    let naturals = Stream.unfold(0, \n -> Some((n, n + 1)))
+    Stream.to_array(Stream.take(naturals, 5))
+}
+
+fn test_take_bounds_an_infinite_unfold() {
+    assert_eq(run_async(body_take_from_infinite_unfold), [|0, 1, 2, 3, 4|])
+}
+
+fn body_take_while_bounds_an_infinite_stream() -> Array<Int> with Async {
+    let naturals = Stream.unfold(0, \n -> Some((n, n + 1)))
+    Stream.to_array(Stream.take_while(naturals, \n -> n < 4))
+}
+
+fn test_take_while_bounds_an_infinite_stream() {
+    assert_eq(run_async(body_take_while_bounds_an_infinite_stream), [|0, 1, 2, 3|])
+}
+
+/// Mapping an infinite stream is still lazy: the map is never forced beyond
+/// what `take` pulls.
+fn body_map_over_infinite_then_take() -> Array<Int> with Async {
+    let naturals = Stream.unfold(0, \n -> Some((n, n + 1)))
+    Stream.to_array(Stream.take(Stream.map(naturals, \n -> n * n), 4))
+}
+
+fn test_mapping_an_infinite_stream_stays_lazy() {
+    assert_eq(run_async(body_map_over_infinite_then_take), [|0, 1, 4, 9|])
+}
+
+/// Filtering an infinite stream is lazy too — it pulls only as far as it must
+/// to satisfy the take.
+fn body_filter_infinite_then_take() -> Array<Int> with Async {
+    let naturals = Stream.unfold(0, \n -> Some((n, n + 1)))
+    Stream.to_array(Stream.take(Stream.filter(naturals, \n -> n % 3 == 0), 3))
+}
+
+fn test_filtering_an_infinite_stream_stays_lazy() {
+    assert_eq(run_async(body_filter_infinite_then_take), [|0, 3, 6|])
+}
+
+// ── finite unfold ──────────────────────────────────────────────
+
+fn body_finite_unfold() -> Array<Int> with Async {
+    Stream.to_array(Stream.unfold(3, \n -> if n > 0 { Some((n, n - 1)) } else { None }))
+}
+
+fn test_unfold_ends_when_the_generator_returns_none() {
+    assert_eq(run_async(body_finite_unfold), [|3, 2, 1|])
+}
+
+fn body_unfold_stopping_immediately() -> Array<Int> with Async {
+    Stream.to_array(Stream.unfold(0, \n -> None))
+}
+
+fn test_an_unfold_that_stops_immediately_is_empty() {
+    assert_eq(len(run_async(body_unfold_stopping_immediately)), 0)
+}
+
+// ── combining ──────────────────────────────────────────────────
+
+fn body_append() -> Array<Int> with Async {
+    Stream.to_array(Stream.append(Stream.from_array([|1, 2|]), Stream.from_array([|3|])))
+}
+
+/// Regression cover: `Stream.append` used to be unreachable. A qualified call
+/// resolved to the built-in `Semigroup` class method rather than the module's
+/// own function, failing with `E444: No instance for Semigroup<Stream<Int>>`.
+fn test_append_concatenates_in_order() {
+    assert_eq(run_async(body_append), [|1, 2, 3|])
+}
+
+fn body_append_with_empty() -> Array<Int> with Async {
+    Stream.to_array(Stream.append(Stream.empty(), Stream.from_array([|1|])))
+}
+
+fn test_appending_to_the_empty_stream_is_the_identity() {
+    assert_eq(run_async(body_append_with_empty), [|1|])
+}
+
+fn body_append_is_lazy() -> Array<Int> with Async {
+    // The right side is infinite; `take` must bound the whole append.
+    let naturals = Stream.unfold(0, \n -> Some((n, n + 1)))
+    Stream.to_array(Stream.take(Stream.append(Stream.from_array([|9|]), naturals), 3))
+}
+
+/// Appending an infinite stream stays lazy — only what `take` pulls is forced.
+fn test_append_stays_lazy_on_an_infinite_right_side() {
+    assert_eq(run_async(body_append_is_lazy), [|9, 0, 1|])
+}
+
+fn body_zip() -> Int with Async {
+    Stream.count(Stream.zip(Stream.from_array([|1, 2, 3|]), Stream.from_array([|9, 8|])))
+}
+
+/// Zipping stops at the shorter side, which is what makes it safe to zip a
+/// finite stream against an infinite one.
+fn test_zip_stops_at_the_shorter_stream() {
+    assert_eq(run_async(body_zip), 2)
+}
+
+fn body_zip_finite_with_infinite() -> Int with Async {
+    let naturals = Stream.unfold(0, \n -> Some((n, n + 1)))
+    Stream.count(Stream.zip(Stream.from_array([|1, 2|]), naturals))
+}
+
+fn test_zipping_a_finite_stream_against_an_infinite_one_terminates() {
+    assert_eq(run_async(body_zip_finite_with_infinite), 2)
+}
+
+// ── chunking ───────────────────────────────────────────────────
+
+fn body_chunk_evenly() -> Int with Async {
+    Stream.count(Stream.chunk(Stream.from_array([|1, 2, 3, 4|]), 2))
+}
+
+fn test_chunk_groups_into_fixed_sizes() {
+    assert_eq(run_async(body_chunk_evenly), 2)
+}
+
+/// A trailing partial chunk is still emitted rather than dropped.
+fn body_chunk_with_remainder() -> Int with Async {
+    Stream.count(Stream.chunk(Stream.from_array([|1, 2, 3|]), 2))
+}
+
+fn test_chunk_emits_a_trailing_partial_group() {
+    assert_eq(run_async(body_chunk_with_remainder), 2)
+}
+
+// ── pipelines ──────────────────────────────────────────────────
+
+fn body_pipeline() -> Int with Async {
+    Stream.from_array([|1, 2, 3, 4, 5, 6|])
+        |> Stream.filter(\x -> x % 2 == 0)
+        |> Stream.map(\x -> x * x)
+        |> Stream.fold(0, \(acc, x) -> acc + x)
+}
+
+fn test_the_combinators_compose_into_a_pipeline() {
+    assert_eq(run_async(body_pipeline), 56)
+}
+
+/// The same computation over a stream and a list must agree; the stream is
+/// only a different evaluation strategy, not different semantics.
+fn body_stream_matches_list() -> Int with Async {
+    Stream.from_array([|1, 2, 3, 4, 5, 6|])
+        |> Stream.filter(\x -> x % 2 == 0)
+        |> Stream.fold(0, \(acc, x) -> acc + x)
+}
+
+fn test_a_stream_pipeline_matches_the_equivalent_list_pipeline() {
+    let via_list = [1, 2, 3, 4, 5, 6]
+        |> List.filter(\x -> x % 2 == 0)
+        |> List.fold(0, \(acc, x) -> acc + x)
+    assert_eq(run_async(body_stream_matches_list), via_list)
+}

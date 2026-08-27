@@ -1,0 +1,105 @@
+// Tests for Flow.Result.
+//
+// Flow.Result is auto-injected, so `Result`, `Ok`, and `Err` are used here
+// without an import; the combinators are reached through `Result.*`.
+//
+// Two invariants matter beyond the combinator behaviour itself:
+//   1. `Result` is an ordinary data declaration, not a compiler built-in, so
+//      a locally declared `Ok`/`Err` must still shadow the prelude's.
+//   2. `Flow.Async` declares its own `Result`, and must not collide.
+
+import Flow.Result as Result
+import Flow.Option as Option
+
+// ── inspection ─────────────────────────────────────────────────
+
+fn test_is_ok_and_is_err_are_complements() {
+    let good: Result<Int, String> = Ok(1)
+    let bad: Result<Int, String> = Err("e")
+    assert_true(Result.is_ok(good))
+    assert_false(Result.is_err(good))
+    assert_true(Result.is_err(bad))
+    assert_false(Result.is_ok(bad))
+}
+
+// ── extraction ─────────────────────────────────────────────────
+
+fn test_unwrap_result_returns_the_success_value() {
+    assert_eq(Result.unwrap_result(Ok(7)), 7)
+}
+
+fn test_unwrap_or_result_falls_back_on_err() {
+    let bad: Result<Int, String> = Err("nope")
+    assert_eq(Result.unwrap_or_result(bad, 99), 99)
+    assert_eq(Result.unwrap_or_result(Ok(1), 99), 1)
+}
+
+fn test_unwrap_err_result_returns_the_error() {
+    let bad: Result<Int, String> = Err("boom")
+    assert_eq(Result.unwrap_err_result(bad), "boom")
+}
+
+// ── transformation ─────────────────────────────────────────────
+
+fn test_map_result_transforms_ok_and_passes_err_through() {
+    let doubled = Result.map_result(Ok(21), fn(x) { x * 2 })
+    assert_eq(Result.unwrap_result(doubled), 42)
+
+    let bad: Result<Int, String> = Err("e")
+    assert_true(Result.is_err(Result.map_result(bad, fn(x) { x * 2 })))
+}
+
+fn test_map_err_result_transforms_err_and_passes_ok_through() {
+    let bad: Result<Int, String> = Err("boom")
+    assert_eq(Result.unwrap_err_result(Result.map_err_result(bad, fn(e) { e + "!" })), "boom!")
+
+    let good: Result<Int, String> = Ok(3)
+    assert_eq(Result.unwrap_result(Result.map_err_result(good, fn(e) { e + "!" })), 3)
+}
+
+fn test_and_then_result_chains_and_short_circuits() {
+    let chained = Result.and_then_result(Ok(10), fn(x) { Ok(x + 1) })
+    assert_eq(Result.unwrap_result(chained), 11)
+
+    let bad: Result<Int, String> = Err("first")
+    let skipped = Result.and_then_result(bad, fn(x) { Ok(x + 1) })
+    assert_eq(Result.unwrap_err_result(skipped), "first")
+}
+
+fn test_and_then_result_propagates_a_new_err() {
+    let good: Result<Int, String> = Ok(2)
+    let failed = Result.and_then_result(good, fn(x) { Err("too small") })
+    assert_eq(Result.unwrap_err_result(failed), "too small")
+}
+
+fn test_or_else_result_recovers_from_err() {
+    let bad: Result<Int, String> = Err("boom")
+    let recovered = Result.or_else_result(bad, fn(e) { Ok(0) })
+    assert_eq(Result.unwrap_result(recovered), 0)
+
+    let good: Result<Int, String> = Ok(5)
+    assert_eq(Result.unwrap_result(Result.or_else_result(good, fn(e) { Ok(0) })), 5)
+}
+
+// ── conversion ─────────────────────────────────────────────────
+
+fn test_result_to_option_discards_the_error() {
+    assert_true(Option.is_some(Result.result_to_option(Ok(1))))
+    let bad: Result<Int, String> = Err("e")
+    assert_true(Option.is_none_opt(Result.result_to_option(bad)))
+}
+
+fn test_option_to_result_attaches_an_error() {
+    let converted: Result<Int, String> = Result.option_to_result(Some(4), "missing")
+    assert_eq(Result.unwrap_result(converted), 4)
+
+    let absent: Result<Int, String> = Result.option_to_result(None, "missing")
+    assert_eq(Result.unwrap_err_result(absent), "missing")
+}
+
+fn test_round_trip_through_option_preserves_ok() {
+    let start: Result<Int, String> = Ok(8)
+    let back: Result<Int, String> =
+        Result.option_to_result(Result.result_to_option(start), "lost")
+    assert_eq(Result.unwrap_result(back), 8)
+}

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     bytecode::bytecode_cache::{hash_bytes, hash_cache_key},
-    shared::cache_paths,
+    shared::{cache_paths, hex},
     types::module_interface::{DependencyFingerprint, DependencyMissReason},
 };
 
@@ -275,12 +275,6 @@ pub fn support_object_path(cache_layout: &cache_paths::CacheLayout, optimize: bo
     } else {
         "flux_support_O0.o"
     })
-}
-
-mod hex {
-    pub fn encode(bytes: &[u8]) -> String {
-        bytes.iter().map(|b| format!("{b:02x}")).collect()
-    }
 }
 
 #[cfg(test)]

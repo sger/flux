@@ -91,13 +91,29 @@ int64_t flux_array_len(int64_t arr_val) {
     return flux_tag_int((int64_t)arr->len);
 }
 
+/* Raw element access for runtime internals: returns the element itself, or
+ * FLUX_NONE when out of bounds. Callers inside the runtime (effects.c,
+ * json.c, tcp.c) index arrays they built themselves and want the value, not
+ * an Option — wrapping here would make them unwrap on every access. */
+int64_t flux_array_at(int64_t arr_val, int64_t index_val) {
+    FluxArray *arr = array_ptr(arr_val);
+    if (!arr) return flux_make_none();
+    int64_t idx = flux_untag_int(index_val);
+    if (idx < 0 || (uint32_t)idx >= arr->len) return flux_make_none();
+    return arr->elements[idx];
+}
+
+/* The Flux-facing `Array.get`, declared `-> Option<a>`.
+ *
+ * The hit must be wrapped: returning the bare element made every Option
+ * combinator read a present value as absent, and pattern-matching the result
+ * dereferenced a tagged int as an ADT pointer (a segfault on native). */
 int64_t flux_array_get(int64_t arr_val, int64_t index_val) {
     FluxArray *arr = array_ptr(arr_val);
     if (!arr) return flux_make_none();
     int64_t idx = flux_untag_int(index_val);
     if (idx < 0 || (uint32_t)idx >= arr->len) return flux_make_none();
-    /* Wrap in Some(value). */
-    return arr->elements[idx];
+    return flux_wrap_some(arr->elements[idx]);
 }
 
 int64_t flux_array_set(int64_t arr_val, int64_t index_val, int64_t value) {
