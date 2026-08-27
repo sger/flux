@@ -995,6 +995,15 @@ fn promote_tail_calls(program: &mut LirProgram) {
 struct FnLower<'a> {
     /// Mapping from Core binder IDs to LIR variables.
     env: HashMap<CoreBinderId, LirVar>,
+    /// Closures created lazily for top-level functions used as values, keyed by
+    /// the block that created them.
+    ///
+    /// These cannot go in `env`: it is function-scoped, so a sibling block —
+    /// another match arm — would reuse an SSA value it does not dominate, and
+    /// LLVM rejects the module ("Instruction does not dominate all uses").
+    /// Keying on the block keeps the dedup within one block, where reuse is
+    /// always dominated.
+    block_func_closures: HashMap<(usize, CoreBinderId), LirVar>,
     /// The function being built.
     func: LirFunction,
     /// Index of the currently active block.
@@ -1078,6 +1087,7 @@ impl<'a> FnLower<'a> {
         };
         Self {
             env: HashMap::new(),
+            block_func_closures: HashMap::new(),
             func: LirFunction {
                 name,
                 id,
@@ -1313,6 +1323,24 @@ impl<'a> FnLower<'a> {
         self.env.insert(binder, var);
     }
 
+    /// The closure for a top-level function used as a value in this block,
+    /// creating it if this block has not made one yet.
+    fn func_closure_in_block(&mut self, binder: CoreBinderId, func_id: LirFuncId) -> LirVar {
+        if let Some(&var) = self.block_func_closures.get(&(self.current_block, binder)) {
+            return var;
+        }
+        let var = self.fresh_var();
+        self.emit(LirInstr::MakeClosure {
+            dst: var,
+            func_id,
+            captures: Vec::new(),
+        });
+        self.block_func_closures
+            .insert((self.current_block, binder), var);
+        self.direct_func_vars.insert(var, func_id);
+        var
+    }
+
     /// Look up a Core binder, returning its LIR variable.
     fn lookup(&self, binder: CoreBinderId) -> LirVar {
         *self
@@ -1349,15 +1377,7 @@ impl<'a> FnLower<'a> {
                     // Not in env — check if it's a top-level function.
                     // Create a closure lazily (only when used as a value).
                     if let Some(&func_id) = self.binder_func_id_map.get(&binder) {
-                        let var = self.fresh_var();
-                        self.emit(LirInstr::MakeClosure {
-                            dst: var,
-                            func_id,
-                            captures: Vec::new(),
-                        });
-                        self.bind(binder, var);
-                        self.direct_func_vars.insert(var, func_id);
-                        return var;
+                        return self.func_closure_in_block(binder, func_id);
                     }
                     // Fallback: emit None for unknown binders.
                     let dst = self.fresh_var();
@@ -1379,15 +1399,7 @@ impl<'a> FnLower<'a> {
                             return lowered;
                         }
                         if let Some(&func_id) = self.binder_func_id_map.get(&binder) {
-                            let var = self.fresh_var();
-                            self.emit(LirInstr::MakeClosure {
-                                dst: var,
-                                func_id,
-                                captures: Vec::new(),
-                            });
-                            self.bind(binder, var);
-                            self.direct_func_vars.insert(var, func_id);
-                            return var;
+                            return self.func_closure_in_block(binder, func_id);
                         }
                     }
                     if let Some(&global_idx) = globals.get(&name) {
@@ -1436,15 +1448,7 @@ impl<'a> FnLower<'a> {
                                 return lir_var;
                             }
                             if let Some(&func_id) = self.binder_func_id_map.get(&bid) {
-                                let var = self.fresh_var();
-                                self.emit(LirInstr::MakeClosure {
-                                    dst: var,
-                                    func_id,
-                                    captures: Vec::new(),
-                                });
-                                self.bind(bid, var);
-                                self.direct_func_vars.insert(var, func_id);
-                                return var;
+                                return self.func_closure_in_block(bid, func_id);
                             }
                         }
                         let dst = self.fresh_var();
@@ -2064,15 +2068,7 @@ impl<'a> FnLower<'a> {
                         }
                         // Not in env — create closure lazily for top-level function.
                         if let Some(&func_id) = self.binder_func_id_map.get(&bid) {
-                            let var = self.fresh_var();
-                            self.emit(LirInstr::MakeClosure {
-                                dst: var,
-                                func_id,
-                                captures: Vec::new(),
-                            });
-                            self.bind(bid, var);
-                            self.direct_func_vars.insert(var, func_id);
-                            return var;
+                            return self.func_closure_in_block(bid, func_id);
                         }
                     }
                 }
@@ -2657,15 +2653,7 @@ impl<'a> FnLower<'a> {
                             return lir_var;
                         }
                         if let Some(&func_id) = self.binder_func_id_map.get(&bid) {
-                            let var = self.fresh_var();
-                            self.emit(LirInstr::MakeClosure {
-                                dst: var,
-                                func_id,
-                                captures: Vec::new(),
-                            });
-                            self.bind(bid, var);
-                            self.direct_func_vars.insert(var, func_id);
-                            return var;
+                            return self.func_closure_in_block(bid, func_id);
                         }
                     }
                 }
