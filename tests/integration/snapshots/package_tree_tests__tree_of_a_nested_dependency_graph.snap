@@ -1,0 +1,9 @@
+---
+source: tests/integration/package_tree_tests.rs
+assertion_line: 81
+expression: text(&out)
+---
+app v0.1.0
+├── mid (path: ../mid)
+│   └── leaf (path: ../leaf)
+└── leaf (path: ../leaf) (*)

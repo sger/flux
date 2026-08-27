@@ -204,8 +204,8 @@ cargo test --all --all-features
 
 - Tests are organized by pipeline stage under [`tests/`](tests/); snapshot tests use
   [`insta`](https://insta.rs/) (`cargo insta review` to accept).
-- Every PR adds a changelog fragment under [`changes/`](changes/) (CI enforces this);
-  [`CHANGELOG.md`](CHANGELOG.md) is rebuilt from fragments at release time.
+- [`CHANGELOG.md`](CHANGELOG.md) is written from the merged PRs at release time; a PR's
+  description is its changelog entry.
 - Contributor and architecture notes live in [`CLAUDE.md`](CLAUDE.md) and
   [`docs/internals/`](docs/internals/).
 
