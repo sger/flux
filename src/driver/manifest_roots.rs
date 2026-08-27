@@ -364,25 +364,27 @@ fn parse_records(stdout: &str) -> Result<Vec<ModuleRoot>, String> {
     Ok(roots)
 }
 
-/// Undo `print`'s string rendering: strip the wrapping quotes and turn the
-/// escaped separators back into real ones.
+/// Undo `print`'s string rendering: strip the wrapping quotes. Separators are
+/// already real control characters, and data is not escaped — a `\t` in the
+/// text is a literal backslash from a path, so decoding it would corrupt the
+/// record and fabricate an extra field.
 fn unquote(text: &str) -> String {
-    let inner = text
-        .strip_prefix('"')
+    text.strip_prefix('"')
         .and_then(|rest| rest.strip_suffix('"'))
-        .unwrap_or(text);
-    inner.replace("\\t", "\t").replace("\\n", "\n")
+        .unwrap_or(text)
+        .to_string()
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::{parse_records, unquote};
 
     #[test]
     fn parses_ok_records_into_scoped_roots() {
-        let roots =
-            parse_records("\"ok\\tapp\\tApp\\t./src\\nok\\tshared\\tShared\\t../shared/src\"")
-                .expect("expected records");
+        let roots = parse_records("\"ok\tapp\tApp\t./src\nok\tshared\tShared\t../shared/src\"")
+            .expect("expected records");
         assert_eq!(roots.len(), 2);
         assert_eq!(roots[0].namespace.as_deref(), Some("App"));
         assert_eq!(roots[1].namespace.as_deref(), Some("Shared"));
@@ -391,18 +393,28 @@ mod tests {
 
     #[test]
     fn surfaces_the_resolvers_error_message() {
-        let err = parse_records("\"err\\tregistry dependency `json` is not supported\"")
+        let err = parse_records("\"err\tregistry dependency `json` is not supported\"")
             .expect_err("expected an error");
         assert!(err.contains("registry dependency"), "{err}");
     }
 
     #[test]
     fn rejects_a_record_it_cannot_read() {
-        assert!(parse_records("\"what\\tis\\tthis\"").is_err());
+        assert!(parse_records("\"what\tis\tthis\"").is_err());
     }
 
     #[test]
     fn unquote_leaves_bare_text_alone() {
         assert_eq!(unquote("ok\tA\tb"), "ok\tA\tb");
+    }
+
+    /// A Windows path is data, not separators: decoding its backslashes would
+    /// split one record into a fabricated extra field.
+    #[test]
+    fn a_backslash_in_a_path_is_not_decoded_as_a_separator() {
+        let roots =
+            parse_records("\"ok\tshared\tShared\tC:\\tools\\shared\"").expect("expected records");
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].path, PathBuf::from("C:\\tools\\shared"));
     }
 }

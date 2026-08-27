@@ -236,6 +236,12 @@ module Flume.Toml {
         Str.join(Array.filter(Str.chars(text), \character -> character != "_"), "")
     }
 
+    /// The largest `acc` that can still absorb another digit without wrapping.
+    /// `Int` is 64-bit, so this is (2^63 - 1 - 9) / 10.
+    fn max_acc_before_digit() -> Int {
+        922337203685477579
+    }
+
     fn digits_to_int(characters: Array<String>, index: Int, acc: Int) -> Option<Int> {
         if index >= Array.length(characters) {
             Some(acc)
@@ -244,7 +250,13 @@ module Flume.Toml {
                 None -> None,
                 Some(character) -> match digit_value(character) {
                     None -> None,
-                    Some(digit) -> digits_to_int(characters, index + 1, acc * 10 + digit),
+                    // Reject rather than wrap, so an out-of-range literal is a
+                    // parse error instead of a silently different number.
+                    Some(digit) -> if acc > max_acc_before_digit() {
+                        None
+                    } else {
+                        digits_to_int(characters, index + 1, acc * 10 + digit)
+                    },
                 },
             }
         }

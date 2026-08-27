@@ -656,9 +656,6 @@ fn run_tests_native(config: NativeTestRunConfig<'_>) -> bool {
     } else {
         Path::new(config.source_path)
     };
-    if let NativeTestHarnessSource::Generated(ref source_text) = harness {
-        let _ = std::fs::write("/tmp/DBG_harness.flx", source_text);
-    }
     if let NativeTestHarnessSource::Generated(ref source_text) = harness
         && let Err(e) = std::fs::write(&harness_path, source_text)
     {

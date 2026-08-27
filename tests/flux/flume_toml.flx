@@ -57,6 +57,15 @@ fn test_parses_an_explicitly_positive_integer() with IO {
     assert_eq(render("x = +5\n"), "{x=5}")
 }
 
+// An out-of-range literal must be a parse error, not a wrapped number.
+fn test_an_overflowing_integer_is_an_error() with IO {
+    assert_eq(render("x = 99999999999999999999\n"), "ERR invalid-integer")
+}
+
+fn test_a_large_but_representable_integer_parses() with IO {
+    assert_eq(render("x = 999999999999\n"), "{x=999999999999}")
+}
+
 // TOML allows `_` inside numbers as a thousands separator.
 fn test_underscores_in_numbers_are_ignored() with IO {
     assert_eq(render("x = 1_000_000\n"), "{x=1000000}")

@@ -1,5 +1,0 @@
-### Performance
-- Native fiber scheduler now places fresh spawns on the **least-loaded** ready queue (argmin queue length, tied → lowest worker index) instead of blind round-robin. Eliminates the most common steady-state imbalance class (uneven spawn distribution) without relaxing the no-fiber-migration invariant. `FLUX_WORK_STEALING=0` restores the original round-robin path as a regression escape hatch.
-
-### Changed
-- Cross-worker work-stealing remains deferred: an attempted implementation surfaced that the C effects context (`flux_thread_ctx` in `runtime/c/effects.c`) is per-OS-thread and not migration-safe — `flux_async_clear_suspend` does not reset `current_evv`, so a stolen fiber would inherit a stale handler stack pointer from the stealer's previous fiber chain. Safe migration requires capturing `current_evv` (and any other relevant per-thread state) into the `Fiber` struct on suspend and restoring on resume; that's scheduled as its own change. Updated proposal 0174 to document the architectural blocker.

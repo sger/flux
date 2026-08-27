@@ -86,6 +86,21 @@ fn test_the_error_names_the_offending_component() with IO {
                "errors should distinguish which component was bad")
 }
 
+// A component too large for Int must be rejected, not wrapped: a truncated
+// version would compare and resolve as a different release.
+fn test_an_overflowing_component_is_an_error() with IO {
+    assert_msg(err_of("99999999999999999999.0.0") != "<ok>",
+               "an overflowing major is not a valid component")
+    assert_msg(err_of("1.99999999999999999999.0") != "<ok>",
+               "an overflowing minor is not a valid component")
+    assert_msg(err_of("1.0.99999999999999999999") != "<ok>",
+               "an overflowing patch is not a valid component")
+}
+
+fn test_a_large_but_representable_component_still_parses() with IO {
+    assert_eq(parsed("999999999.1.2"), "999999999.1.2")
+}
+
 // ── round-trip ─────────────────────────────────────────────────
 
 fn test_parse_render_round_trips() with IO {

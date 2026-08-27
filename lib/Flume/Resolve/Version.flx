@@ -308,6 +308,12 @@ module Flume.Resolve.Version {
         }
     }
 
+    /// The largest `acc` that can still absorb another digit without wrapping.
+    /// `Int` is 64-bit, so this is (2^63 - 1 - 9) / 10.
+    fn max_acc_before_digit() -> Int {
+        922337203685477579
+    }
+
     fn digits_to_int(cs: Array<String>, i: Int, acc: Int) -> Option<Int> {
         if i >= Array.length(cs) {
             Some(acc)
@@ -316,7 +322,13 @@ module Flume.Resolve.Version {
                 None -> None,
                 Some(c) -> match digit_value(c) {
                     None -> None,
-                    Some(d) -> digits_to_int(cs, i + 1, acc * 10 + d),
+                    // Reject rather than wrap: a silently truncated version
+                    // would compare and resolve as a different release.
+                    Some(d) -> if acc > max_acc_before_digit() {
+                        None
+                    } else {
+                        digits_to_int(cs, i + 1, acc * 10 + d)
+                    },
                 },
             }
         }
