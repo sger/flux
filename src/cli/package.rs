@@ -74,10 +74,10 @@ fn module_cache_dir(args: &[&str]) -> Option<PathBuf> {
 /// Read the `ok<TAB>message` / `err<TAB>message` record the command printed.
 fn parse_reply(stdout: &str) -> Result<Reply, String> {
     let text = stdout.trim();
-    // A fetch may print progress before the final record. Each `print` is
-    // rendered as one quoted Flux string, so decode line-by-line; decoding
-    // only the whole stdout value would leave the quotes around the final
-    // record and make `last_record` miss it.
+    // Each `print` is rendered as one quoted Flux string, so strip quotes
+    // line-by-line. `print` writes separators as real control characters and
+    // does not escape data, so there is nothing further to decode: a `\t` in
+    // the text is a literal backslash from a path, not a separator.
     let inner = text
         .lines()
         .map(|line| {
@@ -88,16 +88,15 @@ fn parse_reply(stdout: &str) -> Result<Reply, String> {
                 .unwrap_or(line)
                 .strip_suffix('"')
                 .unwrap_or(line.strip_prefix('"').unwrap_or(line))
-                .replace("\\t", "\t")
-                .replace("\\n", "\n")
         })
         .collect::<Vec<_>>()
         .join("\n");
-    // The record is the last line that opens one, and its message runs to the
+    // The record is the first line that opens one, and its message runs to the
     // end of the output: a reply may be multi-line — `tree` renders a whole
     // graph — so the message cannot be assumed to stop at a newline. Anything
-    // printed before the record is the resolver's own progress and is skipped.
-    let Some(record) = last_record(&inner) else {
+    // printed before the record is the resolver's own progress (`fetching`
+    // /`fetched`) and is skipped.
+    let Some(record) = first_record(&inner) else {
         let last = inner.lines().next_back().unwrap_or("").trim();
         return Err(format!("unexpected reply from the package manager: {last}"));
     };
@@ -116,19 +115,19 @@ fn parse_reply(stdout: &str) -> Result<Reply, String> {
     }
 }
 
-/// The tail of `text` starting at the last line that opens an `ok`/`err`
-/// record.
-fn last_record(text: &str) -> Option<&str> {
-    let mut offset = None;
+/// The tail of `text` starting at the first line that opens an `ok`/`err`
+/// record. A command prints exactly one record; taking the first opener keeps
+/// a message that quotes `ok<TAB>` from flipping an error into a success.
+fn first_record(text: &str) -> Option<&str> {
     let mut at = 0usize;
     for line in text.split_inclusive('\n') {
         let trimmed = line.trim_start();
         if trimmed.starts_with("ok\t") || trimmed.starts_with("err\t") {
-            offset = Some(at + (line.len() - trimmed.len()));
+            return Some(text[at + (line.len() - trimmed.len())..].trim_end());
         }
         at += line.len();
     }
-    offset.map(|start| text[start..].trim_end())
+    None
 }
 
 fn report(result: Result<Reply, String>) -> ExitCode {
@@ -771,14 +770,14 @@ mod tests {
 
     #[test]
     fn reads_an_ok_record() {
-        let reply = parse_reply("\"ok\\tcreated package `demo`\"").expect("ok record");
+        let reply = parse_reply("\"ok\tcreated package `demo`\"").expect("ok record");
         assert!(!reply.failed);
         assert_eq!(reply.message, "created package `demo`");
     }
 
     #[test]
     fn reads_an_err_record() {
-        let reply = parse_reply("\"err\\tno entry point\"").expect("err record");
+        let reply = parse_reply("\"err\tno entry point\"").expect("err record");
         assert!(reply.failed);
         assert_eq!(reply.message, "no entry point");
     }
@@ -791,16 +790,36 @@ mod tests {
     #[test]
     fn reads_a_reply_after_quoted_fetch_progress() {
         let reply =
-            parse_reply("\"fetching\\turl\"\n\"ok\\tupdated dep\"").expect("reply after progress");
+            parse_reply("\"fetching\turl\"\n\"ok\tupdated dep\"").expect("reply after progress");
         assert!(!reply.failed);
         assert_eq!(reply.message, "updated dep");
     }
 
     #[test]
     fn reads_a_multiline_reply() {
-        let reply = parse_reply("\"ok\\tapp v0.1.0\n└── shared (git: local#abc123)\"")
+        let reply = parse_reply("\"ok\tapp v0.1.0\n└── shared (git: local#abc123)\"")
             .expect("multiline reply");
         assert!(!reply.failed);
         assert_eq!(reply.message, "app v0.1.0\n└── shared (git: local#abc123)");
+    }
+
+    /// `print` emits separators as real control characters and leaves data
+    /// bytes alone, so a Windows path must survive intact.
+    #[test]
+    fn a_backslash_in_a_message_is_not_decoded_as_a_separator() {
+        let reply = parse_reply("\"ok\tcreated C:\\temp\\project\"").expect("ok record");
+        assert!(!reply.failed);
+        assert_eq!(reply.message, "created C:\\temp\\project");
+    }
+
+    #[test]
+    fn a_multiline_error_is_not_flipped_by_quoted_content() {
+        let reply = parse_reply("\"err\tcannot parse manifest:\nok\tvalue\"")
+            .expect("err record with quoted content");
+        assert!(
+            reply.failed,
+            "an err reply was reported as success: {:?}",
+            reply.message
+        );
     }
 }

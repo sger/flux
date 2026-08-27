@@ -1,2 +1,0 @@
-- Native `Task.spawn` no longer has a fixed 1024-entry task table. POSIX and Win32 paths now allocate task entries into a dynamic registry keyed by the existing integer task ids, preserving `blocking_join`, `Task.await`, and cancellation semantics while allowing more than 1024 live task handles.
-- Spawn diagnostics now report live task count / high-water mark on task-entry allocation or OS-thread creation failure. Native task docs were updated to describe the dynamic registry instead of `FLUX_TASK_TABLE_MAX`.

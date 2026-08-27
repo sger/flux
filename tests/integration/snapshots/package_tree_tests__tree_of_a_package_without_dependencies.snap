@@ -1,0 +1,6 @@
+---
+source: tests/integration/package_tree_tests.rs
+assertion_line: 55
+expression: text(&out)
+---
+app v0.1.0

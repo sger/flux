@@ -23,11 +23,9 @@ Recommended labels:
 ## 2) PR Hygiene (Before Freeze)
 
 Every PR should:
-1. Include a changelog fragment in `changes/*.md`.
+1. Describe its user-facing change in the PR description — that is the changelog entry.
 2. Pass CI (`fmt`, `clippy`, tests).
 3. Include VM/JIT coverage for backend-sensitive changes.
-
-PRs without fragment should use `no-changelog` with justification.
 
 ---
 
@@ -46,10 +44,11 @@ Then run optional extra checks from:
 
 ## 4) Build Changelog and Cut Release Section
 
-1. Rebuild `[Unreleased]` from fragments:
+1. Write the `[Unreleased]` section of `CHANGELOG.md` by hand from the PRs merged
+   since the previous tag:
 
 ```bash
-scripts/changelog/changelog_from_fragments.sh
+git log --merges --pretty='%s %b' vPREV..HEAD
 ```
 
 2. Cut release section:

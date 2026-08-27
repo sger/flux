@@ -20,8 +20,6 @@ fi
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-scripts/changelog/changelog_from_fragments.sh
-
 if grep -Eq "^## \[$NEW_VERSION\]" CHANGELOG.md; then
   echo "CHANGELOG.md already contains section for $NEW_VERSION"
   exit 1
@@ -127,6 +125,6 @@ awk -v new_ver="$NEW_VERSION" -v prev_ver="$PREV_VERSION" '
 mv "$links_tmp" CHANGELOG.md
 echo "Released $NEW_VERSION in CHANGELOG.md (previous: $PREV_VERSION)."
 echo "Next steps:"
-echo "  1) Review CHANGELOG.md"
+echo "  1) Review CHANGELOG.md — write the release notes from the merged PRs"
 echo "  2) Create docs/versions/whats_new_${NEW_VERSION}.md"
 echo "  3) Commit and tag: git tag $NEW_VERSION && git push origin $NEW_VERSION"
