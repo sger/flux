@@ -316,8 +316,7 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         let normal_way = strict_result.way.non_strict();
         if let Some(normal_result) = run_results.iter().find(|r| r.way == normal_way) {
             // Allowed: normal=Success, strict=CompileError (strict caught more)
-            let is_allowed = normal_result.exit_kind == ExitKind::Success
-                && strict_result.exit_kind == ExitKind::CompileError;
+            let is_allowed = allowed_strict_compile_error(strict_result, &run_results);
 
             if !is_allowed {
                 if normal_result.exit_kind != strict_result.exit_kind {
@@ -653,7 +652,18 @@ fn collect_mismatch_details(
     }
 
     if !compare_surfaces_only && !suppress_runtime_comparison && run_results.len() >= 2 {
-        let base = &run_results[0];
+        // Strict mode is allowed to reject a program that normal mode
+        // accepts. `check_file`'s strict-mode parity pass checks that rule
+        // against each way's own non-strict counterpart, and
+        // `collect_strict_cross_backend_details` keeps the strict ways in
+        // agreement with each other; do not feed an allowed strict rejection
+        // into the backend comparison here, where it would look like backend
+        // IR/runtime divergence — and never let one serve as the baseline,
+        // or every other way would go uncompared.
+        let base = run_results
+            .iter()
+            .find(|r| !allowed_strict_compile_error(r, run_results))
+            .unwrap_or(&run_results[0]);
         let has_shared_mismatch = details.iter().any(|d| {
             matches!(
                 d,
@@ -662,7 +672,11 @@ fn collect_mismatch_details(
                     | MismatchDetail::RepresentationMismatch { .. }
             )
         });
-        for other in &run_results[1..] {
+        for other in run_results.iter().filter(|r| !std::ptr::eq(*r, base)) {
+            if allowed_strict_compile_error(other, run_results) {
+                continue;
+            }
+
             let runtime_diverged = base.exit_kind != other.exit_kind
                 || base.normalized_stdout != other.normalized_stdout
                 || ((base.exit_kind != ExitKind::Success || other.exit_kind != ExitKind::Success)
@@ -714,9 +728,211 @@ fn collect_mismatch_details(
                 });
             }
         }
+
+        details.extend(collect_strict_cross_backend_details(run_results));
     }
 
     details
+}
+
+/// Strict-vs-strict cross-backend parity. The generic comparison loop skips
+/// allowed strict rejections and the strict-mode pass in `check_file` only
+/// pairs each strict way with its own non-strict counterpart, so this is the
+/// one place the two backends' strict analyses are held to agree with each
+/// other: both must reject (or not) the same programs, with the same
+/// diagnostic codes.
+fn collect_strict_cross_backend_details(run_results: &[super::RunResult]) -> Vec<MismatchDetail> {
+    let vm_strict = run_results.iter().find(|r| r.way == Way::VmStrict);
+    let llvm_strict = run_results.iter().find(|r| r.way == Way::LlvmStrict);
+    let (Some(vm_strict), Some(llvm_strict)) = (vm_strict, llvm_strict) else {
+        return Vec::new();
+    };
+
+    // When neither side is an allowed rejection, both took part in the
+    // generic comparison loop and any divergence is already reported there;
+    // re-checking here would only duplicate details.
+    if !allowed_strict_compile_error(vm_strict, run_results)
+        && !allowed_strict_compile_error(llvm_strict, run_results)
+    {
+        return Vec::new();
+    }
+
+    let mut details = Vec::new();
+    if vm_strict.exit_kind != llvm_strict.exit_kind {
+        details.push(MismatchDetail::ExitKind {
+            left_way: vm_strict.way,
+            left: vm_strict.exit_kind,
+            right_way: llvm_strict.way,
+            right: llvm_strict.exit_kind,
+        });
+    } else if vm_strict.exit_kind == ExitKind::CompileError {
+        let expected = diagnostic_codes(&vm_strict.normalized_stderr);
+        let actual = diagnostic_codes(&llvm_strict.normalized_stderr);
+        if expected != actual {
+            details.push(MismatchDetail::DiagnosticCodes {
+                way: llvm_strict.way,
+                expected,
+                actual,
+            });
+        }
+    }
+    details
+}
+
+fn allowed_strict_compile_error(
+    result: &super::RunResult,
+    run_results: &[super::RunResult],
+) -> bool {
+    result.way.is_strict()
+        && result.exit_kind == ExitKind::CompileError
+        && run_results.iter().any(|candidate| {
+            candidate.way == result.way.non_strict() && candidate.exit_kind == ExitKind::Success
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn result(
+        way: Way,
+        exit_kind: ExitKind,
+        stdout: &str,
+        stderr: &str,
+    ) -> super::super::RunResult {
+        super::super::RunResult {
+            way,
+            exit_kind,
+            exit_code: 0,
+            stdout: stdout.to_string(),
+            stderr: stderr.to_string(),
+            normalized_stdout: stdout.to_string(),
+            normalized_stderr: stderr.to_string(),
+            cache_observations: vec![],
+        }
+    }
+
+    #[test]
+    fn allowed_strict_compile_errors_do_not_look_like_backend_divergence() {
+        let run_results = vec![
+            result(Way::Vm, ExitKind::Success, "output", ""),
+            result(Way::Llvm, ExitKind::Success, "output", ""),
+            result(Way::VmStrict, ExitKind::CompileError, "", "E425"),
+            result(Way::LlvmStrict, ExitKind::CompileError, "", "E425"),
+        ];
+
+        let details = collect_mismatch_details(&run_results, &[], false, Expect::Success);
+
+        assert!(details.is_empty(), "unexpected parity details: {details:?}");
+    }
+
+    #[test]
+    fn strict_successes_are_still_compared_with_normal_output() {
+        let run_results = vec![
+            result(Way::Vm, ExitKind::Success, "normal", ""),
+            result(Way::VmStrict, ExitKind::Success, "strict", ""),
+        ];
+
+        let details = collect_mismatch_details(&run_results, &[], false, Expect::Success);
+
+        assert!(details.iter().any(|detail| matches!(
+            detail,
+            MismatchDetail::Stdout {
+                left_way: Way::Vm,
+                right_way: Way::VmStrict,
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn strict_way_first_does_not_disable_backend_comparison() {
+        // An allowed strict rejection at index 0 must not become the baseline
+        // and silence the vm/llvm comparison.
+        let run_results = vec![
+            result(Way::VmStrict, ExitKind::CompileError, "", "E425"),
+            result(Way::Vm, ExitKind::Success, "8", ""),
+            result(Way::Llvm, ExitKind::Success, "7", ""),
+        ];
+
+        let details = collect_mismatch_details(&run_results, &[], false, Expect::Success);
+
+        assert!(
+            details.iter().any(|detail| matches!(
+                detail,
+                MismatchDetail::Stdout {
+                    left_way: Way::Vm,
+                    right_way: Way::Llvm,
+                    ..
+                }
+            )),
+            "vm/llvm stdout divergence went unreported: {details:?}"
+        );
+    }
+
+    #[test]
+    fn strict_rejection_on_one_backend_only_is_a_mismatch() {
+        // One backend's strict analysis catching a violation the other's
+        // misses is exactly what strict parity exists to detect.
+        let run_results = vec![
+            result(Way::Vm, ExitKind::Success, "output", ""),
+            result(Way::Llvm, ExitKind::Success, "output", ""),
+            result(
+                Way::VmStrict,
+                ExitKind::CompileError,
+                "",
+                "error[E425]: strict",
+            ),
+            result(Way::LlvmStrict, ExitKind::Success, "output", ""),
+        ];
+
+        let details = collect_mismatch_details(&run_results, &[], false, Expect::Success);
+
+        assert!(
+            details.iter().any(|detail| matches!(
+                detail,
+                MismatchDetail::ExitKind {
+                    left_way: Way::VmStrict,
+                    right_way: Way::LlvmStrict,
+                    ..
+                }
+            )),
+            "strict exit-kind asymmetry went unreported: {details:?}"
+        );
+    }
+
+    #[test]
+    fn strict_rejections_must_agree_on_diagnostic_codes() {
+        let run_results = vec![
+            result(Way::Vm, ExitKind::Success, "output", ""),
+            result(Way::Llvm, ExitKind::Success, "output", ""),
+            result(
+                Way::VmStrict,
+                ExitKind::CompileError,
+                "",
+                "error[E425]: strict",
+            ),
+            result(
+                Way::LlvmStrict,
+                ExitKind::CompileError,
+                "",
+                "error[E999]: strict",
+            ),
+        ];
+
+        let details = collect_mismatch_details(&run_results, &[], false, Expect::Success);
+
+        assert!(
+            details.iter().any(|detail| matches!(
+                detail,
+                MismatchDetail::DiagnosticCodes {
+                    way: Way::LlvmStrict,
+                    ..
+                }
+            )),
+            "divergent strict diagnostic codes went unreported: {details:?}"
+        );
+    }
 }
 
 // ── Fixture collection ─────────────────────────────────────────────────────
