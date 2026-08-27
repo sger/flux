@@ -463,3 +463,30 @@ fn test_picks_are_reported_in_name_order() with IO {
         "alpha 1.0.0;zebra 1.0.0",
     )
 }
+
+// ── conflict rendering ─────────────────────────────────────────
+
+fn rendered_conflict(roots: List<Dep>, available: List<Package>) -> String {
+    match Resolve.resolve(roots, available) {
+        Ok(_) -> "RESOLVED",
+        Err(conflict) -> Resolve.render_conflict(conflict),
+    }
+}
+
+// Both arms of `render_conflict` build the same closure over `indent_dep`.
+// Each arm must get its own: sharing one across arms produced native IR whose
+// closure did not dominate its uses, and LLVM rejected the module.
+fn test_a_missing_package_is_rendered_with_its_culprits() with IO {
+    let rendered = rendered_conflict([need("ghost", "^1.0")], [])
+    assert_msg(len(rendered) > 0, "a missing package must render an explanation")
+    assert_msg(rendered != "RESOLVED", "`ghost` does not exist, so this conflicts")
+}
+
+fn test_an_unsatisfiable_graph_is_rendered_with_its_culprits() with IO {
+    let rendered = rendered_conflict(
+        [need("core", "^1.0"), need("core", "^2.0")],
+        [leaf("core", "1.0.0"), leaf("core", "2.0.0")],
+    )
+    assert_msg(len(rendered) > 0, "an unsatisfiable graph must render an explanation")
+    assert_msg(rendered != "RESOLVED", "`^1.0` and `^2.0` cannot both hold")
+}
