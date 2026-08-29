@@ -171,8 +171,11 @@ registered under `tests/parity/` with the standard parity metadata header.
 
 - Hidden dictionary arity has historically been derived from all constraints,
   including marker-only classes. The shared filtered counter now covers the
-  statement and expression paths; a marker-class regression test remains the
-  smallest follow-up validation.
+  statement and expression paths, but `src/core/passes/dict_elaborate.rs`
+  still derives Core parameters from raw constraints (the dictionary insertion
+  and lambda-parameter paths around lines 408–640). Stage 2 must align Core
+  elaboration with the filtered definition before a marker-class regression
+  test can become a passing contract.
 - Runtime contract validation must account for injected dictionaries before
   checking source parameters. Mixed-signature dictionary calls now cover this
   independently in the baseline fixture.
