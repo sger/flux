@@ -735,7 +735,7 @@ impl Compiler {
                     self.hm_expr_type_strict_path(function)
                     && arguments.len() != params.len()
                     && arguments.len() != self.visible_call_arity(function, params.len())
-                    && arguments.len() != params.len() + self.hidden_dict_count(function)
+                    && arguments.len() != params.len() + self.injected_dictionary_count(function)
                 {
                     return true;
                 }
@@ -767,23 +767,7 @@ impl Compiler {
     /// constrained identifiers. For user-facing AST validation we should
     /// compare against the visible source arity, not the elaborated one.
     fn visible_call_arity(&self, function: &Expression, raw_arity: usize) -> usize {
-        raw_arity.saturating_sub(self.hidden_dict_count(function))
-    }
-
-    fn hidden_dict_count(&self, function: &Expression) -> usize {
-        match function {
-            Expression::Identifier { name, .. } => self
-                .type_env
-                .lookup(*name)
-                .map(|scheme| scheme.constraints.len())
-                .unwrap_or(0),
-            Expression::MemberAccess { object, member, .. } => self
-                .resolve_module_name_from_expr(object)
-                .and_then(|module_name| self.cached_member_schemes.get(&(module_name, *member)))
-                .map(|scheme| scheme.constraints.len())
-                .unwrap_or(0),
-            _ => 0,
-        }
+        raw_arity.saturating_sub(self.injected_dictionary_count(function))
     }
 
     fn block_contains_constrained_calls(&self, body: &Block) -> bool {
