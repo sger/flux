@@ -1402,7 +1402,9 @@ impl Compiler {
         let function_name = self.call_function_name(function);
         let def_span = self.call_definition_span(function);
 
-        for (index, argument) in arguments.iter().enumerate() {
+        let hidden_dicts =
+            self.contract_argument_offset(function, arguments, contract.params.len());
+        for (index, argument) in arguments.iter().skip(hidden_dicts).enumerate() {
             let Some(expected_ty) = contract.params.get(index).and_then(|p| p.as_ref()) else {
                 continue;
             };
@@ -1557,7 +1559,9 @@ impl Compiler {
         contract: &crate::runtime::function_contract::FunctionContract,
     ) -> CompileResult<()> {
         let function_name = self.call_function_name(function);
-        for (index, argument) in arguments.iter().enumerate() {
+        let hidden_dicts =
+            self.contract_argument_offset(function, arguments, contract.params.len());
+        for (index, argument) in arguments.iter().skip(hidden_dicts).enumerate() {
             let Some(expected_runtime) =
                 contract.params.get(index).and_then(|param| param.as_ref())
             else {
@@ -1647,6 +1651,42 @@ impl Compiler {
                 .map(|scheme| scheme.constraints.len())
                 .unwrap_or(0),
             _ => 0,
+        }
+    }
+
+    fn injected_dictionary_count_ast(&self, function: &Expression) -> usize {
+        let scheme = match function {
+            Expression::Identifier { name, .. } => self.type_env.lookup(*name),
+            Expression::MemberAccess { object, member, .. } => self
+                .resolve_module_name_from_expr(object)
+                .and_then(|module_name| self.cached_member_schemes.get(&(module_name, *member))),
+            _ => None,
+        };
+
+        scheme
+            .into_iter()
+            .flat_map(|scheme| scheme.constraints.iter())
+            .filter(|constraint| self.is_runtime_dictionary_constraint(constraint))
+            .count()
+    }
+
+    fn contract_argument_offset(
+        &self,
+        function: &Expression,
+        arguments: &[Expression],
+        contract_parameter_count: usize,
+    ) -> usize {
+        let dictionary_count = self.injected_dictionary_count_ast(function);
+        if dictionary_count > 0
+            && arguments.len() >= dictionary_count + contract_parameter_count
+            && arguments
+                .iter()
+                .take(dictionary_count)
+                .all(|argument| self.looks_like_dictionary_argument_ast(argument))
+        {
+            dictionary_count
+        } else {
+            0
         }
     }
 

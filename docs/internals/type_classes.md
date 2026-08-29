@@ -159,7 +159,7 @@ snapshot suite.
 | `result_directed_method_lookup.flx` | Method whose result could influence selection | Baseline behavior is recorded; result-directed selection remains Stage 4. |
 | `invalid_higher_kind.flx` | Invalid type-constructor application | Current baseline is recorded; complete kind rejection remains Stage 1. |
 | `unsupported_deriving_diagnostic.flx` | Unsupported deriving request | Diagnostic behavior is stable and explicit; broader deriving remains Stage 7. |
-| `interface_metadata_roundtrip.flx` | Public class/instance interface serialization | Metadata survives interface construction and reload. |
+| `TypeclassMetadata.flx` | Public class/instance interface serialization | Metadata survives interface construction and reload. |
 | `typeclass_backend_parity.flx` | Supported class dispatch on VM and LLVM | Deterministic output is identical across supported backends. |
 | `multiple_class_obligations.flx` | Two independent generalized obligations | Both dictionaries are inserted in declaration order and both methods execute. |
 | `superclass_instance_validation.flx` | Existing superclass and contextual-instance validation | Direct superclass evidence and the contextual instance continue to compile and run. |
