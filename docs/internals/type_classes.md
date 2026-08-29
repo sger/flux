@@ -167,6 +167,19 @@ snapshot suite.
 The Rust tests must reference every fixture. The parity fixture must also be
 registered under `tests/parity/` with the standard parity metadata header.
 
+## Baseline blocker list
+
+- Hidden dictionary arity has historically been derived from all constraints,
+  including marker-only classes. The shared filtered counter now covers the
+  statement and expression paths; a marker-class regression test remains the
+  smallest follow-up validation.
+- Runtime contract validation must account for injected dictionaries before
+  checking source parameters. Mixed-signature dictionary calls now cover this
+  independently in the baseline fixture.
+- LLVM TCP listen/accept parity still has backend-specific timeout mismatches.
+  This is unrelated to typeclass lowering and remains a separate backend
+  blocker until its native handle scheduling path is fixed.
+
 ## Stage ownership after Stage 0
 
 - Stage 1: one lossless predicate model and real kind checking.
