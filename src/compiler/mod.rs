@@ -1190,6 +1190,26 @@ fn collect_program_module_names(program: &Program, out: &mut HashSet<Identifier>
 }
 
 impl Compiler {
+    pub(super) fn injected_dictionary_count(&self, function: &Expression) -> usize {
+        let scheme = match function {
+            Expression::Identifier { name, .. } => self.type_env.lookup(*name),
+            Expression::MemberAccess { object, member, .. } => self
+                .resolve_module_name_from_expr(object)
+                .and_then(|module_name| self.cached_member_schemes.get(&(module_name, *member))),
+            _ => None,
+        };
+
+        scheme
+            .into_iter()
+            .flat_map(|scheme| scheme.constraints.iter())
+            .filter(|constraint| {
+                self.class_env
+                    .lookup_class(constraint.class_name)
+                    .is_some_and(|class| !class.methods.is_empty())
+            })
+            .count()
+    }
+
     fn is_flow_library_file(&self) -> bool {
         self.current_module_kind == ModuleKind::FlowStdlib
     }

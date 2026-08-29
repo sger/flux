@@ -191,13 +191,13 @@ next stage starts from the latest green `main`.
 
 - Record dictionary arity, dropped-constraint, first-argument dispatch,
   invalid-kind, and unsupported-deriving behavior. Examples:
-  `dictionary_arity.flx`, `constraint_obligation.flx`,
-  `result_dispatch.flx`, `invalid_kind.flx`, and
-  `unsupported_deriving.flx`.
+  `dictionary_call_arity.flx`, `generalized_constraint_obligation.flx`,
+  `result_directed_method_lookup.flx`, `invalid_higher_kind.flx`, and
+  `unsupported_deriving_diagnostic.flx`.
 - Add the Flux-native typeclass test matrix and parity smoke case:
-  `parity_smoke.flx`.
+  `typeclass_backend_parity.flx`.
 - Finalize diagnostic and `.flxi` requirements with
-  `module_interface_roundtrip.flx`.
+  `TypeclassMetadata.flx`.
 
 Example syntax:
 
@@ -230,10 +230,9 @@ instance Functor<Int> { }
 
 ### Stage 2 — Dictionary runtime correctness
 
-- Implement one shared resolver for AST-to-Core and Core passes:
-  `shared_resolver.flx`.
+- Implement one shared resolver for AST-to-Core and Core passes.
 - Require exactly the elaborated dictionary arity:
-  `dictionary_arity.flx`.
+  `dictionary_call_arity.flx`.
 - Support contextual and function-valued dictionaries:
   `contextual_dictionary.flx`.
 - Remove runtime arity workarounds and reject partial resolution:

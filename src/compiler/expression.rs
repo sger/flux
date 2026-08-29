@@ -1618,7 +1618,7 @@ impl Compiler {
         };
 
         let raw_expected = params.len();
-        let hidden_dicts = self.hidden_dict_count_ast(function);
+        let hidden_dicts = self.injected_dictionary_count(function);
         let visible_expected = raw_expected.saturating_sub(hidden_dicts);
         let elaborated_expected = raw_expected + hidden_dicts;
         let actual = arguments.len();
@@ -1638,45 +1638,13 @@ impl Compiler {
         )))
     }
 
-    fn hidden_dict_count_ast(&self, function: &Expression) -> usize {
-        match function {
-            Expression::Identifier { name, .. } => self
-                .type_env
-                .lookup(*name)
-                .map(|scheme| scheme.constraints.len())
-                .unwrap_or(0),
-            Expression::MemberAccess { object, member, .. } => self
-                .resolve_module_name_from_expr(object)
-                .and_then(|module_name| self.cached_member_schemes.get(&(module_name, *member)))
-                .map(|scheme| scheme.constraints.len())
-                .unwrap_or(0),
-            _ => 0,
-        }
-    }
-
-    fn injected_dictionary_count_ast(&self, function: &Expression) -> usize {
-        let scheme = match function {
-            Expression::Identifier { name, .. } => self.type_env.lookup(*name),
-            Expression::MemberAccess { object, member, .. } => self
-                .resolve_module_name_from_expr(object)
-                .and_then(|module_name| self.cached_member_schemes.get(&(module_name, *member))),
-            _ => None,
-        };
-
-        scheme
-            .into_iter()
-            .flat_map(|scheme| scheme.constraints.iter())
-            .filter(|constraint| self.is_runtime_dictionary_constraint(constraint))
-            .count()
-    }
-
     fn contract_argument_offset(
         &self,
         function: &Expression,
         arguments: &[Expression],
         contract_parameter_count: usize,
     ) -> usize {
-        let dictionary_count = self.injected_dictionary_count_ast(function);
+        let dictionary_count = self.injected_dictionary_count(function);
         if dictionary_count > 0
             && arguments.len() >= dictionary_count + contract_parameter_count
             && arguments
