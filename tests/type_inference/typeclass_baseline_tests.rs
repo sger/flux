@@ -68,7 +68,7 @@ fn run_fixture(name: &str) -> Result<FixtureOutput, String> {
 }
 
 fn build_interface_from_fixture() -> ModuleInterface {
-    let source = std::fs::read_to_string(fixture_path("interface_metadata_roundtrip.flx"))
+    let source = std::fs::read_to_string(fixture_path("TypeclassMetadata.flx"))
         .expect("read interface fixture");
     let (program, mut compiler) = parse_source(&source, "TypeclassMetadata.flx");
     compiler
@@ -104,7 +104,7 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "result_directed_method_lookup.flx",
         "invalid_higher_kind.flx",
         "unsupported_deriving_diagnostic.flx",
-        "interface_metadata_roundtrip.flx",
+        "TypeclassMetadata.flx",
         "typeclass_backend_parity.flx",
         "multiple_class_obligations.flx",
         "superclass_instance_validation.flx",
@@ -148,7 +148,7 @@ fn class_and_instance_collection_is_present_in_compiler_environment() {
 #[test]
 fn concrete_and_polymorphic_dictionary_calls_have_exact_runtime_arity() {
     for (fixture, expected) in [
-        ("dictionary_call_arity.flx", "42"),
+        ("dictionary_call_arity.flx", "42\n10"),
         ("generalized_constraint_obligation.flx", "true"),
         ("multiple_class_obligations.flx", "\"7\""),
         ("superclass_instance_validation.flx", "5\n500"),
