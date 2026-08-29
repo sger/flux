@@ -595,6 +595,10 @@ name = "constrained_type_params_integration"
 path = "tests/type_inference/constrained_type_params_integration.rs"
 
 [[test]]
+name = "typeclass_baseline_tests"
+path = "tests/type_inference/typeclass_baseline_tests.rs"
+
+[[test]]
 name = "sendable_tests"
 path = "tests/type_inference/sendable_tests.rs"
 

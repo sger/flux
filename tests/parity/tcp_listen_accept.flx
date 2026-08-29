@@ -1,6 +1,6 @@
 // parity: vm, llvm
 // expect: success
-// skip: native LLVM can hang on Ubuntu for this fixed-port accept-only smoke; covered by TCP round-trip parity fixtures.
+// skip: intermittent LLVM TCP listen/accept timeout under the full parity matrix
 // bug: TCP listen/accept/close through the VM handle table.
 //      Phase 1b-vi-e: basic connection handshake via Async.both.
 

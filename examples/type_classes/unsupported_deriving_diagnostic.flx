@@ -1,0 +1,16 @@
+// Baseline behavior: a known class without a deriving implementation is
+// recorded here. Safe deriving diagnostics and generated evidence belong to
+// Stage 7.
+// Expected current baseline output:
+// 1
+// No usable Functor dictionary is generated for this data declaration.
+
+class Functor<f> {
+    fn fmap<a, b>(x: f<a>, func: (a) -> b) -> f<b>
+}
+
+data Box<a> { Box(a) } deriving (Functor)
+
+fn main() with IO {
+    print(1)
+}

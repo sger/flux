@@ -122,14 +122,19 @@ impl VM {
             return Ok(());
         };
         let args_start = self.sp - num_args;
+        let hidden_args = closure
+            .function
+            .num_parameters
+            .saturating_sub(contract.params.len());
         for (index, maybe_expected) in contract.params.iter().enumerate() {
             let Some(expected) = maybe_expected.as_ref() else {
                 continue;
             };
-            if index >= num_args {
+            let argument_index = index + hidden_args;
+            if argument_index >= num_args {
                 break;
             }
-            let actual = self.stack_get(args_start + index);
+            let actual = self.stack_get(args_start + argument_index);
             if !expected.matches_value(&actual, self) {
                 let expected_name = expected.type_name();
                 let actual_type = actual.type_name();
@@ -153,11 +158,15 @@ impl VM {
         let Some(contract) = closure.function.contract.as_ref() else {
             return Ok(());
         };
+        let hidden_args = closure
+            .function
+            .num_parameters
+            .saturating_sub(contract.params.len());
         for (index, maybe_expected) in contract.params.iter().enumerate() {
             let Some(expected) = maybe_expected.as_ref() else {
                 continue;
             };
-            let Some(actual) = args.get(index) else {
+            let Some(actual) = args.get(index + hidden_args) else {
                 break;
             };
             if !expected.matches_value(actual, self) {

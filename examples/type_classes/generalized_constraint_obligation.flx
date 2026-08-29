@@ -1,0 +1,19 @@
+// Baseline behavior: a generic function carries its class obligation.
+// Expected output:
+// true
+
+class Same<a> {
+    fn same(x: a, y: a) -> Bool
+}
+
+instance Same<Int> {
+    fn same(x, y) { x == y }
+}
+
+fn equal_values<a: Same>(x: a, y: a) -> Bool {
+    same(x, y)
+}
+
+fn main() with IO {
+    print(equal_values(7, 7))
+}
