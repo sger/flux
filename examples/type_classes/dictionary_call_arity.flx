@@ -14,6 +14,11 @@ fn twice<a: Sizeable>(x: a) -> Int {
     size(x) + size(x)
 }
 
+fn ssize<a: Sizeable>(x: a, label: String) -> Int {
+    size(x)
+}
+
 fn main() with IO {
     print(twice(21))
+    print(ssize(10, "mixed"))
 }
