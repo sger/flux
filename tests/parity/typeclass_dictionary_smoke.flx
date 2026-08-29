@@ -1,0 +1,20 @@
+// parity: vm, llvm
+// expect: success
+// bug: supported concrete and polymorphic typeclass calls must agree on VM and LLVM
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+fn twice<a: Sizeable>(x: a) -> Int {
+    size(x) + size(x)
+}
+
+fn main() with IO {
+    print(size(21))
+    print(twice(21))
+}

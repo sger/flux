@@ -960,6 +960,25 @@ impl Compiler {
                     return Ok(());
                 }
 
+                // Dictionary elaboration also changes the calling convention
+                // of constrained user functions. The Core path already adds
+                // these hidden arguments, but the bytecode AST fallback must
+                // do the same when a function body (for example one with an
+                // effect handler) cannot use CFG code generation.
+                if let Expression::Identifier { name, span, .. } = function.as_ref()
+                    && let Some(dict_call) = self.try_build_constrained_user_fn_call(
+                        *name,
+                        *span,
+                        arguments,
+                        *id,
+                        expression.span(),
+                    )
+                {
+                    self.compile_non_tail_expression(&dict_call)?;
+                    self.current_span = previous_span;
+                    return Ok(());
+                }
+
                 let is_direct_self_call = self.is_self_call(function);
                 let is_self_tail_call = self.in_tail_position && is_direct_self_call;
                 let is_self_non_tail_call = !self.in_tail_position && is_direct_self_call;
@@ -4632,8 +4651,15 @@ impl Compiler {
         let method_index = self.class_env.method_index(class_name, name)?;
         let class_str = self.interner.resolve(class_name);
         let dict_name = format!("__dict_{class_str}");
-        let dict_sym = self.interner.lookup(&dict_name)?;
-        self.symbol_table.resolve(dict_sym)?;
+        // CFG/Core retain the canonical `__dict_Class` name. The Aether
+        // fallback can expose the same hidden parameter under the class name
+        // (`Class`) after binder normalization, so accept that representation
+        // when it is a local binding in the current function.
+        let dict_sym = self
+            .interner
+            .lookup(&dict_name)
+            .filter(|symbol| self.symbol_table.resolve(*symbol).is_some())
+            .or_else(|| self.symbol_table.resolve(class_name).map(|_| class_name))?;
 
         Some(Expression::Call {
             function: Box::new(Expression::TupleFieldAccess {
@@ -4650,6 +4676,228 @@ impl Compiler {
             span: call_span,
             id: crate::syntax::expression::ExprId::UNSET,
         })
+    }
+
+    fn try_build_constrained_user_fn_call(
+        &mut self,
+        name: crate::syntax::Identifier,
+        function_span: Span,
+        arguments: &[Expression],
+        call_id: crate::syntax::expression::ExprId,
+        call_span: Span,
+    ) -> Option<Expression> {
+        // Only rewrite functions declared in this compilation unit. Imported
+        // APIs may carry HM constraints for other purposes (for example the
+        // Sendable contract on Flow.Task), but their interface ABI is already
+        // fixed and must not gain a local dictionary argument here.
+        if !self.file_scope_symbols.contains(&name) {
+            return None;
+        }
+        let dictionary_constraint_count = self
+            .type_env
+            .lookup(name)?
+            .constraints
+            .iter()
+            .filter(|constraint| self.is_runtime_dictionary_constraint(constraint))
+            .count();
+        if dictionary_constraint_count == 0 {
+            return None;
+        }
+
+        // The rewritten call is compiled recursively. Do not prepend the
+        // same evidence a second time when its first arguments are already
+        // dictionary values emitted by this helper.
+        if arguments.len() >= dictionary_constraint_count
+            && arguments
+                .iter()
+                .take(dictionary_constraint_count)
+                .all(|argument| self.looks_like_dictionary_argument_ast(argument))
+        {
+            return None;
+        }
+
+        let dictionary_refs = {
+            let scheme = self.type_env.lookup(name)?;
+            scheme
+                .constraints
+                .iter()
+                .filter(|constraint| self.is_runtime_dictionary_constraint(constraint))
+                .map(|constraint| {
+                    let actual_type_args = self
+                        .resolve_constraint_type_args_ast(constraint, scheme, call_id, arguments)?;
+                    self.class_env.resolve_dictionary_ref(
+                        constraint.class_name,
+                        &actual_type_args,
+                        &self.interner,
+                    )
+                })
+                .collect::<Option<Vec<_>>>()?
+        };
+
+        let dict_args = dictionary_refs
+            .iter()
+            .map(|dict_ref| self.lower_dictionary_ref_ast(dict_ref, function_span))
+            .collect::<Vec<_>>();
+
+        let mut elaborated_arguments = dict_args;
+        elaborated_arguments.extend_from_slice(arguments);
+        Some(Expression::Call {
+            function: Box::new(Expression::Identifier {
+                name,
+                span: function_span,
+                id: crate::syntax::expression::ExprId::UNSET,
+            }),
+            arguments: elaborated_arguments,
+            span: call_span,
+            id: crate::syntax::expression::ExprId::UNSET,
+        })
+    }
+
+    fn is_runtime_dictionary_constraint(
+        &self,
+        constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
+    ) -> bool {
+        self.class_env
+            .lookup_class(constraint.class_name)
+            .is_some_and(|class| !class.methods.is_empty())
+    }
+
+    fn looks_like_dictionary_argument_ast(&self, expression: &Expression) -> bool {
+        match expression {
+            Expression::Identifier { name, .. } => {
+                self.interner.resolve(*name).starts_with("__dict_")
+            }
+            Expression::TupleLiteral { elements, .. } => {
+                !elements.is_empty()
+                    && elements.iter().all(|element| {
+                        matches!(element, Expression::Identifier { name, .. } if self
+                            .interner
+                            .resolve(*name)
+                            .starts_with("__tc_"))
+                    })
+            }
+            Expression::Call { function, .. } => matches!(
+                function.as_ref(),
+                Expression::Identifier { name, .. } if self.interner.resolve(*name).starts_with("__dict_")
+            ),
+            _ => false,
+        }
+    }
+
+    fn resolve_constraint_type_args_ast(
+        &self,
+        constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
+        scheme: &crate::types::scheme::Scheme,
+        call_id: crate::syntax::expression::ExprId,
+        arguments: &[Expression],
+    ) -> Option<Vec<InferType>> {
+        let InferType::Fun(param_tys, ret_ty, _) = &scheme.infer_type else {
+            return None;
+        };
+        let param_offset = param_tys.len().saturating_sub(arguments.len());
+        let call_result_ty = self.hm_expr_types.get(&call_id);
+        constraint
+            .type_vars
+            .iter()
+            .map(|type_var| {
+                let from_arguments = param_tys
+                    .iter()
+                    .enumerate()
+                    .skip(param_offset)
+                    .filter_map(|(index, param_ty)| {
+                        let arg = arguments.get(index - param_offset)?;
+                        let actual = self.hm_expr_types.get(&arg.expr_id())?;
+                        Self::match_constraint_type_var_ast(param_ty, actual, *type_var)
+                            .filter(|ty| !matches!(ty, InferType::Var(_)))
+                    })
+                    .next();
+                from_arguments.or_else(|| {
+                    call_result_ty.and_then(|actual| {
+                        Self::match_constraint_type_var_ast(ret_ty, actual, *type_var)
+                            .filter(|ty| !matches!(ty, InferType::Var(_)))
+                    })
+                })
+            })
+            .collect()
+    }
+
+    fn match_constraint_type_var_ast(
+        pattern: &InferType,
+        actual: &InferType,
+        target: crate::types::TypeVarId,
+    ) -> Option<InferType> {
+        match pattern {
+            InferType::Var(var) if *var == target => Some(actual.clone()),
+            InferType::App(pattern_ctor, pattern_args) => {
+                let InferType::App(actual_ctor, actual_args) = actual else {
+                    return None;
+                };
+                if pattern_ctor != actual_ctor || pattern_args.len() != actual_args.len() {
+                    return None;
+                }
+                pattern_args
+                    .iter()
+                    .zip(actual_args.iter())
+                    .find_map(|(pattern_arg, actual_arg)| {
+                        Self::match_constraint_type_var_ast(pattern_arg, actual_arg, target)
+                    })
+            }
+            InferType::Tuple(pattern_elems) => {
+                let InferType::Tuple(actual_elems) = actual else {
+                    return None;
+                };
+                if pattern_elems.len() != actual_elems.len() {
+                    return None;
+                }
+                pattern_elems.iter().zip(actual_elems.iter()).find_map(
+                    |(pattern_elem, actual_elem)| {
+                        Self::match_constraint_type_var_ast(pattern_elem, actual_elem, target)
+                    },
+                )
+            }
+            InferType::Fun(pattern_params, pattern_ret, _) => {
+                let InferType::Fun(actual_params, actual_ret, _) = actual else {
+                    return None;
+                };
+                if pattern_params.len() != actual_params.len() {
+                    return None;
+                }
+                pattern_params
+                    .iter()
+                    .zip(actual_params.iter())
+                    .find_map(|(pattern_param, actual_param)| {
+                        Self::match_constraint_type_var_ast(pattern_param, actual_param, target)
+                    })
+                    .or_else(|| {
+                        Self::match_constraint_type_var_ast(pattern_ret, actual_ret, target)
+                    })
+            }
+            InferType::HktApp(pattern_head, pattern_args) => {
+                let actual_args = match actual {
+                    InferType::App(_, args) | InferType::HktApp(_, args) => args,
+                    _ => return None,
+                };
+                if pattern_args.len() != actual_args.len() {
+                    return None;
+                }
+                if let InferType::Var(var) = pattern_head.as_ref()
+                    && *var == target
+                {
+                    return Some(match actual {
+                        InferType::App(actual_ctor, _) => InferType::Con(actual_ctor.clone()),
+                        InferType::HktApp(actual_head, _) => actual_head.as_ref().clone(),
+                        _ => return None,
+                    });
+                }
+                pattern_args
+                    .iter()
+                    .zip(actual_args.iter())
+                    .find_map(|(pattern_arg, actual_arg)| {
+                        Self::match_constraint_type_var_ast(pattern_arg, actual_arg, target)
+                    })
+            }
+            _ => None,
+        }
     }
 
     fn resolve_direct_class_call_dict_args_ast(
@@ -4705,7 +4953,7 @@ impl Compiler {
                         .into_iter()
                         .map(|name| {
                             let name = self.interner.intern(&name);
-                            if !self.symbol_table.exists_in_current_scope(name) {
+                            if self.symbol_table.resolve(name).is_none() {
                                 self.symbol_table.define(name, Span::default());
                             }
                             Expression::Identifier {

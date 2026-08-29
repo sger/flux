@@ -1,0 +1,18 @@
+// Baseline behavior: the current resolver uses the complete concrete call
+// shape only where it is already supported. Result-directed dispatch remains
+// a later-stage capability.
+// Expected output:
+// "42"
+
+class Convert<a, b> {
+    fn convert(x: a) -> b
+}
+
+instance Convert<Int, String> {
+    fn convert(x) { to_string(x) }
+}
+
+fn main() with IO {
+    let text: String = convert(42)
+    print(text)
+}

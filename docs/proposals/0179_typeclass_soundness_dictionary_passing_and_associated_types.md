@@ -158,7 +158,7 @@ The pre-phase produces:
 1. `docs/internals/type_classes.md` describing the current Flux data-flow and
    calling convention.
 2. A Flux `.flx` example for every discovered obstacle under
-   `examples/typeclass_roadmap/prephase/`, with expected output or diagnostic.
+   `examples/type_classes/`, with expected output or diagnostic.
 3. A short blocker list in the Stage 0 pull request, with the smallest
    independently testable fix for each blocker.
 
@@ -383,9 +383,9 @@ cache-sensitive examples exercise cold and warm compilation paths. Examples
 are part of the feature contract and must be referenced by a Rust test or the
 parity runner so they cannot silently become stale.
 
-The default location is `examples/typeclass_roadmap/stageN/`. A fixture may be
-mirrored into `tests/parity/` or `tests/fixtures/` when an existing harness
-requires that location.
+The default location is `examples/type_classes/`, using descriptive filenames.
+A fixture may be mirrored into `tests/parity/` or `tests/fixtures/` when an
+existing harness requires that location.
 
 Each stage must pass:
 
