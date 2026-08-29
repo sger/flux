@@ -1,0 +1,19 @@
+// Baseline supported behavior: concrete and polymorphic dictionary calls.
+// Expected output:
+// 42
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+fn twice<a: Sizeable>(x: a) -> Int {
+    size(x) + size(x)
+}
+
+fn main() with IO {
+    print(twice(21))
+}
