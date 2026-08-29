@@ -1,0 +1,21 @@
+// Baseline parity smoke: deterministic supported typeclass execution.
+// Expected output:
+// 21
+// 42
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+fn twice<a: Sizeable>(x: a) -> Int {
+    size(x) + size(x)
+}
+
+fn main() with IO {
+    print(size(21))
+    print(twice(21))
+}

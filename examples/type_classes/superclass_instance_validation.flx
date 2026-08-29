@@ -1,0 +1,26 @@
+// Baseline supported behavior: direct superclass and contextual instance
+// declarations parse, collect, and dispatch through their existing path.
+// Expected output:
+// 5
+// 500
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+class Sizeable<a> => Measurable<a> {
+    fn weight(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+instance Sizeable<Int> => Measurable<Int> {
+    fn weight(x) { x * 100 }
+}
+
+fn main() with IO {
+    print(size(5))
+    print(weight(5))
+}

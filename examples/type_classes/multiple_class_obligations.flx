@@ -1,0 +1,28 @@
+// Baseline supported behavior: independent obligations are preserved in a
+// generalized function and resolved at a concrete call site.
+// Expected output:
+// "7"
+
+class Equal<a> {
+    fn equal(x: a, y: a) -> Bool
+}
+
+class Render<a> {
+    fn render(x: a) -> String
+}
+
+instance Equal<Int> {
+    fn equal(x, y) { x == y }
+}
+
+instance Render<Int> {
+    fn render(x) { to_string(x) }
+}
+
+fn describe<a: Equal + Render>(x: a, y: a) -> String {
+    if equal(x, y) { render(x) } else { "different" }
+}
+
+fn main() with IO {
+    print(describe(7, 7))
+}
