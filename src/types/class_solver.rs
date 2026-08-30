@@ -15,7 +15,14 @@ use crate::{
     diagnostics::position::Span,
     diagnostics::{Diagnostic, DiagnosticBuilder, diagnostic_for},
     syntax::{Identifier, interner::Interner, type_expr::TypeExpr},
-    types::{class_env::ClassEnv, infer_type::InferType, type_constructor::TypeConstructor},
+    types::{
+        class_disposition::{
+            Disposition, DispositionedConstraint, Evidence, SolveOutcome, SolveScope, StuckReason,
+        },
+        class_env::ClassEnv,
+        infer_type::InferType,
+        type_constructor::TypeConstructor,
+    },
 };
 
 use super::super::diagnostics::compiler_errors::NO_INSTANCE;
@@ -27,91 +34,167 @@ use super::super::diagnostics::compiler_errors::NO_INSTANCE;
 /// unsatisfied constraints.
 ///
 /// Returns a list of error diagnostics (empty if all constraints are satisfied).
+///
+/// This is a thin projection of [`solve_class_constraints_dispositioned`],
+/// which assigns every predicate an explicit outcome. Prefer that function
+/// where the outcome — not just the errors — is needed.
 pub fn solve_class_constraints(
     constraints: &[WantedClassConstraint],
     class_env: &ClassEnv,
     interner: &Interner,
 ) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
+    solve_class_constraints_dispositioned(
+        constraints,
+        SolveScope::WholeProgram,
+        class_env,
+        interner,
+    )
+    .into_diagnostics()
+    .collect()
+}
 
-    for constraint in constraints {
-        // Operator constraints that originated from unresolved type variables
-        // should not become standalone missing-instance diagnostics just
-        // because later inference happened to concretize them.
-        if constraint.origin == WantedClassConstraintOrigin::InferredOperator
-            && !constraint.originated_from_concrete_type
-        {
-            continue;
-        }
+/// Solve class constraints, assigning every predicate a [`Disposition`].
+///
+/// Proposal 0179 Stage 3, Goal 2: every obligation is solved, generalized,
+/// recorded as a documented stuck predicate, or reported as an error — never
+/// silently discarded. The returned outcome therefore always holds exactly
+/// one entry per supplied constraint.
+///
+/// `scope` distinguishes the per-binding pass from the final whole-program
+/// pass. Both currently classify predicates identically; the distinction
+/// exists so that generalization and ambiguity can diverge as the remaining
+/// Stage 3 steps land.
+pub fn solve_class_constraints_dispositioned(
+    constraints: &[WantedClassConstraint],
+    scope: SolveScope,
+    class_env: &ClassEnv,
+    interner: &Interner,
+) -> SolveOutcome {
+    let dispositions: Vec<DispositionedConstraint> = constraints
+        .iter()
+        .map(|constraint| DispositionedConstraint {
+            wanted: constraint.clone(),
+            disposition: classify_constraint(constraint, scope, class_env, interner),
+        })
+        .collect();
 
-        // Only check concrete types by default — variables are left unsolved
-        // for now. Function-shaped type arguments are already specific enough
-        // to reject for marker classes like `Sendable`, even if their inner
-        // parameter/return slots still contain variables.
-        if !constraint.type_args.iter().all(is_solvable_type_arg) {
-            continue;
-        }
+    debug_assert_eq!(
+        dispositions.len(),
+        constraints.len(),
+        "every wanted predicate must receive exactly one disposition"
+    );
 
-        // Skip constraints from compiler-generated code (e.g., dispatch functions).
-        // These have default spans (line 0, col 0).
-        if constraint.span == Span::default() {
-            continue;
-        }
+    SolveOutcome { dispositions }
+}
 
-        // Skip if the class doesn't exist in the environment (already
-        // reported by ClassEnv validation as E441).
-        if class_env.lookup_class(constraint.class_name).is_none() {
-            continue;
-        }
+/// Assign a single wanted predicate its outcome.
+///
+/// Each arm below replaces what was previously a bare `continue`, so the
+/// reason a predicate went undecided is now recorded rather than lost.
+fn classify_constraint(
+    constraint: &WantedClassConstraint,
+    scope: SolveScope,
+    class_env: &ClassEnv,
+    interner: &Interner,
+) -> Disposition {
+    // Operator constraints that originated from unresolved type variables
+    // should not become standalone missing-instance diagnostics just
+    // because later inference happened to concretize them.
+    if constraint.origin == WantedClassConstraintOrigin::InferredOperator
+        && !constraint.originated_from_concrete_type
+    {
+        return Disposition::Stuck {
+            reason: StuckReason::NonConcreteOperator,
+        };
+    }
 
-        let type_displays: Vec<String> = constraint
-            .type_args
-            .iter()
-            .map(|t| display_type(t, interner))
-            .collect();
-        let type_display = type_displays.join(", ");
+    // Only check concrete types by default — variables are left unsolved
+    // for now. Function-shaped type arguments are already specific enough
+    // to reject for marker classes like `Sendable`, even if their inner
+    // parameter/return slots still contain variables.
+    if !constraint.type_args.iter().all(is_solvable_type_arg) {
+        return Disposition::Stuck {
+            reason: match scope {
+                // A binding may still quantify this variable, in which case
+                // `mark_generalized` upgrades the disposition.
+                SolveScope::Binding => StuckReason::OuterScopeVariable,
+                // Generalization has already had its chance, so a residual
+                // variable here is unresolved rather than merely deferred.
+                SolveScope::WholeProgram => StuckReason::UnresolvedAfterGeneralization,
+            },
+        };
+    }
 
-        let has_matching_instance = has_satisfied_instance(
-            constraint.class_name,
-            &constraint.type_args,
-            class_env,
-            interner,
-            &mut HashSet::new(),
-        );
+    // Skip constraints from compiler-generated code (e.g., dispatch functions).
+    // These have default spans (line 0, col 0).
+    if constraint.span == Span::default() {
+        return Disposition::Stuck {
+            reason: StuckReason::SyntheticOrigin,
+        };
+    }
 
-        if !has_matching_instance {
-            let class_display = interner.resolve(constraint.class_name);
-            if let WantedClassConstraintOrigin::TaskSpawnCapture { capture_name } =
-                constraint.origin
-            {
-                let capture_display = interner.resolve(capture_name);
-                diagnostics.push(
-                    diagnostic_for(&NO_INSTANCE)
-                        .with_span(constraint.span)
-                        .with_message(format!(
-                            "Task.spawn closure captures non-Sendable value `{capture_display}: {type_display}`."
-                        ))
-                        .with_hint_text(
-                            "Only values with a Sendable instance can cross the task worker boundary."
-                                .to_string(),
-                        ),
-                );
-                continue;
-            }
-            diagnostics.push(
+    // Skip if the class doesn't exist in the environment (already
+    // reported by ClassEnv validation as E441).
+    if class_env.lookup_class(constraint.class_name).is_none() {
+        return Disposition::Stuck {
+            reason: StuckReason::UnknownClass,
+        };
+    }
+
+    let has_matching_instance = has_satisfied_instance(
+        constraint.class_name,
+        &constraint.type_args,
+        class_env,
+        interner,
+        &mut HashSet::new(),
+    );
+
+    if has_matching_instance {
+        // Stage 4 replaces this placeholder with the instance and
+        // substitution that `resolve_instance_with_subst` already computes,
+        // so dictionary elaboration can stop re-resolving from scratch.
+        return Disposition::Solved {
+            evidence: Evidence::Unrecorded,
+        };
+    }
+
+    let type_displays: Vec<String> = constraint
+        .type_args
+        .iter()
+        .map(|t| display_type(t, interner))
+        .collect();
+    let type_display = type_displays.join(", ");
+    let class_display = interner.resolve(constraint.class_name);
+
+    if let WantedClassConstraintOrigin::TaskSpawnCapture { capture_name } = constraint.origin {
+        let capture_display = interner.resolve(capture_name);
+        return Disposition::Diagnosed {
+            diagnostic: Box::new(
                 diagnostic_for(&NO_INSTANCE)
                     .with_span(constraint.span)
                     .with_message(format!(
-                        "No instance for `{class_display}<{type_display}>`."
+                        "Task.spawn closure captures non-Sendable value `{capture_display}: {type_display}`."
                     ))
-                    .with_hint_text(format!(
-                        "Add an instance: `instance {class_display}<{type_display}> {{ ... }}`"
-                    )),
-            );
-        }
+                    .with_hint_text(
+                        "Only values with a Sendable instance can cross the task worker boundary."
+                            .to_string(),
+                    ),
+            ),
+        };
     }
 
-    diagnostics
+    Disposition::Diagnosed {
+        diagnostic: Box::new(
+            diagnostic_for(&NO_INSTANCE)
+                .with_span(constraint.span)
+                .with_message(format!(
+                    "No instance for `{class_display}<{type_display}>`."
+                ))
+                .with_hint_text(format!(
+                    "Add an instance: `instance {class_display}<{type_display}> {{ ... }}`"
+                )),
+        ),
+    }
 }
 
 fn has_satisfied_instance(

@@ -73,6 +73,14 @@ pub enum Evidence {
     },
     /// A marker class carries no dictionary, so there is nothing to pass.
     Marker,
+    /// An instance was found, but the details were not recorded.
+    ///
+    /// Stage 3 establishes that a predicate *was* discharged; Stage 4
+    /// ("Deterministic evidence resolution") replaces this with the instance
+    /// and substitution that matching already computes, so dictionary
+    /// elaboration can stop re-resolving. Distinct from [`Evidence::Marker`],
+    /// which is a positive claim that no dictionary exists.
+    Unrecorded,
 }
 
 /// Why a predicate could not be decided at the scope where it was solved.
@@ -97,6 +105,11 @@ pub enum StuckReason {
     /// emitted. Retained here so the count is visible; Stage 3 narrows this
     /// case as the generalization fixes land.
     NonConcreteOperator,
+    /// A type argument was still polymorphic at whole-program scope, where
+    /// nothing remains to generalize it. Distinct from
+    /// [`StuckReason::OuterScopeVariable`], which is recoverable by an
+    /// enclosing binding.
+    UnresolvedAfterGeneralization,
 }
 
 /// The outcome assigned to exactly one wanted class predicate.
@@ -167,11 +180,27 @@ pub struct SolveOutcome {
 
 impl SolveOutcome {
     /// Every diagnostic produced, in wanted order.
-    pub fn diagnostics(&self) -> Vec<Diagnostic> {
+    ///
+    /// Borrows rather than allocating; callers that need owned diagnostics
+    /// can `.cloned()`, and callers feeding an existing collection can
+    /// `.extend()` without an intermediate `Vec`.
+    pub fn diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
         self.dispositions
             .iter()
-            .filter_map(|entry| entry.disposition.diagnostic().cloned())
-            .collect()
+            .filter_map(|entry| entry.disposition.diagnostic())
+    }
+
+    /// Consume the outcome, yielding its diagnostics by value.
+    ///
+    /// Preferred over `diagnostics().cloned()` where the outcome is no longer
+    /// needed: the diagnostics are moved out instead of duplicated.
+    pub fn into_diagnostics(self) -> impl Iterator<Item = Diagnostic> {
+        self.dispositions
+            .into_iter()
+            .filter_map(|entry| match entry.disposition {
+                Disposition::Diagnosed { diagnostic } => Some(*diagnostic),
+                _ => None,
+            })
     }
 
     /// The predicates that could not be decided at this scope.
@@ -285,12 +314,12 @@ mod tests {
         assert_eq!(outcome.evidence().count(), 1);
         assert_eq!(outcome.generalized().count(), 1);
         assert_eq!(outcome.stuck().count(), 1);
-        assert_eq!(outcome.diagnostics().len(), 1);
+        assert_eq!(outcome.diagnostics().count(), 1);
         assert_eq!(
             outcome.evidence().count()
                 + outcome.generalized().count()
                 + outcome.stuck().count()
-                + outcome.diagnostics().len(),
+                + outcome.diagnostics().count(),
             outcome.dispositions.len(),
             "every disposition must fall into exactly one category"
         );
@@ -310,6 +339,32 @@ mod tests {
         };
         let reasons: Vec<StuckReason> = outcome.stuck().map(|(_, reason)| reason).collect();
         assert_eq!(reasons, vec![StuckReason::UnknownClass]);
+    }
+
+    #[test]
+    fn into_diagnostics_moves_without_cloning() {
+        let mut interner = Interner::new();
+        let eq = interner.intern("Eq");
+        let outcome = SolveOutcome {
+            dispositions: vec![
+                DispositionedConstraint {
+                    wanted: wanted(eq),
+                    disposition: Disposition::Solved {
+                        evidence: Evidence::Unrecorded,
+                    },
+                },
+                DispositionedConstraint {
+                    wanted: wanted(eq),
+                    disposition: Disposition::Diagnosed {
+                        diagnostic: Box::new(diagnostic_for(&NO_INSTANCE)),
+                    },
+                },
+            ],
+        };
+        let borrowed = outcome.diagnostics().count();
+        let owned: Vec<Diagnostic> = outcome.into_diagnostics().collect();
+        assert_eq!(borrowed, 1);
+        assert_eq!(owned.len(), 1);
     }
 
     #[test]
