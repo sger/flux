@@ -4859,15 +4859,9 @@ impl Compiler {
         call_id: crate::syntax::expression::ExprId,
         span: Span,
     ) -> Option<Vec<Expression>> {
-        let Some((class_name, _)) = self.class_env.method_to_class(method_name) else {
-            return None;
-        };
-        let Some(first_arg) = arguments.first() else {
-            return None;
-        };
-        let Some(first_arg_ty) = self.hm_expr_types.get(&first_arg.expr_id()) else {
-            return None;
-        };
+        let (class_name, _) = self.class_env.method_to_class(method_name)?;
+        let first_arg = arguments.first()?;
+        let first_arg_ty = self.hm_expr_types.get(&first_arg.expr_id())?;
 
         let actual_type_args = if self.interner.resolve(method_name) == "decode"
             && self.interner.resolve(class_name).rsplit('.').next() == Some("Decode")
@@ -4881,24 +4875,25 @@ impl Compiler {
             vec![first_arg_ty.clone()]
         };
 
-        let requests = self
-            .class_env
-            .resolve_instance_context_dictionary_requests(
-                class_name,
-                &actual_type_args,
-                &self.interner,
-            )?;
+        // See `AstLowerer::resolve_direct_class_call_dict_args`: an unmatched
+        // head means a positionally matched multi-parameter instance, which
+        // keeps its direct call with no dictionary arguments.
+        let Some(requests) = self.class_env.resolve_instance_context_dictionary_requests(
+            class_name,
+            &actual_type_args,
+            &self.interner,
+        ) else {
+            return Some(Vec::new());
+        };
         let mut dicts = Vec::with_capacity(requests.len());
         for request in requests {
-            if let Some(dict_ref) = request.dictionary {
-                dicts.push(self.lower_dictionary_ref_ast(&dict_ref, span));
-            } else if let Some(dict) =
-                self.current_context_dictionary_ast(request.class_name, &request.type_args)
-            {
-                dicts.push(dict);
-            } else {
-                return None;
-            }
+            let dictionary = match request.dictionary {
+                Some(dict_ref) => self.lower_dictionary_ref_ast(&dict_ref, span),
+                None => {
+                    self.current_context_dictionary_ast(request.class_name, &request.type_args)?
+                }
+            };
+            dicts.push(dictionary);
         }
         Some(dicts)
     }
@@ -4923,15 +4918,13 @@ impl Compiler {
                     .type_args
                     .iter()
                     .zip(wanted)
-                    .all(|(left, right)| same_infer_type_shape_ast(left, right))
+                    .all(|(left, right)| left.same_shape(right))
             {
                 continue;
             }
             let suffix = (current_occurrence > 0).then(|| format!("_{current_occurrence}"));
             let name = format!("__dict_{class}{}", suffix.unwrap_or_default());
-            let Some(name) = self.interner.lookup(&name) else {
-                return None;
-            };
+            let name = self.interner.lookup(&name)?;
             if self.symbol_table.resolve(name).is_some() {
                 return Some(Expression::Identifier {
                     name,
@@ -5053,43 +5046,4 @@ fn json_result_payload_type_ast(
     }
     let name = interner.resolve(*sym);
     (name.rsplit('.').next() == Some("JsonResult")).then(|| args[0].clone())
-}
-
-fn same_infer_type_shape_ast(left: &InferType, right: &InferType) -> bool {
-    match (left, right) {
-        (InferType::Var(_), _) | (_, InferType::Var(_)) => true,
-        (InferType::Con(left), InferType::Con(right)) => left == right,
-        (InferType::App(left, left_args), InferType::App(right, right_args)) => {
-            left == right
-                && left_args.len() == right_args.len()
-                && left_args
-                    .iter()
-                    .zip(right_args)
-                    .all(|(left, right)| same_infer_type_shape_ast(left, right))
-        }
-        (InferType::Tuple(left), InferType::Tuple(right)) => {
-            left.len() == right.len()
-                && left
-                    .iter()
-                    .zip(right)
-                    .all(|(left, right)| same_infer_type_shape_ast(left, right))
-        }
-        (InferType::Fun(left_params, left_ret, _), InferType::Fun(right_params, right_ret, _)) => {
-            left_params.len() == right_params.len()
-                && left_params
-                    .iter()
-                    .zip(right_params)
-                    .all(|(left, right)| same_infer_type_shape_ast(left, right))
-                && same_infer_type_shape_ast(left_ret, right_ret)
-        }
-        (InferType::HktApp(left_head, left_args), InferType::HktApp(right_head, right_args)) => {
-            same_infer_type_shape_ast(left_head, right_head)
-                && left_args.len() == right_args.len()
-                && left_args
-                    .iter()
-                    .zip(right_args)
-                    .all(|(left, right)| same_infer_type_shape_ast(left, right))
-        }
-        _ => false,
-    }
 }

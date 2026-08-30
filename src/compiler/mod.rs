@@ -1781,11 +1781,15 @@ impl Compiler {
                         .is_some_and(|resolved| resolved.starts_with("__tc_"))
                 })
                 .collect::<HashSet<_>>();
+            let dispatch_options = crate::types::class_dispatch::DispatchGenerationOptions {
+                include_builtin_instances: !self.is_flow_library_file(),
+            };
             let extra = crate::types::class_dispatch::generate_dispatch_functions(
                 &program.statements,
                 &self.class_env,
                 &mut self.interner,
                 &additional_reserved_names,
+                dispatch_options,
             );
             if extra.is_empty() {
                 let final_inference = self.infer_final_program(program);

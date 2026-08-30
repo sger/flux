@@ -1540,33 +1540,6 @@ impl ClassEnv {
         })
     }
 
-    /// Resolve only the context dictionaries required by the matched instance.
-    ///
-    /// This is used by direct monomorphic calls to a mangled `__tc_*` method:
-    /// the caller needs the instance context arguments, not the whole instance
-    /// dictionary constructor.
-    pub fn resolve_instance_context_dictionaries(
-        &self,
-        class_name: Identifier,
-        actual_type_args: &[InferType],
-        interner: &Interner,
-    ) -> Option<Vec<ResolvedDictionaryRef>> {
-        let (instance, subst) =
-            self.resolve_instance_with_subst(class_name, actual_type_args, interner)?;
-        instance
-            .context
-            .iter()
-            .map(|constraint| {
-                let concrete_args = constraint
-                    .type_args
-                    .iter()
-                    .map(|arg| instantiate_instance_type_expr(arg, &subst, interner))
-                    .collect::<Option<Vec<_>>>()?;
-                self.resolve_dictionary_ref(constraint.class_name, &concrete_args, interner)
-            })
-            .collect()
-    }
-
     /// Return each dictionary required by a matched instance, retaining
     /// unresolved polymorphic requirements for the caller to satisfy from
     /// its contextual dictionary parameters.

@@ -539,15 +539,9 @@ impl<'a> AstLowerer<'a> {
             (Some(class_env), Some(interner)) => (class_env, interner),
             _ => return None,
         };
-        let Some((class_name, _)) = class_env.method_to_class(method_name) else {
-            return None;
-        };
-        let Some(first_arg) = arguments.first() else {
-            return None;
-        };
-        let Some(first_arg_type) = self.hm_expr_types.get(&first_arg.expr_id()) else {
-            return None;
-        };
+        let (class_name, _) = class_env.method_to_class(method_name)?;
+        let first_arg = arguments.first()?;
+        let first_arg_type = self.hm_expr_types.get(&first_arg.expr_id())?;
 
         let actual_type_args = if interner.resolve(method_name) == "decode"
             && interner.resolve(class_name).rsplit('.').next() == Some("Decode")
@@ -561,22 +555,24 @@ impl<'a> AstLowerer<'a> {
             vec![first_arg_type.clone()]
         };
 
-        let requests = class_env.resolve_instance_context_dictionary_requests(
+        // No instance head matched on the first argument alone. The caller
+        // already matched one positionally (multi-parameter classes such as
+        // `Convert<Int, String>` resolve that way), so keep the direct call
+        // and pass no dictionaries rather than abandoning it.
+        let Some(requests) = class_env.resolve_instance_context_dictionary_requests(
             class_name,
             &actual_type_args,
             interner,
-        )?;
+        ) else {
+            return Some(Vec::new());
+        };
         let mut dicts = Vec::with_capacity(requests.len());
         for request in requests {
-            if let Some(dictionary) = request.dictionary {
-                dicts.push(Self::lower_dictionary_ref(&dictionary));
-            } else if let Some(dictionary) =
-                self.current_context_dictionary(request.class_name, &request.type_args)
-            {
-                dicts.push(dictionary);
-            } else {
-                return None;
-            }
+            let dictionary = match request.dictionary {
+                Some(dictionary) => Self::lower_dictionary_ref(&dictionary),
+                None => self.current_context_dictionary(request.class_name, &request.type_args)?,
+            };
+            dicts.push(dictionary);
         }
         Some(dicts)
     }
@@ -603,7 +599,7 @@ impl<'a> AstLowerer<'a> {
                     .type_args
                     .iter()
                     .zip(wanted)
-                    .all(|(a, b)| Self::same_infer_type_shape(a, b));
+                    .all(|(a, b)| a.same_shape(b));
             if matches {
                 let suffix = (occurrence > 0).then(|| format!("_{occurrence}"));
                 let name = format!(
@@ -617,44 +613,6 @@ impl<'a> AstLowerer<'a> {
             occurrence += 1;
         }
         None
-    }
-
-    fn same_infer_type_shape(left: &InferType, right: &InferType) -> bool {
-        match (left, right) {
-            (InferType::Var(_), InferType::Var(_)) => true,
-            (InferType::Con(a), InferType::Con(b)) => a == b,
-            (InferType::App(a_head, a_args), InferType::App(b_head, b_args)) => {
-                a_head == b_head
-                    && a_args.len() == b_args.len()
-                    && a_args
-                        .iter()
-                        .zip(b_args)
-                        .all(|(a, b)| Self::same_infer_type_shape(a, b))
-            }
-            (InferType::Tuple(a), InferType::Tuple(b)) => {
-                a.len() == b.len()
-                    && a.iter()
-                        .zip(b)
-                        .all(|(a, b)| Self::same_infer_type_shape(a, b))
-            }
-            (InferType::Fun(a_params, a_ret, _), InferType::Fun(b_params, b_ret, _)) => {
-                a_params.len() == b_params.len()
-                    && a_params
-                        .iter()
-                        .zip(b_params)
-                        .all(|(a, b)| Self::same_infer_type_shape(a, b))
-                    && Self::same_infer_type_shape(a_ret, b_ret)
-            }
-            (InferType::HktApp(a_head, a_args), InferType::HktApp(b_head, b_args)) => {
-                Self::same_infer_type_shape(a_head, b_head)
-                    && a_args.len() == b_args.len()
-                    && a_args
-                        .iter()
-                        .zip(b_args)
-                        .all(|(a, b)| Self::same_infer_type_shape(a, b))
-            }
-            _ => false,
-        }
     }
 
     /// Resolve concrete dictionary arguments for a call to a constrained function.

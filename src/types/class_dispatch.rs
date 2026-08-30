@@ -15,7 +15,7 @@ use crate::{
         Identifier,
         block::Block,
         data_variant::DataVariant,
-        expression::{ExprId, ExprIdGen, Expression},
+        expression::{ExprIdGen, Expression},
         interner::Interner,
         lexer::Lexer,
         parser::Parser,
@@ -101,6 +101,17 @@ pub(crate) fn match_constraint_type_var(
     }
 }
 
+/// Options for [`generate_dispatch_functions`].
+#[derive(Debug, Clone, Copy)]
+pub struct DispatchGenerationOptions {
+    /// Synthesize `__tc_*` bodies for built-in instances (`Num<Int>`, ...)
+    /// when the program needs them. Stdlib modules must leave this off: the
+    /// runner compiles them through one shared interner, and merely interning
+    /// `__tc_Num_Int_add` there makes a later user file resolve `add(5, 10)`
+    /// to a function that was never generated for it.
+    pub include_builtin_instances: bool,
+}
+
 /// Generate function statements from class/instance declarations.
 ///
 /// Returns a list of new `Statement::Function` to inject into the program:
@@ -111,6 +122,7 @@ pub fn generate_dispatch_functions(
     class_env: &ClassEnv,
     interner: &mut Interner,
     additional_reserved_names: &HashSet<Identifier>,
+    options: DispatchGenerationOptions,
 ) -> Vec<Statement> {
     let mut generated = Vec::new();
     let mut reserved_names = collect_existing_function_names(statements);
@@ -132,8 +144,9 @@ pub fn generate_dispatch_functions(
         interner,
         &mut generated,
         &mut dispatch_table,
+        &mut synth_expr_ids,
     );
-    if needs_builtin_dispatch_support(statements) {
+    if options.include_builtin_instances && needs_builtin_dispatch_support(statements) {
         generate_builtin_instance_functions(
             statements,
             class_env,
@@ -1057,6 +1070,7 @@ fn generate_from_statements(
     interner: &mut Interner,
     generated: &mut Vec<Statement>,
     dispatch_table: &mut HashSet<(Identifier, Identifier)>,
+    id_gen: &mut ExprIdGen,
 ) {
     fn resolve_instance_class_def<'a>(
         class_env: &'a ClassEnv,
@@ -1124,7 +1138,11 @@ fn generate_from_statements(
                     let body = if let Some(method) = explicit_method {
                         method.body.clone()
                     } else if let Some(default_body) = &method_sig.default_body {
-                        default_body.clone()
+                        // A default body is cloned into every instance, so each
+                        // copy needs its own ExprIds: typed dispatch keys on
+                        // `hm_expr_types[expr_id]`, and shared ids would let the
+                        // last instance inferred decide dispatch for all of them.
+                        refresh_block_expr_ids(default_body.clone(), id_gen)
                     } else {
                         continue;
                     };
@@ -1201,6 +1219,7 @@ fn generate_from_statements(
                     interner,
                     generated,
                     dispatch_table,
+                    id_gen,
                 );
             }
             _ => {}
@@ -1233,293 +1252,6 @@ fn context_dict_param_names(
             interner.intern(&format!("__dict_{class_name}{suffix}"))
         })
         .collect()
-}
-
-#[allow(dead_code)]
-fn rewrite_instance_self_calls(
-    expr: Expression,
-    method_name: Identifier,
-    mangled_name: Identifier,
-    context_params: &[Identifier],
-) -> Expression {
-    match expr {
-        Expression::Call {
-            function,
-            arguments,
-            span,
-            id,
-        } => {
-            let function =
-                rewrite_instance_self_calls(*function, method_name, mangled_name, context_params);
-            let mut arguments = arguments
-                .into_iter()
-                .map(|arg| {
-                    rewrite_instance_self_calls(arg, method_name, mangled_name, context_params)
-                })
-                .collect::<Vec<_>>();
-            if matches!(function, Expression::Identifier { name, .. } if name == method_name) {
-                let mut rewritten_args = context_params
-                    .iter()
-                    .map(|name| Expression::Identifier {
-                        name: *name,
-                        span,
-                        id: ExprId::UNSET,
-                    })
-                    .collect::<Vec<_>>();
-                rewritten_args.append(&mut arguments);
-                return Expression::Call {
-                    function: Box::new(Expression::Identifier {
-                        name: mangled_name,
-                        span,
-                        id: ExprId::UNSET,
-                    }),
-                    arguments: rewritten_args,
-                    span,
-                    id,
-                };
-            }
-            Expression::Call {
-                function: Box::new(function),
-                arguments,
-                span,
-                id,
-            }
-        }
-        Expression::Infix {
-            left,
-            operator,
-            right,
-            span,
-            id,
-        } => Expression::Infix {
-            left: Box::new(rewrite_instance_self_calls(
-                *left,
-                method_name,
-                mangled_name,
-                context_params,
-            )),
-            operator,
-            right: Box::new(rewrite_instance_self_calls(
-                *right,
-                method_name,
-                mangled_name,
-                context_params,
-            )),
-            span,
-            id,
-        },
-        Expression::Match {
-            scrutinee,
-            arms,
-            span,
-            id,
-        } => Expression::Match {
-            scrutinee: Box::new(rewrite_instance_self_calls(
-                *scrutinee,
-                method_name,
-                mangled_name,
-                context_params,
-            )),
-            arms: arms
-                .into_iter()
-                .map(|mut arm| {
-                    arm.guard = arm.guard.map(|guard| {
-                        rewrite_instance_self_calls(
-                            guard,
-                            method_name,
-                            mangled_name,
-                            context_params,
-                        )
-                    });
-                    arm.body = rewrite_instance_self_calls(
-                        arm.body,
-                        method_name,
-                        mangled_name,
-                        context_params,
-                    );
-                    arm
-                })
-                .collect(),
-            span,
-            id,
-        },
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            span,
-            id,
-        } => Expression::If {
-            condition: Box::new(rewrite_instance_self_calls(
-                *condition,
-                method_name,
-                mangled_name,
-                context_params,
-            )),
-            consequence: rewrite_instance_self_calls_block(
-                consequence,
-                method_name,
-                mangled_name,
-                context_params,
-            ),
-            alternative: alternative.map(|block| {
-                rewrite_instance_self_calls_block(block, method_name, mangled_name, context_params)
-            }),
-            span,
-            id,
-        },
-        Expression::DoBlock { block, span, id } => Expression::DoBlock {
-            block: rewrite_instance_self_calls_block(
-                block,
-                method_name,
-                mangled_name,
-                context_params,
-            ),
-            span,
-            id,
-        },
-        Expression::ListLiteral { elements, span, id } => Expression::ListLiteral {
-            elements: elements
-                .into_iter()
-                .map(|e| rewrite_instance_self_calls(e, method_name, mangled_name, context_params))
-                .collect(),
-            span,
-            id,
-        },
-        Expression::ArrayLiteral { elements, span, id } => Expression::ArrayLiteral {
-            elements: elements
-                .into_iter()
-                .map(|e| rewrite_instance_self_calls(e, method_name, mangled_name, context_params))
-                .collect(),
-            span,
-            id,
-        },
-        Expression::TupleLiteral { elements, span, id } => Expression::TupleLiteral {
-            elements: elements
-                .into_iter()
-                .map(|e| rewrite_instance_self_calls(e, method_name, mangled_name, context_params))
-                .collect(),
-            span,
-            id,
-        },
-        Expression::Index {
-            left,
-            index,
-            span,
-            id,
-        } => Expression::Index {
-            left: Box::new(rewrite_instance_self_calls(
-                *left,
-                method_name,
-                mangled_name,
-                context_params,
-            )),
-            index: Box::new(rewrite_instance_self_calls(
-                *index,
-                method_name,
-                mangled_name,
-                context_params,
-            )),
-            span,
-            id,
-        },
-        Expression::Some { value, span, id } => Expression::Some {
-            value: Box::new(rewrite_instance_self_calls(
-                *value,
-                method_name,
-                mangled_name,
-                context_params,
-            )),
-            span,
-            id,
-        },
-        Expression::Cons {
-            head,
-            tail,
-            span,
-            id,
-        } => Expression::Cons {
-            head: Box::new(rewrite_instance_self_calls(
-                *head,
-                method_name,
-                mangled_name,
-                context_params,
-            )),
-            tail: Box::new(rewrite_instance_self_calls(
-                *tail,
-                method_name,
-                mangled_name,
-                context_params,
-            )),
-            span,
-            id,
-        },
-        other => other,
-    }
-}
-
-#[allow(dead_code)]
-fn rewrite_instance_self_calls_block(
-    block: Block,
-    method_name: Identifier,
-    mangled_name: Identifier,
-    context_params: &[Identifier],
-) -> Block {
-    Block {
-        statements: block
-            .statements
-            .into_iter()
-            .map(|stmt| {
-                rewrite_instance_self_calls_stmt(stmt, method_name, mangled_name, context_params)
-            })
-            .collect(),
-        span: block.span,
-    }
-}
-
-#[allow(dead_code)]
-fn rewrite_instance_self_calls_stmt(
-    stmt: Statement,
-    method_name: Identifier,
-    mangled_name: Identifier,
-    context_params: &[Identifier],
-) -> Statement {
-    match stmt {
-        Statement::Let {
-            is_public,
-            name,
-            type_annotation,
-            value,
-            span,
-        } => Statement::Let {
-            is_public,
-            name,
-            type_annotation,
-            value: rewrite_instance_self_calls(value, method_name, mangled_name, context_params),
-            span,
-        },
-        Statement::Return { value, span } => Statement::Return {
-            value: value.map(|value| {
-                rewrite_instance_self_calls(value, method_name, mangled_name, context_params)
-            }),
-            span,
-        },
-        Statement::Expression {
-            expression,
-            has_semicolon,
-            span,
-        } => Statement::Expression {
-            expression: rewrite_instance_self_calls(
-                expression,
-                method_name,
-                mangled_name,
-                context_params,
-            ),
-            has_semicolon,
-            span,
-        },
-        other => other,
-    }
 }
 
 fn builtin_method_body(
