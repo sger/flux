@@ -1,0 +1,40 @@
+// Stage 2 baseline contract: a marker class contributes no dictionary.
+//
+// A class with no methods has no dictionary tuple and no `__dict_*` global, so
+// it must not add a parameter to a constrained function. Before Stage 2 the
+// callee gained a phantom dictionary parameter that call sites never passed —
+// three phases counted dictionaries with three different filters — and the
+// program failed at runtime with `E1000 wrong number of arguments: want=2,
+// got=1` on the VM while the native backend accepted the mismatch unchecked.
+//
+// `tag` takes only its value parameter; `mix` takes one dictionary for
+// `Counted` and none for `Marker`.
+//
+// Expected output:
+// 7
+// 1
+
+class Marker<a> { }
+
+class Counted<a> {
+    fn count(x: a) -> Int
+}
+
+instance Marker<Int> { }
+
+instance Counted<Int> {
+    fn count(x) { 1 }
+}
+
+fn tag<a: Marker>(x: a) -> Int {
+    7
+}
+
+fn mix<a: Counted, b: Marker>(x: a, y: b) -> Int {
+    count(x)
+}
+
+fn main() with IO {
+    print(tag(1))
+    print(mix(10, 20))
+}

@@ -214,6 +214,9 @@ fn infer_with_dispatch(source: &str) -> (InferProgramResult, Program, Interner) 
         &class_env,
         &mut interner,
         &std::collections::HashSet::new(),
+        flux::types::class_dispatch::DispatchGenerationOptions {
+            include_builtin_instances: true,
+        },
     );
     let mut statements = generated;
     statements.extend(program.statements.iter().cloned());
@@ -1069,6 +1072,9 @@ instance Sizeable<Int> {
         &env,
         &mut interner,
         &std::collections::HashSet::new(),
+        flux::types::class_dispatch::DispatchGenerationOptions {
+            include_builtin_instances: true,
+        },
     );
 
     // Should generate at least the mangled instance function
@@ -1106,6 +1112,9 @@ instance Sizeable<Int> {
         &env,
         &mut interner,
         &std::collections::HashSet::new(),
+        flux::types::class_dispatch::DispatchGenerationOptions {
+            include_builtin_instances: true,
+        },
     );
 
     // Should generate a polymorphic stub named `size` (the class method name)
@@ -1146,6 +1155,9 @@ instance Sizeable<String> {
         &env,
         &mut interner,
         &std::collections::HashSet::new(),
+        flux::types::class_dispatch::DispatchGenerationOptions {
+            include_builtin_instances: true,
+        },
     );
 
     let mangled_names: Vec<String> = generated
@@ -1246,6 +1258,9 @@ module Local {
         &env,
         &mut interner,
         &HashSet::new(),
+        flux::types::class_dispatch::DispatchGenerationOptions {
+            include_builtin_instances: true,
+        },
     );
 
     let generated_names: Vec<String> = generated
@@ -1291,6 +1306,9 @@ instance MyEq<Int> {
         &env,
         &mut interner,
         &std::collections::HashSet::new(),
+        flux::types::class_dispatch::DispatchGenerationOptions {
+            include_builtin_instances: true,
+        },
     );
 
     // Default method `my_neq` should be generated both as a top-level helper
@@ -1336,6 +1354,9 @@ fn needs<A: Eq + Ord + Num>(x: A, y: A) -> A {
         &env,
         &mut interner,
         &std::collections::HashSet::new(),
+        flux::types::class_dispatch::DispatchGenerationOptions {
+            include_builtin_instances: true,
+        },
     );
 
     let generated_names: Vec<String> = generated
@@ -1416,6 +1437,9 @@ instance Eq<a> => MyEq<List<a>> {
         &env,
         &mut interner,
         &std::collections::HashSet::new(),
+        flux::types::class_dispatch::DispatchGenerationOptions {
+            include_builtin_instances: true,
+        },
     );
 
     let mangled = generated.iter().find_map(|stmt| match stmt {

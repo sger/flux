@@ -50,17 +50,21 @@ impl Compiler {
         // This injects mangled instance methods + dispatch functions into the
         // program AST so they compile through the normal pipeline.
         let class_augmented;
-        let program = if !self.class_env.classes.is_empty() && !self.is_flow_library_file() {
+        let program = if !self.class_env.classes.is_empty() {
             let additional_reserved_names = self
                 .symbol_table
                 .all_symbol_names()
                 .into_iter()
                 .collect::<std::collections::HashSet<_>>();
+            let dispatch_options = crate::types::class_dispatch::DispatchGenerationOptions {
+                include_builtin_instances: !self.is_flow_library_file(),
+            };
             let extra = generate_dispatch_functions(
                 &program.statements,
                 &self.class_env,
                 &mut self.interner,
                 &additional_reserved_names,
+                dispatch_options,
             );
             if !extra.is_empty() {
                 class_augmented = self.inject_generated_dispatch_functions(program, extra);

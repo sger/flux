@@ -1264,3 +1264,103 @@ needed before Windows becomes a supported package-manager target.
 The resolver permits only one version of a package name in a graph because the
 current linker uses flat global names. Per-package symbol mangling would be
 required before semver-incompatible duplicate versions can be supported safely.
+
+### KI-050 — Same-class contextual instances dispatch the element to themselves — FIXED 2026-08-30
+
+**Severity:** High · **Area:** type classes, dictionary dispatch · **Verified:** 2026-08-30 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+When an instance context names the *same* class as its head — the
+`instance Encode<a> => Encode<Option<a>>` shape used throughout
+[`lib/Flow/Json.flx`](../lib/Flow/Json.flx) — a call to the class method inside
+the instance body is ambiguous: it may recurse on the container or dispatch on
+the *element*, and only the element case should go through the context
+dictionary.
+
+```flux
+class MyEq<a> { fn my_eq(x: a, y: a) -> Bool }
+instance MyEq<Int> { fn my_eq(x, y) { x == y } }
+instance MyEq<a> => MyEq<List<a>> {
+    fn my_eq(xs, ys) {
+        match xs {
+            [h1 | t1] -> match ys { [h2 | t2] -> my_eq(h1, h2) && my_eq(t1, t2), _ -> false },
+            _ -> true
+        }
+    }
+}
+fn main() with IO { print(my_eq([1], [2])) }   // printed `true`; should be `false`
+```
+
+**Root cause.** `rewrite_instance_self_calls` in
+[`src/types/class_dispatch.rs`](../src/types/class_dispatch.rs) ran before
+inference and matched on the method name alone, so it rewrote *both* calls into
+a self-call. `my_eq(h1, h2)` on two `Int`s was sent to
+`__tc_MyEq_List<a>_my_eq`, missed the cons arm, and silently answered `true`.
+`Json.encode` on a `List`/`Option`/`Array` failed with
+`E1001 Cannot call non-function value` for the same reason. The
+*different*-class context form (`instance Eq<a> => MyEq<List<a>>`) was
+unaffected because the element call resolved to another method name.
+
+**Fix.** The name-directed rewrite is gone. Contextual dictionary resolution is
+now type-directed: `ClassEnv::resolve_instance_context_dictionary_requests`
+reports each dictionary a matched instance needs, and a request whose type is
+still polymorphic is satisfied from the current function's contextual
+`__dict_*` parameter by `InferType::same_shape`. Container calls use the current
+mangled instance method and forward that dictionary; element calls extract the
+method from it. Covered by
+[`tests/parity/contextual_instance_eq_list.flx`](../tests/parity/contextual_instance_eq_list.flx)
+on both backends and the `Flow.Json` `Encode<Option<Int>>` / `Encode<List<Int>>`
+/ `Encode<Array<Int>>` VM regression in `tests/integration/vm_json.rs`.
+
+Three regressions surfaced while landing the type-directed path and are fixed
+alongside it, each guarded by a parity fixture:
+
+- Multi-parameter instances (`Convert<Int, String>`) are matched positionally
+  on the first argument, so the context-dictionary resolver cannot match the
+  full head. It now keeps the direct call with no dictionaries instead of
+  abandoning it to the panicking generic stub
+  (`tests/parity/multi_param_class_direct_call.flx`).
+- A class default method is cloned into every instance. With name-directed
+  self-calls gone, typed dispatch keys on `hm_expr_types[expr_id]`, so the
+  clones needed fresh `ExprId`s or the last instance inferred decided dispatch
+  for all of them (`tests/parity/class_default_method_recursion.flx`).
+- Stdlib modules now generate their declared instance methods, but must not
+  also synthesize built-in instance bodies: the runner compiles them through
+  one shared interner, and interning `__tc_Num_Int_add` there made a later
+  user file resolve its own `add(5, 10)` to a function never generated for it
+  (`DispatchGenerationOptions::include_builtin_instances`).
+
+The `Flow.Json` case is verified on the `--no-cache` VM path only; the cached
+parallel VM path and the native backend still fail it for a separate,
+pre-existing reason — see [KI-051](#ki-051).
+
+### KI-051 — Cross-module same-class contextual instances fail on the cached VM path and natively
+
+**Severity:** High · **Area:** type classes, module linking, native backend · **Verified:** 2026-08-30 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+`Json.encode` on a container works with `flux file.flx --no-cache` but not on
+the default cached run or under `--native`:
+
+```flux
+import Flow.Json as Json
+import Flow.Json exposing (encode)
+fn main() with IO { print(Json.encode_json(encode([1, 2]))) }
+```
+
+- Default (cached, parallel) VM run:
+  `parallel VM compilation failed: missing imported global __tc_Encode_Array<a>_encode`.
+  The parallel module compiler links imported instance methods by their bare
+  `__tc_*` name, but a stdlib module's generated methods live under the
+  module-qualified name; the bare alias emitted by
+  `emit_instance_method_aliases` is an `OpSetGlobal` at load time, not a
+  definition the linker can import.
+- Native (`--native`, with or without `--no-cache`):
+  `E1009 No instance of Encode.encode for the given type` — the LLVM lowering
+  does not see the imported contextual instance at all. Before KI-050 was fixed
+  the same program reported eighteen `E443 Duplicate Instance` errors, so this
+  is not a regression, but it is not fixed either.
+
+Both paths predate the KI-050 fix, which changed only how an already-visible
+instance dispatches. A same-file same-class contextual instance
+(`tests/parity/contextual_instance_eq_list.flx`) passes on every parity way,
+so the gap is specifically in how imported instance methods reach the cached
+linker and the native lowering.

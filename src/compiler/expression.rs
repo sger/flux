@@ -889,13 +889,13 @@ impl Compiler {
                 // compile a call to the mangled instance function directly.
                 if let Expression::Identifier { name, .. } = function.as_ref()
                     && let Some(mangled) = self.try_resolve_class_method_call(*name, arguments, *id)
-                {
-                    let mut resolved_args = self.resolve_direct_class_call_dict_args_ast(
+                    && let Some(mut resolved_args) = self.resolve_direct_class_call_dict_args_ast(
                         *name,
                         arguments,
                         *id,
                         function.span(),
-                    );
+                    )
+                {
                     resolved_args.extend(arguments.clone());
                     let mangled_expr = Expression::Identifier {
                         name: mangled,
@@ -923,13 +923,13 @@ impl Compiler {
                     && self.resolve_module_name_from_expr(object).is_some()
                     && let Some(mangled) =
                         self.try_resolve_class_method_call(*member, arguments, *id)
-                {
-                    let mut resolved_args = self.resolve_direct_class_call_dict_args_ast(
+                    && let Some(mut resolved_args) = self.resolve_direct_class_call_dict_args_ast(
                         *member,
                         arguments,
                         *id,
                         function.span(),
-                    );
+                    )
+                {
                     resolved_args.extend(arguments.clone());
                     let mangled_expr = Expression::Identifier {
                         name: mangled,
@@ -4765,9 +4765,7 @@ impl Compiler {
         &self,
         constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
     ) -> bool {
-        self.class_env
-            .lookup_class(constraint.class_name)
-            .is_some_and(|class| !class.methods.is_empty())
+        self.class_env.constraint_needs_dictionary(constraint)
     }
 
     fn looks_like_dictionary_argument_ast(&self, expression: &Expression) -> bool {
@@ -4860,16 +4858,10 @@ impl Compiler {
         arguments: &[Expression],
         call_id: crate::syntax::expression::ExprId,
         span: Span,
-    ) -> Vec<Expression> {
-        let Some((class_name, _)) = self.class_env.method_to_class(method_name) else {
-            return Vec::new();
-        };
-        let Some(first_arg) = arguments.first() else {
-            return Vec::new();
-        };
-        let Some(first_arg_ty) = self.hm_expr_types.get(&first_arg.expr_id()) else {
-            return Vec::new();
-        };
+    ) -> Option<Vec<Expression>> {
+        let (class_name, _) = self.class_env.method_to_class(method_name)?;
+        let first_arg = arguments.first()?;
+        let first_arg_ty = self.hm_expr_types.get(&first_arg.expr_id())?;
 
         let actual_type_args = if self.interner.resolve(method_name) == "decode"
             && self.interner.resolve(class_name).rsplit('.').next() == Some("Decode")
@@ -4883,15 +4875,65 @@ impl Compiler {
             vec![first_arg_ty.clone()]
         };
 
-        self.class_env
-            .resolve_instance_context_dictionaries(class_name, &actual_type_args, &self.interner)
-            .map(|dicts| {
-                dicts
+        // See `AstLowerer::resolve_direct_class_call_dict_args`: an unmatched
+        // head means a positionally matched multi-parameter instance, which
+        // keeps its direct call with no dictionary arguments.
+        let Some(requests) = self.class_env.resolve_instance_context_dictionary_requests(
+            class_name,
+            &actual_type_args,
+            &self.interner,
+        ) else {
+            return Some(Vec::new());
+        };
+        let mut dicts = Vec::with_capacity(requests.len());
+        for request in requests {
+            let dictionary = match request.dictionary {
+                Some(dict_ref) => self.lower_dictionary_ref_ast(&dict_ref, span),
+                None => {
+                    self.current_context_dictionary_ast(request.class_name, &request.type_args)?
+                }
+            };
+            dicts.push(dictionary);
+        }
+        Some(dicts)
+    }
+
+    fn current_context_dictionary_ast(
+        &mut self,
+        class_name: crate::syntax::Identifier,
+        wanted: &[crate::types::infer_type::InferType],
+    ) -> Option<Expression> {
+        let current = self.current_function_name?;
+        let scheme = self.type_env.lookup(current)?;
+        let mut occurrence = 0usize;
+        let class = self.interner.resolve(class_name);
+        for constraint in &scheme.constraints {
+            if constraint.class_name != class_name {
+                continue;
+            }
+            let current_occurrence = occurrence;
+            occurrence += 1;
+            if constraint.type_args.len() != wanted.len()
+                || !constraint
+                    .type_args
                     .iter()
-                    .map(|dict_ref| self.lower_dictionary_ref_ast(dict_ref, span))
-                    .collect()
-            })
-            .unwrap_or_default()
+                    .zip(wanted)
+                    .all(|(left, right)| left.same_shape(right))
+            {
+                continue;
+            }
+            let suffix = (current_occurrence > 0).then(|| format!("_{current_occurrence}"));
+            let name = format!("__dict_{class}{}", suffix.unwrap_or_default());
+            let name = self.interner.lookup(&name)?;
+            if self.symbol_table.resolve(name).is_some() {
+                return Some(Expression::Identifier {
+                    name,
+                    span: Span::default(),
+                    id: crate::syntax::expression::ExprId::UNSET,
+                });
+            }
+        }
+        None
     }
 
     fn lower_dictionary_ref_ast(

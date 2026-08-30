@@ -574,17 +574,14 @@ fn preload_imported_instance_schemes(
         .collect::<Vec<_>>()
         .join("_");
     let class_str = interner.resolve(instance_def.class_name).to_string();
-    let method_effects: HashMap<Identifier, Vec<EffectExpr>> =
-        instance_def.method_effects.iter().cloned().collect();
     let module_qualifier = instance_def
         .instance_module
         .as_identifier()
-        .map(|sym| interner.resolve(sym))
-        .and_then(|module| module.rsplit('.').next())
-        .filter(|segment| !segment.is_empty())
-        .unwrap_or("module")
-        .replace('.', "_");
-
+        .map(|sym| interner.resolve(sym).replace('.', "_"))
+        .filter(|module| !module.is_empty())
+        .unwrap_or_else(|| "module".to_string());
+    let method_effects: HashMap<Identifier, Vec<EffectExpr>> =
+        instance_def.method_effects.iter().cloned().collect();
     for method in &class_def.methods {
         let method_str = interner.resolve(method.name).to_string();
         let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
@@ -593,7 +590,20 @@ fn preload_imported_instance_schemes(
             symbol_table.define(mangled_sym, Span::default());
         }
         preloaded_imported_globals.insert(mangled_sym);
-        native_symbols.insert(mangled_sym, format!("flux_{module_qualifier}_{mangled}"));
+        let native_mangled = mangled
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || ch == '_' || ch == '$' {
+                    ch
+                } else {
+                    '_'
+                }
+            })
+            .collect::<String>();
+        native_symbols.insert(
+            mangled_sym,
+            format!("flux_{module_qualifier}_{native_mangled}"),
+        );
         let specialized_param_types = method
             .param_types
             .iter()
@@ -1028,6 +1038,9 @@ pub struct Compiler {
     pub(super) in_tail_position: bool,
     // Function parameter counts for active function scopes innermost last.
     pub(super) function_param_counts: Vec<usize>,
+    // The function currently being compiled, used by AST fallback dispatch to
+    // associate repeated contextual class binders with their inferred types.
+    pub(super) current_function_name: Option<Symbol>,
     // Declared ambient effects for active function scopes innermost last.
     pub(super) function_effects: Vec<Vec<Symbol>>,
     // Annotated function-typed parameter effect rows for active function scopes.
@@ -1204,11 +1217,7 @@ impl Compiler {
         scheme
             .into_iter()
             .flat_map(|scheme| scheme.constraints.iter())
-            .filter(|constraint| {
-                self.class_env
-                    .lookup_class(constraint.class_name)
-                    .is_some_and(|class| !class.methods.is_empty())
-            })
+            .filter(|constraint| self.class_env.constraint_needs_dictionary(constraint))
             .count()
     }
 
@@ -1332,6 +1341,7 @@ impl Compiler {
             interner,
             in_tail_position: false,
             function_param_counts: Vec::new(),
+            current_function_name: None,
             function_effects: Vec::new(),
             function_param_effect_rows: Vec::new(),
             handled_effects: Vec::new(),
@@ -1759,7 +1769,7 @@ impl Compiler {
         self.collect_effect_declarations(program);
         self.auto_expose_flow_modules();
 
-        if !self.class_env.classes.is_empty() && !self.is_flow_library_file() {
+        if !self.class_env.classes.is_empty() {
             let additional_reserved_names = self
                 .preloaded_imported_globals
                 .iter()
@@ -1771,11 +1781,15 @@ impl Compiler {
                         .is_some_and(|resolved| resolved.starts_with("__tc_"))
                 })
                 .collect::<HashSet<_>>();
+            let dispatch_options = crate::types::class_dispatch::DispatchGenerationOptions {
+                include_builtin_instances: !self.is_flow_library_file(),
+            };
             let extra = crate::types::class_dispatch::generate_dispatch_functions(
                 &program.statements,
                 &self.class_env,
                 &mut self.interner,
                 &additional_reserved_names,
+                dispatch_options,
             );
             if extra.is_empty() {
                 let final_inference = self.infer_final_program(program);
@@ -2169,6 +2183,41 @@ impl Compiler {
         }
         self.preloaded_effect_ops_registry = self.effect_ops_registry.clone();
         self.preloaded_effect_op_signatures = self.effect_op_signatures.clone();
+
+        // A no-cache build does not have a module interface to carry public
+        // class/instance metadata across the shared sequential compiler used
+        // by the runner. Recover that metadata from the dependency AST so
+        // downstream dictionary construction remains available in the same
+        // way as it is when an interface cache hit is present.
+        let mut dependency_classes = crate::types::class_env::ClassEnv::new();
+        dependency_classes.register_builtins(&mut self.interner);
+        let _ = dependency_classes.collect_from_statements(&program.statements, &self.interner);
+        for (class_id, class_def) in dependency_classes.classes {
+            if class_def.is_public {
+                self.imported_public_classes
+                    .entry(class_id)
+                    .or_insert(class_def);
+            }
+        }
+        for instance in dependency_classes.instances {
+            if instance.is_public
+                && !self.imported_public_instances.iter().any(|existing| {
+                    existing.class_id == instance.class_id
+                        && existing.type_args.len() == instance.type_args.len()
+                        && existing
+                            .type_args
+                            .iter()
+                            .zip(instance.type_args.iter())
+                            .all(|(left, right)| {
+                                left.structural_eq(right)
+                                    || left.display_with(&self.interner)
+                                        == right.display_with(&self.interner)
+                            })
+                })
+            {
+                self.imported_public_instances.push(instance);
+            }
+        }
     }
 
     pub fn build_native_extern_symbols(
@@ -2222,7 +2271,7 @@ impl Compiler {
             symbols.entry(member.to_string()).or_insert_with(|| {
                 crate::lir::lower::ImportedNativeSymbol {
                     symbol: format!("flux_{}_{}", module.replace('.', "_"), member),
-                    arity: Self::native_function_arity(scheme),
+                    arity: self.native_function_arity(scheme),
                     is_value: self
                         .module_member_is_value
                         .get(&(*module_name, *member_name))
@@ -2245,7 +2294,7 @@ impl Compiler {
                     format!("{binding_name}.{member}"),
                     crate::lir::lower::ImportedNativeSymbol {
                         symbol: format!("flux_{}_{}", target_name.replace('.', "_"), member),
-                        arity: Self::native_function_arity(scheme),
+                        arity: self.native_function_arity(scheme),
                         is_value: self
                             .module_member_is_value
                             .get(&(*module_name, *member_name))
@@ -2299,7 +2348,7 @@ impl Compiler {
                                 self.sym(*module_name).replace('.', "_"),
                                 member
                             ),
-                            arity: Self::native_function_arity(scheme),
+                            arity: self.native_function_arity(scheme),
                             is_value: self
                                 .module_member_is_value
                                 .get(&(*mod_name, *member_name))
@@ -2326,7 +2375,7 @@ impl Compiler {
                                         self.sym(*module_name).replace('.', "_"),
                                         member
                                     ),
-                                    arity: Self::native_function_arity(scheme),
+                                    arity: self.native_function_arity(scheme),
                                     is_value: self
                                         .module_member_is_value
                                         .get(&(*mod_name, *member_name))
@@ -2373,7 +2422,7 @@ impl Compiler {
                                         self.sym(*module_name).replace('.', "_"),
                                         member
                                     ),
-                                    arity: Self::native_function_arity(scheme),
+                                    arity: self.native_function_arity(scheme),
                                     is_value: self
                                         .module_member_is_value
                                         .get(&(*module_name, *member_name))
@@ -2423,7 +2472,7 @@ impl Compiler {
             symbols.entry(mangled.to_string()).or_insert_with(|| {
                 crate::lir::lower::ImportedNativeSymbol {
                     symbol: native_symbol,
-                    arity: Self::native_function_arity(scheme),
+                    arity: self.native_function_arity(scheme),
                     is_value: false,
                     can_suspend: self.native_scheme_can_suspend(scheme),
                 }
@@ -3250,9 +3299,23 @@ impl Compiler {
         })
     }
 
-    fn native_function_arity(scheme: &Scheme) -> usize {
+    /// The parameter count a natively-compiled function is called with.
+    ///
+    /// Dictionary parameters are counted alongside the declared ones, using the
+    /// same marker-class filter as dictionary elaboration: a class with no
+    /// methods contributes no dictionary, so counting it here would make the
+    /// native call site expect one more argument than the callee takes
+    /// (Proposal 0179 Stage 2).
+    fn native_function_arity(&self, scheme: &Scheme) -> usize {
         match &scheme.infer_type {
-            InferType::Fun(params, _, _) => params.len() + scheme.constraints.len(),
+            InferType::Fun(params, _, _) => {
+                let dictionaries = scheme
+                    .constraints
+                    .iter()
+                    .filter(|constraint| self.class_env.constraint_needs_dictionary(constraint))
+                    .count();
+                params.len() + dictionaries
+            }
             _ => 0,
         }
     }

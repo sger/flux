@@ -1,0 +1,30 @@
+// parity: vm, llvm
+// expect: success
+// bug: contextual dictionary constructor global was declared but never stored,
+// so a constrained call reached it as None (E1001) on the VM while the native
+// backend accepted the mismatched call unchecked.
+
+class MyEq<a> {
+    fn my_eq(x: a, y: a) -> Bool
+}
+
+instance Eq<a> => MyEq<List<a>> {
+    fn my_eq(xs, ys) {
+        match xs {
+            [h1 | t1] -> match ys {
+                [h2 | t2] -> h1 == h2 && my_eq(t1, t2),
+                _ -> false
+            },
+            _ -> true
+        }
+    }
+}
+
+fn pair_eq<a: MyEq>(x: a, y: a) -> Bool {
+    my_eq(x, y)
+}
+
+fn main() with IO {
+    print(pair_eq([1, 2, 3], [1, 2, 4]))
+    print(pair_eq([1, 2, 3], [1, 2, 3]))
+}
