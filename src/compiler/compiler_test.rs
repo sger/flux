@@ -1060,6 +1060,7 @@ module Local {
             class_module: "Example.Logger".to_string(),
             name: "Logger".to_string(),
             type_param_arity: 1,
+            parameter_kinds: vec![],
             type_params: vec![logger_h],
             superclasses: vec![],
             methods: vec![PublicClassMethodEntry {
@@ -1140,6 +1141,7 @@ import Example.StdLog as StdLog
             class_module: "Example.Logger".to_string(),
             name: "Logger".to_string(),
             type_param_arity: 1,
+            parameter_kinds: vec![],
             type_params: vec![logger_h],
             superclasses: vec![],
             methods: vec![PublicClassMethodEntry {
@@ -1191,6 +1193,7 @@ import Example.StdLog as StdLog
             class_name: "Logger".to_string(),
             instance_module: "Example.StdLog".to_string(),
             head_type_repr: "Int".to_string(),
+            head_kinds: vec![],
             type_args: vec![TypeExpr::Named {
                 name: int_name,
                 args: vec![],
@@ -1267,6 +1270,7 @@ module Local {
             class_module: "Example.Logger".to_string(),
             name: "Logger".to_string(),
             type_param_arity: 1,
+            parameter_kinds: vec![],
             type_params: vec![logger_h],
             superclasses: vec![],
             methods: vec![PublicClassMethodEntry {
