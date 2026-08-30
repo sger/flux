@@ -2888,13 +2888,12 @@ impl Compiler {
         // class that shadows a built-in (`class Eq<a>` with only `eq`) then
         // fails both E440 and E442, which several tests and examples rely on.
         // It belongs with the built-in-shadowing work behind `is_builtin`.
-        let (errors, warnings): (Vec<_>, Vec<_>) =
-            diagnostics.into_iter().partition(|diag| {
-                matches!(
-                    diag.code(),
-                    Some("E453" | "E472" | "E473" | "E474" | "E475")
-                )
-            });
+        let (errors, warnings): (Vec<_>, Vec<_>) = diagnostics.into_iter().partition(|diag| {
+            matches!(
+                diag.code(),
+                Some("E453" | "E472" | "E473" | "E474" | "E475")
+            )
+        });
         self.errors.extend(errors);
         self.warnings.extend(warnings);
     }

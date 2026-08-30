@@ -379,11 +379,7 @@ fn validate_statements(
                 ..
             } => {
                 let locals = function_binders(type_params, class_env, env);
-                for ty in parameter_types
-                    .iter()
-                    .flatten()
-                    .chain(return_type.iter())
-                {
+                for ty in parameter_types.iter().flatten().chain(return_type.iter()) {
                     check_type(ty, Some(&Kind::Type), &locals, env, interner, diagnostics);
                 }
             }
@@ -574,7 +570,11 @@ fn unconstrained_binders(params: &[Identifier]) -> HashMap<Identifier, LocalBind
         .collect()
 }
 
-fn is_conflicted(locals: &HashMap<Identifier, LocalBinder>, env: &KindEnv, name: Identifier) -> bool {
+fn is_conflicted(
+    locals: &HashMap<Identifier, LocalBinder>,
+    env: &KindEnv,
+    name: Identifier,
+) -> bool {
     matches!(
         locals.get(&name),
         Some(LocalBinder::Known(class_id, _)) if env.has_conflict(*class_id, name)
