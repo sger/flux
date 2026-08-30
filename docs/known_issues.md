@@ -1364,3 +1364,40 @@ instance dispatches. A same-file same-class contextual instance
 (`tests/parity/contextual_instance_eq_list.flx`) passes on every parity way,
 so the gap is specifically in how imported instance methods reach the cached
 linker and the native lowering.
+### KI-052 — A generic wrapper over a contextual instance loses its dictionary
+
+**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-08-30 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+Calling a contextual instance directly works, but forwarding to it through a
+generic function fails at runtime:
+
+```flux
+class Enc<a> { fn enc(x: a) -> String }
+instance Enc<Int> { fn enc(x) { to_string(x) } }
+instance Enc<a> => Enc<List<a>> {
+    fn enc(xs) { match xs { [h | t] -> enc(h), _ -> "e" } }
+}
+
+fn show_all<a: Enc>(xs: List<a>) -> String { enc(xs) }
+
+fn main() with IO {
+    print(enc([5, 6]))        // "5"  — direct call works
+    print(show_all([5, 6]))   // E1004 tuple field access expected Tuple, got None
+}
+```
+
+The wrapper's obligation is `Enc<a>`, but the call inside it needs
+`Enc<List<a>>`. Elaboration passes the wrapper's own dictionary rather than
+constructing the `List` instance's dictionary from it, so the method extraction
+reads a field off `None`.
+
+Both constraint spellings fail identically — `<a: Enc>` and
+`where Enc<List<a>>` — so this is not a `where`-clause defect. Verified against
+`main` at `c02b680b` before the Stage 3 branch, so it predates the constraint
+work: Stage 3 changed which obligations are *retained*, not how a retained
+obligation's dictionary is *built*.
+
+Constructing a dictionary for a structured predicate from a contextual one is
+evidence resolution, which [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+assigns to Stage 4.
+
