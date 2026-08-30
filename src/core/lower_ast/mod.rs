@@ -646,8 +646,15 @@ impl<'a> AstLowerer<'a> {
 
         // For each constraint on the callee, try to determine the concrete type
         // by looking at the argument types at this call site.
+        //
+        // Marker classes are skipped so this count matches the parameter count
+        // dictionary elaboration gives the callee (Proposal 0179 Stage 2).
         let mut dict_args = Vec::new();
-        for constraint in &scheme.constraints {
+        for constraint in scheme
+            .constraints
+            .iter()
+            .filter(|constraint| class_env.constraint_needs_dictionary(constraint))
+        {
             if let Some(actual_type_args) =
                 self.resolve_constraint_type_args(constraint, scheme, call_id, arguments)
                 && let Some(dict_ref) = class_env.resolve_dictionary_ref(

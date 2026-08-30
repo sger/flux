@@ -1204,11 +1204,7 @@ impl Compiler {
         scheme
             .into_iter()
             .flat_map(|scheme| scheme.constraints.iter())
-            .filter(|constraint| {
-                self.class_env
-                    .lookup_class(constraint.class_name)
-                    .is_some_and(|class| !class.methods.is_empty())
-            })
+            .filter(|constraint| self.class_env.constraint_needs_dictionary(constraint))
             .count()
     }
 
@@ -2222,7 +2218,7 @@ impl Compiler {
             symbols.entry(member.to_string()).or_insert_with(|| {
                 crate::lir::lower::ImportedNativeSymbol {
                     symbol: format!("flux_{}_{}", module.replace('.', "_"), member),
-                    arity: Self::native_function_arity(scheme),
+                    arity: self.native_function_arity(scheme),
                     is_value: self
                         .module_member_is_value
                         .get(&(*module_name, *member_name))
@@ -2245,7 +2241,7 @@ impl Compiler {
                     format!("{binding_name}.{member}"),
                     crate::lir::lower::ImportedNativeSymbol {
                         symbol: format!("flux_{}_{}", target_name.replace('.', "_"), member),
-                        arity: Self::native_function_arity(scheme),
+                        arity: self.native_function_arity(scheme),
                         is_value: self
                             .module_member_is_value
                             .get(&(*module_name, *member_name))
@@ -2299,7 +2295,7 @@ impl Compiler {
                                 self.sym(*module_name).replace('.', "_"),
                                 member
                             ),
-                            arity: Self::native_function_arity(scheme),
+                            arity: self.native_function_arity(scheme),
                             is_value: self
                                 .module_member_is_value
                                 .get(&(*mod_name, *member_name))
@@ -2326,7 +2322,7 @@ impl Compiler {
                                         self.sym(*module_name).replace('.', "_"),
                                         member
                                     ),
-                                    arity: Self::native_function_arity(scheme),
+                                    arity: self.native_function_arity(scheme),
                                     is_value: self
                                         .module_member_is_value
                                         .get(&(*mod_name, *member_name))
@@ -2373,7 +2369,7 @@ impl Compiler {
                                         self.sym(*module_name).replace('.', "_"),
                                         member
                                     ),
-                                    arity: Self::native_function_arity(scheme),
+                                    arity: self.native_function_arity(scheme),
                                     is_value: self
                                         .module_member_is_value
                                         .get(&(*module_name, *member_name))
@@ -2423,7 +2419,7 @@ impl Compiler {
             symbols.entry(mangled.to_string()).or_insert_with(|| {
                 crate::lir::lower::ImportedNativeSymbol {
                     symbol: native_symbol,
-                    arity: Self::native_function_arity(scheme),
+                    arity: self.native_function_arity(scheme),
                     is_value: false,
                     can_suspend: self.native_scheme_can_suspend(scheme),
                 }
@@ -3250,9 +3246,23 @@ impl Compiler {
         })
     }
 
-    fn native_function_arity(scheme: &Scheme) -> usize {
+    /// The parameter count a natively-compiled function is called with.
+    ///
+    /// Dictionary parameters are counted alongside the declared ones, using the
+    /// same marker-class filter as dictionary elaboration: a class with no
+    /// methods contributes no dictionary, so counting it here would make the
+    /// native call site expect one more argument than the callee takes
+    /// (Proposal 0179 Stage 2).
+    fn native_function_arity(&self, scheme: &Scheme) -> usize {
         match &scheme.infer_type {
-            InferType::Fun(params, _, _) => params.len() + scheme.constraints.len(),
+            InferType::Fun(params, _, _) => {
+                let dictionaries = scheme
+                    .constraints
+                    .iter()
+                    .filter(|constraint| self.class_env.constraint_needs_dictionary(constraint))
+                    .count();
+                params.len() + dictionaries
+            }
             _ => 0,
         }
     }

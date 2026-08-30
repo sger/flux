@@ -4765,9 +4765,7 @@ impl Compiler {
         &self,
         constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
     ) -> bool {
-        self.class_env
-            .lookup_class(constraint.class_name)
-            .is_some_and(|class| !class.methods.is_empty())
+        self.class_env.constraint_needs_dictionary(constraint)
     }
 
     fn looks_like_dictionary_argument_ast(&self, expression: &Expression) -> bool {
