@@ -1,0 +1,28 @@
+// expect: compile_error
+// expect-error: E454
+// Expected: E454 Overlapping Instances
+//   "Multiple instances match `Sizeable<List<Int>>`; instance selection would
+//    depend on declaration order."
+//   Hint: "Instance selection must be unambiguous; remove or narrow one of the
+//    overlapping instances."
+//
+// Proposal 0179 Stage 3: two instances match the same predicate, so evidence
+// selection would depend on which was declared first. Before Stage 3 the
+// solver silently took the first candidate and the program failed at runtime
+// with `E1009 No instance of Sizeable.size for the given type`.
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<List<a>> {
+    fn size(xs) { 1 }
+}
+
+instance Sizeable<List<Int>> {
+    fn size(xs) { 2 }
+}
+
+fn main() with IO {
+    print(size([1, 2, 3]))
+}

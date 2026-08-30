@@ -26,7 +26,7 @@ use crate::{
     },
 };
 
-use super::super::diagnostics::compiler_errors::NO_INSTANCE;
+use super::super::diagnostics::compiler_errors::{NO_INSTANCE, OVERLAPPING_INSTANCES};
 
 /// Solve class constraints against known instances.
 ///
@@ -150,6 +150,25 @@ fn classify_constraint(
         &mut HashSet::new(),
     );
 
+    // Two or more instances matching the same predicate would make evidence
+    // selection depend on declaration order. Report it rather than silently
+    // taking the first (Proposal 0179 Stage 3).
+    let candidates = class_env
+        .candidate_instances(constraint.class_name, &constraint.type_args, interner)
+        .count();
+    if candidates > 1 {
+        let predicate = display_predicate(constraint, interner);
+        return Disposition::Diagnosed {
+            diagnostic: Box::new(
+                diagnostic_for(&OVERLAPPING_INSTANCES)
+                    .with_span(constraint.span)
+                    .with_message(format!(
+                        "Multiple instances match `{predicate}`; instance selection would depend on declaration order."
+                    )),
+            ),
+        };
+    }
+
     if has_matching_instance {
         // Stage 4 replaces this placeholder with the instance and
         // substitution that `resolve_instance_with_subst` already computes,
@@ -159,12 +178,7 @@ fn classify_constraint(
         };
     }
 
-    let type_displays: Vec<String> = constraint
-        .type_args
-        .iter()
-        .map(|t| display_type(t, interner))
-        .collect();
-    let type_display = type_displays.join(", ");
+    let type_display = display_type_args(&constraint.type_args, interner);
     let class_display = interner.resolve(constraint.class_name);
 
     if let WantedClassConstraintOrigin::TaskSpawnCapture { capture_name } = constraint.origin {
@@ -378,6 +392,24 @@ fn is_concrete_type(ty: &InferType) -> bool {
 
 fn is_solvable_type_arg(ty: &InferType) -> bool {
     is_concrete_type(ty) || matches!(ty, InferType::Fun(_, _, _))
+}
+
+/// Render a predicate's type arguments as a comma-separated list.
+fn display_type_args(type_args: &[InferType], interner: &Interner) -> String {
+    type_args
+        .iter()
+        .map(|ty| display_type(ty, interner))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Render a whole predicate, e.g. `Eq<List<Int>>`.
+fn display_predicate(constraint: &WantedClassConstraint, interner: &Interner) -> String {
+    format!(
+        "{}<{}>",
+        interner.resolve(constraint.class_name),
+        display_type_args(&constraint.type_args, interner)
+    )
 }
 
 /// Format a type for display in diagnostics.
