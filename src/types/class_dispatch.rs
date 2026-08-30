@@ -1135,12 +1135,6 @@ fn generate_from_statements(
                     let mangled_sym = interner.intern(&mangled);
 
                     let context_params = context_dict_param_names(context, interner);
-                    let body = rewrite_instance_self_calls_block(
-                        body,
-                        method_sig.name,
-                        mangled_sym,
-                        &context_params,
-                    );
                     let mut parameters = context_params.clone();
                     let value_parameters = explicit_method
                         .map(|method| method.params.clone())
@@ -1241,6 +1235,7 @@ fn context_dict_param_names(
         .collect()
 }
 
+#[allow(dead_code)]
 fn rewrite_instance_self_calls(
     expr: Expression,
     method_name: Identifier,
@@ -1463,6 +1458,7 @@ fn rewrite_instance_self_calls(
     }
 }
 
+#[allow(dead_code)]
 fn rewrite_instance_self_calls_block(
     block: Block,
     method_name: Identifier,
@@ -1481,6 +1477,7 @@ fn rewrite_instance_self_calls_block(
     }
 }
 
+#[allow(dead_code)]
 fn rewrite_instance_self_calls_stmt(
     stmt: Statement,
     method_name: Identifier,

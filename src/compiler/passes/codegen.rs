@@ -74,6 +74,7 @@ impl Compiler {
         // Dict values must be initialized at module load time before user code
         // can call constrained functions.
         self.emit_dict_globals(ir_program);
+        self.emit_instance_method_aliases(ir_program);
     }
 
     /// Emit bytecode to construct and store dictionary globals.
@@ -141,6 +142,39 @@ impl Compiler {
             }
 
             self.emit(OpCode::OpSetGlobal, &[dict_binding.index]);
+        }
+    }
+
+    /// Module bodies qualify their generated instance methods (for example
+    /// `Flow.Json.__tc_Encode_Int_encode`), while typed dispatch refers to the
+    /// canonical hidden name (`__tc_Encode_Int_encode`).  Install the latter
+    /// as an alias after the module has initialized its functions.  Interface
+    /// preloading already creates these canonical bindings; this also covers
+    /// no-cache builds, where the dependency AST is compiled through the same
+    /// compiler and no serialized interface supplies the alias.
+    fn emit_instance_method_aliases(&mut self, ir_program: &IrProgram) {
+        if ir_program.core.is_none() {
+            return;
+        }
+        let aliases: Vec<(usize, usize)> = self
+            .symbol_table
+            .global_bindings()
+            .into_iter()
+            .filter_map(|source| {
+                let qualified = self.interner.resolve(source.name);
+                let (_, suffix) = qualified.rsplit_once('.')?;
+                if !suffix.starts_with("__tc_") {
+                    return None;
+                }
+                let alias = self.interner.lookup(suffix)?;
+                let target = self.symbol_table.resolve(alias)?;
+                Some((source.index, target.index))
+            })
+            .collect();
+
+        for (source, target) in aliases {
+            self.emit(OpCode::OpGetGlobal, &[source]);
+            self.emit(OpCode::OpSetGlobal, &[target]);
         }
     }
 
