@@ -534,20 +534,14 @@ impl<'a> AstLowerer<'a> {
         method_name: Identifier,
         arguments: &[crate::syntax::expression::Expression],
         call_id: ExprId,
-    ) -> Vec<CoreExpr> {
+    ) -> Option<Vec<CoreExpr>> {
         let (class_env, interner) = match (self.class_env, self.interner) {
             (Some(class_env), Some(interner)) => (class_env, interner),
-            _ => return Vec::new(),
+            _ => return None,
         };
-        let Some((class_name, _)) = class_env.method_to_class(method_name) else {
-            return Vec::new();
-        };
-        let Some(first_arg) = arguments.first() else {
-            return Vec::new();
-        };
-        let Some(first_arg_type) = self.hm_expr_types.get(&first_arg.expr_id()) else {
-            return Vec::new();
-        };
+        let (class_name, _) = class_env.method_to_class(method_name)?;
+        let first_arg = arguments.first()?;
+        let first_arg_type = self.hm_expr_types.get(&first_arg.expr_id())?;
 
         let actual_type_args = if interner.resolve(method_name) == "decode"
             && interner.resolve(class_name).rsplit('.').next() == Some("Decode")
@@ -561,10 +555,64 @@ impl<'a> AstLowerer<'a> {
             vec![first_arg_type.clone()]
         };
 
-        class_env
-            .resolve_instance_context_dictionaries(class_name, &actual_type_args, interner)
-            .map(|dicts| dicts.iter().map(Self::lower_dictionary_ref).collect())
-            .unwrap_or_default()
+        // No instance head matched on the first argument alone. The caller
+        // already matched one positionally (multi-parameter classes such as
+        // `Convert<Int, String>` resolve that way), so keep the direct call
+        // and pass no dictionaries rather than abandoning it.
+        let Some(requests) = class_env.resolve_instance_context_dictionary_requests(
+            class_name,
+            &actual_type_args,
+            interner,
+        ) else {
+            return Some(Vec::new());
+        };
+        let mut dicts = Vec::with_capacity(requests.len());
+        for request in requests {
+            let dictionary = match request.dictionary {
+                Some(dictionary) => Self::lower_dictionary_ref(&dictionary),
+                None => self.current_context_dictionary(request.class_name, &request.type_args)?,
+            };
+            dicts.push(dictionary);
+        }
+        Some(dicts)
+    }
+
+    /// Find the hidden dictionary parameter whose contextual constraint has
+    /// the same class and type shape as `wanted`.  Type variables are treated
+    /// as shape-compatible, but concrete constructors must agree; this keeps
+    /// repeated constraints on one class associated with the right binder.
+    fn current_context_dictionary(
+        &self,
+        class_name: Identifier,
+        wanted: &[InferType],
+    ) -> Option<CoreExpr> {
+        let current = self.current_function_name?;
+        let scheme = self.scheme_for_current_function(current)?;
+        let interner = self.interner?;
+        let mut occurrence = 0usize;
+        for constraint in scheme.constraints {
+            if constraint.class_name != class_name {
+                continue;
+            }
+            let matches = constraint.type_args.len() == wanted.len()
+                && constraint
+                    .type_args
+                    .iter()
+                    .zip(wanted)
+                    .all(|(a, b)| a.same_shape(b));
+            if matches {
+                let suffix = (occurrence > 0).then(|| format!("_{occurrence}"));
+                let name = format!(
+                    "__dict_{}{}",
+                    interner.resolve(class_name),
+                    suffix.unwrap_or_default()
+                );
+                let name = interner.lookup(&name)?;
+                return Some(CoreExpr::external_var(name, Span::default()));
+            }
+            occurrence += 1;
+        }
+        None
     }
 
     /// Resolve concrete dictionary arguments for a call to a constrained function.
@@ -646,8 +694,15 @@ impl<'a> AstLowerer<'a> {
 
         // For each constraint on the callee, try to determine the concrete type
         // by looking at the argument types at this call site.
+        //
+        // Marker classes are skipped so this count matches the parameter count
+        // dictionary elaboration gives the callee (Proposal 0179 Stage 2).
         let mut dict_args = Vec::new();
-        for constraint in &scheme.constraints {
+        for constraint in scheme
+            .constraints
+            .iter()
+            .filter(|constraint| class_env.constraint_needs_dictionary(constraint))
+        {
             if let Some(actual_type_args) =
                 self.resolve_constraint_type_args(constraint, scheme, call_id, arguments)
                 && let Some(dict_ref) = class_env.resolve_dictionary_ref(

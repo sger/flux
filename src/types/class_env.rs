@@ -200,6 +200,16 @@ pub struct ResolvedDictionaryRef {
     pub context_args: Vec<ResolvedDictionaryRef>,
 }
 
+/// One dictionary required by a matched contextual instance.  `dictionary`
+/// is `None` when the required type is still polymorphic and must be supplied
+/// by the current function's contextual dictionary parameter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InstanceContextDictionaryRequest {
+    pub class_name: Identifier,
+    pub type_args: Vec<InferType>,
+    pub dictionary: Option<ResolvedDictionaryRef>,
+}
+
 impl ClassEnv {
     /// Create a new empty class environment.
     pub fn new() -> Self {
@@ -1465,6 +1475,30 @@ impl ClassEnv {
         Some(first)
     }
 
+    /// Whether `constraint` contributes a runtime dictionary parameter.
+    ///
+    /// A class with no methods — a marker such as `Sendable` — has no
+    /// dictionary tuple and no `__dict_*` global, so it contributes no
+    /// parameter and no argument.
+    ///
+    /// Every phase that counts dictionaries must agree on this predicate.
+    /// Before Proposal 0179 Stage 2 the AST path filtered marker classes while
+    /// Core lowering and dictionary elaboration did not, so the same function
+    /// had two different arities: the callee gained a phantom parameter the
+    /// caller never passed, and the call failed at runtime with
+    /// `E1000 wrong number of arguments`.
+    ///
+    /// An *unknown* class is deliberately treated as dictionary-carrying. It
+    /// is not a marker class, and silently dropping it would reintroduce the
+    /// arity disagreement this predicate exists to prevent.
+    pub fn constraint_needs_dictionary(
+        &self,
+        constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
+    ) -> bool {
+        self.lookup_class(constraint.class_name)
+            .is_none_or(|class| !class.methods.is_empty())
+    }
+
     /// Resolve the dictionary reference needed for a concrete class application.
     ///
     /// For plain instances this returns a leaf `ResolvedDictionaryRef` pointing
@@ -1506,29 +1540,34 @@ impl ClassEnv {
         })
     }
 
-    /// Resolve only the context dictionaries required by the matched instance.
-    ///
-    /// This is used by direct monomorphic calls to a mangled `__tc_*` method:
-    /// the caller needs the instance context arguments, not the whole instance
-    /// dictionary constructor.
-    pub fn resolve_instance_context_dictionaries(
+    /// Return each dictionary required by a matched instance, retaining
+    /// unresolved polymorphic requirements for the caller to satisfy from
+    /// its contextual dictionary parameters.
+    pub(crate) fn resolve_instance_context_dictionary_requests(
         &self,
         class_name: Identifier,
         actual_type_args: &[InferType],
         interner: &Interner,
-    ) -> Option<Vec<ResolvedDictionaryRef>> {
+    ) -> Option<Vec<InstanceContextDictionaryRequest>> {
         let (instance, subst) =
             self.resolve_instance_with_subst(class_name, actual_type_args, interner)?;
+
         instance
             .context
             .iter()
             .map(|constraint| {
-                let concrete_args = constraint
+                let type_args = constraint
                     .type_args
                     .iter()
                     .map(|arg| instantiate_instance_type_expr(arg, &subst, interner))
                     .collect::<Option<Vec<_>>>()?;
-                self.resolve_dictionary_ref(constraint.class_name, &concrete_args, interner)
+                let dictionary =
+                    self.resolve_dictionary_ref(constraint.class_name, &type_args, interner);
+                Some(InstanceContextDictionaryRequest {
+                    class_name: constraint.class_name,
+                    type_args,
+                    dictionary,
+                })
             })
             .collect()
     }

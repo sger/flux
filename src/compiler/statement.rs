@@ -1795,6 +1795,7 @@ impl Compiler {
         };
 
         self.enter_scope();
+        let previous_function_name = self.current_function_name.replace(name);
         self.symbol_table
             .define_function_name(name, definition_span);
         let mut scheme_constraints = self
@@ -2053,6 +2054,7 @@ impl Compiler {
         let num_locals = self.symbol_table.num_definitions;
 
         let (instructions, locations, files, effect_summary) = self.leave_scope();
+        self.current_function_name = previous_function_name;
 
         compile_result?;
 

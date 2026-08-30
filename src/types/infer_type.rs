@@ -236,6 +236,38 @@ impl InferType {
         !self.contains_var()
     }
 
+    /// Returns `true` when two types have the same constructor shape.
+    ///
+    /// Type variables only match other type variables; concrete constructors,
+    /// tuple arities, and function arities must agree. This is the matcher
+    /// both lowering paths use to associate a wanted class constraint with a
+    /// contextual dictionary parameter, so it must stay the single definition.
+    pub fn same_shape(&self, other: &InferType) -> bool {
+        match (self, other) {
+            (InferType::Var(_), InferType::Var(_)) => true,
+            (InferType::Con(a), InferType::Con(b)) => a == b,
+            (InferType::App(a_head, a_args), InferType::App(b_head, b_args)) => {
+                a_head == b_head
+                    && a_args.len() == b_args.len()
+                    && a_args.iter().zip(b_args).all(|(a, b)| a.same_shape(b))
+            }
+            (InferType::Tuple(a), InferType::Tuple(b)) => {
+                a.len() == b.len() && a.iter().zip(b).all(|(a, b)| a.same_shape(b))
+            }
+            (InferType::Fun(a_params, a_ret, _), InferType::Fun(b_params, b_ret, _)) => {
+                a_params.len() == b_params.len()
+                    && a_params.iter().zip(b_params).all(|(a, b)| a.same_shape(b))
+                    && a_ret.same_shape(b_ret)
+            }
+            (InferType::HktApp(a_head, a_args), InferType::HktApp(b_head, b_args)) => {
+                a_head.same_shape(b_head)
+                    && a_args.len() == b_args.len()
+                    && a_args.iter().zip(b_args).all(|(a, b)| a.same_shape(b))
+            }
+            _ => false,
+        }
+    }
+
     /// Returns `true` when these two types can never unify because their
     /// outermost type constructors differ — `List<a>` against `Array<Int>`.
     ///

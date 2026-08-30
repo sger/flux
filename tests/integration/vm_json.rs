@@ -104,6 +104,27 @@ fn main() with IO {
 }
 
 #[test]
+fn same_class_contextual_json_encoders_dispatch_elements() {
+    let (stdout, stderr, ok) = run_source(
+        r#"
+import Flow.Json as Json
+import Flow.Json exposing (encode)
+
+fn main() with IO {
+    print(Json.encode_json(encode(Some(42))))
+    print(Json.encode_json(encode([1, 2])))
+    print(Json.encode_json(encode([|1, 2|])))
+}
+"#,
+    );
+    assert!(
+        ok,
+        "contextual JSON encoder fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout, "\"42\"\n\"[1,2]\"\n\"[1,2]\"\n", "{stdout}");
+}
+
+#[test]
 fn int_decode_rejects_fractional_and_unsafe_float_numbers() {
     let (stdout, stderr, ok) = run_source(
         r#"

@@ -1,0 +1,30 @@
+// parity: vm, llvm
+// expect: success
+// bug: a method-less marker class gave the callee a phantom dictionary
+// parameter that call sites never passed, so the VM raised E1000 while the
+// native backend accepted the mismatched call unchecked.
+
+class Marker<a> { }
+
+class Counted<a> {
+    fn count(x: a) -> Int
+}
+
+instance Marker<Int> { }
+
+instance Counted<Int> {
+    fn count(x) { 1 }
+}
+
+fn tag<a: Marker>(x: a) -> Int {
+    7
+}
+
+fn mix<a: Counted, b: Marker>(x: a, y: b) -> Int {
+    count(x)
+}
+
+fn main() with IO {
+    print(tag(1))
+    print(mix(10, 20))
+}
