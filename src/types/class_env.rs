@@ -200,6 +200,16 @@ pub struct ResolvedDictionaryRef {
     pub context_args: Vec<ResolvedDictionaryRef>,
 }
 
+/// One dictionary required by a matched contextual instance.  `dictionary`
+/// is `None` when the required type is still polymorphic and must be supplied
+/// by the current function's contextual dictionary parameter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InstanceContextDictionaryRequest {
+    pub class_name: Identifier,
+    pub type_args: Vec<InferType>,
+    pub dictionary: Option<ResolvedDictionaryRef>,
+}
+
 impl ClassEnv {
     /// Create a new empty class environment.
     pub fn new() -> Self {
@@ -1553,6 +1563,38 @@ impl ClassEnv {
                     .map(|arg| instantiate_instance_type_expr(arg, &subst, interner))
                     .collect::<Option<Vec<_>>>()?;
                 self.resolve_dictionary_ref(constraint.class_name, &concrete_args, interner)
+            })
+            .collect()
+    }
+
+    /// Return each dictionary required by a matched instance, retaining
+    /// unresolved polymorphic requirements for the caller to satisfy from
+    /// its contextual dictionary parameters.
+    pub(crate) fn resolve_instance_context_dictionary_requests(
+        &self,
+        class_name: Identifier,
+        actual_type_args: &[InferType],
+        interner: &Interner,
+    ) -> Option<Vec<InstanceContextDictionaryRequest>> {
+        let (instance, subst) =
+            self.resolve_instance_with_subst(class_name, actual_type_args, interner)?;
+
+        instance
+            .context
+            .iter()
+            .map(|constraint| {
+                let type_args = constraint
+                    .type_args
+                    .iter()
+                    .map(|arg| instantiate_instance_type_expr(arg, &subst, interner))
+                    .collect::<Option<Vec<_>>>()?;
+                let dictionary =
+                    self.resolve_dictionary_ref(constraint.class_name, &type_args, interner);
+                Some(InstanceContextDictionaryRequest {
+                    class_name: constraint.class_name,
+                    type_args,
+                    dictionary,
+                })
             })
             .collect()
     }

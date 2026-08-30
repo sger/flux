@@ -76,19 +76,11 @@ pub fn elaborate_dictionaries_with_def_schemes(
         return;
     }
 
-    // Check if any function actually has class constraints in its scheme.
-    // If not, skip all elaboration (avoids injecting __dict_* defs into
-    // programs that don't use polymorphic type class dispatch).
-    let has_constrained_fns = program.defs.iter().any(|def| {
-        def_schemes
-            .get(&def.binder.id)
-            .is_some_and(|s| !s.constraints.is_empty())
-    });
-
-    if !has_constrained_fns {
-        return;
-    }
-
+    // Rewrite constrained function bodies when present, then resolve concrete
+    // dictionary references introduced by typed class-call lowering. The
+    // latter is needed even in an otherwise monomorphic caller: a call such
+    // as `encode(Some(42))` is lowered directly to a mangled instance method
+    // but still needs its `Encode<Int>` dictionary materialised.
     // Phase 3: Rewrite constrained function bodies.
     rewrite_constrained_functions(program, class_env, def_schemes, interner, next_id);
 
@@ -477,9 +469,12 @@ fn rewrite_constrained_functions(
             &mut def.expr,
             CoreExpr::Lit(crate::core::CoreLit::Unit, Span::default()),
         );
-        let self_call = self_instance_call(def.name, &old_expr, &constraints, class_env, interner);
-        let rewritten =
-            rewrite_body_with_dicts_with_self(old_expr, &method_map, self_call.as_ref());
+        // Class-method calls in generated instance methods are resolved by the
+        // typed AST-to-Core lowering.  In particular, a same-class contextual
+        // instance must distinguish a container call (direct self dispatch)
+        // from an element call (dictionary extraction).  Dictionary
+        // elaboration only performs the latter rewrite here.
+        let rewritten = rewrite_body_with_dicts(old_expr, &method_map);
 
         if dict_params.is_empty() {
             def.expr = normalize_existing_dict_param_types(rewritten, existing_dict_params.len());
@@ -1155,41 +1150,6 @@ struct SelfInstanceCall {
     def_name: Identifier,
     method_name: Identifier,
     dict_args: Vec<CoreBinder>,
-}
-
-fn self_instance_call(
-    def_name: Identifier,
-    expr: &CoreExpr,
-    constraints: &[crate::ast::type_infer::constraint::SchemeConstraint],
-    class_env: &ClassEnv,
-    interner: &Interner,
-) -> Option<SelfInstanceCall> {
-    let def_text = interner.resolve(def_name);
-    if !def_text.starts_with("__tc_") {
-        return None;
-    }
-    let method_name = class_env
-        .classes
-        .values()
-        .flat_map(|class_def| class_def.methods.iter().map(|method| method.name))
-        .filter(|method| def_text.ends_with(&format!("_{}", interner.resolve(*method))))
-        .max_by_key(|method| interner.resolve(*method).len())?;
-    let CoreExpr::Lam { params, .. } = expr else {
-        return None;
-    };
-    let dict_args = params
-        .iter()
-        .take(constraints.len())
-        .copied()
-        .collect::<Vec<_>>();
-    if dict_args.len() != constraints.len() {
-        return None;
-    }
-    Some(SelfInstanceCall {
-        def_name,
-        method_name,
-        dict_args,
-    })
 }
 
 fn rewrite_body_with_dicts_with_self(

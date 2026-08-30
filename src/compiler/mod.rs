@@ -574,17 +574,14 @@ fn preload_imported_instance_schemes(
         .collect::<Vec<_>>()
         .join("_");
     let class_str = interner.resolve(instance_def.class_name).to_string();
-    let method_effects: HashMap<Identifier, Vec<EffectExpr>> =
-        instance_def.method_effects.iter().cloned().collect();
     let module_qualifier = instance_def
         .instance_module
         .as_identifier()
-        .map(|sym| interner.resolve(sym))
-        .and_then(|module| module.rsplit('.').next())
-        .filter(|segment| !segment.is_empty())
-        .unwrap_or("module")
-        .replace('.', "_");
-
+        .map(|sym| interner.resolve(sym).replace('.', "_"))
+        .filter(|module| !module.is_empty())
+        .unwrap_or_else(|| "module".to_string());
+    let method_effects: HashMap<Identifier, Vec<EffectExpr>> =
+        instance_def.method_effects.iter().cloned().collect();
     for method in &class_def.methods {
         let method_str = interner.resolve(method.name).to_string();
         let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
@@ -593,7 +590,20 @@ fn preload_imported_instance_schemes(
             symbol_table.define(mangled_sym, Span::default());
         }
         preloaded_imported_globals.insert(mangled_sym);
-        native_symbols.insert(mangled_sym, format!("flux_{module_qualifier}_{mangled}"));
+        let native_mangled = mangled
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || ch == '_' || ch == '$' {
+                    ch
+                } else {
+                    '_'
+                }
+            })
+            .collect::<String>();
+        native_symbols.insert(
+            mangled_sym,
+            format!("flux_{module_qualifier}_{native_mangled}"),
+        );
         let specialized_param_types = method
             .param_types
             .iter()
@@ -1028,6 +1038,9 @@ pub struct Compiler {
     pub(super) in_tail_position: bool,
     // Function parameter counts for active function scopes innermost last.
     pub(super) function_param_counts: Vec<usize>,
+    // The function currently being compiled, used by AST fallback dispatch to
+    // associate repeated contextual class binders with their inferred types.
+    pub(super) current_function_name: Option<Symbol>,
     // Declared ambient effects for active function scopes innermost last.
     pub(super) function_effects: Vec<Vec<Symbol>>,
     // Annotated function-typed parameter effect rows for active function scopes.
@@ -1328,6 +1341,7 @@ impl Compiler {
             interner,
             in_tail_position: false,
             function_param_counts: Vec::new(),
+            current_function_name: None,
             function_effects: Vec::new(),
             function_param_effect_rows: Vec::new(),
             handled_effects: Vec::new(),
@@ -1755,7 +1769,7 @@ impl Compiler {
         self.collect_effect_declarations(program);
         self.auto_expose_flow_modules();
 
-        if !self.class_env.classes.is_empty() && !self.is_flow_library_file() {
+        if !self.class_env.classes.is_empty() {
             let additional_reserved_names = self
                 .preloaded_imported_globals
                 .iter()
@@ -2165,6 +2179,41 @@ impl Compiler {
         }
         self.preloaded_effect_ops_registry = self.effect_ops_registry.clone();
         self.preloaded_effect_op_signatures = self.effect_op_signatures.clone();
+
+        // A no-cache build does not have a module interface to carry public
+        // class/instance metadata across the shared sequential compiler used
+        // by the runner. Recover that metadata from the dependency AST so
+        // downstream dictionary construction remains available in the same
+        // way as it is when an interface cache hit is present.
+        let mut dependency_classes = crate::types::class_env::ClassEnv::new();
+        dependency_classes.register_builtins(&mut self.interner);
+        let _ = dependency_classes.collect_from_statements(&program.statements, &self.interner);
+        for (class_id, class_def) in dependency_classes.classes {
+            if class_def.is_public {
+                self.imported_public_classes
+                    .entry(class_id)
+                    .or_insert(class_def);
+            }
+        }
+        for instance in dependency_classes.instances {
+            if instance.is_public
+                && !self.imported_public_instances.iter().any(|existing| {
+                    existing.class_id == instance.class_id
+                        && existing.type_args.len() == instance.type_args.len()
+                        && existing
+                            .type_args
+                            .iter()
+                            .zip(instance.type_args.iter())
+                            .all(|(left, right)| {
+                                left.structural_eq(right)
+                                    || left.display_with(&self.interner)
+                                        == right.display_with(&self.interner)
+                            })
+                })
+            {
+                self.imported_public_instances.push(instance);
+            }
+        }
     }
 
     pub fn build_native_extern_symbols(

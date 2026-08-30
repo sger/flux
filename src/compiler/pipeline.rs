@@ -50,7 +50,7 @@ impl Compiler {
         // This injects mangled instance methods + dispatch functions into the
         // program AST so they compile through the normal pipeline.
         let class_augmented;
-        let program = if !self.class_env.classes.is_empty() && !self.is_flow_library_file() {
+        let program = if !self.class_env.classes.is_empty() {
             let additional_reserved_names = self
                 .symbol_table
                 .all_symbol_names()

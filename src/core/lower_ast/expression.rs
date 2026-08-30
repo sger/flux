@@ -165,14 +165,18 @@ impl<'a> super::AstLowerer<'a> {
                 // Phase 4 Step 5: compile-time class method dispatch.
                 // If the callee is a class method and the argument type is known,
                 // resolve directly to the mangled instance function.
-                if let Some(mangled) = self.try_resolve_class_call_expr(function, arguments, *id) {
-                    let method_name = match function.as_ref() {
-                        Expression::Identifier { name, .. } => *name,
-                        Expression::MemberAccess { member, .. } => *member,
-                        _ => unreachable!("class call resolution only succeeds for direct callees"),
-                    };
-                    let mut args =
-                        self.resolve_direct_class_call_dict_args(method_name, arguments, *id);
+                let method_name = match function.as_ref() {
+                    Expression::Identifier { name, .. } => Some(*name),
+                    Expression::MemberAccess { member, .. } => Some(*member),
+                    _ => None,
+                };
+                if let Some(mangled) = self.try_resolve_class_call_expr(function, arguments, *id)
+                    && let Some(mut args) = self.resolve_direct_class_call_dict_args(
+                        method_name.expect("class call resolution returned a direct callee"),
+                        arguments,
+                        *id,
+                    )
+                {
                     args.extend(arguments.iter().map(|a| self.lower_expr(a)));
                     return CoreExpr::App {
                         func: Box::new(CoreExpr::external_var(mangled, *span)),
