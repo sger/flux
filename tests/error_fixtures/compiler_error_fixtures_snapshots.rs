@@ -47,8 +47,8 @@ fn build_compiler_transcript(
         // Module-graph diagnostics (E028 and friends) reject the program
         // without ever reaching `compiler.compile`, so they count as errors
         // here too.
-        let mut compile_had_errors = !graph_result.diagnostics.is_empty()
-            || !graph_result.failed_modules.is_empty();
+        let mut compile_had_errors =
+            !graph_result.diagnostics.is_empty() || !graph_result.failed_modules.is_empty();
         diagnostics.extend(graph_result.diagnostics);
 
         let mut failed: HashSet<_> = graph_result.failed_modules;
