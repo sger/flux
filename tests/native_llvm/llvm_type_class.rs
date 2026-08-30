@@ -272,7 +272,7 @@ fn imported_public_instance_method_is_emitted_and_called_directly_in_native_lowe
                 forall: vec![0],
                 constraints: vec![SchemeConstraint {
                     class_name: interner.intern("Logger"),
-                    type_vars: vec![0],
+                    type_args: vec![InferType::Var(0)],
                 }],
                 infer_type: InferType::Fun(
                     vec![

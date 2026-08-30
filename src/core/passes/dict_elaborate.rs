@@ -1414,6 +1414,7 @@ mod tests {
         syntax::type_expr::TypeExpr,
         types::{
             class_env::{ClassDef, InstanceDef, MethodSig},
+            infer_type::InferType,
             scheme::Scheme,
         },
     };
@@ -1873,7 +1874,7 @@ mod tests {
             forall: vec![0],
             constraints: vec![SchemeConstraint {
                 class_name: eq_sym,
-                type_vars: vec![0],
+                type_args: vec![InferType::Var(0)],
             }],
             infer_type: crate::types::infer_type::InferType::Var(0),
         };
@@ -1966,7 +1967,7 @@ mod tests {
     // ── SchemeConstraint in Scheme ────────────────────────────────────────
 
     #[test]
-    fn scheme_instantiate_remaps_constraint_type_vars() {
+    fn scheme_instantiate_substitutes_structured_constraint_args() {
         let mut interner = Interner::new();
         let eq_sym = interner.intern("Eq");
 
@@ -1974,7 +1975,7 @@ mod tests {
             forall: vec![0],
             constraints: vec![SchemeConstraint {
                 class_name: eq_sym,
-                type_vars: vec![0],
+                type_args: vec![InferType::Var(0)],
             }],
             infer_type: crate::types::infer_type::InferType::Var(0),
         };
@@ -1984,7 +1985,7 @@ mod tests {
 
         assert_eq!(constraints.len(), 1);
         let new_var = mapping.get(&0).cloned().unwrap();
-        assert_eq!(constraints[0].type_vars, vec![new_var]);
+        assert_eq!(constraints[0].type_args, vec![InferType::Var(new_var)]);
         assert_eq!(constraints[0].class_name, eq_sym);
     }
 
