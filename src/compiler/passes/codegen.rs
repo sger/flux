@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use crate::bytecode::op_code::OpCode;
 use crate::cfg::IrProgram;
+use crate::core::CoreBinderId;
 use crate::diagnostics::DiagnosticPhase;
 use crate::syntax::{
     pattern_validate::validate_program_patterns, program::Program, statement::Statement,
@@ -71,83 +74,334 @@ impl Compiler {
         // Dict values must be initialized at module load time before user code
         // can call constrained functions.
         self.emit_dict_globals(ir_program);
+        self.emit_instance_method_aliases(ir_program);
     }
 
     /// Emit bytecode to construct and store dictionary globals.
     ///
-    /// For each `__dict_{Class}_{Type}` CoreDef (a `MakeTuple` of method
-    /// references), emit bytecode that loads the method functions onto the
-    /// stack, creates a tuple, and stores it in the global symbol table.
+    /// A dictionary global has one of two shapes, and both must be stored.
+    /// A plain instance lowers to a `MakeTuple` of method references. A
+    /// contextual instance (`instance Eq<a> => Eq<List<a>>`) lowers to a
+    /// `Lam` taking the context dictionaries and returning that tuple, so it
+    /// is stored as the compiled dictionary-constructor function itself.
+    ///
+    /// Handling only the tuple shape left the contextual global *declared*
+    /// (`ir_lowering` registers a slot for every `__dict_*`) but never
+    /// *stored*, so the VM read it back as `None` and reported
+    /// `E1001 Cannot call non-function value` (Proposal 0179 Stage 2).
     fn emit_dict_globals(&mut self, ir_program: &IrProgram) {
-        let core = match ir_program.core.as_ref() {
-            Some(c) => c,
-            None => return,
+        let Some(core) = ir_program.core.as_ref() else {
+            return;
         };
 
-        // Collect dict construction info first to avoid borrow conflicts.
-        let mut dict_entries: Vec<(crate::syntax::Identifier, Vec<crate::syntax::Identifier>)> =
-            Vec::new();
+        // Classify first, so the emit loop below borrows `self` mutably
+        // without holding a borrow of `core`.
+        let dict_entries: Vec<(crate::syntax::Identifier, DictGlobal)> = core
+            .defs
+            .iter()
+            .filter(|def| def.is_dict_def)
+            .filter_map(|def| DictGlobal::classify(&def.expr).map(|kind| (def.name, kind)))
+            .collect();
 
-        for def in &core.defs {
-            let name_str = match self.interner.try_resolve(def.name) {
-                Some(s) => s,
-                None => continue,
-            };
-            if !name_str.starts_with("__dict_") {
+        for (dict_name, kind) in &dict_entries {
+            let Some(dict_binding) = self.symbol_table.resolve(*dict_name) else {
                 continue;
-            }
+            };
 
-            // Extract method references from MakeTuple(...).
-            if let crate::core::CoreExpr::PrimOp {
-                op: crate::core::CorePrimOp::MakeTuple,
-                args,
-                ..
-            } = &def.expr
-            {
-                let mut method_names = Vec::new();
-                let mut ok = true;
-                for arg in args {
-                    if let crate::core::CoreExpr::Var { var, .. } = arg {
-                        method_names.push(var.name);
+            match kind {
+                DictGlobal::MethodTuple { methods } => {
+                    // Resolve every method before emitting anything: a partial
+                    // load would leave operands stranded on the stack.
+                    let bindings: Option<Vec<_>> = methods
+                        .iter()
+                        .map(|&method| self.symbol_table.resolve(method))
+                        .collect();
+                    let Some(bindings) = bindings else {
+                        continue;
+                    };
+
+                    for binding in &bindings {
+                        self.load_symbol(binding);
+                    }
+
+                    let count = bindings.len();
+                    if count <= 255 {
+                        self.emit(OpCode::OpTuple, &[count, 0]);
                     } else {
-                        ok = false;
-                        break;
+                        self.emit(OpCode::OpTupleLong, &[count]);
                     }
                 }
-                if ok && !method_names.is_empty() {
-                    dict_entries.push((def.name, method_names));
-                }
-            }
-        }
-
-        // Now emit bytecode for each dict.
-        for (dict_name, method_names) in &dict_entries {
-            let dict_binding = match self.symbol_table.resolve(*dict_name) {
-                Some(b) => b,
-                None => continue,
-            };
-
-            let mut all_resolved = true;
-            for &method_name in method_names {
-                if let Some(binding) = self.symbol_table.resolve(method_name) {
-                    self.load_symbol(&binding);
-                } else {
-                    all_resolved = false;
-                    break;
+                DictGlobal::ContextualConstructor {
+                    context_arity,
+                    methods,
+                } => {
+                    if !self.emit_contextual_dict_constructor(*context_arity, methods) {
+                        continue;
+                    }
                 }
             }
 
-            if !all_resolved {
-                continue;
-            }
-
-            let count = method_names.len();
-            if count <= 255 {
-                self.emit(OpCode::OpTuple, &[count, 0]);
-            } else {
-                self.emit(OpCode::OpTupleLong, &[count]);
-            }
             self.emit(OpCode::OpSetGlobal, &[dict_binding.index]);
         }
     }
+
+    /// Module bodies qualify their generated instance methods (for example
+    /// `Flow.Json.__tc_Encode_Int_encode`), while typed dispatch refers to the
+    /// canonical hidden name (`__tc_Encode_Int_encode`).  Install the latter
+    /// as an alias after the module has initialized its functions.  Interface
+    /// preloading already creates these canonical bindings; this also covers
+    /// no-cache builds, where the dependency AST is compiled through the same
+    /// compiler and no serialized interface supplies the alias.
+    fn emit_instance_method_aliases(&mut self, ir_program: &IrProgram) {
+        if ir_program.core.is_none() {
+            return;
+        }
+        let aliases: Vec<(usize, usize)> = self
+            .symbol_table
+            .global_bindings()
+            .into_iter()
+            .filter_map(|source| {
+                let qualified = self.interner.resolve(source.name);
+                let (_, suffix) = qualified.rsplit_once('.')?;
+                if !suffix.starts_with("__tc_") {
+                    return None;
+                }
+                let alias = self.interner.lookup(suffix)?;
+                let target = self.symbol_table.resolve(alias)?;
+                Some((source.index, target.index))
+            })
+            .collect();
+
+        for (source, target) in aliases {
+            self.emit(OpCode::OpGetGlobal, &[source]);
+            self.emit(OpCode::OpSetGlobal, &[target]);
+        }
+    }
+
+    /// Push a closure implementing a contextual instance's dictionary
+    /// constructor, returning `false` if a method symbol was unresolvable.
+    ///
+    /// The Core shape being reproduced is
+    /// `λctx. MakeTuple(λargs. __tc_Class_Type_method(ctx, args))`: the outer
+    /// function takes the context dictionaries, and each method slot is a
+    /// closure capturing them and forwarding to the already-compiled mangled
+    /// method, which takes those dictionaries as leading parameters.
+    ///
+    /// This is assembled directly rather than compiled from Core, because the
+    /// definition is synthesised by a Core pass and so never exists as an AST
+    /// function that `phase_codegen` could lower.
+    fn emit_contextual_dict_constructor(
+        &mut self,
+        context_arity: usize,
+        methods: &[ContextualDictMethod],
+    ) -> bool {
+        use crate::runtime::compiled_function::CompiledFunction;
+        use crate::runtime::value::Value;
+        use std::sync::Arc;
+
+        // Resolve every method up front: emitting a partial constructor would
+        // leave a malformed closure in the dictionary slot.
+        let Some(globals): Option<Vec<_>> = methods
+            .iter()
+            .map(|method| {
+                let binding = self.symbol_table.resolve(method.mangled)?;
+                matches!(
+                    binding.symbol_scope,
+                    crate::compiler::symbol_scope::SymbolScope::Global
+                )
+                .then_some((binding.index, method.arity))
+            })
+            .collect()
+        else {
+            return false;
+        };
+
+        let mut body = Vec::new();
+        for (slot, (global_index, arity)) in globals.iter().enumerate() {
+            // Each slot: OpClosure over a forwarder that captures the context
+            // dictionaries as free variables.
+            let forwarder = Self::contextual_dict_forwarder(*global_index, context_arity, *arity);
+            let forwarder_index = self.add_constant(Value::Function(Arc::new(forwarder)));
+
+            for ctx in 0..context_arity {
+                push_operand(&mut body, OpCode::OpGetLocal, ctx);
+            }
+            push_closure(&mut body, forwarder_index, context_arity);
+            debug_assert!(slot < methods.len());
+        }
+        push_tuple(&mut body, methods.len());
+        body.push(OpCode::OpReturnValue as u8);
+
+        let constructor = CompiledFunction::new(body, context_arity, context_arity, None);
+        let constructor_index = self.add_constant(Value::Function(Arc::new(constructor)));
+        self.emit_closure_index(constructor_index, 0);
+        true
+    }
+
+    /// Build the per-method forwarder `λargs. method(ctx.., args..)`.
+    ///
+    /// The context dictionaries arrive as free variables (captured by the
+    /// enclosing constructor) and are passed ahead of the caller's arguments,
+    /// matching the leading dictionary parameters that dictionary elaboration
+    /// gave the mangled method.
+    fn contextual_dict_forwarder(
+        global_index: usize,
+        context_arity: usize,
+        arity: usize,
+    ) -> crate::runtime::compiled_function::CompiledFunction {
+        let mut code = Vec::new();
+        push_operand(&mut code, OpCode::OpGetGlobal, global_index);
+        for ctx in 0..context_arity {
+            push_operand(&mut code, OpCode::OpGetFree, ctx);
+        }
+        for arg in 0..arity {
+            push_operand(&mut code, OpCode::OpGetLocal, arg);
+        }
+        code.push(OpCode::OpCall as u8);
+        code.push((context_arity + arity) as u8);
+        code.push(OpCode::OpReturnValue as u8);
+
+        crate::runtime::compiled_function::CompiledFunction::new(code, arity, arity, None)
+    }
+}
+
+/// One method slot of a contextual instance's dictionary.
+struct ContextualDictMethod {
+    /// The mangled `__tc_{Class}_{Type}_{method}` symbol.
+    mangled: crate::syntax::Identifier,
+    /// How many arguments the caller supplies, excluding the leading context
+    /// dictionaries.
+    arity: usize,
+}
+
+/// How a `__dict_*` global is materialised at module load time.
+enum DictGlobal {
+    /// A plain instance: a tuple of method references, in class-declaration
+    /// order.
+    MethodTuple {
+        methods: Vec<crate::syntax::Identifier>,
+    },
+    /// A contextual instance: a function from context dictionaries to the
+    /// method tuple.
+    ContextualConstructor {
+        /// Number of context dictionaries the constructor takes.
+        context_arity: usize,
+        methods: Vec<ContextualDictMethod>,
+    },
+}
+
+impl DictGlobal {
+    /// Classify a dictionary definition's body, or `None` when it has neither
+    /// recognised shape.
+    fn classify(expr: &crate::core::CoreExpr) -> Option<Self> {
+        use crate::core::{CoreExpr, CorePrimOp};
+
+        match expr {
+            CoreExpr::PrimOp {
+                op: CorePrimOp::MakeTuple,
+                args,
+                ..
+            } => {
+                let methods: Option<Vec<_>> = args
+                    .iter()
+                    .map(|arg| match arg {
+                        CoreExpr::Var { var, .. } => Some(var.name),
+                        _ => None,
+                    })
+                    .collect();
+                methods
+                    .filter(|methods| !methods.is_empty())
+                    .map(|methods| Self::MethodTuple { methods })
+            }
+            CoreExpr::Lam { params, body, .. } => {
+                let methods = Self::contextual_methods(body)?;
+                Some(Self::ContextualConstructor {
+                    context_arity: params.len(),
+                    methods,
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// Extract the method slots from a contextual dictionary body,
+    /// `MakeTuple(λargs. __tc_*(ctx.., args..))`.
+    ///
+    /// Core lowering hoists each method closure into a `let`, so the tuple
+    /// elements are usually variables referring to those bindings rather than
+    /// inline lambdas. Both forms are accepted.
+    fn contextual_methods(body: &crate::core::CoreExpr) -> Option<Vec<ContextualDictMethod>> {
+        use crate::core::{CoreExpr, CorePrimOp};
+
+        let mut bound: HashMap<CoreBinderId, &CoreExpr> = HashMap::new();
+        let mut cursor = body;
+        while let CoreExpr::Let { var, rhs, body, .. } = cursor {
+            bound.insert(var.id, rhs.as_ref());
+            cursor = body;
+        }
+
+        let CoreExpr::PrimOp {
+            op: CorePrimOp::MakeTuple,
+            args,
+            ..
+        } = cursor
+        else {
+            return None;
+        };
+
+        args.iter()
+            .map(|slot| Self::contextual_method(slot, &bound))
+            .collect()
+    }
+
+    /// Read one method slot: a lambda forwarding to a mangled method, either
+    /// inline or reached through a `let` binding.
+    fn contextual_method(
+        slot: &crate::core::CoreExpr,
+        bound: &HashMap<CoreBinderId, &crate::core::CoreExpr>,
+    ) -> Option<ContextualDictMethod> {
+        use crate::core::CoreExpr;
+
+        let slot = match slot {
+            CoreExpr::Var { var, .. } => var
+                .binder
+                .and_then(|binder| bound.get(&binder).copied())
+                .unwrap_or(slot),
+            other => other,
+        };
+
+        let CoreExpr::Lam { params, body, .. } = slot else {
+            return None;
+        };
+        let CoreExpr::App { func, .. } = body.as_ref() else {
+            return None;
+        };
+        let CoreExpr::Var { var, .. } = func.as_ref() else {
+            return None;
+        };
+        Some(ContextualDictMethod {
+            mangled: var.name,
+            arity: params.len(),
+        })
+    }
+}
+
+/// Append `op` with a single two-byte operand.
+fn push_operand(code: &mut Vec<u8>, op: OpCode, operand: usize) {
+    code.push(op as u8);
+    match op {
+        OpCode::OpGetLocal | OpCode::OpGetFree => code.push(operand as u8),
+        _ => code.extend_from_slice(&(operand as u16).to_be_bytes()),
+    }
+}
+
+fn push_closure(code: &mut Vec<u8>, const_index: usize, num_free: usize) {
+    code.push(OpCode::OpClosure as u8);
+    code.extend_from_slice(&(const_index as u16).to_be_bytes());
+    code.push(num_free as u8);
+}
+
+fn push_tuple(code: &mut Vec<u8>, count: usize) {
+    code.push(OpCode::OpTuple as u8);
+    code.extend_from_slice(&(count as u16).to_be_bytes());
 }

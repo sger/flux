@@ -1,0 +1,41 @@
+// Stage 2 baseline contract: a contextual instance reached through a
+// polymorphic constrained function.
+//
+// `Eq<a> => MyEq<List<a>>` lowers to a dictionary *constructor* — a function
+// from the context dictionary to the method tuple — rather than a plain method
+// tuple. Calling `my_eq` directly works either way; routing through the
+// constrained `pair_eq` is what requires that constructor to be initialised at
+// module load time. Before Stage 2 the constructor global was declared but
+// never stored, so this program failed with `E1001 Cannot call non-function
+// value (got None)` on the VM.
+//
+// Expected output:
+// false
+// false
+// true
+
+class MyEq<a> {
+    fn my_eq(x: a, y: a) -> Bool
+}
+
+instance Eq<a> => MyEq<List<a>> {
+    fn my_eq(xs, ys) {
+        match xs {
+            [h1 | t1] -> match ys {
+                [h2 | t2] -> h1 == h2 && my_eq(t1, t2),
+                _ -> false
+            },
+            _ -> true
+        }
+    }
+}
+
+fn pair_eq<a: MyEq>(x: a, y: a) -> Bool {
+    my_eq(x, y)
+}
+
+fn main() with IO {
+    print(my_eq([1, 2, 3], [1, 2, 4]))
+    print(pair_eq([1, 2, 3], [1, 2, 4]))
+    print(pair_eq([1, 2, 3], [1, 2, 3]))
+}
