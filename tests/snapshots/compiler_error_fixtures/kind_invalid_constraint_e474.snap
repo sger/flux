@@ -1,0 +1,17 @@
+---
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/kind_invalid_constraint_e474.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E474]: Constraint Kind Mismatch
+
+Constraint `Int` applies class `Functor` to a type of kind `Type`, but it expects `Type -> Type`.
+
+  examples/compiler_errors/kind_invalid_constraint_e474.flx:8:18
+  |
+8 | instance Functor<Int> => Functor<Box> {
+  |                  ^^^
+== stdout ==
+<not executed>

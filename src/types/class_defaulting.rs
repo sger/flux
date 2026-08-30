@@ -149,27 +149,30 @@ fn collect_scheme_constraints(
         .copied()
         .collect();
     let mut result = Vec::new();
-    let mut seen = HashSet::new();
+    let mut seen = Vec::new();
 
     for constraint in constraints {
         if constraint.origin == WantedClassConstraintOrigin::InferredOperator {
             continue;
         }
-        let vars: Vec<TypeVarId> = constraint
+        let vars = constraint
             .type_args
             .iter()
             .filter_map(|ty| match ty {
                 InferType::Var(var) => Some(*var),
                 _ => None,
             })
-            .collect();
+            .collect::<Vec<_>>();
         if vars.len() == constraint.type_args.len()
             && vars.iter().all(|var| ty_free.contains(var))
-            && seen.insert((constraint.class_name, vars.clone()))
+            && !seen.iter().any(|(class_name, seen_vars)| {
+                *class_name == constraint.class_name && *seen_vars == vars
+            })
         {
+            seen.push((constraint.class_name, vars));
             result.push(SchemeConstraint {
                 class_name: constraint.class_name,
-                type_vars: vars,
+                type_args: constraint.type_args.clone(),
             });
         }
     }
@@ -291,7 +294,10 @@ mod tests {
 
         assert!(finalized.default_subst.is_empty());
         assert_eq!(finalized.scheme_constraints.len(), 1);
-        assert_eq!(finalized.scheme_constraints[0].type_vars, vec![0]);
+        assert_eq!(
+            finalized.scheme_constraints[0].type_args,
+            vec![InferType::Var(0)]
+        );
     }
 
     #[test]
