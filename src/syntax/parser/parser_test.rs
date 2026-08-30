@@ -749,7 +749,10 @@ fn parses_generic_function_single_constraint() {
             assert_eq!(type_params.len(), 1);
             assert_eq!(interner.resolve(type_params[0].name), "A");
             assert_eq!(type_params[0].constraints.len(), 1);
-            assert_eq!(interner.resolve(type_params[0].constraints[0]), "Eq");
+            assert_eq!(
+                interner.resolve(type_params[0].constraints[0].class_name),
+                "Eq"
+            );
         }
         _ => panic!("expected generic function"),
     }
@@ -763,8 +766,14 @@ fn parses_generic_function_multiple_constraints() {
             assert_eq!(type_params.len(), 1);
             assert_eq!(interner.resolve(type_params[0].name), "A");
             assert_eq!(type_params[0].constraints.len(), 2);
-            assert_eq!(interner.resolve(type_params[0].constraints[0]), "Ord");
-            assert_eq!(interner.resolve(type_params[0].constraints[1]), "Show");
+            assert_eq!(
+                interner.resolve(type_params[0].constraints[0].class_name),
+                "Ord"
+            );
+            assert_eq!(
+                interner.resolve(type_params[0].constraints[1].class_name),
+                "Show"
+            );
         }
         _ => panic!("expected generic function"),
     }
@@ -777,9 +786,15 @@ fn parses_generic_function_multiple_constrained_params() {
         Statement::Function { type_params, .. } => {
             assert_eq!(type_params.len(), 2);
             assert_eq!(interner.resolve(type_params[0].name), "A");
-            assert_eq!(interner.resolve(type_params[0].constraints[0]), "Eq");
+            assert_eq!(
+                interner.resolve(type_params[0].constraints[0].class_name),
+                "Eq"
+            );
             assert_eq!(interner.resolve(type_params[1].name), "B");
-            assert_eq!(interner.resolve(type_params[1].constraints[0]), "Show");
+            assert_eq!(
+                interner.resolve(type_params[1].constraints[0].class_name),
+                "Show"
+            );
         }
         _ => panic!("expected generic function"),
     }
