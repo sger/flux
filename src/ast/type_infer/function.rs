@@ -442,7 +442,12 @@ impl<'a> InferCtx<'a> {
 
         let scheme = if !type_params.is_empty() {
             let relevant_constraints = self.class_constraints[constraint_start..].to_vec();
-            self.finalize_binding_scheme(&fn_ty, &relevant_constraints, &self.env.free_vars())
+            self.finalize_binding_scheme(
+                &fn_ty,
+                &relevant_constraints,
+                &self.env.free_vars(),
+                GeneralizationMode::Definition,
+            )
         } else {
             Scheme::mono(fn_ty)
         };

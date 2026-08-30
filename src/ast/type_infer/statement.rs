@@ -169,7 +169,12 @@ impl<'a> InferCtx<'a> {
         // Generalize the let binding (Hindley-Milner let-polymorphism).
         let env_free = self.env.free_vars();
         let relevant_constraints = self.class_constraints[constraint_start..].to_vec();
-        let scheme = self.finalize_binding_scheme(&final_ty, &relevant_constraints, &env_free);
+        let scheme = self.finalize_binding_scheme(
+            &final_ty,
+            &relevant_constraints,
+            &env_free,
+            GeneralizationMode::NestedBinding,
+        );
         self.binding_schemes_by_span
             .insert(binding_span_key(let_span), scheme.clone());
         self.env.bind(name, scheme);
