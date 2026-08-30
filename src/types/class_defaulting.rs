@@ -63,7 +63,7 @@ pub fn finalize_binding_class_constraints(
         &finalized_constraints,
         &finalized_type,
         env_free_vars,
-        interner,
+        class_env,
     );
 
     FinalizedBindingClassConstraints {
@@ -146,7 +146,7 @@ fn collect_scheme_constraints(
     constraints: &[WantedClassConstraint],
     infer_type: &InferType,
     env_free_vars: &HashSet<TypeVarId>,
-    interner: &Interner,
+    class_env: Option<&ClassEnv>,
 ) -> Vec<SchemeConstraint> {
     let ty_free: HashSet<TypeVarId> = infer_type
         .free_vars()
@@ -174,7 +174,7 @@ fn collect_scheme_constraints(
                 .iter()
                 .flat_map(InferType::free_vars)
                 .any(|var| ty_free.contains(&var))
-            && !is_builtin_class(constraint.class_name, interner);
+            && !is_builtin_class(constraint.class_name, class_env);
         if (vars.len() == constraint.type_args.len()
             && vars.iter().all(|var| ty_free.contains(var))
             || structured_polymorphic)
@@ -193,11 +193,17 @@ fn collect_scheme_constraints(
     result
 }
 
-fn is_builtin_class(class_name: crate::syntax::Identifier, interner: &Interner) -> bool {
-    matches!(
-        interner.resolve(class_name),
-        "Eq" | "Ord" | "Num" | "Fractional" | "Integral" | "Show" | "Read"
-    )
+/// Whether `class_name` resolves to one of the compiler's built-in classes.
+///
+/// Keys off `ClassDef::is_builtin` rather than the short name, so a user class
+/// that happens to be called `Eq` or `Show` keeps its structured predicates
+/// instead of having them dropped during generalization (Proposal 0179).
+fn is_builtin_class(class_name: crate::syntax::Identifier, class_env: Option<&ClassEnv>) -> bool {
+    class_env.is_some_and(|env| {
+        env.classes
+            .values()
+            .any(|class| class.name == class_name && class.is_builtin)
+    })
 }
 
 #[cfg(test)]

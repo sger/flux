@@ -1207,6 +1207,7 @@ module Local {
                 interner.intern("Example.Logger"),
             ),
             is_public: true,
+            is_builtin: false,
             type_params: vec![h],
             superclasses: vec![],
             methods: vec![flux::types::class_env::MethodSig {

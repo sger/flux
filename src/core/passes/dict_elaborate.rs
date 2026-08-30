@@ -1456,6 +1456,7 @@ mod tests {
             // Test fixture: synthetic built-in-style class with no owning module.
             module: crate::types::class_id::ModulePath::EMPTY,
             is_public: false,
+            is_builtin: false,
             type_params: vec![a_sym],
             superclasses: vec![],
             methods: vec![
@@ -1588,6 +1589,7 @@ mod tests {
             name: eq_sym,
             module: crate::types::class_id::ModulePath::EMPTY,
             is_public: false,
+            is_builtin: false,
             type_params: vec![a_sym],
             superclasses: vec![],
             methods: vec![MethodSig {

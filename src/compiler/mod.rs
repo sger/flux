@@ -221,6 +221,7 @@ fn imported_class_def_from_entry(
         name: class_sym,
         module,
         is_public: true,
+        is_builtin: false,
         type_params: entry
             .type_params
             .iter()
@@ -2876,9 +2877,24 @@ impl Compiler {
 
     pub(in crate::compiler) fn collect_class_declarations(&mut self, program: &Program) {
         let diagnostics = self.collect_class_declarations_diagnostics(program);
-        let (errors, warnings): (Vec<_>, Vec<_>) = diagnostics
-            .into_iter()
-            .partition(|diag| diag.code() == Some("E453"));
+        // E453 (sealed-instance violation) and the Proposal 0179 Stage 1 kind
+        // codes are hard errors.
+        //
+        // E440/E441/E442 are `Severity::Error` diagnostics that are still
+        // routed here as warnings, so `duplicate_class.flx`,
+        // `instance_unknown_class.flx` and `instance_missing_method.flx`
+        // declare `expect: compile_error` but currently compile and exit 0.
+        // Promoting them is a real fix but reaches beyond Stage 1: a user
+        // class that shadows a built-in (`class Eq<a>` with only `eq`) then
+        // fails both E440 and E442, which several tests and examples rely on.
+        // It belongs with the built-in-shadowing work behind `is_builtin`.
+        let (errors, warnings): (Vec<_>, Vec<_>) =
+            diagnostics.into_iter().partition(|diag| {
+                matches!(
+                    diag.code(),
+                    Some("E453" | "E472" | "E473" | "E474" | "E475")
+                )
+            });
         self.errors.extend(errors);
         self.warnings.extend(warnings);
     }
