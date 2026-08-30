@@ -1,0 +1,6 @@
+// expect: compile_error
+// expect-error: E472
+// This baseline fixture verifies that a type constructor cannot be over-applied.
+data Box<a> { Box(a) }
+fn take(value: Box<Int, String>) -> Int { 1 }
+fn main() { 1 }

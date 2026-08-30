@@ -1,0 +1,18 @@
+// Stage 1 positive control: a real unary ADT is valid as a higher-kinded
+// instance head.
+// Expected output:
+// 42
+
+data Box<a> { Box(a) }
+
+class Functor<f> {
+    fn fmap<a>(value: f<a>) -> f<a>
+}
+
+instance Functor<Box> {
+    fn fmap(value) { value }
+}
+
+fn main() with IO {
+    print(42)
+}

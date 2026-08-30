@@ -1,0 +1,9 @@
+// expect: compile_error
+// expect-error: E475
+// This baseline fixture verifies that one class parameter cannot be used at
+// incompatible kinds across method signatures.
+class Conflicted<a> {
+    fn first(value: a) -> Int
+    fn second(value: a<Int>) -> Int
+}
+fn main() { 1 }
