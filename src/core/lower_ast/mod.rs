@@ -720,6 +720,13 @@ impl<'a> AstLowerer<'a> {
                 {
                     found = Some(actual);
                 }
+                // NOTE (Proposal 0179): defaulting an undetermined variable to
+                // `Int` can dispatch to the wrong dictionary. It cannot simply
+                // decline here — callers read an empty result as "no dictionary
+                // needed" and emit the call without it, which regresses the
+                // async/channel paths to an E1000 arity error. Removing this
+                // fallback belongs with Stage 2's strict dictionary arity
+                // contract, which gives callers a way to report the failure.
                 substitution.insert(
                     type_var,
                     found.unwrap_or_else(|| {

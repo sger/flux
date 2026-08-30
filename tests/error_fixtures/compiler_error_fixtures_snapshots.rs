@@ -44,6 +44,11 @@ fn build_compiler_transcript(
         let interner = parser.take_interner();
         let graph_result =
             ModuleGraph::build_with_entry_and_roots(fixture, &program, interner, &roots);
+        // Module-graph diagnostics (E028 and friends) reject the program
+        // without ever reaching `compiler.compile`, so they count as errors
+        // here too.
+        let mut compile_had_errors = !graph_result.diagnostics.is_empty()
+            || !graph_result.failed_modules.is_empty();
         diagnostics.extend(graph_result.diagnostics);
 
         let mut failed: HashSet<_> = graph_result.failed_modules;
@@ -91,11 +96,15 @@ fn build_compiler_transcript(
                     }
                 }
                 diagnostics.append(&mut diags);
+                compile_had_errors = true;
                 failed.insert(node.path.clone());
             }
         }
 
-        if !diagnostics.is_empty() {
+        // Only a real compile error is a failure. Warnings are still rendered
+        // below, but a warning-only run must stay distinguishable from a
+        // rejected program (Proposal 0179 Stage 1).
+        if compile_had_errors {
             compile_status = String::from("failed (compile)");
         }
     }
