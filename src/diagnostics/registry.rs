@@ -122,6 +122,10 @@ pub const ERROR_CODES: &[ErrorCode] = &[
     SEALED_CLASS_INSTANCE,
     PUBLIC_INSTANCE_HAS_PRIVATE_HEAD,
     AMBIGUOUS_CLASS_CONSTRAINT,
+    TYPE_CONSTRUCTOR_KIND_ARITY,
+    INSTANCE_HEAD_KIND_MISMATCH,
+    CONSTRAINT_KIND_MISMATCH,
+    CLASS_PARAMETER_KIND_CONFLICT,
     EXPOSING_LOCAL_COLLISION,
     IMPORT_NAME_COLLISION_FILE_VS_MODULE,
     // Named-field data types (Proposal 0152, E460–E468)
@@ -193,7 +197,7 @@ pub fn default_diagnostic_category(code: &str) -> Option<DiagnosticCategory> {
         "E426" => Some(DiagnosticCategory::Internal),
         "E056" | "E300" | "E301" | "E430" | "E440" | "E441" | "E442" | "E443" | "E444" | "E445"
         | "E446" | "E447" | "E448" | "E449" | "E450" | "E451" | "E452" | "E453" | "E455"
-        | "E456" => Some(DiagnosticCategory::TypeInference),
+        | "E456" | "E472" | "E473" | "E474" | "E475" => Some(DiagnosticCategory::TypeInference),
         "E457" | "E458" => Some(DiagnosticCategory::ModuleSystem),
         // E469 is the package-namespace collision, a module resolution failure
         // rather than a named-field inference error.

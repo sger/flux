@@ -1,0 +1,17 @@
+---
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/kind_invalid_class_param_conflict_e475.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E475]: Class Parameter Kind Conflict
+
+Class parameter `a` is used with incompatible kinds `Type` and `Type -> Type` in class `Conflicted`.
+
+  examples/compiler_errors/kind_invalid_class_param_conflict_e475.flx:7:22
+  |
+7 |     fn second(value: a<Int>) -> Int
+  |                      ^^^^^^
+== stdout ==
+<not executed>

@@ -406,11 +406,7 @@ impl<'a> InferCtx<'a> {
         span: Span,
     ) {
         for constraint in constraints {
-            let type_args = constraint
-                .type_vars
-                .iter()
-                .map(|v| InferType::Var(*v))
-                .collect::<Vec<_>>();
+            let type_args = constraint.type_args.clone();
             self.class_constraints
                 .push(constraint::WantedClassConstraint {
                     class_name: constraint.class_name,

@@ -59,8 +59,12 @@ pub fn finalize_binding_class_constraints(
     let diagnostics = class_env
         .map(|env| solve_class_constraints(&finalized_constraints, env, interner))
         .unwrap_or_default();
-    let scheme_constraints =
-        collect_scheme_constraints(&finalized_constraints, &finalized_type, env_free_vars);
+    let scheme_constraints = collect_scheme_constraints(
+        &finalized_constraints,
+        &finalized_type,
+        env_free_vars,
+        class_env,
+    );
 
     FinalizedBindingClassConstraints {
         infer_type: finalized_type,
@@ -142,6 +146,7 @@ fn collect_scheme_constraints(
     constraints: &[WantedClassConstraint],
     infer_type: &InferType,
     env_free_vars: &HashSet<TypeVarId>,
+    class_env: Option<&ClassEnv>,
 ) -> Vec<SchemeConstraint> {
     let ty_free: HashSet<TypeVarId> = infer_type
         .free_vars()
@@ -149,32 +154,56 @@ fn collect_scheme_constraints(
         .copied()
         .collect();
     let mut result = Vec::new();
-    let mut seen = HashSet::new();
+    let mut seen = Vec::new();
 
     for constraint in constraints {
         if constraint.origin == WantedClassConstraintOrigin::InferredOperator {
             continue;
         }
-        let vars: Vec<TypeVarId> = constraint
+        let vars = constraint
             .type_args
             .iter()
             .filter_map(|ty| match ty {
                 InferType::Var(var) => Some(*var),
                 _ => None,
             })
-            .collect();
-        if vars.len() == constraint.type_args.len()
+            .collect::<Vec<_>>();
+        let structured_polymorphic = vars.len() != constraint.type_args.len()
+            && constraint
+                .type_args
+                .iter()
+                .flat_map(InferType::free_vars)
+                .any(|var| ty_free.contains(&var))
+            && !is_builtin_class(constraint.class_name, class_env);
+        if (vars.len() == constraint.type_args.len()
             && vars.iter().all(|var| ty_free.contains(var))
-            && seen.insert((constraint.class_name, vars.clone()))
+            || structured_polymorphic)
+            && !seen.iter().any(|(class_name, seen_vars)| {
+                *class_name == constraint.class_name && *seen_vars == vars
+            })
         {
+            seen.push((constraint.class_name, vars));
             result.push(SchemeConstraint {
                 class_name: constraint.class_name,
-                type_vars: vars,
+                type_args: constraint.type_args.clone(),
             });
         }
     }
 
     result
+}
+
+/// Whether `class_name` resolves to one of the compiler's built-in classes.
+///
+/// Keys off `ClassDef::is_builtin` rather than the short name, so a user class
+/// that happens to be called `Eq` or `Show` keeps its structured predicates
+/// instead of having them dropped during generalization (Proposal 0179).
+fn is_builtin_class(class_name: crate::syntax::Identifier, class_env: Option<&ClassEnv>) -> bool {
+    class_env.is_some_and(|env| {
+        env.classes
+            .values()
+            .any(|class| class.name == class_name && class.is_builtin)
+    })
 }
 
 #[cfg(test)]
@@ -291,7 +320,10 @@ mod tests {
 
         assert!(finalized.default_subst.is_empty());
         assert_eq!(finalized.scheme_constraints.len(), 1);
-        assert_eq!(finalized.scheme_constraints[0].type_vars, vec![0]);
+        assert_eq!(
+            finalized.scheme_constraints[0].type_args,
+            vec![InferType::Var(0)]
+        );
     }
 
     #[test]

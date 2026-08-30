@@ -9,6 +9,7 @@ use crate::{
         Identifier, effect_expr::EffectExpr, symbol::Symbol, type_class::ClassConstraint,
         type_expr::TypeExpr,
     },
+    types::kind::Kind,
     types::scheme::Scheme,
 };
 
@@ -56,6 +57,9 @@ pub struct PublicClassEntry {
     pub class_module: String,
     pub name: String,
     pub type_param_arity: usize,
+    /// Kinds inferred for the class parameters, in declaration order.
+    #[serde(default)]
+    pub parameter_kinds: Vec<Kind>,
     #[serde(default)]
     pub type_params: Vec<Identifier>,
     #[serde(default)]
@@ -87,6 +91,9 @@ pub struct PublicInstanceEntry {
     pub class_name: String,
     pub instance_module: String,
     pub head_type_repr: String,
+    /// Kinds of the instance head arguments, in declaration order.
+    #[serde(default)]
+    pub head_kinds: Vec<Kind>,
     #[serde(default)]
     pub type_args: Vec<TypeExpr>,
     #[serde(default)]

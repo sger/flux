@@ -1,0 +1,21 @@
+// Stage 1 kind validation: constructors may be fully or partially applied
+// according to the kind required by their context.
+// Expected output:
+// 42
+
+data Box<a> { Box(a) }
+data Pair<a, b> { Pair(a, b) }
+
+class Functor<f> {
+    fn fmap<a>(value: f<a>) -> f<a>
+}
+
+instance Functor<Box> {
+    fn fmap(value) { value }
+}
+
+fn main() with IO {
+    let _list: List<Int> = [1, 2]
+    let _pair: Pair<Int, String> = Pair(42, "ok")
+    print(42)
+}

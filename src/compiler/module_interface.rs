@@ -398,6 +398,11 @@ fn collect_public_class_entries(
                 class_module,
                 name: interner.resolve(def.name).to_string(),
                 type_param_arity: def.type_params.len(),
+                parameter_kinds: def
+                    .type_params
+                    .iter()
+                    .map(|param| class_parameter_kind(def, *param))
+                    .collect(),
                 type_params: def.type_params.clone(),
                 superclasses: def.superclasses.clone(),
                 methods: def
@@ -419,6 +424,84 @@ fn collect_public_class_entries(
         .collect();
     entries.sort_by(|a, b| (&a.class_module, &a.name).cmp(&(&b.class_module, &b.name)));
     entries
+}
+
+fn class_parameter_kind(
+    class: &crate::types::class_env::ClassDef,
+    parameter: Identifier,
+) -> crate::types::kind::Kind {
+    let arity = class
+        .methods
+        .iter()
+        .flat_map(|method| {
+            method
+                .param_types
+                .iter()
+                .chain(std::iter::once(&method.return_type))
+        })
+        .map(|ty| type_expr_parameter_arity(ty, parameter))
+        .max()
+        .unwrap_or(0);
+    kind_from_arity(arity)
+}
+
+fn type_expr_parameter_arity(
+    ty: &crate::syntax::type_expr::TypeExpr,
+    parameter: Identifier,
+) -> usize {
+    match ty {
+        crate::syntax::type_expr::TypeExpr::Named { name, args, .. } => {
+            let own = if *name == parameter { args.len() } else { 0 };
+            own.max(
+                args.iter()
+                    .map(|arg| type_expr_parameter_arity(arg, parameter))
+                    .max()
+                    .unwrap_or(0),
+            )
+        }
+        crate::syntax::type_expr::TypeExpr::Tuple { elements, .. } => elements
+            .iter()
+            .map(|element| type_expr_parameter_arity(element, parameter))
+            .max()
+            .unwrap_or(0),
+        crate::syntax::type_expr::TypeExpr::Function { params, ret, .. } => params
+            .iter()
+            .chain(std::iter::once(ret.as_ref()))
+            .map(|part| type_expr_parameter_arity(part, parameter))
+            .max()
+            .unwrap_or(0),
+    }
+}
+
+/// Kinds of an instance head, taken from the class parameters it instantiates.
+///
+/// An instance head must have the kind its class parameter declares, so the
+/// class is the authority here — the head `TypeExpr` alone cannot distinguish
+/// a bare value type from an unapplied constructor. Falls back to `Type` for
+/// positions beyond the class's declared parameters.
+fn instance_head_kinds(
+    env: &ClassEnv,
+    inst: &crate::types::class_env::InstanceDef,
+) -> Vec<crate::types::kind::Kind> {
+    let class = env.classes.get(&inst.class_id);
+    inst.type_args
+        .iter()
+        .enumerate()
+        .map(|(index, _)| {
+            class
+                .and_then(|class| {
+                    let param = class.type_params.get(index)?;
+                    Some(class_parameter_kind(class, *param))
+                })
+                .unwrap_or(crate::types::kind::Kind::Type)
+        })
+        .collect()
+}
+
+fn kind_from_arity(arity: usize) -> crate::types::kind::Kind {
+    (0..arity).fold(crate::types::kind::Kind::Type, |result, _| {
+        crate::types::kind::Kind::Arrow(Box::new(crate::types::kind::Kind::Type), Box::new(result))
+    })
 }
 
 /// Proposal 0151, Phase 2: extract every `public instance` whose
@@ -456,6 +539,7 @@ fn collect_public_instance_entries(
                 class_name: interner.resolve(inst.class_name).to_string(),
                 instance_module,
                 head_type_repr: head_type_repr.join(", "),
+                head_kinds: instance_head_kinds(env, inst),
                 type_args: inst.type_args.clone(),
                 context: inst.context.clone(),
                 methods: inst
@@ -1186,6 +1270,7 @@ mod tests {
             class_module: "Mod.A".to_string(),
             name: "MyShow".to_string(),
             type_param_arity: 1,
+            parameter_kinds: vec![],
             type_params: vec![],
             superclasses: vec![],
             methods: vec![],
@@ -1198,6 +1283,7 @@ mod tests {
             class_name: "MyShow".to_string(),
             instance_module: "Mod.A".to_string(),
             head_type_repr: "Int".to_string(),
+            head_kinds: vec![],
             type_args: vec![],
             context: vec![],
             methods: vec![],
@@ -1246,6 +1332,7 @@ mod tests {
             class_module: "Mod.A".to_string(),
             name: "MyShow".to_string(),
             type_param_arity: 1,
+            parameter_kinds: vec![],
             type_params: vec![],
             superclasses: vec![],
             methods: vec![],
@@ -1273,6 +1360,7 @@ mod tests {
             class_name: "MyShow".to_string(),
             instance_module: "Mod.A".to_string(),
             head_type_repr: "Int".to_string(),
+            head_kinds: vec![],
             type_args: vec![],
             context: vec![],
             methods: vec![],
@@ -1334,6 +1422,7 @@ mod tests {
                 name: priv_name,
                 module: ModulePath::from_identifier(module),
                 is_public: false,
+                is_builtin: false,
                 type_params: vec![interner.intern("a")],
                 superclasses: vec![],
                 methods: vec![],

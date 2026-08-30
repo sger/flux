@@ -1,0 +1,15 @@
+// Stage 1 interface contract: public schemes preserve structured predicates.
+// Expected output:
+// 1
+
+public class Sized<a> {
+    fn size(value: a) -> Int
+}
+
+public instance Sized<List<Int>> {
+    fn size(value) { 1 }
+}
+
+fn main() with IO {
+    print(1)
+}
