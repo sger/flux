@@ -29,7 +29,7 @@ use crate::{
     },
     types::{
         TypeVarId,
-        class_defaulting::finalize_binding_class_constraints,
+        class_defaulting::{GeneralizationMode, finalize_binding_class_constraints},
         infer_effect_row::InferEffectRow,
         infer_type::InferType,
         scheme::{Scheme, generalize, generalize_with_constraints},
@@ -432,6 +432,7 @@ impl<'a> InferCtx<'a> {
         infer_type: &InferType,
         relevant_constraints: &[constraint::WantedClassConstraint],
         env_free_vars: &HashSet<TypeVarId>,
+        mode: GeneralizationMode,
     ) -> Scheme {
         let finalized = finalize_binding_class_constraints(
             infer_type,
@@ -440,6 +441,7 @@ impl<'a> InferCtx<'a> {
             &self.subst,
             self.class_env.as_ref(),
             self.interner,
+            mode,
         );
         if !finalized.default_subst.is_empty() {
             self.subst = std::mem::take(&mut self.subst).compose(&finalized.default_subst);
