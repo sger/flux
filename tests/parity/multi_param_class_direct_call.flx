@@ -1,0 +1,19 @@
+// parity: vm, llvm
+// expect: success
+//
+// A multi-parameter class instance is matched positionally on the first
+// argument. Contextual dictionary resolution must not abandon the direct
+// call just because the full head does not match a single type argument.
+
+class Convert<a, b> {
+    fn convert(x: a) -> b
+}
+
+instance Convert<Int, String> {
+    fn convert(x) { to_string(x) }
+}
+
+fn main() with IO {
+    let s = convert(42)
+    print(s)
+}

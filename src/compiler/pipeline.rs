@@ -56,11 +56,15 @@ impl Compiler {
                 .all_symbol_names()
                 .into_iter()
                 .collect::<std::collections::HashSet<_>>();
+            let dispatch_options = crate::types::class_dispatch::DispatchGenerationOptions {
+                include_builtin_instances: !self.is_flow_library_file(),
+            };
             let extra = generate_dispatch_functions(
                 &program.statements,
                 &self.class_env,
                 &mut self.interner,
                 &additional_reserved_names,
+                dispatch_options,
             );
             if !extra.is_empty() {
                 class_augmented = self.inject_generated_dispatch_functions(program, extra);
