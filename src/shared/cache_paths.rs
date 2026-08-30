@@ -55,7 +55,8 @@ use sha2::{Digest, Sha256};
 /// callers of a cross-module `perform` gain yield checks they did not emit
 /// before (KI-034). Cached native objects from epoch 23 lack them.
 /// Epoch 27: package build profiles and default-eliding semantic config keys.
-pub const CACHE_EPOCH: u16 = 28;
+/// Epoch 28: structured typeclass predicates and kind metadata in interfaces.
+pub const CACHE_EPOCH: u16 = 29;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

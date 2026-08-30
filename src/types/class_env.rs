@@ -62,6 +62,12 @@ pub struct ClassDef {
     /// always recorded as `false` (their cross-module visibility is
     /// governed by the implicit prelude, not by this flag).
     pub is_public: bool,
+    /// `true` for the classes registered by [`ClassEnv::register_builtins`].
+    ///
+    /// Distinguishes the compiler's own `Eq`/`Ord`/`Num`/`Show`/... from a
+    /// user class that merely reuses one of those short names. Consumers must
+    /// test this rather than matching on the resolved name (Proposal 0179).
+    pub is_builtin: bool,
     pub type_params: Vec<Identifier>,
     pub superclasses: Vec<ClassConstraint>,
     pub methods: Vec<MethodSig>,
@@ -757,6 +763,7 @@ impl ClassEnv {
                             name: *name,
                             module: current_module,
                             is_public: *is_public,
+                            is_builtin: false,
                             type_params: type_params.clone(),
                             superclasses: superclasses.clone(),
                             methods: method_sigs,
@@ -1837,6 +1844,7 @@ impl ClassEnv {
                 // instances for built-in classes outside the class's own
                 // module.
                 module: ModulePath::EMPTY,
+                is_builtin: true,
                 // Built-in classes are visible everywhere via the implicit
                 // prelude — `is_public` is meaningless for them since
                 // visibility checks key off `instance_module` vs class

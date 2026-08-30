@@ -4804,108 +4804,54 @@ impl Compiler {
         };
         let param_offset = param_tys.len().saturating_sub(arguments.len());
         let call_result_ty = self.hm_expr_types.get(&call_id);
-        constraint
-            .type_vars
+        let type_vars = constraint
+            .type_args
             .iter()
-            .map(|type_var| {
-                let from_arguments = param_tys
-                    .iter()
-                    .enumerate()
-                    .skip(param_offset)
-                    .filter_map(|(index, param_ty)| {
-                        let arg = arguments.get(index - param_offset)?;
-                        let actual = self.hm_expr_types.get(&arg.expr_id())?;
-                        Self::match_constraint_type_var_ast(param_ty, actual, *type_var)
-                            .filter(|ty| !matches!(ty, InferType::Var(_)))
-                    })
-                    .next();
-                from_arguments.or_else(|| {
+            .flat_map(InferType::free_vars)
+            .collect::<Vec<_>>()
+            .into_iter();
+        let mut substitution = TypeSubst::empty();
+        for type_var in type_vars {
+            let resolved = param_tys
+                .iter()
+                .enumerate()
+                .skip(param_offset)
+                .filter_map(|(index, param_ty)| {
+                    let arg = arguments.get(index - param_offset)?;
+                    let actual = self.hm_expr_types.get(&arg.expr_id())?;
+                    crate::types::class_dispatch::match_constraint_type_var(
+                        param_ty, actual, type_var,
+                    )
+                    .filter(|ty| !matches!(ty, InferType::Var(_)))
+                })
+                .next()
+                .or_else(|| {
                     call_result_ty.and_then(|actual| {
-                        Self::match_constraint_type_var_ast(ret_ty, actual, *type_var)
-                            .filter(|ty| !matches!(ty, InferType::Var(_)))
+                        crate::types::class_dispatch::match_constraint_type_var(
+                            ret_ty, actual, type_var,
+                        )
+                        .filter(|ty| !matches!(ty, InferType::Var(_)))
                     })
                 })
-            })
-            .collect()
-    }
-
-    fn match_constraint_type_var_ast(
-        pattern: &InferType,
-        actual: &InferType,
-        target: crate::types::TypeVarId,
-    ) -> Option<InferType> {
-        match pattern {
-            InferType::Var(var) if *var == target => Some(actual.clone()),
-            InferType::App(pattern_ctor, pattern_args) => {
-                let InferType::App(actual_ctor, actual_args) = actual else {
-                    return None;
-                };
-                if pattern_ctor != actual_ctor || pattern_args.len() != actual_args.len() {
-                    return None;
-                }
-                pattern_args
-                    .iter()
-                    .zip(actual_args.iter())
-                    .find_map(|(pattern_arg, actual_arg)| {
-                        Self::match_constraint_type_var_ast(pattern_arg, actual_arg, target)
-                    })
-            }
-            InferType::Tuple(pattern_elems) => {
-                let InferType::Tuple(actual_elems) = actual else {
-                    return None;
-                };
-                if pattern_elems.len() != actual_elems.len() {
-                    return None;
-                }
-                pattern_elems.iter().zip(actual_elems.iter()).find_map(
-                    |(pattern_elem, actual_elem)| {
-                        Self::match_constraint_type_var_ast(pattern_elem, actual_elem, target)
-                    },
-                )
-            }
-            InferType::Fun(pattern_params, pattern_ret, _) => {
-                let InferType::Fun(actual_params, actual_ret, _) = actual else {
-                    return None;
-                };
-                if pattern_params.len() != actual_params.len() {
-                    return None;
-                }
-                pattern_params
-                    .iter()
-                    .zip(actual_params.iter())
-                    .find_map(|(pattern_param, actual_param)| {
-                        Self::match_constraint_type_var_ast(pattern_param, actual_param, target)
-                    })
-                    .or_else(|| {
-                        Self::match_constraint_type_var_ast(pattern_ret, actual_ret, target)
-                    })
-            }
-            InferType::HktApp(pattern_head, pattern_args) => {
-                let actual_args = match actual {
-                    InferType::App(_, args) | InferType::HktApp(_, args) => args,
-                    _ => return None,
-                };
-                if pattern_args.len() != actual_args.len() {
-                    return None;
-                }
-                if let InferType::Var(var) = pattern_head.as_ref()
-                    && *var == target
-                {
-                    return Some(match actual {
-                        InferType::App(actual_ctor, _) => InferType::Con(actual_ctor.clone()),
-                        InferType::HktApp(actual_head, _) => actual_head.as_ref().clone(),
-                        _ => return None,
-                    });
-                }
-                pattern_args
-                    .iter()
-                    .zip(actual_args.iter())
-                    .find_map(|(pattern_arg, actual_arg)| {
-                        Self::match_constraint_type_var_ast(pattern_arg, actual_arg, target)
-                    })
-            }
-            _ => None,
+                // NOTE (Proposal 0179): defaulting an undetermined variable to
+                // `Int` can dispatch to the wrong dictionary. It cannot simply
+                // decline here — callers read an empty result as "no dictionary
+                // needed" and emit the call without it, which regresses the
+                // async/channel paths to an E1000 arity error. Removing this
+                // fallback belongs with Stage 2's strict dictionary arity
+                // contract, which gives callers a way to report the failure.
+                .unwrap_or_else(|| {
+                    InferType::Con(crate::types::type_constructor::TypeConstructor::Int)
+                });
+            substitution.insert(type_var, resolved);
         }
+        Some(
+            constraint
+                .type_args
+                .iter()
+                .map(|type_arg| type_arg.apply_type_subst(&substitution))
+                .collect(),
+        )
     }
 
     fn resolve_direct_class_call_dict_args_ast(

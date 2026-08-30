@@ -102,18 +102,24 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "dictionary_call_arity.flx",
         "generalized_constraint_obligation.flx",
         "result_directed_method_lookup.flx",
-        "invalid_higher_kind.flx",
         "unsupported_deriving_diagnostic.flx",
         "TypeclassMetadata.flx",
         "typeclass_backend_parity.flx",
         "multiple_class_obligations.flx",
         "superclass_instance_validation.flx",
+        "kind_valid.flx",
+        "hkt_instance_positive.flx",
+        "structured_predicate.flx",
+        "interface_roundtrip.flx",
     ];
     for fixture in fixtures {
         let source = std::fs::read_to_string(fixture_path(fixture)).expect("read fixture");
         assert!(
-            source.to_ascii_lowercase().contains("baseline"),
-            "{fixture} needs a baseline contract"
+            {
+                let source = source.to_ascii_lowercase();
+                source.contains("baseline") || source.contains("stage 1")
+            },
+            "{fixture} needs a baseline or stage 1 contract"
         );
         assert!(
             source.contains("Expected"),
@@ -159,6 +165,41 @@ fn concrete_and_polymorphic_dictionary_calls_have_exact_runtime_arity() {
 }
 
 #[test]
+fn kind_checked_typeclass_fixtures_have_expected_output() {
+    for (fixture, expected) in [
+        ("kind_valid.flx", "42"),
+        ("hkt_instance_positive.flx", "42"),
+        ("structured_predicate.flx", "7"),
+        ("interface_roundtrip.flx", "1"),
+    ] {
+        let output = run_fixture(fixture).unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(output.stdout, expected, "unexpected output for {fixture}");
+    }
+}
+
+#[test]
+fn structured_predicates_survive_scheme_construction() {
+    let source = std::fs::read_to_string(fixture_path("structured_predicate.flx"))
+        .expect("read structured predicate fixture");
+    let (program, mut compiler) = parse_source(&source, "structured_predicate.flx");
+    compiler
+        .compile(&program)
+        .expect("structured predicate fixture compiles");
+
+    let core = compiler
+        .dump_core_with_opts(
+            &program,
+            false,
+            flux::core::display::CoreDisplayMode::Readable,
+        )
+        .expect("structured predicate should lower");
+    assert!(
+        core.contains("List") || core.contains("list_size"),
+        "structured predicate must remain visible in the lowered contract"
+    );
+}
+
+#[test]
 fn result_directed_lookup_fixture_locks_current_baseline() {
     let output = run_fixture("result_directed_method_lookup.flx")
         .expect("current concrete multi-parameter dispatch should run");
@@ -167,13 +208,8 @@ fn result_directed_lookup_fixture_locks_current_baseline() {
 
 #[test]
 fn unsupported_features_preserve_the_current_baseline() {
-    for fixture in [
-        "invalid_higher_kind.flx",
-        "unsupported_deriving_diagnostic.flx",
-    ] {
-        run_fixture(fixture)
-            .unwrap_or_else(|error| panic!("{fixture} changed the baseline: {error}"));
-    }
+    let fixture = "unsupported_deriving_diagnostic.flx";
+    run_fixture(fixture).unwrap_or_else(|error| panic!("{fixture} changed the baseline: {error}"));
 }
 
 #[test]
@@ -203,8 +239,16 @@ fn public_typeclass_metadata_survives_interface_serialization_roundtrip() {
     assert_eq!(interface.public_classes.len(), 1);
     assert_eq!(interface.public_instances.len(), 1);
     assert_eq!(interface.public_classes[0].name, "Sizeable");
+    assert_eq!(
+        interface.public_classes[0].parameter_kinds,
+        [flux::types::kind::Kind::Type]
+    );
     assert_eq!(interface.public_instances[0].class_name, "Sizeable");
     assert_eq!(interface.public_instances[0].head_type_repr, "Int");
+    assert_eq!(
+        interface.public_instances[0].head_kinds,
+        [flux::types::kind::Kind::Type]
+    );
 
     let encoded = serde_json::to_vec(&interface).expect("serialize interface");
     let decoded: ModuleInterface = serde_json::from_slice(&encoded).expect("reload interface");

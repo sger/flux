@@ -1140,6 +1140,38 @@ pub const AMBIGUOUS_CLASS_CONSTRAINT: ErrorCode = ErrorCode {
     ),
 };
 
+pub const TYPE_CONSTRUCTOR_KIND_ARITY: ErrorCode = ErrorCode {
+    code: "E472",
+    title: "TYPE CONSTRUCTOR ARITY MISMATCH",
+    error_type: ErrorType::Compiler,
+    message: "Type `{}` expects {} type argument(s), but {} were given.",
+    hint: Some("Apply the type constructor with the correct number of arguments."),
+};
+
+pub const INSTANCE_HEAD_KIND_MISMATCH: ErrorCode = ErrorCode {
+    code: "E473",
+    title: "INSTANCE HEAD KIND MISMATCH",
+    error_type: ErrorType::Compiler,
+    message: "Instance head `{}` has kind `{}`, but class `{}` expects a parameter of kind `{}`.",
+    hint: Some("Use a type constructor with the kind required by the class."),
+};
+
+pub const CONSTRAINT_KIND_MISMATCH: ErrorCode = ErrorCode {
+    code: "E474",
+    title: "CONSTRAINT KIND MISMATCH",
+    error_type: ErrorType::Compiler,
+    message: "Constraint `{}` applies class `{}` to a type of kind `{}`, but it expects `{}`.",
+    hint: Some("Use a type or type constructor with the required kind."),
+};
+
+pub const CLASS_PARAMETER_KIND_CONFLICT: ErrorCode = ErrorCode {
+    code: "E475",
+    title: "CLASS PARAMETER KIND CONFLICT",
+    error_type: ErrorType::Compiler,
+    message: "Class parameter `{}` is used at kind `{}` and at kind `{}` in `{}`'s methods.",
+    hint: Some("Use each class parameter consistently at one kind."),
+};
+
 /// Proposal 0151, Phase 2: a `public instance` of a `public class` must
 /// not have a private head ADT — downstream importers cannot name the
 /// type to actually use the dispatch.
