@@ -1,0 +1,21 @@
+// parity: vm, llvm
+// expect: success
+//
+// A class default method that recurses through itself and another class
+// method is cloned into every instance. Each clone must get its own ExprIds,
+// otherwise typed dispatch keys every clone on the last instance inferred.
+
+class Describe<a> {
+    fn code(x: a) -> Int
+    fn repeat_code(x: a, n: Int) -> Int {
+        if n <= 1 { code(x) } else { code(x) + repeat_code(x, n - 1) }
+    }
+}
+
+instance Describe<Int> { fn code(x) { 1 } }
+instance Describe<Bool> { fn code(x) { 100 } }
+
+fn main() with IO {
+    print(repeat_code(1, 3))
+    print(repeat_code(true, 3))
+}

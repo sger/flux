@@ -127,7 +127,13 @@ fn collect_referenced_dictionary_names_expr(
 ) {
     match expr {
         CoreExpr::Var { var, .. } => {
-            if interner.resolve(var.name).starts_with("__dict_") {
+            // This scan runs for every program, including ones whose Core
+            // still carries placeholder identifiers from a failed HM pass,
+            // so an unknown symbol must be skipped rather than resolved.
+            if interner
+                .try_resolve(var.name)
+                .is_some_and(|name| name.starts_with("__dict_"))
+            {
                 refs.insert(var.name);
             }
         }
@@ -1143,51 +1149,14 @@ pub fn rewrite_body_with_dicts(
     expr: CoreExpr,
     method_map: &HashMap<Identifier, (CoreBinder, usize)>,
 ) -> CoreExpr {
-    rewrite_body_with_dicts_with_self(expr, method_map, None)
+    rewrite_expr(expr, method_map)
 }
 
-struct SelfInstanceCall {
-    def_name: Identifier,
-    method_name: Identifier,
-    dict_args: Vec<CoreBinder>,
-}
-
-fn rewrite_body_with_dicts_with_self(
-    expr: CoreExpr,
-    method_map: &HashMap<Identifier, (CoreBinder, usize)>,
-    self_call: Option<&SelfInstanceCall>,
-) -> CoreExpr {
-    rewrite_expr(expr, method_map, self_call)
-}
-
-fn rewrite_expr(
-    expr: CoreExpr,
-    method_map: &HashMap<Identifier, (CoreBinder, usize)>,
-    self_call: Option<&SelfInstanceCall>,
-) -> CoreExpr {
+fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, usize)>) -> CoreExpr {
     match expr {
         // Key case: App where the function is a class method reference.
         // Rewrite: App(Var(eq), args) → App(TupleField(Var(dict), idx), args)
         CoreExpr::App { func, args, span } => {
-            if let CoreExpr::Var { ref var, .. } = *func
-                && let Some(self_call) = self_call
-                && var.name == self_call.method_name
-            {
-                let mut rewritten_args = self_call
-                    .dict_args
-                    .iter()
-                    .map(|binder| CoreExpr::bound_var(binder, span))
-                    .collect::<Vec<_>>();
-                rewritten_args.extend(
-                    args.into_iter()
-                        .map(|a| rewrite_expr(a, method_map, Some(self_call))),
-                );
-                return CoreExpr::App {
-                    func: Box::new(CoreExpr::external_var(self_call.def_name, span)),
-                    args: rewritten_args,
-                    span,
-                };
-            }
             if let CoreExpr::Var { ref var, .. } = *func
                 && let Some((dict_binder, index)) = method_map.get(&var.name)
             {
@@ -1200,7 +1169,7 @@ fn rewrite_expr(
                 };
                 let rewritten_args = args
                     .into_iter()
-                    .map(|a| rewrite_expr(a, method_map, self_call))
+                    .map(|a| rewrite_expr(a, method_map))
                     .collect();
                 return CoreExpr::App {
                     func: Box::new(method_extract),
@@ -1210,10 +1179,10 @@ fn rewrite_expr(
             }
             // Not a class method — recurse normally.
             CoreExpr::App {
-                func: Box::new(rewrite_expr(*func, method_map, self_call)),
+                func: Box::new(rewrite_expr(*func, method_map)),
                 args: args
                     .into_iter()
-                    .map(|a| rewrite_expr(a, method_map, self_call))
+                    .map(|a| rewrite_expr(a, method_map))
                     .collect(),
                 span,
             }
@@ -1232,7 +1201,7 @@ fn rewrite_expr(
             params,
             param_types,
             result_ty,
-            body: Box::new(rewrite_expr(*body, method_map, self_call)),
+            body: Box::new(rewrite_expr(*body, method_map)),
             span,
         },
 
@@ -1243,8 +1212,8 @@ fn rewrite_expr(
             span,
         } => CoreExpr::Let {
             var,
-            rhs: Box::new(rewrite_expr(*rhs, method_map, self_call)),
-            body: Box::new(rewrite_expr(*body, method_map, self_call)),
+            rhs: Box::new(rewrite_expr(*rhs, method_map)),
+            body: Box::new(rewrite_expr(*body, method_map)),
             span,
         },
 
@@ -1255,8 +1224,8 @@ fn rewrite_expr(
             span,
         } => CoreExpr::LetRec {
             var,
-            rhs: Box::new(rewrite_expr(*rhs, method_map, self_call)),
-            body: Box::new(rewrite_expr(*body, method_map, self_call)),
+            rhs: Box::new(rewrite_expr(*rhs, method_map)),
+            body: Box::new(rewrite_expr(*body, method_map)),
             span,
         },
 
@@ -1267,9 +1236,9 @@ fn rewrite_expr(
         } => CoreExpr::LetRecGroup {
             bindings: bindings
                 .into_iter()
-                .map(|(b, rhs)| (b, Box::new(rewrite_expr(*rhs, method_map, self_call))))
+                .map(|(b, rhs)| (b, Box::new(rewrite_expr(*rhs, method_map))))
                 .collect(),
-            body: Box::new(rewrite_expr(*body, method_map, self_call)),
+            body: Box::new(rewrite_expr(*body, method_map)),
             span,
         },
 
@@ -1279,12 +1248,12 @@ fn rewrite_expr(
             join_ty,
             span,
         } => CoreExpr::Case {
-            scrutinee: Box::new(rewrite_expr(*scrutinee, method_map, self_call)),
+            scrutinee: Box::new(rewrite_expr(*scrutinee, method_map)),
             alts: alts
                 .into_iter()
                 .map(|mut alt| {
-                    alt.rhs = rewrite_expr(alt.rhs, method_map, self_call);
-                    alt.guard = alt.guard.map(|g| rewrite_expr(g, method_map, self_call));
+                    alt.rhs = rewrite_expr(alt.rhs, method_map);
+                    alt.guard = alt.guard.map(|g| rewrite_expr(g, method_map));
                     alt
                 })
                 .collect(),
@@ -1296,7 +1265,7 @@ fn rewrite_expr(
             tag,
             fields: fields
                 .into_iter()
-                .map(|f| rewrite_expr(f, method_map, self_call))
+                .map(|f| rewrite_expr(f, method_map))
                 .collect(),
             span,
         },
@@ -1305,13 +1274,13 @@ fn rewrite_expr(
             op,
             args: args
                 .into_iter()
-                .map(|a| rewrite_expr(a, method_map, self_call))
+                .map(|a| rewrite_expr(a, method_map))
                 .collect(),
             span,
         },
 
         CoreExpr::Return { value, span } => CoreExpr::Return {
-            value: Box::new(rewrite_expr(*value, method_map, self_call)),
+            value: Box::new(rewrite_expr(*value, method_map)),
             span,
         },
 
@@ -1325,7 +1294,7 @@ fn rewrite_expr(
             operation,
             args: args
                 .into_iter()
-                .map(|a| rewrite_expr(a, method_map, self_call))
+                .map(|a| rewrite_expr(a, method_map))
                 .collect(),
             span,
         },
@@ -1337,13 +1306,13 @@ fn rewrite_expr(
             handlers,
             span,
         } => CoreExpr::Handle {
-            body: Box::new(rewrite_expr(*body, method_map, self_call)),
+            body: Box::new(rewrite_expr(*body, method_map)),
             effect,
-            parameter: parameter.map(|p| Box::new(rewrite_expr(*p, method_map, self_call))),
+            parameter: parameter.map(|p| Box::new(rewrite_expr(*p, method_map))),
             handlers: handlers
                 .into_iter()
                 .map(|mut h| {
-                    h.body = rewrite_expr(h.body, method_map, self_call);
+                    h.body = rewrite_expr(h.body, method_map);
                     h
                 })
                 .collect(),
@@ -1355,7 +1324,7 @@ fn rewrite_expr(
             member,
             span,
         } => CoreExpr::MemberAccess {
-            object: Box::new(rewrite_expr(*object, method_map, self_call)),
+            object: Box::new(rewrite_expr(*object, method_map)),
             member,
             span,
         },
@@ -1365,7 +1334,7 @@ fn rewrite_expr(
             index,
             span,
         } => CoreExpr::TupleField {
-            object: Box::new(rewrite_expr(*object, method_map, self_call)),
+            object: Box::new(rewrite_expr(*object, method_map)),
             index,
             span,
         },
