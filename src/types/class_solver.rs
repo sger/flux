@@ -16,6 +16,7 @@ use crate::{
     diagnostics::{Diagnostic, DiagnosticBuilder, diagnostic_for},
     syntax::{Identifier, interner::Interner, type_expr::TypeExpr},
     types::{
+        TypeVarId,
         class_disposition::{
             Disposition, DispositionedConstraint, Evidence, SolveOutcome, SolveScope, StuckReason,
         },
@@ -382,4 +383,60 @@ fn is_solvable_type_arg(ty: &InferType) -> bool {
 /// Format a type for display in diagnostics.
 fn display_type(ty: &InferType, interner: &Interner) -> String {
     crate::ast::type_infer::display_infer_type(ty, interner)
+}
+
+/// Whether a predicate is in head-normal form.
+///
+/// THIH's `inHnf`: a predicate is in head-normal form when its arguments are
+/// headed by a type *variable* rather than a concrete constructor. `C<a>` is
+/// in HNF and must be retained on the scheme; `C<List<Int>>` is not and can be
+/// reduced against an instance.
+///
+/// A predicate that is not in HNF and cannot be reduced is the genuine
+/// missing-instance case.
+pub fn in_hnf(type_args: &[InferType]) -> bool {
+    type_args.iter().any(is_var_headed)
+}
+
+/// Whether a type's outermost constructor is a variable.
+fn is_var_headed(ty: &InferType) -> bool {
+    match ty {
+        InferType::Var(_) => true,
+        // A structured argument mentioning a variable is not itself
+        // var-headed, but it is still polymorphic, so it cannot be discharged
+        // by a concrete instance lookup alone.
+        InferType::App(_, args) | InferType::Tuple(args) => args.iter().any(is_var_headed),
+        InferType::Fun(params, ret, _) => params.iter().any(is_var_headed) || is_var_headed(ret),
+        InferType::HktApp(head, args) => is_var_headed(head) || args.iter().any(is_var_headed),
+        _ => false,
+    }
+}
+
+/// Partition predicates into those deferred to an enclosing scope and those
+/// this binding retains on its scheme.
+///
+/// THIH's `split ce fs gs ps`, where `fs` is the set of variables fixed by the
+/// environment and `gs` the variables this binding quantifies. The essential
+/// property is that this is a *partition*: every predicate lands in exactly
+/// one half, so no obligation can be discarded (Proposal 0179, Goal 2).
+///
+/// Returns `(deferred, retained)`.
+pub fn split(
+    constraints: &[WantedClassConstraint],
+    env_free_vars: &HashSet<TypeVarId>,
+    quantified_vars: &HashSet<TypeVarId>,
+) -> (Vec<WantedClassConstraint>, Vec<WantedClassConstraint>) {
+    constraints.iter().cloned().partition(|constraint| {
+        // A predicate whose variables are all fixed by the environment
+        // belongs to an enclosing binding, not this one.
+        let vars: HashSet<TypeVarId> = constraint
+            .type_args
+            .iter()
+            .flat_map(InferType::free_vars)
+            .collect();
+        !vars.is_empty()
+            && vars
+                .iter()
+                .all(|var| env_free_vars.contains(var) && !quantified_vars.contains(var))
+    })
 }
