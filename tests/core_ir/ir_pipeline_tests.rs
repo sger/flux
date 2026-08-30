@@ -249,6 +249,57 @@ my_eq([1], [1]);
 }
 
 #[test]
+fn same_class_contextual_list_instance_dispatches_elements_through_context() {
+    let source = r#"
+class MyEq<a> {
+    fn my_eq(x: a, y: a) -> Bool
+}
+instance MyEq<Int> {
+    fn my_eq(x, y) { x == y }
+}
+instance MyEq<a> => MyEq<List<a>> {
+    fn my_eq(xs, ys) {
+        match (xs, ys) {
+            ([], []) -> true,
+            ([h1 | t1], [h2 | t2]) -> my_eq(h1, h2) && my_eq(t1, t2),
+            _ -> false
+        }
+    }
+}
+
+fn main() {
+    (my_eq([1], [1]), my_eq([1], [2]), my_eq([[1], [2]], [[1], [3]]))
+}
+"#;
+    let core = dump_core(source);
+    assert!(
+        core.contains("__tc_MyEq_List<a>_my_eq(__dict_MyEq"),
+        "container recursion should call the mangled list instance with its context dictionary:\n{core}"
+    );
+    assert!(
+        core.contains("__dict_MyEq.0"),
+        "element recursion should extract my_eq from the contextual dictionary:\n{core}"
+    );
+    assert!(
+        !core.contains("__tc_MyEq_List<a>_my_eq(__dict_MyEq, h1, h2)"),
+        "element recursion must not be rewritten to the list instance:\n{core}"
+    );
+    let value = run(source);
+
+    assert_eq!(
+        value,
+        Value::Tuple(
+            vec![
+                Value::Boolean(true),
+                Value::Boolean(false),
+                Value::Boolean(false),
+            ]
+            .into(),
+        )
+    );
+}
+
+#[test]
 fn hkt_functor_list_dispatches_at_runtime() {
     let value = run(r#"
 class Functor<f> {

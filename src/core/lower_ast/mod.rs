@@ -534,19 +534,19 @@ impl<'a> AstLowerer<'a> {
         method_name: Identifier,
         arguments: &[crate::syntax::expression::Expression],
         call_id: ExprId,
-    ) -> Vec<CoreExpr> {
+    ) -> Option<Vec<CoreExpr>> {
         let (class_env, interner) = match (self.class_env, self.interner) {
             (Some(class_env), Some(interner)) => (class_env, interner),
-            _ => return Vec::new(),
+            _ => return None,
         };
         let Some((class_name, _)) = class_env.method_to_class(method_name) else {
-            return Vec::new();
+            return None;
         };
         let Some(first_arg) = arguments.first() else {
-            return Vec::new();
+            return None;
         };
         let Some(first_arg_type) = self.hm_expr_types.get(&first_arg.expr_id()) else {
-            return Vec::new();
+            return None;
         };
 
         let actual_type_args = if interner.resolve(method_name) == "decode"
@@ -561,10 +561,100 @@ impl<'a> AstLowerer<'a> {
             vec![first_arg_type.clone()]
         };
 
-        class_env
-            .resolve_instance_context_dictionaries(class_name, &actual_type_args, interner)
-            .map(|dicts| dicts.iter().map(Self::lower_dictionary_ref).collect())
-            .unwrap_or_default()
+        let requests = class_env.resolve_instance_context_dictionary_requests(
+            class_name,
+            &actual_type_args,
+            interner,
+        )?;
+        let mut dicts = Vec::with_capacity(requests.len());
+        for request in requests {
+            if let Some(dictionary) = request.dictionary {
+                dicts.push(Self::lower_dictionary_ref(&dictionary));
+            } else if let Some(dictionary) =
+                self.current_context_dictionary(request.class_name, &request.type_args)
+            {
+                dicts.push(dictionary);
+            } else {
+                return None;
+            }
+        }
+        Some(dicts)
+    }
+
+    /// Find the hidden dictionary parameter whose contextual constraint has
+    /// the same class and type shape as `wanted`.  Type variables are treated
+    /// as shape-compatible, but concrete constructors must agree; this keeps
+    /// repeated constraints on one class associated with the right binder.
+    fn current_context_dictionary(
+        &self,
+        class_name: Identifier,
+        wanted: &[InferType],
+    ) -> Option<CoreExpr> {
+        let current = self.current_function_name?;
+        let scheme = self.scheme_for_current_function(current)?;
+        let interner = self.interner?;
+        let mut occurrence = 0usize;
+        for constraint in scheme.constraints {
+            if constraint.class_name != class_name {
+                continue;
+            }
+            let matches = constraint.type_args.len() == wanted.len()
+                && constraint
+                    .type_args
+                    .iter()
+                    .zip(wanted)
+                    .all(|(a, b)| Self::same_infer_type_shape(a, b));
+            if matches {
+                let suffix = (occurrence > 0).then(|| format!("_{occurrence}"));
+                let name = format!(
+                    "__dict_{}{}",
+                    interner.resolve(class_name),
+                    suffix.unwrap_or_default()
+                );
+                let name = interner.lookup(&name)?;
+                return Some(CoreExpr::external_var(name, Span::default()));
+            }
+            occurrence += 1;
+        }
+        None
+    }
+
+    fn same_infer_type_shape(left: &InferType, right: &InferType) -> bool {
+        match (left, right) {
+            (InferType::Var(_), InferType::Var(_)) => true,
+            (InferType::Con(a), InferType::Con(b)) => a == b,
+            (InferType::App(a_head, a_args), InferType::App(b_head, b_args)) => {
+                a_head == b_head
+                    && a_args.len() == b_args.len()
+                    && a_args
+                        .iter()
+                        .zip(b_args)
+                        .all(|(a, b)| Self::same_infer_type_shape(a, b))
+            }
+            (InferType::Tuple(a), InferType::Tuple(b)) => {
+                a.len() == b.len()
+                    && a.iter()
+                        .zip(b)
+                        .all(|(a, b)| Self::same_infer_type_shape(a, b))
+            }
+            (InferType::Fun(a_params, a_ret, _), InferType::Fun(b_params, b_ret, _)) => {
+                a_params.len() == b_params.len()
+                    && a_params
+                        .iter()
+                        .zip(b_params)
+                        .all(|(a, b)| Self::same_infer_type_shape(a, b))
+                    && Self::same_infer_type_shape(a_ret, b_ret)
+            }
+            (InferType::HktApp(a_head, a_args), InferType::HktApp(b_head, b_args)) => {
+                Self::same_infer_type_shape(a_head, b_head)
+                    && a_args.len() == b_args.len()
+                    && a_args
+                        .iter()
+                        .zip(b_args)
+                        .all(|(a, b)| Self::same_infer_type_shape(a, b))
+            }
+            _ => false,
+        }
     }
 
     /// Resolve concrete dictionary arguments for a call to a constrained function.
