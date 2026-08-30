@@ -4819,14 +4819,18 @@ impl Compiler {
                 .filter_map(|(index, param_ty)| {
                     let arg = arguments.get(index - param_offset)?;
                     let actual = self.hm_expr_types.get(&arg.expr_id())?;
-                    Self::match_constraint_type_var_ast(param_ty, actual, type_var)
-                        .filter(|ty| !matches!(ty, InferType::Var(_)))
+                    crate::types::class_dispatch::match_constraint_type_var(
+                        param_ty, actual, type_var,
+                    )
+                    .filter(|ty| !matches!(ty, InferType::Var(_)))
                 })
                 .next()
                 .or_else(|| {
                     call_result_ty.and_then(|actual| {
-                        Self::match_constraint_type_var_ast(ret_ty, actual, type_var)
-                            .filter(|ty| !matches!(ty, InferType::Var(_)))
+                        crate::types::class_dispatch::match_constraint_type_var(
+                            ret_ty, actual, type_var,
+                        )
+                        .filter(|ty| !matches!(ty, InferType::Var(_)))
                     })
                 })
                 .unwrap_or_else(|| {
@@ -4841,86 +4845,6 @@ impl Compiler {
                 .map(|type_arg| type_arg.apply_type_subst(&substitution))
                 .collect(),
         )
-    }
-
-    fn match_constraint_type_var_ast(
-        pattern: &InferType,
-        actual: &InferType,
-        target: crate::types::TypeVarId,
-    ) -> Option<InferType> {
-        crate::types::class_dispatch::match_constraint_type_var(pattern, actual, target)
-        /* match pattern {
-            InferType::Var(var) if *var == target => Some(actual.clone()),
-            InferType::App(pattern_ctor, pattern_args) => {
-                let InferType::App(actual_ctor, actual_args) = actual else {
-                    return None;
-                };
-                if pattern_ctor != actual_ctor || pattern_args.len() != actual_args.len() {
-                    return None;
-                }
-                pattern_args
-                    .iter()
-                    .zip(actual_args.iter())
-                    .find_map(|(pattern_arg, actual_arg)| {
-                        Self::match_constraint_type_var_ast(pattern_arg, actual_arg, target)
-                    })
-            }
-            InferType::Tuple(pattern_elems) => {
-                let InferType::Tuple(actual_elems) = actual else {
-                    return None;
-                };
-                if pattern_elems.len() != actual_elems.len() {
-                    return None;
-                }
-                pattern_elems.iter().zip(actual_elems.iter()).find_map(
-                    |(pattern_elem, actual_elem)| {
-                        Self::match_constraint_type_var_ast(pattern_elem, actual_elem, target)
-                    },
-                )
-            }
-            InferType::Fun(pattern_params, pattern_ret, _) => {
-                let InferType::Fun(actual_params, actual_ret, _) = actual else {
-                    return None;
-                };
-                if pattern_params.len() != actual_params.len() {
-                    return None;
-                }
-                pattern_params
-                    .iter()
-                    .zip(actual_params.iter())
-                    .find_map(|(pattern_param, actual_param)| {
-                        Self::match_constraint_type_var_ast(pattern_param, actual_param, target)
-                    })
-                    .or_else(|| {
-                        Self::match_constraint_type_var_ast(pattern_ret, actual_ret, target)
-                    })
-            }
-            InferType::HktApp(pattern_head, pattern_args) => {
-                let actual_args = match actual {
-                    InferType::App(_, args) | InferType::HktApp(_, args) => args,
-                    _ => return None,
-                };
-                if pattern_args.len() != actual_args.len() {
-                    return None;
-                }
-                if let InferType::Var(var) = pattern_head.as_ref()
-                    && *var == target
-                {
-                    return Some(match actual {
-                        InferType::App(actual_ctor, _) => InferType::Con(actual_ctor.clone()),
-                        InferType::HktApp(actual_head, _) => actual_head.as_ref().clone(),
-                        _ => return None,
-                    });
-                }
-                pattern_args
-                    .iter()
-                    .zip(actual_args.iter())
-                    .find_map(|(pattern_arg, actual_arg)| {
-                        Self::match_constraint_type_var_ast(pattern_arg, actual_arg, target)
-                    })
-            }
-            _ => None,
-        } */
     }
 
     fn resolve_direct_class_call_dict_args_ast(

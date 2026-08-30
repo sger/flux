@@ -295,7 +295,7 @@ fn imported_public_instance_method_is_emitted_and_called_directly_in_native_lowe
             class_module: "Example.Logger".to_string(),
             name: "Logger".to_string(),
             type_param_arity: 1,
-            parameter_kinds: vec!["Type".to_string()],
+            parameter_kinds: vec![flux::types::kind::Kind::Type],
             type_params: vec![logger_h],
             superclasses: vec![],
             methods: vec![PublicClassMethodEntry {
@@ -348,7 +348,7 @@ fn imported_public_instance_method_is_emitted_and_called_directly_in_native_lowe
             class_name: "Logger".to_string(),
             instance_module: "Example.StdLog".to_string(),
             head_type_repr: "Int".to_string(),
-            head_kinds: vec!["Type".to_string()],
+            head_kinds: vec![flux::types::kind::Kind::Type],
             type_args: vec![TypeExpr::Named {
                 name: int_name,
                 args: vec![],
