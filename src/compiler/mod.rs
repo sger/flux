@@ -301,6 +301,7 @@ fn remap_public_instance_entry(
         class_name: entry.class_name.clone(),
         instance_module: entry.instance_module.clone(),
         head_type_repr: entry.head_type_repr.clone(),
+        head_kinds: entry.head_kinds.clone(),
         type_args: entry
             .type_args
             .iter()

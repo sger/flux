@@ -24,7 +24,82 @@ use crate::{
         type_expr::TypeExpr,
     },
     types::class_env::ClassEnv,
+    types::infer_type::InferType,
 };
+
+/// Finds the concrete type bound to `target` while matching a scheme pattern
+/// against a call-site type.  AST lowering and Core lowering both use this
+/// structural operation; keeping it here prevents their dictionary resolvers
+/// from silently acquiring different matching rules.
+pub(crate) fn match_constraint_type_var(
+    pattern: &InferType,
+    actual: &InferType,
+    target: crate::types::TypeVarId,
+) -> Option<InferType> {
+    match pattern {
+        InferType::Var(var) if *var == target => Some(actual.clone()),
+        InferType::App(pattern_ctor, pattern_args) => {
+            let InferType::App(actual_ctor, actual_args) = actual else {
+                return None;
+            };
+            if pattern_ctor != actual_ctor || pattern_args.len() != actual_args.len() {
+                return None;
+            }
+            pattern_args
+                .iter()
+                .zip(actual_args)
+                .find_map(|(p, a)| match_constraint_type_var(p, a, target))
+        }
+        InferType::Tuple(pattern_elems) => {
+            let InferType::Tuple(actual_elems) = actual else {
+                return None;
+            };
+            if pattern_elems.len() != actual_elems.len() {
+                return None;
+            }
+            pattern_elems
+                .iter()
+                .zip(actual_elems)
+                .find_map(|(p, a)| match_constraint_type_var(p, a, target))
+        }
+        InferType::Fun(pattern_params, pattern_ret, _) => {
+            let InferType::Fun(actual_params, actual_ret, _) = actual else {
+                return None;
+            };
+            if pattern_params.len() != actual_params.len() {
+                return None;
+            }
+            pattern_params
+                .iter()
+                .zip(actual_params)
+                .find_map(|(p, a)| match_constraint_type_var(p, a, target))
+                .or_else(|| match_constraint_type_var(pattern_ret, actual_ret, target))
+        }
+        InferType::HktApp(pattern_head, pattern_args) => {
+            let actual_args = match actual {
+                InferType::App(_, args) | InferType::HktApp(_, args) => args,
+                _ => return None,
+            };
+            if pattern_args.len() != actual_args.len() {
+                return None;
+            }
+            if let InferType::Var(var) = pattern_head.as_ref()
+                && *var == target
+            {
+                return match actual {
+                    InferType::App(actual_ctor, _) => Some(InferType::Con(actual_ctor.clone())),
+                    InferType::HktApp(actual_head, _) => Some(actual_head.as_ref().clone()),
+                    _ => None,
+                };
+            }
+            pattern_args
+                .iter()
+                .zip(actual_args)
+                .find_map(|(p, a)| match_constraint_type_var(p, a, target))
+        }
+        _ => None,
+    }
+}
 
 /// Generate function statements from class/instance declarations.
 ///

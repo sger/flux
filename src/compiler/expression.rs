@@ -4848,7 +4848,8 @@ impl Compiler {
         actual: &InferType,
         target: crate::types::TypeVarId,
     ) -> Option<InferType> {
-        match pattern {
+        crate::types::class_dispatch::match_constraint_type_var(pattern, actual, target)
+        /* match pattern {
             InferType::Var(var) if *var == target => Some(actual.clone()),
             InferType::App(pattern_ctor, pattern_args) => {
                 let InferType::App(actual_ctor, actual_args) = actual else {
@@ -4919,7 +4920,7 @@ impl Compiler {
                     })
             }
             _ => None,
-        }
+        } */
     }
 
     fn resolve_direct_class_call_dict_args_ast(

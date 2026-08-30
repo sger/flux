@@ -226,6 +226,8 @@ fn main() with IO { print(same(20, 20)) }
   `kind_invalid_class_param_conflict_e475.flx`.
 - Preserve public class and instance metadata across interface serialization
   and reload, covered by `examples/type_classes/interface_roundtrip.flx`.
+- Share structural predicate matching between AST and Core dictionary
+  resolution so both lowering paths bind the same type variables.
 
 Example syntax:
 
@@ -240,7 +242,8 @@ instance Functor<Int> { }
 
 ### Stage 2 — Dictionary runtime correctness
 
-- Implement one shared resolver for AST-to-Core and Core passes.
+- Extend the shared resolver to cover complete call-site evidence and strict
+  runtime contracts.
 - Require exactly the elaborated dictionary arity:
   `dictionary_call_arity.flx`.
 - Support contextual and function-valued dictionaries:
