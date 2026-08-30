@@ -548,7 +548,7 @@ fn function_binders(
             let binder = param
                 .constraints
                 .iter()
-                .find_map(|constraint| class_env.lookup_class(*constraint))
+                .find_map(|constraint| class_env.lookup_class(constraint.class_name))
                 .and_then(|class| {
                     let class_param = *class.type_params.first()?;
                     Some(LocalBinder::Known(
