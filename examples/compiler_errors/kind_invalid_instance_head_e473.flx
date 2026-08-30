@@ -1,0 +1,19 @@
+// expect: compile_error
+// expect-error: E473
+// Expected: E473 Instance Head Kind Mismatch
+//   "Instance head `Int` has kind `Type`, but class `Functor` expects a parameter of kind `Type -> Type`."
+//   Hint: "Use a type constructor with the kind required by the class."
+
+// This instance supplies a value type where the class requires a unary type constructor.
+
+class Functor<f> {
+    fn fmap<a, b>(x: f<a>, func: (a) -> b) -> f<b>
+}
+
+instance Functor<Int> {
+    fn fmap(x, func) { x }
+}
+
+fn main() with IO {
+    print(1)
+}

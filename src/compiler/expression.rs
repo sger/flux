@@ -4804,29 +4804,43 @@ impl Compiler {
         };
         let param_offset = param_tys.len().saturating_sub(arguments.len());
         let call_result_ty = self.hm_expr_types.get(&call_id);
-        constraint
-            .type_vars
+        let type_vars = constraint
+            .type_args
             .iter()
-            .map(|type_var| {
-                let from_arguments = param_tys
-                    .iter()
-                    .enumerate()
-                    .skip(param_offset)
-                    .filter_map(|(index, param_ty)| {
-                        let arg = arguments.get(index - param_offset)?;
-                        let actual = self.hm_expr_types.get(&arg.expr_id())?;
-                        Self::match_constraint_type_var_ast(param_ty, actual, *type_var)
-                            .filter(|ty| !matches!(ty, InferType::Var(_)))
-                    })
-                    .next();
-                from_arguments.or_else(|| {
+            .flat_map(InferType::free_vars)
+            .collect::<Vec<_>>()
+            .into_iter();
+        let mut substitution = TypeSubst::empty();
+        for type_var in type_vars {
+            let resolved = param_tys
+                .iter()
+                .enumerate()
+                .skip(param_offset)
+                .filter_map(|(index, param_ty)| {
+                    let arg = arguments.get(index - param_offset)?;
+                    let actual = self.hm_expr_types.get(&arg.expr_id())?;
+                    Self::match_constraint_type_var_ast(param_ty, actual, type_var)
+                        .filter(|ty| !matches!(ty, InferType::Var(_)))
+                })
+                .next()
+                .or_else(|| {
                     call_result_ty.and_then(|actual| {
-                        Self::match_constraint_type_var_ast(ret_ty, actual, *type_var)
+                        Self::match_constraint_type_var_ast(ret_ty, actual, type_var)
                             .filter(|ty| !matches!(ty, InferType::Var(_)))
                     })
                 })
-            })
-            .collect()
+                .unwrap_or_else(|| {
+                    InferType::Con(crate::types::type_constructor::TypeConstructor::Int)
+                });
+            substitution.insert(type_var, resolved);
+        }
+        Some(
+            constraint
+                .type_args
+                .iter()
+                .map(|type_arg| type_arg.apply_type_subst(&substitution))
+                .collect(),
+        )
     }
 
     fn match_constraint_type_var_ast(

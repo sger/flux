@@ -1,0 +1,11 @@
+// expect: compile_error
+// expect-error: E474
+// This baseline fixture verifies kind checking inside a class constraint.
+data Box<a> { Box(a) }
+class Functor<f> {
+    fn fmap<a>(value: f<a>) -> f<a>
+}
+instance Functor<Int> => Functor<Box> {
+    fn fmap(value) { value }
+}
+fn main() { 1 }

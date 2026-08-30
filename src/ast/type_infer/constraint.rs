@@ -4,7 +4,7 @@ use crate::{
     ast::type_infer::ReportContext,
     diagnostics::position::Span,
     syntax::Identifier,
-    types::{TypeVarId, infer_effect_row::InferEffectRow, infer_type::InferType},
+    types::{infer_effect_row::InferEffectRow, infer_type::InferType},
 };
 
 /// A type constraint collected during HM inference.
@@ -89,7 +89,7 @@ pub struct WantedClassConstraint {
 ///
 /// Records that a quantified type variable must have a class instance.
 /// For example, `forall a. Eq<a> => a -> a -> Bool` has one `SchemeConstraint`
-/// with `class_name = Eq` and `type_var` pointing to `a`'s `TypeVarId`.
+/// with `class_name = Eq` and a type argument containing `a`.
 ///
 /// Used by dictionary elaboration (Proposal 0145, Step 5b) to determine
 /// which dictionary parameters a polymorphic function requires.
@@ -97,7 +97,7 @@ pub struct WantedClassConstraint {
 pub struct SchemeConstraint {
     /// The class name (e.g., `Eq`, `Num`).
     pub class_name: Identifier,
-    /// The quantified type variable(s) that are constrained. Single-param
-    /// classes have one entry; multi-param classes have multiple.
-    pub type_vars: Vec<TypeVarId>,
+    /// The complete type arguments of the predicate. Structured arguments are
+    /// preserved so downstream phases do not need to reconstruct them.
+    pub type_args: Vec<InferType>,
 }

@@ -2904,7 +2904,7 @@ impl Compiler {
             .repl_mode
             .then(|| env.classes.keys().copied().collect());
         let instances_before = env.instances.len();
-        let diagnostics = env.collect_from_statements(&program.statements, &self.interner);
+        let mut diagnostics = env.collect_from_statements(&program.statements, &self.interner);
         // REPL: promote this line's own `class` / `instance` declarations into the
         // imported set so a later line resolves them, instead of rebuilding from
         // the prelude/import set each compile (E004 across lines). Captured before
@@ -2927,6 +2927,12 @@ impl Compiler {
             &self.interner,
         );
         self.class_env = env;
+        let kind_env = crate::types::kind_check::KindEnv::from_program(
+            program,
+            &self.class_env,
+            &mut self.interner,
+        );
+        diagnostics.extend(kind_env.validate_program(program, &self.class_env, &self.interner));
         diagnostics
     }
 

@@ -1,0 +1,20 @@
+// Stage 1 structured predicate: the generalized obligation retains List<a>
+// instead of collapsing to only the variable a.
+// Expected output:
+// 7
+
+class Sizeable<a> {
+    fn size(value: a) -> Int
+}
+
+instance Sizeable<List<Int>> {
+    fn size(value) { 7 }
+}
+
+fn list_size<a>(value: List<a>) -> Int {
+    size(value)
+}
+
+fn main() with IO {
+    print(list_size([1, 2]))
+}

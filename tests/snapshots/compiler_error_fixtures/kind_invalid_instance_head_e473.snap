@@ -1,0 +1,17 @@
+---
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/kind_invalid_instance_head_e473.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E473]: Instance Head Kind Mismatch
+
+Instance head `Int` has kind `Type`, but class `Functor` expects a parameter of kind `Type -> Type`.
+
+  examples/compiler_errors/kind_invalid_instance_head_e473.flx:13:18
+   |
+13 | instance Functor<Int> {
+   |                  ^^^
+== stdout ==
+<not executed>

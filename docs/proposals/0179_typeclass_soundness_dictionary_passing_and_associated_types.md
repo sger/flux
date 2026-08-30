@@ -210,12 +210,22 @@ fn main() with IO { print(same(20, 20)) }
 
 ### Stage 1 — Lossless predicates and kinds
 
-- Replace lossy scheme constraints with complete structured predicates:
-  `structured_predicate.flx`.
-- Validate ADT arity, applications, class parameters, HKT instances, and
-  predicates: `kind_valid.flx` and `kind_invalid.flx`.
-- Serialize predicate and kind metadata through interfaces:
-  `interface_roundtrip.flx`.
+- Replace lossy scheme constraints with complete structured predicates. A
+  predicate keeps its full type arguments through inference, generalization,
+  instantiation, dictionary resolution, Core lowering, and interface metadata.
+  The executable contract is `examples/type_classes/structured_predicate.flx`.
+- Add contextual kind checking for constructors, class parameters, instance
+  heads, and constraint arguments. Valid higher-kinded use is covered by
+  `examples/type_classes/kind_valid.flx` and
+  `examples/type_classes/hkt_instance_positive.flx`.
+- Keep invalid applications and mismatched predicates as stable diagnostics:
+  `examples/compiler_errors/kind_invalid_ctor_arity_e472.flx`,
+  `kind_invalid_underapplied_e472.flx`,
+  `kind_invalid_instance_head_e473.flx`,
+  `kind_invalid_constraint_e474.flx`, and
+  `kind_invalid_class_param_conflict_e475.flx`.
+- Preserve public class and instance metadata across interface serialization
+  and reload, covered by `examples/type_classes/interface_roundtrip.flx`.
 
 Example syntax:
 

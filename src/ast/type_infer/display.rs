@@ -163,8 +163,8 @@ impl<'a> CanonicalSchemeFormatter<'a> {
         let mut constraints = scheme.constraints.iter().collect::<Vec<_>>();
         constraints.sort_by_key(|constraint| self.identifier_name(constraint.class_name));
         for constraint in constraints {
-            for var in &constraint.type_vars {
-                self.intern_var_name(*var);
+            for type_arg in &constraint.type_args {
+                self.note_type_order(type_arg);
             }
         }
     }
@@ -240,9 +240,9 @@ impl<'a> CanonicalSchemeFormatter<'a> {
             .map(|constraint| {
                 let class_name = self.identifier_name(constraint.class_name);
                 let args = constraint
-                    .type_vars
+                    .type_args
                     .iter()
-                    .map(|var| self.intern_var_name(*var))
+                    .map(|type_arg| self.format_type(type_arg))
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("{class_name}<{args}>")
@@ -264,7 +264,9 @@ pub fn render_scheme_canonical(interner: &Interner, scheme: &Scheme) -> String {
     let mut forall = scheme.forall.clone();
     forall.extend(scheme.infer_type.free_vars());
     for constraint in &scheme.constraints {
-        forall.extend(constraint.type_vars.iter().copied());
+        for type_arg in &constraint.type_args {
+            forall.extend(type_arg.free_vars());
+        }
     }
     forall.sort_unstable();
     forall.dedup();
@@ -373,11 +375,11 @@ mod tests {
             constraints: vec![
                 SchemeConstraint {
                     class_name: num,
-                    type_vars: vec![9],
+                    type_args: vec![InferType::Var(9)],
                 },
                 SchemeConstraint {
                     class_name: eq,
-                    type_vars: vec![9],
+                    type_args: vec![InferType::Var(9)],
                 },
             ],
             infer_type: InferType::Fun(

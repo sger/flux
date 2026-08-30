@@ -42,7 +42,6 @@ pub struct Scheme {
     ///
     /// Used by dictionary elaboration (Proposal 0145, Step 5b) to determine
     /// which dictionary parameters a polymorphic function requires.
-    #[serde(default)]
     pub constraints: Vec<SchemeConstraint>,
     /// Scheme body type.
     ///
@@ -57,6 +56,9 @@ impl Scheme {
         self.infer_type.collect_symbols(out);
         for constraint in &self.constraints {
             out.insert(constraint.class_name);
+            for type_arg in &constraint.type_args {
+                type_arg.collect_symbols(out);
+            }
         }
     }
 
@@ -72,7 +74,11 @@ impl Scheme {
                         .get(&constraint.class_name)
                         .copied()
                         .unwrap_or(constraint.class_name),
-                    type_vars: constraint.type_vars.clone(),
+                    type_args: constraint
+                        .type_args
+                        .iter()
+                        .map(|ty| ty.remap_symbols(remap))
+                        .collect(),
                 })
                 .collect(),
             infer_type: self.infer_type.remap_symbols(remap),
@@ -142,10 +148,10 @@ impl Scheme {
             .iter()
             .map(|c| SchemeConstraint {
                 class_name: c.class_name,
-                type_vars: c
-                    .type_vars
+                type_args: c
+                    .type_args
                     .iter()
-                    .map(|v| mapping.get(v).copied().unwrap_or(*v))
+                    .map(|ty| ty.apply_type_subst(&type_subst))
                     .collect(),
             })
             .collect();
@@ -207,7 +213,7 @@ pub fn generalize(infer_type: &InferType, env_free_vars: &HashSet<TypeVarId>) ->
 /// Generalize a type with class constraints.
 ///
 /// Like [`generalize`], but also attaches class constraints on quantified
-/// variables. Constraints whose `type_var` is not in the `forall` set
+/// variables. Constraints with no free variable in the `forall` set
 /// (i.e., the type was resolved to a concrete type) are discarded — they
 /// have already been validated by `solve_class_constraints`.
 pub fn generalize_with_constraints(
@@ -224,7 +230,14 @@ pub fn generalize_with_constraints(
     let forall_set: HashSet<TypeVarId> = free.iter().copied().collect();
     let filtered: Vec<SchemeConstraint> = constraints
         .into_iter()
-        .filter(|c| c.type_vars.iter().all(|v| forall_set.contains(v)))
+        .filter(|c| {
+            let free_vars = c
+                .type_args
+                .iter()
+                .flat_map(InferType::free_vars)
+                .collect::<HashSet<_>>();
+            free_vars.iter().all(|v| forall_set.contains(v))
+        })
         .collect();
     Scheme {
         forall: free,

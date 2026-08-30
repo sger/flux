@@ -22,7 +22,7 @@ use crate::{
     syntax::{
         Identifier, block::Block, expression::ExprId, program::Program, statement::Statement,
     },
-    types::{infer_type::InferType, type_constructor::TypeConstructor},
+    types::{infer_type::InferType, type_constructor::TypeConstructor, type_subst::TypeSubst},
 };
 
 use super::{
@@ -683,8 +683,13 @@ impl<'a> AstLowerer<'a> {
         if let InferType::Fun(param_tys, ret_ty, _) = &scheme.infer_type {
             let param_offset = param_tys.len().saturating_sub(arguments.len());
             let call_result_ty = self.hm_expr_types.get(&call_id);
-            let mut resolved = Vec::with_capacity(constraint.type_vars.len());
-            for type_var in &constraint.type_vars {
+            let type_vars = constraint
+                .type_args
+                .iter()
+                .flat_map(InferType::free_vars)
+                .collect::<Vec<_>>();
+            let mut substitution = TypeSubst::empty();
+            for type_var in type_vars {
                 let mut found = None;
                 for (i, param_ty) in param_tys.iter().enumerate().skip(param_offset) {
                     let Some(arg) = arguments.get(i - param_offset) else {
@@ -692,10 +697,10 @@ impl<'a> AstLowerer<'a> {
                     };
                     let actual_from_type =
                         self.hm_expr_types.get(&arg.expr_id()).and_then(|arg_ty| {
-                            Self::match_constraint_type_var(param_ty, arg_ty, *type_var)
+                            Self::match_constraint_type_var(param_ty, arg_ty, type_var)
                         });
                     if let Some(actual) = actual_from_type.or_else(|| {
-                        self.match_constraint_type_var_from_literal(param_ty, arg, *type_var)
+                        self.match_constraint_type_var_from_literal(param_ty, arg, type_var)
                     }) && !matches!(actual, InferType::Var(_))
                     {
                         found = Some(actual);
@@ -705,16 +710,25 @@ impl<'a> AstLowerer<'a> {
                 if found.is_none()
                     && let Some(actual_ret_ty) = call_result_ty
                     && let Some(actual) =
-                        Self::match_constraint_type_var(ret_ty, actual_ret_ty, *type_var)
+                        Self::match_constraint_type_var(ret_ty, actual_ret_ty, type_var)
                     && !matches!(actual, InferType::Var(_))
                 {
                     found = Some(actual);
                 }
-                resolved.push(found.unwrap_or_else(|| {
-                    InferType::Con(crate::types::type_constructor::TypeConstructor::Int)
-                }));
+                substitution.insert(
+                    type_var,
+                    found.unwrap_or_else(|| {
+                        InferType::Con(crate::types::type_constructor::TypeConstructor::Int)
+                    }),
+                );
             }
-            return Some(resolved);
+            return Some(
+                constraint
+                    .type_args
+                    .iter()
+                    .map(|type_arg| type_arg.apply_type_subst(&substitution))
+                    .collect(),
+            );
         }
 
         None
