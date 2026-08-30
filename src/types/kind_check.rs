@@ -16,6 +16,21 @@ use crate::{
     },
 };
 
+/// A type variable bound by the enclosing declaration.
+///
+/// Class parameters have a kind inferred from the class's method signatures,
+/// so their uses can be checked. A function's own `<a>` binders are
+/// unconstrained in Flux's surface syntax — there is no kind annotation to
+/// check against — so uses of them are accepted at whatever kind they appear.
+#[derive(Debug, Clone)]
+enum LocalBinder {
+    /// A parameter with a known kind. Carries the owning `ClassId` so a
+    /// conflicting class parameter can suppress cascading arity errors.
+    Known(ClassId, Kind),
+    /// A type parameter with no kind annotation; its kind is unconstrained.
+    Unconstrained,
+}
+
 #[derive(Debug, Default)]
 pub struct KindEnv {
     constructors: HashMap<Identifier, Kind>,
@@ -245,13 +260,18 @@ fn validate_statements(
             Statement::Module { body, .. } => {
                 validate_statements(&body.statements, env, class_env, interner, diagnostics)
             }
-            Statement::Data { variants, .. } => {
+            Statement::Data {
+                type_params,
+                variants,
+                ..
+            } => {
+                let locals = unconstrained_binders(type_params);
                 for variant in variants {
                     for field in &variant.fields {
                         check_type(
                             field,
                             Some(&Kind::Type),
-                            &HashMap::new(),
+                            &locals,
                             env,
                             interner,
                             diagnostics,
@@ -273,7 +293,10 @@ fn validate_statements(
                         type_params
                             .iter()
                             .copied()
-                            .map(|param| (param, class.class_id()))
+                            .map(|param| {
+                                let kind = env.class_parameter_kind(class, param);
+                                (param, LocalBinder::Known(class.class_id(), kind))
+                            })
                             .collect::<HashMap<_, _>>()
                     })
                     .unwrap_or_default();
@@ -291,7 +314,7 @@ fn validate_statements(
                     for method in methods {
                         let mut local = vars.clone();
                         for param in &method.type_params {
-                            local.remove(param);
+                            local.insert(*param, LocalBinder::Unconstrained);
                         }
                         for ty in method
                             .param_types
@@ -350,32 +373,19 @@ fn validate_statements(
                 }
             }
             Statement::Function {
+                type_params,
                 parameter_types,
                 return_type,
-                span,
                 ..
             } => {
-                for ty in parameter_types.iter().flatten() {
-                    check_type(
-                        ty,
-                        Some(&Kind::Type),
-                        &HashMap::new(),
-                        env,
-                        interner,
-                        diagnostics,
-                    );
+                let locals = function_binders(type_params, class_env, env);
+                for ty in parameter_types
+                    .iter()
+                    .flatten()
+                    .chain(return_type.iter())
+                {
+                    check_type(ty, Some(&Kind::Type), &locals, env, interner, diagnostics);
                 }
-                if let Some(ty) = return_type {
-                    check_type(
-                        ty,
-                        Some(&Kind::Type),
-                        &HashMap::new(),
-                        env,
-                        interner,
-                        diagnostics,
-                    );
-                }
-                let _ = span;
             }
             Statement::TypeAlias(alias) => {
                 check_type(
@@ -433,21 +443,27 @@ fn validate_constraint(
 fn check_type(
     ty: &TypeExpr,
     expected: Option<&Kind>,
-    locals: &HashMap<Identifier, ClassId>,
+    locals: &HashMap<Identifier, LocalBinder>,
     env: &KindEnv,
     interner: &Interner,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Kind {
     let actual = match ty {
         TypeExpr::Named { name, args, .. } => {
+            // A function's own type parameter is unconstrained: accept any
+            // application of it rather than reporting a bogus arity.
+            if matches!(locals.get(name), Some(LocalBinder::Unconstrained)) {
+                for arg in args {
+                    check_type(arg, Some(&Kind::Type), locals, env, interner, diagnostics);
+                }
+                return Kind::Type;
+            }
             let known_head = locals
                 .get(name)
-                .and_then(|class_id| {
-                    env.class_params
-                        .get(class_id)
-                        .and_then(|params| params.get(name))
+                .and_then(|binder| match binder {
+                    LocalBinder::Known(_, kind) => Some(kind.clone()),
+                    LocalBinder::Unconstrained => None,
                 })
-                .cloned()
                 .or_else(|| env.constructor_kind(*name));
             let Some(head) = known_head else {
                 // Imported constructors are validated against their module
@@ -459,9 +475,7 @@ fn check_type(
                 }
                 return Kind::Type;
             };
-            let is_conflicted_parameter = locals
-                .get(name)
-                .is_some_and(|class_id| env.has_conflict(*class_id, *name));
+            let is_conflicted_parameter = is_conflicted(locals, env, *name);
             if args.len() > head.arity() && !is_conflicted_parameter {
                 diagnostics.push(arity_diagnostic(
                     ty.span(),
@@ -501,23 +515,70 @@ fn check_type(
             Kind::Type
         }
     };
-    if let Some(expected) = expected
-        && &actual != expected
-        && matches!(expected, Kind::Type)
-        && let TypeExpr::Named { name, .. } = ty
-        && !locals
-            .get(name)
-            .is_some_and(|class_id| env.has_conflict(*class_id, *name))
+    // A constructor left under-applied where a value type is required. The
+    // remaining `actual.arity()` is how many arguments are still missing, so
+    // the full expected count includes the ones already supplied.
+    if let Some(Kind::Type) = expected
+        && actual != Kind::Type
+        && let TypeExpr::Named { name, args, .. } = ty
+        && !is_conflicted(locals, env, *name)
     {
         diagnostics.push(arity_diagnostic(
             ty.span(),
             *name,
-            actual.arity(),
-            0,
+            args.len() + actual.arity(),
+            args.len(),
             interner,
         ));
     }
     actual
+}
+
+/// Whether `name` is a class parameter already reported as used at conflicting
+/// kinds. Suppresses cascading arity errors from the same root cause.
+/// Binds a function's type parameters.
+///
+/// A parameter with a class constraint (`fn f<a: Functor>`) takes that class's
+/// parameter kind, so `a`'s uses are checked. An unconstrained parameter has no
+/// kind annotation in the surface syntax and stays unconstrained.
+fn function_binders(
+    params: &[crate::syntax::statement::FunctionTypeParam],
+    class_env: &ClassEnv,
+    env: &KindEnv,
+) -> HashMap<Identifier, LocalBinder> {
+    params
+        .iter()
+        .map(|param| {
+            let binder = param
+                .constraints
+                .iter()
+                .find_map(|constraint| class_env.lookup_class(*constraint))
+                .and_then(|class| {
+                    let class_param = *class.type_params.first()?;
+                    Some(LocalBinder::Known(
+                        class.class_id(),
+                        env.class_parameter_kind(class, class_param),
+                    ))
+                })
+                .unwrap_or(LocalBinder::Unconstrained);
+            (param.name, binder)
+        })
+        .collect()
+}
+
+/// Binds each of `params` as an unconstrained type variable.
+fn unconstrained_binders(params: &[Identifier]) -> HashMap<Identifier, LocalBinder> {
+    params
+        .iter()
+        .map(|param| (*param, LocalBinder::Unconstrained))
+        .collect()
+}
+
+fn is_conflicted(locals: &HashMap<Identifier, LocalBinder>, env: &KindEnv, name: Identifier) -> bool {
+    matches!(
+        locals.get(&name),
+        Some(LocalBinder::Known(class_id, _)) if env.has_conflict(*class_id, name)
+    )
 }
 
 fn arity_diagnostic(

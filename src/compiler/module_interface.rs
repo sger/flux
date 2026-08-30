@@ -473,18 +473,29 @@ fn type_expr_parameter_arity(
     }
 }
 
-fn type_expr_kind(ty: &crate::syntax::type_expr::TypeExpr) -> crate::types::kind::Kind {
-    match ty {
-        // A type constructor application is a value type after all of its
-        // arguments have been supplied.  Bare heads are represented as Type
-        // here because the interface entry describes the instance head, not
-        // the constructor declaration; parameter kinds carry constructor
-        // arity where it is observable from a class signature.
-        crate::syntax::type_expr::TypeExpr::Named { args, .. } if !args.is_empty() => {
-            crate::types::kind::Kind::Type
-        }
-        _ => crate::types::kind::Kind::Type,
-    }
+/// Kinds of an instance head, taken from the class parameters it instantiates.
+///
+/// An instance head must have the kind its class parameter declares, so the
+/// class is the authority here — the head `TypeExpr` alone cannot distinguish
+/// a bare value type from an unapplied constructor. Falls back to `Type` for
+/// positions beyond the class's declared parameters.
+fn instance_head_kinds(
+    env: &ClassEnv,
+    inst: &crate::types::class_env::InstanceDef,
+) -> Vec<crate::types::kind::Kind> {
+    let class = env.classes.get(&inst.class_id);
+    inst.type_args
+        .iter()
+        .enumerate()
+        .map(|(index, _)| {
+            class
+                .and_then(|class| {
+                    let param = class.type_params.get(index)?;
+                    Some(class_parameter_kind(class, *param))
+                })
+                .unwrap_or(crate::types::kind::Kind::Type)
+        })
+        .collect()
 }
 
 fn kind_from_arity(arity: usize) -> crate::types::kind::Kind {
@@ -528,7 +539,7 @@ fn collect_public_instance_entries(
                 class_name: interner.resolve(inst.class_name).to_string(),
                 instance_module,
                 head_type_repr: head_type_repr.join(", "),
-                head_kinds: inst.type_args.iter().map(type_expr_kind).collect(),
+                head_kinds: instance_head_kinds(env, inst),
                 type_args: inst.type_args.clone(),
                 context: inst.context.clone(),
                 methods: inst
@@ -1411,6 +1422,7 @@ mod tests {
                 name: priv_name,
                 module: ModulePath::from_identifier(module),
                 is_public: false,
+                is_builtin: false,
                 type_params: vec![interner.intern("a")],
                 superclasses: vec![],
                 methods: vec![],
