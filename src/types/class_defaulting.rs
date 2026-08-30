@@ -59,8 +59,12 @@ pub fn finalize_binding_class_constraints(
     let diagnostics = class_env
         .map(|env| solve_class_constraints(&finalized_constraints, env, interner))
         .unwrap_or_default();
-    let scheme_constraints =
-        collect_scheme_constraints(&finalized_constraints, &finalized_type, env_free_vars);
+    let scheme_constraints = collect_scheme_constraints(
+        &finalized_constraints,
+        &finalized_type,
+        env_free_vars,
+        interner,
+    );
 
     FinalizedBindingClassConstraints {
         infer_type: finalized_type,
@@ -142,6 +146,7 @@ fn collect_scheme_constraints(
     constraints: &[WantedClassConstraint],
     infer_type: &InferType,
     env_free_vars: &HashSet<TypeVarId>,
+    interner: &Interner,
 ) -> Vec<SchemeConstraint> {
     let ty_free: HashSet<TypeVarId> = infer_type
         .free_vars()
@@ -163,8 +168,16 @@ fn collect_scheme_constraints(
                 _ => None,
             })
             .collect::<Vec<_>>();
-        if vars.len() == constraint.type_args.len()
+        let structured_polymorphic = vars.len() != constraint.type_args.len()
+            && constraint
+                .type_args
+                .iter()
+                .flat_map(InferType::free_vars)
+                .any(|var| ty_free.contains(&var))
+            && !is_builtin_class(constraint.class_name, interner);
+        if (vars.len() == constraint.type_args.len()
             && vars.iter().all(|var| ty_free.contains(var))
+            || structured_polymorphic)
             && !seen.iter().any(|(class_name, seen_vars)| {
                 *class_name == constraint.class_name && *seen_vars == vars
             })
@@ -178,6 +191,13 @@ fn collect_scheme_constraints(
     }
 
     result
+}
+
+fn is_builtin_class(class_name: crate::syntax::Identifier, interner: &Interner) -> bool {
+    matches!(
+        interner.resolve(class_name),
+        "Eq" | "Ord" | "Num" | "Fractional" | "Integral" | "Show" | "Read"
+    )
 }
 
 #[cfg(test)]
