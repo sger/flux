@@ -239,10 +239,16 @@ fn public_typeclass_metadata_survives_interface_serialization_roundtrip() {
     assert_eq!(interface.public_classes.len(), 1);
     assert_eq!(interface.public_instances.len(), 1);
     assert_eq!(interface.public_classes[0].name, "Sizeable");
-    assert_eq!(interface.public_classes[0].parameter_kinds, ["Type"]);
+    assert_eq!(
+        interface.public_classes[0].parameter_kinds,
+        [flux::types::kind::Kind::Type]
+    );
     assert_eq!(interface.public_instances[0].class_name, "Sizeable");
     assert_eq!(interface.public_instances[0].head_type_repr, "Int");
-    assert_eq!(interface.public_instances[0].head_kinds, ["Type"]);
+    assert_eq!(
+        interface.public_instances[0].head_kinds,
+        [flux::types::kind::Kind::Type]
+    );
 
     let encoded = serde_json::to_vec(&interface).expect("serialize interface");
     let decoded: ModuleInterface = serde_json::from_slice(&encoded).expect("reload interface");

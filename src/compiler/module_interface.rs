@@ -401,7 +401,7 @@ fn collect_public_class_entries(
                 parameter_kinds: def
                     .type_params
                     .iter()
-                    .map(|param| class_parameter_kind_repr(def, *param))
+                    .map(|param| class_parameter_kind(def, *param))
                     .collect(),
                 type_params: def.type_params.clone(),
                 superclasses: def.superclasses.clone(),
@@ -426,10 +426,10 @@ fn collect_public_class_entries(
     entries
 }
 
-fn class_parameter_kind_repr(
+fn class_parameter_kind(
     class: &crate::types::class_env::ClassDef,
     parameter: Identifier,
-) -> String {
+) -> crate::types::kind::Kind {
     let arity = class
         .methods
         .iter()
@@ -442,7 +442,7 @@ fn class_parameter_kind_repr(
         .map(|ty| type_expr_parameter_arity(ty, parameter))
         .max()
         .unwrap_or(0);
-    kind_repr(arity)
+    kind_from_arity(arity)
 }
 
 fn type_expr_parameter_arity(
@@ -473,7 +473,7 @@ fn type_expr_parameter_arity(
     }
 }
 
-fn type_expr_kind_repr(ty: &crate::syntax::type_expr::TypeExpr) -> String {
+fn type_expr_kind(ty: &crate::syntax::type_expr::TypeExpr) -> crate::types::kind::Kind {
     match ty {
         // A type constructor application is a value type after all of its
         // arguments have been supplied.  Bare heads are represented as Type
@@ -481,16 +481,16 @@ fn type_expr_kind_repr(ty: &crate::syntax::type_expr::TypeExpr) -> String {
         // the constructor declaration; parameter kinds carry constructor
         // arity where it is observable from a class signature.
         crate::syntax::type_expr::TypeExpr::Named { args, .. } if !args.is_empty() => {
-            "Type".to_string()
+            crate::types::kind::Kind::Type
         }
-        _ => "Type".to_string(),
+        _ => crate::types::kind::Kind::Type,
     }
 }
 
-fn kind_repr(arity: usize) -> String {
-    std::iter::repeat_n("Type", arity + 1)
-        .collect::<Vec<_>>()
-        .join(" -> ")
+fn kind_from_arity(arity: usize) -> crate::types::kind::Kind {
+    (0..arity).fold(crate::types::kind::Kind::Type, |result, _| {
+        crate::types::kind::Kind::Arrow(Box::new(crate::types::kind::Kind::Type), Box::new(result))
+    })
 }
 
 /// Proposal 0151, Phase 2: extract every `public instance` whose
@@ -528,7 +528,7 @@ fn collect_public_instance_entries(
                 class_name: interner.resolve(inst.class_name).to_string(),
                 instance_module,
                 head_type_repr: head_type_repr.join(", "),
-                head_kinds: inst.type_args.iter().map(type_expr_kind_repr).collect(),
+                head_kinds: inst.type_args.iter().map(type_expr_kind).collect(),
                 type_args: inst.type_args.clone(),
                 context: inst.context.clone(),
                 methods: inst

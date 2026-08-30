@@ -8,8 +8,10 @@
 
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 /// The kind of a type or type constructor.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Kind {
     /// The kind of value types: `Int`, `String`, `Bool`, `List<Int>`, etc.
     Type,
