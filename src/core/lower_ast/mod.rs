@@ -774,7 +774,8 @@ impl<'a> AstLowerer<'a> {
         actual: &InferType,
         target: crate::types::TypeVarId,
     ) -> Option<InferType> {
-        match pattern {
+        crate::types::class_dispatch::match_constraint_type_var(pattern, actual, target)
+        /* match pattern {
             InferType::Var(var) if *var == target => Some(actual.clone()),
             InferType::App(pattern_ctor, pattern_args) => {
                 let InferType::App(actual_ctor, actual_args) = actual else {
@@ -849,7 +850,7 @@ impl<'a> AstLowerer<'a> {
                     })
             }
             _ => None,
-        }
+        } */
     }
 
     fn lower_dictionary_ref(dict_ref: &crate::types::class_env::ResolvedDictionaryRef) -> CoreExpr {

@@ -178,6 +178,28 @@ fn kind_checked_typeclass_fixtures_have_expected_output() {
 }
 
 #[test]
+fn structured_predicates_survive_scheme_construction() {
+    let source = std::fs::read_to_string(fixture_path("structured_predicate.flx"))
+        .expect("read structured predicate fixture");
+    let (program, mut compiler) = parse_source(&source, "structured_predicate.flx");
+    compiler
+        .compile(&program)
+        .expect("structured predicate fixture compiles");
+
+    let core = compiler
+        .dump_core_with_opts(
+            &program,
+            false,
+            flux::core::display::CoreDisplayMode::Readable,
+        )
+        .expect("structured predicate should lower");
+    assert!(
+        core.contains("List") || core.contains("list_size"),
+        "structured predicate must remain visible in the lowered contract"
+    );
+}
+
+#[test]
 fn result_directed_lookup_fixture_locks_current_baseline() {
     let output = run_fixture("result_directed_method_lookup.flx")
         .expect("current concrete multi-parameter dispatch should run");
@@ -217,8 +239,10 @@ fn public_typeclass_metadata_survives_interface_serialization_roundtrip() {
     assert_eq!(interface.public_classes.len(), 1);
     assert_eq!(interface.public_instances.len(), 1);
     assert_eq!(interface.public_classes[0].name, "Sizeable");
+    assert_eq!(interface.public_classes[0].parameter_kinds, ["Type"]);
     assert_eq!(interface.public_instances[0].class_name, "Sizeable");
     assert_eq!(interface.public_instances[0].head_type_repr, "Int");
+    assert_eq!(interface.public_instances[0].head_kinds, ["Type"]);
 
     let encoded = serde_json::to_vec(&interface).expect("serialize interface");
     let decoded: ModuleInterface = serde_json::from_slice(&encoded).expect("reload interface");
