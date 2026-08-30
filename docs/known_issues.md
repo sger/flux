@@ -1264,3 +1264,51 @@ needed before Windows becomes a supported package-manager target.
 The resolver permits only one version of a package name in a graph because the
 current linker uses flat global names. Per-package symbol mangling would be
 required before semver-incompatible duplicate versions can be supported safely.
+
+### KI-050 — Same-class contextual instances dispatch the element to themselves
+
+**Severity:** High · **Area:** type classes, dictionary dispatch · **Verified:** 2026-08-30 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+When an instance context names the *same* class as its head — the
+`instance Encode<a> => Encode<Option<a>>` shape used throughout
+[`lib/Flow/Json.flx`](../lib/Flow/Json.flx) — a call to the class method inside
+the instance body is ambiguous: it may recurse on the container or dispatch on
+the *element*, and only the element case should go through the context
+dictionary.
+
+`rewrite_instance_self_calls` in
+[`src/types/class_dispatch.rs`](../src/types/class_dispatch.rs) runs before
+inference and matches on the method name alone, so it rewrites *both* into a
+self-call. The element call then enters the container's own instance, where a
+non-container value falls through to the catch-all arm:
+
+```flux
+class MyEq<a> { fn my_eq(x: a, y: a) -> Bool }
+instance MyEq<Int> { fn my_eq(x, y) { x == y } }
+instance MyEq<a> => MyEq<List<a>> {
+    fn my_eq(xs, ys) {
+        match xs {
+            [h1 | t1] -> match ys { [h2 | t2] -> my_eq(h1, h2) && my_eq(t1, t2), _ -> false },
+            _ -> true
+        }
+    }
+}
+fn main() with IO { print(my_eq([1], [2])) }   // prints `true`; should be `false`
+```
+
+`my_eq(h1, h2)` on two `Int`s is sent to `__tc_MyEq_List<a>_my_eq`, misses the
+`::(h, t)` arm, and silently answers `true`. `Json.encode` on a
+`List`/`Option`/`Array` fails with `E1001 Cannot call non-function value` for
+the same reason.
+
+The *different*-class context form (`instance Eq<a> => MyEq<List<a>>`) is
+unaffected: the element call resolves to another method name, so the rewriter
+leaves it for dictionary elaboration, which routes it through the context
+dictionary correctly.
+
+Suppressing the self-call rewrite when the context repeats the head class fixes
+the VM but not the LLVM backend, which reaches these instance methods through a
+separate path and continued to answer `true`. Landing a VM-only fix would turn
+a consistent wrong answer into a VM/LLVM parity mismatch, so the correction
+needs both backends together. Wanted-constraint types are the durable fix:
+resolution should be type-directed rather than name-directed.
