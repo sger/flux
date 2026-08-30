@@ -111,15 +111,18 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "hkt_instance_positive.flx",
         "structured_predicate.flx",
         "interface_roundtrip.flx",
+        "contextual_dictionary.flx",
     ];
     for fixture in fixtures {
         let source = std::fs::read_to_string(fixture_path(fixture)).expect("read fixture");
         assert!(
             {
                 let source = source.to_ascii_lowercase();
-                source.contains("baseline") || source.contains("stage 1")
+                source.contains("baseline")
+                    || source.contains("stage 1")
+                    || source.contains("stage 2")
             },
-            "{fixture} needs a baseline or stage 1 contract"
+            "{fixture} needs a baseline, stage 1 or stage 2 contract"
         );
         assert!(
             source.contains("Expected"),
@@ -175,6 +178,17 @@ fn kind_checked_typeclass_fixtures_have_expected_output() {
         let output = run_fixture(fixture).unwrap_or_else(|error| panic!("{error}"));
         assert_eq!(output.stdout, expected, "unexpected output for {fixture}");
     }
+}
+
+/// Proposal 0179 Stage 2: a contextual instance lowers to a dictionary
+/// *constructor* rather than a method tuple. Reaching it through a
+/// constrained function requires that constructor to be initialised at module
+/// load time; before Stage 2 the global was declared but never stored, and the
+/// call failed with `E1001 Cannot call non-function value (got None)`.
+#[test]
+fn contextual_dictionary_is_initialised_for_constrained_calls() {
+    let output = run_fixture("contextual_dictionary.flx").unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(output.stdout, "false\nfalse\ntrue");
 }
 
 #[test]
