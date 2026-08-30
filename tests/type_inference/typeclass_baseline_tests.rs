@@ -113,6 +113,7 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "interface_roundtrip.flx",
         "contextual_dictionary.flx",
         "no_partial_resolution.flx",
+        "where_constraint.flx",
     ];
     for fixture in fixtures {
         let source = std::fs::read_to_string(fixture_path(fixture)).expect("read fixture");
@@ -122,8 +123,9 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
                 source.contains("baseline")
                     || source.contains("stage 1")
                     || source.contains("stage 2")
+                    || source.contains("stage 3")
             },
-            "{fixture} needs a baseline, stage 1 or stage 2 contract"
+            "{fixture} needs a baseline, stage 1, stage 2 or stage 3 contract"
         );
         assert!(
             source.contains("Expected"),
@@ -334,4 +336,12 @@ fn multiple_obligations_are_present_in_lowered_dictionary_contract() {
         .expect("obligations fixture should lower");
     assert!(core.contains("__dict_Equal_Int"));
     assert!(core.contains("__dict_Render_Int"));
+}
+
+/// Proposal 0179 Stage 3: `where Eq<a>` and `<a: Eq>` are two spellings of one
+/// obligation, so both must produce the same behavior.
+#[test]
+fn where_and_bound_constraint_spellings_agree() {
+    let output = run_fixture("where_constraint.flx").unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(output.stdout, "true\nfalse");
 }

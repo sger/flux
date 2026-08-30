@@ -24,7 +24,7 @@ impl<'a> InferCtx<'a> {
         // Map explicit type parameters (e.g. `T`, `U`) to fresh type variables.
         let tp_map = self.allocate_type_parameter_vars(input.type_params);
         let mut row_var_env: HashMap<Identifier, TypeVarId> = HashMap::new();
-        self.emit_declared_type_param_constraints(input.type_params, &tp_map, input.fn_span);
+        self.emit_declared_type_param_constraints(input.type_params, &tp_map);
         let skolem_ids = self.mark_signature_skolems(input.type_params, &tp_map);
 
         self.env.enter_scope();
@@ -168,31 +168,35 @@ impl<'a> InferCtx<'a> {
     /// This reuses the normal wanted-constraint path so explicit bounds like
     /// `fn f<a: Eq + Show>(...)` flow through solving and scheme generation
     /// the same way as constraints inferred from operators or method calls.
+    /// Lower each declared bound (`<a: Eq>`) to a wanted predicate.
+    ///
+    /// Each constraint carries its own span, so a diagnostic points at the
+    /// bound rather than at the enclosing signature.
     fn emit_declared_type_param_constraints(
         &mut self,
         type_params: &[crate::syntax::statement::FunctionTypeParam],
         tp_map: &HashMap<Identifier, TypeVarId>,
-        span: Span,
     ) {
         for type_param in type_params {
             let Some(type_var) = tp_map.get(&type_param.name).copied() else {
                 continue;
             };
-            for &constraint in &type_param.constraints {
+            for constraint in &type_param.constraints {
+                let class_name = constraint.class_name;
                 // Proposal 0151, Phase 2: short-name constraint ambiguity (E456).
                 //
                 // If two or more classes share the same short name in
                 // `class_env`, an explicit bound `<a: Foo>` is ambiguous
                 // because the constraint solver cannot pick which class
                 // the user meant. Fire E456 once per ambiguous bound.
-                if self.report_ambiguous_class_constraint(constraint, span) {
+                if self.report_ambiguous_class_constraint(class_name, constraint.span) {
                     continue;
                 }
 
                 self.emit_class_constraint(
-                    constraint,
+                    class_name,
                     InferType::Var(type_var),
-                    span,
+                    constraint.span,
                     constraint::WantedClassConstraintOrigin::ExplicitBound,
                 );
             }

@@ -1,0 +1,37 @@
+// Stage 3 contract: one representation for class constraints.
+//
+// `where Eq<a>` and `<a: Eq>` are two spellings of the same obligation. Both
+// parse into `ClassConstraint` on the same `FunctionTypeParam`, so every
+// downstream phase — inference, generalization, dictionary elaboration — sees
+// a single representation rather than the three that existed before Stage 3.
+//
+// The `where` spelling additionally carries its own type arguments, so it can
+// express predicates a bound cannot: `where Convert<a, b>` over two
+// parameters, or a structured head such as `where Eq<List<a>>`.
+//
+// Both functions below must behave identically.
+//
+// Expected output:
+// true
+// false
+
+class MyEq<a> {
+    fn my_eq(x: a, y: a) -> Bool
+}
+
+instance MyEq<Int> {
+    fn my_eq(x, y) { x == y }
+}
+
+fn equal_where<a>(x: a, y: a) -> Bool where MyEq<a> {
+    my_eq(x, y)
+}
+
+fn equal_bound<a: MyEq>(x: a, y: a) -> Bool {
+    my_eq(x, y)
+}
+
+fn main() with IO {
+    print(equal_where(7, 7))
+    print(equal_bound(7, 8))
+}
