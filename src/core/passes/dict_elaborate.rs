@@ -392,6 +392,24 @@ fn build_contextual_dictionary_method_closure(
 
 /// Rewrite constrained functions to accept dictionary parameters and
 /// extract methods from them instead of calling polymorphic stubs.
+/// The constraints of `scheme` that carry a runtime dictionary.
+///
+/// Marker classes (no methods) have no dictionary tuple, so they contribute
+/// neither a parameter nor an argument. Filtering here — once, where the
+/// constraint list is read — keeps callee arity and call-site arity derived
+/// from the same predicate (Proposal 0179 Stage 2).
+fn dictionary_constraints(
+    scheme: &Scheme,
+    class_env: &ClassEnv,
+) -> Vec<crate::ast::type_infer::constraint::SchemeConstraint> {
+    scheme
+        .constraints
+        .iter()
+        .filter(|constraint| class_env.constraint_needs_dictionary(constraint))
+        .cloned()
+        .collect()
+}
+
 fn rewrite_constrained_functions(
     program: &mut CoreProgram,
     class_env: &ClassEnv,
@@ -405,18 +423,19 @@ fn rewrite_constrained_functions(
             None => continue,
         };
 
-        if scheme.constraints.is_empty() {
+        let constraints = dictionary_constraints(scheme, class_env);
+        if constraints.is_empty() {
             continue;
         }
 
         let existing_dict_params = match &def.expr {
             CoreExpr::Lam { params, .. }
-                if params.len() >= scheme.constraints.len()
-                    && params[..scheme.constraints.len()]
+                if params.len() >= constraints.len()
+                    && params[..constraints.len()]
                         .iter()
                         .all(|binder| interner.resolve(binder.name).starts_with("__dict_")) =>
             {
-                params[..scheme.constraints.len()].to_vec()
+                params[..constraints.len()].to_vec()
             }
             _ => Vec::new(),
         };
@@ -425,7 +444,7 @@ fn rewrite_constrained_functions(
         let mut dict_params: Vec<CoreBinder> = Vec::new();
         let mut method_map: HashMap<Identifier, (CoreBinder, usize)> = HashMap::new();
 
-        for (index, constraint) in scheme.constraints.iter().enumerate() {
+        for (index, constraint) in constraints.iter().enumerate() {
             let class_def = match class_env.lookup_class(constraint.class_name) {
                 Some(c) => c,
                 None => continue,
@@ -458,13 +477,7 @@ fn rewrite_constrained_functions(
             &mut def.expr,
             CoreExpr::Lit(crate::core::CoreLit::Unit, Span::default()),
         );
-        let self_call = self_instance_call(
-            def.name,
-            &old_expr,
-            &scheme.constraints,
-            class_env,
-            interner,
-        );
+        let self_call = self_instance_call(def.name, &old_expr, &constraints, class_env, interner);
         let rewritten =
             rewrite_body_with_dicts_with_self(old_expr, &method_map, self_call.as_ref());
 
@@ -502,11 +515,8 @@ fn insert_dict_args_at_call_sites(
         .iter()
         .filter_map(|def| {
             let scheme = def_schemes.get(&def.binder.id)?;
-            if scheme.constraints.is_empty() {
-                None
-            } else {
-                Some((def.binder.id, scheme.constraints.clone()))
-            }
+            let constraints = dictionary_constraints(scheme, class_env);
+            (!constraints.is_empty()).then_some((def.binder.id, constraints))
         })
         .collect();
     let constrained_fns_by_name: HashMap<
@@ -519,11 +529,8 @@ fn insert_dict_args_at_call_sites(
             let scheme = def_schemes
                 .get(&def.binder.id)
                 .or_else(|| type_env.lookup(def.name))?;
-            if scheme.constraints.is_empty() {
-                None
-            } else {
-                Some((def.name, scheme.constraints.clone()))
-            }
+            let constraints = dictionary_constraints(scheme, class_env);
+            (!constraints.is_empty()).then_some((def.name, constraints))
         })
         .collect();
 
@@ -539,7 +546,7 @@ fn insert_dict_args_at_call_sites(
             .get(&def.binder.id)
             .or_else(|| type_env.lookup(def.name))
         {
-            build_caller_dict_map(&def.expr, &scheme.constraints)
+            build_caller_dict_map(&def.expr, &dictionary_constraints(scheme, class_env))
         } else {
             HashMap::new()
         };

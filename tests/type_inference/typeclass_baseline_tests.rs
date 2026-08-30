@@ -112,6 +112,7 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "structured_predicate.flx",
         "interface_roundtrip.flx",
         "contextual_dictionary.flx",
+        "no_partial_resolution.flx",
     ];
     for fixture in fixtures {
         let source = std::fs::read_to_string(fixture_path(fixture)).expect("read fixture");
@@ -185,6 +186,17 @@ fn kind_checked_typeclass_fixtures_have_expected_output() {
 /// constrained function requires that constructor to be initialised at module
 /// load time; before Stage 2 the global was declared but never stored, and the
 /// call failed with `E1001 Cannot call non-function value (got None)`.
+/// Proposal 0179 Stage 2: a marker class (no methods) carries no dictionary,
+/// so it must not add a parameter to a constrained function. Three phases
+/// previously counted dictionaries with three different filters, giving the
+/// callee a phantom parameter that call sites never passed — `E1000 wrong
+/// number of arguments` on the VM, and an unchecked ABI mismatch natively.
+#[test]
+fn marker_class_constraints_add_no_dictionary_parameter() {
+    let output = run_fixture("no_partial_resolution.flx").unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(output.stdout, "7\n1");
+}
+
 #[test]
 fn contextual_dictionary_is_initialised_for_constrained_calls() {
     let output = run_fixture("contextual_dictionary.flx").unwrap_or_else(|error| panic!("{error}"));

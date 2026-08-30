@@ -1465,6 +1465,30 @@ impl ClassEnv {
         Some(first)
     }
 
+    /// Whether `constraint` contributes a runtime dictionary parameter.
+    ///
+    /// A class with no methods — a marker such as `Sendable` — has no
+    /// dictionary tuple and no `__dict_*` global, so it contributes no
+    /// parameter and no argument.
+    ///
+    /// Every phase that counts dictionaries must agree on this predicate.
+    /// Before Proposal 0179 Stage 2 the AST path filtered marker classes while
+    /// Core lowering and dictionary elaboration did not, so the same function
+    /// had two different arities: the callee gained a phantom parameter the
+    /// caller never passed, and the call failed at runtime with
+    /// `E1000 wrong number of arguments`.
+    ///
+    /// An *unknown* class is deliberately treated as dictionary-carrying. It
+    /// is not a marker class, and silently dropping it would reintroduce the
+    /// arity disagreement this predicate exists to prevent.
+    pub fn constraint_needs_dictionary(
+        &self,
+        constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
+    ) -> bool {
+        self.lookup_class(constraint.class_name)
+            .is_none_or(|class| !class.methods.is_empty())
+    }
+
     /// Resolve the dictionary reference needed for a concrete class application.
     ///
     /// For plain instances this returns a leaf `ResolvedDictionaryRef` pointing
