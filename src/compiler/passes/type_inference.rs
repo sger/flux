@@ -8,7 +8,8 @@ use crate::ast::type_infer::static_type_validation::{
 };
 use crate::diagnostics::DiagnosticPhase;
 use crate::syntax::program::Program;
-use crate::types::class_solver::solve_class_constraints;
+use crate::types::class_disposition::SolveScope;
+use crate::types::class_solver::solve_class_constraints_dispositioned;
 
 use super::super::{Compiler, pipeline::TypeInferenceResult, tag_diagnostics};
 
@@ -77,8 +78,15 @@ impl Compiler {
         // Type class constraint solving: verify that concrete-type constraints
         // have matching instances in the ClassEnv (Proposal 0145, Step 4).
         if !class_constraints.is_empty() && !self.class_env.classes.is_empty() {
-            let mut solver_diags =
-                solve_class_constraints(&class_constraints, &self.class_env, &self.interner);
+            // Whole-program scope: generalization has already had its chance,
+            // so nothing here is generalizable (Proposal 0179 Stage 3).
+            let outcome = solve_class_constraints_dispositioned(
+                &class_constraints,
+                SolveScope::WholeProgram,
+                &self.class_env,
+                &self.interner,
+            );
+            let mut solver_diags: Vec<_> = outcome.into_diagnostics().collect();
             tag_diagnostics(&mut solver_diags, DiagnosticPhase::TypeInference);
             hm_diagnostics.extend(solver_diags);
         }

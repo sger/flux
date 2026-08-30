@@ -7,8 +7,13 @@ use crate::{
     diagnostics::Diagnostic,
     syntax::interner::Interner,
     types::{
-        TypeVarId, class_env::ClassEnv, class_solver::solve_class_constraints,
-        infer_type::InferType, type_constructor::TypeConstructor, type_subst::TypeSubst,
+        TypeVarId,
+        class_disposition::{Disposition, DispositionedConstraint, SolveOutcome, SolveScope},
+        class_env::ClassEnv,
+        class_solver::solve_class_constraints_dispositioned,
+        infer_type::InferType,
+        type_constructor::TypeConstructor,
+        type_subst::TypeSubst,
     },
 };
 
@@ -21,6 +26,10 @@ pub struct FinalizedBindingClassConstraints {
     /// defaulted types (see `InferCtx::finalize_binding`).
     pub default_subst: TypeSubst,
     pub diagnostics: Vec<Diagnostic>,
+    /// The outcome assigned to every wanted predicate this binding owns
+    /// (Proposal 0179 Stage 3). Exactly one entry per supplied constraint, so
+    /// no obligation can go unaccounted for.
+    pub dispositions: Vec<DispositionedConstraint>,
 }
 
 #[derive(Debug, Default)]
@@ -56,22 +65,67 @@ pub fn finalize_binding_class_constraints(
     let finalized_type = resolved_type.apply_type_subst(&default_subst);
     let finalized_constraints =
         apply_wanted_constraints_subst(&resolved_constraints, &default_subst);
-    let diagnostics = class_env
-        .map(|env| solve_class_constraints(&finalized_constraints, env, interner))
+    let outcome = class_env
+        .map(|env| {
+            solve_class_constraints_dispositioned(
+                &finalized_constraints,
+                SolveScope::Binding,
+                env,
+                interner,
+            )
+        })
         .unwrap_or_default();
+    let diagnostics: Vec<Diagnostic> = outcome.diagnostics().cloned().collect();
+
+    // Which predicates this binding generalizes is still decided by
+    // `collect_scheme_constraints`. Stage 3 folds that decision into the
+    // solver's disposition (THIH's `split`); until then, record the outcome
+    // on the dispositions so both halves report the same thing.
     let scheme_constraints = collect_scheme_constraints(
         &finalized_constraints,
         &finalized_type,
         env_free_vars,
         class_env,
     );
+    let dispositions = mark_generalized(outcome, &scheme_constraints);
 
     FinalizedBindingClassConstraints {
         infer_type: finalized_type,
         scheme_constraints,
         default_subst,
         diagnostics,
+        dispositions,
     }
+}
+
+/// Reconcile the solver's outcome with the constraints generalization kept.
+///
+/// A predicate the solver left `Stuck` because it was still polymorphic is
+/// not undecided if this binding went on to quantify it — it was
+/// generalized, and its obligation now transfers to every call site. Marking
+/// it here keeps the two halves of the decision consistent while they remain
+/// separate functions.
+fn mark_generalized(
+    outcome: SolveOutcome,
+    scheme_constraints: &[SchemeConstraint],
+) -> Vec<DispositionedConstraint> {
+    outcome
+        .dispositions
+        .into_iter()
+        .map(|mut entry| {
+            if matches!(entry.disposition, Disposition::Stuck { .. })
+                && let Some(scheme_constraint) = scheme_constraints.iter().find(|candidate| {
+                    candidate.class_name == entry.wanted.class_name
+                        && candidate.type_args == entry.wanted.type_args
+                })
+            {
+                entry.disposition = Disposition::Generalized {
+                    scheme_constraint: scheme_constraint.clone(),
+                };
+            }
+            entry
+        })
+        .collect()
 }
 
 fn apply_wanted_constraints_subst(
