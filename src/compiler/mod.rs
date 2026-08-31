@@ -45,7 +45,7 @@ use crate::{
         Identifier,
         block::Block,
         effect_expr::EffectExpr,
-        expression::{Expression, StringPart},
+        expression::{ExprIdGen, Expression, StringPart},
         interner::Interner,
         module_graph::ModuleKind,
         program::Program,
@@ -561,22 +561,24 @@ fn specialize_type_expr_for_instance(
 /// The module whose *qualified* name an imported instance's generated methods
 /// are defined under, when there is one.
 ///
-/// `inject_generated_dispatch_functions` hoists generated `__tc_*` methods to
-/// top level for a user module, but keeps them inside the module body for a
-/// Flow stdlib module — so only a stdlib module defines them qualified
-/// (`Flow.Json.__tc_Encode_Int_encode`). An importer must ask the linker for
-/// the form the defining module actually exports, which differs between the
-/// two (see docs/known_issues.md#ki-051).
+/// `inject_generated_dispatch_functions` keeps generated `__tc_*` methods in
+/// the module that owns the instance, so every module-scoped instance exports
+/// its method under a qualified name (for example,
+/// `Flow.Json.__tc_Encode_Int_encode`). An importer must ask the linker for
+/// that qualified symbol while retaining the bare name locally for the VM
+/// alias (see docs/known_issues.md#ki-051).
 ///
-/// Returns `None` for a user module (methods are top level, bare) and for a
-/// built-in instance (empty module path).
+/// Returns `None` for a built-in or legacy top-level instance (empty module
+/// path).
 fn qualifying_instance_module(
     instance_def: &crate::types::class_env::InstanceDef,
     interner: &Interner,
 ) -> Option<Symbol> {
     let module = instance_def.instance_module.as_identifier()?;
-    let name = interner.try_resolve(module)?;
-    name.starts_with("Flow.").then_some(module)
+    interner
+        .try_resolve(module)
+        .filter(|name| !name.is_empty())?;
+    Some(module)
 }
 
 fn preload_imported_instance_schemes(
@@ -1267,6 +1269,135 @@ impl Compiler {
         self.current_module_kind == ModuleKind::FlowStdlib
     }
 
+    /// Return the generated instance-method symbols owned by `module_name`.
+    ///
+    /// Generated `__tc_*` functions normally start at file scope, but a
+    /// module-scoped instance must be emitted inside its module so the native
+    /// backend gives it the same qualified symbol that importers reference.
+    /// Built-in and legacy top-level instances have an empty module path and
+    /// remain file-scoped.
+    pub(super) fn generated_instance_methods_for_module(
+        &self,
+        module_name: Symbol,
+    ) -> HashSet<Symbol> {
+        let mut names = HashSet::new();
+        for instance in &self.class_env.instances {
+            if instance.instance_module.as_identifier() != Some(module_name) {
+                continue;
+            }
+            let Some(class_def) = self.class_env.lookup_class_by_id(instance.class_id) else {
+                continue;
+            };
+            let type_key = instance
+                .type_args
+                .iter()
+                .map(|arg| arg.display_with(&self.interner))
+                .collect::<Vec<_>>()
+                .join("_");
+            let class_name = self.interner.resolve(class_def.name);
+            for method in &class_def.methods {
+                let method_name = self.interner.resolve(method.name);
+                let mangled = crate::types::class_env::mangled_method_name(
+                    class_name,
+                    &type_key,
+                    method_name,
+                );
+                match self.interner.lookup(&mangled) {
+                    Some(symbol) => {
+                        names.insert(symbol);
+                    }
+                    // Dispatch generation interns every name it builds, so a
+                    // miss means this set disagrees with what was generated.
+                    // Left silent, the method is treated as file-scoped while
+                    // its siblings stay in the module, and an importer's
+                    // qualified reference dangles until the linker reports it
+                    // (docs/known_issues.md#ki-051).
+                    None => debug_assert!(
+                        false,
+                        "generated instance method `{mangled}` was never interned"
+                    ),
+                }
+            }
+        }
+        names
+    }
+
+    /// Keep a bare alias declaration for module-owned generated methods.
+    ///
+    /// The implementation lives in the module so native lowering emits the
+    /// qualified symbol.  The AST still needs a bare function declaration:
+    /// HM predeclaration and VM dispatch resolve calls by that canonical name.
+    /// Codegen's final alias assignment replaces this forwarding wrapper with
+    /// the module function at runtime; native code retains the forwarding call
+    /// and therefore still reaches the qualified symbol.
+    fn generated_instance_method_alias(
+        &self,
+        module_name: Symbol,
+        generated: &Statement,
+        id_gen: &mut ExprIdGen,
+    ) -> Option<Statement> {
+        let Statement::Function {
+            is_public,
+            fip,
+            intrinsic,
+            name,
+            type_params,
+            parameters,
+            parameter_types,
+            return_type,
+            effects,
+            span,
+            ..
+        } = generated
+        else {
+            return None;
+        };
+
+        let arguments = parameters
+            .iter()
+            .map(|parameter| Expression::Identifier {
+                name: *parameter,
+                span: *span,
+                id: id_gen.next_id(),
+            })
+            .collect();
+        let qualified_call = Expression::Call {
+            function: Box::new(Expression::MemberAccess {
+                object: Box::new(Expression::Identifier {
+                    name: module_name,
+                    span: *span,
+                    id: id_gen.next_id(),
+                }),
+                member: *name,
+                span: *span,
+                id: id_gen.next_id(),
+            }),
+            arguments,
+            span: *span,
+            id: id_gen.next_id(),
+        };
+        Some(Statement::Function {
+            is_public: *is_public,
+            fip: *fip,
+            intrinsic: *intrinsic,
+            name: *name,
+            type_params: type_params.clone(),
+            parameters: parameters.clone(),
+            parameter_types: parameter_types.clone(),
+            return_type: return_type.clone(),
+            effects: effects.clone(),
+            body: Block {
+                statements: vec![Statement::Expression {
+                    expression: qualified_call,
+                    has_semicolon: false,
+                    span: *span,
+                }],
+                span: *span,
+            },
+            span: *span,
+        })
+    }
+
     pub(super) fn inject_generated_dispatch_functions(
         &self,
         program: &Program,
@@ -1279,15 +1410,41 @@ impl Compiler {
             .count();
 
         if module_count == 1 {
+            let module_name = program.statements.iter().find_map(|stmt| match stmt {
+                Statement::Module { name, .. } => Some(*name),
+                _ => None,
+            });
+            let module_instance_methods = module_name
+                .map(|name| self.generated_instance_methods_for_module(name))
+                .unwrap_or_default();
+            // `generate_dispatch_functions` has already allocated IDs across
+            // everything it produced, so the aliases must resume past the
+            // parsed program *and* all of it. Seeding from only one partition
+            // would be correct only for as long as that partition happened to
+            // hold the highest ID, and getting it wrong reuses an ID — which
+            // is how the element call in a contextual instance picked up
+            // another expression's inferred type (docs/known_issues.md#ki-051).
+            let mut alias_seed_statements = program.statements.clone();
+            alias_seed_statements.extend(generated.iter().cloned());
+            let mut alias_ids = ExprIdGen::resuming_past_statements(&alias_seed_statements);
             let (top_level_generated, module_generated): (Vec<_>, Vec<_>) =
-                if self.is_flow_library_file() {
-                    (Vec::new(), generated)
-                } else {
-                    generated.into_iter().partition(|stmt| match stmt {
-                        Statement::Function { name, .. } => self.sym(*name).starts_with("__tc_"),
-                        _ => false,
-                    })
-                };
+                generated.into_iter().partition(|stmt| match stmt {
+                    Statement::Function { name, .. } => {
+                        crate::types::class_env::is_generated_instance_method(self.sym(*name))
+                            && !module_instance_methods.contains(name)
+                    }
+                    _ => false,
+                });
+            let mut module_aliases = Vec::new();
+            if let Some(name) = module_name {
+                for stmt in &module_generated {
+                    if let Some(alias) =
+                        self.generated_instance_method_alias(name, stmt, &mut alias_ids)
+                    {
+                        module_aliases.push(alias);
+                    }
+                }
+            }
             let first_non_import = program
                 .statements
                 .iter()
@@ -1315,6 +1472,11 @@ impl Compiler {
                                 },
                                 span,
                             });
+                            // The alias declaration must follow the module so
+                            // its qualified target is visible during compiler
+                            // lowering. Top-level HM predeclaration still sees
+                            // it before any function body is inferred.
+                            emitted.extend(module_aliases.clone());
                         }
                         other => emitted.push(other),
                     }
@@ -1824,10 +1986,10 @@ impl Compiler {
                     // test the last path segment rather than the whole name
                     // (see docs/known_issues.md#ki-051).
                     !self.interner.try_resolve(*name).is_some_and(|resolved| {
-                        resolved
+                        let last_segment = resolved
                             .rsplit_once('.')
-                            .map_or(resolved, |(_, suffix)| suffix)
-                            .starts_with("__tc_")
+                            .map_or(resolved, |(_, suffix)| suffix);
+                        crate::types::class_env::is_generated_instance_method(last_segment)
                     })
                 })
                 .collect::<HashSet<_>>();
