@@ -1091,12 +1091,21 @@ impl Compiler {
                     // Module-owned generated methods are private implementation
                     // details, but their synthetic bare-name forwarding alias
                     // must reach them from file scope so VM dispatch can keep
-                    // using the canonical name.  The alias is identified by
-                    // both the hidden method name and its matching enclosing
-                    // function; ordinary user access to `Module.__tc_*` stays
-                    // private.
-                    let generated_alias = member_str.starts_with("__tc_")
-                        && self.current_function_name == Some(member);
+                    // using the canonical name.
+                    //
+                    // The final test asks the class environment whether this
+                    // symbol really is one the compiler generated for this
+                    // module, rather than trusting the name to look generated.
+                    // A user may write a function whose name carries the
+                    // reserved prefix, and privacy must not turn on spelling.
+                    // The cheap tests come first so the instance walk runs only
+                    // for a name that could plausibly be an alias.
+                    let generated_alias =
+                        crate::types::class_env::is_generated_instance_method(member_str)
+                            && self.current_function_name == Some(member)
+                            && self
+                                .generated_instance_methods_for_module(module_name)
+                                .contains(&member);
                     if !generated_alias {
                         self.check_private_member(
                             member_str,
@@ -4765,10 +4774,10 @@ impl Compiler {
             Expression::TupleLiteral { elements, .. } => {
                 !elements.is_empty()
                     && elements.iter().all(|element| {
-                        matches!(element, Expression::Identifier { name, .. } if self
-                            .interner
-                            .resolve(*name)
-                            .starts_with("__tc_"))
+                        matches!(element, Expression::Identifier { name, .. }
+                        if crate::types::class_env::is_generated_instance_method(
+                            self.interner.resolve(*name),
+                        ))
                     })
             }
             Expression::Call { function, .. } => matches!(
