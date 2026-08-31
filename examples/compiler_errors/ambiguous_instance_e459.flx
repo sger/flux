@@ -1,0 +1,40 @@
+// expect: compile_error
+// expect-error: E459
+// Expected: E459 Undetermined Class Parameter
+//   "Cannot determine `b` in `Convert<Int, _>`; several instances are
+//    compatible with what this call fixes."
+//   Hint: "Annotate the expression so the type class parameter is fixed,
+//    for example with a `let` binding that names the type."
+//
+// Proposal 0179 Stage 4: the call fixes `a` from its argument, but nothing
+// fixes `b` — the result is bound to an unannotated `let` and never used at a
+// type. Both instances remain compatible with `Convert<Int, _>`, so the call
+// cannot select one, and committing to either would make the program depend
+// on declaration order.
+//
+// Distinct from E444, where the predicate is fully known and nothing matches,
+// and from E454, where it is fully known and several instances match. Before
+// Stage 4 this reached the dictionary path and failed at run time with
+// `E1009 No instance of Convert.convert`, reported against a synthetic line-0
+// span rather than the call.
+//
+// With a single instance the same program compiles: one candidate supplies the
+// missing type from its own head, which is what `multi_param_class_direct_call`
+// in the parity corpus covers.
+
+class Convert<a, b> {
+    fn convert(x: a) -> b
+}
+
+instance Convert<Int, String> {
+    fn convert(x) { to_string(x) }
+}
+
+instance Convert<Int, Bool> {
+    fn convert(x) { true }
+}
+
+fn main() with IO {
+    let ignored = convert(42)
+    print(1)
+}

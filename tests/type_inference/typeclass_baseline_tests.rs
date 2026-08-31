@@ -119,6 +119,10 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "stuck_constraint.flx",
         "diagnosed_constraint.flx",
         "generalized_structured_constraint.flx",
+        "multi_parameter_resolution.flx",
+        "result_directed_resolution.flx",
+        "where_constraint_multi_param.flx",
+        "contextual_dictionary_wrapper.flx",
     ];
     for fixture in fixtures {
         let source = std::fs::read_to_string(fixture_path(fixture)).expect("read fixture");
@@ -129,8 +133,9 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
                     || source.contains("stage 1")
                     || source.contains("stage 2")
                     || source.contains("stage 3")
+                    || source.contains("stage 4")
             },
-            "{fixture} needs a baseline, stage 1, stage 2 or stage 3 contract"
+            "{fixture} needs a baseline, stage 1, stage 2, stage 3 or stage 4 contract"
         );
         assert!(
             source.contains("Expected"),
@@ -237,6 +242,46 @@ fn result_directed_lookup_fixture_locks_current_baseline() {
     let output = run_fixture("result_directed_method_lookup.flx")
         .expect("current concrete multi-parameter dispatch should run");
     assert_eq!(output.stdout, "\"42\"");
+}
+
+/// Stage 4: every parameter of a multi-parameter class is read from the
+/// position the class declaration puts it in, so two instances sharing no
+/// first argument are still told apart.
+#[test]
+fn multi_parameter_classes_resolve_on_the_complete_predicate() {
+    let output =
+        run_fixture("multi_parameter_resolution.flx").expect("multi-parameter dispatch should run");
+    assert_eq!(output.stdout, "\"42\"\ntrue");
+}
+
+/// Stage 4 (KI-052): a generic function forwarding to a contextual instance
+/// gets the dictionary that instance's context needs, rather than one that
+/// shadowed it.
+#[test]
+fn a_generic_wrapper_forwards_the_right_contextual_dictionary() {
+    let output = run_fixture("contextual_dictionary_wrapper.flx")
+        .expect("contextual dictionary forwarding should run");
+    assert_eq!(output.stdout, "\"5\"\n\"5\"");
+}
+
+/// Stage 4: a `where` bound written with explicit arguments keeps all of them.
+/// `where Convert<a, b>` used to emit the arity-1 predicate `Convert<a>`,
+/// which no two-parameter instance head could match.
+#[test]
+fn a_where_bound_keeps_every_declared_type_argument() {
+    let output = run_fixture("where_constraint_multi_param.flx")
+        .expect("multi-parameter where bound should run");
+    assert_eq!(output.stdout, "\"42\"\n3");
+}
+
+/// Stage 4: a class parameter occurring only in the return type is fixed by
+/// the expected result, through both a `let` annotation and a function return
+/// type. Before Stage 4 the predicate was built from the argument instead.
+#[test]
+fn a_class_parameter_in_the_return_type_is_fixed_by_the_expected_result() {
+    let output =
+        run_fixture("result_directed_resolution.flx").expect("result-directed dispatch should run");
+    assert_eq!(output.stdout, "7\ntrue\n7");
 }
 
 #[test]

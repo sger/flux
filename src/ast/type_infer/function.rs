@@ -193,9 +193,28 @@ impl<'a> InferCtx<'a> {
                     continue;
                 }
 
-                self.emit_class_constraint(
+                // A bound written with explicit arguments (`where Convert<a, b>`)
+                // carries all of them; the `<a: Eq>` spelling carries none and
+                // constrains the parameter it is attached to. Emitting only the
+                // attached variable dropped every further argument, so
+                // `where Convert<a, b>` became the arity-1 predicate
+                // `Convert<a>` and could not match a two-parameter instance.
+                let type_args: Vec<InferType> = if constraint.type_args.is_empty() {
+                    vec![InferType::Var(type_var)]
+                } else {
+                    constraint
+                        .type_args
+                        .iter()
+                        .map(|arg| {
+                            TypeEnv::infer_type_from_type_expr(arg, tp_map, self.interner)
+                                .unwrap_or_else(|| self.env.alloc_infer_type_var())
+                        })
+                        .collect()
+                };
+
+                self.emit_class_constraint_args(
                     class_name,
-                    InferType::Var(type_var),
+                    type_args,
                     constraint.span,
                     constraint::WantedClassConstraintOrigin::ExplicitBound,
                 );

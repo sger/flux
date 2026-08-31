@@ -1,0 +1,17 @@
+---
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/ambiguous_constraint_e476.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E476]: Ambiguous Type Variable
+
+Type argument 2 of `Convert` is not determined by this signature, so no call can select an instance for it.
+
+  examples/compiler_errors/ambiguous_constraint_e476.flx:31:38
+   |
+31 | fn describe<a, b>(x: a) -> Int where Convert<a, b> {
+   |                                      ^^^^^^^^^^^^^
+== stdout ==
+<not executed>

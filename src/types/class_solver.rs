@@ -18,7 +18,8 @@ use crate::{
     types::{
         TypeVarId,
         class_disposition::{
-            Disposition, DispositionedConstraint, Evidence, SolveOutcome, SolveScope, StuckReason,
+            Disposition, DispositionedConstraint, Evidence, InstanceKey, SolveOutcome, SolveScope,
+            StuckReason,
         },
         class_env::ClassEnv,
         infer_type::InferType,
@@ -26,7 +27,9 @@ use crate::{
     },
 };
 
-use super::super::diagnostics::compiler_errors::{NO_INSTANCE, OVERLAPPING_INSTANCES};
+use super::super::diagnostics::compiler_errors::{
+    NO_INSTANCE, OVERLAPPING_INSTANCES, UNDETERMINED_CLASS_PARAMETER,
+};
 
 /// Solve class constraints against known instances.
 ///
@@ -109,6 +112,25 @@ fn classify_constraint(
         };
     }
 
+    // A class-method call whose predicate still has an undetermined slot can
+    // only be dispatched if the slots it *did* fix single out one instance.
+    // When several remain compatible, the call has no way to choose, and
+    // committing to one would make the program depend on declaration order.
+    //
+    // This is GHC's IL5/IL6 (`Note [Rules for instance lookup]`): a wanted
+    // that merely *unifies* with several instance heads is not committed to.
+    // Reporting it here turns what used to be a runtime `E1009` panic, raised
+    // with a synthetic line-0 span, into a compile error at the call.
+    if scope == SolveScope::WholeProgram
+        && constraint.origin == WantedClassConstraintOrigin::MethodCall
+        && constraint.span != Span::default()
+        && let Some(diagnostic) = undetermined_parameter_diagnostic(constraint, class_env, interner)
+    {
+        return Disposition::Diagnosed {
+            diagnostic: Box::new(diagnostic),
+        };
+    }
+
     // Only check concrete types by default — variables are left unsolved
     // for now. Function-shaped type arguments are already specific enough
     // to reject for marker classes like `Sendable`, even if their inner
@@ -142,7 +164,7 @@ fn classify_constraint(
         };
     }
 
-    let has_matching_instance = has_satisfied_instance(
+    let evidence = solve_instance_evidence(
         constraint.class_name,
         &constraint.type_args,
         class_env,
@@ -169,13 +191,8 @@ fn classify_constraint(
         };
     }
 
-    if has_matching_instance {
-        // Stage 4 replaces this placeholder with the instance and
-        // substitution that `resolve_instance_with_subst` already computes,
-        // so dictionary elaboration can stop re-resolving from scratch.
-        return Disposition::Solved {
-            evidence: Evidence::Unrecorded,
-        };
+    if let Some(evidence) = evidence {
+        return Disposition::Solved { evidence };
     }
 
     let type_display = display_type_args(&constraint.type_args, interner);
@@ -212,13 +229,20 @@ fn classify_constraint(
     }
 }
 
-fn has_satisfied_instance(
+/// Solve a predicate against the class environment, recording *how*.
+///
+/// Returns the evidence that discharges it, or `None` when nothing does. This
+/// is THIH's `byInst` extended to carry its own result: the instance and
+/// substitution were already computed here before Stage 4 and then thrown
+/// away, which is why dictionary elaboration had to resolve a second time and
+/// could disagree with the solver.
+fn solve_instance_evidence(
     class_name: Identifier,
     type_args: &[InferType],
     class_env: &ClassEnv,
     interner: &Interner,
     seen: &mut HashSet<String>,
-) -> bool {
+) -> Option<Evidence> {
     let key = format!(
         "{}<{}>",
         interner.resolve(class_name),
@@ -229,89 +253,114 @@ fn has_satisfied_instance(
             .join(", ")
     );
     if !seen.insert(key.clone()) {
-        return true;
+        // A cycle in the instance-context graph. The predicate is assumed
+        // satisfied to keep the search terminating, but there is no finite
+        // evidence tree to hand back.
+        return Some(Evidence::Unrecorded);
     }
 
-    let result = has_structural_builtin_instance(class_name, type_args, class_env, interner, seen)
-        || class_env
-            .resolve_instance_with_subst(class_name, type_args, interner)
-            .is_some_and(|(instance, subst)| {
-                instance.context.iter().all(|ctx| {
-                    let resolved_args: Option<Vec<InferType>> = ctx
+    let evidence = structural_builtin_evidence(class_name, type_args, class_env, interner, seen)
+        .map(|components| Evidence::Structural { components })
+        .or_else(|| {
+            let (instance, subst) =
+                class_env.resolve_instance_with_subst(class_name, type_args, interner)?;
+
+            // Every predicate in the instance's context must itself be
+            // discharged, and its evidence becomes a subgoal of this one.
+            let context = instance
+                .context
+                .iter()
+                .map(|ctx| {
+                    let args: Vec<InferType> = ctx
                         .type_args
                         .iter()
                         .map(|arg| instantiate_context_type_expr(arg, &subst, interner))
-                        .collect();
-                    resolved_args.is_some_and(|args| {
-                        args.iter().all(is_concrete_type)
-                            && has_satisfied_instance(
-                                ctx.class_name,
-                                &args,
-                                class_env,
-                                interner,
-                                seen,
-                            )
-                    })
+                        .collect::<Option<_>>()?;
+                    if !args.iter().all(is_concrete_type) {
+                        return None;
+                    }
+                    solve_instance_evidence(ctx.class_name, &args, class_env, interner, seen)
                 })
-            });
+                .collect::<Option<Vec<_>>>()?;
+
+            // A class with no methods has no dictionary to pass, so naming the
+            // instance would imply a runtime value that does not exist.
+            if class_env
+                .lookup_class(class_name)
+                .is_some_and(|class| class.methods.is_empty())
+            {
+                return Some(Evidence::Marker);
+            }
+
+            Some(Evidence::FromInstance {
+                instance: InstanceKey {
+                    class_id: instance.class_id,
+                    head_type_args: type_args.to_vec(),
+                },
+                subst,
+                context,
+            })
+        });
 
     seen.remove(&key);
-    result
+    evidence
 }
 
-fn has_structural_builtin_instance(
+/// Evidence for each component a built-in structural rule decomposes into,
+/// or `None` when no structural rule applies.
+fn structural_builtin_evidence(
     class_name: Identifier,
     type_args: &[InferType],
     class_env: &ClassEnv,
     interner: &Interner,
     seen: &mut HashSet<String>,
-) -> bool {
+) -> Option<Vec<Evidence>> {
     let class_name = interner.resolve(class_name);
     if !matches!(class_name, "Eq" | "Ord" | "Sendable") || type_args.len() != 1 {
-        return false;
+        return None;
     }
 
+    let components = |args: &[InferType], seen: &mut HashSet<String>| {
+        args.iter()
+            .map(|arg| single_evidence(class_name, arg, class_env, interner, seen))
+            .collect::<Option<Vec<_>>>()
+    };
+
     match &type_args[0] {
-        InferType::Tuple(elements) => elements.iter().all(|elem| {
-            has_satisfied_instance_for_single(class_name, elem, class_env, interner, seen)
-        }),
+        InferType::Tuple(elements) => components(elements, seen),
         InferType::App(TypeConstructor::Option, args)
         | InferType::App(TypeConstructor::List, args)
-        | InferType::App(TypeConstructor::Array, args) => args.first().is_some_and(|arg| {
-            has_satisfied_instance_for_single(class_name, arg, class_env, interner, seen)
-        }),
+        | InferType::App(TypeConstructor::Array, args) => {
+            let arg = args.first()?;
+            single_evidence(class_name, arg, class_env, interner, seen).map(|ev| vec![ev])
+        }
         // `Sendable<Map<k, v>>` requires both the keys and values to be
         // sendable. `Eq` and `Ord` are not currently auto-derived for `Map`
         // (the existing rules only cover `Option`/`List`/`Array`), so this
         // arm only fires for `Sendable`.
         InferType::App(TypeConstructor::Map, args) if class_name == "Sendable" => {
-            args.iter().all(|arg| {
-                has_satisfied_instance_for_single(class_name, arg, class_env, interner, seen)
-            })
+            components(args, seen)
         }
-        InferType::App(TypeConstructor::Either, args) => args.iter().all(|arg| {
-            has_satisfied_instance_for_single(class_name, arg, class_env, interner, seen)
-        }),
-        _ => false,
+        InferType::App(TypeConstructor::Either, args) => components(args, seen),
+        _ => None,
     }
 }
 
-fn has_satisfied_instance_for_single(
+fn single_evidence(
     class_name: &str,
     ty: &InferType,
     class_env: &ClassEnv,
     interner: &Interner,
     seen: &mut HashSet<String>,
-) -> bool {
-    interner.lookup(class_name).is_some_and(|class_id| {
-        has_satisfied_instance(
-            class_id,
-            std::slice::from_ref(ty),
-            class_env,
-            interner,
-            seen,
-        )
-    })
+) -> Option<Evidence> {
+    let class_id = interner.lookup(class_name)?;
+    solve_instance_evidence(
+        class_id,
+        std::slice::from_ref(ty),
+        class_env,
+        interner,
+        seen,
+    )
 }
 
 fn instantiate_context_type_expr(
@@ -404,6 +453,70 @@ fn display_type_args(type_args: &[InferType], interner: &Interner) -> String {
 }
 
 /// Render a whole predicate, e.g. `Eq<List<Int>>`.
+/// The E459 diagnostic for a predicate with an undetermined class parameter,
+/// or `None` when the call can still select an instance.
+///
+/// Returns `None` when every slot is known (nothing is undetermined), or when
+/// the known slots leave at most one compatible instance — a single candidate
+/// supplies the missing type from its own head, which is what lets
+/// `let s = convert(42)` resolve without an annotation.
+fn undetermined_parameter_diagnostic(
+    constraint: &WantedClassConstraint,
+    class_env: &ClassEnv,
+    interner: &Interner,
+) -> Option<Diagnostic> {
+    let known: Vec<Option<InferType>> = constraint
+        .type_args
+        .iter()
+        .map(|ty| match ty {
+            InferType::Var(_) => None,
+            other => Some(other.clone()),
+        })
+        .collect();
+
+    let first_undetermined = known.iter().position(Option::is_none)?;
+
+    // Require that the call fixed at least one slot. A predicate with *every*
+    // slot open is the dictionary-passing case — `enc(h)` inside
+    // `instance Enc<a> => Enc<List<a>>` constrains a variable the enclosing
+    // scheme quantifies, and receives its evidence as a dictionary parameter.
+    // Flux spells a rigid scheme-bound variable and a free metavariable both
+    // as `InferType::Var`, and whole-program scope does not carry the
+    // environment's free-variable set that would tell them apart, so this
+    // stays deliberately conservative: a missed case falls through to the
+    // previous behaviour, whereas a false positive rejects a working program.
+    // The general check, with `env_free_vars` in scope, is the ambiguity work
+    // that follows.
+    if known.iter().all(Option::is_none) {
+        return None;
+    }
+
+    let candidates = class_env
+        .instances_matching_known_args(constraint.class_name, &known, interner)
+        .take(2)
+        .count();
+    if candidates < 2 {
+        return None;
+    }
+
+    let class_def = class_env.lookup_class(constraint.class_name)?;
+    let param = class_def
+        .type_params
+        .get(first_undetermined)
+        .map(|name| interner.resolve(*name).to_string())
+        .unwrap_or_else(|| format!("argument {}", first_undetermined + 1));
+    let predicate = display_predicate(constraint, interner);
+
+    Some(
+        diagnostic_for(&UNDETERMINED_CLASS_PARAMETER)
+            .with_span(constraint.span)
+            .with_message(format!(
+                "Cannot determine `{param}` in `{predicate}`; \
+                 several instances are compatible with what this call fixes."
+            )),
+    )
+}
+
 fn display_predicate(constraint: &WantedClassConstraint, interner: &Interner) -> String {
     format!(
         "{}<{}>",
@@ -471,4 +584,166 @@ pub fn split(
                 .iter()
                 .all(|var| env_free_vars.contains(var) && !quantified_vars.contains(var))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::diagnostics::position::Position;
+    use crate::syntax::type_expr::TypeExpr;
+    use crate::types::class_env::{ClassDef, InstanceDef, MethodSig};
+    use crate::types::class_id::{ClassId, ModulePath};
+
+    fn named(interner: &mut Interner, name: &str, args: Vec<TypeExpr>) -> TypeExpr {
+        TypeExpr::Named {
+            name: interner.intern(name),
+            args,
+            span: Span::default(),
+        }
+    }
+
+    /// `class Sizeable<a> { fn size(x: a) -> Int }` plus the given instance
+    /// heads, each context-free.
+    fn env_with_instances(interner: &mut Interner, heads: &[TypeExpr]) -> ClassEnv {
+        let class_name = interner.intern("Sizeable");
+        let method_name = interner.intern("size");
+        let int = named(interner, "Int", vec![]);
+        let a = named(interner, "a", vec![]);
+        let class_id = ClassId::new(ModulePath::EMPTY, class_name);
+
+        let mut env = ClassEnv::default();
+        env.classes.insert(
+            class_id,
+            ClassDef {
+                name: class_name,
+                module: ModulePath::EMPTY,
+                is_public: false,
+                is_builtin: false,
+                type_params: vec![interner.intern("a")],
+                superclasses: Vec::new(),
+                methods: vec![MethodSig {
+                    name: method_name,
+                    type_params: Vec::new(),
+                    param_names: Vec::new(),
+                    param_types: vec![a],
+                    return_type: int,
+                    arity: 1,
+                    effects: Vec::new(),
+                    default_body: None,
+                }],
+                default_methods: Vec::new(),
+                span: Span::default(),
+            },
+        );
+        for head in heads {
+            env.instances.push(InstanceDef {
+                class_name,
+                class_id,
+                instance_module: ModulePath::EMPTY,
+                is_public: false,
+                type_args: vec![head.clone()],
+                context: Vec::new(),
+                method_names: vec![method_name],
+                method_effects: Vec::new(),
+                span: Span::default(),
+            });
+        }
+        env
+    }
+
+    fn wanted(class_name: Identifier, type_args: Vec<InferType>) -> WantedClassConstraint {
+        WantedClassConstraint {
+            class_name,
+            type_args,
+            span: Span::new(Position::new(1, 0), Position::new(1, 4)),
+            origin: WantedClassConstraintOrigin::MethodCall,
+            originated_from_concrete_type: true,
+        }
+    }
+
+    /// Stage 4: a solved predicate names the instance that discharged it, so
+    /// dictionary elaboration does not have to resolve a second time and reach
+    /// a different answer.
+    #[test]
+    fn a_solved_predicate_records_the_instance_that_discharged_it() {
+        let mut interner = Interner::new();
+        let int_head = named(&mut interner, "Int", vec![]);
+        let class_env = env_with_instances(&mut interner, &[int_head]);
+        let class_name = interner.intern("Sizeable");
+
+        let outcome = solve_class_constraints_dispositioned(
+            &[wanted(
+                class_name,
+                vec![InferType::Con(TypeConstructor::Int)],
+            )],
+            SolveScope::WholeProgram,
+            &class_env,
+            &interner,
+        );
+
+        let [entry] = &outcome.dispositions[..] else {
+            panic!("expected exactly one disposition");
+        };
+        match &entry.disposition {
+            Disposition::Solved {
+                evidence: Evidence::FromInstance { instance, .. },
+            } => {
+                assert_eq!(instance.class_id.name, class_name);
+                assert_eq!(
+                    instance.head_type_args,
+                    vec![InferType::Con(TypeConstructor::Int)]
+                );
+            }
+            other => panic!("expected FromInstance evidence, got {other:?}"),
+        }
+    }
+
+    /// Overlap detection counts candidates, so it cannot depend on the order
+    /// instances happen to arrive in — they are read from `.flxi` files in no
+    /// guaranteed order. GHC needed a dedicated mechanism to hold this
+    /// property; this test is what keeps it true here.
+    #[test]
+    fn overlap_detection_does_not_depend_on_instance_order() {
+        let verdict = |reversed: bool| {
+            let mut interner = Interner::new();
+            let list_a = {
+                let a = named(&mut interner, "a", vec![]);
+                named(&mut interner, "List", vec![a])
+            };
+            let list_int = {
+                let int = named(&mut interner, "Int", vec![]);
+                named(&mut interner, "List", vec![int])
+            };
+            let mut heads = vec![list_a, list_int];
+            if reversed {
+                heads.reverse();
+            }
+            let class_env = env_with_instances(&mut interner, &heads);
+            let class_name = interner.intern("Sizeable");
+
+            let outcome = solve_class_constraints_dispositioned(
+                &[wanted(
+                    class_name,
+                    vec![InferType::App(
+                        TypeConstructor::List,
+                        vec![InferType::Con(TypeConstructor::Int)],
+                    )],
+                )],
+                SolveScope::WholeProgram,
+                &class_env,
+                &interner,
+            );
+            matches!(
+                outcome.dispositions[0].disposition,
+                Disposition::Diagnosed { .. }
+            )
+        };
+
+        assert!(verdict(false), "overlap should be reported");
+        assert_eq!(
+            verdict(false),
+            verdict(true),
+            "the verdict must not change when the instances are declared in the opposite order"
+        );
+    }
 }

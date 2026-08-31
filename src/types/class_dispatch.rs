@@ -253,7 +253,7 @@ fn generate_builtin_instance_functions(
         if instance.span != Span::default() || !instance.method_names.is_empty() {
             continue;
         }
-        let Some(class_def) = class_env.lookup_class(instance.class_name) else {
+        let Some(class_def) = class_env.lookup_class_by_id(instance.class_id) else {
             continue;
         };
         let type_name = instance
@@ -288,7 +288,11 @@ fn generate_builtin_instance_functions(
                 body
             };
 
-            let mangled = format!("__tc_{class_name_str}_{type_name}_{method_name_str}");
+            let mangled = crate::types::class_env::mangled_method_name(
+                &class_name_str,
+                &type_name,
+                &method_name_str,
+            );
             let mangled_sym = interner.intern(&mangled);
             if !reserved_names.insert(mangled_sym) {
                 dispatch_table.insert((instance.class_name, method_sig.name));
@@ -1005,7 +1009,29 @@ fn pre_intern_dict_names(class_env: &ClassEnv, interner: &mut Interner) {
         let dict_name = format!("__dict_{class_str}_{type_name}");
         interner.intern(&dict_name);
     }
+
+    // Dictionary *parameter* names, which carry a per-class occurrence suffix
+    // so a function holding several dictionaries for one class can tell them
+    // apart. Elaboration runs with `&Interner` and can only `lookup`, so an
+    // un-interned name silently degrades to the class name and two parameters
+    // collide — that was KI-052. A function needing more than a few
+    // dictionaries for a single class is pathological, so a small fixed range
+    // covers every realistic signature.
+    let classes: Vec<Identifier> = class_env.classes.values().map(|class| class.name).collect();
+    for class_name in classes {
+        let class_str = interner.resolve(class_name).to_string();
+        interner.intern(&format!("__dict_{class_str}"));
+        for occurrence in 1..MAX_DICT_PARAMS_PER_CLASS {
+            interner.intern(&format!("__dict_{class_str}_{occurrence}"));
+        }
+    }
 }
+
+/// How many dictionaries for a single class one signature may hold.
+///
+/// Only bounds the *pre-interned parameter names*; nothing rejects a signature
+/// that exceeds it, it simply would not find its later parameter names.
+const MAX_DICT_PARAMS_PER_CLASS: usize = 8;
 
 /// Generate top-level functions for default class methods that have no explicit
 /// instance implementation anywhere. E.g., `neq` with default body `{ !eq(x, y) }`.
@@ -1149,7 +1175,11 @@ fn generate_from_statements(
 
                     // Generate mangled name: __tc_ClassName_TypeName_methodName
                     let method_name_str = interner.resolve(method_sig.name).to_string();
-                    let mangled = format!("__tc_{class_name_str}_{type_name}_{method_name_str}");
+                    let mangled = crate::types::class_env::mangled_method_name(
+                        &class_name_str,
+                        &type_name,
+                        &method_name_str,
+                    );
                     let mangled_sym = interner.intern(&mangled);
 
                     let context_params = context_dict_param_names(context, interner);
