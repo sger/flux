@@ -264,13 +264,28 @@ fn main() with IO { print(twice(21)) }
 
 - Give every wanted predicate a disposition: `solved_constraint.flx`,
   `generalized_constraint.flx`, `stuck_constraint.flx`, and
-  `diagnosed_constraint.flx`.
+  `diagnosed_constraint.flx`. A disposition is `Solved`, `Generalized`,
+  `Stuck` with a documented reason, or `Diagnosed`; the type admits no
+  fourth outcome, so an obligation cannot be discarded.
 - Preserve structured constraints through generalization:
-  `generalized_structured_constraint.flx`.
-- Add ambiguity and missing-instance diagnostics:
-  `ambiguous_constraint.flx` and `missing_instance.flx`.
-- Use one representation for `where` constraints:
-  `where_constraint.flx`.
+  `generalized_structured_constraint.flx`. Generalization partitions
+  obligations with a port of the THIH `split`, which by construction retains
+  every predicate it does not defer.
+- Add missing-instance and overlapping-instance diagnostics:
+  `missing_instance_e444.flx`, and `E454` for a predicate matched by more
+  than one instance, which previously failed at runtime as `E1009`.
+- Use one representation for `where` constraints: `FunctionTypeParam` carries
+  `ClassConstraint`, so `fn f<a: Eq>(..)` and `fn f<a>(..) where Eq<a>` lower
+  to the same predicate with its own span.
+
+Enforcing operator-derived obligations closes a soundness hole: `fn double<a>(x: a) -> a { x + x }`
+applied to a `String` used to compile and concatenate, and is now rejected.
+
+`ambiguous_constraint.flx` moves to Stage 4. Ambiguity in the Haskell Report
+sense needs a predicate whose variable is fixed only by the expected result
+type, and Flux emits the obligation on the argument type until Stage 4 makes
+resolution result-directed. A Stage 3 fixture would therefore assert the
+wrong diagnostic rather than the ambiguity check.
 
 Example syntax:
 
@@ -286,6 +301,9 @@ fn all_equal<a>(x: a, y: a) -> Bool where Eq<a> {
   `qualified_class_id.flx`.
 - Reject overlapping and ambiguous candidates:
   `overlapping_instances.flx` and `ambiguous_instance.flx`.
+- Report a predicate whose variable no type or environment fixes, once
+  resolution is result-directed: `ambiguous_constraint.flx` (deferred from
+  Stage 3).
 - Resolve using the complete predicate, all arguments, and expected result:
   `multi_parameter_resolution.flx` and
   `result_directed_resolution.flx`.
