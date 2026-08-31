@@ -1,0 +1,31 @@
+// Stage 3 contract: a predicate that cannot be decided at its own binding is a
+// documented stuck predicate, not a silent drop.
+//
+// The inner `go` closure calls `show2(x)`, so it owns a wanted `Show2<a>`. But
+// `a` belongs to the *enclosing* function, so `go` may neither solve it (the
+// type is not concrete) nor generalize it (the variable is not `go`'s to
+// quantify). It is recorded `Disposition::Stuck` and handed outward, where
+// `outer`'s own `Show2<a>` bound discharges it.
+//
+// Before Stage 3 this was one of five bare `continue`s in the solve loop, so a
+// deferred obligation and a lost one were indistinguishable.
+//
+// Expected output:
+// "5"
+
+class Show2<a> {
+    fn show2(x: a) -> String
+}
+
+instance Show2<Int> {
+    fn show2(x) { to_string(x) }
+}
+
+fn outer<a: Show2>(x: a) -> String {
+    let go = fn() { show2(x) };
+    go()
+}
+
+fn main() with IO {
+    print(outer(5))
+}

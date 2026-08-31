@@ -1,0 +1,29 @@
+// Stage 3 contract: a predicate the solver cannot discharge is reported, and
+// numeric defaulting resolves the one case that would otherwise be ambiguous.
+//
+// `1 + 2` emits `Num<a>` over a fresh variable that appears nowhere in the
+// binding's type. Left alone it is ambiguous; defaulting substitutes `Int`
+// (the Haskell Report §4.3.4 rule, restricted to `Num`), so the obligation is
+// discharged rather than reported.
+//
+// The genuine error case — a predicate with no instance — is
+// `examples/compiler_errors/missing_instance_e444.flx`, which asserts E444
+// rather than executing.
+//
+// Expected output:
+// 3
+// 21
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+fn main() with IO {
+    let defaulted = 1 + 2
+    print(defaulted)
+    print(size(21))
+}
