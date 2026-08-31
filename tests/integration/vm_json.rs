@@ -235,3 +235,28 @@ fn main() with IO {
     assert!(stdout.contains("missing JSON field"), "{stdout}");
     assert!(stdout.contains("expected JSON number"), "{stdout}");
 }
+
+/// KI-051: an imported instance's generated methods are defined
+/// module-qualified, so marking the bare `__tc_*` name `Imported` made the
+/// cached parallel linker demand a global no module defines. Only the cached
+/// path catches this — `--no-cache` always printed the right answer.
+#[test]
+fn imported_contextual_instances_link_on_the_cached_path() {
+    let (stdout, stderr, ok) = flux_runner::run_flux_cached(
+        r#"
+import Flow.Json as Json
+import Flow.Json exposing (encode)
+
+fn main() with IO {
+    print(Json.encode_json(encode([1, 2])))
+    print(Json.encode_json(encode(Some(42))))
+}
+"#,
+        "ki051",
+    );
+    assert!(
+        ok,
+        "cached run of imported contextual instances failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout, "\"[1,2]\"\n\"42\"\n", "{stdout}");
+}
