@@ -475,6 +475,7 @@ impl Parser {
         };
 
         let effects = self.parse_effect_list()?;
+        let type_params = self.parse_where_constraints(type_params);
 
         Some((
             name,
@@ -485,6 +486,102 @@ impl Parser {
             effects,
             self.span_from(start),
         ))
+    }
+
+    /// Parse a `where` constraint clause following a function signature.
+    ///
+    /// ```flux
+    /// fn all_equal<a>(x: a, y: a) -> Bool where Eq<a> { eq(x, y) }
+    /// ```
+    ///
+    /// Both this and the `<a: Eq>` bound spelling produce
+    /// [`ClassConstraint`]s on the same `FunctionTypeParam`, so downstream
+    /// phases see one representation (Proposal 0179 Stage 3). Unlike a bound,
+    /// a `where` constraint supplies its own type arguments, so it can express
+    /// predicates a bound cannot — `where Eq<List<a>>` or a multi-parameter
+    /// `where Convert<a, b>`.
+    ///
+    /// This is unambiguous against the `where x = expr` local-binding form
+    /// ([`Self::parse_where_clauses`]): that one appears *inside* a block,
+    /// after the body's statements, whereas this appears between the
+    /// signature and the opening brace. As a further guard, a constraint
+    /// `where` must be followed by an identifier and `<`.
+    fn parse_where_constraints(
+        &mut self,
+        mut type_params: Vec<FunctionTypeParam>,
+    ) -> Vec<FunctionTypeParam> {
+        while self.is_peek_token(TokenType::Where) {
+            if !self.peek_starts_class_constraint() {
+                break;
+            }
+            self.next_token(); // consume `where`
+
+            loop {
+                if !self.expect_peek_context_with_details(
+                    TokenType::Ident,
+                    "Missing Constraint Class Name",
+                    DiagnosticCategory::ParserDeclaration,
+                    "Expected a type class name after `where`.".to_string(),
+                    "Write the constraint as `where Eq<a>`.".to_string(),
+                ) {
+                    return type_params;
+                }
+                let class_name = self
+                    .current_token
+                    .symbol
+                    .expect("ident token should have symbol");
+                let constraint_start = self.current_token.position;
+                let type_args = self.parse_instance_type_args();
+                let span = self.span_from(constraint_start);
+
+                let constraint = ClassConstraint {
+                    class_name,
+                    type_args,
+                    span,
+                };
+
+                // Attach to the parameter the constraint mentions, so the
+                // existing bound machinery applies unchanged. A constraint
+                // naming no declared parameter is attached to the first,
+                // where the solver reports it against the real class.
+                let target = constraint
+                    .type_args
+                    .iter()
+                    .find_map(|arg| {
+                        type_params
+                            .iter()
+                            .position(|tp| type_expr_names_param(arg, tp.name))
+                    })
+                    .unwrap_or(0);
+                if let Some(param) = type_params.get_mut(target) {
+                    param.constraints.push(constraint);
+                }
+
+                if self.is_peek_token(TokenType::Comma) {
+                    self.next_token(); // consume `,`
+                } else {
+                    break;
+                }
+            }
+        }
+        type_params
+    }
+
+    /// Whether the token after `where` begins a class constraint rather than a
+    /// local binding.
+    ///
+    /// A constraint names a class, so it is followed by an identifier whose
+    /// first character is uppercase (`where Eq<a>`); a local binding is
+    /// `where x = expr`. Position already separates the two forms — this only
+    /// guards against a signature-position `where` that is not a constraint.
+    fn peek_starts_class_constraint(&self) -> bool {
+        self.peek2_token.token_type == TokenType::Ident
+            && self
+                .peek2_token
+                .literal
+                .chars()
+                .next()
+                .is_some_and(char::is_uppercase)
     }
 
     fn parse_intrinsic_function_statement(&mut self, is_public: bool) -> Option<Statement> {
@@ -2112,11 +2209,25 @@ impl Parser {
                     ) {
                         return None;
                     }
-                    constraints.push(
-                        self.current_token
-                            .symbol
-                            .expect("ident token should have symbol"),
-                    );
+                    // The bound's own span, so a constraint diagnostic can
+                    // underline `Eq` in `<a: Eq>` rather than the whole
+                    // signature (Proposal 0179 Stage 3).
+                    let constraint_span = self.current_token.span();
+                    let class_name = self
+                        .current_token
+                        .symbol
+                        .expect("ident token should have symbol");
+                    constraints.push(ClassConstraint {
+                        class_name,
+                        // `<a: Eq>` constrains the parameter itself. The
+                        // `where Eq<..>` spelling supplies its own arguments.
+                        type_args: vec![TypeExpr::Named {
+                            name,
+                            args: Vec::new(),
+                            span: constraint_span,
+                        }],
+                        span: constraint_span,
+                    });
 
                     if self.is_peek_token(TokenType::Plus) {
                         self.next_token(); // consume `+`
@@ -2404,5 +2515,18 @@ impl Parser {
         }
 
         Some(expr)
+    }
+}
+
+/// Whether `ty` mentions the type parameter `param` at its head.
+///
+/// Used to attach a `where` constraint to the parameter it constrains, so both
+/// constraint spellings land on the same `FunctionTypeParam`.
+fn type_expr_names_param(ty: &TypeExpr, param: crate::syntax::Identifier) -> bool {
+    match ty {
+        TypeExpr::Named { name, args, .. } => {
+            *name == param || args.iter().any(|arg| type_expr_names_param(arg, param))
+        }
+        _ => false,
     }
 }

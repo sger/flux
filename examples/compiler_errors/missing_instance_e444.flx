@@ -1,0 +1,23 @@
+// expect: compile_error
+// expect-error: E444
+// Expected: E444 No Type Class Instance
+//   "No instance for `Sizeable<String>`."
+//   Hint: "Add an instance: `instance Sizeable<String> { ... }`"
+//
+// Proposal 0179 Stage 3: a predicate over a concrete type with no matching
+// instance is reported, not skipped. E444 keeps this narrow meaning — the
+// type is concrete and zero instances match. Two or more matching instances
+// is E454 (`overlapping_instances_e454.flx`), a different failure with a
+// different remedy.
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+fn main() with IO {
+    print(size("hello"))
+}

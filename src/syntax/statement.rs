@@ -19,7 +19,14 @@ use crate::{
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionTypeParam {
     pub name: Identifier,
-    pub constraints: Vec<Identifier>,
+    /// Class obligations declared on this parameter.
+    ///
+    /// Uses the same [`ClassConstraint`] as superclass declarations and
+    /// instance contexts (Proposal 0179 Stage 3, "one representation for
+    /// `where` constraints"). Carrying full type arguments and a span, rather
+    /// than a bare class name, is what lets a constraint diagnostic underline
+    /// the bound itself instead of the whole function signature.
+    pub constraints: Vec<ClassConstraint>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -209,8 +216,11 @@ impl Statement {
                 if tp.constraints.is_empty() {
                     render_ident(tp.name)
                 } else {
-                    let constraints: Vec<String> =
-                        tp.constraints.iter().map(|c| render_ident(*c)).collect();
+                    let constraints: Vec<String> = tp
+                        .constraints
+                        .iter()
+                        .map(|c| render_ident(c.class_name))
+                        .collect();
                     format!("{}: {}", render_ident(tp.name), constraints.join(" + "))
                 }
             })

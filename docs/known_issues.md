@@ -1333,12 +1333,9 @@ The `Flow.Json` case is verified on the `--no-cache` VM path only; the cached
 parallel VM path and the native backend still fail it for a separate,
 pre-existing reason — see [KI-051](#ki-051).
 
-### KI-051 — Cross-module same-class contextual instances fail on the cached VM path and natively
+### KI-051 — Cross-module contextual instances fail natively — VM PATH FIXED 2026-08-31
 
-**Severity:** High · **Area:** type classes, module linking, native backend · **Verified:** 2026-08-30 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
-
-`Json.encode` on a container works with `flux file.flx --no-cache` but not on
-the default cached run or under `--native`:
+**Severity:** High · **Area:** type classes, module linking, native backend · **Verified:** 2026-08-31 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 ```flux
 import Flow.Json as Json
@@ -1346,21 +1343,83 @@ import Flow.Json exposing (encode)
 fn main() with IO { print(Json.encode_json(encode([1, 2]))) }
 ```
 
-- Default (cached, parallel) VM run:
-  `parallel VM compilation failed: missing imported global __tc_Encode_Array<a>_encode`.
-  The parallel module compiler links imported instance methods by their bare
-  `__tc_*` name, but a stdlib module's generated methods live under the
-  module-qualified name; the bare alias emitted by
-  `emit_instance_method_aliases` is an `OpSetGlobal` at load time, not a
-  definition the linker can import.
-- Native (`--native`, with or without `--no-cache`):
-  `E1009 No instance of Encode.encode for the given type` — the LLVM lowering
-  does not see the imported contextual instance at all. Before KI-050 was fixed
-  the same program reported eighteen `E443 Duplicate Instance` errors, so this
-  is not a regression, but it is not fixed either.
+**Cached parallel VM — FIXED.** The run failed with
+`missing imported global __tc_Encode_Int_encode`. A module body defines its
+generated instance methods under the module-qualified name
+(`Flow.Json.__tc_Encode_Int_encode`), but `preload_imported_instance_schemes`
+marked the *bare* name `Imported`, so the linker demanded a global no module
+defines. The bare name is only ever written at load time by
+`emit_instance_method_aliases`, which emits an `OpSetGlobal` — a store, not a
+definition the linker can satisfy.
 
-Both paths predate the KI-050 fix, which changed only how an already-visible
-instance dispatches. A same-file same-class contextual instance
-(`tests/parity/contextual_instance_eq_list.flx`) passes on every parity way,
-so the gap is specifically in how imported instance methods reach the cached
-linker and the native lowering.
+The importer now imports the qualified symbol the defining module actually
+exports and leaves the bare name a local definition for the alias to fill.
+Covered by
+[`tests/parity/imported_contextual_instance_cached.flx`](../tests/parity/imported_contextual_instance_cached.flx),
+which runs the cached ways the `--no-cache` path could not catch, and by
+`imported_contextual_instances_link_on_the_cached_path` in
+[`tests/integration/vm_json.rs`](../tests/integration/vm_json.rs). The parity
+fixture deliberately uses imported *concrete* instances so it runs unskipped on
+all five ways; the contextual native gap below is covered separately once
+fixed.
+
+Note when re-testing: a `.fxc` written before the fix replays its own stale
+`Imported` classification through `hydrate_cached_module_bytecode`, so clear
+`target/flux` before concluding the fix did not work.
+
+**Native — still open, and narrower than first recorded.** `flux --native`
+handles an imported *concrete* instance correctly (`encode(42)` prints `"42"`)
+but fails an imported *contextual* one (`encode([1, 2])`) with
+`E1009 No instance of Encode.encode for the given type`. That message comes
+from the generic dispatch stub in
+[`class_dispatch.rs`](../src/types/class_dispatch.rs), whose own comment says
+it "is never executed in well-typed programs" — so the native run is reaching a
+fallback the VM never reaches.
+
+The divergence is below Core: `--dump-core` output is byte-identical between
+the two backends, and the `__tc_Encode_List<a>_encode` symbol is present in
+`--dump-lir`. The gap is therefore in how the native backend *constructs or
+applies* a contextual dictionary, not in constraint solving or symbol
+availability.
+
+Hoisting a stdlib module's generated methods to top level was tried and
+rejected — the hoisted methods lose access to module-local helpers and
+`Flow.Json` itself then fails to compile with `E004`.
+
+### KI-052 — A generic wrapper over a contextual instance loses its dictionary
+
+**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-08-30 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+Calling a contextual instance directly works, but forwarding to it through a
+generic function fails at runtime:
+
+```flux
+class Enc<a> { fn enc(x: a) -> String }
+instance Enc<Int> { fn enc(x) { to_string(x) } }
+instance Enc<a> => Enc<List<a>> {
+    fn enc(xs) { match xs { [h | t] -> enc(h), _ -> "e" } }
+}
+
+fn show_all<a: Enc>(xs: List<a>) -> String { enc(xs) }
+
+fn main() with IO {
+    print(enc([5, 6]))        // "5"  — direct call works
+    print(show_all([5, 6]))   // E1004 tuple field access expected Tuple, got None
+}
+```
+
+The wrapper's obligation is `Enc<a>`, but the call inside it needs
+`Enc<List<a>>`. Elaboration passes the wrapper's own dictionary rather than
+constructing the `List` instance's dictionary from it, so the method extraction
+reads a field off `None`.
+
+Both constraint spellings fail identically — `<a: Enc>` and
+`where Enc<List<a>>` — so this is not a `where`-clause defect. Verified against
+`main` at `c02b680b` before the Stage 3 branch, so it predates the constraint
+work: Stage 3 changed which obligations are *retained*, not how a retained
+obligation's dictionary is *built*.
+
+Constructing a dictionary for a structured predicate from a contextual one is
+evidence resolution, which [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+assigns to Stage 4.
+

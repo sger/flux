@@ -1,0 +1,29 @@
+// Stage 3 contract: a predicate over a quantified variable is generalized onto
+// the binding's scheme, not discharged and not dropped.
+//
+// `twice` cannot solve `Sizeable<a>` — `a` is its own type parameter. The
+// obligation is therefore retained on its scheme (`Disposition::Generalized`),
+// becomes a dictionary parameter, and transfers to every call site; `main`
+// discharges it at `Int`.
+//
+// This is the retained half of THIH's `split`. The deferred half is
+// `stuck_constraint.flx`.
+//
+// Expected output:
+// 42
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+fn twice<a: Sizeable>(x: a) -> Int {
+    size(x) + size(x)
+}
+
+fn main() with IO {
+    print(twice(21))
+}
