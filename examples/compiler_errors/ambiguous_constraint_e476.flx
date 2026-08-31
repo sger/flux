@@ -1,0 +1,37 @@
+// expect: compile_error
+// expect-error: E476
+// Expected: E476 Ambiguous Type Variable
+//   "Type argument 2 of `Convert` is not determined by this signature, so no
+//    call can select an instance for it."
+//   Hint: "A constrained type variable must appear in the signature's own
+//    type, otherwise no call can determine which instance to use."
+//
+// Proposal 0179 Stage 4, Haskell Report 4.3.4: `describe` constrains
+// `Convert<a, b>`, but `b` appears nowhere in `(a) -> Int`. Instantiating the
+// signature at any call site leaves `b` free, so no call can ever select an
+// instance for it — the signature is unusable as written, independently of
+// which instances exist.
+//
+// Deferred from Stage 3, which could not express this: `where` bounds emitted
+// only the type parameter they were attached to, so `where Convert<a, b>`
+// became the arity-1 predicate `Convert<a>` and `b` was not merely
+// undetermined — it was absent.
+//
+// Distinct from E459, which reports one *call* that leaves a parameter open.
+// This is a property of the signature, so every call to it is affected.
+
+class Convert<a, b> {
+    fn convert(x: a) -> b
+}
+
+instance Convert<Int, String> {
+    fn convert(x) { to_string(x) }
+}
+
+fn describe<a, b>(x: a) -> Int where Convert<a, b> {
+    1
+}
+
+fn main() with IO {
+    print(describe(42))
+}
