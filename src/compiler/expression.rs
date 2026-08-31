@@ -1088,7 +1088,22 @@ impl Compiler {
                     }
 
                     let member_str = self.sym(member);
-                    self.check_private_member(member_str, expr_span, Some(self.sym(module_name)))?;
+                    // Module-owned generated methods are private implementation
+                    // details, but their synthetic bare-name forwarding alias
+                    // must reach them from file scope so VM dispatch can keep
+                    // using the canonical name.  The alias is identified by
+                    // both the hidden method name and its matching enclosing
+                    // function; ordinary user access to `Module.__tc_*` stays
+                    // private.
+                    let generated_alias = member_str.starts_with("__tc_")
+                        && self.current_function_name == Some(member);
+                    if !generated_alias {
+                        self.check_private_member(
+                            member_str,
+                            expr_span,
+                            Some(self.sym(module_name)),
+                        )?;
+                    }
                     if self.current_module_prefix != Some(module_name)
                         && self.module_member_function_is_public(module_name, member) == Some(false)
                     {

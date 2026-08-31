@@ -326,11 +326,9 @@ impl<'a> InferCtx<'a> {
     fn capture_public_module_member_scheme(&mut self, module_name: Identifier, stmt: &Statement) {
         let name = match stmt {
             Statement::Function {
-                is_public: true,
-                name,
-                ..
-            }
-            | Statement::Let {
+                is_public, name, ..
+            } if *is_public || self.interner.resolve(*name).starts_with("__tc_") => *name,
+            Statement::Let {
                 is_public: true,
                 name,
                 ..

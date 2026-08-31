@@ -56,7 +56,9 @@ use sha2::{Digest, Sha256};
 /// before (KI-034). Cached native objects from epoch 23 lack them.
 /// Epoch 27: package build profiles and default-eliding semantic config keys.
 /// Epoch 28: structured typeclass predicates and kind metadata in interfaces.
-pub const CACHE_EPOCH: u16 = 29;
+/// Epoch 30: explicit instance-body clones receive fresh expression IDs, and
+/// module-scoped generated typeclass methods retain qualified native symbols.
+pub const CACHE_EPOCH: u16 = 30;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

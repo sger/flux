@@ -1329,11 +1329,10 @@ alongside it, each guarded by a parity fixture:
   user file resolve its own `add(5, 10)` to a function never generated for it
   (`DispatchGenerationOptions::include_builtin_instances`).
 
-The `Flow.Json` case is verified on the `--no-cache` VM path only; the cached
-parallel VM path and the native backend still fail it for a separate,
-pre-existing reason — see [KI-051](#ki-051).
+The `Flow.Json` case is covered by the cross-backend and cached-path regression
+fixture in [KI-051](#ki-051).
 
-### KI-051 — Cross-module contextual instances fail natively — VM PATH FIXED 2026-08-31
+### KI-051 — Cross-module contextual instances — FIXED 2026-08-31
 
 **Severity:** High · **Area:** type classes, module linking, native backend · **Verified:** 2026-08-31 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
@@ -1360,17 +1359,17 @@ which runs the cached ways the `--no-cache` path could not catch, and by
 `imported_contextual_instances_link_on_the_cached_path` in
 [`tests/integration/vm_json.rs`](../tests/integration/vm_json.rs). The parity
 fixture deliberately uses imported *concrete* instances so it runs unskipped on
-all five ways; the contextual native gap below is covered separately once
-fixed.
+all five ways.
 
 Note when re-testing: a `.fxc` written before the fix replays its own stale
 `Imported` classification through `hydrate_cached_module_bytecode`, so clear
 `target/flux` before concluding the fix did not work.
 
-**Native — still open. Diagnosis corrected 2026-08-31; it is not a native
-backend defect.** `flux --native` handles an imported *concrete* instance
-correctly (`encode(42)` prints `"42"`) but fails an imported *contextual* one
-(`encode([1, 2])`) with `E1009 No instance of Encode.encode for the given type`.
+**Native — FIXED.** `flux --native` now handles imported contextual
+`Flow.Json` instances for `Option`, `List`, and `Array`; the parity fixture
+[`tests/parity/imported_contextual_instances_native.flx`](../tests/parity/imported_contextual_instances_native.flx)
+runs fresh and warm VM/native paths and checks the encoded `"42"` and
+`"[1,2]"` results.
 
 The earlier entry said the gap was in "how the native backend constructs or
 applies a contextual dictionary". That is wrong. Core is byte-identical between
@@ -1401,29 +1400,20 @@ the same call through the AST lowering path in
 correctly — the same twin-path split that Stage 4 had to keep in lockstep. So
 this is a mis-lowering that the VM happens to bypass, not a native gap.
 
-Narrowing so far: a contextual instance in a single file works natively, and so
-does one in an imported single-segment user module — including with a lambda
-calling the class method on an element, which is `Flow.Json`'s exact shape.
-Something specific to the standard-library module makes the argument's inferred
-type wrong at that call. `ExprId` collisions poisoning `hm_expr_types` are a
-known failure mode for synthesised code and are the next thing to check.
+The shared Core defect was duplicate expression IDs when explicit instance
+method bodies were cloned. The generated copy now refreshes every expression
+ID, so `hm_expr_types` cannot reuse the source body's type entry; inner calls
+in contextual instances therefore resolve through the dictionary rather than
+recursing through the enclosing container instance.
 
-Verified pre-existing on `main` at the Stage 4 branch point, so it predates the
-Stage 4 work.
-
-**Related, and previously unrecorded:** a *dotted* user module fails to link
-natively even with a purely concrete instance —
-`module Data.Enc { public instance Encodable<Int> { ... } }` imported by an
-entry file gives
-`ld: "_flux_Data_Enc___tc_Encodable_Int_enc", referenced from: _flux_main`.
-The reference is module-qualified but no definition is emitted under that name.
-A single-segment module (`module Enc`) links fine. This is a distinct defect
-from the one above — link-time rather than lowering — and is also pre-existing
-on `main`.
-
-Hoisting a stdlib module's generated methods to top level was tried and
-rejected — the hoisted methods lose access to module-local helpers and
-`Flow.Json` itself then fails to compile with `E004`.
+The native linker defect for dotted user modules is fixed in the same change:
+generated `__tc_*` methods belonging to a module remain inside that module,
+emitting the qualified symbol imported by native callers. Unscoped instances
+remain at file scope, and the bare-name aliases used by VM dispatch are still
+emitted. The native multi-module regression
+[`dotted_module_instance_dispatches_on_vm_and_llvm` in
+`tests/native_llvm/native_typeclass_tests.rs`](../tests/native_llvm/native_typeclass_tests.rs)
+covers this path.
 
 ### KI-052 — A generic wrapper over a contextual instance loses its dictionary — FIXED 2026-08-31
 
@@ -1488,4 +1478,3 @@ Guarded by
 `a_generic_wrapper_forwards_the_right_contextual_dictionary`, which asserts
 stdout so it still catches the bug if both backends were to agree on the wrong
 answer.
-
