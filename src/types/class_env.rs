@@ -1449,6 +1449,83 @@ impl ClassEnv {
         })
     }
 
+    /// The single instance matching a predicate whose slots are only partly
+    /// known (Proposal 0179, Stage 4).
+    ///
+    /// `known` carries one entry per class type parameter: `Some` where a call
+    /// determined the type, `None` where it did not. Only the known slots are
+    /// matched, so `Convert<Int, ?>` still selects `Convert<Int, String>` when
+    /// that is the sole candidate — the instance head then supplies the
+    /// remaining argument.
+    ///
+    /// Returns `None` unless exactly one instance matches. Committing to the
+    /// first of several would make evidence selection depend on declaration
+    /// order, which is what E454 reports.
+    pub fn unique_instance_for_known_args(
+        &self,
+        class_name: Identifier,
+        known: &[Option<InferType>],
+        interner: &Interner,
+    ) -> Option<&InstanceDef> {
+        let mut matches = self.instances_matching_known_args(class_name, known, interner);
+        let first = matches.next()?;
+        matches.next().is_none().then_some(first)
+    }
+
+    /// Every instance compatible with the slots a call determined.
+    ///
+    /// An undetermined slot constrains nothing, so this is the candidate set
+    /// that remains open. More than one candidate means the call cannot select
+    /// an instance until the missing type is supplied (E459).
+    pub fn instances_matching_known_args<'a, 'args>(
+        &'a self,
+        class_name: Identifier,
+        known: &'args [Option<InferType>],
+        interner: &'args Interner,
+    ) -> impl Iterator<Item = &'a InstanceDef> + use<'a, 'args> {
+        self.instances.iter().filter(move |inst| {
+            if inst.class_name != class_name || inst.type_args.len() != known.len() {
+                return false;
+            }
+            let mut subst = HashMap::new();
+            inst.type_args
+                .iter()
+                .zip(known)
+                .all(|(pattern, actual)| match actual {
+                    Some(actual) => {
+                        Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
+                    }
+                    None => true,
+                })
+        })
+    }
+
+    /// The concrete type arguments of `instance`'s head, given what a call
+    /// determined (Proposal 0179, Stage 4).
+    ///
+    /// Binds the head's own variables from the known slots, then instantiates
+    /// every head argument. This is what lets `let s = convert(42)` — where the
+    /// result type is not yet known — still resolve `Convert<Int, String>`:
+    /// the sole matching instance fixes the second argument.
+    pub fn instantiate_instance_head(
+        &self,
+        instance: &InstanceDef,
+        known: &[Option<InferType>],
+        interner: &Interner,
+    ) -> Option<Vec<InferType>> {
+        let mut subst = HashMap::new();
+        for (pattern, actual) in instance.type_args.iter().zip(known) {
+            if let Some(actual) = actual {
+                Self::match_instance_type_expr(pattern, actual, &mut subst, interner);
+            }
+        }
+        instance
+            .type_args
+            .iter()
+            .map(|arg| instantiate_instance_type_expr(arg, &subst, interner))
+            .collect()
+    }
+
     /// Resolve a unique instance candidate for a direct class-method call
     /// using the method receiver / first argument type alone.
     ///
@@ -1619,7 +1696,7 @@ impl ClassEnv {
                 .iter()
                 .map(|method_sig| {
                     let method_str = interner.resolve(method_sig.name);
-                    interner.lookup(&format!("__tc_{class_str}_{type_name}_{method_str}"))
+                    interner.lookup(&mangled_method_name(class_str, &type_name, method_str))
                 })
                 .collect()
         })
@@ -2089,7 +2166,7 @@ impl ClassEnv {
             .is_some_and(|c| c.is_ascii_lowercase())
     }
 
-    fn type_constructor_matches(
+    pub(crate) fn type_constructor_matches(
         expected_name: Identifier,
         actual: &TypeConstructor,
         interner: &Interner,
@@ -2109,6 +2186,18 @@ impl ClassEnv {
             _ => false,
         }
     }
+}
+
+/// The one place a type-class method's mangled global name is built.
+///
+/// Every resolution path and both backends must agree on this string. A
+/// mismatch is not a compile error — it is a missing global discovered at run
+/// time, surfacing as `E1001`/`E1009` far from its cause, which is the failure
+/// mode KI-051 took two attempts to pin down. Ten call sites used to format
+/// this independently; routing them through one function is what makes the
+/// format safe to change at all.
+pub fn mangled_method_name(class: &str, type_key: &str, method: &str) -> String {
+    format!("__tc_{class}_{type_key}_{method}")
 }
 
 /// Create a simple named TypeExpr for built-in type references.

@@ -1367,26 +1367,65 @@ Note when re-testing: a `.fxc` written before the fix replays its own stale
 `Imported` classification through `hydrate_cached_module_bytecode`, so clear
 `target/flux` before concluding the fix did not work.
 
-**Native — still open, and narrower than first recorded.** `flux --native`
-handles an imported *concrete* instance correctly (`encode(42)` prints `"42"`)
-but fails an imported *contextual* one (`encode([1, 2])`) with
-`E1009 No instance of Encode.encode for the given type`. That message comes
-from the generic dispatch stub in
-[`class_dispatch.rs`](../src/types/class_dispatch.rs), whose own comment says
-it "is never executed in well-typed programs" — so the native run is reaching a
-fallback the VM never reaches.
+**Native — still open. Diagnosis corrected 2026-08-31; it is not a native
+backend defect.** `flux --native` handles an imported *concrete* instance
+correctly (`encode(42)` prints `"42"`) but fails an imported *contextual* one
+(`encode([1, 2])`) with `E1009 No instance of Encode.encode for the given type`.
 
-The divergence is below Core: `--dump-core` output is byte-identical between
-the two backends, and the `__tc_Encode_List<a>_encode` symbol is present in
-`--dump-lir`. The gap is therefore in how the native backend *constructs or
-applies* a contextual dictionary, not in constraint solving or symbol
-availability.
+The earlier entry said the gap was in "how the native backend constructs or
+applies a contextual dictionary". That is wrong. Core is byte-identical between
+the backends (verified: 3016 lines, zero diff), and the fault is *in that
+shared Core*. `Flow.Json`'s `List` instance lowers to
+
+```
+letrec __tc_Encode_List<a>_encode =
+λ__dict_Encode, values.
+    let %t28 = (λvalue.
+      __tc_Encode_List<a>_encode(__dict_Encode, value))    // wrong
+```
+
+The inner `encode(value)` encodes an *element* of type `a` and must go through
+the context dictionary. Instead it resolves to the enclosing List instance,
+so encoding a list recurses on each element as though the element were itself
+a list. The same program written outside the standard library lowers correctly:
+
+```
+    let %t3 = (λv.
+      let %t4 = __dict_Enc.0
+      %t4(v))
+```
+
+Both backends receive the broken Core; only native executes it. The VM reaches
+the same call through the AST lowering path in
+[`compiler/expression.rs`](../src/compiler/expression.rs), which resolves it
+correctly — the same twin-path split that Stage 4 had to keep in lockstep. So
+this is a mis-lowering that the VM happens to bypass, not a native gap.
+
+Narrowing so far: a contextual instance in a single file works natively, and so
+does one in an imported single-segment user module — including with a lambda
+calling the class method on an element, which is `Flow.Json`'s exact shape.
+Something specific to the standard-library module makes the argument's inferred
+type wrong at that call. `ExprId` collisions poisoning `hm_expr_types` are a
+known failure mode for synthesised code and are the next thing to check.
+
+Verified pre-existing on `main` at the Stage 4 branch point, so it predates the
+Stage 4 work.
+
+**Related, and previously unrecorded:** a *dotted* user module fails to link
+natively even with a purely concrete instance —
+`module Data.Enc { public instance Encodable<Int> { ... } }` imported by an
+entry file gives
+`ld: "_flux_Data_Enc___tc_Encodable_Int_enc", referenced from: _flux_main`.
+The reference is module-qualified but no definition is emitted under that name.
+A single-segment module (`module Enc`) links fine. This is a distinct defect
+from the one above — link-time rather than lowering — and is also pre-existing
+on `main`.
 
 Hoisting a stdlib module's generated methods to top level was tried and
 rejected — the hoisted methods lose access to module-local helpers and
 `Flow.Json` itself then fails to compile with `E004`.
 
-### KI-052 — A generic wrapper over a contextual instance loses its dictionary
+### KI-052 — A generic wrapper over a contextual instance loses its dictionary — FIXED 2026-08-31
 
 **Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-08-30 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
@@ -1419,7 +1458,34 @@ Both constraint spellings fail identically — `<a: Enc>` and
 work: Stage 3 changed which obligations are *retained*, not how a retained
 obligation's dictionary is *built*.
 
-Constructing a dictionary for a structured predicate from a contextual one is
-evidence resolution, which [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
-assigns to Stage 4.
+**Fixed 2026-08-31 (Stage 4).** Two defects compounded, and the diagnosis in
+the paragraph above was wrong: elaboration was not passing the wrapper's own
+dictionary, it was passing nothing at all.
+
+`show_all` legitimately holds two dictionaries — `Enc<a>` from its bound, and
+`Enc<List<a>>` for the call it makes. Every dictionary parameter was named
+`__dict_{Class}` with no occurrence suffix, so both were `__dict_Enc` and the
+second shadowed the first. Meanwhile `current_context_dictionary` and its AST
+twin have always computed `__dict_Enc_1` for a second occurrence — a name
+nothing ever created.
+
+The reference those lookups emit is an *unresolved* variable, because at
+AST-lowering time the enclosing function has no dictionary parameters yet;
+`dict_elaborate` adds them afterwards. Nothing bound the two together, so the
+name escaped to global scope, where no `__dict_Enc` definition exists, and the
+call received `None` — hence a field access on `None` rather than on the wrong
+dictionary.
+
+The fix names dictionary parameters with the per-class occurrence suffix the
+lookups already assumed, pre-interns those names where `&mut Interner` is
+available (elaboration only has `&Interner`, and an un-interned name silently
+degraded to the bare class name), and binds a dictionary reference to the
+parameter that holds it. Both constraint spellings are covered.
+
+Guarded by
+[`tests/parity/contextual_dictionary_through_generic_wrapper.flx`](../tests/parity/contextual_dictionary_through_generic_wrapper.flx)
+— verified to report MISMATCH with the fix reverted — and by
+`a_generic_wrapper_forwards_the_right_contextual_dictionary`, which asserts
+stdout so it still catches the bug if both backends were to agree on the wrong
+answer.
 

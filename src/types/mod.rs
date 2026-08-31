@@ -9,6 +9,7 @@ pub mod class_dispatch;
 pub mod class_disposition;
 pub mod class_env;
 pub mod class_id;
+pub mod class_predicate;
 pub mod class_solver;
 pub mod infer_effect_row;
 pub mod infer_type;

@@ -1,0 +1,46 @@
+// Stage 4 contract: a `where` bound written with explicit arguments keeps all
+// of them.
+//
+// `where Convert<a, b>` names two arguments, but the emitter used only the
+// type parameter the bound was attached to, producing the arity-1 predicate
+// `Convert<a>`. That could never match a two-parameter instance head, so the
+// call reported a spurious `E444 No instance for Convert<Int>` even though
+// `Convert<Int, String>` was declared.
+//
+// The `<a: Sizeable>` spelling carries no explicit arguments and still
+// constrains the parameter it is attached to; both spellings are exercised
+// here so neither regresses.
+//
+// Expected output:
+// "42"
+// 3
+
+class Convert<a, b> {
+    fn convert(x: a) -> b
+}
+
+instance Convert<Int, String> {
+    fn convert(x) { to_string(x) }
+}
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<String> {
+    fn size(x) { 3 }
+}
+
+fn render<a, b>(x: a) -> b where Convert<a, b> {
+    convert(x)
+}
+
+fn measure<a: Sizeable>(x: a) -> Int {
+    size(x)
+}
+
+fn main() with IO {
+    let text: String = render(42)
+    print(text)
+    print(measure("abc"))
+}

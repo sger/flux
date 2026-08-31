@@ -116,6 +116,8 @@ pub const ERROR_CODES: &[ErrorCode] = &[
     INSTANCE_METHOD_ARITY,
     MISSING_SUPERCLASS_INSTANCE,
     OVERLAPPING_INSTANCES,
+    UNDETERMINED_CLASS_PARAMETER,
+    AMBIGUOUS_TYPE_VARIABLE,
     ORPHAN_INSTANCE,
     PUBLIC_INSTANCE_OF_PRIVATE_CLASS,
     PUBLIC_CLASS_LEAKS_PRIVATE_TYPE,
@@ -198,7 +200,7 @@ pub fn default_diagnostic_category(code: &str) -> Option<DiagnosticCategory> {
         "E426" => Some(DiagnosticCategory::Internal),
         "E056" | "E300" | "E301" | "E430" | "E440" | "E441" | "E442" | "E443" | "E444" | "E445"
         | "E446" | "E447" | "E448" | "E449" | "E450" | "E451" | "E452" | "E453" | "E455"
-        | "E454" | "E456" | "E472" | "E473" | "E474" | "E475" => {
+        | "E454" | "E456" | "E459" | "E472" | "E473" | "E474" | "E475" | "E476" => {
             Some(DiagnosticCategory::TypeInference)
         }
         "E457" | "E458" => Some(DiagnosticCategory::ModuleSystem),
