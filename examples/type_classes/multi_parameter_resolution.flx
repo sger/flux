@@ -1,0 +1,34 @@
+// Stage 4 contract: resolution uses the complete predicate — every argument
+// and the expected result — not just the first argument.
+//
+// `convert(42)` binds `a` from the argument and `b` from the annotation,
+// producing `Convert<Int, String>`. Before Stage 4 the emitter took the first
+// argument alone and produced the arity-1 predicate `Convert<Int>`, which
+// matched no two-parameter instance head and reported a spurious E444.
+//
+// The second instance is load-bearing: with a single instance the old
+// first-argument scan would also have succeeded, so the fixture would not
+// discriminate between the two behaviours.
+//
+// Expected output:
+// "42"
+// true
+
+class Convert<a, b> {
+    fn convert(x: a) -> b
+}
+
+instance Convert<Int, String> {
+    fn convert(x) { to_string(x) }
+}
+
+instance Convert<Bool, Bool> {
+    fn convert(x) { x }
+}
+
+fn main() with IO {
+    let text: String = convert(42)
+    print(text)
+    let flag: Bool = convert(true)
+    print(flag)
+}

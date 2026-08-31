@@ -1449,6 +1449,71 @@ impl ClassEnv {
         })
     }
 
+    /// The single instance matching a predicate whose slots are only partly
+    /// known (Proposal 0179, Stage 4).
+    ///
+    /// `known` carries one entry per class type parameter: `Some` where a call
+    /// determined the type, `None` where it did not. Only the known slots are
+    /// matched, so `Convert<Int, ?>` still selects `Convert<Int, String>` when
+    /// that is the sole candidate — the instance head then supplies the
+    /// remaining argument.
+    ///
+    /// Returns `None` unless exactly one instance matches. Committing to the
+    /// first of several would make evidence selection depend on declaration
+    /// order, which is what E454 reports.
+    pub fn unique_instance_for_known_args(
+        &self,
+        class_name: Identifier,
+        known: &[Option<InferType>],
+        interner: &Interner,
+    ) -> Option<&InstanceDef> {
+        let mut matches = self.instances.iter().filter(|inst| {
+            if inst.class_name != class_name || inst.type_args.len() != known.len() {
+                return false;
+            }
+            let mut subst = HashMap::new();
+            inst.type_args
+                .iter()
+                .zip(known)
+                .all(|(pattern, actual)| match actual {
+                    Some(actual) => {
+                        Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
+                    }
+                    // An undetermined slot constrains nothing.
+                    None => true,
+                })
+        });
+
+        let first = matches.next()?;
+        matches.next().is_none().then_some(first)
+    }
+
+    /// The concrete type arguments of `instance`'s head, given what a call
+    /// determined (Proposal 0179, Stage 4).
+    ///
+    /// Binds the head's own variables from the known slots, then instantiates
+    /// every head argument. This is what lets `let s = convert(42)` — where the
+    /// result type is not yet known — still resolve `Convert<Int, String>`:
+    /// the sole matching instance fixes the second argument.
+    pub fn instantiate_instance_head(
+        &self,
+        instance: &InstanceDef,
+        known: &[Option<InferType>],
+        interner: &Interner,
+    ) -> Option<Vec<InferType>> {
+        let mut subst = HashMap::new();
+        for (pattern, actual) in instance.type_args.iter().zip(known) {
+            if let Some(actual) = actual {
+                Self::match_instance_type_expr(pattern, actual, &mut subst, interner);
+            }
+        }
+        instance
+            .type_args
+            .iter()
+            .map(|arg| instantiate_instance_type_expr(arg, &subst, interner))
+            .collect()
+    }
+
     /// Resolve a unique instance candidate for a direct class-method call
     /// using the method receiver / first argument type alone.
     ///
