@@ -1276,7 +1276,10 @@ impl Compiler {
     /// backend gives it the same qualified symbol that importers reference.
     /// Built-in and legacy top-level instances have an empty module path and
     /// remain file-scoped.
-    fn generated_instance_methods_for_module(&self, module_name: Symbol) -> HashSet<Symbol> {
+    pub(super) fn generated_instance_methods_for_module(
+        &self,
+        module_name: Symbol,
+    ) -> HashSet<Symbol> {
         let mut names = HashSet::new();
         for instance in &self.class_env.instances {
             if instance.instance_module.as_identifier() != Some(module_name) {
@@ -1299,8 +1302,20 @@ impl Compiler {
                     &type_key,
                     method_name,
                 );
-                if let Some(symbol) = self.interner.lookup(&mangled) {
-                    names.insert(symbol);
+                match self.interner.lookup(&mangled) {
+                    Some(symbol) => {
+                        names.insert(symbol);
+                    }
+                    // Dispatch generation interns every name it builds, so a
+                    // miss means this set disagrees with what was generated.
+                    // Left silent, the method is treated as file-scoped while
+                    // its siblings stay in the module, and an importer's
+                    // qualified reference dangles until the linker reports it
+                    // (docs/known_issues.md#ki-051).
+                    None => debug_assert!(
+                        false,
+                        "generated instance method `{mangled}` was never interned"
+                    ),
                 }
             }
         }
@@ -1402,21 +1417,24 @@ impl Compiler {
             let module_instance_methods = module_name
                 .map(|name| self.generated_instance_methods_for_module(name))
                 .unwrap_or_default();
+            // `generate_dispatch_functions` has already allocated IDs across
+            // everything it produced, so the aliases must resume past the
+            // parsed program *and* all of it. Seeding from only one partition
+            // would be correct only for as long as that partition happened to
+            // hold the highest ID, and getting it wrong reuses an ID — which
+            // is how the element call in a contextual instance picked up
+            // another expression's inferred type (docs/known_issues.md#ki-051).
+            let mut alias_seed_statements = program.statements.clone();
+            alias_seed_statements.extend(generated.iter().cloned());
+            let mut alias_ids = ExprIdGen::resuming_past_statements(&alias_seed_statements);
             let (top_level_generated, module_generated): (Vec<_>, Vec<_>) =
                 generated.into_iter().partition(|stmt| match stmt {
                     Statement::Function { name, .. } => {
-                        self.sym(*name).starts_with("__tc_")
+                        crate::types::class_env::is_generated_instance_method(self.sym(*name))
                             && !module_instance_methods.contains(name)
                     }
                     _ => false,
                 });
-            // `generate_dispatch_functions` has already allocated IDs in the
-            // module copies.  Resume after those copies as well as the parsed
-            // program, otherwise the forwarding aliases can overwrite HM
-            // entries belonging to the real generated bodies.
-            let mut alias_seed_statements = program.statements.clone();
-            alias_seed_statements.extend(module_generated.iter().cloned());
-            let mut alias_ids = ExprIdGen::resuming_past_statements(&alias_seed_statements);
             let mut module_aliases = Vec::new();
             if let Some(name) = module_name {
                 for stmt in &module_generated {
@@ -1968,10 +1986,10 @@ impl Compiler {
                     // test the last path segment rather than the whole name
                     // (see docs/known_issues.md#ki-051).
                     !self.interner.try_resolve(*name).is_some_and(|resolved| {
-                        resolved
+                        let last_segment = resolved
                             .rsplit_once('.')
-                            .map_or(resolved, |(_, suffix)| suffix)
-                            .starts_with("__tc_")
+                            .map_or(resolved, |(_, suffix)| suffix);
+                        crate::types::class_env::is_generated_instance_method(last_segment)
                     })
                 })
                 .collect::<HashSet<_>>();

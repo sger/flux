@@ -2197,7 +2197,25 @@ impl ClassEnv {
 /// this independently; routing them through one function is what makes the
 /// format safe to change at all.
 pub fn mangled_method_name(class: &str, type_key: &str, method: &str) -> String {
-    format!("__tc_{class}_{type_key}_{method}")
+    format!("{INSTANCE_METHOD_PREFIX}{class}_{type_key}_{method}")
+}
+
+/// The prefix [`mangled_method_name`] stamps on every name it builds.
+const INSTANCE_METHOD_PREFIX: &str = "__tc_";
+
+/// Whether `name` was built by [`mangled_method_name`].
+///
+/// Centralising the *constructor* is only half of what makes the format safe
+/// to change. Sites across desugaring, inference, both backends, and the VM
+/// recognise these names by prefix, and a format change that missed one of them
+/// would fail exactly the way described above — silently, at run time. Ask here
+/// rather than writing the prefix out.
+///
+/// This answers "does the name look generated". Where the compiler can know
+/// the answer outright — it has the instance list — prefer that; see
+/// `Compiler::generated_instance_methods_for_module`.
+pub fn is_generated_instance_method(name: &str) -> bool {
+    name.starts_with(INSTANCE_METHOD_PREFIX)
 }
 
 /// Create a simple named TypeExpr for built-in type references.

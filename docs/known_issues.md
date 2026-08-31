@@ -1372,9 +1372,8 @@ runs fresh and warm VM/native paths and checks the encoded `"42"` and
 `"[1,2]"` results.
 
 The earlier entry said the gap was in "how the native backend constructs or
-applies a contextual dictionary". That is wrong. Core is byte-identical between
-the backends (verified: 3016 lines, zero diff), and the fault is *in that
-shared Core*. `Flow.Json`'s `List` instance lowers to
+applies a contextual dictionary". That is wrong: the fault was *in the Core both
+backends share*. `Flow.Json`'s `List` instance lowered to
 
 ```
 letrec __tc_Encode_List<a>_encode =
@@ -1394,11 +1393,18 @@ a list. The same program written outside the standard library lowers correctly:
       %t4(v))
 ```
 
-Both backends receive the broken Core; only native executes it. The VM reaches
+Both backends received the broken Core; only native executed it. The VM reaches
 the same call through the AST lowering path in
-[`compiler/expression.rs`](../src/compiler/expression.rs), which resolves it
+[`compiler/expression.rs`](../src/compiler/expression.rs), which resolved it
 correctly — the same twin-path split that Stage 4 had to keep in lockstep. So
-this is a mis-lowering that the VM happens to bypass, not a native gap.
+this was a mis-lowering the VM happened to bypass, not a native gap.
+
+An earlier revision of this entry backed that claim with "Core is byte-identical
+between the backends (verified: 3016 lines, zero diff)". Disregard it. That
+comparison used `--dump-core`, which for a multi-module program is not a view of
+anything the compiler builds — see [KI-053](#ki-053). The conclusion happened to
+be right; the evidence for it was not, and trusting the same instrument again
+will mislead the next person the same way.
 
 The shared Core defect was duplicate expression IDs when explicit instance
 method bodies were cloned. The generated copy now refreshes every expression
@@ -1406,9 +1412,19 @@ ID, so `hm_expr_types` cannot reuse the source body's type entry; inner calls
 in contextual instances therefore resolve through the dictionary rather than
 recursing through the enclosing container instance.
 
-The native linker defect for dotted user modules is fixed in the same change:
-generated `__tc_*` methods belonging to a module remain inside that module,
-emitting the qualified symbol imported by native callers. Unscoped instances
+A second, distinct native defect is fixed in the same change. A *dotted* user
+module failed to link natively even with a purely concrete instance —
+`module Data.Enc { public instance Encodable<Int> { ... } }` imported by an
+entry file gave
+
+```
+ld: "_flux_Data_Enc___tc_Encodable_Int_enc", referenced from: _flux_main
+```
+
+because the reference was module-qualified while the definition had been hoisted
+to file scope under the bare name. A single-segment `module Enc` linked fine.
+Generated `__tc_*` methods belonging to a module now remain inside that module,
+emitting the qualified symbol native callers import. Unscoped instances
 remain at file scope, and the bare-name aliases used by VM dispatch are still
 emitted. The native multi-module regression
 [`dotted_module_instance_dispatches_on_vm_and_llvm` in
@@ -1478,3 +1494,78 @@ Guarded by
 `a_generic_wrapper_forwards_the_right_contextual_dictionary`, which asserts
 stdout so it still catches the bug if both backends were to agree on the wrong
 answer.
+
+### KI-053 — `--dump-core` and the other whole-program dumps report types from the wrong module
+
+**Severity:** Medium · **Area:** driver, diagnostics tooling · **Verified:** 2026-08-31 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+Every dump flag that needs a whole-program view — `--dump-core`, `--dump-aether`,
+`--dump-cfg`, `--dump-lir`, `--emit-llvm`, `--trace-aether` — concatenates the
+modules into one `Program`:
+
+```rust
+// src/driver/pipeline/program.rs
+fn merge_programs<'a>(programs: impl IntoIterator<Item = &'a Program>) -> Program
+```
+
+Each file is parsed by its own `Parser`, and every `ExprIdGen` starts at 1
+([`src/syntax/expression.rs`](../src/syntax/expression.rs)), while inferred types
+are keyed on that bare number with no module component:
+
+```rust
+// src/ast/type_infer/mod.rs
+expr_types: HashMap<ExprId, InferType>,
+```
+
+So the merged view asks one flat map about ids that several modules each
+allocated from 1. Measured on `import Flow.Json` plus a four-line entry file:
+each module internally clean, the merge holding **2616 expressions across 987
+distinct ids**, with `ExprId(1)` appearing 13 times.
+
+The dumps therefore show expressions annotated with another module's types, and
+lowering decisions taken from them — a dumped call can resolve to an instance
+the compiler would never pick. Normal compilation is unaffected: modules are
+compiled one at a time and `hm_expr_types` is replaced per module, never merged.
+
+**Why this matters more than a cosmetic dump bug.** KI-051's recorded diagnosis
+was derived from one of these dumps and was wrong as a result, which cost two
+attempts. Any diagnosis that quotes a multi-module dump is unsound.
+
+**Workaround while this is open:** dump a single module, or read the Core for the
+module you care about from its own compile rather than the merged view.
+
+Two candidate fixes: renumber `ExprId`s when concatenating so the merged program
+is internally consistent, or refuse the merge and dump per module — the latter
+also makes the output match what is actually compiled.
+
+### KI-054 — An imported contextual instance method is declared one parameter short natively
+
+**Severity:** Low · **Area:** type classes, native backend · **Verified:** 2026-08-31 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+`build_public_class_method_scheme`
+([`src/compiler/mod.rs`](../src/compiler/mod.rs)) rebuilds an imported instance
+method's scheme from the *class* method signature and ends in `generalize(...,
+&HashSet::new())`, so `Scheme.constraints` is always empty — the instance's
+`context` is dropped. `native_function_arity` derives an extern's arity from
+exactly those constraints, so a contextual instance method is registered with
+only its declared parameters:
+
+```
+extern __tc_Encode_Int_encode        arity=1 constraints=0   # correct
+extern __tc_Encode_List<a>_encode    arity=1 constraints=0   # takes 2
+```
+
+The definition takes one leading dictionary per context entry, prepended by
+`context_dict_param_names` in
+[`class_dispatch.rs`](../src/types/class_dispatch.rs). Concrete instances have
+an empty context and are unaffected.
+
+**Not currently observable.** `resolve_external_symbol` ignores the `arity`
+field for a direct extern call, and both the flat (`encode([1, 2])`) and nested
+(`encode([[1, 2], [3]])`) cases were verified to behave identically with and
+without a correction. It is recorded because it is a real disagreement between
+what the extern declares and what the callee takes, in the area KI-051 came
+from, and because the VM masks the same class of mismatch behind a deliberate
+fixup for `__tc_*` closures in
+[`vm/function_call.rs`](../src/vm/function_call.rs) — so nothing would catch it
+if a code path started honouring the field.
