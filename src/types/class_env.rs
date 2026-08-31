@@ -2089,7 +2089,7 @@ impl ClassEnv {
             .is_some_and(|c| c.is_ascii_lowercase())
     }
 
-    fn type_constructor_matches(
+    pub(crate) fn type_constructor_matches(
         expected_name: Identifier,
         actual: &TypeConstructor,
         interner: &Interner,
