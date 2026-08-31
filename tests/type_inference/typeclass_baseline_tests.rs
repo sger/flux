@@ -113,6 +113,12 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "interface_roundtrip.flx",
         "contextual_dictionary.flx",
         "no_partial_resolution.flx",
+        "where_constraint.flx",
+        "solved_constraint.flx",
+        "generalized_constraint.flx",
+        "stuck_constraint.flx",
+        "diagnosed_constraint.flx",
+        "generalized_structured_constraint.flx",
     ];
     for fixture in fixtures {
         let source = std::fs::read_to_string(fixture_path(fixture)).expect("read fixture");
@@ -122,8 +128,9 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
                 source.contains("baseline")
                     || source.contains("stage 1")
                     || source.contains("stage 2")
+                    || source.contains("stage 3")
             },
-            "{fixture} needs a baseline, stage 1 or stage 2 contract"
+            "{fixture} needs a baseline, stage 1, stage 2 or stage 3 contract"
         );
         assert!(
             source.contains("Expected"),
@@ -334,4 +341,53 @@ fn multiple_obligations_are_present_in_lowered_dictionary_contract() {
         .expect("obligations fixture should lower");
     assert!(core.contains("__dict_Equal_Int"));
     assert!(core.contains("__dict_Render_Int"));
+}
+
+/// Proposal 0179 Stage 3: `where Eq<a>` and `<a: Eq>` are two spellings of one
+/// obligation, so both must produce the same behavior.
+#[test]
+fn where_and_bound_constraint_spellings_agree() {
+    let output = run_fixture("where_constraint.flx").unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(output.stdout, "true\nfalse");
+}
+
+/// Proposal 0179 Stage 3: a concrete predicate is discharged against an
+/// instance.
+#[test]
+fn a_concrete_predicate_is_solved_against_its_instance() {
+    let output = run_fixture("solved_constraint.flx").unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(output.stdout, "21");
+}
+
+/// A predicate over a quantified variable is retained on the scheme and
+/// discharged at the call site — the retained half of THIH's `split`.
+#[test]
+fn a_quantified_predicate_is_generalized_onto_the_scheme() {
+    let output =
+        run_fixture("generalized_constraint.flx").unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(output.stdout, "42");
+}
+
+/// A predicate mentioning an enclosing binding's variable is deferred outward
+/// rather than dropped — the deferred half of `split`.
+#[test]
+fn an_outer_scope_predicate_is_deferred_not_dropped() {
+    let output = run_fixture("stuck_constraint.flx").unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(output.stdout, "\"5\"");
+}
+
+/// Numeric defaulting discharges the otherwise-ambiguous `Num` obligation.
+#[test]
+fn numeric_defaulting_discharges_an_ambiguous_num_obligation() {
+    let output = run_fixture("diagnosed_constraint.flx").unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(output.stdout, "3\n21");
+}
+
+/// Structured predicates keep their full arguments through generalization, and
+/// two over the same variable no longer collide in deduplication.
+#[test]
+fn structured_predicates_survive_generalization_distinctly() {
+    let output = run_fixture("generalized_structured_constraint.flx")
+        .unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(output.stdout, "\"7\"\n\"9\"");
 }

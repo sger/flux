@@ -1,0 +1,44 @@
+// Stage 3 contract: a structured predicate keeps its shape through
+// generalization.
+//
+// The `List` instance's context is `Enc<a>` while its head is `Enc<List<a>>`.
+// Before Stage 3 `collect_scheme_constraints` dropped structured predicates
+// over built-in classes and deduplicated on bare type variables alone, so
+// `Enc<List<a>>` either vanished or collided with a sibling `Enc<Option<a>>`.
+// THIH's `split` partitions instead of filtering, so both survive with their
+// full arguments intact.
+//
+// Expected output:
+// "7"
+// "9"
+
+class Enc<a> {
+    fn enc(x: a) -> String
+}
+
+instance Enc<Int> {
+    fn enc(x) { to_string(x) }
+}
+
+instance Enc<a> => Enc<List<a>> {
+    fn enc(xs) {
+        match xs {
+            [h | t] -> enc(h),
+            _ -> "empty"
+        }
+    }
+}
+
+instance Enc<a> => Enc<Option<a>> {
+    fn enc(opt) {
+        match opt {
+            Some(v) -> enc(v),
+            None -> "none"
+        }
+    }
+}
+
+fn main() with IO {
+    print(enc([7, 8]))
+    print(enc(Some(9)))
+}

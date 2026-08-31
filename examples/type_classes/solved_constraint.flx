@@ -1,0 +1,23 @@
+// Stage 3 contract: a predicate over a concrete type is solved against an
+// instance, and its evidence is recorded.
+//
+// `size(21)` produces the wanted predicate `Sizeable<Int>`. Because the type
+// is concrete, the solver discharges it immediately and assigns
+// `Disposition::Solved` with the matched instance as evidence. Before Stage 3
+// the solver answered a bare boolean and threw the instance away, so nothing
+// downstream could tell "solved" apart from "skipped".
+//
+// Expected output:
+// 21
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+fn main() with IO {
+    print(size(21))
+}

@@ -1,0 +1,15 @@
+// parity: vm, llvm
+// expect: success
+// bug: an imported instance's generated methods are defined module-qualified
+// (`Flow.Json.__tc_Encode_Int_encode`) but the importer marked the bare name
+// `Imported`, so the cached parallel VM linker demanded a global no module
+// defined and failed with `missing imported global` (KI-051). The `--no-cache`
+// path always worked, so only the cached ways caught it.
+
+import Flow.Json as Json
+import Flow.Json exposing (encode)
+
+fn main() with IO {
+    print(Json.encode_json(encode(42)))
+    print(Json.encode_json(encode("hi")))
+}

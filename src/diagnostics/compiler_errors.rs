@@ -914,6 +914,24 @@ pub const NO_INSTANCE: ErrorCode = ErrorCode {
     hint: Some("Add an instance declaration for this type."),
 };
 
+/// Proposal 0179 Stage 3: two or more instances match the same predicate, so
+/// evidence selection would depend on declaration order.
+///
+/// Distinct from [`AMBIGUOUS_CLASS_CONSTRAINT`] (E456), which reports two
+/// *classes* sharing a short name — a name-resolution failure whose remedy is
+/// to qualify the class. This code reports two *instances* of one class, whose
+/// remedy is to remove or narrow one of them.
+pub const OVERLAPPING_INSTANCES: ErrorCode = ErrorCode {
+    code: "E454",
+    title: "OVERLAPPING INSTANCES",
+    error_type: ErrorType::Compiler,
+    message: "Multiple instances match `{}`.",
+    hint: Some(
+        "Instance selection must be unambiguous; remove or narrow one of the \
+         overlapping instances.",
+    ),
+};
+
 pub const INSTANCE_EXTRA_METHOD: ErrorCode = ErrorCode {
     code: "E446",
     title: "UNKNOWN INSTANCE METHOD",
