@@ -1412,7 +1412,26 @@ impl ClassEnv {
         actual_type_args: &[InferType],
         interner: &Interner,
     ) -> Option<(&InstanceDef, HashMap<Identifier, InferType>)> {
-        self.instances.iter().find_map(|inst| {
+        self.candidate_instances(class_name, actual_type_args, interner)
+            .next()
+    }
+
+    /// Every instance whose head matches `actual_type_args`, in declaration
+    /// order.
+    ///
+    /// [`Self::resolve_instance_with_subst`] takes the first candidate, which
+    /// is only sound when there is exactly one. Enumerating them lets callers
+    /// detect overlap (Proposal 0179 Stage 3, E454) rather than silently
+    /// depending on declaration order, and gives Stage 4's deterministic
+    /// evidence resolution the candidate set it needs.
+    pub fn candidate_instances<'a, 'args>(
+        &'a self,
+        class_name: Identifier,
+        actual_type_args: &'args [InferType],
+        interner: &'args Interner,
+    ) -> impl Iterator<Item = (&'a InstanceDef, HashMap<Identifier, InferType>)> + use<'a, 'args>
+    {
+        self.instances.iter().filter_map(move |inst| {
             if inst.class_name != class_name || inst.type_args.len() != actual_type_args.len() {
                 return None;
             }

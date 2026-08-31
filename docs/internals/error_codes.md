@@ -11,6 +11,8 @@ Flux uses stable error codes for all diagnostics. Codes are prefixed `E` (error)
 | `E001–E060` | Compiler — semantic checks | `compiler_errors.rs` |
 | `E061–E070` | Internal compiler errors (ICE) | `compiler_errors.rs` |
 | `E071–E077` | Lexer / parser errors | `compiler_errors.rs` |
+| `E440–E456` | Type classes and instances | `compiler_errors.rs` |
+| `E472–E475` | Kind checking (Proposal 0179 Stage 1) | `compiler_errors.rs` |
 | `E1000–E1021` | Runtime errors | `runtime_errors.rs` |
 | `W2xx` | Warnings (linter) | `compiler_errors.rs` |
 
@@ -110,6 +112,42 @@ Flux uses stable error codes for all diagnostics. Codes are prefixed `E` (error)
 | <a id="e039"></a>`E039` | `PIPE_OPERATOR_ERROR` | Invalid use of pipe operator `\|>` |
 | <a id="e040"></a>`E040` | `PIPE_TARGET_ERROR` | Pipe target is not callable |
 | <a id="e043"></a>`E043` | `SHORT_CIRCUIT_ERROR` | Invalid use of `&&` / `\|\|` |
+
+### Type Classes and Instances
+
+| Code | Constant | Description |
+|------|----------|-------------|
+| <a id="e440"></a>`E440` | `DUPLICATE_CLASS` | Class already declared |
+| <a id="e441"></a>`E441` | `INSTANCE_UNKNOWN_CLASS` | Instance names a class that does not exist |
+| <a id="e442"></a>`E442` | `INSTANCE_MISSING_METHOD` | Instance omits a required class method |
+| <a id="e443"></a>`E443` | `DUPLICATE_INSTANCE` | Instance already declared for this type |
+| <a id="e444"></a>`E444` | `NO_INSTANCE` | No instance satisfies a class obligation |
+| <a id="e445"></a>`E445` | `MISSING_SUPERCLASS_INSTANCE` | Required superclass instance is missing |
+| <a id="e446"></a>`E446` | `INSTANCE_EXTRA_METHOD` | Instance defines a method the class does not declare |
+| <a id="e447"></a>`E447` | `INSTANCE_TYPE_ARG_ARITY` | Instance head has the wrong number of type arguments |
+| <a id="e448"></a>`E448` | `INSTANCE_METHOD_ARITY` | Instance method has the wrong number of parameters |
+| <a id="e449"></a>`E449` | `ORPHAN_INSTANCE` | Instance declared outside the class's or type's module |
+| <a id="e450"></a>`E450` | `PUBLIC_INSTANCE_OF_PRIVATE_CLASS` | Public instance implements a private class |
+| <a id="e451"></a>`E451` | `PUBLIC_CLASS_LEAKS_PRIVATE_TYPE` | Public class signature exposes a private type |
+| <a id="e452"></a>`E452` | `INSTANCE_METHOD_EFFECT_FLOOR` | Instance method demands more effects than the class allows |
+| <a id="e453"></a>`E453` | `SEALED_CLASS_INSTANCE` | Instance declared for a sealed class |
+| <a id="e454"></a>`E454` | `OVERLAPPING_INSTANCES` | Multiple instances match one predicate |
+| <a id="e455"></a>`E455` | `PUBLIC_INSTANCE_HAS_PRIVATE_HEAD` | Public instance's head type is private |
+| <a id="e456"></a>`E456` | `AMBIGUOUS_CLASS_CONSTRAINT` | Two visible classes share the constraint's short name |
+
+`E454` and `E456` are easy to confuse. `E456` is a *name-resolution* failure —
+two classes share a short name, and the remedy is to qualify the class.
+`E454` is an *evidence* failure — one class has two instances that both match,
+and the remedy is to remove or narrow one of them.
+
+### Kind Checking
+
+| Code | Constant | Description |
+|------|----------|-------------|
+| <a id="e472"></a>`E472` | `TYPE_CONSTRUCTOR_KIND_ARITY` | Type constructor applied to the wrong number of arguments |
+| <a id="e473"></a>`E473` | `INSTANCE_HEAD_KIND_MISMATCH` | Instance head's kind does not match the class parameter |
+| <a id="e474"></a>`E474` | `CONSTRAINT_KIND_MISMATCH` | Constraint argument has the wrong kind |
+| <a id="e475"></a>`E475` | `CLASS_PARAMETER_KIND_CONFLICT` | Class parameter used at two different kinds |
 
 ### Internal Compiler Errors (ICE)
 

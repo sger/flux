@@ -7,8 +7,13 @@ use crate::{
     diagnostics::Diagnostic,
     syntax::interner::Interner,
     types::{
-        TypeVarId, class_env::ClassEnv, class_solver::solve_class_constraints,
-        infer_type::InferType, type_constructor::TypeConstructor, type_subst::TypeSubst,
+        TypeVarId,
+        class_disposition::{Disposition, DispositionedConstraint, SolveOutcome, SolveScope},
+        class_env::ClassEnv,
+        class_solver::{solve_class_constraints_dispositioned, split},
+        infer_type::InferType,
+        type_constructor::TypeConstructor,
+        type_subst::TypeSubst,
     },
 };
 
@@ -21,6 +26,10 @@ pub struct FinalizedBindingClassConstraints {
     /// defaulted types (see `InferCtx::finalize_binding`).
     pub default_subst: TypeSubst,
     pub diagnostics: Vec<Diagnostic>,
+    /// The outcome assigned to every wanted predicate this binding owns
+    /// (Proposal 0179 Stage 3). Exactly one entry per supplied constraint, so
+    /// no obligation can go unaccounted for.
+    pub dispositions: Vec<DispositionedConstraint>,
 }
 
 #[derive(Debug, Default)]
@@ -43,6 +52,7 @@ pub fn finalize_binding_class_constraints(
     current_subst: &TypeSubst,
     class_env: Option<&ClassEnv>,
     interner: &Interner,
+    mode: GeneralizationMode,
 ) -> FinalizedBindingClassConstraints {
     let resolved_type = infer_type.apply_type_subst(current_subst);
     let resolved_constraints = apply_wanted_constraints_subst(constraints, current_subst);
@@ -56,22 +66,63 @@ pub fn finalize_binding_class_constraints(
     let finalized_type = resolved_type.apply_type_subst(&default_subst);
     let finalized_constraints =
         apply_wanted_constraints_subst(&resolved_constraints, &default_subst);
-    let diagnostics = class_env
-        .map(|env| solve_class_constraints(&finalized_constraints, env, interner))
+    let outcome = class_env
+        .map(|env| {
+            solve_class_constraints_dispositioned(
+                &finalized_constraints,
+                SolveScope::Binding,
+                env,
+                interner,
+            )
+        })
         .unwrap_or_default();
-    let scheme_constraints = collect_scheme_constraints(
-        &finalized_constraints,
-        &finalized_type,
-        env_free_vars,
-        class_env,
-    );
+    let diagnostics: Vec<Diagnostic> = outcome.diagnostics().cloned().collect();
+
+    // Which predicates this binding generalizes is still decided by
+    // `collect_scheme_constraints`. Stage 3 folds that decision into the
+    // solver's disposition (THIH's `split`); until then, record the outcome
+    // on the dispositions so both halves report the same thing.
+    let scheme_constraints =
+        collect_scheme_constraints(&finalized_constraints, &finalized_type, env_free_vars, mode);
+    let dispositions = mark_generalized(outcome, &scheme_constraints);
 
     FinalizedBindingClassConstraints {
         infer_type: finalized_type,
         scheme_constraints,
         default_subst,
         diagnostics,
+        dispositions,
     }
+}
+
+/// Reconcile the solver's outcome with the constraints generalization kept.
+///
+/// A predicate the solver left `Stuck` because it was still polymorphic is
+/// not undecided if this binding went on to quantify it — it was
+/// generalized, and its obligation now transfers to every call site. Marking
+/// it here keeps the two halves of the decision consistent while they remain
+/// separate functions.
+fn mark_generalized(
+    outcome: SolveOutcome,
+    scheme_constraints: &[SchemeConstraint],
+) -> Vec<DispositionedConstraint> {
+    outcome
+        .dispositions
+        .into_iter()
+        .map(|mut entry| {
+            if matches!(entry.disposition, Disposition::Stuck { .. })
+                && let Some(scheme_constraint) = scheme_constraints.iter().find(|candidate| {
+                    candidate.class_name == entry.wanted.class_name
+                        && candidate.type_args == entry.wanted.type_args
+                })
+            {
+                entry.disposition = Disposition::Generalized {
+                    scheme_constraint: scheme_constraint.clone(),
+                };
+            }
+            entry
+        })
+        .collect()
 }
 
 fn apply_wanted_constraints_subst(
@@ -142,75 +193,104 @@ fn build_numeric_default_subst(
     subst
 }
 
+/// Whether a binding's obligations can be passed as dictionary parameters.
+///
+/// Dictionary elaboration rewrites top-level definitions and their call sites
+/// (`insert_dict_args_at_call_sites`). A `let`-bound lambda inside a function
+/// body is a `CoreExpr::Let`, not a definition, so a dictionary parameter
+/// added to its scheme would never be supplied by its callers and the call
+/// would fail with an arity mismatch at runtime.
+///
+/// Until elaboration reaches nested bindings, only definitions retain
+/// dictionary-carrying obligations. This is a deliberate, narrow restriction
+/// on *which* obligations become dictionary parameters, not a return to
+/// dropping them: a `let` binding whose obligation cannot be discharged is
+/// still reported by the solver.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GeneralizationMode {
+    /// A top-level definition; elaboration rewrites its call sites.
+    Definition,
+    /// A nested binding; elaboration cannot supply dictionaries here.
+    NestedBinding,
+}
+
+/// Determine which obligations this binding retains on its scheme.
+///
+/// This is THIH's `split`: predicates are *partitioned* by whether their
+/// variables are quantified here, rather than filtered by a list of ad-hoc
+/// conditions. A partition cannot discard, which is what makes Proposal 0179
+/// Goal 2 ("never silently discarded") structural rather than a property that
+/// has to be separately maintained.
+///
+/// Every predicate mentioning a variable this binding quantifies is retained,
+/// regardless of how it was emitted or which class it names. The four
+/// pre-Stage-3 escape hatches this replaces each dropped real obligations:
+///
+/// - operator-derived predicates were discarded outright, so
+///   `fn double<a>(x: a) -> a { x + x }` generalized without `Num<a>` and
+///   accepted `double("ab")`;
+/// - structured predicates over built-in classes were discarded, losing
+///   `Eq<List<a>>`;
+/// - deduplication keyed only on bare type variables, so `C<List<a>>` and
+///   `C<Option<a>>` collided and one was lost;
+/// - retention required all arguments to be bare variables, so anything else
+///   vanished.
 fn collect_scheme_constraints(
     constraints: &[WantedClassConstraint],
     infer_type: &InferType,
     env_free_vars: &HashSet<TypeVarId>,
-    class_env: Option<&ClassEnv>,
+    mode: GeneralizationMode,
 ) -> Vec<SchemeConstraint> {
-    let ty_free: HashSet<TypeVarId> = infer_type
+    let quantified: HashSet<TypeVarId> = infer_type
         .free_vars()
         .difference(env_free_vars)
         .copied()
         .collect();
-    let mut result = Vec::new();
-    let mut seen = Vec::new();
 
-    for constraint in constraints {
-        if constraint.origin == WantedClassConstraintOrigin::InferredOperator {
-            continue;
-        }
-        let vars = constraint
+    let (_deferred, retained) = split(constraints, env_free_vars, &quantified);
+
+    let mut result: Vec<SchemeConstraint> = Vec::new();
+    for constraint in retained {
+        // Only obligations over variables this binding quantifies become
+        // scheme constraints; a fully concrete predicate was already
+        // discharged against an instance by the solver.
+        let mentions_quantified = constraint
             .type_args
             .iter()
-            .filter_map(|ty| match ty {
-                InferType::Var(var) => Some(*var),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        let structured_polymorphic = vars.len() != constraint.type_args.len()
-            && constraint
-                .type_args
-                .iter()
-                .flat_map(InferType::free_vars)
-                .any(|var| ty_free.contains(&var))
-            && !is_builtin_class(constraint.class_name, class_env);
-        if (vars.len() == constraint.type_args.len()
-            && vars.iter().all(|var| ty_free.contains(var))
-            || structured_polymorphic)
-            && !seen.iter().any(|(class_name, seen_vars)| {
-                *class_name == constraint.class_name && *seen_vars == vars
-            })
+            .flat_map(InferType::free_vars)
+            .any(|var| quantified.contains(&var));
+        if !mentions_quantified {
+            continue;
+        }
+
+        // A nested binding cannot receive a dictionary parameter, so an
+        // obligation that would need one is left for the enclosing scope to
+        // discharge rather than recorded on a scheme no caller can satisfy.
+        if mode == GeneralizationMode::NestedBinding
+            && constraint.origin == WantedClassConstraintOrigin::InferredOperator
         {
-            seen.push((constraint.class_name, vars));
-            result.push(SchemeConstraint {
-                class_name: constraint.class_name,
-                type_args: constraint.type_args.clone(),
-            });
+            continue;
+        }
+
+        let candidate = SchemeConstraint {
+            class_name: constraint.class_name,
+            type_args: constraint.type_args.clone(),
+        };
+        // Deduplicate on the whole predicate, so two distinct structured
+        // obligations over the same variable both survive.
+        if !result.contains(&candidate) {
+            result.push(candidate);
         }
     }
 
     result
 }
 
-/// Whether `class_name` resolves to one of the compiler's built-in classes.
-///
-/// Keys off `ClassDef::is_builtin` rather than the short name, so a user class
-/// that happens to be called `Eq` or `Show` keeps its structured predicates
-/// instead of having them dropped during generalization (Proposal 0179).
-fn is_builtin_class(class_name: crate::syntax::Identifier, class_env: Option<&ClassEnv>) -> bool {
-    class_env.is_some_and(|env| {
-        env.classes
-            .values()
-            .any(|class| class.name == class_name && class.is_builtin)
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
 
-    use super::finalize_binding_class_constraints;
+    use super::{GeneralizationMode, finalize_binding_class_constraints};
     use crate::{
         ast::type_infer::constraint::{WantedClassConstraint, WantedClassConstraintOrigin},
         diagnostics::position::Span,
@@ -262,6 +342,7 @@ mod tests {
             &TypeSubst::empty(),
             None,
             &interner,
+            GeneralizationMode::Definition,
         );
 
         assert_eq!(finalized.infer_type, bool_());
@@ -288,6 +369,7 @@ mod tests {
             &TypeSubst::empty(),
             None,
             &interner,
+            GeneralizationMode::Definition,
         );
 
         assert!(finalized.default_subst.is_empty());
@@ -316,6 +398,7 @@ mod tests {
             &TypeSubst::empty(),
             None,
             &interner,
+            GeneralizationMode::Definition,
         );
 
         assert!(finalized.default_subst.is_empty());
@@ -341,6 +424,7 @@ mod tests {
             &TypeSubst::empty(),
             None,
             &interner,
+            GeneralizationMode::Definition,
         );
 
         assert!(finalized.default_subst.is_empty());
@@ -363,6 +447,7 @@ mod tests {
             &TypeSubst::empty(),
             Some(&class_env),
             &interner,
+            GeneralizationMode::Definition,
         );
 
         assert!(

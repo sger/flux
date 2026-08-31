@@ -72,3 +72,36 @@ pub fn run_flux_with_env(
     let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
     (stdout, stderr, output.status.success(), elapsed)
 }
+
+/// Run `source` on the default **cached** path, with an isolated cache root.
+///
+/// The other helpers pass `--no-cache`, which bypasses the parallel module
+/// linker entirely. A bug in how imported instance methods are linked is
+/// therefore invisible to them — that is how KI-051 survived: `--no-cache`
+/// printed the right answer while the default cached run failed with
+/// `missing imported global`.
+///
+/// Runs twice against the same cache root so both the cold (write) and warm
+/// (replay) paths are exercised; a stale artifact replaying its own binding
+/// classification is its own failure mode.
+#[allow(dead_code)]
+pub fn run_flux_cached(source: &str, tag: &str) -> (String, String, bool) {
+    let scratch = Scratch::new(&format!("flux-runner-cached-{tag}"));
+    let path = scratch.write("fixture.flx", source);
+
+    let mut last = None;
+    for _ in 0..2 {
+        let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+            .current_dir(workspace_root())
+            .arg(path.to_str().unwrap())
+            .args(scratch.cache_args())
+            .output()
+            .expect("run flux");
+        last = Some((
+            String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+            String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n"),
+            output.status.success(),
+        ));
+    }
+    last.expect("at least one run")
+}

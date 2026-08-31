@@ -1447,7 +1447,7 @@ fn build_instance_function_type_params(
                         .iter()
                         .any(|arg| type_expr_mentions_type_param(arg, name, interner))
                 })
-                .map(|constraint| constraint.class_name)
+                .cloned()
                 .collect(),
         })
         .collect()

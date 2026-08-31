@@ -734,7 +734,7 @@ impl NameSets {
                 for tp in type_params {
                     Self::insert(&mut self.type_params, interner, tp.name);
                     for c in &tp.constraints {
-                        Self::insert(&mut self.classes, interner, *c);
+                        Self::insert(&mut self.classes, interner, c.class_name);
                     }
                 }
                 for p in parameters {
