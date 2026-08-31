@@ -605,7 +605,8 @@ fn preload_imported_instance_schemes(
         instance_def.method_effects.iter().cloned().collect();
     for method in &class_def.methods {
         let method_str = interner.resolve(method.name).to_string();
-        let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
+        let mangled =
+            crate::types::class_env::mangled_method_name(&class_str, &type_key, &method_str);
         let mangled_sym = interner.intern(&mangled);
         if !symbol_table.exists_in_current_scope(mangled_sym) {
             symbol_table.define(mangled_sym, Span::default());

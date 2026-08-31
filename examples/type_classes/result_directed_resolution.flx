@@ -1,0 +1,43 @@
+// Stage 4 contract: a class parameter that occurs only in the method's return
+// type is determined by the expected result.
+//
+// `parse` takes a String and returns `a`, so nothing about the argument
+// selects the instance. The predicate is emitted with a variable in that slot;
+// the `let` annotation unifies it, and because wanted constraints are
+// re-substituted before they are classified, the solver sees `Parse<Int>`.
+// Before Stage 4 the emitter substituted the first parameter's type and
+// produced `Parse<String>`, reporting a missing instance for a class the
+// program never constrained that way.
+//
+// Two instances are declared so first-argument dispatch cannot pass by
+// accident, and both expected-type channels are exercised: a `let` annotation
+// and a function return type.
+//
+// Expected output:
+// 7
+// true
+// 7
+
+class Parse<a> {
+    fn parse(s: String) -> a
+}
+
+instance Parse<Int> {
+    fn parse(s) { 7 }
+}
+
+instance Parse<Bool> {
+    fn parse(s) { true }
+}
+
+fn parse_int(s: String) -> Int {
+    parse(s)
+}
+
+fn main() with IO {
+    let n: Int = parse("x")
+    print(n)
+    let b: Bool = parse("y")
+    print(b)
+    print(parse_int("z"))
+}
