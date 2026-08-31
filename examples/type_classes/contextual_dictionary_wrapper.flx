@@ -1,0 +1,44 @@
+// Stage 4 contract: a generic function forwarding to a contextual instance
+// receives the dictionary that instance's context needs.
+//
+// `show_all` holds two dictionaries — `Enc<a>` from its own bound, and
+// `Enc<List<a>>` for the call it makes. Both parameters were named
+// `__dict_Enc`, so the second shadowed the first; and the reference the AST
+// lowerer emits by name was never bound to either parameter, so it escaped to
+// global scope where no such definition exists. The call received `None` and
+// field extraction failed with `E1004 tuple field access expected Tuple, got
+// None` (KI-052).
+//
+// Dictionary parameters now carry a per-class occurrence suffix, which is what
+// the lookups always assumed, and elaboration binds a dictionary reference to
+// the parameter that holds it.
+//
+// Expected output:
+// "5"
+// "5"
+
+class Enc<a> {
+    fn enc(x: a) -> String
+}
+
+instance Enc<Int> {
+    fn enc(x) { to_string(x) }
+}
+
+instance Enc<a> => Enc<List<a>> {
+    fn enc(xs) {
+        match xs {
+            [h | t] -> enc(h),
+            _ -> "empty"
+        }
+    }
+}
+
+fn show_all<a: Enc>(xs: List<a>) -> String {
+    enc(xs)
+}
+
+fn main() with IO {
+    print(enc([5, 6]))
+    print(show_all([5, 6]))
+}
