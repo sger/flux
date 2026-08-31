@@ -1,0 +1,17 @@
+---
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/ambiguous_instance_e459.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E459]: Undetermined Class Parameter
+
+Cannot determine `b` in `Convert<Int, _>`; several instances are compatible with what this call fixes.
+
+  examples/compiler_errors/ambiguous_instance_e459.flx:38:19
+   |
+38 |     let ignored = convert(42)
+   |                   ^^^^^^^^^^^
+== stdout ==
+<not executed>
