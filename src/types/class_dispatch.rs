@@ -1162,7 +1162,16 @@ fn generate_from_statements(
                 for method_sig in &class_def.methods {
                     let explicit_method = explicit_methods.get(&method_sig.name).copied();
                     let body = if let Some(method) = explicit_method {
-                        method.body.clone()
+                        // The generated mangled method is a second AST copy of
+                        // the source instance method.  It must not reuse the
+                        // source expression IDs: HM stores one inferred type
+                        // per ID, and Core lowering uses that map to resolve
+                        // contextual class calls.  Reusing IDs lets the
+                        // source and generated copies overwrite each other,
+                        // which is how an element call such as
+                        // `encode(value)` was lowered as a recursive container
+                        // call in Flow.Json (KI-051).
+                        refresh_block_expr_ids(method.body.clone(), id_gen)
                     } else if let Some(default_body) = &method_sig.default_body {
                         // A default body is cloned into every instance, so each
                         // copy needs its own ExprIds: typed dispatch keys on

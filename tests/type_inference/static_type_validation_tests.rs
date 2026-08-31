@@ -11,9 +11,11 @@ use std::collections::{HashMap, HashSet};
 
 use flux::{
     ast::type_infer::{InferProgramConfig, InferProgramResult, infer_program},
+    ast::visit::{Visitor, walk_expr},
     diagnostics::{DiagnosticBuilder, compiler_errors::UNDEFINED_VARIABLE, diagnostic_for},
     syntax::{
-        interner::Interner, lexer::Lexer, parser::Parser, program::Program, statement::Statement,
+        block::Block, expression::Expression, interner::Interner, lexer::Lexer, parser::Parser,
+        program::Program, statement::Statement,
     },
     types::{
         class_env::ClassEnv,
@@ -39,6 +41,25 @@ fn parse(source: &str) -> (Program, Interner) {
     );
     let interner = parser.take_interner();
     (program, interner)
+}
+
+fn expression_ids(block: &Block) -> HashSet<flux::syntax::expression::ExprId> {
+    struct Collector {
+        ids: HashSet<flux::syntax::expression::ExprId>,
+    }
+
+    impl<'ast> Visitor<'ast> for Collector {
+        fn visit_expr(&mut self, expr: &'ast Expression) {
+            self.ids.insert(expr.expr_id());
+            walk_expr(self, expr);
+        }
+    }
+
+    let mut collector = Collector {
+        ids: HashSet::new(),
+    };
+    collector.visit_block(block);
+    collector.ids
 }
 
 fn infer(source: &str) -> (InferProgramResult, Program, Interner) {
@@ -1058,6 +1079,7 @@ fn dispatch_generates_mangled_functions() {
 class Sizeable<a> {
     fn size(x: a) -> Int
 }
+
 instance Sizeable<Int> {
     fn size(x) { x }
 }
@@ -1088,6 +1110,66 @@ instance Sizeable<Int> {
     assert!(
         has_mangled,
         "expected __tc_Sizeable_Int_size in generated functions"
+    );
+}
+
+#[test]
+fn dispatch_refreshes_explicit_instance_body_expression_ids() {
+    let (program, mut interner) = parse(
+        r#"
+class Enc<a> {
+    fn enc(x: a) -> String
+}
+instance Enc<a> => Enc<List<a>> {
+    fn enc(xs) {
+        match xs {
+            [h | t] -> enc(h),
+            _ -> "empty"
+        }
+    }
+}
+"#,
+    );
+    let mut env = ClassEnv::new();
+    env.register_builtins(&mut interner);
+    env.collect_from_statements(&program.statements, &interner);
+
+    let source_ids = program
+        .statements
+        .iter()
+        .find_map(|stmt| match stmt {
+            Statement::Instance { methods, .. } => {
+                methods.first().map(|method| expression_ids(&method.body))
+            }
+            _ => None,
+        })
+        .expect("contextual instance body");
+
+    let generated = flux::types::class_dispatch::generate_dispatch_functions(
+        &program.statements,
+        &env,
+        &mut interner,
+        &HashSet::new(),
+        flux::types::class_dispatch::DispatchGenerationOptions {
+            include_builtin_instances: true,
+        },
+    );
+    let generated_body = generated
+        .iter()
+        .find_map(|stmt| match stmt {
+            Statement::Function { name, body, .. }
+                if interner.resolve(*name).starts_with("__tc_Enc_List") =>
+            {
+                Some(body)
+            }
+            _ => None,
+        })
+        .expect("generated contextual instance method");
+
+    let generated_ids = expression_ids(generated_body);
+    assert!(
+        source_ids.is_disjoint(&generated_ids),
+        "cloned explicit instance body reused expression IDs: source={source_ids:?}, generated={generated_ids:?}"
     );
 }
 
