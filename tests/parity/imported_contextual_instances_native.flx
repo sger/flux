@@ -1,0 +1,14 @@
+// parity: vm, llvm, vm_cached, llvm_cached, vm_strict, llvm_strict
+// expect: success
+// bug: imported Flow.Json contextual Option, List, and Array instances must
+// lower element calls through their contextual dictionaries on every backend
+// and cache path (KI-051).
+
+import Flow.Json as Json
+import Flow.Json exposing (encode)
+
+fn main() with IO {
+    print(Json.encode_json(encode(Some(42))))
+    print(Json.encode_json(encode([1, 2])))
+    print(Json.encode_json(encode([|1, 2|])))
+}

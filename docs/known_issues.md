@@ -1329,11 +1329,10 @@ alongside it, each guarded by a parity fixture:
   user file resolve its own `add(5, 10)` to a function never generated for it
   (`DispatchGenerationOptions::include_builtin_instances`).
 
-The `Flow.Json` case is verified on the `--no-cache` VM path only; the cached
-parallel VM path and the native backend still fail it for a separate,
-pre-existing reason — see [KI-051](#ki-051).
+The `Flow.Json` case is covered by the cross-backend and cached-path regression
+fixture in [KI-051](#ki-051).
 
-### KI-051 — Cross-module contextual instances fail natively — VM PATH FIXED 2026-08-31
+### KI-051 — Cross-module contextual instances — FIXED 2026-08-31
 
 **Severity:** High · **Area:** type classes, module linking, native backend · **Verified:** 2026-08-31 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
@@ -1360,22 +1359,21 @@ which runs the cached ways the `--no-cache` path could not catch, and by
 `imported_contextual_instances_link_on_the_cached_path` in
 [`tests/integration/vm_json.rs`](../tests/integration/vm_json.rs). The parity
 fixture deliberately uses imported *concrete* instances so it runs unskipped on
-all five ways; the contextual native gap below is covered separately once
-fixed.
+all five ways.
 
 Note when re-testing: a `.fxc` written before the fix replays its own stale
 `Imported` classification through `hydrate_cached_module_bytecode`, so clear
 `target/flux` before concluding the fix did not work.
 
-**Native — still open. Diagnosis corrected 2026-08-31; it is not a native
-backend defect.** `flux --native` handles an imported *concrete* instance
-correctly (`encode(42)` prints `"42"`) but fails an imported *contextual* one
-(`encode([1, 2])`) with `E1009 No instance of Encode.encode for the given type`.
+**Native — FIXED.** `flux --native` now handles imported contextual
+`Flow.Json` instances for `Option`, `List`, and `Array`; the parity fixture
+[`tests/parity/imported_contextual_instances_native.flx`](../tests/parity/imported_contextual_instances_native.flx)
+runs fresh and warm VM/native paths and checks the encoded `"42"` and
+`"[1,2]"` results.
 
 The earlier entry said the gap was in "how the native backend constructs or
-applies a contextual dictionary". That is wrong. Core is byte-identical between
-the backends (verified: 3016 lines, zero diff), and the fault is *in that
-shared Core*. `Flow.Json`'s `List` instance lowers to
+applies a contextual dictionary". That is wrong: the fault was *in the Core both
+backends share*. `Flow.Json`'s `List` instance lowered to
 
 ```
 letrec __tc_Encode_List<a>_encode =
@@ -1395,35 +1393,43 @@ a list. The same program written outside the standard library lowers correctly:
       %t4(v))
 ```
 
-Both backends receive the broken Core; only native executes it. The VM reaches
+Both backends received the broken Core; only native executed it. The VM reaches
 the same call through the AST lowering path in
-[`compiler/expression.rs`](../src/compiler/expression.rs), which resolves it
+[`compiler/expression.rs`](../src/compiler/expression.rs), which resolved it
 correctly — the same twin-path split that Stage 4 had to keep in lockstep. So
-this is a mis-lowering that the VM happens to bypass, not a native gap.
+this was a mis-lowering the VM happened to bypass, not a native gap.
 
-Narrowing so far: a contextual instance in a single file works natively, and so
-does one in an imported single-segment user module — including with a lambda
-calling the class method on an element, which is `Flow.Json`'s exact shape.
-Something specific to the standard-library module makes the argument's inferred
-type wrong at that call. `ExprId` collisions poisoning `hm_expr_types` are a
-known failure mode for synthesised code and are the next thing to check.
+An earlier revision of this entry backed that claim with "Core is byte-identical
+between the backends (verified: 3016 lines, zero diff)". Disregard it. That
+comparison used `--dump-core`, which for a multi-module program is not a view of
+anything the compiler builds — see [KI-053](#ki-053). The conclusion happened to
+be right; the evidence for it was not, and trusting the same instrument again
+will mislead the next person the same way.
 
-Verified pre-existing on `main` at the Stage 4 branch point, so it predates the
-Stage 4 work.
+The shared Core defect was duplicate expression IDs when explicit instance
+method bodies were cloned. The generated copy now refreshes every expression
+ID, so `hm_expr_types` cannot reuse the source body's type entry; inner calls
+in contextual instances therefore resolve through the dictionary rather than
+recursing through the enclosing container instance.
 
-**Related, and previously unrecorded:** a *dotted* user module fails to link
-natively even with a purely concrete instance —
+A second, distinct native defect is fixed in the same change. A *dotted* user
+module failed to link natively even with a purely concrete instance —
 `module Data.Enc { public instance Encodable<Int> { ... } }` imported by an
-entry file gives
-`ld: "_flux_Data_Enc___tc_Encodable_Int_enc", referenced from: _flux_main`.
-The reference is module-qualified but no definition is emitted under that name.
-A single-segment module (`module Enc`) links fine. This is a distinct defect
-from the one above — link-time rather than lowering — and is also pre-existing
-on `main`.
+entry file gave
 
-Hoisting a stdlib module's generated methods to top level was tried and
-rejected — the hoisted methods lose access to module-local helpers and
-`Flow.Json` itself then fails to compile with `E004`.
+```
+ld: "_flux_Data_Enc___tc_Encodable_Int_enc", referenced from: _flux_main
+```
+
+because the reference was module-qualified while the definition had been hoisted
+to file scope under the bare name. A single-segment `module Enc` linked fine.
+Generated `__tc_*` methods belonging to a module now remain inside that module,
+emitting the qualified symbol native callers import. Unscoped instances
+remain at file scope, and the bare-name aliases used by VM dispatch are still
+emitted. The native multi-module regression
+[`dotted_module_instance_dispatches_on_vm_and_llvm` in
+`tests/native_llvm/native_typeclass_tests.rs`](../tests/native_llvm/native_typeclass_tests.rs)
+covers this path.
 
 ### KI-052 — A generic wrapper over a contextual instance loses its dictionary — FIXED 2026-08-31
 
@@ -1489,3 +1495,77 @@ Guarded by
 stdout so it still catches the bug if both backends were to agree on the wrong
 answer.
 
+### KI-053 — `--dump-core` and the other whole-program dumps report types from the wrong module
+
+**Severity:** Medium · **Area:** driver, diagnostics tooling · **Verified:** 2026-08-31 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+Every dump flag that needs a whole-program view — `--dump-core`, `--dump-aether`,
+`--dump-cfg`, `--dump-lir`, `--emit-llvm`, `--trace-aether` — concatenates the
+modules into one `Program`:
+
+```rust
+// src/driver/pipeline/program.rs
+fn merge_programs<'a>(programs: impl IntoIterator<Item = &'a Program>) -> Program
+```
+
+Each file is parsed by its own `Parser`, and every `ExprIdGen` starts at 1
+([`src/syntax/expression.rs`](../src/syntax/expression.rs)), while inferred types
+are keyed on that bare number with no module component:
+
+```rust
+// src/ast/type_infer/mod.rs
+expr_types: HashMap<ExprId, InferType>,
+```
+
+So the merged view asks one flat map about ids that several modules each
+allocated from 1. Measured on `import Flow.Json` plus a four-line entry file:
+each module internally clean, the merge holding **2616 expressions across 987
+distinct ids**, with `ExprId(1)` appearing 13 times.
+
+The dumps therefore show expressions annotated with another module's types, and
+lowering decisions taken from them — a dumped call can resolve to an instance
+the compiler would never pick. Normal compilation is unaffected: modules are
+compiled one at a time and `hm_expr_types` is replaced per module, never merged.
+
+**Why this matters more than a cosmetic dump bug.** KI-051's recorded diagnosis
+was derived from one of these dumps and was wrong as a result, which cost two
+attempts. Any diagnosis that quotes a multi-module dump is unsound.
+
+**Workaround while this is open:** dump a single module, or read the Core for the
+module you care about from its own compile rather than the merged view.
+
+Two candidate fixes: renumber `ExprId`s when concatenating so the merged program
+is internally consistent, or refuse the merge and dump per module — the latter
+also makes the output match what is actually compiled.
+
+### KI-054 — An imported contextual instance method is declared one parameter short natively
+
+**Severity:** Low · **Area:** type classes, native backend · **Verified:** 2026-08-31 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+`build_public_class_method_scheme`
+([`src/compiler/mod.rs`](../src/compiler/mod.rs)) rebuilds an imported instance
+method's scheme from the *class* method signature and ends in `generalize(...,
+&HashSet::new())`, so `Scheme.constraints` is always empty — the instance's
+`context` is dropped. `native_function_arity` derives an extern's arity from
+exactly those constraints, so a contextual instance method is registered with
+only its declared parameters:
+
+```
+extern __tc_Encode_Int_encode        arity=1 constraints=0   # correct
+extern __tc_Encode_List<a>_encode    arity=1 constraints=0   # takes 2
+```
+
+The definition takes one leading dictionary per context entry, prepended by
+`context_dict_param_names` in
+[`class_dispatch.rs`](../src/types/class_dispatch.rs). Concrete instances have
+an empty context and are unaffected.
+
+**Not currently observable.** `resolve_external_symbol` ignores the `arity`
+field for a direct extern call, and both the flat (`encode([1, 2])`) and nested
+(`encode([[1, 2], [3]])`) cases were verified to behave identically with and
+without a correction. It is recorded because it is a real disagreement between
+what the extern declares and what the callee takes, in the area KI-051 came
+from, and because the VM masks the same class of mismatch behind a deliberate
+fixup for `__tc_*` closures in
+[`vm/function_call.rs`](../src/vm/function_call.rs) — so nothing would catch it
+if a code path started honouring the field.

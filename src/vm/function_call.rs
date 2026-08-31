@@ -234,7 +234,7 @@ impl VM {
                 .debug_info
                 .as_ref()
                 .and_then(|info| info.name.as_deref())
-                .is_some_and(|name| name.starts_with("__tc_"))
+                .is_some_and(crate::types::class_env::is_generated_instance_method)
         {
             let expected = closure.function.num_parameters;
             let extras = num_args - expected;
