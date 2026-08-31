@@ -297,23 +297,62 @@ fn all_equal<a>(x: a, y: a) -> Bool where Eq<a> {
 
 ### Stage 4 — Deterministic evidence resolution
 
-- Make semantic lookup `ClassId`-aware:
-  `qualified_class_id.flx`.
-- Reject overlapping and ambiguous candidates:
-  `overlapping_instances.flx` and `ambiguous_instance.flx`.
-- Report a predicate whose variable no type or environment fixes, once
-  resolution is result-directed: `ambiguous_constraint.flx` (deferred from
-  Stage 3).
 - Resolve using the complete predicate, all arguments, and expected result:
-  `multi_parameter_resolution.flx` and
-  `result_directed_resolution.flx`.
+  `multi_parameter_resolution.flx` and `result_directed_resolution.flx`. A
+  class-method call now derives its predicate from the positions the *class
+  declaration* puts its parameters in, so a parameter is read from whichever
+  argument — or from the result — actually carries it.
+- Reject candidates a call cannot choose between: `ambiguous_instance_e459.flx`
+  reports `E459` when a call leaves a class parameter open and more than one
+  instance stays compatible. `E454` continues to report a fully known predicate
+  matched by several instances.
+- Report a bound whose variable the signature never mentions:
+  `ambiguous_constraint_e476.flx` (`E476`, Haskell Report §4.3.4) — the Stage 3
+  deferral. Reporting it needed `where Convert<a, b>` to keep both arguments;
+  bounds previously emitted only the parameter they were attached to, so the
+  second argument was absent rather than undetermined
+  (`where_constraint_multi_param.flx`).
+- Record the matched instance as evidence, so dictionary elaboration consumes
+  the solver's choice instead of resolving a second time and possibly
+  disagreeing.
+
+Two things the earlier draft of this stage assumed turned out to be wrong, and
+are recorded here so they are not re-derived:
+
+- **Specificity pruning is not applicable.** GHC prunes an overlapped instance
+  only when one of the pair opts in with an `OVERLAPPING`/`OVERLAPPABLE`
+  pragma (`Note [Rules for instance lookup]`, IL3). Flux has no such pragma, so
+  reporting overlap — the existing `E454` behaviour — is already the
+  GHC-consistent answer, and `Sizeable<List<a>>` against `Sizeable<List<Int>>`
+  must keep erroring.
+- **Inline `expr: Type` ascription does not exist.** The example this section
+  used to carry did not parse. Expected types reach a call through `let`
+  annotations and return-type position, which is what result-directed dispatch
+  uses; adding ascription is a separate language change.
+
+`qualified_class_id.flx` is deferred. Two modules that each declare a class of
+the same name with the same instance head collide as `E001 Duplicate Name` on
+the generated `__tc_*` binding. The cause is not the mangled name — module
+scoping already qualifies module-level globals, which is what KI-051 turned on
+— but where synthesized dispatch functions are placed, and fixing it means
+changing that scoping. As groundwork, every site that built a `__tc_*` name now
+goes through one constructor, so the format can be changed in one place instead
+of ten; a mismatch between them is a missing global at run time rather than a
+compile error.
 
 Example syntax:
 
 ```flux
 class Convert<a, b> { fn convert(x: a) -> b }
 instance Convert<Int, String> { fn convert(x) { to_string(x) } }
-fn main() with IO { print(convert(42): String) }
+instance Convert<Int, Bool> { fn convert(x) { x > 0 } }
+
+fn main() with IO {
+    let text: String = convert(42)   // selects Convert<Int, String>
+    let flag: Bool = convert(42)     // selects Convert<Int, Bool>
+    print(text)
+    print(flag)
+}
 ```
 
 ### Stage 5 — Superclass evidence
