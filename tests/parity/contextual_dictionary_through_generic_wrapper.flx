@@ -1,0 +1,33 @@
+// parity: vm, llvm
+// expect: success
+// bug: a generic function forwarding to a contextual instance was handed the
+// wrong dictionary. Its dictionary parameters were all named `__dict_Enc`, so
+// the second shadowed the first, and the reference the AST lowerer emitted by
+// name escaped to global scope where no such definition exists — the call
+// received None and field extraction failed with E1004 (KI-052).
+
+class Enc<a> {
+    fn enc(x: a) -> String
+}
+
+instance Enc<Int> {
+    fn enc(x) { to_string(x) }
+}
+
+instance Enc<a> => Enc<List<a>> {
+    fn enc(xs) {
+        match xs {
+            [h | t] -> enc(h),
+            _ -> "empty"
+        }
+    }
+}
+
+fn show_all<a: Enc>(xs: List<a>) -> String {
+    enc(xs)
+}
+
+fn main() with IO {
+    print(enc([5, 6]))
+    print(show_all([5, 6]))
+}

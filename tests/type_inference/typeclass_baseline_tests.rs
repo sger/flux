@@ -122,6 +122,7 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "multi_parameter_resolution.flx",
         "result_directed_resolution.flx",
         "where_constraint_multi_param.flx",
+        "contextual_dictionary_wrapper.flx",
     ];
     for fixture in fixtures {
         let source = std::fs::read_to_string(fixture_path(fixture)).expect("read fixture");
@@ -251,6 +252,16 @@ fn multi_parameter_classes_resolve_on_the_complete_predicate() {
     let output =
         run_fixture("multi_parameter_resolution.flx").expect("multi-parameter dispatch should run");
     assert_eq!(output.stdout, "\"42\"\ntrue");
+}
+
+/// Stage 4 (KI-052): a generic function forwarding to a contextual instance
+/// gets the dictionary that instance's context needs, rather than one that
+/// shadowed it.
+#[test]
+fn a_generic_wrapper_forwards_the_right_contextual_dictionary() {
+    let output = run_fixture("contextual_dictionary_wrapper.flx")
+        .expect("contextual dictionary forwarding should run");
+    assert_eq!(output.stdout, "\"5\"\n\"5\"");
 }
 
 /// Stage 4: a `where` bound written with explicit arguments keeps all of them.

@@ -1,6 +1,5 @@
 ---
 source: tests/aether/cli_snapshots.rs
-assertion_line: 167
 ---
 def __dict_Eq_Int =
 MakeTuple(__tc_Eq_Int_eq, __tc_Eq_Int_neq)
@@ -272,7 +271,7 @@ letrec assert_false =
     ()
 
 letrec assert_gt =
-λOrd, a, b.
+λ__dict_Ord, a, b.
     let %t19 = (let %t20 = Gt(a, b)
     case %t20 of
       true →
@@ -282,7 +281,7 @@ letrec assert_gt =
     ()
 
 letrec assert_lt =
-λOrd, a, b.
+λ__dict_Ord, a, b.
     let %t21 = (let %t22 = Lt(a, b)
     case %t22 of
       true →
@@ -292,7 +291,7 @@ letrec assert_lt =
     ()
 
 letrec assert_gte =
-λOrd, a, b.
+λ__dict_Ord, a, b.
     let %t23 = (let %t24 = Ge(a, b)
     case %t24 of
       true →
@@ -302,7 +301,7 @@ letrec assert_gte =
     ()
 
 letrec assert_lte =
-λOrd, a, b.
+λ__dict_Ord, a, b.
     let %t25 = (let %t26 = Le(a, b)
     case %t26 of
       true →
@@ -619,9 +618,9 @@ letrec zip =
     zip_go(0, %t117)
 
 letrec contains =
-λEq, arr, x.
+λ__dict_Eq, arr, x.
     let %t118 = (λv.
-      let %t119 = Eq.0
+      let %t119 = __dict_Eq.0
       %t119(v, x))
     any(arr, %t118)
 
@@ -782,13 +781,13 @@ letrec range =
     range_go(start, %t154)
 
 letrec sort =
-λOrd, arr.
+λ__dict_Ord, arr.
     let %t155 = (λv.
       v)
-    sort_by(Ord, arr, %t155)
+    sort_by(__dict_Ord, arr, %t155)
 
 letrec sort_by =
-λOrd, arr, f.
+λ__dict_Ord, arr, f.
     letrec insert_tagged = (λsorted, pair, idx.
       let %t156 = (let %t157 = Len(sorted)
       Ge(idx, %t157))
@@ -1296,13 +1295,13 @@ letrec scanr =
         result
 
 letrec sort =
-λOrd, xs.
+λ__dict_Ord, xs.
     let %t277 = (λx.
       x)
     merge_sort_by(xs, %t277)
 
 letrec sort_by =
-λOrd, xs, f.
+λ__dict_Ord, xs, f.
     merge_sort_by(xs, f)
 
 letrec first =
@@ -1423,24 +1422,24 @@ letrec enumerate =
     enumerate_go(xs, 0)
 
 letrec contains =
-λEq, xs, x.
+λ__dict_Eq, xs, x.
     case xs of
       ::(h, t) →
-        let %t295 = (let %t296 = Eq.0
+        let %t295 = (let %t296 = __dict_Eq.0
         %t296(h, x))
         case %t295 of
           true →
             true
           _ →
-            contains(Eq, t, x)
+            contains(__dict_Eq, t, x)
       _ →
         false
 
 letrec nub =
-λEq, xs.
+λ__dict_Eq, xs.
     let %t297 = (λx.
       x)
-    unique_by(Eq, xs, %t297)
+    unique_by(__dict_Eq, xs, %t297)
 
 letrec partition =
 λxs, pred.
@@ -1463,7 +1462,7 @@ letrec partition =
         MakeTuple(%t302, %t303)
 
 letrec delete =
-λEq, xs, x.
+λ__dict_Eq, xs, x.
     delete_go(xs, x)
 
 letrec delete_go =
@@ -1511,16 +1510,16 @@ letrec intercalate =
     concat(%t311)
 
 letrec is_prefix =
-λEq, prefix, xs.
+λ__dict_Eq, prefix, xs.
     case prefix of
       ::(p, pt) →
         case xs of
           ::(x, xt) →
-            let %t312 = (let %t313 = Eq.0
+            let %t312 = (let %t313 = __dict_Eq.0
             %t313(p, x))
             case %t312 of
               true →
-                is_prefix(Eq, pt, xt)
+                is_prefix(__dict_Eq, pt, xt)
               _ →
                 false
           _ →
@@ -1529,10 +1528,10 @@ letrec is_prefix =
         true
 
 letrec is_suffix =
-λEq, suffix, xs.
+λ__dict_Eq, suffix, xs.
     let %t314 = reverse(suffix)
     let %t315 = reverse(xs)
-    is_prefix(Eq, %t314, %t315)
+    is_prefix(__dict_Eq, %t314, %t315)
 
 letrec nth =
 λxs, n.
@@ -1597,14 +1596,14 @@ letrec group_by =
         []
 
 letrec unique_by =
-λEq, xs, f.
+λ__dict_Eq, xs, f.
     let %t330 = (let %t331 = []
     let %t332 = []
     unique_by_go(xs, f, %t331, %t332))
     reverse(%t330)
 
 letrec maximum =
-λOrd, xs.
+λ__dict_Ord, xs.
     case xs of
       ::(h, t) →
         let %t333 = maximum_go(t, h)
@@ -1613,7 +1612,7 @@ letrec maximum =
         None
 
 letrec minimum =
-λOrd, xs.
+λ__dict_Ord, xs.
     case xs of
       ::(h, t) →
         let %t334 = minimum_go(t, h)
@@ -1660,22 +1659,22 @@ letrec break_at =
     span(xs, %t338)
 
 letrec lookup =
-λEq, xs, key.
+λ__dict_Eq, xs, key.
     case xs of
       ::((k, v), t) →
-        let %t340 = (let %t341 = Eq.0
+        let %t340 = (let %t341 = __dict_Eq.0
         %t341(k, key))
         case %t340 of
           true →
             Some(v)
           _ →
-            lookup(Eq, t, key)
+            lookup(__dict_Eq, t, key)
       _ →
         None
 
 letrec not_elem =
-λEq, xs, x.
-    let %t342 = contains(Eq, xs, x)
+λ__dict_Eq, xs, x.
+    let %t342 = contains(__dict_Eq, xs, x)
     Not(%t342)
 
 letrec enumerate_go =

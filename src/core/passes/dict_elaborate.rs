@@ -446,6 +446,13 @@ fn rewrite_constrained_functions(
         // Build dictionary parameters and method map for this function.
         let mut dict_params: Vec<CoreBinder> = Vec::new();
         let mut method_map: HashMap<Identifier, (CoreBinder, usize)> = HashMap::new();
+        // A function can hold several dictionaries for one class, so the
+        // parameter names carry a per-class occurrence suffix. The lookups that
+        // consume them — `current_context_dictionary` and its AST twin — have
+        // always computed `__dict_Enc_1` for a second occurrence; naming every
+        // parameter `__dict_Enc` meant the second shadowed the first and every
+        // reference resolved to the wrong dictionary (KI-052).
+        let mut class_occurrences: HashMap<Identifier, usize> = HashMap::new();
 
         for (index, constraint) in constraints.iter().enumerate() {
             let class_def = match class_env.lookup_class(constraint.class_name) {
@@ -457,7 +464,14 @@ fn rewrite_constrained_functions(
                 existing
             } else {
                 let class_str = interner.resolve(constraint.class_name);
-                let param_name_str = format!("__dict_{class_str}");
+                let occurrence = class_occurrences.entry(constraint.class_name).or_insert(0);
+                let suffix = if *occurrence == 0 {
+                    String::new()
+                } else {
+                    format!("_{occurrence}")
+                };
+                *occurrence += 1;
+                let param_name_str = format!("__dict_{class_str}{suffix}");
                 let param_name = interner
                     .lookup(&param_name_str)
                     .unwrap_or(constraint.class_name);
@@ -548,13 +562,13 @@ fn insert_dict_args_at_call_sites(
     // then walk its body to insert dict args at call sites.
     for def in &mut program.defs {
         // Build the caller's own dict_param map (if it's a constrained function).
-        let caller_dicts: HashMap<Identifier, CoreBinder> = if let Some(scheme) = def_schemes
+        let caller_dicts: CallerDicts = if let Some(scheme) = def_schemes
             .get(&def.binder.id)
             .or_else(|| type_env.lookup(def.name))
         {
             build_caller_dict_map(&def.expr, &dictionary_constraints(scheme, class_env))
         } else {
-            HashMap::new()
+            CallerDicts::new()
         };
 
         let old_expr = std::mem::replace(
@@ -577,11 +591,25 @@ fn insert_dict_args_at_call_sites(
 /// If the function has constraints, its Lam starts with `__dict_*` params
 /// (prepended by Phase 3). This maps each class name to the corresponding
 /// binder so we can forward them to callee functions.
+/// The dictionary parameters a constrained function received, paired with the
+/// predicate each one discharges.
+///
+/// Keyed by the *whole* predicate rather than the class name. A function can
+/// hold several dictionaries for one class — `fn show_all<a: Enc>(xs: List<a>)`
+/// takes both `Enc<a>` and `Enc<List<a>>` — and collapsing them to the class
+/// name kept only the last, so a call inside the body was handed a dictionary
+/// for the wrong type (KI-052). The list is a handful of entries per function,
+/// so a linear search costs less than hashing `InferType`s.
+type CallerDicts = Vec<(
+    crate::ast::type_infer::constraint::SchemeConstraint,
+    CoreBinder,
+)>;
+
 fn build_caller_dict_map(
     expr: &CoreExpr,
     constraints: &[crate::ast::type_infer::constraint::SchemeConstraint],
-) -> HashMap<Identifier, CoreBinder> {
-    let mut map = HashMap::new();
+) -> CallerDicts {
+    let mut map = CallerDicts::new();
     if constraints.is_empty() {
         return map;
     }
@@ -589,7 +617,7 @@ fn build_caller_dict_map(
         // The first N params are dictionary params (one per constraint).
         for (i, constraint) in constraints.iter().enumerate() {
             if let Some(binder) = params.get(i) {
-                map.insert(constraint.class_name, *binder);
+                map.push((constraint.clone(), *binder));
             }
         }
     }
@@ -606,7 +634,7 @@ fn insert_dict_args_expr(
         Identifier,
         Vec<crate::ast::type_infer::constraint::SchemeConstraint>,
     >,
-    caller_dicts: &HashMap<Identifier, CoreBinder>,
+    caller_dicts: &CallerDicts,
     class_env: &ClassEnv,
     interner: &Interner,
 ) -> CoreExpr {
@@ -707,6 +735,27 @@ fn insert_dict_args_expr(
 
         // Recursive cases — same structure as rewrite_expr but threading
         // different context.
+        // A dictionary reference the AST lowerer emitted by name, before the
+        // parameter holding it existed. Bind it to that parameter now.
+        //
+        // `current_context_dictionary` names the dictionary a call needs
+        // (`__dict_Enc`, `__dict_Enc_1`) and emits an *unresolved* variable,
+        // because at AST-lowering time the enclosing function has no dictionary
+        // parameters yet — this pass adds them. Left unresolved, the name
+        // escapes to global scope, where no such definition exists, and the
+        // call receives `None` (KI-052).
+        CoreExpr::Var { ref var, span }
+            if var.binder.is_none()
+                && caller_dicts.iter().any(|(_, held)| held.name == var.name) =>
+        {
+            let binder = caller_dicts
+                .iter()
+                .find(|(_, held)| held.name == var.name)
+                .map(|(_, held)| *held)
+                .expect("guard just matched this name");
+            CoreExpr::bound_var(&binder, span)
+        }
+
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => expr,
 
         CoreExpr::Lam {
@@ -1013,13 +1062,27 @@ fn insert_dict_args_expr(
 /// 2. Otherwise, try to find a concrete `__dict_{Class}_{Type}` reference.
 fn resolve_dict_arg(
     constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
-    caller_dicts: &HashMap<Identifier, CoreBinder>,
+    caller_dicts: &CallerDicts,
     _class_env: &ClassEnv,
     interner: &Interner,
     span: Span,
 ) -> Option<CoreExpr> {
-    // Case 1: Polymorphic forwarding — caller has a dict for this class.
-    if let Some(binder) = caller_dicts.get(&constraint.class_name) {
+    // Case 1: the caller already holds a dictionary for exactly this
+    // predicate — forward it.
+    if let Some((_, binder)) = caller_dicts.iter().find(|(held, _)| held == constraint) {
+        return Some(CoreExpr::bound_var(binder, span));
+    }
+
+    // Case 2: the caller holds exactly one dictionary for this class and the
+    // predicate did not match structurally. Matching by class alone is only
+    // safe when there is no second dictionary to confuse it with; with two,
+    // picking either is a guess, and guessing wrong is what KI-052 was.
+    let mut same_class = caller_dicts
+        .iter()
+        .filter(|(held, _)| held.class_name == constraint.class_name);
+    if let Some((_, binder)) = same_class.next()
+        && same_class.next().is_none()
+    {
         return Some(CoreExpr::bound_var(binder, span));
     }
 

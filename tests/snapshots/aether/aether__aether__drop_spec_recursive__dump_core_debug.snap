@@ -1,6 +1,5 @@
 ---
 source: tests/aether/cli_snapshots.rs
-assertion_line: 167
 ---
 def __dict_Eq_Int =
 MakeTuple(__tc_Eq_Int_eq#?[external], __tc_Eq_Int_neq#?[external])
@@ -272,7 +271,7 @@ letrec assert_false =
     ()
 
 letrec assert_gt =
-λOrd#1098:Box, a#157, b#158.
+λ__dict_Ord#1098:Box, a#157, b#158.
     let %t19 = (let %t20:Bool = Gt(a#157, b#158)
     case #4001128[synthetic]#1128 of
       true →
@@ -282,7 +281,7 @@ letrec assert_gt =
     ()
 
 letrec assert_lt =
-λOrd#1099:Box, a#161, b#162.
+λ__dict_Ord#1099:Box, a#161, b#162.
     let %t21 = (let %t22:Bool = Lt(a#161, b#162)
     case #4001129[synthetic]#1129 of
       true →
@@ -292,7 +291,7 @@ letrec assert_lt =
     ()
 
 letrec assert_gte =
-λOrd#1100:Box, a#165, b#166.
+λ__dict_Ord#1100:Box, a#165, b#166.
     let %t23 = (let %t24:Bool = Ge(a#165, b#166)
     case #4001130[synthetic]#1130 of
       true →
@@ -302,7 +301,7 @@ letrec assert_gte =
     ()
 
 letrec assert_lte =
-λOrd#1101:Box, a#169, b#170.
+λ__dict_Ord#1101:Box, a#169, b#170.
     let %t25 = (let %t26:Bool = Le(a#169, b#170)
     case #4001131[synthetic]#1131 of
       true →
@@ -619,9 +618,9 @@ letrec zip =
     zip_go#264(0, #4001216[synthetic]#1216)
 
 letrec contains =
-λEq#1102:Box, arr#271:Box, x#272.
+λ__dict_Eq#1102:Box, arr#271:Box, x#272.
     let %t118:Box = (λv#273:Box.
-      let %t119 = Eq#1102.0
+      let %t119 = __dict_Eq#1102.0
       #4001217[synthetic]#1217(v#273, x#272))
     any#470(arr#271, #4001218[synthetic]#1218)
 
@@ -782,13 +781,13 @@ letrec range =
     range_go#326(start#324, #4001253[synthetic]#1253)
 
 letrec sort =
-λOrd#1103:Box, arr#330:Box.
+λ__dict_Ord#1103:Box, arr#330:Box.
     let %t155:Box = (λv#331.
       v#331)
-    sort_by#553(Ord#1103, arr#330, #4001254[synthetic]#1254)
+    sort_by#553(__dict_Ord#1103, arr#330, #4001254[synthetic]#1254)
 
 letrec sort_by =
-λOrd#1104:Box, arr#333:Box, f#334.
+λ__dict_Ord#1104:Box, arr#333:Box, f#334.
     letrec insert_tagged#340 = (λsorted#341, pair#342, idx#343.
       let %t156:Bool = (let %t157 = Len(sorted#341)
       Ge(idx#343, #4001255[synthetic]#1255))
@@ -1296,13 +1295,13 @@ letrec scanr =
         result#548
 
 letrec sort =
-λOrd#1105:Box, xs#551:Box.
+λ__dict_Ord#1105:Box, xs#551:Box.
     let %t277:Box = (λx#552.
       x#552)
     merge_sort_by#787(xs#551, #4001374[synthetic]#1374)
 
 letrec sort_by =
-λOrd#1106:Box, xs#554:Box, f#555.
+λ__dict_Ord#1106:Box, xs#554:Box, f#555.
     merge_sort_by#787(xs#554, f#555)
 
 letrec first =
@@ -1423,24 +1422,24 @@ letrec enumerate =
     enumerate_go#729(xs#615, 0)
 
 letrec contains =
-λEq#1107:Box, xs#617:Box, x#618.
+λ__dict_Eq#1107:Box, xs#617:Box, x#618.
     case xs#617 of
       ::(h#619, t#620:Box) →
-        let %t295 = (let %t296 = Eq#1107.0
+        let %t295 = (let %t296 = __dict_Eq#1107.0
         #4001392[synthetic]#1392(h#619, x#618))
         case #4001393[synthetic]#1393 of
           true →
             true
           _ →
-            contains#616(Eq#1107, t#620, x#618)
+            contains#616(__dict_Eq#1107, t#620, x#618)
       _ →
         false
 
 letrec nub =
-λEq#1108:Box, xs#622:Box.
+λ__dict_Eq#1108:Box, xs#622:Box.
     let %t297:Box = (λx#623.
       x#623)
-    unique_by#686(Eq#1108, xs#622, #4001394[synthetic]#1394)
+    unique_by#686(__dict_Eq#1108, xs#622, #4001394[synthetic]#1394)
 
 letrec partition =
 λxs#625:Box, pred#626.
@@ -1463,7 +1462,7 @@ letrec partition =
         MakeTuple(#4001399[synthetic]#1399, #4001400[synthetic]#1400)
 
 letrec delete =
-λEq#1109:Box, xs#632:Box, x#633.
+λ__dict_Eq#1109:Box, xs#632:Box, x#633.
     delete_go#634(xs#632, x#633)
 
 letrec delete_go =
@@ -1511,16 +1510,16 @@ letrec intercalate =
     concat#468(#4001408[synthetic]#1408)
 
 letrec is_prefix =
-λEq#1110:Box, prefix#656:Box, xs#657:Box.
+λ__dict_Eq#1110:Box, prefix#656:Box, xs#657:Box.
     case prefix#656 of
       ::(p#658, pt#659:Box) →
         case xs#657 of
           ::(x#660, xt#661:Box) →
-            let %t312 = (let %t313 = Eq#1110.0
+            let %t312 = (let %t313 = __dict_Eq#1110.0
             #4001409[synthetic]#1409(p#658, x#660))
             case #4001410[synthetic]#1410 of
               true →
-                is_prefix#655(Eq#1110, pt#659, xt#661)
+                is_prefix#655(__dict_Eq#1110, pt#659, xt#661)
               _ →
                 false
           _ →
@@ -1529,10 +1528,10 @@ letrec is_prefix =
         true
 
 letrec is_suffix =
-λEq#1111:Box, suffix#663:Box, xs#664:Box.
+λ__dict_Eq#1111:Box, suffix#663:Box, xs#664:Box.
     let %t314 = reverse#593(suffix#663)
     let %t315 = reverse#593(xs#664)
-    is_prefix#655(Eq#1111, #4001411[synthetic]#1411, #4001412[synthetic]#1412)
+    is_prefix#655(__dict_Eq#1111, #4001411[synthetic]#1411, #4001412[synthetic]#1412)
 
 letrec nth =
 λxs#666:Box, n#667:Int.
@@ -1597,14 +1596,14 @@ letrec group_by =
         []
 
 letrec unique_by =
-λEq#1112:Box, xs#687:Box, f#688.
+λ__dict_Eq#1112:Box, xs#687:Box, f#688.
     let %t330 = (let %t331:Unit = []
     let %t332:Unit = []
     unique_by_go#754(xs#687, f#688, #4001427[synthetic]#1427, #4001428[synthetic]#1428))
     reverse#593(#4001429[synthetic]#1429)
 
 letrec maximum =
-λOrd#1113:Box, xs#690:Box.
+λ__dict_Ord#1113:Box, xs#690:Box.
     case xs#690 of
       ::(h#691, t#692:Box) →
         let %t333 = maximum_go#829(t#692, h#691)
@@ -1613,7 +1612,7 @@ letrec maximum =
         None
 
 letrec minimum =
-λOrd#1114:Box, xs#694:Box.
+λ__dict_Ord#1114:Box, xs#694:Box.
     case xs#694 of
       ::(h#695, t#696:Box) →
         let %t334 = minimum_go#834(t#696, h#695)
@@ -1660,22 +1659,22 @@ letrec break_at =
     span#533(xs#717, #4001436[synthetic]#1436)
 
 letrec lookup =
-λEq#1115:Box, xs#721:Box, key#722.
+λ__dict_Eq#1115:Box, xs#721:Box, key#722.
     case xs#721 of
       ::((k#723, v#724), t#725:Box) →
-        let %t340 = (let %t341 = Eq#1115.0
+        let %t340 = (let %t341 = __dict_Eq#1115.0
         #4001437[synthetic]#1437(k#723, key#722))
         case #4001438[synthetic]#1438 of
           true →
             Some(v#724)
           _ →
-            lookup#720(Eq#1115, t#725, key#722)
+            lookup#720(__dict_Eq#1115, t#725, key#722)
       _ →
         None
 
 letrec not_elem =
-λEq#1116:Box, xs#727:Box, x#728.
-    let %t342 = contains#616(Eq#1116, xs#727, x#728)
+λ__dict_Eq#1116:Box, xs#727:Box, x#728.
+    let %t342 = contains#616(__dict_Eq#1116, xs#727, x#728)
     Not(#4001439[synthetic]#1439)
 
 letrec enumerate_go =

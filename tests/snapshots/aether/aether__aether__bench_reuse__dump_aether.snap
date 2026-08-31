@@ -177,8 +177,8 @@ lam(x) ->
   Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
   verifier: ok
-lam(Ord, a, b) ->
-  drop Ord#1147 in
+lam(__dict_Ord, a, b) ->
+  drop __dict_Ord#1147 in
     let <sym:2000008> =
       let <sym:4001177> =
         Gt(a#157, b#158)
@@ -193,8 +193,8 @@ lam(Ord, a, b) ->
   Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
   verifier: ok
-lam(Ord, a, b) ->
-  drop Ord#1148 in
+lam(__dict_Ord, a, b) ->
+  drop __dict_Ord#1148 in
     let <sym:2000009> =
       let <sym:4001178> =
         Lt(a#161, b#162)
@@ -209,8 +209,8 @@ lam(Ord, a, b) ->
   Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
   verifier: ok
-lam(Ord, a, b) ->
-  drop Ord#1149 in
+lam(__dict_Ord, a, b) ->
+  drop __dict_Ord#1149 in
     let <sym:2000010> =
       let <sym:4001179> =
         Ge(a#165, b#166)
@@ -225,11 +225,11 @@ lam(Ord, a, b) ->
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
   verifier: ok
-lam(Ord, a, b) ->
+lam(__dict_Ord, a, b) ->
   let <sym:2000011> =
     let <sym:4001181> =
       let <sym:4001180> =
-        Ord#1150.2
+        __dict_Ord#1150.2
       aether_call[owned, owned] <sym:4001180>#1180(a#169, b#170)
     case <sym:4001181>#1181 of
       true ->
@@ -599,8 +599,8 @@ lam(arr) ->
   Dups: 1  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 3
   FreshAllocs: 0
   verifier: ok
-lam(Ord, arr, f) ->
-  drop Ord#1153 in
+lam(__dict_Ord, arr, f) ->
+  drop __dict_Ord#1153 in
     letrec insert_tagged =
       lam(sorted, pair, idx) ->
         let <sym:4001306> =
@@ -1026,8 +1026,8 @@ lam(xs, acc, f) ->
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
-lam(Ord, xs) ->
-  drop Ord#1154 in
+lam(__dict_Ord, xs) ->
+  drop __dict_Ord#1154 in
     let <sym:4001424> =
       lam(x) ->
         x#552
@@ -1036,8 +1036,8 @@ lam(Ord, xs) ->
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
-lam(Ord, xs, f) ->
-  drop Ord#1155 in
+lam(__dict_Ord, xs, f) ->
+  drop __dict_Ord#1155 in
     aether_call[owned, borrowed] merge_sort_by#787(xs#554, f#555)
 ── fn init ──
   Dups: 0  Drops: 1  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 1  FBIP: fip
@@ -1110,23 +1110,23 @@ lam(xs) ->
   Dups: 1  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
-lam(Eq, xs, x) ->
+lam(__dict_Eq, xs, x) ->
   case xs#617 of
     Cons(h, t) ->
       let <sym:4001443> =
         let <sym:4001442> =
-          Eq#1156.0
+          __dict_Eq#1156.0
         aether_call[owned, owned] <sym:4001442>#1442(h#619, dup x#618 in x#618)
       case <sym:4001443>#1443 of
         true ->
             drop x#618 in
-          drop Eq#1156 in
+          drop __dict_Eq#1156 in
               true
         _ ->
-          aether_call[owned, borrowed, owned] contains#616(Eq#1156, t#620, x#618)
+          aether_call[owned, borrowed, owned] contains#616(__dict_Eq#1156, t#620, x#618)
     _ ->
         drop x#618 in
-      drop Eq#1156 in
+      drop __dict_Eq#1156 in
           false
 ── fn partition ──
   Dups: 5  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1  FBIP: fbip(2)
@@ -1160,8 +1160,8 @@ lam(xs, pred) ->
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
-lam(Eq, xs, x) ->
-  drop Eq#1158 in
+lam(__dict_Eq, xs, x) ->
+  drop __dict_Eq#1158 in
     aether_call[borrowed, borrowed] delete_go#634(xs#632, x#633)
 ── fn clone_list ──
   Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
@@ -1192,26 +1192,26 @@ lam(xs, sep) ->
   Dups: 0  Drops: 3  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
-lam(Eq, prefix, xs) ->
+lam(__dict_Eq, prefix, xs) ->
   case prefix#656 of
     Cons(p, pt) ->
       case xs#657 of
         Cons(x, xt) ->
           let <sym:4001460> =
             let <sym:4001459> =
-              Eq#1159.0
+              __dict_Eq#1159.0
             aether_call[owned, owned] <sym:4001459>#1459(p#658, x#660)
           case <sym:4001460>#1460 of
             true ->
-              aether_call[owned, borrowed, borrowed] is_prefix#655(Eq#1159, pt#659, xt#661)
+              aether_call[owned, borrowed, borrowed] is_prefix#655(__dict_Eq#1159, pt#659, xt#661)
             _ ->
-              drop Eq#1159 in
+              drop __dict_Eq#1159 in
                 false
         _ ->
-          drop Eq#1159 in
+          drop __dict_Eq#1159 in
             false
     _ ->
-      drop Eq#1159 in
+      drop __dict_Eq#1159 in
         true
 ── fn replicate ──
   Dups: 1  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
@@ -1253,8 +1253,8 @@ lam(x, f, n) ->
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
-lam(Eq, xs, f) ->
-  drop Eq#1161 in
+lam(__dict_Eq, xs, f) ->
+  drop __dict_Eq#1161 in
     let <sym:4001479> =
       let <sym:4001477> =
         Nil
@@ -1266,27 +1266,27 @@ lam(Eq, xs, f) ->
   Dups: 0  Drops: 1  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
-lam(Ord, xs) ->
+lam(__dict_Ord, xs) ->
   case xs#690 of
     Cons(h, t) ->
       let <sym:4001480> =
         aether_call[borrowed, owned] maximum_go#829(t#692, h#691)
-      reuse Ord#1162 as Some(<sym:4001480>#1480)
+      reuse __dict_Ord#1162 as Some(<sym:4001480>#1480)
     _ ->
-      drop Ord#1162 in
+      drop __dict_Ord#1162 in
         None
 ── fn minimum ──
   Dups: 0  Drops: 1  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
-lam(Ord, xs) ->
+lam(__dict_Ord, xs) ->
   case xs#694 of
     Cons(h, t) ->
       let <sym:4001481> =
         aether_call[borrowed, owned] minimum_go#834(t#696, h#695)
-      reuse Ord#1163 as Some(<sym:4001481>#1481)
+      reuse __dict_Ord#1163 as Some(<sym:4001481>#1481)
     _ ->
-      drop Ord#1163 in
+      drop __dict_Ord#1163 in
         None
 ── fn append ──
   Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
@@ -1304,22 +1304,22 @@ lam(xs, ys) ->
   Dups: 3  Drops: 3  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
-lam(Eq, xs, key) ->
+lam(__dict_Eq, xs, key) ->
   case xs#721 of
     Cons((k, v), t) ->
       let <sym:4001488> =
         let <sym:4001487> =
-          Eq#1164.0
+          __dict_Eq#1164.0
         aether_call[owned, owned] <sym:4001487>#1487(dup k#723 in k#723, dup key#722 in key#722)
       case <sym:4001488>#1488 of
         true ->
           drop key#722 in
-            reuse Eq#1164 as Some(dup v#724 in v#724)
+            reuse __dict_Eq#1164 as Some(dup v#724 in v#724)
         _ ->
-          aether_call[owned, borrowed, owned] lookup#720(Eq#1164, t#725, key#722)
+          aether_call[owned, borrowed, owned] lookup#720(__dict_Eq#1164, t#725, key#722)
     _ ->
         drop key#722 in
-      drop Eq#1164 in
+      drop __dict_Eq#1164 in
           None
 ── fn enumerate_go ──
   Dups: 1  Drops: 1  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
