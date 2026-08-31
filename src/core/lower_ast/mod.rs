@@ -475,7 +475,8 @@ impl<'a> AstLowerer<'a> {
             .join("_");
         let class_str = interner.resolve(class_name);
         let method_str = interner.resolve(name);
-        let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
+        let mangled =
+            crate::types::class_env::mangled_method_name(class_str, &type_key, method_str);
         if let Some(sym) = interner.lookup(&mangled) {
             return Some(sym);
         }

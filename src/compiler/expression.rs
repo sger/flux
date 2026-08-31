@@ -4608,7 +4608,8 @@ impl Compiler {
             .join("_");
         let class_str = self.interner.resolve(class_name);
         let method_str = self.interner.resolve(name);
-        let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
+        let mangled =
+            crate::types::class_env::mangled_method_name(class_str, &type_key, method_str);
         if let Some(sym) = self.interner.lookup(&mangled) {
             return Some(sym);
         }
@@ -5029,7 +5030,7 @@ impl Compiler {
     ) -> Option<Vec<String>> {
         let dict_name_str = self.interner.resolve(dict_name);
         self.class_env.instances.iter().find_map(|instance| {
-            let class_def = self.class_env.lookup_class(instance.class_name)?;
+            let class_def = self.class_env.lookup_class_by_id(instance.class_id)?;
             let class_str = self.interner.resolve(instance.class_name);
             let type_name = instance
                 .type_args
@@ -5046,7 +5047,9 @@ impl Compiler {
                     .iter()
                     .map(|method_sig| {
                         let method_str = self.interner.resolve(method_sig.name);
-                        format!("__tc_{class_str}_{type_name}_{method_str}")
+                        crate::types::class_env::mangled_method_name(
+                            class_str, &type_name, method_str,
+                        )
                     })
                     .collect(),
             )

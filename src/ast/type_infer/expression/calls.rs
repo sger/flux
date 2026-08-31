@@ -652,7 +652,8 @@ impl<'a> InferCtx<'a> {
             .join("_");
         let class_str = self.interner.resolve(info.class_name);
         let method_str = self.interner.resolve(info.method_name);
-        let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
+        let mangled =
+            crate::types::class_env::mangled_method_name(class_str, &type_key, method_str);
         let mangled_sym = self.interner.lookup(&mangled)?;
         let scheme = self.env.lookup(mangled_sym).cloned()?;
         Some((concrete_type_args, scheme))

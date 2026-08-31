@@ -217,7 +217,7 @@ fn build_instance_dictionaries(
     let span = Span::default();
 
     for instance in &class_env.instances {
-        let class_def = match class_env.lookup_class(instance.class_name) {
+        let class_def = match class_env.lookup_class_by_id(instance.class_id) {
             Some(c) => c,
             None => continue,
         };
@@ -248,7 +248,11 @@ fn build_instance_dictionaries(
             let mut tuple_fields = Vec::new();
             for method_sig in &class_def.methods {
                 let method_str = interner.resolve(method_sig.name).to_string();
-                let mangled_str = format!("__tc_{class_str}_{type_name}_{method_str}");
+                let mangled_str = crate::types::class_env::mangled_method_name(
+                    &class_str,
+                    &type_name,
+                    &method_str,
+                );
                 let mangled_sym = match interner.lookup(&mangled_str) {
                     Some(sym) => sym,
                     None => continue,
@@ -326,7 +330,8 @@ fn build_contextual_dictionary_expr(
         .iter()
         .filter_map(|method_sig| {
             let method_str = interner.resolve(method_sig.name).to_string();
-            let mangled_str = format!("__tc_{class_str}_{type_name}_{method_str}");
+            let mangled_str =
+                crate::types::class_env::mangled_method_name(&class_str, &type_name, &method_str);
             let mangled_sym = interner.lookup(&mangled_str)?;
             Some(build_contextual_dictionary_method_closure(
                 mangled_sym,
