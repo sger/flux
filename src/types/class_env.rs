@@ -1696,7 +1696,7 @@ impl ClassEnv {
                 .iter()
                 .map(|method_sig| {
                     let method_str = interner.resolve(method_sig.name);
-                    interner.lookup(&format!("__tc_{class_str}_{type_name}_{method_str}"))
+                    interner.lookup(&mangled_method_name(class_str, &type_name, method_str))
                 })
                 .collect()
         })
@@ -2186,6 +2186,18 @@ impl ClassEnv {
             _ => false,
         }
     }
+}
+
+/// The one place a type-class method's mangled global name is built.
+///
+/// Every resolution path and both backends must agree on this string. A
+/// mismatch is not a compile error — it is a missing global discovered at run
+/// time, surfacing as `E1001`/`E1009` far from its cause, which is the failure
+/// mode KI-051 took two attempts to pin down. Ten call sites used to format
+/// this independently; routing them through one function is what makes the
+/// format safe to change at all.
+pub fn mangled_method_name(class: &str, type_key: &str, method: &str) -> String {
+    format!("__tc_{class}_{type_key}_{method}")
 }
 
 /// Create a simple named TypeExpr for built-in type references.

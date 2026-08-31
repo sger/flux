@@ -253,7 +253,7 @@ fn generate_builtin_instance_functions(
         if instance.span != Span::default() || !instance.method_names.is_empty() {
             continue;
         }
-        let Some(class_def) = class_env.lookup_class(instance.class_name) else {
+        let Some(class_def) = class_env.lookup_class_by_id(instance.class_id) else {
             continue;
         };
         let type_name = instance
@@ -288,7 +288,11 @@ fn generate_builtin_instance_functions(
                 body
             };
 
-            let mangled = format!("__tc_{class_name_str}_{type_name}_{method_name_str}");
+            let mangled = crate::types::class_env::mangled_method_name(
+                &class_name_str,
+                &type_name,
+                &method_name_str,
+            );
             let mangled_sym = interner.intern(&mangled);
             if !reserved_names.insert(mangled_sym) {
                 dispatch_table.insert((instance.class_name, method_sig.name));
@@ -1149,7 +1153,11 @@ fn generate_from_statements(
 
                     // Generate mangled name: __tc_ClassName_TypeName_methodName
                     let method_name_str = interner.resolve(method_sig.name).to_string();
-                    let mangled = format!("__tc_{class_name_str}_{type_name}_{method_name_str}");
+                    let mangled = crate::types::class_env::mangled_method_name(
+                        &class_name_str,
+                        &type_name,
+                        &method_name_str,
+                    );
                     let mangled_sym = interner.intern(&mangled);
 
                     let context_params = context_dict_param_names(context, interner);
