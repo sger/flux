@@ -221,7 +221,9 @@ impl Folder for OperatorDesugarPass<'_> {
                 let prev_generated = self.in_generated_instance_method;
                 let prev_constraint_context = self.in_explicit_constraint_context;
                 self.in_generated_instance_method =
-                    self.interner.resolve(name).starts_with("__tc_");
+                    crate::types::class_env::is_generated_instance_method(
+                        self.interner.resolve(name),
+                    );
                 self.in_explicit_constraint_context = type_params
                     .iter()
                     .any(|param| !param.constraints.is_empty());
@@ -421,7 +423,9 @@ impl<'ast> Visitor<'ast> for OperatorDesugarDetector<'_> {
                 let prev_generated = self.in_generated_instance_method;
                 let prev_constraint_context = self.in_explicit_constraint_context;
                 self.in_generated_instance_method =
-                    self.interner.resolve(*name).starts_with("__tc_");
+                    crate::types::class_env::is_generated_instance_method(
+                        self.interner.resolve(*name),
+                    );
                 self.in_explicit_constraint_context = type_params
                     .iter()
                     .any(|param| !param.constraints.is_empty());

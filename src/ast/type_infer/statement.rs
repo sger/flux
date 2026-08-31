@@ -327,7 +327,13 @@ impl<'a> InferCtx<'a> {
         let name = match stmt {
             Statement::Function {
                 is_public, name, ..
-            } if *is_public || self.interner.resolve(*name).starts_with("__tc_") => *name,
+            } if *is_public
+                || crate::types::class_env::is_generated_instance_method(
+                    self.interner.resolve(*name),
+                ) =>
+            {
+                *name
+            }
             Statement::Let {
                 is_public: true,
                 name,

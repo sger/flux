@@ -163,7 +163,7 @@ impl Compiler {
             .filter_map(|source| {
                 let qualified = self.interner.resolve(source.name);
                 let (_, suffix) = qualified.rsplit_once('.')?;
-                if !suffix.starts_with("__tc_") {
+                if !crate::types::class_env::is_generated_instance_method(suffix) {
                     return None;
                 }
                 let alias = self.interner.lookup(suffix)?;
