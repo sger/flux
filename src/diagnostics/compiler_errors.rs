@@ -914,6 +914,24 @@ pub const NO_INSTANCE: ErrorCode = ErrorCode {
     hint: Some("Add an instance declaration for this type."),
 };
 
+/// Proposal 0179 Stage 4: a declared bound constrains a type variable that
+/// does not appear in the signature's own type, so no caller can ever fix it.
+///
+/// This is the Haskell Report §4.3.4 ambiguity rule. Distinct from
+/// [`UNDETERMINED_CLASS_PARAMETER`] (E459), which reports one *call* that
+/// leaves a parameter open: this is a property of the signature itself, and
+/// every call to it would be affected.
+pub const AMBIGUOUS_TYPE_VARIABLE: ErrorCode = ErrorCode {
+    code: "E476",
+    title: "AMBIGUOUS TYPE VARIABLE",
+    error_type: ErrorType::Compiler,
+    message: "`{}` in `{}` is not determined by this signature.",
+    hint: Some(
+        "A constrained type variable must appear in the signature's own type, \
+         otherwise no call can determine which instance to use.",
+    ),
+};
+
 /// Proposal 0179 Stage 4: a class type parameter is not determined by the
 /// call, and more than one instance is compatible with what the call does fix.
 ///

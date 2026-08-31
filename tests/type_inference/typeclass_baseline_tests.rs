@@ -121,6 +121,7 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "generalized_structured_constraint.flx",
         "multi_parameter_resolution.flx",
         "result_directed_resolution.flx",
+        "where_constraint_multi_param.flx",
     ];
     for fixture in fixtures {
         let source = std::fs::read_to_string(fixture_path(fixture)).expect("read fixture");
@@ -250,6 +251,16 @@ fn multi_parameter_classes_resolve_on_the_complete_predicate() {
     let output =
         run_fixture("multi_parameter_resolution.flx").expect("multi-parameter dispatch should run");
     assert_eq!(output.stdout, "\"42\"\ntrue");
+}
+
+/// Stage 4: a `where` bound written with explicit arguments keeps all of them.
+/// `where Convert<a, b>` used to emit the arity-1 predicate `Convert<a>`,
+/// which no two-parameter instance head could match.
+#[test]
+fn a_where_bound_keeps_every_declared_type_argument() {
+    let output = run_fixture("where_constraint_multi_param.flx")
+        .expect("multi-parameter where bound should run");
+    assert_eq!(output.stdout, "\"42\"\n3");
 }
 
 /// Stage 4: a class parameter occurring only in the return type is fixed by

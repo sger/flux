@@ -4,7 +4,9 @@ use crate::{
     ast::type_infer::constraint::{
         SchemeConstraint, WantedClassConstraint, WantedClassConstraintOrigin,
     },
-    diagnostics::Diagnostic,
+    diagnostics::{
+        Diagnostic, DiagnosticBuilder, compiler_errors::AMBIGUOUS_TYPE_VARIABLE, diagnostic_for,
+    },
     syntax::interner::Interner,
     types::{
         TypeVarId,
@@ -76,7 +78,7 @@ pub fn finalize_binding_class_constraints(
             )
         })
         .unwrap_or_default();
-    let diagnostics: Vec<Diagnostic> = outcome.diagnostics().cloned().collect();
+    let mut diagnostics: Vec<Diagnostic> = outcome.diagnostics().cloned().collect();
 
     // Which predicates this binding generalizes is still decided by
     // `collect_scheme_constraints`. Stage 3 folds that decision into the
@@ -85,6 +87,20 @@ pub fn finalize_binding_class_constraints(
     let scheme_constraints =
         collect_scheme_constraints(&finalized_constraints, &finalized_type, env_free_vars, mode);
     let dispositions = mark_generalized(outcome, &scheme_constraints);
+
+    // A declared bound over a variable this signature never mentions cannot be
+    // discharged by any caller (Haskell Report §4.3.4).
+    let quantified: HashSet<TypeVarId> = finalized_type
+        .free_vars()
+        .difference(env_free_vars)
+        .copied()
+        .collect();
+    diagnostics.extend(ambiguous_bound_diagnostics(
+        &finalized_constraints,
+        &quantified,
+        env_free_vars,
+        interner,
+    ));
 
     FinalizedBindingClassConstraints {
         infer_type: finalized_type,
@@ -284,6 +300,59 @@ fn collect_scheme_constraints(
     }
 
     result
+}
+
+/// Diagnostics for declared bounds whose variables no call can determine.
+///
+/// Implements the Haskell Report 4.3.4 ambiguity rule (Proposal 0179 Stage 4).
+///
+/// A bound is ambiguous when it constrains a variable that appears neither in
+/// the binding's own type nor in the enclosing environment: instantiating the
+/// signature at a call site leaves that variable free, so nothing selects an
+/// instance for it.
+///
+/// Restricted to [`WantedClassConstraintOrigin::ExplicitBound`] on purpose.
+/// The Report's rule is about *declared signatures*, and an inference-derived
+/// predicate over a fresh variable is routinely refined by a later use — the
+/// same reason Stage 3 records those as `Stuck` rather than reporting them.
+/// GHC is candid that its own ambiguity check is a good-faith warning rather
+/// than a proof of uncallability, so under-reporting here is the safe error.
+fn ambiguous_bound_diagnostics(
+    constraints: &[WantedClassConstraint],
+    quantified: &HashSet<TypeVarId>,
+    env_free_vars: &HashSet<TypeVarId>,
+    interner: &Interner,
+) -> Vec<Diagnostic> {
+    constraints
+        .iter()
+        .filter(|c| c.origin == WantedClassConstraintOrigin::ExplicitBound)
+        .filter_map(|constraint| {
+            // Report the position rather than the variable's name: a wanted
+            // constraint keeps `InferType`s, and every unresolved variable
+            // renders alike, so naming one would not distinguish it.
+            let position = constraint.type_args.iter().position(|arg| {
+                arg.free_vars()
+                    .iter()
+                    .any(|var| !quantified.contains(var) && !env_free_vars.contains(var))
+            })?;
+
+            let class = interner.resolve(constraint.class_name);
+            let arity = constraint.type_args.len();
+            let subject = if arity == 1 {
+                format!("The type argument of `{class}`")
+            } else {
+                format!("Type argument {} of `{class}`", position + 1)
+            };
+            Some(
+                diagnostic_for(&AMBIGUOUS_TYPE_VARIABLE)
+                    .with_span(constraint.span)
+                    .with_message(format!(
+                        "{subject} is not determined by this signature, so no call can select an \
+                         instance for it."
+                    )),
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]
