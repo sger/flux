@@ -1386,7 +1386,7 @@ Hoisting a stdlib module's generated methods to top level was tried and
 rejected — the hoisted methods lose access to module-local helpers and
 `Flow.Json` itself then fails to compile with `E004`.
 
-### KI-052 — A generic wrapper over a contextual instance loses its dictionary
+### KI-052 — A generic wrapper over a contextual instance loses its dictionary — FIXED 2026-08-31
 
 **Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-08-30 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
@@ -1419,7 +1419,34 @@ Both constraint spellings fail identically — `<a: Enc>` and
 work: Stage 3 changed which obligations are *retained*, not how a retained
 obligation's dictionary is *built*.
 
-Constructing a dictionary for a structured predicate from a contextual one is
-evidence resolution, which [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
-assigns to Stage 4.
+**Fixed 2026-08-31 (Stage 4).** Two defects compounded, and the diagnosis in
+the paragraph above was wrong: elaboration was not passing the wrapper's own
+dictionary, it was passing nothing at all.
+
+`show_all` legitimately holds two dictionaries — `Enc<a>` from its bound, and
+`Enc<List<a>>` for the call it makes. Every dictionary parameter was named
+`__dict_{Class}` with no occurrence suffix, so both were `__dict_Enc` and the
+second shadowed the first. Meanwhile `current_context_dictionary` and its AST
+twin have always computed `__dict_Enc_1` for a second occurrence — a name
+nothing ever created.
+
+The reference those lookups emit is an *unresolved* variable, because at
+AST-lowering time the enclosing function has no dictionary parameters yet;
+`dict_elaborate` adds them afterwards. Nothing bound the two together, so the
+name escaped to global scope, where no `__dict_Enc` definition exists, and the
+call received `None` — hence a field access on `None` rather than on the wrong
+dictionary.
+
+The fix names dictionary parameters with the per-class occurrence suffix the
+lookups already assumed, pre-interns those names where `&mut Interner` is
+available (elaboration only has `&Interner`, and an un-interned name silently
+degraded to the bare class name), and binds a dictionary reference to the
+parameter that holds it. Both constraint spellings are covered.
+
+Guarded by
+[`tests/parity/contextual_dictionary_through_generic_wrapper.flx`](../tests/parity/contextual_dictionary_through_generic_wrapper.flx)
+— verified to report MISMATCH with the fix reverted — and by
+`a_generic_wrapper_forwards_the_right_contextual_dictionary`, which asserts
+stdout so it still catches the bug if both backends were to agree on the wrong
+answer.
 
