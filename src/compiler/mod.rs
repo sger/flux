@@ -558,6 +558,27 @@ fn specialize_type_expr_for_instance(
     substitute_type_expr_for_instance(ty, &subst)
 }
 
+/// The module whose *qualified* name an imported instance's generated methods
+/// are defined under, when there is one.
+///
+/// `inject_generated_dispatch_functions` hoists generated `__tc_*` methods to
+/// top level for a user module, but keeps them inside the module body for a
+/// Flow stdlib module — so only a stdlib module defines them qualified
+/// (`Flow.Json.__tc_Encode_Int_encode`). An importer must ask the linker for
+/// the form the defining module actually exports, which differs between the
+/// two (see docs/known_issues.md#ki-051).
+///
+/// Returns `None` for a user module (methods are top level, bare) and for a
+/// built-in instance (empty module path).
+fn qualifying_instance_module(
+    instance_def: &crate::types::class_env::InstanceDef,
+    interner: &Interner,
+) -> Option<Symbol> {
+    let module = instance_def.instance_module.as_identifier()?;
+    let name = interner.try_resolve(module)?;
+    name.starts_with("Flow.").then_some(module)
+}
+
 fn preload_imported_instance_schemes(
     symbol_table: &mut SymbolTable,
     preloaded_imported_globals: &mut HashSet<Symbol>,
@@ -589,7 +610,27 @@ fn preload_imported_instance_schemes(
         if !symbol_table.exists_in_current_scope(mangled_sym) {
             symbol_table.define(mangled_sym, Span::default());
         }
-        preloaded_imported_globals.insert(mangled_sym);
+
+        // A module body defines its generated instance methods under the
+        // module-qualified name (`Flow.Json.__tc_Encode_Int_encode`), while
+        // typed dispatch refers to the canonical bare name. Import the
+        // qualified symbol — the one the defining module actually exports —
+        // and leave the bare name a local definition for
+        // `emit_instance_method_aliases` to fill at load time. Marking the
+        // bare name imported instead asks the linker for a global that no
+        // module defines (see docs/known_issues.md#ki-051).
+        match qualifying_instance_module(instance_def, interner) {
+            Some(module) => {
+                let qualified = interner.intern_join(module, mangled_sym);
+                if !symbol_table.exists_in_current_scope(qualified) {
+                    symbol_table.define(qualified, Span::default());
+                }
+                preloaded_imported_globals.insert(qualified);
+            }
+            None => {
+                preloaded_imported_globals.insert(mangled_sym);
+            }
+        }
         let native_mangled = mangled
             .chars()
             .map(|ch| {
@@ -1775,10 +1816,18 @@ impl Compiler {
                 .iter()
                 .copied()
                 .filter(|name| {
-                    !self
-                        .interner
-                        .try_resolve(*name)
-                        .is_some_and(|resolved| resolved.starts_with("__tc_"))
+                    // An imported instance method must not reserve its name:
+                    // dispatch generation re-creates it locally. The symbol
+                    // may be module-qualified (`Flow.Json.__tc_Encode_Int_encode`)
+                    // since that is the form the defining module exports, so
+                    // test the last path segment rather than the whole name
+                    // (see docs/known_issues.md#ki-051).
+                    !self.interner.try_resolve(*name).is_some_and(|resolved| {
+                        resolved
+                            .rsplit_once('.')
+                            .map_or(resolved, |(_, suffix)| suffix)
+                            .starts_with("__tc_")
+                    })
                 })
                 .collect::<HashSet<_>>();
             let dispatch_options = crate::types::class_dispatch::DispatchGenerationOptions {
