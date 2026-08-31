@@ -51,10 +51,7 @@ use crate::{
         symbol::Symbol,
         type_expr::TypeExpr,
     },
-    types::{
-        infer_type::InferType, type_constructor::TypeConstructor, type_env::TypeEnv,
-        type_subst::TypeSubst, unify::unify,
-    },
+    types::{infer_type::InferType, type_env::TypeEnv, type_subst::TypeSubst, unify::unify},
 };
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
@@ -4589,55 +4586,31 @@ impl Compiler {
         }
         let (class_name, _) = self.class_env.method_to_class(name)?;
 
-        if self.interner.resolve(name) == "decode"
-            && self.interner.resolve(class_name).rsplit('.').next() == Some("Decode")
-        {
-            return self
-                .hm_expr_types
-                .get(&call_id)
-                .and_then(|ty| json_result_payload_type_ast(ty, &self.interner))
-                .and_then(|decoded_type| {
-                    self.class_env
-                        .resolve_instance_with_subst(class_name, &[decoded_type], &self.interner)
-                        .and_then(|(instance, _subst)| {
-                            let type_key = instance
-                                .type_args
-                                .iter()
-                                .map(|a| a.display_with(&self.interner))
-                                .collect::<Vec<_>>()
-                                .join("_");
-                            let class_str = self.interner.resolve(class_name);
-                            let method_str = self.interner.resolve(name);
-                            let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
-                            self.interner.lookup(&mangled)
-                        })
-                });
-        }
+        // Resolve from the predicate the class declaration describes: every
+        // class parameter is read from the position it actually occupies in
+        // the method signature, arguments and result alike. This mirrors
+        // `LowerCtx::try_resolve_class_call` exactly — the two must stay in
+        // lockstep or the VM and native backends dispatch differently.
+        //
+        // It subsumes dispatch on an argument other than the first, and
+        // result-directed dispatch, which used to be a hardcoded special case
+        // for `Decode.decode` matched by string comparison.
+        let known = self.class_call_type_args(class_name, name, arguments, call_id)?;
+        let instance =
+            self.class_env
+                .unique_instance_for_known_args(class_name, &known, &self.interner)?;
 
-        // Try compile-time resolution: if the first argument's type is concrete,
-        // resolve directly to the mangled instance function.
-        if let Some(first_arg) = arguments.first()
-            && let Some(first_arg_type) = self.hm_expr_types.get(&first_arg.expr_id())
-            && let Some((instance, _concrete_type_args)) =
-                self.class_env.resolve_method_call_instance_from_first_arg(
-                    class_name,
-                    first_arg_type,
-                    &self.interner,
-                )
-        {
-            // Build mangled name from all instance type args (multi-param support).
-            let type_key = instance
-                .type_args
-                .iter()
-                .map(|a| a.display_with(&self.interner))
-                .collect::<Vec<_>>()
-                .join("_");
-            let class_str = self.interner.resolve(class_name);
-            let method_str = self.interner.resolve(name);
-            let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
-            if let Some(sym) = self.interner.lookup(&mangled) {
-                return Some(sym);
-            }
+        let type_key = instance
+            .type_args
+            .iter()
+            .map(|a| a.display_with(&self.interner))
+            .collect::<Vec<_>>()
+            .join("_");
+        let class_str = self.interner.resolve(class_name);
+        let method_str = self.interner.resolve(name);
+        let mangled = format!("__tc_{class_str}_{type_key}_{method_str}");
+        if let Some(sym) = self.interner.lookup(&mangled) {
+            return Some(sym);
         }
 
         // No compile-time resolution possible — return None.
@@ -4852,6 +4825,53 @@ impl Compiler {
         )
     }
 
+    /// The full predicate type arguments for a class-method call.
+    ///
+    /// Shared by dispatch resolution and dictionary-argument construction so
+    /// the two cannot disagree, and mirrors `LowerCtx::class_call_type_args`
+    /// on the Core path.
+    fn class_call_type_args(
+        &self,
+        class_name: crate::syntax::Identifier,
+        method_name: crate::syntax::Identifier,
+        arguments: &[Expression],
+        call_id: crate::syntax::expression::ExprId,
+    ) -> Option<Vec<Option<crate::types::infer_type::InferType>>> {
+        let class_def = self.class_env.lookup_class(class_name)?.clone();
+        let method = class_def
+            .methods
+            .iter()
+            .find(|m| m.name == method_name)?
+            .clone();
+
+        let actual_args: Vec<crate::types::infer_type::InferType> = arguments
+            .iter()
+            .filter_map(|arg| self.hm_expr_types.get(&arg.expr_id()).cloned())
+            .collect();
+        let actual_result = self.hm_expr_types.get(&call_id).cloned()?;
+
+        // Code generation runs after inference, so a slot that is still a
+        // variable here will stay one. It is reported as unknown rather than
+        // guessed; a unique instance head can still supply it.
+        let bindings = crate::types::class_predicate::class_param_bindings(
+            &class_def,
+            &method,
+            &actual_args,
+            &actual_result,
+            &self.interner,
+            || crate::types::infer_type::InferType::Var(u32::MAX),
+        );
+        Some(
+            bindings
+                .iter()
+                .map(|b| match b.type_arg() {
+                    Some(crate::types::infer_type::InferType::Var(_)) | None => None,
+                    Some(ty) => Some(ty.clone()),
+                })
+                .collect(),
+        )
+    }
+
     fn resolve_direct_class_call_dict_args_ast(
         &mut self,
         method_name: crate::syntax::Identifier,
@@ -4860,20 +4880,20 @@ impl Compiler {
         span: Span,
     ) -> Option<Vec<Expression>> {
         let (class_name, _) = self.class_env.method_to_class(method_name)?;
-        let first_arg = arguments.first()?;
-        let first_arg_ty = self.hm_expr_types.get(&first_arg.expr_id())?;
 
-        let actual_type_args = if self.interner.resolve(method_name) == "decode"
-            && self.interner.resolve(class_name).rsplit('.').next() == Some("Decode")
-        {
-            self.hm_expr_types
-                .get(&call_id)
-                .and_then(|ty| json_result_payload_type_ast(ty, &self.interner))
-                .map(|ty| vec![ty])
-                .unwrap_or_else(|| vec![first_arg_ty.clone()])
-        } else {
-            vec![first_arg_ty.clone()]
-        };
+        // Derive the full predicate the same way dispatch does, so the
+        // dictionaries passed match the instance the call resolves to. Using
+        // only the first argument produced an arity-1 predicate that could
+        // never match a multi-parameter head.
+        let known = self.class_call_type_args(class_name, method_name, arguments, call_id)?;
+        let instance =
+            self.class_env
+                .unique_instance_for_known_args(class_name, &known, &self.interner)?;
+        // Use the selected head so an undetermined slot still contributes the
+        // type the instance fixes it to.
+        let actual_type_args =
+            self.class_env
+                .instantiate_instance_head(instance, &known, &self.interner)?;
 
         // See `AstLowerer::resolve_direct_class_call_dict_args`: an unmatched
         // head means a positionally matched multi-parameter instance, which
@@ -5032,18 +5052,4 @@ impl Compiler {
             )
         })
     }
-}
-
-fn json_result_payload_type_ast(
-    ty: &InferType,
-    interner: &crate::syntax::interner::Interner,
-) -> Option<InferType> {
-    let InferType::App(TypeConstructor::Adt(sym), args) = ty else {
-        return None;
-    };
-    if args.len() != 1 {
-        return None;
-    }
-    let name = interner.resolve(*sym);
-    (name.rsplit('.').next() == Some("JsonResult")).then(|| args[0].clone())
 }

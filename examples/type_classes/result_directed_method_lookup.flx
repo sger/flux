@@ -1,6 +1,12 @@
-// Baseline behavior: the current resolver uses the complete concrete call
-// shape only where it is already supported. Result-directed dispatch remains
-// a later-stage capability.
+// Baseline: a single-instance multi-parameter class, kept as a regression
+// guard for the simplest dispatch shape.
+//
+// Stage 4 made result-directed dispatch general, so the claim this header used
+// to make — that it "remains a later-stage capability" — no longer holds. The
+// discriminating cases live in `multi_parameter_resolution.flx` and
+// `result_directed_resolution.flx`, which declare two instances each so that
+// first-argument dispatch cannot satisfy them by accident. This fixture has
+// only one instance and would pass either way.
 // Expected output:
 // "42"
 

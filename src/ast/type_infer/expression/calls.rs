@@ -1,4 +1,5 @@
 use super::*;
+use crate::types::class_predicate::class_param_bindings;
 
 /// Grouped inputs for [`InferCtx::infer_call_typed_callee`].
 struct CallTypedCalleeSpec<'a> {
@@ -118,34 +119,94 @@ impl<'a> InferCtx<'a> {
     /// Emit the class constraint for a resolved class-method call on the
     /// typed-callee path, once argument types are known.
     ///
-    /// Uses the concrete head type arguments when the first argument selects a
-    /// unique instance; otherwise falls back to constraining the first
-    /// parameter type (or the call result when there are no parameters).
+    /// The predicate's type arguments come from the positions the *class
+    /// declaration* puts its parameters in, located by
+    /// [`class_param_bindings`]. That covers every parameter of a
+    /// multi-parameter class, and covers result-directed dispatch without a
+    /// special case: a parameter occurring only in the method's return type is
+    /// read from the call's result.
+    ///
+    /// A parameter whose type is not yet known contributes a variable rather
+    /// than a guess. Wanted constraints are re-substituted after unification
+    /// (`finalize_binding_class_constraints`), so the predicate is refined once
+    /// an annotation or a later use fixes the type. Before Stage 4 this fell
+    /// back to the first parameter's type, which silently dispatched
+    /// `tag(1, true)` on `Int` for `class Tagged<a> { fn tag(n: Int, x: a) }`.
     fn emit_typed_class_method_constraint(
         &mut self,
         info: ResolvedClassMethodCall,
         param_tys: &[InferType],
         result: &InferType,
     ) {
-        if let Some(type_args) = self.propagate_resolved_class_call_effects(info) {
+        // Effect propagation and the LSP dispatch record are independent of the
+        // predicate and must happen either way.
+        let resolved_type_args = self.propagate_resolved_class_call_effects(info);
+
+        if let Some(type_args) = self.class_method_predicate_args(info, param_tys, result) {
             self.emit_class_constraint_args(
                 info.class_name,
                 type_args,
                 info.span,
                 constraint::WantedClassConstraintOrigin::MethodCall,
             );
-        } else {
-            let constrained_ty = param_tys
-                .first()
-                .map(|t| t.apply_type_subst(&self.subst))
-                .unwrap_or(result.apply_type_subst(&self.subst));
-            self.emit_class_constraint(
+            return;
+        }
+
+        // The class or method is not in the environment (a built-in class
+        // dispatched structurally, say). Fall back to the head the first
+        // argument selected, which is what the pre-Stage-4 path produced.
+        if let Some(type_args) = resolved_type_args {
+            self.emit_class_constraint_args(
                 info.class_name,
-                constrained_ty,
+                type_args,
                 info.span,
                 constraint::WantedClassConstraintOrigin::MethodCall,
             );
         }
+    }
+
+    /// The type arguments of the predicate a class-method call wants.
+    ///
+    /// `None` when the class or its method is not in the class environment, in
+    /// which case there is no declaration to read parameter positions from.
+    fn class_method_predicate_args(
+        &mut self,
+        info: ResolvedClassMethodCall,
+        param_tys: &[InferType],
+        result: &InferType,
+    ) -> Option<Vec<InferType>> {
+        let (class_def, method) = {
+            let class_env = self.class_env.as_ref()?;
+            let class_def = class_env.lookup_class(info.class_name)?;
+            let method = class_def
+                .methods
+                .iter()
+                .find(|m| m.name == info.method_name)?;
+            (class_def.clone(), method.clone())
+        };
+
+        let actual_args: Vec<InferType> = param_tys
+            .iter()
+            .map(|t| t.apply_type_subst(&self.subst))
+            .collect();
+        let actual_result = result.apply_type_subst(&self.subst);
+
+        let bindings = class_param_bindings(
+            &class_def,
+            &method,
+            &actual_args,
+            &actual_result,
+            self.interner,
+            || self.env.alloc_infer_type_var(),
+        );
+
+        // A parameter no call can determine leaves the predicate ill-formed;
+        // emitting a partial one would silently constrain the wrong arity.
+        // Stage 4's ambiguity check reports this at the class declaration.
+        bindings
+            .iter()
+            .map(|b| b.type_arg().cloned())
+            .collect::<Option<Vec<_>>>()
     }
 
     /// Infer calls where callee type resolves to `Fun`.
