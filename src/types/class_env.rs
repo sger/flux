@@ -1467,7 +1467,23 @@ impl ClassEnv {
         known: &[Option<InferType>],
         interner: &Interner,
     ) -> Option<&InstanceDef> {
-        let mut matches = self.instances.iter().filter(|inst| {
+        let mut matches = self.instances_matching_known_args(class_name, known, interner);
+        let first = matches.next()?;
+        matches.next().is_none().then_some(first)
+    }
+
+    /// Every instance compatible with the slots a call determined.
+    ///
+    /// An undetermined slot constrains nothing, so this is the candidate set
+    /// that remains open. More than one candidate means the call cannot select
+    /// an instance until the missing type is supplied (E459).
+    pub fn instances_matching_known_args<'a, 'args>(
+        &'a self,
+        class_name: Identifier,
+        known: &'args [Option<InferType>],
+        interner: &'args Interner,
+    ) -> impl Iterator<Item = &'a InstanceDef> + use<'a, 'args> {
+        self.instances.iter().filter(move |inst| {
             if inst.class_name != class_name || inst.type_args.len() != known.len() {
                 return false;
             }
@@ -1479,13 +1495,9 @@ impl ClassEnv {
                     Some(actual) => {
                         Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
                     }
-                    // An undetermined slot constrains nothing.
                     None => true,
                 })
-        });
-
-        let first = matches.next()?;
-        matches.next().is_none().then_some(first)
+        })
     }
 
     /// The concrete type arguments of `instance`'s head, given what a call
