@@ -914,6 +914,25 @@ pub const NO_INSTANCE: ErrorCode = ErrorCode {
     hint: Some("Add an instance declaration for this type."),
 };
 
+/// Proposal 0179 Stage 4: a class type parameter is not determined by the
+/// call, and more than one instance is compatible with what the call does fix.
+///
+/// Distinct from [`NO_INSTANCE`] (E444), where the predicate is fully known
+/// and nothing matches, and from [`OVERLAPPING_INSTANCES`] (E454), where the
+/// predicate is fully known and several instances match it. Here the predicate
+/// itself is incomplete, so the remedy is to supply the missing type — usually
+/// with an annotation — rather than to change the instances.
+pub const UNDETERMINED_CLASS_PARAMETER: ErrorCode = ErrorCode {
+    code: "E459",
+    title: "UNDETERMINED CLASS PARAMETER",
+    error_type: ErrorType::Compiler,
+    message: "Cannot determine `{}` in `{}`.",
+    hint: Some(
+        "Annotate the expression so the type class parameter is fixed, for \
+         example with a `let` binding that names the type.",
+    ),
+};
+
 /// Proposal 0179 Stage 3: two or more instances match the same predicate, so
 /// evidence selection would depend on declaration order.
 ///

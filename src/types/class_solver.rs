@@ -26,7 +26,9 @@ use crate::{
     },
 };
 
-use super::super::diagnostics::compiler_errors::{NO_INSTANCE, OVERLAPPING_INSTANCES};
+use super::super::diagnostics::compiler_errors::{
+    NO_INSTANCE, OVERLAPPING_INSTANCES, UNDETERMINED_CLASS_PARAMETER,
+};
 
 /// Solve class constraints against known instances.
 ///
@@ -106,6 +108,25 @@ fn classify_constraint(
     {
         return Disposition::Stuck {
             reason: StuckReason::NonConcreteOperator,
+        };
+    }
+
+    // A class-method call whose predicate still has an undetermined slot can
+    // only be dispatched if the slots it *did* fix single out one instance.
+    // When several remain compatible, the call has no way to choose, and
+    // committing to one would make the program depend on declaration order.
+    //
+    // This is GHC's IL5/IL6 (`Note [Rules for instance lookup]`): a wanted
+    // that merely *unifies* with several instance heads is not committed to.
+    // Reporting it here turns what used to be a runtime `E1009` panic, raised
+    // with a synthetic line-0 span, into a compile error at the call.
+    if scope == SolveScope::WholeProgram
+        && constraint.origin == WantedClassConstraintOrigin::MethodCall
+        && constraint.span != Span::default()
+        && let Some(diagnostic) = undetermined_parameter_diagnostic(constraint, class_env, interner)
+    {
+        return Disposition::Diagnosed {
+            diagnostic: Box::new(diagnostic),
         };
     }
 
@@ -404,6 +425,70 @@ fn display_type_args(type_args: &[InferType], interner: &Interner) -> String {
 }
 
 /// Render a whole predicate, e.g. `Eq<List<Int>>`.
+/// The E459 diagnostic for a predicate with an undetermined class parameter,
+/// or `None` when the call can still select an instance.
+///
+/// Returns `None` when every slot is known (nothing is undetermined), or when
+/// the known slots leave at most one compatible instance — a single candidate
+/// supplies the missing type from its own head, which is what lets
+/// `let s = convert(42)` resolve without an annotation.
+fn undetermined_parameter_diagnostic(
+    constraint: &WantedClassConstraint,
+    class_env: &ClassEnv,
+    interner: &Interner,
+) -> Option<Diagnostic> {
+    let known: Vec<Option<InferType>> = constraint
+        .type_args
+        .iter()
+        .map(|ty| match ty {
+            InferType::Var(_) => None,
+            other => Some(other.clone()),
+        })
+        .collect();
+
+    let first_undetermined = known.iter().position(Option::is_none)?;
+
+    // Require that the call fixed at least one slot. A predicate with *every*
+    // slot open is the dictionary-passing case — `enc(h)` inside
+    // `instance Enc<a> => Enc<List<a>>` constrains a variable the enclosing
+    // scheme quantifies, and receives its evidence as a dictionary parameter.
+    // Flux spells a rigid scheme-bound variable and a free metavariable both
+    // as `InferType::Var`, and whole-program scope does not carry the
+    // environment's free-variable set that would tell them apart, so this
+    // stays deliberately conservative: a missed case falls through to the
+    // previous behaviour, whereas a false positive rejects a working program.
+    // The general check, with `env_free_vars` in scope, is the ambiguity work
+    // that follows.
+    if known.iter().all(Option::is_none) {
+        return None;
+    }
+
+    let candidates = class_env
+        .instances_matching_known_args(constraint.class_name, &known, interner)
+        .take(2)
+        .count();
+    if candidates < 2 {
+        return None;
+    }
+
+    let class_def = class_env.lookup_class(constraint.class_name)?;
+    let param = class_def
+        .type_params
+        .get(first_undetermined)
+        .map(|name| interner.resolve(*name).to_string())
+        .unwrap_or_else(|| format!("argument {}", first_undetermined + 1));
+    let predicate = display_predicate(constraint, interner);
+
+    Some(
+        diagnostic_for(&UNDETERMINED_CLASS_PARAMETER)
+            .with_span(constraint.span)
+            .with_message(format!(
+                "Cannot determine `{param}` in `{predicate}`; \
+                 several instances are compatible with what this call fixes."
+            )),
+    )
+}
+
 fn display_predicate(constraint: &WantedClassConstraint, interner: &Interner) -> String {
     format!(
         "{}<{}>",
