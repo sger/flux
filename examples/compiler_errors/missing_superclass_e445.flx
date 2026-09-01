@@ -1,0 +1,31 @@
+// expect: compile_error
+// expect-error: E445
+// Expected: E445 Missing Superclass Instance
+//   "No instance for `Sizeable<Int>` (required by `Measurable<Int>`)."
+//   Hint: "`Measurable` requires `Sizeable` as a superclass.
+//    Add: `instance Sizeable<Int> { ... }`"
+//
+// Proposal 0179 Stage 5: `class Sizeable<a> => Measurable<a>` says every
+// `Measurable` type is also `Sizeable`, so `instance Measurable<Int>` owes an
+// `instance Sizeable<Int>`. Without it the `Measurable<Int>` dictionary has no
+// superclass evidence to carry, and a generic `fn f<a: Measurable>` could call
+// `size` with nothing to dispatch to.
+//
+// Before Stage 5 this diagnostic was raised but partitioned into the warnings
+// bucket, so the file compiled and exited 0.
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+class Sizeable<a> => Measurable<a> {
+    fn weight(x: a) -> Int
+}
+
+instance Measurable<Int> {
+    fn weight(x) { x * 100 }
+}
+
+fn main() with IO {
+    print(weight(5))
+}

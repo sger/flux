@@ -107,6 +107,7 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "typeclass_backend_parity.flx",
         "multiple_class_obligations.flx",
         "superclass_instance_validation.flx",
+        "superclass_order_independent.flx",
         "kind_valid.flx",
         "hkt_instance_positive.flx",
         "structured_predicate.flx",
@@ -130,13 +131,13 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         assert!(
             {
                 let source = source.to_ascii_lowercase();
-                source.contains("baseline")
-                    || source.contains("stage 1")
-                    || source.contains("stage 2")
-                    || source.contains("stage 3")
-                    || source.contains("stage 4")
+                [
+                    "baseline", "stage 1", "stage 2", "stage 3", "stage 4", "stage 5",
+                ]
+                .iter()
+                .any(|contract| source.contains(contract))
             },
-            "{fixture} needs a baseline, stage 1, stage 2, stage 3 or stage 4 contract"
+            "{fixture} needs a baseline or a stage 1-5 contract"
         );
         assert!(
             source.contains("Expected"),
@@ -436,4 +437,17 @@ fn structured_predicates_survive_generalization_distinctly() {
     let output = run_fixture("generalized_structured_constraint.flx")
         .unwrap_or_else(|error| panic!("{error}"));
     assert_eq!(output.stdout, "\"7\"\n\"9\"");
+}
+
+/// Proposal 0179 Stage 5: a superclass obligation is checked against the whole
+/// program, so declaring the subclass instance above the superclass instance it
+/// requires compiles exactly like the other order.
+///
+/// The check used to run inline while instances were collected, seeing only
+/// what preceded it.
+#[test]
+fn a_superclass_obligation_does_not_depend_on_declaration_order() {
+    let output =
+        run_fixture("superclass_order_independent.flx").unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(output.stdout, "500\n5");
 }

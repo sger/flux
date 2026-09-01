@@ -1,0 +1,21 @@
+---
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/superclass_cycle_e477.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E477]: Superclass Cycle
+
+Class `Alpha` is reachable from its own superclasses: Alpha -> Beta -> Alpha.
+
+  examples/compiler_errors/superclass_cycle_e477.flx:17:1
+   |
+17 | class Beta<a> => Alpha<a> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+18 |     fn alpha(x: a) -> Int
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+19 | }
+   | ^
+== stdout ==
+<not executed>
