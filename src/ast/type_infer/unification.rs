@@ -29,7 +29,10 @@ impl<'a> InferCtx<'a> {
             InferType::Con(tc) | InferType::App(tc, _) => Some(TypeShape::Constructor(tc.clone())),
             InferType::Fun(params, _, _) => Some(TypeShape::Function(params.len())),
             InferType::Tuple(elems) => Some(TypeShape::Tuple(elems.len())),
-            InferType::Var(_) | InferType::HktApp(_, _) => None,
+            // An unreduced associated type has no outer shape to compare:
+            // `Element<c>` is a type-level function, not a constructor, and
+            // reporting it as one would name a shape the user never wrote.
+            InferType::Var(_) | InferType::HktApp(_, _) | InferType::Assoc(_, _, _) => None,
         }
     }
 
