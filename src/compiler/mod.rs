@@ -176,6 +176,80 @@ fn remap_class_constraint(
     }
 }
 
+fn remap_associated_type_decl(
+    declaration: &crate::syntax::type_class::AssociatedTypeDecl,
+    remap: &HashMap<Symbol, Symbol>,
+) -> crate::syntax::type_class::AssociatedTypeDecl {
+    crate::syntax::type_class::AssociatedTypeDecl {
+        name: remap_identifier(declaration.name, remap),
+        params: declaration
+            .params
+            .iter()
+            .map(|param| remap_type_expr(param, remap))
+            .collect(),
+        span: declaration.span,
+    }
+}
+
+fn remap_associated_type_equation(
+    equation: &crate::syntax::type_class::AssociatedTypeEquation,
+    remap: &HashMap<Symbol, Symbol>,
+) -> crate::syntax::type_class::AssociatedTypeEquation {
+    crate::syntax::type_class::AssociatedTypeEquation {
+        name: remap_identifier(equation.name, remap),
+        head: equation
+            .head
+            .iter()
+            .map(|arg| remap_type_expr(arg, remap))
+            .collect(),
+        body: remap_type_expr(&equation.body, remap),
+        span: equation.span,
+    }
+}
+
+/// Report every imported instance whose associated-type equations do not match
+/// its class declaration count.
+///
+/// An instance defines one equation per associated type the class declares, and
+/// the two lists travel through the interface separately. A short list does not
+/// fail loudly on its own — the missing equation simply leaves an application
+/// stuck that the defining module reduced — so the counts are compared here
+/// rather than trusted, and a mismatch is reported as a stale interface. The
+/// same invariant is checked for in-tree code by
+/// [`ClassEnv::validate_associated_types`], which never sees imported instances
+/// because they are merged after collection.
+fn validate_imported_associated_types(
+    imported_classes: &HashMap<crate::types::class_id::ClassId, crate::types::class_env::ClassDef>,
+    imported_instances: &[crate::types::class_env::InstanceDef],
+    interner: &Interner,
+) -> Vec<Diagnostic> {
+    imported_instances
+        .iter()
+        .filter_map(|instance| {
+            let class_def = imported_classes.get(&instance.class_id)?;
+            let declared = class_def.associated_types.len();
+            let recorded = instance.associated_types.len();
+            (declared != recorded).then(|| {
+                let head = instance
+                    .type_args
+                    .iter()
+                    .map(|arg| arg.display_with(interner))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                diagnostic_for(&crate::diagnostics::compiler_errors::STALE_CLASS_INTERFACE)
+                    .with_message(format!(
+                        "Cached interface describes instance `{}<{}>` incompletely: class `{}` \
+                         declares {declared} associated type(s) but {recorded} equation(s) were \
+                         recorded.",
+                        interner.resolve(instance.class_name),
+                        head,
+                        interner.resolve(class_def.name),
+                    ))
+            })
+        })
+        .collect()
+}
+
 /// Why a cached `public class` entry could not be rebuilt.
 ///
 /// Carried rather than collapsed into `None` so the caller can say which part
@@ -263,11 +337,11 @@ fn imported_class_def_from_entry(
 
     Ok(crate::types::class_env::ClassDef {
         name: class_sym,
-        // Associated types do not cross the module interface yet; they are
-        // serialized in Proposal 0179 Stage 6 Step 4. Until then an imported
-        // class declares none, so a cross-module application stays stuck
-        // rather than reducing to the wrong thing.
-        associated_types: Vec::new(),
+        associated_types: entry
+            .associated_types
+            .iter()
+            .map(|declaration| remap_associated_type_decl(declaration, remap))
+            .collect(),
         module,
         is_public: true,
         is_builtin: false,
@@ -340,11 +414,11 @@ fn imported_instance_def_from_entry(
     };
     Some(crate::types::class_env::InstanceDef {
         class_name,
-        // Associated types do not cross the module interface yet; they are
-        // serialized in Proposal 0179 Stage 6 Step 4. Until then an imported
-        // class declares none, so a cross-module application stays stuck
-        // rather than reducing to the wrong thing.
-        associated_types: Vec::new(),
+        associated_types: entry
+            .associated_types
+            .iter()
+            .map(|equation| remap_associated_type_equation(equation, remap))
+            .collect(),
         class_id,
         instance_module: crate::types::class_id::ModulePath::from_identifier(
             interner.intern(&entry.instance_module),
@@ -417,6 +491,11 @@ fn remap_public_instance_entry(
             .map(|constraint| remap_class_constraint(constraint, remap))
             .collect(),
         context_class_modules: entry.context_class_modules.clone(),
+        associated_types: entry
+            .associated_types
+            .iter()
+            .map(|equation| remap_associated_type_equation(equation, remap))
+            .collect(),
         methods: entry
             .methods
             .iter()
@@ -3437,6 +3516,11 @@ impl Compiler {
             &mut self.warnings,
             &self.interner,
         );
+        diagnostics.extend(validate_imported_associated_types(
+            &self.imported_public_classes,
+            &self.imported_public_instances,
+            &self.interner,
+        ));
         self.class_env = env;
         let kind_env = crate::types::kind_check::KindEnv::from_program(
             program,

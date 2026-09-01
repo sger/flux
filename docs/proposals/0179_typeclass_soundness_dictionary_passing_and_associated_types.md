@@ -92,7 +92,7 @@ structural checks can make different decisions for the same class obligation.
 | Backend selection | A constrained function can still be eligible for an AST/bytecode fallback even after Core dictionary rewriting. | Mark constrained definitions as Core-only until all dictionary behavior is represented in Core; remove runtime `__tc_*` workarounds. |
 | Superclasses | **Done (Stage 5).** Obligations are checked once the whole environment is collected and matched structurally, cycles are rejected (E477), and dictionaries lead with one evidence slot per declared superclass. | — |
 | Kinds | `Kind` and constructor kinds exist, but there is no checking pass; parameterized ADTs and invalid HKT heads can be accepted. | Add a kind environment and validate type applications, class parameters, instance heads, predicates, and associated types before solving. |
-| Associated types | There is no AST, inference representation, reduction engine, or interface format for class-associated types. | Add associated declarations/equations, kind checking, reduction/stuck handling, and `.flxi` serialization as a later stage after predicates and kinds. |
+| Associated types | **Done (Stage 6).** Declarations and equations are parsed, collected, and validated; applications reduce through `normalize_associated_types` or stay stuck; both cross the module interface. | — |
 | Deriving | Unsupported deriving may register an instance without generated methods or a dictionary. | Validate the supported deriving set and make every supported derivation produce ordinary callable methods and evidence. |
 | Interfaces and cache | New class metadata must be present on both cold and warm compilation paths; dictionary layout changes can make cached artifacts stale. | Version and fingerprint predicate, kind, superclass, associated-type, and dictionary-layout metadata; add cold/warm tests. |
 | Tests | Existing coverage often checks compilation or Core text, not execution of polymorphic calls. | Require a Flux example and Rust test for every implementation item, plus VM/LLVM parity for supported runtime behavior. |
@@ -147,6 +147,7 @@ identify blockers early.
 | Predicate preservation | `src/ast/type_infer/constraint.rs`, `src/types/scheme.rs`, `src/types/class_solver.rs`, `src/types/class_defaulting.rs` | A producer/consumer table marking each obligation solved, generalized, skipped, or diagnosed. |
 | Class identity | `src/types/class_id.rs`, `src/types/class_env.rs`, module-interface loading | A list of bare-name lookup callers and a same-named-class module example. |
 | Kinds | `src/types/kind.rs`, `src/types/type_constructor.rs`, `src/types/infer_type.rs` | A constructor-arity inventory plus valid and invalid Flux kind examples. |
+| Associated types | `src/types/assoc_type.rs`, `ClassEnv::validate_associated_types`, `InferType::Assoc` | Reducing, stuck, malformed, and cross-module examples — all covered by Stage 6 fixtures. |
 | Superclasses | `ClassEnv::validate_superclass_obligations`, `ClassEnv::dictionary_layout`, dictionary construction, method rewriting | Declaration order, missing superclass, cycles, and generic superclass-method examples — all covered by Stage 5 fixtures. |
 | Structural/contextual instances | builtin registration, `has_structural_builtin_instance`, dictionary emission | For every solver-only answer, whether usable runtime evidence exists, with a Flux example. |
 | Deriving | deriving collection and generated methods | A supported/unsupported/sealed deriving matrix showing whether methods and evidence exist. |
@@ -401,33 +402,63 @@ Measurable>` calling `fn doubled<a: Sizeable>` works without a `bySuper` rule in
 `classify_constraint`. If a case is found that the projection paths cannot
 reach, that rule is where it belongs.
 
-### Stage 6 — Associated types
+### Stage 6 — Associated types — **done**
 
-- Add declarations and equations:
+- Declarations and equations are parsed and reach the class environment:
   `associated_type_declaration.flx`.
-- Validate duplicate, missing, unbound, ill-kinded, and recursive equations:
-  `duplicate_equation.flx`, `missing_equation.flx`,
-  `unbound_equation.flx`, `bad_kind_equation.flx`, and
-  `recursive_equation.flx`.
-- Reduce known applications and preserve stuck applications:
-  `associated_type_reduction.flx` and
-  `stuck_associated_type.flx`.
-- Serialize equations through interfaces:
+- Duplicate, missing, unbound, ill-kinded, recursive, and undeclared equations
+  are rejected with their own codes (E479–E484): `duplicate_equation_e479.flx`,
+  `missing_equation_e480.flx`, `unbound_equation_e481.flx`,
+  `bad_kind_equation_e482.flx`, `recursive_equation_e483.flx`, and
+  `unknown_equation_e484.flx`.
+- Applications whose arguments select an instance reduce to that equation's
+  body, and applications over a rigid variable are preserved:
+  `associated_type_reduction.flx` and `stuck_associated_type.flx`.
+- Declarations and equations cross the module interface, so an importing module
+  reduces exactly as the defining module did, cold and warm:
   `associated_type_interface_roundtrip.flx`.
 
-Example syntax (target syntax):
+Example syntax:
 
 ```flux
 class Collection<c> {
     type Element<c>
-    fn first(xs: c) -> Element<c>
+    fn first_of(xs: c) -> Element<c>
 }
 
-instance Collection<List<a>> {
-    type Element<List<a>> = a
-    fn first(xs) { head(xs) }
+instance Collection<List<Int>> {
+    type Element<List<Int>> = Int
+    fn first_of(xs) { 7 }
 }
 ```
+
+Four notes for later stages.
+
+**A new `InferType` variant, not a new `TypeConstructor`.** `Assoc` reaches
+around 32 sites against 448 for a constructor variant, but the deciding reason
+is that `TypeConstructor` flows into Core, LIR, and LLVM, where a runtime type
+is expected. Keeping stuck applications inside the type checker lets every
+backend boundary reject one outright, which makes "a stuck type escaped
+inference" loud rather than a miscompile.
+
+**Recognition, not a threaded lookup.** `Element<c>` already converts to
+`App(Adt(Element), [Var])`, so the normalizer recognizes it after the fact
+instead of `convert_type_expr_rec` producing it directly. That kept 40 call
+sites untouched.
+
+**Reduction cannot live in substitution or unification.** Neither
+`apply_type_subst` nor `unify_core` holds a `ClassEnv`, and selecting an
+equation needs one. Inference normalizes at the boundaries where it does hold
+one; unification treats what is left structurally.
+
+**A stuck type nearly unified with a concrete one.** `fn wrong<c: Collection>(xs:
+c) -> String` compiled and returned the selected instance's value. Unification
+correctly reported the mismatch; the E300 guard suppressed it, because it only
+reports when both sides are `is_concrete()` and a stuck application is not. The
+guard now also counts an application settled over this signature's own rigid
+variables. Relaxing it further — to any type whose free variables are all rigid
+— regresses `lib/Flow/Stream.flx`, which is the false positive the guard exists
+to avoid.
 
 ### Stage 7 — Safe deriving and structural dictionaries
 

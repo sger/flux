@@ -1,0 +1,16 @@
+module AssociatedTypeAcrossModules.Collect {
+    public class Collection<c> {
+        type Element<c>
+        fn first_of(xs: c) -> Element<c>
+    }
+
+    public instance Collection<List<Int>> {
+        type Element<List<Int>> = Int
+        fn first_of(xs) { 7 }
+    }
+
+    public instance Collection<List<String>> {
+        type Element<List<String>> = String
+        fn first_of(xs) { "s" }
+    }
+}

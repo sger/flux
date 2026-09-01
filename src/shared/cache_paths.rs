@@ -62,7 +62,10 @@ use sha2::{Digest, Sha256};
 /// carry the owning ClassId rather than a short class name.
 /// Epoch 32: dictionaries lead with a slot per declared superclass, so every
 /// method's slot index in a class that declares one has shifted.
-pub const CACHE_EPOCH: u16 = 32;
+/// Epoch 33: module interfaces carry class associated-type declarations and
+/// their instance equations, so an importing module reduces an application an
+/// epoch-32 interface left stuck.
+pub const CACHE_EPOCH: u16 = 33;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {
