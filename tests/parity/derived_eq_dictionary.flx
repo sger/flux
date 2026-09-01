@@ -1,0 +1,17 @@
+// parity: vm, llvm
+// expect: success
+// bug: a derived Eq instance was callable by name but its dictionary was not
+//      reachable from a constrained function, so `equal` and `eq` disagreed
+//      about the same instance (Proposal 0179 Stage 7).
+
+data Color { Red, Green, Blue } deriving (Eq)
+
+fn equal<a: Eq>(x: a, y: a) -> Bool {
+    eq(x, y)
+}
+
+fn main() with IO {
+    print(eq(Red, Red))
+    print(neq(Green, Blue))
+    print(equal(Green, Red))
+}

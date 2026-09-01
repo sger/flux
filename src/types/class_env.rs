@@ -34,7 +34,7 @@ use super::super::diagnostics::compiler_errors::{
     INSTANCE_MISSING_METHOD, INSTANCE_TYPE_ARG_ARITY, INSTANCE_UNKNOWN_CLASS,
     MISSING_SUPERCLASS_INSTANCE, ORPHAN_INSTANCE, PUBLIC_CLASS_LEAKS_PRIVATE_TYPE,
     PUBLIC_INSTANCE_HAS_PRIVATE_HEAD, PUBLIC_INSTANCE_OF_PRIVATE_CLASS, SEALED_CLASS_INSTANCE,
-    SUPERCLASS_CYCLE,
+    SUPERCLASS_CYCLE, UNDERIVABLE_CLASS,
 };
 
 /// Proposal 0151, Phase 2: per-ADT bookkeeping used by the orphan and
@@ -1914,8 +1914,12 @@ impl ClassEnv {
                                         env.lookup_class_in_module_or_global(current_module, short)
                                     })
                             });
-                        let (class_id, resolved_class_name) = match class_def {
-                            Some(def) => (def.class_id(), def.name),
+                        let (class_id, resolved_class_name, class_methods) = match class_def {
+                            Some(def) => (
+                                def.class_id(),
+                                def.name,
+                                def.methods.iter().map(|m| m.name).collect::<Vec<_>>(),
+                            ),
                             None => {
                                 let class_display = interner.resolve(*class_name);
                                 let type_display = interner.resolve(*name);
@@ -1936,6 +1940,35 @@ impl ClassEnv {
                         {
                             diagnostics.push(Self::sealed_sendable_diagnostic(*span));
                             continue;
+                        }
+
+                        // Proposal 0179 Stage 7: a clause is accepted only when
+                        // every method of the class can be generated. Accepting
+                        // it otherwise registered an instance the solver would
+                        // discharge and no call could reach, because the
+                        // generator silently skipped the methods it had no body
+                        // for. The instance is still recorded so the error names
+                        // the clause once instead of cascading into a missing
+                        // instance at every use site.
+                        let class_display = interner.resolve(resolved_class_name).to_string();
+                        let type_display = interner.resolve(*name).to_string();
+                        if let Some(method) = class_methods.iter().find(|method| {
+                            !crate::types::class_dispatch::can_derive_method(
+                                &class_display,
+                                &type_display,
+                                interner.resolve(**method),
+                            )
+                        }) {
+                            let method_display = interner.resolve(*method);
+                            diagnostics.push(
+                                diagnostic_for(&UNDERIVABLE_CLASS)
+                                    .with_span(*span)
+                                    .with_message(format!(
+                                        "`{class_display}` cannot be derived for \
+                                         `{type_display}`: no usable `{method_display}` can be \
+                                         generated for it."
+                                    )),
+                            );
                         }
 
                         let type_arg = TypeExpr::Named {
@@ -2661,6 +2694,8 @@ impl ClassEnv {
         let show_method = interner.intern("show");
         let append_method = interner.intern("append");
 
+        let list_name = interner.intern("List");
+        let option_name = interner.intern("Option");
         let int_name = interner.intern("Int");
         let float_name = interner.intern("Float");
         let string_name = interner.intern("String");
@@ -2848,6 +2883,19 @@ impl ClassEnv {
             self.register_builtin_instance(eq, ty);
         }
 
+        // Eq over the built-in containers (Proposal 0179 Stage 7).
+        //
+        // The solver could already *answer* `Eq<List<Int>>` structurally, but
+        // an answer with no `InstanceDef` behind it has no dictionary, so a
+        // constrained function received one fewer argument than it declared
+        // and failed with `E1000 want=3, got=2`. Registering real contextual
+        // instances gives those answers evidence, and every downstream
+        // mechanism — method generation, the dictionary constructor, both
+        // backends — then applies unchanged.
+        for container in [list_name, option_name] {
+            self.register_builtin_container_instance(eq, container, a_param);
+        }
+
         // Ord instances: Int, Float, String
         for ty in [int_name, float_name, string_name] {
             self.register_builtin_instance(ord, ty);
@@ -2926,6 +2974,54 @@ impl ClassEnv {
                 span: Span::default(),
             },
         );
+    }
+
+    /// Register a built-in *contextual* instance over a container head —
+    /// `Class<a> => Class<Container<a>>` (Proposal 0179 Stage 7).
+    ///
+    /// The context is what makes this usable: the element's own dictionary
+    /// arrives as the constructor's argument, and the generated body recurses
+    /// through it rather than through `==`, which cannot be applied to a rigid
+    /// element type.
+    fn register_builtin_container_instance(
+        &mut self,
+        class_name: Identifier,
+        container: Identifier,
+        param: Identifier,
+    ) {
+        // The rendered form of this head — `List<a>` — is the key
+        // `class_dispatch::structural_container_eq_body` looks the generated
+        // body up by, so `param` is part of that contract.
+        let head = TypeExpr::Named {
+            name: container,
+            args: vec![builtin_type(param)],
+            span: Span::default(),
+        };
+        let already_exists = self.instances.iter().any(|i| {
+            i.class_name == class_name
+                && i.type_args.first().is_some_and(|t| t.structural_eq(&head))
+        });
+        if already_exists {
+            return;
+        }
+        let class_id = ClassId::from_local_name(class_name);
+        self.instances.push(InstanceDef {
+            class_name,
+            class_id,
+            instance_module: ModulePath::EMPTY,
+            is_public: false,
+            type_args: vec![head],
+            context: vec![ClassConstraint {
+                class_name,
+                type_args: vec![builtin_type(param)],
+                span: Span::default(),
+            }],
+            context_class_ids: vec![class_id],
+            method_names: vec![],
+            method_effects: vec![],
+            associated_types: vec![],
+            span: Span::default(),
+        });
     }
 
     /// Register a single built-in instance.
@@ -3429,13 +3525,17 @@ module Phase1b.Step2 {
         // Declare the class in-source so we don't depend on built-in
         // pre-registration (which only happens in the bytecode compiler).
         // `public data` isn't parsed yet — bare `data` is sufficient here.
+        //
+        // It has to be `Show`/`show`: Stage 7 accepts a `deriving` clause only
+        // where a method body can be generated, and this test is about the
+        // owning module recorded on the instance, not about derivability.
         let source = r#"
 module Phase1b.Step2Derive {
-    class DerivableShow<a> {
-        fn show_it(x: a) -> Bool
+    class Show<a> {
+        fn show(x: a) -> Bool
     }
 
-    data Color { Red, Green, Blue } deriving (DerivableShow)
+    data Color { Red, Green, Blue } deriving (Show)
 }
 "#;
         let mut parser = Parser::new(Lexer::new(source));
@@ -3454,7 +3554,7 @@ module Phase1b.Step2Derive {
             diags
         );
 
-        let class_sym = interner.lookup("DerivableShow").unwrap();
+        let class_sym = interner.lookup("Show").unwrap();
         let color_sym = interner.lookup("Color").unwrap();
         // Find the synthesized derived instance for DerivableShow<Color>.
         let derived = env.instances.iter().find(|i| {

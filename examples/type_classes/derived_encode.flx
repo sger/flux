@@ -1,0 +1,18 @@
+// Proposal 0179 Stage 7 contract: `deriving (Json.Encode)` synthesizes an
+// `encode` body structurally from the data declaration — the tag from the
+// constructor, the payload from its named fields.
+//
+// Expected output:
+// "{"fields":{"count":2,"label":"pair"},"tag":"Labelled"}"
+// "{"fields":{"count":0,"label":"none"},"tag":"Labelled"}"
+
+import Flow.Json as Json
+
+data Shape {
+    Labelled { label: String, count: Int }
+} deriving (Json.Encode)
+
+fn main() with IO {
+    print(Json.stringify(encode(Labelled { label: "pair", count: 2 })))
+    print(Json.stringify(encode(Labelled { label: "none", count: 0 })))
+}

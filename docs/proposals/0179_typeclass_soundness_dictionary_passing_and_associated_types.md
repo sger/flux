@@ -93,7 +93,7 @@ structural checks can make different decisions for the same class obligation.
 | Superclasses | **Done (Stage 5).** Obligations are checked once the whole environment is collected and matched structurally, cycles are rejected (E477), and dictionaries lead with one evidence slot per declared superclass. | — |
 | Kinds | `Kind` and constructor kinds exist, but there is no checking pass; parameterized ADTs and invalid HKT heads can be accepted. | Add a kind environment and validate type applications, class parameters, instance heads, predicates, and associated types before solving. |
 | Associated types | **Done (Stage 6).** Declarations and equations are parsed, collected, and validated; applications reduce through `normalize_associated_types` or stay stuck; both cross the module interface. | — |
-| Deriving | Unsupported deriving may register an instance without generated methods or a dictionary. | Validate the supported deriving set and make every supported derivation produce ordinary callable methods and evidence. |
+| Deriving | **Done (Stage 7).** A clause that cannot produce usable methods is rejected with E486; supported clauses on a monomorphic head produce callable methods and a dictionary a constrained function can project them out of; `Eq` over `List` and `Option` resolves to a real instance instead of a solver-only answer. A parameterized derived head still fails ([KI-059](../known_issues.md#ki-059)). | Reconcile AST-level and Core-level dictionary elaboration for parameterized derived heads. |
 | Interfaces and cache | New class metadata must be present on both cold and warm compilation paths; dictionary layout changes can make cached artifacts stale. | Version and fingerprint predicate, kind, superclass, associated-type, and dictionary-layout metadata; add cold/warm tests. |
 | Tests | Existing coverage often checks compilation or Core text, not execution of polymorphic calls. | Require a Flux example and Rust test for every implementation item, plus VM/LLVM parity for supported runtime behavior. |
 
@@ -463,23 +463,75 @@ variables. Relaxing it further — to any type whose free variables are all rigi
 — regresses `lib/Flow/Stream.flx`, which is the false positive the guard exists
 to avoid.
 
-### Stage 7 — Safe deriving and structural dictionaries
+### Stage 7 — Safe deriving and structural dictionaries — **done**
 
-- Reject unsupported deriving: `unsupported_deriving.flx`.
-- Generate real methods and evidence for supported deriving:
-  `derived_eq.flx`, `derived_ord.flx`,
-  `derived_show.flx`, `derived_encode.flx`, and
-  `derived_decode.flx`.
-- Replace solver-only structural answers with usable evidence:
-  `structural_container_dictionary.flx`.
+- A `deriving` clause that cannot produce usable methods is rejected at the
+  clause with **E486** `UNDERIVABLE_CLASS`: `underivable_class_e486.flx` and
+  `underivable_ord_e486.flx`. `unsupported_deriving_diagnostic.flx`, which
+  recorded the silent baseline, now asserts the rejection.
+- Supported deriving produces methods that are callable by name *and* evidence a
+  constrained function can obtain — both halves, on both backends:
+  `derived_eq.flx`, `derived_show.flx`, `derived_encode.flx`, and
+  `derived_decode.flx`, mirrored by `derived_eq_dictionary.flx` and
+  `derived_show_dictionary.flx` under `tests/parity/`.
+- A predicate the solver answers about a built-in container carries a
+  dictionary rather than only an answer: `structural_container_dictionary.flx`,
+  mirrored into `tests/parity/`.
 
 Example syntax:
 
 ```flux
-data Pair<a, b> = Pair(a, b) deriving (Eq, Show)
+data Color { Red, Green, Blue } deriving (Eq, Show)
 fn equal<a: Eq>(x: a, y: a) -> Bool { eq(x, y) }
-fn main() with IO { print(equal(Pair(1, 2), Pair(1, 2))) }
+fn main() with IO { print(equal(Red, Red)) }
 ```
+
+Three notes.
+
+**Derivable means a *usable* body can be generated, not that a body exists.**
+The rule was first written as the latter, which reads well — the question "is
+this clause supported?" becomes the same question as "can the generator emit
+something?", so no allowlist can drift out of step with `builtin_method_body`.
+It admitted `Ord`. `deriving (Ord)` generates `compare` as a comparison on the
+two values, which compiles and then traps with `E1009 cannot compare Adt with
+OpGreaterThan`, because the comparison primops do not accept an ADT. A method
+that exists and cannot be called is the same silent third outcome this stage
+removes, one phase later. `Ord` and `Num` are therefore rejected until their
+generated bodies compare constructors structurally;
+`underivable_ord_e486.flx` records why, so the restriction is not simply undone.
+
+**The check belongs at the clause, not at the generator.** The natural site is
+the `continue` in `generate_builtin_instance_functions`, where the missing body
+is discovered. That function runs only when
+`include_builtin_instances && needs_builtin_dispatch_support(statements)`, so a
+program that derives an unsupported class and writes no constrained function
+never reaches it — the diagnostic would have been conditional on unrelated code.
+`collect_deriving` sees every clause and nothing else, which also keeps the
+`register_builtins` phantom instances out of range without a marker field, and
+leaves `span == Span::default()` meaning what it meant before.
+
+**Structural answers had to stop coming first.** `Eq` now has contextual
+instances over `List` and `Option`, so those predicates resolve to an
+`InstanceDef` and the ordinary dictionary machinery applies unchanged. That only
+takes effect once `solve_instance_evidence` tries instance resolution *before*
+`structural_builtin_evidence`; while the structural rule ran first it shadowed
+the new instances entirely. The structural rule remains the fallback for the
+heads with no instance — tuples, `Either`, `Array`, and every `Sendable` case,
+which is a marker class with no dictionary at all.
+
+The generated body cannot be `x == y`. These heads carry a context, so the
+element is rigid inside the body and comparing two `List<a>` with `==` needs
+evidence of its own, which inflates the method past the arity the dictionary
+supplies. The body recurses through `eq`, routing each element through the
+context dictionary the constructor is handed.
+
+**A parameterized head still fails.** `data Box<a> { Box(a) } deriving (Eq)`
+compiles its methods but not the evidence reaching them. It is not the mangling:
+a hand-written `instance Eq<a> => Eq<Box<a>>` works under the same names. The
+AST-level and Core-level dictionary elaborations disagree about whether the call
+needs a dictionary at all, so predeclaring the missing symbol converts a compile
+error into a runtime one. Recorded as
+[KI-059](../known_issues.md#ki-059) with the reproduction and both layers.
 
 ### Stage 8 — Standard hierarchy
 

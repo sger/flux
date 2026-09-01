@@ -71,7 +71,7 @@ into the consuming compiler's `ClassEnv` before inference and lowering.
 | Superclasses | Parser, class collection, `ClassEnv::validate_superclass_obligations` | Class environment, dictionary layout, dispatch | `ClassDef.superclasses`, `ClassDef.superclass_class_ids`, `DictSlot::Superclass` | Stage 5: obligations are checked against the whole program transitively (E445), cycles are rejected (E477), and dictionaries carry evidence in leading slots so inherited methods dispatch on both backends. |
 | Kinds | `types::kind`, `types::kind_check`, constructors, inference types | Compiler diagnostics and interface consumers | `Kind::Type` and `Kind::Arrow` | Stage 1 validates known constructors, contextual applications, instance heads, constraints, and class-parameter conflicts. Unknown imported constructors remain open at the interface boundary. |
 | Associated types | Parser, class collection, `types::assoc_type` | Inference and interfaces | `AssociatedTypeDecl`, `AssociatedTypeEquation`, `InferType::Assoc` | Stage 6: declarations and equations are collected and validated (E479–E484), applications reduce through `normalize_associated_types` or stay stuck, and both cross the module interface. |
-| Deriving | ADT/class collection and dispatch generation | Runtime method calls | Structural built-in deriving for current supported classes | Existing deriving cases compile and run. Unsupported deriving behavior is recorded; broader safe deriving and generated method guarantees belong to Stage 7. |
+| Deriving | ADT/class collection and dispatch generation | Runtime method calls | Structural built-in deriving for current supported classes | Stage 7: a clause is accepted only when every method of the class can be given a *usable* body, and rejected with E486 otherwise. A supported clause on a monomorphic head yields methods callable by name and a dictionary a constrained function can project them out of. `Eq` over `List` and `Option` resolves to a real contextual instance rather than a solver-only answer. A parameterized derived head still fails ([KI-059](../known_issues.md#ki-059)). |
 | Interfaces | `compiler::module_interface` | Importing compiler and cache validation | Public class/instance entries, structured predicates, kind metadata, associated types, and fingerprints | `parameter_kinds`, `head_kinds`, and associated-type metadata are serialized with defaults for old interfaces and included in fingerprints. |
 
 ## Dictionary calling convention
@@ -245,6 +245,60 @@ unrelated error about the type it never became. The two counts are therefore
 compared when an imported instance is merged, and a mismatch is reported as a
 stale interface (E478).
 
+## What `deriving` accepts
+
+A `deriving` clause is accepted when **every** method of the class can be given
+a body that actually runs on the derived type. The rule is deliberately not a
+curated list of class names: the question "is this clause supported?" is the
+same question as "can the generator emit something callable?", and one predicate
+answering both cannot drift out of step with the generator.
+
+`can_derive_method` in `types::class_dispatch` is that predicate. It is asked
+only about the head of a `deriving` clause — a user `data` declaration by
+construction — so the built-in `Eq<Int>`-style phantom instances never reach it.
+`has_builtin_method_body` beside it mirrors the match inside
+`builtin_method_body`, and `builtin_bodies_match_the_derivable_set` cross-checks
+the two over the whole class x type x method grid.
+
+| Class | Derivable | Why |
+|---|---|---|
+| `Eq` | yes | `==` and `!=` compare ADTs structurally on both backends |
+| `Show` | yes | renders the constructor name |
+| `Json.Encode` / `Json.Decode` | yes | bodies are built structurally from the data declaration |
+| `Ord` | **no** | a body is generated — `x < y` — but the comparison primops reject an ADT, so the method compiles and traps with `E1009` |
+| `Num` | **no** | same shape: `x + y` over constructors does not run |
+| `Semigroup` | **no** | only `String` has a body |
+| anything user-declared | **no** | nothing can generate its methods |
+
+Rejection is **E486** at the clause, not at the generator. The generator's
+missing-body site runs only when the program independently needs built-in
+dispatch support, so a diagnostic there would be conditional on unrelated code
+being present. Reporting from `collect_deriving` also keeps the phantom
+instances out of range without a marker field on `InstanceDef`.
+
+`Ord` and `Num` become derivable again once their generated bodies compare
+constructors structurally rather than delegating to a primop;
+`examples/compiler_errors/underivable_ord_e486.flx` records that, so the
+restriction is not undone by someone reading only the table above.
+
+### Structural predicates and their evidence
+
+`Eq`, `Ord` and `Sendable` are answered for some heads by a structural rule in
+`class_solver::structural_builtin_evidence` — `Eq<(Int, String)>` holds because
+each component does — rather than by an `InstanceDef`. Evidence with no instance
+behind it names no dictionary, so a constrained function declaring that
+constraint took a dictionary parameter nobody supplied and was called one
+argument short (`E1000 want=3, got=2`). Calling the method directly worked,
+which is what kept the gap out of sight.
+
+`Eq` over `List` and `Option` therefore has real contextual instances
+(`ClassEnv::register_builtin_container_instance`), and `solve_instance_evidence`
+tries instance resolution **before** the structural rule so they are not
+shadowed by it. The structural rule stays as the fallback for heads with no
+instance: tuples, `Either`, `Array`, and every `Sendable` case — `Sendable` is a
+marker class with no methods, so it has no dictionary to build in the first
+place.
+
 ## Current architecture problems
 
 The current implementation has more than one route to a class method:
@@ -268,7 +322,8 @@ The most important current limitations are:
 - direct dispatch is not yet selected from a complete predicate and expected
   result type;
 - kind values are not enforced by a complete type-application checker;
-- deriving coverage is limited to the classes and shapes currently supported.
+- deriving coverage is limited to the classes and shapes currently supported
+  (see **What `deriving` accepts** below).
 
 The staged roadmap assigns those limitations to later stages. Stage 1 does not
 silently fix them by changing their expected baseline; it adds explicit
@@ -287,7 +342,7 @@ snapshot suite.
 | `generalized_constraint_obligation.flx` | Constraint attached to a generic function | The supported constraint is preserved through compilation and execution. |
 | `result_directed_method_lookup.flx` | Method whose result could influence selection | Baseline behavior is recorded; result-directed selection remains Stage 4. |
 | `invalid_higher_kind.flx` | Invalid type-constructor application | Invalid known applications receive contextual kind diagnostics. |
-| `unsupported_deriving_diagnostic.flx` | Unsupported deriving request | Diagnostic behavior is stable and explicit; broader deriving remains Stage 7. |
+| `unsupported_deriving_diagnostic.flx` | Unsupported deriving request | Stage 7: the clause is rejected with E486 rather than registering a method-less instance. |
 | `TypeclassMetadata.flx` | Public class/instance interface serialization | Metadata survives interface construction and reload. |
 | `typeclass_backend_parity.flx` | Supported class dispatch on VM and LLVM | Deterministic output is identical across supported backends. |
 | `multiple_class_obligations.flx` | Two independent generalized obligations | Both dictionaries are inserted in declaration order and both methods execute. |
@@ -327,7 +382,7 @@ associated types, and deriving expansion remain later roadmap work.
 - Stage 4: complete `ClassId`-aware and result-directed resolution.
 - Stage 5 (done): superclass closure, evidence slots, and transitive entailment.
 - Stage 6 (done): associated type declarations, equations, reduction, and interfaces.
-- Stage 7: safe deriving and usable structural dictionaries.
+- Stage 7 (done): safe deriving diagnostics, generated evidence, and dictionaries for structural container predicates.
 - Stage 8: standard library hierarchy and instances.
 
 No later stage may depend on an undocumented fallback. Every change to the

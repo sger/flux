@@ -1,0 +1,35 @@
+// Proposal 0179 Stage 7 contract: a predicate the solver answers about a
+// built-in container carries a dictionary, not just an answer.
+//
+// `Eq<List<Int>>` used to be discharged by a structural rule that named no
+// instance. Nothing then built a dictionary for it, so `equal` — which
+// declares an `Eq` constraint and therefore takes one — was called with one
+// argument fewer than it expected and failed with
+// `E1000 wrong number of arguments: want=3, got=2`. Calling `eq` directly
+// worked, which is what kept the gap hidden.
+//
+// `Eq` now has contextual instances over `List` and `Option`, so those
+// predicates resolve to an instance and the ordinary dictionary machinery
+// applies. The element's own evidence arrives as the constructor's argument,
+// which is why a nested container works too.
+//
+// Expected output:
+// true
+// false
+// true
+// false
+// true
+// true
+
+fn equal<a: Eq>(x: a, y: a) -> Bool {
+    eq(x, y)
+}
+
+fn main() with IO {
+    print(equal([1, 2], [1, 2]))
+    print(equal([1, 2], [1, 3]))
+    print(equal(Some(1), Some(1)))
+    print(equal(Some(1), None))
+    print(equal(["a", "b"], ["a", "b"]))
+    print(equal([Some(1)], [Some(1)]))
+}

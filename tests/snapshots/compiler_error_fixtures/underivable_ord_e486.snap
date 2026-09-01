@@ -1,0 +1,18 @@
+---
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
+assertion_line: 152
+---
+Fixture: examples/compiler_errors/underivable_ord_e486.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E486]: Underivable Class
+
+`Ord` cannot be derived for `Color`: no usable `compare` can be generated for it.
+
+  examples/compiler_errors/underivable_ord_e486.flx:15:1
+   |
+15 | data Color { Red, Green, Blue } deriving (Ord)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+== stdout ==
+<not executed>

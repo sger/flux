@@ -1002,6 +1002,25 @@ pub const AMBIGUOUS_DICTIONARY_SELECTION: ErrorCode = ErrorCode {
     ),
 };
 
+/// Proposal 0179 Stage 7: a `deriving` clause names a class no body can be
+/// generated for.
+///
+/// Deriving used to accept any known class and then silently skip the methods
+/// it could not synthesize, leaving an instance the solver accepts but nothing
+/// can call. Rejecting at the clause is what makes the two remaining outcomes
+/// the only ones: either the clause produces callable methods and usable
+/// evidence, or it is an error here.
+pub const UNDERIVABLE_CLASS: ErrorCode = ErrorCode {
+    code: "E486",
+    title: "UNDERIVABLE CLASS",
+    error_type: ErrorType::Compiler,
+    message: "`{}` cannot be derived for `{}`.",
+    hint: Some(
+        "Write an `instance` block with the method bodies, or derive one of \
+         `Eq`, `Show`, `Encode` or `Decode`.",
+    ),
+};
+
 /// Proposal 0179 Stage 6: an instance defines an associated type its class does
 /// not declare.
 ///
