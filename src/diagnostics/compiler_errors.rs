@@ -918,9 +918,8 @@ pub const NO_INSTANCE: ErrorCode = ErrorCode {
 /// declarations, so the hierarchy has no base and its superclass closure does
 /// not terminate.
 ///
-/// Haskell rejects the same program (Report §4.3.1, "the superclass relation
-/// must not be cyclic"), and for the same reason: a dictionary would have to
-/// contain itself.
+/// The superclass relation must be acyclic: a dictionary carries evidence for
+/// its superclasses, so a cycle would require a dictionary to contain itself.
 pub const SUPERCLASS_CYCLE: ErrorCode = ErrorCode {
     code: "E477",
     title: "SUPERCLASS CYCLE",
@@ -935,7 +934,7 @@ pub const SUPERCLASS_CYCLE: ErrorCode = ErrorCode {
 /// Proposal 0179 Stage 4: a declared bound constrains a type variable that
 /// does not appear in the signature's own type, so no caller can ever fix it.
 ///
-/// This is the Haskell Report §4.3.4 ambiguity rule. Distinct from
+/// Distinct from
 /// [`UNDETERMINED_CLASS_PARAMETER`] (E459), which reports one *call* that
 /// leaves a parameter open: this is a property of the signature itself, and
 /// every call to it would be affected.
