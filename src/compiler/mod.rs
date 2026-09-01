@@ -263,6 +263,11 @@ fn imported_class_def_from_entry(
 
     Ok(crate::types::class_env::ClassDef {
         name: class_sym,
+        // Associated types do not cross the module interface yet; they are
+        // serialized in Proposal 0179 Stage 6 Step 4. Until then an imported
+        // class declares none, so a cross-module application stays stuck
+        // rather than reducing to the wrong thing.
+        associated_types: Vec::new(),
         module,
         is_public: true,
         is_builtin: false,
@@ -335,6 +340,11 @@ fn imported_instance_def_from_entry(
     };
     Some(crate::types::class_env::InstanceDef {
         class_name,
+        // Associated types do not cross the module interface yet; they are
+        // serialized in Proposal 0179 Stage 6 Step 4. Until then an imported
+        // class declares none, so a cross-module application stays stuck
+        // rather than reducing to the wrong thing.
+        associated_types: Vec::new(),
         class_id,
         instance_module: crate::types::class_id::ModulePath::from_identifier(
             interner.intern(&entry.instance_module),

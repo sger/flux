@@ -10,8 +10,13 @@ use std::collections::HashMap;
 use crate::{
     diagnostics::{Diagnostic, DiagnosticBuilder, diagnostic_for, position::Span},
     syntax::{
-        Identifier, block::Block, effect_expr::EffectExpr, interner::Interner,
-        statement::Statement, type_class::ClassConstraint, type_expr::TypeExpr,
+        Identifier,
+        block::Block,
+        effect_expr::EffectExpr,
+        interner::Interner,
+        statement::Statement,
+        type_class::{AssociatedTypeDecl, AssociatedTypeEquation, ClassConstraint},
+        type_expr::TypeExpr,
     },
     types::{
         class_id::{ClassId, ModulePath},
@@ -75,6 +80,9 @@ pub struct ClassDef {
     pub methods: Vec<MethodSig>,
     /// Methods that have default implementations in the class body.
     pub default_methods: Vec<Identifier>,
+    /// Types this class declares and every instance must define
+    /// (Proposal 0179 Stage 6).
+    pub associated_types: Vec<AssociatedTypeDecl>,
     pub span: Span,
 }
 
@@ -173,6 +181,9 @@ pub struct InstanceDef {
     /// interfaces and downstream callers need the resolved instance row
     /// without re-parsing the defining source module.
     pub method_effects: Vec<(Identifier, Vec<EffectExpr>)>,
+    /// This instance's definitions for the class's associated types
+    /// (Proposal 0179 Stage 6).
+    pub associated_types: Vec<AssociatedTypeEquation>,
     pub span: Span,
 }
 
@@ -923,6 +934,8 @@ impl ClassEnv {
 
         env.instances.push(InstanceDef {
             class_name: sendable_id,
+            // Synthesized, so it declares no associated types.
+            associated_types: Vec::new(),
             class_id: ClassId::from_local_name(sendable_id),
             instance_module,
             // Synthesized instances follow the same visibility rule as the
@@ -1081,6 +1094,7 @@ impl ClassEnv {
                     type_params,
                     superclasses,
                     methods,
+                    associated_types,
                     span,
                     ..
                 } => {
@@ -1125,6 +1139,7 @@ impl ClassEnv {
                         class_id,
                         ClassDef {
                             name: *name,
+                            associated_types: associated_types.clone(),
                             module: current_module,
                             is_public: *is_public,
                             is_builtin: false,
@@ -1184,6 +1199,7 @@ impl ClassEnv {
                     type_args,
                     context,
                     methods,
+                    associated_types,
                     span,
                     name_span: _,
                 } => {
@@ -1396,6 +1412,7 @@ impl ClassEnv {
 
                     env.instances.push(InstanceDef {
                         class_name: *class_name,
+                        associated_types: associated_types.clone(),
                         // Phase 1b Step 4: canonical ClassId of the class
                         // being implemented. We resolved the class above
                         // (cloned into `class_def`) and use its `class_id()`
@@ -1553,6 +1570,7 @@ impl ClassEnv {
                                 .collect(),
                             method_names: vec![],
                             method_effects: vec![],
+                            associated_types: vec![],
                             span: Span::default(),
                         });
                     }
@@ -2500,6 +2518,7 @@ impl ClassEnv {
                 type_params,
                 superclasses: vec![],
                 superclass_class_ids: vec![],
+                associated_types: vec![],
                 methods,
                 default_methods: vec![],
                 span: Span::default(),
@@ -2538,6 +2557,7 @@ impl ClassEnv {
             context_class_ids: vec![],
             method_names: vec![],
             method_effects: vec![],
+            associated_types: vec![],
             span: Span::default(),
         });
     }
@@ -4250,6 +4270,7 @@ module Mod.Class {
             context_class_ids: vec![],
             method_names: vec![],
             method_effects: vec![],
+            associated_types: vec![],
             span: s(),
         });
         (env, class_sym)

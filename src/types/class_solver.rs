@@ -643,6 +643,7 @@ mod tests {
                 type_params: vec![interner.intern("a")],
                 superclasses: Vec::new(),
                 superclass_class_ids: Vec::new(),
+                associated_types: Vec::new(),
                 methods: vec![MethodSig {
                     name: method_name,
                     type_params: Vec::new(),
@@ -668,6 +669,7 @@ mod tests {
                 context_class_ids: Vec::new(),
                 method_names: vec![method_name],
                 method_effects: Vec::new(),
+                associated_types: Vec::new(),
                 span: Span::default(),
             });
         }

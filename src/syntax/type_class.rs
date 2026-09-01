@@ -60,3 +60,43 @@ pub struct InstanceMethod {
     pub body: Block,
     pub span: Span,
 }
+
+/// An associated type declared by a class (Proposal 0179 Stage 6).
+///
+/// ```flux
+/// class Collection<c> {
+///     type Element<c>
+///     fn first(xs: c) -> Element<c>
+/// }
+/// ```
+///
+/// `params` repeats the class parameters the type is indexed by, so the
+/// declaration and each instance's [`AssociatedTypeEquation`] have visibly the
+/// same shape. A use of `Element<c>` in a method signature is an application of
+/// this declaration, not a reference to an ordinary type constructor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssociatedTypeDecl {
+    pub name: Identifier,
+    pub params: Vec<TypeExpr>,
+    pub span: Span,
+}
+
+/// One instance's definition of an associated type (Proposal 0179 Stage 6).
+///
+/// ```flux
+/// instance Collection<List<a>> {
+///     type Element<List<a>> = a
+///     fn first(xs) { head(xs) }
+/// }
+/// ```
+///
+/// `head` repeats the instance head the equation applies to and `body` is what
+/// the application reduces to. Every variable in `body` must be bound by
+/// `head`, otherwise the reduction would produce a type out of nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssociatedTypeEquation {
+    pub name: Identifier,
+    pub head: Vec<TypeExpr>,
+    pub body: TypeExpr,
+    pub span: Span,
+}

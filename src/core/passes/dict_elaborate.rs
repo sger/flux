@@ -1631,6 +1631,7 @@ mod tests {
             type_params: vec![a_sym],
             superclasses: vec![],
             superclass_class_ids: vec![],
+            associated_types: vec![],
             methods: vec![
                 MethodSig {
                     name: eq_method,
@@ -1671,6 +1672,7 @@ mod tests {
             context_class_ids: vec![],
             method_names: vec![eq_method, neq_method],
             method_effects: vec![],
+            associated_types: vec![],
             span: s(),
         };
 
@@ -1766,6 +1768,7 @@ mod tests {
             type_params: vec![a_sym],
             superclasses: vec![],
             superclass_class_ids: vec![],
+            associated_types: vec![],
             methods: vec![MethodSig {
                 name: eq_method,
                 type_params: vec![],
@@ -1798,6 +1801,7 @@ mod tests {
             context_class_ids: vec![],
             method_names: vec![eq_method],
             method_effects: vec![],
+            associated_types: vec![],
             span: s(),
         };
 
