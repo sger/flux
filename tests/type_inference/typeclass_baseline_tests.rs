@@ -409,7 +409,7 @@ fn a_concrete_predicate_is_solved_against_its_instance() {
 }
 
 /// A predicate over a quantified variable is retained on the scheme and
-/// discharged at the call site — the retained half of THIH's `split`.
+/// discharged at the call site — the retained half of constraint splitting.
 #[test]
 fn a_quantified_predicate_is_generalized_onto_the_scheme() {
     let output =

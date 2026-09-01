@@ -1,7 +1,7 @@
 /// Dictionary elaboration pass for type classes (Proposal 0145, Step 5b).
 ///
 /// Transforms type class dispatch from runtime `type_of()` checks to
-/// GHC-style compile-time dictionary passing.
+/// compile-time dictionary passing.
 ///
 /// ## What this pass does
 ///
@@ -403,9 +403,8 @@ fn build_contextual_dictionary_expr(
 ///
 /// 1. **This instance's own context.** `instance Middle<Int> => Top<Int>`
 ///    is handed a `Middle<Int>` dictionary, which is exactly the superclass
-///    evidence `Top` needs — THIH takes evidence from the context first for
-///    the same reason. Reaching for the global here would apply a dictionary
-///    *constructor* to an already-built dictionary.
+///    evidence `Top` needs. Reaching for the global instead would apply a
+///    dictionary *constructor* to an already-built dictionary.
 /// 2. **A plain instance's global**, when the context does not supply it.
 ///
 /// `None` when neither applies — the caller then skips the dictionary rather

@@ -147,8 +147,7 @@ known and what the remedy is:
   (`E444`, add an instance), or several instances match it (`E454`, remove or
   narrow one).
 - `E476` concerns a *signature*: a declared bound constrains a variable the
-  signature's own type never mentions, so every call to it is affected
-  (Haskell Report §4.3.4).
+  signature's own type never mentions, so every call to it is affected.
 - `E459` concerns an *incomplete* predicate — the call leaves a class parameter
   undetermined and more than one instance stays compatible. The remedy is to
   supply the missing type, usually with an annotation, rather than to change

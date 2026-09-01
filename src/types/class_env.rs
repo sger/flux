@@ -309,10 +309,12 @@ impl ClassEnv {
     /// The slot assignment for a class's dictionary tuple.
     ///
     /// Superclass evidence occupies the leading slots, method implementations
-    /// follow, both in declaration order. This is GHC's dictionary layout and
-    /// THIH's `Class = ([Id], [Inst])`, and it is the single definition of the
+    /// follow, both in declaration order. This is the single definition of the
     /// layout: everything that builds a dictionary or reads a slot out of one
     /// derives its offsets from here rather than recomputing the convention.
+    ///
+    /// Evidence leads because it makes a slot's offset independent of how many
+    /// methods the class declares.
     ///
     /// Only *directly* declared superclasses get a slot. A transitive one is
     /// reached by projecting twice, which is what keeps the layout of a class
@@ -484,8 +486,8 @@ impl ClassEnv {
     /// the first:
     ///
     /// - **E477** — a class that reaches itself through its own superclass
-    ///   declarations. Haskell rejects the same program (Report §4.3.1); a
-    ///   dictionary for it would have to contain itself.
+    ///   declarations. A dictionary for it would have to contain itself, and
+    ///   the superclass closure would not terminate.
     /// - **E445** — `instance Ord<T>` without the `instance Eq<T>` that
     ///   `class Eq<a> => Ord<a>` demands, checked transitively.
     ///
