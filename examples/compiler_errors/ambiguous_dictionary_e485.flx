@@ -1,0 +1,35 @@
+// expect: compile_error
+// expect-error: E485
+// Expected: E485 Ambiguous Dictionary Selection
+//   "This call to `mk` does not say which `Mk` instance it needs."
+//   Hint: "Annotate the call, or pass a value whose type names the instance,
+//    so one constraint is chosen."
+//
+// KI-057: `pick` is constrained twice on `Mk`, so it holds two dictionaries.
+// `mk(1)` takes only an `Int`, which names neither `a` nor `b` — either
+// dictionary would satisfy the call, and they are instances for different
+// types, so the two are not interchangeable.
+//
+// Selecting the first is what made this whole class of call wrong: it compiled
+// and returned whatever the first instance produced. Reporting is the only
+// sound answer, because nothing at the call site distinguishes them.
+
+class Mk<a> {
+    fn mk(tag: Int) -> Int
+}
+
+instance Mk<Int> {
+    fn mk(tag) { 100 }
+}
+
+instance Mk<String> {
+    fn mk(tag) { 200 }
+}
+
+fn pick<a: Mk, b: Mk>(x: a, y: b) -> Int {
+    mk(1)
+}
+
+fn main() with IO {
+    print(pick(5, "hi"))
+}

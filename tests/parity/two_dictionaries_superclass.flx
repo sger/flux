@@ -1,0 +1,47 @@
+// KI-057 contract: two dictionaries for one class are told apart even when the
+// method is reached through superclass evidence.
+//
+// `report` is constrained twice on `Measurable`, so it holds two dictionaries.
+// `size` is not `Measurable`'s own method — it belongs to the superclass
+// `Sizeable`, and each call reaches it by projecting through its dictionary's
+// leading evidence slot. Both projections have the same shape, so the slot path
+// alone cannot tell them apart; only the argument's type can.
+//
+// This is the case Stage 5 inherited rather than caused: superclass evidence
+// made a second path to the same method, and mapping methods by name collapsed
+// the two dictionaries into whichever was recorded last.
+//
+// Expected output:
+// 507
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+class Sizeable<a> => Measurable<a> {
+    fn weight(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+instance Sizeable<String> {
+    fn size(x) { 500 }
+}
+
+instance Sizeable<Int> => Measurable<Int> {
+    fn weight(x) { 0 }
+}
+
+instance Sizeable<String> => Measurable<String> {
+    fn weight(x) { 0 }
+}
+
+fn report<a: Measurable, b: Measurable>(x: a, y: b) -> Int {
+    size(x) + size(y)
+}
+
+fn main() with IO {
+    print(report(7, "hi"))
+}
