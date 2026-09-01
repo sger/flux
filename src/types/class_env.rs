@@ -343,16 +343,6 @@ impl ClassEnv {
         Some(class_def.superclass_class_ids.len() + position)
     }
 
-    /// The slot holding evidence for `superclass` in a dictionary for `id`.
-    ///
-    /// Direct superclasses only — see [`dictionary_layout`](Self::dictionary_layout).
-    pub fn superclass_slot(&self, id: ClassId, superclass: ClassId) -> Option<usize> {
-        self.lookup_class_by_id(id)?
-            .superclass_class_ids
-            .iter()
-            .position(|&candidate| candidate == superclass)
-    }
-
     /// The symbol name held by each slot of the dictionary for one instance head.
     ///
     /// `type_key` is the rendered instance head that [`dictionary_name`] and
