@@ -1,0 +1,15 @@
+// parity: vm, llvm
+// expect: success
+// bug: Eq over a built-in container was a solver-only answer with no
+//      dictionary behind it, so a constrained function was called one
+//      argument short (E1000 want=3, got=2) — Proposal 0179 Stage 7.
+
+fn equal<a: Eq>(x: a, y: a) -> Bool {
+    eq(x, y)
+}
+
+fn main() with IO {
+    print(equal([1, 2], [1, 2]))
+    print(equal(Some(1), None))
+    print(equal([Some(1)], [Some(1)]))
+}
