@@ -29,8 +29,8 @@ runtime guarantees:
   number of arguments.
 - Generalized class constraints lose structured type arguments, so obligations
   can be silently skipped.
-- Superclass checking is not yet transitive, order-independent evidence
-  passing.
+- ~~Superclass checking is not yet transitive, order-independent evidence
+  passing.~~ Fixed in Stage 5.
 - Method resolution is primarily directed by the first value argument, which
   cannot support methods determined by a result type.
 - `Kind` exists but is not used to validate constructors, HKT applications, or
@@ -90,7 +90,7 @@ structural checks can make different decisions for the same class obligation.
 | Method dispatch | AST-to-Core lowering resolves many calls from the first value argument and has special cases for methods such as `Decode`. | Resolve from the complete class predicate, all value arguments, and expected result type through one shared resolver. |
 | Dictionary elaboration | The Core pass can add dictionary parameters and arguments, while other paths still tolerate missing or alternate arities. This can surface as a runtime wrong-arity error. | Make elaborated Core the single calling convention for constrained functions; validate exact callee/call arity before either backend runs. |
 | Backend selection | A constrained function can still be eligible for an AST/bytecode fallback even after Core dictionary rewriting. | Mark constrained definitions as Core-only until all dictionary behavior is represented in Core; remove runtime `__tc_*` workarounds. |
-| Superclasses | Superclass declarations are validated as local declarations, not as transitive evidence; dictionary tuples contain no superclass slots. | Build declaration-order-independent superclass closure and store superclass evidence in stable dictionary slots. |
+| Superclasses | **Done (Stage 5).** Obligations are checked once the whole environment is collected and matched structurally, cycles are rejected (E477), and dictionaries lead with one evidence slot per declared superclass. | — |
 | Kinds | `Kind` and constructor kinds exist, but there is no checking pass; parameterized ADTs and invalid HKT heads can be accepted. | Add a kind environment and validate type applications, class parameters, instance heads, predicates, and associated types before solving. |
 | Associated types | There is no AST, inference representation, reduction engine, or interface format for class-associated types. | Add associated declarations/equations, kind checking, reduction/stuck handling, and `.flxi` serialization as a later stage after predicates and kinds. |
 | Deriving | Unsupported deriving may register an instance without generated methods or a dictionary. | Validate the supported deriving set and make every supported derivation produce ordinary callable methods and evidence. |
@@ -147,7 +147,7 @@ identify blockers early.
 | Predicate preservation | `src/ast/type_infer/constraint.rs`, `src/types/scheme.rs`, `src/types/class_solver.rs`, `src/types/class_defaulting.rs` | A producer/consumer table marking each obligation solved, generalized, skipped, or diagnosed. |
 | Class identity | `src/types/class_id.rs`, `src/types/class_env.rs`, module-interface loading | A list of bare-name lookup callers and a same-named-class module example. |
 | Kinds | `src/types/kind.rs`, `src/types/type_constructor.rs`, `src/types/infer_type.rs` | A constructor-arity inventory plus valid and invalid Flux kind examples. |
-| Superclasses | class collection, instance validation, dictionary construction, method rewriting | Current results for declaration order, missing superclass, and generic superclass-method examples. |
+| Superclasses | `ClassEnv::validate_superclass_obligations`, `ClassEnv::dictionary_layout`, dictionary construction, method rewriting | Declaration order, missing superclass, cycles, and generic superclass-method examples — all covered by Stage 5 fixtures. |
 | Structural/contextual instances | builtin registration, `has_structural_builtin_instance`, dictionary emission | For every solver-only answer, whether usable runtime evidence exists, with a Flux example. |
 | Deriving | deriving collection and generated methods | A supported/unsupported/sealed deriving matrix showing whether methods and evidence exist. |
 | Interfaces and caches | `src/types/module_interface.rs`, cache paths, cold/warm helpers | A cold/warm comparison for class, instance, constraint, and dictionary metadata. |
@@ -355,15 +355,19 @@ fn main() with IO {
 }
 ```
 
-### Stage 5 — Superclass evidence
+### Stage 5 — Superclass evidence — **done**
 
-- Validate obligations after the complete environment is collected:
-  `superclass_order_independent.flx` and
-  `missing_superclass.flx`.
-- Detect cycles: `superclass_cycle.flx`.
-- Add superclass slots/projections and generic entailment:
-  `superclass_method_call.flx` and
-  `transitive_superclass.flx`.
+- Obligations are validated after the complete environment is collected, and
+  matched structurally rather than by rendered type name:
+  `superclass_order_independent.flx`, `missing_superclass_e445.flx`.
+- Cycles are rejected with E477, one diagnostic per cycle anchored at its
+  first-declared class: `superclass_cycle_e477.flx`.
+- Dictionaries lead with one slot per directly declared superclass, and
+  inherited methods are reached by projecting through it:
+  `superclass_method_call.flx`, `transitive_superclass.flx`.
+- The layout crosses module interfaces, so an inherited method dispatches the
+  same cold and warm: `superclass_across_modules.flx`,
+  `SuperclassMetadata.flx`.
 
 Example syntax:
 
@@ -372,6 +376,30 @@ class Eq<a> { fn eq(x: a, y: a) -> Bool }
 class Eq<a> => Ord<a> { fn compare(x: a, y: a) -> Int }
 fn same_order<a: Ord>(x: a, y: a) -> Bool { eq(x, y) }
 ```
+
+Two notes for later stages.
+
+**E445 was previously demoted to a warning.** `collect_class_declarations`
+partitions class diagnostics and treated only E453 and the kind codes as hard
+errors, so `missing_superclass` compiled and exited 0. E445 and E477 are now
+promoted. E440/E441/E442 remain demoted; they are blocked on built-in
+shadowing, not on this stage.
+
+**One inherited limitation, filed as KI-057.** A method reachable from two
+dictionaries for the same class, over different type variables, always
+dispatches through the first — the map from method to dictionary is keyed on the
+method name and never consults the call's argument types. Superclass evidence
+inherits this (two constraints whose closures reach one superclass take that
+evidence from whichever dictionary is found first) but does not cause it: the
+reproduction uses no superclasses and fails identically before Stage 5. It
+belongs with the dictionary-selection work, not here.
+
+**Entailment needed no separate solver change.** A wanted predicate discharged
+by a superclass of a constraint already in scope is handled by the projection
+paths, because a caller forwards the dictionary it holds — `fn outer<a:
+Measurable>` calling `fn doubled<a: Sizeable>` works without a `bySuper` rule in
+`classify_constraint`. If a case is found that the projection paths cannot
+reach, that rule is where it belongs.
 
 ### Stage 6 — Associated types
 

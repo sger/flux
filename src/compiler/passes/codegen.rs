@@ -133,9 +133,9 @@ impl Compiler {
                 }
                 DictGlobal::ContextualConstructor {
                     context_arity,
-                    methods,
+                    slots,
                 } => {
-                    if !self.emit_contextual_dict_constructor(*context_arity, methods) {
+                    if !self.emit_contextual_dict_constructor(*context_arity, slots) {
                         continue;
                     }
                 }
@@ -193,23 +193,30 @@ impl Compiler {
     fn emit_contextual_dict_constructor(
         &mut self,
         context_arity: usize,
-        methods: &[ContextualDictMethod],
+        slots: &[ContextualDictSlot],
     ) -> bool {
         use crate::runtime::compiled_function::CompiledFunction;
         use crate::runtime::value::Value;
         use std::sync::Arc;
 
-        // Resolve every method up front: emitting a partial constructor would
-        // leave a malformed closure in the dictionary slot.
-        let Some(globals): Option<Vec<_>> = methods
+        // Resolve every slot's global up front: emitting a partial constructor
+        // would leave a malformed closure in the dictionary, and a slot short
+        // of the layout would shift every slot after it.
+        let Some(resolved): Option<Vec<_>> = slots
             .iter()
-            .map(|method| {
-                let binding = self.symbol_table.resolve(method.mangled)?;
+            .map(|slot| {
+                let symbol = match slot {
+                    // Reads a parameter, so there is no global to resolve.
+                    ContextualDictSlot::ContextEvidence { .. } => return Some((0, slot)),
+                    ContextualDictSlot::Evidence { global } => *global,
+                    ContextualDictSlot::Method { mangled, .. } => *mangled,
+                };
+                let binding = self.symbol_table.resolve(symbol)?;
                 matches!(
                     binding.symbol_scope,
                     crate::compiler::symbol_scope::SymbolScope::Global
                 )
-                .then_some((binding.index, method.arity))
+                .then_some((binding.index, slot))
             })
             .collect()
         else {
@@ -217,19 +224,32 @@ impl Compiler {
         };
 
         let mut body = Vec::new();
-        for (slot, (global_index, arity)) in globals.iter().enumerate() {
-            // Each slot: OpClosure over a forwarder that captures the context
-            // dictionaries as free variables.
-            let forwarder = Self::contextual_dict_forwarder(*global_index, context_arity, *arity);
-            let forwarder_index = self.add_constant(Value::Function(Arc::new(forwarder)));
+        for (global_index, slot) in resolved {
+            match slot {
+                // Superclass evidence already in hand: one of the context
+                // dictionaries this constructor was called with.
+                ContextualDictSlot::ContextEvidence { index } => {
+                    push_operand(&mut body, OpCode::OpGetLocal, *index);
+                }
+                // Superclass evidence from another instance's global.
+                ContextualDictSlot::Evidence { .. } => {
+                    push_operand(&mut body, OpCode::OpGetGlobal, global_index);
+                }
+                // Method: a closure over a forwarder that captures the context
+                // dictionaries as free variables.
+                ContextualDictSlot::Method { arity, .. } => {
+                    let forwarder =
+                        Self::contextual_dict_forwarder(global_index, context_arity, *arity);
+                    let forwarder_index = self.add_constant(Value::Function(Arc::new(forwarder)));
 
-            for ctx in 0..context_arity {
-                push_operand(&mut body, OpCode::OpGetLocal, ctx);
+                    for ctx in 0..context_arity {
+                        push_operand(&mut body, OpCode::OpGetLocal, ctx);
+                    }
+                    push_closure(&mut body, forwarder_index, context_arity);
+                }
             }
-            push_closure(&mut body, forwarder_index, context_arity);
-            debug_assert!(slot < methods.len());
         }
-        push_tuple(&mut body, methods.len());
+        push_tuple(&mut body, slots.len());
         body.push(OpCode::OpReturnValue as u8);
 
         let constructor = CompiledFunction::new(body, context_arity, context_arity, None);
@@ -265,13 +285,37 @@ impl Compiler {
     }
 }
 
-/// One method slot of a contextual instance's dictionary.
-struct ContextualDictMethod {
-    /// The mangled `__tc_{Class}_{Type}_{method}` symbol.
-    mangled: crate::syntax::Identifier,
-    /// How many arguments the caller supplies, excluding the leading context
-    /// dictionaries.
-    arity: usize,
+/// One slot of a contextual instance's dictionary.
+///
+/// The slot kinds and their order are [`ClassEnv::dictionary_layout`]'s;
+/// this enum only records what the Core definition was found to hold, so the
+/// bytecode can reproduce it.
+///
+/// [`ClassEnv::dictionary_layout`]: crate::types::class_env::ClassEnv::dictionary_layout
+enum ContextualDictSlot {
+    /// Superclass evidence taken straight from one of the context
+    /// dictionaries this constructor was handed.
+    ///
+    /// `instance Middle<Int> => Top<Int>` receives the `Middle<Int>`
+    /// dictionary that `Top`'s superclass slot needs, so the slot is that
+    /// parameter rather than a global.
+    ContextEvidence {
+        /// Which context parameter, by position.
+        index: usize,
+    },
+    /// Superclass evidence read from another instance's dictionary global.
+    Evidence {
+        /// The `__dict_{Class}_{Type}` symbol.
+        global: crate::syntax::Identifier,
+    },
+    /// A method closure capturing the context dictionaries.
+    Method {
+        /// The mangled `__tc_{Class}_{Type}_{method}` symbol.
+        mangled: crate::syntax::Identifier,
+        /// How many arguments the caller supplies, excluding the leading
+        /// context dictionaries.
+        arity: usize,
+    },
 }
 
 /// How a `__dict_*` global is materialised at module load time.
@@ -286,7 +330,7 @@ enum DictGlobal {
     ContextualConstructor {
         /// Number of context dictionaries the constructor takes.
         context_arity: usize,
-        methods: Vec<ContextualDictMethod>,
+        slots: Vec<ContextualDictSlot>,
     },
 }
 
@@ -313,13 +357,13 @@ impl DictGlobal {
                     .filter(|methods| !methods.is_empty())
                     .map(|methods| Self::MethodTuple { methods })
             }
-            CoreExpr::Lam { params, body, .. } => {
-                let methods = Self::contextual_methods(body)?;
-                Some(Self::ContextualConstructor {
-                    context_arity: params.len(),
-                    methods,
-                })
-            }
+            CoreExpr::Lam { params, body, .. } => Some(Self::ContextualConstructor {
+                context_arity: params.len(),
+                slots: Self::contextual_slots(
+                    body,
+                    &params.iter().map(|param| param.id).collect::<Vec<_>>(),
+                )?,
+            }),
             _ => None,
         }
     }
@@ -330,7 +374,10 @@ impl DictGlobal {
     /// Core lowering hoists each method closure into a `let`, so the tuple
     /// elements are usually variables referring to those bindings rather than
     /// inline lambdas. Both forms are accepted.
-    fn contextual_methods(body: &crate::core::CoreExpr) -> Option<Vec<ContextualDictMethod>> {
+    fn contextual_slots(
+        body: &crate::core::CoreExpr,
+        context: &[CoreBinderId],
+    ) -> Option<Vec<ContextualDictSlot>> {
         use crate::core::{CoreExpr, CorePrimOp};
 
         let mut bound: HashMap<CoreBinderId, &CoreExpr> = HashMap::new();
@@ -350,16 +397,21 @@ impl DictGlobal {
         };
 
         args.iter()
-            .map(|slot| Self::contextual_method(slot, &bound))
+            .map(|slot| Self::contextual_slot(slot, &bound, context))
             .collect()
     }
 
-    /// Read one method slot: a lambda forwarding to a mangled method, either
-    /// inline or reached through a `let` binding.
-    fn contextual_method(
+    /// Read one dictionary slot.
+    ///
+    /// A method slot is a lambda forwarding to a mangled method, either inline
+    /// or reached through a `let` binding. A superclass evidence slot is a
+    /// reference to another dictionary global, applied to this instance's
+    /// context dictionaries when that superclass instance is contextual too.
+    fn contextual_slot(
         slot: &crate::core::CoreExpr,
         bound: &HashMap<CoreBinderId, &crate::core::CoreExpr>,
-    ) -> Option<ContextualDictMethod> {
+        context: &[CoreBinderId],
+    ) -> Option<ContextualDictSlot> {
         use crate::core::CoreExpr;
 
         let slot = match slot {
@@ -370,19 +422,32 @@ impl DictGlobal {
             other => other,
         };
 
-        let CoreExpr::Lam { params, body, .. } = slot else {
-            return None;
-        };
-        let CoreExpr::App { func, .. } = body.as_ref() else {
-            return None;
-        };
-        let CoreExpr::Var { var, .. } = func.as_ref() else {
-            return None;
-        };
-        Some(ContextualDictMethod {
-            mangled: var.name,
-            arity: params.len(),
-        })
+        // The three shapes are distinguishable without reading any name: a
+        // method slot is a closure, and superclass evidence is a reference to
+        // a dictionary global — bare when that instance is plain, applied to
+        // this instance's context dictionaries when it is contextual.
+        match slot {
+            CoreExpr::Var { var, .. } => match var
+                .binder
+                .and_then(|binder| context.iter().position(|param| *param == binder))
+            {
+                Some(index) => Some(ContextualDictSlot::ContextEvidence { index }),
+                None => Some(ContextualDictSlot::Evidence { global: var.name }),
+            },
+            CoreExpr::Lam { params, body, .. } => {
+                let CoreExpr::App { func, .. } = body.as_ref() else {
+                    return None;
+                };
+                let CoreExpr::Var { var, .. } = func.as_ref() else {
+                    return None;
+                };
+                Some(ContextualDictSlot::Method {
+                    mangled: var.name,
+                    arity: params.len(),
+                })
+            }
+            _ => None,
+        }
     }
 }
 

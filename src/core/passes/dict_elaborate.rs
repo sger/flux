@@ -1,7 +1,7 @@
 /// Dictionary elaboration pass for type classes (Proposal 0145, Step 5b).
 ///
 /// Transforms type class dispatch from runtime `type_of()` checks to
-/// GHC-style compile-time dictionary passing.
+/// compile-time dictionary passing.
 ///
 /// ## What this pass does
 ///
@@ -25,7 +25,11 @@ use crate::{
     core::{CoreBinder, CoreBinderId, CoreDef, CoreExpr, CorePrimOp, CoreProgram, FluxRep},
     diagnostics::position::Span,
     syntax::{Identifier, interner::Interner},
-    types::{class_env::ClassEnv, scheme::Scheme, type_env::TypeEnv},
+    types::{
+        class_env::{ClassEnv, DictSlot},
+        scheme::Scheme,
+        type_env::TypeEnv,
+    },
 };
 
 /// Entry point for dictionary elaboration.
@@ -217,10 +221,9 @@ fn build_instance_dictionaries(
     let span = Span::default();
 
     for instance in &class_env.instances {
-        let class_def = match class_env.lookup_class_by_id(instance.class_id) {
-            Some(c) => c,
-            None => continue,
-        };
+        if class_env.lookup_class_by_id(instance.class_id).is_none() {
+            continue;
+        }
 
         // Compute the type name string for this instance.
         // Multi-param classes join all type args: "Int_String".
@@ -244,22 +247,22 @@ fn build_instance_dictionaries(
         };
 
         let dict_expr = if instance.context.is_empty() {
-            let mut tuple_fields = Vec::new();
-            for method_sig in &class_def.methods {
-                let method_str = interner.resolve(method_sig.name).to_string();
-                let mangled_str = crate::types::class_env::mangled_method_name(
-                    instance.class_id,
-                    &type_name,
-                    &method_str,
-                    interner,
-                );
-                let mangled_sym = match interner.lookup(&mangled_str) {
-                    Some(sym) => sym,
-                    None => continue,
-                };
-
-                tuple_fields.push(CoreExpr::external_var(mangled_sym, span));
-            }
+            let Some(slot_names) =
+                class_env.dictionary_slot_names(instance.class_id, &type_name, interner)
+            else {
+                continue;
+            };
+            // All slots or none. Dropping the ones that happen to be
+            // un-interned would emit a short tuple, and every slot after the
+            // gap would then be read at the wrong index — a silent
+            // miscompile rather than a missing method.
+            let Some(tuple_fields) = slot_names
+                .iter()
+                .map(|name| Some(CoreExpr::external_var(interner.lookup(name)?, span)))
+                .collect::<Option<Vec<_>>>()
+            else {
+                continue;
+            };
 
             CoreExpr::PrimOp {
                 op: CorePrimOp::MakeTuple,
@@ -267,7 +270,10 @@ fn build_instance_dictionaries(
                 span,
             }
         } else {
-            build_contextual_dictionary_expr(instance, class_def, interner, next_id)
+            match build_contextual_dictionary_expr(class_env, instance, interner, next_id) {
+                Some(expr) => expr,
+                None => continue,
+            }
         };
 
         // Create the CoreDef for this dictionary.
@@ -292,12 +298,23 @@ fn build_instance_dictionaries(
     defs
 }
 
+/// Build the dictionary *constructor* for an instance with a context.
+///
+/// The result is `\ctx_dicts. (superclass evidence..., method closures...)`,
+/// with the slot order [`ClassEnv::dictionary_layout`] defines.
+///
+/// Returns `None` when a slot cannot be built — an un-interned method symbol,
+/// or superclass evidence this pass cannot construct. Emitting the dictionary
+/// without that slot is not an option: every later slot would then be read at
+/// the wrong index.
+///
+/// [`ClassEnv::dictionary_layout`]: crate::types::class_env::ClassEnv::dictionary_layout
 fn build_contextual_dictionary_expr(
+    class_env: &ClassEnv,
     instance: &crate::types::class_env::InstanceDef,
-    class_def: &crate::types::class_env::ClassDef,
     interner: &Interner,
     next_id: &mut u32,
-) -> CoreExpr {
+) -> Option<CoreExpr> {
     let span = Span::default();
     let type_name = instance
         .type_args
@@ -336,27 +353,38 @@ fn build_contextual_dictionary_expr(
         })
         .collect();
 
-    let tuple_fields = class_def
-        .methods
-        .iter()
-        .filter_map(|method_sig| {
-            let method_str = interner.resolve(method_sig.name).to_string();
-            let mangled_str = crate::types::class_env::mangled_method_name(
-                instance.class_id,
+    let class_def = class_env.lookup_class_by_id(instance.class_id)?;
+    let tuple_fields = class_env
+        .dictionary_layout(instance.class_id)?
+        .into_iter()
+        .map(|slot| match slot {
+            DictSlot::Superclass(superclass) => superclass_evidence_expr(
+                class_env,
+                instance,
+                superclass,
                 &type_name,
-                &method_str,
-                interner,
-            );
-            let mangled_sym = interner.lookup(&mangled_str)?;
-            Some(build_contextual_dictionary_method_closure(
-                mangled_sym,
-                method_sig.arity,
                 &context_binders,
                 interner,
-                next_id,
-            ))
+            ),
+            DictSlot::Method(method) => {
+                let method_sig = class_def.methods.iter().find(|m| m.name == method)?;
+                let mangled_sym =
+                    interner.lookup(&crate::types::class_env::mangled_method_name(
+                        instance.class_id,
+                        &type_name,
+                        interner.resolve(method),
+                        interner,
+                    ))?;
+                Some(build_contextual_dictionary_method_closure(
+                    mangled_sym,
+                    method_sig.arity,
+                    &context_binders,
+                    interner,
+                    next_id,
+                ))
+            }
         })
-        .collect();
+        .collect::<Option<Vec<_>>>()?;
 
     let tuple = CoreExpr::PrimOp {
         op: CorePrimOp::MakeTuple,
@@ -364,7 +392,59 @@ fn build_contextual_dictionary_expr(
         span,
     };
 
-    prepend_lam_params(tuple, context_binders)
+    Some(prepend_lam_params(tuple, context_binders))
+}
+
+/// The expression yielding a superclass dictionary for the head `type_name`.
+///
+/// `class Eq<a> => Ord<a>` means an `Ord<T>` dictionary carries the `Eq<T>`
+/// dictionary for the *same* `T`. There are two places that evidence can come
+/// from, and the order matters:
+///
+/// 1. **This instance's own context.** `instance Middle<Int> => Top<Int>`
+///    is handed a `Middle<Int>` dictionary, which is exactly the superclass
+///    evidence `Top` needs. Reaching for the global instead would apply a
+///    dictionary *constructor* to an already-built dictionary.
+/// 2. **A plain instance's global**, when the context does not supply it.
+///
+/// `None` when neither applies — the caller then skips the dictionary rather
+/// than emitting evidence it cannot justify.
+fn superclass_evidence_expr(
+    class_env: &ClassEnv,
+    instance: &crate::types::class_env::InstanceDef,
+    superclass: crate::types::class_id::ClassId,
+    type_name: &str,
+    context_binders: &[CoreBinder],
+    interner: &Interner,
+) -> Option<CoreExpr> {
+    let span = Span::default();
+
+    if let Some(binder) = instance
+        .context_class_ids
+        .iter()
+        .position(|&class_id| class_id == superclass)
+        .and_then(|idx| context_binders.get(idx))
+    {
+        return Some(CoreExpr::bound_var(binder, span));
+    }
+
+    let dict_sym = interner.lookup(&crate::types::class_env::dictionary_name(
+        superclass, type_name, interner,
+    ))?;
+    let evidence = class_env.instances.iter().find(|candidate| {
+        candidate.class_id == superclass
+            && candidate
+                .type_args
+                .iter()
+                .map(|arg| arg.display_with(interner))
+                .collect::<Vec<_>>()
+                .join("_")
+                == type_name
+    })?;
+    evidence
+        .context
+        .is_empty()
+        .then(|| CoreExpr::external_var(dict_sym, span))
 }
 
 fn build_contextual_dictionary_method_closure(
@@ -460,7 +540,7 @@ fn rewrite_constrained_functions(
 
         // Build dictionary parameters and method map for this function.
         let mut dict_params: Vec<CoreBinder> = Vec::new();
-        let mut method_map: HashMap<Identifier, (CoreBinder, usize)> = HashMap::new();
+        let mut method_map: HashMap<Identifier, (CoreBinder, Vec<usize>)> = HashMap::new();
         // A function can hold several dictionaries for one class, so the
         // parameter names carry a per-class occurrence suffix. The lookups that
         // consume them — `current_context_dictionary` and its AST twin — have
@@ -470,10 +550,9 @@ fn rewrite_constrained_functions(
         let mut class_occurrences: HashMap<crate::types::class_id::ClassId, usize> = HashMap::new();
 
         for (index, constraint) in constraints.iter().enumerate() {
-            let class_def = match class_env.lookup_class_by_id(constraint.class_id) {
-                Some(c) => c,
-                None => continue,
-            };
+            if class_env.lookup_class_by_id(constraint.class_id).is_none() {
+                continue;
+            }
 
             let dict_binder = if let Some(existing) = existing_dict_params.get(index).cloned() {
                 existing
@@ -499,9 +578,28 @@ fn rewrite_constrained_functions(
                 binder
             };
 
-            // Map each method of this class to its tuple index + dict binder.
-            for (idx, method_sig) in class_def.methods.iter().enumerate() {
-                method_map.insert(method_sig.name, (dict_binder, idx));
+            // Map each method reachable through this dictionary to the slot
+            // path that reaches it. The class's own methods are one
+            // projection; a superclass method is that superclass's slot
+            // followed by the method's slot inside it, which is what lets a
+            // `fn f<a: Ord>` call `eq`.
+            for (idx, slot) in class_env
+                .dictionary_layout(constraint.class_id)
+                .unwrap_or_default()
+                .into_iter()
+                .enumerate()
+            {
+                match slot {
+                    DictSlot::Method(method) => {
+                        method_map.insert(method, (dict_binder, vec![idx]));
+                    }
+                    DictSlot::Superclass(superclass) => {
+                        for (inherited, mut path) in inherited_method_paths(class_env, superclass) {
+                            path.insert(0, idx);
+                            method_map.entry(inherited).or_insert((dict_binder, path));
+                        }
+                    }
+                }
             }
         }
 
@@ -1228,29 +1326,82 @@ pub fn dict_name_for(
 /// Rewrite a polymorphic function body to extract class methods from
 /// dictionary parameters instead of calling the polymorphic stub.
 ///
-/// `method_map` maps class method names to `(dict_param_binder, tuple_index)`.
-pub fn rewrite_body_with_dicts(
-    expr: CoreExpr,
-    method_map: &HashMap<Identifier, (CoreBinder, usize)>,
-) -> CoreExpr {
+/// `method_map` maps class method names to `(dict_param_binder, slot_path)`.
+/// Where each class method sits relative to a dictionary parameter.
+///
+/// The `Vec<usize>` is a slot path, applied outermost-first: `[2]` is the
+/// dictionary's own slot 2, and `[0, 1]` is slot 1 of the superclass evidence
+/// held in slot 0. Superclass entailment is exactly what makes a path longer
+/// than one element possible.
+type MethodPaths = HashMap<Identifier, (CoreBinder, Vec<usize>)>;
+
+/// Methods reachable *through* a dictionary for `class_id`, with the slot path
+/// that reaches each, relative to that dictionary.
+///
+/// Breadth-first over the superclass graph, so a method declared by the nearest
+/// class wins over an inherited one of the same name. Cycles cannot occur —
+/// E477 rejects them before this pass runs — but the visited set keeps this
+/// total regardless.
+fn inherited_method_paths(
+    class_env: &ClassEnv,
+    class_id: crate::types::class_id::ClassId,
+) -> Vec<(Identifier, Vec<usize>)> {
+    let mut found: Vec<(Identifier, Vec<usize>)> = Vec::new();
+    let mut visited = vec![class_id];
+    let mut queue = std::collections::VecDeque::from([(class_id, Vec::new())]);
+
+    while let Some((current, prefix)) = queue.pop_front() {
+        for (idx, slot) in class_env
+            .dictionary_layout(current)
+            .unwrap_or_default()
+            .into_iter()
+            .enumerate()
+        {
+            let mut path = prefix.clone();
+            path.push(idx);
+            match slot {
+                DictSlot::Method(method) => {
+                    if !found.iter().any(|(seen, _)| *seen == method) {
+                        found.push((method, path));
+                    }
+                }
+                DictSlot::Superclass(superclass) if !visited.contains(&superclass) => {
+                    visited.push(superclass);
+                    queue.push_back((superclass, path));
+                }
+                DictSlot::Superclass(_) => {}
+            }
+        }
+    }
+
+    found
+}
+
+pub fn rewrite_body_with_dicts(expr: CoreExpr, method_map: &MethodPaths) -> CoreExpr {
     rewrite_expr(expr, method_map)
 }
 
-fn rewrite_expr(expr: CoreExpr, method_map: &HashMap<Identifier, (CoreBinder, usize)>) -> CoreExpr {
+fn rewrite_expr(expr: CoreExpr, method_map: &MethodPaths) -> CoreExpr {
     match expr {
         // Key case: App where the function is a class method reference.
         // Rewrite: App(Var(eq), args) → App(TupleField(Var(dict), idx), args)
         CoreExpr::App { func, args, span } => {
             if let CoreExpr::Var { ref var, .. } = *func
-                && let Some((dict_binder, index)) = method_map.get(&var.name)
+                && let Some((dict_binder, path)) = method_map.get(&var.name)
             {
-                // Class method reference — extract from dictionary.
-                let dict_ref = CoreExpr::bound_var(dict_binder, span);
-                let method_extract = CoreExpr::TupleField {
-                    object: Box::new(dict_ref),
-                    index: *index,
-                    span,
-                };
+                // Class method reference — project it out of the dictionary.
+                // A path longer than one slot walks through superclass
+                // evidence on the way (`__dict_Ord.0.0` is `Ord`'s `Eq`
+                // dictionary, then `Eq`'s `eq`).
+                let method_extract =
+                    path.iter()
+                        .fold(CoreExpr::bound_var(dict_binder, span), |object, &index| {
+                            CoreExpr::TupleField {
+                                object: Box::new(object),
+                                index,
+                                span,
+                            }
+                        });
                 let rewritten_args = args
                     .into_iter()
                     .map(|a| rewrite_expr(a, method_map))
@@ -1703,7 +1854,7 @@ mod tests {
         let y_binder = mk_binder(2, y_name);
 
         let mut method_map = HashMap::new();
-        method_map.insert(eq_method, (dict_binder, 0_usize));
+        method_map.insert(eq_method, (dict_binder, vec![0_usize]));
 
         // Build: App(Var(eq), [Var(x), Var(y)])
         let expr = CoreExpr::App {
@@ -1785,7 +1936,7 @@ mod tests {
         let local_eq = mk_binder(99, eq_method);
 
         let mut method_map = HashMap::new();
-        method_map.insert(eq_method, (dict_binder, 0));
+        method_map.insert(eq_method, (dict_binder, vec![0_usize]));
 
         // App(Var(eq, binder=99), [Lit(1)]) — bound var with class method name.
         let expr = CoreExpr::App {
