@@ -931,6 +931,25 @@ pub const SUPERCLASS_CYCLE: ErrorCode = ErrorCode {
     ),
 };
 
+/// Proposal 0179 Stage 5: a cached module interface describes a `public class`
+/// that cannot be rebuilt, so the class is unavailable to this module.
+///
+/// The interface was written by an older compiler, or is otherwise
+/// inconsistent. It is reported rather than skipped because a partially
+/// rebuilt class is worse than an absent one: the number of superclasses
+/// decides how many evidence slots its dictionaries lead with, so a class
+/// reconstructed one slot short would have every method read at the wrong
+/// index.
+pub const STALE_CLASS_INTERFACE: ErrorCode = ErrorCode {
+    code: "E478",
+    title: "STALE CLASS INTERFACE",
+    error_type: ErrorType::Compiler,
+    message: "Cached interface for `{}` describes class `{}` incompletely.",
+    hint: Some(
+        "The cached interface predates the current compiler. Delete the          build cache (`target/flux`) and rebuild.",
+    ),
+};
+
 /// Proposal 0179 Stage 4: a declared bound constrains a type variable that
 /// does not appear in the signature's own type, so no caller can ever fix it.
 ///
