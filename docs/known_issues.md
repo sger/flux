@@ -1652,6 +1652,28 @@ compiled one at a time and `hm_expr_types` is replaced per module, never merged.
 was derived from one of these dumps and was wrong as a result, which cost two
 attempts. Any diagnosis that quotes a multi-module dump is unsound.
 
+**A worked example, visible in the checked-in snapshots (2026-09-01).** Once
+Stage 7 gave `Eq` a contextual instance over `List`, `--dump-core` began showing
+`Flow.Array.contains` — which is generic over `a: Eq` and must dispatch through
+its dictionary — statically resolved to the `List` instance:
+
+```
+letrec contains =
+λ__dict_Eq, arr, x.
+    let %t = (λv. __tc_Eq_List<a>_eq(__dict_Eq, v, x))   // wrong instance
+    any(arr, %t)
+```
+
+The correct lowering, which `Flow.List.contains` still shows in the same dump,
+projects the method out of the dictionary (`__dict_Eq.0`). If the dumped form
+were what ran, `contains(#[1, 2, 3], 9)` would answer `true`, since an `Int`
+matches neither list arm and the fallthrough returns `true`.
+
+It answers `false` — on the VM and natively, with caches cleared. The compiled
+program is correct; only the merged view is wrong. The `tests/snapshots/aether/`
+files therefore contain a call that no compiled program makes, which is worth
+knowing before reading one as evidence.
+
 **Workaround while this is open:** dump a single module, or read the Core for the
 module you care about from its own compile rather than the merged view.
 
