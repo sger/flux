@@ -1,10 +1,10 @@
 // expect: compile_error
 // expect-error: E486
 // Expected: E486 Underivable Class
-//   "`Countable` cannot be derived for `Tally`: nothing can generate a body
-//    for `count`."
+//   "`Countable` cannot be derived for `Tally`: no usable `count` can be
+//    generated for it."
 //   Hint: "Write an `instance` block with the method bodies, or derive one of
-//    `Eq`, `Ord`, `Num`, `Show`, `Encode` or `Decode`."
+//    `Eq`, `Show`, `Encode` or `Decode`."
 //
 // Proposal 0179 Stage 7. `deriving` used to accept any class it could resolve
 // and then quietly skip the methods it had no body for, leaving an instance
