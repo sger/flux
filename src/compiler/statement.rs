@@ -1900,6 +1900,20 @@ impl Compiler {
                     &Default::default(),
                     &self.interner,
                 )
+                // Proposal 0179 Stage 6: this checker converts the annotation
+                // itself rather than reusing inference's type, so it has to
+                // reduce associated types too. Without this an instance method
+                // declared `-> Element<c>` is compared against the unreduced
+                // `Element<List<Int>>` and every body looks like a mismatch.
+                && let expected_ret = crate::types::assoc_type::normalize_associated_types(
+                    &expected_ret,
+                    &self.class_env,
+                    &self.interner,
+                )
+                // An application that did not reduce says nothing about the
+                // body, so this checker has nothing to compare and defers to
+                // inference.
+                && !crate::types::assoc_type::contains_unreduced(&expected_ret)
                 && self.block_has_value_tail(body)
                 && let Some(Statement::Expression {
                     expression,

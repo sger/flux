@@ -31,6 +31,18 @@ pub enum InferType {
     Fun(Vec<InferType>, Box<InferType>, InferEffectRow),
     /// Tuple type: `(Int, String)`.
     Tuple(Vec<InferType>),
+    /// An associated-type application that has not reduced yet:
+    /// `Element<c>`, where the instance that would define it is not known.
+    ///
+    /// Distinguished from [`App`](Self::App) because the head is a type-level
+    /// *function* declared by a class, not a type constructor: it has no
+    /// runtime representation, and it is not injective, so `Element<a>` equal
+    /// to `Element<b>` does not make `a` equal to `b`.
+    ///
+    /// Produced and eliminated by `normalize_associated_types`. Reaching a
+    /// backend with one of these is a compiler bug — by then it has either
+    /// reduced or been reported.
+    Assoc(crate::types::class_id::ClassId, Symbol, Vec<InferType>),
     /// Higher-kinded type application: `f<a>` where `f` is a type variable.
     ///
     /// Distinguished from `App` because the head is an arbitrary `InferType`
@@ -70,6 +82,16 @@ impl InferType {
                     arg.collect_symbols(out);
                 }
             }
+            InferType::Assoc(class_id, name, args) => {
+                if let Some(module) = class_id.module.as_identifier() {
+                    out.insert(module);
+                }
+                out.insert(class_id.name);
+                out.insert(*name);
+                for arg in args {
+                    arg.collect_symbols(out);
+                }
+            }
         }
     }
 
@@ -80,6 +102,11 @@ impl InferType {
             InferType::Con(tc) => InferType::Con(tc.remap_symbols(remap)),
             InferType::App(tc, args) => InferType::App(
                 tc.remap_symbols(remap),
+                args.iter().map(|a| a.remap_symbols(remap)).collect(),
+            ),
+            InferType::Assoc(class_id, name, args) => InferType::Assoc(
+                class_id.remap_symbols(remap),
+                remap.get(name).copied().unwrap_or(*name),
                 args.iter().map(|a| a.remap_symbols(remap)).collect(),
             ),
             InferType::Fun(params, ret, effects) => InferType::Fun(
@@ -117,7 +144,7 @@ impl InferType {
                 acc.insert(*v);
             }
             InferType::Con(_) => {}
-            InferType::App(_, args) => {
+            InferType::App(_, args) | InferType::Assoc(_, _, args) => {
                 for arg in args {
                     arg.collect_type_free_vars(acc);
                 }
@@ -151,7 +178,7 @@ impl InferType {
                 ret.collect_row_free_vars(acc);
                 acc.extend(effects.free_row_vars());
             }
-            InferType::App(_, args) | InferType::Tuple(args) => {
+            InferType::App(_, args) | InferType::Assoc(_, _, args) | InferType::Tuple(args) => {
                 for arg in args {
                     arg.collect_row_free_vars(acc);
                 }
@@ -194,6 +221,17 @@ impl InferType {
             InferType::Con(_) => self.clone(),
             InferType::App(con, args) => InferType::App(
                 con.clone(),
+                args.iter()
+                    .map(|a| a.apply_type_subst_with_seen(type_subst, seen_vars))
+                    .collect(),
+            ),
+            // Substituting into the arguments may make this reducible, but
+            // reducing needs the class environment and this function has none.
+            // `normalize_associated_types` does that where the environment is
+            // in hand.
+            InferType::Assoc(class_id, name, args) => InferType::Assoc(
+                *class_id,
+                *name,
                 args.iter()
                     .map(|a| a.apply_type_subst_with_seen(type_subst, seen_vars))
                     .collect(),
@@ -293,7 +331,7 @@ impl InferType {
         match self {
             InferType::Var(_) => true,
             InferType::Con(_) => false,
-            InferType::App(_, args) | InferType::Tuple(args) => {
+            InferType::App(_, args) | InferType::Assoc(_, _, args) | InferType::Tuple(args) => {
                 args.iter().any(InferType::contains_var)
             }
             InferType::Fun(params, ret, effects) => {
@@ -325,7 +363,7 @@ impl InferType {
         match self {
             InferType::Var(v) => !bound_vars.contains(v),
             InferType::Con(_) => false,
-            InferType::App(_, args) | InferType::Tuple(args) => {
+            InferType::App(_, args) | InferType::Assoc(_, _, args) | InferType::Tuple(args) => {
                 args.iter().any(|a| a.contains_unresolved_var(bound_vars))
             }
             InferType::Fun(params, ret, effects) => {
@@ -348,6 +386,18 @@ impl fmt::Display for InferType {
             InferType::Con(c) => write!(f, "{c}"),
             InferType::App(con, args) => {
                 write!(f, "{con}<")?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{arg}")?;
+                }
+                write!(f, ">")
+            }
+            // Debug-only, like `Con`: renders the raw interned ids rather than
+            // resolved names, since there is no interner here.
+            InferType::Assoc(class_id, name, args) => {
+                write!(f, "{}.{name}<", class_id.name)?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;

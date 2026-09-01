@@ -528,6 +528,12 @@ impl TypeEnv {
                     RuntimeTypeLoweringIssue::UnsupportedNominalType,
                 )),
             },
+            // An unreduced associated type has no runtime representation. It
+            // should have reduced or been reported before reaching a boundary
+            // that wants a real type.
+            InferType::Assoc(_, _, _) => Err(RuntimeTypeLoweringError::new(
+                RuntimeTypeLoweringIssue::UnsupportedNominalType,
+            )),
             InferType::Tuple(elems) => Ok(RuntimeType::Tuple(
                 elems
                     .iter()
