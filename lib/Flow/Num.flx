@@ -1,0 +1,27 @@
+/// Arithmetic.
+///
+/// `+`, `-`, `*` and `/` desugar to `add`, `sub`, `mul` and `div`. A concrete
+/// primitive's operator lowers to a primop, so the instances below do not
+/// recurse. (Proposal 0179 Stage 8.)
+module Flow.Num {
+    public class Num<a> {
+        fn add(x: a, y: a) -> a
+        fn sub(x: a, y: a) -> a
+        fn mul(x: a, y: a) -> a
+        fn div(x: a, y: a) -> a
+    }
+
+    public instance Num<Int> {
+        fn add(x, y) { x + y }
+        fn sub(x, y) { x - y }
+        fn mul(x, y) { x * y }
+        fn div(x, y) { x / y }
+    }
+
+    public instance Num<Float> {
+        fn add(x, y) { x + y }
+        fn sub(x, y) { x - y }
+        fn mul(x, y) { x * y }
+        fn div(x, y) { x / y }
+    }
+}

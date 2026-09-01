@@ -344,7 +344,13 @@ fn imported_class_def_from_entry(
             .collect(),
         module,
         is_public: true,
-        is_builtin: false,
+        // A class rebuilt from an interface keeps the standard library's
+        // built-in status. Losing it here would silently disable the solver's
+        // structural evidence for `Eq`/`Ord` over tuples, `Either` and
+        // `Array`, since the prelude classes always arrive through an
+        // interface rather than through the importing program's own
+        // declarations (Proposal 0179 Stage 8).
+        is_builtin: crate::types::class_env::ClassEnv::is_stdlib_module(module, interner),
         type_params: entry
             .type_params
             .iter()
@@ -1213,9 +1219,14 @@ pub(super) struct MainValidationState {
 /// must be imported explicitly. Explicit user imports always take priority
 /// over this prelude when resolving unqualified names.
 pub(super) const FLOW_PRELUDE_MODULE_NAMES: &[&str] = &[
+    "Flow.Eq",
+    "Flow.Ord",
+    "Flow.Num",
+    "Flow.Show",
     "Flow.Option",
     "Flow.List",
     "Flow.String",
+    "Flow.Semigroup",
     "Flow.Numeric",
     "Flow.Primops",
     "Flow.IO",
@@ -3483,15 +3494,46 @@ impl Compiler {
     /// wraps this and does the routing; the LSP path
     /// ([`collect_classes_for_lsp`](Self::collect_classes_for_lsp)) wants the
     /// diagnostics back so it can publish a chosen subset as squiggles.
+    /// Whether `program` is one of the modules that declares the standard
+    /// class hierarchy, and so must not have it registered underneath.
+    fn is_class_prelude_module(&self, program: &Program) -> bool {
+        program.statements.iter().any(|stmt| {
+            matches!(stmt, Statement::Module { name, .. }
+                if self
+                    .interner
+                    .try_resolve(*name)
+                    .is_some_and(crate::shared::class_prelude::is_class_prelude_module))
+        })
+    }
+
     pub(in crate::compiler) fn collect_class_declarations_diagnostics(
         &mut self,
         program: &Program,
     ) -> Vec<Diagnostic> {
-        // Register built-in classes first so that `deriving` clauses in the
-        // program can reference them (Eq, Ord, Num, Show, Semigroup).
+        // Register the built-in classes first so that `deriving` clauses in
+        // the program can reference them (`Sendable`).
         let mut env = crate::types::class_env::ClassEnv::new();
         env.register_builtins(&mut self.interner);
         env.classes.extend(self.imported_public_classes.clone());
+        // The standard hierarchy is Flux source since Proposal 0179 Stage 8,
+        // and every module needs it: `==` emits an `Eq` obligation only when a
+        // class named `Eq` is in the environment, and emits nothing otherwise
+        // (E487 now reports that rather than letting it pass).
+        //
+        // A program compiled through the driver imports the class modules and
+        // has them here already; a dependency module, the REPL's seed, the LSP
+        // and unit tests that build a `Compiler` directly have no import step.
+        // The call is idempotent per class, so a module holding some of them
+        // keeps those and gains the rest rather than declaring one twice
+        // (E440 / E443). The class modules themselves are skipped entirely,
+        // since a module cannot re-declare what it is defining.
+        if !self.is_class_prelude_module(program) {
+            let prelude_diagnostics = env.register_prelude_classes(&mut self.interner);
+            debug_assert!(
+                prelude_diagnostics.is_empty(),
+                "the class prelude must collect cleanly: {prelude_diagnostics:?}"
+            );
+        }
         // REPL (0176): snapshot what's already in scope (builtins + earlier
         // session/imported classes, and the imported instances about to be
         // merged) so we can capture *only* this line's new declarations below.

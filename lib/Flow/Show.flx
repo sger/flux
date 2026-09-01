@@ -1,0 +1,22 @@
+/// Rendering a value as text. (Proposal 0179 Stage 8.)
+module Flow.Show {
+    public class Show<a> {
+        fn show(x: a) -> String
+    }
+
+    public instance Show<Int> {
+        fn show(x) { to_string(x) }
+    }
+
+    public instance Show<Float> {
+        fn show(x) { to_string(x) }
+    }
+
+    public instance Show<String> {
+        fn show(x) { to_string(x) }
+    }
+
+    public instance Show<Bool> {
+        fn show(x) { to_string(x) }
+    }
+}

@@ -235,9 +235,14 @@ pub fn normalize_transcript(text: &str, workspace_root: &Path) -> String {
 
 fn inject_flow_prelude(program: &mut Program, parser: &mut Parser) {
     const FLOW_PRELUDE_MODULES: &[(&str, &str)] = &[
+        ("Flow.Eq", "Eq.flx"),
+        ("Flow.Ord", "Ord.flx"),
+        ("Flow.Num", "Num.flx"),
+        ("Flow.Show", "Show.flx"),
         ("Flow.Option", "Option.flx"),
         ("Flow.List", "List.flx"),
         ("Flow.String", "String.flx"),
+        ("Flow.Semigroup", "Semigroup.flx"),
         ("Flow.Numeric", "Numeric.flx"),
         ("Flow.Primops", "Primops.flx"),
         ("Flow.IO", "IO.flx"),
