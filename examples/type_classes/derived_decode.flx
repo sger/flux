@@ -1,0 +1,37 @@
+// Proposal 0179 Stage 7 contract: `deriving (Json.Decode)` synthesizes a
+// `decode` body that reads back exactly what the derived `encode` wrote.
+//
+// `decode` takes its class parameter only in the return type, so the call is
+// resolved from the type the result flows into rather than from an argument.
+// Deriving both halves and routing a value through them is what proves the two
+// generated bodies agree.
+//
+// Expected output:
+// "pair"
+// 2
+
+import Flow.Json as Json
+
+data Shape {
+    Labelled { label: String, count: Int }
+} deriving (Json.Encode, Json.Decode)
+
+fn round_trip(shape: Shape) -> Shape {
+    let text = Json.stringify(encode(shape))
+    Json.result_or(decode(Json.parse(text)), shape)
+}
+
+fn label_of(shape: Shape) -> String {
+    match shape { Labelled { label: l, count: _ } -> l }
+}
+
+fn count_of(shape: Shape) -> Int {
+    match shape { Labelled { label: _, count: c } -> c }
+}
+
+fn main() with IO {
+    let original = Labelled { label: "pair", count: 2 }
+    let back = round_trip(original)
+    print(label_of(back))
+    print(count_of(back))
+}

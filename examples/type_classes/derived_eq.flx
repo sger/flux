@@ -1,0 +1,33 @@
+// Proposal 0179 Stage 7 contract: `deriving (Eq)` produces methods that are
+// callable directly *and* evidence a constrained function can obtain.
+//
+// Both halves matter. A derived instance whose methods exist but whose
+// dictionary is never built satisfies `eq(Red, Red)` and still fails inside
+// `equal`, because that call reaches the method through the dictionary rather
+// than by name. Stage 7 removes exactly that gap, so the fixture exercises
+// both routes to the same instance.
+//
+// Expected output:
+// true
+// false
+// true
+// false
+// true
+
+data Color { Red, Green, Blue } deriving (Eq)
+
+fn equal<a: Eq>(x: a, y: a) -> Bool {
+    eq(x, y)
+}
+
+fn differs<a: Eq>(x: a, y: a) -> Bool {
+    neq(x, y)
+}
+
+fn main() with IO {
+    print(eq(Red, Red))
+    print(eq(Red, Blue))
+    print(neq(Green, Blue))
+    print(equal(Green, Red))
+    print(differs(Blue, Red))
+}

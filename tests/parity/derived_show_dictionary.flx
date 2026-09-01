@@ -1,0 +1,15 @@
+// parity: vm, llvm
+// expect: success
+// bug: a derived Show instance must render the constructor name both directly
+//      and through a `Show`-constrained function (Proposal 0179 Stage 7).
+
+data Color { Red, Green, Blue } deriving (Show)
+
+fn render<a: Show>(x: a) -> String {
+    show(x)
+}
+
+fn main() with IO {
+    print(show(Red))
+    print(render(Green))
+}
