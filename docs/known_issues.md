@@ -1574,3 +1574,80 @@ from, and because the VM masks the same class of mismatch behind a deliberate
 fixup for `__tc_*` closures in
 [`vm/function_call.rs`](../src/vm/function_call.rs) — so nothing would catch it
 if a code path started honouring the field.
+
+### KI-055 — Native builds emit an unreferenced forwarding copy of every module-owned class method
+
+**Severity:** Low · **Area:** type classes, native backend · **Verified:** 2026-09-01 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+A module-owned instance method is emitted twice: the real definition inside its
+module, and a file-scope bare-name forwarding alias
+(`generated_instance_method_alias` in
+[`src/compiler/mod.rs`](../src/compiler/mod.rs)). The alias exists so VM dispatch
+can keep using the canonical short name — `emit_instance_method_aliases`
+([`compiler/passes/codegen.rs`](../src/compiler/passes/codegen.rs)) overwrites
+the bare global with the module's function at load time via `OpSetGlobal`.
+
+The native backend has no such load step, so the alias is compiled as a real
+function. Both copies are exported, and their qualified names collide whenever a
+single-segment module shares its file's stem — resolved by the name-claiming
+de-duplication in [`src/lir/lower.rs`](../src/lir/lower.rs), which gives the
+second claimant a `_1` suffix:
+
+```
+_flux_Alpha___tc_m5_416C706861_Render_Int_render
+_flux_Alpha___tc_m5_416C706861_Render_Int_render_1     ← the alias
+_flux_Alpha_render
+_flux_Alpha_render_1                                   ← the stub's alias
+```
+
+**Measured: zero references to the `_1` copies across every object in the
+build**, while each is still exported as `T`. `main.o` resolves straight to the
+module-qualified definitions, as it should. So natively the alias is dead
+exported code, and de-duplication is suppressing a symbol nothing wants.
+
+GHC has no analogue. A dictionary function there is one top-level binding with
+one name derived from `(module, unique)`; nothing resolves dfuns by short name,
+so there is nothing to alias. Not emitting the alias natively is therefore the
+more GHC-faithful shape, not a departure from it.
+
+**Fix:** skip the alias in native lowering, where the module already exports the
+qualified symbol, and keep the de-duplication as a backstop rather than the
+mechanism. Marking generated aliases structurally — a flag on the def rather
+than a name prefix — would let lowering handle them deliberately instead of
+discovering the clash by string equality.
+
+Not urgent: the emitted programs are correct, and the cost is object size plus
+one call hop per native class-method dispatch. Recorded so the measurement above
+does not have to be re-derived.
+
+### KI-056 — Two module files sharing a stem collide natively
+
+**Severity:** Medium · **Area:** native backend, module linking · **Verified:** 2026-09-01
+
+Two modules in different directories whose *files* share a stem fail to link:
+
+```
+examples/.../QualifiedClassId/Alpha/Render.flx    module QualifiedClassId.Alpha.Render
+examples/.../QualifiedClassId/Beta/Render.flx     module QualifiedClassId.Beta.Render
+```
+
+```
+ld: 105 duplicate symbols
+```
+
+The module-qualified names are distinct (`QualifiedClassId_Alpha_Render_…` vs
+`…_Beta_…`), so the module's own functions are fine. The collision is in the
+*file-scope* definitions each module carries — chiefly its private copies of the
+built-in instance methods (`__tc_Show_Int_show`, `__tc_Ord_Int_gt`, …), which
+`collect_module_paths` in [`src/lir/lower.rs`](../src/lir/lower.rs) qualifies
+with the entry file's **stem**. Both files are `Render.flx`, so both produce
+`flux_Render___tc_Show_Int_show`.
+
+The stem is a reasonable guard against clashing with C runtime primops
+(`flux_sum` in `libflux_rt.a`) but is not unique across a project — only the
+module path is. Deriving the qualifier from the module path, and falling back to
+the stem only for a file that declares no module, would remove the collision.
+
+Discovered while adding `examples/type_classes/qualified_class_id.flx`, which
+was written with both modules in `Render.flx` and had to be restructured to
+distinct stems to compile natively. The VM is unaffected.
