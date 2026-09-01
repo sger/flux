@@ -1,0 +1,17 @@
+---
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/recursive_equation_e483.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E483]: Recursive Associated Type
+
+Associated type `Element` reduces to a type mentioning `Element`.
+
+  examples/compiler_errors/recursive_equation_e483.flx:19:5
+   |
+19 |     type Element<List<a>> = Element<List<a>>
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+== stdout ==
+<not executed>

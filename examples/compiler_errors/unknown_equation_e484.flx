@@ -1,0 +1,25 @@
+// expect: compile_error
+// expect-error: E484
+// expect-error: E480
+// Expected: E484 Unknown Associated Type
+//   "`Elment` is not an associated type of class `Collection`."
+//   Hint: "`Collection` declares: Element"
+//
+// Proposal 0179 Stage 6: an equation for a name the class never declared
+// defines nothing. Without E484 a misspelling is accepted silently and the only
+// report is E480 pointing at the instance — nowhere near the typo. Both fire
+// here, and E484 is the one that underlines the mistake.
+
+class Collection<c> {
+    type Element<c>
+    fn size_of(xs: c) -> Int
+}
+
+instance Collection<List<a>> {
+    type Elment<List<a>> = a
+    fn size_of(xs) { 1 }
+}
+
+fn main() with IO {
+    print(size_of([1]))
+}

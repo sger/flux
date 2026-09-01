@@ -11,7 +11,10 @@ use crate::{
         effect_ops::EffectOp,
         expression::{Expression, Pattern},
         interner::Interner,
-        type_class::{ClassConstraint, ClassMethod, InstanceMethod},
+        type_class::{
+            AssociatedTypeDecl, AssociatedTypeEquation, ClassConstraint, ClassMethod,
+            InstanceMethod,
+        },
         type_expr::TypeExpr,
     },
 };
@@ -171,6 +174,9 @@ pub enum Statement {
         type_params: Vec<Identifier>,
         superclasses: Vec<ClassConstraint>,
         methods: Vec<ClassMethod>,
+        /// Types the class declares and every instance must define
+        /// (Proposal 0179 Stage 6).
+        associated_types: Vec<AssociatedTypeDecl>,
         span: Span,
         /// Span of the class name identifier alone. Distinct from the part of
         /// `span` after the keyword because a superclass constraint pushes the
@@ -189,6 +195,9 @@ pub enum Statement {
         type_args: Vec<TypeExpr>,
         context: Vec<ClassConstraint>,
         methods: Vec<InstanceMethod>,
+        /// This instance's definitions for the class's associated types
+        /// (Proposal 0179 Stage 6).
+        associated_types: Vec<AssociatedTypeEquation>,
         span: Span,
         /// Span of the head class name identifier alone. Distinct from the part
         /// of `span` after the keyword because a context constraint pushes the

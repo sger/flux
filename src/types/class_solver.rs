@@ -457,6 +457,11 @@ fn is_concrete_type(ty: &InferType) -> bool {
         InferType::HktApp(head, args) => {
             is_concrete_type(head) && args.iter().all(is_concrete_type)
         }
+        // Not concrete even when every argument is: the type this reduces to
+        // is not known until an instance is selected. Answering `true` would
+        // let a predicate be solved against an instance chosen for the
+        // unreduced application rather than for its result.
+        InferType::Assoc(_, _, _) => false,
     }
 }
 
@@ -643,6 +648,7 @@ mod tests {
                 type_params: vec![interner.intern("a")],
                 superclasses: Vec::new(),
                 superclass_class_ids: Vec::new(),
+                associated_types: Vec::new(),
                 methods: vec![MethodSig {
                     name: method_name,
                     type_params: Vec::new(),
@@ -668,6 +674,7 @@ mod tests {
                 context_class_ids: Vec::new(),
                 method_names: vec![method_name],
                 method_effects: Vec::new(),
+                associated_types: Vec::new(),
                 span: Span::default(),
             });
         }

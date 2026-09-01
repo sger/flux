@@ -362,6 +362,32 @@ impl<'a> InferCtx<'a> {
         }
     }
 
+    /// Whether `ty` is settled enough to compare in a return-annotation
+    /// mismatch.
+    ///
+    /// Unresolved bodies — forward references inside library modules, for
+    /// instance — are left to downstream boundary checks, because reporting
+    /// them here is a false positive.
+    ///
+    /// Proposal 0179 Stage 6: an unreduced associated type over this
+    /// signature's own rigid variables also counts. `Element<c>` for a
+    /// quantified `c` cannot reduce any further inside this body, so comparing
+    /// it is not premature — and without this the guard hides a real mismatch:
+    /// a function declared `-> String` whose body has type `Element<c>` would
+    /// compile and then return whatever instance was selected.
+    ///
+    /// Deliberately narrower than "every free variable is rigid", which also
+    /// admits ordinary types whose annotation side is still unresolved and
+    /// reintroduces the false positives this guard exists for.
+    fn is_settled(&self, ty: &InferType) -> bool {
+        ty.is_concrete()
+            || (crate::types::assoc_type::contains_unreduced(ty)
+                && ty
+                    .free_type_vars()
+                    .iter()
+                    .all(|var| self.skolem_vars.contains(var)))
+    }
+
     /// Unify the body type against the declared return annotation, emitting
     /// E300 on failure and recovering with the annotation type so downstream
     /// inference remains consistent.
@@ -388,10 +414,7 @@ impl<'a> InferCtx<'a> {
             Err(_) => {
                 let body_resolved = body_ty.apply_type_subst(&self.subst);
                 let ann_resolved = ann_ty.apply_type_subst(&self.subst);
-                // Only emit when both sides are fully resolved; unresolved
-                // bodies (e.g. forward references inside library modules) are
-                // left to downstream boundary checks to avoid false positives.
-                if body_resolved.is_concrete() && ann_resolved.is_concrete() {
+                if self.is_settled(&body_resolved) && self.is_settled(&ann_resolved) {
                     let fn_name_str = fn_name
                         .map(|n| self.interner.resolve(n).to_string())
                         .unwrap_or_else(|| "lambda".to_string());
@@ -433,13 +456,28 @@ impl<'a> InferCtx<'a> {
         type_params: &HashMap<Identifier, TypeVarId>,
         row_var_env: &mut HashMap<Identifier, TypeVarId>,
     ) -> Option<InferType> {
-        TypeEnv::convert_type_expr_rec(
+        let converted = TypeEnv::convert_type_expr_rec(
             annotation,
             type_params,
             self.interner,
             row_var_env,
             &mut self.env.counter,
-        )
+        )?;
+
+        // Proposal 0179 Stage 6: conversion cannot tell `Element<c>` from an
+        // ordinary parameterized type — only the class environment knows which
+        // names are associated types. Recognize them here, and reduce the ones
+        // whose arguments already select an instance equation. An application
+        // that cannot reduce is left standing: inside a function generic in
+        // `c`, `Element<c>` is a type waiting for its call site, not an error.
+        let Some(class_env) = self.class_env.as_ref() else {
+            return Some(converted);
+        };
+        Some(crate::types::assoc_type::normalize_associated_types(
+            &converted,
+            class_env,
+            self.interner,
+        ))
     }
 
     /// Finalize and bind the inferred function scheme in the outer scope.

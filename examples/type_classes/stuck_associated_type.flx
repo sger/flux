@@ -1,0 +1,40 @@
+// Proposal 0179 Stage 6 contract: an associated type application that cannot
+// reduce yet is preserved, not reported.
+//
+// Inside `head_of` the type `Element<c>` is stuck: `c` is this signature's own
+// rigid parameter, so no instance can be selected. It is not an error — it is a
+// type waiting for the call site that fixes `c`. Each call below then reduces
+// it differently, to `Int` and to `String`.
+//
+// Two stuck applications unify when they name the same declaration and their
+// arguments unify. That rule is syntactic on purpose: an associated type is not
+// injective, so `Element<a>` equal to `Element<b>` must never be taken to mean
+// `a` equal to `b`.
+//
+// Expected output:
+// 7
+// "s"
+
+class Collection<c> {
+    type Element<c>
+    fn first_of(xs: c) -> Element<c>
+}
+
+instance Collection<List<Int>> {
+    type Element<List<Int>> = Int
+    fn first_of(xs) { 7 }
+}
+
+instance Collection<List<String>> {
+    type Element<List<String>> = String
+    fn first_of(xs) { "s" }
+}
+
+fn head_of<c: Collection>(xs: c) -> Element<c> {
+    first_of(xs)
+}
+
+fn main() with IO {
+    print(head_of([1, 2]))
+    print(head_of(["a"]))
+}

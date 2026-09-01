@@ -114,6 +114,10 @@ impl CoreType {
     pub fn try_from_infer(ty: &crate::types::infer_type::InferType) -> Option<Self> {
         use crate::types::{infer_type::InferType, type_constructor::TypeConstructor};
         Some(match ty {
+            // An unreduced associated type must never reach Core: by this
+            // point it has either reduced or been reported. Refusing it keeps
+            // a stuck type from being lowered as though it were a real one.
+            InferType::Assoc(_, _, _) => return None,
             InferType::Var(var) => CoreType::Var(*var),
             InferType::Con(tc) => match tc {
                 TypeConstructor::Int => CoreType::Int,

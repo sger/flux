@@ -1,0 +1,24 @@
+// expect: compile_error
+// expect-error: E479
+// Expected: E479 Duplicate Associated Type
+//   "Associated type `Element` is defined more than once in this instance."
+//   Hint: "Keep one equation per associated type and remove the rest."
+//
+// Proposal 0179 Stage 6: an associated type reduces to exactly one body per
+// instance. Two equations for one name leave no rule for choosing between
+// them, so `Element<List<Int>>` would have no single answer.
+
+class Collection<c> {
+    type Element<c>
+    fn size_of(xs: c) -> Int
+}
+
+instance Collection<List<a>> {
+    type Element<List<a>> = a
+    type Element<List<a>> = Int
+    fn size_of(xs) { 1 }
+}
+
+fn main() with IO {
+    print(size_of([1]))
+}
