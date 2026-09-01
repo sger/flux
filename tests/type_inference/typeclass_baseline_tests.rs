@@ -107,6 +107,10 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "generalized_constraint_obligation.flx",
         "result_directed_method_lookup.flx",
         "unsupported_deriving_diagnostic.flx",
+        "derived_eq.flx",
+        "derived_show.flx",
+        "derived_encode.flx",
+        "derived_decode.flx",
         "TypeclassMetadata.flx",
         "typeclass_backend_parity.flx",
         "multiple_class_obligations.flx",
@@ -299,6 +303,22 @@ fn a_class_parameter_in_the_return_type_is_fixed_by_the_expected_result() {
     let output =
         run_fixture("result_directed_resolution.flx").expect("result-directed dispatch should run");
     assert_eq!(output.stdout, "7\ntrue\n7");
+}
+
+/// Proposal 0179 Stage 7: a derived instance is reachable both by name and
+/// through a dictionary. Pinning both routes is the point — methods that exist
+/// but no dictionary to project them out of is the shape this stage removes.
+#[test]
+fn derived_instances_are_callable_and_carry_evidence() {
+    for (fixture, expected) in [
+        ("derived_eq.flx", "true\nfalse\ntrue\nfalse\ntrue"),
+        ("derived_show.flx", "\"Red\"\n\"Blue\"\n\"Green\""),
+        ("derived_decode.flx", "\"pair\"\n2"),
+    ] {
+        let output =
+            run_fixture(fixture).unwrap_or_else(|error| panic!("{fixture} should run: {error}"));
+        assert_eq!(output.stdout, expected, "{fixture}");
+    }
 }
 
 /// Proposal 0179 Stage 7: deriving a class with no derivation rule is an

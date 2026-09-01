@@ -422,15 +422,24 @@ fn has_builtin_method_body(class_name: &str, type_name: &str, method_name: &str)
     )
 }
 
-/// Whether `deriving` can produce a body for one method of a class.
+/// Whether `deriving` can produce a *usable* method body for one method of a
+/// class.
 ///
 /// Proposal 0179 Stage 7: a class is derivable exactly when every one of its
-/// methods can be generated. There is deliberately no separate allowlist —
-/// asking whether a body exists is the same question as asking whether the
-/// clause is supported, so the two can never drift apart.
+/// methods can be generated and can then be called. Only ever asked about the
+/// head of a `deriving` clause, which is a user `data` declaration by
+/// construction — the built-in `Ord<Int>`-style instances never reach here.
 pub fn can_derive_method(class_name: &str, type_name: &str, method_name: &str) -> bool {
     if is_json_codec_class(class_name) {
         return matches!(method_name, "encode" | "decode");
+    }
+    // `Ord` and `Num` do have bodies — `x < y` and `x + y` — but neither
+    // primop accepts an ADT, so the derived method compiles and then traps at
+    // run time (`E1009 cannot compare Adt with OpGreaterThan`). That is the
+    // silent third case Stage 7 removes, moved one phase later, so the clause
+    // is rejected until the bodies compare constructors structurally.
+    if matches!(class_name, "Ord" | "Num") {
+        return false;
     }
     has_builtin_method_body(class_name, type_name, method_name)
 }

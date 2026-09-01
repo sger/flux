@@ -1017,7 +1017,7 @@ pub const UNDERIVABLE_CLASS: ErrorCode = ErrorCode {
     message: "`{}` cannot be derived for `{}`.",
     hint: Some(
         "Write an `instance` block with the method bodies, or derive one of \
-         `Eq`, `Ord`, `Num`, `Show`, `Encode` or `Decode`.",
+         `Eq`, `Show`, `Encode` or `Decode`.",
     ),
 };
 

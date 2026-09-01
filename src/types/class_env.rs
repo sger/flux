@@ -1965,8 +1965,8 @@ impl ClassEnv {
                                     .with_span(*span)
                                     .with_message(format!(
                                         "`{class_display}` cannot be derived for \
-                                         `{type_display}`: nothing can generate a body for \
-                                         `{method_display}`."
+                                         `{type_display}`: no usable `{method_display}` can be \
+                                         generated for it."
                                     )),
                             );
                         }
