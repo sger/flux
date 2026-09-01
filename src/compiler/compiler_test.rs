@@ -1063,6 +1063,7 @@ module Local {
             parameter_kinds: vec![],
             type_params: vec![logger_h],
             superclasses: vec![],
+            superclass_class_modules: vec![],
             methods: vec![PublicClassMethodEntry {
                 name: log_name,
                 type_params: vec![],
@@ -1118,6 +1119,7 @@ import Example.StdLog as StdLog
 "#,
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let logger_name = compiler.interner.intern("Logger");
     let logger_h = compiler.interner.intern("h");
     let log_name = compiler.interner.intern("log");
     let string_name = compiler.interner.intern("String");
@@ -1144,6 +1146,7 @@ import Example.StdLog as StdLog
             parameter_kinds: vec![],
             type_params: vec![logger_h],
             superclasses: vec![],
+            superclass_class_modules: vec![],
             methods: vec![PublicClassMethodEntry {
                 name: log_name,
                 type_params: vec![],
@@ -1200,6 +1203,7 @@ import Example.StdLog as StdLog
                 span: Default::default(),
             }],
             context: vec![],
+            context_class_modules: vec![],
             methods: vec![PublicInstanceMethodEntry {
                 name: log_name,
                 effects: vec![EffectExpr::Named {
@@ -1216,7 +1220,19 @@ import Example.StdLog as StdLog
 
     compiler.preload_module_interface(&class_interface);
     compiler.preload_module_interface(&instance_interface);
-    let mangled = compiler.interner.intern("__tc_Logger_Int_log");
+    let logger_class_id = crate::types::class_id::ClassId::new(
+        crate::types::class_id::ModulePath::from_identifier(
+            compiler.interner.intern("Example.Logger"),
+        ),
+        logger_name,
+    );
+    let mangled_name = crate::types::class_env::mangled_method_name(
+        logger_class_id,
+        "Int",
+        "log",
+        &compiler.interner,
+    );
+    let mangled = compiler.interner.intern(&mangled_name);
     let scheme = compiler
         .imported_instance_method_schemes
         .get(&mangled)
@@ -1249,6 +1265,7 @@ module Local {
 "#,
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let logger_name = compiler.interner.intern("Logger");
     let logger_h = compiler.interner.intern("h");
     let log_name = compiler.interner.intern("log");
     let string_name = compiler.interner.intern("String");
@@ -1273,6 +1290,7 @@ module Local {
             parameter_kinds: vec![],
             type_params: vec![logger_h],
             superclasses: vec![],
+            superclass_class_modules: vec![],
             methods: vec![PublicClassMethodEntry {
                 name: log_name,
                 type_params: vec![],
@@ -1310,10 +1328,21 @@ module Local {
         .expect("program with imported public class instance should compile");
 
     let prepared = compiler.prepare_program_for_lowering_with_preloaded(&program);
+    let expected_mangled = crate::types::class_env::mangled_method_name(
+        crate::types::class_id::ClassId::new(
+            crate::types::class_id::ModulePath::from_identifier(
+                compiler.interner.intern("Example.Logger"),
+            ),
+            logger_name,
+        ),
+        "StdoutHandle",
+        "log",
+        &compiler.interner,
+    );
     assert!(
         top_level_has_function(
             &prepared.effective_program.statements,
-            "__tc_Logger_StdoutHandle_log",
+            &expected_mangled,
             &compiler.interner,
         ),
         "expected imported-class instance dispatch to be synthesized in the effective program"

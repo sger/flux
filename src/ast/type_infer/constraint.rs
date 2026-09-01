@@ -4,7 +4,7 @@ use crate::{
     ast::type_infer::ReportContext,
     diagnostics::position::Span,
     syntax::Identifier,
-    types::{infer_effect_row::InferEffectRow, infer_type::InferType},
+    types::{class_id::ClassId, infer_effect_row::InferEffectRow, infer_type::InferType},
 };
 
 /// A type constraint collected during HM inference.
@@ -49,6 +49,8 @@ pub enum Constraint {
     Class {
         /// The class name (e.g., `Eq`, `Num`, `Show`).
         class_name: Identifier,
+        /// Canonical semantic identity of the class.
+        class_id: ClassId,
         /// The type(s) that must have an instance. Single-param classes have
         /// one entry; multi-param classes (e.g., `Convert<a, b>`) have multiple.
         type_args: Vec<InferType>,
@@ -74,6 +76,9 @@ pub enum WantedClassConstraintOrigin {
 pub struct WantedClassConstraint {
     /// The class name (e.g., `Eq`, `Num`, `Show`).
     pub class_name: Identifier,
+    /// Canonical semantic identity of the class. `class_name` is retained as
+    /// the source spelling used in diagnostics only.
+    pub class_id: ClassId,
     /// The type(s) that must have an instance. Single-param classes have
     /// one entry; multi-param classes (e.g., `Convert<a, b>`) have multiple.
     pub type_args: Vec<InferType>,
@@ -97,6 +102,8 @@ pub struct WantedClassConstraint {
 pub struct SchemeConstraint {
     /// The class name (e.g., `Eq`, `Num`).
     pub class_name: Identifier,
+    /// Canonical semantic identity of the constrained class.
+    pub class_id: ClassId,
     /// The complete type arguments of the predicate. Structured arguments are
     /// preserved so downstream phases do not need to reconstruct them.
     pub type_args: Vec<InferType>,

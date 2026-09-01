@@ -36,6 +36,24 @@ mod pattern;
 use crate::types::class_predicate::class_param_bindings;
 use binder_resolution::{resolve_program_binders, validate_program_binders};
 
+fn collect_module_aliases(statements: &[Statement]) -> HashMap<Identifier, Identifier> {
+    fn visit(statements: &[Statement], aliases: &mut HashMap<Identifier, Identifier>) {
+        for statement in statements {
+            match statement {
+                Statement::Import { name, alias, .. } => {
+                    aliases.insert(alias.unwrap_or(*name), *name);
+                }
+                Statement::Module { body, .. } => visit(&body.statements, aliases),
+                _ => {}
+            }
+        }
+    }
+
+    let mut aliases = HashMap::new();
+    visit(statements, &mut aliases);
+    aliases
+}
+
 /// Pre-resolved effect operation signatures: `(effect, operation) → (param_types, return_type)`.
 /// Used by the lowerer to assign `FluxRep` to handler arm binders.
 pub type EffectOpSigs = HashMap<(Identifier, Identifier), (Vec<InferType>, InferType)>;
@@ -133,6 +151,7 @@ pub fn lower_program_ast_with_class_env_and_def_schemes(
     CoreProgram,
     HashMap<crate::core::CoreBinderId, crate::types::scheme::Scheme>,
 ) {
+    let module_aliases = collect_module_aliases(&program.statements);
     let mut lowerer = AstLowerer::new(
         hm_expr_types,
         interner,
@@ -140,6 +159,7 @@ pub fn lower_program_ast_with_class_env_and_def_schemes(
         effect_op_sigs,
         class_env,
         module_member_schemes,
+        module_aliases,
     );
     lowerer.collect_ctor_field_names(program);
     lowerer.collect_local_function_names(program);
@@ -179,6 +199,8 @@ pub(super) struct AstLowerer<'a> {
     /// Imported module-member schemes keyed by the source qualifier binding.
     pub(super) module_member_schemes:
         Option<&'a HashMap<(Identifier, Identifier), crate::types::scheme::Scheme>>,
+    /// Source import aliases used to resolve qualified class methods.
+    module_aliases: HashMap<Identifier, Identifier>,
     pub(super) def_schemes: HashMap<crate::core::CoreBinderId, crate::types::scheme::Scheme>,
     pub(super) local_function_names: std::collections::HashSet<Identifier>,
     pub(super) current_function_name: Option<Identifier>,
@@ -204,6 +226,7 @@ impl<'a> AstLowerer<'a> {
         module_member_schemes: Option<
             &'a HashMap<(Identifier, Identifier), crate::types::scheme::Scheme>,
         >,
+        module_aliases: HashMap<Identifier, Identifier>,
     ) -> Self {
         Self {
             hm_expr_types,
@@ -214,6 +237,7 @@ impl<'a> AstLowerer<'a> {
             effect_op_sigs,
             class_env,
             module_member_schemes,
+            module_aliases,
             def_schemes: HashMap::new(),
             local_function_names: std::collections::HashSet::new(),
             current_function_name: None,
@@ -221,6 +245,13 @@ impl<'a> AstLowerer<'a> {
             ctor_field_names: std::collections::HashMap::new(),
             adt_variants: std::collections::HashMap::new(),
         }
+    }
+
+    fn qualified_module_target(&self, qualifier: Identifier) -> Identifier {
+        self.module_aliases
+            .get(&qualifier)
+            .copied()
+            .unwrap_or(qualifier)
     }
 
     pub(super) fn should_insert_source_dict_args_for_identifier(&self, name: Identifier) -> bool {
@@ -449,7 +480,12 @@ impl<'a> AstLowerer<'a> {
         let interner = self.interner?;
 
         // Check if this name is a class method.
-        let (class_name, _class_def) = class_env.method_to_class(name)?;
+        let class_id = class_env.resolve_method_class_id(
+            self.current_module_name
+                .map(crate::types::class_id::ModulePath::from_identifier)
+                .unwrap_or(crate::types::class_id::ModulePath::EMPTY),
+            name,
+        )?;
 
         // Resolve from the predicate the class declaration describes: every
         // class parameter is read from the position it actually occupies in
@@ -461,8 +497,9 @@ impl<'a> AstLowerer<'a> {
         // an argument other than the first, and result-directed dispatch, which
         // used to be a hardcoded special case for `Decode.decode` matched by
         // string comparison on the class and method names.
-        let known = self.class_call_type_args(class_name, name, arguments, call_id)?;
-        let instance = class_env.unique_instance_for_known_args(class_name, &known, interner)?;
+        let known = self.class_call_type_args(class_id, name, arguments, call_id)?;
+        let instance =
+            class_env.unique_instance_for_known_args_by_id(class_id, &known, interner)?;
 
         // Build the mangled name from the instance head exactly as dispatch
         // generation does, preserving higher-kinded heads such as
@@ -473,10 +510,13 @@ impl<'a> AstLowerer<'a> {
             .map(|a| a.display_with(interner))
             .collect::<Vec<_>>()
             .join("_");
-        let class_str = interner.resolve(class_name);
         let method_str = interner.resolve(name);
-        let mangled =
-            crate::types::class_env::mangled_method_name(class_str, &type_key, method_str);
+        let mangled = crate::types::class_env::mangled_method_name(
+            instance.class_id,
+            &type_key,
+            method_str,
+            interner,
+        );
         if let Some(sym) = interner.lookup(&mangled) {
             return Some(sym);
         }
@@ -492,14 +532,14 @@ impl<'a> AstLowerer<'a> {
     /// the two cannot disagree about which instance a call selects.
     pub(super) fn class_call_type_args(
         &self,
-        class_name: Identifier,
+        class_id: crate::types::class_id::ClassId,
         method_name: Identifier,
         arguments: &[crate::syntax::expression::Expression],
         call_id: ExprId,
     ) -> Option<Vec<Option<InferType>>> {
         let class_env = self.class_env?;
         let interner = self.interner?;
-        let class_def = class_env.lookup_class(class_name)?;
+        let class_def = class_env.lookup_class_by_id(class_id)?;
         let method = class_def.methods.iter().find(|m| m.name == method_name)?;
 
         let actual_args: Vec<InferType> = arguments
@@ -546,10 +586,50 @@ impl<'a> AstLowerer<'a> {
                 else {
                     return None;
                 };
+                if let crate::syntax::expression::Expression::Identifier {
+                    name: qualifier, ..
+                } = object.as_ref()
+                    && let (Some(class_env), Some(interner)) = (self.class_env, self.interner)
+                    && let Some(class_id) = class_env.resolve_qualified_method_class_id(
+                        self.qualified_module_target(*qualifier),
+                        *member,
+                        interner,
+                    )
+                {
+                    return self
+                        .try_resolve_class_call_for_id(class_id, *member, arguments, call_id);
+                }
                 self.try_resolve_class_call(*member, arguments, call_id)
             }
             _ => None,
         }
+    }
+
+    fn try_resolve_class_call_for_id(
+        &self,
+        class_id: crate::types::class_id::ClassId,
+        name: Identifier,
+        arguments: &[crate::syntax::expression::Expression],
+        call_id: ExprId,
+    ) -> Option<Identifier> {
+        let class_env = self.class_env?;
+        let interner = self.interner?;
+        let known = self.class_call_type_args(class_id, name, arguments, call_id)?;
+        let instance =
+            class_env.unique_instance_for_known_args_by_id(class_id, &known, interner)?;
+        let type_key = instance
+            .type_args
+            .iter()
+            .map(|arg| arg.display_with(interner))
+            .collect::<Vec<_>>()
+            .join("_");
+        let mangled = crate::types::class_env::mangled_method_name(
+            instance.class_id,
+            &type_key,
+            interner.resolve(name),
+            interner,
+        );
+        interner.lookup(&mangled)
     }
 
     pub(super) fn resolve_direct_class_call_dict_args(
@@ -558,19 +638,36 @@ impl<'a> AstLowerer<'a> {
         arguments: &[crate::syntax::expression::Expression],
         call_id: ExprId,
     ) -> Option<Vec<CoreExpr>> {
+        let class_env = self.class_env?;
+        let class_id = class_env.resolve_method_class_id(
+            self.current_module_name
+                .map(crate::types::class_id::ModulePath::from_identifier)
+                .unwrap_or(crate::types::class_id::ModulePath::EMPTY),
+            method_name,
+        )?;
+        self.resolve_direct_class_call_dict_args_for_id(class_id, method_name, arguments, call_id)
+    }
+
+    pub(super) fn resolve_direct_class_call_dict_args_for_id(
+        &self,
+        class_id: crate::types::class_id::ClassId,
+        method_name: Identifier,
+        arguments: &[crate::syntax::expression::Expression],
+        call_id: ExprId,
+    ) -> Option<Vec<CoreExpr>> {
         let (class_env, interner) = match (self.class_env, self.interner) {
             (Some(class_env), Some(interner)) => (class_env, interner),
             _ => return None,
         };
-        let (class_name, _) = class_env.method_to_class(method_name)?;
 
         // Derive the full predicate the same way dispatch does, so the
         // dictionaries passed to a call match the instance it resolves to.
         // Using only the first argument produced an arity-1 predicate that
         // could never match a multi-parameter head, so those calls silently
         // received no dictionaries at all.
-        let known = self.class_call_type_args(class_name, method_name, arguments, call_id)?;
-        let instance = class_env.unique_instance_for_known_args(class_name, &known, interner)?;
+        let known = self.class_call_type_args(class_id, method_name, arguments, call_id)?;
+        let instance =
+            class_env.unique_instance_for_known_args_by_id(class_id, &known, interner)?;
         // Use the selected head so an undetermined slot still contributes the
         // type the instance fixes it to.
         let actual_type_args = class_env.instantiate_instance_head(instance, &known, interner)?;
@@ -579,8 +676,8 @@ impl<'a> AstLowerer<'a> {
         // already matched one positionally (multi-parameter classes such as
         // `Convert<Int, String>` resolve that way), so keep the direct call
         // and pass no dictionaries rather than abandoning it.
-        let Some(requests) = class_env.resolve_instance_context_dictionary_requests(
-            class_name,
+        let Some(requests) = class_env.resolve_instance_context_dictionary_requests_by_id(
+            class_id,
             &actual_type_args,
             interner,
         ) else {
@@ -590,7 +687,7 @@ impl<'a> AstLowerer<'a> {
         for request in requests {
             let dictionary = match request.dictionary {
                 Some(dictionary) => Self::lower_dictionary_ref(&dictionary),
-                None => self.current_context_dictionary(request.class_name, &request.type_args)?,
+                None => self.current_context_dictionary(request.class_id, &request.type_args)?,
             };
             dicts.push(dictionary);
         }
@@ -603,7 +700,7 @@ impl<'a> AstLowerer<'a> {
     /// repeated constraints on one class associated with the right binder.
     fn current_context_dictionary(
         &self,
-        class_name: Identifier,
+        class_id: crate::types::class_id::ClassId,
         wanted: &[InferType],
     ) -> Option<CoreExpr> {
         let current = self.current_function_name?;
@@ -611,7 +708,7 @@ impl<'a> AstLowerer<'a> {
         let interner = self.interner?;
         let mut occurrence = 0usize;
         for constraint in scheme.constraints {
-            if constraint.class_name != class_name {
+            if constraint.class_id != class_id {
                 continue;
             }
             let matches = constraint.type_args.len() == wanted.len()
@@ -623,8 +720,8 @@ impl<'a> AstLowerer<'a> {
             if matches {
                 let suffix = (occurrence > 0).then(|| format!("_{occurrence}"));
                 let name = format!(
-                    "__dict_{}{}",
-                    interner.resolve(class_name),
+                    "{}{}",
+                    crate::types::class_env::dictionary_prefix(class_id, interner),
                     suffix.unwrap_or_default()
                 );
                 let name = interner.lookup(&name)?;
@@ -725,8 +822,8 @@ impl<'a> AstLowerer<'a> {
         {
             if let Some(actual_type_args) =
                 self.resolve_constraint_type_args(constraint, scheme, call_id, arguments)
-                && let Some(dict_ref) = class_env.resolve_dictionary_ref(
-                    constraint.class_name,
+                && let Some(dict_ref) = class_env.resolve_dictionary_ref_by_id(
+                    constraint.class_id,
                     &actual_type_args,
                     interner,
                 )
