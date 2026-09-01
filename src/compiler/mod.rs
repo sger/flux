@@ -217,6 +217,16 @@ fn imported_class_def_from_entry(
         return None;
     }
 
+    // The owning module of each superclass is recorded in parallel with the
+    // constraints themselves. Without one per constraint the identities cannot
+    // be rebuilt, and a class whose superclass list is short is worse than no
+    // class at all: its dictionary layout would have fewer evidence slots than
+    // the module that defined it emitted, so every method slot would be read at
+    // the wrong index. Refuse the entry instead, as the method check above does.
+    if entry.superclass_class_modules.len() != entry.superclasses.len() {
+        return None;
+    }
+
     Some(crate::types::class_env::ClassDef {
         name: class_sym,
         module,
