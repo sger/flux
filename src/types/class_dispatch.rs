@@ -412,6 +412,9 @@ fn is_json_codec_class(class_name: &str) -> bool {
 /// `builtin_method_body` exactly; `builtin_bodies_match_the_derivable_set`
 /// pins the two together.
 fn has_builtin_method_body(class_name: &str, type_name: &str, method_name: &str) -> bool {
+    if class_name == "Eq" && is_structural_container_head(type_name) {
+        return matches!(method_name, "eq" | "neq");
+    }
     matches!(
         (class_name, type_name, method_name),
         ("Eq", _, "eq" | "neq")
@@ -460,7 +463,25 @@ fn derived_json_method_body(
 }
 
 fn parse_generated_function_body(body_expr: &str, interner: &mut Interner) -> Option<Block> {
-    let source = format!("fn __json_derive_dummy(__x0) {{ {body_expr} }}");
+    parse_generated_body_with_params(body_expr, 1, interner)
+}
+
+/// Parse a generated method body written as Flux source.
+///
+/// The body is wrapped in a throwaway function so the parser sees the
+/// parameters it mentions. `arity` names them `__x0..__xn`, matching
+/// [`builtin_param_names`], which is what the generated `__tc_*` function
+/// declares.
+fn parse_generated_body_with_params(
+    body_expr: &str,
+    arity: usize,
+    interner: &mut Interner,
+) -> Option<Block> {
+    let params = (0..arity)
+        .map(|idx| format!("__x{idx}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let source = format!("fn __generated_body_dummy({params}) {{ {body_expr} }}");
     let mut parser = Parser::new(Lexer::new_with_interner(source.clone(), interner.clone()));
     let program = parser.parse_program();
     *interner = parser.take_interner();
@@ -1374,6 +1395,44 @@ fn context_dict_param_names(
         .collect()
 }
 
+/// The structural `Eq` body for a built-in container head, as Flux source.
+///
+/// Proposal 0179 Stage 7. These heads carry a context (`Eq<a> => Eq<List<a>>`),
+/// so the element type is a rigid variable inside the body and `==` cannot be
+/// used on it — comparing two `List<a>` with `==` needs evidence of its own and
+/// inflates the method's arity past what the dictionary supplies. Recursing
+/// through `eq` instead routes each element through the context dictionary,
+/// which is exactly what the dictionary constructor passes in.
+///
+/// The keys are the rendered instance heads, so they must stay spelled the way
+/// `ClassEnv::register_builtin_container_instance` builds them — parameter
+/// included. Matching the head name alone would be looser than intended: it
+/// would also claim a user ADT that happens to be called `List`, whose derived
+/// `eq` wants the ordinary `==` body instead.
+fn structural_container_eq_body(type_name: &str) -> Option<&'static str> {
+    match type_name {
+        "List<a>" => Some(
+            "match __x0 { \
+               [h1 | t1] -> match __x1 { [h2 | t2] -> eq(h1, h2) && eq(t1, t2), _ -> false }, \
+               _ -> match __x1 { [h | t] -> false, _ -> true } \
+             }",
+        ),
+        "Option<a>" => Some(
+            "match __x0 { \
+               Some(u) -> match __x1 { Some(v) -> eq(u, v), _ -> false }, \
+               _ -> match __x1 { Some(v) -> false, _ -> true } \
+             }",
+        ),
+        _ => None,
+    }
+}
+
+/// Whether `type_name` is a built-in container head Stage 7 gives a structural
+/// `Eq` instance to.
+fn is_structural_container_head(type_name: &str) -> bool {
+    structural_container_eq_body(type_name).is_some()
+}
+
 fn builtin_method_body(
     interner: &mut Interner,
     id_gen: &mut ExprIdGen,
@@ -1441,6 +1500,20 @@ fn builtin_method_body(
             span,
             id: id_gen.next_id(),
         }
+    }
+
+    // A built-in container head compares structurally through `eq` rather than
+    // with `==`; see `structural_container_eq_body`.
+    if class_name == "Eq"
+        && let Some(body) = structural_container_eq_body(type_name)
+    {
+        let source = match method_name {
+            "eq" => body.to_string(),
+            "neq" => format!("!({body})"),
+            _ => return None,
+        };
+        let parsed = parse_generated_body_with_params(&source, 2, interner)?;
+        return Some(refresh_block_expr_ids(parsed, id_gen));
     }
 
     let span = Span::default();
