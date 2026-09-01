@@ -128,7 +128,7 @@ fn mark_generalized(
         .map(|mut entry| {
             if matches!(entry.disposition, Disposition::Stuck { .. })
                 && let Some(scheme_constraint) = scheme_constraints.iter().find(|candidate| {
-                    candidate.class_name == entry.wanted.class_name
+                    candidate.class_id == entry.wanted.class_id
                         && candidate.type_args == entry.wanted.type_args
                 })
             {
@@ -185,7 +185,9 @@ fn build_numeric_default_subst(
         }
 
         let is_single_num = constraint.type_args.len() == 1
-            && num_id.is_some_and(|id| id == constraint.class_name)
+            && num_id.is_some_and(|id| {
+                constraint.class_id.module.is_empty() && constraint.class_id.name == id
+            })
             && matches!(constraint.type_args.first(), Some(InferType::Var(_)));
 
         if is_single_num && constraint.origin != WantedClassConstraintOrigin::ExplicitBound {
@@ -290,6 +292,7 @@ fn collect_scheme_constraints(
 
         let candidate = SchemeConstraint {
             class_name: constraint.class_name,
+            class_id: constraint.class_id,
             type_args: constraint.type_args.clone(),
         };
         // Deduplicate on the whole predicate, so two distinct structured
@@ -389,6 +392,7 @@ mod tests {
     ) -> WantedClassConstraint {
         WantedClassConstraint {
             class_name,
+            class_id: crate::types::class_id::ClassId::from_local_name(class_name),
             type_args,
             span: Span::default(),
             origin,

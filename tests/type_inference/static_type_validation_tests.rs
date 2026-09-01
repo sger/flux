@@ -1011,6 +1011,7 @@ instance Sizeable<Int> {
     );
     let constraint = flux::ast::type_infer::constraint::WantedClassConstraint {
         class_name: sizeable_sym,
+        class_id: flux::types::class_id::ClassId::from_local_name(sizeable_sym),
         type_args: vec![string_type],
         span: flux::diagnostics::position::Span {
             start: flux::diagnostics::position::Position { line: 1, column: 0 },
@@ -1049,6 +1050,7 @@ class Sizeable<a> {
     let var_type = flux::types::infer_type::InferType::Var(9999u32);
     let constraint = flux::ast::type_infer::constraint::WantedClassConstraint {
         class_name: sizeable_sym,
+        class_id: flux::types::class_id::ClassId::from_local_name(sizeable_sym),
         type_args: vec![var_type],
         span: flux::diagnostics::position::Span {
             start: flux::diagnostics::position::Position { line: 1, column: 0 },
@@ -1304,6 +1306,7 @@ module Local {
             is_builtin: false,
             type_params: vec![h],
             superclasses: vec![],
+            superclass_class_ids: vec![],
             methods: vec![flux::types::class_env::MethodSig {
                 name: log,
                 type_params: vec![],
@@ -1353,11 +1356,25 @@ module Local {
         })
         .collect();
 
+    // Build the expected name through the one constructor that makes it, so
+    // this test pins *which class* the instance dispatches to rather than the
+    // spelling of the mangling. A module-owned class encodes its module, so
+    // hardcoding the string here would have to be re-pasted every time that
+    // encoding changes — and would not notice if the encoding stopped
+    // distinguishing two same-named classes, which is the property that
+    // matters.
+    let expected = flux::types::class_env::mangled_method_name(
+        flux::types::class_id::ClassId::new(
+            flux::types::class_id::ModulePath::from_identifier(interner.intern("Example.Logger")),
+            logger,
+        ),
+        "StdoutHandle",
+        "log",
+        &interner,
+    );
     assert!(
-        generated_names
-            .iter()
-            .any(|name| name == "__tc_Logger_StdoutHandle_log"),
-        "expected local imported-class instance dispatch, got: {generated_names:?}"
+        generated_names.contains(&expected),
+        "expected local imported-class instance dispatch to `{expected}`, got: {generated_names:?}"
     );
     assert!(
         generated_names.iter().any(|name| name == "log"),

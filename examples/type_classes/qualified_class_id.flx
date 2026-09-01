@@ -1,0 +1,33 @@
+// Stage 4 contract: a class is identified by the module that declares it, not
+// by its short name. Two modules may each declare `Render<a>` with the *same*
+// instance head, and the two stay distinct through solving, dispatch and code
+// generation.
+//
+// Before class identity carried its owning module, the generated
+// `__tc_Render_Int_render` was one name for both, and the second module to
+// declare it collided with the first (`E001 Duplicate Name`), reported against
+// whichever module happened to be innocent. Short names are now a
+// source-resolution concern only: they select which class a call means, while
+// `ClassId = (owning module, class name)` decides what it resolves to.
+//
+// A bare `render(1)` here would be ambiguous and must be qualified — that is
+// the intended cost of allowing the same name in two modules.
+//
+// Expected: prints `alpha:1` then `beta:1`. Verified on both backends through
+// the normal driver, which compiles each module with its own `Compiler`.
+//
+// The examples snapshot harness instead threads every module through one shared
+// `Compiler` and records the transcript as a change-detector, so this fixture's
+// snapshot shows `E012` on `Beta.render` rather than the output above. Read that
+// snapshot as "what the shared-compiler path currently does", not as this
+// fixture's contract — several multi-module examples fail there for unrelated
+// reasons. That the *second* same-named class is the one lost is a hint worth
+// following if the shared path is ever made authoritative.
+
+import QualifiedClassId.AlphaRender as Alpha
+import QualifiedClassId.BetaRender as Beta
+
+fn main() with IO {
+    print(Alpha.render(1))
+    print(Beta.render(1))
+}

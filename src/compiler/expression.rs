@@ -910,22 +910,28 @@ impl Compiler {
                     return Ok(());
                 }
 
-                // Proposal 0151, Phase 1a (commit #6): module-qualified class
+                // Proposal 0151: module-qualified class
                 // method dispatch. `Module.method(...)` where `Module` resolves
                 // to a module and `method` is a class method should lower to
-                // the same mangled `__tc_*` call as the bare-name form. The
-                // class environment is global (not yet keyed on `ClassId`), so
-                // we only need the method name to find the mangled function.
+                // the same ClassId-derived `__tc_*` call as the bare-name form.
                 if let Expression::MemberAccess { object, member, .. } = function.as_ref()
-                    && self.resolve_module_name_from_expr(object).is_some()
-                    && let Some(mangled) =
-                        self.try_resolve_class_method_call(*member, arguments, *id)
-                    && let Some(mut resolved_args) = self.resolve_direct_class_call_dict_args_ast(
+                    && let Some(module_name) = self.resolve_module_name_from_expr(object)
+                    && let Expression::Identifier { .. } = object.as_ref()
+                    && let Some(class_id) = self.class_env.resolve_qualified_method_class_id(
+                        module_name,
                         *member,
-                        arguments,
-                        *id,
-                        function.span(),
+                        &self.interner,
                     )
+                    && let Some(mangled) =
+                        self.try_resolve_class_method_call_for_id(class_id, *member, arguments, *id)
+                    && let Some(mut resolved_args) = self
+                        .resolve_direct_class_call_dict_args_ast_for_id(
+                            class_id,
+                            *member,
+                            arguments,
+                            *id,
+                            function.span(),
+                        )
                 {
                     resolved_args.extend(arguments.clone());
                     let mangled_expr = Expression::Identifier {
@@ -4608,7 +4614,12 @@ impl Compiler {
         if self.class_env.classes.is_empty() {
             return None;
         }
-        let (class_name, _) = self.class_env.method_to_class(name)?;
+        let class_id = self.class_env.resolve_method_class_id(
+            self.current_module_prefix
+                .map(crate::types::class_id::ModulePath::from_identifier)
+                .unwrap_or(crate::types::class_id::ModulePath::EMPTY),
+            name,
+        )?;
 
         // Resolve from the predicate the class declaration describes: every
         // class parameter is read from the position it actually occupies in
@@ -4619,10 +4630,12 @@ impl Compiler {
         // It subsumes dispatch on an argument other than the first, and
         // result-directed dispatch, which used to be a hardcoded special case
         // for `Decode.decode` matched by string comparison.
-        let known = self.class_call_type_args(class_name, name, arguments, call_id)?;
-        let instance =
-            self.class_env
-                .unique_instance_for_known_args(class_name, &known, &self.interner)?;
+        let known = self.class_call_type_args(class_id, name, arguments, call_id)?;
+        let instance = self.class_env.unique_instance_for_known_args_by_id(
+            class_id,
+            &known,
+            &self.interner,
+        )?;
 
         let type_key = instance
             .type_args
@@ -4630,10 +4643,13 @@ impl Compiler {
             .map(|a| a.display_with(&self.interner))
             .collect::<Vec<_>>()
             .join("_");
-        let class_str = self.interner.resolve(class_name);
         let method_str = self.interner.resolve(name);
-        let mangled =
-            crate::types::class_env::mangled_method_name(class_str, &type_key, method_str);
+        let mangled = crate::types::class_env::mangled_method_name(
+            instance.class_id,
+            &type_key,
+            method_str,
+            &self.interner,
+        );
         if let Some(sym) = self.interner.lookup(&mangled) {
             return Some(sym);
         }
@@ -4641,6 +4657,34 @@ impl Compiler {
         // No compile-time resolution possible — return None.
         // Dictionary elaboration handles polymorphic calls via dict params.
         None
+    }
+
+    fn try_resolve_class_method_call_for_id(
+        &self,
+        class_id: crate::types::class_id::ClassId,
+        name: crate::syntax::Identifier,
+        arguments: &[Expression],
+        call_id: crate::syntax::expression::ExprId,
+    ) -> Option<crate::syntax::Identifier> {
+        let known = self.class_call_type_args(class_id, name, arguments, call_id)?;
+        let instance = self.class_env.unique_instance_for_known_args_by_id(
+            class_id,
+            &known,
+            &self.interner,
+        )?;
+        let type_key = instance
+            .type_args
+            .iter()
+            .map(|arg| arg.display_with(&self.interner))
+            .collect::<Vec<_>>()
+            .join("_");
+        let mangled = crate::types::class_env::mangled_method_name(
+            instance.class_id,
+            &type_key,
+            self.interner.resolve(name),
+            &self.interner,
+        );
+        self.interner.lookup(&mangled)
     }
 
     fn try_build_dict_class_method_call(
@@ -4653,10 +4697,16 @@ impl Compiler {
         if self.class_env.classes.is_empty() {
             return None;
         }
-        let (class_name, _) = self.class_env.method_to_class(name)?;
-        let method_index = self.class_env.method_index(class_name, name)?;
-        let class_str = self.interner.resolve(class_name);
-        let dict_name = format!("__dict_{class_str}");
+        let class_id = self.class_env.resolve_method_class_id(
+            self.current_module_prefix
+                .map(crate::types::class_id::ModulePath::from_identifier)
+                .unwrap_or(crate::types::class_id::ModulePath::EMPTY),
+            name,
+        )?;
+        let class_def = self.class_env.lookup_class_by_id(class_id)?;
+        let method_index = self.class_env.method_index_by_id(class_id, name)?;
+        let dict_name =
+            crate::types::class_env::dictionary_prefix(class_def.class_id(), &self.interner);
         // CFG/Core retain the canonical `__dict_Class` name. The Aether
         // fallback can expose the same hidden parameter under the class name
         // (`Class`) after binder normalization, so accept that representation
@@ -4665,7 +4715,11 @@ impl Compiler {
             .interner
             .lookup(&dict_name)
             .filter(|symbol| self.symbol_table.resolve(*symbol).is_some())
-            .or_else(|| self.symbol_table.resolve(class_name).map(|_| class_name))?;
+            .or_else(|| {
+                self.symbol_table
+                    .resolve(class_id.name)
+                    .map(|_| class_id.name)
+            })?;
 
         Some(Expression::Call {
             function: Box::new(Expression::TupleFieldAccess {
@@ -4731,8 +4785,8 @@ impl Compiler {
                 .map(|constraint| {
                     let actual_type_args = self
                         .resolve_constraint_type_args_ast(constraint, scheme, call_id, arguments)?;
-                    self.class_env.resolve_dictionary_ref(
-                        constraint.class_name,
+                    self.class_env.resolve_dictionary_ref_by_id(
+                        constraint.class_id,
                         &actual_type_args,
                         &self.interner,
                     )
@@ -4857,12 +4911,12 @@ impl Compiler {
     /// on the Core path.
     fn class_call_type_args(
         &self,
-        class_name: crate::syntax::Identifier,
+        class_id: crate::types::class_id::ClassId,
         method_name: crate::syntax::Identifier,
         arguments: &[Expression],
         call_id: crate::syntax::expression::ExprId,
     ) -> Option<Vec<Option<crate::types::infer_type::InferType>>> {
-        let class_def = self.class_env.lookup_class(class_name)?.clone();
+        let class_def = self.class_env.lookup_class_by_id(class_id)?.clone();
         let method = class_def
             .methods
             .iter()
@@ -4904,16 +4958,39 @@ impl Compiler {
         call_id: crate::syntax::expression::ExprId,
         span: Span,
     ) -> Option<Vec<Expression>> {
-        let (class_name, _) = self.class_env.method_to_class(method_name)?;
+        let class_id = self.class_env.resolve_method_class_id(
+            self.current_module_prefix
+                .map(crate::types::class_id::ModulePath::from_identifier)
+                .unwrap_or(crate::types::class_id::ModulePath::EMPTY),
+            method_name,
+        )?;
+        self.resolve_direct_class_call_dict_args_ast_for_id(
+            class_id,
+            method_name,
+            arguments,
+            call_id,
+            span,
+        )
+    }
 
+    fn resolve_direct_class_call_dict_args_ast_for_id(
+        &mut self,
+        class_id: crate::types::class_id::ClassId,
+        method_name: crate::syntax::Identifier,
+        arguments: &[Expression],
+        call_id: crate::syntax::expression::ExprId,
+        span: Span,
+    ) -> Option<Vec<Expression>> {
         // Derive the full predicate the same way dispatch does, so the
         // dictionaries passed match the instance the call resolves to. Using
         // only the first argument produced an arity-1 predicate that could
         // never match a multi-parameter head.
-        let known = self.class_call_type_args(class_name, method_name, arguments, call_id)?;
-        let instance =
-            self.class_env
-                .unique_instance_for_known_args(class_name, &known, &self.interner)?;
+        let known = self.class_call_type_args(class_id, method_name, arguments, call_id)?;
+        let instance = self.class_env.unique_instance_for_known_args_by_id(
+            class_id,
+            &known,
+            &self.interner,
+        )?;
         // Use the selected head so an undetermined slot still contributes the
         // type the instance fixes it to.
         let actual_type_args =
@@ -4923,11 +5000,14 @@ impl Compiler {
         // See `AstLowerer::resolve_direct_class_call_dict_args`: an unmatched
         // head means a positionally matched multi-parameter instance, which
         // keeps its direct call with no dictionary arguments.
-        let Some(requests) = self.class_env.resolve_instance_context_dictionary_requests(
-            class_name,
-            &actual_type_args,
-            &self.interner,
-        ) else {
+        let Some(requests) = self
+            .class_env
+            .resolve_instance_context_dictionary_requests_by_id(
+                class_id,
+                &actual_type_args,
+                &self.interner,
+            )
+        else {
             return Some(Vec::new());
         };
         let mut dicts = Vec::with_capacity(requests.len());
@@ -4935,7 +5015,7 @@ impl Compiler {
             let dictionary = match request.dictionary {
                 Some(dict_ref) => self.lower_dictionary_ref_ast(&dict_ref, span),
                 None => {
-                    self.current_context_dictionary_ast(request.class_name, &request.type_args)?
+                    self.current_context_dictionary_ast(request.class_id, &request.type_args)?
                 }
             };
             dicts.push(dictionary);
@@ -4945,15 +5025,14 @@ impl Compiler {
 
     fn current_context_dictionary_ast(
         &mut self,
-        class_name: crate::syntax::Identifier,
+        class_id: crate::types::class_id::ClassId,
         wanted: &[crate::types::infer_type::InferType],
     ) -> Option<Expression> {
         let current = self.current_function_name?;
         let scheme = self.type_env.lookup(current)?;
         let mut occurrence = 0usize;
-        let class = self.interner.resolve(class_name);
         for constraint in &scheme.constraints {
-            if constraint.class_name != class_name {
+            if constraint.class_id != class_id {
                 continue;
             }
             let current_occurrence = occurrence;
@@ -4968,7 +5047,11 @@ impl Compiler {
                 continue;
             }
             let suffix = (current_occurrence > 0).then(|| format!("_{current_occurrence}"));
-            let name = format!("__dict_{class}{}", suffix.unwrap_or_default());
+            let name = format!(
+                "{}{}",
+                crate::types::class_env::dictionary_prefix(class_id, &self.interner),
+                suffix.unwrap_or_default()
+            );
             let name = self.interner.lookup(&name)?;
             if self.symbol_table.resolve(name).is_some() {
                 return Some(Expression::Identifier {
@@ -5055,14 +5138,19 @@ impl Compiler {
         let dict_name_str = self.interner.resolve(dict_name);
         self.class_env.instances.iter().find_map(|instance| {
             let class_def = self.class_env.lookup_class_by_id(instance.class_id)?;
-            let class_str = self.interner.resolve(instance.class_name);
             let type_name = instance
                 .type_args
                 .iter()
                 .map(|arg| arg.display_with(&self.interner))
                 .collect::<Vec<_>>()
                 .join("_");
-            if dict_name_str != format!("__dict_{class_str}_{type_name}") {
+            if dict_name_str
+                != crate::types::class_env::dictionary_name(
+                    instance.class_id,
+                    &type_name,
+                    &self.interner,
+                )
+            {
                 return None;
             }
             Some(
@@ -5072,7 +5160,10 @@ impl Compiler {
                     .map(|method_sig| {
                         let method_str = self.interner.resolve(method_sig.name);
                         crate::types::class_env::mangled_method_name(
-                            class_str, &type_name, method_str,
+                            instance.class_id,
+                            &type_name,
+                            method_str,
+                            &self.interner,
                         )
                     })
                     .collect(),

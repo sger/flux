@@ -405,6 +405,16 @@ fn collect_public_class_entries(
                     .collect(),
                 type_params: def.type_params.clone(),
                 superclasses: def.superclasses.clone(),
+                superclass_class_modules: def
+                    .superclass_class_ids
+                    .iter()
+                    .map(|id| {
+                        id.module
+                            .as_identifier()
+                            .map(|module| interner.resolve(module).to_string())
+                            .unwrap_or_default()
+                    })
+                    .collect(),
                 methods: def
                     .methods
                     .iter()
@@ -542,6 +552,16 @@ fn collect_public_instance_entries(
                 head_kinds: instance_head_kinds(env, inst),
                 type_args: inst.type_args.clone(),
                 context: inst.context.clone(),
+                context_class_modules: inst
+                    .context_class_ids
+                    .iter()
+                    .map(|id| {
+                        id.module
+                            .as_identifier()
+                            .map(|module| interner.resolve(module).to_string())
+                            .unwrap_or_default()
+                    })
+                    .collect(),
                 methods: inst
                     .method_effects
                     .iter()
@@ -1273,6 +1293,7 @@ mod tests {
             parameter_kinds: vec![],
             type_params: vec![],
             superclasses: vec![],
+            superclass_class_modules: vec![],
             methods: vec![],
             default_methods: vec![],
             method_names: vec!["my_show".to_string()],
@@ -1286,6 +1307,7 @@ mod tests {
             head_kinds: vec![],
             type_args: vec![],
             context: vec![],
+            context_class_modules: vec![],
             methods: vec![],
             pinned_row_placeholder: None,
         });
@@ -1335,6 +1357,7 @@ mod tests {
             parameter_kinds: vec![],
             type_params: vec![],
             superclasses: vec![],
+            superclass_class_modules: vec![],
             methods: vec![],
             default_methods: vec![],
             method_names: vec!["my_show".to_string()],
@@ -1363,6 +1386,7 @@ mod tests {
             head_kinds: vec![],
             type_args: vec![],
             context: vec![],
+            context_class_modules: vec![],
             methods: vec![],
             pinned_row_placeholder: None,
         });
@@ -1425,6 +1449,7 @@ mod tests {
                 is_builtin: false,
                 type_params: vec![interner.intern("a")],
                 superclasses: vec![],
+                superclass_class_ids: vec![],
                 methods: vec![],
                 default_methods: vec![],
                 span: Default::default(),
