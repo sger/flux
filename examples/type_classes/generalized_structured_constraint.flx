@@ -5,8 +5,8 @@
 // Before Stage 3 `collect_scheme_constraints` dropped structured predicates
 // over built-in classes and deduplicated on bare type variables alone, so
 // `Enc<List<a>>` either vanished or collided with a sibling `Enc<Option<a>>`.
-// THIH's `split` partitions instead of filtering, so both survive with their
-// full arguments intact.
+// Constraints are now partitioned rather than filtered, so both survive with
+// their full arguments intact.
 //
 // Expected output:
 // "7"

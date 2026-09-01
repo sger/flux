@@ -983,6 +983,25 @@ pub const ASSOCIATED_TYPE_KIND_MISMATCH: ErrorCode = ErrorCode {
     hint: Some("Match the arity the class declaration gives the associated type."),
 };
 
+/// KI-057: a call cannot say which of several dictionaries for one class it
+/// means.
+///
+/// A function constrained twice on the same class holds two dictionaries. A
+/// call whose argument types name neither could be dispatched through either,
+/// and the two are not interchangeable — they are instances for different
+/// types. Reporting is the only sound answer: selecting the first is what made
+/// `both(5, "hi")` return `14` instead of `12`.
+pub const AMBIGUOUS_DICTIONARY_SELECTION: ErrorCode = ErrorCode {
+    code: "E485",
+    title: "AMBIGUOUS DICTIONARY SELECTION",
+    error_type: ErrorType::Compiler,
+    message: "This call to `{}` does not say which `{}` instance it needs.",
+    hint: Some(
+        "Annotate the call, or pass a value whose type names the instance, so one \
+         constraint is chosen.",
+    ),
+};
+
 /// Proposal 0179 Stage 6: an instance defines an associated type its class does
 /// not declare.
 ///
