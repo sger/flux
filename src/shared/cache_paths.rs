@@ -58,7 +58,9 @@ use sha2::{Digest, Sha256};
 /// Epoch 28: structured typeclass predicates and kind metadata in interfaces.
 /// Epoch 30: explicit instance-body clones receive fresh expression IDs, and
 /// module-scoped generated typeclass methods retain qualified native symbols.
-pub const CACHE_EPOCH: u16 = 30;
+/// Epoch 31: typeclass constraints and generated dictionary/method symbols
+/// carry the owning ClassId rather than a short class name.
+pub const CACHE_EPOCH: u16 = 31;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

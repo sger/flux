@@ -11,7 +11,7 @@ use crate::{
     },
     types::{
         class_env::{ClassDef, ClassEnv},
-        class_id::ClassId,
+        class_id::{ClassId, ModulePath},
         kind::Kind,
     },
 };
@@ -112,6 +112,7 @@ impl KindEnv {
             .collect();
         validate_statements(
             &program.statements,
+            ModulePath::EMPTY,
             self,
             class_env,
             interner,
@@ -250,6 +251,7 @@ fn infer_class_parameter_uses(
 
 fn validate_statements(
     statements: &[Statement],
+    current_module: crate::types::class_id::ModulePath,
     env: &KindEnv,
     class_env: &ClassEnv,
     interner: &Interner,
@@ -257,9 +259,14 @@ fn validate_statements(
 ) {
     for statement in statements {
         match statement {
-            Statement::Module { body, .. } => {
-                validate_statements(&body.statements, env, class_env, interner, diagnostics)
-            }
+            Statement::Module { name, body, .. } => validate_statements(
+                &body.statements,
+                crate::types::class_id::ModulePath::from_identifier(*name),
+                env,
+                class_env,
+                interner,
+                diagnostics,
+            ),
             Statement::Data {
                 type_params,
                 variants,
@@ -287,7 +294,9 @@ fn validate_statements(
                 span,
                 ..
             } => {
-                let class = class_env.lookup_class(*name);
+                let class = class_env
+                    .resolve_class_id(current_module, *name)
+                    .and_then(|id| class_env.lookup_class_by_id(id));
                 let vars = class
                     .map(|class| {
                         type_params
@@ -334,7 +343,10 @@ fn validate_statements(
                 context,
                 ..
             } => {
-                if let Some(class) = class_env.lookup_class(*class_name) {
+                let class = class_env
+                    .resolve_class_id(current_module, *class_name)
+                    .and_then(|id| class_env.lookup_class_by_id(id));
+                if let Some(class) = class {
                     for (index, arg) in type_args.iter().enumerate() {
                         let expected = class
                             .type_params
@@ -406,7 +418,10 @@ fn validate_constraint(
     interner: &Interner,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let Some(class) = class_env.lookup_class(constraint.class_name) else {
+    let Some(class_id) = class_env.resolve_class_id(_owner.module, constraint.class_name) else {
+        return;
+    };
+    let Some(class) = class_env.lookup_class_by_id(class_id) else {
         return;
     };
     for (index, arg) in constraint.type_args.iter().enumerate() {
@@ -548,7 +563,11 @@ fn function_binders(
             let binder = param
                 .constraints
                 .iter()
-                .find_map(|constraint| class_env.lookup_class(constraint.class_name))
+                .find_map(|constraint| {
+                    class_env
+                        .unique_class_id(constraint.class_name)
+                        .and_then(|id| class_env.lookup_class_by_id(id))
+                })
                 .and_then(|class| {
                     let class_param = *class.type_params.first()?;
                     Some(LocalBinder::Known(

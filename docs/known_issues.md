@@ -1407,8 +1407,13 @@ be right; the evidence for it was not, and trusting the same instrument again
 will mislead the next person the same way.
 
 The shared Core defect was duplicate expression IDs when explicit instance
-method bodies were cloned. The generated copy now refreshes every expression
-ID, so `hm_expr_types` cannot reuse the source body's type entry; inner calls
+method bodies were cloned. The generated copy now refreshes every expression ID,
+and the companion qualified-class identity defect is fixed too:
+semantic class and instance selection carries `ClassId = (owning module, class
+name)`, so same-named classes with identical heads remain distinct. The same
+module-aware identity drives `__tc_*` and `__dict_*` symbols on VM and LLVM;
+unqualified ambiguous class and method references require qualification.
+so `hm_expr_types` cannot reuse the source body's type entry; inner calls
 in contextual instances therefore resolve through the dictionary rather than
 recursing through the enclosing container instance.
 

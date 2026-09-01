@@ -62,7 +62,7 @@ into the consuming compiler's `ClassEnv` before inference and lowering.
 |---|---|---|---|---|
 | Syntax | Lexer/parser | Compiler and inference | `Statement::Class`, `Statement::Instance`, `ClassConstraint`, `TypeExpr` | Supported class, instance, superclass-context, module, and deriving syntax. |
 | Class collection | `ClassEnv::collect_from_statements` | Solver, dispatch, interfaces | `ClassDef`, `InstanceDef`, `ClassId`, method metadata | Supported validation for duplicates, methods, arity, visibility, orphan rules, and direct superclass instances. Legacy short-name compatibility callers remain. |
-| Class identity | `ClassId` and `ModulePath` | Lookup, dispatch, interface loading | `(module path, class name)` | Storage is ClassId-aware, but some semantic callers still use short-name compatibility lookup. Full migration belongs to Stage 4. |
+| Class identity | `ClassId` and `ModulePath` | Lookup, dispatch, interface loading | `(module path, class name)` | Semantic lookup, solver evidence, dispatch, dictionaries, and interface schemes use ClassId; short-name lookup is restricted to source resolution and diagnostics. |
 | HM constraints | Expression/type inference | Solving and scheme construction | `WantedClassConstraint` and `SchemeConstraint` both carry full `Vec<InferType>` predicates | Structured arguments survive collection, remapping, instantiation, generalization, and dictionary lookup. Built-in concrete helper constraints retain compatibility handling; richer obligation states remain later work. |
 | Constraint solving | `class_solver` and class environment | Compiler diagnostics and dispatch | Concrete instance matching plus structural builtin checks | Supported concrete, HKT, contextual, and structural cases have coverage. The solver can skip unresolved variables because they are generalized; complete obligation dispositions belong to Stage 3. |
 | Direct dispatch | AST-to-Core lowerer and `class_dispatch` | Core/backend lowering | Mangled `__tc_*` functions | Supported for monomorphic calls. It still has compatibility paths that identify methods by short name and use call-shape heuristics. Stage 4 owns complete-predicate resolution. |
@@ -131,8 +131,7 @@ The most important current limitations are:
 - scheme constraints do not yet preserve arbitrary structured predicates;
 - unresolved constraints are intentionally deferred to generalization, but the
   compiler does not expose one complete disposition model for every obligation;
-- short-name lookup remains in compatibility callers even though `ClassId` is
-  available;
+- short-name lookup remains only at source-resolution and diagnostic boundaries;
 - direct dispatch is not yet selected from a complete predicate and expected
   result type;
 - superclass metadata is not yet represented as transitive dictionary

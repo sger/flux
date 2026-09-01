@@ -375,10 +375,12 @@ mod tests {
             constraints: vec![
                 SchemeConstraint {
                     class_name: num,
+                    class_id: crate::types::class_id::ClassId::from_local_name(num),
                     type_args: vec![InferType::Var(9)],
                 },
                 SchemeConstraint {
                     class_name: eq,
+                    class_id: crate::types::class_id::ClassId::from_local_name(eq),
                     type_args: vec![InferType::Var(9)],
                 },
             ],

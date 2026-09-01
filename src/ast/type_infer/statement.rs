@@ -225,6 +225,8 @@ impl<'a> InferCtx<'a> {
 
     /// Infer a module body in an inner scope and export public function schemes.
     pub(super) fn infer_module(&mut self, module_name: Identifier, body: &Block) {
+        let previous_module = self.current_module;
+        self.current_module = crate::types::class_id::ModulePath::from_identifier(module_name);
         self.env.enter_scope();
         self.predeclare_data_constructors_in_statements(&body.statements);
         self.predeclare_module_members(&body.statements);
@@ -233,6 +235,7 @@ impl<'a> InferCtx<'a> {
             self.capture_public_module_member_scheme(module_name, stmt);
         }
         self.env.leave_scope();
+        self.current_module = previous_module;
     }
 
     /// Predeclare module-scope `let` and explicitly-annotated function members.

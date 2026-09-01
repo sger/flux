@@ -4,9 +4,8 @@
 //! accepts `class`, `instance`, and `import` declarations inside a `module { }`
 //! block. Before Proposal 0151 these were rejected with `INVALID_MODULE_CONTENT`.
 //!
-//! This file does NOT yet assert that class semantics work end-to-end inside
-//! modules — that lands in later Phase 1a/1b commits. The minimum guarantee
-//! here is "the validator no longer rejects the source."
+//! In addition to validator coverage, this file exercises module-scoped class
+//! identity and runtime dispatch end-to-end.
 
 use flux::compiler::Compiler;
 use flux::diagnostics::render_diagnostics;
@@ -275,6 +274,69 @@ fn main() {
         Value::Integer(42),
         "imported public class with downstream public instance should resolve end-to-end; got {:?}",
         result
+    );
+}
+
+#[test]
+fn same_named_module_classes_use_disjoint_class_id_dispatch() {
+    let source = r#"
+module Mod.A {
+    public class Foo<a> {
+        fn render(x: a) -> String
+    }
+
+    public instance Foo<Int> {
+        fn render(x) { "A" }
+    }
+
+    public fn call_a() { render(0) }
+}
+
+module Mod.B {
+    public class Foo<a> {
+        fn render(x: a) -> String
+    }
+
+    public instance Foo<Int> {
+        fn render(x) { "B" }
+    }
+
+    public fn call_b() { render(0) }
+}
+
+import Mod.A as A
+import Mod.B as B
+
+fn main() {
+    (A.call_a(), B.call_b())
+}
+"#;
+    let result = compile_and_run(source);
+    assert_eq!(
+        result,
+        Value::Tuple(std::rc::Rc::new(vec![
+            Value::String(std::rc::Rc::new("A".to_string())),
+            Value::String(std::rc::Rc::new("B".to_string())),
+        ]))
+    );
+}
+
+#[test]
+fn same_named_class_methods_require_qualification() {
+    let source = r#"
+module Mod.A {
+    public class Foo<a> { fn render(x: a) -> String }
+}
+module Mod.B {
+    public class Foo<a> { fn render(x: a) -> String }
+}
+fn main() { render(0) }
+"#;
+    let diagnostics = compile_source(source);
+    let rendered = render_diagnostics(&diagnostics, Some(source), None);
+    assert!(
+        rendered.contains("E456"),
+        "ambiguous unqualified method should require qualification, got:\n{rendered}"
     );
 }
 

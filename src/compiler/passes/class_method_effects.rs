@@ -33,6 +33,7 @@ use crate::syntax::{
     statement::Statement,
     type_class::{ClassMethod, InstanceMethod},
 };
+use crate::types::class_id::{ClassId, ModulePath};
 
 use super::super::Compiler;
 
@@ -41,22 +42,24 @@ impl Compiler {
     /// declared effect row is missing a concrete effect listed on the
     /// matching class method.
     pub(in crate::compiler) fn validate_class_method_effect_floor(&mut self, program: &Program) {
-        self.walk_for_floor(&program.statements);
+        self.walk_for_floor(&program.statements, ModulePath::EMPTY);
     }
 
-    fn walk_for_floor(&mut self, statements: &[Statement]) {
-        // Collect class methods (by class name → method name → ClassMethod)
-        // for every class declared at this scope. We don't need a proper
-        // ClassId here because the instance head names the class textually,
-        // and the rule is local to the (class, method) pair.
+    fn walk_for_floor(&mut self, statements: &[Statement], current_module: ModulePath) {
+        // Collect class methods by canonical class identity. The source
+        // declaration is textual, but module scope resolves it before this
+        // pass compares class and instance method rows.
         let mut class_methods: std::collections::HashMap<
-            Identifier,
+            ClassId,
             std::collections::HashMap<Identifier, ClassMethod>,
         > = std::collections::HashMap::new();
 
         for stmt in statements {
             if let Statement::Class { name, methods, .. } = stmt {
-                let entry = class_methods.entry(*name).or_default();
+                let Some(class_id) = self.class_env.resolve_class_id(current_module, *name) else {
+                    continue;
+                };
+                let entry = class_methods.entry(class_id).or_default();
                 for m in methods {
                     entry.insert(m.name, m.clone());
                 }
@@ -71,10 +74,8 @@ impl Compiler {
                 ..
             } = stmt
             {
-                // Resolve the class either from the local scope (this
-                // module/file) or from the global class_env. Local wins
-                // because the textual name binds against in-scope decls.
-                let local = class_methods.get(class_name);
+                let class_id = self.class_env.resolve_class_id(current_module, *class_name);
+                let local = class_id.and_then(|id| class_methods.get(&id));
                 for instance_method in methods {
                     let class_method_local = local.and_then(|m| m.get(&instance_method.name));
                     if let Some(class_method) = class_method_local {
@@ -82,16 +83,15 @@ impl Compiler {
                         continue;
                     }
                     // Fallback: look up via class_env for cross-module classes.
-                    let cloned_effects =
-                        self.class_env
-                            .lookup_class(*class_name)
-                            .and_then(|class_def| {
-                                class_def
-                                    .methods
-                                    .iter()
-                                    .find(|s| s.name == instance_method.name)
-                                    .map(|s| s.effects.clone())
-                            });
+                    let cloned_effects = class_id
+                        .and_then(|id| self.class_env.lookup_class_by_id(id))
+                        .and_then(|class_def| {
+                            class_def
+                                .methods
+                                .iter()
+                                .find(|s| s.name == instance_method.name)
+                                .map(|s| s.effects.clone())
+                        });
                     if let Some(effects) = cloned_effects {
                         self.check_floor_against_sig(&effects, instance_method);
                     }
@@ -101,8 +101,8 @@ impl Compiler {
 
         // Recurse into module bodies.
         for stmt in statements {
-            if let Statement::Module { body, .. } = stmt {
-                self.walk_for_floor(&body.statements);
+            if let Statement::Module { name, body, .. } = stmt {
+                self.walk_for_floor(&body.statements, ModulePath::from_identifier(*name));
             }
         }
     }

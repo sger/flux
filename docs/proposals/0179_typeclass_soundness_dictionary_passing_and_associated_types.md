@@ -84,7 +84,7 @@ structural checks can make different decisions for the same class obligation.
 
 | Current area | Failure in the current architecture | Required change |
 |---|---|---|
-| Class environment | `ClassEnv` stores useful class/instance data, but some consumers still use bare class names and first-match lookup. | Resolve every semantic class reference through `ClassId`; retain short-name lookup only for diagnostics or explicit source-name resolution. |
+| Class environment | Resolved: `ClassEnv` stores classes and instances by `ClassId`; short names are used only at source-resolution and diagnostic boundaries, with ambiguity reported instead of first-match lookup. | Keep all new semantic consumers on `ClassId`; never reintroduce short-name fallback for identity. |
 | Constraint model | HM constraints contain full type arguments, but generalized schemes retain only class names and variable IDs. Structured obligations can disappear. | Introduce one structural predicate type used by wanted constraints, schemes, solver, interfaces, and Core elaboration. |
 | Instance solver | The solver primarily answers whether a concrete instance exists; unresolved, ambiguous, and contextual cases are not represented uniformly. Structural built-ins may report success without evidence. | Return a typed resolution result with evidence or a precise unresolved/ambiguous/error disposition. Every successful result must produce usable evidence. |
 | Method dispatch | AST-to-Core lowering resolves many calls from the first value argument and has special cases for methods such as `Decode`. | Resolve from the complete class predicate, all value arguments, and expected result type through one shared resolver. |
@@ -330,15 +330,15 @@ are recorded here so they are not re-derived:
   annotations and return-type position, which is what result-directed dispatch
   uses; adding ascription is a separate language change.
 
-`qualified_class_id.flx` is deferred. Two modules that each declare a class of
-the same name with the same instance head collide as `E001 Duplicate Name` on
-the generated `__tc_*` binding. The cause is not the mangled name — module
-scoping already qualifies module-level globals, which is what KI-051 turned on
-— but where synthesized dispatch functions are placed, and fixing it means
-changing that scoping. As groundwork, every site that built a `__tc_*` name now
-goes through one constructor, so the format can be changed in one place instead
-of ten; a mismatch between them is a missing global at run time rather than a
-compile error.
+`qualified_class_id.flx` is fixed. Semantic class and instance identity is
+`ClassId = (owning module, class name)`, following GHC's use of globally unique
+class names rather than short textual names. Two modules may therefore declare
+same-named classes with the same head; they produce distinct solver evidence,
+`__tc_*` methods, and `__dict_*` globals. Short names remain a source-resolution
+and diagnostic concern only, and an ambiguous unqualified class or method must
+be qualified. The interface symbol table preserves both ClassId components
+across `.flxi` boundaries, while VM aliases and native module ownership remain
+separate from semantic identity.
 
 Example syntax:
 

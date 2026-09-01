@@ -272,6 +272,9 @@ fn imported_public_instance_method_is_emitted_and_called_directly_in_native_lowe
                 forall: vec![0],
                 constraints: vec![SchemeConstraint {
                     class_name: interner.intern("Logger"),
+                    class_id: flux::types::class_id::ClassId::from_local_name(
+                        interner.intern("Logger"),
+                    ),
                     type_args: vec![InferType::Var(0)],
                 }],
                 infer_type: InferType::Fun(
@@ -298,6 +301,7 @@ fn imported_public_instance_method_is_emitted_and_called_directly_in_native_lowe
             parameter_kinds: vec![flux::types::kind::Kind::Type],
             type_params: vec![logger_h],
             superclasses: vec![],
+            superclass_class_modules: vec![],
             methods: vec![PublicClassMethodEntry {
                 name: log_name,
                 type_params: vec![],
@@ -355,6 +359,7 @@ fn imported_public_instance_method_is_emitted_and_called_directly_in_native_lowe
                 span: Default::default(),
             }],
             context: vec![],
+            context_class_modules: vec![],
             methods: vec![PublicInstanceMethodEntry {
                 name: log_name,
                 effects: vec![EffectExpr::Named {

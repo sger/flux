@@ -234,11 +234,10 @@ fn build_instance_dictionaries(
             .collect::<Vec<_>>()
             .join("_");
 
-        let class_str = interner.resolve(instance.class_name).to_string();
-
         // Build the dictionary name: __dict_{Class}_{Type}
         // These names are pre-interned during dispatch generation (Phase 1b).
-        let dict_name_str = format!("__dict_{class_str}_{type_name}");
+        let dict_name_str =
+            crate::types::class_env::dictionary_name(instance.class_id, &type_name, interner);
         let dict_name = match interner.lookup(&dict_name_str) {
             Some(sym) => sym,
             None => continue, // Not pre-interned — skip this instance.
@@ -249,9 +248,10 @@ fn build_instance_dictionaries(
             for method_sig in &class_def.methods {
                 let method_str = interner.resolve(method_sig.name).to_string();
                 let mangled_str = crate::types::class_env::mangled_method_name(
-                    &class_str,
+                    instance.class_id,
                     &type_name,
                     &method_str,
+                    interner,
                 );
                 let mangled_sym = match interner.lookup(&mangled_str) {
                     Some(sym) => sym,
@@ -299,7 +299,6 @@ fn build_contextual_dictionary_expr(
     next_id: &mut u32,
 ) -> CoreExpr {
     let span = Span::default();
-    let class_str = interner.resolve(instance.class_name).to_string();
     let type_name = instance
         .type_args
         .iter()
@@ -307,17 +306,29 @@ fn build_contextual_dictionary_expr(
         .collect::<Vec<_>>()
         .join("_");
 
+    let mut context_occurrences: HashMap<crate::types::class_id::ClassId, usize> = HashMap::new();
     let context_binders: Vec<CoreBinder> = instance
         .context
         .iter()
         .enumerate()
         .map(|(idx, constraint)| {
-            let class_name = interner.resolve(constraint.class_name);
-            let label = if idx == 0 {
-                format!("__dict_{class_name}")
+            let class_id = instance
+                .context_class_ids
+                .get(idx)
+                .copied()
+                .unwrap_or_else(|| {
+                    crate::types::class_id::ClassId::from_local_name(constraint.class_name)
+                });
+            let occurrence = context_occurrences.entry(class_id).or_insert(0);
+            let label = if *occurrence == 0 {
+                crate::types::class_env::dictionary_prefix(class_id, interner)
             } else {
-                format!("__dict_{class_name}_{idx}")
+                format!(
+                    "{}_{occurrence}",
+                    crate::types::class_env::dictionary_prefix(class_id, interner)
+                )
             };
+            *occurrence += 1;
             let binder_id = *next_id;
             *next_id += 1;
             let binder_name = interner.lookup(&label).unwrap_or(constraint.class_name);
@@ -330,8 +341,12 @@ fn build_contextual_dictionary_expr(
         .iter()
         .filter_map(|method_sig| {
             let method_str = interner.resolve(method_sig.name).to_string();
-            let mangled_str =
-                crate::types::class_env::mangled_method_name(&class_str, &type_name, &method_str);
+            let mangled_str = crate::types::class_env::mangled_method_name(
+                instance.class_id,
+                &type_name,
+                &method_str,
+                interner,
+            );
             let mangled_sym = interner.lookup(&mangled_str)?;
             Some(build_contextual_dictionary_method_closure(
                 mangled_sym,
@@ -452,10 +467,10 @@ fn rewrite_constrained_functions(
         // always computed `__dict_Enc_1` for a second occurrence; naming every
         // parameter `__dict_Enc` meant the second shadowed the first and every
         // reference resolved to the wrong dictionary (KI-052).
-        let mut class_occurrences: HashMap<Identifier, usize> = HashMap::new();
+        let mut class_occurrences: HashMap<crate::types::class_id::ClassId, usize> = HashMap::new();
 
         for (index, constraint) in constraints.iter().enumerate() {
-            let class_def = match class_env.lookup_class(constraint.class_name) {
+            let class_def = match class_env.lookup_class_by_id(constraint.class_id) {
                 Some(c) => c,
                 None => continue,
             };
@@ -463,15 +478,16 @@ fn rewrite_constrained_functions(
             let dict_binder = if let Some(existing) = existing_dict_params.get(index).cloned() {
                 existing
             } else {
-                let class_str = interner.resolve(constraint.class_name);
-                let occurrence = class_occurrences.entry(constraint.class_name).or_insert(0);
+                let class_str =
+                    crate::types::class_env::dictionary_prefix(constraint.class_id, interner);
+                let occurrence = class_occurrences.entry(constraint.class_id).or_insert(0);
                 let suffix = if *occurrence == 0 {
                     String::new()
                 } else {
                     format!("_{occurrence}")
                 };
                 *occurrence += 1;
-                let param_name_str = format!("__dict_{class_str}{suffix}");
+                let param_name_str = format!("{class_str}{suffix}");
                 let param_name = interner
                     .lookup(&param_name_str)
                     .unwrap_or(constraint.class_name);
@@ -1079,7 +1095,7 @@ fn resolve_dict_arg(
     // picking either is a guess, and guessing wrong is what KI-052 was.
     let mut same_class = caller_dicts
         .iter()
-        .filter(|(held, _)| held.class_name == constraint.class_name);
+        .filter(|(held, _)| held.class_id == constraint.class_id);
     if let Some((_, binder)) = same_class.next()
         && same_class.next().is_none()
     {
@@ -1463,6 +1479,7 @@ mod tests {
             is_builtin: false,
             type_params: vec![a_sym],
             superclasses: vec![],
+            superclass_class_ids: vec![],
             methods: vec![
                 MethodSig {
                     name: eq_method,
@@ -1500,6 +1517,7 @@ mod tests {
                 span: s(),
             }],
             context: vec![],
+            context_class_ids: vec![],
             method_names: vec![eq_method, neq_method],
             method_effects: vec![],
             span: s(),
@@ -1596,6 +1614,7 @@ mod tests {
             is_builtin: false,
             type_params: vec![a_sym],
             superclasses: vec![],
+            superclass_class_ids: vec![],
             methods: vec![MethodSig {
                 name: eq_method,
                 type_params: vec![],
@@ -1625,6 +1644,7 @@ mod tests {
                 span: s(),
             }],
             context: vec![],
+            context_class_ids: vec![],
             method_names: vec![eq_method],
             method_effects: vec![],
             span: s(),
@@ -1880,6 +1900,7 @@ mod tests {
             forall: vec![0],
             constraints: vec![SchemeConstraint {
                 class_name: eq_sym,
+                class_id: crate::types::class_id::ClassId::from_local_name(eq_sym),
                 type_args: vec![InferType::Var(0)],
             }],
             infer_type: crate::types::infer_type::InferType::Var(0),
@@ -1981,6 +2002,7 @@ mod tests {
             forall: vec![0],
             constraints: vec![SchemeConstraint {
                 class_name: eq_sym,
+                class_id: crate::types::class_id::ClassId::from_local_name(eq_sym),
                 type_args: vec![InferType::Var(0)],
             }],
             infer_type: crate::types::infer_type::InferType::Var(0),
