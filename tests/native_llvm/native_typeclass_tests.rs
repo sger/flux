@@ -74,6 +74,98 @@ fn main() with IO {
     )
 }
 
+/// Two modules declaring the same class name with the same instance head.
+///
+/// Uses single-segment module names deliberately: the generated method is
+/// emitted inside its module *and* as a file-scope forwarding alias, and the
+/// alias is qualified with the entry file's stem. For `module Alpha` in
+/// `Alpha.flx` that stem equals the module prefix, so both claimed one symbol
+/// and LLVM rejected the redefinition. A dotted module (`Data.Enc` in
+/// `Data/Enc.flx`) cannot reproduce it — the prefix and the stem differ.
+fn run_same_class_name_fixture(native: bool) -> (String, String, bool) {
+    let _guard = TYPECLASS_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("typeclass test lock poisoned");
+    let scratch = Scratch::new(if native {
+        "native-same-class-name"
+    } else {
+        "vm-same-class-name"
+    });
+    for (module, answer) in [("Alpha", "alpha"), ("Beta", "beta")] {
+        scratch.write(
+            &format!("{module}.flx"),
+            &format!(
+                r#"
+module {module} {{
+    public class Render<a> {{
+        fn render(value: a) -> String
+    }}
+
+    public instance Render<Int> {{
+        fn render(value) {{ "{answer}" }}
+    }}
+}}
+"#
+            ),
+        );
+    }
+    let entry = scratch.write(
+        "main.flx",
+        r#"
+import Alpha
+import Beta
+
+fn main() with IO {
+    print(Alpha.render(1))
+    print(Beta.render(1))
+}
+"#,
+    );
+
+    let mut args = vec![
+        entry.to_string_lossy().into_owned(),
+        "--no-cache".to_string(),
+    ];
+    args.extend(scratch.cache_args());
+    if native {
+        args.push("--native".to_string());
+    }
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(workspace_root())
+        .args(args)
+        .output()
+        .expect("run same-class-name fixture");
+
+    (
+        String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+        String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n"),
+        output.status.success(),
+    )
+}
+
+#[test]
+fn same_class_name_in_two_modules_stays_distinct_on_vm_and_llvm() {
+    let (vm_stdout, vm_stderr, vm_ok) = run_same_class_name_fixture(false);
+    let (native_stdout, native_stderr, native_ok) = run_same_class_name_fixture(true);
+
+    assert!(
+        vm_ok,
+        "same-class-name fixture failed on VM:\nstdout:\n{vm_stdout}\nstderr:\n{vm_stderr}"
+    );
+    assert!(
+        native_ok,
+        "same-class-name fixture failed natively:\nstdout:\n{native_stdout}\nstderr:\n{native_stderr}"
+    );
+    // Each module must answer for itself; a collapsed symbol prints one twice.
+    for stdout in [&vm_stdout, &native_stdout] {
+        assert!(
+            stdout.contains("alpha"),
+            "expected Alpha's answer:\n{stdout}"
+        );
+        assert!(stdout.contains("beta"), "expected Beta's answer:\n{stdout}");
+    }
+}
 #[test]
 fn dotted_module_instance_dispatches_on_vm_and_llvm() {
     let (vm_stdout, vm_stderr, vm_ok) = run_fixture(false);
