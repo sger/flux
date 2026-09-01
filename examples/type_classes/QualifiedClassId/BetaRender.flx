@@ -1,0 +1,10 @@
+module QualifiedClassId.BetaRender {
+
+    public class Render<a> {
+        fn render(value: a) -> String
+    }
+
+    public instance Render<Int> {
+        fn render(value) { "beta:" + to_string(value) }
+    }
+}
