@@ -158,14 +158,14 @@ fn classify_constraint(
 
     // Skip if the class doesn't exist in the environment (already
     // reported by ClassEnv validation as E441).
-    if class_env.lookup_class(constraint.class_name).is_none() {
+    if class_env.lookup_class_by_id(constraint.class_id).is_none() {
         return Disposition::Stuck {
             reason: StuckReason::UnknownClass,
         };
     }
 
     let evidence = solve_instance_evidence(
-        constraint.class_name,
+        constraint.class_id,
         &constraint.type_args,
         class_env,
         interner,
@@ -176,7 +176,7 @@ fn classify_constraint(
     // selection depend on declaration order. Report it rather than silently
     // taking the first (Proposal 0179 Stage 3).
     let candidates = class_env
-        .candidate_instances(constraint.class_name, &constraint.type_args, interner)
+        .candidate_instances_by_id(constraint.class_id, &constraint.type_args, interner)
         .count();
     if candidates > 1 {
         let predicate = display_predicate(constraint, interner);
@@ -237,15 +237,20 @@ fn classify_constraint(
 /// away, which is why dictionary elaboration had to resolve a second time and
 /// could disagree with the solver.
 fn solve_instance_evidence(
-    class_name: Identifier,
+    class_id: crate::types::class_id::ClassId,
     type_args: &[InferType],
     class_env: &ClassEnv,
     interner: &Interner,
     seen: &mut HashSet<String>,
 ) -> Option<Evidence> {
+    let class_module = class_id
+        .module
+        .as_identifier()
+        .map(|module| interner.resolve(module))
+        .unwrap_or("<prelude>");
     let key = format!(
-        "{}<{}>",
-        interner.resolve(class_name),
+        "{class_module}.{}<{}>",
+        interner.resolve(class_id.name),
         type_args
             .iter()
             .map(|ty| display_type(ty, interner))
@@ -259,18 +264,19 @@ fn solve_instance_evidence(
         return Some(Evidence::Unrecorded);
     }
 
-    let evidence = structural_builtin_evidence(class_name, type_args, class_env, interner, seen)
+    let evidence = structural_builtin_evidence(class_id, type_args, class_env, interner, seen)
         .map(|components| Evidence::Structural { components })
         .or_else(|| {
             let (instance, subst) =
-                class_env.resolve_instance_with_subst(class_name, type_args, interner)?;
+                class_env.resolve_instance_with_subst_by_id(class_id, type_args, interner)?;
 
             // Every predicate in the instance's context must itself be
             // discharged, and its evidence becomes a subgoal of this one.
             let context = instance
                 .context
                 .iter()
-                .map(|ctx| {
+                .enumerate()
+                .map(|(index, ctx)| {
                     let args: Vec<InferType> = ctx
                         .type_args
                         .iter()
@@ -279,14 +285,19 @@ fn solve_instance_evidence(
                     if !args.iter().all(is_concrete_type) {
                         return None;
                     }
-                    solve_instance_evidence(ctx.class_name, &args, class_env, interner, seen)
+                    let context_id = instance
+                        .context_class_ids
+                        .get(index)
+                        .copied()
+                        .or_else(|| class_env.unique_class_id(ctx.class_name))?;
+                    solve_instance_evidence(context_id, &args, class_env, interner, seen)
                 })
                 .collect::<Option<Vec<_>>>()?;
 
             // A class with no methods has no dictionary to pass, so naming the
             // instance would imply a runtime value that does not exist.
             if class_env
-                .lookup_class(class_name)
+                .lookup_class_by_id(class_id)
                 .is_some_and(|class| class.methods.is_empty())
             {
                 return Some(Evidence::Marker);
@@ -309,13 +320,19 @@ fn solve_instance_evidence(
 /// Evidence for each component a built-in structural rule decomposes into,
 /// or `None` when no structural rule applies.
 fn structural_builtin_evidence(
-    class_name: Identifier,
+    class_id: crate::types::class_id::ClassId,
     type_args: &[InferType],
     class_env: &ClassEnv,
     interner: &Interner,
     seen: &mut HashSet<String>,
 ) -> Option<Vec<Evidence>> {
-    let class_name = interner.resolve(class_name);
+    let class_name = interner.resolve(class_id.name);
+    if !class_env
+        .lookup_class_by_id(class_id)
+        .is_some_and(|class| class.is_builtin)
+    {
+        return None;
+    }
     if !matches!(class_name, "Eq" | "Ord" | "Sendable") || type_args.len() != 1 {
         return None;
     }
@@ -353,7 +370,11 @@ fn single_evidence(
     interner: &Interner,
     seen: &mut HashSet<String>,
 ) -> Option<Evidence> {
-    let class_id = interner.lookup(class_name)?;
+    let class_id = class_env
+        .classes
+        .values()
+        .find(|class| class.is_builtin && interner.resolve(class.name) == class_name)
+        .map(|class| class.class_id())?;
     solve_instance_evidence(
         class_id,
         std::slice::from_ref(ty),
@@ -492,14 +513,14 @@ fn undetermined_parameter_diagnostic(
     }
 
     let candidates = class_env
-        .instances_matching_known_args(constraint.class_name, &known, interner)
+        .instances_matching_known_args_by_id(constraint.class_id, &known, interner)
         .take(2)
         .count();
     if candidates < 2 {
         return None;
     }
 
-    let class_def = class_env.lookup_class(constraint.class_name)?;
+    let class_def = class_env.lookup_class_by_id(constraint.class_id)?;
     let param = class_def
         .type_params
         .get(first_undetermined)
@@ -621,6 +642,7 @@ mod tests {
                 is_builtin: false,
                 type_params: vec![interner.intern("a")],
                 superclasses: Vec::new(),
+                superclass_class_ids: Vec::new(),
                 methods: vec![MethodSig {
                     name: method_name,
                     type_params: Vec::new(),
@@ -643,6 +665,7 @@ mod tests {
                 is_public: false,
                 type_args: vec![head.clone()],
                 context: Vec::new(),
+                context_class_ids: Vec::new(),
                 method_names: vec![method_name],
                 method_effects: Vec::new(),
                 span: Span::default(),
@@ -654,6 +677,7 @@ mod tests {
     fn wanted(class_name: Identifier, type_args: Vec<InferType>) -> WantedClassConstraint {
         WantedClassConstraint {
             class_name,
+            class_id: crate::types::class_id::ClassId::from_local_name(class_name),
             type_args,
             span: Span::new(Position::new(1, 0), Position::new(1, 4)),
             origin: WantedClassConstraintOrigin::MethodCall,

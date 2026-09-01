@@ -16,6 +16,7 @@ struct CallTypedCalleeSpec<'a> {
 #[derive(Debug, Clone, Copy)]
 struct ResolvedClassMethodCall {
     class_name: Identifier,
+    class_id: crate::types::class_id::ClassId,
     method_name: Identifier,
     first_arg_id: ExprId,
     /// `ExprId` of the **function-position** sub-expression of the call
@@ -143,7 +144,8 @@ impl<'a> InferCtx<'a> {
         let resolved_type_args = self.propagate_resolved_class_call_effects(info);
 
         if let Some(type_args) = self.class_method_predicate_args(info, param_tys, result) {
-            self.emit_class_constraint_args(
+            self.emit_class_constraint_args_for_id(
+                info.class_id,
                 info.class_name,
                 type_args,
                 info.span,
@@ -156,7 +158,8 @@ impl<'a> InferCtx<'a> {
         // dispatched structurally, say). Fall back to the head the first
         // argument selected, which is what the pre-Stage-4 path produced.
         if let Some(type_args) = resolved_type_args {
-            self.emit_class_constraint_args(
+            self.emit_class_constraint_args_for_id(
+                info.class_id,
                 info.class_name,
                 type_args,
                 info.span,
@@ -177,7 +180,7 @@ impl<'a> InferCtx<'a> {
     ) -> Option<Vec<InferType>> {
         let (class_def, method) = {
             let class_env = self.class_env.as_ref()?;
-            let class_def = class_env.lookup_class(info.class_name)?;
+            let class_def = class_env.lookup_class_by_id(info.class_id)?;
             let method = class_def
                 .methods
                 .iter()
@@ -362,8 +365,11 @@ impl<'a> InferCtx<'a> {
             Expression::MemberAccess { object, member, .. } => {
                 self.interner.resolve(*member) == "spawn"
                     && matches!(object.as_ref(), Expression::Identifier { name, .. }
-                        if self.task_module_bindings.contains(name)
-                            && self.module_member_schemes.contains_key(&(*name, *member)))
+                    if self.task_module_bindings.contains(name)
+                        && self.module_member_schemes.contains_key(&(
+                            self.module_aliases.get(name).copied().unwrap_or(*name),
+                            *member,
+                        )))
                     && has_spawn_shape()
             }
             _ => false,
@@ -535,7 +541,7 @@ impl<'a> InferCtx<'a> {
     /// call site. Supports both bare calls (`eq(x, y)`) and imported
     /// module-qualified calls (`Foldable.fold(xs, init, step)`).
     fn class_method_call_info(
-        &self,
+        &mut self,
         function: &Expression,
         arguments: &[Expression],
         span: Span,
@@ -550,9 +556,16 @@ impl<'a> InferCtx<'a> {
                 {
                     return None;
                 }
-                let class_name = self.lookup_class_method(*name)?;
+                let class_id = match self.lookup_class_method(*name) {
+                    Some(id) => id,
+                    None => {
+                        self.report_ambiguous_class_method(*name, span);
+                        return None;
+                    }
+                };
                 Some(ResolvedClassMethodCall {
-                    class_name,
+                    class_name: class_id.name,
+                    class_id,
                     method_name: *name,
                     first_arg_id,
                     function_expr_id: function.expr_id(),
@@ -564,6 +577,48 @@ impl<'a> InferCtx<'a> {
             }
             _ => None,
         }
+    }
+
+    /// Report `E456` when a bare method name is claimed by more than one class.
+    ///
+    /// Once classes are identified by their owning module, two modules may each
+    /// declare a `render`, and an unqualified call names neither. Reporting is
+    /// the only sound answer: picking one would depend on declaration order,
+    /// which is exactly the non-determinism `ClassId` exists to remove. The
+    /// hint names the modules in play so the fix — qualifying the call — is
+    /// mechanical.
+    fn report_ambiguous_class_method(&mut self, method_name: Identifier, span: Span) {
+        let Some(class_env) = self.class_env.as_ref() else {
+            return;
+        };
+        let matches = class_env.method_class_ids(method_name);
+        if matches.len() < 2 {
+            return;
+        }
+        let method = self.interner.resolve(method_name);
+        let modules = matches
+            .iter()
+            .map(|class| {
+                class
+                    .module
+                    .as_identifier()
+                    .map(|module| self.interner.resolve(module).to_string())
+                    .unwrap_or_else(|| "<prelude>".to_string())
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        self.errors.push(
+            crate::diagnostics::diagnostic_for(
+                &crate::diagnostics::compiler_errors::AMBIGUOUS_CLASS_CONSTRAINT,
+            )
+            .with_span(span)
+            .with_message(format!(
+                "Class method {method} is ambiguous: declared by classes in {modules}."
+            ))
+            .with_hint_text(format!(
+                "Qualify {method} through the module that declares the intended class."
+            )),
+        );
     }
 
     /// Recognize a *qualified* class-method call, `Module.method(..)`.
@@ -591,18 +646,28 @@ impl<'a> InferCtx<'a> {
         else {
             return None;
         };
+        let target_module = self
+            .module_aliases
+            .get(module_name)
+            .copied()
+            .unwrap_or(*module_name);
         if !self
             .module_member_schemes
-            .contains_key(&(*module_name, member))
+            .contains_key(&(target_module, member))
         {
             return None;
         }
-        let class_name = self.lookup_class_method(member)?;
-        if member != class_name && *module_name != class_name {
-            return None;
-        }
+        let class_id = self
+            .class_env
+            .as_ref()?
+            .resolve_qualified_method_class_id(target_module, member, self.interner)
+            .or_else(|| {
+                let id = self.lookup_class_method(member)?;
+                (member == id.name || *module_name == id.name).then_some(id)
+            })?;
         Some(ResolvedClassMethodCall {
-            class_name,
+            class_name: class_id.name,
+            class_id,
             method_name: member,
             first_arg_id,
             function_expr_id: function.expr_id(),
@@ -623,8 +688,8 @@ impl<'a> InferCtx<'a> {
     ) -> Option<(Vec<InferType>, Scheme)> {
         let class_env = self.class_env.as_ref()?;
         let (instance, concrete_type_args) = class_env
-            .resolve_method_call_instance_from_first_arg(
-                info.class_name,
+            .resolve_method_call_instance_from_first_arg_by_id(
+                info.class_id,
                 first_arg_ty,
                 self.interner,
             )?;
@@ -650,10 +715,13 @@ impl<'a> InferCtx<'a> {
             .map(|arg| arg.display_with(self.interner))
             .collect::<Vec<_>>()
             .join("_");
-        let class_str = self.interner.resolve(info.class_name);
         let method_str = self.interner.resolve(info.method_name);
-        let mangled =
-            crate::types::class_env::mangled_method_name(class_str, &type_key, method_str);
+        let mangled = crate::types::class_env::mangled_method_name(
+            instance.class_id,
+            &type_key,
+            method_str,
+            self.interner,
+        );
         let mangled_sym = self.interner.lookup(&mangled)?;
         let scheme = self.env.lookup(mangled_sym).cloned()?;
         Some((concrete_type_args, scheme))

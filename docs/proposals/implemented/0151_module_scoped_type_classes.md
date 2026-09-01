@@ -1321,7 +1321,11 @@ Phase 0 was executed and resolved all three spikes. Summary below; each spike's 
 - `instances_for_id_returns_disjoint_buckets_for_same_named_classes` and `resolve_instance_with_subst_by_id_respects_class_id` — Phase 1b Step 4 ClassId-keyed lookup proof
 - `module_scoped_deriving_records_owning_module` — `deriving` clauses inherit owning module
 
-**Deferred to later phases.** The originally-listed `src/types/mangle.rs` extraction did not happen — mangled name construction still uses ad-hoc `format!` strings in `class_dispatch.rs` and `expression.rs`. This is orthogonal to the rest of Phase 1 and can be folded into Phase 6 (stdlib migration) or done as a standalone refactor. The `ClassConstraint` and IR-type migrations to `ClassId` were also deferred — they're not load-bearing for Phase 2 work because the existing `class_id`-keyed lookups on `ClassEnv` already disambiguate at the resolution boundary.
+The originally-listed `src/types/mangle.rs` extraction did not happen; the
+centralized constructors now live in `class_env.rs`. Semantic constraints and
+scheme predicates carry `ClassId`, while syntax constraints remain textual
+until source resolution. This keeps module identity intact through solving,
+dictionary elaboration, interface remapping, and both backends.
 
 ---
 

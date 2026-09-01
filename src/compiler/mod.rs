@@ -232,6 +232,17 @@ fn imported_class_def_from_entry(
             .iter()
             .map(|constraint| remap_class_constraint(constraint, remap))
             .collect(),
+        superclass_class_ids: entry
+            .superclass_class_modules
+            .iter()
+            .zip(entry.superclasses.iter())
+            .map(|(module, constraint)| {
+                crate::types::class_id::ClassId::new(
+                    crate::types::class_id::ModulePath::from_identifier(interner.intern(module)),
+                    remap_identifier(constraint.class_name, remap),
+                )
+            })
+            .collect(),
         methods,
         default_methods: entry
             .default_methods
@@ -253,6 +264,31 @@ fn imported_instance_def_from_entry(
     let class_name = interner.intern(&entry.class_name);
     let class_id = crate::types::class_id::ClassId::new(class_module, class_name);
     imported_classes.get(&class_id)?;
+    let context: Vec<_> = entry
+        .context
+        .iter()
+        .map(|constraint| remap_class_constraint(constraint, remap))
+        .collect();
+    let context_class_ids = if entry.context_class_modules.len() == context.len() {
+        entry
+            .context_class_modules
+            .iter()
+            .zip(context.iter())
+            .map(|(module, constraint)| {
+                crate::types::class_id::ClassId::new(
+                    crate::types::class_id::ModulePath::from_identifier(interner.intern(module)),
+                    constraint.class_name,
+                )
+            })
+            .collect()
+    } else {
+        context
+            .iter()
+            .filter_map(|constraint| {
+                unique_imported_class_id(imported_classes, constraint.class_name)
+            })
+            .collect()
+    };
     Some(crate::types::class_env::InstanceDef {
         class_name,
         class_id,
@@ -265,11 +301,8 @@ fn imported_instance_def_from_entry(
             .iter()
             .map(|ty| remap_type_expr(ty, remap))
             .collect(),
-        context: entry
-            .context
-            .iter()
-            .map(|constraint| remap_class_constraint(constraint, remap))
-            .collect(),
+        context,
+        context_class_ids,
         method_names: entry
             .methods
             .iter()
@@ -293,6 +326,22 @@ fn imported_instance_def_from_entry(
     })
 }
 
+/// Resolve legacy interface metadata only when its short class name is
+/// unambiguous. New interfaces carry the owning module explicitly; silently
+/// selecting the first same-named class here would reintroduce declaration
+/// order as a semantic identity rule for old artifacts.
+fn unique_imported_class_id(
+    imported_classes: &HashMap<crate::types::class_id::ClassId, crate::types::class_env::ClassDef>,
+    name: Identifier,
+) -> Option<crate::types::class_id::ClassId> {
+    let mut matches = imported_classes
+        .values()
+        .filter(|class| class.name == name)
+        .map(crate::types::class_env::ClassDef::class_id);
+    let first = matches.next()?;
+    matches.next().is_none().then_some(first)
+}
+
 fn remap_public_instance_entry(
     entry: &crate::types::module_interface::PublicInstanceEntry,
     remap: &HashMap<Symbol, Symbol>,
@@ -313,6 +362,7 @@ fn remap_public_instance_entry(
             .iter()
             .map(|constraint| remap_class_constraint(constraint, remap))
             .collect(),
+        context_class_modules: entry.context_class_modules.clone(),
         methods: entry
             .methods
             .iter()
@@ -596,7 +646,6 @@ fn preload_imported_instance_schemes(
         .map(|arg| arg.display_with(interner))
         .collect::<Vec<_>>()
         .join("_");
-    let class_str = interner.resolve(instance_def.class_name).to_string();
     let module_qualifier = instance_def
         .instance_module
         .as_identifier()
@@ -607,8 +656,12 @@ fn preload_imported_instance_schemes(
         instance_def.method_effects.iter().cloned().collect();
     for method in &class_def.methods {
         let method_str = interner.resolve(method.name).to_string();
-        let mangled =
-            crate::types::class_env::mangled_method_name(&class_str, &type_key, &method_str);
+        let mangled = crate::types::class_env::mangled_method_name(
+            instance_def.class_id,
+            &type_key,
+            &method_str,
+            interner,
+        );
         let mangled_sym = interner.intern(&mangled);
         if !symbol_table.exists_in_current_scope(mangled_sym) {
             symbol_table.define(mangled_sym, Span::default());
@@ -1294,13 +1347,13 @@ impl Compiler {
                 .map(|arg| arg.display_with(&self.interner))
                 .collect::<Vec<_>>()
                 .join("_");
-            let class_name = self.interner.resolve(class_def.name);
             for method in &class_def.methods {
                 let method_name = self.interner.resolve(method.name);
                 let mangled = crate::types::class_env::mangled_method_name(
-                    class_name,
+                    class_def.class_id(),
                     &type_key,
                     method_name,
+                    &self.interner,
                 );
                 match self.interner.lookup(&mangled) {
                     Some(symbol) => {
@@ -1408,6 +1461,96 @@ impl Compiler {
             .iter()
             .filter(|stmt| matches!(stmt, Statement::Module { .. }))
             .count();
+
+        if module_count > 1 {
+            // Keep each generated method with the module that owns its
+            // instance. A flat list is harmless for the VM but makes LLVM
+            // emit all same-named methods at file scope, where their symbols
+            // collide. The canonical ClassId-aware names are still used for
+            // the methods themselves; this placement supplies the native
+            // module ownership independently.
+            let mut module_methods: HashMap<Symbol, HashSet<Symbol>> = HashMap::new();
+            for stmt in &program.statements {
+                if let Statement::Module { name, .. } = stmt {
+                    module_methods.insert(*name, self.generated_instance_methods_for_module(*name));
+                }
+            }
+            let mut alias_seed_statements = program.statements.clone();
+            alias_seed_statements.extend(generated.iter().cloned());
+            let mut alias_ids = ExprIdGen::resuming_past_statements(&alias_seed_statements);
+            let belongs_to_module =
+                |name: Symbol| module_methods.values().any(|names| names.contains(&name));
+            let top_level_generated: Vec<_> = generated
+                .iter()
+                .filter(|stmt| match stmt {
+                    Statement::Function { name, .. } => !belongs_to_module(*name),
+                    _ => true,
+                })
+                .cloned()
+                .collect();
+            let first_non_import = program
+                .statements
+                .iter()
+                .position(|stmt| !matches!(stmt, Statement::Import { .. }))
+                .unwrap_or(program.statements.len());
+            let statements = program
+                .statements
+                .iter()
+                .cloned()
+                .enumerate()
+                .flat_map(|(idx, stmt)| {
+                    let mut emitted = Vec::new();
+                    if idx == first_non_import {
+                        emitted.extend(top_level_generated.clone());
+                    }
+                    match stmt {
+                        Statement::Module { name, body, span } => {
+                            let owned = module_methods.get(&name);
+                            let mut module_statements: Vec<_> = generated
+                                .iter()
+                                .filter(|generated| match generated {
+                                    Statement::Function { name, .. } => {
+                                        owned.is_some_and(|names| names.contains(name))
+                                    }
+                                    _ => false,
+                                })
+                                .cloned()
+                                .collect();
+                            module_statements.extend(body.statements.iter().cloned());
+                            emitted.push(Statement::Module {
+                                name,
+                                body: crate::syntax::block::Block {
+                                    statements: module_statements,
+                                    span: body.span,
+                                },
+                                span,
+                            });
+                            for generated in generated.iter().filter(|generated| match generated {
+                                Statement::Function { name, .. } => {
+                                    owned.is_some_and(|names| names.contains(name))
+                                }
+                                _ => false,
+                            }) {
+                                if let Some(alias) = self.generated_instance_method_alias(
+                                    name,
+                                    generated,
+                                    &mut alias_ids,
+                                ) {
+                                    emitted.push(alias);
+                                }
+                            }
+                        }
+                        other => emitted.push(other),
+                    }
+                    emitted
+                })
+                .collect();
+            return Program {
+                statements,
+                span: program.span,
+                doc_comments: program.doc_comments.clone(),
+            };
+        }
 
         if module_count == 1 {
             let module_name = program.statements.iter().find_map(|stmt| match stmt {
