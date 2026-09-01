@@ -1452,7 +1452,7 @@ instance MyEq<Int> {
 }
 
 #[test]
-fn builtin_dispatch_generates_extended_operator_methods() {
+fn prelude_instance_methods_come_from_source_not_the_generator() {
     let (program, mut interner) = parse(
         r#"
 fn needs<A: Eq + Ord + Num>(x: A, y: A) -> A {
@@ -1462,8 +1462,8 @@ fn needs<A: Eq + Ord + Num>(x: A, y: A) -> A {
     );
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
-
     env.register_prelude_classes(&mut interner);
+
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
         &program.statements,
         &env,
@@ -1482,53 +1482,19 @@ fn needs<A: Eq + Ord + Num>(x: A, y: A) -> A {
         })
         .collect();
 
-    for expected in [
-        "__tc_Eq_Int_neq",
-        "__tc_Ord_Int_gt",
-        "__tc_Ord_Int_lte",
-        "__tc_Num_Int_div",
-        "__tc_Semigroup_String_append",
-    ] {
-        assert!(
-            generated_names.iter().any(|name| name == expected),
-            "expected generated builtin dispatch function {expected}, got: {generated_names:?}"
-        );
-    }
-
-    for stmt in &generated {
-        if let Statement::Function {
-            name,
-            parameters,
-            parameter_types,
-            ..
-        } = stmt
-        {
-            let display_name = interner.resolve(*name);
-            if display_name.starts_with("__tc_")
-                || matches!(
-                    display_name,
-                    "eq" | "neq"
-                        | "compare"
-                        | "lt"
-                        | "lte"
-                        | "gt"
-                        | "gte"
-                        | "add"
-                        | "sub"
-                        | "mul"
-                        | "div"
-                        | "show"
-                        | "append"
-                )
-            {
-                assert_eq!(
-                    parameter_types.len(),
-                    parameters.len(),
-                    "generated method {display_name} should carry one parameter type per parameter"
-                );
-            }
-        }
-    }
+    // Before Proposal 0179 Stage 8 the built-in instances were phantom
+    // registrations with no bodies, and this generator synthesized
+    // `__tc_Eq_Int_eq` and friends from a match on class and method names.
+    // They are ordinary Flux instances now, so their methods are compiled from
+    // `lib/Flow/Eq.flx` like any other function and the generator has nothing
+    // to add. `builtin_method_body` still exists, but only `deriving` reaches
+    // it (see `can_derive_method`).
+    assert!(
+        !generated_names
+            .iter()
+            .any(|name| name.contains("_Eq_Int_") || name.contains("_Num_Int_")),
+        "prelude instance methods must come from source, not the generator: {generated_names:?}"
+    );
 }
 
 #[test]
@@ -1583,9 +1549,16 @@ instance Eq<a> => MyEq<List<a>> {
         "expected one quantified instance type param"
     );
     assert_eq!(interner.resolve(type_params[0].name), "a");
+    let eq_sym = interner.lookup("Eq").expect("Eq should be interned");
+    let eq_id = env
+        .classes
+        .keys()
+        .find(|id| id.name == eq_sym)
+        .copied()
+        .expect("Eq should be registered");
     assert_eq!(
         interner.resolve(parameters[0]),
-        "__dict_Eq",
+        flux::types::class_env::dictionary_prefix(eq_id, &interner),
         "expected contextual mangled method to take the instance context dictionary first"
     );
     assert!(
@@ -1752,10 +1725,17 @@ fn builtin_instances_registered() {
     );
 }
 
+/// Proposal 0179 Stage 8 moved `Eq` into `lib/Flow/Eq.flx`, so a program's own
+/// top-level `class Eq` no longer collides with a Rust registration — the two
+/// are different classes in different modules and both are registered.
+///
+/// It does shadow the prelude's for the operators, which resolve by short
+/// name: `1 == 2` then asks the user's `Eq` for an `Int` instance and is told
+/// there is none. That is a loud, deterministic error rather than a silent
+/// change of meaning, which is what matters here; `E444` naming the class is
+/// the diagnosis a reader needs.
 #[test]
-fn builtin_classes_not_overridden_by_user_redeclaration() {
-    // register_builtins runs first, then collect_from_statements sees the
-    // user's `class Eq` and reports E440 (duplicate). The builtin Eq stays.
+fn a_user_class_named_eq_shadows_the_prelude_for_operators() {
     let (env, diags, interner) = build_class_env(
         r#"
 class Eq<a> {
@@ -1764,17 +1744,27 @@ class Eq<a> {
 "#,
     );
     assert!(
-        diags.iter().any(|d| d.code() == Some("E440")),
-        "user redeclaring builtin Eq should trigger E440"
+        !diags.iter().any(|d| d.code() == Some("E440")),
+        "a user `class Eq` is no longer a duplicate of the prelude's: {diags:?}"
     );
+
     let eq = interner.lookup("Eq").expect("Eq interned");
-    let class = env.lookup_class(eq).expect("Eq class should exist");
-    // Builtin Eq has eq method — it should remain since user's was rejected
+    let owners: Vec<_> = env
+        .classes
+        .keys()
+        .filter(|id| id.name == eq)
+        .map(|id| id.module)
+        .collect();
+    assert_eq!(
+        owners.len(),
+        2,
+        "expected the prelude's `Eq` and the program's own to coexist"
+    );
     assert!(
-        class
-            .methods
+        owners
             .iter()
-            .any(|m| interner.resolve(m.name) == "eq")
+            .any(|module| ClassEnv::is_stdlib_module(*module, &interner)),
+        "the prelude's `Eq` must survive the program declaring one"
     );
 }
 
