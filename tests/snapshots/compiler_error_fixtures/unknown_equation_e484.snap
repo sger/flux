@@ -1,0 +1,41 @@
+---
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/unknown_equation_e484.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E480]: Missing Associated Type
+
+Instance does not define associated type `Element`, which `Collection` declares.
+
+  examples/compiler_errors/unknown_equation_e484.flx:18:1
+   |
+18 | instance Collection<List<a>> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+19 |     type Elment<List<a>> = a
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+20 |     fn size_of(xs) { 1 }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+21 | }
+   | ^
+
+Hint:
+  Add: `type Element<List<a>> = ...`
+
+
+error[E484]: Unknown Associated Type
+
+`Elment` is not an associated type of class `Collection`.
+
+  examples/compiler_errors/unknown_equation_e484.flx:19:5
+   |
+19 |     type Elment<List<a>> = a
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  `Collection` declares: Element
+
+Found 2 errors.
+== stdout ==
+<not executed>

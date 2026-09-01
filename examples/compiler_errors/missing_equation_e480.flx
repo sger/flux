@@ -1,0 +1,24 @@
+// expect: compile_error
+// expect-error: E480
+// Expected: E480 Missing Associated Type
+//   "Instance does not define associated type `Element`, which `Collection`
+//    declares."
+//   Hint: "Add: `type Element<List<a>> = ...`"
+//
+// Proposal 0179 Stage 6: a class's associated type must be defined by every
+// instance. Without the equation, an application at this instance's head has
+// nothing to reduce to — it would stay stuck at a type the compiler already
+// knows completely, which is exactly the case a stuck type is not for.
+
+class Collection<c> {
+    type Element<c>
+    fn size_of(xs: c) -> Int
+}
+
+instance Collection<List<a>> {
+    fn size_of(xs) { 1 }
+}
+
+fn main() with IO {
+    print(size_of([1]))
+}
