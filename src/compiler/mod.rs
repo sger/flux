@@ -3292,10 +3292,15 @@ impl Compiler {
         // class that shadows a built-in (`class Eq<a>` with only `eq`) then
         // fails both E440 and E442, which several tests and examples rely on.
         // It belongs with the built-in-shadowing work behind `is_builtin`.
+        //
+        // Proposal 0179 Stage 5 adds E445 (missing superclass instance) and
+        // E477 (superclass cycle). Neither is caught by the built-in-shadowing
+        // problem above: the built-in classes declare no superclasses, so both
+        // can only fire on a hierarchy the user wrote.
         let (errors, warnings): (Vec<_>, Vec<_>) = diagnostics.into_iter().partition(|diag| {
             matches!(
                 diag.code(),
-                Some("E453" | "E472" | "E473" | "E474" | "E475")
+                Some("E445" | "E453" | "E472" | "E473" | "E474" | "E475" | "E477")
             )
         });
         self.errors.extend(errors);

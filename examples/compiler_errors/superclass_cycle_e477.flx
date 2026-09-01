@@ -1,0 +1,27 @@
+// expect: compile_error
+// expect-error: E477
+// Expected: E477 Superclass Cycle
+//   "Class `Alpha` is reachable from its own superclasses: Alpha -> Beta -> Alpha."
+//   Hint: "Break the cycle by removing one of the superclass constraints;
+//    the superclass relation must be acyclic."
+//
+// Proposal 0179 Stage 5: the superclass relation must be acyclic, as in
+// Haskell (Report §4.3.1). A cyclic hierarchy has no base case, so an
+// `Alpha` dictionary would have to contain a `Beta` dictionary that contains
+// the `Alpha` dictionary again, and the superclass closure would not
+// terminate.
+//
+// One diagnostic per cycle, anchored at the first-declared class in it —
+// every other member reports the same loop from a different starting point.
+
+class Beta<a> => Alpha<a> {
+    fn alpha(x: a) -> Int
+}
+
+class Alpha<a> => Beta<a> {
+    fn beta(x: a) -> Int
+}
+
+fn main() with IO {
+    print(1)
+}
