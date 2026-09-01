@@ -93,7 +93,7 @@ fn sanitize_llvm_symbol_fragment(name: &str) -> String {
 }
 
 fn is_dict_lir_function(func: &LirFunction) -> bool {
-    func.is_dict_def || func.qualified_name.starts_with("__dict_")
+    func.is_dict_def || crate::types::class_env::is_dictionary_name(&func.qualified_name)
 }
 const RIGHT_TAG: i32 = 3;
 const CONS_TAG: i32 = 4;

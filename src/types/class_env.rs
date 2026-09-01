@@ -25,6 +25,7 @@ use super::super::diagnostics::compiler_errors::{
     INSTANCE_MISSING_METHOD, INSTANCE_TYPE_ARG_ARITY, INSTANCE_UNKNOWN_CLASS,
     MISSING_SUPERCLASS_INSTANCE, ORPHAN_INSTANCE, PUBLIC_CLASS_LEAKS_PRIVATE_TYPE,
     PUBLIC_INSTANCE_HAS_PRIVATE_HEAD, PUBLIC_INSTANCE_OF_PRIVATE_CLASS, SEALED_CLASS_INSTANCE,
+    SUPERCLASS_CYCLE,
 };
 
 /// Proposal 0151, Phase 2: per-ADT bookkeeping used by the orphan and
@@ -75,6 +76,18 @@ pub struct ClassDef {
     /// Methods that have default implementations in the class body.
     pub default_methods: Vec<Identifier>,
     pub span: Span,
+}
+
+/// One slot of a class's dictionary tuple.
+///
+/// See [`ClassEnv::dictionary_layout`] for the ordering and why it is defined
+/// in exactly one place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DictSlot {
+    /// Evidence for a directly declared superclass — itself a dictionary.
+    Superclass(ClassId),
+    /// One of the class's own method implementations.
+    Method(Identifier),
 }
 
 impl ClassDef {
@@ -285,7 +298,346 @@ impl ClassEnv {
         // Sendable is compiler-owned and authorizes worker-boundary transfer.
         Self::synthesize_sendable_instances(statements, ModulePath::EMPTY, self, interner);
 
+        // Proposal 0179 Stage 5: superclass obligations are checked here,
+        // after every class and instance is collected, so the result does not
+        // depend on the order the source happens to declare them in.
+        diagnostics.extend(self.validate_superclass_obligations(interner));
+
         diagnostics
+    }
+
+    /// The slot assignment for a class's dictionary tuple.
+    ///
+    /// Superclass evidence occupies the leading slots, method implementations
+    /// follow, both in declaration order. This is the single definition of the
+    /// layout: everything that builds a dictionary or reads a slot out of one
+    /// derives its offsets from here rather than recomputing the convention.
+    ///
+    /// Evidence leads because it makes a slot's offset independent of how many
+    /// methods the class declares.
+    ///
+    /// Only *directly* declared superclasses get a slot. A transitive one is
+    /// reached by projecting twice, which is what keeps the layout of a class
+    /// independent of hierarchies declared above it.
+    pub fn dictionary_layout(&self, id: ClassId) -> Option<Vec<DictSlot>> {
+        let class_def = self.lookup_class_by_id(id)?;
+        Some(
+            class_def
+                .superclass_class_ids
+                .iter()
+                .map(|&superclass| DictSlot::Superclass(superclass))
+                .chain(
+                    class_def
+                        .methods
+                        .iter()
+                        .map(|method| DictSlot::Method(method.name)),
+                )
+                .collect(),
+        )
+    }
+
+    /// The slot holding `method`'s implementation in a dictionary for `id`.
+    pub fn method_slot(&self, id: ClassId, method: Identifier) -> Option<usize> {
+        let class_def = self.lookup_class_by_id(id)?;
+        let position = class_def.methods.iter().position(|m| m.name == method)?;
+        Some(class_def.superclass_class_ids.len() + position)
+    }
+
+    /// The symbol name held by each slot of the dictionary for one instance head.
+    ///
+    /// `type_key` is the rendered instance head that [`dictionary_name`] and
+    /// [`mangled_method_name`] mangle into their symbols. Superclass slots name
+    /// the superclass's dictionary for the *same* head, because
+    /// `class Eq<a> => Ord<a>` constrains the very type the instance is for.
+    ///
+    /// Returns `None` for an unknown class, so a caller can tell "no layout"
+    /// from "a layout with no slots".
+    pub fn dictionary_slot_names(
+        &self,
+        id: ClassId,
+        type_key: &str,
+        interner: &Interner,
+    ) -> Option<Vec<String>> {
+        Some(
+            self.dictionary_layout(id)?
+                .into_iter()
+                .map(|slot| match slot {
+                    DictSlot::Superclass(superclass) => {
+                        dictionary_name(superclass, type_key, interner)
+                    }
+                    DictSlot::Method(method) => {
+                        mangled_method_name(id, type_key, interner.resolve(method), interner)
+                    }
+                })
+                .collect(),
+        )
+    }
+
+    /// The slot path from a dictionary for `from` to the evidence for `to`.
+    ///
+    /// Empty is not a valid answer — `from == to` needs no projection — so
+    /// `None` means `to` is not among `from`'s transitive superclasses.
+    /// Breadth-first, so the path returned is the shortest one.
+    pub fn superclass_path(&self, from: ClassId, to: ClassId) -> Option<Vec<usize>> {
+        let mut visited = vec![from];
+        let mut queue = std::collections::VecDeque::from([(from, Vec::new())]);
+
+        while let Some((current, prefix)) = queue.pop_front() {
+            let Some(class_def) = self.lookup_class_by_id(current) else {
+                continue;
+            };
+            for (idx, &superclass) in class_def.superclass_class_ids.iter().enumerate() {
+                let mut path = prefix.clone();
+                path.push(idx);
+                if superclass == to {
+                    return Some(path);
+                }
+                if !visited.contains(&superclass) {
+                    visited.push(superclass);
+                    queue.push_back((superclass, path));
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Transitive superclasses of `id`, nearest first and deduplicated.
+    ///
+    /// Breadth-first over declaration order, so the result is deterministic and
+    /// its prefix is the class's own directly declared superclasses — which is
+    /// what makes it usable as a dictionary slot assignment.
+    ///
+    /// Returns empty for an unknown class, and stops rather than looping if the
+    /// hierarchy is cyclic; [`validate_superclass_obligations`] rejects a cycle
+    /// with E477 before anything relies on the closure.
+    ///
+    /// [`validate_superclass_obligations`]: Self::validate_superclass_obligations
+    pub fn superclass_closure(&self, id: ClassId) -> Vec<ClassId> {
+        let mut ordered: Vec<ClassId> = Vec::new();
+        let mut queue: std::collections::VecDeque<ClassId> = std::collections::VecDeque::new();
+        queue.push_back(id);
+
+        while let Some(current) = queue.pop_front() {
+            let Some(class_def) = self.lookup_class_by_id(current) else {
+                continue;
+            };
+            for &parent in &class_def.superclass_class_ids {
+                if parent == id || ordered.contains(&parent) {
+                    continue;
+                }
+                ordered.push(parent);
+                queue.push_back(parent);
+            }
+        }
+
+        ordered
+    }
+
+    /// The chain of classes leading `id` back to itself, if one exists.
+    ///
+    /// Returned nearest-first and ending at `id` again, so it renders as the
+    /// path a reader has to follow to see the cycle (`Ord -> Eq -> Ord`).
+    fn superclass_cycle_from(&self, id: ClassId) -> Option<Vec<ClassId>> {
+        fn walk(
+            env: &ClassEnv,
+            current: ClassId,
+            target: ClassId,
+            path: &mut Vec<ClassId>,
+            seen: &mut Vec<ClassId>,
+        ) -> bool {
+            let Some(class_def) = env.lookup_class_by_id(current) else {
+                return false;
+            };
+            for &parent in &class_def.superclass_class_ids {
+                path.push(parent);
+                if parent == target {
+                    return true;
+                }
+                if !seen.contains(&parent) {
+                    seen.push(parent);
+                    if walk(env, parent, target, path, seen) {
+                        return true;
+                    }
+                }
+                path.pop();
+            }
+            false
+        }
+
+        let mut path = vec![id];
+        let mut seen = vec![id];
+        walk(self, id, id, &mut path, &mut seen).then_some(path)
+    }
+
+    /// Proposal 0179 Stage 5: check every superclass obligation in the program.
+    ///
+    /// Two checks, in this order because the second cannot terminate without
+    /// the first:
+    ///
+    /// - **E477** — a class that reaches itself through its own superclass
+    ///   declarations. A dictionary for it would have to contain itself, and
+    ///   the superclass closure would not terminate.
+    /// - **E445** — `instance Ord<T>` without the `instance Eq<T>` that
+    ///   `class Eq<a> => Ord<a>` demands, checked transitively.
+    ///
+    /// Runs once the whole environment is populated. It used to run inline
+    /// while instances were being collected, which meant it could only see the
+    /// instances declared *above* the one it was checking, so writing the
+    /// subclass instance first produced a false error.
+    pub fn validate_superclass_obligations(&self, interner: &Interner) -> Vec<Diagnostic> {
+        let mut diagnostics = Vec::new();
+
+        // `self.classes` is a `HashMap`, so walk it in declaration order to keep
+        // the choice of which class anchors a cycle's diagnostic stable.
+        let mut declared: Vec<&ClassDef> = self.classes.values().collect();
+        declared.sort_by_key(|class_def| {
+            let start = class_def.span.start;
+            (start.line, start.column, interner.resolve(class_def.name))
+        });
+
+        let mut cyclic: Vec<ClassId> = Vec::new();
+        for class_def in declared {
+            let id = class_def.class_id();
+            let Some(cycle) = self.superclass_cycle_from(id) else {
+                continue;
+            };
+            // One diagnostic per cycle, anchored at its first-declared class —
+            // every other member would report the same loop from a different
+            // starting point.
+            let already_reported = cycle.iter().any(|step| cyclic.contains(step));
+            for &step in &cycle {
+                if !cyclic.contains(&step) {
+                    cyclic.push(step);
+                }
+            }
+            if already_reported {
+                continue;
+            }
+            let path = cycle
+                .iter()
+                .map(|step| interner.resolve(step.name))
+                .collect::<Vec<_>>()
+                .join(" -> ");
+            let display_class = interner.resolve(id.name);
+            diagnostics.push(
+                diagnostic_for(&SUPERCLASS_CYCLE)
+                    .with_span(class_def.span)
+                    .with_message(format!(
+                        "Class `{display_class}` is reachable from its own superclasses: {path}."
+                    )),
+            );
+        }
+
+        for instance in &self.instances {
+            if cyclic.contains(&instance.class_id) {
+                continue;
+            }
+            for superclass_id in self.superclass_closure(instance.class_id) {
+                if self.head_has_instance(superclass_id, &instance.type_args, interner) {
+                    continue;
+                }
+                let display_class = interner.resolve(instance.class_id.name);
+                let super_display = interner.resolve(superclass_id.name);
+                let head = instance
+                    .type_args
+                    .iter()
+                    .map(|arg| arg.display_with(interner))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                diagnostics.push(
+                    diagnostic_for(&MISSING_SUPERCLASS_INSTANCE)
+                        .with_span(instance.span)
+                        .with_message(format!(
+                            "No instance for `{super_display}<{head}>` \
+                             (required by `{display_class}<{head}>`)."
+                        ))
+                        .with_hint_text(format!(
+                            "`{display_class}` requires `{super_display}` as a superclass. \
+                             Add: `instance {super_display}<{head}> {{ ... }}`"
+                        )),
+                );
+            }
+        }
+
+        diagnostics
+    }
+
+    /// Whether some instance of `class_id` covers the head `subject`.
+    ///
+    /// Structural, not textual: an `instance Eq<a> => Eq<Array<a>>` discharges
+    /// the obligation raised by `instance Ord<Array<b>>`, which comparing the
+    /// two rendered heads as strings never could.
+    fn head_has_instance(
+        &self,
+        class_id: ClassId,
+        subject: &[TypeExpr],
+        interner: &Interner,
+    ) -> bool {
+        self.instances.iter().any(|candidate| {
+            if candidate.class_id != class_id || candidate.type_args.len() != subject.len() {
+                return false;
+            }
+            let mut subst = HashMap::new();
+            candidate
+                .type_args
+                .iter()
+                .zip(subject)
+                .all(|(pattern, actual)| {
+                    Self::match_instance_head(pattern, actual, &mut subst, interner)
+                })
+        })
+    }
+
+    /// One-way match of an instance head `pattern` against another head.
+    ///
+    /// The `TypeExpr`/`TypeExpr` counterpart of
+    /// [`match_instance_type_expr`](Self::match_instance_type_expr), which
+    /// matches a head against an inferred type. Only the pattern's type
+    /// variables bind; the subject's are rigid, so `Eq<Array<a>>` matches the
+    /// head `Array<b>` but `Eq<Array<Int>>` does not.
+    fn match_instance_head(
+        pattern: &TypeExpr,
+        subject: &TypeExpr,
+        subst: &mut HashMap<Identifier, TypeExpr>,
+        interner: &Interner,
+    ) -> bool {
+        match (pattern, subject) {
+            (TypeExpr::Named { name, args, .. }, _)
+                if args.is_empty() && Self::is_instance_type_var(*name, interner) =>
+            {
+                match subst.get(name) {
+                    // Compared as rendered types rather than with `==`: a
+                    // `TypeExpr` carries its `Span`, so two occurrences of the
+                    // same type are never structurally equal.
+                    Some(bound) => bound.display_with(interner) == subject.display_with(interner),
+                    None => {
+                        subst.insert(*name, subject.clone());
+                        true
+                    }
+                }
+            }
+            (
+                TypeExpr::Named {
+                    name,
+                    args: pattern_args,
+                    ..
+                },
+                TypeExpr::Named {
+                    name: subject_name,
+                    args: subject_args,
+                    ..
+                },
+            ) => {
+                name == subject_name
+                    && pattern_args.len() == subject_args.len()
+                    && pattern_args
+                        .iter()
+                        .zip(subject_args)
+                        .all(|(p, s)| Self::match_instance_head(p, s, subst, interner))
+            }
+            _ => false,
+        }
     }
 
     /// Phase 2 instance-visibility walker — enforces E450 (public instance
@@ -1042,53 +1394,6 @@ impl ClassEnv {
                         }
                     }
 
-                    // Validate superclass instances exist.
-                    // If class Ord has superclass Eq, then instance Ord<Int>
-                    // requires instance Eq<Int> to already exist.
-                    for (superclass_index, superclass) in class_def.superclasses.iter().enumerate()
-                    {
-                        let Some(superclass_id) = class_def
-                            .superclass_class_ids
-                            .get(superclass_index)
-                            .copied()
-                        else {
-                            continue;
-                        };
-                        let super_class_name = superclass.class_name;
-                        let super_display = interner.resolve(super_class_name);
-                        let type_display: Vec<String> =
-                            type_args.iter().map(|t| t.display_with(interner)).collect();
-                        let type_display_str = type_display.join(", ");
-
-                        let has_super_instance = env.instances.iter().any(|inst| {
-                            if inst.class_id != superclass_id {
-                                return false;
-                            }
-                            let inst_types: Vec<String> = inst
-                                .type_args
-                                .iter()
-                                .map(|t| t.display_with(interner))
-                                .collect();
-                            inst_types.join(", ") == type_display_str
-                        });
-
-                        if !has_super_instance {
-                            let display_class = interner.resolve(*class_name);
-                            diagnostics.push(
-                                diagnostic_for(&MISSING_SUPERCLASS_INSTANCE)
-                                    .with_span(*span)
-                                    .with_message(format!(
-                                        "No instance for `{super_display}<{type_display_str}>` \
-                                         (required by `{display_class}<{type_display_str}>`)."
-                                    ))
-                                    .with_hint_text(format!(
-                                        "`{display_class}` requires `{super_display}` as a superclass. \
-                                         Add: `instance {super_display}<{type_display_str}> {{ ... }}`"
-                                    )),
-                            );
-                        }
-                    }
-
                     env.instances.push(InstanceDef {
                         class_name: *class_name,
                         // Phase 1b Step 4: canonical ClassId of the class
@@ -1404,8 +1709,7 @@ impl ClassEnv {
     ///
     /// Linear scan via [`lookup_class`](Self::lookup_class).
     pub fn method_index(&self, class_name: Identifier, method_name: Identifier) -> Option<usize> {
-        let class_def = self.lookup_class(class_name)?;
-        class_def.methods.iter().position(|m| m.name == method_name)
+        self.method_slot(self.lookup_class(class_name)?.class_id(), method_name)
     }
 
     // ========================================================================
@@ -1462,8 +1766,7 @@ impl ClassEnv {
     /// Return the positional index of a method within a class identified by
     /// `ClassId`.
     pub fn method_index_by_id(&self, id: ClassId, method_name: Identifier) -> Option<usize> {
-        let class_def = self.lookup_class_by_id(id)?;
-        class_def.methods.iter().position(|m| m.name == method_name)
+        self.method_slot(id, method_name)
     }
 
     /// Resolve an instance against concrete inferred type arguments, using a
@@ -1886,14 +2189,13 @@ impl ClassEnv {
     /// Expand a pre-interned `__dict_{Class}_{Type}` name into the ordered
     /// mangled method symbols that make up the dictionary tuple, if this name
     /// corresponds to a known instance.
-    pub fn dictionary_method_symbols(
+    pub fn dictionary_slot_symbols(
         &self,
         dict_name: Identifier,
         interner: &Interner,
     ) -> Option<Vec<Identifier>> {
         let dict_name_str = interner.resolve(dict_name);
         self.instances.iter().find_map(|instance| {
-            let class_def = self.lookup_class_by_id(instance.class_id)?;
             let type_name = instance
                 .type_args
                 .iter()
@@ -1905,18 +2207,9 @@ impl ClassEnv {
                 return None;
             }
 
-            class_def
-                .methods
+            self.dictionary_slot_names(instance.class_id, &type_name, interner)?
                 .iter()
-                .map(|method_sig| {
-                    let method_str = interner.resolve(method_sig.name);
-                    interner.lookup(&mangled_method_name(
-                        instance.class_id,
-                        &type_name,
-                        method_str,
-                        interner,
-                    ))
-                })
+                .map(|name| interner.lookup(name))
                 .collect()
         })
     }
@@ -2430,7 +2723,7 @@ pub fn mangled_method_name(
 /// Render the canonical dictionary global for a concrete instance head.
 pub fn dictionary_name(class_id: ClassId, type_key: &str, interner: &Interner) -> String {
     format!(
-        "__dict_{}_{}",
+        "{DICTIONARY_PREFIX}{}_{}",
         class_symbol_name(class_id, interner),
         type_key
     )
@@ -2438,8 +2731,22 @@ pub fn dictionary_name(class_id: ClassId, type_key: &str, interner: &Interner) -
 
 /// Render the canonical prefix used for contextual dictionary parameters.
 pub fn dictionary_prefix(class_id: ClassId, interner: &Interner) -> String {
-    format!("__dict_{}", class_symbol_name(class_id, interner))
+    format!(
+        "{DICTIONARY_PREFIX}{}",
+        class_symbol_name(class_id, interner)
+    )
 }
+
+/// Whether `name` was built by [`dictionary_prefix`] or [`dictionary_name`].
+///
+/// The same reasoning as [`is_generated_instance_method`]: several passes
+/// recognise a dictionary by its prefix, so the spelling is asked for here
+/// rather than written out at each site.
+pub fn is_dictionary_name(name: &str) -> bool {
+    name.starts_with(DICTIONARY_PREFIX)
+}
+
+const DICTIONARY_PREFIX: &str = "__dict_";
 
 /// Render a class identity for generated symbols. Legacy top-level classes
 /// retain their historical spelling; module-owned classes include an

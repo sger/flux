@@ -374,7 +374,8 @@ fn collect_module_paths(
 /// its file's stem. Both naming paths in this module must agree on this, or one
 /// emits a definition the other has already emitted.
 fn is_generated_symbol_name(name: &str) -> bool {
-    crate::types::class_env::is_generated_instance_method(name) || name.starts_with("__dict_")
+    crate::types::class_env::is_generated_instance_method(name)
+        || crate::types::class_env::is_dictionary_name(name)
 }
 
 /// Build a map from `CoreBinderId` → module-qualified name by cross-referencing
@@ -5378,7 +5379,8 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
             async_indirect_calls: ctx.async_effect_binders.contains(&def.binder.id),
         },
     );
-    ctx.func.is_dict_def = def.is_dict_def || ctx.func.qualified_name.starts_with("__dict_");
+    ctx.func.is_dict_def =
+        def.is_dict_def || crate::types::class_env::is_dictionary_name(&ctx.func.qualified_name);
 
     // Register top-level binders for direct call resolution.
     // Unlike the old approach (which created MakeClosure for every sibling),
@@ -5446,7 +5448,8 @@ fn lower_aether_def(def: &crate::aether::AetherDef, ctx: LowerDefCtx<'_>) -> Lir
             async_indirect_calls: ctx.async_effect_binders.contains(&def.binder.id),
         },
     );
-    ctx.func.is_dict_def = def.is_dict_def || ctx.func.qualified_name.starts_with("__dict_");
+    ctx.func.is_dict_def =
+        def.is_dict_def || crate::types::class_env::is_dictionary_name(&ctx.func.qualified_name);
 
     ctx.func.result_rep = result_rep_for_aether_def_expr(&def.expr, def.result_ty.as_ref());
 

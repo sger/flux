@@ -1,0 +1,38 @@
+// Proposal 0179 Stage 5 contract: a generic function constrained on a subclass
+// can call its superclass's methods.
+//
+// `describe` holds one dictionary, the `Measurable` one. `weight` is that
+// class's own method and reads a method slot directly; `size` belongs to the
+// superclass `Sizeable`, and is reached through the superclass evidence the
+// `Measurable` dictionary carries in its leading slot — `__dict_Measurable.0.0`.
+//
+// Before Stage 5 a dictionary held method slots only, so there was nothing for
+// `size` to dispatch through and the call fell back to the generated stub that
+// panics with "No instance of Sizeable.size for the given type".
+//
+// Expected output:
+// 505
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+class Sizeable<a> => Measurable<a> {
+    fn weight(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+instance Sizeable<Int> => Measurable<Int> {
+    fn weight(x) { x * 100 }
+}
+
+fn describe<a: Measurable>(x: a) -> Int {
+    size(x) + weight(x)
+}
+
+fn main() with IO {
+    print(describe(5))
+}

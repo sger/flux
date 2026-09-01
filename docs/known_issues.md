@@ -1651,3 +1651,51 @@ the stem only for a file that declares no module, would remove the collision.
 Discovered while adding `examples/type_classes/qualified_class_id.flx`, which
 was written with both modules in `Render.flx` and had to be restructured to
 distinct stems to compile natively. The VM is unaffected.
+
+### KI-057 — A method reachable from two dictionaries always uses the first
+
+**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-01 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+A function holding two dictionaries for the same class, over *different* type
+variables, dispatches every call to the first of them:
+
+```flux
+class Root<a> { fn root(x: a) -> Int }
+
+instance Root<Int>    { fn root(x) { x } }
+instance Root<String> { fn root(x) { 7 } }
+
+fn both<a: Root, b: Root>(x: a, y: b) -> Int {
+    root(x) + root(y)
+}
+
+fn main() with IO {
+    print(both(5, "hi"))       // prints 14; should print 12
+}
+```
+
+`root(x)` must dispatch through `a`'s dictionary and `root(y)` through `b`'s.
+Both go through one of them, so the answer is `7 + 7` rather than `5 + 7`. Wrong
+output, not a crash, on **both backends**.
+
+The cause is that a class method is mapped to a dictionary by *name alone*.
+Natively that map is `method_map` in
+[`dict_elaborate.rs`](../src/core/passes/dict_elaborate.rs), keyed on the method
+identifier; on the VM it is `dictionary_path_to_method` in
+[`expression.rs`](../src/compiler/expression.rs). Neither consults the type of
+the argument at the call site, so the constraint a call belongs to is never
+determined and the first matching dictionary parameter wins.
+
+KI-052 fixed the *naming* half of this — a second dictionary for one class is
+now a distinct parameter, `__dict_Root_1`. This is the *selection* half: the
+parameters are distinct but nothing chooses between them.
+
+**This predates Stage 5.** The reproduction above uses no superclasses and
+prints `14` on `main` as well. Superclass evidence inherits the same limitation
+— two constraints whose closures both reach one superclass pick that superclass's
+evidence from whichever dictionary is found first — but does not cause it.
+
+The fix is to resolve the call's predicate from its argument types, as
+`resolve_direct_class_call_dict_args_ast` already does for direct dispatch, and
+select the dictionary parameter whose constraint matches, rather than taking the
+first entry keyed on the method name.

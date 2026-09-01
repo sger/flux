@@ -4703,39 +4703,98 @@ impl Compiler {
                 .unwrap_or(crate::types::class_id::ModulePath::EMPTY),
             name,
         )?;
-        let class_def = self.class_env.lookup_class_by_id(class_id)?;
-        let method_index = self.class_env.method_index_by_id(class_id, name)?;
-        let dict_name =
-            crate::types::class_env::dictionary_prefix(class_def.class_id(), &self.interner);
-        // CFG/Core retain the canonical `__dict_Class` name. The Aether
-        // fallback can expose the same hidden parameter under the class name
-        // (`Class`) after binder normalization, so accept that representation
-        // when it is a local binding in the current function.
-        let dict_sym = self
-            .interner
+        let (dict_sym, path) = self.dictionary_path_to_method(class_id, name)?;
+
+        let callee = path.into_iter().fold(
+            Expression::Identifier {
+                name: dict_sym,
+                span: function_span,
+                id: crate::syntax::expression::ExprId::UNSET,
+            },
+            |object, index| Expression::TupleFieldAccess {
+                object: Box::new(object),
+                index,
+                span: function_span,
+                id: crate::syntax::expression::ExprId::UNSET,
+            },
+        );
+
+        Some(Expression::Call {
+            function: Box::new(callee),
+            arguments: arguments.to_vec(),
+            span: call_span,
+            id: crate::syntax::expression::ExprId::UNSET,
+        })
+    }
+
+    /// Find a dictionary in scope that reaches `method` of `class_id`, and the
+    /// slot path from it to that method.
+    ///
+    /// The method's own class dictionary is preferred. Failing that, any
+    /// dictionary in scope whose superclass closure includes `class_id` will
+    /// do — `fn f<a: Ord>` holds only `__dict_Ord`, so a call to `eq` is
+    /// reached as slot 0 of that dictionary (`Ord`'s `Eq` evidence) and then
+    /// `eq`'s slot inside it.
+    fn dictionary_path_to_method(
+        &mut self,
+        class_id: crate::types::class_id::ClassId,
+        method: crate::syntax::Identifier,
+    ) -> Option<(crate::syntax::Identifier, Vec<usize>)> {
+        let method_index = self.class_env.method_index_by_id(class_id, method)?;
+        if let Some(dict_sym) = self.dictionary_in_scope(class_id) {
+            return Some((dict_sym, vec![method_index]));
+        }
+
+        // `holder` is a class whose dictionary is in scope; walk from it down
+        // to `class_id` through superclass slots. Only classes that actually
+        // reach `class_id` are worth probing the symbol table for.
+        let mut holders: Vec<(crate::types::class_id::ClassId, Vec<usize>)> = self
+            .class_env
+            .classes
+            .values()
+            .filter_map(|holder| {
+                let holder_id = holder.class_id();
+                Some((
+                    holder_id,
+                    self.class_env.superclass_path(holder_id, class_id)?,
+                ))
+            })
+            .collect();
+        // `classes` is a `HashMap`: order by nearest holder, then by name, so
+        // which dictionary a call projects through does not vary run to run.
+        holders.sort_by_key(|(holder_id, path)| {
+            (
+                path.len(),
+                self.interner.resolve(holder_id.name).to_string(),
+            )
+        });
+
+        holders.into_iter().find_map(|(holder_id, mut path)| {
+            let dict_sym = self.dictionary_in_scope(holder_id)?;
+            path.push(method_index);
+            Some((dict_sym, path))
+        })
+    }
+
+    /// The symbol naming an in-scope dictionary for `class_id`, if there is one.
+    ///
+    /// CFG/Core retain the canonical `__dict_Class` name. The Aether fallback
+    /// can expose the same hidden parameter under the class name (`Class`)
+    /// after binder normalization, so accept that representation too when it is
+    /// a local binding in the current function.
+    fn dictionary_in_scope(
+        &mut self,
+        class_id: crate::types::class_id::ClassId,
+    ) -> Option<crate::syntax::Identifier> {
+        let dict_name = crate::types::class_env::dictionary_prefix(class_id, &self.interner);
+        self.interner
             .lookup(&dict_name)
             .filter(|symbol| self.symbol_table.resolve(*symbol).is_some())
             .or_else(|| {
                 self.symbol_table
                     .resolve(class_id.name)
                     .map(|_| class_id.name)
-            })?;
-
-        Some(Expression::Call {
-            function: Box::new(Expression::TupleFieldAccess {
-                object: Box::new(Expression::Identifier {
-                    name: dict_sym,
-                    span: function_span,
-                    id: crate::syntax::expression::ExprId::UNSET,
-                }),
-                index: method_index,
-                span: function_span,
-                id: crate::syntax::expression::ExprId::UNSET,
-            }),
-            arguments: arguments.to_vec(),
-            span: call_span,
-            id: crate::syntax::expression::ExprId::UNSET,
-        })
+            })
     }
 
     fn try_build_constrained_user_fn_call(
@@ -5070,8 +5129,7 @@ impl Compiler {
         span: Span,
     ) -> Expression {
         if dict_ref.context_args.is_empty() {
-            if let Some(method_names) = self.dictionary_method_symbol_names_ast(dict_ref.dict_name)
-            {
+            if let Some(method_names) = self.dictionary_slot_symbol_names_ast(dict_ref.dict_name) {
                 return Expression::TupleLiteral {
                     elements: method_names
                         .into_iter()
@@ -5093,7 +5151,7 @@ impl Compiler {
             }
             if let Some(methods) = self
                 .class_env
-                .dictionary_method_symbols(dict_ref.dict_name, &self.interner)
+                .dictionary_slot_symbols(dict_ref.dict_name, &self.interner)
             {
                 return Expression::TupleLiteral {
                     elements: methods
@@ -5131,13 +5189,12 @@ impl Compiler {
         }
     }
 
-    fn dictionary_method_symbol_names_ast(
+    fn dictionary_slot_symbol_names_ast(
         &self,
         dict_name: crate::syntax::Identifier,
     ) -> Option<Vec<String>> {
         let dict_name_str = self.interner.resolve(dict_name);
         self.class_env.instances.iter().find_map(|instance| {
-            let class_def = self.class_env.lookup_class_by_id(instance.class_id)?;
             let type_name = instance
                 .type_args
                 .iter()
@@ -5153,21 +5210,8 @@ impl Compiler {
             {
                 return None;
             }
-            Some(
-                class_def
-                    .methods
-                    .iter()
-                    .map(|method_sig| {
-                        let method_str = self.interner.resolve(method_sig.name);
-                        crate::types::class_env::mangled_method_name(
-                            instance.class_id,
-                            &type_name,
-                            method_str,
-                            &self.interner,
-                        )
-                    })
-                    .collect(),
-            )
+            self.class_env
+                .dictionary_slot_names(instance.class_id, &type_name, &self.interner)
         })
     }
 }
