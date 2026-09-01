@@ -64,6 +64,9 @@ pub struct PublicClassEntry {
     pub type_params: Vec<Identifier>,
     #[serde(default)]
     pub superclasses: Vec<ClassConstraint>,
+    /// Owning module for each superclass, parallel to `superclasses`.
+    #[serde(default)]
+    pub superclass_class_modules: Vec<String>,
     #[serde(default)]
     pub methods: Vec<PublicClassMethodEntry>,
     #[serde(default)]
@@ -98,6 +101,9 @@ pub struct PublicInstanceEntry {
     pub type_args: Vec<TypeExpr>,
     #[serde(default)]
     pub context: Vec<ClassConstraint>,
+    /// Owning module for each contextual class, parallel to `context`.
+    #[serde(default)]
+    pub context_class_modules: Vec<String>,
     #[serde(default)]
     pub methods: Vec<PublicInstanceMethodEntry>,
     #[serde(default)]

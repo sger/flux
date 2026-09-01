@@ -52,6 +52,35 @@ impl<'a> InferCtx<'a> {
         InferType::App(TypeConstructor::Option, vec![joined])
     }
 
+    /// The scheme of `module.member`, however the module was named.
+    ///
+    /// Schemes preloaded for an importing file are keyed by the import binding
+    /// **as written** (`build_preloaded_hm_member_schemes`), while schemes
+    /// captured from a module body are keyed by its declared name. Both spellings
+    /// must be tried: resolving the alias *instead of* consulting the written
+    /// name drops every preloaded entry, which is silent — the member degrades
+    /// to a fallback variable and surfaces later as E430 at the call site, or,
+    /// where the lookup is a guard rather than a source of types, as a check
+    /// that simply stops firing.
+    pub(super) fn module_member_scheme(
+        &self,
+        module_name: Identifier,
+        member: Identifier,
+    ) -> Option<&crate::types::scheme::Scheme> {
+        self.module_member_schemes
+            .get(&(module_name, member))
+            .or_else(|| {
+                self.module_aliases
+                    .get(&module_name)
+                    .and_then(|target| self.module_member_schemes.get(&(*target, member)))
+            })
+    }
+
+    /// Whether `module.member` resolves to a known member under either spelling.
+    pub(super) fn knows_module_member(&self, module_name: Identifier, member: Identifier) -> bool {
+        self.module_member_scheme(module_name, member).is_some()
+    }
+
     /// Infer module/member access resolution.
     pub(super) fn infer_member_access_expression(
         &mut self,
@@ -62,10 +91,15 @@ impl<'a> InferCtx<'a> {
         if let Expression::Identifier {
             name: module_name, ..
         } = object
-            && let Some(scheme) = self
-                .module_member_schemes
-                .get(&(*module_name, member))
-                .cloned()
+            // Preloaded schemes are keyed by the import binding as written
+            // (`build_preloaded_hm_member_schemes`), while schemes captured
+            // from a module body are keyed by its declared name. Try the name
+            // as written first, then the module the alias resolves to, so
+            // neither form of key is missed — resolving the alias *instead of*
+            // consulting the written name drops every preloaded entry and the
+            // member degrades to a fallback variable, which surfaces as E430
+            // at the call site rather than here.
+            && let Some(scheme) = self.module_member_scheme(*module_name, member).cloned()
         {
             let (ty, mapping, constraints) = scheme.instantiate(&mut self.env.counter);
             let fresh_vars = mapping.values().copied().collect::<Vec<_>>();

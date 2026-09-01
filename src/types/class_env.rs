@@ -48,10 +48,9 @@ pub struct ClassDef {
     /// `module` block, e.g. `Flow.Foldable`. For top-level (legacy) class
     /// declarations and built-in classes, this is `ModulePath::EMPTY`.
     ///
-    /// Phase 1b Step 1 only **records** the owning module — `ClassEnv` is
-    /// still keyed by the bare class name, so two classes with the same
-    /// short name in different modules will currently still collide via the
-    /// duplicate-class diagnostic. The storage flip lands in a later step.
+    /// Semantic class lookup is keyed by the full [`ClassId`]. The short name
+    /// remains on the definition for source spelling and diagnostics only, so
+    /// same-named classes in different modules remain distinct.
     pub module: ModulePath,
     /// Proposal 0151, Phase 2: visibility of this class declaration.
     ///
@@ -70,6 +69,8 @@ pub struct ClassDef {
     pub is_builtin: bool,
     pub type_params: Vec<Identifier>,
     pub superclasses: Vec<ClassConstraint>,
+    /// Resolved identities corresponding positionally to `superclasses`.
+    pub superclass_class_ids: Vec<ClassId>,
     pub methods: Vec<MethodSig>,
     /// Methods that have default implementations in the class body.
     pub default_methods: Vec<Identifier>,
@@ -150,6 +151,8 @@ pub struct InstanceDef {
     pub is_public: bool,
     pub type_args: Vec<TypeExpr>,
     pub context: Vec<ClassConstraint>,
+    /// Resolved identities corresponding positionally to `context`.
+    pub context_class_ids: Vec<ClassId>,
     pub method_names: Vec<Identifier>,
     /// Declared effect rows for methods implemented by this instance.
     ///
@@ -174,12 +177,9 @@ pub struct InstanceDef {
 ///
 /// **Compatibility shims:** the legacy bare-`Identifier` lookup methods
 /// ([`lookup_class`](Self::lookup_class), [`method_to_class`](Self::method_to_class),
-/// [`method_index`](Self::method_index)) still exist and perform a linear
-/// scan finding the first class with a matching short name. This keeps the
-/// pre-Step-3 call sites working without forcing a flag-day migration.
-/// The shims are first-match-wins and non-deterministic when two classes
-/// share a short name across modules; they exist to bridge to a later
-/// step which migrates callers to `ClassId`-keyed lookups.
+/// [`method_index`](Self::method_index)) remain only for source-resolution,
+/// diagnostics, and old tooling APIs. Semantic consumers use the ClassId-keyed
+/// methods below; they must not depend on the shims' iteration order.
 #[derive(Debug, Clone, Default)]
 pub struct ClassEnv {
     /// `ClassId` → class definition. (Phase 1b Step 3 — was previously
@@ -206,6 +206,7 @@ pub struct ResolvedDictionaryRef {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct InstanceContextDictionaryRequest {
     pub class_name: Identifier,
+    pub class_id: ClassId,
     pub type_args: Vec<InferType>,
     pub dictionary: Option<ResolvedDictionaryRef>,
 }
@@ -579,6 +580,7 @@ impl ClassEnv {
             is_public: false,
             type_args: head_args,
             context,
+            context_class_ids: vec![ClassId::from_local_name(sendable_id); type_params.len()],
             method_names: Vec::new(),
             method_effects: Vec::new(),
             span,
@@ -776,6 +778,15 @@ impl ClassEnv {
                             is_builtin: false,
                             type_params: type_params.clone(),
                             superclasses: superclasses.clone(),
+                            superclass_class_ids: superclasses
+                                .iter()
+                                .map(|constraint| {
+                                    env.resolve_class_id(current_module, constraint.class_name)
+                                        .unwrap_or_else(|| {
+                                            ClassId::from_local_name(constraint.class_name)
+                                        })
+                                })
+                                .collect(),
                             methods: method_sigs,
                             default_methods,
                             span: *span,
@@ -1034,7 +1045,15 @@ impl ClassEnv {
                     // Validate superclass instances exist.
                     // If class Ord has superclass Eq, then instance Ord<Int>
                     // requires instance Eq<Int> to already exist.
-                    for superclass in &class_def.superclasses {
+                    for (superclass_index, superclass) in class_def.superclasses.iter().enumerate()
+                    {
+                        let Some(superclass_id) = class_def
+                            .superclass_class_ids
+                            .get(superclass_index)
+                            .copied()
+                        else {
+                            continue;
+                        };
                         let super_class_name = superclass.class_name;
                         let super_display = interner.resolve(super_class_name);
                         let type_display: Vec<String> =
@@ -1042,7 +1061,7 @@ impl ClassEnv {
                         let type_display_str = type_display.join(", ");
 
                         let has_super_instance = env.instances.iter().any(|inst| {
-                            if inst.class_name != super_class_name {
+                            if inst.class_id != superclass_id {
                                 return false;
                             }
                             let inst_types: Vec<String> = inst
@@ -1083,6 +1102,15 @@ impl ClassEnv {
                         is_public: *is_public,
                         type_args: type_args.clone(),
                         context: context.clone(),
+                        context_class_ids: context
+                            .iter()
+                            .map(|constraint| {
+                                env.resolve_class_id(current_module, constraint.class_name)
+                                    .unwrap_or_else(|| {
+                                        ClassId::from_local_name(constraint.class_name)
+                                    })
+                            })
+                            .collect(),
                         method_names,
                         method_effects,
                         span: *span,
@@ -1209,6 +1237,15 @@ impl ClassEnv {
                             is_public: *is_public,
                             type_args: vec![type_arg],
                             context,
+                            context_class_ids: type_params
+                                .iter()
+                                .map(|_| {
+                                    env.resolve_class_id(current_module, resolved_class_name)
+                                        .unwrap_or_else(|| {
+                                            ClassId::from_local_name(resolved_class_name)
+                                        })
+                                })
+                                .collect(),
                             method_names: vec![],
                             method_effects: vec![],
                             span: Span::default(),
@@ -1231,27 +1268,21 @@ impl ClassEnv {
     }
 
     // ========================================================================
-    // Proposal 0151 — Phase 1b Step 3: bare-name compatibility shims.
+    // Proposal 0151 — source-boundary short-name compatibility helpers.
     //
-    // These methods exist so that pre-Step-3 call sites which only have a
-    // bare `Identifier` (the class's short name) keep working without the
-    // owning module path. They perform a linear scan over `self.classes`
-    // and return the first match. When two classes share a short name
-    // across modules, the result is non-deterministic — call sites that
-    // need to disambiguate must migrate to the `_by_id` API below.
-    //
-    // A future commit will migrate the remaining bare-name callers to
-    // ClassId and delete these shims.
+    // These methods exist for parser-facing diagnostics and legacy tooling
+    // that only has a bare `Identifier`. They never choose among multiple
+    // classes or methods: callers must resolve a unique ClassId first for
+    // semantic work.
     // ========================================================================
 
     /// Look up a class definition by short name (compatibility shim).
     ///
-    /// Performs a linear scan over `self.classes` and returns the first
-    /// `ClassDef` whose `name` matches. If multiple classes share the short
-    /// name across modules the choice is non-deterministic — use
-    /// [`lookup_class_by_id`](Self::lookup_class_by_id) to disambiguate.
+    /// Returns a definition only when the short name is unique.
     pub fn lookup_class(&self, name: Identifier) -> Option<&ClassDef> {
-        self.classes.values().find(|def| def.name == name)
+        let mut matches = self.classes.values().filter(|def| def.name == name);
+        let first = matches.next()?;
+        matches.next().is_none().then_some(first)
     }
 
     /// Look up a class definition by short name, **preferring** a class
@@ -1261,9 +1292,8 @@ impl ClassEnv {
     /// [`collect_deriving`] in Phase 1b Step 4: an `instance Foo<...>`
     /// declaration written inside `module Mod.A` should refer to `Mod.A.Foo`
     /// when `Mod.A.Foo` exists, even if other modules also declare a `Foo`.
-    /// Falls back to the bare-name shim ([`lookup_class`]) when no class
-    /// with the matching name lives in `current_module`. This is
-    /// approximate — proper import-aware resolution lands in Phase 2.
+    /// Falls back to the unique short-name resolver when no class with the
+    /// matching name lives in `current_module`.
     pub fn lookup_class_in_module_or_global(
         &self,
         current_module: ModulePath,
@@ -1278,8 +1308,7 @@ impl ClassEnv {
         {
             return Some(def);
         }
-        // Fall back to global bare-name lookup (any visible class with
-        // matching short name).
+        // Fall back only when the short name identifies one class.
         self.lookup_class(name)
     }
 
@@ -1295,17 +1324,79 @@ impl ClassEnv {
             .collect()
     }
 
-    /// Given a method name, find which class declares it (compatibility shim).
-    ///
-    /// Returns `(class_name, &ClassDef)` for the first class found whose
-    /// methods include `method_name`. Linear scan over all classes.
+    /// Given a method name, find which class declares it when it is unique.
+    /// This is retained for diagnostics and legacy tooling; semantic callers
+    /// should use [`resolve_method_class_id`](Self::resolve_method_class_id).
     pub fn method_to_class(&self, method_name: Identifier) -> Option<(Identifier, &ClassDef)> {
-        for class_def in self.classes.values() {
-            if class_def.methods.iter().any(|m| m.name == method_name) {
-                return Some((class_def.name, class_def));
-            }
-        }
-        None
+        let mut matches = self
+            .classes
+            .values()
+            .filter(|class| class.methods.iter().any(|m| m.name == method_name));
+        let first = matches.next()?;
+        matches.next().is_none().then_some((first.name, first))
+    }
+
+    /// Resolve a method's declaring class at the source boundary. A class in
+    /// the current module wins; otherwise the method must belong to exactly
+    /// one visible class. This deliberately rejects declaration-order
+    /// fallback when imported classes expose the same method name.
+    pub fn resolve_method_class_id(
+        &self,
+        current_module: ModulePath,
+        method_name: Identifier,
+    ) -> Option<ClassId> {
+        let matches = self.method_class_ids(method_name);
+        let local = matches
+            .iter()
+            .find(|class| class.module == current_module)
+            .copied();
+        local
+            .or_else(|| (matches.len() == 1).then(|| matches[0]))
+            .map(ClassDef::class_id)
+    }
+
+    /// All class definitions declaring `method_name`, used by the source
+    /// resolver to distinguish an unknown method from an ambiguous one.
+    pub fn method_class_ids(&self, method_name: Identifier) -> Vec<&ClassDef> {
+        self.classes
+            .values()
+            .filter(|class| {
+                class
+                    .methods
+                    .iter()
+                    .any(|method| method.name == method_name)
+            })
+            .collect()
+    }
+
+    /// Resolve a qualified method reference such as `A.render` or
+    /// `Mod.A.render`. The qualifier is matched against the declaring module
+    /// (or its final source segment for an import alias), and still must name
+    /// exactly one class method.
+    pub fn resolve_qualified_method_class_id(
+        &self,
+        qualifier: Identifier,
+        method_name: Identifier,
+        interner: &Interner,
+    ) -> Option<ClassId> {
+        let qualifier = interner.resolve(qualifier);
+        let matches: Vec<_> = self
+            .classes
+            .values()
+            .filter(|class| {
+                class
+                    .methods
+                    .iter()
+                    .any(|method| method.name == method_name)
+            })
+            .filter(|class| {
+                class.module.as_identifier().is_some_and(|module| {
+                    let module = interner.resolve(module);
+                    module == qualifier || module.rsplit('.').next() == Some(qualifier)
+                })
+            })
+            .collect();
+        (matches.len() == 1).then(|| matches[0].class_id())
     }
 
     /// Return the positional index of a method within its class definition,
@@ -1328,6 +1419,32 @@ impl ClassEnv {
     /// Look up a class definition by its canonical `ClassId`.
     pub fn lookup_class_by_id(&self, id: ClassId) -> Option<&ClassDef> {
         self.classes.get(&id)
+    }
+
+    /// Resolve a short source name only when it identifies one class. Semantic
+    /// consumers must use the returned identity rather than `lookup_class`.
+    pub fn unique_class_id(&self, name: Identifier) -> Option<ClassId> {
+        let mut matches = self.classes.values().filter(|class| class.name == name);
+        let first = matches.next()?.class_id();
+        matches.next().is_none().then_some(first)
+    }
+
+    /// Resolve a class name in a module first, then require a unique global
+    /// match. This is the source-resolution boundary; no downstream semantic
+    /// lookup should fall back to declaration order.
+    pub fn resolve_class_id(
+        &self,
+        current_module: ModulePath,
+        name: Identifier,
+    ) -> Option<ClassId> {
+        if let Some(class) = self
+            .classes
+            .values()
+            .find(|class| class.module == current_module && class.name == name)
+        {
+            return Some(class.class_id());
+        }
+        self.unique_class_id(name)
     }
 
     /// Find all instances for a given class identified by `ClassId`.
@@ -1449,6 +1566,58 @@ impl ClassEnv {
         })
     }
 
+    /// Every instance whose head matches a concrete argument list for the
+    /// specified canonical class identity.
+    pub fn candidate_instances_by_id<'a, 'args>(
+        &'a self,
+        class_id: ClassId,
+        actual_type_args: &'args [InferType],
+        interner: &'args Interner,
+    ) -> impl Iterator<Item = (&'a InstanceDef, HashMap<Identifier, InferType>)> + use<'a, 'args>
+    {
+        self.instances.iter().filter_map(move |inst| {
+            if inst.class_id != class_id || inst.type_args.len() != actual_type_args.len() {
+                return None;
+            }
+            let mut subst = HashMap::new();
+            let matches =
+                inst.type_args
+                    .iter()
+                    .zip(actual_type_args.iter())
+                    .all(|(pattern, actual)| {
+                        Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
+                    });
+            matches.then_some((inst, subst))
+        })
+    }
+
+    /// The unique instance matching a canonical class identity and a partially
+    /// known argument list.
+    pub fn unique_instance_for_known_args_by_id(
+        &self,
+        class_id: ClassId,
+        known: &[Option<InferType>],
+        interner: &Interner,
+    ) -> Option<&InstanceDef> {
+        let mut matches = self.instances.iter().filter(|inst| {
+            if inst.class_id != class_id || inst.type_args.len() != known.len() {
+                return false;
+            }
+            let mut subst = HashMap::new();
+            inst.type_args
+                .iter()
+                .zip(known)
+                .all(|(pattern, actual)| match actual {
+                    Some(actual) => {
+                        Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
+                    }
+                    None => true,
+                })
+        });
+        let first = matches.next()?;
+        matches.next().is_none().then_some(first)
+    }
+
     /// The single instance matching a predicate whose slots are only partly
     /// known (Proposal 0179, Stage 4).
     ///
@@ -1467,9 +1636,79 @@ impl ClassEnv {
         known: &[Option<InferType>],
         interner: &Interner,
     ) -> Option<&InstanceDef> {
-        let mut matches = self.instances_matching_known_args(class_name, known, interner);
+        let class_id = self.unique_class_id(class_name)?;
+        self.unique_instance_for_known_args_by_id(class_id, known, interner)
+    }
+
+    /// ClassId-keyed counterpart of [`Self::instances_matching_known_args`].
+    pub fn instances_matching_known_args_by_id<'a, 'args>(
+        &'a self,
+        class_id: ClassId,
+        known: &'args [Option<InferType>],
+        interner: &'args Interner,
+    ) -> impl Iterator<Item = &'a InstanceDef> + use<'a, 'args> {
+        self.instances.iter().filter(move |inst| {
+            if inst.class_id != class_id || inst.type_args.len() != known.len() {
+                return false;
+            }
+            let mut subst = HashMap::new();
+            inst.type_args
+                .iter()
+                .zip(known)
+                .all(|(pattern, actual)| match actual {
+                    Some(actual) => {
+                        Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
+                    }
+                    None => true,
+                })
+        })
+    }
+
+    /// Resolve a class method receiver using a canonical class identity.
+    pub fn resolve_method_call_instance_from_first_arg_by_id(
+        &self,
+        class_id: ClassId,
+        first_actual_type: &InferType,
+        interner: &Interner,
+    ) -> Option<(&InstanceDef, Vec<InferType>)> {
+        let mut matches = self.instances.iter().filter_map(|inst| {
+            if inst.class_id != class_id {
+                return None;
+            }
+            let first_pattern = inst.type_args.first()?;
+            let mut subst = HashMap::new();
+            if !Self::match_instance_type_expr(
+                first_pattern,
+                first_actual_type,
+                &mut subst,
+                interner,
+            ) {
+                return None;
+            }
+            let concrete_type_args = inst
+                .type_args
+                .iter()
+                .map(|arg| instantiate_instance_type_expr(arg, &subst, interner))
+                .collect::<Option<Vec<_>>>()?;
+            Some((inst, concrete_type_args))
+        });
         let first = matches.next()?;
         matches.next().is_none().then_some(first)
+    }
+
+    // Keep the existing short-name API at the source-resolution boundary.
+    pub fn resolve_method_call_instance_from_first_arg(
+        &self,
+        class_name: Identifier,
+        first_actual_type: &InferType,
+        interner: &Interner,
+    ) -> Option<(&InstanceDef, Vec<InferType>)> {
+        let class_id = self.unique_class_id(class_name)?;
+        self.resolve_method_call_instance_from_first_arg_by_id(
+            class_id,
+            first_actual_type,
+            interner,
+        )
     }
 
     /// Every instance compatible with the slots a call determined.
@@ -1526,51 +1765,6 @@ impl ClassEnv {
             .collect()
     }
 
-    /// Resolve a unique instance candidate for a direct class-method call
-    /// using the method receiver / first argument type alone.
-    ///
-    /// This preserves the current "dispatch from the first value argument"
-    /// behavior used by monomorphic class-method calls while still allowing
-    /// callers to recover the full concrete class head for multi-parameter
-    /// classes such as `Convert<a, b>`.
-    ///
-    /// Returns `None` when no instance matches the first argument, or when the
-    /// first argument is ambiguous across multiple instances.
-    pub fn resolve_method_call_instance_from_first_arg(
-        &self,
-        class_name: Identifier,
-        first_actual_type: &InferType,
-        interner: &Interner,
-    ) -> Option<(&InstanceDef, Vec<InferType>)> {
-        let mut matches = self.instances.iter().filter_map(|inst| {
-            if inst.class_name != class_name {
-                return None;
-            }
-            let first_pattern = inst.type_args.first()?;
-            let mut subst = HashMap::new();
-            if !Self::match_instance_type_expr(
-                first_pattern,
-                first_actual_type,
-                &mut subst,
-                interner,
-            ) {
-                return None;
-            }
-            let concrete_type_args = inst
-                .type_args
-                .iter()
-                .map(|arg| instantiate_instance_type_expr(arg, &subst, interner))
-                .collect::<Option<Vec<_>>>()?;
-            Some((inst, concrete_type_args))
-        });
-
-        let first = matches.next()?;
-        if matches.next().is_some() {
-            return None;
-        }
-        Some(first)
-    }
-
     /// Whether `constraint` contributes a runtime dictionary parameter.
     ///
     /// A class with no methods — a marker such as `Sendable` — has no
@@ -1591,7 +1785,7 @@ impl ClassEnv {
         &self,
         constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
     ) -> bool {
-        self.lookup_class(constraint.class_name)
+        self.lookup_class_by_id(constraint.class_id)
             .is_none_or(|class| !class.methods.is_empty())
     }
 
@@ -1607,26 +1801,43 @@ impl ClassEnv {
         actual_type_args: &[InferType],
         interner: &Interner,
     ) -> Option<ResolvedDictionaryRef> {
+        let class_id = self.unique_class_id(class_name)?;
+        self.resolve_dictionary_ref_by_id(class_id, actual_type_args, interner)
+    }
+
+    /// ClassId-keyed dictionary resolution used by elaboration and backends.
+    pub fn resolve_dictionary_ref_by_id(
+        &self,
+        class_id: ClassId,
+        actual_type_args: &[InferType],
+        interner: &Interner,
+    ) -> Option<ResolvedDictionaryRef> {
         let (instance, subst) =
-            self.resolve_instance_with_subst(class_name, actual_type_args, interner)?;
-        let class_str = interner.resolve(class_name);
+            self.resolve_instance_with_subst_by_id(class_id, actual_type_args, interner)?;
         let type_name = instance
             .type_args
             .iter()
             .map(|arg| arg.display_with(interner))
             .collect::<Vec<_>>()
             .join("_");
-        let dict_name = interner.lookup(&format!("__dict_{class_str}_{type_name}"))?;
+        let dict_name =
+            interner.lookup(&dictionary_name(instance.class_id, &type_name, interner))?;
         let context_args = instance
             .context
             .iter()
-            .map(|constraint| {
+            .enumerate()
+            .map(|(index, constraint)| {
                 let concrete_args = constraint
                     .type_args
                     .iter()
                     .map(|arg| instantiate_instance_type_expr(arg, &subst, interner))
                     .collect::<Option<Vec<_>>>()?;
-                self.resolve_dictionary_ref(constraint.class_name, &concrete_args, interner)
+                let context_id = instance
+                    .context_class_ids
+                    .get(index)
+                    .copied()
+                    .or_else(|| self.unique_class_id(constraint.class_name))?;
+                self.resolve_dictionary_ref_by_id(context_id, &concrete_args, interner)
             })
             .collect::<Option<Vec<_>>>()?;
 
@@ -1636,31 +1847,35 @@ impl ClassEnv {
         })
     }
 
-    /// Return each dictionary required by a matched instance, retaining
-    /// unresolved polymorphic requirements for the caller to satisfy from
-    /// its contextual dictionary parameters.
-    pub(crate) fn resolve_instance_context_dictionary_requests(
+    pub(crate) fn resolve_instance_context_dictionary_requests_by_id(
         &self,
-        class_name: Identifier,
+        class_id: ClassId,
         actual_type_args: &[InferType],
         interner: &Interner,
     ) -> Option<Vec<InstanceContextDictionaryRequest>> {
         let (instance, subst) =
-            self.resolve_instance_with_subst(class_name, actual_type_args, interner)?;
+            self.resolve_instance_with_subst_by_id(class_id, actual_type_args, interner)?;
 
         instance
             .context
             .iter()
-            .map(|constraint| {
+            .enumerate()
+            .map(|(index, constraint)| {
                 let type_args = constraint
                     .type_args
                     .iter()
                     .map(|arg| instantiate_instance_type_expr(arg, &subst, interner))
                     .collect::<Option<Vec<_>>>()?;
+                let context_id = instance
+                    .context_class_ids
+                    .get(index)
+                    .copied()
+                    .or_else(|| self.unique_class_id(constraint.class_name))?;
                 let dictionary =
-                    self.resolve_dictionary_ref(constraint.class_name, &type_args, interner);
+                    self.resolve_dictionary_ref_by_id(context_id, &type_args, interner);
                 Some(InstanceContextDictionaryRequest {
                     class_name: constraint.class_name,
+                    class_id: context_id,
                     type_args,
                     dictionary,
                 })
@@ -1678,15 +1893,14 @@ impl ClassEnv {
     ) -> Option<Vec<Identifier>> {
         let dict_name_str = interner.resolve(dict_name);
         self.instances.iter().find_map(|instance| {
-            let class_def = self.lookup_class(instance.class_name)?;
-            let class_str = interner.resolve(instance.class_name);
+            let class_def = self.lookup_class_by_id(instance.class_id)?;
             let type_name = instance
                 .type_args
                 .iter()
                 .map(|arg| arg.display_with(interner))
                 .collect::<Vec<_>>()
                 .join("_");
-            let expected = format!("__dict_{class_str}_{type_name}");
+            let expected = dictionary_name(instance.class_id, &type_name, interner);
             if dict_name_str != expected {
                 return None;
             }
@@ -1696,7 +1910,12 @@ impl ClassEnv {
                 .iter()
                 .map(|method_sig| {
                     let method_str = interner.resolve(method_sig.name);
-                    interner.lookup(&mangled_method_name(class_str, &type_name, method_str))
+                    interner.lookup(&mangled_method_name(
+                        instance.class_id,
+                        &type_name,
+                        method_str,
+                        interner,
+                    ))
                 })
                 .collect()
         })
@@ -1987,6 +2206,7 @@ impl ClassEnv {
                 is_public: false,
                 type_params,
                 superclasses: vec![],
+                superclass_class_ids: vec![],
                 methods,
                 default_methods: vec![],
                 span: Span::default(),
@@ -2022,6 +2242,7 @@ impl ClassEnv {
             is_public: false,
             type_args: vec![builtin_type(type_name)],
             context: vec![],
+            context_class_ids: vec![],
             method_names: vec![],
             method_effects: vec![],
             span: Span::default(),
@@ -2196,8 +2417,46 @@ impl ClassEnv {
 /// mode KI-051 took two attempts to pin down. Ten call sites used to format
 /// this independently; routing them through one function is what makes the
 /// format safe to change at all.
-pub fn mangled_method_name(class: &str, type_key: &str, method: &str) -> String {
+pub fn mangled_method_name(
+    class_id: ClassId,
+    type_key: &str,
+    method: &str,
+    interner: &Interner,
+) -> String {
+    let class = class_symbol_name(class_id, interner);
     format!("{INSTANCE_METHOD_PREFIX}{class}_{type_key}_{method}")
+}
+
+/// Render the canonical dictionary global for a concrete instance head.
+pub fn dictionary_name(class_id: ClassId, type_key: &str, interner: &Interner) -> String {
+    format!(
+        "__dict_{}_{}",
+        class_symbol_name(class_id, interner),
+        type_key
+    )
+}
+
+/// Render the canonical prefix used for contextual dictionary parameters.
+pub fn dictionary_prefix(class_id: ClassId, interner: &Interner) -> String {
+    format!("__dict_{}", class_symbol_name(class_id, interner))
+}
+
+/// Render a class identity for generated symbols. Legacy top-level classes
+/// retain their historical spelling; module-owned classes include an
+/// injective hexadecimal encoding of the owning module so `A.Foo` and
+/// `B.Foo` cannot collapse after native symbol sanitization.
+pub fn class_symbol_name(class_id: ClassId, interner: &Interner) -> String {
+    let class = interner.resolve(class_id.name);
+    let Some(module) = class_id.module.as_identifier() else {
+        return class.to_string();
+    };
+    let module = interner.resolve(module);
+    let encoded_module = module
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<String>();
+    format!("m{}_{encoded_module}_{class}", module.len())
 }
 
 /// The prefix [`mangled_method_name`] stamps on every name it builds.
@@ -2252,7 +2511,7 @@ fn is_opaque_non_sendable_adt(
 
 #[cfg(test)]
 mod tests {
-    use super::{ClassEnv, InstanceDef, builtin_type};
+    use super::{ClassEnv, InstanceDef, builtin_type, dictionary_name, mangled_method_name};
     use crate::{
         diagnostics::position::Span,
         syntax::interner::Interner,
@@ -2555,11 +2814,65 @@ module Mod.B {
         assert_eq!(def_a.module, ModulePath::from_identifier(mod_a));
         assert_eq!(def_b.module, ModulePath::from_identifier(mod_b));
 
-        // The bare-name compatibility shim picks one (non-deterministic but
-        // a valid result), and `instances_for(Foo)` would return both
-        // instance lists if any existed.
+        // A bare-name semantic lookup is ambiguous once multiple modules
+        // provide the same class, so only the ClassId-keyed API can select it.
         let bare = env.lookup_class(foo_sym);
-        assert!(bare.is_some(), "bare-name shim should still find a class");
+        assert!(
+            bare.is_none(),
+            "ambiguous bare lookup must not select a class"
+        );
+    }
+
+    #[test]
+    fn class_id_symbols_are_disjoint_for_same_named_classes() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+        use crate::types::class_id::ClassId;
+
+        let source = r#"
+module Mod.A {
+    class Foo<a> { fn render(x: a) -> String }
+    instance Foo<Int> { fn render(x) { "A" } }
+}
+module Mod.B {
+    class Foo<a> { fn render(x: a) -> String }
+    instance Foo<Int> { fn render(x) { "B" } }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
+        let interner = parser.take_interner();
+        let (env, diagnostics) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(
+            diagnostics.is_empty(),
+            "collection errors: {:?}",
+            diagnostics
+        );
+
+        let foo = interner.lookup("Foo").unwrap();
+        let render = interner.resolve(interner.lookup("render").unwrap());
+        let int = "Int";
+        let id_a = ClassId::new(
+            ModulePath::from_identifier(interner.lookup("Mod.A").unwrap()),
+            foo,
+        );
+        let id_b = ClassId::new(
+            ModulePath::from_identifier(interner.lookup("Mod.B").unwrap()),
+            foo,
+        );
+        let method_a = mangled_method_name(id_a, int, render, &interner);
+        let method_b = mangled_method_name(id_b, int, render, &interner);
+        assert_ne!(method_a, method_b);
+        assert_ne!(
+            dictionary_name(id_a, int, &interner),
+            dictionary_name(id_b, int, &interner)
+        );
+        assert_eq!(env.instances_for_id(id_a).len(), 1);
+        assert_eq!(env.instances_for_id(id_b).len(), 1);
     }
 
     /// Proposal 0151, Phase 1b Step 4: when two same-named classes in
@@ -3627,6 +3940,7 @@ module Mod.Class {
             is_public: false,
             type_args,
             context: vec![],
+            context_class_ids: vec![],
             method_names: vec![],
             method_effects: vec![],
             span: s(),

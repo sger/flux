@@ -296,6 +296,7 @@ mod tests {
             is_builtin: false,
             type_params: params.iter().map(|p| interner.intern(p)).collect(),
             superclasses: Vec::new(),
+            superclass_class_ids: Vec::new(),
             methods: vec![method],
             default_methods: Vec::new(),
             span: Span::default(),

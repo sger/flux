@@ -184,6 +184,12 @@ struct InferCtx<'a> {
     deferred_constraints: Vec<constraint::Constraint>,
     /// Type class environment for constraint generation (Proposal 0145).
     class_env: Option<crate::types::class_env::ClassEnv>,
+    /// Owning module while walking a module body. This is the first scope in
+    /// which a bare class name may be resolved without ambiguity.
+    current_module: crate::types::class_id::ModulePath,
+    /// Source import aliases used to resolve qualified class methods before
+    /// the semantic `ClassId` is carried into the rest of inference.
+    module_aliases: HashMap<Identifier, Identifier>,
     /// Accumulated type class constraints (e.g., `Num<a>` from `x + y`).
     class_constraints: Vec<constraint::WantedClassConstraint>,
     /// Resolved class-method dispatches, keyed by the function-position
@@ -303,6 +309,8 @@ impl<'a> InferCtx<'a> {
             skolem_vars: HashSet::new(),
             skolem_names: HashMap::new(),
             class_env: None,
+            current_module: crate::types::class_id::ModulePath::EMPTY,
+            module_aliases: HashMap::new(),
             class_constraints: Vec::new(),
             class_method_dispatch: HashMap::new(),
             class_sym_eq: None,
@@ -379,9 +387,35 @@ impl<'a> InferCtx<'a> {
         span: Span,
         origin: constraint::WantedClassConstraintOrigin,
     ) {
+        let resolved = self
+            .class_env
+            .as_ref()
+            .and_then(|env| env.resolve_class_id(self.current_module, class_name));
+        let class_id = resolved
+            .unwrap_or_else(|| crate::types::class_id::ClassId::from_local_name(class_name));
+        self.emit_class_constraint_args_for_id(class_id, class_name, type_args, span, origin);
+    }
+
+    /// Emit a wanted class constraint whose class identity is already known.
+    ///
+    /// The name-taking [`Self::emit_class_constraint_args`] resolves the
+    /// spelling to a [`ClassId`] first; callers that already hold one — a
+    /// resolved method call, say — come here directly so the identity is never
+    /// round-tripped through a name that two modules could share.
+    ///
+    /// [`ClassId`]: crate::types::class_id::ClassId
+    pub(super) fn emit_class_constraint_args_for_id(
+        &mut self,
+        class_id: crate::types::class_id::ClassId,
+        class_name: Identifier,
+        type_args: Vec<InferType>,
+        span: Span,
+        origin: constraint::WantedClassConstraintOrigin,
+    ) {
         self.class_constraints
             .push(constraint::WantedClassConstraint {
                 class_name,
+                class_id,
                 type_args: type_args.clone(),
                 span,
                 origin,
@@ -389,6 +423,7 @@ impl<'a> InferCtx<'a> {
             });
         self.record_constraint(constraint::Constraint::Class {
             class_name,
+            class_id,
             type_args,
             span,
         });
@@ -410,6 +445,7 @@ impl<'a> InferCtx<'a> {
             self.class_constraints
                 .push(constraint::WantedClassConstraint {
                     class_name: constraint.class_name,
+                    class_id: constraint.class_id,
                     type_args: type_args.clone(),
                     span,
                     origin: constraint::WantedClassConstraintOrigin::SchemeUse,
@@ -417,6 +453,7 @@ impl<'a> InferCtx<'a> {
                 });
             self.record_constraint(constraint::Constraint::Class {
                 class_name: constraint.class_name,
+                class_id: constraint.class_id,
                 type_args,
                 span,
             });
@@ -476,17 +513,11 @@ impl<'a> InferCtx<'a> {
         }
     }
 
-    /// Check if a name is a known class method. Returns the class name if so.
-    fn lookup_class_method(&self, name: Identifier) -> Option<Identifier> {
+    /// Check if a name is a known class method. Returns its canonical class
+    /// identity; short names are used only while resolving the source name.
+    fn lookup_class_method(&self, name: Identifier) -> Option<crate::types::class_id::ClassId> {
         let class_env = self.class_env.as_ref()?;
-        // Phase 1b Step 3: storage is keyed on ClassId now, but this lookup
-        // only needs the class's short name. Iterate values directly.
-        for class_def in class_env.classes.values() {
-            if class_def.methods.iter().any(|m| m.name == name) {
-                return Some(class_def.name);
-            }
-        }
-        None
+        class_env.resolve_method_class_id(self.current_module, name)
     }
 }
 
@@ -587,6 +618,7 @@ pub fn infer_program(
             effect_row_aliases: config.effect_row_aliases,
         },
     );
+    collect_module_aliases(&program.statements, &mut ctx.module_aliases);
     init_class_env(&mut ctx, config.class_env, interner);
     // Predeclare preloaded constructors (e.g. earlier REPL lines' `data`) before
     // the program's own, so their named-field metadata is in scope and a same-
@@ -595,6 +627,30 @@ pub fn infer_program(
     ctx.infer_program(program);
     ctx.solve_deferred_constraints();
     build_infer_result(ctx)
+}
+
+/// Map each import binding to the module it names, `alias` or not.
+///
+/// `import Flow.Task as Task` records `Task -> Flow.Task`, and a plain
+/// `import Flow.Task` records `Flow.Task -> Flow.Task`, so a lookup keyed on
+/// the binding as written always has a canonical module to fall back to.
+/// Recurses into module bodies because a module may carry its own imports.
+///
+/// Note the direction: the key is what the *source* wrote. Anything resolving a
+/// binding to its module must still consult the written spelling too — schemes
+/// preloaded for an importing file are keyed by the binding, not the module.
+fn collect_module_aliases(statements: &[Statement], aliases: &mut HashMap<Identifier, Identifier>) {
+    for statement in statements {
+        match statement {
+            Statement::Import { name, alias, .. } => {
+                aliases.insert(alias.unwrap_or(*name), *name);
+            }
+            Statement::Module { body, .. } => {
+                collect_module_aliases(&body.statements, aliases);
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Expand the fallback set through the substitution and build resolved binding

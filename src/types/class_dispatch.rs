@@ -129,7 +129,7 @@ pub fn generate_dispatch_functions(
     reserved_names.extend(additional_reserved_names.iter().copied());
 
     // Collect instance method info grouped by (class_name, method_name)
-    let mut dispatch_table: HashSet<(Identifier, Identifier)> = HashSet::new();
+    let mut dispatch_table: HashSet<(crate::types::class_id::ClassId, Identifier)> = HashSet::new();
 
     // Single source of truth for synthetic [`ExprId`] allocation
     // (Proposal 0167 Part 6). Resuming past the max id already present in
@@ -145,6 +145,7 @@ pub fn generate_dispatch_functions(
         &mut generated,
         &mut dispatch_table,
         &mut synth_expr_ids,
+        crate::types::class_id::ModulePath::EMPTY,
     );
     if options.include_builtin_instances && needs_builtin_dispatch_support(statements) {
         generate_builtin_instance_functions(
@@ -165,9 +166,15 @@ pub fn generate_dispatch_functions(
     // instance function during Core lowering, making these dispatch functions
     // dead code for monomorphic call sites.
     let mut sorted_keys: Vec<_> = dispatch_table.iter().copied().collect::<Vec<_>>();
-    sorted_keys.sort_by_key(|(c, m)| (c.as_u32(), m.as_u32()));
-    for (class_name, method_name) in &sorted_keys {
-        if let Some(class_def) = class_env.lookup_class(*class_name)
+    sorted_keys.sort_by_key(|(c, m)| {
+        (
+            c.module.as_identifier().map_or(0, |id| id.as_u32()),
+            c.name.as_u32(),
+            m.as_u32(),
+        )
+    });
+    for (class_id, method_name) in &sorted_keys {
+        if let Some(class_def) = class_env.lookup_class_by_id(*class_id)
             && let Some(method_sig) = class_def.methods.iter().find(|m| m.name == *method_name)
         {
             if !reserved_names.insert(*method_name) {
@@ -244,7 +251,7 @@ fn generate_builtin_instance_functions(
     class_env: &ClassEnv,
     interner: &mut Interner,
     generated: &mut Vec<Statement>,
-    dispatch_table: &mut HashSet<(Identifier, Identifier)>,
+    dispatch_table: &mut HashSet<(crate::types::class_id::ClassId, Identifier)>,
     reserved_names: &mut HashSet<Identifier>,
     builtin_expr_ids: &mut ExprIdGen,
 ) {
@@ -289,13 +296,14 @@ fn generate_builtin_instance_functions(
             };
 
             let mangled = crate::types::class_env::mangled_method_name(
-                &class_name_str,
+                instance.class_id,
                 &type_name,
                 &method_name_str,
+                interner,
             );
             let mangled_sym = interner.intern(&mangled);
             if !reserved_names.insert(mangled_sym) {
-                dispatch_table.insert((instance.class_name, method_sig.name));
+                dispatch_table.insert((instance.class_id, method_sig.name));
                 continue;
             }
             let mut parameter_types: Vec<Option<TypeExpr>> = vec![None; instance.context.len()];
@@ -307,7 +315,8 @@ fn generate_builtin_instance_functions(
                     interner,
                 ))
             }));
-            let mut params = context_dict_param_names(&instance.context, interner);
+            let mut params =
+                context_dict_param_names(&instance.context, &instance.context_class_ids, interner);
             params.extend(builtin_param_names(method_sig.arity, interner));
 
             generated.push(Statement::Function {
@@ -335,7 +344,7 @@ fn generate_builtin_instance_functions(
                 body,
                 span: Span::default(),
             });
-            dispatch_table.insert((instance.class_name, method_sig.name));
+            dispatch_table.insert((instance.class_id, method_sig.name));
         }
     }
 }
@@ -1005,8 +1014,8 @@ fn pre_intern_dict_names(class_env: &ClassEnv, interner: &mut Interner) {
             .map(|a| a.display_with(interner))
             .collect::<Vec<_>>()
             .join("_");
-        let class_str = interner.resolve(instance.class_name).to_string();
-        let dict_name = format!("__dict_{class_str}_{type_name}");
+        let dict_name =
+            crate::types::class_env::dictionary_name(instance.class_id, &type_name, interner);
         interner.intern(&dict_name);
     }
 
@@ -1017,12 +1026,16 @@ fn pre_intern_dict_names(class_env: &ClassEnv, interner: &mut Interner) {
     // collide — that was KI-052. A function needing more than a few
     // dictionaries for a single class is pathological, so a small fixed range
     // covers every realistic signature.
-    let classes: Vec<Identifier> = class_env.classes.values().map(|class| class.name).collect();
-    for class_name in classes {
-        let class_str = interner.resolve(class_name).to_string();
-        interner.intern(&format!("__dict_{class_str}"));
+    let class_ids: Vec<_> = class_env
+        .classes
+        .values()
+        .map(|class| class.class_id())
+        .collect();
+    for class_id in class_ids {
+        let class_str = crate::types::class_env::dictionary_prefix(class_id, interner);
+        interner.intern(&class_str);
         for occurrence in 1..MAX_DICT_PARAMS_PER_CLASS {
-            interner.intern(&format!("__dict_{class_str}_{occurrence}"));
+            interner.intern(&format!("{class_str}_{occurrence}"));
         }
     }
 }
@@ -1038,7 +1051,7 @@ const MAX_DICT_PARAMS_PER_CLASS: usize = 8;
 fn generate_default_method_functions(
     statements: &[Statement],
     _class_env: &ClassEnv,
-    dispatch_table: &HashSet<(Identifier, Identifier)>,
+    dispatch_table: &HashSet<(crate::types::class_id::ClassId, Identifier)>,
     generated: &mut Vec<Statement>,
     reserved_names: &mut HashSet<Identifier>,
 ) {
@@ -1053,7 +1066,12 @@ fn generate_default_method_functions(
                 for method in methods {
                     // Only generate for methods with a default body that have NO instance overrides.
                     if let Some(ref default_body) = method.default_body {
-                        let has_instances = dispatch_table.contains(&(*name, method.name));
+                        let class_id = _class_env
+                            .resolve_class_id(crate::types::class_id::ModulePath::EMPTY, *name)
+                            .unwrap_or_else(|| {
+                                crate::types::class_id::ClassId::from_local_name(*name)
+                            });
+                        let has_instances = dispatch_table.contains(&(class_id, method.name));
                         if !has_instances && reserved_names.insert(method.name) {
                             // Generate a regular top-level function from the
                             // default body only when there are no instance
@@ -1095,16 +1113,19 @@ fn generate_from_statements(
     class_env: &ClassEnv,
     interner: &mut Interner,
     generated: &mut Vec<Statement>,
-    dispatch_table: &mut HashSet<(Identifier, Identifier)>,
+    dispatch_table: &mut HashSet<(crate::types::class_id::ClassId, Identifier)>,
     id_gen: &mut ExprIdGen,
+    current_module: crate::types::class_id::ModulePath,
 ) {
     fn resolve_instance_class_def<'a>(
         class_env: &'a ClassEnv,
         class_name: Identifier,
         interner: &Interner,
     ) -> Option<&'a crate::types::class_env::ClassDef> {
-        if let Some(class_def) = class_env.lookup_class(class_name) {
-            return Some(class_def);
+        if let Some(class_id) =
+            class_env.resolve_class_id(crate::types::class_id::ModulePath::EMPTY, class_name)
+        {
+            return class_env.lookup_class_by_id(class_id);
         }
 
         let wanted = interner.try_resolve(class_name)?;
@@ -1137,7 +1158,10 @@ fn generate_from_statements(
                 methods,
                 ..
             } => {
-                let Some(class_def) = resolve_instance_class_def(class_env, *class_name, interner)
+                let Some(class_def) = class_env
+                    .resolve_class_id(current_module, *class_name)
+                    .and_then(|id| class_env.lookup_class_by_id(id))
+                    .or_else(|| resolve_instance_class_def(class_env, *class_name, interner))
                 else {
                     continue;
                 };
@@ -1152,9 +1176,6 @@ fn generate_from_statements(
                         .collect::<Vec<_>>()
                         .join("_")
                 };
-
-                let resolved_class_name = class_def.name;
-                let class_name_str = interner.resolve(resolved_class_name).to_string();
 
                 let explicit_methods: HashMap<Identifier, _> =
                     methods.iter().map(|m| (m.name, m)).collect();
@@ -1185,13 +1206,27 @@ fn generate_from_statements(
                     // Generate mangled name: __tc_ClassName_TypeName_methodName
                     let method_name_str = interner.resolve(method_sig.name).to_string();
                     let mangled = crate::types::class_env::mangled_method_name(
-                        &class_name_str,
+                        class_def.class_id(),
                         &type_name,
                         &method_name_str,
+                        interner,
                     );
                     let mangled_sym = interner.intern(&mangled);
 
-                    let context_params = context_dict_param_names(context, interner);
+                    let context_class_ids: Vec<_> = context
+                        .iter()
+                        .map(|constraint| {
+                            class_env
+                                .resolve_class_id(current_module, constraint.class_name)
+                                .unwrap_or_else(|| {
+                                    crate::types::class_id::ClassId::from_local_name(
+                                        constraint.class_name,
+                                    )
+                                })
+                        })
+                        .collect();
+                    let context_params =
+                        context_dict_param_names(context, &context_class_ids, interner);
                     let mut parameters = context_params.clone();
                     let value_parameters = explicit_method
                         .map(|method| method.params.clone())
@@ -1248,10 +1283,10 @@ fn generate_from_statements(
                     generated.push(fn_stmt);
 
                     // Record that this (class, method) pair has an instance.
-                    dispatch_table.insert((resolved_class_name, method_sig.name));
+                    dispatch_table.insert((class_def.class_id(), method_sig.name));
                 }
             }
-            Statement::Module { body, .. } => {
+            Statement::Module { name, body, .. } => {
                 generate_from_statements(
                     &body.statements,
                     class_env,
@@ -1259,6 +1294,7 @@ fn generate_from_statements(
                     generated,
                     dispatch_table,
                     id_gen,
+                    crate::types::class_id::ModulePath::from_identifier(*name),
                 );
             }
             _ => {}
@@ -1274,21 +1310,26 @@ fn builtin_param_names(arity: usize, interner: &mut Interner) -> Vec<Identifier>
 
 fn context_dict_param_names(
     context: &[ClassConstraint],
+    context_class_ids: &[crate::types::class_id::ClassId],
     interner: &mut Interner,
 ) -> Vec<Identifier> {
-    let mut seen: HashMap<Identifier, usize> = HashMap::new();
+    let mut seen: HashMap<crate::types::class_id::ClassId, usize> = HashMap::new();
     context
         .iter()
-        .map(|constraint| {
-            let class_name = interner.resolve(constraint.class_name);
-            let count = seen.entry(constraint.class_name).or_insert(0);
+        .enumerate()
+        .map(|(index, constraint)| {
+            let class_id = context_class_ids.get(index).copied().unwrap_or_else(|| {
+                crate::types::class_id::ClassId::from_local_name(constraint.class_name)
+            });
+            let count = seen.entry(class_id).or_insert(0);
             let suffix = if *count == 0 {
                 String::new()
             } else {
                 format!("_{}", *count)
             };
             *count += 1;
-            interner.intern(&format!("__dict_{class_name}{suffix}"))
+            let prefix = crate::types::class_env::dictionary_prefix(class_id, interner);
+            interner.intern(&format!("{prefix}{suffix}"))
         })
         .collect()
 }
@@ -1728,5 +1769,102 @@ fn generate_polymorphic_stub(
             span,
         },
         span,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::*;
+    use crate::{
+        ast::{Visitor, walk_expr},
+        syntax::{lexer::Lexer, parser::Parser},
+    };
+
+    fn expr_ids(block: &Block) -> HashSet<crate::syntax::expression::ExprId> {
+        struct Collector {
+            ids: HashSet<crate::syntax::expression::ExprId>,
+        }
+
+        impl<'ast> Visitor<'ast> for Collector {
+            fn visit_expr(&mut self, expr: &'ast Expression) {
+                self.ids.insert(expr.expr_id());
+                walk_expr(self, expr);
+            }
+        }
+
+        let mut collector = Collector {
+            ids: HashSet::new(),
+        };
+        for statement in &block.statements {
+            crate::ast::visit::walk_stmt(&mut collector, statement);
+        }
+        collector.ids
+    }
+
+    #[test]
+    fn explicit_instance_body_clone_gets_disjoint_expression_ids() {
+        let source = r#"
+class Renderable<a> {
+    fn render(x: a) -> Int
+}
+
+instance Renderable<Int> {
+    fn render(x) { x + 1 }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
+        let mut interner = parser.take_interner();
+        let (class_env, diagnostics) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(
+            diagnostics.is_empty(),
+            "class diagnostics: {:?}",
+            diagnostics
+        );
+
+        let source_body = program
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                Statement::Instance { methods, .. } => methods.first().map(|method| &method.body),
+                _ => None,
+            })
+            .expect("explicit instance method body");
+        let source_ids = expr_ids(source_body);
+        assert!(!source_ids.is_empty());
+
+        let generated = generate_dispatch_functions(
+            &program.statements,
+            &class_env,
+            &mut interner,
+            &HashSet::new(),
+            DispatchGenerationOptions {
+                include_builtin_instances: false,
+            },
+        );
+        let generated_body = generated
+            .iter()
+            .find_map(|statement| match statement {
+                Statement::Function { name, body, .. }
+                    if interner.resolve(*name) == "__tc_Renderable_Int_render" =>
+                {
+                    Some(body)
+                }
+                _ => None,
+            })
+            .expect("generated explicit instance method");
+        let generated_ids = expr_ids(generated_body);
+        assert!(!generated_ids.is_empty());
+        assert!(
+            source_ids.is_disjoint(&generated_ids),
+            "generated explicit instance body reused source ExprIds: source={source_ids:?}, generated={generated_ids:?}"
+        );
     }
 }
