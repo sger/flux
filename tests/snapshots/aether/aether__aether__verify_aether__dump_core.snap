@@ -1,256 +1,8 @@
 ---
 source: tests/aether/cli_snapshots.rs
 ---
-def __dict_Eq_Int =
-MakeTuple(__tc_Eq_Int_eq, __tc_Eq_Int_neq)
-
-letrec __tc_Eq_Int_eq =
-λ__x0, __x1.
-    ICmpEq(__x0, __x1)
-
-letrec __tc_Eq_Int_neq =
-λ__x0, __x1.
-    ICmpNe(__x0, __x1)
-
-letrec __tc_Eq_Float_eq =
-λ__x0, __x1.
-    FCmpEq(__x0, __x1)
-
-letrec __tc_Eq_Float_neq =
-λ__x0, __x1.
-    FCmpNe(__x0, __x1)
-
-letrec __tc_Eq_String_eq =
-λ__x0, __x1.
-    Eq(__x0, __x1)
-
-letrec __tc_Eq_String_neq =
-λ__x0, __x1.
-    NEq(__x0, __x1)
-
-letrec __tc_Eq_Bool_eq =
-λ__x0, __x1.
-    Eq(__x0, __x1)
-
-letrec __tc_Eq_Bool_neq =
-λ__x0, __x1.
-    NEq(__x0, __x1)
-
-letrec __tc_Eq_List<a>_eq =
-λ__dict_Eq, __x0, __x1.
-    case __x0 of
-      ::(h1, t1) →
-        case __x1 of
-          ::(h2, t2) →
-            let %t1 = (let %t2 = __dict_Eq.0
-            %t2(h1, h2))
-            let %t3 = __tc_Eq_List<a>_eq(__dict_Eq, t1, t2)
-            And(%t1, %t3)
-          _ →
-            false
-      _ →
-        case __x1 of
-          ::(h, t) →
-            false
-          _ →
-            true
-
-letrec __tc_Eq_List<a>_neq =
-λ__dict_Eq, __x0, __x1.
-    let %t4 = (case __x0 of
-      ::(h1, t1) →
-        case __x1 of
-          ::(h2, t2) →
-            let %t5 = (let %t6 = __dict_Eq.0
-            %t6(h1, h2))
-            let %t7 = __tc_Eq_List<a>_eq(__dict_Eq, t1, t2)
-            And(%t5, %t7)
-          _ →
-            false
-      _ →
-        case __x1 of
-          ::(h, t) →
-            false
-          _ →
-            true)
-    Not(%t4)
-
-letrec __tc_Eq_Option<a>_eq =
-λ__dict_Eq, __x0, __x1.
-    case __x0 of
-      Some(u) →
-        case __x1 of
-          Some(v) →
-            let %t8 = __dict_Eq.0
-            %t8(u, v)
-          _ →
-            false
-      _ →
-        case __x1 of
-          Some(v) →
-            false
-          _ →
-            true
-
-letrec __tc_Eq_Option<a>_neq =
-λ__dict_Eq, __x0, __x1.
-    let %t9 = (case __x0 of
-      Some(u) →
-        case __x1 of
-          Some(v) →
-            let %t10 = __dict_Eq.0
-            %t10(u, v)
-          _ →
-            false
-      _ →
-        case __x1 of
-          Some(v) →
-            false
-          _ →
-            true)
-    Not(%t9)
-
-letrec __tc_Ord_Int_compare =
-λ__x0, __x1.
-    let %t11 = ICmpLt(__x0, __x1)
-    case %t11 of
-      true →
-        -1
-      _ →
-        let %t12 = ICmpGt(__x0, __x1)
-        case %t12 of
-          true →
-            1
-          _ →
-            0
-
-letrec __tc_Ord_Int_lt =
-λ__x0, __x1.
-    ICmpLt(__x0, __x1)
-
-letrec __tc_Ord_Int_lte =
-λ__x0, __x1.
-    ICmpLe(__x0, __x1)
-
-letrec __tc_Ord_Int_gt =
-λ__x0, __x1.
-    ICmpGt(__x0, __x1)
-
-letrec __tc_Ord_Int_gte =
-λ__x0, __x1.
-    ICmpGe(__x0, __x1)
-
-letrec __tc_Ord_Float_compare =
-λ__x0, __x1.
-    let %t13 = FCmpLt(__x0, __x1)
-    case %t13 of
-      true →
-        -1
-      _ →
-        let %t14 = FCmpGt(__x0, __x1)
-        case %t14 of
-          true →
-            1
-          _ →
-            0
-
-letrec __tc_Ord_Float_lt =
-λ__x0, __x1.
-    FCmpLt(__x0, __x1)
-
-letrec __tc_Ord_Float_lte =
-λ__x0, __x1.
-    FCmpLe(__x0, __x1)
-
-letrec __tc_Ord_Float_gt =
-λ__x0, __x1.
-    FCmpGt(__x0, __x1)
-
-letrec __tc_Ord_Float_gte =
-λ__x0, __x1.
-    FCmpGe(__x0, __x1)
-
-letrec __tc_Ord_String_compare =
-λ__x0, __x1.
-    let %t15 = Lt(__x0, __x1)
-    case %t15 of
-      true →
-        -1
-      _ →
-        let %t16 = Gt(__x0, __x1)
-        case %t16 of
-          true →
-            1
-          _ →
-            0
-
-letrec __tc_Ord_String_lt =
-λ__x0, __x1.
-    Lt(__x0, __x1)
-
-letrec __tc_Ord_String_lte =
-λ__x0, __x1.
-    Le(__x0, __x1)
-
-letrec __tc_Ord_String_gt =
-λ__x0, __x1.
-    Gt(__x0, __x1)
-
-letrec __tc_Ord_String_gte =
-λ__x0, __x1.
-    Ge(__x0, __x1)
-
-letrec __tc_Num_Int_add =
-λ__x0, __x1.
-    IAdd(__x0, __x1)
-
-letrec __tc_Num_Int_sub =
-λ__x0, __x1.
-    ISub(__x0, __x1)
-
-letrec __tc_Num_Int_mul =
-λ__x0, __x1.
-    IMul(__x0, __x1)
-
-letrec __tc_Num_Int_div =
-λ__x0, __x1.
-    IDiv(__x0, __x1)
-
-letrec __tc_Num_Float_add =
-λ__x0, __x1.
-    FAdd(__x0, __x1)
-
-letrec __tc_Num_Float_sub =
-λ__x0, __x1.
-    FSub(__x0, __x1)
-
-letrec __tc_Num_Float_mul =
-λ__x0, __x1.
-    FMul(__x0, __x1)
-
-letrec __tc_Num_Float_div =
-λ__x0, __x1.
-    FDiv(__x0, __x1)
-
-letrec __tc_Show_Int_show =
-λ__x0.
-    ToString(__x0)
-
-letrec __tc_Show_Float_show =
-λ__x0.
-    ToString(__x0)
-
-letrec __tc_Show_String_show =
-λ__x0.
-    ToString(__x0)
-
-letrec __tc_Show_Bool_show =
-λ__x0.
-    ToString(__x0)
-
-letrec __tc_Semigroup_String_append =
-λ__x0, __x1.
-    string_concat(__x0, __x1)
+def __dict_m7_466C6F772E4571_Eq_Int =
+MakeTuple(__tc_m7_466C6F772E4571_Eq_Int_eq, __tc_m7_466C6F772E4571_Eq_Int_neq)
 
 letrec eq =
 λ__x0, __x1.
@@ -298,36 +50,36 @@ letrec show =
 
 letrec assert_failed =
 λname.
-    let %t17 = Add("ASSERTION FAILED: ", name)
-    perform Console.println(%t17)
+    let %t1 = Add("ASSERTION FAILED: ", name)
+    perform Console.println(%t1)
 
 letrec assert_eq =
 λa, b.
-    let %t18 = (let %t19 = CmpEq(a, b)
-    case %t19 of
+    let %t2 = (let %t3 = CmpEq(a, b)
+    case %t3 of
       true →
         MakeTuple()
       _ →
-        let %t20 = assert_failed("assert_eq")
-        let %t21 = perform Console.println(a)
-        let %t22 = perform Console.println(b)
+        let %t4 = assert_failed("assert_eq")
+        let %t5 = perform Console.println(a)
+        let %t6 = perform Console.println(b)
         panic("assert_eq failed"))
     ()
 
 letrec assert_neq =
 λa, b.
-    let %t23 = (let %t24 = CmpNe(a, b)
-    case %t24 of
+    let %t7 = (let %t8 = CmpNe(a, b)
+    case %t8 of
       true →
         MakeTuple()
       _ →
-        let %t25 = assert_failed("assert_neq")
+        let %t9 = assert_failed("assert_neq")
         panic("assert_neq failed"))
     ()
 
 letrec assert_true =
 λx.
-    let %t26 = (case x of
+    let %t10 = (case x of
       true →
         MakeTuple()
       _ →
@@ -336,8 +88,8 @@ letrec assert_true =
 
 letrec assert_false =
 λx.
-    let %t27 = (let %t28 = Not(x)
-    case %t28 of
+    let %t11 = (let %t12 = Not(x)
+    case %t12 of
       true →
         MakeTuple()
       _ →
@@ -345,9 +97,9 @@ letrec assert_false =
     ()
 
 letrec assert_gt =
-λ__dict_Ord, a, b.
-    let %t29 = (let %t30 = Gt(a, b)
-    case %t30 of
+λ__dict_m8_466C6F772E4F7264_Ord, a, b.
+    let %t13 = (let %t14 = Gt(a, b)
+    case %t14 of
       true →
         MakeTuple()
       _ →
@@ -355,9 +107,9 @@ letrec assert_gt =
     ()
 
 letrec assert_lt =
-λ__dict_Ord, a, b.
-    let %t31 = (let %t32 = ICmpLt(a, b)
-    case %t32 of
+λ__dict_m8_466C6F772E4F7264_Ord, a, b.
+    let %t15 = (let %t16 = ICmpLt(a, b)
+    case %t16 of
       true →
         MakeTuple()
       _ →
@@ -365,9 +117,9 @@ letrec assert_lt =
     ()
 
 letrec assert_gte =
-λ__dict_Ord, a, b.
-    let %t33 = (let %t34 = Ge(a, b)
-    case %t34 of
+λ__dict_m8_466C6F772E4F7264_Ord, a, b.
+    let %t17 = (let %t18 = Ge(a, b)
+    case %t18 of
       true →
         MakeTuple()
       _ →
@@ -375,10 +127,10 @@ letrec assert_gte =
     ()
 
 letrec assert_lte =
-λ__dict_Ord, a, b.
-    let %t35 = (let %t36 = (let %t37 = __dict_Ord.2
-    %t37(a, b))
-    case %t36 of
+λ__dict_m8_466C6F772E4F7264_Ord, a, b.
+    let %t19 = (let %t20 = (let %t21 = __dict_m8_466C6F772E4F7264_Ord.2
+    %t21(a, b))
+    case %t20 of
       true →
         MakeTuple()
       _ →
@@ -388,8 +140,8 @@ letrec assert_lte =
 letrec assert_len =
 λcollection, expected.
     let actual = Len(collection)
-    let %t38 = (let %t39 = Eq(actual, expected)
-    case %t39 of
+    let %t22 = (let %t23 = Eq(actual, expected)
+    case %t23 of
       true →
         MakeTuple()
       _ →
@@ -398,7 +150,7 @@ letrec assert_len =
 
 letrec assert_msg =
 λcondition, message.
-    let %t40 = (case condition of
+    let %t24 = (case condition of
       true →
         MakeTuple()
       _ →
@@ -411,292 +163,292 @@ letrec try_catch =
 
 letrec debug =
 λx.
-    let %t41 = (let %t42 = ToString(x)
-    perform Debug.trace(%t42))
+    let %t25 = (let %t26 = ToString(x)
+    perform Debug.trace(%t26))
     x
 
 letrec debug_labeled =
 λlabel, x.
-    let %t43 = (let %t44 = (let %t45 = Add(label, " = ")
-    let %t46 = ToString(x)
-    Add(%t45, %t46))
-    perform Debug.trace(%t44))
+    let %t27 = (let %t28 = (let %t29 = Add(label, " = ")
+    let %t30 = ToString(x)
+    Add(%t29, %t30))
+    perform Debug.trace(%t28))
     x
 
 letrec debug_with =
 λf, x.
-    let %t47 = (let %t48 = f(x)
-    perform Debug.trace(%t48))
+    let %t31 = (let %t32 = f(x)
+    perform Debug.trace(%t32))
     x
 
 letrec map =
 λarr, f.
     letrec map_go = (λidx, acc.
-      let %t49 = (let %t50 = Len(arr)
-      Ge(idx, %t50))
-      case %t49 of
+      let %t33 = (let %t34 = Len(arr)
+      Ge(idx, %t34))
+      case %t33 of
         true →
           acc
         _ →
-          let %t51 = Index(arr, idx)
-          case %t51 of
+          let %t35 = Index(arr, idx)
+          case %t35 of
             Some(v) →
-              let %t52 = Add(idx, 1)
-              let %t53 = (let %t54 = f(v)
-              push(acc, %t54))
-              map_go(%t52, %t53)
+              let %t36 = Add(idx, 1)
+              let %t37 = (let %t38 = f(v)
+              push(acc, %t38))
+              map_go(%t36, %t37)
             _ →
-              let %t55 = Add(idx, 1)
-              map_go(%t55, acc))
-    let %t56 = MakeArray()
-    map_go(0, %t56)
+              let %t39 = Add(idx, 1)
+              map_go(%t39, acc))
+    let %t40 = MakeArray()
+    map_go(0, %t40)
 
 letrec filter =
 λarr, pred.
     letrec filter_go = (λidx, acc.
-      let %t57 = (let %t58 = Len(arr)
-      Ge(idx, %t58))
-      case %t57 of
+      let %t41 = (let %t42 = Len(arr)
+      Ge(idx, %t42))
+      case %t41 of
         true →
           acc
         _ →
-          let %t59 = Index(arr, idx)
-          case %t59 of
+          let %t43 = Index(arr, idx)
+          case %t43 of
             Some(v) →
-              let %t60 = pred(v)
-              case %t60 of
+              let %t44 = pred(v)
+              case %t44 of
                 true →
-                  let %t61 = Add(idx, 1)
-                  let %t62 = push(acc, v)
-                  filter_go(%t61, %t62)
+                  let %t45 = Add(idx, 1)
+                  let %t46 = push(acc, v)
+                  filter_go(%t45, %t46)
                 _ →
-                  let %t63 = Add(idx, 1)
-                  filter_go(%t63, acc)
+                  let %t47 = Add(idx, 1)
+                  filter_go(%t47, acc)
             _ →
-              let %t64 = IAdd(idx, 1)
-              filter_go(%t64, acc))
-    let %t65 = MakeArray()
-    filter_go(0, %t65)
+              let %t48 = IAdd(idx, 1)
+              filter_go(%t48, acc))
+    let %t49 = MakeArray()
+    filter_go(0, %t49)
 
 letrec fold =
 λarr, acc, f.
     letrec fold_go = (λidx, a.
-      let %t66 = (let %t67 = Len(arr)
-      Ge(idx, %t67))
-      case %t66 of
+      let %t50 = (let %t51 = Len(arr)
+      Ge(idx, %t51))
+      case %t50 of
         true →
           a
         _ →
-          let %t68 = Index(arr, idx)
-          case %t68 of
+          let %t52 = Index(arr, idx)
+          case %t52 of
             Some(v) →
-              let %t69 = Add(idx, 1)
-              let %t70 = f(a, v)
-              fold_go(%t69, %t70)
+              let %t53 = Add(idx, 1)
+              let %t54 = f(a, v)
+              fold_go(%t53, %t54)
             _ →
-              let %t71 = Add(idx, 1)
-              fold_go(%t71, a))
+              let %t55 = Add(idx, 1)
+              fold_go(%t55, a))
     fold_go(0, acc)
 
 letrec each =
 λarr, f.
     letrec each_go = (λidx.
-      let %t72 = (let %t73 = Len(arr)
-      Ge(idx, %t73))
-      case %t72 of
+      let %t56 = (let %t57 = Len(arr)
+      Ge(idx, %t57))
+      case %t56 of
         true →
           MakeTuple()
         _ →
-          let %t74 = Index(arr, idx)
-          case %t74 of
+          let %t58 = Index(arr, idx)
+          case %t58 of
             Some(v) →
-              let %t75 = f(v)
-              let %t76 = Add(idx, 1)
-              each_go(%t76)
+              let %t59 = f(v)
+              let %t60 = Add(idx, 1)
+              each_go(%t60)
             _ →
-              let %t77 = Add(idx, 1)
-              each_go(%t77))
+              let %t61 = Add(idx, 1)
+              each_go(%t61))
     each_go(0)
 
 letrec any =
 λarr, pred.
     letrec any_go = (λidx.
-      let %t78 = (let %t79 = Len(arr)
-      ICmpGe(idx, %t79))
-      case %t78 of
+      let %t62 = (let %t63 = Len(arr)
+      ICmpGe(idx, %t63))
+      case %t62 of
         true →
           false
         _ →
-          let %t80 = Index(arr, idx)
-          case %t80 of
+          let %t64 = Index(arr, idx)
+          case %t64 of
             Some(v) →
-              let %t81 = pred(v)
-              case %t81 of
+              let %t65 = pred(v)
+              case %t65 of
                 true →
                   true
                 _ →
-                  let %t82 = Add(idx, 1)
-                  any_go(%t82)
+                  let %t66 = Add(idx, 1)
+                  any_go(%t66)
             _ →
-              let %t83 = Add(idx, 1)
-              any_go(%t83))
+              let %t67 = Add(idx, 1)
+              any_go(%t67))
     any_go(0)
 
 letrec all =
 λarr, pred.
     letrec all_go = (λidx.
-      let %t84 = (let %t85 = Len(arr)
-      ICmpGe(idx, %t85))
-      case %t84 of
+      let %t68 = (let %t69 = Len(arr)
+      ICmpGe(idx, %t69))
+      case %t68 of
         true →
           true
         _ →
-          let %t86 = Index(arr, idx)
-          case %t86 of
+          let %t70 = Index(arr, idx)
+          case %t70 of
             Some(v) →
-              let %t87 = pred(v)
-              case %t87 of
+              let %t71 = pred(v)
+              case %t71 of
                 true →
-                  let %t88 = Add(idx, 1)
-                  all_go(%t88)
+                  let %t72 = Add(idx, 1)
+                  all_go(%t72)
                 _ →
                   false
             _ →
-              let %t89 = Add(idx, 1)
-              all_go(%t89))
+              let %t73 = Add(idx, 1)
+              all_go(%t73))
     all_go(0)
 
 letrec find =
 λarr, pred.
     letrec find_go = (λidx.
-      let %t90 = (let %t91 = Len(arr)
-      Ge(idx, %t91))
-      case %t90 of
+      let %t74 = (let %t75 = Len(arr)
+      Ge(idx, %t75))
+      case %t74 of
         true →
           None
         _ →
-          let %t92 = Index(arr, idx)
-          case %t92 of
+          let %t76 = Index(arr, idx)
+          case %t76 of
             Some(v) →
-              let %t93 = pred(v)
-              case %t93 of
+              let %t77 = pred(v)
+              case %t77 of
                 true →
                   Some(v)
                 _ →
-                  let %t94 = Add(idx, 1)
-                  find_go(%t94)
+                  let %t78 = Add(idx, 1)
+                  find_go(%t78)
             _ →
-              let %t95 = Add(idx, 1)
-              find_go(%t95))
+              let %t79 = Add(idx, 1)
+              find_go(%t79))
     find_go(0)
 
 letrec count =
 λarr, pred.
     letrec count_go = (λidx, n.
-      let %t96 = (let %t97 = Len(arr)
-      Ge(idx, %t97))
-      case %t96 of
+      let %t80 = (let %t81 = Len(arr)
+      Ge(idx, %t81))
+      case %t80 of
         true →
           n
         _ →
-          let %t98 = Index(arr, idx)
-          case %t98 of
+          let %t82 = Index(arr, idx)
+          case %t82 of
             Some(v) →
-              let %t99 = pred(v)
-              case %t99 of
+              let %t83 = pred(v)
+              case %t83 of
                 true →
-                  let %t100 = Add(idx, 1)
-                  let %t101 = Add(n, 1)
-                  count_go(%t100, %t101)
+                  let %t84 = Add(idx, 1)
+                  let %t85 = Add(n, 1)
+                  count_go(%t84, %t85)
                 _ →
-                  let %t102 = Add(idx, 1)
-                  count_go(%t102, n)
+                  let %t86 = Add(idx, 1)
+                  count_go(%t86, n)
             _ →
-              let %t103 = Add(idx, 1)
-              count_go(%t103, n))
+              let %t87 = Add(idx, 1)
+              count_go(%t87, n))
     count_go(0, 0)
 
 letrec flat_map =
 λarr, f.
     letrec flat_map_go = (λidx, acc.
-      let %t104 = (let %t105 = Len(arr)
-      Ge(idx, %t105))
-      case %t104 of
+      let %t88 = (let %t89 = Len(arr)
+      Ge(idx, %t89))
+      case %t88 of
         true →
           acc
         _ →
-          let %t106 = Index(arr, idx)
-          case %t106 of
+          let %t90 = Index(arr, idx)
+          case %t90 of
             Some(v) →
-              let %t107 = Add(idx, 1)
-              let %t108 = (let %t109 = f(v)
-              concat(acc, %t109))
-              flat_map_go(%t107, %t108)
+              let %t91 = Add(idx, 1)
+              let %t92 = (let %t93 = f(v)
+              concat(acc, %t93))
+              flat_map_go(%t91, %t92)
             _ →
-              let %t110 = Add(idx, 1)
-              flat_map_go(%t110, acc))
-    let %t111 = MakeArray()
-    flat_map_go(0, %t111)
+              let %t94 = Add(idx, 1)
+              flat_map_go(%t94, acc))
+    let %t95 = MakeArray()
+    flat_map_go(0, %t95)
 
 letrec flatten =
 λarr.
     letrec flatten_go = (λidx, acc.
-      let %t112 = (let %t113 = Len(arr)
-      Ge(idx, %t113))
-      case %t112 of
+      let %t96 = (let %t97 = Len(arr)
+      Ge(idx, %t97))
+      case %t96 of
         true →
           acc
         _ →
-          let %t114 = Index(arr, idx)
-          case %t114 of
+          let %t98 = Index(arr, idx)
+          case %t98 of
             Some(v) →
-              let %t115 = Add(idx, 1)
-              let %t116 = concat(acc, v)
-              flatten_go(%t115, %t116)
+              let %t99 = Add(idx, 1)
+              let %t100 = concat(acc, v)
+              flatten_go(%t99, %t100)
             _ →
-              let %t117 = Add(idx, 1)
-              flatten_go(%t117, acc))
-    let %t118 = MakeArray()
-    flatten_go(0, %t118)
+              let %t101 = Add(idx, 1)
+              flatten_go(%t101, acc))
+    let %t102 = MakeArray()
+    flatten_go(0, %t102)
 
 letrec zip =
 λa_arr, b_arr.
-    let min_len = (let %t119 = (let %t120 = Len(a_arr)
-    let %t121 = Len(b_arr)
-    Lt(%t120, %t121))
-    case %t119 of
+    let min_len = (let %t103 = (let %t104 = Len(a_arr)
+    let %t105 = Len(b_arr)
+    Lt(%t104, %t105))
+    case %t103 of
       true →
         Len(a_arr)
       _ →
         Len(b_arr))
     letrec zip_go = (λidx, acc.
-      let %t122 = Ge(idx, min_len)
-      case %t122 of
+      let %t106 = Ge(idx, min_len)
+      case %t106 of
         true →
           acc
         _ →
-          let %t123 = Index(a_arr, idx)
-          case %t123 of
+          let %t107 = Index(a_arr, idx)
+          case %t107 of
             Some(va) →
-              let %t124 = Index(b_arr, idx)
-              case %t124 of
+              let %t108 = Index(b_arr, idx)
+              case %t108 of
                 Some(vb) →
-                  let %t125 = Add(idx, 1)
-                  let %t126 = (let %t127 = MakeTuple(va, vb)
-                  push(acc, %t127))
-                  zip_go(%t125, %t126)
+                  let %t109 = Add(idx, 1)
+                  let %t110 = (let %t111 = MakeTuple(va, vb)
+                  push(acc, %t111))
+                  zip_go(%t109, %t110)
                 _ →
                   acc
             _ →
               acc)
-    let %t128 = MakeArray()
-    zip_go(0, %t128)
+    let %t112 = MakeArray()
+    zip_go(0, %t112)
 
 letrec contains =
-λ__dict_Eq, arr, x.
-    let %t129 = (λv.
-      __tc_Eq_List<a>_eq(__dict_Eq, v, x))
-    any(arr, %t129)
+λ__dict_m7_466C6F772E4571_Eq, arr, x.
+    let %t113 = (λv.
+      __tc_m7_466C6F772E4571_Eq_List<a>_eq(__dict_m7_466C6F772E4571_Eq, v, x))
+    any(arr, %t113)
 
 letrec concat =
 λleft, right.
@@ -716,20 +468,20 @@ letrec push =
 
 letrec reverse =
 λarr.
-    let %t130 = (let %t131 = Len(arr)
-    Eq(%t131, 0))
-    case %t130 of
+    let %t114 = (let %t115 = Len(arr)
+    Eq(%t115, 0))
+    case %t114 of
       true →
         MakeArray()
       _ →
-        let %t132 = Index(arr, 0)
-        case %t132 of
+        let %t116 = Index(arr, 0)
+        case %t116 of
           Some(v) →
-            let %t133 = (let %t134 = (let %t135 = Len(arr)
-            slice(arr, 1, %t135))
-            reverse(%t134))
-            let %t136 = MakeArray(v)
-            concat(%t133, %t136)
+            let %t117 = (let %t118 = (let %t119 = Len(arr)
+            slice(arr, 1, %t119))
+            reverse(%t118))
+            let %t120 = MakeArray(v)
+            concat(%t117, %t120)
           _ →
             MakeArray()
 
@@ -743,47 +495,47 @@ letrec update =
 
 letrec sum =
 λarr.
-    let %t137 = (λa, x.
+    let %t121 = (λa, x.
       Add(a, x))
-    fold(arr, 0, %t137)
+    fold(arr, 0, %t121)
 
 letrec product =
 λarr.
-    let %t138 = (λa, x.
+    let %t122 = (λa, x.
       Mul(a, x))
-    fold(arr, 1, %t138)
+    fold(arr, 1, %t122)
 
 letrec maximum =
 λarr.
     letrec maximum_go = (λi, best.
-      let %t139 = (let %t140 = Len(arr)
-      Ge(i, %t140))
-      case %t139 of
+      let %t123 = (let %t124 = Len(arr)
+      Ge(i, %t124))
+      case %t123 of
         true →
           best
         _ →
-          let %t141 = Index(arr, i)
-          case %t141 of
+          let %t125 = Index(arr, i)
+          case %t125 of
             Some(v) →
-              let %t142 = Add(i, 1)
-              let %t143 = (let %t144 = Gt(v, best)
-              case %t144 of
+              let %t126 = Add(i, 1)
+              let %t127 = (let %t128 = Gt(v, best)
+              case %t128 of
                 true →
                   v
                 _ →
                   best)
-              maximum_go(%t142, %t143)
+              maximum_go(%t126, %t127)
             _ →
-              let %t145 = Add(i, 1)
-              maximum_go(%t145, best))
-    let %t146 = (let %t147 = Len(arr)
-    Eq(%t147, 0))
-    case %t146 of
+              let %t129 = Add(i, 1)
+              maximum_go(%t129, best))
+    let %t130 = (let %t131 = Len(arr)
+    Eq(%t131, 0))
+    case %t130 of
       true →
         0
       _ →
-        let %t148 = Index(arr, 0)
-        case %t148 of
+        let %t132 = Index(arr, 0)
+        case %t132 of
           Some(first) →
             maximum_go(1, first)
           _ →
@@ -792,34 +544,34 @@ letrec maximum =
 letrec minimum =
 λarr.
     letrec minimum_go = (λi, best.
-      let %t149 = (let %t150 = Len(arr)
-      Ge(i, %t150))
-      case %t149 of
+      let %t133 = (let %t134 = Len(arr)
+      Ge(i, %t134))
+      case %t133 of
         true →
           best
         _ →
-          let %t151 = Index(arr, i)
-          case %t151 of
+          let %t135 = Index(arr, i)
+          case %t135 of
             Some(v) →
-              let %t152 = Add(i, 1)
-              let %t153 = (let %t154 = Lt(v, best)
-              case %t154 of
+              let %t136 = Add(i, 1)
+              let %t137 = (let %t138 = Lt(v, best)
+              case %t138 of
                 true →
                   v
                 _ →
                   best)
-              minimum_go(%t152, %t153)
+              minimum_go(%t136, %t137)
             _ →
-              let %t155 = Add(i, 1)
-              minimum_go(%t155, best))
-    let %t156 = (let %t157 = Len(arr)
-    Eq(%t157, 0))
-    case %t156 of
+              let %t139 = Add(i, 1)
+              minimum_go(%t139, best))
+    let %t140 = (let %t141 = Len(arr)
+    Eq(%t141, 0))
+    case %t140 of
       true →
         0
       _ →
-        let %t158 = Index(arr, 0)
-        case %t158 of
+        let %t142 = Index(arr, 0)
+        case %t142 of
           Some(first) →
             minimum_go(1, first)
           _ →
@@ -832,119 +584,119 @@ letrec first =
 letrec last =
 λarr.
     let n = Len(arr)
-    let %t159 = Eq(n, 0)
-    case %t159 of
+    let %t143 = Eq(n, 0)
+    case %t143 of
       true →
         None
       _ →
-        let %t160 = Sub(n, 1)
-        Index(arr, %t160)
+        let %t144 = Sub(n, 1)
+        Index(arr, %t144)
 
 letrec range =
 λstart, stop.
     letrec range_go = (λi, acc.
-      let %t161 = Ge(i, stop)
-      case %t161 of
+      let %t145 = Ge(i, stop)
+      case %t145 of
         true →
           acc
         _ →
-          let %t162 = Add(i, 1)
-          let %t163 = push(acc, i)
-          range_go(%t162, %t163))
-    let %t164 = MakeArray()
-    range_go(start, %t164)
+          let %t146 = Add(i, 1)
+          let %t147 = push(acc, i)
+          range_go(%t146, %t147))
+    let %t148 = MakeArray()
+    range_go(start, %t148)
 
 letrec sort =
-λ__dict_Ord, arr.
-    let %t165 = (λv.
+λ__dict_m8_466C6F772E4F7264_Ord, arr.
+    let %t149 = (λv.
       v)
-    sort_by(__dict_Ord, arr, %t165)
+    sort_by(__dict_m8_466C6F772E4F7264_Ord, arr, %t149)
 
 letrec sort_by =
-λ__dict_Ord, arr, f.
+λ__dict_m8_466C6F772E4F7264_Ord, arr, f.
     letrec insert_tagged = (λsorted, pair, idx.
-      let %t166 = (let %t167 = Len(sorted)
-      Ge(idx, %t167))
-      case %t166 of
+      let %t150 = (let %t151 = Len(sorted)
+      Ge(idx, %t151))
+      case %t150 of
         true →
           push(sorted, pair)
         _ →
-          let %t168 = Index(sorted, idx)
-          case %t168 of
+          let %t152 = Index(sorted, idx)
+          case %t152 of
             Some(current) →
-              let %t169 = (let %t170 = pair.0
-              let %t171 = current.0
-              Le(%t170, %t171))
-              case %t169 of
+              let %t153 = (let %t154 = pair.0
+              let %t155 = current.0
+              Le(%t154, %t155))
+              case %t153 of
                 true →
                   let left = slice(sorted, 0, idx)
-                  let right = (let %t172 = Len(sorted)
-                  slice(sorted, idx, %t172))
-                  let %t173 = (let %t174 = MakeArray(pair)
-                  concat(left, %t174))
-                  concat(%t173, right)
+                  let right = (let %t156 = Len(sorted)
+                  slice(sorted, idx, %t156))
+                  let %t157 = (let %t158 = MakeArray(pair)
+                  concat(left, %t158))
+                  concat(%t157, right)
                 _ →
-                  let %t175 = Add(idx, 1)
-                  insert_tagged(sorted, pair, %t175)
+                  let %t159 = Add(idx, 1)
+                  insert_tagged(sorted, pair, %t159)
             _ →
               push(sorted, pair))
     letrec sort_by_go = (λidx, pairs.
-      let %t176 = (let %t177 = Len(arr)
-      Ge(idx, %t177))
-      case %t176 of
+      let %t160 = (let %t161 = Len(arr)
+      Ge(idx, %t161))
+      case %t160 of
         true →
           pairs
         _ →
-          let %t178 = Index(arr, idx)
-          case %t178 of
+          let %t162 = Index(arr, idx)
+          case %t162 of
             Some(v) →
-              let %t179 = Add(idx, 1)
-              let %t180 = (let %t181 = (let %t182 = f(v)
-              MakeTuple(%t182, v))
-              insert_tagged(pairs, %t181, 0))
-              sort_by_go(%t179, %t180)
+              let %t163 = Add(idx, 1)
+              let %t164 = (let %t165 = (let %t166 = f(v)
+              MakeTuple(%t166, v))
+              insert_tagged(pairs, %t165, 0))
+              sort_by_go(%t163, %t164)
             _ →
-              let %t183 = Add(idx, 1)
-              sort_by_go(%t183, pairs))
-    let %t184 = (let %t185 = MakeArray()
-    sort_by_go(0, %t185))
-    let %t186 = (λp.
+              let %t167 = Add(idx, 1)
+              sort_by_go(%t167, pairs))
+    let %t168 = (let %t169 = MakeArray()
+    sort_by_go(0, %t169))
+    let %t170 = (λp.
       p.1)
-    map(%t184, %t186)
+    map(%t168, %t170)
 
 letrec take =
 λarr, n.
-    let %t187 = (let %t188 = (let %t189 = Len(arr)
-    Gt(n, %t189))
-    case %t188 of
+    let %t171 = (let %t172 = (let %t173 = Len(arr)
+    Gt(n, %t173))
+    case %t172 of
       true →
         Len(arr)
       _ →
         n)
-    slice(arr, 0, %t187)
+    slice(arr, 0, %t171)
 
 letrec drop =
 λarr, n.
-    let %t190 = (let %t191 = (let %t192 = Len(arr)
-    Gt(n, %t192))
-    case %t191 of
+    let %t174 = (let %t175 = (let %t176 = Len(arr)
+    Gt(n, %t176))
+    case %t175 of
       true →
         Len(arr)
       _ →
         n)
-    let %t193 = Len(arr)
-    slice(arr, %t190, %t193)
+    let %t177 = Len(arr)
+    slice(arr, %t174, %t177)
 
 letrec swap =
 λarr, i, j.
-    let %t194 = Index(arr, i)
-    case %t194 of
+    let %t178 = Index(arr, i)
+    case %t178 of
       Some(vi) →
-        let %t195 = Index(arr, j)
-        case %t195 of
+        let %t179 = Index(arr, j)
+        case %t179 of
           Some(vj) →
-            let %t196 = update(arr, i, vj)
-            update(%t196, j, vi)
+            let %t180 = update(arr, i, vj)
+            update(%t180, j, vi)
           _ →
             arr
       _ →
@@ -953,94 +705,94 @@ letrec swap =
 letrec enumerate =
 λarr.
     letrec enumerate_go = (λidx, acc.
-      let %t197 = (let %t198 = Len(arr)
-      Ge(idx, %t198))
-      case %t197 of
+      let %t181 = (let %t182 = Len(arr)
+      Ge(idx, %t182))
+      case %t181 of
         true →
           acc
         _ →
-          let %t199 = Index(arr, idx)
-          case %t199 of
+          let %t183 = Index(arr, idx)
+          case %t183 of
             Some(v) →
-              let %t200 = Add(idx, 1)
-              let %t201 = (let %t202 = MakeTuple(idx, v)
-              push(acc, %t202))
-              enumerate_go(%t200, %t201)
+              let %t184 = Add(idx, 1)
+              let %t185 = (let %t186 = MakeTuple(idx, v)
+              push(acc, %t186))
+              enumerate_go(%t184, %t185)
             _ →
-              let %t203 = IAdd(idx, 1)
-              enumerate_go(%t203, acc))
-    let %t204 = MakeArray()
-    enumerate_go(0, %t204)
+              let %t187 = IAdd(idx, 1)
+              enumerate_go(%t187, acc))
+    let %t188 = MakeArray()
+    enumerate_go(0, %t188)
 
 letrec tabulate =
 λn, f.
     letrec tabulate_go = (λi, acc.
-      let %t205 = Ge(i, n)
-      case %t205 of
+      let %t189 = Ge(i, n)
+      case %t189 of
         true →
           acc
         _ →
-          let %t206 = Add(i, 1)
-          let %t207 = (let %t208 = f(i)
-          push(acc, %t208))
-          tabulate_go(%t206, %t207))
-    let %t209 = MakeArray()
-    tabulate_go(0, %t209)
+          let %t190 = Add(i, 1)
+          let %t191 = (let %t192 = f(i)
+          push(acc, %t192))
+          tabulate_go(%t190, %t191))
+    let %t193 = MakeArray()
+    tabulate_go(0, %t193)
 
 letrec from_list =
 λxs.
     letrec from_list_go = (λys, acc.
       case ys of
         ::(h, t) →
-          let %t210 = push(acc, h)
-          from_list_go(t, %t210)
+          let %t194 = push(acc, h)
+          from_list_go(t, %t194)
         _ →
           acc)
-    let %t211 = MakeArray()
-    from_list_go(xs, %t211)
+    let %t195 = MakeArray()
+    from_list_go(xs, %t195)
 
 letrec find_index =
 λarr, pred.
     letrec find_index_go = (λidx.
-      let %t212 = (let %t213 = Len(arr)
-      Ge(idx, %t213))
-      case %t212 of
+      let %t196 = (let %t197 = Len(arr)
+      Ge(idx, %t197))
+      case %t196 of
         true →
           None
         _ →
-          let %t214 = Index(arr, idx)
-          case %t214 of
+          let %t198 = Index(arr, idx)
+          case %t198 of
             Some(v) →
-              let %t215 = pred(v)
-              case %t215 of
+              let %t199 = pred(v)
+              case %t199 of
                 true →
                   Some(idx)
                 _ →
-                  let %t216 = Add(idx, 1)
-                  find_index_go(%t216)
+                  let %t200 = Add(idx, 1)
+                  find_index_go(%t200)
             _ →
-              let %t217 = Add(idx, 1)
-              find_index_go(%t217))
+              let %t201 = Add(idx, 1)
+              find_index_go(%t201))
     find_index_go(0)
 
 letrec each_indexed =
 λarr, f.
     letrec each_indexed_go = (λidx.
-      let %t218 = (let %t219 = Len(arr)
-      Ge(idx, %t219))
-      case %t218 of
+      let %t202 = (let %t203 = Len(arr)
+      Ge(idx, %t203))
+      case %t202 of
         true →
           MakeTuple()
         _ →
-          let %t220 = Index(arr, idx)
-          case %t220 of
+          let %t204 = Index(arr, idx)
+          case %t204 of
             Some(v) →
-              let %t221 = f(idx, v)
-              let %t222 = Add(idx, 1)
-              each_indexed_go(%t222)
+              let %t205 = f(idx, v)
+              let %t206 = Add(idx, 1)
+              each_indexed_go(%t206)
             _ →
-              let %t223 = Add(idx, 1)
-              each_indexed_go(%t223))
+              let %t207 = Add(idx, 1)
+              each_indexed_go(%t207))
     each_indexed_go(0)
 
 letrec update_many =
@@ -1048,31 +800,31 @@ letrec update_many =
     letrec update_many_go = (λa, ps.
       case ps of
         ::(p, rest) →
-          let %t224 = (let %t225 = p.0
-          let %t226 = p.1
-          update(a, %t225, %t226))
-          update_many_go(%t224, rest)
+          let %t208 = (let %t209 = p.0
+          let %t210 = p.1
+          update(a, %t209, %t210))
+          update_many_go(%t208, rest)
         _ →
           a)
     update_many_go(arr, pairs)
 
 letrec accum =
 λsize, init, pairs, f.
-    let base = (let %t227 = (λ_.
+    let base = (let %t211 = (λ_.
       init)
-    tabulate(size, %t227))
+    tabulate(size, %t211))
     letrec accum_go = (λa, ps.
       case ps of
         ::(p, rest) →
-          let %t228 = (let %t229 = p.0
-          Index(a, %t229))
-          case %t228 of
+          let %t212 = (let %t213 = p.0
+          Index(a, %t213))
+          case %t212 of
             Some(cur) →
-              let %t230 = (let %t231 = p.0
-              let %t232 = (let %t233 = p.1
-              f(cur, %t233))
-              update(a, %t231, %t232))
-              accum_go(%t230, rest)
+              let %t214 = (let %t215 = p.0
+              let %t216 = (let %t217 = p.1
+              f(cur, %t217))
+              update(a, %t215, %t216))
+              accum_go(%t214, rest)
             _ →
               accum_go(a, rest)
         _ →
@@ -1082,21 +834,21 @@ letrec accum =
 letrec to_list =
 λarr.
     letrec to_list_go = (λidx.
-      let %t234 = (let %t235 = Len(arr)
-      Ge(idx, %t235))
-      case %t234 of
+      let %t218 = (let %t219 = Len(arr)
+      Ge(idx, %t219))
+      case %t218 of
         true →
           []
         _ →
-          let %t236 = Index(arr, idx)
-          case %t236 of
+          let %t220 = Index(arr, idx)
+          case %t220 of
             Some(v) →
-              let %t237 = (let %t238 = Add(idx, 1)
-              to_list_go(%t238))
-              ::(v, %t237)
+              let %t221 = (let %t222 = Add(idx, 1)
+              to_list_go(%t222))
+              ::(v, %t221)
             _ →
-              let %t239 = Add(idx, 1)
-              to_list_go(%t239))
+              let %t223 = Add(idx, 1)
+              to_list_go(%t223))
     to_list_go(0)
 
 letrec map =
@@ -1104,38 +856,38 @@ letrec map =
     letrec map_acc = (λys, acc.
       case ys of
         ::(h, t) →
-          let %t240 = (let %t241 = f(h)
-          ::(%t241, acc))
-          map_acc(t, %t240)
+          let %t224 = (let %t225 = f(h)
+          ::(%t225, acc))
+          map_acc(t, %t224)
         _ →
           reverse(acc))
-    let %t242 = []
-    map_acc(xs, %t242)
+    let %t226 = []
+    map_acc(xs, %t226)
 
 letrec filter =
 λxs, pred.
     letrec filter_acc = (λys, acc.
       case ys of
         ::(h, t) →
-          let %t243 = pred(h)
-          case %t243 of
+          let %t227 = pred(h)
+          case %t227 of
             true →
-              let %t244 = ::(h, acc)
-              filter_acc(t, %t244)
+              let %t228 = ::(h, acc)
+              filter_acc(t, %t228)
             _ →
               filter_acc(t, acc)
         _ →
           reverse(acc))
-    let %t245 = []
-    filter_acc(xs, %t245)
+    let %t229 = []
+    filter_acc(xs, %t229)
 
 letrec fold =
 λxs, acc, f.
     letrec fold_list = (λys, a.
       case ys of
         ::(h, t) →
-          let %t246 = f(a, h)
-          fold_list(t, %t246)
+          let %t230 = f(a, h)
+          fold_list(t, %t230)
         _ →
           a)
     fold_list(xs, acc)
@@ -1144,8 +896,8 @@ letrec foldr =
 λxs, acc, f.
     case xs of
       ::(h, t) →
-        let %t247 = foldr(t, acc, f)
-        f(h, %t247)
+        let %t231 = foldr(t, acc, f)
+        f(h, %t231)
       _ →
         acc
 
@@ -1162,27 +914,27 @@ letrec flat_map =
     letrec flat_map_acc = (λys, acc.
       case ys of
         ::(h, t) →
-          let %t248 = (let %t249 = (let %t250 = f(h)
-          reverse(%t250))
-          append(%t249, acc))
-          flat_map_acc(t, %t248)
+          let %t232 = (let %t233 = (let %t234 = f(h)
+          reverse(%t234))
+          append(%t233, acc))
+          flat_map_acc(t, %t232)
         _ →
           reverse(acc))
-    let %t251 = []
-    flat_map_acc(xs, %t251)
+    let %t235 = []
+    flat_map_acc(xs, %t235)
 
 letrec flatten =
 λxs.
     letrec flatten_acc = (λys, acc.
       case ys of
         ::(h, t) →
-          let %t252 = (let %t253 = reverse(h)
-          append(%t253, acc))
-          flatten_acc(t, %t252)
+          let %t236 = (let %t237 = reverse(h)
+          append(%t237, acc))
+          flatten_acc(t, %t236)
         _ →
           reverse(acc))
-    let %t254 = []
-    flatten_acc(xs, %t254)
+    let %t238 = []
+    flatten_acc(xs, %t238)
 
 letrec concat =
 λxss.
@@ -1192,8 +944,8 @@ letrec any =
 λxs, pred.
     case xs of
       ::(h, t) →
-        let %t255 = pred(h)
-        case %t255 of
+        let %t239 = pred(h)
+        case %t239 of
           true →
             true
           _ →
@@ -1205,8 +957,8 @@ letrec all =
 λxs, pred.
     case xs of
       ::(h, t) →
-        let %t256 = pred(h)
-        case %t256 of
+        let %t240 = pred(h)
+        case %t240 of
           true →
             all(t, pred)
           _ →
@@ -1218,8 +970,8 @@ letrec find =
 λxs, pred.
     case xs of
       ::(h, t) →
-        let %t257 = pred(h)
-        case %t257 of
+        let %t241 = pred(h)
+        case %t241 of
           true →
             Some(h)
           _ →
@@ -1232,11 +984,11 @@ letrec count =
     letrec count_go = (λys, n.
       case ys of
         ::(h, t) →
-          let %t258 = pred(h)
-          case %t258 of
+          let %t242 = pred(h)
+          case %t242 of
             true →
-              let %t259 = IAdd(n, 1)
-              count_go(t, %t259)
+              let %t243 = IAdd(n, 1)
+              count_go(t, %t243)
             _ →
               count_go(t, n)
         _ →
@@ -1247,41 +999,41 @@ letrec each =
 λxs, f.
     case xs of
       ::(h, t) →
-        let %t260 = f(h)
-        let %t261 = Flow.List.each
-        %t261(t, f)
+        let %t244 = f(h)
+        let %t245 = Flow.List.each
+        %t245(t, f)
       _ →
         MakeTuple()
 
 letrec take =
 λxs, n.
     letrec take_acc = (λys, remaining, acc.
-      let %t262 = ICmpLe(remaining, 0)
-      case %t262 of
+      let %t246 = ICmpLe(remaining, 0)
+      case %t246 of
         true →
           reverse(acc)
         _ →
           case ys of
             ::(h, t) →
-              let %t263 = ISub(remaining, 1)
-              let %t264 = ::(h, acc)
-              take_acc(t, %t263, %t264)
+              let %t247 = ISub(remaining, 1)
+              let %t248 = ::(h, acc)
+              take_acc(t, %t247, %t248)
             _ →
               reverse(acc))
-    let %t265 = []
-    take_acc(xs, n, %t265)
+    let %t249 = []
+    take_acc(xs, n, %t249)
 
 letrec drop =
 λxs, n.
-    let %t266 = ICmpLe(n, 0)
-    case %t266 of
+    let %t250 = ICmpLe(n, 0)
+    case %t250 of
       true →
         xs
       _ →
         case xs of
           ::(h, t) →
-            let %t267 = ISub(n, 1)
-            drop(t, %t267)
+            let %t251 = ISub(n, 1)
+            drop(t, %t251)
           _ →
             []
 
@@ -1290,24 +1042,24 @@ letrec take_while =
     letrec take_while_acc = (λys, acc.
       case ys of
         ::(h, t) →
-          let %t268 = pred(h)
-          case %t268 of
+          let %t252 = pred(h)
+          case %t252 of
             true →
-              let %t269 = ::(h, acc)
-              take_while_acc(t, %t269)
+              let %t253 = ::(h, acc)
+              take_while_acc(t, %t253)
             _ →
               reverse(acc)
         _ →
           reverse(acc))
-    let %t270 = []
-    take_while_acc(xs, %t270)
+    let %t254 = []
+    take_while_acc(xs, %t254)
 
 letrec drop_while =
 λxs, pred.
     case xs of
       ::(h, t) →
-        let %t271 = pred(h)
-        case %t271 of
+        let %t255 = pred(h)
+        case %t255 of
           true →
             drop_while(t, pred)
           _ →
@@ -1317,65 +1069,65 @@ letrec drop_while =
 
 letrec split_at =
 λxs, n.
-    let %t272 = ICmpLe(n, 0)
-    case %t272 of
+    let %t256 = ICmpLe(n, 0)
+    case %t256 of
       true →
-        let %t273 = []
-        MakeTuple(%t273, xs)
+        let %t257 = []
+        MakeTuple(%t257, xs)
       _ →
         case xs of
           ::(h, t) →
-            let %t274 = (let %t275 = ISub(n, 1)
-            split_at(t, %t275))
-            case %t274 of
+            let %t258 = (let %t259 = ISub(n, 1)
+            split_at(t, %t259))
+            case %t258 of
               (left, right) →
-                let %t276 = ::(h, left)
-                MakeTuple(%t276, right)
+                let %t260 = ::(h, left)
+                MakeTuple(%t260, right)
           _ →
-            let %t277 = []
-            let %t278 = []
-            MakeTuple(%t277, %t278)
+            let %t261 = []
+            let %t262 = []
+            MakeTuple(%t261, %t262)
 
 letrec span =
 λxs, pred.
     case xs of
       ::(h, t) →
-        let %t279 = pred(h)
-        case %t279 of
+        let %t263 = pred(h)
+        case %t263 of
           true →
-            let %t280 = span(t, pred)
-            case %t280 of
+            let %t264 = span(t, pred)
+            case %t264 of
               (left, right) →
-                let %t281 = ::(h, left)
-                MakeTuple(%t281, right)
+                let %t265 = ::(h, left)
+                MakeTuple(%t265, right)
           _ →
-            let %t282 = []
-            MakeTuple(%t282, xs)
+            let %t266 = []
+            MakeTuple(%t266, xs)
       _ →
-        let %t283 = []
-        let %t284 = []
-        MakeTuple(%t283, %t284)
+        let %t267 = []
+        let %t268 = []
+        MakeTuple(%t267, %t268)
 
 letrec scanl =
 λxs, acc, f.
-    let %t285 = scanl_rest(xs, acc, f)
-    ::(acc, %t285)
+    let %t269 = scanl_rest(xs, acc, f)
+    ::(acc, %t269)
 
 letrec scanr =
 λxs, acc, f.
-    let %t286 = scanr_go(xs, acc, f)
-    case %t286 of
+    let %t270 = scanr_go(xs, acc, f)
+    case %t270 of
       (result, last_acc) →
         result
 
 letrec sort =
-λ__dict_Ord, xs.
-    let %t287 = (λx.
+λ__dict_m8_466C6F772E4F7264_Ord, xs.
+    let %t271 = (λx.
       x)
-    merge_sort_by(xs, %t287)
+    merge_sort_by(xs, %t271)
 
 letrec sort_by =
-λ__dict_Ord, xs, f.
+λ__dict_m8_466C6F772E4F7264_Ord, xs, f.
     merge_sort_by(xs, f)
 
 letrec first =
@@ -1411,8 +1163,8 @@ letrec length =
     letrec length_go = (λys, acc.
       case ys of
         ::(h, t) →
-          let %t288 = IAdd(acc, 1)
-          length_go(t, %t288)
+          let %t272 = IAdd(acc, 1)
+          length_go(t, %t272)
         _ →
           acc)
     length_go(xs, 0)
@@ -1423,8 +1175,8 @@ letrec init =
       ::(h, t) →
         case t of
           ::(h2, t2) →
-            let %t289 = init(t)
-            ::(h, %t289)
+            let %t273 = init(t)
+            ::(h, %t273)
           _ →
             []
       _ →
@@ -1441,122 +1193,122 @@ letrec null =
 letrec range =
 λstart, stop.
     letrec range_go = (λcurrent, acc.
-      let %t290 = ICmpGe(current, stop)
-      case %t290 of
+      let %t274 = ICmpGe(current, stop)
+      case %t274 of
         true →
           reverse(acc)
         _ →
-          let %t291 = IAdd(current, 1)
-          let %t292 = ::(current, acc)
-          range_go(%t291, %t292))
-    let %t293 = []
-    range_go(start, %t293)
+          let %t275 = IAdd(current, 1)
+          let %t276 = ::(current, acc)
+          range_go(%t275, %t276))
+    let %t277 = []
+    range_go(start, %t277)
 
 letrec reverse =
 λxs.
     letrec rev_acc = (λys, acc.
       case ys of
         ::(h, t) →
-          let %t294 = ::(h, acc)
-          rev_acc(t, %t294)
+          let %t278 = ::(h, acc)
+          rev_acc(t, %t278)
         _ →
           acc)
-    let %t295 = []
-    rev_acc(xs, %t295)
+    let %t279 = []
+    rev_acc(xs, %t279)
 
 letrec zip =
 λxs, ys.
-    let %t296 = (let %t297 = []
-    zip_go(xs, ys, %t297))
-    reverse(%t296)
+    let %t280 = (let %t281 = []
+    zip_go(xs, ys, %t281))
+    reverse(%t280)
 
 letrec zip_with =
 λxs, ys, f.
-    let %t298 = (let %t299 = []
-    zip_with_go(xs, ys, f, %t299))
-    reverse(%t298)
+    let %t282 = (let %t283 = []
+    zip_with_go(xs, ys, f, %t283))
+    reverse(%t282)
 
 letrec unzip =
 λxs.
     case xs of
       ::((a, b), t) →
-        let %t300 = unzip(t)
-        case %t300 of
+        let %t284 = unzip(t)
+        case %t284 of
           (left, right) →
-            let %t301 = ::(a, left)
-            let %t302 = ::(b, right)
-            MakeTuple(%t301, %t302)
+            let %t285 = ::(a, left)
+            let %t286 = ::(b, right)
+            MakeTuple(%t285, %t286)
       _ →
-        let %t303 = []
-        let %t304 = []
-        MakeTuple(%t303, %t304)
+        let %t287 = []
+        let %t288 = []
+        MakeTuple(%t287, %t288)
 
 letrec enumerate =
 λxs.
     enumerate_go(xs, 0)
 
 letrec contains =
-λ__dict_Eq, xs, x.
+λ__dict_m7_466C6F772E4571_Eq, xs, x.
     case xs of
       ::(h, t) →
-        let %t305 = (let %t306 = __dict_Eq.0
-        %t306(h, x))
-        case %t305 of
+        let %t289 = (let %t290 = __dict_m7_466C6F772E4571_Eq.0
+        %t290(h, x))
+        case %t289 of
           true →
             true
           _ →
-            contains(__dict_Eq, t, x)
+            contains(__dict_m7_466C6F772E4571_Eq, t, x)
       _ →
         false
 
 letrec nub =
-λ__dict_Eq, xs.
-    let %t307 = (λx.
+λ__dict_m7_466C6F772E4571_Eq, xs.
+    let %t291 = (λx.
       x)
-    unique_by(__dict_Eq, xs, %t307)
+    unique_by(__dict_m7_466C6F772E4571_Eq, xs, %t291)
 
 letrec partition =
 λxs, pred.
     case xs of
       ::(h, t) →
-        let %t308 = partition(t, pred)
-        case %t308 of
+        let %t292 = partition(t, pred)
+        case %t292 of
           (yes, no) →
-            let %t309 = pred(h)
-            case %t309 of
+            let %t293 = pred(h)
+            case %t293 of
               true →
-                let %t310 = ::(h, yes)
-                MakeTuple(%t310, no)
+                let %t294 = ::(h, yes)
+                MakeTuple(%t294, no)
               _ →
-                let %t311 = ::(h, no)
-                MakeTuple(yes, %t311)
+                let %t295 = ::(h, no)
+                MakeTuple(yes, %t295)
       _ →
-        let %t312 = []
-        let %t313 = []
-        MakeTuple(%t312, %t313)
+        let %t296 = []
+        let %t297 = []
+        MakeTuple(%t296, %t297)
 
 letrec delete =
-λ__dict_Eq, xs, x.
+λ__dict_m7_466C6F772E4571_Eq, xs, x.
     delete_go(xs, x)
 
 letrec delete_go =
 λxs, x.
-    let %t314 = []
-    delete_go_acc(xs, x, %t314)
+    let %t298 = []
+    delete_go_acc(xs, x, %t298)
 
 letrec delete_go_acc =
 λxs, x, acc.
     case xs of
       ::(h, t) →
-        let %t315 = Eq(h, x)
-        case %t315 of
+        let %t299 = Eq(h, x)
+        case %t299 of
           true →
-            let %t316 = reverse(acc)
-            let %t317 = clone_list(t)
-            append(%t316, %t317)
+            let %t300 = reverse(acc)
+            let %t301 = clone_list(t)
+            append(%t300, %t301)
           _ →
-            let %t318 = ::(h, acc)
-            delete_go_acc(t, x, %t318)
+            let %t302 = ::(h, acc)
+            delete_go_acc(t, x, %t302)
       _ →
         reverse(acc)
 
@@ -1564,8 +1316,8 @@ letrec clone_list =
 λxs.
     case xs of
       ::(h, t) →
-        let %t319 = clone_list(t)
-        ::(h, %t319)
+        let %t303 = clone_list(t)
+        ::(h, %t303)
       _ →
         []
 
@@ -1573,27 +1325,27 @@ letrec intersperse =
 λxs, sep.
     case xs of
       ::(h, t) →
-        let %t320 = intersperse_rest(t, sep)
-        ::(h, %t320)
+        let %t304 = intersperse_rest(t, sep)
+        ::(h, %t304)
       _ →
         []
 
 letrec intercalate =
 λxss, sep.
-    let %t321 = intersperse(xss, sep)
-    concat(%t321)
+    let %t305 = intersperse(xss, sep)
+    concat(%t305)
 
 letrec is_prefix =
-λ__dict_Eq, prefix, xs.
+λ__dict_m7_466C6F772E4571_Eq, prefix, xs.
     case prefix of
       ::(p, pt) →
         case xs of
           ::(x, xt) →
-            let %t322 = (let %t323 = __dict_Eq.0
-            %t323(p, x))
-            case %t322 of
+            let %t306 = (let %t307 = __dict_m7_466C6F772E4571_Eq.0
+            %t307(p, x))
+            case %t306 of
               true →
-                is_prefix(__dict_Eq, pt, xt)
+                is_prefix(__dict_m7_466C6F772E4571_Eq, pt, xt)
               _ →
                 false
           _ →
@@ -1602,62 +1354,62 @@ letrec is_prefix =
         true
 
 letrec is_suffix =
-λ__dict_Eq, suffix, xs.
-    let %t324 = reverse(suffix)
-    let %t325 = reverse(xs)
-    is_prefix(__dict_Eq, %t324, %t325)
+λ__dict_m7_466C6F772E4571_Eq, suffix, xs.
+    let %t308 = reverse(suffix)
+    let %t309 = reverse(xs)
+    is_prefix(__dict_m7_466C6F772E4571_Eq, %t308, %t309)
 
 letrec nth =
 λxs, n.
-    let %t326 = ICmpLt(n, 0)
-    case %t326 of
+    let %t310 = ICmpLt(n, 0)
+    case %t310 of
       true →
         None
       _ →
         case xs of
           ::(h, t) →
-            let %t327 = ICmpEq(n, 0)
-            case %t327 of
+            let %t311 = ICmpEq(n, 0)
+            case %t311 of
               true →
                 Some(h)
               _ →
-                let %t328 = ISub(n, 1)
-                nth(t, %t328)
+                let %t312 = ISub(n, 1)
+                nth(t, %t312)
           _ →
             None
 
 letrec replicate =
 λn, x.
-    let %t329 = ICmpLe(n, 0)
-    case %t329 of
+    let %t313 = ICmpLe(n, 0)
+    case %t313 of
       true →
         []
       _ →
-        let %t330 = (let %t331 = ISub(n, 1)
-        replicate(%t331, x))
-        ::(x, %t330)
+        let %t314 = (let %t315 = ISub(n, 1)
+        replicate(%t315, x))
+        ::(x, %t314)
 
 letrec iterate =
 λx, f, n.
-    let %t332 = ICmpLe(n, 0)
-    case %t332 of
+    let %t316 = ICmpLe(n, 0)
+    case %t316 of
       true →
         []
       _ →
-        let %t333 = (let %t334 = f(x)
-        let %t335 = ISub(n, 1)
-        iterate(%t334, f, %t335))
-        ::(x, %t333)
+        let %t317 = (let %t318 = f(x)
+        let %t319 = ISub(n, 1)
+        iterate(%t318, f, %t319))
+        ::(x, %t317)
 
 letrec unfold =
 λseed, f.
-    let %t336 = f(seed)
-    case %t336 of
+    let %t320 = f(seed)
+    case %t320 of
       Some(step) →
-        let %t337 = step.0
-        let %t338 = (let %t339 = step.1
-        unfold(%t339, f))
-        ::(%t337, %t338)
+        let %t321 = step.0
+        let %t322 = (let %t323 = step.1
+        unfold(%t323, f))
+        ::(%t321, %t322)
       _ →
         []
 
@@ -1670,27 +1422,27 @@ letrec group_by =
         []
 
 letrec unique_by =
-λ__dict_Eq, xs, f.
-    let %t340 = (let %t341 = []
-    let %t342 = []
-    unique_by_go(xs, f, %t341, %t342))
-    reverse(%t340)
+λ__dict_m7_466C6F772E4571_Eq, xs, f.
+    let %t324 = (let %t325 = []
+    let %t326 = []
+    unique_by_go(xs, f, %t325, %t326))
+    reverse(%t324)
 
 letrec maximum =
-λ__dict_Ord, xs.
+λ__dict_m8_466C6F772E4F7264_Ord, xs.
     case xs of
       ::(h, t) →
-        let %t343 = maximum_go(t, h)
-        Some(%t343)
+        let %t327 = maximum_go(t, h)
+        Some(%t327)
       _ →
         None
 
 letrec minimum =
-λ__dict_Ord, xs.
+λ__dict_m8_466C6F772E4F7264_Ord, xs.
     case xs of
       ::(h, t) →
-        let %t344 = minimum_go(t, h)
-        Some(%t344)
+        let %t328 = minimum_go(t, h)
+        Some(%t328)
       _ →
         None
 
@@ -1699,8 +1451,8 @@ letrec sum =
     letrec sum_go = (λys, acc.
       case ys of
         ::(h, t) →
-          let %t345 = IAdd(acc, h)
-          sum_go(t, %t345)
+          let %t329 = IAdd(acc, h)
+          sum_go(t, %t329)
         _ →
           acc)
     sum_go(xs, 0)
@@ -1710,8 +1462,8 @@ letrec product =
     letrec product_go = (λys, acc.
       case ys of
         ::(h, t) →
-          let %t346 = IMul(acc, h)
-          product_go(t, %t346)
+          let %t330 = IMul(acc, h)
+          product_go(t, %t330)
         _ →
           acc)
     product_go(xs, 1)
@@ -1720,45 +1472,45 @@ letrec append =
 λxs, ys.
     case xs of
       ::(h, t) →
-        let %t347 = append(t, ys)
-        ::(h, %t347)
+        let %t331 = append(t, ys)
+        ::(h, %t331)
       _ →
         ys
 
 letrec break_at =
 λxs, pred.
-    let %t348 = (λx.
-      let %t349 = pred(x)
-      Not(%t349))
-    span(xs, %t348)
+    let %t332 = (λx.
+      let %t333 = pred(x)
+      Not(%t333))
+    span(xs, %t332)
 
 letrec lookup =
-λ__dict_Eq, xs, key.
+λ__dict_m7_466C6F772E4571_Eq, xs, key.
     case xs of
       ::((k, v), t) →
-        let %t350 = (let %t351 = __dict_Eq.0
-        %t351(k, key))
-        case %t350 of
+        let %t334 = (let %t335 = __dict_m7_466C6F772E4571_Eq.0
+        %t335(k, key))
+        case %t334 of
           true →
             Some(v)
           _ →
-            lookup(__dict_Eq, t, key)
+            lookup(__dict_m7_466C6F772E4571_Eq, t, key)
       _ →
         None
 
 letrec not_elem =
-λ__dict_Eq, xs, x.
-    let %t352 = contains(__dict_Eq, xs, x)
-    Not(%t352)
+λ__dict_m7_466C6F772E4571_Eq, xs, x.
+    let %t336 = contains(__dict_m7_466C6F772E4571_Eq, xs, x)
+    Not(%t336)
 
 letrec enumerate_go =
 λxs, i.
     case xs of
       ::(h, t) →
-        let %t353 = MakeTuple(i, h)
-        let %t354 = (let %t355 = IAdd(i, 1)
-        enumerate_go(t, %t355))
-        ::(%t353, %t354)
+        let %t337 = MakeTuple(i, h)
+        let %t338 = (let %t339 = IAdd(i, 1)
+        enumerate_go(t, %t339))
+        ::(%t337, %t338)
       _ →
         []
 
@@ -1766,9 +1518,9 @@ letrec intersperse_rest =
 λxs, sep.
     case xs of
       ::(h, t) →
-        let %t356 = (let %t357 = intersperse_rest(t, sep)
-        ::(h, %t357))
-        ::(sep, %t356)
+        let %t340 = (let %t341 = intersperse_rest(t, sep)
+        ::(h, %t341))
+        ::(sep, %t340)
       _ →
         []
 
@@ -1776,9 +1528,9 @@ letrec intercalate_rest =
 λxss, sep.
     case xss of
       ::(h, t) →
-        let %t358 = (let %t359 = intercalate_rest(t, sep)
-        append(h, %t359))
-        append(sep, %t358)
+        let %t342 = (let %t343 = intercalate_rest(t, sep)
+        append(h, %t343))
+        append(sep, %t342)
       _ →
         []
 
@@ -1786,45 +1538,45 @@ letrec scanl_rest =
 λxs, acc, f.
     case xs of
       ::(h, t) →
-        let %t360 = f(acc, h)
-        scanl_emit(t, %t360, f)
+        let %t344 = f(acc, h)
+        scanl_emit(t, %t344, f)
       _ →
         []
 
 letrec scanl_emit =
 λxs, next, f.
-    let %t361 = scanl_rest(xs, next, f)
-    ::(next, %t361)
+    let %t345 = scanl_rest(xs, next, f)
+    ::(next, %t345)
 
 letrec unique_by_go =
 λxs, f, seen, acc.
     case xs of
       ::(h, t) →
-        let %t362 = f(h)
-        unique_by_step(t, h, %t362, f, seen, acc)
+        let %t346 = f(h)
+        unique_by_step(t, h, %t346, f, seen, acc)
       _ →
         acc
 
 letrec unique_by_step =
 λxs, value, key, f, seen, acc.
-    let %t363 = contains(__dict_Eq_Int, seen, key)
-    case %t363 of
+    let %t347 = contains(__dict_m7_466C6F772E4571_Eq_Int, seen, key)
+    case %t347 of
       true →
         unique_by_go(xs, f, seen, acc)
       _ →
-        let %t364 = ::(key, seen)
-        let %t365 = ::(value, acc)
-        unique_by_go(xs, f, %t364, %t365)
+        let %t348 = ::(key, seen)
+        let %t349 = ::(value, acc)
+        unique_by_go(xs, f, %t348, %t349)
 
 letrec scanr_go =
 λxs, acc, f.
     case xs of
       ::(h, t) →
-        let %t366 = scanr_go(t, acc, f)
-        scanr_step(h, %t366, acc, f)
+        let %t350 = scanr_go(t, acc, f)
+        scanr_step(h, %t350, acc, f)
       _ →
-        let %t367 = MakeList(acc)
-        MakeTuple(%t367, acc)
+        let %t351 = MakeList(acc)
+        MakeTuple(%t351, acc)
 
 letrec scanr_step =
 λh, state, acc, f.
@@ -1835,8 +1587,8 @@ letrec scanr_step =
 letrec scanr_finish =
 λrest, next_acc, h, f.
     let current = f(h, next_acc)
-    let %t368 = ::(current, rest)
-    MakeTuple(%t368, current)
+    let %t352 = ::(current, rest)
+    MakeTuple(%t352, current)
 
 letrec merge_sort_by =
 λxs, key_fn.
@@ -1852,14 +1604,14 @@ letrec merge_sort_by =
 
 letrec merge_sort_do =
 λxs, key_fn.
-    let mid = (let %t369 = length(xs)
-    IDiv(%t369, 2))
-    let %t370 = split_at(xs, mid)
-    case %t370 of
+    let mid = (let %t353 = length(xs)
+    IDiv(%t353, 2))
+    let %t354 = split_at(xs, mid)
+    case %t354 of
       (left, right) →
-        let %t371 = merge_sort_by(left, key_fn)
-        let %t372 = merge_sort_by(right, key_fn)
-        merge_by_key(%t371, %t372, key_fn)
+        let %t355 = merge_sort_by(left, key_fn)
+        let %t356 = merge_sort_by(right, key_fn)
+        merge_by_key(%t355, %t356, key_fn)
 
 letrec merge_by_key =
 λleft, right, key_fn.
@@ -1867,16 +1619,16 @@ letrec merge_by_key =
       ::(a, at) →
         case right of
           ::(b, bt) →
-            let %t373 = (let %t374 = key_fn(a)
-            let %t375 = key_fn(b)
-            Le(%t374, %t375))
-            case %t373 of
+            let %t357 = (let %t358 = key_fn(a)
+            let %t359 = key_fn(b)
+            Le(%t358, %t359))
+            case %t357 of
               true →
-                let %t376 = merge_by_key(at, right, key_fn)
-                ::(a, %t376)
+                let %t360 = merge_by_key(at, right, key_fn)
+                ::(a, %t360)
               _ →
-                let %t377 = merge_by_key(left, bt, key_fn)
-                ::(b, %t377)
+                let %t361 = merge_by_key(left, bt, key_fn)
+                ::(b, %t361)
           _ →
             left
       _ →
@@ -1888,9 +1640,9 @@ letrec zip_go =
       ::(a, at) →
         case ys of
           ::(b, bt) →
-            let %t378 = (let %t379 = MakeTuple(a, b)
-            ::(%t379, acc))
-            zip_go(at, bt, %t378)
+            let %t362 = (let %t363 = MakeTuple(a, b)
+            ::(%t363, acc))
+            zip_go(at, bt, %t362)
           _ →
             acc
       _ →
@@ -1902,9 +1654,9 @@ letrec zip_with_go =
       ::(a, at) →
         case ys of
           ::(b, bt) →
-            let %t380 = (let %t381 = f(a, b)
-            ::(%t381, acc))
-            zip_with_go(at, bt, f, %t380)
+            let %t364 = (let %t365 = f(a, b)
+            ::(%t365, acc))
+            zip_with_go(at, bt, f, %t364)
           _ →
             acc
       _ →
@@ -1912,26 +1664,26 @@ letrec zip_with_go =
 
 letrec group_by_head =
 λh, t, eq.
-    let %t382 = (let %t383 = (λx.
+    let %t366 = (let %t367 = (λx.
       eq(h, x))
-    span(t, %t383))
-    case %t382 of
+    span(t, %t367))
+    case %t366 of
       (prefix, rest) →
-        let %t384 = ::(h, prefix)
-        let %t385 = group_by(rest, eq)
-        ::(%t384, %t385)
+        let %t368 = ::(h, prefix)
+        let %t369 = group_by(rest, eq)
+        ::(%t368, %t369)
 
 letrec maximum_go =
 λxs, best.
     case xs of
       ::(h, t) →
-        let %t386 = (let %t387 = Gt(h, best)
-        case %t387 of
+        let %t370 = (let %t371 = Gt(h, best)
+        case %t371 of
           true →
             h
           _ →
             best)
-        maximum_go(t, %t386)
+        maximum_go(t, %t370)
       _ →
         best
 
@@ -1939,13 +1691,13 @@ letrec minimum_go =
 λxs, best.
     case xs of
       ::(h, t) →
-        let %t388 = (let %t389 = Lt(h, best)
-        case %t389 of
+        let %t372 = (let %t373 = Lt(h, best)
+        case %t373 of
           true →
             h
           _ →
             best)
-        minimum_go(t, %t388)
+        minimum_go(t, %t372)
       _ →
         best
 
@@ -1954,13 +1706,13 @@ letrec to_array =
     letrec to_array_go = (λys, acc.
       case ys of
         ::(h, t) →
-          let %t390 = (let %t391 = Array.push
-          %t391(acc, h))
-          to_array_go(t, %t390)
+          let %t374 = (let %t375 = Array.push
+          %t375(acc, h))
+          to_array_go(t, %t374)
         _ →
           acc)
-    let %t392 = MakeArray()
-    to_array_go(xs, %t392)
+    let %t376 = MakeArray()
+    to_array_go(xs, %t376)
 
 letrec either =
 λe, on_left, on_right.
@@ -1975,50 +1727,194 @@ letrec lefts =
     letrec lefts_acc = (λys, acc.
       case ys of
         ::(Left(x), t) →
-          let %t393 = ::(x, acc)
-          lefts_acc(t, %t393)
+          let %t377 = ::(x, acc)
+          lefts_acc(t, %t377)
         ::(Right(_), t) →
           lefts_acc(t, acc)
         _ →
-          let %t394 = List.reverse
-          %t394(acc))
-    let %t395 = []
-    lefts_acc(xs, %t395)
+          let %t378 = List.reverse
+          %t378(acc))
+    let %t379 = []
+    lefts_acc(xs, %t379)
 
 letrec rights =
 λxs.
     letrec rights_acc = (λys, acc.
       case ys of
         ::(Right(y), t) →
-          let %t396 = ::(y, acc)
-          rights_acc(t, %t396)
+          let %t380 = ::(y, acc)
+          rights_acc(t, %t380)
         ::(Left(_), t) →
           rights_acc(t, acc)
         _ →
-          let %t397 = List.reverse
-          %t397(acc))
-    let %t398 = []
-    rights_acc(xs, %t398)
+          let %t381 = List.reverse
+          %t381(acc))
+    let %t382 = []
+    rights_acc(xs, %t382)
 
 letrec partition_eithers =
 λxs.
     letrec partition_acc = (λys, ls, rs.
       case ys of
         ::(Left(x), t) →
-          let %t399 = ::(x, ls)
-          partition_acc(t, %t399, rs)
+          let %t383 = ::(x, ls)
+          partition_acc(t, %t383, rs)
         ::(Right(y), t) →
-          let %t400 = ::(y, rs)
-          partition_acc(t, ls, %t400)
+          let %t384 = ::(y, rs)
+          partition_acc(t, ls, %t384)
         _ →
-          let %t401 = (let %t402 = List.reverse
-          %t402(ls))
-          let %t403 = (let %t404 = List.reverse
-          %t404(rs))
-          MakeTuple(%t401, %t403))
-    let %t405 = []
-    let %t406 = []
-    partition_acc(xs, %t405, %t406)
+          let %t385 = (let %t386 = List.reverse
+          %t386(ls))
+          let %t387 = (let %t388 = List.reverse
+          %t388(rs))
+          MakeTuple(%t385, %t387))
+    let %t389 = []
+    let %t390 = []
+    partition_acc(xs, %t389, %t390)
+
+letrec __tc_m7_466C6F772E4571_Eq_Int_eq =
+λx, y.
+    ICmpEq(x, y)
+
+letrec __tc_m7_466C6F772E4571_Eq_Int_neq =
+λx, y.
+    ICmpNe(x, y)
+
+letrec __tc_m7_466C6F772E4571_Eq_Float_eq =
+λx, y.
+    FCmpEq(x, y)
+
+letrec __tc_m7_466C6F772E4571_Eq_Float_neq =
+λx, y.
+    FCmpNe(x, y)
+
+letrec __tc_m7_466C6F772E4571_Eq_String_eq =
+λx, y.
+    Eq(x, y)
+
+letrec __tc_m7_466C6F772E4571_Eq_String_neq =
+λx, y.
+    NEq(x, y)
+
+letrec __tc_m7_466C6F772E4571_Eq_Bool_eq =
+λx, y.
+    Eq(x, y)
+
+letrec __tc_m7_466C6F772E4571_Eq_Bool_neq =
+λx, y.
+    NEq(x, y)
+
+letrec __tc_m7_466C6F772E4571_Eq_List<a>_eq =
+λ__dict_m7_466C6F772E4571_Eq, xs, ys.
+    list_eq(xs, ys)
+
+letrec __tc_m7_466C6F772E4571_Eq_List<a>_neq =
+λ__dict_m7_466C6F772E4571_Eq, xs, ys.
+    let %t391 = list_eq(xs, ys)
+    Not(%t391)
+
+letrec __tc_m7_466C6F772E4571_Eq_Option<a>_eq =
+λ__dict_m7_466C6F772E4571_Eq, x, y.
+    option_eq(x, y)
+
+letrec __tc_m7_466C6F772E4571_Eq_Option<a>_neq =
+λ__dict_m7_466C6F772E4571_Eq, x, y.
+    let %t392 = option_eq(x, y)
+    Not(%t392)
+
+letrec list_eq =
+λxs, ys.
+    case xs of
+      ::(h1, t1) →
+        case ys of
+          ::(h2, t2) →
+            let %t393 = Eq(h1, h2)
+            let %t394 = list_eq(t1, t2)
+            And(%t393, %t394)
+          _ →
+            false
+      _ →
+        case ys of
+          ::(h, t) →
+            false
+          _ →
+            true
+
+letrec option_eq =
+λx, y.
+    case x of
+      Some(u) →
+        case y of
+          Some(v) →
+            Eq(u, v)
+          _ →
+            false
+      _ →
+        case y of
+          Some(v) →
+            false
+          _ →
+            true
+
+letrec __tc_m7_466C6F772E4571_Eq_Int_eq =
+λx, y.
+    let %t395 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Int_eq
+    %t395(x, y)
+
+letrec __tc_m7_466C6F772E4571_Eq_Int_neq =
+λx, y.
+    let %t396 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Int_neq
+    %t396(x, y)
+
+letrec __tc_m7_466C6F772E4571_Eq_Float_eq =
+λx, y.
+    let %t397 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Float_eq
+    %t397(x, y)
+
+letrec __tc_m7_466C6F772E4571_Eq_Float_neq =
+λx, y.
+    let %t398 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Float_neq
+    %t398(x, y)
+
+letrec __tc_m7_466C6F772E4571_Eq_String_eq =
+λx, y.
+    let %t399 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_String_eq
+    %t399(x, y)
+
+letrec __tc_m7_466C6F772E4571_Eq_String_neq =
+λx, y.
+    let %t400 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_String_neq
+    %t400(x, y)
+
+letrec __tc_m7_466C6F772E4571_Eq_Bool_eq =
+λx, y.
+    let %t401 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Bool_eq
+    %t401(x, y)
+
+letrec __tc_m7_466C6F772E4571_Eq_Bool_neq =
+λx, y.
+    let %t402 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Bool_neq
+    %t402(x, y)
+
+letrec __tc_m7_466C6F772E4571_Eq_List<a>_eq =
+λ__dict_m7_466C6F772E4571_Eq, xs, ys.
+    let %t403 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_List<a>_eq
+    %t403(__dict_m7_466C6F772E4571_Eq_Int, __dict_m7_466C6F772E4571_Eq, xs, ys)
+
+letrec __tc_m7_466C6F772E4571_Eq_List<a>_neq =
+λ__dict_m7_466C6F772E4571_Eq, xs, ys.
+    let %t404 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_List<a>_neq
+    %t404(__dict_m7_466C6F772E4571_Eq_Int, __dict_m7_466C6F772E4571_Eq, xs, ys)
+
+letrec __tc_m7_466C6F772E4571_Eq_Option<a>_eq =
+λ__dict_m7_466C6F772E4571_Eq, x, y.
+    let %t405 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Option<a>_eq
+    %t405(__dict_m7_466C6F772E4571_Eq_Int, __dict_m7_466C6F772E4571_Eq, x, y)
+
+letrec __tc_m7_466C6F772E4571_Eq_Option<a>_neq =
+λ__dict_m7_466C6F772E4571_Eq, x, y.
+    let %t406 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Option<a>_neq
+    %t406(__dict_m7_466C6F772E4571_Eq_Int, __dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec print_all =
 λarr.
@@ -2160,72 +2056,144 @@ letrec truncate =
 λx.
     FTruncate(x)
 
+letrec __tc_m8_466C6F772E4E756D_Num_Int_add =
+λx, y.
+    IAdd(x, y)
+
+letrec __tc_m8_466C6F772E4E756D_Num_Int_sub =
+λx, y.
+    ISub(x, y)
+
+letrec __tc_m8_466C6F772E4E756D_Num_Int_mul =
+λx, y.
+    IMul(x, y)
+
+letrec __tc_m8_466C6F772E4E756D_Num_Int_div =
+λx, y.
+    IDiv(x, y)
+
+letrec __tc_m8_466C6F772E4E756D_Num_Float_add =
+λx, y.
+    FAdd(x, y)
+
+letrec __tc_m8_466C6F772E4E756D_Num_Float_sub =
+λx, y.
+    FSub(x, y)
+
+letrec __tc_m8_466C6F772E4E756D_Num_Float_mul =
+λx, y.
+    FMul(x, y)
+
+letrec __tc_m8_466C6F772E4E756D_Num_Float_div =
+λx, y.
+    FDiv(x, y)
+
+letrec __tc_m8_466C6F772E4E756D_Num_Int_add =
+λx, y.
+    let %t428 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Int_add
+    %t428(x, y)
+
+letrec __tc_m8_466C6F772E4E756D_Num_Int_sub =
+λx, y.
+    let %t429 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Int_sub
+    %t429(x, y)
+
+letrec __tc_m8_466C6F772E4E756D_Num_Int_mul =
+λx, y.
+    let %t430 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Int_mul
+    %t430(x, y)
+
+letrec __tc_m8_466C6F772E4E756D_Num_Int_div =
+λx, y.
+    let %t431 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Int_div
+    %t431(x, y)
+
+letrec __tc_m8_466C6F772E4E756D_Num_Float_add =
+λx, y.
+    let %t432 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Float_add
+    %t432(x, y)
+
+letrec __tc_m8_466C6F772E4E756D_Num_Float_sub =
+λx, y.
+    let %t433 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Float_sub
+    %t433(x, y)
+
+letrec __tc_m8_466C6F772E4E756D_Num_Float_mul =
+λx, y.
+    let %t434 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Float_mul
+    %t434(x, y)
+
+letrec __tc_m8_466C6F772E4E756D_Num_Float_div =
+λx, y.
+    let %t435 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Float_div
+    %t435(x, y)
+
 letrec even =
 λn.
-    let %t428 = Mod(n, 2)
-    ICmpEq(%t428, 0)
+    let %t436 = Mod(n, 2)
+    ICmpEq(%t436, 0)
 
 letrec odd =
 λn.
-    let %t429 = Mod(n, 2)
-    NEq(%t429, 0)
+    let %t437 = Mod(n, 2)
+    NEq(%t437, 0)
 
 letrec gcd =
 λa, b.
-    let aa = (let %t430 = Lt(a, 0)
-    case %t430 of
+    let aa = (let %t438 = Lt(a, 0)
+    case %t438 of
       true →
         Sub(0, a)
       _ →
         a)
-    let bb = (let %t431 = Lt(b, 0)
-    case %t431 of
+    let bb = (let %t439 = Lt(b, 0)
+    case %t439 of
       true →
         Sub(0, b)
       _ →
         b)
     letrec gcd_go = (λx, y.
-      let %t432 = Eq(y, 0)
-      case %t432 of
+      let %t440 = Eq(y, 0)
+      case %t440 of
         true →
           x
         _ →
-          let %t433 = IMod(x, y)
-          gcd_go(y, %t433))
+          let %t441 = IMod(x, y)
+          gcd_go(y, %t441))
     gcd_go(aa, bb)
 
 letrec lcm =
 λa, b.
-    let %t434 = Eq(a, 0)
-    case %t434 of
+    let %t442 = Eq(a, 0)
+    case %t442 of
       true →
         0
       _ →
-        let %t435 = Eq(b, 0)
-        case %t435 of
+        let %t443 = Eq(b, 0)
+        case %t443 of
           true →
             0
           _ →
             let g = gcd(a, b)
             let q = Div(a, g)
-            let %t436 = (let %t437 = IMul(q, b)
-            Lt(%t437, 0))
-            case %t436 of
+            let %t444 = (let %t445 = IMul(q, b)
+            Lt(%t445, 0))
+            case %t444 of
               true →
-                let %t438 = IMul(q, b)
-                Sub(0, %t438)
+                let %t446 = IMul(q, b)
+                Sub(0, %t446)
               _ →
                 IMul(q, b)
 
 letrec signum =
 λn.
-    let %t439 = Gt(n, 0)
-    case %t439 of
+    let %t447 = Gt(n, 0)
+    case %t447 of
       true →
         1
       _ →
-        let %t440 = Lt(n, 0)
-        case %t440 of
+        let %t448 = Lt(n, 0)
+        case %t448 of
           true →
             -1
           _ →
@@ -2235,12 +2203,12 @@ letrec div =
 λa, b.
     let q = Div(a, b)
     let r = Mod(a, b)
-    let %t441 = (let %t442 = NEq(r, 0)
-    let %t443 = (let %t444 = Lt(a, 0)
-    let %t445 = Lt(b, 0)
-    NEq(%t444, %t445))
-    And(%t442, %t443))
-    case %t441 of
+    let %t449 = (let %t450 = NEq(r, 0)
+    let %t451 = (let %t452 = Lt(a, 0)
+    let %t453 = Lt(b, 0)
+    NEq(%t452, %t453))
+    And(%t450, %t451))
+    case %t449 of
       true →
         Sub(q, 1)
       _ →
@@ -2249,12 +2217,12 @@ letrec div =
 letrec mod =
 λa, b.
     let r = Mod(a, b)
-    let %t446 = (let %t447 = NEq(r, 0)
-    let %t448 = (let %t449 = ICmpLt(r, 0)
-    let %t450 = ICmpLt(b, 0)
-    NEq(%t449, %t450))
-    And(%t447, %t448))
-    case %t446 of
+    let %t454 = (let %t455 = NEq(r, 0)
+    let %t456 = (let %t457 = ICmpLt(r, 0)
+    let %t458 = ICmpLt(b, 0)
+    NEq(%t457, %t458))
+    And(%t455, %t456))
+    case %t454 of
       true →
         Add(r, b)
       _ →
@@ -2280,8 +2248,8 @@ letrec map_option =
 λopt, f.
     case opt of
       Some(v) →
-        let %t451 = f(v)
-        Some(%t451)
+        let %t459 = f(v)
+        Some(%t459)
       _ →
         None
 
@@ -2308,6 +2276,171 @@ letrec is_none_opt =
         false
       _ →
         true
+
+letrec __tc_m8_466C6F772E4F7264_Ord_Int_compare =
+λx, y.
+    let %t460 = ICmpLt(x, y)
+    case %t460 of
+      true →
+        Neg(1)
+      _ →
+        let %t461 = ICmpGt(x, y)
+        case %t461 of
+          true →
+            1
+          _ →
+            0
+
+letrec __tc_m8_466C6F772E4F7264_Ord_Int_lt =
+λx, y.
+    ICmpLt(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_Int_lte =
+λx, y.
+    ICmpLe(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_Int_gt =
+λx, y.
+    ICmpGt(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_Int_gte =
+λx, y.
+    ICmpGe(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_Float_compare =
+λx, y.
+    let %t462 = FCmpLt(x, y)
+    case %t462 of
+      true →
+        Neg(1)
+      _ →
+        let %t463 = FCmpGt(x, y)
+        case %t463 of
+          true →
+            1
+          _ →
+            0
+
+letrec __tc_m8_466C6F772E4F7264_Ord_Float_lt =
+λx, y.
+    FCmpLt(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_Float_lte =
+λx, y.
+    FCmpLe(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_Float_gt =
+λx, y.
+    FCmpGt(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_Float_gte =
+λx, y.
+    FCmpGe(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_String_compare =
+λx, y.
+    let %t464 = Lt(x, y)
+    case %t464 of
+      true →
+        Neg(1)
+      _ →
+        let %t465 = Gt(x, y)
+        case %t465 of
+          true →
+            1
+          _ →
+            0
+
+letrec __tc_m8_466C6F772E4F7264_Ord_String_lt =
+λx, y.
+    Lt(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_String_lte =
+λx, y.
+    Le(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_String_gt =
+λx, y.
+    Gt(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_String_gte =
+λx, y.
+    Ge(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_Int_compare =
+λx, y.
+    let %t466 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Int_compare
+    %t466(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_Int_lt =
+λx, y.
+    let %t467 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Int_lt
+    %t467(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_Int_lte =
+λx, y.
+    let %t468 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Int_lte
+    %t468(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_Int_gt =
+λx, y.
+    let %t469 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Int_gt
+    %t469(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_Int_gte =
+λx, y.
+    let %t470 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Int_gte
+    %t470(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_Float_compare =
+λx, y.
+    let %t471 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Float_compare
+    %t471(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_Float_lt =
+λx, y.
+    let %t472 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Float_lt
+    %t472(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_Float_lte =
+λx, y.
+    let %t473 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Float_lte
+    %t473(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_Float_gt =
+λx, y.
+    let %t474 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Float_gt
+    %t474(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_Float_gte =
+λx, y.
+    let %t475 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Float_gte
+    %t475(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_String_compare =
+λx, y.
+    let %t476 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_String_compare
+    %t476(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_String_lt =
+λx, y.
+    let %t477 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_String_lt
+    %t477(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_String_lte =
+λx, y.
+    let %t478 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_String_lte
+    %t478(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_String_gt =
+λx, y.
+    let %t479 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_String_gt
+    %t479(x, y)
+
+letrec __tc_m8_466C6F772E4F7264_Ord_String_gte =
+λx, y.
+    let %t480 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_String_gte
+    %t480(x, y)
 
 letrec print =
 λx.
@@ -2397,76 +2530,125 @@ letrec __primop_debug_trace =
 λmsg.
     DebugTrace(msg)
 
+letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_String_append =
+λx, y.
+    concat_strings(x, y)
+
+letrec concat_strings =
+λleft, right.
+    StringConcat(left, right)
+
+letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_String_append =
+λx, y.
+    let %t481 = Flow.Semigroup.__tc_m14_466C6F772E53656D6967726F7570_Semigroup_String_append
+    %t481(x, y)
+
+letrec __tc_m9_466C6F772E53686F77_Show_Int_show =
+λx.
+    ToString(x)
+
+letrec __tc_m9_466C6F772E53686F77_Show_Float_show =
+λx.
+    ToString(x)
+
+letrec __tc_m9_466C6F772E53686F77_Show_String_show =
+λx.
+    ToString(x)
+
+letrec __tc_m9_466C6F772E53686F77_Show_Bool_show =
+λx.
+    ToString(x)
+
+letrec __tc_m9_466C6F772E53686F77_Show_Int_show =
+λx.
+    let %t482 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_Int_show
+    %t482(x)
+
+letrec __tc_m9_466C6F772E53686F77_Show_Float_show =
+λx.
+    let %t483 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_Float_show
+    %t483(x)
+
+letrec __tc_m9_466C6F772E53686F77_Show_String_show =
+λx.
+    let %t484 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_String_show
+    %t484(x)
+
+letrec __tc_m9_466C6F772E53686F77_Show_Bool_show =
+λx.
+    let %t485 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_Bool_show
+    %t485(x)
+
 letrec starts_with =
 λs, prefix.
     let plen = Len(prefix)
-    let %t452 = (let %t453 = Len(s)
-    Gt(plen, %t453))
-    case %t452 of
+    let %t486 = (let %t487 = Len(s)
+    Gt(plen, %t487))
+    case %t486 of
       true →
         false
       _ →
-        let %t454 = Substring(s, 0, plen)
-        ICmpEq(%t454, prefix)
+        let %t488 = Substring(s, 0, plen)
+        ICmpEq(%t488, prefix)
 
 letrec ends_with =
 λs, suffix.
     let slen = Len(s)
     let plen = Len(suffix)
-    let %t455 = Gt(plen, slen)
-    case %t455 of
+    let %t489 = Gt(plen, slen)
+    case %t489 of
       true →
         false
       _ →
-        let %t456 = (let %t457 = Sub(slen, plen)
-        Substring(s, %t457, slen))
-        ICmpEq(%t456, suffix)
+        let %t490 = (let %t491 = Sub(slen, plen)
+        Substring(s, %t491, slen))
+        ICmpEq(%t490, suffix)
 
 letrec chars =
 λs.
     letrec chars_go = (λi, result.
-      let %t458 = (let %t459 = Len(s)
-      Ge(i, %t459))
-      case %t458 of
+      let %t492 = (let %t493 = Len(s)
+      Ge(i, %t493))
+      case %t492 of
         true →
           result
         _ →
-          let %t460 = Add(i, 1)
-          let %t461 = (let %t462 = Array.push
-          let %t463 = (let %t464 = Add(i, 1)
-          Substring(s, i, %t464))
-          %t462(result, %t463))
-          chars_go(%t460, %t461))
-    let %t465 = MakeArray()
-    chars_go(0, %t465)
+          let %t494 = Add(i, 1)
+          let %t495 = (let %t496 = Array.push
+          let %t497 = (let %t498 = Add(i, 1)
+          Substring(s, i, %t498))
+          %t496(result, %t497))
+          chars_go(%t494, %t495))
+    let %t499 = MakeArray()
+    chars_go(0, %t499)
 
 letrec join =
 λarr, sep.
-    let %t466 = (let %t467 = Len(arr)
-    ICmpEq(%t467, 0))
-    case %t466 of
+    let %t500 = (let %t501 = Len(arr)
+    ICmpEq(%t501, 0))
+    case %t500 of
       true →
         ""
       _ →
         letrec join_go = (λi, result.
-          let %t468 = (let %t469 = Len(arr)
-          Ge(i, %t469))
-          case %t468 of
+          let %t502 = (let %t503 = Len(arr)
+          Ge(i, %t503))
+          case %t502 of
             true →
               result
             _ →
-              let %t470 = Index(arr, i)
-              case %t470 of
+              let %t504 = Index(arr, i)
+              case %t504 of
                 Some(v) →
-                  let %t471 = Add(i, 1)
-                  let %t472 = (let %t473 = Add(result, sep)
-                  Add(%t473, v))
-                  join_go(%t471, %t472)
+                  let %t505 = Add(i, 1)
+                  let %t506 = (let %t507 = Add(result, sep)
+                  Add(%t507, v))
+                  join_go(%t505, %t506)
                 _ →
-                  let %t474 = Add(i, 1)
-                  join_go(%t474, result))
-        let %t475 = Index(arr, 0)
-        case %t475 of
+                  let %t508 = Add(i, 1)
+                  join_go(%t508, result))
+        let %t509 = Index(arr, 0)
+        case %t509 of
           Some(first_val) →
             join_go(1, first_val)
           _ →
@@ -2488,36 +2670,36 @@ letrec str_contains =
 λs, needle.
     let slen = Len(s)
     let nlen = Len(needle)
-    let %t476 = Gt(nlen, slen)
-    case %t476 of
+    let %t510 = Gt(nlen, slen)
+    case %t510 of
       true →
         false
       _ →
         letrec sc_go = (λi.
-          let %t477 = (let %t478 = IAdd(i, nlen)
-          Gt(%t478, slen))
-          case %t477 of
+          let %t511 = (let %t512 = IAdd(i, nlen)
+          Gt(%t512, slen))
+          case %t511 of
             true →
               false
             _ →
-              let %t479 = (let %t480 = (let %t481 = IAdd(i, nlen)
-              Substring(s, i, %t481))
-              Eq(%t480, needle))
-              case %t479 of
+              let %t513 = (let %t514 = (let %t515 = IAdd(i, nlen)
+              Substring(s, i, %t515))
+              Eq(%t514, needle))
+              case %t513 of
                 true →
                   true
                 _ →
-                  let %t482 = IAdd(i, 1)
-                  sc_go(%t482))
+                  let %t516 = IAdd(i, 1)
+                  sc_go(%t516))
         sc_go(0)
 
 letrec my_map =
 λxs, f.
     case xs of
       ::(h, t) →
-        let %t483 = f(h)
-        let %t484 = my_map(t, f)
-        ::(%t483, %t484)
+        let %t517 = f(h)
+        let %t518 = my_map(t, f)
+        ::(%t517, %t518)
       _ →
         []
 
@@ -2525,8 +2707,8 @@ letrec option_map =
 λopt, f.
     case opt of
       Some(x) →
-        let %t485 = f(x)
-        Some(%t485)
+        let %t519 = f(x)
+        Some(%t519)
       _ →
         None
 
@@ -2542,8 +2724,8 @@ letrec my_len =
 λxs.
     case xs of
       ::(_, t) →
-        let %t486 = my_len(t)
-        IAdd(1, %t486)
+        let %t520 = my_len(t)
+        IAdd(1, %t520)
       _ →
         0
 
@@ -2551,11 +2733,11 @@ letrec my_filter =
 λxs, f.
     case xs of
       ::(h, t) →
-        let %t487 = f(h)
-        case %t487 of
+        let %t521 = f(h)
+        case %t521 of
           true →
-            let %t488 = my_filter(t, f)
-            ::(h, %t488)
+            let %t522 = my_filter(t, f)
+            ::(h, %t522)
           _ →
             my_filter(t, f)
       _ →
@@ -2565,144 +2747,149 @@ letrec my_sum =
 λxs.
     case xs of
       ::(h, t) →
-        let %t489 = my_sum(t)
-        IAdd(h, %t489)
+        let %t523 = my_sum(t)
+        IAdd(h, %t523)
       _ →
         0
 
 def main =
-let %t490 = (λ__resume_default, __arg0, __arg1.
-    let %t491 = ProcRun(__arg0, __arg1)
-    __resume_default(%t491))
+let %t524 = (λ__resume_default, __arg0, __arg1.
+    let %t525 = ProcRun(__arg0, __arg1)
+    __resume_default(%t525))
   handle Process {
     proc_run(__arg0, __arg1; __resume_default) →
-      let %t492 = ProcRun(__arg0, __arg1)
-      __resume_default(%t492)
+      let %t526 = ProcRun(__arg0, __arg1)
+      __resume_default(%t526)
   } with
-    let %t493 = (λ__resume_default, __arg0.
-      let %t494 = EnvVar(__arg0)
-      __resume_default(%t494))
-    let %t495 = (λ__resume_default.
-      let %t496 = EnvArgs()
-      __resume_default(%t496))
-    let %t497 = (λ__resume_default.
-      let %t498 = EnvCwd()
-      __resume_default(%t498))
-    let %t499 = (λ__resume_default.
-      let %t500 = EnvHomeDir()
-      __resume_default(%t500))
+    let %t527 = (λ__resume_default, __arg0.
+      let %t528 = EnvVar(__arg0)
+      __resume_default(%t528))
+    let %t529 = (λ__resume_default.
+      let %t530 = EnvArgs()
+      __resume_default(%t530))
+    let %t531 = (λ__resume_default.
+      let %t532 = EnvCwd()
+      __resume_default(%t532))
+    let %t533 = (λ__resume_default.
+      let %t534 = EnvHomeDir()
+      __resume_default(%t534))
     handle Env {
       env_var(__arg0; __resume_default) →
-        let %t501 = EnvVar(__arg0)
-        __resume_default(%t501)
+        let %t535 = EnvVar(__arg0)
+        __resume_default(%t535)
       env_args(; __resume_default) →
-        let %t502 = EnvArgs()
-        __resume_default(%t502)
+        let %t536 = EnvArgs()
+        __resume_default(%t536)
       env_cwd(; __resume_default) →
-        let %t503 = EnvCwd()
-        __resume_default(%t503)
+        let %t537 = EnvCwd()
+        __resume_default(%t537)
       env_home_dir(; __resume_default) →
-        let %t504 = EnvHomeDir()
-        __resume_default(%t504)
+        let %t538 = EnvHomeDir()
+        __resume_default(%t538)
     } with
-      let %t505 = (λ__resume_default.
-        let %t506 = __primop_read_stdin()
-        __resume_default(%t506))
+      let %t539 = (λ__resume_default.
+        let %t540 = __primop_read_stdin()
+        __resume_default(%t540))
       handle Stdin {
         read_stdin(; __resume_default) →
-          let %t507 = __primop_read_stdin()
-          __resume_default(%t507)
+          let %t541 = __primop_read_stdin()
+          __resume_default(%t541)
       } with
-        let %t508 = (λ__resume_default, __arg0.
-          let %t509 = __primop_read_file(__arg0)
-          __resume_default(%t509))
-        let %t510 = (λ__resume_default, __arg0.
-          let %t511 = __primop_read_lines(__arg0)
-          __resume_default(%t511))
-        let %t512 = (λ__resume_default, __arg0, __arg1.
-          let %t513 = __primop_write_file(__arg0, __arg1)
-          let %t514 = MakeTuple()
-          __resume_default(%t514))
+        let %t542 = (λ__resume_default, __arg0.
+          let %t543 = __primop_read_file(__arg0)
+          __resume_default(%t543))
+        let %t544 = (λ__resume_default, __arg0.
+          let %t545 = __primop_read_lines(__arg0)
+          __resume_default(%t545))
+        let %t546 = (λ__resume_default, __arg0, __arg1.
+          let %t547 = __primop_write_file(__arg0, __arg1)
+          let %t548 = MakeTuple()
+          __resume_default(%t548))
         handle FileSystem {
           read_file(__arg0; __resume_default) →
-            let %t515 = __primop_read_file(__arg0)
-            __resume_default(%t515)
+            let %t549 = __primop_read_file(__arg0)
+            __resume_default(%t549)
           read_lines(__arg0; __resume_default) →
-            let %t516 = __primop_read_lines(__arg0)
-            __resume_default(%t516)
+            let %t550 = __primop_read_lines(__arg0)
+            __resume_default(%t550)
           write_file(__arg0, __arg1; __resume_default) →
-            let %t513 = __primop_write_file(__arg0, __arg1)
-            let %t517 = MakeTuple()
-            __resume_default(%t517)
+            let %t547 = __primop_write_file(__arg0, __arg1)
+            let %t551 = MakeTuple()
+            __resume_default(%t551)
         } with
-          let %t518 = (λ__resume_default, __arg0.
-            let %t519 = __primop_print(__arg0)
-            let %t520 = MakeTuple()
-            __resume_default(%t520))
-          let %t521 = (λ__resume_default, __arg0.
-            let %t522 = __primop_println(__arg0)
-            let %t523 = MakeTuple()
-            __resume_default(%t523))
+          let %t552 = (λ__resume_default, __arg0.
+            let %t553 = __primop_print(__arg0)
+            let %t554 = MakeTuple()
+            __resume_default(%t554))
+          let %t555 = (λ__resume_default, __arg0.
+            let %t556 = __primop_println(__arg0)
+            let %t557 = MakeTuple()
+            __resume_default(%t557))
           handle Console {
             print(__arg0; __resume_default) →
-              let %t519 = __primop_print(__arg0)
-              let %t524 = MakeTuple()
-              __resume_default(%t524)
+              let %t553 = __primop_print(__arg0)
+              let %t558 = MakeTuple()
+              __resume_default(%t558)
             println(__arg0; __resume_default) →
-              let %t522 = __primop_println(__arg0)
-              let %t525 = MakeTuple()
-              __resume_default(%t525)
+              let %t556 = __primop_println(__arg0)
+              let %t559 = MakeTuple()
+              __resume_default(%t559)
           } with
-            let result = (let %t526 = MakeList(1, 2, 3)
-            let %t527 = (λx.
+            let result = (let %t560 = MakeList(1, 2, 3)
+            let %t561 = (λx.
               IMul(x, 2))
-            my_map(%t526, %t527))
-            let %t528 = (let %t529 = (λ%t530.
-              %t530)
-            %t518(%t529, result))
-            let opt = (let %t531 = Some(42)
-            let %t532 = (λx.
+            my_map(%t560, %t561))
+            let %t562 = (let %t563 = (λ%t564.
+              %t564)
+            %t552(%t563, result))
+            let opt = (let %t565 = Some(42)
+            let %t566 = (λx.
               IAdd(x, 1))
-            option_map(%t531, %t532))
-            let %t533 = (let %t534 = (λ%t535.
-              %t535)
-            %t518(%t534, opt))
+            option_map(%t565, %t566))
+            let %t567 = (let %t568 = (λ%t569.
+              %t569)
+            %t552(%t568, opt))
             let tree = Node(Red, Leaf, 5, Leaf)
             let blk = set_black(tree)
-            let %t536 = (let %t537 = (λ%t538.
-              %t538)
-            %t518(%t537, blk))
-            let n = (let %t539 = MakeList(1, 2, 3, 4, 5)
-            my_len(%t539))
-            let %t540 = (let %t541 = (λ%t542.
-              %t542)
-            %t518(%t541, n))
-            let evens = (let %t543 = MakeList(1, 2, 3, 4, 5, 6)
-            let %t544 = (λx.
-              let %t545 = IMod(x, 2)
-              ICmpEq(%t545, 0))
-            my_filter(%t543, %t544))
-            let %t546 = (let %t547 = (λ%t548.
-              %t548)
-            %t518(%t547, evens))
-            let total = (let %t549 = MakeList(1, 2, 3, 4, 5)
-            my_sum(%t549))
-            let %t550 = (λ%t551.
-              %t551)
-            %t518(%t550, total)
+            let %t570 = (let %t571 = (λ%t572.
+              %t572)
+            %t552(%t571, blk))
+            let n = (let %t573 = MakeList(1, 2, 3, 4, 5)
+            my_len(%t573))
+            let %t574 = (let %t575 = (λ%t576.
+              %t576)
+            %t552(%t575, n))
+            let evens = (let %t577 = MakeList(1, 2, 3, 4, 5, 6)
+            let %t578 = (λx.
+              let %t579 = IMod(x, 2)
+              ICmpEq(%t579, 0))
+            my_filter(%t577, %t578))
+            let %t580 = (let %t581 = (λ%t582.
+              %t582)
+            %t552(%t581, evens))
+            let total = (let %t583 = MakeList(1, 2, 3, 4, 5)
+            my_sum(%t583))
+            let %t584 = (λ%t585.
+              %t585)
+            %t552(%t584, total)
 
-[ 1 of 12] Compiling  Assert
-[ 2 of 12] Compiling  Debug
-[ 3 of 12] Compiling  Array
-[ 4 of 12] Compiling  List
-[ 5 of 12] Compiling  Either
-[ 6 of 12] Compiling  IO
-[ 7 of 12] Compiling  Math
-[ 8 of 12] Compiling  Numeric
-[ 9 of 12] Compiling  Option
-[10 of 12] Compiling  Primops
-[11 of 12] Compiling  String
-[12 of 12] Compiling  verify_aether
+[ 1 of 17] Compiling  Assert
+[ 2 of 17] Compiling  Debug
+[ 3 of 17] Compiling  Array
+[ 4 of 17] Compiling  List
+[ 5 of 17] Compiling  Either
+[ 6 of 17] Compiling  Eq
+[ 7 of 17] Compiling  IO
+[ 8 of 17] Compiling  Math
+[ 9 of 17] Compiling  Num
+[10 of 17] Compiling  Numeric
+[11 of 17] Compiling  Option
+[12 of 17] Compiling  Ord
+[13 of 17] Compiling  Primops
+[14 of 17] Compiling  Semigroup
+[15 of 17] Compiling  Show
+[16 of 17] Compiling  String
+[17 of 17] Compiling  verify_aether
 • 2 warnings • examples/aether/verify_aether.flx
 Warning: FBIP Contract Not Proven
 
