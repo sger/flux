@@ -123,6 +123,7 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "result_directed_resolution.flx",
         "where_constraint_multi_param.flx",
         "contextual_dictionary_wrapper.flx",
+        "qualified_class_id.flx",
     ];
     for fixture in fixtures {
         let source = std::fs::read_to_string(fixture_path(fixture)).expect("read fixture");

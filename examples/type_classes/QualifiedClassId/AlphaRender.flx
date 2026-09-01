@@ -1,0 +1,10 @@
+module QualifiedClassId.AlphaRender {
+
+    public class Render<a> {
+        fn render(value: a) -> String
+    }
+
+    public instance Render<Int> {
+        fn render(value) { "alpha:" + to_string(value) }
+    }
+}
