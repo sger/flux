@@ -554,11 +554,62 @@ type — describes a program that cannot currently be written.
 **Workaround:** drop the annotation, or extract the value through a helper
 function whose return type carries it.
 
-**Where to look:** return annotations are converted with the enclosing
-signature's type parameters in scope (`infer_type_from_annotation` in
-`src/ast/type_infer/function.rs` threads a `type_params` map). The `let` path
-appears not to. Confirm before assuming — the E300 could equally come from the
-annotation being converted at a scope where the parameter is not yet skolemized.
+**Cause — confirmed.** `infer_let_binding`
+([statement.rs](../src/ast/type_infer/statement.rs)) converts the annotation
+with an empty type-parameter map:
+
+```rust
+TypeEnv::convert_type_expr_rec(ann, &HashMap::new(), ...)
+```
+
+The return-annotation path threads the real map instead
+(`infer_type_from_annotation` in `src/ast/type_infer/function.rs`). The
+signature's parameters are recoverable on the spot without new plumbing:
+`mark_signature_skolems` records them in `InferCtx::skolem_names` for exactly
+this scope and drops them on the way out, so inverting that map supplies what
+the conversion needs. A prototype of this one-line change compiled every
+reproduction above and left the inference suites green (104, 51 and 33 tests).
+
+**Do not fix this in isolation.** The prototype also made a latent soundness bug
+reachable, because the programs it unblocks are precisely the ones dictionary
+selection cannot handle:
+
+```flux
+class Make<a> { fn make(tag: Int) -> a }
+instance Make<Int>    { fn make(tag) { 7 } }
+instance Make<String> { fn make(tag) { "s" } }
+
+fn two<a: Make, b: Make>(pa: a, pb: b) -> a {
+    let y: b = make(0)
+    make(0)
+}
+
+print(two(1, "z"))   // expect 7 — prints "s"
+```
+
+A `String` returned from a function whose return type is `Int`. Both calls
+collapse onto the second dictionary — [KI-057](#ki-057) in *result* position,
+where the argument-type rule that fixed KI-057 is blind. E485 does not catch it
+either: `make` mentions its class parameter in the return type, which that check
+deliberately exempts. So closing this issue requires closing result-directed
+dictionary selection at the same time, or a diagnostic that rejects these
+programs rather than miscompiling them.
+
+**Notes from an abandoned attempt at the selection half**, recorded so they are
+not re-derived:
+
+- `apply_hm_final` in `src/compiler/mod.rs` is **not** the funnel for inference
+  results. Instrumenting it shows it fires only for the `lib/Flow/*.flx`
+  modules; an entry file's result reaches the compiler by some other route.
+  Anything that tries to hand per-call inference data to lowering must find that
+  route first.
+- `CoreExpr` carries no expression id and adding one is impractical —
+  `CoreExpr::App` alone has ~155 construction sites. Spans survive lowering and
+  are the only per-node key available, but that was never validated end to end.
+- Scheme constraints are not dictionary parameters. `Flow.Json`'s
+  `Decode<a> => Decode<List<a>>` instance method has two `Decode` scheme
+  constraints but resolves through a single dictionary, so any check that counts
+  the former will report it falsely.
 
 ## Resolved
 
