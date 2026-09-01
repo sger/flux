@@ -406,8 +406,8 @@ reify it as a value — `Flume.Manifest` uses a `Reader<a>` record, which also
 composes further than an instance head can (`array_of(element: Reader<a>) ->
 Reader<List<a>>` needs no higher-kinded types).
 
-The same missing input limits dictionary *selection* inside a constrained
-function; see [KI-058](#ki-058).
+Note that a `let` annotation cannot currently be used to supply the expected
+type either; see [KI-058](#ki-058).
 
 ---
 
@@ -498,42 +498,67 @@ exist — a misleading signal exactly when the cache is under suspicion.
 
 ---
 
-### KI-058 — Dictionary selection does not read the call's result type
+### KI-058 — A `let` annotation naming a rigid type parameter is rejected
 
-**Severity:** Medium · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-01 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** Type inference, annotations · **Verified:** 2026-09-01
 
-KI-057 made a call choose between the dictionaries its function holds by
-matching the call's *argument* types. A method whose class parameter appears
-only in its return type reveals nothing that way:
+Inside a generic function, annotating a `let` with the function's own type
+parameter fails, even when the annotation is trivially correct:
 
 ```flux
-public class Decode<a> {
-    fn decode(value: Json) -> JsonResult<a>
+class Root<a> { fn root(x: a) -> Int }
+instance Root<Int> { fn root(x) { x } }
+
+fn plain<a: Root>(x: a) -> Int {
+    root(x)                     // fine
+}
+
+fn annotated<a: Root>(x: a) -> Int {
+    let y: a = x                // error[E300]: Annotation Type Mismatch
+    root(y)                     // error[E444]: No Type Class Instance (cascade)
 }
 ```
 
-`Flow.Json`'s `Decode<a> => Decode<List<a>>` instance holds both a `Decode<a>`
-and a `Decode<Array<a>>` dictionary, and its `decode(value)` call needs the
-second — decided by where the result flows, not by the argument, which is
-`Json` either way.
+```
+error[E300]: Annotation Type Mismatch
+14 |     let y: a = x
+   |                - this value has type `_`
+   |            - but `y` was annotated as `a`
+```
 
-That call resolves correctly today, but by position rather than by reasoning:
-the last candidate recorded wins, and it happens to be the right one. Nothing
-holds it there.
+`x` has type `a` and `y` is annotated `a`, so there is nothing to mismatch. The
+two sides do not end up as the same type: the annotation's `a` and the
+signature's `a` are compared as different things. The E444 is a cascade — once
+`y`'s type is unrelated to the signature's `a`, the `Root` constraint no longer
+covers it.
 
-Distinct from [KI-015](#ki-015), which is about picking an *instance* at a
-monomorphic call site. This is about picking one of the *dictionary parameters*
-a constrained function already holds. They want the same missing input — the
-call's expected result type — so they are likely to close together.
+Note the diagnostic renders the value's type as `_`. Unresolved and rigid
+variables both display that way, so the message does not distinguish "not
+inferred yet" from "a rigid parameter that failed to match" — worth fixing
+alongside, since it is what makes this hard to read.
 
-Closing this means reading the call's expected result type. On the VM path that
-is available (`hm_expr_types` keyed on the call's own `ExprId`); in the Core
-pass it is not, because `CoreExpr::App` carries no type, so it has to be
-threaded from AST→Core lowering. That is the same plumbing 0179 Stage 4's
-result-directed resolution needs, and belongs with it.
+The same thing blocks result-directed dispatch outside return position. This
+resolves, because the return type drives it:
 
-Until then a genuinely undecidable call — a class parameter named nowhere in its
-method's signature — is reported as E485 rather than guessed.
+```flux
+fn one<a: Make>(pa: a) -> a { make(0) }        // ok
+fn one<a: Make>(pa: a) -> a { let x: a = make(0)  x }   // error[E444]
+```
+
+**Consequence beyond the annotation itself.** A function has exactly one return
+position, so with `let` annotations unusable a body can contain at most one
+result-directed class-method call. Any design that assumes two — such as a
+function holding two dictionaries for one class distinguished only by result
+type — describes a program that cannot currently be written.
+
+**Workaround:** drop the annotation, or extract the value through a helper
+function whose return type carries it.
+
+**Where to look:** return annotations are converted with the enclosing
+signature's type parameters in scope (`infer_type_from_annotation` in
+`src/ast/type_infer/function.rs` threads a `type_params` map). The `let` path
+appears not to. Confirm before assuming — the E300 could equally come from the
+annotation being converted at a scope where the parameter is not yet skolemized.
 
 ## Resolved
 
@@ -1758,4 +1783,17 @@ Covered by `two_dictionaries_one_class.flx`, `two_dictionaries_superclass.flx`
 and `ambiguous_dictionary_e485.flx`, all on both backends.
 
 Selection reads argument types only; a method dispatched on its result type
-keeps its previous behavior. See KI-058.
+keeps its previous behavior.
+
+A follow-up investigation looked for the case that would need more — a function
+holding two dictionaries for one class, distinguished only by result type — and
+found it cannot currently be written: result-directed dispatch is driven by the
+return position alone, and a function has one of those. A `let` annotation
+cannot supply a second, because annotating with a rigid type parameter is itself
+rejected ([KI-058](#ki-058)). So the argument-directed rule covers every
+reachable program today. Revisit if KI-058 closes.
+
+The investigation also corrected two claims worth not repeating: `Flow.Json`'s
+inner `decode` does **not** go through dictionary elaboration — it takes the
+AST path in `compiler/expression.rs` — and it resolves through a single
+`Decode<a>` dictionary, not by choosing between two.
