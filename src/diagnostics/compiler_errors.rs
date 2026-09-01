@@ -914,6 +914,24 @@ pub const NO_INSTANCE: ErrorCode = ErrorCode {
     hint: Some("Add an instance declaration for this type."),
 };
 
+/// Proposal 0179 Stage 5: a class reaches itself through its own superclass
+/// declarations, so the hierarchy has no base and its superclass closure does
+/// not terminate.
+///
+/// Haskell rejects the same program (Report §4.3.1, "the superclass relation
+/// must not be cyclic"), and for the same reason: a dictionary would have to
+/// contain itself.
+pub const SUPERCLASS_CYCLE: ErrorCode = ErrorCode {
+    code: "E477",
+    title: "SUPERCLASS CYCLE",
+    error_type: ErrorType::Compiler,
+    message: "Class `{}` is its own superclass.",
+    hint: Some(
+        "Break the cycle by removing one of the superclass constraints; \
+         the superclass relation must be acyclic.",
+    ),
+};
+
 /// Proposal 0179 Stage 4: a declared bound constrains a type variable that
 /// does not appear in the signature's own type, so no caller can ever fix it.
 ///

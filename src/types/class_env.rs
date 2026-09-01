@@ -25,6 +25,7 @@ use super::super::diagnostics::compiler_errors::{
     INSTANCE_MISSING_METHOD, INSTANCE_TYPE_ARG_ARITY, INSTANCE_UNKNOWN_CLASS,
     MISSING_SUPERCLASS_INSTANCE, ORPHAN_INSTANCE, PUBLIC_CLASS_LEAKS_PRIVATE_TYPE,
     PUBLIC_INSTANCE_HAS_PRIVATE_HEAD, PUBLIC_INSTANCE_OF_PRIVATE_CLASS, SEALED_CLASS_INSTANCE,
+    SUPERCLASS_CYCLE,
 };
 
 /// Proposal 0151, Phase 2: per-ADT bookkeeping used by the orphan and
@@ -285,7 +286,250 @@ impl ClassEnv {
         // Sendable is compiler-owned and authorizes worker-boundary transfer.
         Self::synthesize_sendable_instances(statements, ModulePath::EMPTY, self, interner);
 
+        // Proposal 0179 Stage 5: superclass obligations are checked here,
+        // after every class and instance is collected, so the result does not
+        // depend on the order the source happens to declare them in.
+        diagnostics.extend(self.validate_superclass_obligations(interner));
+
         diagnostics
+    }
+
+    /// Transitive superclasses of `id`, nearest first and deduplicated.
+    ///
+    /// Breadth-first over declaration order, so the result is deterministic and
+    /// its prefix is the class's own directly declared superclasses — which is
+    /// what makes it usable as a dictionary slot assignment.
+    ///
+    /// Returns empty for an unknown class, and stops rather than looping if the
+    /// hierarchy is cyclic; [`validate_superclass_obligations`] rejects a cycle
+    /// with E477 before anything relies on the closure.
+    ///
+    /// [`validate_superclass_obligations`]: Self::validate_superclass_obligations
+    pub fn superclass_closure(&self, id: ClassId) -> Vec<ClassId> {
+        let mut ordered: Vec<ClassId> = Vec::new();
+        let mut queue: std::collections::VecDeque<ClassId> = std::collections::VecDeque::new();
+        queue.push_back(id);
+
+        while let Some(current) = queue.pop_front() {
+            let Some(class_def) = self.lookup_class_by_id(current) else {
+                continue;
+            };
+            for &parent in &class_def.superclass_class_ids {
+                if parent == id || ordered.contains(&parent) {
+                    continue;
+                }
+                ordered.push(parent);
+                queue.push_back(parent);
+            }
+        }
+
+        ordered
+    }
+
+    /// The chain of classes leading `id` back to itself, if one exists.
+    ///
+    /// Returned nearest-first and ending at `id` again, so it renders as the
+    /// path a reader has to follow to see the cycle (`Ord -> Eq -> Ord`).
+    fn superclass_cycle_from(&self, id: ClassId) -> Option<Vec<ClassId>> {
+        fn walk(
+            env: &ClassEnv,
+            current: ClassId,
+            target: ClassId,
+            path: &mut Vec<ClassId>,
+            seen: &mut Vec<ClassId>,
+        ) -> bool {
+            let Some(class_def) = env.lookup_class_by_id(current) else {
+                return false;
+            };
+            for &parent in &class_def.superclass_class_ids {
+                path.push(parent);
+                if parent == target {
+                    return true;
+                }
+                if !seen.contains(&parent) {
+                    seen.push(parent);
+                    if walk(env, parent, target, path, seen) {
+                        return true;
+                    }
+                }
+                path.pop();
+            }
+            false
+        }
+
+        let mut path = vec![id];
+        let mut seen = vec![id];
+        walk(self, id, id, &mut path, &mut seen).then_some(path)
+    }
+
+    /// Proposal 0179 Stage 5: check every superclass obligation in the program.
+    ///
+    /// Two checks, in this order because the second cannot terminate without
+    /// the first:
+    ///
+    /// - **E477** — a class that reaches itself through its own superclass
+    ///   declarations. Haskell rejects the same program (Report §4.3.1); a
+    ///   dictionary for it would have to contain itself.
+    /// - **E445** — `instance Ord<T>` without the `instance Eq<T>` that
+    ///   `class Eq<a> => Ord<a>` demands, checked transitively.
+    ///
+    /// Runs once the whole environment is populated. It used to run inline
+    /// while instances were being collected, which meant it could only see the
+    /// instances declared *above* the one it was checking, so writing the
+    /// subclass instance first produced a false error.
+    pub fn validate_superclass_obligations(&self, interner: &Interner) -> Vec<Diagnostic> {
+        let mut diagnostics = Vec::new();
+
+        // `self.classes` is a `HashMap`, so walk it in declaration order to keep
+        // the choice of which class anchors a cycle's diagnostic stable.
+        let mut declared: Vec<&ClassDef> = self.classes.values().collect();
+        declared.sort_by_key(|class_def| {
+            let start = class_def.span.start;
+            (start.line, start.column, interner.resolve(class_def.name))
+        });
+
+        let mut cyclic: Vec<ClassId> = Vec::new();
+        for class_def in declared {
+            let id = class_def.class_id();
+            let Some(cycle) = self.superclass_cycle_from(id) else {
+                continue;
+            };
+            // One diagnostic per cycle, anchored at its first-declared class —
+            // every other member would report the same loop from a different
+            // starting point.
+            let already_reported = cycle.iter().any(|step| cyclic.contains(step));
+            for &step in &cycle {
+                if !cyclic.contains(&step) {
+                    cyclic.push(step);
+                }
+            }
+            if already_reported {
+                continue;
+            }
+            let path = cycle
+                .iter()
+                .map(|step| interner.resolve(step.name))
+                .collect::<Vec<_>>()
+                .join(" -> ");
+            let display_class = interner.resolve(id.name);
+            diagnostics.push(
+                diagnostic_for(&SUPERCLASS_CYCLE)
+                    .with_span(class_def.span)
+                    .with_message(format!(
+                        "Class `{display_class}` is reachable from its own superclasses: {path}."
+                    )),
+            );
+        }
+
+        for instance in &self.instances {
+            if cyclic.contains(&instance.class_id) {
+                continue;
+            }
+            for superclass_id in self.superclass_closure(instance.class_id) {
+                if self.head_has_instance(superclass_id, &instance.type_args, interner) {
+                    continue;
+                }
+                let display_class = interner.resolve(instance.class_id.name);
+                let super_display = interner.resolve(superclass_id.name);
+                let head = instance
+                    .type_args
+                    .iter()
+                    .map(|arg| arg.display_with(interner))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                diagnostics.push(
+                    diagnostic_for(&MISSING_SUPERCLASS_INSTANCE)
+                        .with_span(instance.span)
+                        .with_message(format!(
+                            "No instance for `{super_display}<{head}>` \
+                             (required by `{display_class}<{head}>`)."
+                        ))
+                        .with_hint_text(format!(
+                            "`{display_class}` requires `{super_display}` as a superclass. \
+                             Add: `instance {super_display}<{head}> {{ ... }}`"
+                        )),
+                );
+            }
+        }
+
+        diagnostics
+    }
+
+    /// Whether some instance of `class_id` covers the head `subject`.
+    ///
+    /// Structural, not textual: an `instance Eq<a> => Eq<Array<a>>` discharges
+    /// the obligation raised by `instance Ord<Array<b>>`, which comparing the
+    /// two rendered heads as strings never could.
+    fn head_has_instance(
+        &self,
+        class_id: ClassId,
+        subject: &[TypeExpr],
+        interner: &Interner,
+    ) -> bool {
+        self.instances.iter().any(|candidate| {
+            if candidate.class_id != class_id || candidate.type_args.len() != subject.len() {
+                return false;
+            }
+            let mut subst = HashMap::new();
+            candidate
+                .type_args
+                .iter()
+                .zip(subject)
+                .all(|(pattern, actual)| {
+                    Self::match_instance_head(pattern, actual, &mut subst, interner)
+                })
+        })
+    }
+
+    /// One-way match of an instance head `pattern` against another head.
+    ///
+    /// The `TypeExpr`/`TypeExpr` counterpart of
+    /// [`match_instance_type_expr`](Self::match_instance_type_expr), which
+    /// matches a head against an inferred type. Only the pattern's type
+    /// variables bind; the subject's are rigid, so `Eq<Array<a>>` matches the
+    /// head `Array<b>` but `Eq<Array<Int>>` does not.
+    fn match_instance_head(
+        pattern: &TypeExpr,
+        subject: &TypeExpr,
+        subst: &mut HashMap<Identifier, TypeExpr>,
+        interner: &Interner,
+    ) -> bool {
+        match (pattern, subject) {
+            (TypeExpr::Named { name, args, .. }, _)
+                if args.is_empty() && Self::is_instance_type_var(*name, interner) =>
+            {
+                match subst.get(name) {
+                    // Compared as rendered types rather than with `==`: a
+                    // `TypeExpr` carries its `Span`, so two occurrences of the
+                    // same type are never structurally equal.
+                    Some(bound) => bound.display_with(interner) == subject.display_with(interner),
+                    None => {
+                        subst.insert(*name, subject.clone());
+                        true
+                    }
+                }
+            }
+            (
+                TypeExpr::Named {
+                    name,
+                    args: pattern_args,
+                    ..
+                },
+                TypeExpr::Named {
+                    name: subject_name,
+                    args: subject_args,
+                    ..
+                },
+            ) => {
+                name == subject_name
+                    && pattern_args.len() == subject_args.len()
+                    && pattern_args
+                        .iter()
+                        .zip(subject_args)
+                        .all(|(p, s)| Self::match_instance_head(p, s, subst, interner))
+            }
+            _ => false,
+        }
     }
 
     /// Phase 2 instance-visibility walker — enforces E450 (public instance
@@ -1037,53 +1281,6 @@ impl ClassEnv {
                                     .with_hint_text(format!(
                                         "`{display_class}.{display_method}` expects {} parameter(s).",
                                         class_method.arity
-                                    )),
-                            );
-                        }
-                    }
-
-                    // Validate superclass instances exist.
-                    // If class Ord has superclass Eq, then instance Ord<Int>
-                    // requires instance Eq<Int> to already exist.
-                    for (superclass_index, superclass) in class_def.superclasses.iter().enumerate()
-                    {
-                        let Some(superclass_id) = class_def
-                            .superclass_class_ids
-                            .get(superclass_index)
-                            .copied()
-                        else {
-                            continue;
-                        };
-                        let super_class_name = superclass.class_name;
-                        let super_display = interner.resolve(super_class_name);
-                        let type_display: Vec<String> =
-                            type_args.iter().map(|t| t.display_with(interner)).collect();
-                        let type_display_str = type_display.join(", ");
-
-                        let has_super_instance = env.instances.iter().any(|inst| {
-                            if inst.class_id != superclass_id {
-                                return false;
-                            }
-                            let inst_types: Vec<String> = inst
-                                .type_args
-                                .iter()
-                                .map(|t| t.display_with(interner))
-                                .collect();
-                            inst_types.join(", ") == type_display_str
-                        });
-
-                        if !has_super_instance {
-                            let display_class = interner.resolve(*class_name);
-                            diagnostics.push(
-                                diagnostic_for(&MISSING_SUPERCLASS_INSTANCE)
-                                    .with_span(*span)
-                                    .with_message(format!(
-                                        "No instance for `{super_display}<{type_display_str}>` \
-                                         (required by `{display_class}<{type_display_str}>`)."
-                                    ))
-                                    .with_hint_text(format!(
-                                        "`{display_class}` requires `{super_display}` as a superclass. \
-                                         Add: `instance {super_display}<{type_display_str}> {{ ... }}`"
                                     )),
                             );
                         }
