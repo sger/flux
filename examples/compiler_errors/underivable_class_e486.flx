@@ -1,0 +1,22 @@
+// expect: compile_error
+// expect-error: E486
+// Expected: E486 Underivable Class
+//   "`Countable` cannot be derived for `Tally`: nothing can generate a body
+//    for `count`."
+//   Hint: "Write an `instance` block with the method bodies, or derive one of
+//    `Eq`, `Ord`, `Num`, `Show`, `Encode` or `Decode`."
+//
+// Proposal 0179 Stage 7. `deriving` used to accept any class it could resolve
+// and then quietly skip the methods it had no body for, leaving an instance
+// the solver discharges and no call can reach. `Countable` has no derivation
+// rule, so the clause is rejected where it is written.
+
+class Countable<a> {
+    fn count(x: a) -> Int
+}
+
+data Tally { One, Two } deriving (Countable)
+
+fn main() with IO {
+    print(1)
+}
