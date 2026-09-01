@@ -184,6 +184,7 @@ fn infer(source: &str) -> (InferProgramResult, Program, Interner) {
     // Build ClassEnv from program statements (using same interner)
     let mut class_env = ClassEnv::new();
     class_env.register_builtins(&mut interner);
+    class_env.register_prelude_classes(&mut interner);
     class_env.collect_from_statements(&program.statements, &interner);
 
     let result = infer_program(
@@ -218,6 +219,7 @@ fn build_class_env(source: &str) -> (ClassEnv, Vec<flux::diagnostics::Diagnostic
     let mut interner = parser.take_interner();
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
+    env.register_prelude_classes(&mut interner);
     let diagnostics = env.collect_from_statements(&program.statements, &interner);
     (env, diagnostics, interner)
 }
@@ -228,6 +230,7 @@ fn infer_with_dispatch(source: &str) -> (InferProgramResult, Program, Interner) 
 
     let mut class_env = ClassEnv::new();
     class_env.register_builtins(&mut interner);
+    class_env.register_prelude_classes(&mut interner);
     class_env.collect_from_statements(&program.statements, &interner);
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
@@ -737,6 +740,7 @@ fn main() { same(1, 2) }
     );
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
+    env.register_prelude_classes(&mut interner);
     env.collect_from_statements(&program.statements, &interner);
     let diags = solve_class_constraints(&result.class_constraints, &env, &interner);
     assert!(
@@ -756,6 +760,7 @@ fn main() { same(Red, Blue) }
     );
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
+    env.register_prelude_classes(&mut interner);
     env.collect_from_statements(&program.statements, &interner);
     let diags = solve_class_constraints(&result.class_constraints, &env, &interner);
     assert!(
@@ -976,6 +981,7 @@ fn main() { size(42) }
     // Rebuild ClassEnv from same interner for the solver
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
+    env.register_prelude_classes(&mut interner);
     env.collect_from_statements(&program.statements, &interner);
 
     let diags = solve_class_constraints(&result.class_constraints, &env, &interner);
@@ -1001,6 +1007,7 @@ instance Sizeable<Int> {
     );
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
+    env.register_prelude_classes(&mut interner);
     env.collect_from_statements(&program.statements, &interner);
 
     let sizeable_sym = interner.lookup("Sizeable").expect("Sizeable interned");
@@ -1042,6 +1049,7 @@ class Sizeable<a> {
     );
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
+    env.register_prelude_classes(&mut interner);
     env.collect_from_statements(&program.statements, &interner);
 
     let sizeable_sym = interner.lookup("Sizeable").expect("Sizeable interned");
@@ -1089,6 +1097,7 @@ instance Sizeable<Int> {
     );
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
+    env.register_prelude_classes(&mut interner);
     env.collect_from_statements(&program.statements, &interner);
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
@@ -1134,6 +1143,7 @@ instance Enc<a> => Enc<List<a>> {
     );
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
+    env.register_prelude_classes(&mut interner);
     env.collect_from_statements(&program.statements, &interner);
 
     let source_ids = program
@@ -1189,6 +1199,7 @@ instance Sizeable<Int> {
     );
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
+    env.register_prelude_classes(&mut interner);
     env.collect_from_statements(&program.statements, &interner);
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
@@ -1232,6 +1243,7 @@ instance Sizeable<String> {
     );
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
+    env.register_prelude_classes(&mut interner);
     env.collect_from_statements(&program.statements, &interner);
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
@@ -1292,6 +1304,7 @@ module Local {
     let unit = interner.intern("Unit");
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
+    env.register_prelude_classes(&mut interner);
     env.classes.insert(
         flux::types::class_id::ClassId::new(
             flux::types::class_id::ModulePath::from_identifier(interner.intern("Example.Logger")),
@@ -1399,6 +1412,7 @@ instance MyEq<Int> {
     );
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
+    env.register_prelude_classes(&mut interner);
     env.collect_from_statements(&program.statements, &interner);
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
@@ -1449,6 +1463,7 @@ fn needs<A: Eq + Ord + Num>(x: A, y: A) -> A {
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
 
+    env.register_prelude_classes(&mut interner);
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
         &program.statements,
         &env,
@@ -1530,6 +1545,7 @@ instance Eq<a> => MyEq<List<a>> {
     );
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
+    env.register_prelude_classes(&mut interner);
     env.collect_from_statements(&program.statements, &interner);
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
@@ -1650,6 +1666,7 @@ fn builtin_classes_registered() {
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
 
+    env.register_prelude_classes(&mut interner);
     let eq = interner.lookup("Eq").expect("Eq should be interned");
     let ord = interner.lookup("Ord").expect("Ord should be interned");
     let num = interner.lookup("Num").expect("Num should be interned");
@@ -1698,6 +1715,7 @@ fn builtin_instances_registered() {
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
 
+    env.register_prelude_classes(&mut interner);
     let eq = interner.lookup("Eq").expect("Eq interned");
     let num = interner.lookup("Num").expect("Num interned");
 

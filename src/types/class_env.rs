@@ -1544,7 +1544,13 @@ impl ClassEnv {
                             associated_types: associated_types.clone(),
                             module: current_module,
                             is_public: *is_public,
-                            is_builtin: false,
+                            // The standard library's classes keep the
+                            // built-in privileges the Rust registrations had
+                            // before Proposal 0179 Stage 8 moved them into
+                            // Flux — chiefly the solver's structural evidence
+                            // for tuples, `Either` and `Array`. Only a
+                            // `Flow.*` module may declare such a class.
+                            is_builtin: Self::is_stdlib_module(current_module, interner),
                             type_params: type_params.clone(),
                             superclasses: superclasses.clone(),
                             superclass_class_ids: superclasses
@@ -2672,247 +2678,71 @@ impl ClassEnv {
     /// These are "phantom" entries — no real method bodies. They exist so the
     /// constraint solver can verify operator usage at compile time without
     /// users writing explicit class/instance declarations.
+    /// Whether `module` is part of the Flow standard library.
+    ///
+    /// Decided by name prefix, the same rule `ModuleKind::FlowStdlib` uses.
+    pub fn is_stdlib_module(module: ModulePath, interner: &Interner) -> bool {
+        module
+            .as_identifier()
+            .is_some_and(|name| interner.resolve(name).starts_with("Flow."))
+    }
+
+    /// The standard class hierarchy, as the prelude modules declare it.
+    ///
+    /// Proposal 0179 Stage 8 moved `Eq`, `Ord`, `Num`, `Show` and `Semigroup`
+    /// out of Rust and into `lib/Flow/*.flx`. A compiled program receives them
+    /// through the injected prelude imports; a `ClassEnv` built directly —
+    /// tests, tooling, the REPL's seed — has no import step, so this parses
+    /// the same sources and collects them. The sources are embedded at build
+    /// time, so there is exactly one definition of each class in the tree.
+    ///
+    /// Returns the collection diagnostics, which are empty for a consistent
+    /// tree; a non-empty result means the prelude itself no longer parses.
+    pub fn register_prelude_classes(&mut self, interner: &mut Interner) -> Vec<Diagnostic> {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        const PRELUDE_CLASS_SOURCES: &[(&str, &str)] = &[
+            ("Eq", include_str!("../../lib/Flow/Eq.flx")),
+            ("Ord", include_str!("../../lib/Flow/Ord.flx")),
+            ("Num", include_str!("../../lib/Flow/Num.flx")),
+            ("Show", include_str!("../../lib/Flow/Show.flx")),
+            ("Semigroup", include_str!("../../lib/Flow/Semigroup.flx")),
+        ];
+
+        let mut diagnostics = Vec::new();
+        for (class_name, source) in PRELUDE_CLASS_SOURCES {
+            // Idempotent per class: a module that imported `Flow.Ord` but not
+            // `Flow.Eq` must receive `Eq` and keep the `Ord` it already has,
+            // or the second declaration is a duplicate class and instance
+            // (E440 / E443).
+            if self
+                .classes
+                .keys()
+                .filter_map(|id| interner.try_resolve(id.name))
+                .any(|name| name == *class_name)
+            {
+                continue;
+            }
+            let mut parser = Parser::new(Lexer::new_with_interner(*source, interner.clone()));
+            let program = parser.parse_program();
+            diagnostics.extend(parser.errors.iter().cloned());
+            *interner = parser.take_interner();
+            diagnostics.extend(self.collect_from_statements(&program.statements, interner));
+        }
+        diagnostics
+    }
+
+    /// Register the built-in classes and instances the compiler itself owns.
+    ///
+    /// Proposal 0179 Stage 8 moved `Eq`, `Ord`, `Num`, `Show` and `Semigroup`
+    /// into the Flux prelude (`lib/Flow/Eq.flx` and siblings), so this now
+    /// registers only `Sendable`: a sealed marker class whose evidence the
+    /// solver synthesizes structurally, with nothing a Flux module could
+    /// declare. Everything else reaches the class environment through
+    /// ordinary imports.
     pub fn register_builtins(&mut self, interner: &mut Interner) {
-        let eq = interner.intern("Eq");
-        let ord = interner.intern("Ord");
-        let num = interner.intern("Num");
-        let show = interner.intern("Show");
-        let semigroup = interner.intern("Semigroup");
         let sendable = interner.intern("Sendable");
-
-        let eq_method = interner.intern("eq");
-        let neq_method = interner.intern("neq");
-        let compare_method = interner.intern("compare");
-        let lt_method = interner.intern("lt");
-        let lte_method = interner.intern("lte");
-        let gt_method = interner.intern("gt");
-        let gte_method = interner.intern("gte");
-        let add_method = interner.intern("add");
-        let sub_method = interner.intern("sub");
-        let mul_method = interner.intern("mul");
-        let div_method = interner.intern("div");
-        let show_method = interner.intern("show");
-        let append_method = interner.intern("append");
-
-        let list_name = interner.intern("List");
-        let option_name = interner.intern("Option");
-        let int_name = interner.intern("Int");
-        let float_name = interner.intern("Float");
-        let string_name = interner.intern("String");
-        let bool_name = interner.intern("Bool");
-
         let a_param = interner.intern("a");
-
-        // ── Class definitions ──────────────────────────────────────────
-
-        let a_ty = builtin_type(a_param);
-        let bool_ty = builtin_type(bool_name);
-        let int_ty = builtin_type(int_name);
-        let string_ty = builtin_type(string_name);
-
-        // Eq: eq(a, a) -> Bool, neq(a, a) -> Bool
-        self.register_builtin_class(
-            eq,
-            vec![a_param],
-            vec![
-                MethodSig {
-                    type_params: vec![],
-                    name: eq_method,
-                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
-                    param_types: vec![a_ty.clone(), a_ty.clone()],
-                    return_type: bool_ty.clone(),
-                    arity: 2,
-                    effects: vec![],
-                    default_body: None,
-                },
-                MethodSig {
-                    type_params: vec![],
-                    name: neq_method,
-                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
-                    param_types: vec![a_ty.clone(), a_ty.clone()],
-                    return_type: bool_ty.clone(),
-                    arity: 2,
-                    effects: vec![],
-                    default_body: None,
-                },
-            ],
-        );
-
-        // Ord: compare(a, a) -> Int plus relational helpers.
-        self.register_builtin_class(
-            ord,
-            vec![a_param],
-            vec![
-                MethodSig {
-                    type_params: vec![],
-                    name: compare_method,
-                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
-                    param_types: vec![a_ty.clone(), a_ty.clone()],
-                    return_type: int_ty.clone(),
-                    arity: 2,
-                    effects: vec![],
-                    default_body: None,
-                },
-                MethodSig {
-                    type_params: vec![],
-                    name: lt_method,
-                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
-                    param_types: vec![a_ty.clone(), a_ty.clone()],
-                    return_type: bool_ty.clone(),
-                    arity: 2,
-                    effects: vec![],
-                    default_body: None,
-                },
-                MethodSig {
-                    type_params: vec![],
-                    name: lte_method,
-                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
-                    param_types: vec![a_ty.clone(), a_ty.clone()],
-                    return_type: bool_ty.clone(),
-                    arity: 2,
-                    effects: vec![],
-                    default_body: None,
-                },
-                MethodSig {
-                    type_params: vec![],
-                    name: gt_method,
-                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
-                    param_types: vec![a_ty.clone(), a_ty.clone()],
-                    return_type: bool_ty.clone(),
-                    arity: 2,
-                    effects: vec![],
-                    default_body: None,
-                },
-                MethodSig {
-                    type_params: vec![],
-                    name: gte_method,
-                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
-                    param_types: vec![a_ty.clone(), a_ty.clone()],
-                    return_type: bool_ty.clone(),
-                    arity: 2,
-                    effects: vec![],
-                    default_body: None,
-                },
-            ],
-        );
-
-        // Num: add/sub/mul/div.
-        self.register_builtin_class(
-            num,
-            vec![a_param],
-            vec![
-                MethodSig {
-                    type_params: vec![],
-                    name: add_method,
-                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
-                    param_types: vec![a_ty.clone(), a_ty.clone()],
-                    return_type: a_ty.clone(),
-                    arity: 2,
-                    effects: vec![],
-                    default_body: None,
-                },
-                MethodSig {
-                    type_params: vec![],
-                    name: sub_method,
-                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
-                    param_types: vec![a_ty.clone(), a_ty.clone()],
-                    return_type: a_ty.clone(),
-                    arity: 2,
-                    effects: vec![],
-                    default_body: None,
-                },
-                MethodSig {
-                    type_params: vec![],
-                    name: mul_method,
-                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
-                    param_types: vec![a_ty.clone(), a_ty.clone()],
-                    return_type: a_ty.clone(),
-                    arity: 2,
-                    effects: vec![],
-                    default_body: None,
-                },
-                MethodSig {
-                    type_params: vec![],
-                    name: div_method,
-                    param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
-                    param_types: vec![a_ty.clone(), a_ty.clone()],
-                    return_type: a_ty.clone(),
-                    arity: 2,
-                    effects: vec![],
-                    default_body: None,
-                },
-            ],
-        );
-
-        // Show: show(a) -> String
-        self.register_builtin_class(
-            show,
-            vec![a_param],
-            vec![MethodSig {
-                type_params: vec![],
-                name: show_method,
-                param_names: vec![interner.intern("__x0")],
-                param_types: vec![a_ty.clone()],
-                return_type: string_ty,
-                arity: 1,
-                effects: vec![],
-                default_body: None,
-            }],
-        );
-
-        // Semigroup: append(a, a) -> a
-        self.register_builtin_class(
-            semigroup,
-            vec![a_param],
-            vec![MethodSig {
-                type_params: vec![],
-                name: append_method,
-                param_names: vec![interner.intern("__x0"), interner.intern("__x1")],
-                param_types: vec![a_ty.clone(), a_ty],
-                return_type: builtin_type(a_param),
-                arity: 2,
-                effects: vec![],
-                default_body: None,
-            }],
-        );
-
-        // ── Instance definitions ───────────────────────────────────────
-
-        // Eq instances: Int, Float, String, Bool
-        for ty in [int_name, float_name, string_name, bool_name] {
-            self.register_builtin_instance(eq, ty);
-        }
-
-        // Eq over the built-in containers (Proposal 0179 Stage 7).
-        //
-        // The solver could already *answer* `Eq<List<Int>>` structurally, but
-        // an answer with no `InstanceDef` behind it has no dictionary, so a
-        // constrained function received one fewer argument than it declared
-        // and failed with `E1000 want=3, got=2`. Registering real contextual
-        // instances gives those answers evidence, and every downstream
-        // mechanism — method generation, the dictionary constructor, both
-        // backends — then applies unchanged.
-        for container in [list_name, option_name] {
-            self.register_builtin_container_instance(eq, container, a_param);
-        }
-
-        // Ord instances: Int, Float, String
-        for ty in [int_name, float_name, string_name] {
-            self.register_builtin_instance(ord, ty);
-        }
-
-        // Num instances: Int, Float
-        for ty in [int_name, float_name] {
-            self.register_builtin_instance(num, ty);
-        }
-
-        // Show instances: Int, Float, String, Bool
-        for ty in [int_name, float_name, string_name, bool_name] {
-            self.register_builtin_instance(show, ty);
-        }
-
-        // Semigroup instances: String
-        self.register_builtin_instance(semigroup, string_name);
 
         // Sendable: marker class, no methods (proposal 0174 Phase 1a-v).
         // Authorizes a value to cross a worker-thread boundary
@@ -2927,8 +2757,8 @@ impl ClassEnv {
         self.register_builtin_class(sendable, vec![a_param], vec![]);
 
         // Sendable instances: Int, Float, String, Bool, Unit.
-        let unit_name = interner.intern("Unit");
-        for ty in [int_name, float_name, string_name, bool_name, unit_name] {
+        for ty in ["Int", "Float", "String", "Bool", "Unit"] {
+            let ty = interner.intern(ty);
             self.register_builtin_instance(sendable, ty);
         }
     }
@@ -2974,54 +2804,6 @@ impl ClassEnv {
                 span: Span::default(),
             },
         );
-    }
-
-    /// Register a built-in *contextual* instance over a container head —
-    /// `Class<a> => Class<Container<a>>` (Proposal 0179 Stage 7).
-    ///
-    /// The context is what makes this usable: the element's own dictionary
-    /// arrives as the constructor's argument, and the generated body recurses
-    /// through it rather than through `==`, which cannot be applied to a rigid
-    /// element type.
-    fn register_builtin_container_instance(
-        &mut self,
-        class_name: Identifier,
-        container: Identifier,
-        param: Identifier,
-    ) {
-        // The rendered form of this head — `List<a>` — is the key
-        // `class_dispatch::structural_container_eq_body` looks the generated
-        // body up by, so `param` is part of that contract.
-        let head = TypeExpr::Named {
-            name: container,
-            args: vec![builtin_type(param)],
-            span: Span::default(),
-        };
-        let already_exists = self.instances.iter().any(|i| {
-            i.class_name == class_name
-                && i.type_args.first().is_some_and(|t| t.structural_eq(&head))
-        });
-        if already_exists {
-            return;
-        }
-        let class_id = ClassId::from_local_name(class_name);
-        self.instances.push(InstanceDef {
-            class_name,
-            class_id,
-            instance_module: ModulePath::EMPTY,
-            is_public: false,
-            type_args: vec![head],
-            context: vec![ClassConstraint {
-                class_name,
-                type_args: vec![builtin_type(param)],
-                span: Span::default(),
-            }],
-            context_class_ids: vec![class_id],
-            method_names: vec![],
-            method_effects: vec![],
-            associated_types: vec![],
-            span: Span::default(),
-        });
     }
 
     /// Register a single built-in instance.

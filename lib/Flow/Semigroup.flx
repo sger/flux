@@ -1,0 +1,16 @@
+/// Associative combination, reached as `append(x, y)`.
+/// (Proposal 0179 Stage 8.)
+module Flow.Semigroup {
+    public class Semigroup<a> {
+        fn append(x: a, y: a) -> a
+    }
+
+    // The primop directly rather than `Flow.String.string_concat`: the class
+    // prelude is injected into every module, `Flow.String` included, so this
+    // module importing `Flow.String` would be a cycle.
+    intrinsic fn concat_strings(left: String, right: String) -> String = primop StringConcat
+
+    public instance Semigroup<String> {
+        fn append(x, y) { concat_strings(x, y) }
+    }
+}

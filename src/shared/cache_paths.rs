@@ -68,7 +68,10 @@ use sha2::{Digest, Sha256};
 /// Epoch 34: `Eq` has contextual instances over `List` and `Option`, so a
 /// predicate an epoch-33 interface answered structurally — with no dictionary
 /// behind it — now resolves to an instance and carries one.
-pub const CACHE_EPOCH: u16 = 34;
+/// Epoch 35: `Eq`, `Ord`, `Num`, `Show` and `Semigroup` moved from Rust
+/// registration into the Flux prelude, so their instances, dictionaries and
+/// mangled method names now carry the owning module.
+pub const CACHE_EPOCH: u16 = 35;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {
