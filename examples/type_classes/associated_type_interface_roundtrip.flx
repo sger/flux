@@ -1,0 +1,28 @@
+// Proposal 0179 Stage 6 contract: associated types survive the module
+// interface, so an importing module reduces an application exactly as the
+// defining module did.
+//
+// The class declaration and each instance's equation travel separately through
+// the interface, and a consumer that reloaded one without the other would not
+// fail loudly: the application would simply stay stuck and resurface as an
+// unrelated error about the type it never became. That is why the two counts
+// are compared on reload rather than trusted.
+//
+// `head_of` is constrained on `Collection` alone and returns `Element<c>`,
+// which only the imported equations can reduce — to `Int` at the first call
+// and to `String` at the second.
+//
+// Expected output:
+// 7
+// "s"
+
+import AssociatedTypeAcrossModules.Collect exposing (first_of)
+
+fn head_of<c: Collection>(xs: c) -> Element<c> {
+    first_of(xs)
+}
+
+fn main() with IO {
+    print(head_of([1, 2]))
+    print(head_of(["a"]))
+}

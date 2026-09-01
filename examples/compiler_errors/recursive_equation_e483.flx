@@ -1,0 +1,25 @@
+// expect: compile_error
+// expect-error: E483
+// Expected: E483 Recursive Associated Type
+//   "Associated type `Element` reduces to a type mentioning `Element`."
+//   Hint: "Break the recursion; an associated type's body must not reach the
+//    type it is defining."
+//
+// Proposal 0179 Stage 6: reduction must terminate. This body reduces to itself,
+// so expanding `Element<List<Int>>` would never finish. Checked before anything
+// relies on reduction, the way E477's cycle check guards the superclass
+// closure.
+
+class Collection<c> {
+    type Element<c>
+    fn size_of(xs: c) -> Int
+}
+
+instance Collection<List<a>> {
+    type Element<List<a>> = Element<List<a>>
+    fn size_of(xs) { 1 }
+}
+
+fn main() with IO {
+    print(size_of([1]))
+}

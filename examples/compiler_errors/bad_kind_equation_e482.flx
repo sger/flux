@@ -1,0 +1,23 @@
+// expect: compile_error
+// expect-error: E482
+// Expected: E482 Associated Type Kind Mismatch
+//   "Associated type `Element` takes 1 argument(s), but this equation gives 2."
+//   Hint: "Match the arity the class declaration gives the associated type."
+//
+// Proposal 0179 Stage 6: `type Element<c>` declares an associated type of one
+// argument, so an equation must give it exactly one. An equation at the wrong
+// arity could never be selected by an application of the declared shape.
+
+class Collection<c> {
+    type Element<c>
+    fn size_of(xs: c) -> Int
+}
+
+instance Collection<List<a>> {
+    type Element<List<a>, Int> = a
+    fn size_of(xs) { 1 }
+}
+
+fn main() with IO {
+    print(size_of([1]))
+}

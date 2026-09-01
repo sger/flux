@@ -1,0 +1,17 @@
+---
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/bad_kind_equation_e482.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E482]: Associated Type Kind Mismatch
+
+Associated type `Element` takes 1 argument(s), but this equation gives 2.
+
+  examples/compiler_errors/bad_kind_equation_e482.flx:17:5
+   |
+17 |     type Element<List<a>, Int> = a
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+== stdout ==
+<not executed>

@@ -1,0 +1,24 @@
+// expect: compile_error
+// expect-error: E481
+// Expected: E481 Unbound Associated Type Variable
+//   "`b` appears in the body of `Element` but is not bound by its head."
+//   Hint: "Every type variable in the body must appear in the head, otherwise
+//    reduction has nothing to substitute for it."
+//
+// Proposal 0179 Stage 6: reduction substitutes the head's variables into the
+// body. `b` is never bound by the head `List<a>`, so reducing
+// `Element<List<Int>>` would have to produce a type out of nothing.
+
+class Collection<c> {
+    type Element<c>
+    fn size_of(xs: c) -> Int
+}
+
+instance Collection<List<a>> {
+    type Element<List<a>> = b
+    fn size_of(xs) { 1 }
+}
+
+fn main() with IO {
+    print(size_of([1]))
+}

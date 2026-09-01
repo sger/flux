@@ -212,6 +212,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             type_params,
             superclasses,
             methods,
+            associated_types,
             span,
             name_span,
         } => Statement::Class {
@@ -220,6 +221,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             type_params,
             superclasses,
             methods,
+            associated_types,
             span,
             name_span,
         },
@@ -229,6 +231,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             type_args,
             context,
             methods,
+            associated_types,
             span,
             name_span,
         } => Statement::Instance {
@@ -237,6 +240,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             type_args,
             context,
             methods,
+            associated_types,
             span,
             name_span,
         },

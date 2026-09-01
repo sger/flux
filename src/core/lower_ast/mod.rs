@@ -1404,6 +1404,8 @@ impl<'a> AstLowerer<'a> {
                 type_args,
                 context,
                 methods,
+                // Type-level only: every application is reduced before Core.
+                associated_types: _,
                 span,
                 name_span: _,
             } => Some(CoreTopLevelItem::Instance {

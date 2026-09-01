@@ -112,6 +112,10 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "multiple_class_obligations.flx",
         "superclass_instance_validation.flx",
         "superclass_order_independent.flx",
+        "associated_type_declaration.flx",
+        "associated_type_reduction.flx",
+        "stuck_associated_type.flx",
+        "associated_type_interface_roundtrip.flx",
         "SuperclassMetadata.flx",
         "superclass_across_modules.flx",
         "superclass_method_call.flx",
@@ -140,12 +144,12 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
             {
                 let source = source.to_ascii_lowercase();
                 [
-                    "baseline", "stage 1", "stage 2", "stage 3", "stage 4", "stage 5",
+                    "baseline", "stage 1", "stage 2", "stage 3", "stage 4", "stage 5", "stage 6",
                 ]
                 .iter()
                 .any(|contract| source.contains(contract))
             },
-            "{fixture} needs a baseline or a stage 1-5 contract"
+            "{fixture} needs a baseline or a stage 1-6 contract"
         );
         assert!(
             source.contains("Expected"),
@@ -560,6 +564,130 @@ fn superclass_dispatch_is_the_same_cold_and_warm() {
         normalize_output(&cold.stdout),
         "cached run disagrees with the cold one"
     );
+}
+
+/// Proposal 0179 Stage 6: an imported class's associated types reduce the same
+/// way whether the defining module was just compiled or reloaded from its
+/// interface. The declaration and the equations travel separately, so the warm
+/// path has to rebuild both or the application silently stays stuck.
+#[test]
+fn associated_type_reduction_is_the_same_cold_and_warm() {
+    let scratch = parity::scratch::Scratch::new("typeclass-associated-type-cache");
+    let fixture = fixture_path("associated_type_interface_roundtrip.flx");
+    let run = || {
+        Command::new(env!("CARGO_BIN_EXE_flux"))
+            .current_dir(workspace_root())
+            .args([fixture.to_str().expect("fixture path is UTF-8")])
+            .args(scratch.cache_args())
+            .output()
+            .expect("run cross-module associated type fixture")
+    };
+
+    let cold = run();
+    assert!(cold.status.success(), "{}", normalize_output(&cold.stderr));
+    assert_eq!(normalize_output(&cold.stdout), "7\n\"s\"");
+
+    let warm = run();
+    assert!(warm.status.success(), "{}", normalize_output(&warm.stderr));
+    assert_eq!(
+        normalize_output(&warm.stdout),
+        normalize_output(&cold.stdout),
+        "cached run disagrees with the cold one"
+    );
+}
+
+/// Proposal 0179 Stage 6: an application whose arguments select an instance
+/// reduces to that equation's body, and one that cannot reduce is preserved
+/// until a call site fixes it.
+#[test]
+fn associated_types_reduce_when_selected_and_stay_stuck_otherwise() {
+    for (fixture, expected) in [
+        ("associated_type_reduction.flx", "7"),
+        ("stuck_associated_type.flx", "7\n\"s\""),
+    ] {
+        let output = run_fixture(fixture).unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(output.stdout, expected, "unexpected output for {fixture}");
+    }
+}
+
+/// Proposal 0179 Stage 6: a stuck associated type must not unify with an
+/// unrelated concrete type.
+///
+/// `first_of` returns `Element<c>`, so a function declaring `-> String` is
+/// wrong for every instance whose `Element` is not `String`. The E300 guard
+/// only reports when both sides are settled, and a stuck application over this
+/// signature's own rigid variables counts as settled — without that this
+/// compiled and returned whatever the selected instance produced.
+#[test]
+fn a_stuck_associated_type_does_not_unify_with_a_concrete_type() {
+    let source = r#"
+class Collection<c> {
+    type Element<c>
+    fn first_of(xs: c) -> Element<c>
+}
+
+instance Collection<List<Int>> {
+    type Element<List<Int>> = Int
+    fn first_of(xs) { 7 }
+}
+
+fn wrong<c: Collection>(xs: c) -> String {
+    first_of(xs)
+}
+
+fn main() with IO {
+    print(wrong([1, 2]))
+}
+"#;
+    let (program, mut compiler) = parse_source(source, "stuck_mismatch.flx");
+    let result = compiler.compile(&program);
+    assert!(
+        result.is_err() || !compiler.errors.is_empty(),
+        "declaring `-> String` for a body of type `Element<c>` must be rejected"
+    );
+}
+
+/// Proposal 0179 Stage 6: an associated type declared by a class and defined by
+/// an instance reaches `ClassEnv`, so later steps have something to reduce.
+///
+/// Asserted on the environment rather than only through a passing fixture: a
+/// parser that dropped the declarations would still compile this program,
+/// because Step 1 adds no semantics that depend on them.
+#[test]
+fn associated_type_declarations_and_equations_reach_the_class_environment() {
+    let source = std::fs::read_to_string(fixture_path("associated_type_declaration.flx"))
+        .expect("read associated type fixture");
+    let (program, mut compiler) = parse_source(&source, "associated_type_declaration.flx");
+    compiler
+        .compile(&program)
+        .expect("associated type fixture compiles");
+
+    let class = compiler
+        .class_env()
+        .classes
+        .values()
+        .find(|class| compiler.interner.resolve(class.name) == "Collection")
+        .expect("Collection is collected");
+    assert_eq!(class.associated_types.len(), 1);
+    assert_eq!(
+        compiler.interner.resolve(class.associated_types[0].name),
+        "Element"
+    );
+    // Indexed by the class parameter it is declared over.
+    assert_eq!(class.associated_types[0].params.len(), 1);
+
+    let instance = compiler
+        .class_env()
+        .instances
+        .iter()
+        .find(|instance| compiler.interner.resolve(instance.class_name) == "Collection")
+        .expect("the Collection instance is collected");
+    assert_eq!(instance.associated_types.len(), 1);
+    let equation = &instance.associated_types[0];
+    assert_eq!(compiler.interner.resolve(equation.name), "Element");
+    // The head repeats the instance head, and the body is what it reduces to.
+    assert_eq!(equation.head.len(), 1);
+    assert_eq!(equation.body.display_with(&compiler.interner), "a");
 }
 
 /// Proposal 0179 Stage 5: a superclass obligation is checked against the whole
