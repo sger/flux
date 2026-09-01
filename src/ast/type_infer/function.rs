@@ -362,6 +362,32 @@ impl<'a> InferCtx<'a> {
         }
     }
 
+    /// Whether `ty` is settled enough to compare in a return-annotation
+    /// mismatch.
+    ///
+    /// Unresolved bodies — forward references inside library modules, for
+    /// instance — are left to downstream boundary checks, because reporting
+    /// them here is a false positive.
+    ///
+    /// Proposal 0179 Stage 6: an unreduced associated type over this
+    /// signature's own rigid variables also counts. `Element<c>` for a
+    /// quantified `c` cannot reduce any further inside this body, so comparing
+    /// it is not premature — and without this the guard hides a real mismatch:
+    /// a function declared `-> String` whose body has type `Element<c>` would
+    /// compile and then return whatever instance was selected.
+    ///
+    /// Deliberately narrower than "every free variable is rigid", which also
+    /// admits ordinary types whose annotation side is still unresolved and
+    /// reintroduces the false positives this guard exists for.
+    fn is_settled(&self, ty: &InferType) -> bool {
+        ty.is_concrete()
+            || (crate::types::assoc_type::contains_unreduced(ty)
+                && ty
+                    .free_type_vars()
+                    .iter()
+                    .all(|var| self.skolem_vars.contains(var)))
+    }
+
     /// Unify the body type against the declared return annotation, emitting
     /// E300 on failure and recovering with the annotation type so downstream
     /// inference remains consistent.
@@ -388,31 +414,7 @@ impl<'a> InferCtx<'a> {
             Err(_) => {
                 let body_resolved = body_ty.apply_type_subst(&self.subst);
                 let ann_resolved = ann_ty.apply_type_subst(&self.subst);
-                // Only emit when both sides are settled; unresolved bodies
-                // (e.g. forward references inside library modules) are left to
-                // downstream boundary checks to avoid false positives.
-                //
-                // Proposal 0179 Stage 6: an unreduced associated type over
-                // this signature's own rigid variables also counts as settled.
-                // `Element<c>` for a quantified `c` cannot reduce any further
-                // inside this body, so comparing it is not premature — and
-                // without this the guard hides a real mismatch: a function
-                // declared `-> String` whose body has type `Element<c>` would
-                // compile and then return whatever instance was selected.
-                //
-                // Deliberately narrower than "every free variable is rigid",
-                // which also admits ordinary types whose annotation side is
-                // still unresolved and reintroduces the false positives this
-                // guard exists for.
-                let settled = |ty: &InferType| {
-                    ty.is_concrete()
-                        || (crate::types::assoc_type::contains_unreduced(ty)
-                            && ty
-                                .free_type_vars()
-                                .iter()
-                                .all(|var| self.skolem_vars.contains(var)))
-                };
-                if settled(&body_resolved) && settled(&ann_resolved) {
+                if self.is_settled(&body_resolved) && self.is_settled(&ann_resolved) {
                     let fn_name_str = fn_name
                         .map(|n| self.interner.resolve(n).to_string())
                         .unwrap_or_else(|| "lambda".to_string());
