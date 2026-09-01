@@ -34,7 +34,7 @@ use super::super::diagnostics::compiler_errors::{
     INSTANCE_MISSING_METHOD, INSTANCE_TYPE_ARG_ARITY, INSTANCE_UNKNOWN_CLASS,
     MISSING_SUPERCLASS_INSTANCE, ORPHAN_INSTANCE, PUBLIC_CLASS_LEAKS_PRIVATE_TYPE,
     PUBLIC_INSTANCE_HAS_PRIVATE_HEAD, PUBLIC_INSTANCE_OF_PRIVATE_CLASS, SEALED_CLASS_INSTANCE,
-    SUPERCLASS_CYCLE,
+    SUPERCLASS_CYCLE, UNDERIVABLE_CLASS,
 };
 
 /// Proposal 0151, Phase 2: per-ADT bookkeeping used by the orphan and
@@ -1914,8 +1914,12 @@ impl ClassEnv {
                                         env.lookup_class_in_module_or_global(current_module, short)
                                     })
                             });
-                        let (class_id, resolved_class_name) = match class_def {
-                            Some(def) => (def.class_id(), def.name),
+                        let (class_id, resolved_class_name, class_methods) = match class_def {
+                            Some(def) => (
+                                def.class_id(),
+                                def.name,
+                                def.methods.iter().map(|m| m.name).collect::<Vec<_>>(),
+                            ),
                             None => {
                                 let class_display = interner.resolve(*class_name);
                                 let type_display = interner.resolve(*name);
@@ -1936,6 +1940,35 @@ impl ClassEnv {
                         {
                             diagnostics.push(Self::sealed_sendable_diagnostic(*span));
                             continue;
+                        }
+
+                        // Proposal 0179 Stage 7: a clause is accepted only when
+                        // every method of the class can be generated. Accepting
+                        // it otherwise registered an instance the solver would
+                        // discharge and no call could reach, because the
+                        // generator silently skipped the methods it had no body
+                        // for. The instance is still recorded so the error names
+                        // the clause once instead of cascading into a missing
+                        // instance at every use site.
+                        let class_display = interner.resolve(resolved_class_name).to_string();
+                        let type_display = interner.resolve(*name).to_string();
+                        if let Some(method) = class_methods.iter().find(|method| {
+                            !crate::types::class_dispatch::can_derive_method(
+                                &class_display,
+                                &type_display,
+                                interner.resolve(**method),
+                            )
+                        }) {
+                            let method_display = interner.resolve(*method);
+                            diagnostics.push(
+                                diagnostic_for(&UNDERIVABLE_CLASS)
+                                    .with_span(*span)
+                                    .with_message(format!(
+                                        "`{class_display}` cannot be derived for \
+                                         `{type_display}`: nothing can generate a body for \
+                                         `{method_display}`."
+                                    )),
+                            );
                         }
 
                         let type_arg = TypeExpr::Named {
@@ -3429,13 +3462,17 @@ module Phase1b.Step2 {
         // Declare the class in-source so we don't depend on built-in
         // pre-registration (which only happens in the bytecode compiler).
         // `public data` isn't parsed yet — bare `data` is sufficient here.
+        //
+        // It has to be `Show`/`show`: Stage 7 accepts a `deriving` clause only
+        // where a method body can be generated, and this test is about the
+        // owning module recorded on the instance, not about derivability.
         let source = r#"
 module Phase1b.Step2Derive {
-    class DerivableShow<a> {
-        fn show_it(x: a) -> Bool
+    class Show<a> {
+        fn show(x: a) -> Bool
     }
 
-    data Color { Red, Green, Blue } deriving (DerivableShow)
+    data Color { Red, Green, Blue } deriving (Show)
 }
 "#;
         let mut parser = Parser::new(Lexer::new(source));
@@ -3454,7 +3491,7 @@ module Phase1b.Step2Derive {
             diags
         );
 
-        let class_sym = interner.lookup("DerivableShow").unwrap();
+        let class_sym = interner.lookup("Show").unwrap();
         let color_sym = interner.lookup("Color").unwrap();
         // Find the synthesized derived instance for DerivableShow<Color>.
         let derived = env.instances.iter().find(|i| {

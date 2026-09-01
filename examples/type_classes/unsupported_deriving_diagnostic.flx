@@ -1,9 +1,14 @@
-// Baseline behavior: a known class without a deriving implementation is
-// recorded here. Safe deriving diagnostics and generated evidence belong to
-// Stage 7.
-// Expected current baseline output:
-// 1
-// No usable Functor dictionary is generated for this data declaration.
+// Proposal 0179 Stage 7 contract: a `deriving` clause naming a class that
+// cannot be derived is rejected where it is written.
+//
+// Until Stage 7 this compiled and printed `1`. The clause resolved `Functor`,
+// registered an instance for it, and the generator then quietly skipped
+// `fmap` because it had no body to synthesize — leaving evidence the solver
+// discharges and no call can reach. That silent third outcome is what Stage 7
+// removes: a clause either produces callable methods, or it is an error.
+//
+// Expected output:
+// error[E486]: Underivable Class
 
 class Functor<f> {
     fn fmap<a, b>(x: f<a>, func: (a) -> b) -> f<b>

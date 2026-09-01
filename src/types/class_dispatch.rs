@@ -404,6 +404,37 @@ fn is_json_codec_class(class_name: &str) -> bool {
     )
 }
 
+/// The `(class, type, method)` triples [`builtin_method_body`] knows how to
+/// synthesize a body for.
+///
+/// Kept as a separate predicate so derivability can be decided while classes
+/// are being collected, long before any body is built. It mirrors the match in
+/// `builtin_method_body` exactly; `builtin_bodies_match_the_derivable_set`
+/// pins the two together.
+fn has_builtin_method_body(class_name: &str, type_name: &str, method_name: &str) -> bool {
+    matches!(
+        (class_name, type_name, method_name),
+        ("Eq", _, "eq" | "neq")
+            | ("Ord", _, "compare" | "lt" | "lte" | "gt" | "gte")
+            | ("Num", _, "add" | "sub" | "mul" | "div")
+            | ("Show", _, "show")
+            | ("Semigroup", "String", "append")
+    )
+}
+
+/// Whether `deriving` can produce a body for one method of a class.
+///
+/// Proposal 0179 Stage 7: a class is derivable exactly when every one of its
+/// methods can be generated. There is deliberately no separate allowlist —
+/// asking whether a body exists is the same question as asking whether the
+/// clause is supported, so the two can never drift apart.
+pub fn can_derive_method(class_name: &str, type_name: &str, method_name: &str) -> bool {
+    if is_json_codec_class(class_name) {
+        return matches!(method_name, "encode" | "decode");
+    }
+    has_builtin_method_body(class_name, type_name, method_name)
+}
+
 fn derived_json_method_body(
     adt: &DeriveAdtInfo,
     method_name: &str,
@@ -1866,5 +1897,35 @@ instance Renderable<Int> {
             source_ids.is_disjoint(&generated_ids),
             "generated explicit instance body reused source ExprIds: source={source_ids:?}, generated={generated_ids:?}"
         );
+    }
+
+    /// Stage 7 rejects a `deriving` clause exactly where no body can be
+    /// generated for it, so `has_builtin_method_body` must answer the same
+    /// question `builtin_method_body` answers by trying. If an arm is added to
+    /// one and not the other, deriving either fabricates a method-less
+    /// instance again or rejects a clause it could have satisfied.
+    #[test]
+    fn builtin_bodies_match_the_derivable_set() {
+        let mut interner = Interner::new();
+        let mut ids = ExprIdGen::new();
+        let classes = ["Eq", "Ord", "Num", "Show", "Semigroup", "Functor"];
+        let types = ["Int", "String", "Color"];
+        let methods = [
+            "eq", "neq", "compare", "lt", "lte", "gt", "gte", "add", "sub", "div", "mul", "show",
+            "append", "fmap",
+        ];
+        for class in classes {
+            for ty in types {
+                for method in methods {
+                    let generated =
+                        builtin_method_body(&mut interner, &mut ids, class, ty, method).is_some();
+                    assert_eq!(
+                        generated,
+                        has_builtin_method_body(class, ty, method),
+                        "({class}, {ty}, {method}) disagrees"
+                    );
+                }
+            }
+        }
     }
 }
