@@ -11,7 +11,7 @@ Flux uses stable error codes for all diagnostics. Codes are prefixed `E` (error)
 | `E001–E060` | Compiler — semantic checks | `compiler_errors.rs` |
 | `E061–E070` | Internal compiler errors (ICE) | `compiler_errors.rs` |
 | `E071–E077` | Lexer / parser errors | `compiler_errors.rs` |
-| `E440–E459`, `E476–E484` | Type classes and instances | `compiler_errors.rs` |
+| `E440–E459`, `E476–E485` | Type classes and instances | `compiler_errors.rs` |
 | `E472–E475` | Kind checking (Proposal 0179 Stage 1) | `compiler_errors.rs` |
 | `E1000–E1021` | Runtime errors | `runtime_errors.rs` |
 | `W2xx` | Warnings (linter) | `compiler_errors.rs` |
@@ -143,6 +143,7 @@ Flux uses stable error codes for all diagnostics. Codes are prefixed `E` (error)
 | <a id="e482"></a>`E482` | `ASSOCIATED_TYPE_KIND_MISMATCH` | An equation applies an associated type at the wrong arity |
 | <a id="e483"></a>`E483` | `RECURSIVE_ASSOCIATED_TYPE` | An associated type reduces to a type mentioning itself |
 | <a id="e484"></a>`E484` | `UNKNOWN_ASSOCIATED_TYPE` | An instance defines an associated type its class does not declare |
+| <a id="e485"></a>`E485` | `AMBIGUOUS_DICTIONARY_SELECTION` | A call cannot say which of several dictionaries for one class it needs |
 | <a id="e476"></a>`E476` | `AMBIGUOUS_TYPE_VARIABLE` | A declared bound constrains a variable the signature never mentions |
 
 `E444`, `E454`, `E456`, `E459` and `E476` are easy to confuse. They differ in what is

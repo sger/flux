@@ -30,6 +30,7 @@ pub use case_of_case::case_of_case;
 pub use cokc::case_of_known_constructor;
 pub use const_fold::constant_fold;
 pub use dead_let::elim_dead_let;
+pub(crate) use dict_elaborate::reachable_methods;
 pub use dict_elaborate::{elaborate_dictionaries, elaborate_dictionaries_with_def_schemes};
 pub use disciplined_inline::disciplined_inline;
 pub use evidence::evidence_pass;

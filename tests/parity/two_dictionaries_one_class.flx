@@ -1,0 +1,35 @@
+// Proposal 0179 Stage 4 contract: a function holding two dictionaries for one
+// class dispatches each call through the dictionary its argument belongs to.
+//
+// `both` is constrained twice on `Root`, over two different type variables, so
+// it receives two dictionaries. `root(x)` must project out of `a`'s and
+// `root(y)` out of `b`'s. Selecting by method name alone cannot tell them
+// apart: the second entry collides with the first and every call reaches the
+// same dictionary, which printed `14` (7 + 7) rather than `12` (5 + 7).
+//
+// Selection therefore matches the call's argument type against each
+// constraint's type arguments, and the dictionary is chosen by the predicate it
+// discharges rather than by the method's name.
+//
+// Expected output:
+// 12
+
+class Root<a> {
+    fn root(x: a) -> Int
+}
+
+instance Root<Int> {
+    fn root(x) { x }
+}
+
+instance Root<String> {
+    fn root(x) { 7 }
+}
+
+fn both<a: Root, b: Root>(x: a, y: b) -> Int {
+    root(x) + root(y)
+}
+
+fn main() with IO {
+    print(both(5, "hi"))
+}

@@ -386,14 +386,17 @@ errors, so `missing_superclass` compiled and exited 0. E445 and E477 are now
 promoted. E440/E441/E442 remain demoted; they are blocked on built-in
 shadowing, not on this stage.
 
-**One inherited limitation, filed as KI-057.** A method reachable from two
+**One inherited limitation, filed as KI-057 — since fixed.** A method reachable from two
 dictionaries for the same class, over different type variables, always
 dispatches through the first — the map from method to dictionary is keyed on the
 method name and never consults the call's argument types. Superclass evidence
 inherits this (two constraints whose closures reach one superclass take that
 evidence from whichever dictionary is found first) but does not cause it: the
 reproduction uses no superclasses and fails identically before Stage 5. It
-belongs with the dictionary-selection work, not here.
+belongs with the dictionary-selection work, not here — and was fixed there, by
+keying the method-to-dictionary map on the predicate rather than the method
+name. That discharges the argument-position half of Stage 4's "resolve from the
+complete predicate"; the result-directed half remains open as KI-058.
 
 **Entailment needed no separate solver change.** A wanted predicate discharged
 by a superclass of a constraint already in scope is handled by the projection

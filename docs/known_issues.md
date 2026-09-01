@@ -406,6 +406,9 @@ reify it as a value — `Flume.Manifest` uses a `Reader<a>` record, which also
 composes further than an instance head can (`array_of(element: Reader<a>) ->
 Reader<List<a>>` needs no higher-kinded types).
 
+The same missing input limits dictionary *selection* inside a constrained
+function; see [KI-058](#ki-058).
+
 ---
 
 ### KI-035 — `Flow.Http` has no TLS, so no HTTPS host is reachable
@@ -494,6 +497,43 @@ problem is suspected, and here it manufactures errors that do not otherwise
 exist — a misleading signal exactly when the cache is under suspicion.
 
 ---
+
+### KI-058 — Dictionary selection does not read the call's result type
+
+**Severity:** Medium · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-01 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+KI-057 made a call choose between the dictionaries its function holds by
+matching the call's *argument* types. A method whose class parameter appears
+only in its return type reveals nothing that way:
+
+```flux
+public class Decode<a> {
+    fn decode(value: Json) -> JsonResult<a>
+}
+```
+
+`Flow.Json`'s `Decode<a> => Decode<List<a>>` instance holds both a `Decode<a>`
+and a `Decode<Array<a>>` dictionary, and its `decode(value)` call needs the
+second — decided by where the result flows, not by the argument, which is
+`Json` either way.
+
+That call resolves correctly today, but by position rather than by reasoning:
+the last candidate recorded wins, and it happens to be the right one. Nothing
+holds it there.
+
+Distinct from [KI-015](#ki-015), which is about picking an *instance* at a
+monomorphic call site. This is about picking one of the *dictionary parameters*
+a constrained function already holds. They want the same missing input — the
+call's expected result type — so they are likely to close together.
+
+Closing this means reading the call's expected result type. On the VM path that
+is available (`hm_expr_types` keyed on the call's own `ExprId`); in the Core
+pass it is not, because `CoreExpr::App` carries no type, so it has to be
+threaded from AST→Core lowering. That is the same plumbing 0179 Stage 4's
+result-directed resolution needs, and belongs with it.
+
+Until then a genuinely undecidable call — a class parameter named nowhere in its
+method's signature — is reported as E485 rather than guessed.
 
 ## Resolved
 
@@ -1652,7 +1692,7 @@ Discovered while adding `examples/type_classes/qualified_class_id.flx`, which
 was written with both modules in `Render.flx` and had to be restructured to
 distinct stems to compile natively. The VM is unaffected.
 
-### KI-057 — A method reachable from two dictionaries always uses the first
+### KI-057 — A method reachable from two dictionaries always uses the first — FIXED 2026-09-01
 
 **Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-01 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
@@ -1695,7 +1735,27 @@ prints `14` on `main` as well. Superclass evidence inherits the same limitation
 — two constraints whose closures both reach one superclass pick that superclass's
 evidence from whichever dictionary is found first — but does not cause it.
 
-The fix is to resolve the call's predicate from its argument types, as
-`resolve_direct_class_call_dict_args_ast` already does for direct dispatch, and
-select the dictionary parameter whose constraint matches, rather than taking the
-first entry keyed on the method name.
+**Fixed** by selecting on the predicate rather than the method name. The map
+from method to dictionary now holds every candidate a function's constraints can
+reach, and the call's argument types choose between them:
+`ClassEnv::dispatch_positions` says which argument reveals each class parameter
+and `select_dictionary` matches what it finds against each candidate. Both are
+defined once and used by the elaborator and by the check below, so selection
+cannot drift between them.
+
+Two rules make it correct rather than merely different:
+
+- **Equal predicates are interchangeable.** There is at most one instance per
+  type, so two constraints over the same type reach the same implementation
+  whichever is picked. Without this, `fn f<a: Sizeable, b: Sizeable>` calling
+  `size` would look ambiguous the moment a superclass gave the method a second
+  route to the same dictionary.
+- **A call that cannot decide is reported, not guessed.** A class parameter
+  mentioned nowhere in its method's signature can never be named by any call
+  site; that is now **E485**, not a silent first-match.
+
+Covered by `two_dictionaries_one_class.flx`, `two_dictionaries_superclass.flx`
+and `ambiguous_dictionary_e485.flx`, all on both backends.
+
+Selection reads argument types only; a method dispatched on its result type
+keeps its previous behavior. See KI-058.

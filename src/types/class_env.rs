@@ -351,6 +351,145 @@ impl ClassEnv {
                 .collect(),
         )
     }
+}
+
+/// The outcome of choosing among the dictionaries a caller holds for one class.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DictSelection {
+    /// Exactly one candidate is consistent with the call — its index into the
+    /// enclosing function's constraint list, which is also its dictionary
+    /// parameter's position.
+    Unique(usize),
+    /// More than one candidate survives. The call does not say which dictionary
+    /// it means, and picking either is a guess: this is reported (E485) rather
+    /// than resolved.
+    Ambiguous,
+    /// No candidate is consistent. The call is not dispatching through a
+    /// dictionary the caller holds — a concrete argument inside a constrained
+    /// function, for instance — and the concrete dispatch path handles it.
+    NoMatch,
+}
+
+/// Choose among the dictionaries a caller holds for one class by matching what
+/// the call reveals against each candidate's type arguments.
+///
+/// `candidates` pairs each constraint's index with its type arguments;
+/// `observed` holds the type seen at each class-parameter position, as located
+/// by [`ClassEnv::dispatch_positions`], or `None` where the call reveals
+/// nothing there. A position that reveals nothing does not narrow, so a call
+/// that says nothing at all about a class with two dictionaries in scope is
+/// [`DictSelection::Ambiguous`] — which is the honest answer.
+///
+/// Candidates that survive with *equal* type arguments are not an ambiguity.
+/// There is at most one instance per type, so two constraints predicating the
+/// same class over the same type name the same instance and reach the same
+/// method — whichever is picked. This is what lets a function constrained on
+/// both `Sizeable<a>` and `Measurable<a>` call `size`: one reaches it directly
+/// and the other through superclass evidence, but they arrive at the same
+/// implementation. Only candidates that differ are a real choice.
+///
+/// Generic over the type representation so the VM caller can pass `InferType`
+/// and the native caller `CoreType` without converting between them. Both carry
+/// the same `TypeVarId`s, because generalization does not renumber.
+pub fn select_dictionary<T: PartialEq>(
+    candidates: &[(usize, Vec<T>)],
+    observed: &[Option<T>],
+) -> DictSelection {
+    let consistent: Vec<&(usize, Vec<T>)> = candidates
+        .iter()
+        .filter(|(_, type_args)| {
+            observed
+                .iter()
+                .enumerate()
+                .all(|(position, seen)| match seen {
+                    Some(ty) => type_args.get(position) == Some(ty),
+                    None => true,
+                })
+        })
+        .collect();
+    let Some((first_index, first_args)) = consistent.first() else {
+        return DictSelection::NoMatch;
+    };
+    if consistent
+        .iter()
+        .all(|(_, type_args)| type_args == first_args)
+    {
+        return DictSelection::Unique(*first_index);
+    }
+    DictSelection::Ambiguous
+}
+
+impl ClassEnv {
+    /// For each of the class's type parameters, which value argument of
+    /// `method` reveals it at a call site.
+    ///
+    /// `class Root<a> { fn root(x: a) -> Int }` yields `[Some(0)]`: whatever
+    /// type argument 0 has *is* `a`, so a call to `root` names the instance it
+    /// needs. An entry is `None` when no parameter is declared as exactly that
+    /// class parameter — either the class parameter appears only in the return
+    /// type, or only nested inside a larger type such as `List<a>`, where the
+    /// argument's type would have to be taken apart to recover it.
+    ///
+    /// Only an exact match counts, deliberately. A position that requires
+    /// destructuring is reported as unknown rather than guessed at, and an
+    /// unknown position simply fails to narrow the candidates — which is the
+    /// conservative direction, because failing to narrow is diagnosed while
+    /// narrowing wrongly is a silent miscompile.
+    ///
+    /// This is the single definition of *what a call site reveals*. Inference
+    /// checks ambiguity with it and both backends select with it, so the three
+    /// cannot disagree about which argument decides a dispatch.
+    pub fn dispatch_positions(
+        &self,
+        id: ClassId,
+        method: Identifier,
+    ) -> Option<Vec<Option<usize>>> {
+        let class_def = self.lookup_class_by_id(id)?;
+        let method_sig = class_def.methods.iter().find(|m| m.name == method)?;
+        Some(
+            class_def
+                .type_params
+                .iter()
+                .map(|&param| {
+                    method_sig.param_types.iter().position(|ty| {
+                        matches!(ty, TypeExpr::Named { name, args, .. } if *name == param && args.is_empty())
+                    })
+                })
+                .collect(),
+        )
+    }
+
+    /// Whether `method`'s signature mentions every one of its class's type
+    /// parameters at all — in a value parameter or in the return type.
+    ///
+    /// A method that mentions none of them, `fn mk(tag: Int) -> Int` on
+    /// `class Mk<a>`, is *undispatchable*: nothing anywhere in a call to it can
+    /// name the instance it wants. That is worth separating from a method whose
+    /// parameter appears only in the return type, like `decode`, which is
+    /// dispatched perfectly well by where its result flows — just not by
+    /// anything this stage reads.
+    pub fn method_mentions_class_parameters(
+        &self,
+        id: ClassId,
+        method: Identifier,
+    ) -> Option<bool> {
+        let class_def = self.lookup_class_by_id(id)?;
+        let method_sig = class_def.methods.iter().find(|m| m.name == method)?;
+        let mut mentioned = Vec::new();
+        for ty in method_sig
+            .param_types
+            .iter()
+            .chain(std::iter::once(&method_sig.return_type))
+        {
+            Self::collect_type_names(ty, &mut mentioned);
+        }
+        Some(
+            class_def
+                .type_params
+                .iter()
+                .all(|param| mentioned.contains(param)),
+        )
+    }
 
     /// The slot holding `method`'s implementation in a dictionary for `id`.
     pub fn method_slot(&self, id: ClassId, method: Identifier) -> Option<usize> {
@@ -4642,6 +4781,85 @@ module Mod.Class {
         assert!(
             env.resolve_instance_with_subst(eq, &[does_not_match], &interner)
                 .is_none()
+        );
+    }
+}
+
+#[cfg(test)]
+mod dict_selection_tests {
+    use super::{DictSelection, select_dictionary};
+
+    /// A call whose argument type matches exactly one constraint names that
+    /// constraint, which is the whole point of KI-057: `root(x)` and `root(y)`
+    /// in `fn both<a: Root, b: Root>` must reach different dictionaries.
+    #[test]
+    fn a_matching_argument_type_names_one_constraint() {
+        let candidates = vec![(0, vec!["a"]), (1, vec!["b"])];
+        assert_eq!(
+            select_dictionary(&candidates, &[Some("b")]),
+            DictSelection::Unique(1)
+        );
+        assert_eq!(
+            select_dictionary(&candidates, &[Some("a")]),
+            DictSelection::Unique(0)
+        );
+    }
+
+    /// Two constraints over the same type name the same instance, so whichever
+    /// is picked reaches the same method. A function constrained on both
+    /// `Sizeable<a>` and `Measurable<a>` calling `size` is exactly this: one
+    /// candidate reaches it directly, the other through superclass evidence.
+    #[test]
+    fn candidates_over_the_same_type_are_interchangeable() {
+        let candidates = vec![(0, vec!["a"]), (1, vec!["b"]), (2, vec!["a"])];
+        assert_eq!(
+            select_dictionary(&candidates, &[Some("a")]),
+            DictSelection::Unique(0)
+        );
+    }
+
+    /// Revealing nothing does not narrow. With one dictionary in scope that is
+    /// still an answer; with two it is a guess, and a guess is what this whole
+    /// change exists to stop.
+    #[test]
+    fn revealing_nothing_narrows_nothing() {
+        assert_eq!(
+            select_dictionary(&[(0, vec!["a"])], &[None]),
+            DictSelection::Unique(0)
+        );
+        assert_eq!(
+            select_dictionary(&[(0, vec!["a"]), (1, vec!["b"])], &[None]),
+            DictSelection::Ambiguous
+        );
+    }
+
+    /// An argument matching no constraint is not an error: a concrete argument
+    /// inside a constrained function dispatches to the concrete instance
+    /// instead, which is a different path entirely.
+    #[test]
+    fn an_unmatched_argument_defers_rather_than_failing() {
+        assert_eq!(
+            select_dictionary(&[(0, vec!["a"]), (1, vec!["b"])], &[Some("Int")]),
+            DictSelection::NoMatch
+        );
+        assert_eq!(
+            select_dictionary::<&str>(&[], &[None]),
+            DictSelection::NoMatch
+        );
+    }
+
+    /// Every class parameter must agree, so a multi-parameter class narrows on
+    /// the positions the call reveals and ignores the ones it does not.
+    #[test]
+    fn a_multi_parameter_class_narrows_on_every_revealed_position() {
+        let candidates = vec![(0, vec!["a", "x"]), (1, vec!["a", "y"])];
+        assert_eq!(
+            select_dictionary(&candidates, &[Some("a"), Some("y")]),
+            DictSelection::Unique(1)
+        );
+        assert_eq!(
+            select_dictionary(&candidates, &[Some("a"), None]),
+            DictSelection::Ambiguous
         );
     }
 }
