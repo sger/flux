@@ -1,0 +1,39 @@
+/// Total ordering.
+///
+/// `<`, `<=`, `>` and `>=` desugar to `lt`, `lte`, `gt` and `gte`. `compare`
+/// returns `-1`, `0` or `1`. As with `Eq`, a concrete primitive's operator
+/// lowers to a primop, so the instances below do not recurse.
+/// (Proposal 0179 Stage 8.)
+module Flow.Ord {
+    public class Ord<a> {
+        fn compare(x: a, y: a) -> Int
+        fn lt(x: a, y: a) -> Bool
+        fn lte(x: a, y: a) -> Bool
+        fn gt(x: a, y: a) -> Bool
+        fn gte(x: a, y: a) -> Bool
+    }
+
+    public instance Ord<Int> {
+        fn compare(x, y) { if x < y { -1 } else { if x > y { 1 } else { 0 } } }
+        fn lt(x, y) { x < y }
+        fn lte(x, y) { x <= y }
+        fn gt(x, y) { x > y }
+        fn gte(x, y) { x >= y }
+    }
+
+    public instance Ord<Float> {
+        fn compare(x, y) { if x < y { -1 } else { if x > y { 1 } else { 0 } } }
+        fn lt(x, y) { x < y }
+        fn lte(x, y) { x <= y }
+        fn gt(x, y) { x > y }
+        fn gte(x, y) { x >= y }
+    }
+
+    public instance Ord<String> {
+        fn compare(x, y) { if x < y { -1 } else { if x > y { 1 } else { 0 } } }
+        fn lt(x, y) { x < y }
+        fn lte(x, y) { x <= y }
+        fn gt(x, y) { x > y }
+        fn gte(x, y) { x >= y }
+    }
+}

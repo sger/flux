@@ -508,6 +508,7 @@ mod tests {
         let mut interner = Interner::new();
         let mut class_env = ClassEnv::new();
         class_env.register_builtins(&mut interner);
+        class_env.register_prelude_classes(&mut interner);
         let num = interner.lookup("Num").expect("Num should be interned");
         let finalized = finalize_binding_class_constraints(
             &bool_(),

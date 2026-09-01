@@ -1941,3 +1941,125 @@ parameter, `want=7, got=4` for two.
 
 **Workaround:** write the instance by hand. The contextual form above is
 accepted and behaves correctly, including through a constrained function.
+
+---
+
+### KI-060 — A module-scoped contextual instance cannot call its own method on its own head type
+
+**Severity:** High · **Area:** type classes, module-scoped instances · **Verified:** 2026-09-01 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+Inside a `module { }` block, a contextual instance whose method recurses through
+the class method *on the instance's own head type* reaches the wrong dictionary:
+
+```flux
+module M {
+    public class MyEq<a> { fn my_eq(x: a, y: a) -> Bool }
+    public instance MyEq<Int> { fn my_eq(x, y) { x == y } }
+    public instance MyEq<a> => MyEq<List<a>> {
+        fn my_eq(xs, ys) {
+            match xs {
+                [h1 | t1] -> match ys { [h2 | t2] -> my_eq(h1, h2) && my_eq(t1, t2), _ -> false },
+                _ -> match ys { [h | t] -> false, _ -> true }
+            }
+        }
+    }
+}
+```
+
+```
+error[E1009]: unsupported comparison: List and List
+  at M.__tc_m1_4D_MyEq_Int_my_eq (M.flx:3:50)
+```
+
+`my_eq(t1, t2)` compares two `List<a>` and must recurse through the `List`
+instance applied to the element dictionary. It reaches `MyEq<Int>` instead. The
+identical instance at the top level of an entry file — outside any module — is
+correct; Stage 7's generated container instances were top-level, which is why
+they never hit this.
+
+**Cause — confirmed from a single-module Core dump.** The method is emitted
+twice under one bare name. The first is the real body and is right: the tail
+call is `__tc_…_List<a>_my_eq(__dict, t1, t2)`. The second is the bare-name
+forwarding alias KI-055 describes, and it bakes in a *concrete* dictionary:
+
+```
+letrec __tc_m1_4D_MyEq_List<a>_my_eq =
+λ__dict_m1_4D_MyEq, xs, ys.
+    M.__tc_m1_4D_MyEq_List<a>_my_eq(__dict_m1_4D_MyEq_Int, __dict_m1_4D_MyEq, xs, ys)
+```
+
+That is the *call site's* evidence (`Int`, from `my_eq([1, 2], [1, 2])`) frozen
+into a function that is supposed to be generic, and it shadows the correct
+definition. Every recursion then carries the element dictionary as if it were
+the list's.
+
+**Workaround:** recurse through a private helper rather than through the class
+method, and compare elements with the operator (see KI-061 for why the operator
+and not `my_eq(h1, h2)`). `lib/Flow/Eq.flx` is written this way.
+
+---
+
+### KI-061 — A constrained function inside a module that calls a class method by name gets no dictionary
+
+**Severity:** High · **Area:** type classes, dictionary elaboration, modules · **Verified:** 2026-09-01 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+```flux
+import Flow.Eq exposing (..)
+module M2 {
+    public fn all_same<a: Eq>(xs: List<a>, x: a) -> Bool {
+        match xs {
+            [h | t] -> eq(h, x) && all_same(t, x),
+            _ -> true
+        }
+    }
+}
+```
+
+```
+error[E1009]: panic: No instance of Eq.eq for the given type
+  at Flow.Eq.eq
+  at M2.all_same
+```
+
+The `eq(h, x)` call is compiled as a plain call to the class's runtime dispatch
+stub instead of a projection out of `all_same`'s dictionary parameter, so it
+panics for any non-primitive element. Three variations pin the shape:
+
+| where the function lives | how it calls the method | result |
+|---|---|---|
+| top level of the entry file | `eq(h, x)` | works (`derived_eq.flx`) |
+| inside `module M2` | `eq(h, x)` | **panics** |
+| inside `module M2` | `h == x` | works |
+
+The class may live in the same module or another; it makes no difference. The
+operator form works because it takes a different route to the same obligation,
+and that is why every constrained function in `lib/Flow` — `List.contains`,
+`Array.sort`, `Assert.assert_gt` — has only ever used operators.
+
+Not to be confused with KI-060, which is about an *instance method* recursing
+on its own head; this is about a *free function*.
+
+---
+
+### KI-062 — The parity harness accepts a fixture that fails to compile on both backends
+
+**Severity:** Medium · **Area:** parity harness · **Verified:** 2026-09-01
+
+`tests/parity/primop_string_ops.flx` declares `expect: success` and uses `++`,
+which is not a Flux operator:
+
+```
+error[E031]: Expected Expression
+Expected expression, found `+`.
+```
+
+The five-way parity sweep nonetheless reports it as passing. The harness
+compares the two backends' outputs; when both fail to compile with the same
+diagnostic, the outputs match, and `expect: success` is never checked against
+the compile result. A fixture can therefore pass parity without ever running —
+the one thing a parity fixture exists to prove. The fixture is stale and the
+harness should enforce `expect:`.
+
+There is also dead code behind this: `infer_semigroup_operator`, the
+`"++" => "append"` desugar arm and `CorePrimOp::Concat` all handle an operator
+the lexer never produces. `Semigroup` is reached only as `append(x, y)`.
