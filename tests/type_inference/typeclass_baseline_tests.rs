@@ -373,6 +373,51 @@ fn public_superclass_metadata_survives_interface_serialization_roundtrip() {
     assert_eq!(decoded, interface);
 }
 
+/// Proposal 0179 Stage 5: an interface that cannot supply every superclass
+/// identity is rejected with E478, naming the class and what is missing.
+///
+/// A partially rebuilt class is worse than an absent one — the superclass
+/// count decides how many evidence slots its dictionaries lead with, so one
+/// rebuilt a slot short has every method read at the wrong index. Skipping it
+/// silently was worse still: the failure resurfaced as an unrelated
+/// duplicate-instance error about the instances that referenced the class.
+#[test]
+fn an_interface_missing_superclass_identities_is_reported_not_skipped() {
+    let mut interface = build_interface_for("SuperclassMetadata");
+    let measurable = interface
+        .public_classes
+        .iter_mut()
+        .find(|entry| entry.name == "Measurable")
+        .expect("Measurable is public");
+    assert_eq!(measurable.superclasses.len(), 1);
+    // What an interface written before the owning modules were recorded, or
+    // truncated by a `#[serde(default)]` field, would look like.
+    measurable.superclass_class_modules.clear();
+
+    let mut compiler = Compiler::new_with_file_path("consumer.flx");
+    compiler.preload_module_interface(&interface);
+
+    let reported = compiler
+        .errors
+        .iter()
+        .find(|diagnostic| diagnostic.code() == Some("E478"))
+        .unwrap_or_else(|| {
+            panic!(
+                "expected E478, got: {:?}",
+                compiler.errors.iter().map(|d| d.code()).collect::<Vec<_>>()
+            )
+        });
+    let message = reported.message().unwrap_or_default();
+    assert!(
+        message.contains("Measurable"),
+        "diagnostic should name the class: {message}"
+    );
+    assert!(
+        message.contains("SuperclassMetadata"),
+        "diagnostic should name the module: {message}"
+    );
+}
+
 #[test]
 fn cold_and_warm_compilation_reuse_the_same_typeclass_cache_contract() {
     let scratch = parity::scratch::Scratch::new("typeclass-baseline-cache");

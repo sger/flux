@@ -176,11 +176,40 @@ fn remap_class_constraint(
     }
 }
 
+/// Why a cached `public class` entry could not be rebuilt.
+///
+/// Carried rather than collapsed into `None` so the caller can say which part
+/// of the interface was unusable — an entry that is silently dropped surfaces
+/// later as an unrelated error about the instances that referenced the class.
+enum StaleClassEntry {
+    /// Method signatures were recorded by name but could not be rebuilt.
+    Methods { recorded: usize },
+    /// `superclasses` and `superclass_class_modules` disagree in length, so
+    /// the superclass identities cannot be recovered.
+    SuperclassIdentities { declared: usize, recorded: usize },
+}
+
+impl StaleClassEntry {
+    /// What is missing, phrased for the end of "describes class `C`
+    /// incompletely".
+    fn detail(&self) -> String {
+        match self {
+            Self::Methods { recorded } => {
+                format!("{recorded} method signature(s) are named but not described")
+            }
+            Self::SuperclassIdentities { declared, recorded } => format!(
+                "{declared} superclass(es) are declared but only {recorded} \
+                 owning module(s) recorded, so their identities cannot be rebuilt"
+            ),
+        }
+    }
+}
+
 fn imported_class_def_from_entry(
     entry: &crate::types::module_interface::PublicClassEntry,
     remap: &HashMap<Symbol, Symbol>,
     interner: &mut Interner,
-) -> Option<crate::types::class_env::ClassDef> {
+) -> Result<crate::types::class_env::ClassDef, StaleClassEntry> {
     let module_sym = interner.intern(&entry.class_module);
     let class_sym = interner.intern(&entry.name);
     let module = crate::types::class_id::ModulePath::from_identifier(module_sym);
@@ -214,7 +243,9 @@ fn imported_class_def_from_entry(
         .collect::<Vec<_>>();
 
     if methods.is_empty() && !entry.method_names.is_empty() {
-        return None;
+        return Err(StaleClassEntry::Methods {
+            recorded: entry.method_names.len(),
+        });
     }
 
     // The owning module of each superclass is recorded in parallel with the
@@ -224,10 +255,13 @@ fn imported_class_def_from_entry(
     // the module that defined it emitted, so every method slot would be read at
     // the wrong index. Refuse the entry instead, as the method check above does.
     if entry.superclass_class_modules.len() != entry.superclasses.len() {
-        return None;
+        return Err(StaleClassEntry::SuperclassIdentities {
+            declared: entry.superclasses.len(),
+            recorded: entry.superclass_class_modules.len(),
+        });
     }
 
-    Some(crate::types::class_env::ClassDef {
+    Ok(crate::types::class_env::ClassDef {
         name: class_sym,
         module,
         is_public: true,
@@ -2401,24 +2435,38 @@ impl Compiler {
         }
 
         for class_entry in &interface.public_classes {
-            if let Some(class_def) =
-                imported_class_def_from_entry(class_entry, &symbol_remap, &mut self.interner)
-            {
-                let class_id = class_def.class_id();
-                for method in &class_def.methods {
-                    let qualified = self.interner.intern_join(module_name, method.name);
-                    if !self.symbol_table.exists_in_current_scope(qualified) {
-                        self.symbol_table.define(qualified, Span::default());
-                    }
-                    self.preloaded_imported_globals.insert(qualified);
-                    let scheme =
-                        build_public_class_method_scheme(&class_def, method, &self.interner);
-                    self.cached_member_schemes
-                        .insert((module_name, method.name), scheme);
-                    self.module_function_visibility
-                        .insert((module_name, method.name), true);
+            match imported_class_def_from_entry(class_entry, &symbol_remap, &mut self.interner) {
+                Err(stale) => {
+                    // Reported, not skipped: dropping the class silently
+                    // resurfaces as an unrelated error about the instances
+                    // that referenced it.
+                    self.errors.push(
+                        diagnostic_for(&crate::diagnostics::compiler_errors::STALE_CLASS_INTERFACE)
+                            .with_message(format!(
+                                "Cached interface for `{}` describes class `{}` incompletely: {}.",
+                                interface.module_name,
+                                class_entry.name,
+                                stale.detail()
+                            )),
+                    );
                 }
-                self.imported_public_classes.insert(class_id, class_def);
+                Ok(class_def) => {
+                    let class_id = class_def.class_id();
+                    for method in &class_def.methods {
+                        let qualified = self.interner.intern_join(module_name, method.name);
+                        if !self.symbol_table.exists_in_current_scope(qualified) {
+                            self.symbol_table.define(qualified, Span::default());
+                        }
+                        self.preloaded_imported_globals.insert(qualified);
+                        let scheme =
+                            build_public_class_method_scheme(&class_def, method, &self.interner);
+                        self.cached_member_schemes
+                            .insert((module_name, method.name), scheme);
+                        self.module_function_visibility
+                            .insert((module_name, method.name), true);
+                    }
+                    self.imported_public_classes.insert(class_id, class_def);
+                }
             }
         }
 
