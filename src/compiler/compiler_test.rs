@@ -1057,6 +1057,7 @@ module Local {
         dependency_fingerprints: Vec::new(),
         symbol_table: std::collections::HashMap::new(),
         public_classes: vec![PublicClassEntry {
+            associated_types: Vec::new(),
             class_module: "Example.Logger".to_string(),
             name: "Logger".to_string(),
             type_param_arity: 1,
@@ -1140,6 +1141,7 @@ import Example.StdLog as StdLog
         dependency_fingerprints: Vec::new(),
         symbol_table: std::collections::HashMap::new(),
         public_classes: vec![PublicClassEntry {
+            associated_types: Vec::new(),
             class_module: "Example.Logger".to_string(),
             name: "Logger".to_string(),
             type_param_arity: 1,
@@ -1192,6 +1194,7 @@ import Example.StdLog as StdLog
         symbol_table: std::collections::HashMap::new(),
         public_classes: Vec::new(),
         public_instances: vec![PublicInstanceEntry {
+            associated_types: Vec::new(),
             class_module: "Example.Logger".to_string(),
             class_name: "Logger".to_string(),
             instance_module: "Example.StdLog".to_string(),
@@ -1284,6 +1287,7 @@ module Local {
         dependency_fingerprints: Vec::new(),
         symbol_table: std::collections::HashMap::new(),
         public_classes: vec![PublicClassEntry {
+            associated_types: Vec::new(),
             class_module: "Example.Logger".to_string(),
             name: "Logger".to_string(),
             type_param_arity: 1,
@@ -1925,4 +1929,94 @@ fn builtin_primop_names_are_clean_and_cover_each_family() {
             "BUILTIN_PRIMOP_NAMES missing `{sentinel}` — out of sync with primop_sigs?"
         );
     }
+}
+
+/// Proposal 0179 Stage 6: an imported instance must carry one associated-type
+/// equation per declaration on its class.
+///
+/// The two lists cross the interface separately, and a short one does not fail
+/// on its own — the application simply stays stuck and resurfaces later as an
+/// unrelated error about the type it never became. The counts are compared on
+/// reload so the stale interface is named directly.
+#[test]
+fn an_imported_instance_missing_an_associated_type_equation_is_a_stale_interface() {
+    use crate::types::{
+        class_env::{ClassDef, InstanceDef},
+        class_id::{ClassId, ModulePath},
+    };
+    use std::collections::HashMap;
+
+    let mut interner = Interner::new();
+    let module = ModulePath::from_identifier(interner.intern("Collect"));
+    let class_name = interner.intern("Collection");
+    let element = interner.intern("Element");
+    let class_id = ClassId::new(module, class_name);
+    let span = crate::diagnostics::position::Span::default();
+
+    let class_def = ClassDef {
+        name: class_name,
+        module,
+        is_public: true,
+        is_builtin: false,
+        type_params: vec![interner.intern("c")],
+        superclasses: Vec::new(),
+        superclass_class_ids: Vec::new(),
+        methods: Vec::new(),
+        default_methods: Vec::new(),
+        associated_types: vec![crate::syntax::type_class::AssociatedTypeDecl {
+            name: element,
+            params: Vec::new(),
+            span,
+        }],
+        span,
+    };
+    let classes = HashMap::from([(class_id, class_def)]);
+
+    let instance = |associated_types| InstanceDef {
+        class_name,
+        class_id,
+        instance_module: module,
+        is_public: true,
+        type_args: Vec::new(),
+        context: Vec::new(),
+        context_class_ids: Vec::new(),
+        method_names: Vec::new(),
+        method_effects: Vec::new(),
+        associated_types,
+        span,
+    };
+
+    let complete = crate::compiler::validate_imported_associated_types(
+        &classes,
+        &[instance(vec![
+            crate::syntax::type_class::AssociatedTypeEquation {
+                name: element,
+                head: Vec::new(),
+                body: TypeExpr::Named {
+                    name: interner.intern("Int"),
+                    args: Vec::new(),
+                    span,
+                },
+                span,
+            },
+        ])],
+        &interner,
+    );
+    assert!(complete.is_empty(), "matching counts must not diagnose");
+
+    let truncated = crate::compiler::validate_imported_associated_types(
+        &classes,
+        &[instance(Vec::new())],
+        &interner,
+    );
+    assert_eq!(truncated.len(), 1);
+    assert_eq!(truncated[0].code(), Some("E478"));
+    assert!(
+        truncated[0]
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("declares 1 associated type(s) but 0")),
+        "unexpected message: {:?}",
+        truncated[0].message
+    );
 }

@@ -6,7 +6,10 @@ use crate::{
     aether::borrow_infer::BorrowSignature,
     runtime::function_contract::FunctionContract,
     syntax::{
-        Identifier, effect_expr::EffectExpr, symbol::Symbol, type_class::ClassConstraint,
+        Identifier,
+        effect_expr::EffectExpr,
+        symbol::Symbol,
+        type_class::{AssociatedTypeDecl, AssociatedTypeEquation, ClassConstraint},
         type_expr::TypeExpr,
     },
     types::kind::Kind,
@@ -76,6 +79,12 @@ pub struct PublicClassEntry {
     pub default_methods: Vec<Identifier>,
     #[serde(default)]
     pub method_names: Vec<String>,
+    /// Associated types the class declares (Proposal 0179 Stage 6).
+    ///
+    /// Every instance of the class must carry one equation per declaration;
+    /// see `PublicInstanceEntry::associated_types`.
+    #[serde(default)]
+    pub associated_types: Vec<AssociatedTypeDecl>,
     #[serde(default)]
     pub pinned_row_placeholder: Option<String>,
 }
@@ -109,6 +118,14 @@ pub struct PublicInstanceEntry {
     pub context_class_modules: Vec<String>,
     #[serde(default)]
     pub methods: Vec<PublicInstanceMethodEntry>,
+    /// This instance's definition of each associated type the class declares
+    /// (Proposal 0179 Stage 6), one per `PublicClassEntry::associated_types`.
+    ///
+    /// A consumer that reloaded fewer equations than the class declares would
+    /// leave applications stuck that the defining module reduced, so the two
+    /// counts are checked against each other on reload rather than trusted.
+    #[serde(default)]
+    pub associated_types: Vec<AssociatedTypeEquation>,
     #[serde(default)]
     pub pinned_row_placeholder: Option<String>,
 }

@@ -115,6 +115,7 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "associated_type_declaration.flx",
         "associated_type_reduction.flx",
         "stuck_associated_type.flx",
+        "associated_type_interface_roundtrip.flx",
         "SuperclassMetadata.flx",
         "superclass_across_modules.flx",
         "superclass_method_call.flx",
@@ -555,6 +556,36 @@ fn superclass_dispatch_is_the_same_cold_and_warm() {
     let cold = run();
     assert!(cold.status.success(), "{}", normalize_output(&cold.stderr));
     assert_eq!(normalize_output(&cold.stdout), "505");
+
+    let warm = run();
+    assert!(warm.status.success(), "{}", normalize_output(&warm.stderr));
+    assert_eq!(
+        normalize_output(&warm.stdout),
+        normalize_output(&cold.stdout),
+        "cached run disagrees with the cold one"
+    );
+}
+
+/// Proposal 0179 Stage 6: an imported class's associated types reduce the same
+/// way whether the defining module was just compiled or reloaded from its
+/// interface. The declaration and the equations travel separately, so the warm
+/// path has to rebuild both or the application silently stays stuck.
+#[test]
+fn associated_type_reduction_is_the_same_cold_and_warm() {
+    let scratch = parity::scratch::Scratch::new("typeclass-associated-type-cache");
+    let fixture = fixture_path("associated_type_interface_roundtrip.flx");
+    let run = || {
+        Command::new(env!("CARGO_BIN_EXE_flux"))
+            .current_dir(workspace_root())
+            .args([fixture.to_str().expect("fixture path is UTF-8")])
+            .args(scratch.cache_args())
+            .output()
+            .expect("run cross-module associated type fixture")
+    };
+
+    let cold = run();
+    assert!(cold.status.success(), "{}", normalize_output(&cold.stderr));
+    assert_eq!(normalize_output(&cold.stdout), "7\n\"s\"");
 
     let warm = run();
     assert!(warm.status.success(), "{}", normalize_output(&warm.stderr));
