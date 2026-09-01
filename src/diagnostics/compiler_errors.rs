@@ -931,6 +931,86 @@ pub const SUPERCLASS_CYCLE: ErrorCode = ErrorCode {
     ),
 };
 
+/// Proposal 0179 Stage 6: an instance defines the same associated type twice.
+///
+/// Each associated type reduces to exactly one body per instance; two
+/// equations for one name leave no rule for choosing between them.
+pub const DUPLICATE_ASSOCIATED_TYPE: ErrorCode = ErrorCode {
+    code: "E479",
+    title: "DUPLICATE ASSOCIATED TYPE",
+    error_type: ErrorType::Compiler,
+    message: "Associated type `{}` is defined more than once in this instance.",
+    hint: Some("Keep one equation per associated type and remove the rest."),
+};
+
+/// Proposal 0179 Stage 6: an instance omits an associated type its class
+/// declares.
+///
+/// Without the equation an application of that type at this instance's head has
+/// nothing to reduce to, so it would stay stuck at a type the compiler already
+/// knows completely.
+pub const MISSING_ASSOCIATED_TYPE: ErrorCode = ErrorCode {
+    code: "E480",
+    title: "MISSING ASSOCIATED TYPE",
+    error_type: ErrorType::Compiler,
+    message: "Instance does not define associated type `{}`.",
+    hint: Some("Add an equation, for example `type Name<Head> = Body`."),
+};
+
+/// Proposal 0179 Stage 6: an equation's body mentions a type variable that its
+/// head does not bind.
+///
+/// Reduction substitutes the head's variables into the body, so a variable the
+/// head never binds has no value to receive — the reduction would produce a
+/// type out of nothing.
+pub const UNBOUND_ASSOCIATED_TYPE_VARIABLE: ErrorCode = ErrorCode {
+    code: "E481",
+    title: "UNBOUND ASSOCIATED TYPE VARIABLE",
+    error_type: ErrorType::Compiler,
+    message: "`{}` is not bound by this equation's head.",
+    hint: Some(
+        "Every type variable in the body must appear in the head,          otherwise reduction has nothing to substitute for it.",
+    ),
+};
+
+/// Proposal 0179 Stage 6: an equation's head does not match the shape the class
+/// declared the associated type with.
+pub const ASSOCIATED_TYPE_KIND_MISMATCH: ErrorCode = ErrorCode {
+    code: "E482",
+    title: "ASSOCIATED TYPE KIND MISMATCH",
+    error_type: ErrorType::Compiler,
+    message: "Associated type `{}` is applied to the wrong number of arguments.",
+    hint: Some("Match the arity the class declaration gives the associated type."),
+};
+
+/// Proposal 0179 Stage 6: an instance defines an associated type its class does
+/// not declare.
+///
+/// The dual of [`INSTANCE_EXTRA_METHOD`]. Without it a misspelled equation is
+/// accepted and silently does nothing, while the type it was meant to define is
+/// reported missing somewhere else entirely.
+pub const UNKNOWN_ASSOCIATED_TYPE: ErrorCode = ErrorCode {
+    code: "E484",
+    title: "UNKNOWN ASSOCIATED TYPE",
+    error_type: ErrorType::Compiler,
+    message: "`{}` is not an associated type of class `{}`.",
+    hint: Some("Match a name the class declares, or remove the equation."),
+};
+
+/// Proposal 0179 Stage 6: an equation reduces to a type mentioning itself.
+///
+/// Reduction must terminate. A body that reaches its own associated type
+/// applied to the same head would expand forever.
+pub const RECURSIVE_ASSOCIATED_TYPE: ErrorCode = ErrorCode {
+    code: "E483",
+    title: "RECURSIVE ASSOCIATED TYPE",
+    error_type: ErrorType::Compiler,
+    message: "Associated type `{}` reduces to a type mentioning itself.",
+    hint: Some(
+        "Break the recursion; an associated type's body must not reach the          type it is defining.",
+    ),
+};
+
 /// Proposal 0179 Stage 5: a cached module interface describes a `public class`
 /// that cannot be rebuilt, so the class is unavailable to this module.
 ///

@@ -3365,10 +3365,28 @@ impl Compiler {
         // E477 (superclass cycle). Neither is caught by the built-in-shadowing
         // problem above: the built-in classes declare no superclasses, so both
         // can only fire on a hierarchy the user wrote.
+        //
+        // Stage 6 adds E479-E483 for associated types, which are new syntax:
+        // no built-in class declares one, so none of them can fire on a class
+        // the user did not write either.
         let (errors, warnings): (Vec<_>, Vec<_>) = diagnostics.into_iter().partition(|diag| {
             matches!(
                 diag.code(),
-                Some("E445" | "E453" | "E472" | "E473" | "E474" | "E475" | "E477")
+                Some(
+                    "E445"
+                        | "E453"
+                        | "E472"
+                        | "E473"
+                        | "E474"
+                        | "E475"
+                        | "E477"
+                        | "E479"
+                        | "E480"
+                        | "E481"
+                        | "E482"
+                        | "E483"
+                        | "E484"
+                )
             )
         });
         self.errors.extend(errors);
