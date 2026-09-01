@@ -334,6 +334,12 @@ fn collect_module_paths(
                 // with C runtime primops (e.g., flux_sum in libflux_rt.a).
                 // The main function is excluded — it must remain "main" for
                 // the C runtime entry point.
+                //
+                // Generated instance methods are deliberately included: a
+                // module compiles its own copy of every built-in instance it
+                // uses, so leaving those bare makes two objects define the same
+                // symbol. Where this collides with a module prefix instead, the
+                // duplicate is resolved when the name is claimed below.
                 format!("{qual}_{func_name}")
             } else {
                 func_name
@@ -357,6 +363,18 @@ fn collect_module_paths(
         }
         _ => {} // Import, Data, EffectDecl — skip
     }
+}
+
+/// Whether `name` is a compiler-generated global whose spelling is already
+/// unique on its own.
+///
+/// Instance methods and dictionaries carry the owning module in their mangled
+/// name, so prefixing them with the entry file's stem adds nothing — and
+/// actively collides with the module prefix when a single-segment module shares
+/// its file's stem. Both naming paths in this module must agree on this, or one
+/// emits a definition the other has already emitted.
+fn is_generated_symbol_name(name: &str) -> bool {
+    crate::types::class_env::is_generated_instance_method(name) || name.starts_with("__dict_")
 }
 
 /// Build a map from `CoreBinderId` → module-qualified name by cross-referencing
@@ -395,11 +413,34 @@ fn build_qualified_names(
     // Flow.Array.sort and Flow.List.sort cannot be crossed by encounter order.
     let mut result = HashMap::new();
     let mut claimed: HashSet<CoreBinderId> = HashSet::new();
+    // Two defs can compute the same qualified name: a module-owned function
+    // takes its module as prefix, while a file-scope function takes the entry
+    // file's stem, and for `module Alpha` in `Alpha.flx` those agree. That is
+    // the ordinary shape once a module owns a class, because each generated
+    // method is emitted inside the module *and* as a file-scope forwarding
+    // alias. LLVM rejects the redefinition outright, so the second claimant is
+    // renamed here exactly as the fallback naming below already does. Items are
+    // walked in source order and the module precedes its aliases, so the real
+    // definition keeps the name callers link against and the alias yields.
+    let mut used_names: HashSet<String> = HashSet::new();
+    let claim_name = |result: &mut HashMap<CoreBinderId, String>,
+                      used_names: &mut HashSet<String>,
+                      binder: CoreBinderId,
+                      qualified_name: &str| {
+        let mut candidate = qualified_name.to_string();
+        let mut suffix = 1usize;
+        while used_names.contains(&candidate) {
+            candidate = format!("{qualified_name}_{suffix}");
+            suffix += 1;
+        }
+        used_names.insert(candidate.clone());
+        result.insert(binder, candidate);
+    };
 
     for (bare_name, qualified_name, span) in &name_qualified_pairs {
         for def in &program.defs {
             if def.name == *bare_name && def.span == *span && !claimed.contains(&def.binder.id) {
-                result.insert(def.binder.id, qualified_name.clone());
+                claim_name(&mut result, &mut used_names, def.binder.id, qualified_name);
                 claimed.insert(def.binder.id);
                 break;
             }
@@ -410,7 +451,7 @@ fn build_qualified_names(
     for (bare_name, qualified_name, _span) in &name_qualified_pairs {
         for def in &program.defs {
             if def.name == *bare_name && !claimed.contains(&def.binder.id) {
-                result.insert(def.binder.id, qualified_name.clone());
+                claim_name(&mut result, &mut used_names, def.binder.id, qualified_name);
                 claimed.insert(def.binder.id);
                 break;
             }
@@ -421,7 +462,6 @@ fn build_qualified_names(
     // (entry-file functions, anonymous lambdas, letrec bindings, etc.)
     // Entry-file functions get qualified with `entry_qualifier` to avoid
     // symbol collisions with C runtime primops like `flux_sum`.
-    let mut used_names: HashSet<String> = result.values().cloned().collect();
     for def in &program.defs {
         if result.contains_key(&def.binder.id) {
             continue;
@@ -430,12 +470,7 @@ fn build_qualified_names(
             .map(|i| i.resolve(def.name).to_string())
             .unwrap_or_else(|| format!("def_{}", def.binder.id.0));
         let base = match entry_qualifier {
-            Some(_)
-                if crate::types::class_env::is_generated_instance_method(&bare)
-                    || bare.starts_with("__dict_") =>
-            {
-                bare
-            }
+            Some(_) if is_generated_symbol_name(&bare) => bare,
             Some(qual) if def.is_anonymous => format!("{qual}_expr_{}", def.binder.id.0),
             Some(qual) if !bare.starts_with("lambda_") && !bare.starts_with("letrec_") => {
                 format!("{qual}_{bare}")
