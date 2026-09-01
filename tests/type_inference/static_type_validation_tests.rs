@@ -1373,7 +1373,7 @@ module Local {
         &interner,
     );
     assert!(
-        generated_names.iter().any(|name| *name == expected),
+        generated_names.contains(&expected),
         "expected local imported-class instance dispatch to `{expected}`, got: {generated_names:?}"
     );
     assert!(
