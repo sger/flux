@@ -1,0 +1,17 @@
+---
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/duplicate_equation_e479.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E479]: Duplicate Associated Type
+
+Associated type `Element` is defined more than once in this instance.
+
+  examples/compiler_errors/duplicate_equation_e479.flx:18:5
+   |
+18 |     type Element<List<a>> = Int
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+== stdout ==
+<not executed>

@@ -1,0 +1,28 @@
+// Proposal 0179 Stage 6 contract: an associated type application whose
+// arguments select an instance reduces to that instance's equation body.
+//
+// `first_of` is declared `-> Element<c>`. In the `List<Int>` instance the
+// generated method's return type is `Element<List<Int>>`, which reduces
+// through `type Element<List<Int>> = Int` to `Int` — so the body returning an
+// integer type-checks.
+//
+// Reduction happens in `normalize_associated_types`, not in substitution or
+// unification: selecting an equation needs the class environment, and neither
+// of those has one.
+//
+// Expected output:
+// 7
+
+class Collection<c> {
+    type Element<c>
+    fn first_of(xs: c) -> Element<c>
+}
+
+instance Collection<List<Int>> {
+    type Element<List<Int>> = Int
+    fn first_of(xs) { 7 }
+}
+
+fn main() with IO {
+    print(first_of([1, 2]))
+}

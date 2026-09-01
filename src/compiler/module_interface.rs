@@ -404,6 +404,7 @@ fn collect_public_class_entries(
                     .map(|param| class_parameter_kind(def, *param))
                     .collect(),
                 type_params: def.type_params.clone(),
+                associated_types: def.associated_types.clone(),
                 superclasses: def.superclasses.clone(),
                 superclass_class_modules: def
                     .superclass_class_ids
@@ -551,6 +552,7 @@ fn collect_public_instance_entries(
                 head_type_repr: head_type_repr.join(", "),
                 head_kinds: instance_head_kinds(env, inst),
                 type_args: inst.type_args.clone(),
+                associated_types: inst.associated_types.clone(),
                 context: inst.context.clone(),
                 context_class_modules: inst
                     .context_class_ids
@@ -595,6 +597,12 @@ fn collect_symbols_from_public_classes(entries: &[PublicClassEntry], out: &mut H
         for &default_method in &entry.default_methods {
             out.insert(default_method);
         }
+        for declaration in &entry.associated_types {
+            out.insert(declaration.name);
+            for param in &declaration.params {
+                collect_symbols_from_type_expr(param, out);
+            }
+        }
         for method in &entry.methods {
             out.insert(method.name);
             for &type_param in &method.type_params {
@@ -621,6 +629,13 @@ fn collect_symbols_from_public_instances(
         }
         for constraint in &entry.context {
             collect_symbols_from_class_constraint(constraint, out);
+        }
+        for equation in &entry.associated_types {
+            out.insert(equation.name);
+            for arg in &equation.head {
+                collect_symbols_from_type_expr(arg, out);
+            }
+            collect_symbols_from_type_expr(&equation.body, out);
         }
         for method in &entry.methods {
             out.insert(method.name);
@@ -1287,6 +1302,7 @@ mod tests {
 
         let mut interface = ModuleInterface::new("Mod.A", "src", "cfg");
         interface.public_classes.push(PublicClassEntry {
+            associated_types: Vec::new(),
             class_module: "Mod.A".to_string(),
             name: "MyShow".to_string(),
             type_param_arity: 1,
@@ -1300,6 +1316,7 @@ mod tests {
             pinned_row_placeholder: None,
         });
         interface.public_instances.push(PublicInstanceEntry {
+            associated_types: Vec::new(),
             class_module: "Mod.A".to_string(),
             class_name: "MyShow".to_string(),
             instance_module: "Mod.A".to_string(),
@@ -1351,6 +1368,7 @@ mod tests {
         let base = ModuleInterface::new("Mod.A", "src", "cfg");
         let mut with_class = base.clone();
         with_class.public_classes.push(PublicClassEntry {
+            associated_types: Vec::new(),
             class_module: "Mod.A".to_string(),
             name: "MyShow".to_string(),
             type_param_arity: 1,
@@ -1379,6 +1397,7 @@ mod tests {
         let base = ModuleInterface::new("Mod.A", "src", "cfg");
         let mut with_inst = base.clone();
         with_inst.public_instances.push(PublicInstanceEntry {
+            associated_types: Vec::new(),
             class_module: "Mod.A".to_string(),
             class_name: "MyShow".to_string(),
             instance_module: "Mod.A".to_string(),
@@ -1450,6 +1469,7 @@ mod tests {
                 type_params: vec![interner.intern("a")],
                 superclasses: vec![],
                 superclass_class_ids: vec![],
+                associated_types: vec![],
                 methods: vec![],
                 default_methods: vec![],
                 span: Default::default(),

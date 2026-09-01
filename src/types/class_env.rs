@@ -10,8 +10,13 @@ use std::collections::HashMap;
 use crate::{
     diagnostics::{Diagnostic, DiagnosticBuilder, diagnostic_for, position::Span},
     syntax::{
-        Identifier, block::Block, effect_expr::EffectExpr, interner::Interner,
-        statement::Statement, type_class::ClassConstraint, type_expr::TypeExpr,
+        Identifier,
+        block::Block,
+        effect_expr::EffectExpr,
+        interner::Interner,
+        statement::Statement,
+        type_class::{AssociatedTypeDecl, AssociatedTypeEquation, ClassConstraint},
+        type_expr::TypeExpr,
     },
     types::{
         class_id::{ClassId, ModulePath},
@@ -20,6 +25,10 @@ use crate::{
     },
 };
 
+use super::super::diagnostics::compiler_errors::{
+    ASSOCIATED_TYPE_KIND_MISMATCH, DUPLICATE_ASSOCIATED_TYPE, MISSING_ASSOCIATED_TYPE,
+    RECURSIVE_ASSOCIATED_TYPE, UNBOUND_ASSOCIATED_TYPE_VARIABLE, UNKNOWN_ASSOCIATED_TYPE,
+};
 use super::super::diagnostics::compiler_errors::{
     DUPLICATE_CLASS, DUPLICATE_INSTANCE, INSTANCE_EXTRA_METHOD, INSTANCE_METHOD_ARITY,
     INSTANCE_MISSING_METHOD, INSTANCE_TYPE_ARG_ARITY, INSTANCE_UNKNOWN_CLASS,
@@ -75,6 +84,9 @@ pub struct ClassDef {
     pub methods: Vec<MethodSig>,
     /// Methods that have default implementations in the class body.
     pub default_methods: Vec<Identifier>,
+    /// Types this class declares and every instance must define
+    /// (Proposal 0179 Stage 6).
+    pub associated_types: Vec<AssociatedTypeDecl>,
     pub span: Span,
 }
 
@@ -173,6 +185,9 @@ pub struct InstanceDef {
     /// interfaces and downstream callers need the resolved instance row
     /// without re-parsing the defining source module.
     pub method_effects: Vec<(Identifier, Vec<EffectExpr>)>,
+    /// This instance's definitions for the class's associated types
+    /// (Proposal 0179 Stage 6).
+    pub associated_types: Vec<AssociatedTypeEquation>,
     pub span: Span,
 }
 
@@ -302,6 +317,7 @@ impl ClassEnv {
         // after every class and instance is collected, so the result does not
         // depend on the order the source happens to declare them in.
         diagnostics.extend(self.validate_superclass_obligations(interner));
+        diagnostics.extend(self.validate_associated_types(interner));
 
         diagnostics
     }
@@ -400,6 +416,264 @@ impl ClassEnv {
         }
 
         None
+    }
+
+    /// Proposal 0179 Stage 6: check every instance's associated type equations.
+    ///
+    /// Runs once the whole environment is populated, for the same reason
+    /// [`validate_superclass_obligations`] does: an instance's equations can
+    /// only be checked against the class that declares them, and that class may
+    /// be declared after the instance.
+    ///
+    /// [`validate_superclass_obligations`]: Self::validate_superclass_obligations
+    pub fn validate_associated_types(&self, interner: &Interner) -> Vec<Diagnostic> {
+        let mut diagnostics = Vec::new();
+
+        for instance in &self.instances {
+            let Some(class_def) = self.lookup_class_by_id(instance.class_id) else {
+                continue;
+            };
+
+            // E479 — one equation per associated type. Reported before the
+            // rest so a duplicated name is not also reported as a mismatch.
+            let mut seen: Vec<Identifier> = Vec::new();
+            for equation in &instance.associated_types {
+                if seen.contains(&equation.name) {
+                    let display = interner.resolve(equation.name);
+                    diagnostics.push(
+                        diagnostic_for(&DUPLICATE_ASSOCIATED_TYPE)
+                            .with_span(equation.span)
+                            .with_message(format!(
+                                "Associated type `{display}` is defined more than once \
+                                 in this instance."
+                            )),
+                    );
+                    continue;
+                }
+                seen.push(equation.name);
+
+                // E484 — an equation for a name the class never declared
+                // defines nothing. Reported here so a misspelling points at the
+                // equation, not only at the instance via the E480 below.
+                if !class_def
+                    .associated_types
+                    .iter()
+                    .any(|declaration| declaration.name == equation.name)
+                {
+                    let display = interner.resolve(equation.name);
+                    let class_display = interner.resolve(class_def.name);
+                    let declared: Vec<&str> = class_def
+                        .associated_types
+                        .iter()
+                        .map(|declaration| interner.resolve(declaration.name))
+                        .collect();
+                    let mut diagnostic = diagnostic_for(&UNKNOWN_ASSOCIATED_TYPE)
+                        .with_span(equation.span)
+                        .with_message(format!(
+                            "`{display}` is not an associated type of class `{class_display}`."
+                        ));
+                    if !declared.is_empty() {
+                        diagnostic = diagnostic.with_hint_text(format!(
+                            "`{class_display}` declares: {}",
+                            declared.join(", ")
+                        ));
+                    }
+                    diagnostics.push(diagnostic);
+                }
+            }
+
+            for declaration in &class_def.associated_types {
+                let display = interner.resolve(declaration.name);
+                let Some(equation) = instance
+                    .associated_types
+                    .iter()
+                    .find(|equation| equation.name == declaration.name)
+                else {
+                    // E480 — the class declares it, this instance does not
+                    // define it, so an application at this head cannot reduce.
+                    let class_display = interner.resolve(class_def.name);
+                    let head = instance
+                        .type_args
+                        .iter()
+                        .map(|arg| arg.display_with(interner))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    diagnostics.push(
+                        diagnostic_for(&MISSING_ASSOCIATED_TYPE)
+                            .with_span(instance.span)
+                            .with_message(format!(
+                                "Instance does not define associated type `{display}`, \
+                                 which `{class_display}` declares."
+                            ))
+                            .with_hint_text(format!("Add: `type {display}<{head}> = ...`")),
+                    );
+                    continue;
+                };
+
+                // E482 — the head must be applied at the declared arity.
+                if equation.head.len() != declaration.params.len() {
+                    diagnostics.push(
+                        diagnostic_for(&ASSOCIATED_TYPE_KIND_MISMATCH)
+                            .with_span(equation.span)
+                            .with_message(format!(
+                                "Associated type `{display}` takes {} argument(s), \
+                                 but this equation gives {}.",
+                                declaration.params.len(),
+                                equation.head.len()
+                            )),
+                    );
+                    continue;
+                }
+
+                // E481 — reduction substitutes the head's variables into the
+                // body, so a body variable the head never binds has nothing to
+                // receive.
+                let mut bound = Vec::new();
+                for arg in &equation.head {
+                    Self::collect_type_vars(arg, interner, &mut bound);
+                }
+                let mut used = Vec::new();
+                Self::collect_type_vars(&equation.body, interner, &mut used);
+                for variable in used {
+                    if bound.contains(&variable) {
+                        continue;
+                    }
+                    let var_display = interner.resolve(variable);
+                    diagnostics.push(
+                        diagnostic_for(&UNBOUND_ASSOCIATED_TYPE_VARIABLE)
+                            .with_span(equation.span)
+                            .with_message(format!(
+                                "`{var_display}` appears in the body of `{display}` \
+                                 but is not bound by its head."
+                            )),
+                    );
+                }
+
+                // E483 — reduction has to terminate, so a body must not reach
+                // the very type it defines.
+                let mut mentioned = Vec::new();
+                Self::collect_type_names(&equation.body, &mut mentioned);
+                if mentioned.contains(&declaration.name) {
+                    diagnostics.push(
+                        diagnostic_for(&RECURSIVE_ASSOCIATED_TYPE)
+                            .with_span(equation.span)
+                            .with_message(format!(
+                                "Associated type `{display}` reduces to a type \
+                                 mentioning `{display}`."
+                            )),
+                    );
+                }
+            }
+        }
+
+        diagnostics
+    }
+
+    /// Collect the type *variables* of `ty` — lowercase-initial names — in
+    /// order of appearance, without duplicates.
+    fn collect_type_vars(ty: &TypeExpr, interner: &Interner, out: &mut Vec<Identifier>) {
+        match ty {
+            TypeExpr::Named { name, args, .. } => {
+                if args.is_empty()
+                    && Self::is_instance_type_var(*name, interner)
+                    && !out.contains(name)
+                {
+                    out.push(*name);
+                }
+                for arg in args {
+                    Self::collect_type_vars(arg, interner, out);
+                }
+            }
+            TypeExpr::Tuple { elements, .. } => {
+                for element in elements {
+                    Self::collect_type_vars(element, interner, out);
+                }
+            }
+            TypeExpr::Function { params, ret, .. } => {
+                for param in params {
+                    Self::collect_type_vars(param, interner, out);
+                }
+                Self::collect_type_vars(ret, interner, out);
+            }
+        }
+    }
+
+    /// Collect every name `ty` mentions, variables and constructors alike.
+    fn collect_type_names(ty: &TypeExpr, out: &mut Vec<Identifier>) {
+        match ty {
+            TypeExpr::Named { name, args, .. } => {
+                out.push(*name);
+                for arg in args {
+                    Self::collect_type_names(arg, out);
+                }
+            }
+            TypeExpr::Tuple { elements, .. } => {
+                for element in elements {
+                    Self::collect_type_names(element, out);
+                }
+            }
+            TypeExpr::Function { params, ret, .. } => {
+                for param in params {
+                    Self::collect_type_names(param, out);
+                }
+                Self::collect_type_names(ret, out);
+            }
+        }
+    }
+
+    /// The class that declares an associated type named `name`, if exactly one
+    /// does.
+    ///
+    /// `None` when no class declares it, and also when several do: an
+    /// ambiguous name is left as an ordinary type constructor rather than
+    /// resolved to an arbitrary class.
+    pub fn associated_type_class(&self, name: Identifier) -> Option<ClassId> {
+        let mut found: Option<ClassId> = None;
+        for class_def in self.classes.values() {
+            if !class_def
+                .associated_types
+                .iter()
+                .any(|declaration| declaration.name == name)
+            {
+                continue;
+            }
+            if found.is_some() {
+                return None;
+            }
+            found = Some(class_def.class_id());
+        }
+        found
+    }
+
+    /// The equation defining `name` for the instance of `class_id` whose head
+    /// matches `args`, together with the bindings that matching produced.
+    ///
+    /// This is the selection step of reduction: it answers "which instance
+    /// does this application land on, and what does its head bind".
+    pub(crate) fn associated_type_equation(
+        &self,
+        class_id: ClassId,
+        name: Identifier,
+        args: &[InferType],
+        interner: &Interner,
+    ) -> Option<(&AssociatedTypeEquation, HashMap<Identifier, InferType>)> {
+        self.instances.iter().find_map(|instance| {
+            if instance.class_id != class_id {
+                return None;
+            }
+            let equation = instance
+                .associated_types
+                .iter()
+                .find(|equation| equation.name == name)?;
+            if equation.head.len() != args.len() {
+                return None;
+            }
+            let mut subst = HashMap::new();
+            let matched = equation.head.iter().zip(args).all(|(pattern, actual)| {
+                Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
+            });
+            matched.then_some((equation, subst))
+        })
     }
 
     /// Transitive superclasses of `id`, nearest first and deduplicated.
@@ -923,6 +1197,8 @@ impl ClassEnv {
 
         env.instances.push(InstanceDef {
             class_name: sendable_id,
+            // Synthesized, so it declares no associated types.
+            associated_types: Vec::new(),
             class_id: ClassId::from_local_name(sendable_id),
             instance_module,
             // Synthesized instances follow the same visibility rule as the
@@ -1081,6 +1357,7 @@ impl ClassEnv {
                     type_params,
                     superclasses,
                     methods,
+                    associated_types,
                     span,
                     ..
                 } => {
@@ -1125,6 +1402,7 @@ impl ClassEnv {
                         class_id,
                         ClassDef {
                             name: *name,
+                            associated_types: associated_types.clone(),
                             module: current_module,
                             is_public: *is_public,
                             is_builtin: false,
@@ -1184,6 +1462,7 @@ impl ClassEnv {
                     type_args,
                     context,
                     methods,
+                    associated_types,
                     span,
                     name_span: _,
                 } => {
@@ -1396,6 +1675,7 @@ impl ClassEnv {
 
                     env.instances.push(InstanceDef {
                         class_name: *class_name,
+                        associated_types: associated_types.clone(),
                         // Phase 1b Step 4: canonical ClassId of the class
                         // being implemented. We resolved the class above
                         // (cloned into `class_def`) and use its `class_id()`
@@ -1553,6 +1833,7 @@ impl ClassEnv {
                                 .collect(),
                             method_names: vec![],
                             method_effects: vec![],
+                            associated_types: vec![],
                             span: Span::default(),
                         });
                     }
@@ -2500,6 +2781,7 @@ impl ClassEnv {
                 type_params,
                 superclasses: vec![],
                 superclass_class_ids: vec![],
+                associated_types: vec![],
                 methods,
                 default_methods: vec![],
                 span: Span::default(),
@@ -2538,12 +2820,13 @@ impl ClassEnv {
             context_class_ids: vec![],
             method_names: vec![],
             method_effects: vec![],
+            associated_types: vec![],
             span: Span::default(),
         });
     }
 }
 
-fn instantiate_instance_type_expr(
+pub(crate) fn instantiate_instance_type_expr(
     ty: &TypeExpr,
     subst: &HashMap<Identifier, InferType>,
     interner: &Interner,
@@ -2599,7 +2882,7 @@ fn instantiate_instance_type_expr(
 }
 
 impl ClassEnv {
-    fn match_instance_type_expr(
+    pub(crate) fn match_instance_type_expr(
         pattern: &TypeExpr,
         actual: &InferType,
         subst: &mut HashMap<Identifier, InferType>,
@@ -4250,6 +4533,7 @@ module Mod.Class {
             context_class_ids: vec![],
             method_names: vec![],
             method_effects: vec![],
+            associated_types: vec![],
             span: s(),
         });
         (env, class_sym)

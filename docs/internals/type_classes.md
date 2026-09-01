@@ -70,9 +70,9 @@ into the consuming compiler's `ClassEnv` before inference and lowering.
 | Ownership/backend lowering | Aether, CFG/LIR, bytecode, LLVM | VM and native execution | Ordinary calls, tuples, globals, and indirect calls | Both backends consume the lowered representation. The typeclass parity smoke test is deterministic; unrelated TCP timeout behavior remains explicitly skipped. |
 | Superclasses | Parser, class collection, `ClassEnv::validate_superclass_obligations` | Class environment, dictionary layout, dispatch | `ClassDef.superclasses`, `ClassDef.superclass_class_ids`, `DictSlot::Superclass` | Stage 5: obligations are checked against the whole program transitively (E445), cycles are rejected (E477), and dictionaries carry evidence in leading slots so inherited methods dispatch on both backends. |
 | Kinds | `types::kind`, `types::kind_check`, constructors, inference types | Compiler diagnostics and interface consumers | `Kind::Type` and `Kind::Arrow` | Stage 1 validates known constructors, contextual applications, instance heads, constraints, and class-parameter conflicts. Unknown imported constructors remain open at the interface boundary. |
-| Associated types | None in current AST/inference/Core | Future class system | No representation | Not implemented. Stage 6 owns declarations, equations, reduction, stuck applications, and interface metadata. |
+| Associated types | Parser, class collection, `types::assoc_type` | Inference and interfaces | `AssociatedTypeDecl`, `AssociatedTypeEquation`, `InferType::Assoc` | Stage 6: declarations and equations are collected and validated (E479–E484), applications reduce through `normalize_associated_types` or stay stuck, and both cross the module interface. |
 | Deriving | ADT/class collection and dispatch generation | Runtime method calls | Structural built-in deriving for current supported classes | Existing deriving cases compile and run. Unsupported deriving behavior is recorded; broader safe deriving and generated method guarantees belong to Stage 7. |
-| Interfaces | `compiler::module_interface` | Importing compiler and cache validation | Public class/instance entries, structured predicates, kind metadata, and fingerprints | `parameter_kinds` and `head_kinds` are serialized with defaults for old interfaces and included in fingerprints. Associated-type metadata remains future work. |
+| Interfaces | `compiler::module_interface` | Importing compiler and cache validation | Public class/instance entries, structured predicates, kind metadata, associated types, and fingerprints | `parameter_kinds`, `head_kinds`, and associated-type metadata are serialized with defaults for old interfaces and included in fingerprints. |
 
 ## Dictionary calling convention
 
@@ -153,6 +153,59 @@ The runtime contract is that the callee's implicit dictionary
 parameters and the caller's inserted dictionary arguments have exactly the
 same count and order. A valid program must not rely on VM-side arity recovery.
 
+## Associated types
+
+A class may declare a type alongside its methods, and each instance says what
+that type is:
+
+```flux
+class Collection<c> {
+    type Element<c>
+    fn first_of(xs: c) -> Element<c>
+}
+
+instance Collection<List<Int>> {
+    type Element<List<Int>> = Int
+    fn first_of(xs) { 7 }
+}
+```
+
+A use of `Element<c>` in a signature is an application of that declaration, not
+a reference to an ordinary type constructor. It is carried by
+`InferType::Assoc(ClassId, name, args)` and eliminated by
+`types::assoc_type::normalize_associated_types`, which matches the arguments
+against each instance's equation head and substitutes the body.
+
+Reduction lives there rather than in `apply_type_subst` or `unify_core`:
+selecting an equation needs the class environment and neither of those has one.
+Inference calls it at the boundaries where it does hold one — chiefly
+`infer_type_from_annotation` — so unification only ever sees an application
+that is genuinely stuck.
+
+An application over a rigid variable cannot reduce, and that is not an error:
+it is a type waiting for the call site that fixes the variable. Two stuck
+applications unify when they name the same declaration and their arguments
+unify. That rule is deliberately syntactic — an associated type is not
+injective, so `Element<a>` equal to `Element<b>` must never be taken to mean
+`a` equal to `b`.
+
+Every backend boundary rejects `Assoc`: `CoreType::try_from_infer` returns
+`None` and `try_to_runtime` errors. A stuck type must have been reduced or
+reported before lowering, and accepting one there would be a miscompile rather
+than a missing type.
+
+Reduction terminates because `normalize` carries fuel and because `E483`
+rejects an equation whose body reaches itself before anything relies on it —
+the same ordering E477's cycle check uses for the superclass closure.
+
+Declarations and equations cross the module interface on `PublicClassEntry` and
+`PublicInstanceEntry`, so an importing module reduces an application exactly as
+the defining module did. They travel separately, and a short list does not fail
+loudly on its own: the application simply stays stuck and resurfaces as an
+unrelated error about the type it never became. The two counts are therefore
+compared when an imported instance is merged, and a mismatch is reported as a
+stale interface (E478).
+
 ## Current architecture problems
 
 The current implementation has more than one route to a class method:
@@ -176,7 +229,6 @@ The most important current limitations are:
 - direct dispatch is not yet selected from a complete predicate and expected
   result type;
 - kind values are not enforced by a complete type-application checker;
-- associated types have no frontend, solver, or interface representation;
 - deriving coverage is limited to the classes and shapes currently supported.
 
 The staged roadmap assigns those limitations to later stages. Stage 1 does not
@@ -235,7 +287,7 @@ associated types, and deriving expansion remain later roadmap work.
 - Stage 3: complete solved/generalized/stuck/diagnosed constraint states.
 - Stage 4: complete `ClassId`-aware and result-directed resolution.
 - Stage 5 (done): superclass closure, evidence slots, and transitive entailment.
-- Stage 6: associated type declarations, equations, reduction, and interfaces.
+- Stage 6 (done): associated type declarations, equations, reduction, and interfaces.
 - Stage 7: safe deriving and usable structural dictionaries.
 - Stage 8: standard library hierarchy and instances.
 

@@ -2628,6 +2628,9 @@ pub(crate) fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelIt
             type_args,
             context,
             methods,
+            // Associated types are type-level only: inference has already
+            // reduced every application by this point, so the IR carries none.
+            associated_types: _,
             span,
             name_span: _,
         } => Ok(IrTopLevelItem::Instance {
@@ -2790,6 +2793,9 @@ pub(crate) fn ir_top_level_item_to_statement(
             type_params: type_params.clone(),
             superclasses: superclasses.clone(),
             methods: methods.clone(),
+            // As above: the IR carries no associated types, because they do
+            // not survive inference.
+            associated_types: Vec::new(),
             span: *span,
             // The IR carries no separate name span; the whole span is a safe
             // stand-in on this `#[allow(dead_code)]` round-trip path.
@@ -2807,6 +2813,7 @@ pub(crate) fn ir_top_level_item_to_statement(
             type_args: type_args.clone(),
             context: context.clone(),
             methods: methods.clone(),
+            associated_types: Vec::new(),
             span: *span,
             // The IR carries no separate name span; the whole span is a safe
             // stand-in on this `#[allow(dead_code)]` round-trip path.
