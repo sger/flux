@@ -366,10 +366,7 @@ impl<'a> InferCtx<'a> {
                 self.interner.resolve(*member) == "spawn"
                     && matches!(object.as_ref(), Expression::Identifier { name, .. }
                     if self.task_module_bindings.contains(name)
-                        && self.module_member_schemes.contains_key(&(
-                            self.module_aliases.get(name).copied().unwrap_or(*name),
-                            *member,
-                        )))
+                        && self.knows_module_member(*name, *member))
                     && has_spawn_shape()
             }
             _ => false,
