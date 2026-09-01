@@ -27,9 +27,12 @@ pub struct DependencyFingerprint {
 ///
 /// `class_module` is the dotted path of the module that declared the
 /// class (i.e. the `ModulePath` half of the canonical `ClassId`). The
-/// pair `(class_module, name)` is globally unique. `superclasses` lists
-/// the short names of declared superclass constraints; full ClassId
-/// resolution for superclasses lands in a later phase.
+/// pair `(class_module, name)` is globally unique. `superclasses` lists the
+/// declared superclass constraints, with `superclass_class_modules` giving the
+/// owning module of each so the canonical `ClassId`s can be rebuilt on reload.
+/// The two must stay the same length: the superclass count determines how many
+/// evidence slots a dictionary leads with, so a consumer that reconstructed a
+/// short list would read every method slot at the wrong index.
 ///
 /// `pinned_row_placeholder` is reserved for Phase 4 (effects on instance
 /// methods) and is currently always `None`. The field exists in the

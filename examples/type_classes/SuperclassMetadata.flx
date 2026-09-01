@@ -1,0 +1,28 @@
+// Proposal 0179 Stage 5 contract: a public class hierarchy belongs in the
+// module interface, including the owning module of each superclass.
+//
+// A dictionary leads with one evidence slot per declared superclass, so a
+// consumer that reloaded this interface without the superclass identities
+// would lay `Measurable`'s dictionary out with one slot where the defining
+// module emitted two — and read `weight` out of the `Sizeable` evidence.
+//
+// Expected interface: two public classes, `Measurable` carrying one
+// superclass whose owning module is `SuperclassMetadata`.
+
+module SuperclassMetadata {
+    public class Sizeable<a> {
+        fn size(x: a) -> Int
+    }
+
+    public class Sizeable<a> => Measurable<a> {
+        fn weight(x: a) -> Int
+    }
+
+    public instance Sizeable<Int> {
+        fn size(x) { x }
+    }
+
+    public instance Sizeable<Int> => Measurable<Int> {
+        fn weight(x) { x * 100 }
+    }
+}
