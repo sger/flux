@@ -68,7 +68,7 @@ into the consuming compiler's `ClassEnv` before inference and lowering.
 | Direct dispatch | AST-to-Core lowerer and `class_dispatch` | Core/backend lowering | Mangled `__tc_*` functions | Supported for monomorphic calls. It still has compatibility paths that identify methods by short name and use call-shape heuristics. Stage 4 owns complete-predicate resolution. |
 | Dictionary elaboration | `core::passes::dict_elaborate` | Core, Aether, VM, LLVM | `__dict_*` tuples, implicit dictionary parameters, `TupleField` calls | Supported for current constrained functions and HKT forwarding. Exact calling-convention tests are covered; removal of fallback/workaround paths belongs to Stage 2. |
 | Ownership/backend lowering | Aether, CFG/LIR, bytecode, LLVM | VM and native execution | Ordinary calls, tuples, globals, and indirect calls | Both backends consume the lowered representation. The typeclass parity smoke test is deterministic; unrelated TCP timeout behavior remains explicitly skipped. |
-| Superclasses | Parser, class collection, instance validation | Class environment and dispatch | `ClassDef.superclasses`, `InstanceDef.context` | Parsing and direct instance-presence checks are supported. Transitive declaration-order-independent evidence and dictionary superclass slots belong to Stage 5. |
+| Superclasses | Parser, class collection, `ClassEnv::validate_superclass_obligations` | Class environment, dictionary layout, dispatch | `ClassDef.superclasses`, `ClassDef.superclass_class_ids`, `DictSlot::Superclass` | Stage 5: obligations are checked against the whole program transitively (E445), cycles are rejected (E477), and dictionaries carry evidence in leading slots so inherited methods dispatch on both backends. |
 | Kinds | `types::kind`, `types::kind_check`, constructors, inference types | Compiler diagnostics and interface consumers | `Kind::Type` and `Kind::Arrow` | Stage 1 validates known constructors, contextual applications, instance heads, constraints, and class-parameter conflicts. Unknown imported constructors remain open at the interface boundary. |
 | Associated types | None in current AST/inference/Core | Future class system | No representation | Not implemented. Stage 6 owns declarations, equations, reduction, stuck applications, and interface metadata. |
 | Deriving | ADT/class collection and dispatch generation | Runtime method calls | Structural built-in deriving for current supported classes | Existing deriving cases compile and run. Unsupported deriving behavior is recorded; broader safe deriving and generated method guarantees belong to Stage 7. |
@@ -104,9 +104,50 @@ same(1, 1)
 ```
 
 Inside `same`, the `eq` operation is represented as a dictionary tuple-field
-lookup followed by an indirect call. The dictionary tuple method order is the
-class declaration order. Contextual instances are represented as dictionary
-constructors with recursively supplied context dictionaries.
+lookup followed by an indirect call. Contextual instances are represented as
+dictionary constructors with recursively supplied context dictionaries.
+
+### Dictionary layout
+
+A dictionary tuple leads with one slot per **directly declared superclass**,
+holding that superclass's dictionary, and the class's own method slots follow.
+Both groups are in declaration order:
+
+```text
+class Sizeable<a> => Measurable<a> { fn weight(x: a) -> Int }
+
+__dict_Measurable_Int = ( __dict_Sizeable_Int,          // slot 0 — evidence
+                          __tc_Measurable_Int_weight )  // slot 1 — method
+```
+
+Evidence leads so that a slot's offset does not depend on how many methods the
+class declares. Only *direct* superclasses get a slot, which keeps a class's
+layout independent of the hierarchy above it; a transitive superclass is
+reached by projecting again (`__dict_Top.0.0`). That is what lets a function
+constrained on a subclass call an inherited method:
+
+```text
+fn describe<a: Measurable>(x: a) -> Int { size(x) + weight(x) }
+
+  weight(x) -> __dict_Measurable.1        // own method
+  size(x)   -> __dict_Measurable.0.0      // through Sizeable evidence
+```
+
+`ClassEnv::dictionary_layout` is the single definition of this layout. Four
+places build a dictionary and two read a slot out of one, and all six derive
+their offsets from it rather than restating the convention — a half-migrated
+layout reads every slot after the divergence at the wrong index, which is a
+silent miscompile rather than a missing method.
+
+Superclass evidence for a contextual instance comes from that instance's own
+context before its global. `instance Middle<Int> => Top<Int>` is handed the
+`Middle<Int>` dictionary its superclass slot needs; reaching for the global
+would apply a dictionary *constructor* to an already-built dictionary.
+
+The count of superclasses therefore decides the layout, so it crosses module
+interfaces alongside the constraints themselves (`superclass_class_modules`,
+parallel to `superclasses`). A consumer that cannot rebuild every superclass
+identity refuses the class rather than laying it out one slot short.
 
 The runtime contract is that the callee's implicit dictionary
 parameters and the caller's inserted dictionary arguments have exactly the
@@ -134,8 +175,6 @@ The most important current limitations are:
 - short-name lookup remains only at source-resolution and diagnostic boundaries;
 - direct dispatch is not yet selected from a complete predicate and expected
   result type;
-- superclass metadata is not yet represented as transitive dictionary
-  evidence;
 - kind values are not enforced by a complete type-application checker;
 - associated types have no frontend, solver, or interface representation;
 - deriving coverage is limited to the classes and shapes currently supported.
@@ -195,7 +234,7 @@ associated types, and deriving expansion remain later roadmap work.
 - Stage 2: one dictionary resolver and strict call-shape validation.
 - Stage 3: complete solved/generalized/stuck/diagnosed constraint states.
 - Stage 4: complete `ClassId`-aware and result-directed resolution.
-- Stage 5: superclass closure, evidence slots, and transitive entailment.
+- Stage 5 (done): superclass closure, evidence slots, and transitive entailment.
 - Stage 6: associated type declarations, equations, reduction, and interfaces.
 - Stage 7: safe deriving and usable structural dictionaries.
 - Stage 8: standard library hierarchy and instances.
