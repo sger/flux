@@ -107,6 +107,11 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "generalized_constraint_obligation.flx",
         "result_directed_method_lookup.flx",
         "unsupported_deriving_diagnostic.flx",
+        "derived_eq.flx",
+        "derived_show.flx",
+        "derived_encode.flx",
+        "derived_decode.flx",
+        "structural_container_dictionary.flx",
         "TypeclassMetadata.flx",
         "typeclass_backend_parity.flx",
         "multiple_class_obligations.flx",
@@ -147,11 +152,12 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
                 let source = source.to_ascii_lowercase();
                 [
                     "baseline", "stage 1", "stage 2", "stage 3", "stage 4", "stage 5", "stage 6",
+                    "stage 7",
                 ]
                 .iter()
                 .any(|contract| source.contains(contract))
             },
-            "{fixture} needs a baseline or a stage 1-6 contract"
+            "{fixture} needs a baseline or a stage 1-7 contract"
         );
         assert!(
             source.contains("Expected"),
@@ -300,30 +306,54 @@ fn a_class_parameter_in_the_return_type_is_fixed_by_the_expected_result() {
     assert_eq!(output.stdout, "7\ntrue\n7");
 }
 
+/// Proposal 0179 Stage 7: a derived instance is reachable both by name and
+/// through a dictionary. Pinning both routes is the point — methods that exist
+/// but no dictionary to project them out of is the shape this stage removes.
 #[test]
-fn unsupported_features_preserve_the_current_baseline() {
-    let fixture = "unsupported_deriving_diagnostic.flx";
-    run_fixture(fixture).unwrap_or_else(|error| panic!("{fixture} changed the baseline: {error}"));
+fn derived_instances_are_callable_and_carry_evidence() {
+    for (fixture, expected) in [
+        ("derived_eq.flx", "true\nfalse\ntrue\nfalse\ntrue"),
+        ("derived_show.flx", "\"Red\"\n\"Blue\"\n\"Green\""),
+        ("derived_decode.flx", "\"pair\"\n2"),
+        (
+            "structural_container_dictionary.flx",
+            "true\nfalse\ntrue\nfalse\ntrue\ntrue",
+        ),
+    ] {
+        let output =
+            run_fixture(fixture).unwrap_or_else(|error| panic!("{fixture} should run: {error}"));
+        assert_eq!(output.stdout, expected, "{fixture}");
+    }
 }
 
+/// Proposal 0179 Stage 7: deriving a class with no derivation rule is an
+/// error at the clause. Before Stage 7 this fixture compiled and printed `1`,
+/// leaving a `Functor<Box>` instance whose only method was never generated.
+#[test]
+fn unsupported_deriving_is_rejected_at_the_clause() {
+    let fixture = "unsupported_deriving_diagnostic.flx";
+    let Err(error) = run_fixture(fixture) else {
+        panic!("{fixture} must not compile: deriving `Functor` has no derivation rule");
+    };
+    assert!(
+        error.contains("E486"),
+        "{fixture} should report E486, got:\n{error}"
+    );
+}
+
+/// The rejection is what keeps the evidence honest: no `Functor` dictionary is
+/// fabricated, because the clause never gets as far as producing one.
 #[test]
 fn unsupported_deriving_does_not_fabricate_a_dictionary() {
     let source = std::fs::read_to_string(fixture_path("unsupported_deriving_diagnostic.flx"))
         .expect("read deriving fixture");
     let (program, mut compiler) = parse_source(&source, "unsupported_deriving_diagnostic.flx");
-    compiler
+    let errors = compiler
         .compile(&program)
-        .expect("deriving baseline compiles");
-    let core = compiler
-        .dump_core_with_opts(
-            &program,
-            false,
-            flux::core::display::CoreDisplayMode::Readable,
-        )
-        .expect("deriving baseline should lower");
+        .expect_err("underivable deriving must not compile");
     assert!(
-        !core.contains("__dict_Functor_Box"),
-        "unsupported deriving must not fabricate Functor evidence"
+        errors.iter().any(|diag| diag.code() == Some("E486")),
+        "unsupported deriving must be reported, got: {errors:?}"
     );
 }
 

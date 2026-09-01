@@ -406,8 +406,8 @@ reify it as a value — `Flume.Manifest` uses a `Reader<a>` record, which also
 composes further than an instance head can (`array_of(element: Reader<a>) ->
 Reader<List<a>>` needs no higher-kinded types).
 
-The same missing input limits dictionary *selection* inside a constrained
-function; see [KI-058](#ki-058).
+Note that a `let` annotation cannot currently be used to supply the expected
+type either; see [KI-058](#ki-058).
 
 ---
 
@@ -498,42 +498,118 @@ exist — a misleading signal exactly when the cache is under suspicion.
 
 ---
 
-### KI-058 — Dictionary selection does not read the call's result type
+### KI-058 — A `let` annotation naming a rigid type parameter is rejected
 
-**Severity:** Medium · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-01 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** Type inference, annotations · **Verified:** 2026-09-01
 
-KI-057 made a call choose between the dictionaries its function holds by
-matching the call's *argument* types. A method whose class parameter appears
-only in its return type reveals nothing that way:
+Inside a generic function, annotating a `let` with the function's own type
+parameter fails, even when the annotation is trivially correct:
 
 ```flux
-public class Decode<a> {
-    fn decode(value: Json) -> JsonResult<a>
+class Root<a> { fn root(x: a) -> Int }
+instance Root<Int> { fn root(x) { x } }
+
+fn plain<a: Root>(x: a) -> Int {
+    root(x)                     // fine
+}
+
+fn annotated<a: Root>(x: a) -> Int {
+    let y: a = x                // error[E300]: Annotation Type Mismatch
+    root(y)                     // error[E444]: No Type Class Instance (cascade)
 }
 ```
 
-`Flow.Json`'s `Decode<a> => Decode<List<a>>` instance holds both a `Decode<a>`
-and a `Decode<Array<a>>` dictionary, and its `decode(value)` call needs the
-second — decided by where the result flows, not by the argument, which is
-`Json` either way.
+```
+error[E300]: Annotation Type Mismatch
+14 |     let y: a = x
+   |                - this value has type `_`
+   |            - but `y` was annotated as `a`
+```
 
-That call resolves correctly today, but by position rather than by reasoning:
-the last candidate recorded wins, and it happens to be the right one. Nothing
-holds it there.
+`x` has type `a` and `y` is annotated `a`, so there is nothing to mismatch. The
+two sides do not end up as the same type: the annotation's `a` and the
+signature's `a` are compared as different things. The E444 is a cascade — once
+`y`'s type is unrelated to the signature's `a`, the `Root` constraint no longer
+covers it.
 
-Distinct from [KI-015](#ki-015), which is about picking an *instance* at a
-monomorphic call site. This is about picking one of the *dictionary parameters*
-a constrained function already holds. They want the same missing input — the
-call's expected result type — so they are likely to close together.
+Note the diagnostic renders the value's type as `_`. Unresolved and rigid
+variables both display that way, so the message does not distinguish "not
+inferred yet" from "a rigid parameter that failed to match" — worth fixing
+alongside, since it is what makes this hard to read.
 
-Closing this means reading the call's expected result type. On the VM path that
-is available (`hm_expr_types` keyed on the call's own `ExprId`); in the Core
-pass it is not, because `CoreExpr::App` carries no type, so it has to be
-threaded from AST→Core lowering. That is the same plumbing 0179 Stage 4's
-result-directed resolution needs, and belongs with it.
+The same thing blocks result-directed dispatch outside return position. This
+resolves, because the return type drives it:
 
-Until then a genuinely undecidable call — a class parameter named nowhere in its
-method's signature — is reported as E485 rather than guessed.
+```flux
+fn one<a: Make>(pa: a) -> a { make(0) }        // ok
+fn one<a: Make>(pa: a) -> a { let x: a = make(0)  x }   // error[E444]
+```
+
+**Consequence beyond the annotation itself.** A function has exactly one return
+position, so with `let` annotations unusable a body can contain at most one
+result-directed class-method call. Any design that assumes two — such as a
+function holding two dictionaries for one class distinguished only by result
+type — describes a program that cannot currently be written.
+
+**Workaround:** drop the annotation, or extract the value through a helper
+function whose return type carries it.
+
+**Cause — confirmed.** `infer_let_binding`
+([statement.rs](../src/ast/type_infer/statement.rs)) converts the annotation
+with an empty type-parameter map:
+
+```rust
+TypeEnv::convert_type_expr_rec(ann, &HashMap::new(), ...)
+```
+
+The return-annotation path threads the real map instead
+(`infer_type_from_annotation` in `src/ast/type_infer/function.rs`). The
+signature's parameters are recoverable on the spot without new plumbing:
+`mark_signature_skolems` records them in `InferCtx::skolem_names` for exactly
+this scope and drops them on the way out, so inverting that map supplies what
+the conversion needs. A prototype of this one-line change compiled every
+reproduction above and left the inference suites green (104, 51 and 33 tests).
+
+**Do not fix this in isolation.** The prototype also made a latent soundness bug
+reachable, because the programs it unblocks are precisely the ones dictionary
+selection cannot handle:
+
+```flux
+class Make<a> { fn make(tag: Int) -> a }
+instance Make<Int>    { fn make(tag) { 7 } }
+instance Make<String> { fn make(tag) { "s" } }
+
+fn two<a: Make, b: Make>(pa: a, pb: b) -> a {
+    let y: b = make(0)
+    make(0)
+}
+
+print(two(1, "z"))   // expect 7 — prints "s"
+```
+
+A `String` returned from a function whose return type is `Int`. Both calls
+collapse onto the second dictionary — [KI-057](#ki-057) in *result* position,
+where the argument-type rule that fixed KI-057 is blind. E485 does not catch it
+either: `make` mentions its class parameter in the return type, which that check
+deliberately exempts. So closing this issue requires closing result-directed
+dictionary selection at the same time, or a diagnostic that rejects these
+programs rather than miscompiling them.
+
+**Notes from an abandoned attempt at the selection half**, recorded so they are
+not re-derived:
+
+- `apply_hm_final` in `src/compiler/mod.rs` is **not** the funnel for inference
+  results. Instrumenting it shows it fires only for the `lib/Flow/*.flx`
+  modules; an entry file's result reaches the compiler by some other route.
+  Anything that tries to hand per-call inference data to lowering must find that
+  route first.
+- `CoreExpr` carries no expression id and adding one is impractical —
+  `CoreExpr::App` alone has ~155 construction sites. Spans survive lowering and
+  are the only per-node key available, but that was never validated end to end.
+- Scheme constraints are not dictionary parameters. `Flow.Json`'s
+  `Decode<a> => Decode<List<a>>` instance method has two `Decode` scheme
+  constraints but resolves through a single dictionary, so any check that counts
+  the former will report it falsely.
 
 ## Resolved
 
@@ -1576,6 +1652,28 @@ compiled one at a time and `hm_expr_types` is replaced per module, never merged.
 was derived from one of these dumps and was wrong as a result, which cost two
 attempts. Any diagnosis that quotes a multi-module dump is unsound.
 
+**A worked example, visible in the checked-in snapshots (2026-09-01).** Once
+Stage 7 gave `Eq` a contextual instance over `List`, `--dump-core` began showing
+`Flow.Array.contains` — which is generic over `a: Eq` and must dispatch through
+its dictionary — statically resolved to the `List` instance:
+
+```
+letrec contains =
+λ__dict_Eq, arr, x.
+    let %t = (λv. __tc_Eq_List<a>_eq(__dict_Eq, v, x))   // wrong instance
+    any(arr, %t)
+```
+
+The correct lowering, which `Flow.List.contains` still shows in the same dump,
+projects the method out of the dictionary (`__dict_Eq.0`). If the dumped form
+were what ran, `contains(#[1, 2, 3], 9)` would answer `true`, since an `Int`
+matches neither list arm and the fallthrough returns `true`.
+
+It answers `false` — on the VM and natively, with caches cleared. The compiled
+program is correct; only the merged view is wrong. The `tests/snapshots/aether/`
+files therefore contain a call that no compiled program makes, which is worth
+knowing before reading one as evidence.
+
 **Workaround while this is open:** dump a single module, or read the Core for the
 module you care about from its own compile rather than the merged view.
 
@@ -1758,4 +1856,88 @@ Covered by `two_dictionaries_one_class.flx`, `two_dictionaries_superclass.flx`
 and `ambiguous_dictionary_e485.flx`, all on both backends.
 
 Selection reads argument types only; a method dispatched on its result type
-keeps its previous behavior. See KI-058.
+keeps its previous behavior.
+
+A follow-up investigation looked for the case that would need more — a function
+holding two dictionaries for one class, distinguished only by result type — and
+found it cannot currently be written: result-directed dispatch is driven by the
+return position alone, and a function has one of those. A `let` annotation
+cannot supply a second, because annotating with a rigid type parameter is itself
+rejected ([KI-058](#ki-058)). So the argument-directed rule covers every
+reachable program today. Revisit if KI-058 closes.
+
+The investigation also corrected two claims worth not repeating: `Flow.Json`'s
+inner `decode` does **not** go through dictionary elaboration — it takes the
+AST path in `compiler/expression.rs` — and it resolves through a single
+`Decode<a>` dictionary, not by choosing between two.
+
+---
+
+### KI-059 — `deriving` on a parameterized ADT produces a dictionary nothing defines
+
+**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-01 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+A `deriving` clause on a data declaration that takes type parameters compiles
+its methods but not the evidence that reaches them:
+
+```flux
+data Box<a> { Box(a) } deriving (Eq)
+
+fn main() with IO {
+    print(eq(Box(1), Box(1)))   // error[E004]: I can't find a value named
+}                               //              `__dict_Eq_Box<a>`
+```
+
+The monomorphic case works — `data Color { Red, Green, Blue } deriving (Eq)`
+is callable directly and through an `Eq`-constrained function, on both
+backends, and is pinned by `derived_eq.flx`. Only a parameterized head fails.
+
+**This is not a naming problem.** The obvious reading is that the head renders
+its type *parameters* as literal text, giving `__dict_Eq_Box<a>` — but a
+hand-written instance for the same head works under those exact names:
+
+```flux
+data Box<a> { Box(a) }
+
+instance Eq<a> => Eq<Box<a>> {
+    fn eq(x, y) { match x { Box(u) -> match y { Box(v) -> u == v } } }
+    fn neq(x, y) { !eq(x, y) }
+}
+```
+
+That program prints `true`. So the mangling is consistent between the
+definition and the call site; what differs is which lowering path the call
+takes.
+
+**Cause — two passes disagreeing, confirmed by tracing.** A derived instance
+over `n` type parameters carries `n` context constraints, so it lowers to a
+dictionary *constructor* rather than a plain method tuple. Two things then go
+wrong in sequence:
+
+1. `lower_dictionary_ref_ast`
+   ([expression.rs](../src/compiler/expression.rs)) emits a reference to the
+   constructor global. Its sibling branch — the one for a context-free
+   instance — predeclares the symbols it references; the contextual branch does
+   not, and the constructor global is a Core-to-Core product with no AST
+   statement behind it. Nothing has put it in the symbol table, hence the E004.
+2. Predeclaring it moves the failure rather than fixing it: the program then
+   reports `E1001 Cannot call non-function value (got Uninit)`. The global now
+   exists and is never *stored*, because `build_instance_dictionaries`
+   ([dict_elaborate.rs](../src/core/passes/dict_elaborate.rs)) only builds defs
+   for dictionaries referenced *in Core* — and tracing shows Core holds no
+   reference to it at all. Core resolved the call statically to
+   `__tc_Eq_Box<a>_eq` instead, which for a contextual instance takes the
+   context dictionaries as leading parameters, and no dictionary argument was
+   inserted for them.
+
+So the AST-level and Core-level dictionary elaborations disagree about whether
+this call needs a dictionary, and each produces a program the other's
+assumptions break. Fixing only the symbol-table gap converts a compile error
+into a runtime one, which is worse.
+
+Through a constrained function the same instance reports the arity disagreement
+directly: `E1000 wrong number of arguments: want=3, got=2` for one type
+parameter, `want=7, got=4` for two.
+
+**Workaround:** write the instance by hand. The contextual form above is
+accepted and behaves correctly, including through a constrained function.

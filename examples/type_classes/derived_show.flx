@@ -1,0 +1,19 @@
+// Proposal 0179 Stage 7 contract: `deriving (Show)` produces a callable
+// method and a dictionary a constrained function can project it out of.
+//
+// Expected output:
+// "Red"
+// "Blue"
+// "Green"
+
+data Color { Red, Green, Blue } deriving (Show)
+
+fn render<a: Show>(x: a) -> String {
+    show(x)
+}
+
+fn main() with IO {
+    print(show(Red))
+    print(show(Blue))
+    print(render(Green))
+}
