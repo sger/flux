@@ -295,6 +295,7 @@ fn imported_public_instance_method_is_emitted_and_called_directly_in_native_lowe
         symbol_table: std::collections::HashMap::new(),
         member_is_value: std::collections::HashMap::from([("log".to_string(), false)]),
         public_classes: vec![PublicClassEntry {
+            associated_types: Vec::new(),
             class_module: "Example.Logger".to_string(),
             name: "Logger".to_string(),
             type_param_arity: 1,
@@ -348,6 +349,7 @@ fn imported_public_instance_method_is_emitted_and_called_directly_in_native_lowe
         member_is_value: std::collections::HashMap::new(),
         public_classes: Vec::new(),
         public_instances: vec![PublicInstanceEntry {
+            associated_types: Vec::new(),
             class_module: "Example.Logger".to_string(),
             class_name: "Logger".to_string(),
             instance_module: "Example.StdLog".to_string(),
