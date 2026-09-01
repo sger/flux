@@ -1,0 +1,17 @@
+module SuperclassAcrossModules.Scale {
+    public class Sizeable<a> {
+        fn size(x: a) -> Int
+    }
+
+    public class Sizeable<a> => Measurable<a> {
+        fn weight(x: a) -> Int
+    }
+
+    public instance Sizeable<Int> {
+        fn size(x) { x }
+    }
+
+    public instance Sizeable<Int> => Measurable<Int> {
+        fn weight(x) { x * 100 }
+    }
+}
