@@ -60,7 +60,9 @@ use sha2::{Digest, Sha256};
 /// module-scoped generated typeclass methods retain qualified native symbols.
 /// Epoch 31: typeclass constraints and generated dictionary/method symbols
 /// carry the owning ClassId rather than a short class name.
-pub const CACHE_EPOCH: u16 = 31;
+/// Epoch 32: dictionaries lead with a slot per declared superclass, so every
+/// method's slot index in a class that declares one has shifted.
+pub const CACHE_EPOCH: u16 = 32;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

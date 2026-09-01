@@ -108,6 +108,8 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "multiple_class_obligations.flx",
         "superclass_instance_validation.flx",
         "superclass_order_independent.flx",
+        "superclass_method_call.flx",
+        "transitive_superclass.flx",
         "kind_valid.flx",
         "hkt_instance_positive.flx",
         "structured_predicate.flx",
@@ -437,6 +439,20 @@ fn structured_predicates_survive_generalization_distinctly() {
     let output = run_fixture("generalized_structured_constraint.flx")
         .unwrap_or_else(|error| panic!("{error}"));
     assert_eq!(output.stdout, "\"7\"\n\"9\"");
+}
+
+/// Proposal 0179 Stage 5: a dictionary carries evidence for its superclasses,
+/// so a function constrained on a subclass can call inherited methods —
+/// through one projection for a direct superclass, two for a transitive one.
+#[test]
+fn superclass_methods_are_reachable_from_a_subclass_dictionary() {
+    for (fixture, expected) in [
+        ("superclass_method_call.flx", "505"),
+        ("transitive_superclass.flx", "111"),
+    ] {
+        let output = run_fixture(fixture).unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(output.stdout, expected, "unexpected output for {fixture}");
+    }
 }
 
 /// Proposal 0179 Stage 5: a superclass obligation is checked against the whole
