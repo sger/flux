@@ -93,7 +93,7 @@ structural checks can make different decisions for the same class obligation.
 | Superclasses | **Done (Stage 5).** Obligations are checked once the whole environment is collected and matched structurally, cycles are rejected (E477), and dictionaries lead with one evidence slot per declared superclass. | — |
 | Kinds | `Kind` and constructor kinds exist, but there is no checking pass; parameterized ADTs and invalid HKT heads can be accepted. | Add a kind environment and validate type applications, class parameters, instance heads, predicates, and associated types before solving. |
 | Associated types | **Done (Stage 6).** Declarations and equations are parsed, collected, and validated; applications reduce through `normalize_associated_types` or stay stuck; both cross the module interface. | — |
-| Deriving | **Done for deriving (Stage 7).** A clause that cannot produce usable methods is rejected with E486; supported clauses on a monomorphic head produce callable methods and a dictionary a constrained function can project them out of. Structural container evidence is still solver-only, and a parameterized head still fails ([KI-059](../known_issues.md#ki-059)). | Materialize an `InstanceDef` for concrete structural cases so they gain dictionaries; reconcile AST-level and Core-level dictionary elaboration for parameterized derived heads. |
+| Deriving | **Done (Stage 7).** A clause that cannot produce usable methods is rejected with E486; supported clauses on a monomorphic head produce callable methods and a dictionary a constrained function can project them out of; `Eq` over `List` and `Option` resolves to a real instance instead of a solver-only answer. A parameterized derived head still fails ([KI-059](../known_issues.md#ki-059)). | Reconcile AST-level and Core-level dictionary elaboration for parameterized derived heads. |
 | Interfaces and cache | New class metadata must be present on both cold and warm compilation paths; dictionary layout changes can make cached artifacts stale. | Version and fingerprint predicate, kind, superclass, associated-type, and dictionary-layout metadata; add cold/warm tests. |
 | Tests | Existing coverage often checks compilation or Core text, not execution of polymorphic calls. | Require a Flux example and Rust test for every implementation item, plus VM/LLVM parity for supported runtime behavior. |
 
@@ -463,7 +463,7 @@ variables. Relaxing it further — to any type whose free variables are all rigi
 — regresses `lib/Flow/Stream.flx`, which is the false positive the guard exists
 to avoid.
 
-### Stage 7 — Safe deriving and structural dictionaries — **deriving done; structural dictionaries open**
+### Stage 7 — Safe deriving and structural dictionaries — **done**
 
 - A `deriving` clause that cannot produce usable methods is rejected at the
   clause with **E486** `UNDERIVABLE_CLASS`: `underivable_class_e486.flx` and
@@ -474,8 +474,9 @@ to avoid.
   `derived_eq.flx`, `derived_show.flx`, `derived_encode.flx`, and
   `derived_decode.flx`, mirrored by `derived_eq_dictionary.flx` and
   `derived_show_dictionary.flx` under `tests/parity/`.
-- Solver-only structural answers still have no dictionary:
-  `structural_container_dictionary.flx` is not yet written.
+- A predicate the solver answers about a built-in container carries a
+  dictionary rather than only an answer: `structural_container_dictionary.flx`,
+  mirrored into `tests/parity/`.
 
 Example syntax:
 
@@ -508,6 +509,21 @@ never reaches it — the diagnostic would have been conditional on unrelated cod
 `collect_deriving` sees every clause and nothing else, which also keeps the
 `register_builtins` phantom instances out of range without a marker field, and
 leaves `span == Span::default()` meaning what it meant before.
+
+**Structural answers had to stop coming first.** `Eq` now has contextual
+instances over `List` and `Option`, so those predicates resolve to an
+`InstanceDef` and the ordinary dictionary machinery applies unchanged. That only
+takes effect once `solve_instance_evidence` tries instance resolution *before*
+`structural_builtin_evidence`; while the structural rule ran first it shadowed
+the new instances entirely. The structural rule remains the fallback for the
+heads with no instance — tuples, `Either`, `Array`, and every `Sendable` case,
+which is a marker class with no dictionary at all.
+
+The generated body cannot be `x == y`. These heads carry a context, so the
+element is rigid inside the body and comparing two `List<a>` with `==` needs
+evidence of its own, which inflates the method past the arity the dictionary
+supplies. The body recurses through `eq`, routing each element through the
+context dictionary the constructor is handed.
 
 **A parameterized head still fails.** `data Box<a> { Box(a) } deriving (Eq)`
 compiles its methods but not the evidence reaching them. It is not the mangling:
