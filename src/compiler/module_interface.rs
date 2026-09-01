@@ -1450,6 +1450,7 @@ mod tests {
                 type_params: vec![interner.intern("a")],
                 superclasses: vec![],
                 superclass_class_ids: vec![],
+                associated_types: vec![],
                 methods: vec![],
                 default_methods: vec![],
                 span: Default::default(),

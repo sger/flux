@@ -112,6 +112,7 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "multiple_class_obligations.flx",
         "superclass_instance_validation.flx",
         "superclass_order_independent.flx",
+        "associated_type_declaration.flx",
         "SuperclassMetadata.flx",
         "superclass_across_modules.flx",
         "superclass_method_call.flx",
@@ -140,12 +141,12 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
             {
                 let source = source.to_ascii_lowercase();
                 [
-                    "baseline", "stage 1", "stage 2", "stage 3", "stage 4", "stage 5",
+                    "baseline", "stage 1", "stage 2", "stage 3", "stage 4", "stage 5", "stage 6",
                 ]
                 .iter()
                 .any(|contract| source.contains(contract))
             },
-            "{fixture} needs a baseline or a stage 1-5 contract"
+            "{fixture} needs a baseline or a stage 1-6 contract"
         );
         assert!(
             source.contains("Expected"),
@@ -560,6 +561,49 @@ fn superclass_dispatch_is_the_same_cold_and_warm() {
         normalize_output(&cold.stdout),
         "cached run disagrees with the cold one"
     );
+}
+
+/// Proposal 0179 Stage 6: an associated type declared by a class and defined by
+/// an instance reaches `ClassEnv`, so later steps have something to reduce.
+///
+/// Asserted on the environment rather than only through a passing fixture: a
+/// parser that dropped the declarations would still compile this program,
+/// because Step 1 adds no semantics that depend on them.
+#[test]
+fn associated_type_declarations_and_equations_reach_the_class_environment() {
+    let source = std::fs::read_to_string(fixture_path("associated_type_declaration.flx"))
+        .expect("read associated type fixture");
+    let (program, mut compiler) = parse_source(&source, "associated_type_declaration.flx");
+    compiler
+        .compile(&program)
+        .expect("associated type fixture compiles");
+
+    let class = compiler
+        .class_env()
+        .classes
+        .values()
+        .find(|class| compiler.interner.resolve(class.name) == "Collection")
+        .expect("Collection is collected");
+    assert_eq!(class.associated_types.len(), 1);
+    assert_eq!(
+        compiler.interner.resolve(class.associated_types[0].name),
+        "Element"
+    );
+    // Indexed by the class parameter it is declared over.
+    assert_eq!(class.associated_types[0].params.len(), 1);
+
+    let instance = compiler
+        .class_env()
+        .instances
+        .iter()
+        .find(|instance| compiler.interner.resolve(instance.class_name) == "Collection")
+        .expect("the Collection instance is collected");
+    assert_eq!(instance.associated_types.len(), 1);
+    let equation = &instance.associated_types[0];
+    assert_eq!(compiler.interner.resolve(equation.name), "Element");
+    // The head repeats the instance head, and the body is what it reduces to.
+    assert_eq!(equation.head.len(), 1);
+    assert_eq!(equation.body.display_with(&compiler.interner), "a");
 }
 
 /// Proposal 0179 Stage 5: a superclass obligation is checked against the whole

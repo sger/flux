@@ -13,7 +13,10 @@ use crate::{
         precedence::Precedence,
         statement::{FunctionTypeParam, Statement, TypeAliasDecl},
         token_type::TokenType,
-        type_class::{ClassConstraint, ClassMethod, InstanceMethod},
+        type_class::{
+            AssociatedTypeDecl, AssociatedTypeEquation, ClassConstraint, ClassMethod,
+            InstanceMethod,
+        },
         type_expr::TypeExpr,
     },
 };
@@ -1806,13 +1809,21 @@ impl Parser {
         }
         self.next_token(); // move past `{`
 
-        // Parse methods
+        // Parse methods and associated type declarations
         let mut methods: Vec<ClassMethod> = Vec::new();
+        let mut associated_types: Vec<AssociatedTypeDecl> = Vec::new();
         while !self.is_current_token(TokenType::RBrace) && !self.is_current_token(TokenType::Eof) {
-            if let Some(method) = self.parse_class_method() {
+            if self.is_current_token(TokenType::Type) {
+                if let Some(decl) = self.parse_associated_type_decl() {
+                    associated_types.push(decl);
+                    self.next_token();
+                } else {
+                    self.next_token();
+                }
+            } else if let Some(method) = self.parse_class_method() {
                 methods.push(method);
             } else {
-                // Skip to next method or closing brace
+                // Skip to next member or closing brace
                 self.next_token();
             }
         }
@@ -1824,6 +1835,7 @@ impl Parser {
             type_params,
             superclasses,
             methods,
+            associated_types,
             span: self.span_from(start),
             name_span,
         })
@@ -2012,10 +2024,16 @@ impl Parser {
         }
         self.next_token(); // move past `{`
 
-        // Parse methods
+        // Parse methods and associated type equations
         let mut methods: Vec<InstanceMethod> = Vec::new();
+        let mut associated_types: Vec<AssociatedTypeEquation> = Vec::new();
         while !self.is_current_token(TokenType::RBrace) && !self.is_current_token(TokenType::Eof) {
-            if let Some(method) = self.parse_instance_method() {
+            if self.is_current_token(TokenType::Type) {
+                if let Some(equation) = self.parse_associated_type_equation() {
+                    associated_types.push(equation);
+                }
+                self.next_token();
+            } else if let Some(method) = self.parse_instance_method() {
                 methods.push(method);
             } else {
                 self.next_token();
@@ -2029,6 +2047,7 @@ impl Parser {
             type_args,
             context,
             methods,
+            associated_types,
             span: self.span_from(start),
             name_span,
         })
@@ -2059,6 +2078,76 @@ impl Parser {
         } else {
             vec![]
         }
+    }
+
+    /// Parse `type Element<c>` inside a class body (Proposal 0179 Stage 6).
+    ///
+    /// The parameter list repeats the class parameters the type is indexed by,
+    /// so it parses with the same `<...>` reader as an instance head.
+    fn parse_associated_type_decl(&mut self) -> Option<AssociatedTypeDecl> {
+        let start = self.current_token.position;
+        if !self.expect_peek_context_with_details(
+            TokenType::Ident,
+            "Missing Associated Type Name",
+            DiagnosticCategory::ParserDeclaration,
+            "Expected a name after `type`.".to_string(),
+            "Classes declare associated types as `type Element<c>`.".to_string(),
+        ) {
+            return None;
+        }
+        let name = self
+            .current_token
+            .symbol
+            .expect("ident token should have symbol");
+        let params = self.parse_instance_type_args();
+
+        Some(AssociatedTypeDecl {
+            name,
+            params,
+            span: self.span_from(start),
+        })
+    }
+
+    /// Parse `type Element<List<a>> = a` inside an instance body
+    /// (Proposal 0179 Stage 6).
+    ///
+    /// The head repeats the instance head the equation applies to, and the body
+    /// is what an application of it reduces to.
+    fn parse_associated_type_equation(&mut self) -> Option<AssociatedTypeEquation> {
+        let start = self.current_token.position;
+        if !self.expect_peek_context_with_details(
+            TokenType::Ident,
+            "Missing Associated Type Name",
+            DiagnosticCategory::ParserDeclaration,
+            "Expected a name after `type`.".to_string(),
+            "Instances define associated types as `type Element<List<a>> = a`.".to_string(),
+        ) {
+            return None;
+        }
+        let name = self
+            .current_token
+            .symbol
+            .expect("ident token should have symbol");
+        let head = self.parse_instance_type_args();
+
+        if !self.expect_peek_context_with_details(
+            TokenType::Assign,
+            "Missing `=` in Associated Type",
+            DiagnosticCategory::ParserSeparator,
+            "Expected `=` after the associated type's head.".to_string(),
+            "Instances define associated types as `type Element<List<a>> = a`.".to_string(),
+        ) {
+            return None;
+        }
+        self.next_token(); // move to the body type expression
+        let body = self.parse_type_expr()?;
+
+        Some(AssociatedTypeEquation {
+            name,
+            head,
+            body,
+            span: self.span_from(start),
+        })
     }
 
     /// Parse a single method inside an instance declaration.
