@@ -15,67 +15,58 @@ pub fn display_infer_type(ty: &InferType, interner: &Interner) -> String {
         InferType::Var(_) => "_".to_string(),
         InferType::Con(c) => display_type_constructor(c, interner),
         InferType::App(c, args) => {
-            let base = display_type_constructor(c, interner);
-            let args_str: Vec<String> = args
-                .iter()
-                .map(|a| display_infer_type(a, interner))
-                .collect();
-            format!("{}<{}>", base, args_str.join(", "))
+            display_applied(&display_type_constructor(c, interner), args, interner)
         }
         // An unreduced associated type reads as it was written, so a
         // diagnostic about `Element<c>` names the type the user wrote.
-        InferType::Assoc(_, name, args) => {
-            let args_str: Vec<String> = args
-                .iter()
-                .map(|a| display_infer_type(a, interner))
-                .collect();
-            format!("{}<{}>", interner.resolve(*name), args_str.join(", "))
-        }
-        InferType::Fun(params, ret, effects) => {
-            let params_str: Vec<String> = params
-                .iter()
-                .map(|p| display_infer_type(p, interner))
-                .collect();
-            let ret_str = display_infer_type(ret, interner);
-            if effects.concrete().is_empty() && effects.tail().is_none() {
-                format!("({}) -> {}", params_str.join(", "), ret_str)
-            } else {
-                let mut concrete: Vec<_> = effects.concrete().iter().copied().collect();
-                concrete.sort_by_key(|s| s.as_u32());
-                let mut eff_str: Vec<String> = concrete
-                    .into_iter()
-                    .map(|e| interner.resolve(e).to_string())
-                    .collect();
-                if effects.tail().is_some() {
-                    // User-facing diagnostics should not leak unstable solver
-                    // ids like `|?10256`; render unresolved effect tails the
-                    // same way we render unresolved type variables.
-                    eff_str.push("|_".to_string());
-                }
-                format!(
-                    "({}) -> {} with {}",
-                    params_str.join(", "),
-                    ret_str,
-                    eff_str.join(", ")
-                )
-            }
-        }
-        InferType::Tuple(elems) => {
-            let elems_str: Vec<String> = elems
-                .iter()
-                .map(|e| display_infer_type(e, interner))
-                .collect();
-            format!("({})", elems_str.join(", "))
-        }
+        InferType::Assoc(_, name, args) => display_applied(interner.resolve(*name), args, interner),
+        InferType::Fun(params, ret, effects) => display_fun(params, ret, effects, interner),
+        InferType::Tuple(elems) => format!("({})", display_list(elems, interner).join(", ")),
         InferType::HktApp(head, args) => {
-            let head_str = display_infer_type(head, interner);
-            let args_str: Vec<String> = args
-                .iter()
-                .map(|a| display_infer_type(a, interner))
-                .collect();
-            format!("{}<{}>", head_str, args_str.join(", "))
+            display_applied(&display_infer_type(head, interner), args, interner)
         }
     }
+}
+
+/// Format each type in `types`, in order.
+fn display_list(types: &[InferType], interner: &Interner) -> Vec<String> {
+    types
+        .iter()
+        .map(|ty| display_infer_type(ty, interner))
+        .collect()
+}
+
+/// Format `base<arg, ...>` — the shape shared by constructor applications,
+/// associated types, and higher-kinded applications.
+fn display_applied(base: &str, args: &[InferType], interner: &Interner) -> String {
+    format!("{base}<{}>", display_list(args, interner).join(", "))
+}
+
+/// Format a function type, appending a `with` clause when it carries effects.
+fn display_fun(
+    params: &[InferType],
+    ret: &InferType,
+    effects: &InferEffectRow,
+    interner: &Interner,
+) -> String {
+    let params_str = display_list(params, interner).join(", ");
+    let ret_str = display_infer_type(ret, interner);
+    if effects.concrete().is_empty() && effects.tail().is_none() {
+        return format!("({params_str}) -> {ret_str}");
+    }
+    let mut concrete: Vec<_> = effects.concrete().iter().copied().collect();
+    concrete.sort_by_key(|s| s.as_u32());
+    let mut eff_str: Vec<String> = concrete
+        .into_iter()
+        .map(|e| interner.resolve(e).to_string())
+        .collect();
+    if effects.tail().is_some() {
+        // User-facing diagnostics should not leak unstable solver ids like
+        // `|?10256`; render unresolved effect tails the same way we render
+        // unresolved type variables.
+        eff_str.push("|_".to_string());
+    }
+    format!("({params_str}) -> {ret_str} with {}", eff_str.join(", "))
 }
 
 /// Return the canonical display name for the `index`th quantified type variable.
