@@ -147,11 +147,12 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
                 let source = source.to_ascii_lowercase();
                 [
                     "baseline", "stage 1", "stage 2", "stage 3", "stage 4", "stage 5", "stage 6",
+                    "stage 7",
                 ]
                 .iter()
                 .any(|contract| source.contains(contract))
             },
-            "{fixture} needs a baseline or a stage 1-6 contract"
+            "{fixture} needs a baseline or a stage 1-7 contract"
         );
         assert!(
             source.contains("Expected"),
@@ -300,30 +301,34 @@ fn a_class_parameter_in_the_return_type_is_fixed_by_the_expected_result() {
     assert_eq!(output.stdout, "7\ntrue\n7");
 }
 
+/// Proposal 0179 Stage 7: deriving a class with no derivation rule is an
+/// error at the clause. Before Stage 7 this fixture compiled and printed `1`,
+/// leaving a `Functor<Box>` instance whose only method was never generated.
 #[test]
-fn unsupported_features_preserve_the_current_baseline() {
+fn unsupported_deriving_is_rejected_at_the_clause() {
     let fixture = "unsupported_deriving_diagnostic.flx";
-    run_fixture(fixture).unwrap_or_else(|error| panic!("{fixture} changed the baseline: {error}"));
+    let Err(error) = run_fixture(fixture) else {
+        panic!("{fixture} must not compile: deriving `Functor` has no derivation rule");
+    };
+    assert!(
+        error.contains("E486"),
+        "{fixture} should report E486, got:\n{error}"
+    );
 }
 
+/// The rejection is what keeps the evidence honest: no `Functor` dictionary is
+/// fabricated, because the clause never gets as far as producing one.
 #[test]
 fn unsupported_deriving_does_not_fabricate_a_dictionary() {
     let source = std::fs::read_to_string(fixture_path("unsupported_deriving_diagnostic.flx"))
         .expect("read deriving fixture");
     let (program, mut compiler) = parse_source(&source, "unsupported_deriving_diagnostic.flx");
-    compiler
+    let errors = compiler
         .compile(&program)
-        .expect("deriving baseline compiles");
-    let core = compiler
-        .dump_core_with_opts(
-            &program,
-            false,
-            flux::core::display::CoreDisplayMode::Readable,
-        )
-        .expect("deriving baseline should lower");
+        .expect_err("underivable deriving must not compile");
     assert!(
-        !core.contains("__dict_Functor_Box"),
-        "unsupported deriving must not fabricate Functor evidence"
+        errors.iter().any(|diag| diag.code() == Some("E486")),
+        "unsupported deriving must be reported, got: {errors:?}"
     );
 }
 
