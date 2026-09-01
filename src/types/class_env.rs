@@ -78,6 +78,18 @@ pub struct ClassDef {
     pub span: Span,
 }
 
+/// One slot of a class's dictionary tuple.
+///
+/// See [`ClassEnv::dictionary_layout`] for the ordering and why it is defined
+/// in exactly one place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DictSlot {
+    /// Evidence for a directly declared superclass — itself a dictionary.
+    Superclass(ClassId),
+    /// One of the class's own method implementations.
+    Method(Identifier),
+}
+
 impl ClassDef {
     /// Returns the canonical `ClassId` for this class definition.
     ///
@@ -292,6 +304,110 @@ impl ClassEnv {
         diagnostics.extend(self.validate_superclass_obligations(interner));
 
         diagnostics
+    }
+
+    /// The slot assignment for a class's dictionary tuple.
+    ///
+    /// Superclass evidence occupies the leading slots, method implementations
+    /// follow, both in declaration order. This is GHC's dictionary layout and
+    /// THIH's `Class = ([Id], [Inst])`, and it is the single definition of the
+    /// layout: everything that builds a dictionary or reads a slot out of one
+    /// derives its offsets from here rather than recomputing the convention.
+    ///
+    /// Only *directly* declared superclasses get a slot. A transitive one is
+    /// reached by projecting twice, which is what keeps the layout of a class
+    /// independent of hierarchies declared above it.
+    pub fn dictionary_layout(&self, id: ClassId) -> Option<Vec<DictSlot>> {
+        let class_def = self.lookup_class_by_id(id)?;
+        Some(
+            class_def
+                .superclass_class_ids
+                .iter()
+                .map(|&superclass| DictSlot::Superclass(superclass))
+                .chain(
+                    class_def
+                        .methods
+                        .iter()
+                        .map(|method| DictSlot::Method(method.name)),
+                )
+                .collect(),
+        )
+    }
+
+    /// The slot holding `method`'s implementation in a dictionary for `id`.
+    pub fn method_slot(&self, id: ClassId, method: Identifier) -> Option<usize> {
+        let class_def = self.lookup_class_by_id(id)?;
+        let position = class_def.methods.iter().position(|m| m.name == method)?;
+        Some(class_def.superclass_class_ids.len() + position)
+    }
+
+    /// The slot holding evidence for `superclass` in a dictionary for `id`.
+    ///
+    /// Direct superclasses only — see [`dictionary_layout`](Self::dictionary_layout).
+    pub fn superclass_slot(&self, id: ClassId, superclass: ClassId) -> Option<usize> {
+        self.lookup_class_by_id(id)?
+            .superclass_class_ids
+            .iter()
+            .position(|&candidate| candidate == superclass)
+    }
+
+    /// The symbol name held by each slot of the dictionary for one instance head.
+    ///
+    /// `type_key` is the rendered instance head that [`dictionary_name`] and
+    /// [`mangled_method_name`] mangle into their symbols. Superclass slots name
+    /// the superclass's dictionary for the *same* head, because
+    /// `class Eq<a> => Ord<a>` constrains the very type the instance is for.
+    ///
+    /// Returns `None` for an unknown class, so a caller can tell "no layout"
+    /// from "a layout with no slots".
+    pub fn dictionary_slot_names(
+        &self,
+        id: ClassId,
+        type_key: &str,
+        interner: &Interner,
+    ) -> Option<Vec<String>> {
+        Some(
+            self.dictionary_layout(id)?
+                .into_iter()
+                .map(|slot| match slot {
+                    DictSlot::Superclass(superclass) => {
+                        dictionary_name(superclass, type_key, interner)
+                    }
+                    DictSlot::Method(method) => {
+                        mangled_method_name(id, type_key, interner.resolve(method), interner)
+                    }
+                })
+                .collect(),
+        )
+    }
+
+    /// The slot path from a dictionary for `from` to the evidence for `to`.
+    ///
+    /// Empty is not a valid answer — `from == to` needs no projection — so
+    /// `None` means `to` is not among `from`'s transitive superclasses.
+    /// Breadth-first, so the path returned is the shortest one.
+    pub fn superclass_path(&self, from: ClassId, to: ClassId) -> Option<Vec<usize>> {
+        let mut visited = vec![from];
+        let mut queue = std::collections::VecDeque::from([(from, Vec::new())]);
+
+        while let Some((current, prefix)) = queue.pop_front() {
+            let Some(class_def) = self.lookup_class_by_id(current) else {
+                continue;
+            };
+            for (idx, &superclass) in class_def.superclass_class_ids.iter().enumerate() {
+                let mut path = prefix.clone();
+                path.push(idx);
+                if superclass == to {
+                    return Some(path);
+                }
+                if !visited.contains(&superclass) {
+                    visited.push(superclass);
+                    queue.push_back((superclass, path));
+                }
+            }
+        }
+
+        None
     }
 
     /// Transitive superclasses of `id`, nearest first and deduplicated.
@@ -1601,8 +1717,7 @@ impl ClassEnv {
     ///
     /// Linear scan via [`lookup_class`](Self::lookup_class).
     pub fn method_index(&self, class_name: Identifier, method_name: Identifier) -> Option<usize> {
-        let class_def = self.lookup_class(class_name)?;
-        class_def.methods.iter().position(|m| m.name == method_name)
+        self.method_slot(self.lookup_class(class_name)?.class_id(), method_name)
     }
 
     // ========================================================================
@@ -1659,8 +1774,7 @@ impl ClassEnv {
     /// Return the positional index of a method within a class identified by
     /// `ClassId`.
     pub fn method_index_by_id(&self, id: ClassId, method_name: Identifier) -> Option<usize> {
-        let class_def = self.lookup_class_by_id(id)?;
-        class_def.methods.iter().position(|m| m.name == method_name)
+        self.method_slot(id, method_name)
     }
 
     /// Resolve an instance against concrete inferred type arguments, using a
@@ -2083,14 +2197,13 @@ impl ClassEnv {
     /// Expand a pre-interned `__dict_{Class}_{Type}` name into the ordered
     /// mangled method symbols that make up the dictionary tuple, if this name
     /// corresponds to a known instance.
-    pub fn dictionary_method_symbols(
+    pub fn dictionary_slot_symbols(
         &self,
         dict_name: Identifier,
         interner: &Interner,
     ) -> Option<Vec<Identifier>> {
         let dict_name_str = interner.resolve(dict_name);
         self.instances.iter().find_map(|instance| {
-            let class_def = self.lookup_class_by_id(instance.class_id)?;
             let type_name = instance
                 .type_args
                 .iter()
@@ -2102,18 +2215,9 @@ impl ClassEnv {
                 return None;
             }
 
-            class_def
-                .methods
+            self.dictionary_slot_names(instance.class_id, &type_name, interner)?
                 .iter()
-                .map(|method_sig| {
-                    let method_str = interner.resolve(method_sig.name);
-                    interner.lookup(&mangled_method_name(
-                        instance.class_id,
-                        &type_name,
-                        method_str,
-                        interner,
-                    ))
-                })
+                .map(|name| interner.lookup(name))
                 .collect()
         })
     }
@@ -2627,7 +2731,7 @@ pub fn mangled_method_name(
 /// Render the canonical dictionary global for a concrete instance head.
 pub fn dictionary_name(class_id: ClassId, type_key: &str, interner: &Interner) -> String {
     format!(
-        "__dict_{}_{}",
+        "{DICTIONARY_PREFIX}{}_{}",
         class_symbol_name(class_id, interner),
         type_key
     )
@@ -2635,8 +2739,22 @@ pub fn dictionary_name(class_id: ClassId, type_key: &str, interner: &Interner) -
 
 /// Render the canonical prefix used for contextual dictionary parameters.
 pub fn dictionary_prefix(class_id: ClassId, interner: &Interner) -> String {
-    format!("__dict_{}", class_symbol_name(class_id, interner))
+    format!(
+        "{DICTIONARY_PREFIX}{}",
+        class_symbol_name(class_id, interner)
+    )
 }
+
+/// Whether `name` was built by [`dictionary_prefix`] or [`dictionary_name`].
+///
+/// The same reasoning as [`is_generated_instance_method`]: several passes
+/// recognise a dictionary by its prefix, so the spelling is asked for here
+/// rather than written out at each site.
+pub fn is_dictionary_name(name: &str) -> bool {
+    name.starts_with(DICTIONARY_PREFIX)
+}
+
+const DICTIONARY_PREFIX: &str = "__dict_";
 
 /// Render a class identity for generated symbols. Legacy top-level classes
 /// retain their historical spelling; module-owned classes include an

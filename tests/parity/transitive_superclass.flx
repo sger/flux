@@ -1,0 +1,53 @@
+// Proposal 0179 Stage 5 contract: superclass evidence composes transitively.
+//
+// `Base => Middle => Top` is three levels deep. `all_three` holds only the
+// `Top` dictionary, so:
+//
+//   top(x)     is a method slot of that dictionary
+//   middle(x)  is one projection away, through Top's evidence for Middle
+//   base(x)    is two, through Middle's own evidence for Base
+//
+// Only *directly* declared superclasses get a slot, which is what keeps a
+// class's dictionary layout independent of the hierarchy above it; a
+// transitive superclass is reached by projecting again.
+//
+// Note that `instance Middle<Int> => Top<Int>` takes the `Middle<Int>`
+// dictionary as its context, and that is exactly the evidence its superclass
+// slot needs. Evidence comes from the instance's context before its global,
+// otherwise a dictionary *constructor* would be applied to an already-built
+// dictionary.
+//
+// Expected output:
+// 111
+
+class Base<a> {
+    fn base(x: a) -> Int
+}
+
+class Base<a> => Middle<a> {
+    fn middle(x: a) -> Int
+}
+
+class Middle<a> => Top<a> {
+    fn top(x: a) -> Int
+}
+
+instance Base<Int> {
+    fn base(x) { x }
+}
+
+instance Base<Int> => Middle<Int> {
+    fn middle(x) { x * 10 }
+}
+
+instance Middle<Int> => Top<Int> {
+    fn top(x) { x * 100 }
+}
+
+fn all_three<a: Top>(x: a) -> Int {
+    base(x) + middle(x) + top(x)
+}
+
+fn main() with IO {
+    print(all_three(1))
+}
