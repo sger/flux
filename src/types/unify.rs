@@ -74,7 +74,9 @@ fn occurs_in_with_ctx(v: TypeVarId, ty: &InferType, ctx_subst: &TypeSubst) -> bo
     match resolve_head(ty, ctx_subst) {
         InferType::Var(w) => *w == v,
         InferType::Con(_) => false,
-        InferType::App(_, args) => args.iter().any(|a| occurs_in_with_ctx(v, a, ctx_subst)),
+        InferType::App(_, args) | InferType::Assoc(_, _, args) => {
+            args.iter().any(|a| occurs_in_with_ctx(v, a, ctx_subst))
+        }
         InferType::Fun(params, ret, _) => {
             params.iter().any(|p| occurs_in_with_ctx(v, p, ctx_subst))
                 || occurs_in_with_ctx(v, ret, ctx_subst)
@@ -127,6 +129,21 @@ pub fn unify_core(
         // Two type applications: same constructor, same arity
         (InferType::App(c1, args1), InferType::App(c2, args2))
             if c1 == c2 && args1.len() == args2.len() =>
+        {
+            unify_many(args1, args2, ctx_subst, span, fresh_row_var, skolems)
+        }
+
+        // Two unreduced associated types: equal when they name the same
+        // declaration and their arguments unify (Proposal 0179 Stage 6).
+        //
+        // Syntactic, and deliberately so. An associated type is not injective —
+        // `Element<a>` equal to `Element<b>` does not make `a` equal to `b` —
+        // so this rule proves equality without ever concluding anything about
+        // the arguments from the results being equal. Two applications that
+        // differ syntactically but would reduce to the same type are rejected;
+        // that is incomplete, not unsound, and reduction runs first.
+        (InferType::Assoc(class1, name1, args1), InferType::Assoc(class2, name2, args2))
+            if class1 == class2 && name1 == name2 && args1.len() == args2.len() =>
         {
             unify_many(args1, args2, ctx_subst, span, fresh_row_var, skolems)
         }

@@ -5941,6 +5941,11 @@ impl Compiler {
                 | "Either"
         ) || self.adt_registry.lookup_adt(name).is_some()
             || self.preloaded_adt_registry.lookup_adt(name).is_some()
+            // Proposal 0179 Stage 6: an associated type is a real type name,
+            // even though no ADT declares it. `Element<c>` in a signature is
+            // an application of a class's type-level declaration, and whether
+            // it reduces is inference's business, not name resolution's.
+            || self.class_env.associated_type_class(name).is_some()
     }
 
     /// Resolve a constructor name to its `ConstructorInfo` across both the

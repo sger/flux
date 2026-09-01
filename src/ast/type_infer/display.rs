@@ -22,6 +22,15 @@ pub fn display_infer_type(ty: &InferType, interner: &Interner) -> String {
                 .collect();
             format!("{}<{}>", base, args_str.join(", "))
         }
+        // An unreduced associated type reads as it was written, so a
+        // diagnostic about `Element<c>` names the type the user wrote.
+        InferType::Assoc(_, name, args) => {
+            let args_str: Vec<String> = args
+                .iter()
+                .map(|a| display_infer_type(a, interner))
+                .collect();
+            format!("{}<{}>", interner.resolve(*name), args_str.join(", "))
+        }
         InferType::Fun(params, ret, effects) => {
             let params_str: Vec<String> = params
                 .iter()
@@ -130,7 +139,7 @@ impl<'a> CanonicalSchemeFormatter<'a> {
                 self.intern_var_name(*id);
             }
             InferType::Con(_) => {}
-            InferType::App(_, args) => {
+            InferType::App(_, args) | InferType::Assoc(_, _, args) => {
                 for arg in args {
                     self.note_type_order(arg);
                 }
@@ -192,6 +201,14 @@ impl<'a> CanonicalSchemeFormatter<'a> {
             InferType::App(constructor, args) => format!(
                 "{}<{}>",
                 self.format_constructor(constructor),
+                args.iter()
+                    .map(|arg| self.format_type(arg))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            InferType::Assoc(_, name, args) => format!(
+                "{}<{}>",
+                self.interner.resolve(*name),
                 args.iter()
                     .map(|arg| self.format_type(arg))
                     .collect::<Vec<_>>()

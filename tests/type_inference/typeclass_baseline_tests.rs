@@ -113,6 +113,8 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "superclass_instance_validation.flx",
         "superclass_order_independent.flx",
         "associated_type_declaration.flx",
+        "associated_type_reduction.flx",
+        "stuck_associated_type.flx",
         "SuperclassMetadata.flx",
         "superclass_across_modules.flx",
         "superclass_method_call.flx",
@@ -560,6 +562,57 @@ fn superclass_dispatch_is_the_same_cold_and_warm() {
         normalize_output(&warm.stdout),
         normalize_output(&cold.stdout),
         "cached run disagrees with the cold one"
+    );
+}
+
+/// Proposal 0179 Stage 6: an application whose arguments select an instance
+/// reduces to that equation's body, and one that cannot reduce is preserved
+/// until a call site fixes it.
+#[test]
+fn associated_types_reduce_when_selected_and_stay_stuck_otherwise() {
+    for (fixture, expected) in [
+        ("associated_type_reduction.flx", "7"),
+        ("stuck_associated_type.flx", "7\n\"s\""),
+    ] {
+        let output = run_fixture(fixture).unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(output.stdout, expected, "unexpected output for {fixture}");
+    }
+}
+
+/// Proposal 0179 Stage 6: a stuck associated type must not unify with an
+/// unrelated concrete type.
+///
+/// `first_of` returns `Element<c>`, so a function declaring `-> String` is
+/// wrong for every instance whose `Element` is not `String`. The E300 guard
+/// only reports when both sides are settled, and a stuck application over this
+/// signature's own rigid variables counts as settled — without that this
+/// compiled and returned whatever the selected instance produced.
+#[test]
+fn a_stuck_associated_type_does_not_unify_with_a_concrete_type() {
+    let source = r#"
+class Collection<c> {
+    type Element<c>
+    fn first_of(xs: c) -> Element<c>
+}
+
+instance Collection<List<Int>> {
+    type Element<List<Int>> = Int
+    fn first_of(xs) { 7 }
+}
+
+fn wrong<c: Collection>(xs: c) -> String {
+    first_of(xs)
+}
+
+fn main() with IO {
+    print(wrong([1, 2]))
+}
+"#;
+    let (program, mut compiler) = parse_source(source, "stuck_mismatch.flx");
+    let result = compiler.compile(&program);
+    assert!(
+        result.is_err() || !compiler.errors.is_empty(),
+        "declaring `-> String` for a body of type `Element<c>` must be rejected"
     );
 }
 

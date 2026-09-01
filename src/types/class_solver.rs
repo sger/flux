@@ -457,6 +457,11 @@ fn is_concrete_type(ty: &InferType) -> bool {
         InferType::HktApp(head, args) => {
             is_concrete_type(head) && args.iter().all(is_concrete_type)
         }
+        // Not concrete even when every argument is: the type this reduces to
+        // is not known until an instance is selected. Answering `true` would
+        // let a predicate be solved against an instance chosen for the
+        // unreduced application rather than for its result.
+        InferType::Assoc(_, _, _) => false,
     }
 }
 

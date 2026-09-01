@@ -621,6 +621,61 @@ impl ClassEnv {
         }
     }
 
+    /// The class that declares an associated type named `name`, if exactly one
+    /// does.
+    ///
+    /// `None` when no class declares it, and also when several do: an
+    /// ambiguous name is left as an ordinary type constructor rather than
+    /// resolved to an arbitrary class.
+    pub fn associated_type_class(&self, name: Identifier) -> Option<ClassId> {
+        let mut found: Option<ClassId> = None;
+        for class_def in self.classes.values() {
+            if !class_def
+                .associated_types
+                .iter()
+                .any(|declaration| declaration.name == name)
+            {
+                continue;
+            }
+            if found.is_some() {
+                return None;
+            }
+            found = Some(class_def.class_id());
+        }
+        found
+    }
+
+    /// The equation defining `name` for the instance of `class_id` whose head
+    /// matches `args`, together with the bindings that matching produced.
+    ///
+    /// This is the selection step of reduction: it answers "which instance
+    /// does this application land on, and what does its head bind".
+    pub(crate) fn associated_type_equation(
+        &self,
+        class_id: ClassId,
+        name: Identifier,
+        args: &[InferType],
+        interner: &Interner,
+    ) -> Option<(&AssociatedTypeEquation, HashMap<Identifier, InferType>)> {
+        self.instances.iter().find_map(|instance| {
+            if instance.class_id != class_id {
+                return None;
+            }
+            let equation = instance
+                .associated_types
+                .iter()
+                .find(|equation| equation.name == name)?;
+            if equation.head.len() != args.len() {
+                return None;
+            }
+            let mut subst = HashMap::new();
+            let matched = equation.head.iter().zip(args).all(|(pattern, actual)| {
+                Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
+            });
+            matched.then_some((equation, subst))
+        })
+    }
+
     /// Transitive superclasses of `id`, nearest first and deduplicated.
     ///
     /// Breadth-first over declaration order, so the result is deterministic and
@@ -2771,7 +2826,7 @@ impl ClassEnv {
     }
 }
 
-fn instantiate_instance_type_expr(
+pub(crate) fn instantiate_instance_type_expr(
     ty: &TypeExpr,
     subst: &HashMap<Identifier, InferType>,
     interner: &Interner,
@@ -2827,7 +2882,7 @@ fn instantiate_instance_type_expr(
 }
 
 impl ClassEnv {
-    fn match_instance_type_expr(
+    pub(crate) fn match_instance_type_expr(
         pattern: &TypeExpr,
         actual: &InferType,
         subst: &mut HashMap<Identifier, InferType>,
