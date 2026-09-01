@@ -51,3 +51,7 @@ runtime/c/.flux_rt.lock
 *.cmx
 *.cmxa
 *.cmxs
+
+# insta writes these beside the accepted snapshot on a mismatch; they are
+# review artifacts, never committed.
+*.snap.new
