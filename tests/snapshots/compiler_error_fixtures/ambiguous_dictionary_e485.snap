@@ -1,0 +1,20 @@
+---
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/ambiguous_dictionary_e485.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E485]: Ambiguous Dictionary Selection
+
+This call to `mk` does not say which `Mk` instance it needs.
+
+  examples/compiler_errors/ambiguous_dictionary_e485.flx:30:5
+   |
+30 |     mk(1)
+   |     ^^^^^
+
+Hint:
+  Annotate the call, or pass a value whose type names the instance, so one constraint is chosen.
+== stdout ==
+<not executed>

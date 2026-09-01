@@ -149,6 +149,45 @@ interfaces alongside the constraints themselves (`superclass_class_modules`,
 parallel to `superclasses`). A consumer that cannot rebuild every superclass
 identity refuses the class rather than laying it out one slot short.
 
+### Dictionary selection
+
+Layout says where a method sits *inside* a dictionary. Selection says *which*
+dictionary a call means, and the two are separate problems: a function
+constrained twice on one class holds two dictionaries that have identical
+layouts.
+
+A call chooses by predicate, not by method name.
+`ClassEnv::dispatch_positions` reports, for each of a class's type parameters,
+which value argument of the method is declared as exactly that parameter;
+`select_dictionary` matches the types found there against each candidate
+constraint. Both are defined once and used by the elaborator and by the
+ambiguity check, so a call one accepts is one the other can resolve.
+
+```text
+fn both<a: Root, b: Root>(x: a, y: b) -> Int { root(x) + root(y) }
+
+  root(x) -> __dict_Root.0     // x : a  matches constraint 0
+  root(y) -> __dict_Root_1.0   // y : b  matches constraint 1
+```
+
+Two rules keep this correct rather than merely different:
+
+- **Equal predicates are interchangeable.** There is at most one instance per
+  type, so two constraints over the same type reach the same implementation
+  whichever is chosen. This is what lets a function constrained on both
+  `Sizeable<a>` and `Measurable<a>` call `size`: one candidate reaches it
+  directly and the other through superclass evidence, and they arrive at the
+  same method. Without it, every superclass would make its own methods look
+  ambiguous.
+- **A call that cannot decide is reported.** A class parameter mentioned
+  nowhere in its method's signature can never be named by any call site. That is
+  E485, not a first-match — selecting the first is precisely what made
+  `both(5, "hi")` return `14` instead of `12` (KI-057).
+
+Selection reads argument types only. A method dispatched on its result type,
+like `Flow.Json`'s `decode`, keeps the behavior it had; closing that needs the
+call's expected result type, which Core does not carry (KI-058).
+
 The runtime contract is that the callee's implicit dictionary
 parameters and the caller's inserted dictionary arguments have exactly the
 same count and order. A valid program must not rely on VM-side arity recovery.
