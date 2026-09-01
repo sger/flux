@@ -1,0 +1,30 @@
+// Proposal 0179 Stage 6 contract: a class can declare a type alongside its
+// methods, and an instance defines what that type is.
+//
+//   type Element<c>            in the class — the type is indexed by `c`
+//   type Element<List<a>> = a in the instance — what it reduces to
+//
+// The equation's head repeats the instance head so the two are visibly the
+// same shape, and every variable in the body must be bound by that head.
+//
+// Step 1 covers syntax and metadata only: this file parses, both declarations
+// reach `ClassDef`/`InstanceDef`, and nothing yet depends on the type. The
+// method still returns `Int` rather than `Element<c>` — reduction arrives in
+// Step 3, and `associated_type_reduction.flx` is where it is exercised.
+//
+// Expected output:
+// 1
+
+class Collection<c> {
+    type Element<c>
+    fn first_or(xs: c, fallback: Int) -> Int
+}
+
+instance Collection<List<a>> {
+    type Element<List<a>> = a
+    fn first_or(xs, fallback) { fallback }
+}
+
+fn main() with IO {
+    print(first_or([2, 3], 1))
+}

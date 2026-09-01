@@ -1307,6 +1307,7 @@ module Local {
             type_params: vec![h],
             superclasses: vec![],
             superclass_class_ids: vec![],
+            associated_types: vec![],
             methods: vec![flux::types::class_env::MethodSig {
                 name: log,
                 type_params: vec![],
