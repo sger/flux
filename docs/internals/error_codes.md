@@ -11,7 +11,7 @@ Flux uses stable error codes for all diagnostics. Codes are prefixed `E` (error)
 | `E001–E060` | Compiler — semantic checks | `compiler_errors.rs` |
 | `E061–E070` | Internal compiler errors (ICE) | `compiler_errors.rs` |
 | `E071–E077` | Lexer / parser errors | `compiler_errors.rs` |
-| `E440–E459`, `E476–E477` | Type classes and instances | `compiler_errors.rs` |
+| `E440–E459`, `E476–E478` | Type classes and instances | `compiler_errors.rs` |
 | `E472–E475` | Kind checking (Proposal 0179 Stage 1) | `compiler_errors.rs` |
 | `E1000–E1021` | Runtime errors | `runtime_errors.rs` |
 | `W2xx` | Warnings (linter) | `compiler_errors.rs` |
@@ -136,6 +136,7 @@ Flux uses stable error codes for all diagnostics. Codes are prefixed `E` (error)
 | <a id="e456"></a>`E456` | `AMBIGUOUS_CLASS_CONSTRAINT` | Two visible classes share the constraint's short name |
 | <a id="e459"></a>`E459` | `UNDETERMINED_CLASS_PARAMETER` | A class parameter the call does not fix leaves several instances compatible |
 | <a id="e477"></a>`E477` | `SUPERCLASS_CYCLE` | A class reaches itself through its own superclasses |
+| <a id="e478"></a>`E478` | `STALE_CLASS_INTERFACE` | A cached interface describes a public class that cannot be rebuilt |
 | <a id="e476"></a>`E476` | `AMBIGUOUS_TYPE_VARIABLE` | A declared bound constrains a variable the signature never mentions |
 
 `E444`, `E454`, `E456`, `E459` and `E476` are easy to confuse. They differ in what is
