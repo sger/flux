@@ -1,0 +1,33 @@
+// Proposal 0179 Stage 5 contract: a superclass obligation is checked against
+// the *whole* program, not against the instances declared above it.
+//
+// `instance Measurable<Int>` is written before the `instance Sizeable<Int>`
+// that its superclass demands. Both orders must compile identically; before
+// Stage 5 the check ran inline during instance collection and could only see
+// what preceded it, so this file was a false E445.
+//
+// Expected output:
+// 500
+// 5
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+class Sizeable<a> => Measurable<a> {
+    fn weight(x: a) -> Int
+}
+
+// Subclass instance first — the superclass instance does not exist yet.
+instance Sizeable<Int> => Measurable<Int> {
+    fn weight(x) { x * 100 }
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+fn main() with IO {
+    print(weight(5))
+    print(size(5))
+}

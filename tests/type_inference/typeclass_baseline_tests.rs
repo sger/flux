@@ -68,9 +68,13 @@ fn run_fixture(name: &str) -> Result<FixtureOutput, String> {
 }
 
 fn build_interface_from_fixture() -> ModuleInterface {
-    let source = std::fs::read_to_string(fixture_path("TypeclassMetadata.flx"))
-        .expect("read interface fixture");
-    let (program, mut compiler) = parse_source(&source, "TypeclassMetadata.flx");
+    build_interface_for("TypeclassMetadata")
+}
+
+fn build_interface_for(module: &str) -> ModuleInterface {
+    let file = format!("{module}.flx");
+    let source = std::fs::read_to_string(fixture_path(&file)).expect("read interface fixture");
+    let (program, mut compiler) = parse_source(&source, &file);
     compiler
         .compile_with_opts(&program, false, false)
         .expect("interface fixture should compile");
@@ -79,9 +83,9 @@ fn build_interface_from_fixture() -> ModuleInterface {
         .expect("interface fixture should lower");
     let source_hash = hash_bytes(source.as_bytes());
     let config_hash = module_interface::compute_semantic_config_hash(false, false);
-    let module_sym = compiler.interner.intern("TypeclassMetadata");
+    let module_sym = compiler.interner.intern(module);
     module_interface::build_interface(
-        "TypeclassMetadata",
+        module,
         module_sym,
         &source_hash,
         &config_hash,
@@ -107,6 +111,11 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "typeclass_backend_parity.flx",
         "multiple_class_obligations.flx",
         "superclass_instance_validation.flx",
+        "superclass_order_independent.flx",
+        "SuperclassMetadata.flx",
+        "superclass_across_modules.flx",
+        "superclass_method_call.flx",
+        "transitive_superclass.flx",
         "kind_valid.flx",
         "hkt_instance_positive.flx",
         "structured_predicate.flx",
@@ -130,13 +139,13 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         assert!(
             {
                 let source = source.to_ascii_lowercase();
-                source.contains("baseline")
-                    || source.contains("stage 1")
-                    || source.contains("stage 2")
-                    || source.contains("stage 3")
-                    || source.contains("stage 4")
+                [
+                    "baseline", "stage 1", "stage 2", "stage 3", "stage 4", "stage 5",
+                ]
+                .iter()
+                .any(|contract| source.contains(contract))
             },
-            "{fixture} needs a baseline, stage 1, stage 2, stage 3 or stage 4 contract"
+            "{fixture} needs a baseline or a stage 1-5 contract"
         );
         assert!(
             source.contains("Expected"),
@@ -338,6 +347,77 @@ fn public_typeclass_metadata_survives_interface_serialization_roundtrip() {
     );
 }
 
+/// Proposal 0179 Stage 5: a public class's superclasses reach a consumer with
+/// their owning modules, so the `ClassId`s — and therefore the dictionary slot
+/// layout — are identical on the warm path and the cold one.
+#[test]
+fn public_superclass_metadata_survives_interface_serialization_roundtrip() {
+    let interface = build_interface_for("SuperclassMetadata");
+
+    let measurable = interface
+        .public_classes
+        .iter()
+        .find(|entry| entry.name == "Measurable")
+        .expect("Measurable is public");
+    assert_eq!(measurable.superclasses.len(), 1);
+    // Parallel to `superclasses`, and the same length: the count decides how
+    // many evidence slots the dictionary leads with.
+    assert_eq!(
+        measurable.superclass_class_modules,
+        ["SuperclassMetadata"],
+        "each superclass must carry its owning module"
+    );
+
+    let encoded = serde_json::to_vec(&interface).expect("serialize interface");
+    let decoded: ModuleInterface = serde_json::from_slice(&encoded).expect("reload interface");
+    assert_eq!(decoded, interface);
+}
+
+/// Proposal 0179 Stage 5: an interface that cannot supply every superclass
+/// identity is rejected with E478, naming the class and what is missing.
+///
+/// A partially rebuilt class is worse than an absent one — the superclass
+/// count decides how many evidence slots its dictionaries lead with, so one
+/// rebuilt a slot short has every method read at the wrong index. Skipping it
+/// silently was worse still: the failure resurfaced as an unrelated
+/// duplicate-instance error about the instances that referenced the class.
+#[test]
+fn an_interface_missing_superclass_identities_is_reported_not_skipped() {
+    let mut interface = build_interface_for("SuperclassMetadata");
+    let measurable = interface
+        .public_classes
+        .iter_mut()
+        .find(|entry| entry.name == "Measurable")
+        .expect("Measurable is public");
+    assert_eq!(measurable.superclasses.len(), 1);
+    // What an interface written before the owning modules were recorded, or
+    // truncated by a `#[serde(default)]` field, would look like.
+    measurable.superclass_class_modules.clear();
+
+    let mut compiler = Compiler::new_with_file_path("consumer.flx");
+    compiler.preload_module_interface(&interface);
+
+    let reported = compiler
+        .errors
+        .iter()
+        .find(|diagnostic| diagnostic.code() == Some("E478"))
+        .unwrap_or_else(|| {
+            panic!(
+                "expected E478, got: {:?}",
+                compiler.errors.iter().map(|d| d.code()).collect::<Vec<_>>()
+            )
+        });
+    let message = reported.message().unwrap_or_default();
+    assert!(
+        message.contains("Measurable"),
+        "diagnostic should name the class: {message}"
+    );
+    assert!(
+        message.contains("SuperclassMetadata"),
+        "diagnostic should name the module: {message}"
+    );
+}
+
 #[test]
 fn cold_and_warm_compilation_reuse_the_same_typeclass_cache_contract() {
     let scratch = parity::scratch::Scratch::new("typeclass-baseline-cache");
@@ -406,7 +486,7 @@ fn a_concrete_predicate_is_solved_against_its_instance() {
 }
 
 /// A predicate over a quantified variable is retained on the scheme and
-/// discharged at the call site — the retained half of THIH's `split`.
+/// discharged at the call site — the retained half of constraint splitting.
 #[test]
 fn a_quantified_predicate_is_generalized_onto_the_scheme() {
     let output =
@@ -436,4 +516,61 @@ fn structured_predicates_survive_generalization_distinctly() {
     let output = run_fixture("generalized_structured_constraint.flx")
         .unwrap_or_else(|error| panic!("{error}"));
     assert_eq!(output.stdout, "\"7\"\n\"9\"");
+}
+
+/// Proposal 0179 Stage 5: a dictionary carries evidence for its superclasses,
+/// so a function constrained on a subclass can call inherited methods —
+/// through one projection for a direct superclass, two for a transitive one.
+#[test]
+fn superclass_methods_are_reachable_from_a_subclass_dictionary() {
+    for (fixture, expected) in [
+        ("superclass_method_call.flx", "505"),
+        ("transitive_superclass.flx", "111"),
+    ] {
+        let output = run_fixture(fixture).unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(output.stdout, expected, "unexpected output for {fixture}");
+    }
+}
+
+/// Proposal 0179 Stage 5: an inherited method dispatches identically whether
+/// the defining module was just compiled or reloaded from its interface — the
+/// warm path must rebuild the same superclass identities, because they decide
+/// how many evidence slots the dictionary leads with.
+#[test]
+fn superclass_dispatch_is_the_same_cold_and_warm() {
+    let scratch = parity::scratch::Scratch::new("typeclass-superclass-cache");
+    let fixture = fixture_path("superclass_across_modules.flx");
+    let run = || {
+        Command::new(env!("CARGO_BIN_EXE_flux"))
+            .current_dir(workspace_root())
+            .args([fixture.to_str().expect("fixture path is UTF-8")])
+            .args(scratch.cache_args())
+            .output()
+            .expect("run cross-module superclass fixture")
+    };
+
+    let cold = run();
+    assert!(cold.status.success(), "{}", normalize_output(&cold.stderr));
+    assert_eq!(normalize_output(&cold.stdout), "505");
+
+    let warm = run();
+    assert!(warm.status.success(), "{}", normalize_output(&warm.stderr));
+    assert_eq!(
+        normalize_output(&warm.stdout),
+        normalize_output(&cold.stdout),
+        "cached run disagrees with the cold one"
+    );
+}
+
+/// Proposal 0179 Stage 5: a superclass obligation is checked against the whole
+/// program, so declaring the subclass instance above the superclass instance it
+/// requires compiles exactly like the other order.
+///
+/// The check used to run inline while instances were collected, seeing only
+/// what preceded it.
+#[test]
+fn a_superclass_obligation_does_not_depend_on_declaration_order() {
+    let output =
+        run_fixture("superclass_order_independent.flx").unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(output.stdout, "500\n5");
 }

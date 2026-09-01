@@ -1,0 +1,26 @@
+// Proposal 0179 Stage 5 contract: superclass evidence survives the module
+// interface, so an inherited method dispatches the same way whether the
+// defining module was just compiled or loaded from cache.
+//
+// `describe` is constrained on `Measurable` alone and calls `size`, which
+// `Sizeable` declares. Reaching it means projecting the superclass evidence
+// out of the `Measurable` dictionary — and the slot it sits in is decided by
+// how many superclasses the *defining* module said `Measurable` has.
+//
+// A consumer that reloaded the interface without the superclass identities
+// would lay the dictionary out with one slot instead of two and read `weight`
+// where the evidence should be. That is why `superclass_class_modules` is
+// carried alongside `superclasses` and must match it in length.
+//
+// Expected output:
+// 505
+
+import SuperclassAcrossModules.Scale exposing (size, weight)
+
+fn describe<a: Measurable>(x: a) -> Int {
+    size(x) + weight(x)
+}
+
+fn main() with IO {
+    print(describe(5))
+}
