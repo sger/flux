@@ -1900,12 +1900,15 @@ impl Parser {
                 break;
             }
         }
-        // Consume `)`
-        if !self.expect_peek_context(
-            TokenType::RParen,
-            "Expected `)` after method parameters.".to_string(),
-            "".to_string(),
-        ) && !self.is_current_token(TokenType::RParen)
+        // Consume `)`. A method with no parameters is already on it — the
+        // loop above never ran — and asking `expect_peek` first would report a
+        // missing `)` as a side effect before the guard accepted it.
+        if !self.is_current_token(TokenType::RParen)
+            && !self.expect_peek_context(
+                TokenType::RParen,
+                "Expected `)` after method parameters.".to_string(),
+                "".to_string(),
+            )
         {
             return None;
         }
@@ -2193,12 +2196,15 @@ impl Parser {
                 break;
             }
         }
-        // Consume `)`
-        if !self.expect_peek_context(
-            TokenType::RParen,
-            "Expected `)` after method parameters.".to_string(),
-            "".to_string(),
-        ) && !self.is_current_token(TokenType::RParen)
+        // Consume `)`. A method with no parameters is already on it — the
+        // loop above never ran — and asking `expect_peek` first would report a
+        // missing `)` as a side effect before the guard accepted it.
+        if !self.is_current_token(TokenType::RParen)
+            && !self.expect_peek_context(
+                TokenType::RParen,
+                "Expected `)` after method parameters.".to_string(),
+                "".to_string(),
+            )
         {
             return None;
         }
