@@ -1,0 +1,19 @@
+// expect: compile_error
+// expect-error: E486
+// Expected: E486 Underivable Class
+//   "`Ord` cannot be derived for `Color`: no usable `compare` can be generated
+//    for it."
+//
+// Proposal 0179 Stage 7. Unlike `underivable_class_e486.flx`, a body *is*
+// generated here — `compare` becomes a comparison on the two values. The
+// comparison primops do not accept an ADT, so the derived method compiled and
+// then trapped at run time with `E1009 cannot compare Adt with
+// OpGreaterThan`. A method that cannot be called is the same silent third
+// outcome Stage 7 removes, one phase later, so the clause is rejected until
+// the generated body compares constructors structurally.
+
+data Color { Red, Green, Blue } deriving (Ord)
+
+fn main() with IO {
+    print(1)
+}

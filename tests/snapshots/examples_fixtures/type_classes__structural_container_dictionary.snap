@@ -1,0 +1,11 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+assertion_line: 39
+---
+Fixture: examples/type_classes/structural_container_dictionary.flx
+== compile ==
+ok
+== diagnostics ==
+<none>
+== stdout ==
+<not executed>

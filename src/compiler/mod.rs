@@ -3448,6 +3448,10 @@ impl Compiler {
         // Stage 6 adds E479-E483 for associated types, which are new syntax:
         // no built-in class declares one, so none of them can fire on a class
         // the user did not write either.
+        //
+        // Stage 7 adds E486 (underivable class). It fires on a `deriving`
+        // clause, which is always written by the user, so the built-in
+        // shadowing problem cannot reach it.
         let (errors, warnings): (Vec<_>, Vec<_>) = diagnostics.into_iter().partition(|diag| {
             matches!(
                 diag.code(),
@@ -3465,6 +3469,7 @@ impl Compiler {
                         | "E482"
                         | "E483"
                         | "E484"
+                        | "E486"
                 )
             )
         });

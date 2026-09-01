@@ -404,6 +404,49 @@ fn is_json_codec_class(class_name: &str) -> bool {
     )
 }
 
+/// The `(class, type, method)` triples [`builtin_method_body`] knows how to
+/// synthesize a body for.
+///
+/// Kept as a separate predicate so derivability can be decided while classes
+/// are being collected, long before any body is built. It mirrors the match in
+/// `builtin_method_body` exactly; `builtin_bodies_match_the_derivable_set`
+/// pins the two together.
+fn has_builtin_method_body(class_name: &str, type_name: &str, method_name: &str) -> bool {
+    if class_name == "Eq" && is_structural_container_head(type_name) {
+        return matches!(method_name, "eq" | "neq");
+    }
+    matches!(
+        (class_name, type_name, method_name),
+        ("Eq", _, "eq" | "neq")
+            | ("Ord", _, "compare" | "lt" | "lte" | "gt" | "gte")
+            | ("Num", _, "add" | "sub" | "mul" | "div")
+            | ("Show", _, "show")
+            | ("Semigroup", "String", "append")
+    )
+}
+
+/// Whether `deriving` can produce a *usable* method body for one method of a
+/// class.
+///
+/// Proposal 0179 Stage 7: a class is derivable exactly when every one of its
+/// methods can be generated and can then be called. Only ever asked about the
+/// head of a `deriving` clause, which is a user `data` declaration by
+/// construction — the built-in `Ord<Int>`-style instances never reach here.
+pub fn can_derive_method(class_name: &str, type_name: &str, method_name: &str) -> bool {
+    if is_json_codec_class(class_name) {
+        return matches!(method_name, "encode" | "decode");
+    }
+    // `Ord` and `Num` do have bodies — `x < y` and `x + y` — but neither
+    // primop accepts an ADT, so the derived method compiles and then traps at
+    // run time (`E1009 cannot compare Adt with OpGreaterThan`). That is the
+    // silent third case Stage 7 removes, moved one phase later, so the clause
+    // is rejected until the bodies compare constructors structurally.
+    if matches!(class_name, "Ord" | "Num") {
+        return false;
+    }
+    has_builtin_method_body(class_name, type_name, method_name)
+}
+
 fn derived_json_method_body(
     adt: &DeriveAdtInfo,
     method_name: &str,
@@ -420,7 +463,25 @@ fn derived_json_method_body(
 }
 
 fn parse_generated_function_body(body_expr: &str, interner: &mut Interner) -> Option<Block> {
-    let source = format!("fn __json_derive_dummy(__x0) {{ {body_expr} }}");
+    parse_generated_body_with_params(body_expr, 1, interner)
+}
+
+/// Parse a generated method body written as Flux source.
+///
+/// The body is wrapped in a throwaway function so the parser sees the
+/// parameters it mentions. `arity` names them `__x0..__xn`, matching
+/// [`builtin_param_names`], which is what the generated `__tc_*` function
+/// declares.
+fn parse_generated_body_with_params(
+    body_expr: &str,
+    arity: usize,
+    interner: &mut Interner,
+) -> Option<Block> {
+    let params = (0..arity)
+        .map(|idx| format!("__x{idx}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let source = format!("fn __generated_body_dummy({params}) {{ {body_expr} }}");
     let mut parser = Parser::new(Lexer::new_with_interner(source.clone(), interner.clone()));
     let program = parser.parse_program();
     *interner = parser.take_interner();
@@ -1334,6 +1395,44 @@ fn context_dict_param_names(
         .collect()
 }
 
+/// The structural `Eq` body for a built-in container head, as Flux source.
+///
+/// Proposal 0179 Stage 7. These heads carry a context (`Eq<a> => Eq<List<a>>`),
+/// so the element type is a rigid variable inside the body and `==` cannot be
+/// used on it — comparing two `List<a>` with `==` needs evidence of its own and
+/// inflates the method's arity past what the dictionary supplies. Recursing
+/// through `eq` instead routes each element through the context dictionary,
+/// which is exactly what the dictionary constructor passes in.
+///
+/// The keys are the rendered instance heads, so they must stay spelled the way
+/// `ClassEnv::register_builtin_container_instance` builds them — parameter
+/// included. Matching the head name alone would be looser than intended: it
+/// would also claim a user ADT that happens to be called `List`, whose derived
+/// `eq` wants the ordinary `==` body instead.
+fn structural_container_eq_body(type_name: &str) -> Option<&'static str> {
+    match type_name {
+        "List<a>" => Some(
+            "match __x0 { \
+               [h1 | t1] -> match __x1 { [h2 | t2] -> eq(h1, h2) && eq(t1, t2), _ -> false }, \
+               _ -> match __x1 { [h | t] -> false, _ -> true } \
+             }",
+        ),
+        "Option<a>" => Some(
+            "match __x0 { \
+               Some(u) -> match __x1 { Some(v) -> eq(u, v), _ -> false }, \
+               _ -> match __x1 { Some(v) -> false, _ -> true } \
+             }",
+        ),
+        _ => None,
+    }
+}
+
+/// Whether `type_name` is a built-in container head Stage 7 gives a structural
+/// `Eq` instance to.
+fn is_structural_container_head(type_name: &str) -> bool {
+    structural_container_eq_body(type_name).is_some()
+}
+
 fn builtin_method_body(
     interner: &mut Interner,
     id_gen: &mut ExprIdGen,
@@ -1401,6 +1500,20 @@ fn builtin_method_body(
             span,
             id: id_gen.next_id(),
         }
+    }
+
+    // A built-in container head compares structurally through `eq` rather than
+    // with `==`; see `structural_container_eq_body`.
+    if class_name == "Eq"
+        && let Some(body) = structural_container_eq_body(type_name)
+    {
+        let source = match method_name {
+            "eq" => body.to_string(),
+            "neq" => format!("!({body})"),
+            _ => return None,
+        };
+        let parsed = parse_generated_body_with_params(&source, 2, interner)?;
+        return Some(refresh_block_expr_ids(parsed, id_gen));
     }
 
     let span = Span::default();
@@ -1866,5 +1979,35 @@ instance Renderable<Int> {
             source_ids.is_disjoint(&generated_ids),
             "generated explicit instance body reused source ExprIds: source={source_ids:?}, generated={generated_ids:?}"
         );
+    }
+
+    /// Stage 7 rejects a `deriving` clause exactly where no body can be
+    /// generated for it, so `has_builtin_method_body` must answer the same
+    /// question `builtin_method_body` answers by trying. If an arm is added to
+    /// one and not the other, deriving either fabricates a method-less
+    /// instance again or rejects a clause it could have satisfied.
+    #[test]
+    fn builtin_bodies_match_the_derivable_set() {
+        let mut interner = Interner::new();
+        let mut ids = ExprIdGen::new();
+        let classes = ["Eq", "Ord", "Num", "Show", "Semigroup", "Functor"];
+        let types = ["Int", "String", "Color"];
+        let methods = [
+            "eq", "neq", "compare", "lt", "lte", "gt", "gte", "add", "sub", "div", "mul", "show",
+            "append", "fmap",
+        ];
+        for class in classes {
+            for ty in types {
+                for method in methods {
+                    let generated =
+                        builtin_method_body(&mut interner, &mut ids, class, ty, method).is_some();
+                    assert_eq!(
+                        generated,
+                        has_builtin_method_body(class, ty, method),
+                        "({class}, {ty}, {method}) disagrees"
+                    );
+                }
+            }
+        }
     }
 }
