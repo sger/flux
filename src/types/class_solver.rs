@@ -264,54 +264,67 @@ fn solve_instance_evidence(
         return Some(Evidence::Unrecorded);
     }
 
-    let evidence = structural_builtin_evidence(class_id, type_args, class_env, interner, seen)
-        .map(|components| Evidence::Structural { components })
-        .or_else(|| {
-            let (instance, subst) =
-                class_env.resolve_instance_with_subst_by_id(class_id, type_args, interner)?;
+    // A real instance is tried before the structural rule, so that a predicate
+    // an `InstanceDef` can discharge yields evidence naming it — and therefore
+    // a dictionary — rather than a solver-only answer. Proposal 0179 Stage 7
+    // registers contextual `Eq` instances over the built-in containers for
+    // exactly this reason; the structural rule stays as the fallback for the
+    // heads that have none (tuples, `Either`, `Array`, and every `Sendable`
+    // case, which is a marker class with no dictionary at all).
+    //
+    // The instance search is a closure so that its `?` and early `return`
+    // leave *it* rather than this function — falling through to the structural
+    // rule below, and still reaching the `seen.remove` at the end.
+    let from_instance = (|| {
+        let (instance, subst) =
+            class_env.resolve_instance_with_subst_by_id(class_id, type_args, interner)?;
 
-            // Every predicate in the instance's context must itself be
-            // discharged, and its evidence becomes a subgoal of this one.
-            let context = instance
-                .context
-                .iter()
-                .enumerate()
-                .map(|(index, ctx)| {
-                    let args: Vec<InferType> = ctx
-                        .type_args
-                        .iter()
-                        .map(|arg| instantiate_context_type_expr(arg, &subst, interner))
-                        .collect::<Option<_>>()?;
-                    if !args.iter().all(is_concrete_type) {
-                        return None;
-                    }
-                    let context_id = instance
-                        .context_class_ids
-                        .get(index)
-                        .copied()
-                        .or_else(|| class_env.unique_class_id(ctx.class_name))?;
-                    solve_instance_evidence(context_id, &args, class_env, interner, seen)
-                })
-                .collect::<Option<Vec<_>>>()?;
-
-            // A class with no methods has no dictionary to pass, so naming the
-            // instance would imply a runtime value that does not exist.
-            if class_env
-                .lookup_class_by_id(class_id)
-                .is_some_and(|class| class.methods.is_empty())
-            {
-                return Some(Evidence::Marker);
-            }
-
-            Some(Evidence::FromInstance {
-                instance: InstanceKey {
-                    class_id: instance.class_id,
-                    head_type_args: type_args.to_vec(),
-                },
-                subst,
-                context,
+        // Every predicate in the instance's context must itself be
+        // discharged, and its evidence becomes a subgoal of this one.
+        let context = instance
+            .context
+            .iter()
+            .enumerate()
+            .map(|(index, ctx)| {
+                let args: Vec<InferType> = ctx
+                    .type_args
+                    .iter()
+                    .map(|arg| instantiate_context_type_expr(arg, &subst, interner))
+                    .collect::<Option<_>>()?;
+                if !args.iter().all(is_concrete_type) {
+                    return None;
+                }
+                let context_id = instance
+                    .context_class_ids
+                    .get(index)
+                    .copied()
+                    .or_else(|| class_env.unique_class_id(ctx.class_name))?;
+                solve_instance_evidence(context_id, &args, class_env, interner, seen)
             })
-        });
+            .collect::<Option<Vec<_>>>()?;
+
+        // A class with no methods has no dictionary to pass, so naming the
+        // instance would imply a runtime value that does not exist.
+        if class_env
+            .lookup_class_by_id(class_id)
+            .is_some_and(|class| class.methods.is_empty())
+        {
+            return Some(Evidence::Marker);
+        }
+
+        Some(Evidence::FromInstance {
+            instance: InstanceKey {
+                class_id: instance.class_id,
+                head_type_args: type_args.to_vec(),
+            },
+            subst,
+            context,
+        })
+    })();
+    let evidence = from_instance.or_else(|| {
+        structural_builtin_evidence(class_id, type_args, class_env, interner, seen)
+            .map(|components| Evidence::Structural { components })
+    });
 
     seen.remove(&key);
     evidence

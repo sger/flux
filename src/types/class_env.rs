@@ -2694,6 +2694,8 @@ impl ClassEnv {
         let show_method = interner.intern("show");
         let append_method = interner.intern("append");
 
+        let list_name = interner.intern("List");
+        let option_name = interner.intern("Option");
         let int_name = interner.intern("Int");
         let float_name = interner.intern("Float");
         let string_name = interner.intern("String");
@@ -2881,6 +2883,19 @@ impl ClassEnv {
             self.register_builtin_instance(eq, ty);
         }
 
+        // Eq over the built-in containers (Proposal 0179 Stage 7).
+        //
+        // The solver could already *answer* `Eq<List<Int>>` structurally, but
+        // an answer with no `InstanceDef` behind it has no dictionary, so a
+        // constrained function received one fewer argument than it declared
+        // and failed with `E1000 want=3, got=2`. Registering real contextual
+        // instances gives those answers evidence, and every downstream
+        // mechanism — method generation, the dictionary constructor, both
+        // backends — then applies unchanged.
+        for container in [list_name, option_name] {
+            self.register_builtin_container_instance(eq, container, a_param);
+        }
+
         // Ord instances: Int, Float, String
         for ty in [int_name, float_name, string_name] {
             self.register_builtin_instance(ord, ty);
@@ -2959,6 +2974,54 @@ impl ClassEnv {
                 span: Span::default(),
             },
         );
+    }
+
+    /// Register a built-in *contextual* instance over a container head —
+    /// `Class<a> => Class<Container<a>>` (Proposal 0179 Stage 7).
+    ///
+    /// The context is what makes this usable: the element's own dictionary
+    /// arrives as the constructor's argument, and the generated body recurses
+    /// through it rather than through `==`, which cannot be applied to a rigid
+    /// element type.
+    fn register_builtin_container_instance(
+        &mut self,
+        class_name: Identifier,
+        container: Identifier,
+        param: Identifier,
+    ) {
+        // The rendered form of this head — `List<a>` — is the key
+        // `class_dispatch::structural_container_eq_body` looks the generated
+        // body up by, so `param` is part of that contract.
+        let head = TypeExpr::Named {
+            name: container,
+            args: vec![builtin_type(param)],
+            span: Span::default(),
+        };
+        let already_exists = self.instances.iter().any(|i| {
+            i.class_name == class_name
+                && i.type_args.first().is_some_and(|t| t.structural_eq(&head))
+        });
+        if already_exists {
+            return;
+        }
+        let class_id = ClassId::from_local_name(class_name);
+        self.instances.push(InstanceDef {
+            class_name,
+            class_id,
+            instance_module: ModulePath::EMPTY,
+            is_public: false,
+            type_args: vec![head],
+            context: vec![ClassConstraint {
+                class_name,
+                type_args: vec![builtin_type(param)],
+                span: Span::default(),
+            }],
+            context_class_ids: vec![class_id],
+            method_names: vec![],
+            method_effects: vec![],
+            associated_types: vec![],
+            span: Span::default(),
+        });
     }
 
     /// Register a single built-in instance.

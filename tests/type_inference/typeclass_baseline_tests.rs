@@ -111,6 +111,7 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "derived_show.flx",
         "derived_encode.flx",
         "derived_decode.flx",
+        "structural_container_dictionary.flx",
         "TypeclassMetadata.flx",
         "typeclass_backend_parity.flx",
         "multiple_class_obligations.flx",
@@ -314,6 +315,10 @@ fn derived_instances_are_callable_and_carry_evidence() {
         ("derived_eq.flx", "true\nfalse\ntrue\nfalse\ntrue"),
         ("derived_show.flx", "\"Red\"\n\"Blue\"\n\"Green\""),
         ("derived_decode.flx", "\"pair\"\n2"),
+        (
+            "structural_container_dictionary.flx",
+            "true\nfalse\ntrue\nfalse\ntrue\ntrue",
+        ),
     ] {
         let output =
             run_fixture(fixture).unwrap_or_else(|error| panic!("{fixture} should run: {error}"));

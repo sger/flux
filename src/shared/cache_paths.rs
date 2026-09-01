@@ -65,7 +65,10 @@ use sha2::{Digest, Sha256};
 /// Epoch 33: module interfaces carry class associated-type declarations and
 /// their instance equations, so an importing module reduces an application an
 /// epoch-32 interface left stuck.
-pub const CACHE_EPOCH: u16 = 33;
+/// Epoch 34: `Eq` has contextual instances over `List` and `Option`, so a
+/// predicate an epoch-33 interface answered structurally — with no dictionary
+/// behind it — now resolves to an instance and carries one.
+pub const CACHE_EPOCH: u16 = 34;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {
