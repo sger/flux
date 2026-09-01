@@ -5,17 +5,10 @@
 //! semantic and ABI level, every class is identified by a `ClassId` rather
 //! than a bare `Identifier`.
 //!
-//! ## Phase 1a status
-//!
-//! These types are introduced as a parallel API alongside the existing
-//! `Identifier`-keyed `ClassEnv` storage. Phase 1a does not yet flip the
-//! storage — every `ClassId` produced today carries `ModulePath::empty()`
-//! (the "no owning module" sentinel that means "use the legacy global name
-//! table"). Phase 1b switches `ClassEnv` to key on `ClassId` directly and
-//! removes the proxy.
-//!
-//! Keeping the public surface stable in Phase 1a means later phases can
-//! migrate call sites incrementally without churning the API.
+//! ClassId is the semantic identity carried through inference, solving,
+//! dispatch, dictionary elaboration, and serialized module interfaces. The
+//! parser remains textual; source resolution is the boundary that produces a
+//! ClassId.
 //!
 //! ## Representation
 //!
@@ -26,18 +19,17 @@
 //! [`Interner::intern_join`](crate::syntax::interner::Interner::intern_join),
 //! so a `ModulePath` is just the symbol of that joined string.
 
-use crate::syntax::Identifier;
+use std::collections::HashMap;
+
+use crate::syntax::{Identifier, symbol::Symbol};
+use serde::{Deserialize, Serialize};
 
 /// A module path, e.g. `Flow.Foldable` or `App.Geometry.Inner`.
 ///
 /// Internally a `ModulePath` is the interner symbol of the dotted form. The
 /// special value [`ModulePath::empty`] represents "no owning module" and is
-/// used during Phase 1a as a sentinel for legacy top-level declarations and
-/// for identifiers that have not yet been associated with a module.
-///
-/// Phase 1b will phase out the empty sentinel by walking module bodies during
-/// class collection and assigning a real path to every declaration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// used for legacy top-level declarations and prelude classes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ModulePath(Identifier);
 
 impl ModulePath {
@@ -52,10 +44,6 @@ impl ModulePath {
 
     /// The empty path sentinel — `(ModulePath::EMPTY, name)` is interpreted
     /// as a legacy top-level declaration with no owning module.
-    ///
-    /// In Phase 1a this is the only `ModulePath` produced by the parser.
-    /// In Phase 1b it becomes a transitional value that the class collector
-    /// stops emitting.
     pub const EMPTY: ModulePath = ModulePath(Identifier::SENTINEL);
 
     /// Construct the empty-path sentinel. Equivalent to `ModulePath::EMPTY`.
@@ -82,12 +70,9 @@ impl ModulePath {
 /// `ClassId`s and produce distinct mangled symbols, distinct dictionary
 /// globals, and distinct `.flxi` entries.
 ///
-/// During Phase 1a, every `ClassId` constructed by the compiler has
-/// `module == ModulePath::EMPTY`, so the new API is a strict superset of the
-/// existing `Identifier`-keyed lookups (no class name can collide with itself).
-/// Phase 1b walks module bodies during class collection and starts producing
-/// `ClassId`s with real module paths.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Top-level/prelude classes use the empty module for legacy ABI names;
+/// module-scoped declarations carry their actual dotted owning path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ClassId {
     pub module: ModulePath,
     pub name: Identifier,
@@ -99,10 +84,7 @@ impl ClassId {
         Self { module, name }
     }
 
-    /// Construct a `ClassId` for a legacy top-level class (no owning module).
-    ///
-    /// Phase 1a uses this everywhere. Phase 1b replaces most uses with
-    /// [`ClassId::new`] once the class collector tracks owning modules.
+    /// Construct a `ClassId` for a legacy top-level or prelude class.
     pub const fn from_local_name(name: Identifier) -> Self {
         Self {
             module: ModulePath::EMPTY,
@@ -114,6 +96,30 @@ impl ClassId {
     /// top-level case).
     pub const fn is_local(self) -> bool {
         self.module.is_empty()
+    }
+
+    /// Collect the interned symbols used by this identity for interface
+    /// serialization/remapping.
+    pub fn collect_symbols(self, out: &mut std::collections::HashSet<Symbol>) {
+        out.insert(self.name);
+        if let Some(module) = self.module.as_identifier() {
+            out.insert(module);
+        }
+    }
+
+    /// Remap both components of this identity through an interface symbol
+    /// table.
+    pub fn remap_symbols(self, remap: &HashMap<Symbol, Symbol>) -> Self {
+        let module = self
+            .module
+            .as_identifier()
+            .map(|id| remap.get(&id).copied().unwrap_or(id))
+            .map(ModulePath::from_identifier)
+            .unwrap_or(ModulePath::EMPTY);
+        Self {
+            module,
+            name: remap.get(&self.name).copied().unwrap_or(self.name),
+        }
     }
 }
 
@@ -174,9 +180,8 @@ mod tests {
 
     #[test]
     fn two_class_ids_with_same_name_and_empty_module_are_equal() {
-        // Phase 1a invariant: legacy top-level classes with the same short
-        // name collapse to the same ClassId. Phase 1b removes this case by
-        // walking module bodies and assigning real owning modules.
+        // Legacy top-level classes deliberately share the empty-module
+        // identity; module-scoped declarations use their owning module.
         let mut interner = Interner::new();
         let class_name = interner.intern("Eq");
         let id_a = ClassId::from_local_name(class_name);

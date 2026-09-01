@@ -93,3 +93,98 @@ fn dotted_module_instance_dispatches_on_vm_and_llvm() {
         "native output was:\n{native_stdout}"
     );
 }
+
+fn run_same_named_fixture(native: bool) -> (String, String, bool) {
+    let _guard = TYPECLASS_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("typeclass test lock poisoned");
+    let scratch = Scratch::new(if native {
+        "native-qualified-class-id"
+    } else {
+        "vm-qualified-class-id"
+    });
+    scratch.write(
+        "Mod/A.flx",
+        r#"
+module Mod.A {
+    public class Foo<a> {
+        fn render(x: a) -> String
+    }
+
+    public instance Foo<Int> {
+        fn render(x) { "A" }
+    }
+}
+"#,
+    );
+    scratch.write(
+        "Mod/B.flx",
+        r#"
+module Mod.B {
+    public class Foo<a> {
+        fn render(x: a) -> String
+    }
+
+    public instance Foo<Int> {
+        fn render(x) { "B" }
+    }
+}
+"#,
+    );
+    let entry = scratch.write(
+        "main.flx",
+        r#"
+import Mod.A as Alpha
+import Mod.B as Beta
+
+fn main() with IO {
+    print(Alpha.render(0))
+    print(Beta.render(0))
+}
+"#,
+    );
+
+    let mut args = vec![
+        entry.to_string_lossy().into_owned(),
+        "--no-cache".to_string(),
+    ];
+    args.extend(scratch.cache_args());
+    if native {
+        args.push("--native".to_string());
+    }
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(workspace_root())
+        .args(args)
+        .output()
+        .expect("run same-named class-id fixture");
+
+    (
+        String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+        String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n"),
+        output.status.success(),
+    )
+}
+
+#[test]
+fn same_named_module_classes_dispatch_on_vm_and_llvm() {
+    let (vm_stdout, vm_stderr, vm_ok) = run_same_named_fixture(false);
+    let (native_stdout, native_stderr, native_ok) = run_same_named_fixture(true);
+
+    assert!(
+        vm_ok,
+        "same-named class fixture failed on VM:\nstdout:\n{vm_stdout}\nstderr:\n{vm_stderr}"
+    );
+    assert!(
+        native_ok,
+        "same-named class fixture failed natively:\nstdout:\n{native_stdout}\nstderr:\n{native_stderr}"
+    );
+    assert!(
+        vm_stdout.contains("A") && vm_stdout.contains("B"),
+        "VM output was:\n{vm_stdout}"
+    );
+    assert!(
+        native_stdout.contains("A") && native_stdout.contains("B"),
+        "native output was:\n{native_stdout}"
+    );
+}

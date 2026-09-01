@@ -56,6 +56,7 @@ impl Scheme {
         self.infer_type.collect_symbols(out);
         for constraint in &self.constraints {
             out.insert(constraint.class_name);
+            constraint.class_id.collect_symbols(out);
             for type_arg in &constraint.type_args {
                 type_arg.collect_symbols(out);
             }
@@ -74,6 +75,7 @@ impl Scheme {
                         .get(&constraint.class_name)
                         .copied()
                         .unwrap_or(constraint.class_name),
+                    class_id: constraint.class_id.remap_symbols(remap),
                     type_args: constraint
                         .type_args
                         .iter()
@@ -148,6 +150,7 @@ impl Scheme {
             .iter()
             .map(|c| SchemeConstraint {
                 class_name: c.class_name,
+                class_id: c.class_id,
                 type_args: c
                     .type_args
                     .iter()
@@ -248,9 +251,10 @@ pub fn generalize_with_constraints(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
 
     use super::{Scheme, generalize};
+    use crate::ast::type_infer::constraint::SchemeConstraint;
     use crate::types::{
         infer_effect_row::InferEffectRow, infer_type::InferType, type_constructor::TypeConstructor,
     };
@@ -411,6 +415,37 @@ mod tests {
             InferEffectRow::closed_empty(),
         );
         assert_eq!(remapped.infer_type, expected_type);
+    }
+
+    #[test]
+    fn class_id_module_survives_interface_symbol_remapping() {
+        use crate::syntax::symbol::Symbol;
+        use crate::types::class_id::{ClassId, ModulePath};
+
+        let old_class = Symbol::new(5);
+        let old_module = Symbol::new(6);
+        let new_class = Symbol::new(50);
+        let new_module = Symbol::new(60);
+        let scheme = Scheme {
+            forall: vec![0],
+            constraints: vec![SchemeConstraint {
+                class_name: old_class,
+                class_id: ClassId::new(ModulePath::from_identifier(old_module), old_class),
+                type_args: vec![infer_var(0)],
+            }],
+            infer_type: InferType::Fun(
+                vec![infer_var(0)],
+                Box::new(infer_var(0)),
+                InferEffectRow::closed_empty(),
+            ),
+        };
+
+        let remap = HashMap::from([(old_class, new_class), (old_module, new_module)]);
+        let remapped = scheme.remap_symbols(&remap);
+        assert_eq!(
+            remapped.constraints[0].class_id,
+            ClassId::new(ModulePath::from_identifier(new_module), new_class)
+        );
     }
 
     #[test]

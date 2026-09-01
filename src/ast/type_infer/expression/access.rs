@@ -62,9 +62,23 @@ impl<'a> InferCtx<'a> {
         if let Expression::Identifier {
             name: module_name, ..
         } = object
+            // Preloaded schemes are keyed by the import binding as written
+            // (`build_preloaded_hm_member_schemes`), while schemes captured
+            // from a module body are keyed by its declared name. Try the name
+            // as written first, then the module the alias resolves to, so
+            // neither form of key is missed — resolving the alias *instead of*
+            // consulting the written name drops every preloaded entry and the
+            // member degrades to a fallback variable, which surfaces as E430
+            // at the call site rather than here.
+            && let Some(target_module) = Some(
+                self.module_aliases
+                    .get(module_name)
+                    .copied()
+                    .unwrap_or(*module_name),
+            )
             && let Some(scheme) = self
                 .module_member_schemes
-                .get(&(*module_name, member))
+                .get(&(target_module, member))
                 .cloned()
         {
             let (ty, mapping, constraints) = scheme.instantiate(&mut self.env.counter);

@@ -171,11 +171,34 @@ impl<'a> super::AstLowerer<'a> {
                     _ => None,
                 };
                 if let Some(mangled) = self.try_resolve_class_call_expr(function, arguments, *id)
-                    && let Some(mut args) = self.resolve_direct_class_call_dict_args(
-                        method_name.expect("class call resolution returned a direct callee"),
-                        arguments,
-                        *id,
-                    )
+                    && let Some(method_name) = method_name
+                    && let Some(mut args) = match function.as_ref() {
+                        Expression::MemberAccess { object, member, .. } => {
+                            let class_id = match object.as_ref() {
+                                Expression::Identifier {
+                                    name: qualifier, ..
+                                } => self.class_env.and_then(|class_env| {
+                                    self.interner.and_then(|interner| {
+                                        class_env.resolve_qualified_method_class_id(
+                                            self.qualified_module_target(*qualifier),
+                                            *member,
+                                            interner,
+                                        )
+                                    })
+                                }),
+                                _ => None,
+                            };
+                            class_id.and_then(|class_id| {
+                                self.resolve_direct_class_call_dict_args_for_id(
+                                    class_id,
+                                    method_name,
+                                    arguments,
+                                    *id,
+                                )
+                            })
+                        }
+                        _ => self.resolve_direct_class_call_dict_args(method_name, arguments, *id),
+                    }
                 {
                     args.extend(arguments.iter().map(|a| self.lower_expr(a)));
                     return CoreExpr::App {

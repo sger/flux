@@ -263,6 +263,7 @@ mod tests {
     fn wanted(class_name: Identifier) -> WantedClassConstraint {
         WantedClassConstraint {
             class_name,
+            class_id: crate::types::class_id::ClassId::from_local_name(class_name),
             type_args: vec![InferType::Con(TypeConstructor::Int)],
             span: Span::default(),
             origin: WantedClassConstraintOrigin::ExplicitBound,
@@ -291,6 +292,7 @@ mod tests {
                     disposition: Disposition::Generalized {
                         scheme_constraint: SchemeConstraint {
                             class_name: num,
+                            class_id: crate::types::class_id::ClassId::from_local_name(num),
                             type_args: vec![InferType::Var(0)],
                         },
                     },
