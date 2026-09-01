@@ -22,11 +22,13 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    core::{CoreBinder, CoreBinderId, CoreDef, CoreExpr, CorePrimOp, CoreProgram, FluxRep},
+    core::{
+        CoreBinder, CoreBinderId, CoreDef, CoreExpr, CorePrimOp, CoreProgram, CoreType, FluxRep,
+    },
     diagnostics::position::Span,
     syntax::{Identifier, interner::Interner},
     types::{
-        class_env::{ClassEnv, DictSlot},
+        class_env::{ClassEnv, DictSelection, DictSlot, select_dictionary},
         scheme::Scheme,
         type_env::TypeEnv,
     },
@@ -540,7 +542,7 @@ fn rewrite_constrained_functions(
 
         // Build dictionary parameters and method map for this function.
         let mut dict_params: Vec<CoreBinder> = Vec::new();
-        let mut method_map: HashMap<Identifier, (CoreBinder, Vec<usize>)> = HashMap::new();
+        let mut method_map: MethodPaths = HashMap::new();
         // A function can hold several dictionaries for one class, so the
         // parameter names carry a per-class occurrence suffix. The lookups that
         // consume them — `current_context_dictionary` and its AST twin — have
@@ -578,28 +580,30 @@ fn rewrite_constrained_functions(
                 binder
             };
 
-            // Map each method reachable through this dictionary to the slot
-            // path that reaches it. The class's own methods are one
+            // Record every method reachable through this dictionary with the
+            // slot path that reaches it. The class's own methods are one
             // projection; a superclass method is that superclass's slot
             // followed by the method's slot inside it, which is what lets a
             // `fn f<a: Ord>` call `eq`.
-            for (idx, slot) in class_env
-                .dictionary_layout(constraint.class_id)
-                .unwrap_or_default()
-                .into_iter()
-                .enumerate()
+            //
+            // Appended rather than inserted: a second constraint on the same
+            // class reaches the same methods through a *different* dictionary,
+            // and both have to survive for the call site to choose between
+            // them.
+            let type_args: Vec<CoreType> = constraint
+                .type_args
+                .iter()
+                .map(CoreType::try_from_infer)
+                .collect::<Option<Vec<_>>>()
+                .unwrap_or_default();
+            for (method, declaring_class, path) in reachable_methods(class_env, constraint.class_id)
             {
-                match slot {
-                    DictSlot::Method(method) => {
-                        method_map.insert(method, (dict_binder, vec![idx]));
-                    }
-                    DictSlot::Superclass(superclass) => {
-                        for (inherited, mut path) in inherited_method_paths(class_env, superclass) {
-                            path.insert(0, idx);
-                            method_map.entry(inherited).or_insert((dict_binder, path));
-                        }
-                    }
-                }
+                method_map.entry(method).or_default().push(MethodCandidate {
+                    declaring_class,
+                    type_args: type_args.clone(),
+                    binder: dict_binder,
+                    path,
+                });
             }
         }
 
@@ -613,7 +617,7 @@ fn rewrite_constrained_functions(
         // instance must distinguish a container call (direct self dispatch)
         // from an element call (dictionary extraction).  Dictionary
         // elaboration only performs the latter rewrite here.
-        let rewritten = rewrite_body_with_dicts(old_expr, &method_map);
+        let rewritten = rewrite_body_with_dicts(old_expr, &method_map, class_env);
 
         if dict_params.is_empty() {
             def.expr = normalize_existing_dict_param_types(rewritten, existing_dict_params.len());
@@ -1327,26 +1331,51 @@ pub fn dict_name_for(
 /// dictionary parameters instead of calling the polymorphic stub.
 ///
 /// `method_map` maps class method names to `(dict_param_binder, slot_path)`.
-/// Where each class method sits relative to a dictionary parameter.
+/// One dictionary a class method can be reached through, and how.
 ///
-/// The `Vec<usize>` is a slot path, applied outermost-first: `[2]` is the
-/// dictionary's own slot 2, and `[0, 1]` is slot 1 of the superclass evidence
-/// held in slot 0. Superclass entailment is exactly what makes a path longer
-/// than one element possible.
-type MethodPaths = HashMap<Identifier, (CoreBinder, Vec<usize>)>;
+/// `path` is a slot path applied outermost-first: `[2]` is the dictionary's own
+/// slot 2, and `[0, 1]` is slot 1 of the superclass evidence held in slot 0.
+/// Superclass entailment is exactly what makes a path longer than one element
+/// possible.
+#[derive(Debug, Clone)]
+pub struct MethodCandidate {
+    /// The class that declares the method — the constraint's own class for a
+    /// direct method, a superclass for an inherited one. Selection asks *this*
+    /// class which argument reveals its type parameter.
+    declaring_class: crate::types::class_id::ClassId,
+    /// Type arguments of the constraint this candidate was reached through.
+    ///
+    /// Empty when they could not be expressed as `CoreType`, which simply
+    /// fails to match and so never wins a selection.
+    type_args: Vec<CoreType>,
+    binder: CoreBinder,
+    path: Vec<usize>,
+}
 
-/// Methods reachable *through* a dictionary for `class_id`, with the slot path
-/// that reaches each, relative to that dictionary.
+/// Every dictionary each class method can be reached through, in constraint
+/// order.
+///
+/// A list rather than a single entry: a function constrained twice on one class
+/// holds two dictionaries that both reach the same method, and collapsing them
+/// to one is KI-057 — every call then dispatched through whichever won.
+type MethodPaths = HashMap<Identifier, Vec<MethodCandidate>>;
+
+/// Methods reachable *through* a dictionary for `class_id`, each with the class
+/// that declares it and the slot path that reaches it, relative to that
+/// dictionary.
 ///
 /// Breadth-first over the superclass graph, so a method declared by the nearest
 /// class wins over an inherited one of the same name. Cycles cannot occur —
 /// E477 rejects them before this pass runs — but the visited set keeps this
 /// total regardless.
-fn inherited_method_paths(
+///
+/// The declaring class is reported because it, not the constraint's class, owns
+/// the method signature that says which argument reveals the dispatch type.
+pub(crate) fn reachable_methods(
     class_env: &ClassEnv,
     class_id: crate::types::class_id::ClassId,
-) -> Vec<(Identifier, Vec<usize>)> {
-    let mut found: Vec<(Identifier, Vec<usize>)> = Vec::new();
+) -> Vec<(Identifier, crate::types::class_id::ClassId, Vec<usize>)> {
+    let mut found: Vec<(Identifier, crate::types::class_id::ClassId, Vec<usize>)> = Vec::new();
     let mut visited = vec![class_id];
     let mut queue = std::collections::VecDeque::from([(class_id, Vec::new())]);
 
@@ -1361,8 +1390,8 @@ fn inherited_method_paths(
             path.push(idx);
             match slot {
                 DictSlot::Method(method) => {
-                    if !found.iter().any(|(seen, _)| *seen == method) {
-                        found.push((method, path));
+                    if !found.iter().any(|(seen, _, _)| *seen == method) {
+                        found.push((method, current, path));
                     }
                 }
                 DictSlot::Superclass(superclass) if !visited.contains(&superclass) => {
@@ -1377,17 +1406,87 @@ fn inherited_method_paths(
     found
 }
 
-pub fn rewrite_body_with_dicts(expr: CoreExpr, method_map: &MethodPaths) -> CoreExpr {
-    rewrite_expr(expr, method_map)
+/// Choose which of `method`'s candidate dictionaries this call means.
+///
+/// One candidate needs no choosing, which is both the common case and what
+/// keeps a method dispatched on its result type working unchanged. With two or
+/// more, the argument types decide: `dispatch_positions` says which argument
+/// reveals each class parameter, and `select_dictionary` matches what it finds
+/// against each candidate's constraint.
+///
+/// An undecidable call has already been reported by inference (E485). A Core
+/// pass cannot report, so this recovers with the first candidate rather than
+/// failing — lowering stays total and the diagnostic is what the user sees.
+fn choose_candidate<'a>(
+    class_env: &ClassEnv,
+    candidates: &'a [MethodCandidate],
+    method: Identifier,
+    args: &[CoreExpr],
+    binder_types: &HashMap<CoreBinderId, CoreType>,
+) -> Option<&'a MethodCandidate> {
+    let [_, _, ..] = candidates else {
+        return candidates.first();
+    };
+    let first = &candidates[0];
+    let Some(positions) = class_env.dispatch_positions(first.declaring_class, method) else {
+        return Some(first);
+    };
+    // A method whose class parameter appears in no value parameter — `decode`,
+    // whose type is fixed by where its result flows — reveals nothing here.
+    // Result-directed selection is not in scope (KI-058), so preserve what the
+    // name-keyed map did: the last constraint to record the method won.
+    if positions.iter().all(Option::is_none) {
+        return candidates.last();
+    }
+    let observed: Vec<Option<CoreType>> = positions
+        .iter()
+        .map(|position| {
+            let arg = args.get((*position)?)?;
+            match arg {
+                CoreExpr::Var { var, .. } => {
+                    var.binder.and_then(|id| binder_types.get(&id).cloned())
+                }
+                _ => None,
+            }
+        })
+        .collect();
+    let indexed: Vec<(usize, Vec<CoreType>)> = candidates
+        .iter()
+        .enumerate()
+        .map(|(index, candidate)| (index, candidate.type_args.clone()))
+        .collect();
+    match select_dictionary(&indexed, &observed) {
+        DictSelection::Unique(index) => candidates.get(index),
+        DictSelection::Ambiguous | DictSelection::NoMatch => Some(first),
+    }
 }
 
-fn rewrite_expr(expr: CoreExpr, method_map: &MethodPaths) -> CoreExpr {
+pub fn rewrite_body_with_dicts(
+    expr: CoreExpr,
+    method_map: &MethodPaths,
+    class_env: &ClassEnv,
+) -> CoreExpr {
+    let mut binder_types = HashMap::new();
+    rewrite_expr(expr, method_map, class_env, &mut binder_types)
+}
+
+fn rewrite_expr(
+    expr: CoreExpr,
+    method_map: &MethodPaths,
+    class_env: &ClassEnv,
+    binder_types: &mut HashMap<CoreBinderId, CoreType>,
+) -> CoreExpr {
     match expr {
         // Key case: App where the function is a class method reference.
         // Rewrite: App(Var(eq), args) → App(TupleField(Var(dict), idx), args)
         CoreExpr::App { func, args, span } => {
             if let CoreExpr::Var { ref var, .. } = *func
-                && let Some((dict_binder, path)) = method_map.get(&var.name)
+                && let Some(candidates) = method_map.get(&var.name)
+                && let Some(MethodCandidate {
+                    binder: dict_binder,
+                    path,
+                    ..
+                }) = choose_candidate(class_env, candidates, var.name, &args, binder_types)
             {
                 // Class method reference — project it out of the dictionary.
                 // A path longer than one slot walks through superclass
@@ -1404,7 +1503,7 @@ fn rewrite_expr(expr: CoreExpr, method_map: &MethodPaths) -> CoreExpr {
                         });
                 let rewritten_args = args
                     .into_iter()
-                    .map(|a| rewrite_expr(a, method_map))
+                    .map(|a| rewrite_expr(a, method_map, class_env, binder_types))
                     .collect();
                 return CoreExpr::App {
                     func: Box::new(method_extract),
@@ -1414,10 +1513,10 @@ fn rewrite_expr(expr: CoreExpr, method_map: &MethodPaths) -> CoreExpr {
             }
             // Not a class method — recurse normally.
             CoreExpr::App {
-                func: Box::new(rewrite_expr(*func, method_map)),
+                func: Box::new(rewrite_expr(*func, method_map, class_env, binder_types)),
                 args: args
                     .into_iter()
-                    .map(|a| rewrite_expr(a, method_map))
+                    .map(|a| rewrite_expr(a, method_map, class_env, binder_types))
                     .collect(),
                 span,
             }
@@ -1432,13 +1531,23 @@ fn rewrite_expr(expr: CoreExpr, method_map: &MethodPaths) -> CoreExpr {
             result_ty,
             body,
             span,
-        } => CoreExpr::Lam {
-            params,
-            param_types,
-            result_ty,
-            body: Box::new(rewrite_expr(*body, method_map)),
-            span,
-        },
+        } => {
+            // Record parameter types on the way down: selection reads them at
+            // the call sites below. Binder ids are unique within a function, so
+            // entries never need removing on the way back up.
+            for (binder, ty) in params.iter().zip(param_types.iter()) {
+                if let Some(ty) = ty {
+                    binder_types.insert(binder.id, ty.clone());
+                }
+            }
+            CoreExpr::Lam {
+                params,
+                param_types,
+                result_ty,
+                body: Box::new(rewrite_expr(*body, method_map, class_env, binder_types)),
+                span,
+            }
+        }
 
         CoreExpr::Let {
             var,
@@ -1447,8 +1556,8 @@ fn rewrite_expr(expr: CoreExpr, method_map: &MethodPaths) -> CoreExpr {
             span,
         } => CoreExpr::Let {
             var,
-            rhs: Box::new(rewrite_expr(*rhs, method_map)),
-            body: Box::new(rewrite_expr(*body, method_map)),
+            rhs: Box::new(rewrite_expr(*rhs, method_map, class_env, binder_types)),
+            body: Box::new(rewrite_expr(*body, method_map, class_env, binder_types)),
             span,
         },
 
@@ -1459,8 +1568,8 @@ fn rewrite_expr(expr: CoreExpr, method_map: &MethodPaths) -> CoreExpr {
             span,
         } => CoreExpr::LetRec {
             var,
-            rhs: Box::new(rewrite_expr(*rhs, method_map)),
-            body: Box::new(rewrite_expr(*body, method_map)),
+            rhs: Box::new(rewrite_expr(*rhs, method_map, class_env, binder_types)),
+            body: Box::new(rewrite_expr(*body, method_map, class_env, binder_types)),
             span,
         },
 
@@ -1471,9 +1580,14 @@ fn rewrite_expr(expr: CoreExpr, method_map: &MethodPaths) -> CoreExpr {
         } => CoreExpr::LetRecGroup {
             bindings: bindings
                 .into_iter()
-                .map(|(b, rhs)| (b, Box::new(rewrite_expr(*rhs, method_map))))
+                .map(|(b, rhs)| {
+                    (
+                        b,
+                        Box::new(rewrite_expr(*rhs, method_map, class_env, binder_types)),
+                    )
+                })
                 .collect(),
-            body: Box::new(rewrite_expr(*body, method_map)),
+            body: Box::new(rewrite_expr(*body, method_map, class_env, binder_types)),
             span,
         },
 
@@ -1483,12 +1597,19 @@ fn rewrite_expr(expr: CoreExpr, method_map: &MethodPaths) -> CoreExpr {
             join_ty,
             span,
         } => CoreExpr::Case {
-            scrutinee: Box::new(rewrite_expr(*scrutinee, method_map)),
+            scrutinee: Box::new(rewrite_expr(
+                *scrutinee,
+                method_map,
+                class_env,
+                binder_types,
+            )),
             alts: alts
                 .into_iter()
                 .map(|mut alt| {
-                    alt.rhs = rewrite_expr(alt.rhs, method_map);
-                    alt.guard = alt.guard.map(|g| rewrite_expr(g, method_map));
+                    alt.rhs = rewrite_expr(alt.rhs, method_map, class_env, binder_types);
+                    alt.guard = alt
+                        .guard
+                        .map(|g| rewrite_expr(g, method_map, class_env, binder_types));
                     alt
                 })
                 .collect(),
@@ -1500,7 +1621,7 @@ fn rewrite_expr(expr: CoreExpr, method_map: &MethodPaths) -> CoreExpr {
             tag,
             fields: fields
                 .into_iter()
-                .map(|f| rewrite_expr(f, method_map))
+                .map(|f| rewrite_expr(f, method_map, class_env, binder_types))
                 .collect(),
             span,
         },
@@ -1509,13 +1630,13 @@ fn rewrite_expr(expr: CoreExpr, method_map: &MethodPaths) -> CoreExpr {
             op,
             args: args
                 .into_iter()
-                .map(|a| rewrite_expr(a, method_map))
+                .map(|a| rewrite_expr(a, method_map, class_env, binder_types))
                 .collect(),
             span,
         },
 
         CoreExpr::Return { value, span } => CoreExpr::Return {
-            value: Box::new(rewrite_expr(*value, method_map)),
+            value: Box::new(rewrite_expr(*value, method_map, class_env, binder_types)),
             span,
         },
 
@@ -1529,7 +1650,7 @@ fn rewrite_expr(expr: CoreExpr, method_map: &MethodPaths) -> CoreExpr {
             operation,
             args: args
                 .into_iter()
-                .map(|a| rewrite_expr(a, method_map))
+                .map(|a| rewrite_expr(a, method_map, class_env, binder_types))
                 .collect(),
             span,
         },
@@ -1541,13 +1662,14 @@ fn rewrite_expr(expr: CoreExpr, method_map: &MethodPaths) -> CoreExpr {
             handlers,
             span,
         } => CoreExpr::Handle {
-            body: Box::new(rewrite_expr(*body, method_map)),
+            body: Box::new(rewrite_expr(*body, method_map, class_env, binder_types)),
             effect,
-            parameter: parameter.map(|p| Box::new(rewrite_expr(*p, method_map))),
+            parameter: parameter
+                .map(|p| Box::new(rewrite_expr(*p, method_map, class_env, binder_types))),
             handlers: handlers
                 .into_iter()
                 .map(|mut h| {
-                    h.body = rewrite_expr(h.body, method_map);
+                    h.body = rewrite_expr(h.body, method_map, class_env, binder_types);
                     h
                 })
                 .collect(),
@@ -1559,7 +1681,7 @@ fn rewrite_expr(expr: CoreExpr, method_map: &MethodPaths) -> CoreExpr {
             member,
             span,
         } => CoreExpr::MemberAccess {
-            object: Box::new(rewrite_expr(*object, method_map)),
+            object: Box::new(rewrite_expr(*object, method_map, class_env, binder_types)),
             member,
             span,
         },
@@ -1569,7 +1691,7 @@ fn rewrite_expr(expr: CoreExpr, method_map: &MethodPaths) -> CoreExpr {
             index,
             span,
         } => CoreExpr::TupleField {
-            object: Box::new(rewrite_expr(*object, method_map)),
+            object: Box::new(rewrite_expr(*object, method_map, class_env, binder_types)),
             index,
             span,
         },
@@ -1592,6 +1714,21 @@ mod tests {
 
     fn s() -> Span {
         Span::default()
+    }
+
+    /// The only candidate for a method, which is what every rewriter test
+    /// exercises: with one dictionary in scope there is nothing to choose, so
+    /// the class environment is never consulted.
+    fn single_candidate(binder: CoreBinder, path: Vec<usize>) -> MethodCandidate {
+        MethodCandidate {
+            declaring_class: crate::types::class_id::ClassId::new(
+                crate::types::class_id::ModulePath::EMPTY,
+                crate::syntax::symbol::Symbol::new(0),
+            ),
+            type_args: Vec::new(),
+            binder,
+            path,
+        }
     }
 
     fn mk_binder(id: u32, name: Identifier) -> CoreBinder {
@@ -1858,7 +1995,10 @@ mod tests {
         let y_binder = mk_binder(2, y_name);
 
         let mut method_map = HashMap::new();
-        method_map.insert(eq_method, (dict_binder, vec![0_usize]));
+        method_map.insert(
+            eq_method,
+            vec![single_candidate(dict_binder, vec![0_usize])],
+        );
 
         // Build: App(Var(eq), [Var(x), Var(y)])
         let expr = CoreExpr::App {
@@ -1873,7 +2013,7 @@ mod tests {
             span: s(),
         };
 
-        let rewritten = rewrite_body_with_dicts(expr, &method_map);
+        let rewritten = rewrite_body_with_dicts(expr, &method_map, &ClassEnv::new());
 
         // Expected: App(TupleField(Var(dict), 0), [Var(x), Var(y)])
         match rewritten {
@@ -1913,7 +2053,7 @@ mod tests {
             span: s(),
         };
 
-        let rewritten = rewrite_body_with_dicts(expr, &method_map);
+        let rewritten = rewrite_body_with_dicts(expr, &method_map, &ClassEnv::new());
 
         // Should remain App(Var(println), [Var(x)]) — unchanged.
         match rewritten {
@@ -1940,7 +2080,10 @@ mod tests {
         let local_eq = mk_binder(99, eq_method);
 
         let mut method_map = HashMap::new();
-        method_map.insert(eq_method, (dict_binder, vec![0_usize]));
+        method_map.insert(
+            eq_method,
+            vec![single_candidate(dict_binder, vec![0_usize])],
+        );
 
         // App(Var(eq, binder=99), [Lit(1)]) — bound var with class method name.
         let expr = CoreExpr::App {
@@ -1949,7 +2092,7 @@ mod tests {
             span: s(),
         };
 
-        let rewritten = rewrite_body_with_dicts(expr, &method_map);
+        let rewritten = rewrite_body_with_dicts(expr, &method_map, &ClassEnv::new());
 
         // SHOULD be rewritten — dict elaboration rewrites by name match.
         match rewritten {

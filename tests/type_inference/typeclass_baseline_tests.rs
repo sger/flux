@@ -116,6 +116,8 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "associated_type_reduction.flx",
         "stuck_associated_type.flx",
         "associated_type_interface_roundtrip.flx",
+        "two_dictionaries_one_class.flx",
+        "two_dictionaries_superclass.flx",
         "SuperclassMetadata.flx",
         "superclass_across_modules.flx",
         "superclass_method_call.flx",
@@ -564,6 +566,24 @@ fn superclass_dispatch_is_the_same_cold_and_warm() {
         normalize_output(&cold.stdout),
         "cached run disagrees with the cold one"
     );
+}
+
+/// KI-057: a function holding two dictionaries for one class dispatches each
+/// call through the dictionary its argument belongs to, not through whichever
+/// was recorded first.
+///
+/// The superclass case is included because Stage 5 gave every inherited method
+/// a second route to the same implementation, which is exactly what a
+/// name-keyed map collapses.
+#[test]
+fn two_dictionaries_for_one_class_are_told_apart() {
+    for (fixture, expected) in [
+        ("two_dictionaries_one_class.flx", "12"),
+        ("two_dictionaries_superclass.flx", "507"),
+    ] {
+        let output = run_fixture(fixture).unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(output.stdout, expected, "unexpected output for {fixture}");
+    }
 }
 
 /// Proposal 0179 Stage 6: an imported class's associated types reduce the same

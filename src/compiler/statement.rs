@@ -1737,6 +1737,105 @@ impl Compiler {
         result
     }
 
+    /// Report calls inside a constrained function that cannot say which of its
+    /// dictionaries they mean (KI-057, E485).
+    ///
+    /// A function constrained twice on one class holds two dictionaries. Selection
+    /// normally reads the call's argument types, but a method whose class parameter
+    /// appears nowhere in its value parameters reveals nothing, and then either
+    /// dictionary would do. They are instances for different types, so choosing is
+    /// a guess — this reports instead, which is what makes the selection the
+    /// backends perform safe to rely on.
+    ///
+    /// Runs where the enclosing function's constraints are already in hand, and
+    /// uses the same `dispatch_positions` / `select_dictionary` pair the backends
+    /// select with, so a call this accepts is one they can resolve.
+    fn report_ambiguous_dictionary_calls(
+        &mut self,
+        body: &Block,
+        scheme_constraints: &[crate::ast::type_infer::constraint::SchemeConstraint],
+    ) {
+        // Only a class constrained more than once can be ambiguous.
+        let mut per_class: HashMap<crate::types::class_id::ClassId, Vec<Vec<InferType>>> =
+            HashMap::new();
+        for constraint in scheme_constraints {
+            per_class
+                .entry(constraint.class_id)
+                .or_default()
+                .push(constraint.type_args.clone());
+        }
+        per_class.retain(|_, occurrences| occurrences.len() > 1);
+        if per_class.is_empty() {
+            return;
+        }
+
+        // Every method each repeated class reaches, mapped back to the candidates
+        // that reach it. A superclass method is reachable through the subclass
+        // dictionary, so this is the transitive set, not just the declared one.
+        let mut candidates: HashMap<
+            crate::syntax::Identifier,
+            (crate::types::class_id::ClassId, Vec<Vec<InferType>>),
+        > = HashMap::new();
+        for (class_id, occurrences) in &per_class {
+            for (method, declaring_class, _) in
+                crate::core::passes::reachable_methods(&self.class_env, *class_id)
+            {
+                candidates
+                    .entry(method)
+                    .or_insert_with(|| (declaring_class, Vec::new()))
+                    .1
+                    .extend(occurrences.iter().cloned());
+            }
+        }
+
+        let mut found = Vec::new();
+        crate::ast::visit::Visitor::visit_block(&mut CallCollector { calls: &mut found }, body);
+
+        for (name, arguments, span) in found {
+            let Some((declaring_class, occurrences)) = candidates.get(&name) else {
+                continue;
+            };
+            let Some(positions) = self.class_env.dispatch_positions(*declaring_class, name) else {
+                continue;
+            };
+            // Nothing in argument position names the instance. If the class
+            // parameter still appears in the return type the call is dispatched
+            // on its result — `Flow.Json`'s `decode` is exactly that, and it
+            // resolves fine — so leave it to result-directed selection
+            // (KI-058). If it appears nowhere at all, no call site can ever
+            // say which instance it means, and that is what E485 reports.
+            if positions.iter().all(Option::is_none)
+                && self
+                    .class_env
+                    .method_mentions_class_parameters(*declaring_class, name)
+                    != Some(false)
+            {
+                continue;
+            }
+            let observed: Vec<Option<InferType>> = positions
+                .iter()
+                .map(|position| {
+                    let argument = arguments.get((*position)?)?;
+                    self.hm_expr_types.get(&argument.expr_id()).cloned()
+                })
+                .collect();
+            let indexed: Vec<(usize, Vec<InferType>)> =
+                occurrences.iter().cloned().enumerate().collect();
+            if crate::types::class_env::select_dictionary(&indexed, &observed)
+                == crate::types::class_env::DictSelection::Ambiguous
+            {
+                let method_str = self.sym(name);
+                let class_str = self.sym(declaring_class.name);
+                self.errors.push(Diagnostic::make_error(
+                    &crate::diagnostics::compiler_errors::AMBIGUOUS_DICTIONARY_SELECTION,
+                    &[method_str, class_str],
+                    self.file_path.clone(),
+                    span,
+                ));
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn compile_function_statement(
         &mut self,
@@ -1819,6 +1918,8 @@ impl Compiler {
                 })
                 .unwrap_or_default();
         }
+
+        self.report_ambiguous_dictionary_calls(body, &scheme_constraints);
 
         // If the IR function has extra dict params (from dict elaboration),
         // define them in the scope BEFORE the AST params so they get the
@@ -3159,4 +3260,29 @@ fn block_needs_top_level_frame(block: &Block) -> bool {
         | Statement::Assign { value, .. } => expression_needs_top_level_frame(value),
         _ => false,
     })
+}
+
+/// Collects every call of the form `name(args)` in a function body.
+///
+/// A plain [`Visitor`] rather than a hand-rolled match: the walker
+/// destructures every expression variant exhaustively, so a new one is a
+/// compile error here rather than a call this check silently stops seeing.
+struct CallCollector<'a, 'ast> {
+    calls: &'a mut Vec<(crate::syntax::Identifier, &'ast [Expression], Span)>,
+}
+
+impl<'ast> crate::ast::visit::Visitor<'ast> for CallCollector<'_, 'ast> {
+    fn visit_expr(&mut self, expr: &'ast Expression) {
+        if let Expression::Call {
+            function,
+            arguments,
+            span,
+            ..
+        } = expr
+            && let Expression::Identifier { name, .. } = function.as_ref()
+        {
+            self.calls.push((*name, arguments.as_slice(), *span));
+        }
+        crate::ast::visit::walk_expr(self, expr);
+    }
 }
