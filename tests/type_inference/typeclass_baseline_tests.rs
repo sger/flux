@@ -147,6 +147,12 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "eq_ord.flx",
         "semigroup_monoid.flx",
         "mempty_result_dispatch.flx",
+        "functor_applicative_monad.flx",
+        "return_directed_pure.flx",
+        "effectful_fmap.flx",
+        "option_instances.flx",
+        "list_instances.flx",
+        "array_instances.flx",
     ];
     for fixture in fixtures {
         let source = std::fs::read_to_string(fixture_path(fixture)).expect("read fixture");
