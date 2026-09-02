@@ -1796,6 +1796,7 @@ mod tests {
         };
 
         let instance_def = InstanceDef {
+            origin: crate::types::class_env::InstanceOrigin::Declared,
             class_name: eq_sym,
             class_id: crate::types::class_id::ClassId::from_local_name(eq_sym),
             instance_module: crate::types::class_id::ModulePath::EMPTY,
@@ -1925,6 +1926,7 @@ mod tests {
         };
 
         let instance_def = InstanceDef {
+            origin: crate::types::class_env::InstanceOrigin::Declared,
             class_name: eq_sym,
             class_id: crate::types::class_id::ClassId::from_local_name(eq_sym),
             instance_module: crate::types::class_id::ModulePath::EMPTY,

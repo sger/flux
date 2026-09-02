@@ -2063,3 +2063,39 @@ harness should enforce `expect:`.
 There is also dead code behind this: `infer_semigroup_operator`, the
 `"++" => "append"` desugar arm and `CorePrimOp::Concat` all handle an operator
 the lexer never produces. `Semigroup` is reached only as `append(x, y)`.
+
+### KI-063 — The examples snapshot harness shares one compiler, so a stdlib class method's stub collides with a user function
+
+**Severity:** Medium · **Area:** examples snapshot harness · **Verified:** 2026-09-02
+
+Four fixtures that compile cleanly under the real driver are reported as
+`failed (compile)` by `tests/support/examples_snapshot.rs`:
+
+```
+error[E001]: Duplicate Name
+Duplicate binding: `add` is already defined.
+  examples/type_system/01_typed_let_and_functions.flx:10:1
+```
+
+The others are `examples/strict_types/typed_arithmetic.flx`,
+`examples/diagnostics/hint_demos/fn_keyword_error.flx` and
+`examples/guide/type_system/01_typed_let_and_fn.flx`. Each defines a top-level
+`fn add`. `cargo run -- <fixture>` compiles and runs all four.
+
+`generate_dispatch_functions` emits a polymorphic stub named for each class
+method, skipping any name the *current program* already defines
+(`reserved_names` in `src/types/class_dispatch.rs`). A fixture defining
+`fn add` therefore suppresses its own `Num.add` stub — which is why the driver,
+whose compiler is fresh per module, is fine.
+
+The harness instead compiles every module of the graph through one shared
+`Compiler`. Since Proposal 0179 Stage 8 made `Num` Flux source, `Flow.Num` is a
+module the harness compiles, and its statements define no top-level `add`, so
+the stub *is* generated there and persists in the shared compiler. The
+fixture's own `fn add` then collides with it.
+
+The fix is for the harness to build a compiler per module as the driver does.
+That needs the module interfaces the driver accumulates as it compiles:
+preloading dependency *programs* alone loses aliased-member metadata
+(`Module `Flow.Array` has no member named `push``, from `Flow.IO`), and
+preloading the stdlib without compiling it loses far more.

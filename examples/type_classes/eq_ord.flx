@@ -1,0 +1,23 @@
+// Proposal 0179 Stage 8: `Ord` declares `Eq` as its superclass, so a function
+// constrained by `Ord` alone can call `eq` as well as `lt`.
+//
+// `both` is constrained by `Ord` and takes exactly one dictionary. `eq` is not
+// an `Ord` method — it is reached through the `Eq` evidence sitting in the
+// dictionary's leading slot, which is what the superclass edge buys. Two head
+// types exercise it so a single instance cannot pass by accident, and both
+// calls go through the constrained function rather than dispatching directly
+// on a concrete type, where the operator would lower to a primop instead.
+//
+// Expected: "same" "less" "more" "same" "more"
+
+fn both<a: Ord>(x: a, y: a) -> String {
+    if eq(x, y) { "same" } else { if lt(x, y) { "less" } else { "more" } }
+}
+
+fn main() {
+    print(both(1, 1))
+    print(both(1, 2))
+    print(both(2, 1))
+    print(both("a", "a"))
+    print(both("b", "a"))
+}

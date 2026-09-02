@@ -144,6 +144,7 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "where_constraint_multi_param.flx",
         "contextual_dictionary_wrapper.flx",
         "qualified_class_id.flx",
+        "eq_ord.flx",
     ];
     for fixture in fixtures {
         let source = std::fs::read_to_string(fixture_path(fixture)).expect("read fixture");
@@ -152,12 +153,12 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
                 let source = source.to_ascii_lowercase();
                 [
                     "baseline", "stage 1", "stage 2", "stage 3", "stage 4", "stage 5", "stage 6",
-                    "stage 7",
+                    "stage 7", "stage 8",
                 ]
                 .iter()
                 .any(|contract| source.contains(contract))
             },
-            "{fixture} needs a baseline or a stage 1-7 contract"
+            "{fixture} needs a baseline or a stage 1-8 contract"
         );
         assert!(
             source.contains("Expected"),
@@ -196,6 +197,10 @@ fn concrete_and_polymorphic_dictionary_calls_have_exact_runtime_arity() {
         ("generalized_constraint_obligation.flx", "true"),
         ("multiple_class_obligations.flx", "\"7\""),
         ("superclass_instance_validation.flx", "5\n500"),
+        (
+            "eq_ord.flx",
+            "\"same\"\n\"less\"\n\"more\"\n\"same\"\n\"more\"",
+        ),
     ] {
         let output = run_fixture(fixture).unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(output.stdout, expected, "unexpected output for {fixture}");
