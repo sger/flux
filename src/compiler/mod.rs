@@ -794,6 +794,7 @@ fn preload_imported_instance_schemes(
         .unwrap_or_else(|| "module".to_string());
     let method_effects: HashMap<Identifier, Vec<EffectExpr>> =
         instance_def.method_effects.iter().cloned().collect();
+
     for method in &class_def.methods {
         let method_str = interner.resolve(method.name).to_string();
         let mangled = crate::types::class_env::mangled_method_name(

@@ -785,7 +785,7 @@ impl<'a> AstLowerer<'a> {
         // arguments that were already shifted by one, froze a *concrete*
         // dictionary into a generic forwarder, and — because the alias shares
         // the method's bare name — shadowed the real definition with one that
-        // sent every recursion through the wrong instance (KI-060). The
+        // sent every recursion through the wrong instance. The
         // identifier path, the AST compiler and the Core elaboration pass all
         // carry this guard already; this site was the one that did not.
         let dictionary_constraints = match self.class_env {
