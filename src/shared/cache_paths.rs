@@ -81,7 +81,11 @@ use sha2::{Digest, Sha256};
 /// superclass constraint on a higher-kinded class parameter is kind-checked
 /// against the owner's parameters rather than defaulting to `Type` — an
 /// epoch-37 interface recorded the rejection.
-pub const CACHE_EPOCH: u16 = 38;
+/// Epoch 39: a class method with an effect-row parameter kept its declared
+/// return type instead of silently becoming `Unit`, so every `Functor`
+/// instance's runtime contract changes; `Either` also gained `Functor`,
+/// `Applicative` and `Monad` instances.
+pub const CACHE_EPOCH: u16 = 39;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {
