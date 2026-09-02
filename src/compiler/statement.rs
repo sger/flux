@@ -1431,13 +1431,20 @@ impl Compiler {
                     if let Some(existing) = self.symbol_table.resolve(name)
                         && self.symbol_table.exists_in_current_scope(name)
                     {
-                        let name_str = self.sym(name);
-                        return Err(Self::boxed(self.make_redeclaration_error(
-                            name_str,
-                            *span,
-                            Some(existing.span),
-                            None,
-                        )));
+                        // A dispatch stub generated for a class method is not
+                        // a user declaration, and a binding of that name takes
+                        // precedence over it — the same rule `phase_predeclaration`
+                        // applies to `fn`. Without this, `let add = fn(x, y) { x + y }`
+                        // reads as a redeclaration of `Flow.Num`'s `add` stub.
+                        if !self.generated_dispatch_stub_names.remove(&name) {
+                            let name_str = self.sym(name);
+                            return Err(Self::boxed(self.make_redeclaration_error(
+                                name_str,
+                                *span,
+                                Some(existing.span),
+                                None,
+                            )));
+                        }
                     }
                     // Then check for import collision (only if not a duplicate in same scope)
                     if self.scope_index == 0 && self.file_scope_symbols.contains(&name) {
@@ -1836,6 +1843,29 @@ impl Compiler {
         }
     }
 
+    fn runtime_dictionary_parameter_names(
+        &mut self,
+        constraints: &[crate::ast::type_infer::constraint::SchemeConstraint],
+    ) -> Vec<Symbol> {
+        let mut occurrences: HashMap<crate::types::class_id::ClassId, usize> = HashMap::new();
+        let mut names = Vec::new();
+        for constraint in constraints
+            .iter()
+            .filter(|constraint| self.class_env.constraint_needs_dictionary(constraint))
+        {
+            let occurrence = occurrences.entry(constraint.class_id).or_insert(0);
+            let suffix = (*occurrence > 0).then(|| format!("_{}", *occurrence));
+            *occurrence += 1;
+            let prefix =
+                crate::types::class_env::dictionary_prefix(constraint.class_id, &self.interner);
+            names.push(
+                self.interner
+                    .intern(&format!("{}{}", prefix, suffix.unwrap_or_default())),
+            );
+        }
+        names
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn compile_function_statement(
         &mut self,
@@ -1921,22 +1951,60 @@ impl Compiler {
 
         self.report_ambiguous_dictionary_calls(body, &scheme_constraints);
 
-        // If the IR function has extra dict params (from dict elaboration),
-        // define them in the scope BEFORE the AST params so they get the
-        // correct local indices matching the VM calling convention.
-        // Only apply to user-defined constrained functions (not __tc_*
-        // mangled instance methods, which may have contextual dict params
-        // handled via a separate mechanism).
-        if let Some(ir_fn) = ir_function {
-            let extra = ir_fn.params.len().saturating_sub(parameters.len());
-            if extra > 0 && !scheme_constraints.is_empty() {
-                for ir_param in &ir_fn.params[..extra] {
-                    self.symbol_table.define(ir_param.name, Span::default());
-                }
-            }
-        }
+        // Dictionary elaboration changes the VM calling convention by placing
+        // one hidden dictionary parameter in front of every runtime-bearing
+        // constraint.  The CFG path exposes those parameters through its IR,
+        // but the AST path must establish the same locals itself.  This is
+        // especially important for functions inside modules: their IR lookup
+        // can be unavailable while the AST compiler still has to project a
+        // class method from the dictionary in scope for module-owned methods.
+        //
+        // Generated contextual instance methods already contain their context
+        // dictionaries in `parameters`.  Count and preserve that prefix so
+        // the AST path does not prepend a second copy.
+        let runtime_dict_names = self.runtime_dictionary_parameter_names(&scheme_constraints);
+        let existing_dict_count = runtime_dict_names
+            .iter()
+            .zip(parameters.iter())
+            .take_while(|(expected, actual)| expected == actual)
+            .count();
+        let required_dict_count = runtime_dict_names.len();
 
-        for (index, param) in parameters.iter().enumerate() {
+        // Prefer the IR's names when available: they are the exact names used
+        // by Core dictionary elaboration. If no IR function was produced, the
+        // canonical names above give the AST path the same layout.
+        let ir_dict_names: Vec<Symbol> = ir_function
+            .map(|ir_fn| {
+                let extra = ir_fn.params.len().saturating_sub(parameters.len());
+                ir_fn
+                    .params
+                    .iter()
+                    .take(extra)
+                    .map(|param| param.name)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let dict_names = if ir_dict_names.len() >= required_dict_count {
+            ir_dict_names[..required_dict_count].to_vec()
+        } else {
+            runtime_dict_names.clone()
+        };
+        let missing_dict_names = dict_names
+            .iter()
+            .skip(existing_dict_count)
+            .copied()
+            .collect::<Vec<_>>();
+
+        // Define the already-declared dictionary prefix first, then any
+        // synthesized/IR-only dictionaries, then the visible source params.
+        // This keeps local indices in the same order as the call ABI.
+        for param in parameters.iter().take(existing_dict_count) {
+            self.symbol_table.define(*param, Span::default());
+        }
+        for param in &missing_dict_names {
+            self.symbol_table.define(*param, Span::default());
+        }
+        for (index, param) in parameters.iter().enumerate().skip(existing_dict_count) {
             self.symbol_table.define(*param, Span::default());
             if let Some(Some(param_ty)) = parameter_types.get(index)
                 && let Ok(runtime_ty) = convert_type_expr_checked(
@@ -1949,6 +2017,8 @@ impl Compiler {
                 self.bind_static_type(*param, runtime_ty);
             }
         }
+
+        let runtime_param_count = parameters.len() + missing_dict_names.len();
 
         // Emit cost centre entry when profiling is enabled.
         if self.profiling {
@@ -2114,7 +2184,7 @@ impl Compiler {
 
             // ── AST fallback path ──────────────────────────────────────────
             let body_errors = self.with_function_context_with_param_effect_rows(
-                parameters.len(),
+                runtime_param_count,
                 effects,
                 param_effect_rows,
                 |compiler| compiler.compile_block_with_tail_mode_collect_errors(body, true),
@@ -2217,7 +2287,7 @@ impl Compiler {
             CompiledFunction::new(
                 instructions,
                 num_locals,
-                cfg_param_count.get().unwrap_or(parameters.len()),
+                cfg_param_count.get().unwrap_or(runtime_param_count),
                 Some(
                     FunctionDebugInfo::new(Some(self.sym(name).to_string()), files, locations)
                         .with_boundary_location(Some(boundary_location))

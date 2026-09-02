@@ -997,6 +997,20 @@ impl Compiler {
                     return Ok(());
                 }
 
+                // The same convention across a module boundary: an imported
+                // constrained function was compiled to expect its dictionaries,
+                // so `Module.f(..)` has to supply them (KI-061).
+                if let Some(dict_call) = self.try_build_constrained_module_member_call(
+                    function,
+                    arguments,
+                    *id,
+                    expression.span(),
+                ) {
+                    self.compile_non_tail_expression(&dict_call)?;
+                    self.current_span = previous_span;
+                    return Ok(());
+                }
+
                 let is_direct_self_call = self.is_self_call(function);
                 let is_self_tail_call = self.in_tail_position && is_direct_self_call;
                 let is_self_non_tail_call = !self.in_tail_position && is_direct_self_call;
@@ -4820,16 +4834,122 @@ impl Compiler {
         call_id: crate::syntax::expression::ExprId,
         call_span: Span,
     ) -> Option<Expression> {
-        // Only rewrite functions declared in this compilation unit. Imported
-        // APIs may carry HM constraints for other purposes (for example the
-        // Sendable contract on Flow.Task), but their interface ABI is already
-        // fixed and must not gain a local dictionary argument here.
-        if !self.file_scope_symbols.contains(&name) {
+        let scheme = self.constrained_callee_scheme(name)?;
+        let callee = Expression::Identifier {
+            name,
+            span: function_span,
+            id: crate::syntax::expression::ExprId::UNSET,
+        };
+        self.build_dictionary_elaborated_call(
+            &scheme,
+            callee,
+            function_span,
+            arguments,
+            call_id,
+            call_span,
+        )
+    }
+
+    /// The scheme of the function a bare-name call reaches, when that function
+    /// belongs to this program rather than being an opaque local binding.
+    ///
+    /// A bare name reaches a callee three ways, and the scheme is filed under
+    /// a different key in each:
+    ///
+    /// * a top-level function of this unit, keyed by the name as written;
+    /// * a sibling of the enclosing module, declared under the qualified name
+    ///   (`M.f`), so the bare lookup misses it — a module's own recursion
+    ///   takes this path;
+    /// * a member exposed by `import M exposing (..)`, recorded in
+    ///   `exposed_bindings` as bare → qualified. The prelude puts most of
+    ///   `Flow` here, so `lookup(pairs, key)` for `Flow.List.lookup<k: Eq, v>`
+    ///   is this case.
+    ///
+    /// A name that resolves to a local binding is left alone: the local
+    /// shadows any of the above, and its value is opaque here.
+    fn constrained_callee_scheme(
+        &mut self,
+        name: crate::syntax::Identifier,
+    ) -> Option<crate::types::scheme::Scheme> {
+        if self.file_scope_symbols.contains(&name) {
+            return self.type_env.lookup(name).cloned();
+        }
+        if self.symbol_table.resolve(name).is_some() {
             return None;
         }
-        let dictionary_constraint_count = self
-            .type_env
-            .lookup(name)?
+        // A sibling member shadows any exposed binding of the same name, so it
+        // is the callee whether or not its scheme is on file. Falling through
+        // to `exposed_bindings` here would read the constraints of a different
+        // function: `Flume.Build.Plan` has its own unconstrained `lookup`, and
+        // the prelude exposes `Flow.List.lookup<k: Eq, v>`.
+        if self.current_module_member(name).is_some() {
+            let prefix = self.current_module_prefix?;
+            let qualified = self.interner.intern_join(prefix, name);
+            return self
+                .type_env
+                .lookup(qualified)
+                .or_else(|| self.cached_member_schemes.get(&(prefix, name)))
+                .cloned();
+        }
+        let qualified = *self.exposed_bindings.get(&name)?;
+        if let Some(scheme) = self.type_env.lookup(qualified) {
+            return Some(scheme.clone());
+        }
+        // `cached_member_schemes` is keyed by the pair, so recover the module
+        // from the qualified name the exposure recorded.
+        let (module, member) = self.interner.resolve(qualified).rsplit_once('.')?;
+        let module = self.interner.lookup(module)?;
+        let member = self.interner.lookup(member)?;
+        self.cached_member_schemes.get(&(module, member)).cloned()
+    }
+
+    /// The module-qualified counterpart: `Module.f(..)` where `f` carries
+    /// runtime class constraints.
+    ///
+    /// A constrained function's compiled arity is its source arity plus one
+    /// leading dictionary per runtime-bearing constraint, on the CFG path and
+    /// the AST path alike (see `compile_function_statement`). That convention
+    /// has to hold across compilation units too, so an importing unit must
+    /// supply the evidence the callee's own unit was compiled to expect —
+    /// otherwise the call arrives one argument short (KI-061).
+    fn try_build_constrained_module_member_call(
+        &mut self,
+        function: &Expression,
+        arguments: &[Expression],
+        call_id: crate::syntax::expression::ExprId,
+        call_span: Span,
+    ) -> Option<Expression> {
+        let Expression::MemberAccess { object, member, .. } = function else {
+            return None;
+        };
+        let module_name = self.resolve_module_name_from_expr(object)?;
+        let scheme = self
+            .cached_member_schemes
+            .get(&(module_name, *member))?
+            .clone();
+        self.build_dictionary_elaborated_call(
+            &scheme,
+            function.clone(),
+            function.span(),
+            arguments,
+            call_id,
+            call_span,
+        )
+    }
+
+    /// Rebuild `callee(arguments)` with one leading dictionary argument per
+    /// runtime-bearing constraint in `scheme`, or `None` when `scheme` needs
+    /// no evidence or the evidence cannot be resolved here.
+    fn build_dictionary_elaborated_call(
+        &mut self,
+        scheme: &crate::types::scheme::Scheme,
+        callee: Expression,
+        function_span: Span,
+        arguments: &[Expression],
+        call_id: crate::syntax::expression::ExprId,
+        call_span: Span,
+    ) -> Option<Expression> {
+        let dictionary_constraint_count = scheme
             .constraints
             .iter()
             .filter(|constraint| self.is_runtime_dictionary_constraint(constraint))
@@ -4850,37 +4970,45 @@ impl Compiler {
             return None;
         }
 
-        let dictionary_refs = {
-            let scheme = self.type_env.lookup(name)?;
-            scheme
-                .constraints
-                .iter()
-                .filter(|constraint| self.is_runtime_dictionary_constraint(constraint))
-                .map(|constraint| {
-                    let actual_type_args = self
-                        .resolve_constraint_type_args_ast(constraint, scheme, call_id, arguments)?;
-                    self.class_env.resolve_dictionary_ref_by_id(
-                        constraint.class_id,
-                        &actual_type_args,
-                        &self.interner,
-                    )
-                })
-                .collect::<Option<Vec<_>>>()?
-        };
-
-        let dict_args = dictionary_refs
+        let runtime_constraints = scheme
+            .constraints
             .iter()
-            .map(|dict_ref| self.lower_dictionary_ref_ast(dict_ref, function_span))
+            .filter(|constraint| self.is_runtime_dictionary_constraint(constraint))
             .collect::<Vec<_>>();
-
-        let mut elaborated_arguments = dict_args;
+        let mut elaborated_arguments =
+            Vec::with_capacity(dictionary_constraint_count + arguments.len());
+        for constraint in runtime_constraints {
+            let type_args = self.resolve_constraint_type_args_ast_keeping_vars(
+                constraint, scheme, call_id, arguments,
+            )?;
+            // A constraint instantiated at one of the enclosing function's own
+            // type parameters has no instance to select: the evidence is the
+            // dictionary this function was itself passed.
+            let forwarded = type_args
+                .iter()
+                .any(|type_arg| !type_arg.free_vars().is_empty())
+                .then(|| self.current_context_dictionary_ast(constraint.class_id, &type_args))
+                .flatten();
+            let dictionary = match forwarded {
+                Some(dictionary) => dictionary,
+                None => {
+                    let type_args = type_args
+                        .iter()
+                        .map(Self::default_type_vars_to_int)
+                        .collect::<Vec<_>>();
+                    let dict_ref = self.class_env.resolve_dictionary_ref_by_id(
+                        constraint.class_id,
+                        &type_args,
+                        &self.interner,
+                    )?;
+                    self.lower_dictionary_ref_ast(&dict_ref, function_span)
+                }
+            };
+            elaborated_arguments.push(dictionary);
+        }
         elaborated_arguments.extend_from_slice(arguments);
         Some(Expression::Call {
-            function: Box::new(Expression::Identifier {
-                name,
-                span: function_span,
-                id: crate::syntax::expression::ExprId::UNSET,
-            }),
+            function: Box::new(callee),
             arguments: elaborated_arguments,
             span: call_span,
             id: crate::syntax::expression::ExprId::UNSET,
@@ -4916,7 +5044,37 @@ impl Compiler {
         }
     }
 
-    fn resolve_constraint_type_args_ast(
+    /// The historical defaulting for a constraint variable the call leaves
+    /// undetermined and no enclosing dictionary can supply.
+    ///
+    /// NOTE (Proposal 0179): defaulting an undetermined variable to `Int` can
+    /// dispatch to the wrong dictionary. It cannot simply decline — callers
+    /// read an empty result as "no dictionary needed" and emit the call
+    /// without it, which regresses the async/channel paths to an E1000 arity
+    /// error. Removing this fallback belongs with Stage 2's strict dictionary
+    /// arity contract, which gives callers a way to report the failure.
+    fn default_type_vars_to_int(type_arg: &InferType) -> InferType {
+        let substitution = type_arg.free_vars().into_iter().fold(
+            TypeSubst::empty(),
+            |mut substitution, type_var| {
+                substitution.insert(
+                    type_var,
+                    InferType::Con(crate::types::type_constructor::TypeConstructor::Int),
+                );
+                substitution
+            },
+        );
+        type_arg.apply_type_subst(&substitution)
+    }
+
+    /// Instantiate `constraint`'s type arguments at this call, from the
+    /// argument and result types the call was inferred with.
+    ///
+    /// A variable that nothing at the call determines stays a variable. That
+    /// is the caller's signal that the callee's evidence is the enclosing
+    /// function's own — `sort<a: Ord>` calling `sort_by<a, b: Ord>` at
+    /// `b = a` must forward its `Ord<a>` parameter, not pick an instance.
+    fn resolve_constraint_type_args_ast_keeping_vars(
         &self,
         constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
         scheme: &crate::types::scheme::Scheme,
@@ -4956,18 +5114,10 @@ impl Compiler {
                         )
                         .filter(|ty| !matches!(ty, InferType::Var(_)))
                     })
-                })
-                // NOTE (Proposal 0179): defaulting an undetermined variable to
-                // `Int` can dispatch to the wrong dictionary. It cannot simply
-                // decline here — callers read an empty result as "no dictionary
-                // needed" and emit the call without it, which regresses the
-                // async/channel paths to an E1000 arity error. Removing this
-                // fallback belongs with Stage 2's strict dictionary arity
-                // contract, which gives callers a way to report the failure.
-                .unwrap_or_else(|| {
-                    InferType::Con(crate::types::type_constructor::TypeConstructor::Int)
                 });
-            substitution.insert(type_var, resolved);
+            if let Some(resolved) = resolved {
+                substitution.insert(type_var, resolved);
+            }
         }
         Some(
             constraint
@@ -5103,7 +5253,27 @@ impl Compiler {
         wanted: &[crate::types::infer_type::InferType],
     ) -> Option<Expression> {
         let current = self.current_function_name?;
-        let scheme = self.type_env.lookup(current)?;
+        let fallback = |compiler: &mut Self| {
+            let name = compiler
+                .interner
+                .lookup(&crate::types::class_env::dictionary_prefix(
+                    class_id,
+                    &compiler.interner,
+                ))?;
+            compiler.symbol_table.resolve(name)?;
+            Some(Expression::Identifier {
+                name,
+                span: Span::default(),
+                id: crate::syntax::expression::ExprId::UNSET,
+            })
+        };
+        let Some(scheme) = self.type_env.lookup(current) else {
+            // Synthetic module-owned instance methods have an explicit
+            // contextual dictionary parameter, but their qualified generated
+            // name is not always present in the ordinary TypeEnv. The symbol
+            // table still has the parameter, so use it as the AST fallback.
+            return fallback(self);
+        };
 
         // Candidates are this class's constraints, in declaration order, since
         // the dictionary parameter's suffix is that position.
@@ -5156,7 +5326,21 @@ impl Compiler {
                 });
             }
         }
-        None
+        // A generated contextual instance method can have a qualified scheme
+        // with no retained source constraint because its dictionary is already
+        // an explicit leading parameter. Do not fall back when a same-class
+        // constraint was present: that would collapse repeated constraints
+        // onto the first dictionary. With no same-class candidate, the
+        // canonical leading parameter is the correct generated-method route.
+        if !scheme
+            .constraints
+            .iter()
+            .any(|constraint| constraint.class_id == class_id)
+        {
+            fallback(self)
+        } else {
+            None
+        }
     }
 
     fn lower_dictionary_ref_ast(
