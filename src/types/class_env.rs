@@ -2101,6 +2101,20 @@ impl ClassEnv {
                                 interner.resolve(**method),
                             )
                         });
+                        // A head with more than one type parameter carries one
+                        // context constraint per parameter, and a generated body
+                        // cannot pick between two dictionaries of the same class:
+                        // the fields it compares are bound by a `case` pattern,
+                        // and Core's dictionary selection reads argument types
+                        // that pattern binders do not carry, so every field
+                        // resolves through the first dictionary. Rejecting the
+                        // clause is a diagnostic instead of a wrong answer
+                        // (KI-059).
+                        let ambiguous_context = type_params.len() > 1
+                            && !class_methods.is_empty()
+                            && crate::types::class_dispatch::derives_through_context(
+                                &class_display,
+                            );
                         if let Some(method) = underivable {
                             let method_display = interner.resolve(*method);
                             diagnostics.push(
@@ -2112,8 +2126,18 @@ impl ClassEnv {
                                          generated for it."
                                     )),
                             );
+                        } else if ambiguous_context {
+                            diagnostics.push(
+                                diagnostic_for(&UNDERIVABLE_CLASS)
+                                    .with_span(*span)
+                                    .with_message(format!(
+                                        "`{class_display}` cannot be derived for \
+                                         `{type_display}`, which has more than one type \
+                                         parameter. Write the instance by hand."
+                                    )),
+                            );
                         }
-                        let origin = if underivable.is_some() {
+                        let origin = if underivable.is_some() || ambiguous_context {
                             InstanceOrigin::RejectedDeriving
                         } else {
                             InstanceOrigin::Declared
