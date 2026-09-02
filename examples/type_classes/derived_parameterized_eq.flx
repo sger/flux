@@ -1,0 +1,51 @@
+// Proposal 0179 Stage 7. `deriving (Eq)` on a data declaration that takes a type
+// parameter produces a *contextual* instance (`Eq<a> => Eq<Box<a>>`), whose
+// dictionary is a constructor rather than a value.
+//
+// The generated body has to reach each field through the context dictionary
+// the constructor is passed. Comparing the two values with `==`, as the
+// monomorphic case does, would instead demand `Eq<Box<a>>` — the instance's
+// own dictionary — and resolve to nothing (KI-059). So the body destructures
+// the declaration and recurses through `eq` on every field.
+//
+// The last pair is the one that pins the recursion: `Box<Box<Int>>` compares a
+// field whose own type is a derived parameterized instance.
+//
+// Expected output:
+// true
+// false
+// true
+// true
+// false
+// true
+// false
+// true
+// false
+// true
+// false
+// true
+// false
+
+data Box<a> { Box(a) } deriving (Eq)
+data Maybe<a> { Nothing, Just(a) } deriving (Eq)
+data Named<a> { Named { tag: String, val: a } } deriving (Eq)
+
+fn same<a: Eq>(x: a, y: a) -> Bool {
+    eq(x, y)
+}
+
+fn main() with IO {
+    print(eq(Box(1), Box(1)))
+    print(eq(Box(1), Box(2)))
+    print(neq(Box(1), Box(2)))
+    print(eq(Box("s"), Box("s")))
+    print(eq(Nothing, Just(1)))
+    print(eq(Just(3), Just(3)))
+    print(eq(Just(3), Just(4)))
+    print(eq(Named { tag: "t", val: 1 }, Named { tag: "t", val: 1 }))
+    print(eq(Named { tag: "t", val: 1 }, Named { tag: "u", val: 1 }))
+    print(same(Box(5), Box(5)))
+    print(same(Box(5), Box(6)))
+    print(eq(Box(Box(1)), Box(Box(1))))
+    print(eq(Box(Box(1)), Box(Box(2))))
+}

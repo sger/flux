@@ -1873,11 +1873,11 @@ AST path in `compiler/expression.rs` — and it resolves through a single
 
 ---
 
-### KI-059 — `deriving` on a parameterized ADT produces a dictionary nothing defines
+### KI-059 — `deriving` on a parameterized ADT produced a dictionary nothing defines — fixed 2026-09-02
 
-**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-01 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-02 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
-A `deriving` clause on a data declaration that takes type parameters compiles
+A `deriving` clause on a data declaration that takes type parameters compiled
 its methods but not the evidence that reaches them:
 
 ```flux
@@ -1888,59 +1888,97 @@ fn main() with IO {
 }                               //              `__dict_Eq_Box<a>`
 ```
 
-The monomorphic case works — `data Color { Red, Green, Blue } deriving (Eq)`
-is callable directly and through an `Eq`-constrained function, on both
-backends, and is pinned by `derived_eq.flx`. Only a parameterized head fails.
+**Cause.** Not the mangling, and not the two-pass disagreement the first
+diagnosis proposed. `builtin_method_body` generates `Eq`'s `eq` as
+`__x0 == __x1` for every head. On a parameterized head the operands have type
+`Box<a>`, so that operator desugars to an `Eq<Box<a>>` obligation — the
+instance's *own* dictionary. A parameterized head derives a contextual instance
+(`Eq<a> => Eq<Box<a>>`) whose dictionary is a constructor rather than a value,
+so the reference resolved to nothing. The monomorphic case survived only
+because a context-free dictionary is a plain tuple that does exist, which is
+why `data Color { Red, Green } deriving (Eq)` always worked.
 
-**This is not a naming problem.** The obvious reading is that the head renders
-its type *parameters* as literal text, giving `__dict_Eq_Box<a>` — but a
-hand-written instance for the same head works under those exact names:
+A hand-written contextual instance worked because its body destructures the ADT
+and compares *fields*, whose types are rigid parameters discharged by the
+context dictionary already in scope.
+
+**Fix.** `derived_structural_eq_body` in
+[class_dispatch.rs](../src/types/class_dispatch.rs) synthesizes that same body
+from the declaration's own variants — the generalization of
+`structural_container_eq_body`, which did this for `List<a>` and `Option<a>`
+through a table keyed by head name that no user type could enter. `neq` inlines
+the comparison rather than calling `eq(__x0, __x1)`, since that call is on the
+head type and reintroduces the same self-reference.
+
+Covered by `examples/type_classes/derived_parameterized_eq.flx`, which pins
+positional, nullary, named-field and nested (`Box<Box<Int>>`) variants, both
+by name and through an `Eq`-constrained function, on VM and native.
+
+**Carve-out — a head with more than one type parameter is now rejected.** Such
+a head carries one context constraint per parameter, so the generated body must
+choose between two dictionaries of the same class. `choose_candidate` in
+[dict_elaborate.rs](../src/core/passes/dict_elaborate.rs) makes that choice from
+the argument's recorded type, and the fields being compared are bound by a
+`case` pattern: only `Lam` records binder types, so a pattern binder carries
+none and every field resolves through the first dictionary. `deriving (Eq)` on
+`data Pair<a, b>` therefore compared the second field with `a`'s evidence.
+
+That clause now reports **E486** naming the parameter count
+(`examples/compiler_errors/deriving_multi_param_eq_e486.flx`) — a diagnostic
+instead of a wrong answer. Lifting it means teaching the Core pass to type
+`case` pattern binders, which needs the constructor's field types instantiated
+at the scrutinee's type; the pass already has the `TypeEnv` that holds them.
+A hand-written instance is unaffected, though the parser's one-constraint limit
+means a two-parameter head cannot express one today.
+
+**Still open: a self-recursive parameterized head.** `data Tree<a> { Leaf,
+Node(Tree<a>, a, Tree<a>) }` fails with the same `E004` on
+`__dict_Eq_Tree<a>`, because a field whose type *is* the head demands the
+instance's own dictionary exactly as `==` did. This is not specific to
+`deriving` — a hand-written `Eq<a> => Eq<Tree<a>>` fails identically — so it is
+tracked separately as [KI-069](#ki-069).
+
+---
+
+### KI-069 — A contextual instance cannot compare a field of its own head type
+
+**Severity:** Medium · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-02 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+A recursive parameterized ADT cannot get an `Eq` instance, derived or written
+by hand:
 
 ```flux
-data Box<a> { Box(a) }
+data Tree<a> { Leaf, Node(Tree<a>, a, Tree<a>) }
 
-instance Eq<a> => Eq<Box<a>> {
-    fn eq(x, y) { match x { Box(u) -> match y { Box(v) -> u == v } } }
+instance Eq<a> => Eq<Tree<a>> {
+    fn eq(x, y) {
+        match x {
+            Leaf -> match y { Leaf -> true, _ -> false },
+            Node(l1, v1, r1) -> match y {
+                Node(l2, v2, r2) -> eq(l1, l2) && eq(v1, v2) && eq(r1, r2),
+                _ -> false
+            }
+        }
+    }
     fn neq(x, y) { !eq(x, y) }
 }
 ```
 
-That program prints `true`. So the mangling is consistent between the
-definition and the call site; what differs is which lowering path the call
-takes.
+`error[E004]: I can't find a value named '__dict_Eq_Tree<a>'`.
 
-**Cause — two passes disagreeing, confirmed by tracing.** A derived instance
-over `n` type parameters carries `n` context constraints, so it lowers to a
-dictionary *constructor* rather than a plain method tuple. Two things then go
-wrong in sequence:
+The recursive calls `eq(l1, l2)` compare fields whose type is the head type
+`Tree<a>`. That resolves to this very instance, whose dictionary is a
+constructor rather than a value, so the reference has nothing to bind to — the
+same shape as [KI-059](#ki-059), reached through a field instead of through
+`==`. A call on a field of type `a` is fine: it is discharged by the context
+dictionary in scope.
 
-1. `lower_dictionary_ref_ast`
-   ([expression.rs](../src/compiler/expression.rs)) emits a reference to the
-   constructor global. Its sibling branch — the one for a context-free
-   instance — predeclares the symbols it references; the contextual branch does
-   not, and the constructor global is a Core-to-Core product with no AST
-   statement behind it. Nothing has put it in the symbol table, hence the E004.
-2. Predeclaring it moves the failure rather than fixing it: the program then
-   reports `E1001 Cannot call non-function value (got Uninit)`. The global now
-   exists and is never *stored*, because `build_instance_dictionaries`
-   ([dict_elaborate.rs](../src/core/passes/dict_elaborate.rs)) only builds defs
-   for dictionaries referenced *in Core* — and tracing shows Core holds no
-   reference to it at all. Core resolved the call statically to
-   `__tc_Eq_Box<a>_eq` instead, which for a contextual instance takes the
-   context dictionaries as leading parameters, and no dictionary argument was
-   inserted for them.
+The fix is for a recursive reference to reuse the dictionary being constructed
+rather than demanding it as a value, which is what a self-referential
+(knot-tying) dictionary binding provides.
 
-So the AST-level and Core-level dictionary elaborations disagree about whether
-this call needs a dictionary, and each produces a program the other's
-assumptions break. Fixing only the symbol-table gap converts a compile error
-into a runtime one, which is worse.
-
-Through a constrained function the same instance reports the arity disagreement
-directly: `E1000 wrong number of arguments: want=3, got=2` for one type
-parameter, `want=7, got=4` for two.
-
-**Workaround:** write the instance by hand. The contextual form above is
-accepted and behaves correctly, including through a constrained function.
+**Workaround:** none for a recursive parameterized head. A recursive
+*monomorphic* ADT is unaffected, since its dictionary is a plain tuple.
 
 ---
 

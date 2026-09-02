@@ -108,6 +108,7 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "result_directed_method_lookup.flx",
         "unsupported_deriving_diagnostic.flx",
         "derived_eq.flx",
+        "derived_parameterized_eq.flx",
         "derived_show.flx",
         "derived_encode.flx",
         "derived_decode.flx",
@@ -333,6 +334,10 @@ fn a_class_parameter_in_the_return_type_is_fixed_by_the_expected_result() {
 fn derived_instances_are_callable_and_carry_evidence() {
     for (fixture, expected) in [
         ("derived_eq.flx", "true\nfalse\ntrue\nfalse\ntrue"),
+        (
+            "derived_parameterized_eq.flx",
+            "true\nfalse\ntrue\ntrue\nfalse\ntrue\nfalse\ntrue\nfalse\ntrue\nfalse\ntrue\nfalse",
+        ),
         ("derived_show.flx", "\"Red\"\n\"Blue\"\n\"Green\""),
         ("derived_decode.flx", "\"pair\"\n2"),
         (

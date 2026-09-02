@@ -5104,29 +5104,50 @@ impl Compiler {
     ) -> Option<Expression> {
         let current = self.current_function_name?;
         let scheme = self.type_env.lookup(current)?;
-        let mut occurrence = 0usize;
-        for constraint in &scheme.constraints {
-            if constraint.class_id != class_id {
-                continue;
-            }
-            let current_occurrence = occurrence;
-            occurrence += 1;
-            if constraint.type_args.len() != wanted.len()
-                || !constraint
-                    .type_args
-                    .iter()
-                    .zip(wanted)
-                    .all(|(left, right)| left.same_shape(right))
-            {
-                continue;
-            }
+
+        // Candidates are this class's constraints, in declaration order, since
+        // the dictionary parameter's suffix is that position.
+        let candidates = scheme
+            .constraints
+            .iter()
+            .filter(|constraint| constraint.class_id == class_id)
+            .enumerate()
+            .filter(|(_, constraint)| constraint.type_args.len() == wanted.len())
+            .collect::<Vec<_>>();
+
+        // Prefer an exact match before a structural one. `same_shape` treats
+        // any two type variables as interchangeable, so on a context with more
+        // than one constraint of the same class — `Eq<a>` and `Eq<b>` from
+        // `deriving (Eq)` on `data Pair<a, b>` — every lookup would otherwise
+        // match the first and both fields would be compared through `a`'s
+        // dictionary. Falling back to `same_shape` keeps the case where
+        // instantiation has renamed the variables and only the shape survives.
+        let exact = candidates.iter().find(|(_, constraint)| {
+            constraint
+                .type_args
+                .iter()
+                .zip(wanted)
+                .all(|(left, right)| left == right)
+        });
+        let structural = candidates.iter().find(|(_, constraint)| {
+            constraint
+                .type_args
+                .iter()
+                .zip(wanted)
+                .all(|(left, right)| left.same_shape(right))
+        });
+
+        for (current_occurrence, _) in exact.into_iter().chain(structural) {
+            let current_occurrence = *current_occurrence;
             let suffix = (current_occurrence > 0).then(|| format!("_{current_occurrence}"));
             let name = format!(
                 "{}{}",
                 crate::types::class_env::dictionary_prefix(class_id, &self.interner),
                 suffix.unwrap_or_default()
             );
-            let name = self.interner.lookup(&name)?;
+            let Some(name) = self.interner.lookup(&name) else {
+                continue;
+            };
             if self.symbol_table.resolve(name).is_some() {
                 return Some(Expression::Identifier {
                     name,
