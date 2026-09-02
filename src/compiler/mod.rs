@@ -419,6 +419,7 @@ fn imported_instance_def_from_entry(
             .collect()
     };
     Some(crate::types::class_env::InstanceDef {
+        origin: crate::types::class_env::InstanceOrigin::Declared,
         class_name,
         associated_types: entry
             .associated_types
@@ -2697,13 +2698,29 @@ impl Compiler {
         self.preloaded_effect_ops_registry = self.effect_ops_registry.clone();
         self.preloaded_effect_op_signatures = self.effect_op_signatures.clone();
 
-        // A no-cache build does not have a module interface to carry public
+        self.preload_dependency_class_metadata(program);
+    }
+
+    /// Recover a dependency's public classes and instances from its AST.
+    ///
+    /// A no-cache build has no module interface to carry that metadata across
+    /// the shared sequential compiler the runner uses, so downstream
+    /// dictionary construction would otherwise see none of it.
+    pub fn preload_dependency_class_metadata(&mut self, program: &Program) {
         // class/instance metadata across the shared sequential compiler used
         // by the runner. Recover that metadata from the dependency AST so
         // downstream dictionary construction remains available in the same
         // way as it is when an interface cache hit is present.
         let mut dependency_classes = crate::types::class_env::ClassEnv::new();
         dependency_classes.register_builtins(&mut self.interner);
+        // Seed the classes already in scope. An instance context or superclass
+        // names a class that may live in a *third* module — `Flow.Ord`'s
+        // instances are `Eq<Int> => Ord<Int>`, and `Eq` is `Flow.Eq`'s. Without
+        // this, resolution falls back to a module-less `ClassId` that matches
+        // no instance, and the reconstructed instance can never be discharged.
+        dependency_classes
+            .classes
+            .extend(self.imported_public_classes.clone());
         let _ = dependency_classes.collect_from_statements(&program.statements, &self.interner);
         for (class_id, class_def) in dependency_classes.classes {
             if class_def.is_public {
@@ -3541,7 +3558,16 @@ impl Compiler {
             .repl_mode
             .then(|| env.classes.keys().copied().collect());
         let instances_before = env.instances.len();
-        let mut diagnostics = env.collect_from_statements(&program.statements, &self.interner);
+        // Superclass evidence is checked after the imported instances are
+        // merged below: `Ord`'s `Eq` evidence lives in `Flow.Eq`, and a
+        // check run here would not yet see it (E445 on every edge).
+        let mut diagnostics = env.collect_from_statements_with(
+            &program.statements,
+            &self.interner,
+            crate::types::class_env::SuperclassCheck::Deferred,
+        );
+        // This module's own instances, before the imported ones are appended.
+        let local_instances = instances_before..env.instances.len();
         // REPL: promote this line's own `class` / `instance` declarations into the
         // imported set so a later line resolves them, instead of rebuilding from
         // the prelude/import set each compile (E004 across lines). Captured before
@@ -3568,6 +3594,12 @@ impl Compiler {
             &self.imported_public_instances,
             &self.interner,
         ));
+        // Deferred from `collect_from_statements_with` above: the instance set
+        // is complete only now that the imported ones are in. Only this
+        // module's instances are judged — an imported one was checked in the
+        // module that declared it, where its evidence was in scope.
+        diagnostics
+            .extend(env.validate_superclass_obligations_for(local_instances, &self.interner));
         self.class_env = env;
         let kind_env = crate::types::kind_check::KindEnv::from_program(
             program,

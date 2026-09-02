@@ -71,7 +71,10 @@ use sha2::{Digest, Sha256};
 /// Epoch 35: `Eq`, `Ord`, `Num`, `Show` and `Semigroup` moved from Rust
 /// registration into the Flux prelude, so their instances, dictionaries and
 /// mangled method names now carry the owning module.
-pub const CACHE_EPOCH: u16 = 35;
+/// Epoch 36: `Ord` declares `Eq` as a superclass, so every `Ord` dictionary
+/// leads with an `Eq` evidence slot and each method sits one index later than
+/// an epoch-35 artifact recorded.
+pub const CACHE_EPOCH: u16 = 36;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

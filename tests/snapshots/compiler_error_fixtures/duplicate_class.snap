@@ -9,29 +9,13 @@ error[E440]: Duplicate Type Class
 
 Type class `Show` is already defined.
 
-  examples/compiler_errors/duplicate_class.flx:14:1
+  examples/compiler_errors/duplicate_class.flx:22:1
    |
-14 | class Show<a> {
+22 | class Show<a> {
    | ^^^^^^^^^^^^^^^
-15 |     fn show(x: a) -> Int
+23 |     fn show(x: a) -> Int
    | ^^^^^^^^^^^^^^^^^^^^^^^^
-16 | }
+24 | }
    | ^
-
-
-error[E440]: Duplicate Type Class
-
-Type class `Show` is already defined.
-
-  examples/compiler_errors/duplicate_class.flx:18:1
-   |
-18 | class Show<a> {
-   | ^^^^^^^^^^^^^^^
-19 |     fn show(x: a) -> Int
-   | ^^^^^^^^^^^^^^^^^^^^^^^^
-20 | }
-   | ^
-
-Found 2 errors.
 == stdout ==
 <not executed>
