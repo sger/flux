@@ -20,6 +20,16 @@ static TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn flow_prelude_source() -> String {
     [
+        // The class modules of `FLOW_PRELUDE_MODULES` (`src/driver/frontend.rs`).
+        // They are imported for graph membership rather than exposed: a
+        // constrained call passes evidence, and an instance whose module is
+        // absent from the graph leaves its `__dict_*` global declared but
+        // never stored.
+        "import Flow.Eq",
+        "import Flow.Ord",
+        "import Flow.Num",
+        "import Flow.Show",
+        "import Flow.Semigroup",
         "import Flow.Option exposing (..)",
         "import Flow.List except [concat, delete]",
         "import Flow.List as List",
@@ -364,6 +374,126 @@ fn recursive_function_with_constant_add_across_modules() {
         r#"find_char("hello world", "w", 0);"#,
     );
     assert_eq!(result, Value::Integer(6));
+}
+
+#[test]
+fn module_scoped_contextual_instance_recurses_through_its_head_on_vm() {
+    let result = run_named_module(
+        "M",
+        r#"
+        module M {
+            public class MyEq<a> {
+                fn my_eq(x: a, y: a) -> Bool
+            }
+
+            public instance MyEq<Int> {
+                fn my_eq(x, y) { x == y }
+            }
+
+            public instance MyEq<a> => MyEq<List<a>> {
+                fn my_eq(xs, ys) {
+                    match xs {
+                        [h1 | t1] -> match ys {
+                            [h2 | t2] -> my_eq(h1, h2) && my_eq(t1, t2),
+                            _ -> false
+                        },
+                        _ -> match ys {
+                            [h | t] -> false,
+                            _ -> true
+                        }
+                    }
+                }
+            }
+        }
+        "#,
+        r#"
+        fn main() {
+            (M.my_eq([1], [1]), M.my_eq([1, 2], [1, 2]), M.my_eq([1, 2], [1, 3]))
+        }
+        "#,
+    );
+    assert_eq!(
+        result,
+        Value::Tuple(std::rc::Rc::new(vec![
+            Value::Boolean(true),
+            Value::Boolean(true),
+            Value::Boolean(false),
+        ]))
+    );
+}
+
+#[test]
+fn module_scoped_constrained_function_gets_its_dictionary_across_modules() {
+    // KI-061: `all_same` is a *free* function inside a module, constrained by
+    // `Eq` and calling the method by name rather than through an operator.
+    // Both the cross-module call and its own recursion must carry the
+    // dictionary the function was compiled to expect.
+    let result = run_named_module(
+        "Ki061",
+        r#"
+        import Flow.Eq exposing (..)
+
+        module Ki061 {
+            public fn all_same<a: Eq>(xs: List<a>, x: a) -> Bool {
+                match xs {
+                    [h | t] -> eq(h, x) && all_same(t, x),
+                    _ -> true
+                }
+            }
+        }
+        "#,
+        r#"
+        fn main() {
+            (
+                Ki061.all_same([1, 1, 1], 1),
+                Ki061.all_same([1, 2], 1),
+                Ki061.all_same(["a", "a"], "a")
+            )
+        }
+        "#,
+    );
+    assert_eq!(
+        result,
+        Value::Tuple(std::rc::Rc::new(vec![
+            Value::Boolean(true),
+            Value::Boolean(false),
+            Value::Boolean(true),
+        ]))
+    );
+}
+
+#[test]
+fn imported_constrained_function_reaches_a_contextual_dictionary() {
+    // The evidence `Flow.List.sort` needs is `Ord<Int>`, whose instance is
+    // `Eq<Int> => Ord<Int>` — a dictionary *constructor*, not a plain tuple,
+    // and one defined in a module this unit only imports. Passing it requires
+    // both the caller-side elaboration and the imported `__dict_*` global that
+    // `emit_imported_dict_globals` stores (KI-061).
+    //
+    // `Flow.Ord` is imported explicitly because this harness preloads only a
+    // node's direct imports, where the driver preloads every stdlib module.
+    let result = run_named_module(
+        "SortHost",
+        r#"
+        import Flow.List as List
+        import Flow.Ord
+
+        module SortHost {
+            public fn smallest(xs: List<Int>) -> Int {
+                match List.sort(xs) {
+                    [h | t] -> h,
+                    _ -> 0
+                }
+            }
+        }
+        "#,
+        r#"
+        fn main() {
+            SortHost.smallest([3, 1, 2])
+        }
+        "#,
+    );
+    assert_eq!(result, Value::Integer(1));
 }
 
 // ── Multiple modules chained ────────────────────────────────────────────
