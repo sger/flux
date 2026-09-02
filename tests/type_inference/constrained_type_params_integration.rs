@@ -1,3 +1,5 @@
+use std::{path::Path, process::Command};
+
 use flux::{
     compiler::Compiler,
     core::display::CoreDisplayMode,
@@ -103,23 +105,56 @@ fn main() {
     );
 }
 
+/// A generic function bounded by `Ord` and using `>` compiles and runs.
+///
+/// This one goes through the real driver rather than a bare `Compiler`. Since
+/// Proposal 0179 Stage 8 the standard classes are Flux modules, so their
+/// instance implementations come from `lib/Flow/*.flx` rather than being
+/// synthesized in every unit from Rust. `Ord<Int>` is also *contextual*
+/// (`Eq<Int> => Ord<Int>`), so its dictionary is a constructor that needs
+/// `Flow.Ord`'s methods to exist — which a `Compiler` that never compiles
+/// `Flow.Ord` cannot provide. The sibling `Eq`/`Num` test above still uses a
+/// bare `Compiler` only because a non-contextual dictionary is emitted as a
+/// plain tuple of external references, which compiles without those
+/// references resolving.
 #[test]
 fn generic_ord_operator_compiles_without_strict_types() {
-    let (program, mut compiler) = compiler_for(
+    let dir = std::env::temp_dir().join("flux-constrained-ord-operator");
+    std::fs::create_dir_all(&dir).expect("create scratch dir");
+    let source_path = dir.join("max_of.flx");
+    std::fs::write(
+        &source_path,
         r#"
 fn max_of<A: Ord>(x: A, y: A) -> A {
     if x > y { x } else { y }
 }
 
 fn main() {
-    max_of(3, 7)
+    print(max_of(3, 7))
 }
 "#,
-    );
+    )
+    .expect("write source");
 
-    compiler
-        .compile_with_opts(&program, false, false)
-        .expect("generic Ord operator should compile without strict-types");
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")))
+        .arg(&source_path)
+        .arg("--no-cache")
+        .arg("--cache-dir")
+        .arg(dir.join("cache"))
+        .output()
+        .expect("run flux");
+
+    assert!(
+        output.status.success(),
+        "generic Ord operator should compile without strict-types:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains('7'),
+        "expected `max_of(3, 7)` to print 7, got:\n{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
 }
 
 #[test]
@@ -166,8 +201,15 @@ fn main() {
         .dump_core_with_opts(&program, false, CoreDisplayMode::Readable)
         .expect("core dump should succeed");
 
+    // `Num` is `Flow.Num`'s class since Proposal 0179 Stage 8, so its
+    // dictionary carries the owning module in its mangled name
+    // (`__dict_m8_<hash>_Num_Int`) rather than being a bare `__dict_Num`.
     assert!(
-        dumped.contains("__dict_Num"),
+        dumped.contains("_Num_Int"),
+        "expected the concrete `Num<Int>` dictionary, got:\n{dumped}"
+    );
+    assert!(
+        dumped.contains("λ__dict_") && dumped.contains("_Num,"),
         "expected explicit Num bound to elaborate a dictionary parameter, got:\n{dumped}"
     );
 }

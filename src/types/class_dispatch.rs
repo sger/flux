@@ -157,6 +157,7 @@ pub fn generate_dispatch_functions(
             &mut reserved_names,
             &mut synth_expr_ids,
         );
+        seed_dispatch_table_from_class_env(class_env, &mut dispatch_table);
     }
 
     // Generate dispatch functions for each class method.
@@ -244,6 +245,37 @@ fn needs_builtin_dispatch_support(statements: &[Statement]) -> bool {
         Statement::Module { body, .. } => needs_builtin_dispatch_support(&body.statements),
         _ => false,
     })
+}
+
+/// Record every method of every class that has an instance, so a stub is
+/// generated for it.
+///
+/// `generate_from_statements` only sees instances declared in *this* unit, and
+/// `generate_builtin_instance_functions` only handled the phantom instances the
+/// Rust registration used to create. Since Proposal 0179 Stage 8 the standard
+/// classes' instances live in `Flow.Eq` and its siblings, so a unit that merely
+/// *uses* a class contributes nothing to the dispatch table — and a constrained
+/// function's `x == y` desugars to `eq(x, y)`, which then resolves to nothing
+/// (`E004 I can't find a value named 'eq'`).
+///
+/// A class with no instance is skipped: there would be nothing for the stub to
+/// stand in for, and its name should stay free.
+fn seed_dispatch_table_from_class_env(
+    class_env: &ClassEnv,
+    dispatch_table: &mut HashSet<(crate::types::class_id::ClassId, Identifier)>,
+) {
+    for (class_id, class_def) in &class_env.classes {
+        if !class_env
+            .instances
+            .iter()
+            .any(|instance| instance.class_id == *class_id)
+        {
+            continue;
+        }
+        for method in &class_def.methods {
+            dispatch_table.insert((*class_id, method.name));
+        }
+    }
 }
 
 fn generate_builtin_instance_functions(
