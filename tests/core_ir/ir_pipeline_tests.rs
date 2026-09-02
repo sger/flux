@@ -332,6 +332,51 @@ fn main() {
 }
 
 #[test]
+fn module_scoped_contextual_forwarder_keeps_dictionary_generic() {
+    let source = r#"
+module M {
+    public class MyEq<a> {
+        fn my_eq(x: a, y: a) -> Bool
+    }
+    public instance MyEq<Int> {
+        fn my_eq(x, y) { x == y }
+    }
+    public instance MyEq<a> => MyEq<List<a>> {
+        fn my_eq(xs, ys) {
+            match xs {
+                [h1 | t1] -> match ys { [h2 | t2] -> my_eq(h1, h2) && my_eq(t1, t2), _ -> false },
+                _ -> match ys { [h | t] -> false, _ -> true }
+            }
+        }
+    }
+}
+
+M.my_eq([1, 2], [1, 2]);
+"#;
+    let core = dump_core(source);
+    assert!(
+        core.contains("__tc_m1_4D_MyEq_List<a>_my_eq"),
+        "module-scoped list forwarder should be present in Core:\n{core}"
+    );
+    assert!(
+        core.contains("λ__dict_m1_4D_MyEq, xs, ys."),
+        "module-scoped list forwarder should have exactly one dictionary and two value parameters:\n{core}"
+    );
+    assert!(
+        core.contains("(__dict_m1_4D_MyEq, xs, ys)"),
+        "module-scoped list forwarder should pass its generic dictionary through unchanged:\n{core}"
+    );
+    assert!(
+        !core.contains("__tc_m1_4D_MyEq_List<a>_my_eq(__dict_m1_4D_MyEq_Int, __dict_m1_4D_MyEq,"),
+        "module-scoped forwarder must not freeze MyEq<Int> or pass four arguments:\n{core}"
+    );
+    assert!(
+        !core.contains("(__dict_m1_4D_MyEq_Int, __dict_m1_4D_MyEq, xs, ys)"),
+        "module-scoped forwarder must not pass a concrete element dictionary before its context:\n{core}"
+    );
+}
+
+#[test]
 fn hkt_functor_list_dispatches_at_runtime() {
     let value = run(r#"
 class Functor<f> {
