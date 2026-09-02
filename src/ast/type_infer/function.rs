@@ -237,6 +237,21 @@ impl<'a> InferCtx<'a> {
         if matches.len() < 2 {
             return false;
         }
+        // A class declared in the module being compiled wins over one merely
+        // in scope — the precedence `resolve_class_id` already applies, and
+        // the constraint below resolves through it. Since Proposal 0179
+        // Stage 8 the prelude contributes `Eq`, `Ord`, `Num`, `Show` and
+        // `Semigroup` to every module, so without this any program declaring
+        // a class of one of those names is ambiguous by construction and
+        // cannot name its own class in a bound.
+        if matches
+            .iter()
+            .filter(|def| def.module == self.current_module)
+            .count()
+            == 1
+        {
+            return false;
+        }
 
         let display_class = self.interner.resolve(short_name);
         let modules: Vec<String> = matches
