@@ -1982,12 +1982,12 @@ rather than demanding it as a value, which is what a self-referential
 
 ---
 
-### KI-060 — A module-scoped contextual instance cannot call its own method on its own head type
+### KI-060 — A module-scoped contextual instance cannot call its own method on its own head type — fixed natively 2026-09-02, VM still affected
 
-**Severity:** High · **Area:** type classes, module-scoped instances · **Verified:** 2026-09-01 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** type classes, module-scoped instances · **Verified:** 2026-09-02 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 Inside a `module { }` block, a contextual instance whose method recurses through
-the class method *on the instance's own head type* reaches the wrong dictionary:
+the class method *on the instance's own head type* reached the wrong dictionary:
 
 ```flux
 module M {
@@ -2004,32 +2004,52 @@ module M {
 }
 ```
 
-```
-error[E1009]: unsupported comparison: List and List
-  at M.__tc_m1_4D_MyEq_Int_my_eq (M.flx:3:50)
-```
-
 `my_eq(t1, t2)` compares two `List<a>` and must recurse through the `List`
-instance applied to the element dictionary. It reaches `MyEq<Int>` instead. The
-identical instance at the top level of an entry file — outside any module — is
-correct; Stage 7's generated container instances were top-level, which is why
-they never hit this.
+instance applied to the element dictionary. It reached `MyEq<Int>` instead.
 
-**Cause — confirmed from a single-module Core dump.** The method is emitted
-twice under one bare name. The first is the real body and is right: the tail
-call is `__tc_…_List<a>_my_eq(__dict, t1, t2)`. The second is the bare-name
-forwarding alias KI-055 describes, and it bakes in a *concrete* dictionary:
+**Cause.** A module-owned instance method is emitted twice: the implementation
+inside the module, and a bare forwarding alias outside it, because HM
+predeclaration and VM dispatch resolve by the canonical bare name. That alias
+forwards *every* parameter, dictionaries included, so its call is already
+complete when Core lowering sees it.
+
+`resolve_dict_args_for_module_member_call`
+([lower_ast/mod.rs](../src/core/lower_ast/mod.rs)) then inserted evidence a
+second time. It had no "the arguments already carry dictionaries" guard, which
+the three other insertion sites all have —
+`should_insert_source_dict_args_for_identifier`'s sibling branch,
+`Compiler::looks_like_dictionary_argument_ast`, and `already_has_dict_args` in
+[dict_elaborate.rs](../src/core/passes/dict_elaborate.rs). Resolving from
+arguments already shifted by one froze a *concrete* dictionary into a generic
+forwarder:
 
 ```
-letrec __tc_m1_4D_MyEq_List<a>_my_eq =
-λ__dict_m1_4D_MyEq, xs, ys.
-    M.__tc_m1_4D_MyEq_List<a>_my_eq(__dict_m1_4D_MyEq_Int, __dict_m1_4D_MyEq, xs, ys)
+λ__dict_MyEq, xs, ys.
+    M.__tc_…_List<a>_my_eq(__dict_MyEq_Int, __dict_MyEq, xs, ys)
 ```
 
-That is the *call site's* evidence (`Int`, from `my_eq([1, 2], [1, 2])`) frozen
-into a function that is supposed to be generic, and it shadows the correct
-definition. Every recursion then carries the element dictionary as if it were
-the list's.
+That is the call site's evidence baked into a function that is supposed to be
+generic — and a four-argument call into a three-parameter function. The alias
+now forwards its own dictionary unchanged. `lib/Flow/Eq.flx` was affected too:
+the aether Core dumps show the same `__dict_…_Eq_Int` removed from the
+prelude's own `List<a>` and `Option<a>` forwarders.
+
+**Fixed on the native backend.** The repro above prints `true`, `true`, `false`
+under `cargo native`, where it previously trapped.
+
+**Still failing on the VM.** Native retains the forwarding call and so reaches
+the qualified symbol; the VM instead overwrites the bare global at load time
+(`emit_instance_method_aliases` in
+[codegen.rs](../src/compiler/passes/codegen.rs)) and resolves this call on the
+AST path rather than from Core. With Core now correct, the divergence localizes
+the remainder to that path — which is the one [KI-061](#ki-061) describes, so
+the two are most likely one root cause and should be fixed together.
+
+**Correction to the earlier diagnosis.** This entry previously said the alias
+*shadows* the real definition. It does not: the module's implementation and the
+top-level alias are distinct symbols. The whole-program Core dump renders both
+without the module prefix ([KI-053](#ki-053)), which reads as a duplicate
+definition and is misleading.
 
 **Workaround:** recurse through a private helper rather than through the class
 method, and compare elements with the operator (see KI-061 for why the operator
