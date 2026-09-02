@@ -1237,7 +1237,7 @@ fn print_box() -> Int with Console {
 }
 
 #[test]
-fn phase4_module_scoped_type_classes_acceptance_bar() {
+fn module_scoped_type_classes_acceptance_bar() {
     let source = r#"
 data Box<a> {
     Box(a)

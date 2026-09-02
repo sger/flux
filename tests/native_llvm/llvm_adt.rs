@@ -262,7 +262,7 @@ fn main() {
 }
 
 #[test]
-fn emitted_phase5_module_verifies_with_opt_when_available() {
+fn emitted_module_verifies_with_opt_when_available() {
     if Command::new("opt").arg("--version").output().is_err() {
         return;
     }
