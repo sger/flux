@@ -238,9 +238,9 @@ reach yours, not `Num`'s — silently.
 ## Current limits
 
 - One superclass per class, and one context constraint per instance.
-- `Either` has no `Functor`/`Applicative`/`Monad` instance
-  ([KI-064](../known_issues.md#ki-064)). `Eq` and `Ord` over
-  `Either` work.
+- `Eq` and `Ord` over `Either` are structural rather than instances, so you
+  cannot name that evidence in a bound: the instance head would need two
+  context constraints, one per parameter, and only one is allowed.
 - A constrained function declared **inside a `module` block** does not receive
   its dictionary and fails at run time
   ([KI-061](../known_issues.md#ki-061)). Declare it at the top level.

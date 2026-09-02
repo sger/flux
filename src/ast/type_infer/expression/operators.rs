@@ -111,6 +111,12 @@ impl<'a> InferCtx<'a> {
     /// unconstrained; since Proposal 0179 Stage 8 the class prelude is injected
     /// into every module, so a missing class is a broken invariant and is
     /// reported (E487) rather than dropped.
+    ///
+    /// The invariant only holds where there *is* a class environment. An
+    /// embedder may run inference with `class_env: None` — no classes, no
+    /// dispatch, no operator obligations to discharge — and for that caller a
+    /// missing class is the configuration, not a defect. E487 is therefore
+    /// scoped to programs that were given a class environment at all.
     fn emit_operator_constraint_for_type(
         &mut self,
         class_sym: Option<Identifier>,
@@ -119,13 +125,15 @@ impl<'a> InferCtx<'a> {
         span: Span,
     ) {
         let Some(class_sym) = class_sym else {
-            self.errors.push(
-                diagnostic_for(&OPERATOR_CLASS_NOT_IN_SCOPE)
-                    .with_span(span)
-                    .with_message(format!(
-                        "This operator needs the class `{class_name}`, which is not in scope here."
-                    )),
-            );
+            if self.class_env.is_some() {
+                self.errors.push(
+                    diagnostic_for(&OPERATOR_CLASS_NOT_IN_SCOPE)
+                        .with_span(span)
+                        .with_message(format!(
+                            "This operator needs the class `{class_name}`, which is not in scope here."
+                        )),
+                );
+            }
             return;
         };
         self.emit_class_constraint(
