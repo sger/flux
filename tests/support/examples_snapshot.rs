@@ -366,7 +366,29 @@ pub fn build_transcript_with_options(
                     1
                 }
             });
-            for node in ordered_nodes {
+            let nodes_by_path: std::collections::HashMap<_, _> = ordered_nodes
+                .iter()
+                .map(|node| (node.path.clone(), node))
+                .collect();
+            for node in &ordered_nodes {
+                // Mirror the driver (`src/driver/run_program/modules.rs`): one
+                // shared compiler, but each module's dependencies preloaded
+                // before it compiles, and every stdlib module preloaded for a
+                // module that is not itself stdlib.
+                for dep in &node.imports {
+                    if let Some(dep_node) = nodes_by_path.get(&dep.target_path) {
+                        compiler.preload_dependency_program(&dep_node.program);
+                    }
+                }
+                if node.kind != flux::syntax::module_graph::ModuleKind::FlowStdlib {
+                    for (path, dep_node) in &nodes_by_path {
+                        if !node.imports.iter().any(|dep| &dep.target_path == path)
+                            && dep_node.kind == flux::syntax::module_graph::ModuleKind::FlowStdlib
+                        {
+                            compiler.preload_dependency_program(&dep_node.program);
+                        }
+                    }
+                }
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
                 compiler.set_current_module_kind(node.kind);
                 if let Err(mut diags) = compiler.compile(&node.program) {
@@ -377,22 +399,6 @@ pub fn build_transcript_with_options(
                     }
                     diagnostics.append(&mut diags);
                     break;
-                }
-                // One `Compiler` is shared across every module here, where the
-                // driver builds a fresh one per module and preloads that
-                // module's dependencies. `Flow.Ord`'s instances are
-                // `Eq<Int> => Ord<Int>`, so compiling it needs `Flow.Eq`'s
-                // instances, and no earlier compile leaves those behind.
-                //
-                // Only `Flow.Eq`'s metadata, and only the class part: a full
-                // dependency preload of the rest re-registers names this
-                // compiler has already compiled.
-                if node
-                    .path
-                    .file_name()
-                    .is_some_and(|name| name == std::ffi::OsStr::new("Eq.flx"))
-                {
-                    compiler.preload_dependency_class_metadata(&node.program);
                 }
             }
             if !diagnostics.is_empty() {

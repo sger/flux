@@ -2064,41 +2064,46 @@ There is also dead code behind this: `infer_semigroup_operator`, the
 `"++" => "append"` desugar arm and `CorePrimOp::Concat` all handle an operator
 the lexer never produces. `Semigroup` is reached only as `append(x, y)`.
 
-### KI-063 — The examples snapshot harness shares one compiler, so a stdlib class method's stub collides with a user function
+### KI-063 — A user function named after a class method broke `--no-cache` — **fixed 2026-09-02**
 
-**Severity:** Medium · **Area:** examples snapshot harness · **Verified:** 2026-09-02
+**Severity:** High · **Area:** type classes, compiler · **Verified:** 2026-09-02
 
-Four fixtures that compile cleanly under the real driver are reported as
-`failed (compile)` by `tests/support/examples_snapshot.rs`:
+A program defining a function named after a prelude class method failed to
+compile whenever the standard library was compiled rather than loaded from
+cache:
 
 ```
+$ flux --no-cache file.flx
 error[E001]: Duplicate Name
 Duplicate binding: `add` is already defined.
-  examples/type_system/01_typed_let_and_functions.flx:10:1
 ```
 
-The others are `examples/strict_types/typed_arithmetic.flx`,
-`examples/diagnostics/hint_demos/fn_keyword_error.flx` and
-`examples/guide/type_system/01_typed_let_and_fn.flx`. Each defines a top-level
-`fn add`. `cargo run -- <fixture>` compiles and runs all four.
+`fn add`, `fn eq`, `fn show` — any of them. A warm or cold *cached* run was
+fine, which is what hid it: only `--no-cache` compiles every stdlib module in
+the same `Compiler` as the user's file. Four `examples/` fixtures were failing
+in `examples_fixtures_snapshots` for this reason, and it was first mistaken for
+a defect in that harness.
 
-`generate_dispatch_functions` emits a polymorphic stub named for each class
-method, skipping any name the *current program* already defines
-(`reserved_names` in `src/types/class_dispatch.rs`). A fixture defining
-`fn add` therefore suppresses its own `Num.add` stub — which is why the driver,
-whose compiler is fresh per module, is fine.
+**Cause.** Proposal 0179 Stage 8 moved `Eq`, `Ord`, `Num`, `Show` and
+`Semigroup` from Rust registration into Flux modules. `generate_dispatch_functions`
+emits a polymorphic dispatch stub under each class method's *bare* name, in
+every compilation unit that has the class in scope, skipping any name that
+unit's own program already defines (`reserved_names`). Compiling
+`lib/Flow/Num.flx` therefore defines a top-level `add`, and one `Compiler`
+compiles every module of a program, so that stub was still defined when the
+user's file declared `fn add`. Before Stage 8 there was no `Flow.Num` module to
+compile and nothing generated the stub ahead of user code.
 
-The harness instead compiles every module of the graph through one shared
-`Compiler`. Since Proposal 0179 Stage 8 made `Num` Flux source, `Flow.Num` is a
-module the harness compiles, and its statements define no top-level `add`, so
-the stub *is* generated there and persists in the shared compiler. The
-fixture's own `fn add` then collides with it.
+**Fix.** The compiler records the stub names it generates
+(`Compiler::generated_dispatch_stub_names`), and `phase_predeclaration` lets a
+real function declaration take one over instead of reporting a redeclaration.
+That matches the resolution rule already in force: a name bound to a function
+never dispatches as a class method, so the user's function was always going to
+win — it just could not be declared. A genuine duplicate (two `fn foo` in one
+file) still reports E001.
 
-The fix is for the harness to build a compiler per module as the driver does.
-That needs the module interfaces the driver accumulates as it compiles:
-preloading dependency *programs* alone loses aliased-member metadata
-(`Module `Flow.Array` has no member named `push``, from `Flow.IO`), and
-preloading the stdlib without compiling it loses far more.
+Regression coverage: `tests/parity/user_fn_named_like_class_method.flx`, which
+the parity sweep runs with `--no-cache` in its `vm` and `llvm_strict` ways.
 
 ### KI-064 — A class over a partially applied type constructor cannot be used across a module boundary
 

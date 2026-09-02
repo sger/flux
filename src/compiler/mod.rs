@@ -1395,6 +1395,16 @@ pub struct Compiler {
     /// Name resolution already works through the persistent symbol table; this
     /// closes the gap for inference, which otherwise sees a bare reference to a
     /// session global (not present in the line's own source) as an unbound `_`.
+    /// Names of the polymorphic class-method dispatch stubs this compiler has
+    /// generated, across every module it has compiled.
+    ///
+    /// A stub is a per-compilation-unit artifact: each module that has a class
+    /// in scope generates one for each of its methods, under the bare method
+    /// name. One `Compiler` compiles every module of a program, so a stub
+    /// generated while compiling `Flow.Num` is still defined when a later
+    /// module declares `fn add` — and that declaration is not a redeclaration
+    /// of anything the user wrote.
+    generated_dispatch_stub_names: HashSet<Symbol>,
     repl_mode: bool,
     /// Accumulated top-level binding schemes from previously-compiled REPL
     /// lines, merged into `build_infer_config`'s base schemes. Empty (and inert)
@@ -1597,10 +1607,21 @@ impl Compiler {
     }
 
     pub(super) fn inject_generated_dispatch_functions(
-        &self,
+        &mut self,
         program: &Program,
         generated: Vec<Statement>,
     ) -> Program {
+        // Remember which of these are dispatch stubs — the bare-method-name
+        // functions, as opposed to the `__tc_*` instance methods — so a later
+        // module compiled by this same `Compiler` may declare a function of
+        // that name without it reading as a redeclaration.
+        for statement in &generated {
+            if let Statement::Function { name, .. } = statement
+                && !crate::types::class_env::is_generated_instance_method(self.sym(*name))
+            {
+                self.generated_dispatch_stub_names.insert(*name);
+            }
+        }
         let module_count = program
             .statements
             .iter()
@@ -1884,6 +1905,7 @@ impl Compiler {
             cost_centre_infos: Vec::new(),
             class_env: crate::types::class_env::ClassEnv::new(),
             imported_public_classes: HashMap::new(),
+            generated_dispatch_stub_names: HashSet::new(),
             imported_public_instances: Vec::new(),
             pending_imported_public_instance_entries: Vec::new(),
             imported_instance_method_schemes: HashMap::new(),
@@ -2706,7 +2728,7 @@ impl Compiler {
     /// A no-cache build has no module interface to carry that metadata across
     /// the shared sequential compiler the runner uses, so downstream
     /// dictionary construction would otherwise see none of it.
-    pub fn preload_dependency_class_metadata(&mut self, program: &Program) {
+    fn preload_dependency_class_metadata(&mut self, program: &Program) {
         // class/instance metadata across the shared sequential compiler used
         // by the runner. Recover that metadata from the dependency AST so
         // downstream dictionary construction remains available in the same
