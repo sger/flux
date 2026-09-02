@@ -1,0 +1,28 @@
+// Proposal 0179 Stage 8: the three-level chain
+// `Functor => Applicative => Monad` over a higher-kinded class parameter.
+//
+// `f` is not a type but a type constructor — `List`, `Option`, `Array` — and
+// its kind is inferred from `fmap`'s signature rather than written down. The
+// superclass edges are between classes whose parameter is higher-kinded,
+// which the kind checker rejected before this stage: a constraint argument
+// naming the owner's own type parameter defaulted to kind `Type`.
+//
+// `chain` is constrained by `Monad` alone and takes one dictionary. It
+// reaches `fmap` two levels up the chain and `pure` one level up, both
+// through superclass evidence, and `bind` from its own class.
+//
+// Expected: [3, 5] Some(5) [|7|] [1, 1, 2, 2] Some(20)
+
+import Flow.Monad
+
+fn chain<f: Monad>(x: f<Int>) -> f<Int> {
+    bind(fmap(x, fn(v) { v * 2 }), fn(v) { pure(v + 1) })
+}
+
+fn main() {
+    print(chain([1, 2]))
+    print(chain(Some(2)))
+    print(chain([|3|]))
+    print(bind([1, 2], fn(x) { [x, x] }))
+    print(bind(Some(2), fn(x) { Some(x * 10) }))
+}

@@ -77,7 +77,11 @@ use sha2::{Digest, Sha256};
 /// Epoch 37: `Semigroup` gained instances over `List`, `Array` and `Option`,
 /// and the new `Monoid` class sits on top of it, so a predicate an epoch-36
 /// interface answered with no instance now resolves to one.
-pub const CACHE_EPOCH: u16 = 37;
+/// Epoch 38: the `Functor`, `Applicative` and `Monad` classes exist, and a
+/// superclass constraint on a higher-kinded class parameter is kind-checked
+/// against the owner's parameters rather than defaulting to `Type` — an
+/// epoch-37 interface recorded the rejection.
+pub const CACHE_EPOCH: u16 = 38;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

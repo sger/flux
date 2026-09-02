@@ -1,0 +1,44 @@
+/// A `Functor` that can lift a plain value and apply a wrapped function.
+///
+/// `pure` takes an argument, but nothing about that argument says which
+/// structure to lift it into — `pure(1)` is a `List<Int>` or an `Option<Int>`
+/// depending on the type the result is required to have. See
+/// `examples/type_classes/return_directed_pure.flx`.
+///
+/// Not part of the class prelude; import it explicitly.
+/// (Proposal 0179 Stage 8.)
+import Flow.Array as Array
+import Flow.Functor
+import Flow.List as List
+import Flow.Option
+
+module Flow.Applicative {
+    public class Functor<f> => Applicative<f> {
+        fn pure<a>(x: a) -> f<a>
+        fn ap<a, b>(fg: f<(a) -> b>, x: f<a>) -> f<b>
+    }
+
+    // `flat_map` rather than `map`: `map` is effect-row polymorphic, and `ap`
+    // is not, so the row would have nothing to resolve against (E419).
+    public instance Functor<List> => Applicative<List> {
+        fn pure(x) { [x] }
+        fn ap(fg, x) { List.flat_map(fg, fn(g) { List.flat_map(x, fn(v) { [g(v)] }) }) }
+    }
+
+    public instance Functor<Option> => Applicative<Option> {
+        fn pure(x) { Some(x) }
+        fn ap(fg, x) {
+            match fg {
+                Some(g) -> match x { Some(v) -> Some(g(v)), _ -> None },
+                _ -> None
+            }
+        }
+    }
+
+    public instance Functor<Array> => Applicative<Array> {
+        fn pure(x) { [|x|] }
+        fn ap(fg, x) {
+            Array.flat_map(fg, fn(g) { Array.flat_map(x, fn(v) { [|g(v)|] }) })
+        }
+    }
+}
