@@ -1404,7 +1404,7 @@ pub struct Compiler {
     /// generated while compiling `Flow.Num` is still defined when a later
     /// module declares `fn add` — and that declaration is not a redeclaration
     /// of anything the user wrote.
-    generated_dispatch_stub_names: HashSet<Symbol>,
+    pub(super) generated_dispatch_stub_names: HashSet<Symbol>,
     repl_mode: bool,
     /// Accumulated top-level binding schemes from previously-compiled REPL
     /// lines, merged into `build_infer_config`'s base schemes. Empty (and inert)

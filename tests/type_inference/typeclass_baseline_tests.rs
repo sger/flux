@@ -154,6 +154,7 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "list_instances.flx",
         "array_instances.flx",
         "either_instances.flx",
+        "module_member_shadows_stub.flx",
     ];
     for fixture in fixtures {
         let source = std::fs::read_to_string(fixture_path(fixture)).expect("read fixture");

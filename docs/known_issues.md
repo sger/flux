@@ -2157,3 +2157,49 @@ Regression coverage:
 `class_method_with_effect_row_parameter_keeps_its_return_type` in
 `tests/integration/module_scoped_classes_tests.rs` asserts the parse directly,
 and `tests/parity/either_instances.flx` runs the whole chain five ways.
+
+### KI-065 — A module's own function was shadowed by a class-method dispatch stub — **fixed 2026-09-02**
+
+**Severity:** High · **Area:** type classes, name resolution · **Verified:** 2026-09-02
+
+A module that defines a function named after a class method reached the class's
+*dispatch stub* instead of its own function, from inside its own body:
+
+```flux
+module Flume.Resolve.Version {
+    public fn compare(a: Version, b: Version) -> Ordering { ... }
+    fn lt(a: Version, b: Version) -> Bool {
+        match compare(a, b) { Lt -> true, _ -> false }   // panics
+    }
+}
+```
+
+```
+panic: No instance of Ord.compare for the given type
+  at compare (lib/Flow/Ord.flx:0:1)
+```
+
+26 of the 60 tests in `tests/flux/flume_version.flx` failed this way, and every
+other `flume_*` fixture with them.
+
+**Cause.** `generate_dispatch_functions` emits a polymorphic stub under each
+class method's bare name; compiling `Flow.Ord` therefore defines a global
+`compare` whose body panics. Identifier compilation resolves the bare name
+first and only then looks for a sibling member of the enclosing module, which
+is stored under its qualified key. That order was harmless while no global of
+the name existed — before Proposal 0179 Stage 8 there was no `Flow.Ord` module
+to compile.
+
+Type inference was never confused: `class_method_call_info` correctly declined
+to treat the call as a class method, because the module's own `compare` is
+bound with a real span. The misrouting happened later, at symbol resolution.
+
+**Fix.** A generated stub does not shadow a member of the enclosing module. The
+check is narrow — it applies only when the resolved symbol is a *global*, the
+name is one this compiler generated a stub for, and the enclosing module has a
+member of that name — so locals still shadow both, as before.
+
+Regression coverage: `examples/type_classes/module_member_shadows_stub.flx`.
+
+Related: [KI-063](#ki-063) is the same collision at declaration time rather
+than at a call site.
