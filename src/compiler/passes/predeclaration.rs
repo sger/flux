@@ -27,14 +27,23 @@ impl Compiler {
                     if name == main_symbol {
                         continue;
                     }
-                    let name_str = self.sym(name);
-                    self.errors.push(self.make_redeclaration_error(
-                        name_str,
-                        *span,
-                        Some(existing.span),
-                        None,
-                    ));
-                    continue;
+                    // A dispatch stub generated while compiling an earlier
+                    // module is not a user declaration, and a real function
+                    // takes precedence over it — that is already the
+                    // resolution rule, since a name bound to a function never
+                    // dispatches as a class method. Let the declaration stand
+                    // instead of reporting a redeclaration of a name the user
+                    // never wrote (`fn add` against `Flow.Num`'s `add` stub).
+                    if !self.generated_dispatch_stub_names.remove(&name) {
+                        let name_str = self.sym(name);
+                        self.errors.push(self.make_redeclaration_error(
+                            name_str,
+                            *span,
+                            Some(existing.span),
+                            None,
+                        ));
+                        continue;
+                    }
                 }
                 // Check for import collision
                 if self.scope_index == 0 && self.file_scope_symbols.contains(&name) {

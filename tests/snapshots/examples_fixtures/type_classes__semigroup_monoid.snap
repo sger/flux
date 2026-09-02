@@ -1,0 +1,61 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_classes/semigroup_monoid.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E444]: No Type Class Instance
+
+No instance for `Monoid<String>`.
+
+  examples/type_classes/semigroup_monoid.flx:26:11
+   |
+26 |     print(mconcat(["a", "b", "c"]))
+   |           ^^^^^^^
+
+Hint:
+  Add an instance: `instance Monoid<String> { ... }`
+
+
+error[E444]: No Type Class Instance
+
+No instance for `Monoid<List<Int>>`.
+
+  examples/type_classes/semigroup_monoid.flx:27:11
+   |
+27 |     print(mconcat([[1], [2, 3]]))
+   |           ^^^^^^^
+
+Hint:
+  Add an instance: `instance Monoid<List<Int>> { ... }`
+
+
+error[E444]: No Type Class Instance
+
+No instance for `Monoid<Array<Int>>`.
+
+  examples/type_classes/semigroup_monoid.flx:28:11
+   |
+28 |     print(mconcat([[|1|], [|2|]]))
+   |           ^^^^^^^
+
+Hint:
+  Add an instance: `instance Monoid<Array<Int>> { ... }`
+
+
+error[E444]: No Type Class Instance
+
+No instance for `Monoid<Option<String>>`.
+
+  examples/type_classes/semigroup_monoid.flx:29:11
+   |
+29 |     print(mconcat([Some("a"), Some("b")]))
+   |           ^^^^^^^
+
+Hint:
+  Add an instance: `instance Monoid<Option<String>> { ... }`
+
+Found 4 errors.
+== stdout ==
+<not executed>
