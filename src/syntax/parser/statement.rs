@@ -1900,10 +1900,19 @@ impl Parser {
                 break;
             }
         }
-        // Consume `)`. A method with no parameters is already on it — the
-        // loop above never ran — and asking `expect_peek` first would report a
-        // missing `)` as a side effect before the guard accepted it.
-        if !self.is_current_token(TokenType::RParen)
+        // Consume `)`.
+        //
+        // Whether the list's `)` is the current token or the next one is
+        // decided by whether the loop ran, *not* by what the current token
+        // happens to be. With no parameters the loop never ran and the cursor
+        // is already on `)`. With parameters the cursor is on the last token
+        // of the last type — and that token may itself be a `)`, since a
+        // parameter whose type carries an effect row is parenthesised
+        // (`g: ((a) -> b with |e)`). Testing `is_current_token(RParen)` there
+        // mistakes the type's own closing paren for the list's, leaves the
+        // real one unconsumed, and the `->` that follows is never seen: the
+        // method silently gets a `Unit` return type.
+        if !params.is_empty()
             && !self.expect_peek_context(
                 TokenType::RParen,
                 "Expected `)` after method parameters.".to_string(),
