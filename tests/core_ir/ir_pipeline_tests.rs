@@ -8,6 +8,8 @@
 //! that integration snapshot tests miss because snapshots only check final output.
 
 use std::collections::HashMap;
+use std::path::Path;
+use std::process::Command;
 
 use flux::cfg::{IrBinaryOp, IrExpr, IrInstr, IrTerminator, lower_program_to_ir};
 use flux::compiler::Compiler;
@@ -77,6 +79,36 @@ fn dump_core(input: &str) -> String {
             flux::core::display::CoreDisplayMode::Readable,
         )
         .expect("dump_core should succeed")
+}
+
+/// Dumps Core for `input` by running the real `flux` binary with `--dump-core`.
+///
+/// Unlike [`dump_core`], this compiles the Flux prelude too, so the standard
+/// classes' instance bodies are available. `scratch` names a per-test directory
+/// under the system temp dir, keeping concurrently running tests off each
+/// other's cache.
+fn dump_core_via_driver(scratch: &str, input: &str) -> String {
+    let dir = std::env::temp_dir().join(format!("flux-ir-pipeline-{scratch}"));
+    std::fs::create_dir_all(&dir).expect("create scratch dir");
+    let source_path = dir.join("main.flx");
+    std::fs::write(&source_path, input).expect("write source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")))
+        .arg(&source_path)
+        .arg("--dump-core")
+        .arg("--no-cache")
+        .arg("--cache-dir")
+        .arg(dir.join("cache"))
+        .output()
+        .expect("run flux");
+
+    assert!(
+        output.status.success(),
+        "--dump-core should succeed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("Core dump should be UTF-8")
 }
 
 fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
@@ -421,9 +453,19 @@ my_eq([[1], [2]], [[1], [2]]);
     );
 }
 
+/// A function constrained by `Ord + Eq + Num` dispatches every operator in its
+/// body through dictionary slots rather than through a primop.
+///
+/// This one drives the real binary rather than a bare `Compiler`. Since
+/// Proposal 0179 Stage 8 the standard classes are Flux modules, so their
+/// instance implementations come from `lib/Flow/*.flx` rather than being
+/// synthesized in every unit from Rust, and `Ord<Int>` is *contextual*
+/// (`Eq<Int> => Ord<Int>`) — its dictionary is a constructor over `Flow.Ord`'s
+/// methods, which a `Compiler` that never compiles `Flow.Ord` cannot supply.
 #[test]
 fn polymorphic_operator_dump_core_uses_named_class_methods() {
-    let core = dump_core(
+    let core = dump_core_via_driver(
+        "polymorphic-operator-dispatch",
         r#"
 fn choose<A: Ord + Eq + Num>(x: A, y: A) -> A {
     if x != y {
@@ -439,19 +481,37 @@ fn main() {
 "#,
     );
 
-    for dict_name in ["__dict_Ord_Int", "__dict_Eq_Int", "__dict_Num_Int"] {
+    // The dictionaries are module-qualified: `Eq`, `Ord` and `Num` are owned by
+    // `Flow.Eq` / `Flow.Ord` / `Flow.Num`, whose paths are hashed into the name.
+    for suffix in ["_Ord_Int =", "_Eq_Int =", "_Num_Int ="] {
         assert!(
-            core.contains(dict_name),
-            "expected Core dump to contain {dict_name}, got:\n{core}"
+            core.lines()
+                .any(|line| line.starts_with("def __dict_m") && line.ends_with(suffix)),
+            "expected Core dump to define a dictionary ending in `{suffix}`, got:\n{core}"
         );
     }
 
-    for primop_name in ["NEq(__x0, __x1)", "Gt(__x0, __x1)", "Div(__x0, __x1)"] {
+    // `choose` is polymorphic, so none of `!=`, `>` or `/` may specialize to a
+    // primop inside it — each has to project a method out of a dictionary.
+    let body = core
+        .split_once("letrec choose =")
+        .expect("Core dump should define `choose`")
+        .1
+        .split("\n\n")
+        .next()
+        .expect("`choose` should have a body");
+
+    for primop_name in ["NEq(", "ICmpNe(", "Gt(", "ICmpGt(", "Div(", "IDiv("] {
         assert!(
-            core.contains(primop_name),
-            "expected Core dump to contain specialized primop {primop_name}, got:\n{core}"
+            !body.contains(primop_name),
+            "`choose` is polymorphic, so it must not contain the specialized \
+             primop {primop_name}, got:\n{body}"
         );
     }
+    assert!(
+        body.matches("__dict_").count() >= 3,
+        "expected `choose` to project its operators out of dictionaries, got:\n{body}"
+    );
 }
 
 #[test]

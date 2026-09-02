@@ -2291,10 +2291,13 @@ Every real path is unaffected — the driver, `flux --test`, and the REPL all
 compile the `Flow` modules, and `fn max_of<A: Ord>(x: A, y: A)` using `>` works
 on both backends and under `--no-cache`. Only a directly constructed
 `Compiler` is affected, which is a test and embedding concern.
+Two tests drive the real binary for this reason:
 `generic_ord_operator_compiles_without_strict_types` in
-`tests/type_inference/constrained_type_params_integration.rs` now drives the
-real binary for that reason, and its doc comment records why its `Eq`/`Num`
-siblings can still use a bare `Compiler`.
+`tests/type_inference/constrained_type_params_integration.rs`, whose doc comment
+records why its `Eq`/`Num` siblings can still use a bare `Compiler`, and
+`polymorphic_operator_dump_core_uses_named_class_methods` in
+`tests/core_ir/ir_pipeline_tests.rs`, which needs a Core dump and so goes
+through `--dump-core --no-cache`.
 
 Restoring the capability means making the prelude modules' instance statements
 available to a unit that has no imported implementation — not reinstating the
