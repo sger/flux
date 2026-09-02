@@ -2203,3 +2203,100 @@ Regression coverage: `examples/type_classes/module_member_shadows_stub.flx`.
 
 Related: [KI-063](#ki-063) is the same collision at declaration time rather
 than at a call site.
+
+### KI-066 — A constrained function's operator resolved to nothing when its unit declared no instances — **fixed 2026-09-02**
+
+**Severity:** High · **Area:** type classes · **Verified:** 2026-09-02
+
+Compiling `lib/Flow/Array.flx` on its own failed:
+
+```
+error[E004]: Undefined Variable
+I can't find a value named `eq`.
+  lib/Flow/Array.flx:176:23
+```
+
+Line 176 is `any(arr, \v -> v == x)` inside
+`public fn contains<a: Eq>(arr: Array<a>, x: a) -> Bool`. Inside an explicit
+class-constraint context `==` desugars to `eq(x, y)`, and that call resolved to
+nothing.
+
+**Cause.** The polymorphic dispatch stub a desugared call lands on is generated
+from `dispatch_table`, which was filled from two places: instances declared in
+*this* unit's statements, and the phantom instances the Rust registration
+created. Proposal 0179 Stage 8 deleted the second — the standard classes'
+instances are now Flux source in `Flow.Eq` and its siblings. A unit that merely
+*uses* a class therefore contributed nothing to the table and generated no
+stub.
+
+The normal pipeline hid this: compiling `Flow.Eq` fills the table from its own
+instance statements and leaves a global `eq` stub behind in the shared
+`Compiler`, which later modules found. Only a unit compiled *without* that —
+a `Compiler` built directly, as the surface-wrapper tests do — was left with
+nothing to resolve against.
+
+**Fix.** `seed_dispatch_table_from_class_env` records every method of every
+class the class environment holds an instance for, so a stub is generated in
+any unit that can see the class rather than only where its instances are
+written. A class with no instance is skipped: there would be nothing for the
+stub to stand in for, and its name should stay free.
+
+Regression coverage: `flow_array_surface_wrappers_compile_without_legacy_warning`
+and its siblings in `tests/integration/compiler_rules_tests.rs`, which compile
+each `Flow.*` surface module through a bare `Compiler`.
+
+### KI-067 — A locally declared class of a prelude name could not be named in a bound — **fixed 2026-09-02**
+
+**Severity:** Medium · **Area:** type classes · **Verified:** 2026-09-02
+
+Declaring your own `class Eq` and then constraining on it was rejected:
+
+```
+error[E456]: Ambiguous Class Constraint
+Class constraint `Eq` is ambiguous: matches classes in <prelude>, Flow.Eq.
+```
+
+`report_ambiguous_class_constraint` reported whenever two classes shared a
+short name, with no precedence. Since Proposal 0179 Stage 8 the prelude
+contributes `Eq`, `Ord`, `Num`, `Show` and `Semigroup` to every module, so any
+program declaring a class of one of those names was ambiguous by construction
+and could not name its own class in a bound.
+
+**Fix.** A class declared in the module being compiled wins over one merely in
+scope — the precedence `ClassEnv::resolve_class_id` already applies, and which
+the constraint then resolves through. Two classes of the same name that are
+*both* foreign are still ambiguous.
+
+### KI-068 — A bare `Compiler` cannot supply the standard classes' instance bodies
+
+**Severity:** Low · **Area:** type classes, embedding · **Verified:** 2026-09-02
+
+Proposal 0179 Stage 8 moved `Eq`, `Ord`, `Num`, `Show` and `Semigroup` out of
+Rust and into `lib/Flow/*.flx`, deleting the `builtin_method_body` generation
+that used to synthesize `__tc_Ord_Int_lt` and friends into *every* compilation
+unit. Their implementations now exist only where those modules are compiled.
+
+A `Compiler` constructed directly — no module graph, no driver — therefore
+cannot build a working program that uses them. `ClassEnv::register_prelude_classes`
+puts the classes and instances in the environment, so inference and dispatch
+succeed, but no implementation is generated. For a *contextual* instance the
+failure is visible at compile time: `Ord<Int>` is `Eq<Int> => Ord<Int>`, its
+dictionary is a constructor, and `build_contextual_dictionary_expr` bails when
+the mangled method names are not interned, so the definition is skipped and the
+reference reports `E004 I can't find a value named '__dict_..._Ord_Int'`. A
+non-contextual instance such as `Num<Int>` is emitted as a plain tuple of
+external references and compiles, but would not link or run.
+
+Every real path is unaffected — the driver, `flux --test`, and the REPL all
+compile the `Flow` modules, and `fn max_of<A: Ord>(x: A, y: A)` using `>` works
+on both backends and under `--no-cache`. Only a directly constructed
+`Compiler` is affected, which is a test and embedding concern.
+`generic_ord_operator_compiles_without_strict_types` in
+`tests/type_inference/constrained_type_params_integration.rs` now drives the
+real binary for that reason, and its doc comment records why its `Eq`/`Num`
+siblings can still use a bare `Compiler`.
+
+Restoring the capability means making the prelude modules' instance statements
+available to a unit that has no imported implementation — not reinstating the
+Rust bodies, which Stage 8 removed deliberately so there is one source of
+truth.
