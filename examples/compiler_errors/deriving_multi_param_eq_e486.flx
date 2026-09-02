@@ -1,0 +1,22 @@
+// expect: compile_error
+// expect-error: E486
+// Expected: E486 Underivable Class
+//   "`Eq` cannot be derived for `Pair`, which has more than one type
+//    parameter. Write the instance by hand."
+//
+// Proposal 0179. A head with one type parameter derives fine — see
+// `examples/type_classes/derived_parameterized_eq.flx`. Two parameters give
+// the instance two context constraints of the same class, and the generated
+// body compares fields bound by a `case` pattern. Core's dictionary selection
+// picks between same-class dictionaries by the argument's type, which a
+// pattern binder does not carry, so every field resolves through the first
+// dictionary and the second parameter is compared with the wrong evidence.
+//
+// Rejecting the clause makes that a diagnostic rather than a wrong answer; a
+// hand-written instance is unaffected.
+
+data Pair<a, b> { Pair(a, b) } deriving (Eq)
+
+fn main() with IO {
+    print(1)
+}
