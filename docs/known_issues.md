@@ -2099,3 +2099,65 @@ That needs the module interfaces the driver accumulates as it compiles:
 preloading dependency *programs* alone loses aliased-member metadata
 (`Module `Flow.Array` has no member named `push``, from `Flow.IO`), and
 preloading the stdlib without compiling it loses far more.
+
+### KI-064 — A class over a partially applied type constructor cannot be used across a module boundary
+
+**Severity:** High · **Area:** type classes, higher-kinded types · **Verified:** 2026-09-02
+
+Proposal 0179 Stage 8 could not give `Either` its `Functor`, `Applicative` and
+`Monad` instances. `Either` takes two type parameters, so the instance head
+`Either<l>` is a *partially applied* constructor — the only head of that shape
+the stdlib would have — and two separate defects block it.
+
+**In the same file it works.** A class and an `instance MyF<Either<l>>` in one
+file compile and dispatch:
+
+```flux
+instance MyF<Either<l>> {
+    fn mymap(x, g) { match x { Right(v) -> Right(g(v)), Left(e) -> Left(e) } }
+}
+// mymap(Right(2), \x -> x + 1) == Right(3)
+```
+
+**Across a module boundary it does not.** With the class and instance in a
+module and the call in another, the call fails with `E004 Undefined Variable:
+I can't find a value named 'mymap'` — not `E444`, because instance resolution
+fails and the fallback dispatch stub is not defined in the calling module.
+
+The first cause is in `match_type` (`src/types/class_predicate.rs`). Matching
+the pattern `f<a>` against the actual `Either<String, Int>` compares arities:
+the pattern applies one argument and the actual has two, so both higher-kinded
+arms fall through to `_ => false`. `Option<Int>` lines up one-for-one and works.
+Binding `f` to `HktApp(Con(Either), [String])` and matching the trailing
+argument makes the cross-module call resolve — but then a second defect
+appears.
+
+**With that fixed, the cached path works and `--no-cache` fails**, so the
+parity harness reports `cache_mismatch: fresh vm vs cached vm_cached differ`:
+
+```
+error[E1004]: Type Error
+  expected type: Unit
+  found type:    Right
+  runtime value:  Right(3)
+  at Flow.Functor.__tc_m12_..._Functor_Either<l>_fmap
+```
+
+The instance method is called and returns the right value; the *caller* expects
+`Unit`. Removing the effect row from `fmap`'s signature makes it pass, so the
+trigger is an effect-row-polymorphic class method whose instance head is
+partially applied, on the path where no module interface exists.
+
+Three fixes were tried and none resolved it, so the cause is still open:
+quantifying the instance head's own type variables in the method scheme
+(`build_public_class_method_scheme` is called with `type_params: vec![]`, so
+the `l` in the specialized `Either<l, b>` is left free); calling
+`preload_imported_instance_schemes` from `preload_dependency_class_metadata`,
+which the no-cache path never does; and flattening a partially applied head in
+`InferType::apply_type_subst`, whose beta-reduction collapses
+`HktApp(Con(tc), args)` but leaves `HktApp(App(tc, prefix), args)` nested.
+Each is arguably a real gap; none was the one.
+
+Until this is resolved, `Either` has no `Functor`/`Applicative`/`Monad`
+instance. `Eq` and `Ord` over `Either` are unaffected — the solver derives that
+evidence structurally, and `==` over `Either` works.
