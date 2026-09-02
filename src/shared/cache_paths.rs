@@ -85,7 +85,12 @@ use sha2::{Digest, Sha256};
 /// return type instead of silently becoming `Unit`, so every `Functor`
 /// instance's runtime contract changes; `Either` also gained `Functor`,
 /// `Applicative` and `Monad` instances.
-pub const CACHE_EPOCH: u16 = 39;
+/// Epoch 40: a constrained function's compiled arity is now its source arity
+/// plus one leading dictionary per runtime-bearing constraint on the AST path
+/// as well as the CFG path, and callers across a module boundary pass that
+/// evidence (KI-060, KI-061). An epoch-39 `.fxc` was compiled to the old
+/// convention, so a fresh caller would arrive one argument too many.
+pub const CACHE_EPOCH: u16 = 40;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {
