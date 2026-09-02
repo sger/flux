@@ -44,6 +44,10 @@ letrec mul =
 λ__x0, __x1.
     panic("No instance of Num.mul for the given type")
 
+letrec div =
+λ__x0, __x1.
+    panic("No instance of Num.div for the given type")
+
 letrec show =
 λ__x0.
     panic("No instance of Show.show for the given type")
@@ -2197,7 +2201,7 @@ letrec signum =
           _ →
             0
 
-letrec div =
+letrec floor_div =
 λa, b.
     let q = Div(a, b)
     let r = Mod(a, b)
@@ -2276,7 +2280,7 @@ letrec is_none_opt =
         true
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Int_compare =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     let %t457 = ICmpLt(x, y)
     case %t457 of
       true →
@@ -2290,23 +2294,23 @@ letrec __tc_m8_466C6F772E4F7264_Ord_Int_compare =
             0
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Int_lt =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     ICmpLt(x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Int_lte =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     ICmpLe(x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Int_gt =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     ICmpGt(x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Int_gte =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     ICmpGe(x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Float_compare =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     let %t459 = FCmpLt(x, y)
     case %t459 of
       true →
@@ -2320,23 +2324,23 @@ letrec __tc_m8_466C6F772E4F7264_Ord_Float_compare =
             0
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Float_lt =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     FCmpLt(x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Float_lte =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     FCmpLe(x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Float_gt =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     FCmpGt(x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Float_gte =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     FCmpGe(x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_String_compare =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     let %t461 = Lt(x, y)
     case %t461 of
       true →
@@ -2350,95 +2354,95 @@ letrec __tc_m8_466C6F772E4F7264_Ord_String_compare =
             0
 
 letrec __tc_m8_466C6F772E4F7264_Ord_String_lt =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     Lt(x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_String_lte =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     Le(x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_String_gt =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     Gt(x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_String_gte =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     Ge(x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Int_compare =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     let %t463 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Int_compare
-    %t463(x, y)
+    %t463(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Int_lt =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     let %t464 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Int_lt
-    %t464(x, y)
+    %t464(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Int_lte =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     let %t465 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Int_lte
-    %t465(x, y)
+    %t465(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Int_gt =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     let %t466 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Int_gt
-    %t466(x, y)
+    %t466(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Int_gte =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     let %t467 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Int_gte
-    %t467(x, y)
+    %t467(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Float_compare =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     let %t468 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Float_compare
-    %t468(x, y)
+    %t468(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Float_lt =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     let %t469 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Float_lt
-    %t469(x, y)
+    %t469(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Float_lte =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     let %t470 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Float_lte
-    %t470(x, y)
+    %t470(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Float_gt =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     let %t471 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Float_gt
-    %t471(x, y)
+    %t471(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Float_gte =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     let %t472 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Float_gte
-    %t472(x, y)
+    %t472(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_String_compare =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     let %t473 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_String_compare
-    %t473(x, y)
+    %t473(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_String_lt =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     let %t474 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_String_lt
-    %t474(x, y)
+    %t474(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_String_lte =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     let %t475 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_String_lte
-    %t475(x, y)
+    %t475(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_String_gt =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     let %t476 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_String_gt
-    %t476(x, y)
+    %t476(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_String_gte =
-λx, y.
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     let %t477 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_String_gte
-    %t477(x, y)
+    %t477(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec print =
 λx.

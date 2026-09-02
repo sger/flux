@@ -1,8 +1,8 @@
-instance Show<Int> {
-    fn show(x) { to_string(x) }
-}
-
 // Direct class-method call should dispatch through the registered instance.
+//
+// `Show<Int>` is not declared here. Since Proposal 0179 Stage 8 the standard
+// classes are Flux source in `Flow.Show` and siblings, which every module
+// imports, so the instance already exists; declaring it again is a duplicate.
 fn main() with IO {
     print(show(42))
 }

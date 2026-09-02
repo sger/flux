@@ -678,6 +678,7 @@ mod tests {
         );
         for head in heads {
             env.instances.push(InstanceDef {
+                origin: crate::types::class_env::InstanceOrigin::Declared,
                 class_name,
                 class_id,
                 instance_module: ModulePath::EMPTY,

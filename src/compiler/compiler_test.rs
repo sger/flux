@@ -1973,6 +1973,7 @@ fn an_imported_instance_missing_an_associated_type_equation_is_a_stale_interface
     let classes = HashMap::from([(class_id, class_def)]);
 
     let instance = |associated_types| InstanceDef {
+        origin: crate::types::class_env::InstanceOrigin::Declared,
         class_name,
         class_id,
         instance_module: module,

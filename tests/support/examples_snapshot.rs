@@ -378,6 +378,22 @@ pub fn build_transcript_with_options(
                     diagnostics.append(&mut diags);
                     break;
                 }
+                // One `Compiler` is shared across every module here, where the
+                // driver builds a fresh one per module and preloads that
+                // module's dependencies. `Flow.Ord`'s instances are
+                // `Eq<Int> => Ord<Int>`, so compiling it needs `Flow.Eq`'s
+                // instances, and no earlier compile leaves those behind.
+                //
+                // Only `Flow.Eq`'s metadata, and only the class part: a full
+                // dependency preload of the rest re-registers names this
+                // compiler has already compiled.
+                if node
+                    .path
+                    .file_name()
+                    .is_some_and(|name| name == std::ffi::OsStr::new("Eq.flx"))
+                {
+                    compiler.preload_dependency_class_metadata(&node.program);
+                }
             }
             if !diagnostics.is_empty() {
                 compile_status = String::from("failed (compile)");

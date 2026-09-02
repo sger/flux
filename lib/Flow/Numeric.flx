@@ -48,12 +48,17 @@ module Flow.Numeric {
     /// Floor-division integer quotient: rounds toward negative infinity.
     /// Differs from the `/` operator, which rounds toward zero.
     ///
+    /// Named `floor_div` rather than `div` because `div` is the `Num` class's
+    /// method for `/` (`Flow.Num`), and a function of that name in scope wins
+    /// over the class method — which silently gave `/` this function's
+    /// `Int`-only signature under a `Num` bound.
+    ///
     /// Examples:
-    ///   div(7, 2) == 3       (same as /)
-    ///   div(-7, 2) == -4     (/ gives -3)
-    ///   div(7, -2) == -4     (/ gives -3)
-    ///   div(-7, -2) == 3     (same as /)
-    public fn div(a: Int, b: Int) -> Int {
+    ///   floor_div(7, 2) == 3       (same as /)
+    ///   floor_div(-7, 2) == -4     (/ gives -3)
+    ///   floor_div(7, -2) == -4     (/ gives -3)
+    ///   floor_div(-7, -2) == 3     (same as /)
+    public fn floor_div(a: Int, b: Int) -> Int {
         let q = a / b
         let r = a % b
         if r != 0 && ((a < 0) != (b < 0)) { q - 1 } else { q }

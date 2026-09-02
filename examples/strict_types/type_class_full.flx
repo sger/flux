@@ -1,32 +1,15 @@
 // Full built-in type class test with multiple instances.
 // Verifies instance declarations and dispatch through the pipeline.
+//
+// The instances the prelude already supplies are not redeclared here. Since
+// Proposal 0179 Stage 8 the standard classes are Flux source in `Flow.Eq`,
+// `Flow.Num` and `Flow.Show`, which every module imports, so `Int` and `Bool`
+// arrive with their instances; declaring them again is a duplicate instance.
+// The calls below dispatch through those prelude instances.
 
-instance Eq<Int> {
-    fn eq(x, y) { x == y }
-    fn neq(x, y) { x != y }
-}
 
-instance Eq<Bool> {
-    fn eq(x, y) {
-        match (x, y) {
-            (true, true) -> true,
-            (false, false) -> true,
-            _ -> false
-        }
-    }
-    fn neq(x, y) { !eq(x, y) }
-}
 
-instance Show<Int> {
-    fn show(x) { to_string(x) }
-}
 
-instance Num<Int> {
-    fn add(x, y) { x + y }
-    fn sub(x, y) { x - y }
-    fn mul(x, y) { x * y }
-    fn div(x, y) { x / y }
-}
 
 fn main() with IO {
     print(1 + 2)
