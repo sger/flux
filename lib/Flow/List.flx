@@ -67,7 +67,7 @@ module Flow.List {
     public fn flat_map<a, b>(xs: List<a>, f: (a) -> List<b>) -> List<b> {
         fn flat_map_acc(ys, acc) {
             match ys {
-                [h | t] -> flat_map_acc(t, append(reverse(f(h)), acc)),
+                [h | t] -> flat_map_acc(t, concat_lists(reverse(f(h)), acc)),
                 _ -> reverse(acc)
             }
         }
@@ -78,7 +78,7 @@ module Flow.List {
     public fn flatten<a>(xs: List<List<a>>) -> List<a> {
         fn flatten_acc(ys, acc) {
             match ys {
-                [h | t] -> flatten_acc(t, append(reverse(h), acc)),
+                [h | t] -> flatten_acc(t, concat_lists(reverse(h), acc)),
                 _ -> reverse(acc)
             }
         }
@@ -369,7 +369,7 @@ module Flow.List {
     fn delete_go_acc(xs, x, acc) {
         match xs {
             [h | t] -> if h == x {
-                append(reverse(acc), clone_list(t))
+                concat_lists(reverse(acc), clone_list(t))
             } else {
                 delete_go_acc(t, x, [h | acc])
             },
@@ -496,12 +496,14 @@ module Flow.List {
         product_go(xs, 1)
     }
 
-    // `append` is provided by the built-in `Semigroup` class; use the `++`
-    // operator or the class method rather than a Flow.List-level `append`.
-    // The private helper below backs the internal uses in this module.
-    fn append(xs, ys) {
+    // `append` belongs to the `Semigroup` class (`Flow.Semigroup`), which
+    // since Proposal 0179 Stage 8 has a `Semigroup<List<a>>` instance — so a
+    // helper of that name here is rewritten to the class method at every
+    // internal call site, and the native backend then has no such symbol.
+    // Callers wanting list concatenation should use the class method.
+    fn concat_lists(xs, ys) {
         match xs {
-            [h | t] -> [h | append(t, ys)],
+            [h | t] -> [h | concat_lists(t, ys)],
             _ -> ys
         }
     }
@@ -540,7 +542,7 @@ module Flow.List {
 
     fn intercalate_rest(xss, sep) {
         match xss {
-            [h | t] -> append(sep, append(h, intercalate_rest(t, sep))),
+            [h | t] -> concat_lists(sep, concat_lists(h, intercalate_rest(t, sep))),
             _ -> []
         }
     }

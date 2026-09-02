@@ -145,6 +145,8 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "contextual_dictionary_wrapper.flx",
         "qualified_class_id.flx",
         "eq_ord.flx",
+        "semigroup_monoid.flx",
+        "mempty_result_dispatch.flx",
     ];
     for fixture in fixtures {
         let source = std::fs::read_to_string(fixture_path(fixture)).expect("read fixture");
@@ -201,6 +203,11 @@ fn concrete_and_polymorphic_dictionary_calls_have_exact_runtime_arity() {
             "eq_ord.flx",
             "\"same\"\n\"less\"\n\"more\"\n\"same\"\n\"more\"",
         ),
+        (
+            "semigroup_monoid.flx",
+            "\"abc\"\n[1, 2, 3]\n[|1, 2|]\nSome(\"ab\")",
+        ),
+        ("mempty_result_dispatch.flx", "\"\"\n[]\n[|0|]\nNone\n0"),
     ] {
         let output = run_fixture(fixture).unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(output.stdout, expected, "unexpected output for {fixture}");

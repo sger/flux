@@ -1,16 +1,52 @@
 /// Associative combination, reached as `append(x, y)`.
-/// (Proposal 0179 Stage 8.)
+///
+/// `append` has no operator: `++` is not a Flux operator, so every use is a
+/// call. (Proposal 0179 Stage 8.)
+///
+/// The instances are self-contained — no `Flow.String`, `Flow.List` or
+/// `Flow.Array` import. The class prelude is injected into every module,
+/// those three included, so importing one here would be a cycle. String and
+/// array concatenation therefore go through private intrinsics, and list
+/// concatenation is written out.
 module Flow.Semigroup {
     public class Semigroup<a> {
         fn append(x: a, y: a) -> a
     }
 
-    // The primop directly rather than `Flow.String.string_concat`: the class
-    // prelude is injected into every module, `Flow.String` included, so this
-    // module importing `Flow.String` would be a cycle.
     intrinsic fn concat_strings(left: String, right: String) -> String = primop StringConcat
+    intrinsic fn concat_arrays<a>(left: Array<a>, right: Array<a>) -> Array<a> = primop ArrayConcat
+
+    /// Unconstrained, so it does receive the dictionaries it needs — a
+    /// *constrained* function inside a `module` block would not
+    /// (docs/known_issues.md#ki-061). Concatenation needs no element
+    /// evidence, so there is nothing to thread.
+    fn append_lists<a>(xs: List<a>, ys: List<a>) -> List<a> {
+        match xs {
+            [h | t] -> [h | append_lists(t, ys)],
+            _ -> ys
+        }
+    }
 
     public instance Semigroup<String> {
         fn append(x, y) { concat_strings(x, y) }
+    }
+
+    public instance Semigroup<List<a>> {
+        fn append(xs, ys) { append_lists(xs, ys) }
+    }
+
+    public instance Semigroup<Array<a>> {
+        fn append(xs, ys) { concat_arrays(xs, ys) }
+    }
+
+    /// `None` is the identity, and two `Some`s combine their elements — which
+    /// is why this instance carries a context and the three above do not.
+    public instance Semigroup<a> => Semigroup<Option<a>> {
+        fn append(x, y) {
+            match x {
+                Some(u) -> match y { Some(v) -> Some(append(u, v)), _ -> x },
+                _ -> y
+            }
+        }
     }
 }
