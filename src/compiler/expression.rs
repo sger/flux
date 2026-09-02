@@ -527,7 +527,22 @@ impl Compiler {
                 let name = *name;
                 // Local/lexically visible bindings must shadow names imported
                 // via `import M exposing (..)`.
-                if let Some(symbol) = self.resolve_visible_symbol(name) {
+                //
+                // A generated class-method dispatch stub is the exception. It
+                // is a global fallback that panics, defined by whichever
+                // module happened to bring the class into scope, so a member
+                // of the enclosing module with the same name is the real
+                // definition and has to win — `Flume.Resolve.Version.compare`
+                // over `Ord`'s `compare`. Locals still shadow both, which is
+                // why this is restricted to a global.
+                let stub_shadows_module_member = self
+                    .resolve_visible_symbol(name)
+                    .is_some_and(|symbol| symbol.symbol_scope == SymbolScope::Global)
+                    && self.generated_dispatch_stub_names.contains(&name)
+                    && self.current_module_member(name).is_some();
+                if let Some(symbol) = self.resolve_visible_symbol(name)
+                    && !stub_shadows_module_member
+                {
                     if !self.try_emit_consumed_local(name) {
                         self.load_symbol(&symbol);
                     }
