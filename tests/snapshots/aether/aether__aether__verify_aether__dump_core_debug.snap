@@ -1907,22 +1907,22 @@ letrec __tc_m7_466C6F772E4571_Eq_Bool_neq : (Bool, Bool) -> Bool =
 letrec __tc_m7_466C6F772E4571_Eq_List<a>_eq : forall a, b. (a, List<b>, List<b>) -> Bool =
 λ__dict_m7_466C6F772E4571_Eq#860, xs#861:Box, ys#862:Box.
     let %t403 = Flow.Eq#?[external].__tc_m7_466C6F772E4571_Eq_List<a>_eq
-    #4001765[synthetic]#1765(__dict_m7_466C6F772E4571_Eq_Int#?[external], __dict_m7_466C6F772E4571_Eq#860, xs#861, ys#862)
+    #4001765[synthetic]#1765(__dict_m7_466C6F772E4571_Eq#860, xs#861, ys#862)
 
 letrec __tc_m7_466C6F772E4571_Eq_List<a>_neq : forall a, b. (a, List<b>, List<b>) -> Bool =
 λ__dict_m7_466C6F772E4571_Eq#864, xs#865:Box, ys#866:Box.
     let %t404 = Flow.Eq#?[external].__tc_m7_466C6F772E4571_Eq_List<a>_neq
-    #4001766[synthetic]#1766(__dict_m7_466C6F772E4571_Eq_Int#?[external], __dict_m7_466C6F772E4571_Eq#864, xs#865, ys#866)
+    #4001766[synthetic]#1766(__dict_m7_466C6F772E4571_Eq#864, xs#865, ys#866)
 
 letrec __tc_m7_466C6F772E4571_Eq_Option<a>_eq : forall a, b. (a, Option<b>, Option<b>) -> Bool =
 λ__dict_m7_466C6F772E4571_Eq#868, x#869:Box, y#870:Box.
     let %t405 = Flow.Eq#?[external].__tc_m7_466C6F772E4571_Eq_Option<a>_eq
-    #4001767[synthetic]#1767(__dict_m7_466C6F772E4571_Eq_Int#?[external], __dict_m7_466C6F772E4571_Eq#868, x#869, y#870)
+    #4001767[synthetic]#1767(__dict_m7_466C6F772E4571_Eq#868, x#869, y#870)
 
 letrec __tc_m7_466C6F772E4571_Eq_Option<a>_neq : forall a, b. (a, Option<b>, Option<b>) -> Bool =
 λ__dict_m7_466C6F772E4571_Eq#872, x#873:Box, y#874:Box.
     let %t406 = Flow.Eq#?[external].__tc_m7_466C6F772E4571_Eq_Option<a>_neq
-    #4001768[synthetic]#1768(__dict_m7_466C6F772E4571_Eq_Int#?[external], __dict_m7_466C6F772E4571_Eq#872, x#873, y#874)
+    #4001768[synthetic]#1768(__dict_m7_466C6F772E4571_Eq#872, x#873, y#874)
 
 letrec print_all =
 λarr#876:Box.
