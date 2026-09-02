@@ -444,10 +444,35 @@ pub(crate) fn run_test_file(path: &str, request: TestRunRequest<'_>) {
 
     let mut ordered_nodes = graph.topo_order();
     sort_stdlib_first(&mut ordered_nodes, |node| node.kind);
+    let nodes_by_path: std::collections::HashMap<_, _> = ordered_nodes
+        .iter()
+        .map(|node| (node.path.clone(), node))
+        .collect();
 
-    for node in ordered_nodes {
+    for node in &ordered_nodes {
         if node.imports.iter().any(|e| failed.contains(&e.target_path)) {
             continue;
+        }
+        // Preload each module's dependencies, as the `run` drivers do
+        // (`src/driver/run_program/modules.rs`). One `Compiler` compiles every
+        // module here, but a compile does not leave the previous module's
+        // public classes and instances in the place the next one reads them
+        // from: `Flow.Ord`'s instances are `Eq<Int> => Ord<Int>`, and without
+        // `Flow.Eq`'s instances in scope none of them can be registered, so
+        // `Flow.Ord` failed to compile at all (E444 on its own methods).
+        for dep in &node.imports {
+            if let Some(dep_node) = nodes_by_path.get(&dep.target_path) {
+                compiler.preload_dependency_program(&dep_node.program);
+            }
+        }
+        if node.kind != flux::syntax::module_graph::ModuleKind::FlowStdlib {
+            for (dep_path, dep_node) in &nodes_by_path {
+                if !node.imports.iter().any(|dep| &dep.target_path == dep_path)
+                    && dep_node.kind == flux::syntax::module_graph::ModuleKind::FlowStdlib
+                {
+                    compiler.preload_dependency_program(&dep_node.program);
+                }
+            }
         }
         compiler.set_file_path(node.path.to_string_lossy().to_string());
         compiler.set_current_module_kind(node.kind);
