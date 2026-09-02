@@ -41,4 +41,16 @@ module Flow.Applicative {
             Array.flat_map(fg, fn(g) { Array.flat_map(x, fn(v) { [|g(v)|] }) })
         }
     }
+
+    /// `pure` lifts into `Right`, and `ap` propagates the first `Left` it
+    /// meets — the function's, then the argument's.
+    public instance Functor<Either<l>> => Applicative<Either<l>> {
+        fn pure(x) { Right(x) }
+        fn ap(fg, x) {
+            match fg {
+                Right(g) -> match x { Right(v) -> Right(g(v)), Left(e) -> Left(e) },
+                Left(e) -> Left(e)
+            }
+        }
+    }
 }

@@ -2105,64 +2105,55 @@ file) still reports E001.
 Regression coverage: `tests/parity/user_fn_named_like_class_method.flx`, which
 the parity sweep runs with `--no-cache` in its `vm` and `llvm_strict` ways.
 
-### KI-064 — A class over a partially applied type constructor cannot be used across a module boundary
+### KI-064 — A class over a partially applied type constructor could not be used across a module boundary — **fixed 2026-09-02**
 
-**Severity:** High · **Area:** type classes, higher-kinded types · **Verified:** 2026-09-02
+**Severity:** High · **Area:** type classes, parser · **Verified:** 2026-09-02
 
-Proposal 0179 Stage 8 could not give `Either` its `Functor`, `Applicative` and
-`Monad` instances. `Either` takes two type parameters, so the instance head
-`Either<l>` is a *partially applied* constructor — the only head of that shape
-the stdlib would have — and two separate defects block it.
+`Either` takes two type parameters, so an `instance Functor<Either<l>>` head is
+*partially applied* — the only head of that shape in the stdlib. Two unrelated
+defects stood between it and working code.
 
-**In the same file it works.** A class and an `instance MyF<Either<l>>` in one
-file compile and dispatch:
+**1. The predicate matcher rejected a partially applied head.** Matching the
+pattern `f<a>` against the actual `Either<String, Int>` compared arities: the
+pattern applies one argument and the actual has two, so both higher-kinded arms
+in `match_type` (`src/types/class_predicate.rs`) fell through to `_ => false`.
+`Option<Int>` lines up one-for-one, which is why nothing had hit this. Across a
+module boundary the failure surfaced as `E004 Undefined Variable` on the method
+name rather than `E444`, because instance resolution failed and the fallback
+dispatch stub is not defined in the calling module. Fixed by binding `f` to the
+partially applied head and matching the trailing arguments.
 
-```flux
-instance MyF<Either<l>> {
-    fn mymap(x, g) { match x { Right(v) -> Right(g(v)), Left(e) -> Left(e) } }
-}
-// mymap(Right(2), \x -> x + 1) == Right(3)
-```
-
-**Across a module boundary it does not.** With the class and instance in a
-module and the call in another, the call fails with `E004 Undefined Variable:
-I can't find a value named 'mymap'` — not `E444`, because instance resolution
-fails and the fallback dispatch stub is not defined in the calling module.
-
-The first cause is in `match_type` (`src/types/class_predicate.rs`). Matching
-the pattern `f<a>` against the actual `Either<String, Int>` compares arities:
-the pattern applies one argument and the actual has two, so both higher-kinded
-arms fall through to `_ => false`. `Option<Int>` lines up one-for-one and works.
-Binding `f` to `HktApp(Con(Either), [String])` and matching the trailing
-argument makes the cross-module call resolve — but then a second defect
-appears.
-
-**With that fixed, the cached path works and `--no-cache` fails**, so the
-parity harness reports `cache_mismatch: fresh vm vs cached vm_cached differ`:
+**2. A class method with an effect-row parameter lost its return type.** With
+the matcher fixed, the cached path worked and `--no-cache` failed:
 
 ```
 error[E1004]: Type Error
   expected type: Unit
-  found type:    Right
-  runtime value:  Right(3)
-  at Flow.Functor.__tc_m12_..._Functor_Either<l>_fmap
+  found type:    Right    runtime value: Right(3)
+  at Flow.Functor.__tc_..._Functor_Either<l>_fmap
 ```
 
-The instance method is called and returns the right value; the *caller* expects
-`Unit`. Removing the effect row from `fmap`'s signature makes it pass, so the
-trigger is an effect-row-polymorphic class method whose instance head is
-partially applied, on the path where no module interface exists.
+This was **not** specific to `Either`, or to partially applied heads, or to
+`--no-cache` — it was a parser bug affecting every instance of every class
+whose method takes an effect-row parameter. `parse_class_method` located the
+parameter list's `)` by testing whether the current token was a `)` rather than
+by whether any parameters had been parsed. A parameter whose type carries an
+effect row is parenthesised (`g: ((a) -> b with |e)`), so parsing it leaves the
+cursor on *that* type's closing paren, which was mistaken for the list's. The
+real one stayed unconsumed, the `->` after it was never seen, and the method
+took the "no return type" branch — becoming `Unit`.
 
-Three fixes were tried and none resolved it, so the cause is still open:
-quantifying the instance head's own type variables in the method scheme
-(`build_public_class_method_scheme` is called with `type_params: vec![]`, so
-the `l` in the specialized `Either<l, b>` is left free); calling
-`preload_imported_instance_schemes` from `preload_dependency_class_metadata`,
-which the no-cache path never does; and flattening a partially applied head in
-`InferType::apply_type_subst`, whose beta-reduction collapses
-`HktApp(Con(tc), args)` but leaves `HktApp(App(tc, prefix), args)` nested.
-Each is arguably a real gap; none was the one.
+Every `Functor` instance therefore carried a `Unit` return contract. Nothing
+rejected it: `List`, `Option` and `Array` bodies tail-call into
+`Flow.List.map` and friends, and the return check is not reached on that path.
+`Either`'s body returns a constructed `Right(...)` directly, so it was the
+first to trip the check. The `Unit` was equally wrong for the other three.
 
-Until this is resolved, `Either` has no `Functor`/`Applicative`/`Monad`
-instance. `Eq` and `Ord` over `Either` are unaffected — the solver derives that
-evidence structurally, and `==` over `Either` works.
+The guard came from the fix for zero-parameter methods (`fn mempty() -> a`),
+which needed the cursor to be *on* `)` when the loop never ran. Discriminating
+on `params.is_empty()` instead handles both.
+
+Regression coverage:
+`class_method_with_effect_row_parameter_keeps_its_return_type` in
+`tests/integration/module_scoped_classes_tests.rs` asserts the parse directly,
+and `tests/parity/either_instances.flx` runs the whole chain five ways.
