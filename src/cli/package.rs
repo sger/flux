@@ -252,7 +252,7 @@ pub fn package_command(
     }
 
     if action == PackageAction::Metadata {
-        return phase3_metadata(&project, flags.diagnostics.diagnostics_format, &flags);
+        return emit_package_metadata(&project, flags.diagnostics.diagnostics_format, &flags);
     }
 
     if action == PackageAction::Publish {
@@ -263,7 +263,7 @@ pub fn package_command(
     }
 
     if action == PackageAction::Build && program_args.iter().any(|arg| arg == "--plan") {
-        return phase3_build_plan(&project, &flags);
+        return emit_package_build_plan(&project, &flags);
     }
 
     // `update` re-resolves and rewrites `flux.lock` through the graph module,
@@ -378,7 +378,7 @@ fn apply_package_profile(
 }
 
 /// Emit the stable, versioned graph consumed by external tooling.
-fn phase3_metadata(
+fn emit_package_metadata(
     project: &Path,
     format: crate::driver::DiagnosticOutputFormat,
     flags: &DriverFlags,
@@ -436,7 +436,7 @@ fn phase3_metadata(
     }
 }
 
-fn phase3_build_plan(project: &Path, flags: &DriverFlags) -> ExitCode {
+fn emit_package_build_plan(project: &Path, flags: &DriverFlags) -> ExitCode {
     let dir = project.to_string_lossy().into_owned();
     let reply = match resolve_graph(&dir, flags.cache.cache_dir.as_deref()) {
         Ok(reply) => reply,
