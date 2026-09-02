@@ -52,6 +52,10 @@ letrec show =
 λ__x0.
     panic("No instance of Show.show for the given type")
 
+letrec append =
+λ__x0, __x1.
+    panic("No instance of Semigroup.append for the given type")
+
 letrec assert_failed =
 λname.
     let %t1 = Add("ASSERTION FAILED: ", name)
@@ -919,7 +923,7 @@ letrec flat_map =
         ::(h, t) →
           let %t231 = (let %t232 = (let %t233 = f(h)
           reverse(%t233))
-          __tc_m14_466C6F772E53656D6967726F7570_Semigroup_String_append(%t232, acc))
+          concat_lists(%t232, acc))
           flat_map_acc(t, %t231)
         _ →
           reverse(acc))
@@ -932,7 +936,7 @@ letrec flatten =
       case ys of
         ::(h, t) →
           let %t235 = (let %t236 = reverse(h)
-          append(%t236, acc))
+          concat_lists(%t236, acc))
           flatten_acc(t, %t235)
         _ →
           reverse(acc))
@@ -1308,7 +1312,7 @@ letrec delete_go_acc =
           true →
             let %t299 = reverse(acc)
             let %t300 = clone_list(t)
-            append(%t299, %t300)
+            concat_lists(%t299, %t300)
           _ →
             let %t301 = ::(h, acc)
             delete_go_acc(t, x, %t301)
@@ -1471,11 +1475,11 @@ letrec product =
           acc)
     product_go(xs, 1)
 
-letrec append =
+letrec concat_lists =
 λxs, ys.
     case xs of
       ::(h, t) →
-        let %t330 = append(t, ys)
+        let %t330 = concat_lists(t, ys)
         ::(h, %t330)
       _ →
         ys
@@ -1532,8 +1536,8 @@ letrec intercalate_rest =
     case xss of
       ::(h, t) →
         let %t341 = (let %t342 = intercalate_rest(t, sep)
-        append(h, %t342))
-        append(sep, %t341)
+        concat_lists(h, %t342))
+        concat_lists(sep, %t341)
       _ →
         []
 
@@ -2536,14 +2540,64 @@ letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_String_append =
 λx, y.
     concat_strings(x, y)
 
+letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_List<a>_append =
+λxs, ys.
+    append_lists(xs, ys)
+
+letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_Array<a>_append =
+λxs, ys.
+    concat_arrays(xs, ys)
+
+letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_Option<a>_append =
+λ__dict_m14_466C6F772E53656D6967726F7570_Semigroup, x, y.
+    case x of
+      Some(u) →
+        case y of
+          Some(v) →
+            let %t478 = (let %t479 = __dict_m14_466C6F772E53656D6967726F7570_Semigroup.0
+            %t479(u, v))
+            Some(%t478)
+          _ →
+            x
+      _ →
+        y
+
 letrec concat_strings =
 λleft, right.
     StringConcat(left, right)
 
+letrec concat_arrays =
+λleft, right.
+    ArrayConcat(left, right)
+
+letrec append_lists =
+λxs, ys.
+    case xs of
+      ::(h, t) →
+        let %t480 = append_lists(t, ys)
+        ::(h, %t480)
+      _ →
+        ys
+
 letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_String_append =
 λx, y.
-    let %t478 = Flow.Semigroup.__tc_m14_466C6F772E53656D6967726F7570_Semigroup_String_append
-    %t478(x, y)
+    let %t481 = Flow.Semigroup.__tc_m14_466C6F772E53656D6967726F7570_Semigroup_String_append
+    %t481(x, y)
+
+letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_List<a>_append =
+λxs, ys.
+    let %t482 = Flow.Semigroup.__tc_m14_466C6F772E53656D6967726F7570_Semigroup_List<a>_append
+    %t482(xs, ys)
+
+letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_Array<a>_append =
+λxs, ys.
+    let %t483 = Flow.Semigroup.__tc_m14_466C6F772E53656D6967726F7570_Semigroup_Array<a>_append
+    %t483(xs, ys)
+
+letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_Option<a>_append =
+λ__dict_m14_466C6F772E53656D6967726F7570_Semigroup, x, y.
+    let %t484 = Flow.Semigroup.__tc_m14_466C6F772E53656D6967726F7570_Semigroup_Option<a>_append
+    %t484(__dict_m14_466C6F772E53656D6967726F7570_Semigroup, x, y)
 
 letrec __tc_m9_466C6F772E53686F77_Show_Int_show =
 λx.
@@ -2563,94 +2617,94 @@ letrec __tc_m9_466C6F772E53686F77_Show_Bool_show =
 
 letrec __tc_m9_466C6F772E53686F77_Show_Int_show =
 λx.
-    let %t479 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_Int_show
-    %t479(x)
+    let %t485 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_Int_show
+    %t485(x)
 
 letrec __tc_m9_466C6F772E53686F77_Show_Float_show =
 λx.
-    let %t480 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_Float_show
-    %t480(x)
+    let %t486 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_Float_show
+    %t486(x)
 
 letrec __tc_m9_466C6F772E53686F77_Show_String_show =
 λx.
-    let %t481 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_String_show
-    %t481(x)
+    let %t487 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_String_show
+    %t487(x)
 
 letrec __tc_m9_466C6F772E53686F77_Show_Bool_show =
 λx.
-    let %t482 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_Bool_show
-    %t482(x)
+    let %t488 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_Bool_show
+    %t488(x)
 
 letrec starts_with =
 λs, prefix.
     let plen = Len(prefix)
-    let %t483 = (let %t484 = Len(s)
-    Gt(plen, %t484))
-    case %t483 of
+    let %t489 = (let %t490 = Len(s)
+    Gt(plen, %t490))
+    case %t489 of
       true →
         false
       _ →
-        let %t485 = Substring(s, 0, plen)
-        Eq(%t485, prefix)
+        let %t491 = Substring(s, 0, plen)
+        Eq(%t491, prefix)
 
 letrec ends_with =
 λs, suffix.
     let slen = Len(s)
     let plen = Len(suffix)
-    let %t486 = Gt(plen, slen)
-    case %t486 of
+    let %t492 = Gt(plen, slen)
+    case %t492 of
       true →
         false
       _ →
-        let %t487 = (let %t488 = Sub(slen, plen)
-        Substring(s, %t488, slen))
-        Eq(%t487, suffix)
+        let %t493 = (let %t494 = Sub(slen, plen)
+        Substring(s, %t494, slen))
+        Eq(%t493, suffix)
 
 letrec chars =
 λs.
     letrec chars_go = (λi, result.
-      let %t489 = (let %t490 = Len(s)
-      ICmpGe(i, %t490))
-      case %t489 of
+      let %t495 = (let %t496 = Len(s)
+      ICmpGe(i, %t496))
+      case %t495 of
         true →
           result
         _ →
-          let %t491 = IAdd(i, 1)
-          let %t492 = (let %t493 = Array.push
-          let %t494 = (let %t495 = IAdd(i, 1)
-          Substring(s, i, %t495))
-          %t493(result, %t494))
-          chars_go(%t491, %t492))
-    let %t496 = MakeArray()
-    chars_go(0, %t496)
+          let %t497 = IAdd(i, 1)
+          let %t498 = (let %t499 = Array.push
+          let %t500 = (let %t501 = IAdd(i, 1)
+          Substring(s, i, %t501))
+          %t499(result, %t500))
+          chars_go(%t497, %t498))
+    let %t502 = MakeArray()
+    chars_go(0, %t502)
 
 letrec join =
 λarr, sep.
-    let %t497 = (let %t498 = Len(arr)
-    ICmpEq(%t498, 0))
-    case %t497 of
+    let %t503 = (let %t504 = Len(arr)
+    ICmpEq(%t504, 0))
+    case %t503 of
       true →
         ""
       _ →
         letrec join_go = (λi, result.
-          let %t499 = (let %t500 = Len(arr)
-          ICmpGe(i, %t500))
-          case %t499 of
+          let %t505 = (let %t506 = Len(arr)
+          ICmpGe(i, %t506))
+          case %t505 of
             true →
               result
             _ →
-              let %t501 = Index(arr, i)
-              case %t501 of
+              let %t507 = Index(arr, i)
+              case %t507 of
                 Some(v) →
-                  let %t502 = IAdd(i, 1)
-                  let %t503 = (let %t504 = Add(result, sep)
-                  Add(%t504, v))
-                  join_go(%t502, %t503)
+                  let %t508 = IAdd(i, 1)
+                  let %t509 = (let %t510 = Add(result, sep)
+                  Add(%t510, v))
+                  join_go(%t508, %t509)
                 _ →
-                  let %t505 = IAdd(i, 1)
-                  join_go(%t505, result))
-        let %t506 = Index(arr, 0)
-        case %t506 of
+                  let %t511 = IAdd(i, 1)
+                  join_go(%t511, result))
+        let %t512 = Index(arr, 0)
+        case %t512 of
           Some(first_val) →
             join_go(1, first_val)
           _ →
@@ -2672,27 +2726,27 @@ letrec str_contains =
 λs, needle.
     let slen = Len(s)
     let nlen = Len(needle)
-    let %t507 = ICmpGt(nlen, slen)
-    case %t507 of
+    let %t513 = ICmpGt(nlen, slen)
+    case %t513 of
       true →
         false
       _ →
         letrec sc_go = (λi.
-          let %t508 = (let %t509 = IAdd(i, nlen)
-          ICmpGt(%t509, slen))
-          case %t508 of
+          let %t514 = (let %t515 = IAdd(i, nlen)
+          ICmpGt(%t515, slen))
+          case %t514 of
             true →
               false
             _ →
-              let %t510 = (let %t511 = (let %t512 = IAdd(i, nlen)
-              Substring(s, i, %t512))
-              Eq(%t511, needle))
-              case %t510 of
+              let %t516 = (let %t517 = (let %t518 = IAdd(i, nlen)
+              Substring(s, i, %t518))
+              Eq(%t517, needle))
+              case %t516 of
                 true →
                   true
                 _ →
-                  let %t513 = IAdd(i, 1)
-                  sc_go(%t513))
+                  let %t519 = IAdd(i, 1)
+                  sc_go(%t519))
         sc_go(0)
 
 letrec my_len =
@@ -2701,113 +2755,113 @@ letrec my_len =
 
 letrec len_twice =
 λxs.
-    let %t514 = my_len(xs)
-    let %t515 = my_len(xs)
-    IAdd(%t514, %t515)
+    let %t520 = my_len(xs)
+    let %t521 = my_len(xs)
+    IAdd(%t520, %t521)
 
 letrec borrow_then_return =
 λxs, y.
-    let %t516 = (let %t517 = Len(xs)
-    ICmpGt(%t517, 0))
-    case %t516 of
+    let %t522 = (let %t523 = Len(xs)
+    ICmpGt(%t523, 0))
+    case %t522 of
       true →
         y
       _ →
         y
 
 def main =
-let %t518 = (λ__resume_default, __arg0, __arg1.
-    let %t519 = ProcRun(__arg0, __arg1)
-    __resume_default(%t519))
+let %t524 = (λ__resume_default, __arg0, __arg1.
+    let %t525 = ProcRun(__arg0, __arg1)
+    __resume_default(%t525))
   handle Process {
     proc_run(__arg0, __arg1; __resume_default) →
-      let %t520 = ProcRun(__arg0, __arg1)
-      __resume_default(%t520)
+      let %t526 = ProcRun(__arg0, __arg1)
+      __resume_default(%t526)
   } with
-    let %t521 = (λ__resume_default, __arg0.
-      let %t522 = EnvVar(__arg0)
-      __resume_default(%t522))
-    let %t523 = (λ__resume_default.
-      let %t524 = EnvArgs()
-      __resume_default(%t524))
-    let %t525 = (λ__resume_default.
-      let %t526 = EnvCwd()
-      __resume_default(%t526))
-    let %t527 = (λ__resume_default.
-      let %t528 = EnvHomeDir()
+    let %t527 = (λ__resume_default, __arg0.
+      let %t528 = EnvVar(__arg0)
       __resume_default(%t528))
+    let %t529 = (λ__resume_default.
+      let %t530 = EnvArgs()
+      __resume_default(%t530))
+    let %t531 = (λ__resume_default.
+      let %t532 = EnvCwd()
+      __resume_default(%t532))
+    let %t533 = (λ__resume_default.
+      let %t534 = EnvHomeDir()
+      __resume_default(%t534))
     handle Env {
       env_var(__arg0; __resume_default) →
-        let %t529 = EnvVar(__arg0)
-        __resume_default(%t529)
+        let %t535 = EnvVar(__arg0)
+        __resume_default(%t535)
       env_args(; __resume_default) →
-        let %t530 = EnvArgs()
-        __resume_default(%t530)
+        let %t536 = EnvArgs()
+        __resume_default(%t536)
       env_cwd(; __resume_default) →
-        let %t531 = EnvCwd()
-        __resume_default(%t531)
+        let %t537 = EnvCwd()
+        __resume_default(%t537)
       env_home_dir(; __resume_default) →
-        let %t532 = EnvHomeDir()
-        __resume_default(%t532)
+        let %t538 = EnvHomeDir()
+        __resume_default(%t538)
     } with
-      let %t533 = (λ__resume_default.
-        let %t534 = __primop_read_stdin()
-        __resume_default(%t534))
+      let %t539 = (λ__resume_default.
+        let %t540 = __primop_read_stdin()
+        __resume_default(%t540))
       handle Stdin {
         read_stdin(; __resume_default) →
-          let %t535 = __primop_read_stdin()
-          __resume_default(%t535)
+          let %t541 = __primop_read_stdin()
+          __resume_default(%t541)
       } with
-        let %t536 = (λ__resume_default, __arg0.
-          let %t537 = __primop_read_file(__arg0)
-          __resume_default(%t537))
-        let %t538 = (λ__resume_default, __arg0.
-          let %t539 = __primop_read_lines(__arg0)
-          __resume_default(%t539))
-        let %t540 = (λ__resume_default, __arg0, __arg1.
-          let %t541 = __primop_write_file(__arg0, __arg1)
-          let %t542 = MakeTuple()
-          __resume_default(%t542))
+        let %t542 = (λ__resume_default, __arg0.
+          let %t543 = __primop_read_file(__arg0)
+          __resume_default(%t543))
+        let %t544 = (λ__resume_default, __arg0.
+          let %t545 = __primop_read_lines(__arg0)
+          __resume_default(%t545))
+        let %t546 = (λ__resume_default, __arg0, __arg1.
+          let %t547 = __primop_write_file(__arg0, __arg1)
+          let %t548 = MakeTuple()
+          __resume_default(%t548))
         handle FileSystem {
           read_file(__arg0; __resume_default) →
-            let %t543 = __primop_read_file(__arg0)
-            __resume_default(%t543)
+            let %t549 = __primop_read_file(__arg0)
+            __resume_default(%t549)
           read_lines(__arg0; __resume_default) →
-            let %t544 = __primop_read_lines(__arg0)
-            __resume_default(%t544)
+            let %t550 = __primop_read_lines(__arg0)
+            __resume_default(%t550)
           write_file(__arg0, __arg1; __resume_default) →
-            let %t541 = __primop_write_file(__arg0, __arg1)
-            let %t545 = MakeTuple()
-            __resume_default(%t545)
-        } with
-          let %t546 = (λ__resume_default, __arg0.
-            let %t547 = __primop_print(__arg0)
-            let %t548 = MakeTuple()
-            __resume_default(%t548))
-          let %t549 = (λ__resume_default, __arg0.
-            let %t550 = __primop_println(__arg0)
+            let %t547 = __primop_write_file(__arg0, __arg1)
             let %t551 = MakeTuple()
-            __resume_default(%t551))
+            __resume_default(%t551)
+        } with
+          let %t552 = (λ__resume_default, __arg0.
+            let %t553 = __primop_print(__arg0)
+            let %t554 = MakeTuple()
+            __resume_default(%t554))
+          let %t555 = (λ__resume_default, __arg0.
+            let %t556 = __primop_println(__arg0)
+            let %t557 = MakeTuple()
+            __resume_default(%t557))
           handle Console {
             print(__arg0; __resume_default) →
-              let %t547 = __primop_print(__arg0)
-              let %t552 = MakeTuple()
-              __resume_default(%t552)
+              let %t553 = __primop_print(__arg0)
+              let %t558 = MakeTuple()
+              __resume_default(%t558)
             println(__arg0; __resume_default) →
-              let %t550 = __primop_println(__arg0)
-              let %t553 = MakeTuple()
-              __resume_default(%t553)
+              let %t556 = __primop_println(__arg0)
+              let %t559 = MakeTuple()
+              __resume_default(%t559)
           } with
-            let %t554 = (let %t555 = (λ%t556.
-              %t556)
-            let %t557 = (let %t558 = MakeList(1, 2, 3)
-            len_twice(%t558))
-            %t546(%t555, %t557))
-            let %t559 = (λ%t560.
-              %t560)
-            let %t561 = (let %t562 = MakeList(1, 2, 3)
-            borrow_then_return(%t562, 42))
-            %t546(%t559, %t561)
+            let %t560 = (let %t561 = (λ%t562.
+              %t562)
+            let %t563 = (let %t564 = MakeList(1, 2, 3)
+            len_twice(%t564))
+            %t552(%t561, %t563))
+            let %t565 = (λ%t566.
+              %t566)
+            let %t567 = (let %t568 = MakeList(1, 2, 3)
+            borrow_then_return(%t568, 42))
+            %t552(%t565, %t567)
 
 [ 1 of 17] Compiling  Assert
 [ 2 of 17] Compiling  Debug

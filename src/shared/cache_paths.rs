@@ -74,7 +74,10 @@ use sha2::{Digest, Sha256};
 /// Epoch 36: `Ord` declares `Eq` as a superclass, so every `Ord` dictionary
 /// leads with an `Eq` evidence slot and each method sits one index later than
 /// an epoch-35 artifact recorded.
-pub const CACHE_EPOCH: u16 = 36;
+/// Epoch 37: `Semigroup` gained instances over `List`, `Array` and `Option`,
+/// and the new `Monoid` class sits on top of it, so a predicate an epoch-36
+/// interface answered with no instance now resolves to one.
+pub const CACHE_EPOCH: u16 = 37;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

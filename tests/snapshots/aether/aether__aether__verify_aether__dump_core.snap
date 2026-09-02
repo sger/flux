@@ -52,6 +52,10 @@ letrec show =
 λ__x0.
     panic("No instance of Show.show for the given type")
 
+letrec append =
+λ__x0, __x1.
+    panic("No instance of Semigroup.append for the given type")
+
 letrec assert_failed =
 λname.
     let %t1 = Add("ASSERTION FAILED: ", name)
@@ -920,7 +924,7 @@ letrec flat_map =
         ::(h, t) →
           let %t232 = (let %t233 = (let %t234 = f(h)
           reverse(%t234))
-          append(%t233, acc))
+          concat_lists(%t233, acc))
           flat_map_acc(t, %t232)
         _ →
           reverse(acc))
@@ -933,7 +937,7 @@ letrec flatten =
       case ys of
         ::(h, t) →
           let %t236 = (let %t237 = reverse(h)
-          append(%t237, acc))
+          concat_lists(%t237, acc))
           flatten_acc(t, %t236)
         _ →
           reverse(acc))
@@ -1309,7 +1313,7 @@ letrec delete_go_acc =
           true →
             let %t300 = reverse(acc)
             let %t301 = clone_list(t)
-            append(%t300, %t301)
+            concat_lists(%t300, %t301)
           _ →
             let %t302 = ::(h, acc)
             delete_go_acc(t, x, %t302)
@@ -1472,11 +1476,11 @@ letrec product =
           acc)
     product_go(xs, 1)
 
-letrec append =
+letrec concat_lists =
 λxs, ys.
     case xs of
       ::(h, t) →
-        let %t331 = append(t, ys)
+        let %t331 = concat_lists(t, ys)
         ::(h, %t331)
       _ →
         ys
@@ -1533,8 +1537,8 @@ letrec intercalate_rest =
     case xss of
       ::(h, t) →
         let %t342 = (let %t343 = intercalate_rest(t, sep)
-        append(h, %t343))
-        append(sep, %t342)
+        concat_lists(h, %t343))
+        concat_lists(sep, %t342)
       _ →
         []
 
@@ -2538,14 +2542,64 @@ letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_String_append =
 λx, y.
     concat_strings(x, y)
 
+letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_List<a>_append =
+λxs, ys.
+    append_lists(xs, ys)
+
+letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_Array<a>_append =
+λxs, ys.
+    concat_arrays(xs, ys)
+
+letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_Option<a>_append =
+λ__dict_m14_466C6F772E53656D6967726F7570_Semigroup, x, y.
+    case x of
+      Some(u) →
+        case y of
+          Some(v) →
+            let %t481 = (let %t482 = __dict_m14_466C6F772E53656D6967726F7570_Semigroup.0
+            %t482(u, v))
+            Some(%t481)
+          _ →
+            x
+      _ →
+        y
+
 letrec concat_strings =
 λleft, right.
     StringConcat(left, right)
 
+letrec concat_arrays =
+λleft, right.
+    ArrayConcat(left, right)
+
+letrec append_lists =
+λxs, ys.
+    case xs of
+      ::(h, t) →
+        let %t483 = append_lists(t, ys)
+        ::(h, %t483)
+      _ →
+        ys
+
 letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_String_append =
 λx, y.
-    let %t481 = Flow.Semigroup.__tc_m14_466C6F772E53656D6967726F7570_Semigroup_String_append
-    %t481(x, y)
+    let %t484 = Flow.Semigroup.__tc_m14_466C6F772E53656D6967726F7570_Semigroup_String_append
+    %t484(x, y)
+
+letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_List<a>_append =
+λxs, ys.
+    let %t485 = Flow.Semigroup.__tc_m14_466C6F772E53656D6967726F7570_Semigroup_List<a>_append
+    %t485(xs, ys)
+
+letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_Array<a>_append =
+λxs, ys.
+    let %t486 = Flow.Semigroup.__tc_m14_466C6F772E53656D6967726F7570_Semigroup_Array<a>_append
+    %t486(xs, ys)
+
+letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_Option<a>_append =
+λ__dict_m14_466C6F772E53656D6967726F7570_Semigroup, x, y.
+    let %t487 = Flow.Semigroup.__tc_m14_466C6F772E53656D6967726F7570_Semigroup_Option<a>_append
+    %t487(__dict_m14_466C6F772E53656D6967726F7570_Semigroup, x, y)
 
 letrec __tc_m9_466C6F772E53686F77_Show_Int_show =
 λx.
@@ -2565,94 +2619,94 @@ letrec __tc_m9_466C6F772E53686F77_Show_Bool_show =
 
 letrec __tc_m9_466C6F772E53686F77_Show_Int_show =
 λx.
-    let %t482 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_Int_show
-    %t482(x)
+    let %t488 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_Int_show
+    %t488(x)
 
 letrec __tc_m9_466C6F772E53686F77_Show_Float_show =
 λx.
-    let %t483 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_Float_show
-    %t483(x)
+    let %t489 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_Float_show
+    %t489(x)
 
 letrec __tc_m9_466C6F772E53686F77_Show_String_show =
 λx.
-    let %t484 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_String_show
-    %t484(x)
+    let %t490 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_String_show
+    %t490(x)
 
 letrec __tc_m9_466C6F772E53686F77_Show_Bool_show =
 λx.
-    let %t485 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_Bool_show
-    %t485(x)
+    let %t491 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_Bool_show
+    %t491(x)
 
 letrec starts_with =
 λs, prefix.
     let plen = Len(prefix)
-    let %t486 = (let %t487 = Len(s)
-    Gt(plen, %t487))
-    case %t486 of
+    let %t492 = (let %t493 = Len(s)
+    Gt(plen, %t493))
+    case %t492 of
       true →
         false
       _ →
-        let %t488 = Substring(s, 0, plen)
-        ICmpEq(%t488, prefix)
+        let %t494 = Substring(s, 0, plen)
+        ICmpEq(%t494, prefix)
 
 letrec ends_with =
 λs, suffix.
     let slen = Len(s)
     let plen = Len(suffix)
-    let %t489 = Gt(plen, slen)
-    case %t489 of
+    let %t495 = Gt(plen, slen)
+    case %t495 of
       true →
         false
       _ →
-        let %t490 = (let %t491 = Sub(slen, plen)
-        Substring(s, %t491, slen))
-        ICmpEq(%t490, suffix)
+        let %t496 = (let %t497 = Sub(slen, plen)
+        Substring(s, %t497, slen))
+        ICmpEq(%t496, suffix)
 
 letrec chars =
 λs.
     letrec chars_go = (λi, result.
-      let %t492 = (let %t493 = Len(s)
-      Ge(i, %t493))
-      case %t492 of
+      let %t498 = (let %t499 = Len(s)
+      Ge(i, %t499))
+      case %t498 of
         true →
           result
         _ →
-          let %t494 = Add(i, 1)
-          let %t495 = (let %t496 = Array.push
-          let %t497 = (let %t498 = Add(i, 1)
-          Substring(s, i, %t498))
-          %t496(result, %t497))
-          chars_go(%t494, %t495))
-    let %t499 = MakeArray()
-    chars_go(0, %t499)
+          let %t500 = Add(i, 1)
+          let %t501 = (let %t502 = Array.push
+          let %t503 = (let %t504 = Add(i, 1)
+          Substring(s, i, %t504))
+          %t502(result, %t503))
+          chars_go(%t500, %t501))
+    let %t505 = MakeArray()
+    chars_go(0, %t505)
 
 letrec join =
 λarr, sep.
-    let %t500 = (let %t501 = Len(arr)
-    ICmpEq(%t501, 0))
-    case %t500 of
+    let %t506 = (let %t507 = Len(arr)
+    ICmpEq(%t507, 0))
+    case %t506 of
       true →
         ""
       _ →
         letrec join_go = (λi, result.
-          let %t502 = (let %t503 = Len(arr)
-          Ge(i, %t503))
-          case %t502 of
+          let %t508 = (let %t509 = Len(arr)
+          Ge(i, %t509))
+          case %t508 of
             true →
               result
             _ →
-              let %t504 = Index(arr, i)
-              case %t504 of
+              let %t510 = Index(arr, i)
+              case %t510 of
                 Some(v) →
-                  let %t505 = Add(i, 1)
-                  let %t506 = (let %t507 = Add(result, sep)
-                  Add(%t507, v))
-                  join_go(%t505, %t506)
+                  let %t511 = Add(i, 1)
+                  let %t512 = (let %t513 = Add(result, sep)
+                  Add(%t513, v))
+                  join_go(%t511, %t512)
                 _ →
-                  let %t508 = Add(i, 1)
-                  join_go(%t508, result))
-        let %t509 = Index(arr, 0)
-        case %t509 of
+                  let %t514 = Add(i, 1)
+                  join_go(%t514, result))
+        let %t515 = Index(arr, 0)
+        case %t515 of
           Some(first_val) →
             join_go(1, first_val)
           _ →
@@ -2674,36 +2728,36 @@ letrec str_contains =
 λs, needle.
     let slen = Len(s)
     let nlen = Len(needle)
-    let %t510 = Gt(nlen, slen)
-    case %t510 of
+    let %t516 = Gt(nlen, slen)
+    case %t516 of
       true →
         false
       _ →
         letrec sc_go = (λi.
-          let %t511 = (let %t512 = IAdd(i, nlen)
-          Gt(%t512, slen))
-          case %t511 of
+          let %t517 = (let %t518 = IAdd(i, nlen)
+          Gt(%t518, slen))
+          case %t517 of
             true →
               false
             _ →
-              let %t513 = (let %t514 = (let %t515 = IAdd(i, nlen)
-              Substring(s, i, %t515))
-              Eq(%t514, needle))
-              case %t513 of
+              let %t519 = (let %t520 = (let %t521 = IAdd(i, nlen)
+              Substring(s, i, %t521))
+              Eq(%t520, needle))
+              case %t519 of
                 true →
                   true
                 _ →
-                  let %t516 = IAdd(i, 1)
-                  sc_go(%t516))
+                  let %t522 = IAdd(i, 1)
+                  sc_go(%t522))
         sc_go(0)
 
 letrec my_map =
 λxs, f.
     case xs of
       ::(h, t) →
-        let %t517 = f(h)
-        let %t518 = my_map(t, f)
-        ::(%t517, %t518)
+        let %t523 = f(h)
+        let %t524 = my_map(t, f)
+        ::(%t523, %t524)
       _ →
         []
 
@@ -2711,8 +2765,8 @@ letrec option_map =
 λopt, f.
     case opt of
       Some(x) →
-        let %t519 = f(x)
-        Some(%t519)
+        let %t525 = f(x)
+        Some(%t525)
       _ →
         None
 
@@ -2728,8 +2782,8 @@ letrec my_len =
 λxs.
     case xs of
       ::(_, t) →
-        let %t520 = my_len(t)
-        IAdd(1, %t520)
+        let %t526 = my_len(t)
+        IAdd(1, %t526)
       _ →
         0
 
@@ -2737,11 +2791,11 @@ letrec my_filter =
 λxs, f.
     case xs of
       ::(h, t) →
-        let %t521 = f(h)
-        case %t521 of
+        let %t527 = f(h)
+        case %t527 of
           true →
-            let %t522 = my_filter(t, f)
-            ::(h, %t522)
+            let %t528 = my_filter(t, f)
+            ::(h, %t528)
           _ →
             my_filter(t, f)
       _ →
@@ -2751,131 +2805,131 @@ letrec my_sum =
 λxs.
     case xs of
       ::(h, t) →
-        let %t523 = my_sum(t)
-        IAdd(h, %t523)
+        let %t529 = my_sum(t)
+        IAdd(h, %t529)
       _ →
         0
 
 def main =
-let %t524 = (λ__resume_default, __arg0, __arg1.
-    let %t525 = ProcRun(__arg0, __arg1)
-    __resume_default(%t525))
+let %t530 = (λ__resume_default, __arg0, __arg1.
+    let %t531 = ProcRun(__arg0, __arg1)
+    __resume_default(%t531))
   handle Process {
     proc_run(__arg0, __arg1; __resume_default) →
-      let %t526 = ProcRun(__arg0, __arg1)
-      __resume_default(%t526)
+      let %t532 = ProcRun(__arg0, __arg1)
+      __resume_default(%t532)
   } with
-    let %t527 = (λ__resume_default, __arg0.
-      let %t528 = EnvVar(__arg0)
-      __resume_default(%t528))
-    let %t529 = (λ__resume_default.
-      let %t530 = EnvArgs()
-      __resume_default(%t530))
-    let %t531 = (λ__resume_default.
-      let %t532 = EnvCwd()
-      __resume_default(%t532))
-    let %t533 = (λ__resume_default.
-      let %t534 = EnvHomeDir()
+    let %t533 = (λ__resume_default, __arg0.
+      let %t534 = EnvVar(__arg0)
       __resume_default(%t534))
+    let %t535 = (λ__resume_default.
+      let %t536 = EnvArgs()
+      __resume_default(%t536))
+    let %t537 = (λ__resume_default.
+      let %t538 = EnvCwd()
+      __resume_default(%t538))
+    let %t539 = (λ__resume_default.
+      let %t540 = EnvHomeDir()
+      __resume_default(%t540))
     handle Env {
       env_var(__arg0; __resume_default) →
-        let %t535 = EnvVar(__arg0)
-        __resume_default(%t535)
+        let %t541 = EnvVar(__arg0)
+        __resume_default(%t541)
       env_args(; __resume_default) →
-        let %t536 = EnvArgs()
-        __resume_default(%t536)
+        let %t542 = EnvArgs()
+        __resume_default(%t542)
       env_cwd(; __resume_default) →
-        let %t537 = EnvCwd()
-        __resume_default(%t537)
+        let %t543 = EnvCwd()
+        __resume_default(%t543)
       env_home_dir(; __resume_default) →
-        let %t538 = EnvHomeDir()
-        __resume_default(%t538)
+        let %t544 = EnvHomeDir()
+        __resume_default(%t544)
     } with
-      let %t539 = (λ__resume_default.
-        let %t540 = __primop_read_stdin()
-        __resume_default(%t540))
+      let %t545 = (λ__resume_default.
+        let %t546 = __primop_read_stdin()
+        __resume_default(%t546))
       handle Stdin {
         read_stdin(; __resume_default) →
-          let %t541 = __primop_read_stdin()
-          __resume_default(%t541)
+          let %t547 = __primop_read_stdin()
+          __resume_default(%t547)
       } with
-        let %t542 = (λ__resume_default, __arg0.
-          let %t543 = __primop_read_file(__arg0)
-          __resume_default(%t543))
-        let %t544 = (λ__resume_default, __arg0.
-          let %t545 = __primop_read_lines(__arg0)
-          __resume_default(%t545))
-        let %t546 = (λ__resume_default, __arg0, __arg1.
-          let %t547 = __primop_write_file(__arg0, __arg1)
-          let %t548 = MakeTuple()
-          __resume_default(%t548))
+        let %t548 = (λ__resume_default, __arg0.
+          let %t549 = __primop_read_file(__arg0)
+          __resume_default(%t549))
+        let %t550 = (λ__resume_default, __arg0.
+          let %t551 = __primop_read_lines(__arg0)
+          __resume_default(%t551))
+        let %t552 = (λ__resume_default, __arg0, __arg1.
+          let %t553 = __primop_write_file(__arg0, __arg1)
+          let %t554 = MakeTuple()
+          __resume_default(%t554))
         handle FileSystem {
           read_file(__arg0; __resume_default) →
-            let %t549 = __primop_read_file(__arg0)
-            __resume_default(%t549)
+            let %t555 = __primop_read_file(__arg0)
+            __resume_default(%t555)
           read_lines(__arg0; __resume_default) →
-            let %t550 = __primop_read_lines(__arg0)
-            __resume_default(%t550)
+            let %t556 = __primop_read_lines(__arg0)
+            __resume_default(%t556)
           write_file(__arg0, __arg1; __resume_default) →
-            let %t547 = __primop_write_file(__arg0, __arg1)
-            let %t551 = MakeTuple()
-            __resume_default(%t551)
-        } with
-          let %t552 = (λ__resume_default, __arg0.
-            let %t553 = __primop_print(__arg0)
-            let %t554 = MakeTuple()
-            __resume_default(%t554))
-          let %t555 = (λ__resume_default, __arg0.
-            let %t556 = __primop_println(__arg0)
+            let %t553 = __primop_write_file(__arg0, __arg1)
             let %t557 = MakeTuple()
-            __resume_default(%t557))
+            __resume_default(%t557)
+        } with
+          let %t558 = (λ__resume_default, __arg0.
+            let %t559 = __primop_print(__arg0)
+            let %t560 = MakeTuple()
+            __resume_default(%t560))
+          let %t561 = (λ__resume_default, __arg0.
+            let %t562 = __primop_println(__arg0)
+            let %t563 = MakeTuple()
+            __resume_default(%t563))
           handle Console {
             print(__arg0; __resume_default) →
-              let %t553 = __primop_print(__arg0)
-              let %t558 = MakeTuple()
-              __resume_default(%t558)
+              let %t559 = __primop_print(__arg0)
+              let %t564 = MakeTuple()
+              __resume_default(%t564)
             println(__arg0; __resume_default) →
-              let %t556 = __primop_println(__arg0)
-              let %t559 = MakeTuple()
-              __resume_default(%t559)
+              let %t562 = __primop_println(__arg0)
+              let %t565 = MakeTuple()
+              __resume_default(%t565)
           } with
-            let result = (let %t560 = MakeList(1, 2, 3)
-            let %t561 = (λx.
+            let result = (let %t566 = MakeList(1, 2, 3)
+            let %t567 = (λx.
               IMul(x, 2))
-            my_map(%t560, %t561))
-            let %t562 = (let %t563 = (λ%t564.
-              %t564)
-            %t552(%t563, result))
-            let opt = (let %t565 = Some(42)
-            let %t566 = (λx.
+            my_map(%t566, %t567))
+            let %t568 = (let %t569 = (λ%t570.
+              %t570)
+            %t558(%t569, result))
+            let opt = (let %t571 = Some(42)
+            let %t572 = (λx.
               IAdd(x, 1))
-            option_map(%t565, %t566))
-            let %t567 = (let %t568 = (λ%t569.
-              %t569)
-            %t552(%t568, opt))
+            option_map(%t571, %t572))
+            let %t573 = (let %t574 = (λ%t575.
+              %t575)
+            %t558(%t574, opt))
             let tree = Node(Red, Leaf, 5, Leaf)
             let blk = set_black(tree)
-            let %t570 = (let %t571 = (λ%t572.
-              %t572)
-            %t552(%t571, blk))
-            let n = (let %t573 = MakeList(1, 2, 3, 4, 5)
-            my_len(%t573))
-            let %t574 = (let %t575 = (λ%t576.
-              %t576)
-            %t552(%t575, n))
-            let evens = (let %t577 = MakeList(1, 2, 3, 4, 5, 6)
-            let %t578 = (λx.
-              let %t579 = IMod(x, 2)
-              ICmpEq(%t579, 0))
-            my_filter(%t577, %t578))
+            let %t576 = (let %t577 = (λ%t578.
+              %t578)
+            %t558(%t577, blk))
+            let n = (let %t579 = MakeList(1, 2, 3, 4, 5)
+            my_len(%t579))
             let %t580 = (let %t581 = (λ%t582.
               %t582)
-            %t552(%t581, evens))
-            let total = (let %t583 = MakeList(1, 2, 3, 4, 5)
-            my_sum(%t583))
-            let %t584 = (λ%t585.
-              %t585)
-            %t552(%t584, total)
+            %t558(%t581, n))
+            let evens = (let %t583 = MakeList(1, 2, 3, 4, 5, 6)
+            let %t584 = (λx.
+              let %t585 = IMod(x, 2)
+              ICmpEq(%t585, 0))
+            my_filter(%t583, %t584))
+            let %t586 = (let %t587 = (λ%t588.
+              %t588)
+            %t558(%t587, evens))
+            let total = (let %t589 = MakeList(1, 2, 3, 4, 5)
+            my_sum(%t589))
+            let %t590 = (λ%t591.
+              %t591)
+            %t558(%t590, total)
 
 [ 1 of 17] Compiling  Assert
 [ 2 of 17] Compiling  Debug
