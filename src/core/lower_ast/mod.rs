@@ -778,7 +778,64 @@ impl<'a> AstLowerer<'a> {
         if scheme.constraints.is_empty() {
             return Vec::new();
         }
+        // Do not prepend evidence the call already carries. The bare alias
+        // generated for a module-owned instance method forwards every one of
+        // its parameters, dictionaries included, so its call is complete
+        // before this runs. Inserting again resolved the constraint from
+        // arguments that were already shifted by one, froze a *concrete*
+        // dictionary into a generic forwarder, and — because the alias shares
+        // the method's bare name — shadowed the real definition with one that
+        // sent every recursion through the wrong instance (KI-060). The
+        // identifier path, the AST compiler and the Core elaboration pass all
+        // carry this guard already; this site was the one that did not.
+        let dictionary_constraints = match self.class_env {
+            Some(class_env) => scheme
+                .constraints
+                .iter()
+                .filter(|constraint| class_env.constraint_needs_dictionary(constraint))
+                .count(),
+            None => scheme.constraints.len(),
+        };
+        if dictionary_constraints > 0
+            && arguments.len() >= dictionary_constraints
+            && arguments
+                .iter()
+                .take(dictionary_constraints)
+                .all(|argument| self.is_dictionary_argument(argument))
+        {
+            return Vec::new();
+        }
         self.resolve_dict_args_for_scheme(scheme, call_id, arguments)
+    }
+
+    /// Whether an argument is already dictionary evidence rather than a value.
+    ///
+    /// Mirrors `Compiler::looks_like_dictionary_argument_ast`: a dictionary is
+    /// a `__dict_*` binding, the application of a dictionary *constructor* for
+    /// a contextual instance, or a literal tuple of generated instance methods.
+    fn is_dictionary_argument(&self, expression: &crate::syntax::expression::Expression) -> bool {
+        use crate::syntax::expression::Expression;
+        let Some(interner) = self.interner else {
+            return false;
+        };
+        match expression {
+            Expression::Identifier { name, .. } => interner.resolve(*name).starts_with("__dict_"),
+            Expression::Call { function, .. } => matches!(
+                function.as_ref(),
+                Expression::Identifier { name, .. }
+                    if interner.resolve(*name).starts_with("__dict_")
+            ),
+            Expression::TupleLiteral { elements, .. } => {
+                !elements.is_empty()
+                    && elements.iter().all(|element| {
+                        matches!(element, Expression::Identifier { name, .. }
+                        if crate::types::class_env::is_generated_instance_method(
+                            interner.resolve(*name),
+                        ))
+                    })
+            }
+            _ => false,
+        }
     }
 
     fn module_qualifier_symbol(

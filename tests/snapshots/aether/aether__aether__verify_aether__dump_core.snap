@@ -1907,22 +1907,22 @@ letrec __tc_m7_466C6F772E4571_Eq_Bool_neq =
 letrec __tc_m7_466C6F772E4571_Eq_List<a>_eq =
 λ__dict_m7_466C6F772E4571_Eq, xs, ys.
     let %t403 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_List<a>_eq
-    %t403(__dict_m7_466C6F772E4571_Eq_Int, __dict_m7_466C6F772E4571_Eq, xs, ys)
+    %t403(__dict_m7_466C6F772E4571_Eq, xs, ys)
 
 letrec __tc_m7_466C6F772E4571_Eq_List<a>_neq =
 λ__dict_m7_466C6F772E4571_Eq, xs, ys.
     let %t404 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_List<a>_neq
-    %t404(__dict_m7_466C6F772E4571_Eq_Int, __dict_m7_466C6F772E4571_Eq, xs, ys)
+    %t404(__dict_m7_466C6F772E4571_Eq, xs, ys)
 
 letrec __tc_m7_466C6F772E4571_Eq_Option<a>_eq =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
     let %t405 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Option<a>_eq
-    %t405(__dict_m7_466C6F772E4571_Eq_Int, __dict_m7_466C6F772E4571_Eq, x, y)
+    %t405(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m7_466C6F772E4571_Eq_Option<a>_neq =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
     let %t406 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Option<a>_neq
-    %t406(__dict_m7_466C6F772E4571_Eq_Int, __dict_m7_466C6F772E4571_Eq, x, y)
+    %t406(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec print_all =
 λarr.
