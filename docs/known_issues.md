@@ -1982,7 +1982,7 @@ rather than demanding it as a value, which is what a self-referential
 
 ---
 
-### KI-060 — A module-scoped contextual instance cannot call its own method on its own head type — fixed natively 2026-09-02, VM still affected
+### KI-060 — A module-scoped contextual instance cannot call its own method on its own head type — FIXED 2026-09-02
 
 **Severity:** High · **Area:** type classes, module-scoped instances · **Verified:** 2026-09-02 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
@@ -2034,16 +2034,15 @@ now forwards its own dictionary unchanged. `lib/Flow/Eq.flx` was affected too:
 the aether Core dumps show the same `__dict_…_Eq_Int` removed from the
 prelude's own `List<a>` and `Option<a>` forwarders.
 
-**Fixed on the native backend.** The repro above prints `true`, `true`, `false`
-under `cargo native`, where it previously trapped.
+**Fixed on both backends.** The AST compiler now materializes the runtime
+dictionary parameters implied by filtered class constraints, reuses hidden
+parameters supplied by the IR, and avoids duplicating dictionary parameters on
+generated contextual methods. AST contextual lookup also reuses the method's
+explicit leading dictionary, so recursive calls stay on the current context.
+The repro prints `true`, `true`, `false` under both the VM and native backend.
 
-**Still failing on the VM.** Native retains the forwarding call and so reaches
-the qualified symbol; the VM instead overwrites the bare global at load time
-(`emit_instance_method_aliases` in
-[codegen.rs](../src/compiler/passes/codegen.rs)) and resolves this call on the
-AST path rather than from Core. With Core now correct, the divergence localizes
-the remainder to that path — which is the one [KI-061](#ki-061) describes, so
-the two are most likely one root cause and should be fixed together.
+Giving the callee those parameters changes its compiled arity, so the caller
+side had to move with it — see [KI-061](#ki-061), fixed together with this.
 
 **Correction to the earlier diagnosis.** This entry previously said the alias
 *shadows* the real definition. It does not: the module's implementation and the
@@ -2057,9 +2056,9 @@ and not `my_eq(h1, h2)`). `lib/Flow/Eq.flx` is written this way.
 
 ---
 
-### KI-061 — A constrained function inside a module that calls a class method by name gets no dictionary
+### KI-061 — A constrained function inside a module that calls a class method by name gets no dictionary — FIXED 2026-09-02
 
-**Severity:** High · **Area:** type classes, dictionary elaboration, modules · **Verified:** 2026-09-01 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** type classes, dictionary elaboration, modules · **Verified:** 2026-09-02 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 ```flux
 import Flow.Eq exposing (..)
@@ -2096,6 +2095,31 @@ and that is why every constrained function in `lib/Flow` — `List.contains`,
 
 Not to be confused with KI-060, which is about an *instance method* recursing
 on its own head; this is about a *free function*.
+
+**Fixed together with [KI-060](#ki-060).** A constrained function's compiled
+arity is its source arity plus one leading dictionary per runtime-bearing
+constraint, on the AST path as well as the CFG path. KI-060 established that
+for the callee; this entry is the caller half, which took three changes:
+
+* `Module.f(..)` prepends the same evidence a local call does
+  (`try_build_constrained_module_member_call`), and a bare-name call to a
+  module sibling qualifies the name before looking its scheme up — otherwise a
+  module's own recursion missed the dictionaries the function was compiled
+  with.
+* A constraint instantiated at one of the *enclosing* function's type
+  parameters forwards that function's own dictionary instead of selecting an
+  instance. `sort<a: Ord>` calling `sort_by<a, b: Ord>` at `b = a` has no
+  instance to pick; the previous code defaulted the undetermined variable to
+  `Int` and passed the wrong evidence.
+* An imported instance's `__dict_*` global is declared by both preload paths
+  and stored at load time by `emit_imported_dict_globals`. Only the *defining*
+  module's Core carries the `__dict_*` def that `ir_lowering` declares from,
+  and a cached dependency contributes no Core at all, so a cross-module
+  reference otherwise failed with `E004` — or, once declared but unstored,
+  `E1001 Cannot call non-function value`.
+
+`CACHE_EPOCH` moved to 40: an epoch-39 `.fxc` was compiled to the old
+convention, so a fresh caller would arrive one argument too many.
 
 ---
 
