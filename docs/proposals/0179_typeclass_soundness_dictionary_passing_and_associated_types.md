@@ -533,7 +533,7 @@ needs a dictionary at all, so predeclaring the missing symbol converts a compile
 error into a runtime one. Recorded as
 [KI-059](../known_issues.md#ki-059) with the reproduction and both layers.
 
-### Stage 8 — Standard hierarchy — **done, with one carve-out**
+### Stage 8 — Standard hierarchy — **done**
 
 - All three superclass edges ship: `Eq → Ord`, `Semigroup → Monoid`, and
   `Functor → Applicative → Monad` — `eq_ord.flx`, `semigroup_monoid.flx`,
@@ -543,11 +543,13 @@ error into a runtime one. Recorded as
 - Result-directed `pure`/`mempty` and effectful `fmap` ship:
   `return_directed_pure.flx`, `mempty_result_dispatch.flx`,
   `effectful_fmap.flx`.
-- **`either_instances.flx` does not ship.** `Either` takes two parameters, so
-  the instance head `Either<l>` is partially applied, and that head does not
-  survive a module boundary. Diagnosis, reproductions and three attempted
-  fixes are in [KI-064](../known_issues.md#ki-064). `Eq` and `Ord` over
-  `Either` are unaffected — that evidence is structural.
+- `Either` gets the full set through the partially applied head `Either<l>`:
+  `either_instances.flx`. This was blocked at first — the head did not survive
+  a module boundary — and the cause turned out to be a parser defect introduced
+  by this stage's own zero-parameter-method fix, not the partial application;
+  see [KI-064](../known_issues.md#ki-064). `Eq` and `Ord` over `Either` remain
+  structural evidence rather than instances, since that instance head would
+  need one context constraint per parameter and only one is allowed.
 
 The hierarchy is **written in Flux**, in `lib/Flow/*.flx`, rather than
 registered from Rust. `ClassEnv::register_builtins` keeps only `Sendable`.
@@ -556,18 +558,30 @@ in the prelude and which are explicit-import, and the consequences — a user
 `class Eq` shadows rather than collides, and a stdlib function may no longer
 share a name with a class method.
 
-Four compiler defects were found and fixed along the way, each of which
+Eight compiler defects were found and fixed along the way, each of which
 blocked the stage rather than being incidental:
 
 - a class or instance method with no parameters did not parse, so `mempty`
   and `pure` could not be declared;
+- a class method whose parameter carried an effect row silently lost its
+  return type, because the parser mistook that type's own closing paren for
+  the parameter list's — this was introduced by the fix above, and it is what
+  actually blocked `Either` ([KI-064](../known_issues.md#ki-064));
 - an operator whose class was absent emitted no obligation and no diagnostic
   (now **E487**);
 - a superclass obligation was checked before imported instances were merged,
   so evidence in another module read as missing;
 - a superclass constraint on a higher-kinded parameter was rejected with
   **E474**, because the constraint's argument was kind-checked with the owner
-  class's own parameters out of scope.
+  class's own parameters out of scope;
+- a program could not declare a function named after a class method, because
+  the generated dispatch stub claimed the name first
+  ([KI-063](../known_issues.md#ki-063));
+- that stub also shadowed a module's own same-named function
+  ([KI-065](../known_issues.md#ki-065)), while its *absence* broke a unit
+  compiled without the prelude ([KI-066](../known_issues.md#ki-066));
+- a bound naming a class the program itself declares was reported ambiguous
+  against the prelude's ([KI-067](../known_issues.md#ki-067)).
 
 Example syntax:
 
