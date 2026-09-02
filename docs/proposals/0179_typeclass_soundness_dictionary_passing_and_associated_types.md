@@ -533,17 +533,41 @@ needs a dictionary at all, so predeclaring the missing symbol converts a compile
 error into a runtime one. Recorded as
 [KI-059](../known_issues.md#ki-059) with the reproduction and both layers.
 
-### Stage 8 — Standard hierarchy
+### Stage 8 — Standard hierarchy — **done, with one carve-out**
 
-- Add `Eq → Ord`, `Semigroup → Monoid`, and
-  `Functor → Applicative → Monad`: `eq_ord.flx`,
-  `semigroup_monoid.flx`, and `functor_applicative_monad.flx`.
-- Add supported scalar and collection instances:
-  `option_instances.flx`, `list_instances.flx`,
-  `array_instances.flx`, and `either_instances.flx`.
-- Cover result-directed `pure`/`mempty` and effectful `fmap`:
+- All three superclass edges ship: `Eq → Ord`, `Semigroup → Monoid`, and
+  `Functor → Applicative → Monad` — `eq_ord.flx`, `semigroup_monoid.flx`,
+  `functor_applicative_monad.flx`.
+- Scalar and collection instances ship for `Option`, `List` and `Array`:
+  `option_instances.flx`, `list_instances.flx`, `array_instances.flx`.
+- Result-directed `pure`/`mempty` and effectful `fmap` ship:
   `return_directed_pure.flx`, `mempty_result_dispatch.flx`,
-  and `effectful_fmap.flx`.
+  `effectful_fmap.flx`.
+- **`either_instances.flx` does not ship.** `Either` takes two parameters, so
+  the instance head `Either<l>` is partially applied, and that head does not
+  survive a module boundary. Diagnosis, reproductions and three attempted
+  fixes are in [KI-064](../known_issues.md#ki-064). `Eq` and `Ord` over
+  `Either` are unaffected — that evidence is structural.
+
+The hierarchy is **written in Flux**, in `lib/Flow/*.flx`, rather than
+registered from Rust. `ClassEnv::register_builtins` keeps only `Sendable`.
+`docs/internals/type_classes.md` records the module layout, which classes are
+in the prelude and which are explicit-import, and the consequences — a user
+`class Eq` shadows rather than collides, and a stdlib function may no longer
+share a name with a class method.
+
+Four compiler defects were found and fixed along the way, each of which
+blocked the stage rather than being incidental:
+
+- a class or instance method with no parameters did not parse, so `mempty`
+  and `pure` could not be declared;
+- an operator whose class was absent emitted no obligation and no diagnostic
+  (now **E487**);
+- a superclass obligation was checked before imported instances were merged,
+  so evidence in another module read as missing;
+- a superclass constraint on a higher-kinded parameter was rejected with
+  **E474**, because the constraint's argument was kind-checked with the owner
+  class's own parameters out of scope.
 
 Example syntax:
 

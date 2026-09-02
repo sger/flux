@@ -238,3 +238,7 @@ If you want a guarantee the compiler does not yet give — higher-rank polymorph
 ## Next
 
 Continue to [Chapter 10 — Effects and Purity](10_effects_and_purity.md).
+
+For constraining a type parameter by a capability rather than a concrete type —
+`fn sort<a: Ord>` and the classes behind the operators — see
+[Chapter 21 — Type Classes](21_type_classes.md).
