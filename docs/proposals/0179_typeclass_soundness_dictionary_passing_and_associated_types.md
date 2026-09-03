@@ -188,7 +188,7 @@ fn same<a: Eq>(x: a, y: a) -> Bool {
 Every stage is a separate pull request. Stages merge to `main` in order; the
 next stage starts from the latest green `main`.
 
-### Stage 0 — Baseline and test contract
+### Stage 0 — Baseline and test contract — **done**
 
 - Record dictionary arity, dropped-constraint, first-argument dispatch,
   invalid-kind, and unsupported-deriving behavior. Examples:
@@ -209,7 +209,7 @@ fn same<a: Eq>(x: a, y: a) -> Bool { eq(x, y) }
 fn main() with IO { print(same(20, 20)) }
 ```
 
-### Stage 1 — Lossless predicates and kinds
+### Stage 1 — Lossless predicates and kinds — **done**
 
 - Replace lossy scheme constraints with complete structured predicates. A
   predicate keeps its full type arguments through inference, generalization,
@@ -241,7 +241,7 @@ instance Functor<Int> { }
 // The instance above is expected to fail kind checking.
 ```
 
-### Stage 2 — Dictionary runtime correctness
+### Stage 2 — Dictionary runtime correctness — **done**
 
 - Extend the shared resolver to cover complete call-site evidence and strict
   runtime contracts.
@@ -261,7 +261,7 @@ fn twice<a: Sizeable>(x: a) -> Int { size(x) + size(x) }
 fn main() with IO { print(twice(21)) }
 ```
 
-### Stage 3 — Complete constraint solving
+### Stage 3 — Complete constraint solving — **done**
 
 - Give every wanted predicate a disposition: `solved_constraint.flx`,
   `generalized_constraint.flx`, `stuck_constraint.flx`, and
@@ -296,7 +296,7 @@ fn all_equal<a>(x: a, y: a) -> Bool where Eq<a> {
 }
 ```
 
-### Stage 4 — Deterministic evidence resolution
+### Stage 4 — Deterministic evidence resolution — **done except result-directed selection**
 
 - Resolve using the complete predicate, all arguments, and expected result:
   `multi_parameter_resolution.flx` and `result_directed_resolution.flx`. A
