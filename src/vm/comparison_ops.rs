@@ -39,6 +39,41 @@ impl VM {
         }
     }
 
+    /// Whether two cons lists hold equal elements in the same order.
+    ///
+    /// Iterative over the spine: a list is as long as the program made it, and
+    /// one stack frame per cell would put a bound on that.
+    fn cons_lists_equal(&self, left: &Value, right: &Value) -> bool {
+        let mut left = left;
+        let mut right = right;
+        loop {
+            match (left, right) {
+                (Value::EmptyList, Value::EmptyList) => return true,
+                (Value::Cons(l), Value::Cons(r)) => {
+                    if Rc::ptr_eq(l, r) {
+                        return true;
+                    }
+                    if !self.values_structurally_equal(&l.head, &r.head) {
+                        return false;
+                    }
+                    left = &l.tail;
+                    right = &r.tail;
+                }
+                _ => return false,
+            }
+        }
+    }
+
+    /// Equality for one element of a container, which may itself be a list.
+    fn values_structurally_equal(&self, left: &Value, right: &Value) -> bool {
+        match (left, right) {
+            (Value::Cons(_) | Value::EmptyList, Value::Cons(_) | Value::EmptyList) => {
+                self.cons_lists_equal(left, right)
+            }
+            _ => self.adt_or_value_equal(left, right),
+        }
+    }
+
     pub(super) fn compare_values(
         &self,
         left: &Value,
@@ -119,6 +154,18 @@ impl VM {
                 OpCode::OpNotEqual => Ok(l != r),
                 _ => Err(format!("cannot compare Tuple with {:?}", opcode)),
             },
+            // Cons lists compare structurally, like arrays and tuples. Walking
+            // the spine iteratively keeps a long list from recursing once per
+            // cell. Without this arm `[1, 2] == [1, 2]` reached the catch-all
+            // below and trapped with `unsupported comparison: List and List`,
+            // even though every other container compares here.
+            (Value::Cons(_) | Value::EmptyList, Value::Cons(_) | Value::EmptyList) => {
+                match opcode {
+                    OpCode::OpEqual => Ok(self.cons_lists_equal(left, right)),
+                    OpCode::OpNotEqual => Ok(!self.cons_lists_equal(left, right)),
+                    _ => Err(format!("cannot compare List with {:?}", opcode)),
+                }
+            }
             // Structural, element-by-element, like tuples. Ordering is not
             // defined for arrays, so only equality is offered.
             (Value::Array(l), Value::Array(r)) => match opcode {
