@@ -1046,20 +1046,7 @@ impl<'a> AstLowerer<'a> {
     }
 
     fn lower_dictionary_ref(dict_ref: &crate::types::class_env::ResolvedDictionaryRef) -> CoreExpr {
-        let span = crate::diagnostics::position::Span::default();
-        if dict_ref.context_args.is_empty() {
-            return CoreExpr::external_var(dict_ref.dict_name, span);
-        }
-
-        CoreExpr::App {
-            func: Box::new(CoreExpr::external_var(dict_ref.dict_name, span)),
-            args: dict_ref
-                .context_args
-                .iter()
-                .map(Self::lower_dictionary_ref)
-                .collect(),
-            span,
-        }
+        CoreExpr::dictionary_ref(dict_ref, crate::diagnostics::position::Span::default())
     }
 
     /// Convert an HM-inferred expression type to a `CoreType`, if available.

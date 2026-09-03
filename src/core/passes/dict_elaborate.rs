@@ -29,6 +29,7 @@ use crate::{
     syntax::{Identifier, interner::Interner},
     types::{
         class_env::{ClassEnv, DictSelection, DictSlot, select_dictionary},
+        infer_type::InferType,
         scheme::Scheme,
         type_env::TypeEnv,
     },
@@ -1182,12 +1183,18 @@ fn insert_dict_args_expr(
 
 /// Resolve a dictionary argument for a callee's constraint.
 ///
-/// 1. If the caller has a dictionary for the same class, forward it.
-/// 2. Otherwise, try to find a concrete `__dict_{Class}_{Type}` reference.
+/// 1. The caller holds a dictionary for exactly this predicate — forward it.
+/// 2. The predicate is concrete — name the instance's dictionary directly.
+///
+/// There is deliberately no third case. Forwarding whichever dictionary the
+/// caller happens to hold for the same *class*, ignoring its type arguments,
+/// is a guess: it is right only when the caller's predicate and the callee's
+/// coincide, which is case 1. Guessing wrong substitutes one instance's
+/// methods for another's, which is what KI-052 was.
 fn resolve_dict_arg(
     constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
     caller_dicts: &CallerDicts,
-    _class_env: &ClassEnv,
+    class_env: &ClassEnv,
     interner: &Interner,
     span: Span,
 ) -> Option<CoreExpr> {
@@ -1197,27 +1204,56 @@ fn resolve_dict_arg(
         return Some(CoreExpr::bound_var(binder, span));
     }
 
-    // Case 2: the caller holds exactly one dictionary for this class and the
-    // predicate did not match structurally. Matching by class alone is only
-    // safe when there is no second dictionary to confuse it with; with two,
-    // picking either is a guess, and guessing wrong is what KI-052 was.
-    let mut same_class = caller_dicts
+    // Case 2: a predicate with no type variables left names one instance, so
+    // its evidence is that instance's dictionary. Nothing the caller holds is
+    // relevant to it — this is precisely the case the old class-only match
+    // used to answer with a caller dictionary for some other type.
+    if constraint
+        .type_args
         .iter()
-        .filter(|(held, _)| held.class_id == constraint.class_id);
-    if let Some((_, binder)) = same_class.next()
-        && same_class.next().is_none()
+        .all(|arg| arg.free_vars().is_empty())
+    {
+        let dict_ref = class_env.resolve_dictionary_ref_by_id(
+            constraint.class_id,
+            &constraint.type_args,
+            interner,
+        )?;
+        return Some(CoreExpr::dictionary_ref(&dict_ref, span));
+    }
+
+    // Case 3: the caller's predicate and the callee's are the same predicate
+    // written with different variables. `fn outer<a: C>` calling `fn inner<b: C>`
+    // instantiates two schemes, so the two `C` predicates carry different
+    // `TypeVarId`s and case 1 misses them; the dictionary the caller holds is
+    // still the right one.
+    //
+    // Both sides must be variables at every position. A caller holding `C<a>`
+    // is *not* evidence for `C<Int>`, which is what the class-only match this
+    // replaced would have concluded, and a second dictionary for the same
+    // class means the choice is not this pass's to make (KI-052).
+    let mut alpha_equivalent = caller_dicts.iter().filter(|(held, _)| {
+        held.class_id == constraint.class_id
+            && held.type_args.len() == constraint.type_args.len()
+            && held
+                .type_args
+                .iter()
+                .zip(constraint.type_args.iter())
+                .all(|(held_arg, wanted)| {
+                    held_arg == wanted
+                        || matches!(
+                            (held_arg, wanted),
+                            (InferType::Var(_), InferType::Var(_))
+                        )
+                })
+    });
+    if let Some((_, binder)) = alpha_equivalent.next()
+        && alpha_equivalent.next().is_none()
     {
         return Some(CoreExpr::bound_var(binder, span));
     }
 
-    // Case 2: For now, we don't have enough type info at this stage
-    // to determine which concrete dictionary to pass. This will be
-    // resolved when we thread type info from AST-to-Core lowering.
-    // For now, skip (the polymorphic stub still handles the call).
-    //
-    // TODO: When type info is available (e.g., from hm_expr_types),
-    // resolve to Var(__dict_{Class}_{Type}).
-    let _ = (interner, span);
+    // Anything else is undetermined here. Returning `None` leaves the call
+    // without this dictionary, which the arity contract reports.
     None
 }
 
@@ -1953,6 +1989,94 @@ mod tests {
     }
 
     // ── build_instance_dictionaries ──────────────────────────────────────
+
+    fn eq_constraint(interner: &Interner, args: Vec<InferType>) -> SchemeConstraint {
+        let eq_sym = interner.lookup("Eq").expect("Eq interned");
+        SchemeConstraint {
+            class_name: eq_sym,
+            class_id: crate::types::class_id::ClassId::new(
+                crate::types::class_id::ModulePath::EMPTY,
+                eq_sym,
+            ),
+            type_args: args,
+        }
+    }
+
+    fn dict_binder(interner: &mut Interner, id: u32) -> CoreBinder {
+        mk_binder(id, interner.intern(&format!("__dict_Eq_{id}")))
+    }
+
+    /// The predicate the caller holds and the one the callee wants are the
+    /// same predicate under different unification variables — two schemes
+    /// instantiated separately. The caller's dictionary is the right evidence.
+    #[test]
+    fn resolve_dict_arg_forwards_an_alpha_equivalent_predicate() {
+        let mut interner = Interner::new();
+        let class_env = build_eq_class_env(&mut interner);
+        let binder = dict_binder(&mut interner, 7);
+        let caller = vec![(
+            eq_constraint(&interner, vec![InferType::Var(1)]),
+            binder,
+        )];
+        let wanted = eq_constraint(&interner, vec![InferType::Var(2)]);
+
+        let resolved = resolve_dict_arg(&wanted, &caller, &class_env, &interner, s())
+            .expect("a caller dictionary over a type variable discharges the callee's");
+        match resolved {
+            CoreExpr::Var { var, .. } => assert_eq!(var.binder, Some(CoreBinderId(7))),
+            other => panic!("expected the caller's dictionary binder, got {other:?}"),
+        }
+    }
+
+    /// A dictionary over a type *variable* is not evidence for a concrete
+    /// predicate. Matching on the class alone used to conclude that it was,
+    /// substituting one instance's methods for another's.
+    #[test]
+    fn resolve_dict_arg_does_not_forward_a_variable_dictionary_for_a_concrete_predicate() {
+        let mut interner = Interner::new();
+        let class_env = build_eq_class_env(&mut interner);
+        let caller = vec![(
+            eq_constraint(&interner, vec![InferType::Var(1)]),
+            dict_binder(&mut interner, 7),
+        )];
+        let wanted = eq_constraint(
+            &interner,
+            vec![InferType::Con(
+                crate::types::type_constructor::TypeConstructor::Int,
+            )],
+        );
+
+        let resolved = resolve_dict_arg(&wanted, &caller, &class_env, &interner, s())
+            .expect("a concrete predicate names its own instance");
+        match resolved {
+            CoreExpr::Var { var, .. } => assert_eq!(interner.resolve(var.name), "__dict_Eq_Int"),
+            other => panic!("expected the concrete instance dictionary, got {other:?}"),
+        }
+    }
+
+    /// Two dictionaries for one class, and nothing here says which the callee
+    /// means. Picking either is the guess KI-052 was.
+    #[test]
+    fn resolve_dict_arg_declines_when_two_dictionaries_could_match() {
+        let mut interner = Interner::new();
+        let class_env = build_eq_class_env(&mut interner);
+        let caller = vec![
+            (
+                eq_constraint(&interner, vec![InferType::Var(1)]),
+                dict_binder(&mut interner, 7),
+            ),
+            (
+                eq_constraint(&interner, vec![InferType::Var(2)]),
+                dict_binder(&mut interner, 8),
+            ),
+        ];
+        let wanted = eq_constraint(&interner, vec![InferType::Var(3)]);
+
+        assert!(
+            resolve_dict_arg(&wanted, &caller, &class_env, &interner, s()).is_none(),
+            "an ambiguous choice must not be made here"
+        );
+    }
 
     #[test]
     fn build_dict_emits_one_def_per_instance() {
