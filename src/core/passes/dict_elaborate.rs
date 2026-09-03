@@ -1483,9 +1483,24 @@ fn choose_candidate<'a>(
         .unwrap_or_default();
     if positions.iter().all(Option::is_none) && (expected.is_none() || !results.iter().any(|r| *r))
     {
-        // Nothing reveals the parameter here. Preserve what the name-keyed map
-        // did rather than failing: the last constraint to record the method won.
-        return candidates.last();
+        // Nothing reveals the class parameter at this call: no argument
+        // carries it and no expected type fixes it. With several candidates
+        // there is nothing to choose between them, and choosing anyway is a
+        // guess — the previous rule returned the last constraint to record the
+        // method, which is an artefact of how the name-keyed map was built and
+        // not a fact about the call.
+        //
+        // Every candidate reaching the same dictionary through the same path
+        // is not a choice at all, so that stays. Otherwise decline: the call
+        // keeps its dispatch-stub reference, which reports the unresolved
+        // instance rather than silently using one.
+        let first = candidates.first()?;
+        return candidates
+            .iter()
+            .all(|candidate| {
+                candidate.binder.id == first.binder.id && candidate.path == first.path
+            })
+            .then_some(first);
     }
     let observed: Vec<Option<CoreType>> = positions
         .iter()
@@ -1989,6 +2004,112 @@ mod tests {
     }
 
     // ── build_instance_dictionaries ──────────────────────────────────────
+
+    /// A class whose parameter appears in no method signature, so no argument
+    /// and no expected type can reveal which instance a call means.
+    fn build_hidden_param_class_env(interner: &mut Interner) -> ClassEnv {
+        let class_sym = interner.intern("Hidden");
+        let a_sym = interner.intern("a");
+        let method = interner.intern("flag");
+        let int_type = TypeExpr::Named {
+            name: interner.intern("Int"),
+            args: vec![],
+            span: s(),
+        };
+
+        let class_def = ClassDef {
+            name: class_sym,
+            module: crate::types::class_id::ModulePath::EMPTY,
+            is_public: false,
+            is_builtin: false,
+            type_params: vec![a_sym],
+            superclasses: vec![],
+            superclass_class_ids: vec![],
+            associated_types: vec![],
+            methods: vec![MethodSig {
+                name: method,
+                type_params: vec![],
+                param_names: vec![interner.intern("__x0")],
+                param_types: vec![int_type.clone()],
+                return_type: int_type,
+                arity: 1,
+                effects: vec![],
+                default_body: None,
+            }],
+            default_methods: vec![],
+            span: s(),
+        };
+
+        let mut class_env = ClassEnv::new();
+        class_env
+            .classes
+            .insert(class_def.class_id(), class_def);
+        class_env
+    }
+
+    fn hidden_candidate(interner: &Interner, binder: CoreBinder) -> MethodCandidate {
+        let class_sym = interner.lookup("Hidden").expect("Hidden interned");
+        MethodCandidate {
+            declaring_class: crate::types::class_id::ClassId::from_local_name(class_sym),
+            type_args: Vec::new(),
+            binder,
+            path: vec![0],
+        }
+    }
+
+    /// Two dictionaries reach `flag`, and the call reveals nothing about which
+    /// instance it means. The old rule returned the last candidate — an
+    /// artefact of the order the method map was built in. Declining leaves the
+    /// stub reference, which reports the unresolved instance.
+    #[test]
+    fn choose_candidate_declines_when_nothing_reveals_the_parameter() {
+        let mut interner = Interner::new();
+        let class_env = build_hidden_param_class_env(&mut interner);
+        let method = interner.lookup("flag").expect("flag interned");
+        let candidates = [
+            hidden_candidate(&interner, mk_binder(7, method)),
+            hidden_candidate(&interner, mk_binder(8, method)),
+        ];
+
+        let chosen = choose_candidate(
+            &class_env,
+            &candidates,
+            method,
+            &[],
+            &HashMap::new(),
+            None,
+        );
+
+        assert!(chosen.is_none(), "an unrevealed parameter is not a choice");
+    }
+
+    /// Two candidates that reach the same dictionary by the same path are not
+    /// a choice, so this still resolves.
+    #[test]
+    fn choose_candidate_accepts_candidates_that_agree() {
+        let mut interner = Interner::new();
+        let class_env = build_hidden_param_class_env(&mut interner);
+        let method = interner.lookup("flag").expect("flag interned");
+        let binder = mk_binder(7, method);
+        let candidates = [
+            hidden_candidate(&interner, binder),
+            hidden_candidate(&interner, binder),
+        ];
+
+        let chosen = choose_candidate(
+            &class_env,
+            &candidates,
+            method,
+            &[],
+            &HashMap::new(),
+            None,
+        );
+
+        assert_eq!(
+            chosen.map(|candidate| candidate.binder.id),
+            Some(CoreBinderId(7))
+        );
+    }
 
     fn eq_constraint(interner: &Interner, args: Vec<InferType>) -> SchemeConstraint {
         let eq_sym = interner.lookup("Eq").expect("Eq interned");
