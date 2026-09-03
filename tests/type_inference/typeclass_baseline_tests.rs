@@ -127,6 +127,7 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "SuperclassMetadata.flx",
         "superclass_across_modules.flx",
         "superclass_method_call.flx",
+        "superclass_evidence_without_context.flx",
         "transitive_superclass.flx",
         "kind_valid.flx",
         "hkt_instance_positive.flx",
@@ -388,6 +389,19 @@ fn unsupported_deriving_does_not_fabricate_a_dictionary() {
         errors.iter().any(|diag| diag.code() == Some("E486")),
         "unsupported deriving must be reported, got: {errors:?}"
     );
+}
+
+/// Superclass evidence has two spellings, and both must dispatch the same way.
+/// `superclass_method_call.flx` writes the context out, so its dictionary is a
+/// constructor; this instance omits it, so the dictionary is a plain tuple whose
+/// leading slot names the `Sizeable<Int>` dictionary directly. That tuple was
+/// not recognised as an already-elaborated dictionary argument, so the call was
+/// re-elaborated on every recompilation until the compiler ran out of stack.
+#[test]
+fn superclass_evidence_is_supplied_without_an_explicit_context() {
+    let fixture = "superclass_evidence_without_context.flx";
+    let output = run_fixture(fixture).expect("fixture should compile and run");
+    assert_eq!(output.stdout, "505");
 }
 
 /// An instance context that grows its type argument at every step —
