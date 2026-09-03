@@ -1,0 +1,264 @@
+- Feature Name: `constraint_solver_terminal_states`
+- Start Date: 2026-09-03
+- Proposal PR:
+- Flux Issue:
+
+## Summary
+[summary]: #summary
+
+Give every wanted class constraint a terminal outcome. Today the solver may
+finish with a constraint in `Disposition::Stuck`, and nothing reads that state:
+`SolveOutcome::stuck()` has no production caller. A stuck predicate at
+whole-program scope is a silent acceptance — the program compiles with an
+obligation nobody discharged, and the failure resurfaces at run time as an
+`E1009` panic on the native backend. This proposal removes the terminal stuck
+state by adopting GHC's structure: quantification *consumes* a predicate,
+defaulting resolves what it can, and whatever survives is reported.
+
+## Motivation
+[motivation]: #motivation
+
+`Disposition::Stuck` was introduced by proposal 0179 Stage 3 to replace a bare
+`continue` in the solver. That was the right first move: it made the undecided
+set *countable* instead of invisible, and the doc comment on `StuckReason`
+already states the intended end state —
+
+> A stuck predicate is *not* an error at binding scope — it is handed back to a
+> wider scope. One that is still stuck at whole-program scope is an error,
+> which is what stops this variant from becoming a renamed silent drop.
+
+That escalation was never implemented. Measuring the corpus
+(`examples/type_classes` and `tests/parity`, 2026-09-03) explains why nobody
+could: **13,737** terminal stuck constraints, and even
+`fn main() { print(1) }` produced **68**. Escalating that wholesale would
+reject every program in the repository. The count was too large to act on, so
+the state stayed inert.
+
+The measurement also shows the count was not what it appeared to be. The
+dominant shape was:
+
+```
+UnresolvedAfterGeneralization   Ord  ExplicitBound  ["?9032"]
+UnresolvedAfterGeneralization   Eq   ExplicitBound  ["?10106"]
+```
+
+`ExplicitBound` means a constraint the programmer *wrote*, in a signature like
+`fn sort<a: Ord>(xs: List<a>) -> List<a>`. Those had already been generalized
+into the binding's scheme at `SolveScope::Binding`, where `mark_generalized`
+upgrades the disposition correctly. The whole-program pass then re-solved the
+same raw wanted list with no memory of that decision, found a residual type
+variable, and recorded it unresolved. The predicate was solved twice and judged
+on the second pass.
+
+Removing that double-count takes the corpus from **13,737 to 4,443** and the
+trivial program from **68 to 22**, without changing what any program means. The
+remainder is small enough to classify honestly, which is what makes the rest of
+this proposal tractable.
+
+## Guide-level explanation
+[guide-level-explanation]: #guide-level-explanation
+
+For a Flux programmer, the visible change is that an obligation the compiler
+cannot discharge is reported at compile time rather than surfacing as a runtime
+panic on the native backend, or as a silently-wrong dispatch on the VM.
+
+Concretely, this program
+
+```flux
+fn main() with IO {
+    let ignored = convert(42)
+    print(1)
+}
+```
+
+reports `E459` because nothing fixes `Convert`'s second parameter. It already
+does — but for the wrong reason, and this proposal makes the reason principled
+(see the monomorphism restriction below).
+
+For a compiler contributor the mental model is:
+
+- A predicate is **solved** when an instance discharges it.
+- A predicate is **generalized** when a *definition* quantifies it. That
+  discharges it here and moves the obligation to the call sites, which
+  elaboration rewrites to pass a dictionary. The predicate is then **gone** from
+  the wanted set.
+- A predicate is **defaulted** when a rule picks a type for its variable.
+- Anything else is **reported**.
+
+There is no fifth outcome. `Disposition::Stuck` remains, but only as a
+*binding-scope* state meaning "handed to a wider scope"; it never survives to
+the end of the program.
+
+## Reference-level explanation
+[reference-level-explanation]: #reference-level-explanation
+
+### Stage 1 — quantification consumes the predicate
+
+`finalize_binding_scheme` records the source site of every predicate whose
+disposition came back `Generalized`, and `resolve_class_constraints` drops
+those before the whole-program solve sees them.
+
+The key is `(span.start, span.end, class_id)` — the identity of the site that
+emitted the wanted. `Span` is not `Hash`, so the positions are spelled out.
+
+This is sound because a generalized predicate is re-emitted at every use site:
+instantiating the scheme produces a fresh `SchemeUse` wanted, which is where the
+real check happens. The original is redundant, not load-bearing.
+
+**Consumption is gated on `GeneralizationMode::Definition`.** Only a
+definition's obligation transfers, because only its call sites are rewritten to
+pass a dictionary. `collect_scheme_constraints` already notes that a nested
+binding cannot receive a dictionary parameter — yet it still generalizes
+non-operator predicates there. A predicate a `let` "generalizes" is discharged
+nowhere, so it must stay visible to the whole-program solve.
+
+This is exactly what Haskell's **monomorphism restriction** exists to prevent,
+and the `E459` fixture is the proof: `let ignored = convert(42)` is a pattern
+binding with no signature, GHC's MR forbids quantifying it, and GHC reports
+*"Ambiguous type variable ‘b0’ arising from a use of ‘convert’"*. Flux was
+reaching the same verdict by accident — generalizing (wrong), then reporting via
+the double-solve (right, for the wrong reason). Gating consumption on
+`Definition` makes the verdict principled without changing it.
+
+Measured effect, whole corpus:
+
+| | before | after |
+|---|---|---|
+| terminal stuck | 13,737 | 4,443 |
+| `fn main() { print(1) }` | 68 | 22 |
+| `ExplicitBound` rows | thousands | ~120 |
+
+### Stage 2 — the residue
+
+After Stage 1 the terminal set is:
+
+| rows | reason | origin | disposition |
+|---:|---|---|---|
+| 2,688 | `NonConcreteOperator` | `InferredOperator` | see below |
+| 1,559 | `UnresolvedAfterGeneralization` | `MethodCall` / `SchemeUse` | default, else report |
+| ~120 | `UnresolvedAfterGeneralization` | `ExplicitBound` | Stage 1 leak |
+| 6 | `SyntheticOrigin` | — | give generated code a real origin |
+
+**`NonConcreteOperator`** should not be a category. `classify_constraint`
+returns it whenever `origin == InferredOperator && !originated_from_concrete_type`,
+before looking at the type at all. The measurement contains
+
+```
+NonConcreteOperator   Num  InferredOperator  ["Int"]
+```
+
+— a concrete `Int`, with an obvious `Num Int` instance, stuck only because the
+flag was false when the constraint was emitted. In GHC an operator's wanted is
+an ordinary wanted with a `CtOrigin`; nothing about arising from `+` changes how
+it is solved. The fix is to classify on the type as it stands after
+substitution, not on how it was born.
+
+**The ~120 residual `ExplicitBound` rows** are `Semigroup`, `Functor` and
+`Applicative` — higher-kinded classes, where `mark_generalized`'s exact
+`type_args` equality evidently fails to match the scheme constraint. That is a
+matching bug in Stage 1, not a separate category.
+
+**`SyntheticOrigin`** is decided by `constraint.span == Span::default()`, a
+proxy for "compiler-generated". GHC attaches a real `CtOrigin` at constraint
+creation instead of inferring one from a missing span. Giving Flux's generated
+constraints a proper origin removes the row.
+
+### Stage 3 — defaulting, then report
+
+What survives Stage 2 is genuine ambiguity. GHC's `simplifyTop` ends with
+`applyDefaultingRules`, then `reportUnsolved`. Flux already has
+`build_numeric_default_subst` at binding scope; whole-program scope needs the
+same treatment followed by a report. Only then does the escalation the 0179 doc
+comment promised become possible, and by then the number it applies to is small
+and understood.
+
+## Drawbacks
+[drawbacks]: #drawbacks
+
+Stages 2 and 3 will reject programs that compile today. That is the intent —
+those programs have obligations nobody discharges — but the fallout is real and
+lands in the stdlib first, since `lib/Flow/*` is where the generic code lives.
+
+Stage 1 is not subject to this: it changes no program's meaning, only how many
+times a predicate is examined.
+
+## Rationale and alternatives
+[rationale-and-alternatives]: #rationale-and-alternatives
+
+**Why not escalate terminal `Stuck` to an error directly?** That was the plan
+in 0179 and the measurement is the argument against it: 68 errors on
+`print(1)`. Escalation is the *last* step, not the first, and it is only
+affordable after the double-count and the mis-classification are gone.
+
+**Why not keep `Stuck` as a permanent, documented state?** Because nothing
+reads it. A state with no consumer is a silent drop with better paperwork —
+which is precisely what the `StuckReason` doc comment says it must not become.
+
+**Why gate consumption on `Definition` rather than adopting a full
+monomorphism restriction?** The MR's costs are well known and it is one of
+Haskell's most-disliked corners. Flux needs its *effect* in exactly one place:
+don't treat a predicate as discharged when no call site will pass its
+dictionary. Gating on the mode buys that without inflicting the MR's surprises
+on ordinary `let` bindings.
+
+## Prior art
+[prior-art]: #prior-art
+
+GHC has no terminal stuck category. `TcSimplify.simplifyTop` runs the solver to
+a fixed point and every residual wanted takes one of four exits:
+
+1. **Defaulting** — `applyDefaultingRules`, covering the `default` declaration,
+   `ExtendedDefaultRules`, and `OverloadedStrings`.
+2. **Quantification** — `decideQuantification` / `growThetaTyVars` decides which
+   predicates join the signature, and **removes** them from the wanted set.
+   This is THIH's `split`, and it is the step Flux was missing.
+3. **Report** — `TcErrors.reportUnsolved`, producing `No instance for (C t)`,
+   `Ambiguous type variable ‘a0’ arising from…`, or `Could not deduce (C a)
+   from the context…`.
+4. **Deliberate deferral** — `-fdefer-type-errors`, opt-in, and it materialises
+   the error as a crashing runtime term rather than dropping it.
+
+GHC does have internal stuck states (`Irred`, and stuck type families), but
+they are solver states, never program outcomes; anything surviving to the top is
+reported.
+
+The second lesson is about *reasons*. GHC does not tag a constraint with why it
+went undecided. It carries the constraint's **origin** (`CtOrigin`) and its
+**provenance** (`CtLoc`, with implication nesting), and derives the explanation
+at report time — which is how it produces "arising from a use of `fmap` at
+Foo.hs:25:5" and "from the context: Monad f". Flux's `StuckReason` decides the
+reason at solve time, which is why `NonConcreteOperator` can outrank the actual
+type: the tag was chosen before the type was looked at.
+
+THIH (Jones, *Typing Haskell in Haskell*) supplies the underlying frame:
+`split` partitions deferred from retained predicates, and `toHnfs`/`byInst`
+perform context reduction. Flux implements `split` and, since
+`reduce_to_head_normal_form` landed, context reduction; the missing piece is
+that `split`'s retained half must *leave* the wanted set.
+
+## Unresolved questions
+[unresolved-questions]: #unresolved-questions
+
+- Which defaulting rules does Flux want at whole-program scope? Numeric
+  defaulting exists at binding scope; whether Flux wants an
+  `ExtendedDefaultRules` equivalent for `Show`/`Eq`/`Ord` is a language
+  decision, not a bug fix.
+- Should there be a `-fdefer-type-errors` equivalent? It is the only principled
+  way to keep today's permissiveness available, and it would make the
+  escalation in Stage 3 much easier to land.
+- Does `SchemeUse` at a polymorphic call site need its own treatment, or does
+  Stage 1's consumption in the *caller's* binding scope already cover it? The
+  measurement suggests the latter but does not prove it.
+
+## Future possibilities
+[future-possibilities]: #future-possibilities
+
+Replacing `StuckReason` with a GHC-style `CtOrigin` plus provenance chain would
+let diagnostics say *why* a predicate exists ("arising from a use of `fmap`"),
+which is the single biggest quality gap in Flux's class errors today. That is
+also the groundwork for the narrative type errors deferred out of 0173.
+
+Once every predicate has a terminal outcome, the dictionary-passing path can
+drop its remaining defensive fallbacks — the dispatch stub whose body is
+`panic("No instance …")` exists only because a constraint can reach codegen
+undischarged.
