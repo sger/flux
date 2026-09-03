@@ -2383,6 +2383,180 @@ binder.
 
 ---
 
+### KI-071 — An instance method captures unqualified calls to a module-level function of the same name
+
+**Severity:** High · **Area:** Type classes / name resolution · **Verified:** 2026-09-03 · **From:** Flume typeclass conversion
+
+Declaring an instance inside a module silently rebinds every *unqualified* call
+to a module-level function whose name matches one of the instance's methods.
+
+```flux
+module M {
+    public data Ordering { Lt, Eq, Gt }
+
+    public fn compare(a: Ver, b: Ver) -> Ordering { ... }
+
+    public fn equals(a: Ver, b: Ver) -> Bool {
+        match compare(a, b) { Eq -> true, _ -> false }   // resolves to Ord.compare
+    }
+
+    public instance Eq<Ver> => Ord<Ver> {
+        fn compare(x, y) { ... }                          // returns Int
+    }
+}
+```
+
+`equals(a, a)` returns `false`. The bare `compare(a, b)` reaches the `Ord`
+dispatch stub, which returns `Int`, and the `Ordering` constructor patterns then
+never match. Deleting the `Ord` instance restores the correct answer, which is
+how the capture was isolated.
+
+The two backends do not agree: the VM produces the wrong answer, and **the
+native backend terminates with SIGSEGV**. So this is a parity break and a
+memory-safety failure, not only a scoping defect.
+
+The failure is silent because a constructor pattern is never checked against the
+scrutinee's type — see [KI-072](#ki-072), which is what turns the capture into a
+wrong answer rather than a type error.
+
+**Workaround:** qualify the call (`M.compare(a, b)`), or route internal callers
+to a differently named private helper. Qualified calls are unaffected.
+
+Found by adding `Eq`/`Ord` instances to `Flume.Resolve.Version`, which turned 21
+of its 60 tests red.
+
+### KI-072 — A constructor pattern is never checked against the scrutinee's type
+
+**Severity:** High · **Area:** Type inference / pattern matching · **Verified:** 2026-09-03 · **From:** Flume typeclass conversion
+
+A `match` arm may name a constructor belonging to a completely unrelated type.
+It compiles clean and falls through to the wildcard.
+
+```flux
+data Colour { Red, Green }
+data Shape  { Circle(Int), Square }
+
+fn a(c: Colour) -> Int { match c { Circle(n) -> n, _ -> 0 } }   // compiles, returns 0
+```
+
+Verified across nullary and arity-bearing constructors, and with `Int`, `String`
+and `Bool` scrutinees — every combination compiles and silently takes the
+wildcard branch.
+
+**This has nothing to do with type classes** and predates Proposal 0179; it was
+found while investigating [KI-071](#ki-071), whose silence it explains. Any
+mistyped or misremembered constructor name degrades to a wrong answer instead of
+a diagnostic, which makes it the most consequential entry currently open.
+
+### KI-073 — Result-directed selection is lost on native when routed through a constrained function
+
+**Severity:** High · **Area:** Type classes / native backend · **Verified:** 2026-09-03 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+```flux
+class Convert<a, b> { fn convert(x: a) -> b }
+instance Convert<Int, String> { fn convert(x) { to_string(x) } }
+
+fn via<a, b>(x: a) -> b where Convert<a, b> { convert(x) }
+
+fn main() with IO {
+    let direct: String = convert(42)   // both backends print "42"
+    print(direct)
+    let routed: String = via(42)       // VM prints "42", native prints <value>
+    print(routed)
+}
+```
+
+A direct class-method call resolves from the result type on both backends —
+that is Stage 4 working as specified. Routing the same call through a
+`where`-constrained function loses it on native only.
+
+Since `where C<a, b>` is the *only* spelling that reaches a multi-parameter
+class (see [type_class_syntax.md](internals/type_class_syntax.md#3-constraining-a-function)),
+this makes multi-parameter classes unusable on the native backend in the general
+case.
+
+Reproduced by [`examples/type_classes/syntax_tour.flx`](../examples/type_classes/syntax_tour.flx),
+which is deliberately **not** mirrored into `tests/parity/` until this is fixed.
+
+### KI-074 — A lowercase class name is declarable but unusable in a `where` clause
+
+**Severity:** Low · **Area:** Parser · **Verified:** 2026-09-03 · **From:** syntax reference audit
+
+```flux
+class sz<a> { fn size_of(x: a) -> Int }              // accepted
+fn twice<a>(x: a) -> Int where sz<a> { ... }         // error[E034]
+```
+
+`peek_starts_class_constraint` ([statement.rs](../src/syntax/parser/statement.rs))
+distinguishes a signature-position `where` constraint from a `where x = expr`
+local binding by testing whether the next identifier begins with an uppercase
+letter. A lowercase class therefore cannot be written in the `where` spelling,
+though `<a: sz>` still works.
+
+The diagnostic compounds it: the error blames a missing function body ("This
+looks like the function body… Try adding `{` after the function signature")
+rather than naming the real rule.
+
+**Either** reject a lowercase class name at its declaration, **or** stop
+inferring class-ness from capitalisation. Accepting the declaration and then
+refusing the use is the one combination that should not stand.
+
+### KI-075 — `<a: C>` on a multi-parameter class suggests an instance that cannot be written
+
+**Severity:** Low · **Area:** Diagnostics / type classes · **Verified:** 2026-09-03 · **From:** syntax reference audit
+
+```flux
+class Convert<a, b> { fn convert(x: a) -> b }
+fn via<a: Convert>(x: a) -> String { convert(x) }
+```
+
+```
+error[E444]: No instance for `Convert<Int>`
+Hint: Add an instance: `instance Convert<Int> { ... }`
+```
+
+The hint proposes a one-argument instance of a two-parameter class, which is
+itself a parse error. The real problem is that the `<a: C>` sugar always means
+`C<a>` and cannot supply a second argument, so the constraint is unwritable in
+this spelling; `where Convert<a, b>` is what the user needs.
+
+The diagnostic should say so — that the class takes two parameters and the bound
+sugar reaches only one — rather than suggesting an impossible declaration.
+
+### KI-076 — An operator on a class-constrained type parameter does not dispatch inside a `module` block
+
+**Severity:** High · **Area:** Type classes / dictionary passing · **Verified:** 2026-09-03 · **From:** Flume typeclass conversion
+
+At top level, a constrained function's operator dispatches through the
+dictionary and works on a user type:
+
+```flux
+fn bigger<a: Ord>(x: a, y: a) -> a { if x <= y { y } else { x } }   // works
+```
+
+The identical function inside a `module` block traps at runtime:
+
+```
+cannot compare Adt with OpLessThanOrEqual
+```
+
+**The visible consequence is that `List.sort` and `List.sort_by` cannot sort a
+user type that has an `Ord` instance.** `sort_by<a, b: Ord>` delegates to
+`merge_by_key` ([List.flx](../lib/Flow/List.flx)), whose `key_fn(a) <= key_fn(b)`
+is inside `module Flow.List`; the public signature promises `b: Ord` and the
+implementation cannot honour it. Annotating the private helpers with `<a, b: Ord>`
+does *not* fix it — that was checked, and the constraint reaches them correctly;
+the operator is what fails to dispatch.
+
+This is the shape of [KI-061](#ki-061) but for *operators* rather than calls by
+name, so that fix did not reach it. The claim in
+[Flow/Eq.flx](../lib/Flow/Eq.flx) that "operators desugar through a path that
+does carry the dictionary" holds only outside module blocks.
+
+Found by trying to replace the hand-rolled insertion sort in
+`Flume.Resolve.Solver` — whose comment explains that the sort is hand-rolled
+because `Version` cannot be sorted generically — with `List.sort_by`.
+
 ### KI-015 — A class whose variable appears only in the return position cannot dispatch — FIXED
 
 **Severity:** Medium · **Area:** Type classes / dispatch · **Verified fixed:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
