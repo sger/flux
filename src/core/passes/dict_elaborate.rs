@@ -1231,21 +1231,17 @@ fn resolve_dict_arg(
     // is *not* evidence for `C<Int>`, which is what the class-only match this
     // replaced would have concluded, and a second dictionary for the same
     // class means the choice is not this pass's to make (KI-052).
-    let mut alpha_equivalent = caller_dicts.iter().filter(|(held, _)| {
-        held.class_id == constraint.class_id
-            && held.type_args.len() == constraint.type_args.len()
-            && held
-                .type_args
-                .iter()
-                .zip(constraint.type_args.iter())
-                .all(|(held_arg, wanted)| {
-                    held_arg == wanted
-                        || matches!(
-                            (held_arg, wanted),
-                            (InferType::Var(_), InferType::Var(_))
-                        )
-                })
-    });
+    let mut alpha_equivalent =
+        caller_dicts.iter().filter(|(held, _)| {
+            held.class_id == constraint.class_id
+                && held.type_args.len() == constraint.type_args.len()
+                && held.type_args.iter().zip(constraint.type_args.iter()).all(
+                    |(held_arg, wanted)| {
+                        held_arg == wanted
+                            || matches!((held_arg, wanted), (InferType::Var(_), InferType::Var(_)))
+                    },
+                )
+        });
     if let Some((_, binder)) = alpha_equivalent.next()
         && alpha_equivalent.next().is_none()
     {
@@ -1490,17 +1486,35 @@ fn choose_candidate<'a>(
         // method, which is an artefact of how the name-keyed map was built and
         // not a fact about the call.
         //
-        // Every candidate reaching the same dictionary through the same path
-        // is not a choice at all, so that stays. Otherwise decline: the call
-        // keeps its dispatch-stub reference, which reports the unresolved
-        // instance rather than silently using one.
+        // Candidates that all name the same type arguments are not a choice at
+        // all. Coherence gives a type at most one instance per class, so the
+        // method's own class has one dictionary here however it is reached —
+        // `fmap` under `Monad f, Functor f, Applicative f` is the `Functor f`
+        // dictionary whether it arrives directly or through two superclass
+        // edges. Take the shortest path to it, which is the direct binder when
+        // one is in scope. Otherwise decline: the call keeps its dispatch-stub
+        // reference, which reports the unresolved instance rather than
+        // silently using one.
+        // Empty type arguments mean the constraint could not be expressed as
+        // `CoreType` at all, so equality between them says nothing; those fall
+        // back to the same-binder-and-same-path test.
         let first = candidates.first()?;
-        return candidates
-            .iter()
-            .all(|candidate| {
+        let agree = if first.type_args.is_empty() {
+            candidates.iter().all(|candidate| {
                 candidate.binder.id == first.binder.id && candidate.path == first.path
             })
-            .then_some(first);
+        } else {
+            candidates
+                .iter()
+                .all(|candidate| candidate.type_args == first.type_args)
+        };
+        return agree
+            .then(|| {
+                candidates
+                    .iter()
+                    .min_by_key(|candidate| candidate.path.len())
+            })
+            .flatten();
     }
     let observed: Vec<Option<CoreType>> = positions
         .iter()
@@ -2041,9 +2055,7 @@ mod tests {
         };
 
         let mut class_env = ClassEnv::new();
-        class_env
-            .classes
-            .insert(class_def.class_id(), class_def);
+        class_env.classes.insert(class_def.class_id(), class_def);
         class_env
     }
 
@@ -2071,16 +2083,45 @@ mod tests {
             hidden_candidate(&interner, mk_binder(8, method)),
         ];
 
-        let chosen = choose_candidate(
-            &class_env,
-            &candidates,
-            method,
-            &[],
-            &HashMap::new(),
-            None,
-        );
+        let chosen = choose_candidate(&class_env, &candidates, method, &[], &HashMap::new(), None);
 
         assert!(chosen.is_none(), "an unrevealed parameter is not a choice");
+    }
+
+    /// `chain<f: Monad>` holds three dictionaries — `Monad f`, `Functor f`,
+    /// `Applicative f` — and all three reach `fmap`. Nothing at the call
+    /// reveals `f`, but coherence gives `f` one `Functor` instance, so every
+    /// candidate names the same dictionary and there is nothing to choose.
+    /// Take the shortest path to it: the direct binder, not two superclass
+    /// edges. Declining here left the call on its dispatch stub, which the VM
+    /// resolved at run time and the native backend panicked on (`E1009`).
+    #[test]
+    fn choose_candidate_takes_the_shortest_path_when_candidates_name_one_dictionary() {
+        let mut interner = Interner::new();
+        let class_env = build_hidden_param_class_env(&mut interner);
+        let method = interner.lookup("flag").expect("flag interned");
+        let same_type_args = vec![CoreType::Var(0)];
+        let via_superclass = MethodCandidate {
+            type_args: same_type_args.clone(),
+            binder: mk_binder(7, method),
+            path: vec![0, 0],
+            ..hidden_candidate(&interner, mk_binder(7, method))
+        };
+        let direct = MethodCandidate {
+            type_args: same_type_args,
+            binder: mk_binder(8, method),
+            path: vec![0],
+            ..hidden_candidate(&interner, mk_binder(8, method))
+        };
+        let candidates = [via_superclass, direct];
+
+        let chosen = choose_candidate(&class_env, &candidates, method, &[], &HashMap::new(), None);
+
+        assert_eq!(
+            chosen.map(|candidate| candidate.binder.id),
+            Some(CoreBinderId(8)),
+            "one dictionary reached two ways resolves through the direct binder",
+        );
     }
 
     /// Two candidates that reach the same dictionary by the same path are not
@@ -2096,14 +2137,7 @@ mod tests {
             hidden_candidate(&interner, binder),
         ];
 
-        let chosen = choose_candidate(
-            &class_env,
-            &candidates,
-            method,
-            &[],
-            &HashMap::new(),
-            None,
-        );
+        let chosen = choose_candidate(&class_env, &candidates, method, &[], &HashMap::new(), None);
 
         assert_eq!(
             chosen.map(|candidate| candidate.binder.id),
@@ -2135,10 +2169,7 @@ mod tests {
         let mut interner = Interner::new();
         let class_env = build_eq_class_env(&mut interner);
         let binder = dict_binder(&mut interner, 7);
-        let caller = vec![(
-            eq_constraint(&interner, vec![InferType::Var(1)]),
-            binder,
-        )];
+        let caller = vec![(eq_constraint(&interner, vec![InferType::Var(1)]), binder)];
         let wanted = eq_constraint(&interner, vec![InferType::Var(2)]);
 
         let resolved = resolve_dict_arg(&wanted, &caller, &class_env, &interner, s())
