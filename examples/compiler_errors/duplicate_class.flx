@@ -1,11 +1,15 @@
 // expect: compile_error
 // expect-error: E440
-// expect-error: E440
 // KNOWN GAP: this fixture declares `expect: compile_error`, but E440/E441/E442
 // are still routed as warnings, so the compiler accepts this file and exits 0.
 // See the partition in src/compiler/mod.rs (collect_class_declarations).
 
 // Defining the same type class twice.
+//
+// One E440, not two. The stdlib's `Show` lives in `Flow.Show` since Proposal
+// 0179 Stage 8, so the first declaration below shadows an imported class
+// rather than colliding with a compiler-owned one; only the second is a
+// redeclaration within this module.
 //
 // Expected: E440 Duplicate Type Class
 //   "Type class `Show` is already defined."

@@ -4,18 +4,23 @@ source: tests/integration/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/semantic_types/modules/private_member/main.flx
 exit_code: 1
 
-[ 1 of 13] Compiling  Assert
-[ 2 of 13] Compiling  Debug
-[ 3 of 13] Compiling  Array
-[ 4 of 13] Compiling  List
-[ 5 of 13] Compiling  Either
-[ 6 of 13] Compiling  IO
-[ 7 of 13] Compiling  Math
-[ 8 of 13] Compiling  Numeric
-[ 9 of 13] Compiling  Option
-[10 of 13] Compiling  Primops
-[11 of 13] Compiling  String
-[12 of 13] Compiling  Math
+[ 1 of 18] Compiling  Assert
+[ 2 of 18] Compiling  Debug
+[ 3 of 18] Compiling  Array
+[ 4 of 18] Compiling  List
+[ 5 of 18] Compiling  Either
+[ 6 of 18] Compiling  Eq
+[ 7 of 18] Compiling  IO
+[ 8 of 18] Compiling  Math
+[ 9 of 18] Compiling  Num
+[10 of 18] Compiling  Numeric
+[11 of 18] Compiling  Option
+[12 of 18] Compiling  Ord
+[13 of 18] Compiling  Primops
+[14 of 18] Compiling  Semigroup
+[15 of 18] Compiling  Show
+[16 of 18] Compiling  String
+[17 of 18] Compiling  Math
 • 1 error • tests/fixtures/semantic_types/modules/private_member/main.flx
 error[E011]: Private Member
 

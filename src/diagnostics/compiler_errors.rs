@@ -1021,6 +1021,27 @@ pub const UNDERIVABLE_CLASS: ErrorCode = ErrorCode {
     ),
 };
 
+/// Proposal 0179 Stage 8: an operator was used in a module where the class it
+/// desugars to is not in scope.
+///
+/// `==` emits an `Eq` obligation only when a class named `Eq` is in the
+/// environment. Before Stage 8 that was guaranteed by Rust registering the
+/// class into every module; now it is guaranteed by the class prelude being
+/// injected into every module. If neither holds — the standard library is not
+/// found, or a module was compiled outside the graph — the obligation would
+/// silently vanish and the operator would compile unconstrained. Reporting is
+/// the only honest alternative.
+pub const OPERATOR_CLASS_NOT_IN_SCOPE: ErrorCode = ErrorCode {
+    code: "E487",
+    title: "OPERATOR CLASS NOT IN SCOPE",
+    error_type: ErrorType::Compiler,
+    message: "This operator needs the class `{}`, which is not in scope here.",
+    hint: Some(
+        "The Flow prelude supplies it. Check that the standard library is found \
+         (`FLUX_LIB_DIR`, or `lib/Flow` beside the project).",
+    ),
+};
+
 /// Proposal 0179 Stage 6: an instance defines an associated type its class does
 /// not declare.
 ///

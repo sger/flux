@@ -216,6 +216,18 @@ struct InferCtx<'a> {
     /// Source-level name for each skolem (the type parameter identifier),
     /// used to render readable E305 diagnostics.
     skolem_names: HashMap<TypeVarId, Identifier>,
+    /// The declared type parameters of each function whose body is currently
+    /// being inferred, innermost last.
+    ///
+    /// A signature's `tp_map` reaches its parameters and return type directly,
+    /// but statements in the body need it too: a `let` annotation may name the
+    /// function's own type parameter, and without the map that name converts
+    /// to a nominal `Adt` type instead of the signature's rigid variable
+    /// (KI-058). A stack rather than a flat map so a nested function's
+    /// same-named parameter shadows the outer one instead of colliding with
+    /// it — which is why [`skolem_names`](Self::skolem_names), keyed by var
+    /// id, cannot serve this purpose inverted.
+    signature_type_params: Vec<HashMap<Identifier, TypeVarId>>,
     /// Pre-resolved class name symbols for constraint emission in operators.
     /// `None` if the class is not declared in the current program.
     class_sym_eq: Option<Identifier>,
@@ -272,15 +284,7 @@ impl<'a> InferCtx<'a> {
             preloaded_effect_op_signatures,
             effect_row_aliases,
         } = config;
-        let mut env = TypeEnv::new();
-        advance_counter_past_preloaded_schemes(
-            &mut env,
-            &preloaded_base_schemes,
-            &preloaded_module_member_schemes,
-        );
-        for (name, scheme) in preloaded_base_schemes {
-            env.bind(name, scheme);
-        }
+        let env = seeded_type_env(preloaded_base_schemes, &preloaded_module_member_schemes);
 
         InferCtx {
             env,
@@ -308,6 +312,7 @@ impl<'a> InferCtx<'a> {
             instantiated_expr_vars: HashSet::new(),
             skolem_vars: HashSet::new(),
             skolem_names: HashMap::new(),
+            signature_type_params: Vec::new(),
             class_env: None,
             current_module: crate::types::class_id::ModulePath::EMPTY,
             module_aliases: HashMap::new(),
@@ -655,6 +660,23 @@ fn collect_module_aliases(statements: &[Statement], aliases: &mut HashMap<Identi
 
 /// Expand the fallback set through the substitution and build resolved binding
 /// schemes with `forall = free_vars(resolved) - fallback_vars`.
+/// A fresh `TypeEnv` holding the preloaded base schemes, with its type-var
+/// counter already advanced past every id those schemes use.
+///
+/// The two steps belong together: binding first would let a freshly allocated
+/// var collide with one baked into a preloaded scheme body.
+fn seeded_type_env(
+    base: HashMap<Identifier, Scheme>,
+    module_members: &HashMap<(Identifier, Identifier), Scheme>,
+) -> TypeEnv {
+    let mut env = TypeEnv::new();
+    advance_counter_past_preloaded_schemes(&mut env, &base, module_members);
+    for (name, scheme) in base {
+        env.bind(name, scheme);
+    }
+    env
+}
+
 /// Advance the env's type-var counter past any TypeVarId used in preloaded
 /// schemes so freshly-allocated vars in this pass cannot collide with IDs
 /// baked into cross-pass scheme bodies (Proposal 0159).

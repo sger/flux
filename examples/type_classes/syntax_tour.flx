@@ -1,0 +1,154 @@
+// The complete surface syntax of Flux type classes, in one runnable program.
+//
+// This is the syntax baseline: the reference's executable half, covering every
+// form the language accepts rather than one stage's contract.
+//
+// Every form the language accepts appears here exactly once, in the order the
+// syntax reference documents them (docs/internals/type_class_syntax.md). The
+// file is the reference's executable half: if a form stops working, this stops
+// printing, and if a form is added, it belongs here before it is documented.
+//
+// Forms deliberately absent are the ones the parser rejects — multiple
+// superclasses, multiple instance contexts, a bound on a class parameter. Those
+// are tracked in Proposal 0182, and adding one here is how that proposal gets
+// its first test.
+//
+// One line diverges on the native backend today: `via(42)` prints `<value>`
+// rather than `"42"`, because result-directed selection does not survive
+// lowering when it is routed through a constrained function (KI-073). The
+// output below is the VM's, which is the correct one. This file is therefore
+// not mirrored into tests/parity until that is fixed.
+//
+// Expected output:
+// 7
+// "42"
+// 2
+// "hello 5"
+// 7
+// "[4]"
+// 42
+// "9:9"
+// 21
+// "42"
+// "9:9"
+// true
+
+//| 1. A class over one type parameter, and an instance of it.
+
+class Sizeable<a> { fn size(x: a) -> Int }
+
+instance Sizeable<Int> { fn size(x) { x } }
+
+//| 2. A class over two parameters. The second is fixed by the result type, so
+//|    the annotation on `text` below is what selects the instance.
+
+class Convert<a, b> { fn convert(x: a) -> b }
+
+instance Convert<Int, String> { fn convert(x) { to_string(x) } }
+
+//| 3. A superclass. Exactly one is allowed per class; a longer chain is built
+//|    by stacking single links, as `Ranked` does through `Named`.
+
+class Named<a> { fn name_of(x: a) -> String }
+
+class Named<a> => Ranked<a> { fn rank(x: a) -> Int }
+
+instance Named<Int> { fn name_of(x) { to_string(x) } }
+
+instance Named<Int> => Ranked<Int> { fn rank(x) { x - 1 } }
+
+//| 4. A default method body. `greet` is defined once in the class and inherited
+//|    by every instance; `Greet<Int>` supplies only `label`.
+
+class Greet<a> {
+    fn label(x: a) -> String
+    fn greet(x: a) -> String { "hello " + label(x) }
+}
+
+instance Greet<Int> { fn label(x) { to_string(x) } }
+
+//| 5. An associated type: a type the instance chooses, rather than a parameter
+//|    the caller supplies.
+
+class Collection<c> {
+    type Element<c>
+    fn first_of(xs: c) -> Element<c>
+}
+
+instance Collection<List<Int>> {
+    type Element<List<Int>> = Int
+    fn first_of(xs) { 7 }
+}
+
+//| 6. A contextual instance: `List<a>` is showable when `a` is. The context is
+//|    a dictionary the instance receives, so `render` recurses through it.
+
+class Render<a> { fn render(x: a) -> String }
+
+instance Render<Int> { fn render(x) { to_string(x) } }
+
+instance Render<a> => Render<List<a>> {
+    fn render(xs) {
+        match xs {
+            [h | _] -> "[" + render(h) + "]",
+            _ -> "[]",
+        }
+    }
+}
+
+//| 7. Constraining a function. Four spellings, all lowering to one predicate.
+
+// `<a: C>` — the bound sugar, for a class of one parameter.
+fn twice<a: Sizeable>(x: a) -> Int { size(x) + size(x) }
+
+// `<a: C + D>` — several classes on one parameter.
+fn describe<a: Sizeable + Render>(x: a) -> String {
+    render(x) + ":" + to_string(size(x))
+}
+
+// `where C<a>` — the long form, equivalent to the bound sugar.
+fn thrice<a>(x: a) -> Int where Sizeable<a> { size(x) + size(x) + size(x) }
+
+// `where C<a, b>` — the only spelling that reaches a multi-parameter class.
+fn via<a, b>(x: a) -> b where Convert<a, b> { convert(x) }
+
+// `where C<a>, D<a>` — several constraints, comma-separated.
+fn describe_where<a>(x: a) -> String where Sizeable<a>, Render<a> {
+    render(x) + ":" + to_string(size(x))
+}
+
+//| 8. `deriving`, which writes the instance bodies for you.
+
+data Point { Point { x: Int, y: Int } } deriving (Eq)
+
+fn main() with IO {
+    // 1 — a plain class method call
+    print(size(7))
+
+    // 2 — the result type selects the `Convert` instance
+    let text: String = convert(42)
+    print(text)
+
+    // 3 — a superclass method, reached through the `Ranked` dictionary
+    print(rank(3))
+
+    // 4 — the inherited default body
+    print(greet(5))
+
+    // 5 — the associated type reduces to `Int` here
+    print(first_of([1, 2, 3]))
+
+    // 6 — the contextual instance, recursing through its element dictionary
+    print(render([4]))
+
+    // 7 — the four constraint spellings
+    print(twice(21))
+    print(describe(9))
+    print(thrice(7))
+    let converted: String = via(42)
+    print(converted)
+    print(describe_where(9))
+
+    // 8 — the derived instance
+    print(Point { x: 1, y: 2 } == Point { x: 1, y: 2 })
+}

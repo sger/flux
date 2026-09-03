@@ -1,0 +1,20 @@
+// Proposal 0179 Stage 8: `fmap` is effect-row polymorphic, so the mapped
+// function may perform effects and they propagate to the caller.
+//
+// `Flow.List.map` already has this shape as a plain function; the point here
+// is that a *class method* can carry the row too, so `fmap` is not restricted
+// to pure functions the way a monomorphic signature would make it.
+//
+// Expected: 1 2 [10, 20] 5 Some(50)
+
+import Flow.Functor
+
+fn shout(x: Int) -> Int with IO {
+    print(x)
+    x * 10
+}
+
+fn main() with IO {
+    print(fmap([1, 2], shout))
+    print(fmap(Some(5), shout))
+}

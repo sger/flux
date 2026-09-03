@@ -74,7 +74,179 @@ impl Compiler {
         // Dict values must be initialized at module load time before user code
         // can call constrained functions.
         self.emit_dict_globals(ir_program);
+        self.emit_imported_dict_globals(ir_program);
         self.emit_instance_method_aliases(ir_program);
+    }
+
+    /// Store the dictionary globals of instances this unit imports.
+    ///
+    /// `emit_dict_globals` can only store what this unit's Core defines, and a
+    /// cached dependency contributes no Core at all. Its `__dict_*` symbol is
+    /// still declared here (`preload_imported_instance_schemes`) because a
+    /// constrained call across the module boundary names it, so without this
+    /// the global reads back as `None` and the call fails with
+    /// `E1001 Cannot call non-function value` (KI-061).
+    ///
+    /// The layout rebuilt here is [`ClassEnv::dictionary_layout`]'s, the same
+    /// one `emit_dict_globals` reproduces from Core.
+    ///
+    /// [`ClassEnv::dictionary_layout`]: crate::types::class_env::ClassEnv::dictionary_layout
+    fn emit_imported_dict_globals(&mut self, ir_program: &IrProgram) {
+        let locally_defined: std::collections::HashSet<crate::syntax::Identifier> = ir_program
+            .core
+            .as_ref()
+            .map(|core| {
+                core.defs
+                    .iter()
+                    .filter(|def| def.is_dict_def)
+                    .map(|def| def.name)
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // Classify first: building the plan borrows `class_env`, emitting it
+        // borrows `self` mutably.
+        let plans = self.imported_dict_global_plans(&locally_defined);
+        for (dict_binding, context_arity, slots) in plans {
+            let emitted = if context_arity == 0 {
+                self.emit_plain_dict_tuple(&slots)
+            } else {
+                self.emit_contextual_dict_constructor(context_arity, &slots)
+            };
+            if emitted {
+                self.emit(OpCode::OpSetGlobal, &[dict_binding]);
+            }
+        }
+    }
+
+    /// The dictionary globals this unit must store on behalf of its imports,
+    /// as `(global index, context arity, slots)`.
+    fn imported_dict_global_plans(
+        &mut self,
+        locally_defined: &std::collections::HashSet<crate::syntax::Identifier>,
+    ) -> Vec<(usize, usize, Vec<ContextualDictSlot>)> {
+        let instances = self.class_env.instances.clone();
+        let mut plans = Vec::new();
+        for instance in &instances {
+            let Some(class_def) = self
+                .class_env
+                .lookup_class_by_id(instance.class_id)
+                .cloned()
+            else {
+                continue;
+            };
+            let type_key = instance
+                .type_args
+                .iter()
+                .map(|arg| arg.display_with(&self.interner))
+                .collect::<Vec<_>>()
+                .join("_");
+            let dict_str = crate::types::class_env::dictionary_name(
+                instance.class_id,
+                &type_key,
+                &self.interner,
+            );
+            let Some(dict_name) = self.interner.lookup(&dict_str) else {
+                continue;
+            };
+            if locally_defined.contains(&dict_name) {
+                continue;
+            }
+            let Some(dict_binding) = self.symbol_table.resolve(dict_name) else {
+                continue;
+            };
+            if dict_binding.symbol_scope != crate::compiler::symbol_scope::SymbolScope::Global {
+                continue;
+            }
+
+            // Context dictionaries become this constructor's parameters, in
+            // declaration order — the same order `resolve_dictionary_ref_by_id`
+            // produces its `context_args` in.
+            let context_arity = instance
+                .context_class_ids
+                .iter()
+                .take(instance.context.len())
+                .count();
+
+            let mut slots = Vec::new();
+            let mut complete = true;
+            for &superclass in &class_def.superclass_class_ids {
+                let from_context = instance
+                    .context_class_ids
+                    .iter()
+                    .position(|&context_id| context_id == superclass);
+                match from_context {
+                    Some(index) => slots.push(ContextualDictSlot::ContextEvidence { index }),
+                    None => {
+                        let evidence = crate::types::class_env::dictionary_name(
+                            superclass,
+                            &type_key,
+                            &self.interner,
+                        );
+                        match self.interner.lookup(&evidence) {
+                            Some(global) => slots.push(ContextualDictSlot::Evidence { global }),
+                            None => complete = false,
+                        }
+                    }
+                }
+            }
+            for method in &class_def.methods {
+                let mangled = crate::types::class_env::mangled_method_name(
+                    instance.class_id,
+                    &type_key,
+                    self.interner.resolve(method.name),
+                    &self.interner,
+                );
+                match self.interner.lookup(&mangled) {
+                    Some(mangled) => slots.push(ContextualDictSlot::Method {
+                        mangled,
+                        arity: method.arity + context_arity,
+                    }),
+                    None => complete = false,
+                }
+            }
+            // A marker class (`Sendable`) has no superclasses and no methods,
+            // so its dictionary holds nothing and no call can project from it.
+            // Storing one would be an `OpTuple 0` in every program.
+            if complete && !slots.is_empty() {
+                plans.push((dict_binding.index, context_arity, slots));
+            }
+        }
+        plans
+    }
+
+    /// Push a plain instance's dictionary: a tuple of its evidence and method
+    /// globals, with no context parameters to close over.
+    fn emit_plain_dict_tuple(&mut self, slots: &[ContextualDictSlot]) -> bool {
+        let Some(bindings): Option<Vec<_>> = slots
+            .iter()
+            .map(|slot| {
+                let symbol = match slot {
+                    ContextualDictSlot::ContextEvidence { .. } => return None,
+                    ContextualDictSlot::Evidence { global } => *global,
+                    ContextualDictSlot::Method { mangled, .. } => *mangled,
+                };
+                let binding = self.symbol_table.resolve(symbol)?;
+                matches!(
+                    binding.symbol_scope,
+                    crate::compiler::symbol_scope::SymbolScope::Global
+                )
+                .then_some(binding)
+            })
+            .collect()
+        else {
+            return false;
+        };
+        for binding in &bindings {
+            self.load_symbol(binding);
+        }
+        let count = bindings.len();
+        if count <= 255 {
+            self.emit(OpCode::OpTuple, &[count, 0]);
+        } else {
+            self.emit(OpCode::OpTupleLong, &[count]);
+        }
+        true
     }
 
     /// Emit bytecode to construct and store dictionary globals.

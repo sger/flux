@@ -1,0 +1,18 @@
+module ModuleMemberShadowsStub.Version {
+    public data Ver { Ver(Int) }
+
+    /// Named after `Ord`'s `compare` method deliberately. `Flow.Ord` is in
+    /// every module's scope, and compiling it defines a global dispatch stub
+    /// under that bare name; this module's own function has to win.
+    public fn compare(a: Ver, b: Ver) -> Int {
+        match a {
+            Ver(x) -> match b { Ver(y) -> if x < y { 0 - 1 } else { if x > y { 1 } else { 0 } } }
+        }
+    }
+
+    /// The call below is unqualified and inside the defining module — the
+    /// shape that reached the stub and panicked at run time.
+    public fn less(a: Ver, b: Ver) -> Bool {
+        compare(a, b) < 0
+    }
+}

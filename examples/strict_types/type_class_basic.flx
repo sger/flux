@@ -1,15 +1,25 @@
-// Built-in type class instance declarations — parser integration test.
+// Type class instance declarations — parser integration test.
 // This file verifies that instance declarations parse correctly
 // and pass through the full pipeline (Core IR, CFG, VM).
+//
+// The class is declared here rather than reusing the prelude's `Eq`. Since
+// Proposal 0179 Stage 8 the standard classes are Flux source in `Flow.Eq` and
+// siblings, and they already provide `Eq<Int>` and `Eq<String>` — declaring
+// them again is a duplicate instance, not a redeclaration of a built-in.
 
-instance Eq<Int> {
-    fn eq(x, y) { x == y }
-    fn neq(x, y) { x != y }
+class Equatable<a> {
+    fn same(x: a, y: a) -> Bool
+    fn different(x: a, y: a) -> Bool
 }
 
-instance Eq<String> {
-    fn eq(x, y) { x == y }
-    fn neq(x, y) { x != y }
+instance Equatable<Int> {
+    fn same(x, y) { x == y }
+    fn different(x, y) { x != y }
+}
+
+instance Equatable<String> {
+    fn same(x, y) { x == y }
+    fn different(x, y) { x != y }
 }
 
 fn main() with IO {

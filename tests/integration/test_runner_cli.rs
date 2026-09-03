@@ -1454,7 +1454,7 @@ fn example_aoc_day05_part1() {
 }
 
 #[test]
-fn example_contextual_boundary_ok_161() {
+fn example_contextual_boundary_ok_99() {
     assert_example_ok(
         "examples/type_system/99_contextual_boundary_effect_module_ok.flx",
         &["examples/type_system"],
@@ -1559,7 +1559,7 @@ fn example_strict_private_allowed_61() {
 }
 
 #[test]
-fn example_effect_row_order_ok_162() {
+fn example_effect_row_order_ok_100() {
     assert_example_ok(
         "examples/type_system/100_effect_row_order_equivalence_ok.flx",
         &[],
@@ -1576,7 +1576,7 @@ fn example_effect_row_multi_missing_e400_194() {
 }
 
 #[test]
-fn example_effect_row_subtract_ok_163() {
+fn example_effect_row_subtract_ok_101() {
     assert_example_ok(
         "examples/type_system/101_effect_row_subtract_concrete_ok.flx",
         &[],
@@ -1584,7 +1584,7 @@ fn example_effect_row_subtract_ok_163() {
 }
 
 #[test]
-fn example_effect_row_subtract_var_ok_164() {
+fn example_effect_row_subtract_var_ok_102() {
     assert_example_ok(
         "examples/type_system/102_effect_row_subtract_var_satisfied_ok.flx",
         &[],
@@ -1592,7 +1592,7 @@ fn example_effect_row_subtract_var_ok_164() {
 }
 
 #[test]
-fn example_effect_row_multivar_ok_165() {
+fn example_effect_row_multivar_ok_103() {
     assert_example_ok(
         "examples/type_system/103_effect_row_multivar_disambiguated_ok.flx",
         &[],
@@ -1648,7 +1648,7 @@ fn example_effect_row_subset_sorted_e300_199() {
 }
 
 #[test]
-fn example_effect_row_absent_ordering_ok_166() {
+fn example_effect_row_absent_ordering_ok_104() {
     assert_example_ok(
         "examples/type_system/104_effect_row_absent_ordering_linked_ok.flx",
         &[],
@@ -1656,7 +1656,7 @@ fn example_effect_row_absent_ordering_ok_166() {
 }
 
 #[test]
-fn example_base_hof_effect_row_ok_167() {
+fn example_base_hof_effect_row_ok_105() {
     assert_example_ok(
         "examples/type_system/105_base_hof_callback_effect_row_ok.flx",
         &[],

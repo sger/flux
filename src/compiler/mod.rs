@@ -344,7 +344,13 @@ fn imported_class_def_from_entry(
             .collect(),
         module,
         is_public: true,
-        is_builtin: false,
+        // A class rebuilt from an interface keeps the standard library's
+        // built-in status. Losing it here would silently disable the solver's
+        // structural evidence for `Eq`/`Ord` over tuples, `Either` and
+        // `Array`, since the prelude classes always arrive through an
+        // interface rather than through the importing program's own
+        // declarations (Proposal 0179 Stage 8).
+        is_builtin: crate::types::class_env::ClassEnv::is_stdlib_module(module, interner),
         type_params: entry
             .type_params
             .iter()
@@ -413,6 +419,7 @@ fn imported_instance_def_from_entry(
             .collect()
     };
     Some(crate::types::class_env::InstanceDef {
+        origin: crate::types::class_env::InstanceOrigin::Declared,
         class_name,
         associated_types: entry
             .associated_types
@@ -787,6 +794,7 @@ fn preload_imported_instance_schemes(
         .unwrap_or_else(|| "module".to_string());
     let method_effects: HashMap<Identifier, Vec<EffectExpr>> =
         instance_def.method_effects.iter().cloned().collect();
+
     for method in &class_def.methods {
         let method_str = interner.resolve(method.name).to_string();
         let mangled = crate::types::class_env::mangled_method_name(
@@ -1213,9 +1221,14 @@ pub(super) struct MainValidationState {
 /// must be imported explicitly. Explicit user imports always take priority
 /// over this prelude when resolving unqualified names.
 pub(super) const FLOW_PRELUDE_MODULE_NAMES: &[&str] = &[
+    "Flow.Eq",
+    "Flow.Ord",
+    "Flow.Num",
+    "Flow.Show",
     "Flow.Option",
     "Flow.List",
     "Flow.String",
+    "Flow.Semigroup",
     "Flow.Numeric",
     "Flow.Primops",
     "Flow.IO",
@@ -1383,6 +1396,16 @@ pub struct Compiler {
     /// Name resolution already works through the persistent symbol table; this
     /// closes the gap for inference, which otherwise sees a bare reference to a
     /// session global (not present in the line's own source) as an unbound `_`.
+    /// Names of the polymorphic class-method dispatch stubs this compiler has
+    /// generated, across every module it has compiled.
+    ///
+    /// A stub is a per-compilation-unit artifact: each module that has a class
+    /// in scope generates one for each of its methods, under the bare method
+    /// name. One `Compiler` compiles every module of a program, so a stub
+    /// generated while compiling `Flow.Num` is still defined when a later
+    /// module declares `fn add` — and that declaration is not a redeclaration
+    /// of anything the user wrote.
+    pub(super) generated_dispatch_stub_names: HashSet<Symbol>,
     repl_mode: bool,
     /// Accumulated top-level binding schemes from previously-compiled REPL
     /// lines, merged into `build_infer_config`'s base schemes. Empty (and inert)
@@ -1585,10 +1608,21 @@ impl Compiler {
     }
 
     pub(super) fn inject_generated_dispatch_functions(
-        &self,
+        &mut self,
         program: &Program,
         generated: Vec<Statement>,
     ) -> Program {
+        // Remember which of these are dispatch stubs — the bare-method-name
+        // functions, as opposed to the `__tc_*` instance methods — so a later
+        // module compiled by this same `Compiler` may declare a function of
+        // that name without it reading as a redeclaration.
+        for statement in &generated {
+            if let Statement::Function { name, .. } = statement
+                && !crate::types::class_env::is_generated_instance_method(self.sym(*name))
+            {
+                self.generated_dispatch_stub_names.insert(*name);
+            }
+        }
         let module_count = program
             .statements
             .iter()
@@ -1872,6 +1906,7 @@ impl Compiler {
             cost_centre_infos: Vec::new(),
             class_env: crate::types::class_env::ClassEnv::new(),
             imported_public_classes: HashMap::new(),
+            generated_dispatch_stub_names: HashSet::new(),
             imported_public_instances: Vec::new(),
             pending_imported_public_instance_entries: Vec::new(),
             imported_instance_method_schemes: HashMap::new(),
@@ -2686,13 +2721,29 @@ impl Compiler {
         self.preloaded_effect_ops_registry = self.effect_ops_registry.clone();
         self.preloaded_effect_op_signatures = self.effect_op_signatures.clone();
 
-        // A no-cache build does not have a module interface to carry public
+        self.preload_dependency_class_metadata(program);
+    }
+
+    /// Recover a dependency's public classes and instances from its AST.
+    ///
+    /// A no-cache build has no module interface to carry that metadata across
+    /// the shared sequential compiler the runner uses, so downstream
+    /// dictionary construction would otherwise see none of it.
+    fn preload_dependency_class_metadata(&mut self, program: &Program) {
         // class/instance metadata across the shared sequential compiler used
         // by the runner. Recover that metadata from the dependency AST so
         // downstream dictionary construction remains available in the same
         // way as it is when an interface cache hit is present.
         let mut dependency_classes = crate::types::class_env::ClassEnv::new();
         dependency_classes.register_builtins(&mut self.interner);
+        // Seed the classes already in scope. An instance context or superclass
+        // names a class that may live in a *third* module — `Flow.Ord`'s
+        // instances are `Eq<Int> => Ord<Int>`, and `Eq` is `Flow.Eq`'s. Without
+        // this, resolution falls back to a module-less `ClassId` that matches
+        // no instance, and the reconstructed instance can never be discharged.
+        dependency_classes
+            .classes
+            .extend(self.imported_public_classes.clone());
         let _ = dependency_classes.collect_from_statements(&program.statements, &self.interner);
         for (class_id, class_def) in dependency_classes.classes {
             if class_def.is_public {
@@ -3431,14 +3482,15 @@ impl Compiler {
         // E453 (sealed-instance violation) and the Proposal 0179 Stage 1 kind
         // codes are hard errors.
         //
-        // E440/E441/E442 are `Severity::Error` diagnostics that are still
-        // routed here as warnings, so `duplicate_class.flx`,
-        // `instance_unknown_class.flx` and `instance_missing_method.flx`
-        // declare `expect: compile_error` but currently compile and exit 0.
-        // Promoting them is a real fix but reaches beyond Stage 1: a user
-        // class that shadows a built-in (`class Eq<a>` with only `eq`) then
-        // fails both E440 and E442, which several tests and examples rely on.
-        // It belongs with the built-in-shadowing work behind `is_builtin`.
+        // E440/E441/E442 are not in that set and are still routed here as
+        // warnings, but they no longer escape: `duplicate_class.flx`,
+        // `instance_unknown_class.flx` and `instance_missing_method.flx` all
+        // report their code and exit 1 (verified 2026-09-02), reaching the
+        // user through another path rather than this partition. Promoting
+        // them here was once blocked on built-in shadowing — a user
+        // `class Eq<a>` declaring only `eq` failed both E440 and E442 against
+        // the Rust-registered built-in — which Stage 8 removed by moving the
+        // standard classes into `lib/Flow/*.flx`.
         //
         // Proposal 0179 Stage 5 adds E445 (missing superclass instance) and
         // E477 (superclass cycle). Neither is caught by the built-in-shadowing
@@ -3483,15 +3535,46 @@ impl Compiler {
     /// wraps this and does the routing; the LSP path
     /// ([`collect_classes_for_lsp`](Self::collect_classes_for_lsp)) wants the
     /// diagnostics back so it can publish a chosen subset as squiggles.
+    /// Whether `program` is one of the modules that declares the standard
+    /// class hierarchy, and so must not have it registered underneath.
+    fn is_class_prelude_module(&self, program: &Program) -> bool {
+        program.statements.iter().any(|stmt| {
+            matches!(stmt, Statement::Module { name, .. }
+                if self
+                    .interner
+                    .try_resolve(*name)
+                    .is_some_and(crate::shared::class_prelude::is_class_prelude_module))
+        })
+    }
+
     pub(in crate::compiler) fn collect_class_declarations_diagnostics(
         &mut self,
         program: &Program,
     ) -> Vec<Diagnostic> {
-        // Register built-in classes first so that `deriving` clauses in the
-        // program can reference them (Eq, Ord, Num, Show, Semigroup).
+        // Register the built-in classes first so that `deriving` clauses in
+        // the program can reference them (`Sendable`).
         let mut env = crate::types::class_env::ClassEnv::new();
         env.register_builtins(&mut self.interner);
         env.classes.extend(self.imported_public_classes.clone());
+        // The standard hierarchy is Flux source since Proposal 0179 Stage 8,
+        // and every module needs it: `==` emits an `Eq` obligation only when a
+        // class named `Eq` is in the environment, and emits nothing otherwise
+        // (E487 now reports that rather than letting it pass).
+        //
+        // A program compiled through the driver imports the class modules and
+        // has them here already; a dependency module, the REPL's seed, the LSP
+        // and unit tests that build a `Compiler` directly have no import step.
+        // The call is idempotent per class, so a module holding some of them
+        // keeps those and gains the rest rather than declaring one twice
+        // (E440 / E443). The class modules themselves are skipped entirely,
+        // since a module cannot re-declare what it is defining.
+        if !self.is_class_prelude_module(program) {
+            let prelude_diagnostics = env.register_prelude_classes(&mut self.interner);
+            debug_assert!(
+                prelude_diagnostics.is_empty(),
+                "the class prelude must collect cleanly: {prelude_diagnostics:?}"
+            );
+        }
         // REPL (0176): snapshot what's already in scope (builtins + earlier
         // session/imported classes, and the imported instances about to be
         // merged) so we can capture *only* this line's new declarations below.
@@ -3499,7 +3582,16 @@ impl Compiler {
             .repl_mode
             .then(|| env.classes.keys().copied().collect());
         let instances_before = env.instances.len();
-        let mut diagnostics = env.collect_from_statements(&program.statements, &self.interner);
+        // Superclass evidence is checked after the imported instances are
+        // merged below: `Ord`'s `Eq` evidence lives in `Flow.Eq`, and a
+        // check run here would not yet see it (E445 on every edge).
+        let mut diagnostics = env.collect_from_statements_with(
+            &program.statements,
+            &self.interner,
+            crate::types::class_env::SuperclassCheck::Deferred,
+        );
+        // This module's own instances, before the imported ones are appended.
+        let local_instances = instances_before..env.instances.len();
         // REPL: promote this line's own `class` / `instance` declarations into the
         // imported set so a later line resolves them, instead of rebuilding from
         // the prelude/import set each compile (E004 across lines). Captured before
@@ -3526,6 +3618,12 @@ impl Compiler {
             &self.imported_public_instances,
             &self.interner,
         ));
+        // Deferred from `collect_from_statements_with` above: the instance set
+        // is complete only now that the imported ones are in. Only this
+        // module's instances are judged — an imported one was checked in the
+        // module that declared it, where its evidence was in scope.
+        diagnostics
+            .extend(env.validate_superclass_obligations_for(local_instances, &self.interner));
         self.class_env = env;
         let kind_env = crate::types::kind_check::KindEnv::from_program(
             program,

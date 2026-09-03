@@ -1,5 +1,5 @@
 ---
-source: tests/examples_fixtures_snapshots.rs
+source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/functions/test_undefined_variable_error.flx
 == compile ==
@@ -16,5 +16,8 @@ I can't find a value named `c`.
 
 Hint:
   Define it first: let c = ...;
+
+Help:
+  Did you mean `compare`?
 == stdout ==
 <not executed>

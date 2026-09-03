@@ -1,0 +1,35 @@
+// Proposal 0179 Stage 8: `mempty` takes no arguments, so nothing at the call
+// site says which instance to use. It is chosen from the type the result is
+// required to have.
+//
+// Four instances are in play and none can be reached by looking at an
+// argument, because there is no argument to look at. A `let` annotation, a
+// declared return type, and a call whose result flows into a typed position
+// each have to steer the choice on their own. Compare
+// `result_directed_resolution.flx`, where the method does take a value and
+// first-argument dispatch could pick the instance by accident.
+//
+// Expected: "" [] [|0|] None 0
+
+import Flow.Monoid
+
+fn empty_list() -> List<Int> {
+    mempty()
+}
+
+fn main() {
+    let s: String = mempty()
+    print(s)
+    print(empty_list())
+
+    // The result flows into `append`, whose other operand fixes the instance.
+    let one: Array<Int> = append(mempty(), [|0|])
+    print(one)
+
+    let o: Option<String> = mempty()
+    print(o)
+
+    // `mempty` on an empty list of `Int` — the identity `mconcat` would fold in.
+    let n: List<Int> = mempty()
+    print(Flow.List.length(n))
+}

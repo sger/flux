@@ -7,17 +7,22 @@ status: 0
 stdout:
 "non_zero(0) returned None - division prevented at construction"
 stderr:
-[ 1 of 13] Compiling  Assert
-[ 2 of 13] Compiling  Debug
-[ 3 of 13] Compiling  Array
-[ 4 of 13] Compiling  List
-[ 5 of 13] Compiling  Either
-[ 6 of 13] Compiling  IO
-[ 7 of 13] Compiling  Math
-[ 8 of 13] Compiling  NonZero
-[ 9 of 13] Compiling  Numeric
-[10 of 13] Compiling  Option
-[11 of 13] Compiling  Primops
-[12 of 13] Compiling  String
-[13 of 13] Compiling  division_by_zero_non_zero
+[ 1 of 18] Compiling  Assert
+[ 2 of 18] Compiling  Debug
+[ 3 of 18] Compiling  Array
+[ 4 of 18] Compiling  List
+[ 5 of 18] Compiling  Either
+[ 6 of 18] Compiling  Eq
+[ 7 of 18] Compiling  IO
+[ 8 of 18] Compiling  Math
+[ 9 of 18] Compiling  NonZero
+[10 of 18] Compiling  Num
+[11 of 18] Compiling  Numeric
+[12 of 18] Compiling  Option
+[13 of 18] Compiling  Ord
+[14 of 18] Compiling  Primops
+[15 of 18] Compiling  Semigroup
+[16 of 18] Compiling  Show
+[17 of 18] Compiling  String
+[18 of 18] Compiling  division_by_zero_non_zero
 [cfg→vm] Running via CFG → bytecode VM backend...

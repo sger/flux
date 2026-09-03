@@ -316,7 +316,7 @@ fn test_non_value_tail_statement_does_not_emit_tail_call() {
 }
 
 #[test]
-fn test_phase2_emits_consume_local_for_accumulator_tail_call() {
+fn test_emits_consume_local_for_accumulator_tail_call() {
     let input = r#"
         fn build(n, acc) {
             if n == 0 {
@@ -335,7 +335,7 @@ fn test_phase2_emits_consume_local_for_accumulator_tail_call() {
 }
 
 #[test]
-fn test_phase2_does_not_consume_captured_accumulator_parameter() {
+fn test_does_not_consume_captured_accumulator_parameter() {
     let input = r#"
         fn build(n, acc) {
             let get = fn() { acc };
@@ -358,7 +358,7 @@ fn test_phase2_does_not_consume_captured_accumulator_parameter() {
 }
 
 #[test]
-fn test_phase2_still_consumes_when_nested_function_does_not_capture_accumulator() {
+fn test_still_consumes_when_nested_function_does_not_capture_accumulator() {
     let input = r#"
         fn build(n, acc) {
             let const_one = fn() { 1 };

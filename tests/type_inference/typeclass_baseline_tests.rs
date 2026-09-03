@@ -108,6 +108,7 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "result_directed_method_lookup.flx",
         "unsupported_deriving_diagnostic.flx",
         "derived_eq.flx",
+        "derived_parameterized_eq.flx",
         "derived_show.flx",
         "derived_encode.flx",
         "derived_decode.flx",
@@ -144,6 +145,20 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "where_constraint_multi_param.flx",
         "contextual_dictionary_wrapper.flx",
         "qualified_class_id.flx",
+        "eq_ord.flx",
+        "semigroup_monoid.flx",
+        "mempty_result_dispatch.flx",
+        "functor_applicative_monad.flx",
+        "return_directed_pure.flx",
+        "effectful_fmap.flx",
+        "option_instances.flx",
+        "list_instances.flx",
+        "array_instances.flx",
+        "either_instances.flx",
+        "module_member_shadows_stub.flx",
+        "let_annotation_rigid_param.flx",
+        "result_directed_two_dictionaries.flx",
+        "syntax_tour.flx",
     ];
     for fixture in fixtures {
         let source = std::fs::read_to_string(fixture_path(fixture)).expect("read fixture");
@@ -152,12 +167,12 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
                 let source = source.to_ascii_lowercase();
                 [
                     "baseline", "stage 1", "stage 2", "stage 3", "stage 4", "stage 5", "stage 6",
-                    "stage 7",
+                    "stage 7", "stage 8",
                 ]
                 .iter()
                 .any(|contract| source.contains(contract))
             },
-            "{fixture} needs a baseline or a stage 1-7 contract"
+            "{fixture} needs a baseline or a stage 1-8 contract"
         );
         assert!(
             source.contains("Expected"),
@@ -196,6 +211,20 @@ fn concrete_and_polymorphic_dictionary_calls_have_exact_runtime_arity() {
         ("generalized_constraint_obligation.flx", "true"),
         ("multiple_class_obligations.flx", "\"7\""),
         ("superclass_instance_validation.flx", "5\n500"),
+        (
+            "eq_ord.flx",
+            "\"same\"\n\"less\"\n\"more\"\n\"same\"\n\"more\"",
+        ),
+        (
+            "semigroup_monoid.flx",
+            "\"abc\"\n[1, 2, 3]\n[|1, 2|]\nSome(\"ab\")",
+        ),
+        ("mempty_result_dispatch.flx", "\"\"\n[]\n[|0|]\nNone\n0"),
+        ("let_annotation_rigid_param.flx", "5\n7\n\"s\""),
+        (
+            "result_directed_two_dictionaries.flx",
+            "7\n\"int\"\n\"str\"",
+        ),
     ] {
         let output = run_fixture(fixture).unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(output.stdout, expected, "unexpected output for {fixture}");
@@ -313,6 +342,10 @@ fn a_class_parameter_in_the_return_type_is_fixed_by_the_expected_result() {
 fn derived_instances_are_callable_and_carry_evidence() {
     for (fixture, expected) in [
         ("derived_eq.flx", "true\nfalse\ntrue\nfalse\ntrue"),
+        (
+            "derived_parameterized_eq.flx",
+            "true\nfalse\ntrue\ntrue\nfalse\ntrue\nfalse\ntrue\nfalse\ntrue\nfalse\ntrue\nfalse",
+        ),
         ("derived_show.flx", "\"Red\"\n\"Blue\"\n\"Green\""),
         ("derived_decode.flx", "\"pair\"\n2"),
         (
