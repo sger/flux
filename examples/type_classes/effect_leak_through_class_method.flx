@@ -1,0 +1,43 @@
+// Baseline contract: a class method's declared effect row reaches its caller.
+//
+// `flash` is effectful twice over — the class declares `with IO`, so the
+// requirement is visible without knowing which instance is selected, and the
+// instance body prints. `leaky` promises a pure `Int -> Int`.
+//
+// The row lives on the class declaration rather than on a function, so it has
+// no contract entry: `check_static_contract_call` never saw it, and the CFG
+// path checks primops only. This compiled and printed, while the identical
+// call to `helper` — an ordinary `with IO` function, four lines below — was
+// rejected. A function could therefore claim to be pure, perform console
+// output, and pass that claim to every one of its callers.
+//
+// Expected: E400 at both calls, naming `Console`.
+
+class Flash<a> {
+    fn flash(x: a) -> Int with IO
+}
+
+instance Flash<Int> {
+    fn flash(x) with IO {
+        print("flashed")
+        x
+    }
+}
+
+fn helper(x: Int) -> Int with IO {
+    print("helped")
+    x
+}
+
+fn leaky(x: Int) -> Int {
+    flash(x)
+}
+
+fn leaky_plain(x: Int) -> Int {
+    helper(x)
+}
+
+fn main() with IO {
+    print(leaky(1))
+    print(leaky_plain(2))
+}

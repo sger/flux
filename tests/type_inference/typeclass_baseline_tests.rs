@@ -128,6 +128,7 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "superclass_across_modules.flx",
         "superclass_method_call.flx",
         "superclass_evidence_without_context.flx",
+        "effect_leak_through_class_method.flx",
         "transitive_superclass.flx",
         "kind_valid.flx",
         "hkt_instance_positive.flx",
@@ -388,6 +389,21 @@ fn unsupported_deriving_does_not_fabricate_a_dictionary() {
     assert!(
         errors.iter().any(|diag| diag.code() == Some("E486")),
         "unsupported deriving must be reported, got: {errors:?}"
+    );
+}
+
+/// A class method declares its effects on the class, where no contract check
+/// could see them. Both calls in this fixture must be rejected: the one through
+/// the class method and the one through an ordinary effectful function.
+#[test]
+fn a_class_method_effect_row_reaches_its_caller() {
+    let fixture = "effect_leak_through_class_method.flx";
+    let Err(error) = run_fixture(fixture) else {
+        panic!("{fixture} must not compile: `leaky` performs IO without declaring it");
+    };
+    assert!(
+        error.matches("E400").count() >= 2,
+        "both the class-method call and the ordinary call should report E400, got:\n{error}"
     );
 }
 
