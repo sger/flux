@@ -390,6 +390,61 @@ fn unsupported_deriving_does_not_fabricate_a_dictionary() {
     );
 }
 
+/// An instance context that grows its type argument at every step —
+/// `Foo<a>` needing `Foo<List<a>>` — has no finite evidence tree. The search
+/// never repeats a predicate, so the cycle check cannot see it; only the depth
+/// budget stops it. Before that budget existed this overflowed the compiler's
+/// stack and aborted the process.
+#[test]
+fn a_growing_instance_context_terminates() {
+    let source = r#"
+class Foo<a> {
+    fn foo(x: a) -> Int
+}
+
+instance Foo<List<a>> => Foo<a> {
+    fn foo(x) { 1 }
+}
+
+fn use_it<a: Foo>(x: a) -> Int { foo(x) }
+
+fn main() { use_it(1) }
+"#;
+    let (program, mut compiler) = parse_source(source, "growing_instance_context.flx");
+    let errors = compiler
+        .compile(&program)
+        .expect_err("a context with no finite evidence tree must not resolve");
+    assert!(
+        errors.iter().any(|diag| diag.code() == Some("E444")),
+        "a non-terminating context should report no instance, got: {errors:?}"
+    );
+}
+
+/// Two instances whose contexts name each other close a cycle in the
+/// instance-context graph. The solver treats a repeat on the current path as
+/// satisfied, so this compiles; what matters here is that resolution
+/// terminates at all, rather than recursing until the stack is gone.
+#[test]
+fn mutually_recursive_instance_contexts_terminate() {
+    let source = r#"
+class Ay<a> { fn ay(x: a) -> Int }
+class Bee<a> { fn bee(x: a) -> Int }
+
+instance Bee<a> => Ay<a> {
+    fn ay(x) { 1 }
+}
+instance Ay<a> => Bee<a> {
+    fn bee(x) { 2 }
+}
+
+fn main() { ay(1) }
+"#;
+    let (program, mut compiler) = parse_source(source, "mutual_instance_contexts.flx");
+    // Either outcome is acceptable; a stack overflow is not, and is what this
+    // guards against.
+    let _ = compiler.compile(&program);
+}
+
 /// An instance that omits a required method with no default is rejected at the
 /// instance head. Before this was promoted out of the warning half of the
 /// `collect_class_declarations` partition, the missing method was filled in by

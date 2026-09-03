@@ -21,7 +21,7 @@ use crate::{
             Disposition, DispositionedConstraint, Evidence, InstanceKey, SolveOutcome, SolveScope,
             StuckReason,
         },
-        class_env::ClassEnv,
+        class_env::{ClassEnv, MAX_DICTIONARY_RESOLUTION_DEPTH},
         infer_type::InferType,
         type_constructor::TypeConstructor,
     },
@@ -262,6 +262,17 @@ fn solve_instance_evidence(
         // satisfied to keep the search terminating, but there is no finite
         // evidence tree to hand back.
         return Some(Evidence::Unrecorded);
+    }
+
+    // `seen` is the current path, so its size is the search depth. A context
+    // that grows its argument at every step — `instance Foo<List<a>> => Foo<a>`
+    // — never repeats a key, so the check above never fires and only this
+    // budget stops the recursion. Without it the search overflowed the
+    // compiler's stack. Reporting no evidence turns that into the same
+    // diagnostic a missing instance produces.
+    if seen.len() > MAX_DICTIONARY_RESOLUTION_DEPTH {
+        seen.remove(&key);
+        return None;
     }
 
     // A real instance is tried before the structural rule, so that a predicate
