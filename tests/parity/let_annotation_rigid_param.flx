@@ -1,0 +1,56 @@
+// parity: vm, llvm
+// expect: success
+// bug: a `let` annotation naming the signature's own rigid type parameter was rejected (KI-058)
+// Stage 4 contract: a `let` annotation may name the enclosing signature's own
+// type parameter.
+//
+// Inside `annotated`, the annotation's `a` and the signature's `a` are the same
+// rigid variable, so the binding is trivially well typed and the `Root`
+// obligation still covers it. The annotation used to convert with an empty
+// type-parameter map, which turned `a` into a nominal type that merely shared
+// the name — reporting E300 against itself, then E444 as a cascade (KI-058).
+//
+// This is what makes result-directed dispatch usable away from return
+// position: a function has one return, so without `let` annotations a body
+// could hold at most one call dispatched on its result.
+//
+// Expected output:
+// 5
+// 7
+// "s"
+
+class Root<a> {
+    fn root(x: a) -> Int
+}
+
+instance Root<Int> {
+    fn root(x) { x }
+}
+
+class Make<a> {
+    fn make(tag: Int) -> a
+}
+
+instance Make<String> {
+    fn make(tag) { "s" }
+}
+
+fn plain<a: Root>(x: a) -> Int {
+    root(x)
+}
+
+fn annotated<a: Root>(x: a) -> Int {
+    let y: a = x
+    root(y)
+}
+
+fn made<a: Make>(seed: a) -> a {
+    let value: a = make(0)
+    value
+}
+
+fn main() with IO {
+    print(plain(5))
+    print(annotated(7))
+    print(made("z"))
+}
