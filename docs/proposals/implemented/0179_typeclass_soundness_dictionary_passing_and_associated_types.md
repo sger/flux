@@ -386,9 +386,14 @@ errors, so `missing_superclass` compiled and exited 0. E445 and E477 are now
 promoted. E440/E441/E442 were also demoted here, blocked on built-in shadowing
 — a user `class Eq<a>` declaring only `eq` failed both E440 and E442 against
 the Rust-registered built-in. Stage 8 removed that blocker by moving the
-standard classes into `lib/Flow/*.flx`, and all three now report and exit 1
-(verified 2026-09-02 against `duplicate_class.flx`,
-`instance_unknown_class.flx` and `instance_missing_method.flx`).
+standard classes into `lib/Flow/*.flx`.
+
+E440 and E441 escape the partition but are re-reported by a later pipeline
+stage, so `duplicate_class.flx` and `instance_unknown_class.flx` do exit 1.
+E442 had no such second path: `instance_missing_method.flx` compiled and
+exited 0, and the omitted method was filled in by `generate_polymorphic_stub`,
+turning a compile error into a run-time panic on the first call. E442 is now
+promoted in the partition alongside E445 and E477.
 
 **One inherited limitation, filed as KI-057 — since fixed.** A method reachable from two
 dictionaries for the same class, over different type variables, always

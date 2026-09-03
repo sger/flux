@@ -3482,15 +3482,19 @@ impl Compiler {
         // E453 (sealed-instance violation) and the Proposal 0179 Stage 1 kind
         // codes are hard errors.
         //
-        // E440/E441/E442 are not in that set and are still routed here as
-        // warnings, but they no longer escape: `duplicate_class.flx`,
-        // `instance_unknown_class.flx` and `instance_missing_method.flx` all
-        // report their code and exit 1 (verified 2026-09-02), reaching the
-        // user through another path rather than this partition. Promoting
-        // them here was once blocked on built-in shadowing — a user
-        // `class Eq<a>` declaring only `eq` failed both E440 and E442 against
-        // the Rust-registered built-in — which Stage 8 removed by moving the
-        // standard classes into `lib/Flow/*.flx`.
+        // E442 (missing instance method) joins them: an instance that omits a
+        // method the class requires and does not default gets a
+        // `generate_polymorphic_stub` body, so the omission became a run-time
+        // panic instead of a compile error. Promoting it was once blocked on
+        // built-in shadowing — a user `class Eq<a>` declaring only `eq` failed
+        // E442 against the Rust-registered built-in — which Stage 8 removed by
+        // moving the standard classes into `lib/Flow/*.flx`.
+        //
+        // E440 (duplicate class) and E441 (unknown class) are still routed
+        // here as warnings. Unlike E442 they are re-reported by a later
+        // pipeline stage, so `duplicate_class.flx` and
+        // `instance_unknown_class.flx` do exit 1; promoting them at this
+        // partition is separate work.
         //
         // Proposal 0179 Stage 5 adds E445 (missing superclass instance) and
         // E477 (superclass cycle). Neither is caught by the built-in-shadowing
@@ -3508,7 +3512,8 @@ impl Compiler {
             matches!(
                 diag.code(),
                 Some(
-                    "E445"
+                    "E442"
+                        | "E445"
                         | "E453"
                         | "E472"
                         | "E473"
