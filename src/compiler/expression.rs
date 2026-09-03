@@ -1440,12 +1440,9 @@ impl Compiler {
             // the call is not dispatching through the class. The generated
             // dispatch stub is a global of the same name and must not count as
             // shadowing, or this check would skip every class-method call.
-            if self
-                .resolve_visible_symbol(name)
-                .is_some_and(|binding| {
-                    binding.symbol_scope != crate::compiler::symbol_scope::SymbolScope::Global
-                })
-            {
+            if self.resolve_visible_symbol(name).is_some_and(|binding| {
+                binding.symbol_scope != crate::compiler::symbol_scope::SymbolScope::Global
+            }) {
                 continue;
             }
             // The class declaration is not alias-expanded, so `with IO` is
@@ -1465,7 +1462,8 @@ impl Compiler {
                 ret: None,
                 effects,
             };
-            if let Err(diagnostic) = self.check_contract_effect_row(&callee, &arguments, &contract) {
+            if let Err(diagnostic) = self.check_contract_effect_row(&callee, &arguments, &contract)
+            {
                 diagnostics.push(*diagnostic);
             }
         }
@@ -1489,63 +1487,63 @@ impl Compiler {
             return Ok(());
         }
 
-            let required_row = EffectRow::from_effect_exprs(&contract.effects);
-            let constraints = self.collect_effect_row_constraints(contract, arguments);
-            let solution = solve_row_constraints(&constraints);
+        let required_row = EffectRow::from_effect_exprs(&contract.effects);
+        let constraints = self.collect_effect_row_constraints(contract, arguments);
+        let solution = solve_row_constraints(&constraints);
 
-            if let Some(first_violation) = solution.violations.first() {
+        if let Some(first_violation) = solution.violations.first() {
+            return Err(Self::boxed(
+                self.diagnostic_for_row_violation(function, first_violation),
+            ));
+        }
+
+        let unresolved: Vec<Symbol> = required_row
+            .unresolved_vars(&solution)
+            .into_iter()
+            .filter(|effect_var| !self.is_effect_available(*effect_var))
+            .collect();
+
+        let function_name = self.call_function_name(function);
+        if !unresolved.is_empty()
+            && function_name != crate::syntax::select_desugar::EVENT_RUN_SELECTED_FN
+        {
+            let origin = self.effect_constraint_origin(function, None);
+            return Err(Self::boxed(self.unresolved_effect_vars_diagnostic(
+                &unresolved,
+                function.span(),
+                &origin,
+            )));
+        }
+
+        let mut required_effects: Vec<Symbol> = required_row
+            .concrete_effects(&solution)
+            .into_iter()
+            .collect();
+        required_effects.sort_by_key(|symbol| self.sym(*symbol).to_string());
+
+        for required_name in required_effects {
+            if !self.is_effect_available(required_name) {
+                let missing = self.sym(required_name).to_string();
                 return Err(Self::boxed(
-                    self.diagnostic_for_row_violation(function, first_violation),
+                    Diagnostic::make_error_dynamic(
+                        "E400",
+                        "MISSING EFFECT",
+                        ErrorType::Compiler,
+                        format!(
+                            "Call to `{}` requires effect `{}` in this function signature.",
+                            function_name, missing
+                        ),
+                        Some(format!("Add `with {}` to the enclosing function.", missing)),
+                        self.file_path.clone(),
+                        function.span(),
+                    )
+                    .with_display_title("Missing Ambient Effect")
+                    .with_category(DiagnosticCategory::Effects)
+                    .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
+                    .with_primary_label(function.span(), "effectful call occurs here"),
                 ));
             }
-
-            let unresolved: Vec<Symbol> = required_row
-                .unresolved_vars(&solution)
-                .into_iter()
-                .filter(|effect_var| !self.is_effect_available(*effect_var))
-                .collect();
-
-            let function_name = self.call_function_name(function);
-            if !unresolved.is_empty()
-                && function_name != crate::syntax::select_desugar::EVENT_RUN_SELECTED_FN
-            {
-                let origin = self.effect_constraint_origin(function, None);
-                return Err(Self::boxed(self.unresolved_effect_vars_diagnostic(
-                    &unresolved,
-                    function.span(),
-                    &origin,
-                )));
-            }
-
-            let mut required_effects: Vec<Symbol> = required_row
-                .concrete_effects(&solution)
-                .into_iter()
-                .collect();
-            required_effects.sort_by_key(|symbol| self.sym(*symbol).to_string());
-
-            for required_name in required_effects {
-                if !self.is_effect_available(required_name) {
-                    let missing = self.sym(required_name).to_string();
-                    return Err(Self::boxed(
-                        Diagnostic::make_error_dynamic(
-                            "E400",
-                            "MISSING EFFECT",
-                            ErrorType::Compiler,
-                            format!(
-                                "Call to `{}` requires effect `{}` in this function signature.",
-                                function_name, missing
-                            ),
-                            Some(format!("Add `with {}` to the enclosing function.", missing)),
-                            self.file_path.clone(),
-                            function.span(),
-                        )
-                        .with_display_title("Missing Ambient Effect")
-                        .with_category(DiagnosticCategory::Effects)
-                        .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
-                        .with_primary_label(function.span(), "effectful call occurs here"),
-                    ));
-                }
-            }
+        }
         Ok(())
     }
 
