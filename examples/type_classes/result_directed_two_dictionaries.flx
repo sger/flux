@@ -1,0 +1,62 @@
+// Stage 4 contract: a class parameter that occurs only in the method's return
+// type tells two dictionaries for the same class apart.
+//
+// `make` reveals nothing through its argument, so the only thing that says
+// which instance a call means is the type its result is required to have. A
+// function constrained twice on `Make` holds two dictionaries; selection reads
+// the expected type from the enclosing return type or `let` binder.
+//
+// Both directions are exercised deliberately. Before this, a call that could
+// not be decided fell back to the *last* candidate, so a fixture that only
+// selected the second constraint would pass by accident — `let_picks_first`
+// is the one that fails under that fallback, and `let_picks_second` is the one
+// that fails if selection is inverted.
+//
+// Expected output:
+// 7
+// "int"
+// "str"
+
+class Make<a> {
+    fn make(tag: Int) -> a
+}
+
+instance Make<Int> {
+    fn make(tag) { 7 }
+}
+
+instance Make<String> {
+    fn make(tag) { "s" }
+}
+
+class Named<a> {
+    fn name_of(x: a) -> String
+}
+
+instance Named<Int> {
+    fn name_of(x) { "int" }
+}
+
+instance Named<String> {
+    fn name_of(x) { "str" }
+}
+
+fn tail_picks_first<a: Make, b: Make>(pa: a, pb: b) -> a {
+    make(0)
+}
+
+fn let_picks_first<a: Make + Named, b: Make>(pa: a, pb: b) -> String {
+    let y: a = make(0)
+    name_of(y)
+}
+
+fn let_picks_second<a: Make, b: Make + Named>(pa: a, pb: b) -> String {
+    let y: b = make(0)
+    name_of(y)
+}
+
+fn main() with IO {
+    print(tail_picks_first(1, "z"))
+    print(let_picks_first(1, "z"))
+    print(let_picks_second(1, "z"))
+}
