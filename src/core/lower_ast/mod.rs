@@ -166,7 +166,25 @@ pub fn lower_program_ast_with_class_env_and_def_schemes(
     let mut defs = Vec::new();
     let mut top_level_items = Vec::new();
     for stmt in &program.statements {
+        // Binder ids are handed out from one counter, so everything lowered
+        // from this statement occupies a contiguous range. That is what lets
+        // each definition carry its own binder types rather than a copy of
+        // the whole program's.
+        let first_def = defs.len();
+        let binders = lowerer.next_binder_id;
         lowerer.lower_top_level(stmt, &mut defs, &mut top_level_items);
+        let range = binders..lowerer.next_binder_id;
+        if !range.is_empty() {
+            let owned: HashMap<super::CoreBinderId, super::CoreType> = lowerer
+                .binder_types
+                .iter()
+                .filter(|(id, _)| range.contains(&id.0))
+                .map(|(id, ty)| (*id, ty.clone()))
+                .collect();
+            for def in &mut defs[first_def..] {
+                def.binder_types.clone_from(&owned);
+            }
+        }
     }
     let mut core = CoreProgram {
         defs,
@@ -188,6 +206,13 @@ pub(super) struct AstLowerer<'a> {
     /// Counter for synthesizing fresh binding names.
     pub(super) fresh: u32,
     pub(super) next_binder_id: u32,
+    /// HM-inferred type of each binder created with a known expression type.
+    ///
+    /// Core keeps only a `FluxRep` on a binder, which cannot tell one rigid
+    /// parameter from another. Dictionary elaboration needs the real type to
+    /// pick between two dictionaries for one class, so it is recorded here and
+    /// handed to each `CoreDef` (Proposal 0179 Stage 4).
+    pub(super) binder_types: HashMap<super::CoreBinderId, super::CoreType>,
     /// Optional interner for resolving source-level type annotations.
     pub(super) interner: Option<&'a crate::syntax::interner::Interner>,
     /// Optional TypeEnv for looking up function parameter types (Phase 7).
@@ -232,6 +257,7 @@ impl<'a> AstLowerer<'a> {
             hm_expr_types,
             fresh: 0,
             next_binder_id: 0,
+            binder_types: HashMap::new(),
             interner,
             type_env,
             effect_op_sigs,
@@ -378,6 +404,15 @@ impl<'a> AstLowerer<'a> {
         let id = super::CoreBinderId(self.next_binder_id);
         self.next_binder_id += 1;
         let rep = self.rep_for_expr(expr_id);
+        // Keep the full type too: `rep` collapses every boxed type to
+        // `TaggedRep`, which cannot tell one rigid parameter from another.
+        if let Some(ty) = self
+            .hm_expr_types
+            .get(&expr_id)
+            .and_then(super::CoreType::try_from_infer)
+        {
+            self.binder_types.insert(id, ty);
+        }
         CoreBinder::with_rep(id, name, rep)
     }
 

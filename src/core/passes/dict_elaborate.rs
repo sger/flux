@@ -284,6 +284,7 @@ fn build_instance_dictionaries(
         let binder = CoreBinder::with_rep(CoreBinderId(binder_id), dict_name, FluxRep::BoxedRep);
 
         defs.push(CoreDef {
+            binder_types: Default::default(),
             name: dict_name,
             binder,
             expr: dict_expr,
@@ -617,7 +618,12 @@ fn rewrite_constrained_functions(
         // instance must distinguish a container call (direct self dispatch)
         // from an element call (dictionary extraction).  Dictionary
         // elaboration only performs the latter rewrite here.
-        let rewritten = rewrite_body_with_dicts(old_expr, &method_map, class_env);
+        let rewritten = rewrite_body_with_dicts_and_binder_types(
+            old_expr,
+            &method_map,
+            class_env,
+            &def.binder_types,
+        );
 
         if dict_params.is_empty() {
             def.expr = normalize_existing_dict_param_types(rewritten, existing_dict_params.len());
@@ -1423,6 +1429,7 @@ fn choose_candidate<'a>(
     method: Identifier,
     args: &[CoreExpr],
     binder_types: &HashMap<CoreBinderId, CoreType>,
+    expected: Option<&CoreType>,
 ) -> Option<&'a MethodCandidate> {
     let [_, _, ..] = candidates else {
         return candidates.first();
@@ -1431,23 +1438,31 @@ fn choose_candidate<'a>(
     let Some(positions) = class_env.dispatch_positions(first.declaring_class, method) else {
         return Some(first);
     };
-    // A method whose class parameter appears in no value parameter — `decode`,
-    // whose type is fixed by where its result flows — reveals nothing here.
-    // Result-directed selection is not in scope (KI-058), so preserve what the
-    // name-keyed map did: the last constraint to record the method won.
-    if positions.iter().all(Option::is_none) {
+    // A class parameter naming the method's return type is revealed by the
+    // type this call's result is required to have, not by any argument —
+    // `decode`, `make`, `pure`. `expected` carries that down from the binder
+    // or return position the call sits in (Proposal 0179 Stage 4).
+    let results = class_env
+        .result_positions(first.declaring_class, method)
+        .unwrap_or_default();
+    if positions.iter().all(Option::is_none) && (expected.is_none() || !results.iter().any(|r| *r))
+    {
+        // Nothing reveals the parameter here. Preserve what the name-keyed map
+        // did rather than failing: the last constraint to record the method won.
         return candidates.last();
     }
     let observed: Vec<Option<CoreType>> = positions
         .iter()
-        .map(|position| {
-            let arg = args.get((*position)?)?;
-            match arg {
+        .enumerate()
+        .map(|(slot, position)| match position {
+            Some(index) => match args.get(*index)? {
                 CoreExpr::Var { var, .. } => {
                     var.binder.and_then(|id| binder_types.get(&id).cloned())
                 }
                 _ => None,
-            }
+            },
+            None if results.get(slot).copied().unwrap_or(false) => expected.cloned(),
+            None => None,
         })
         .collect();
     let indexed: Vec<(usize, Vec<CoreType>)> = candidates
@@ -1466,15 +1481,40 @@ pub fn rewrite_body_with_dicts(
     method_map: &MethodPaths,
     class_env: &ClassEnv,
 ) -> CoreExpr {
-    let mut binder_types = HashMap::new();
-    rewrite_expr(expr, method_map, class_env, &mut binder_types)
+    rewrite_body_with_dicts_and_binder_types(expr, method_map, class_env, &HashMap::new())
 }
 
+/// As [`rewrite_body_with_dicts`], seeded with the definition's own binder
+/// types.
+///
+/// A `let`'s type is recorded at lowering and cannot be recovered from Core,
+/// which has no type annotation node; without it a call on the right-hand side
+/// has nothing to select on (Proposal 0179 Stage 4).
+pub fn rewrite_body_with_dicts_and_binder_types(
+    expr: CoreExpr,
+    method_map: &MethodPaths,
+    class_env: &ClassEnv,
+    seed: &HashMap<CoreBinderId, CoreType>,
+) -> CoreExpr {
+    let mut binder_types = seed.clone();
+    rewrite_expr(expr, method_map, class_env, &mut binder_types, None)
+}
+
+/// Rewrite `expr`, projecting class-method references out of the dictionary
+/// each call means.
+///
+/// `expected` is the type this expression's value is required to have, when
+/// the surrounding syntax fixes it — a function's declared result at a tail
+/// position, a `let` binder's recorded type at its right-hand side. It is the
+/// only thing that can pick between two dictionaries for a method whose class
+/// parameter appears solely in its return type, and is `None` wherever the
+/// context does not say.
 fn rewrite_expr(
     expr: CoreExpr,
     method_map: &MethodPaths,
     class_env: &ClassEnv,
     binder_types: &mut HashMap<CoreBinderId, CoreType>,
+    expected: Option<&CoreType>,
 ) -> CoreExpr {
     match expr {
         // Key case: App where the function is a class method reference.
@@ -1486,7 +1526,14 @@ fn rewrite_expr(
                     binder: dict_binder,
                     path,
                     ..
-                }) = choose_candidate(class_env, candidates, var.name, &args, binder_types)
+                }) = choose_candidate(
+                    class_env,
+                    candidates,
+                    var.name,
+                    &args,
+                    binder_types,
+                    expected,
+                )
             {
                 // Class method reference — project it out of the dictionary.
                 // A path longer than one slot walks through superclass
@@ -1503,7 +1550,7 @@ fn rewrite_expr(
                         });
                 let rewritten_args = args
                     .into_iter()
-                    .map(|a| rewrite_expr(a, method_map, class_env, binder_types))
+                    .map(|a| rewrite_expr(a, method_map, class_env, binder_types, None))
                     .collect();
                 return CoreExpr::App {
                     func: Box::new(method_extract),
@@ -1513,10 +1560,16 @@ fn rewrite_expr(
             }
             // Not a class method — recurse normally.
             CoreExpr::App {
-                func: Box::new(rewrite_expr(*func, method_map, class_env, binder_types)),
+                func: Box::new(rewrite_expr(
+                    *func,
+                    method_map,
+                    class_env,
+                    binder_types,
+                    None,
+                )),
                 args: args
                     .into_iter()
-                    .map(|a| rewrite_expr(a, method_map, class_env, binder_types))
+                    .map(|a| rewrite_expr(a, method_map, class_env, binder_types, None))
                     .collect(),
                 span,
             }
@@ -1540,11 +1593,20 @@ fn rewrite_expr(
                     binder_types.insert(binder.id, ty.clone());
                 }
             }
+            // The body's value is the function's result, so its declared type
+            // is the expected type at every tail position within it.
+            let result_expected = result_ty.clone();
             CoreExpr::Lam {
                 params,
                 param_types,
                 result_ty,
-                body: Box::new(rewrite_expr(*body, method_map, class_env, binder_types)),
+                body: Box::new(rewrite_expr(
+                    *body,
+                    method_map,
+                    class_env,
+                    binder_types,
+                    result_expected.as_ref(),
+                )),
                 span,
             }
         }
@@ -1554,12 +1616,30 @@ fn rewrite_expr(
             rhs,
             body,
             span,
-        } => CoreExpr::Let {
-            var,
-            rhs: Box::new(rewrite_expr(*rhs, method_map, class_env, binder_types)),
-            body: Box::new(rewrite_expr(*body, method_map, class_env, binder_types)),
-            span,
-        },
+        } => {
+            // The binding's own type is the expected type of its right-hand
+            // side, and the only thing that can tell `__dict_C` from
+            // `__dict_C_1` for a call dispatched on its result.
+            let bound = binder_types.get(&var.id).cloned();
+            CoreExpr::Let {
+                var,
+                rhs: Box::new(rewrite_expr(
+                    *rhs,
+                    method_map,
+                    class_env,
+                    binder_types,
+                    bound.as_ref(),
+                )),
+                body: Box::new(rewrite_expr(
+                    *body,
+                    method_map,
+                    class_env,
+                    binder_types,
+                    expected,
+                )),
+                span,
+            }
+        }
 
         CoreExpr::LetRec {
             var,
@@ -1568,8 +1648,20 @@ fn rewrite_expr(
             span,
         } => CoreExpr::LetRec {
             var,
-            rhs: Box::new(rewrite_expr(*rhs, method_map, class_env, binder_types)),
-            body: Box::new(rewrite_expr(*body, method_map, class_env, binder_types)),
+            rhs: Box::new(rewrite_expr(
+                *rhs,
+                method_map,
+                class_env,
+                binder_types,
+                None,
+            )),
+            body: Box::new(rewrite_expr(
+                *body,
+                method_map,
+                class_env,
+                binder_types,
+                expected,
+            )),
             span,
         },
 
@@ -1583,11 +1675,23 @@ fn rewrite_expr(
                 .map(|(b, rhs)| {
                     (
                         b,
-                        Box::new(rewrite_expr(*rhs, method_map, class_env, binder_types)),
+                        Box::new(rewrite_expr(
+                            *rhs,
+                            method_map,
+                            class_env,
+                            binder_types,
+                            None,
+                        )),
                     )
                 })
                 .collect(),
-            body: Box::new(rewrite_expr(*body, method_map, class_env, binder_types)),
+            body: Box::new(rewrite_expr(
+                *body,
+                method_map,
+                class_env,
+                binder_types,
+                expected,
+            )),
             span,
         },
 
@@ -1602,14 +1706,15 @@ fn rewrite_expr(
                 method_map,
                 class_env,
                 binder_types,
+                None,
             )),
             alts: alts
                 .into_iter()
                 .map(|mut alt| {
-                    alt.rhs = rewrite_expr(alt.rhs, method_map, class_env, binder_types);
+                    alt.rhs = rewrite_expr(alt.rhs, method_map, class_env, binder_types, expected);
                     alt.guard = alt
                         .guard
-                        .map(|g| rewrite_expr(g, method_map, class_env, binder_types));
+                        .map(|g| rewrite_expr(g, method_map, class_env, binder_types, None));
                     alt
                 })
                 .collect(),
@@ -1621,7 +1726,7 @@ fn rewrite_expr(
             tag,
             fields: fields
                 .into_iter()
-                .map(|f| rewrite_expr(f, method_map, class_env, binder_types))
+                .map(|f| rewrite_expr(f, method_map, class_env, binder_types, None))
                 .collect(),
             span,
         },
@@ -1630,13 +1735,19 @@ fn rewrite_expr(
             op,
             args: args
                 .into_iter()
-                .map(|a| rewrite_expr(a, method_map, class_env, binder_types))
+                .map(|a| rewrite_expr(a, method_map, class_env, binder_types, None))
                 .collect(),
             span,
         },
 
         CoreExpr::Return { value, span } => CoreExpr::Return {
-            value: Box::new(rewrite_expr(*value, method_map, class_env, binder_types)),
+            value: Box::new(rewrite_expr(
+                *value,
+                method_map,
+                class_env,
+                binder_types,
+                None,
+            )),
             span,
         },
 
@@ -1650,7 +1761,7 @@ fn rewrite_expr(
             operation,
             args: args
                 .into_iter()
-                .map(|a| rewrite_expr(a, method_map, class_env, binder_types))
+                .map(|a| rewrite_expr(a, method_map, class_env, binder_types, None))
                 .collect(),
             span,
         },
@@ -1662,14 +1773,20 @@ fn rewrite_expr(
             handlers,
             span,
         } => CoreExpr::Handle {
-            body: Box::new(rewrite_expr(*body, method_map, class_env, binder_types)),
+            body: Box::new(rewrite_expr(
+                *body,
+                method_map,
+                class_env,
+                binder_types,
+                expected,
+            )),
             effect,
             parameter: parameter
-                .map(|p| Box::new(rewrite_expr(*p, method_map, class_env, binder_types))),
+                .map(|p| Box::new(rewrite_expr(*p, method_map, class_env, binder_types, None))),
             handlers: handlers
                 .into_iter()
                 .map(|mut h| {
-                    h.body = rewrite_expr(h.body, method_map, class_env, binder_types);
+                    h.body = rewrite_expr(h.body, method_map, class_env, binder_types, None);
                     h
                 })
                 .collect(),
@@ -1681,7 +1798,13 @@ fn rewrite_expr(
             member,
             span,
         } => CoreExpr::MemberAccess {
-            object: Box::new(rewrite_expr(*object, method_map, class_env, binder_types)),
+            object: Box::new(rewrite_expr(
+                *object,
+                method_map,
+                class_env,
+                binder_types,
+                None,
+            )),
             member,
             span,
         },
@@ -1691,7 +1814,13 @@ fn rewrite_expr(
             index,
             span,
         } => CoreExpr::TupleField {
-            object: Box::new(rewrite_expr(*object, method_map, class_env, binder_types)),
+            object: Box::new(rewrite_expr(
+                *object,
+                method_map,
+                class_env,
+                binder_types,
+                None,
+            )),
             index,
             span,
         },
@@ -2165,6 +2294,7 @@ mod tests {
         let main_binder = mk_binder(0, main_name);
         let mut program = CoreProgram {
             defs: vec![CoreDef {
+                binder_types: Default::default(),
                 name: main_name,
                 binder: main_binder,
                 expr: CoreExpr::Lit(CoreLit::Int(0), s()),
@@ -2215,6 +2345,7 @@ mod tests {
 
         let mut program = CoreProgram {
             defs: vec![CoreDef {
+                binder_types: Default::default(),
                 name: contains_name,
                 binder: contains_binder,
                 expr: CoreExpr::Lam {
