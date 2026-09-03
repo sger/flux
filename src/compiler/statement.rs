@@ -78,7 +78,22 @@ impl Compiler {
         declared_effects: &[EffectExpr],
         param_effect_rows: &HashMap<Symbol, super::effect_rows::EffectRow>,
     ) -> bool {
-        Self::block_has_semantic_errors(body, parameters)
+        // A class method's declared effect row is not on any contract, so
+        // neither the CFG path (primops only) nor `check_static_contract_call`
+        // holds a call to it to that row. Check it here, where both routes
+        // still pass, with the enclosing function's effects in scope so
+        // availability is answered the same way it is for an ordinary call.
+        let class_method_effect_errors = self.with_function_context_with_param_effect_rows(
+            parameters.len(),
+            declared_effects,
+            param_effect_rows.clone(),
+            |compiler| compiler.check_class_method_effect_calls(body),
+        );
+        let had_class_method_effect_error = !class_method_effect_errors.is_empty();
+        self.errors.extend(class_method_effect_errors);
+
+        had_class_method_effect_error
+            || Self::block_has_semantic_errors(body, parameters)
             || self.block_has_call_arity_error(body)
             || self.block_has_effect_row_error(body, declared_effects, param_effect_rows)
             || self.block_has_typed_let_error(body)
