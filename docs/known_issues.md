@@ -2576,6 +2576,56 @@ Found by trying to replace the hand-rolled insertion sort in
 `Flume.Resolve.Solver` — whose comment explains that the sort is hand-rolled
 because `Version` cannot be sorted generically — with `List.sort_by`.
 
+### KI-077 — Superclass evidence for a contextual superclass instance is built from the wrong dictionary
+
+**Severity:** High · **Area:** Type classes / dictionary passing · **Verified:** 2026-09-03 · **From:** Phase 1 of the type-class audit
+
+An instance whose superclass obligation is discharged by a *contextual*
+instance builds its superclass slot from whichever context dictionary names the
+same class, without checking that the type arguments agree:
+
+```flux
+class Base<a> { fn base(x: a) -> Int }
+class Base<a> => Mid<a> { fn mid(x: a) -> Int }
+
+instance Base<Int> { fn base(x) { x } }
+instance Base<a> => Base<List<a>> { fn base(xs) { 9 } }
+instance Base<a> => Mid<List<a>> { fn mid(xs) { base(xs) } }
+
+fn call_mid<a: Mid>(x: a) -> Int { mid(x) }
+fn main() with IO { print(call_mid([1, 2])) }   // E1000: want=4, got=2
+```
+
+`Mid<List<a>>` owes evidence for `Base<List<a>>`. Its context supplies
+`Base<a>`, which is a different predicate, but `superclass_evidence_expr`
+([dict_elaborate.rs](../src/core/passes/dict_elaborate.rs)) matches a context
+entry on the class alone — `position(|&class_id| class_id == superclass)` — so
+the `Base<a>` dictionary lands in the slot. The correct evidence is the
+contextual instance applied to it: `__dict_Base_List<a>(__dict_Base)`.
+
+Two things go wrong together, and the Core dump shows both:
+
+```
+def __dict_Mid_List<a> = λ__dict_Base. MakeTuple(__dict_Base, ...)
+letrec __tc_Mid_List<a>_mid = λ__dict_Base, __dict_Base_1, __dict_Base, xs. ...
+```
+
+The tuple's leading slot holds the wrong dictionary, and the instance method was
+given three dictionary parameters for one context predicate. The call therefore
+fails on arity before the wrong evidence can be observed — which is the only
+reason this is loud rather than silent.
+
+Validation is not at fault: `validate_superclass_obligations_for`
+([class_env.rs](../src/types/class_env.rs)) accepts the program correctly,
+because `Base<List<a>>` really does have an instance. The defect is entirely in
+evidence *construction*, and it has an AST-side twin: `dictionary_slot_names`
+names `__dict_Base_List<a>` without applying its context.
+
+The context-free spelling works — an instance that omits the `=>` context
+altogether has its superclass slot filled from the plain dictionary of the
+superclass instance, which `examples/type_classes/superclass_evidence_without_context.flx`
+locks. Only the contextual case is broken.
+
 ### KI-015 — A class whose variable appears only in the return position cannot dispatch — FIXED
 
 **Severity:** Medium · **Area:** Type classes / dispatch · **Verified fixed:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
