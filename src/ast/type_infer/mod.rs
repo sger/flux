@@ -192,6 +192,19 @@ struct InferCtx<'a> {
     module_aliases: HashMap<Identifier, Identifier>,
     /// Accumulated type class constraints (e.g., `Num<a>` from `x + y`).
     class_constraints: Vec<constraint::WantedClassConstraint>,
+    /// Wanted constraints a binding quantified into its own scheme.
+    ///
+    /// Generalization *discharges* a predicate: its obligation moves to every
+    /// call site, which emits a fresh `SchemeUse` wanted when the scheme is
+    /// instantiated. Keeping the original in `class_constraints` presents it
+    /// again to the whole-program solve, where nothing remains to generalize
+    /// it and it can only come back as
+    /// `StuckReason::UnresolvedAfterGeneralization` — an artefact of solving
+    /// it twice, not a fact about the program. GHC has no equivalent because
+    /// `decideQuantification` removes a quantified predicate from the wanted
+    /// set. Keyed by span and class, which is the identity of the site that
+    /// emitted the wanted.
+    generalized_wanteds: HashSet<GeneralizedWantedKey>,
     /// Resolved class-method dispatches, keyed by the function-position
     /// `ExprId` of each class-method call site. Populated in
     /// `propagate_resolved_class_call_effects` once the matching
@@ -317,6 +330,7 @@ impl<'a> InferCtx<'a> {
             current_module: crate::types::class_id::ModulePath::EMPTY,
             module_aliases: HashMap::new(),
             class_constraints: Vec::new(),
+            generalized_wanteds: HashSet::new(),
             class_method_dispatch: HashMap::new(),
             class_sym_eq: None,
             class_sym_ord: None,
@@ -485,6 +499,27 @@ impl<'a> InferCtx<'a> {
             self.interner,
             mode,
         );
+        // Only a `Definition`'s obligation actually transfers: elaboration
+        // rewrites its call sites to pass the dictionary. A nested binding
+        // cannot receive a dictionary parameter, so a predicate it
+        // "generalizes" is discharged nowhere and has to stay visible to the
+        // whole-program solve — which is what reports it (E459 on
+        // `let ignored = convert(42)`). This is the monomorphism
+        // restriction's reason for existing, in the one place Flux needs it.
+        if mode == GeneralizationMode::Definition {
+            self.generalized_wanteds.extend(
+                finalized
+                    .dispositions
+                    .iter()
+                    .filter(|entry| {
+                        matches!(
+                            entry.disposition,
+                            crate::types::class_disposition::Disposition::Generalized { .. }
+                        )
+                    })
+                    .map(|entry| generalized_wanted_key(entry.wanted.span, entry.wanted.class_id)),
+            );
+        }
         if !finalized.default_subst.is_empty() {
             self.subst = std::mem::take(&mut self.subst).compose(&finalized.default_subst);
         }
@@ -758,7 +793,8 @@ fn build_infer_result(mut ctx: InferCtx<'_>) -> InferProgramResult {
         &expanded_fallback,
     );
     let resolved_expr_types = resolve_expr_types(ctx.expr_types, &ctx.subst);
-    let resolved_class_constraints = resolve_class_constraints(ctx.class_constraints, &ctx.subst);
+    let resolved_class_constraints =
+        resolve_class_constraints(ctx.class_constraints, &ctx.subst, &ctx.generalized_wanteds);
 
     InferProgramResult {
         type_env: ctx.env,
@@ -883,13 +919,35 @@ fn resolve_expr_types(
         .collect()
 }
 
-/// Apply the final substitution to accumulated class constraints.
+/// Identity of the source site that emitted a wanted constraint.
+///
+/// `Span` is not `Hash`, so the position is spelled out; the class completes
+/// the key because one site can emit wanteds for several classes.
+type GeneralizedWantedKey = (usize, usize, usize, usize, crate::types::class_id::ClassId);
+
+fn generalized_wanted_key(
+    span: Span,
+    class_id: crate::types::class_id::ClassId,
+) -> GeneralizedWantedKey {
+    (
+        span.start.line,
+        span.start.column,
+        span.end.line,
+        span.end.column,
+        class_id,
+    )
+}
+
+/// Apply the final substitution to accumulated class constraints, dropping
+/// those a binding already discharged by quantifying them.
 fn resolve_class_constraints(
     class_constraints: Vec<constraint::WantedClassConstraint>,
     subst: &TypeSubst,
+    generalized: &HashSet<GeneralizedWantedKey>,
 ) -> Vec<constraint::WantedClassConstraint> {
     class_constraints
         .into_iter()
+        .filter(|c| !generalized.contains(&generalized_wanted_key(c.span, c.class_id)))
         .map(|mut c| {
             c.type_args = c
                 .type_args
