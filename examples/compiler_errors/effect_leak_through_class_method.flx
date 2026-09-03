@@ -1,4 +1,7 @@
-// Baseline contract: a class method's declared effect row reaches its caller.
+// expect: compile_error
+// expect-error: E400
+
+// A class method's declared effect row must reach its caller.
 //
 // `flash` is effectful twice over — the class declares `with IO`, so the
 // requirement is visible without knowing which instance is selected, and the

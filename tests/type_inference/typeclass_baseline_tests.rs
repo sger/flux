@@ -128,7 +128,6 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "superclass_across_modules.flx",
         "superclass_method_call.flx",
         "superclass_evidence_without_context.flx",
-        "effect_leak_through_class_method.flx",
         "transitive_superclass.flx",
         "kind_valid.flx",
         "hkt_instance_positive.flx",
@@ -393,17 +392,31 @@ fn unsupported_deriving_does_not_fabricate_a_dictionary() {
 }
 
 /// A class method declares its effects on the class, where no contract check
-/// could see them. Both calls in this fixture must be rejected: the one through
-/// the class method and the one through an ordinary effectful function.
+/// could see them, so a caller with no `with` clause could call one and
+/// perform IO. The identical call to an ordinary effectful function was
+/// rejected; both must be now.
 #[test]
 fn a_class_method_effect_row_reaches_its_caller() {
-    let fixture = "effect_leak_through_class_method.flx";
-    let Err(error) = run_fixture(fixture) else {
-        panic!("{fixture} must not compile: `leaky` performs IO without declaring it");
-    };
+    let source = r#"
+class Flash<a> {
+    fn flash(x: a) -> Int with IO
+}
+
+instance Flash<Int> {
+    fn flash(x) with IO { x }
+}
+
+fn leaky(x: Int) -> Int { flash(x) }
+
+fn main() { leaky(1) }
+"#;
+    let (program, mut compiler) = parse_source(source, "effect_leak_through_class_method.flx");
+    let errors = compiler
+        .compile(&program)
+        .expect_err("a function calling an effectful class method must declare the effect");
     assert!(
-        error.matches("E400").count() >= 2,
-        "both the class-method call and the ordinary call should report E400, got:\n{error}"
+        errors.iter().any(|diag| diag.code() == Some("E400")),
+        "the class method's effect row must reach its caller, got: {errors:?}"
     );
 }
 
