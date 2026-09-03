@@ -470,7 +470,7 @@ exist — a misleading signal exactly when the cache is under suspicion.
 
 ### KI-070 — A lambda's parameter or return annotation cannot name an enclosing rigid type parameter
 
-**Severity:** Medium · **Area:** Type inference, annotations · **Verified:** 2026-09-02 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** Medium · **Area:** Type inference, annotations · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 ```flux
 fn outer<a>(x: a) -> a {
@@ -1268,7 +1268,7 @@ required before semver-incompatible duplicate versions can be supported safely.
 
 ### KI-050 — Same-class contextual instances dispatch the element to themselves — FIXED 2026-08-30
 
-**Severity:** High · **Area:** type classes, dictionary dispatch · **Verified:** 2026-08-30 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** type classes, dictionary dispatch · **Verified:** 2026-08-30 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 When an instance context names the *same* class as its head — the
 `instance Encode<a> => Encode<Option<a>>` shape used throughout
@@ -1335,7 +1335,7 @@ fixture in [KI-051](#ki-051).
 
 ### KI-051 — Cross-module contextual instances — FIXED 2026-08-31
 
-**Severity:** High · **Area:** type classes, module linking, native backend · **Verified:** 2026-08-31 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** type classes, module linking, native backend · **Verified:** 2026-08-31 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 ```flux
 import Flow.Json as Json
@@ -1439,7 +1439,7 @@ covers this path.
 
 ### KI-052 — A generic wrapper over a contextual instance loses its dictionary — FIXED 2026-08-31
 
-**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-08-30 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-08-30 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 Calling a contextual instance directly works, but forwarding to it through a
 generic function fails at runtime:
@@ -1503,7 +1503,7 @@ answer.
 
 ### KI-053 — `--dump-core` and the other whole-program dumps report types from the wrong module
 
-**Severity:** Medium · **Area:** driver, diagnostics tooling · **Verified:** 2026-08-31 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** Medium · **Area:** driver, diagnostics tooling · **Verified:** 2026-08-31 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 Every dump flag that needs a whole-program view — `--dump-core`, `--dump-aether`,
 `--dump-cfg`, `--dump-lir`, `--emit-llvm`, `--trace-aether` — concatenates the
@@ -1568,7 +1568,7 @@ also makes the output match what is actually compiled.
 
 ### KI-054 — An imported contextual instance method is declared one parameter short natively
 
-**Severity:** Low · **Area:** type classes, native backend · **Verified:** 2026-08-31 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** Low · **Area:** type classes, native backend · **Verified:** 2026-08-31 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 `build_public_class_method_scheme`
 ([`src/compiler/mod.rs`](../src/compiler/mod.rs)) rebuilds an imported instance
@@ -1600,7 +1600,7 @@ if a code path started honouring the field.
 
 ### KI-055 — Native builds emit an unreferenced forwarding copy of every module-owned class method
 
-**Severity:** Low · **Area:** type classes, native backend · **Verified:** 2026-09-01 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** Low · **Area:** type classes, native backend · **Verified:** 2026-09-01 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 A module-owned instance method is emitted twice: the real definition inside its
 module, and a file-scope bare-name forwarding alias
@@ -1677,7 +1677,7 @@ distinct stems to compile natively. The VM is unaffected.
 
 ### KI-057 — A method reachable from two dictionaries always uses the first — FIXED 2026-09-01
 
-**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-01 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-01 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 A function holding two dictionaries for the same class, over *different* type
 variables, dispatches every call to the first of them:
@@ -1760,7 +1760,7 @@ AST path in `compiler/expression.rs` — and it resolves through a single
 
 ### KI-059 — `deriving` on a parameterized ADT produced a dictionary nothing defines — fixed 2026-09-02
 
-**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-02 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 A `deriving` clause on a data declaration that takes type parameters compiled
 its methods but not the evidence that reaches them:
@@ -1827,7 +1827,7 @@ tracked separately as [KI-069](#ki-069).
 
 ### KI-069 — A contextual instance cannot compare a field of its own head type
 
-**Severity:** Medium · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-02 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** Medium · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 A recursive parameterized ADT cannot get an `Eq` instance, derived or written
 by hand:
@@ -1869,7 +1869,7 @@ rather than demanding it as a value, which is what a self-referential
 
 ### KI-060 — A module-scoped contextual instance cannot call its own method on its own head type — FIXED 2026-09-02
 
-**Severity:** High · **Area:** type classes, module-scoped instances · **Verified:** 2026-09-02 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** type classes, module-scoped instances · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 Inside a `module { }` block, a contextual instance whose method recurses through
 the class method *on the instance's own head type* reached the wrong dictionary:
@@ -1943,7 +1943,7 @@ and not `my_eq(h1, h2)`). `lib/Flow/Eq.flx` is written this way.
 
 ### KI-061 — A constrained function inside a module that calls a class method by name gets no dictionary — FIXED 2026-09-02
 
-**Severity:** High · **Area:** type classes, dictionary elaboration, modules · **Verified:** 2026-09-02 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** type classes, dictionary elaboration, modules · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 ```flux
 import Flow.Eq exposing (..)
@@ -2275,7 +2275,7 @@ truth.
 
 ### KI-058 — A `let` annotation naming a rigid type parameter is rejected — FIXED 2026-09-02
 
-**Severity:** High · **Area:** Type inference, annotations · **Verified:** 2026-09-02 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** Type inference, annotations · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 Inside a generic function, annotating a `let` with the function's own type
 parameter was rejected even when trivially correct:
@@ -2317,9 +2317,9 @@ and nested functions get no shadowing. `let_annotation_rigid_param.flx` covers
 the accepted case; `type_inference_tests.rs` covers the genuine-mismatch and
 sibling-function-shadowing cases.
 
-**The soundness hole this unblocked is now reported, not miscompiled.** With
-annotations usable, a body can hold more than one result-directed class-method
-call, and that is the shape dictionary selection cannot handle:
+**The soundness hole this unblocked is now resolved.** With annotations usable,
+a body can hold more than one result-directed class-method call — the shape
+dictionary selection could not handle:
 
 ```flux
 class Make<a> { fn make(tag: Int) -> a }
@@ -2336,54 +2336,56 @@ print(two(1, "z"))   // expected 7 — both backends printed "s"
 
 A `String` returned from a function whose return type is `Int`, on the VM *and*
 natively (an earlier reading of this expected the two backends to disagree; they
-do not — both are wrong the same way). Selection reads argument types only:
-Core's `choose_candidate` ([dict_elaborate.rs](../src/core/passes/dict_elaborate.rs))
-takes `candidates.last()` when no value parameter names the class parameter, and
-the AST path projects out of the unsuffixed `__dict_*`.
+do not — both were wrong the same way).
 
-`report_ambiguous_dictionary_calls` ([statement.rs](../src/compiler/statement.rs))
-used to exempt a method whose class parameter appears in its return type,
-deferring to a result-directed selection that no backend performs. It no longer
-does: the check is only ever reached for a class this function is constrained on
-more than once, so a singly-constrained result-dispatched call — `mempty`,
-`pure`, `Flow.Json`'s `decode` — is unaffected, while the two-dictionary case
-reports `E485`, the same answer the argument-position case already got.
-Fixture: `examples/compiler_errors/result_directed_ambiguity_e485.flx`.
+**Both halves are now fixed.** Selection reads the type a call's result is
+required to have, taken from the enclosing return type or `let` binder:
+
+- `ClassEnv::result_positions` says which class parameters a method names as
+  exactly its return type — the counterpart of `dispatch_positions`, which
+  searches value parameters only.
+- Core threads an expected type through `rewrite_expr`: a `Lam`'s declared
+  result at tail positions, a `let` binder's own type at its right-hand side.
+  `choose_candidate` reads those positions instead of falling back to
+  `candidates.last()`.
+- A `let`'s type cannot be recovered from Core — there is no type annotation
+  node and `CoreBinder` keeps only a `FluxRep`, which collapses every boxed
+  type to `TaggedRep` and so cannot tell one rigid parameter from another. It
+  is recorded at lowering and carried on `CoreDef::binder_types`.
+- The AST path derives the same predicate (`context_predicate_args`) and picks
+  the matching dictionary through `context_dictionary_symbol`, which already
+  knew how to tell `__dict_C` from `__dict_C_1`.
+
+`examples/type_classes/result_directed_two_dictionaries.flx` locks both
+directions, including the one that would pass by accident under the old
+last-candidate fallback.
+
+**Still reported, correctly:** a method that mentions its class parameter
+*nowhere* — `fn mk(tag: Int) -> Int` on `class Mk<a>` — can be named by no call
+site at all, and remains `E485`
+(`examples/compiler_errors/ambiguous_dictionary_e485.flx`).
 
 **Guarding the trap the notes recorded.** Scheme constraints are not dictionary
 parameters: `Flow.Json`'s `Decode<a> => Decode<List<a>>` method carries two
 `Decode` constraints but resolves through the one dictionary its context gave
-it. The check therefore skips generated instance methods, testing the last
-segment of the name because a module qualifies them (`Flow.Json.__tc_…`) — the
-same treatment `emit_instance_method_aliases` applies.
+it. `report_ambiguous_dictionary_calls` therefore skips generated instance
+methods, testing the last segment of the name because a module qualifies them
+(`Flow.Json.__tc_…`) — the same treatment `emit_instance_method_aliases`
+applies.
 
-Result-directed *selection* remains unimplemented; it is now reported rather
-than silently resolved to the wrong instance. Closing it properly needs the
-call's result type at both selection sites, which the notes below still
-describe accurately.
-
-**Notes from an abandoned attempt at the selection half**, retained because they
-remain true of any future attempt:
-
-- `apply_hm_final` in `src/compiler/mod.rs` is **not** the funnel for inference
-  results. Instrumenting it shows it fires only for the `lib/Flow/*.flx`
-  modules; an entry file's result reaches the compiler by some other route.
-  Anything that tries to hand per-call inference data to lowering must find that
-  route first.
-- `CoreExpr` carries no expression id and adding one is impractical —
-  `CoreExpr::App` alone has ~155 construction sites. Spans survive lowering and
-  are the only per-node key available, but that was never validated end to end.
-- `ClassEnv::dispatch_positions` searches `method_sig.param_types` only, and
-  both `observed` vectors are built from value arguments. `class_param_bindings`
-  ([class_predicate.rs](../src/types/class_predicate.rs)) does match against the
-  result type, but every codegen consumer discards a binding that is still a
-  type variable — which a rigid parameter always is.
+**On the abandoned attempt recorded here earlier:** it looked for a way to hand
+per-call inference data to lowering, and stalled on `CoreExpr` having no
+expression id (`CoreExpr::App` alone has ~155 construction sites). That was the
+wrong shape. What the selection sites need is not the call's identity but the
+type its result must have, and that is a property of the *enclosing* binder or
+signature — which Core already carries, or which lowering can record once per
+binder.
 
 ---
 
 ### KI-015 — A class whose variable appears only in the return position cannot dispatch — FIXED
 
-**Severity:** Medium · **Area:** Type classes / dispatch · **Verified fixed:** 2026-09-02 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** Medium · **Area:** Type classes / dispatch · **Verified fixed:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 Dispatch used to select an instance from the *first argument's* type, so a class
 whose type variable appeared only in the return position resolved against the
