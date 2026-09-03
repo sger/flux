@@ -596,7 +596,7 @@ fn reserved_internal_primop_call_is_rejected_in_user_source() {
 }
 
 #[test]
-fn parameterized_handle_phase3_compiles_through_vm_runtime() {
+fn parameterized_handle_compiles_through_vm_runtime() {
     compile_ok_in(
         "test.flx",
         r#"

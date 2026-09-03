@@ -21,6 +21,16 @@ static TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn flow_prelude_source() -> String {
     [
+        // The class modules of `FLOW_PRELUDE_MODULES` (`src/driver/frontend.rs`).
+        // They are imported for graph membership rather than exposed: a
+        // constrained call passes evidence, and an instance whose module is
+        // absent from the graph leaves its `__dict_*` global declared but
+        // never stored.
+        "import Flow.Eq",
+        "import Flow.Ord",
+        "import Flow.Num",
+        "import Flow.Show",
+        "import Flow.Semigroup",
         "import Flow.Option exposing (..)",
         "import Flow.List except [concat, delete]",
         "import Flow.List as List",
@@ -83,7 +93,22 @@ fn run_named_module(module_file_name: &str, module_source: &str, entry_source: &
         entry_path.to_string_lossy().to_string(),
         graph_result.interner,
     );
+    // Preload each node's dependencies before compiling it, as the driver does
+    // (`src/driver/run_program/modules.rs`). Without this a stdlib module
+    // cannot see the classes it imports — `Flow.Ord`'s instances are
+    // `Eq<Int> => Ord<Int>`, and `Eq` belongs to `Flow.Eq`.
+    let nodes_by_path: std::collections::HashMap<_, _> = graph_result
+        .graph
+        .topo_order()
+        .iter()
+        .map(|node| (node.path.clone(), (*node).clone()))
+        .collect();
     for node in graph_result.graph.topo_order() {
+        for dep in &node.imports {
+            if let Some(dep_node) = nodes_by_path.get(&dep.target_path) {
+                compiler.preload_dependency_program(&dep_node.program);
+            }
+        }
         compiler.set_file_path(node.path.to_string_lossy().to_string());
         compiler.set_current_module_kind(node.kind);
         if let Err(diags) = compiler.compile(&node.program) {
@@ -154,7 +179,22 @@ fn run_two_modules(
         entry_path.to_string_lossy().to_string(),
         graph_result.interner,
     );
+    // Preload each node's dependencies before compiling it, as the driver does
+    // (`src/driver/run_program/modules.rs`). Without this a stdlib module
+    // cannot see the classes it imports — `Flow.Ord`'s instances are
+    // `Eq<Int> => Ord<Int>`, and `Eq` belongs to `Flow.Eq`.
+    let nodes_by_path: std::collections::HashMap<_, _> = graph_result
+        .graph
+        .topo_order()
+        .iter()
+        .map(|node| (node.path.clone(), (*node).clone()))
+        .collect();
     for node in graph_result.graph.topo_order() {
+        for dep in &node.imports {
+            if let Some(dep_node) = nodes_by_path.get(&dep.target_path) {
+                compiler.preload_dependency_program(&dep_node.program);
+            }
+        }
         compiler.set_file_path(node.path.to_string_lossy().to_string());
         compiler.set_current_module_kind(node.kind);
         if let Err(diags) = compiler.compile(&node.program) {

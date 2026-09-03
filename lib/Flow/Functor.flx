@@ -1,0 +1,45 @@
+/// Mapping a function over a structure without changing its shape.
+///
+/// The class parameter `f` is higher-kinded: it stands for a type constructor
+/// (`List`, `Option`, `Array`), not a type, and its kind is inferred from
+/// `fmap`'s signature.
+///
+/// `fmap` is effect-row polymorphic, so the mapped function may perform
+/// effects and they propagate to the caller — the same shape `Flow.List.map`
+/// already has as a plain function.
+///
+/// Not part of the class prelude: no operator desugars to it, so import it
+/// explicitly. (Proposal 0179 Stage 8.)
+import Flow.Array as Array
+import Flow.List as List
+import Flow.Option
+
+module Flow.Functor {
+    public class Functor<f> {
+        fn fmap<a, b>(x: f<a>, g: ((a) -> b with |e)) -> f<b> with |e
+    }
+
+    public instance Functor<List> {
+        fn fmap(x, g) { List.map(x, g) }
+    }
+
+    public instance Functor<Option> {
+        fn fmap(x, g) { Flow.Option.map_option(x, g) }
+    }
+
+    public instance Functor<Array> {
+        fn fmap(x, g) { Array.map(x, g) }
+    }
+
+    /// `Either<l>` is a two-parameter constructor applied to one argument, so
+    /// the instance head is partially applied and `l` stays free. Mapping
+    /// touches the `Right` side only.
+    public instance Functor<Either<l>> {
+        fn fmap(x, g) {
+            match x {
+                Right(v) -> Right(g(v)),
+                Left(e) -> Left(e)
+            }
+        }
+    }
+}

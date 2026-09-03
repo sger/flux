@@ -93,7 +93,7 @@ structural checks can make different decisions for the same class obligation.
 | Superclasses | **Done (Stage 5).** Obligations are checked once the whole environment is collected and matched structurally, cycles are rejected (E477), and dictionaries lead with one evidence slot per declared superclass. | — |
 | Kinds | `Kind` and constructor kinds exist, but there is no checking pass; parameterized ADTs and invalid HKT heads can be accepted. | Add a kind environment and validate type applications, class parameters, instance heads, predicates, and associated types before solving. |
 | Associated types | **Done (Stage 6).** Declarations and equations are parsed, collected, and validated; applications reduce through `normalize_associated_types` or stay stuck; both cross the module interface. | — |
-| Deriving | **Done (Stage 7).** A clause that cannot produce usable methods is rejected with E486; supported clauses on a monomorphic head produce callable methods and a dictionary a constrained function can project them out of; `Eq` over `List` and `Option` resolves to a real instance instead of a solver-only answer. A parameterized derived head still fails ([KI-059](../known_issues.md#ki-059)). | Reconcile AST-level and Core-level dictionary elaboration for parameterized derived heads. |
+| Deriving | **Done (Stage 7).** A clause that cannot produce usable methods is rejected with E486; supported clauses on a monomorphic head produce callable methods and a dictionary a constrained function can project them out of; `Eq` over `List` and `Option` resolves to a real instance instead of a solver-only answer, and a parameterized head (`data Box<a> { Box(a) } deriving (Eq)`) derives a structural body that routes each field through the context dictionary ([KI-059](../../known_issues.md#ki-059), fixed). | Multi-parameter heads are rejected with E486 rather than derived; revisit if a use case appears. |
 | Interfaces and cache | New class metadata must be present on both cold and warm compilation paths; dictionary layout changes can make cached artifacts stale. | Version and fingerprint predicate, kind, superclass, associated-type, and dictionary-layout metadata; add cold/warm tests. |
 | Tests | Existing coverage often checks compilation or Core text, not execution of polymorphic calls. | Require a Flux example and Rust test for every implementation item, plus VM/LLVM parity for supported runtime behavior. |
 
@@ -188,7 +188,7 @@ fn same<a: Eq>(x: a, y: a) -> Bool {
 Every stage is a separate pull request. Stages merge to `main` in order; the
 next stage starts from the latest green `main`.
 
-### Stage 0 — Baseline and test contract
+### Stage 0 — Baseline and test contract — **done**
 
 - Record dictionary arity, dropped-constraint, first-argument dispatch,
   invalid-kind, and unsupported-deriving behavior. Examples:
@@ -209,7 +209,7 @@ fn same<a: Eq>(x: a, y: a) -> Bool { eq(x, y) }
 fn main() with IO { print(same(20, 20)) }
 ```
 
-### Stage 1 — Lossless predicates and kinds
+### Stage 1 — Lossless predicates and kinds — **done**
 
 - Replace lossy scheme constraints with complete structured predicates. A
   predicate keeps its full type arguments through inference, generalization,
@@ -241,7 +241,7 @@ instance Functor<Int> { }
 // The instance above is expected to fail kind checking.
 ```
 
-### Stage 2 — Dictionary runtime correctness
+### Stage 2 — Dictionary runtime correctness — **done**
 
 - Extend the shared resolver to cover complete call-site evidence and strict
   runtime contracts.
@@ -261,7 +261,7 @@ fn twice<a: Sizeable>(x: a) -> Int { size(x) + size(x) }
 fn main() with IO { print(twice(21)) }
 ```
 
-### Stage 3 — Complete constraint solving
+### Stage 3 — Complete constraint solving — **done**
 
 - Give every wanted predicate a disposition: `solved_constraint.flx`,
   `generalized_constraint.flx`, `stuck_constraint.flx`, and
@@ -296,7 +296,7 @@ fn all_equal<a>(x: a, y: a) -> Bool where Eq<a> {
 }
 ```
 
-### Stage 4 — Deterministic evidence resolution
+### Stage 4 — Deterministic evidence resolution — **done**
 
 - Resolve using the complete predicate, all arguments, and expected result:
   `multi_parameter_resolution.flx` and `result_directed_resolution.flx`. A
@@ -383,8 +383,12 @@ Two notes for later stages.
 **E445 was previously demoted to a warning.** `collect_class_declarations`
 partitions class diagnostics and treated only E453 and the kind codes as hard
 errors, so `missing_superclass` compiled and exited 0. E445 and E477 are now
-promoted. E440/E441/E442 remain demoted; they are blocked on built-in
-shadowing, not on this stage.
+promoted. E440/E441/E442 were also demoted here, blocked on built-in shadowing
+— a user `class Eq<a>` declaring only `eq` failed both E440 and E442 against
+the Rust-registered built-in. Stage 8 removed that blocker by moving the
+standard classes into `lib/Flow/*.flx`, and all three now report and exit 1
+(verified 2026-09-02 against `duplicate_class.flx`,
+`instance_unknown_class.flx` and `instance_missing_method.flx`).
 
 **One inherited limitation, filed as KI-057 — since fixed.** A method reachable from two
 dictionaries for the same class, over different type variables, always
@@ -396,7 +400,13 @@ reproduction uses no superclasses and fails identically before Stage 5. It
 belongs with the dictionary-selection work, not here — and was fixed there, by
 keying the method-to-dictionary map on the predicate rather than the method
 name. That discharges the argument-position half of Stage 4's "resolve from the
-complete predicate"; the result-directed half remains open as KI-058.
+complete predicate"; the result-directed half followed as KI-058 (fixed
+2026-09-02). A `let` annotation may now name the enclosing signature's own type
+parameter, which is what lets a body hold more than one result-directed call at
+all, and selection reads the type a call's result is required to have — from the
+enclosing return type or `let` binder — to tell two dictionaries for one class
+apart. A method that names its class parameter nowhere remains `E485`: no call
+site can say which instance it means.
 
 **Entailment needed no separate solver change.** A wanted predicate discharged
 by a superclass of a constraint already in scope is handled by the projection
@@ -525,25 +535,65 @@ evidence of its own, which inflates the method past the arity the dictionary
 supplies. The body recurses through `eq`, routing each element through the
 context dictionary the constructor is handed.
 
-**A parameterized head still fails.** `data Box<a> { Box(a) } deriving (Eq)`
-compiles its methods but not the evidence reaching them. It is not the mangling:
-a hand-written `instance Eq<a> => Eq<Box<a>>` works under the same names. The
-AST-level and Core-level dictionary elaborations disagree about whether the call
-needs a dictionary at all, so predeclaring the missing symbol converts a compile
-error into a runtime one. Recorded as
-[KI-059](../known_issues.md#ki-059) with the reproduction and both layers.
+**A parameterized head works** (`data Box<a> { Box(a) } deriving (Eq)`). It did
+not at first: the generated body was `__x0 == __x1`, and on a `Box<a>` operand
+that demands the instance's own dictionary. `deriving (Eq)` on a head with a
+context now synthesizes a structural match instead, comparing each field with
+`eq` so every element routes through the context dictionary the constructor is
+handed ([KI-059](../../known_issues.md#ki-059), fixed 2026-09-02;
+`derived_parameterized_eq.flx`). A head with more than one type parameter is
+rejected with E486 rather than derived — selection cannot tell `Eq<a>` from
+`Eq<b>` when both are still variables.
 
-### Stage 8 — Standard hierarchy
+### Stage 8 — Standard hierarchy — **done**
 
-- Add `Eq → Ord`, `Semigroup → Monoid`, and
-  `Functor → Applicative → Monad`: `eq_ord.flx`,
-  `semigroup_monoid.flx`, and `functor_applicative_monad.flx`.
-- Add supported scalar and collection instances:
-  `option_instances.flx`, `list_instances.flx`,
-  `array_instances.flx`, and `either_instances.flx`.
-- Cover result-directed `pure`/`mempty` and effectful `fmap`:
+- All three superclass edges ship: `Eq → Ord`, `Semigroup → Monoid`, and
+  `Functor → Applicative → Monad` — `eq_ord.flx`, `semigroup_monoid.flx`,
+  `functor_applicative_monad.flx`.
+- Scalar and collection instances ship for `Option`, `List` and `Array`:
+  `option_instances.flx`, `list_instances.flx`, `array_instances.flx`.
+- Result-directed `pure`/`mempty` and effectful `fmap` ship:
   `return_directed_pure.flx`, `mempty_result_dispatch.flx`,
-  and `effectful_fmap.flx`.
+  `effectful_fmap.flx`.
+- `Either` gets the full set through the partially applied head `Either<l>`:
+  `either_instances.flx`. This was blocked at first — the head did not survive
+  a module boundary — and the cause turned out to be a parser defect introduced
+  by this stage's own zero-parameter-method fix, not the partial application;
+  see [KI-064](../../known_issues.md#ki-064). `Eq` and `Ord` over `Either` remain
+  structural evidence rather than instances, since that instance head would
+  need one context constraint per parameter and only one is allowed.
+
+The hierarchy is **written in Flux**, in `lib/Flow/*.flx`, rather than
+registered from Rust. `ClassEnv::register_builtins` keeps only `Sendable`.
+`docs/internals/type_classes.md` records the module layout, which classes are
+in the prelude and which are explicit-import, and the consequences — a user
+`class Eq` shadows rather than collides, and a stdlib function may no longer
+share a name with a class method.
+
+Eight compiler defects were found and fixed along the way, each of which
+blocked the stage rather than being incidental:
+
+- a class or instance method with no parameters did not parse, so `mempty`
+  and `pure` could not be declared;
+- a class method whose parameter carried an effect row silently lost its
+  return type, because the parser mistook that type's own closing paren for
+  the parameter list's — this was introduced by the fix above, and it is what
+  actually blocked `Either` ([KI-064](../../known_issues.md#ki-064));
+- an operator whose class was absent emitted no obligation and no diagnostic
+  (now **E487**);
+- a superclass obligation was checked before imported instances were merged,
+  so evidence in another module read as missing;
+- a superclass constraint on a higher-kinded parameter was rejected with
+  **E474**, because the constraint's argument was kind-checked with the owner
+  class's own parameters out of scope;
+- a program could not declare a function named after a class method, because
+  the generated dispatch stub claimed the name first
+  ([KI-063](../../known_issues.md#ki-063));
+- that stub also shadowed a module's own same-named function
+  ([KI-065](../../known_issues.md#ki-065)), while its *absence* broke a unit
+  compiled without the prelude ([KI-066](../../known_issues.md#ki-066));
+- a bound naming a class the program itself declares was reported ambiguous
+  against the prelude's ([KI-067](../../known_issues.md#ki-067)).
 
 Example syntax:
 

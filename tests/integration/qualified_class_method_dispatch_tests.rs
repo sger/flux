@@ -7,7 +7,7 @@
 //!     written through the module that declares the class. They must keep
 //!     dispatching to the selected instance, effects and all.
 //!   * `Stream.append(..)` is an ordinary module function whose name collides
-//!     with the built-in `Semigroup` method. It must reach `Flow.Stream`.
+//!     with `Flow.Semigroup`'s `append` method. It must reach `Flow.Stream`.
 //!
 //! Before the fix, any qualified call whose member name matched a class
 //! method was routed to the class — so `Stream.append` was unreachable,
@@ -42,7 +42,7 @@ fn run_source(name: &str, source: &str) -> (String, String, bool) {
     )
 }
 
-/// The regression: a module function whose name matches a built-in class
+/// The regression: a module function whose name matches a standard class
 /// method must still be callable.
 #[test]
 fn a_module_function_shadowing_a_builtin_class_method_is_reachable() {
@@ -66,8 +66,11 @@ fn main() -> Unit with Console {
         success,
         "Stream.append must reach Flow.Stream, not Semigroup:\n{stdout}\n{stderr}"
     );
+    // Match the diagnostic's shape, not the bare class name: since Proposal
+    // 0179 Stage 8 the prelude compiles `Flow.Semigroup`, so a bare `Semigroup`
+    // appears in the progress output of every successful run.
     assert!(
-        !format!("{stdout}{stderr}").contains("Semigroup"),
+        !format!("{stdout}{stderr}").contains("Semigroup<"),
         "the call must not be routed to the Semigroup class:\n{stdout}\n{stderr}"
     );
     assert!(stdout.contains('3'), "expected 3 elements, got:\n{stdout}");

@@ -235,9 +235,14 @@ pub fn normalize_transcript(text: &str, workspace_root: &Path) -> String {
 
 fn inject_flow_prelude(program: &mut Program, parser: &mut Parser) {
     const FLOW_PRELUDE_MODULES: &[(&str, &str)] = &[
+        ("Flow.Eq", "Eq.flx"),
+        ("Flow.Ord", "Ord.flx"),
+        ("Flow.Num", "Num.flx"),
+        ("Flow.Show", "Show.flx"),
         ("Flow.Option", "Option.flx"),
         ("Flow.List", "List.flx"),
         ("Flow.String", "String.flx"),
+        ("Flow.Semigroup", "Semigroup.flx"),
         ("Flow.Numeric", "Numeric.flx"),
         ("Flow.Primops", "Primops.flx"),
         ("Flow.IO", "IO.flx"),
@@ -361,7 +366,29 @@ pub fn build_transcript_with_options(
                     1
                 }
             });
-            for node in ordered_nodes {
+            let nodes_by_path: std::collections::HashMap<_, _> = ordered_nodes
+                .iter()
+                .map(|node| (node.path.clone(), node))
+                .collect();
+            for node in &ordered_nodes {
+                // Mirror the driver (`src/driver/run_program/modules.rs`): one
+                // shared compiler, but each module's dependencies preloaded
+                // before it compiles, and every stdlib module preloaded for a
+                // module that is not itself stdlib.
+                for dep in &node.imports {
+                    if let Some(dep_node) = nodes_by_path.get(&dep.target_path) {
+                        compiler.preload_dependency_program(&dep_node.program);
+                    }
+                }
+                if node.kind != flux::syntax::module_graph::ModuleKind::FlowStdlib {
+                    for (path, dep_node) in &nodes_by_path {
+                        if !node.imports.iter().any(|dep| &dep.target_path == path)
+                            && dep_node.kind == flux::syntax::module_graph::ModuleKind::FlowStdlib
+                        {
+                            compiler.preload_dependency_program(&dep_node.program);
+                        }
+                    }
+                }
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
                 compiler.set_current_module_kind(node.kind);
                 if let Err(mut diags) = compiler.compile(&node.program) {

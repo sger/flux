@@ -1,0 +1,41 @@
+/// An `Applicative` whose values can be sequenced: `bind` feeds the result of
+/// one structure into a function producing the next.
+///
+/// Not part of the class prelude; import it explicitly.
+/// (Proposal 0179 Stage 8.)
+import Flow.Applicative
+import Flow.Array as Array
+// `Functor` is a transitive superclass through `Applicative`, and its
+// instances have to be visible here for each instance below to discharge it.
+import Flow.Functor
+import Flow.List as List
+import Flow.Option
+
+module Flow.Monad {
+    public class Applicative<f> => Monad<f> {
+        fn bind<a, b>(x: f<a>, g: (a) -> f<b>) -> f<b>
+    }
+
+    public instance Applicative<List> => Monad<List> {
+        fn bind(x, g) { List.flat_map(x, g) }
+    }
+
+    public instance Applicative<Option> => Monad<Option> {
+        fn bind(x, g) { Flow.Option.flat_map_option(x, g) }
+    }
+
+    public instance Applicative<Array> => Monad<Array> {
+        fn bind(x, g) { Array.flat_map(x, g) }
+    }
+
+    /// Sequencing stops at the first `Left`, which is what makes `Either` an
+    /// error channel rather than just a two-sided container.
+    public instance Applicative<Either<l>> => Monad<Either<l>> {
+        fn bind(x, g) {
+            match x {
+                Right(v) -> g(v),
+                Left(e) -> Left(e)
+            }
+        }
+    }
+}

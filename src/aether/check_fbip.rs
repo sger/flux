@@ -331,6 +331,7 @@ mod tests {
     ) -> CoreDef {
         let binder = self::binder(interner, raw, name);
         CoreDef {
+            binder_types: Default::default(),
             name: binder.name,
             binder,
             expr,
@@ -423,6 +424,7 @@ mod tests {
             defs: vec![
                 callee.clone(),
                 CoreDef {
+                    binder_types: Default::default(),
                     name: caller.name,
                     binder: caller,
                     expr: CoreExpr::App {

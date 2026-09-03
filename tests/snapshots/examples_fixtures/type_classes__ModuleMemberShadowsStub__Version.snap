@@ -1,0 +1,20 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_classes/ModuleMemberShadowsStub/Version.flx
+== compile ==
+failed (module)
+== diagnostics ==
+error[E024]: Module Path Mismatch
+
+Module name `ModuleMemberShadowsStub.Version` doesn't match file path `examples/type_classes/ModuleMemberShadowsStub/Version.flx`.
+
+  examples/type_classes/ModuleMemberShadowsStub/Version.flx:1:1
+  |
+1 | module ModuleMemberShadowsStub.Version {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+== stdout ==
+<not executed>

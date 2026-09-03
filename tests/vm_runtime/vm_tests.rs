@@ -18,6 +18,16 @@ static VM_TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
 /// Build Flow prelude imports for module-graph based test compilation.
 fn flow_prelude_source() -> String {
     [
+        // The class modules of `FLOW_PRELUDE_MODULES` (`src/driver/frontend.rs`).
+        // They are imported for graph membership rather than exposed: a
+        // constrained call passes evidence, and an instance whose module is
+        // absent from the graph leaves its `__dict_*` global declared but
+        // never stored.
+        "import Flow.Eq",
+        "import Flow.Ord",
+        "import Flow.Num",
+        "import Flow.Show",
+        "import Flow.Semigroup",
         "import Flow.Option exposing (..)",
         "import Flow.List except [concat, delete]",
         "import Flow.List as List",
@@ -78,7 +88,28 @@ fn compile_program(input: &str, with_prelude: bool) -> Result<Bytecode, String> 
         entry_path.to_string_lossy().to_string(),
         graph_result.interner,
     );
-    for node in graph_result.graph.topo_order() {
+    // Preload each node's dependencies before compiling it, as the driver
+    // does (`src/driver/run_program/modules.rs`). Without this a stdlib module
+    // cannot see the classes it imports — `Flow.Ord`'s instances are
+    // `Eq<Int> => Ord<Int>`, and `Eq` belongs to `Flow.Eq`.
+    let mut ordered_nodes = graph_result.graph.topo_order();
+    ordered_nodes.sort_by_key(|node| {
+        if node.kind == flux::syntax::module_graph::ModuleKind::FlowStdlib {
+            0
+        } else {
+            1
+        }
+    });
+    let nodes_by_path: std::collections::HashMap<_, _> = ordered_nodes
+        .iter()
+        .map(|node| (node.path.clone(), (*node).clone()))
+        .collect();
+    for node in &ordered_nodes {
+        for dep in &node.imports {
+            if let Some(dep_node) = nodes_by_path.get(&dep.target_path) {
+                compiler.preload_dependency_program(&dep_node.program);
+            }
+        }
         compiler.set_file_path(node.path.to_string_lossy().to_string());
         compiler.set_current_module_kind(node.kind);
         if let Err(diags) = compiler.compile(&node.program) {
@@ -1554,7 +1585,7 @@ fn test_list_is_list() {
 }
 
 #[test]
-fn test_list_phase_1b_slicing_and_span() {
+fn test_list_slicing_and_span() {
     assert_eq!(
         run("to_string(take([1, 2, 3, 4], 2));"),
         make_string("[1, 2]")
@@ -1588,7 +1619,7 @@ fn test_list_phase_1b_slicing_and_span() {
 }
 
 #[test]
-fn test_list_phase_1b_folds_scans_and_builders() {
+fn test_list_folds_scans_and_builders() {
     assert_eq!(
         run(r#"foldr(["a", "b", "c"], "", fn(x, acc) { x + acc });"#),
         make_string("abc")
@@ -1621,7 +1652,7 @@ fn test_list_phase_1b_folds_scans_and_builders() {
 }
 
 #[test]
-fn test_list_phase_1b_zip_group_and_uniqueness() {
+fn test_list_zip_group_and_uniqueness() {
     assert_eq!(
         run("to_string(zip_with([1, 2, 3], [10, 20], fn(a, b) { a + b }));"),
         make_string("[11, 22]")
@@ -1650,7 +1681,7 @@ fn test_list_phase_1b_zip_group_and_uniqueness() {
 }
 
 #[test]
-fn test_list_phase_1b_set_like_and_prefix_suffix() {
+fn test_list_set_like_and_prefix_suffix() {
     assert_eq!(
         run("import Flow.List as L\nto_string(L.delete([1, 2, 3, 2], 2));"),
         make_string("[1, 3, 2]")
@@ -1670,7 +1701,7 @@ fn test_list_phase_1b_set_like_and_prefix_suffix() {
 }
 
 #[test]
-fn test_list_phase_1b_utilities_and_sorting() {
+fn test_list_utilities_and_sorting() {
     assert_eq!(run("length([1, 2, 3, 4]);"), Value::Integer(4));
     assert_eq!(run("null([]);"), Value::Boolean(true));
     assert_eq!(run("null([1]);"), Value::Boolean(false));
@@ -1708,7 +1739,7 @@ fn test_list_phase_1b_utilities_and_sorting() {
 }
 
 #[test]
-fn test_list_phase_1b_empty_list_panics() {
+fn test_list_empty_list_panics() {
     let fold1_err = run_error("fold1([], fn(a, b) { a + b });");
     assert!(
         fold1_err.contains("fold1 called on empty list"),

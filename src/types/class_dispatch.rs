@@ -157,6 +157,7 @@ pub fn generate_dispatch_functions(
             &mut reserved_names,
             &mut synth_expr_ids,
         );
+        seed_dispatch_table_from_class_env(class_env, &mut dispatch_table);
     }
 
     // Generate dispatch functions for each class method.
@@ -246,6 +247,37 @@ fn needs_builtin_dispatch_support(statements: &[Statement]) -> bool {
     })
 }
 
+/// Record every method of every class that has an instance, so a stub is
+/// generated for it.
+///
+/// `generate_from_statements` only sees instances declared in *this* unit, and
+/// `generate_builtin_instance_functions` only handled the phantom instances the
+/// Rust registration used to create. Since Proposal 0179 Stage 8 the standard
+/// classes' instances live in `Flow.Eq` and its siblings, so a unit that merely
+/// *uses* a class contributes nothing to the dispatch table — and a constrained
+/// function's `x == y` desugars to `eq(x, y)`, which then resolves to nothing
+/// (`E004 I can't find a value named 'eq'`).
+///
+/// A class with no instance is skipped: there would be nothing for the stub to
+/// stand in for, and its name should stay free.
+fn seed_dispatch_table_from_class_env(
+    class_env: &ClassEnv,
+    dispatch_table: &mut HashSet<(crate::types::class_id::ClassId, Identifier)>,
+) {
+    for (class_id, class_def) in &class_env.classes {
+        if !class_env
+            .instances
+            .iter()
+            .any(|instance| instance.class_id == *class_id)
+        {
+            continue;
+        }
+        for method in &class_def.methods {
+            dispatch_table.insert((*class_id, method.name));
+        }
+    }
+}
+
 fn generate_builtin_instance_functions(
     statements: &[Statement],
     class_env: &ClassEnv,
@@ -277,10 +309,26 @@ fn generate_builtin_instance_functions(
                 find_adt_info_for_instance(instance, &adts, interner).and_then(|adt| {
                     derived_json_method_body(adt, &method_name_str, interner, builtin_expr_ids)
                 });
+            // Only a contextual head needs the structural body; a monomorphic
+            // one has a real dictionary and the operator body is correct.
+            let derived_structural = if instance.context.is_empty() {
+                None
+            } else {
+                find_adt_info_for_instance(instance, &adts, interner)
+                    .and_then(|adt| {
+                        derived_structural_eq_body(adt, &class_name_str, &method_name_str, interner)
+                    })
+                    .and_then(|source| {
+                        let parsed = parse_generated_body_with_params(&source, 2, interner)?;
+                        Some(refresh_block_expr_ids(parsed, builtin_expr_ids))
+                    })
+            };
             let body = if is_json_codec_class(&class_name_str) {
                 let Some(body) = derived_json else {
                     continue;
                 };
+                body
+            } else if let Some(body) = derived_structural {
                 body
             } else {
                 let Some(body) = builtin_method_body(
@@ -1393,6 +1441,108 @@ fn context_dict_param_names(
             interner.intern(&format!("{prefix}{suffix}"))
         })
         .collect()
+}
+
+/// Whether a derived instance of this class reaches its fields through the
+/// instance context rather than through an operator on the head type.
+///
+/// Only such a class is sensitive to how many type parameters the head has —
+/// see the `ambiguous_context` check in `ClassEnv::collect_deriving`. `Show`
+/// derives through `to_string`, which needs no evidence, so a `Show` clause is
+/// unaffected by the parameter count.
+pub fn derives_through_context(class_name: &str) -> bool {
+    class_name == "Eq"
+}
+
+/// The structural `Eq` body for a *derived* instance over a parameterized ADT,
+/// as Flux source.
+///
+/// A `deriving (Eq)` clause on `data Box<a>` produces a contextual instance
+/// (`Eq<a> => Eq<Box<a>>`), and the default body [`builtin_method_body`] emits
+/// for `eq` is `__x0 == __x1`. On a `Box<a>` operand that desugars to an
+/// `Eq<Box<a>>` obligation — the instance's *own* dictionary, which for a
+/// contextual instance is a constructor rather than a value, so the reference
+/// resolves to nothing (KI-059). The monomorphic case survives only because a
+/// context-free dictionary is a plain tuple that does exist.
+///
+/// Destructuring the ADT and recursing through `eq` on each field routes every
+/// field through the context dictionary instead, which is exactly what the
+/// dictionary constructor is passed. This is the same shape as
+/// [`structural_container_eq_body`], synthesized from the declaration rather
+/// than looked up by head name, so it covers any user ADT.
+///
+/// Recursing through `eq` rather than `==` also matters for a field whose type
+/// mentions the class parameter, where `==` would reintroduce the same
+/// self-reference.
+fn derived_structural_eq_body(
+    adt: &DeriveAdtInfo,
+    class_name: &str,
+    method_name: &str,
+    interner: &Interner,
+) -> Option<String> {
+    if class_name != "Eq" || !matches!(method_name, "eq" | "neq") {
+        return None;
+    }
+    if adt.variants.is_empty() {
+        return None;
+    }
+
+    // A single-variant ADT is matched exhaustively by that one pattern, so a
+    // catch-all arm would be unreachable.
+    let needs_catch_all = adt.variants.len() > 1;
+
+    let pattern = |variant: &DataVariant, prefix: &str| -> String {
+        let ctor = interner.resolve(variant.name);
+        let binders = (0..variant.fields.len())
+            .map(|idx| format!("{prefix}{idx}"))
+            .collect::<Vec<_>>();
+        match &variant.field_names {
+            Some(names) => {
+                let fields = names
+                    .iter()
+                    .zip(binders.iter())
+                    .map(|(name, binder)| format!("{}: {binder}", interner.resolve(*name)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{ctor} {{ {fields} }}")
+            }
+            None if binders.is_empty() => ctor.to_string(),
+            None => format!("{ctor}({})", binders.join(", ")),
+        }
+    };
+
+    let arms = adt
+        .variants
+        .iter()
+        .map(|variant| {
+            let comparison = if variant.fields.is_empty() {
+                "true".to_string()
+            } else {
+                (0..variant.fields.len())
+                    .map(|idx| format!("eq(__f{idx}, __g{idx})"))
+                    .collect::<Vec<_>>()
+                    .join(" && ")
+            };
+            let inner_catch_all = if needs_catch_all { ", _ -> false" } else { "" };
+            format!(
+                "{} -> match __x1 {{ {} -> {comparison}{inner_catch_all} }}",
+                pattern(variant, "__f"),
+                pattern(variant, "__g"),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    // `neq` inlines the same comparison rather than calling `eq(__x0, __x1)`.
+    // That call is on the *head* type, so it resolves to this instance and
+    // wants its dictionary — the very constructor that does not exist as a
+    // value. Every call inside the match is on a field, whose type is a rigid
+    // parameter satisfied by the context dictionary already in scope.
+    let comparison = format!("match __x0 {{ {arms} }}");
+    Some(match method_name {
+        "neq" => format!("!({comparison})"),
+        _ => comparison,
+    })
 }
 
 /// The structural `Eq` body for a built-in container head, as Flux source.

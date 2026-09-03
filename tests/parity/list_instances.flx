@@ -1,0 +1,28 @@
+// parity: vm, llvm
+// expect: success
+// bug: none — Stage 8's higher-kinded classes. A dictionary for a class
+//      whose parameter is a type constructor, reached through two levels of
+//      superclass evidence, is exactly the shape the two backends could
+//      lay out or index differently.
+// Proposal 0179 Stage 8: every Stage 8 class that has a `List` instance.
+//
+// `Eq<a> => Eq<List<a>>` is contextual and threads the element dictionary;
+// `Semigroup<List<a>>` is not, because concatenation never looks at an
+// element. `Functor`/`Applicative`/`Monad` are over `List` as a type
+// constructor.
+//
+// Expected: true false [1, 2, 3] [2, 4] [7] [1, 1, 2, 2] []
+import Flow.Monad
+import Flow.Monoid
+
+fn main() {
+    print(eq([1, 2], [1, 2]))
+    print(eq([1, 2], [1]))
+    print(append([1], [2, 3]))
+    print(fmap([1, 2], fn(x) { x * 2 }))
+    let p: List<Int> = pure(7)
+    print(p)
+    print(bind([1, 2], fn(x) { [x, x] }))
+    let e: List<Int> = mempty()
+    print(e)
+}

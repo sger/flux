@@ -1,0 +1,25 @@
+// Proposal 0179 Stage 8: every Stage 8 class that has an `Option` instance,
+// exercised on `Option` alone.
+//
+// `Eq` and `Semigroup` over `Option` are contextual — `Eq<a> => Eq<Option<a>>`
+// — so they need the element's dictionary threaded through, while `Functor`,
+// `Applicative` and `Monad` are over `Option` as a type constructor and take
+// no element evidence at all. Both shapes in one file.
+//
+// Expected: true false Some("ab") None Some(4) Some(7) Some(20)
+
+import Flow.Monad
+
+fn main() {
+    print(eq(Some(1), Some(1)))
+    print(eq(Some(1), None))
+    print(append(Some("a"), Some("b")))
+
+    let n: Option<String> = None
+    print(append(n, None))
+
+    print(fmap(Some(3), fn(x) { x + 1 }))
+    let p: Option<Int> = pure(7)
+    print(p)
+    print(bind(Some(2), fn(x) { Some(x * 10) }))
+}

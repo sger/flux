@@ -26,6 +26,8 @@ impl<'a> InferCtx<'a> {
         let mut row_var_env: HashMap<Identifier, TypeVarId> = HashMap::new();
         self.emit_declared_type_param_constraints(input.type_params, &tp_map);
         let skolem_ids = self.mark_signature_skolems(input.type_params, &tp_map);
+        // The body needs these too: a `let` annotation may name one of them.
+        self.signature_type_params.push(tp_map.clone());
 
         self.env.enter_scope();
 
@@ -63,6 +65,7 @@ impl<'a> InferCtx<'a> {
         }
 
         self.unmark_skolems(&skolem_ids);
+        self.signature_type_params.pop();
 
         self.finalize_and_bind_function_scheme(
             input.name,
@@ -235,6 +238,21 @@ impl<'a> InferCtx<'a> {
             .filter(|def| def.name == short_name)
             .collect();
         if matches.len() < 2 {
+            return false;
+        }
+        // A class declared in the module being compiled wins over one merely
+        // in scope — the precedence `resolve_class_id` already applies, and
+        // the constraint below resolves through it. Since Proposal 0179
+        // Stage 8 the prelude contributes `Eq`, `Ord`, `Num`, `Show` and
+        // `Semigroup` to every module, so without this any program declaring
+        // a class of one of those names is ambiguous by construction and
+        // cannot name its own class in a bound.
+        if matches
+            .iter()
+            .filter(|def| def.module == self.current_module)
+            .count()
+            == 1
+        {
             return false;
         }
 
