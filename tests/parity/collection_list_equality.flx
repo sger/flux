@@ -1,0 +1,16 @@
+// parity: vm, llvm
+// expect: success
+// bug: `==` on a cons list trapped on the VM with "unsupported comparison: List
+// and List" while the native runtime compared it structurally as an ADT
+
+fn main() with IO {
+    print([1, 2] == [1, 2])
+    print([1, 2] == [1, 3])
+    print([1, 2] == [1])
+    print([1, 2] != [1, 3])
+    print([[1], [2]] == [[1], [2]])
+    print([[1], [2]] == [[1], [3]])
+    print(["a"] == ["a"])
+    print(Some([1]) == Some([1]))
+    print(([1], 2) == ([1], 2))
+}
