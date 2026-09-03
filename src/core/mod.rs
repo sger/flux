@@ -2139,6 +2139,14 @@ pub struct CoreDef {
     pub borrow_signature: Option<crate::aether::borrow_infer::BorrowSignature>,
     /// HM-inferred result type for this definition, if available.
     pub result_ty: Option<CoreType>,
+    /// HM-inferred types of the `let` binders inside this definition's body.
+    ///
+    /// Core has no type annotation node and `CoreBinder` carries only a
+    /// representation, so a `let`'s type would otherwise be lost at lowering.
+    /// Dictionary elaboration needs it: the type a binding is required to have
+    /// is what says which of two dictionaries for one class a call on its
+    /// right-hand side means (Proposal 0179 Stage 4).
+    pub binder_types: std::collections::HashMap<CoreBinderId, CoreType>,
     pub is_anonymous: bool,
     pub is_recursive: bool,
     /// FBIP annotation from source: `@fip` or `@fbip` (Perceus Section 2.6).
@@ -2321,6 +2329,7 @@ impl CoreDef {
             is_dict_def: false,
             borrow_signature: None,
             result_ty: None,
+            binder_types: std::collections::HashMap::new(),
             is_anonymous,
             is_recursive,
             fip: None,

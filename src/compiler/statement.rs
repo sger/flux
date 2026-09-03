@@ -1815,7 +1815,7 @@ impl Compiler {
         let mut found = Vec::new();
         crate::ast::visit::Visitor::visit_block(&mut CallCollector { calls: &mut found }, body);
 
-        for (name, arguments, span) in found {
+        for (name, arguments, call_id, span) in found {
             let Some((declaring_class, occurrences)) = candidates.get(&name) else {
                 continue;
             };
@@ -1835,11 +1835,26 @@ impl Compiler {
             // Reached only for a class this function is constrained on more
             // than once, so a singly-constrained result-dispatched call —
             // `Flow.Json`'s `decode`, `mempty`, `pure` — is unaffected.
+            let results = self
+                .class_env
+                .result_positions(*declaring_class, name)
+                .unwrap_or_default();
             let observed: Vec<Option<InferType>> = positions
                 .iter()
-                .map(|position| {
-                    let argument = arguments.get((*position)?)?;
-                    self.hm_expr_types.get(&argument.expr_id()).cloned()
+                .enumerate()
+                .map(|(slot, position)| match position {
+                    Some(index) => {
+                        let argument = arguments.get(*index)?;
+                        self.hm_expr_types.get(&argument.expr_id()).cloned()
+                    }
+                    // The class parameter is the method's return type, so what
+                    // fixes it is the type this call's result is required to
+                    // have. Selection reads the same position, so a call it can
+                    // resolve must not be reported here.
+                    None if results.get(slot).copied().unwrap_or(false) => {
+                        self.hm_expr_types.get(&call_id).cloned()
+                    }
+                    None => None,
                 })
                 .collect();
             let indexed: Vec<(usize, Vec<InferType>)> =
@@ -3354,7 +3369,12 @@ fn block_needs_top_level_frame(block: &Block) -> bool {
 /// destructures every expression variant exhaustively, so a new one is a
 /// compile error here rather than a call this check silently stops seeing.
 struct CallCollector<'a, 'ast> {
-    calls: &'a mut Vec<(crate::syntax::Identifier, &'ast [Expression], Span)>,
+    calls: &'a mut Vec<(
+        crate::syntax::Identifier,
+        &'ast [Expression],
+        crate::syntax::expression::ExprId,
+        Span,
+    )>,
 }
 
 impl<'ast> crate::ast::visit::Visitor<'ast> for CallCollector<'_, 'ast> {
@@ -3362,12 +3382,12 @@ impl<'ast> crate::ast::visit::Visitor<'ast> for CallCollector<'_, 'ast> {
         if let Expression::Call {
             function,
             arguments,
+            id,
             span,
-            ..
         } = expr
             && let Expression::Identifier { name, .. } = function.as_ref()
         {
-            self.calls.push((*name, arguments.as_slice(), *span));
+            self.calls.push((*name, arguments.as_slice(), *id, *span));
         }
         crate::ast::visit::walk_expr(self, expr);
     }
