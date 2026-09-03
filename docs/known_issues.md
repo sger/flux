@@ -381,42 +381,6 @@ position. The checker does not see that the wildcards close the space.
 **Workaround:** nest the matches, or express the combination with
 `and_then_result` / `map_result`.
 
-### KI-015 — A class whose variable appears only in the return position cannot dispatch
-
-**Severity:** Medium · **Area:** Type classes / dispatch · **Verified:** 2026-08-23
-
-Dispatch selects an instance from the *first argument's* type. A class whose
-type variable appears only in the return position therefore resolves against the
-parameter type and fails:
-
-```flux
-class Parse<a> { fn from_text(text: String) -> Result<a, String> }
-instance Parse<Int> { fn from_text(text) { Ok(len(text)) } }
-
-fn read_int(t: String) -> Result<Int, String> { from_text(t) }
-// error[E444]: No instance for `Parse<String>`   ← the parameter type, not `Int`
-```
-
-`Flow.Json`'s `Decode` works only because `try_resolve_class_call` special-cases
-it by name (`src/core/lower_ast/mod.rs`), selecting from the inferred result
-type. A general return-type-directed rule would subsume that special case.
-
-**Workaround:** give the class an argument mentioning the type variable, or
-reify it as a value — `Flume.Manifest` uses a `Reader<a>` record, which also
-composes further than an instance head can (`array_of(element: Reader<a>) ->
-Reader<List<a>>` needs no higher-kinded types).
-
-Since [KI-058](#ki-058) a `let` annotation *can* supply the expected type, so
-the input a return-type-directed rule would read is now available at the call
-site — `let n: Result<Int, String> = from_text(t)` states the instance wanted.
-Nothing consumes it yet: `ClassEnv::dispatch_positions` searches a method's
-value parameters only, and every codegen consumer of `class_param_bindings`
-discards a binding still holding a type variable. Closing this and the
-report-rather-than-resolve half of Proposal 0179 Stage 4 are the same piece of
-work.
-
----
-
 ### KI-035 — `Flow.Http` has no TLS, so no HTTPS host is reachable
 
 **Severity:** High · **Area:** `Flow.Http`, runtime · **Verified:** 2026-08-25 · **From:** [0177](proposals/implemented/0177_package_manager.md) Phase 2 fetching
@@ -2414,3 +2378,51 @@ remain true of any future attempt:
   ([class_predicate.rs](../src/types/class_predicate.rs)) does match against the
   result type, but every codegen consumer discards a binding that is still a
   type variable — which a rigid parameter always is.
+
+---
+
+### KI-015 — A class whose variable appears only in the return position cannot dispatch — FIXED
+
+**Severity:** Medium · **Area:** Type classes / dispatch · **Verified fixed:** 2026-09-02 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+Dispatch used to select an instance from the *first argument's* type, so a class
+whose type variable appeared only in the return position resolved against the
+parameter type and failed:
+
+```flux
+class Parse<a> { fn from_text(text: String) -> Result<a, String> }
+instance Parse<Int> { fn from_text(text) { Ok(len(text)) } }
+
+fn read_int(t: String) -> Result<Int, String> { from_text(t) }
+// error[E444]: No instance for `Parse<String>`   ← the parameter type, not `Int`
+```
+
+**Fixed by Proposal 0179 Stage 4**, which was never recorded here. A class-method
+call now derives its predicate from the positions the *class declaration* puts
+its parameters in, reading each from whichever argument — or from the result —
+actually carries it (`class_param_bindings`,
+[class_predicate.rs](../src/types/class_predicate.rs); `try_resolve_class_call`,
+[lower_ast/mod.rs](../src/core/lower_ast/mod.rs)). That subsumed and removed the
+hardcoded `Decode.decode` special case this entry described, so the general rule
+it asked for is the rule in force.
+
+Verified 2026-09-02 on both backends: the repro above prints `4`; two instances
+distinguished only by the expected result select correctly through a return type
+*and* through a `let` annotation; and a polymorphic forwarder
+`fn read_any<a: Parse>(t: String) -> Result<a, String>` resolves at its call
+site. `examples/type_classes/result_directed_resolution.flx` locks the shape.
+
+[KI-058](#ki-058) later extended the annotation channel to an annotation naming
+the enclosing signature's own rigid parameter, which had converted to a nominal
+type of the same name.
+
+**One shape remains unresolvable, and is reported rather than guessed.** A
+function constrained twice on one class, whose method is distinguished only by
+its result, cannot say which of its two dictionaries it means — selection reads
+argument types, and neither backend has the call's expected type. That is
+`E485`, covered by
+`examples/compiler_errors/result_directed_ambiguity_e485.flx`. The workaround
+this entry recorded still applies there: reify the choice as a value, as
+`Flume.Manifest` does with a `Reader<a>` record, which also composes further
+than an instance head can (`array_of(element: Reader<a>) -> Reader<List<a>>`
+needs no higher-kinded types).
