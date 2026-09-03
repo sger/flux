@@ -1,8 +1,5 @@
 // expect: compile_error
 // expect-error: E440
-// NOTE: `collect_class_declarations` routes E440 into the warning half of its
-// partition (src/compiler/mod.rs); a later stage still rejects the program, so
-// `flux` reports E440 and exits 1. The snapshot harness stops before that stage.
 
 // Defining the same type class twice.
 //
