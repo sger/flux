@@ -2735,6 +2735,60 @@ impl ClassEnv {
         actual_type_args: &[InferType],
         interner: &Interner,
     ) -> Option<ResolvedDictionaryRef> {
+        let mut path = Vec::new();
+        self.resolve_dictionary_ref_guarded(class_id, actual_type_args, interner, &mut path)
+    }
+
+    /// The recursive half of [`resolve_dictionary_ref_by_id`], carrying the
+    /// chain of `(class, type arguments)` pairs already being resolved.
+    ///
+    /// Instance contexts can recurse without end in two ways, and neither the
+    /// class collector nor the solver rejects them, so this is the only place
+    /// they can be stopped. `instance Foo<List<a>> => Foo<a>` grows its
+    /// argument at every step and so never repeats a pair; a pair of instances
+    /// `A<a> => B<a>` and `B<a> => A<a>` repeats immediately. `path` catches
+    /// the second, [`MAX_DICTIONARY_RESOLUTION_DEPTH`] the first. Both
+    /// previously overflowed the compiler's stack.
+    ///
+    /// Returning `None` means the same thing it means for a missing instance:
+    /// no dictionary could be built. The caller reports that, rather than
+    /// aborting the process.
+    fn resolve_dictionary_ref_guarded(
+        &self,
+        class_id: ClassId,
+        actual_type_args: &[InferType],
+        interner: &Interner,
+        path: &mut Vec<(ClassId, String)>,
+    ) -> Option<ResolvedDictionaryRef> {
+        if path.len() >= MAX_DICTIONARY_RESOLUTION_DEPTH {
+            return None;
+        }
+        let key = (
+            class_id,
+            actual_type_args
+                .iter()
+                .map(|arg| arg.to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+        if path.contains(&key) {
+            return None;
+        }
+        path.push(key);
+        let resolved = self.resolve_dictionary_ref_step(class_id, actual_type_args, interner, path);
+        path.pop();
+        resolved
+    }
+
+    /// One step of dictionary resolution: find the instance, name its
+    /// dictionary, and resolve the context it needs.
+    fn resolve_dictionary_ref_step(
+        &self,
+        class_id: ClassId,
+        actual_type_args: &[InferType],
+        interner: &Interner,
+        path: &mut Vec<(ClassId, String)>,
+    ) -> Option<ResolvedDictionaryRef> {
         let (instance, subst) =
             self.resolve_instance_with_subst_by_id(class_id, actual_type_args, interner)?;
         let type_name = instance
@@ -2760,7 +2814,7 @@ impl ClassEnv {
                     .get(index)
                     .copied()
                     .or_else(|| self.unique_class_id(constraint.class_name))?;
-                self.resolve_dictionary_ref_by_id(context_id, &concrete_args, interner)
+                self.resolve_dictionary_ref_guarded(context_id, &concrete_args, interner, path)
             })
             .collect::<Option<Vec<_>>>()?;
 
@@ -3209,6 +3263,19 @@ pub fn is_dictionary_name(name: &str) -> bool {
 }
 
 const DICTIONARY_PREFIX: &str = "__dict_";
+
+/// How deep instance-context recursion may go before the compiler gives up.
+///
+/// A context that grows its type argument at every step —
+/// `instance Foo<List<a>> => Foo<a>` — never repeats a `(class, arguments)`
+/// pair, so a path check cannot stop it and only a budget can. 64 matches the
+/// reduction fuel the associated-type normalizer uses, and is far above any
+/// hand-written hierarchy: the deepest chain in `lib/Flow` is three.
+///
+/// Both halves of the class machinery honour it: dictionary construction in
+/// [`ClassEnv::resolve_dictionary_ref_guarded`], and the solver's evidence
+/// search in `class_solver::solve_instance_evidence`.
+pub(crate) const MAX_DICTIONARY_RESOLUTION_DEPTH: usize = 64;
 
 /// Render a class identity for generated symbols. Legacy top-level classes
 /// retain their historical spelling; module-owned classes include an
