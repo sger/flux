@@ -516,38 +516,6 @@ impl ClassEnv {
         )
     }
 
-    /// Whether `method`'s signature mentions every one of its class's type
-    /// parameters at all — in a value parameter or in the return type.
-    ///
-    /// A method that mentions none of them, `fn mk(tag: Int) -> Int` on
-    /// `class Mk<a>`, is *undispatchable*: nothing anywhere in a call to it can
-    /// name the instance it wants. That is worth separating from a method whose
-    /// parameter appears only in the return type, like `decode`, which is
-    /// dispatched perfectly well by where its result flows — just not by
-    /// anything this stage reads.
-    pub fn method_mentions_class_parameters(
-        &self,
-        id: ClassId,
-        method: Identifier,
-    ) -> Option<bool> {
-        let class_def = self.lookup_class_by_id(id)?;
-        let method_sig = class_def.methods.iter().find(|m| m.name == method)?;
-        let mut mentioned = Vec::new();
-        for ty in method_sig
-            .param_types
-            .iter()
-            .chain(std::iter::once(&method_sig.return_type))
-        {
-            Self::collect_type_names(ty, &mut mentioned);
-        }
-        Some(
-            class_def
-                .type_params
-                .iter()
-                .all(|param| mentioned.contains(param)),
-        )
-    }
-
     /// The slot holding `method`'s implementation in a dictionary for `id`.
     pub fn method_slot(&self, id: ClassId, method: Identifier) -> Option<usize> {
         let class_def = self.lookup_class_by_id(id)?;
