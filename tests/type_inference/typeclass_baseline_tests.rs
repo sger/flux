@@ -158,6 +158,7 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "module_member_shadows_stub.flx",
         "let_annotation_rigid_param.flx",
         "result_directed_two_dictionaries.flx",
+        "syntax_tour.flx",
     ];
     for fixture in fixtures {
         let source = std::fs::read_to_string(fixture_path(fixture)).expect("read fixture");
