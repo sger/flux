@@ -2522,3 +2522,103 @@ fn plus<a>(x: a, y: a) -> a {
         result.diagnostics
     );
 }
+
+// ── Constructor patterns are checked against the scrutinee (KI-072) ──
+
+#[test]
+fn infer_constructor_pattern_from_another_adt_emits_e300() {
+    let source = r#"
+data Colour { Red, Green }
+data Shape { Circle(Int), Square }
+
+fn classify(c: Colour) -> Bool {
+    match c { Square -> true, _ -> false }
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for a `Shape` constructor matched against `Colour`, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+/// The catch-all arm is what used to suppress this: every arm was bound
+/// against a fresh variable, which unifies with anything.
+#[test]
+fn infer_constructor_pattern_carrying_fields_from_another_adt_emits_e300() {
+    let source = r#"
+data Colour { Red, Green }
+data Shape { Circle(Int), Square }
+
+fn size_of(c: Colour) -> Int {
+    match c { Circle(n) -> n, _ -> 0 }
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for a `Shape` constructor matched against `Colour`, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_constructor_pattern_against_primitive_scrutinee_emits_e300() {
+    let source = r#"
+data Colour { Red, Green }
+
+fn classify(n: Int) -> Bool {
+    match n { Red -> true, _ -> false }
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for an ADT constructor matched against `Int`, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_matching_constructor_pattern_with_catch_all_is_accepted() {
+    let source = r#"
+data Colour { Red, Green, Blue }
+
+fn classify(c: Colour) -> Int {
+    match c { Red -> 1, _ -> 0 }
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_code(&result, "E300"),
+        "a constructor of the scrutinee's own type must not report, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+/// The behaviour arm isolation exists to protect: the built-in families are
+/// structural, so mixing them must not make one arm constrain another through
+/// the shared scrutinee slot.
+#[test]
+fn infer_builtin_family_patterns_with_catch_all_are_accepted() {
+    let source = r#"
+fn from_option(o: Option<Int>) -> Int {
+    match o { Some(v) -> v, _ -> 0 }
+}
+
+fn from_either(e: Either<Int, String>) -> Int {
+    match e { Left(v) -> v, _ -> 0 }
+}
+
+fn from_list(xs: List<Int>) -> Int {
+    match xs { [h | _] -> h, _ -> 0 }
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_code(&result, "E300"),
+        "built-in family patterns must still be accepted, got: {:#?}",
+        result.diagnostics
+    );
+}
