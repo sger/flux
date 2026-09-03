@@ -3482,14 +3482,15 @@ impl Compiler {
         // E453 (sealed-instance violation) and the Proposal 0179 Stage 1 kind
         // codes are hard errors.
         //
-        // E440/E441/E442 are `Severity::Error` diagnostics that are still
-        // routed here as warnings, so `duplicate_class.flx`,
-        // `instance_unknown_class.flx` and `instance_missing_method.flx`
-        // declare `expect: compile_error` but currently compile and exit 0.
-        // Promoting them is a real fix but reaches beyond Stage 1: a user
-        // class that shadows a built-in (`class Eq<a>` with only `eq`) then
-        // fails both E440 and E442, which several tests and examples rely on.
-        // It belongs with the built-in-shadowing work behind `is_builtin`.
+        // E440/E441/E442 are not in that set and are still routed here as
+        // warnings, but they no longer escape: `duplicate_class.flx`,
+        // `instance_unknown_class.flx` and `instance_missing_method.flx` all
+        // report their code and exit 1 (verified 2026-09-02), reaching the
+        // user through another path rather than this partition. Promoting
+        // them here was once blocked on built-in shadowing — a user
+        // `class Eq<a>` declaring only `eq` failed both E440 and E442 against
+        // the Rust-registered built-in — which Stage 8 removed by moving the
+        // standard classes into `lib/Flow/*.flx`.
         //
         // Proposal 0179 Stage 5 adds E445 (missing superclass instance) and
         // E477 (superclass cycle). Neither is caught by the built-in-shadowing
