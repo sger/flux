@@ -2233,6 +2233,32 @@ impl CoreExpr {
         }
     }
 
+    /// The expression yielding the dictionary `dict_ref` names.
+    ///
+    /// A plain instance is its `__dict_*` global. A contextual one is that
+    /// global applied to the dictionaries its context needs, each built the
+    /// same way — `__dict_Eq_List(__dict_Eq_Int)`.
+    ///
+    /// Shared so that AST-to-Core lowering and dictionary elaboration cannot
+    /// disagree about the shape of an evidence expression.
+    pub fn dictionary_ref(
+        dict_ref: &crate::types::class_env::ResolvedDictionaryRef,
+        span: Span,
+    ) -> CoreExpr {
+        if dict_ref.context_args.is_empty() {
+            return CoreExpr::external_var(dict_ref.dict_name, span);
+        }
+        CoreExpr::App {
+            func: Box::new(CoreExpr::external_var(dict_ref.dict_name, span)),
+            args: dict_ref
+                .context_args
+                .iter()
+                .map(|arg| CoreExpr::dictionary_ref(arg, span))
+                .collect(),
+            span,
+        }
+    }
+
     pub fn span(&self) -> Span {
         match self {
             CoreExpr::Var { span, .. } | CoreExpr::Lit(_, span) => *span,
