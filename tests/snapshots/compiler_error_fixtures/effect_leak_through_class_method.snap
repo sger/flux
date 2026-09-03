@@ -1,0 +1,37 @@
+---
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/effect_leak_through_class_method.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E400]: Missing Ambient Effect
+
+Call to `flash` requires effect `Console` in this function signature.
+
+  examples/compiler_errors/effect_leak_through_class_method.flx:36:5
+   |
+36 |     flash(x)
+   |     ^^^^^
+   |     ----- effectful call occurs here
+
+Hint:
+  Add `with Console` to the enclosing function.
+
+
+error[E400]: Missing Ambient Effect
+
+Call to `helper` requires effect `Console` in this function signature.
+
+  examples/compiler_errors/effect_leak_through_class_method.flx:40:5
+   |
+40 |     helper(x)
+   |     ^^^^^^
+   |     ------ effectful call occurs here
+
+Hint:
+  Add `with Console` to the enclosing function.
+
+Found 2 errors.
+== stdout ==
+<not executed>
