@@ -498,6 +498,43 @@ the lambda path has no known consumer waiting on it.
 
 ## Resolved
 
+### KI-072 — A constructor pattern is never checked against the scrutinee's type — FIXED 2026-09-03
+
+**Severity:** High · **Area:** Type inference / pattern matching · **Verified fixed:** 2026-09-03 · **From:** Flume typeclass conversion
+
+A `match` arm could name a constructor belonging to a completely unrelated type.
+It compiled clean and fell through to the wildcard.
+
+```flux
+data Colour { Red, Green }
+data Shape  { Circle(Int), Square }
+
+fn a(c: Colour) -> Int { match c { Circle(n) -> n, _ -> 0 } }   // compiled, returned 0
+```
+
+**The catch-all arm was the trigger.** Without one the mismatch was reported
+correctly as `E300`; adding `_` silenced it. `should_isolate_match_arm_scrutinees`
+([control_flow.rs](../src/ast/type_infer/expression/control_flow.rs)) binds each
+arm against a *fresh* scrutinee variable when a match mixes pattern families, so
+that structural constructors like `Some` and `Left` do not constrain one another
+through the shared slot. A fresh variable unifies with anything, so an isolated
+arm cannot report a mismatch.
+
+The branch taken when no catch-all is present already excluded this case, keeping
+the shared scrutinee when every constraining arm is an ADT family. The branch
+taken when a catch-all *is* present was missing that rule. Both branches now
+share it: isolation is limited to the built-in families it was introduced for,
+and an ADT constructor — which names exactly one declaration — always keeps the
+shared scrutinee and reports.
+
+Regression coverage: `infer_constructor_pattern_*` in
+[type_inference_tests.rs](../tests/type_inference/type_inference_tests.rs) and
+[`examples/compiler_errors/constructor_pattern_wrong_adt_e300.flx`](../examples/compiler_errors/constructor_pattern_wrong_adt_e300.flx).
+
+**Follow-up not taken here:** the diagnostic underlines the whole `match` rather
+than the offending arm, because the scrutinee unification is reported at the
+match's span. Worth narrowing to the pattern's own span.
+
 ### KI-005 — `Flow.Fs` is async-aware — FIXED 2026-08-26
 
 `Flow.Fs` now routes reads, predicates, mutations, directory listing, and
@@ -2415,38 +2452,20 @@ The two backends do not agree: the VM produces the wrong answer, and **the
 native backend terminates with SIGSEGV**. So this is a parity break and a
 memory-safety failure, not only a scoping defect.
 
-The failure is silent because a constructor pattern is never checked against the
-scrutinee's type — see [KI-072](#ki-072), which is what turns the capture into a
-wrong answer rather than a type error.
+**The capture happens after type checking**, which is why nothing reports it.
+Inference resolves the bare `compare` to the module's own function and types the
+scrutinee as `Ordering`, so the arms check out; the rebinding to the class
+dispatch stub is introduced during lowering, when the `Int` it actually returns
+is no longer checked against anything. Re-verified 2026-09-03 against the fix for
+[KI-072](#ki-072): that check now reports a constructor pattern from the wrong
+type, including inside a `module` block, and this program is still silent —
+confirming the defect is in lowering, not inference.
 
 **Workaround:** qualify the call (`M.compare(a, b)`), or route internal callers
 to a differently named private helper. Qualified calls are unaffected.
 
 Found by adding `Eq`/`Ord` instances to `Flume.Resolve.Version`, which turned 21
 of its 60 tests red.
-
-### KI-072 — A constructor pattern is never checked against the scrutinee's type
-
-**Severity:** High · **Area:** Type inference / pattern matching · **Verified:** 2026-09-03 · **From:** Flume typeclass conversion
-
-A `match` arm may name a constructor belonging to a completely unrelated type.
-It compiles clean and falls through to the wildcard.
-
-```flux
-data Colour { Red, Green }
-data Shape  { Circle(Int), Square }
-
-fn a(c: Colour) -> Int { match c { Circle(n) -> n, _ -> 0 } }   // compiles, returns 0
-```
-
-Verified across nullary and arity-bearing constructors, and with `Int`, `String`
-and `Bool` scrutinees — every combination compiles and silently takes the
-wildcard branch.
-
-**This has nothing to do with type classes** and predates Proposal 0179; it was
-found while investigating [KI-071](#ki-071), whose silence it explains. Any
-mistyped or misremembered constructor name degrades to a wrong answer instead of
-a diagnostic, which makes it the most consequential entry currently open.
 
 ### KI-073 — Result-directed selection is lost on native when routed through a constrained function
 
