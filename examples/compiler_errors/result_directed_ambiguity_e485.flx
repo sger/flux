@@ -1,0 +1,39 @@
+// expect: compile_error
+// expect-error: E485
+// Expected: E485 Ambiguous Dictionary Selection
+//   "This call to `make` does not say which `Make` instance it needs."
+//   Hint: "Annotate the call, or pass a value whose type names the instance,
+//          so one constraint is chosen."
+//
+// Proposal 0179 Stage 4 / KI-058: `two` holds two `Make` dictionaries, and
+// `make` names its class parameter only in its return type. Selection reads
+// argument types, so neither backend can tell the two apart — Core's
+// `choose_candidate` takes the last candidate and the AST path projects out of
+// the unsuffixed `__dict_*`. Both used to return `"s"` from a function
+// declared to return `a` = `Int`.
+//
+// Reported rather than resolved: E485 is the same answer the argument-position
+// case gets (`ambiguous_dictionary_e485.flx`). A class constrained only once
+// is unaffected — `mempty`, `pure` and `Flow.Json`'s `decode` still dispatch on
+// their result.
+
+class Make<a> {
+    fn make(tag: Int) -> a
+}
+
+instance Make<Int> {
+    fn make(tag) { 7 }
+}
+
+instance Make<String> {
+    fn make(tag) { "s" }
+}
+
+fn two<a: Make, b: Make>(pa: a, pb: b) -> a {
+    let y: b = make(0)
+    make(0)
+}
+
+fn main() with IO {
+    print(two(1, "z"))
+}

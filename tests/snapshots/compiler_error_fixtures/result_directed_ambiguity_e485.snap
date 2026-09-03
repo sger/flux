@@ -1,0 +1,35 @@
+---
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/result_directed_ambiguity_e485.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E485]: Ambiguous Dictionary Selection
+
+This call to `make` does not say which `Make` instance it needs.
+
+  examples/compiler_errors/result_directed_ambiguity_e485.flx:33:16
+   |
+33 |     let y: b = make(0)
+   |                ^^^^^^^
+
+Hint:
+  Annotate the call, or pass a value whose type names the instance, so one constraint is chosen.
+
+
+error[E485]: Ambiguous Dictionary Selection
+
+This call to `make` does not say which `Make` instance it needs.
+
+  examples/compiler_errors/result_directed_ambiguity_e485.flx:34:5
+   |
+34 |     make(0)
+   |     ^^^^^^^
+
+Hint:
+  Annotate the call, or pass a value whose type names the instance, so one constraint is chosen.
+
+Found 2 errors.
+== stdout ==
+<not executed>
