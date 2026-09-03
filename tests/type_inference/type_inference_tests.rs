@@ -2285,6 +2285,68 @@ fn main() -> Unit {
     );
 }
 
+#[test]
+fn infer_let_annotation_naming_the_signatures_own_type_parameter_is_accepted() {
+    // KI-058: the annotation's `a` and the signature's `a` must be the same
+    // rigid variable. With an empty type-parameter map the annotation
+    // converted to a nominal type *named* `a` instead, so this reported E300
+    // against itself — and the rendered message showed `a` on both sides.
+    let source = r#"
+fn annotated<a>(x: a) -> a {
+    let y: a = x
+    y
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        result.diagnostics.is_empty(),
+        "annotating a let with the signature's own type parameter is correct, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_let_annotation_still_reports_a_genuine_mismatch_under_a_type_parameter() {
+    // The counterpart: carrying the signature's parameters must not make
+    // every annotation vacuous. `Int` and the rigid `a` are still distinct.
+    let source = r#"
+fn annotated<a>(x: a) -> a {
+    let y: Int = x
+    x
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300") || has_diagnostic_code(&result, "E305"),
+        "expected a mismatch for Int annotation vs rigid `a`, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_let_annotation_type_parameter_does_not_leak_into_a_sibling_function() {
+    // The parameters are held on a stack, so `a` is in scope only inside the
+    // function that declares it. In `plain`, `a` is an ordinary unknown type
+    // name, not `generic`'s rigid variable.
+    let source = r#"
+fn generic<a>(x: a) -> a {
+    let y: a = x
+    y
+}
+
+fn plain(n: Int) -> Int {
+    let z: a = n
+    n
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !result.diagnostics.is_empty(),
+        "`a` is not in scope in `plain`, so its annotation should not resolve: {:#?}",
+        result.diagnostics
+    );
+}
+
 // ── Return annotation enforcement (function.rs:check_return_annotation) ──
 
 #[test]

@@ -156,6 +156,7 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "array_instances.flx",
         "either_instances.flx",
         "module_member_shadows_stub.flx",
+        "let_annotation_rigid_param.flx",
     ];
     for fixture in fixtures {
         let source = std::fs::read_to_string(fixture_path(fixture)).expect("read fixture");
@@ -217,6 +218,7 @@ fn concrete_and_polymorphic_dictionary_calls_have_exact_runtime_arity() {
             "\"abc\"\n[1, 2, 3]\n[|1, 2|]\nSome(\"ab\")",
         ),
         ("mempty_result_dispatch.flx", "\"\"\n[]\n[|0|]\nNone\n0"),
+        ("let_annotation_rigid_param.flx", "5\n7\n\"s\""),
     ] {
         let output = run_fixture(fixture).unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(output.stdout, expected, "unexpected output for {fixture}");
