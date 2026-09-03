@@ -1759,9 +1759,26 @@ impl Compiler {
     /// select with, so a call this accepts is one they can resolve.
     fn report_ambiguous_dictionary_calls(
         &mut self,
+        function_name: Symbol,
         body: &Block,
         scheme_constraints: &[crate::ast::type_infer::constraint::SchemeConstraint],
     ) {
+        // A generated instance method's scheme constraints are not its
+        // dictionary parameters. `Flow.Json`'s `Decode<a> => Decode<List<a>>`
+        // method carries two `Decode` constraints but resolves through the one
+        // dictionary its context gave it, so counting constraints here would
+        // report it falsely.
+        //
+        // A module qualifies its generated methods (`Flow.Json.__tc_…`), so
+        // test the last segment, as `emit_instance_method_aliases` does.
+        let bare_name = {
+            let full = self.sym(function_name);
+            full.rsplit_once('.').map_or(full, |(_, suffix)| suffix)
+        };
+        if crate::types::class_env::is_generated_instance_method(bare_name) {
+            return;
+        }
+
         // Only a class constrained more than once can be ambiguous.
         let mut per_class: HashMap<crate::types::class_id::ClassId, Vec<Vec<InferType>>> =
             HashMap::new();
@@ -1805,20 +1822,19 @@ impl Compiler {
             let Some(positions) = self.class_env.dispatch_positions(*declaring_class, name) else {
                 continue;
             };
-            // Nothing in argument position names the instance. If the class
-            // parameter still appears in the return type the call is dispatched
-            // on its result — `Flow.Json`'s `decode` is exactly that, and it
-            // resolves fine — so leave it to result-directed selection
-            // (KI-058). If it appears nowhere at all, no call site can ever
-            // say which instance it means, and that is what E485 reports.
-            if positions.iter().all(Option::is_none)
-                && self
-                    .class_env
-                    .method_mentions_class_parameters(*declaring_class, name)
-                    != Some(false)
-            {
-                continue;
-            }
+            // Nothing in argument position names the instance. This used to
+            // defer to result-directed selection whenever the class parameter
+            // still appeared in the return type, but no backend performs it:
+            // Core's `choose_candidate` takes `candidates.last()` and the AST
+            // path projects out of the unsuffixed `__dict_*`. With two
+            // dictionaries in scope that silently returns the wrong instance's
+            // value — a `String` from a function declared to return `Int`
+            // (KI-058). Reporting is the only sound answer while selection
+            // reads argument types only.
+            //
+            // Reached only for a class this function is constrained on more
+            // than once, so a singly-constrained result-dispatched call —
+            // `Flow.Json`'s `decode`, `mempty`, `pure` — is unaffected.
             let observed: Vec<Option<InferType>> = positions
                 .iter()
                 .map(|position| {
@@ -1949,7 +1965,7 @@ impl Compiler {
                 .unwrap_or_default();
         }
 
-        self.report_ambiguous_dictionary_calls(body, &scheme_constraints);
+        self.report_ambiguous_dictionary_calls(name, body, &scheme_constraints);
 
         // Dictionary elaboration changes the VM calling convention by placing
         // one hidden dictionary parameter in front of every runtime-bearing
