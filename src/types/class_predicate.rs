@@ -220,6 +220,31 @@ fn match_type(
                         .zip(actual_args)
                         .all(|(p, a)| match_type(p, a, vars, subst, interner))
             }
+            // The pattern applies fewer arguments than the actual type has:
+            // `f<a>` against `Either<String, Int>`. The head is then partially
+            // applied — `f` is `Either<String>` and `a` is the trailing
+            // argument. Without this the arity guards above reject the match,
+            // so a class whose parameter is higher-kinded could not be used
+            // over a two-parameter constructor at all.
+            InferType::App(tc, actual_args) if actual_args.len() > args.len() => {
+                let applied = actual_args.len() - args.len();
+                let head = InferType::HktApp(
+                    Box::new(InferType::Con(tc.clone())),
+                    actual_args[..applied].to_vec(),
+                );
+                let head_ok = match subst.get(name) {
+                    Some(bound) => *bound == head,
+                    None => {
+                        subst.insert(*name, head);
+                        true
+                    }
+                };
+                head_ok
+                    && args
+                        .iter()
+                        .zip(&actual_args[applied..])
+                        .all(|(p, a)| match_type(p, a, vars, subst, interner))
+            }
             _ => false,
         },
         TypeExpr::Named { name, args, .. } => match actual {

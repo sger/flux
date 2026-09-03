@@ -381,36 +381,6 @@ position. The checker does not see that the wildcards close the space.
 **Workaround:** nest the matches, or express the combination with
 `and_then_result` / `map_result`.
 
-### KI-015 — A class whose variable appears only in the return position cannot dispatch
-
-**Severity:** Medium · **Area:** Type classes / dispatch · **Verified:** 2026-08-23
-
-Dispatch selects an instance from the *first argument's* type. A class whose
-type variable appears only in the return position therefore resolves against the
-parameter type and fails:
-
-```flux
-class Parse<a> { fn from_text(text: String) -> Result<a, String> }
-instance Parse<Int> { fn from_text(text) { Ok(len(text)) } }
-
-fn read_int(t: String) -> Result<Int, String> { from_text(t) }
-// error[E444]: No instance for `Parse<String>`   ← the parameter type, not `Int`
-```
-
-`Flow.Json`'s `Decode` works only because `try_resolve_class_call` special-cases
-it by name (`src/core/lower_ast/mod.rs`), selecting from the inferred result
-type. A general return-type-directed rule would subsume that special case.
-
-**Workaround:** give the class an argument mentioning the type variable, or
-reify it as a value — `Flume.Manifest` uses a `Reader<a>` record, which also
-composes further than an instance head can (`array_of(element: Reader<a>) ->
-Reader<List<a>>` needs no higher-kinded types).
-
-Note that a `let` annotation cannot currently be used to supply the expected
-type either; see [KI-058](#ki-058).
-
----
-
 ### KI-035 — `Flow.Http` has no TLS, so no HTTPS host is reachable
 
 **Severity:** High · **Area:** `Flow.Http`, runtime · **Verified:** 2026-08-25 · **From:** [0177](proposals/implemented/0177_package_manager.md) Phase 2 fetching
@@ -498,118 +468,33 @@ exist — a misleading signal exactly when the cache is under suspicion.
 
 ---
 
-### KI-058 — A `let` annotation naming a rigid type parameter is rejected
+### KI-070 — A lambda's parameter or return annotation cannot name an enclosing rigid type parameter
 
-**Severity:** High · **Area:** Type inference, annotations · **Verified:** 2026-09-01
-
-Inside a generic function, annotating a `let` with the function's own type
-parameter fails, even when the annotation is trivially correct:
+**Severity:** Medium · **Area:** Type inference, annotations · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 ```flux
-class Root<a> { fn root(x: a) -> Int }
-instance Root<Int> { fn root(x) { x } }
-
-fn plain<a: Root>(x: a) -> Int {
-    root(x)                     // fine
-}
-
-fn annotated<a: Root>(x: a) -> Int {
-    let y: a = x                // error[E300]: Annotation Type Mismatch
-    root(y)                     // error[E444]: No Type Class Instance (cascade)
+fn outer<a>(x: a) -> a {
+    let f = \y: a -> y      // `a` here is a nominal type, not `outer`'s parameter
+    f(x)
 }
 ```
 
-```
-error[E300]: Annotation Type Mismatch
-14 |     let y: a = x
-   |                - this value has type `_`
-   |            - but `y` was annotated as `a`
-```
+The sibling of [KI-058](#ki-058), left open when that was fixed. `infer_lambda_expression`
+([lambda.rs](../src/ast/type_infer/expression/lambda.rs)) builds an explicitly
+empty `type_params` map and passes it to both `infer_and_bind_parameter_types`
+and `infer_return_type_with_optional_annotation`; `check_lambda_expression`
+([checked.rs](../src/ast/type_infer/expression/checked.rs)) does the same in
+check mode. So a lambda annotation naming `a` converts to
+`TypeConstructor::Adt("a")` rather than the enclosing signature's rigid
+variable, exactly as `let` annotations did.
 
-`x` has type `a` and `y` is annotated `a`, so there is nothing to mismatch. The
-two sides do not end up as the same type: the annotation's `a` and the
-signature's `a` are compared as different things. The E444 is a cascade — once
-`y`'s type is unrelated to the signature's `a`, the `Root` constraint no longer
-covers it.
+The fix is the one KI-058 used: read the top of
+`InferCtx::signature_type_params` instead of an empty map. It was scoped out
+deliberately rather than missed — the `let` path is what unblocked Stage 4, and
+the lambda path has no known consumer waiting on it.
 
-Note the diagnostic renders the value's type as `_`. Unresolved and rigid
-variables both display that way, so the message does not distinguish "not
-inferred yet" from "a rigid parameter that failed to match" — worth fixing
-alongside, since it is what makes this hard to read.
+---
 
-The same thing blocks result-directed dispatch outside return position. This
-resolves, because the return type drives it:
-
-```flux
-fn one<a: Make>(pa: a) -> a { make(0) }        // ok
-fn one<a: Make>(pa: a) -> a { let x: a = make(0)  x }   // error[E444]
-```
-
-**Consequence beyond the annotation itself.** A function has exactly one return
-position, so with `let` annotations unusable a body can contain at most one
-result-directed class-method call. Any design that assumes two — such as a
-function holding two dictionaries for one class distinguished only by result
-type — describes a program that cannot currently be written.
-
-**Workaround:** drop the annotation, or extract the value through a helper
-function whose return type carries it.
-
-**Cause — confirmed.** `infer_let_binding`
-([statement.rs](../src/ast/type_infer/statement.rs)) converts the annotation
-with an empty type-parameter map:
-
-```rust
-TypeEnv::convert_type_expr_rec(ann, &HashMap::new(), ...)
-```
-
-The return-annotation path threads the real map instead
-(`infer_type_from_annotation` in `src/ast/type_infer/function.rs`). The
-signature's parameters are recoverable on the spot without new plumbing:
-`mark_signature_skolems` records them in `InferCtx::skolem_names` for exactly
-this scope and drops them on the way out, so inverting that map supplies what
-the conversion needs. A prototype of this one-line change compiled every
-reproduction above and left the inference suites green (104, 51 and 33 tests).
-
-**Do not fix this in isolation.** The prototype also made a latent soundness bug
-reachable, because the programs it unblocks are precisely the ones dictionary
-selection cannot handle:
-
-```flux
-class Make<a> { fn make(tag: Int) -> a }
-instance Make<Int>    { fn make(tag) { 7 } }
-instance Make<String> { fn make(tag) { "s" } }
-
-fn two<a: Make, b: Make>(pa: a, pb: b) -> a {
-    let y: b = make(0)
-    make(0)
-}
-
-print(two(1, "z"))   // expect 7 — prints "s"
-```
-
-A `String` returned from a function whose return type is `Int`. Both calls
-collapse onto the second dictionary — [KI-057](#ki-057) in *result* position,
-where the argument-type rule that fixed KI-057 is blind. E485 does not catch it
-either: `make` mentions its class parameter in the return type, which that check
-deliberately exempts. So closing this issue requires closing result-directed
-dictionary selection at the same time, or a diagnostic that rejects these
-programs rather than miscompiling them.
-
-**Notes from an abandoned attempt at the selection half**, recorded so they are
-not re-derived:
-
-- `apply_hm_final` in `src/compiler/mod.rs` is **not** the funnel for inference
-  results. Instrumenting it shows it fires only for the `lib/Flow/*.flx`
-  modules; an entry file's result reaches the compiler by some other route.
-  Anything that tries to hand per-call inference data to lowering must find that
-  route first.
-- `CoreExpr` carries no expression id and adding one is impractical —
-  `CoreExpr::App` alone has ~155 construction sites. Spans survive lowering and
-  are the only per-node key available, but that was never validated end to end.
-- Scheme constraints are not dictionary parameters. `Flow.Json`'s
-  `Decode<a> => Decode<List<a>>` instance method has two `Decode` scheme
-  constraints but resolves through a single dictionary, so any check that counts
-  the former will report it falsely.
 
 ## Resolved
 
@@ -1383,7 +1268,7 @@ required before semver-incompatible duplicate versions can be supported safely.
 
 ### KI-050 — Same-class contextual instances dispatch the element to themselves — FIXED 2026-08-30
 
-**Severity:** High · **Area:** type classes, dictionary dispatch · **Verified:** 2026-08-30 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** type classes, dictionary dispatch · **Verified:** 2026-08-30 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 When an instance context names the *same* class as its head — the
 `instance Encode<a> => Encode<Option<a>>` shape used throughout
@@ -1450,7 +1335,7 @@ fixture in [KI-051](#ki-051).
 
 ### KI-051 — Cross-module contextual instances — FIXED 2026-08-31
 
-**Severity:** High · **Area:** type classes, module linking, native backend · **Verified:** 2026-08-31 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** type classes, module linking, native backend · **Verified:** 2026-08-31 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 ```flux
 import Flow.Json as Json
@@ -1554,7 +1439,7 @@ covers this path.
 
 ### KI-052 — A generic wrapper over a contextual instance loses its dictionary — FIXED 2026-08-31
 
-**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-08-30 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-08-30 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 Calling a contextual instance directly works, but forwarding to it through a
 generic function fails at runtime:
@@ -1618,7 +1503,7 @@ answer.
 
 ### KI-053 — `--dump-core` and the other whole-program dumps report types from the wrong module
 
-**Severity:** Medium · **Area:** driver, diagnostics tooling · **Verified:** 2026-08-31 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** Medium · **Area:** driver, diagnostics tooling · **Verified:** 2026-08-31 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 Every dump flag that needs a whole-program view — `--dump-core`, `--dump-aether`,
 `--dump-cfg`, `--dump-lir`, `--emit-llvm`, `--trace-aether` — concatenates the
@@ -1683,7 +1568,7 @@ also makes the output match what is actually compiled.
 
 ### KI-054 — An imported contextual instance method is declared one parameter short natively
 
-**Severity:** Low · **Area:** type classes, native backend · **Verified:** 2026-08-31 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** Low · **Area:** type classes, native backend · **Verified:** 2026-08-31 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 `build_public_class_method_scheme`
 ([`src/compiler/mod.rs`](../src/compiler/mod.rs)) rebuilds an imported instance
@@ -1715,7 +1600,7 @@ if a code path started honouring the field.
 
 ### KI-055 — Native builds emit an unreferenced forwarding copy of every module-owned class method
 
-**Severity:** Low · **Area:** type classes, native backend · **Verified:** 2026-09-01 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** Low · **Area:** type classes, native backend · **Verified:** 2026-09-01 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 A module-owned instance method is emitted twice: the real definition inside its
 module, and a file-scope bare-name forwarding alias
@@ -1792,7 +1677,7 @@ distinct stems to compile natively. The VM is unaffected.
 
 ### KI-057 — A method reachable from two dictionaries always uses the first — FIXED 2026-09-01
 
-**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-01 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-01 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 A function holding two dictionaries for the same class, over *different* type
 variables, dispatches every call to the first of them:
@@ -1873,11 +1758,11 @@ AST path in `compiler/expression.rs` — and it resolves through a single
 
 ---
 
-### KI-059 — `deriving` on a parameterized ADT produces a dictionary nothing defines
+### KI-059 — `deriving` on a parameterized ADT produced a dictionary nothing defines — fixed 2026-09-02
 
-**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-01 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
-A `deriving` clause on a data declaration that takes type parameters compiles
+A `deriving` clause on a data declaration that takes type parameters compiled
 its methods but not the evidence that reaches them:
 
 ```flux
@@ -1888,56 +1773,832 @@ fn main() with IO {
 }                               //              `__dict_Eq_Box<a>`
 ```
 
-The monomorphic case works — `data Color { Red, Green, Blue } deriving (Eq)`
-is callable directly and through an `Eq`-constrained function, on both
-backends, and is pinned by `derived_eq.flx`. Only a parameterized head fails.
+**Cause.** Not the mangling, and not the two-pass disagreement the first
+diagnosis proposed. `builtin_method_body` generates `Eq`'s `eq` as
+`__x0 == __x1` for every head. On a parameterized head the operands have type
+`Box<a>`, so that operator desugars to an `Eq<Box<a>>` obligation — the
+instance's *own* dictionary. A parameterized head derives a contextual instance
+(`Eq<a> => Eq<Box<a>>`) whose dictionary is a constructor rather than a value,
+so the reference resolved to nothing. The monomorphic case survived only
+because a context-free dictionary is a plain tuple that does exist, which is
+why `data Color { Red, Green } deriving (Eq)` always worked.
 
-**This is not a naming problem.** The obvious reading is that the head renders
-its type *parameters* as literal text, giving `__dict_Eq_Box<a>` — but a
-hand-written instance for the same head works under those exact names:
+A hand-written contextual instance worked because its body destructures the ADT
+and compares *fields*, whose types are rigid parameters discharged by the
+context dictionary already in scope.
+
+**Fix.** `derived_structural_eq_body` in
+[class_dispatch.rs](../src/types/class_dispatch.rs) synthesizes that same body
+from the declaration's own variants — the generalization of
+`structural_container_eq_body`, which did this for `List<a>` and `Option<a>`
+through a table keyed by head name that no user type could enter. `neq` inlines
+the comparison rather than calling `eq(__x0, __x1)`, since that call is on the
+head type and reintroduces the same self-reference.
+
+Covered by `examples/type_classes/derived_parameterized_eq.flx`, which pins
+positional, nullary, named-field and nested (`Box<Box<Int>>`) variants, both
+by name and through an `Eq`-constrained function, on VM and native.
+
+**Carve-out — a head with more than one type parameter is now rejected.** Such
+a head carries one context constraint per parameter, so the generated body must
+choose between two dictionaries of the same class. `choose_candidate` in
+[dict_elaborate.rs](../src/core/passes/dict_elaborate.rs) makes that choice from
+the argument's recorded type, and the fields being compared are bound by a
+`case` pattern: only `Lam` records binder types, so a pattern binder carries
+none and every field resolves through the first dictionary. `deriving (Eq)` on
+`data Pair<a, b>` therefore compared the second field with `a`'s evidence.
+
+That clause now reports **E486** naming the parameter count
+(`examples/compiler_errors/deriving_multi_param_eq_e486.flx`) — a diagnostic
+instead of a wrong answer. Lifting it means teaching the Core pass to type
+`case` pattern binders, which needs the constructor's field types instantiated
+at the scrutinee's type; the pass already has the `TypeEnv` that holds them.
+A hand-written instance is unaffected, though the parser's one-constraint limit
+means a two-parameter head cannot express one today.
+
+**Still open: a self-recursive parameterized head.** `data Tree<a> { Leaf,
+Node(Tree<a>, a, Tree<a>) }` fails with the same `E004` on
+`__dict_Eq_Tree<a>`, because a field whose type *is* the head demands the
+instance's own dictionary exactly as `==` did. This is not specific to
+`deriving` — a hand-written `Eq<a> => Eq<Tree<a>>` fails identically — so it is
+tracked separately as [KI-069](#ki-069).
+
+---
+
+### KI-069 — A contextual instance cannot compare a field of its own head type
+
+**Severity:** Medium · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+A recursive parameterized ADT cannot get an `Eq` instance, derived or written
+by hand:
 
 ```flux
-data Box<a> { Box(a) }
+data Tree<a> { Leaf, Node(Tree<a>, a, Tree<a>) }
 
-instance Eq<a> => Eq<Box<a>> {
-    fn eq(x, y) { match x { Box(u) -> match y { Box(v) -> u == v } } }
+instance Eq<a> => Eq<Tree<a>> {
+    fn eq(x, y) {
+        match x {
+            Leaf -> match y { Leaf -> true, _ -> false },
+            Node(l1, v1, r1) -> match y {
+                Node(l2, v2, r2) -> eq(l1, l2) && eq(v1, v2) && eq(r1, r2),
+                _ -> false
+            }
+        }
+    }
     fn neq(x, y) { !eq(x, y) }
 }
 ```
 
-That program prints `true`. So the mangling is consistent between the
-definition and the call site; what differs is which lowering path the call
-takes.
+`error[E004]: I can't find a value named '__dict_Eq_Tree<a>'`.
 
-**Cause — two passes disagreeing, confirmed by tracing.** A derived instance
-over `n` type parameters carries `n` context constraints, so it lowers to a
-dictionary *constructor* rather than a plain method tuple. Two things then go
-wrong in sequence:
+The recursive calls `eq(l1, l2)` compare fields whose type is the head type
+`Tree<a>`. That resolves to this very instance, whose dictionary is a
+constructor rather than a value, so the reference has nothing to bind to — the
+same shape as [KI-059](#ki-059), reached through a field instead of through
+`==`. A call on a field of type `a` is fine: it is discharged by the context
+dictionary in scope.
 
-1. `lower_dictionary_ref_ast`
-   ([expression.rs](../src/compiler/expression.rs)) emits a reference to the
-   constructor global. Its sibling branch — the one for a context-free
-   instance — predeclares the symbols it references; the contextual branch does
-   not, and the constructor global is a Core-to-Core product with no AST
-   statement behind it. Nothing has put it in the symbol table, hence the E004.
-2. Predeclaring it moves the failure rather than fixing it: the program then
-   reports `E1001 Cannot call non-function value (got Uninit)`. The global now
-   exists and is never *stored*, because `build_instance_dictionaries`
-   ([dict_elaborate.rs](../src/core/passes/dict_elaborate.rs)) only builds defs
-   for dictionaries referenced *in Core* — and tracing shows Core holds no
-   reference to it at all. Core resolved the call statically to
-   `__tc_Eq_Box<a>_eq` instead, which for a contextual instance takes the
-   context dictionaries as leading parameters, and no dictionary argument was
-   inserted for them.
+The fix is for a recursive reference to reuse the dictionary being constructed
+rather than demanding it as a value, which is what a self-referential
+(knot-tying) dictionary binding provides.
 
-So the AST-level and Core-level dictionary elaborations disagree about whether
-this call needs a dictionary, and each produces a program the other's
-assumptions break. Fixing only the symbol-table gap converts a compile error
-into a runtime one, which is worse.
+**Workaround:** none for a recursive parameterized head. A recursive
+*monomorphic* ADT is unaffected, since its dictionary is a plain tuple.
 
-Through a constrained function the same instance reports the arity disagreement
-directly: `E1000 wrong number of arguments: want=3, got=2` for one type
-parameter, `want=7, got=4` for two.
+---
 
-**Workaround:** write the instance by hand. The contextual form above is
-accepted and behaves correctly, including through a constrained function.
+### KI-060 — A module-scoped contextual instance cannot call its own method on its own head type — FIXED 2026-09-02
+
+**Severity:** High · **Area:** type classes, module-scoped instances · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+Inside a `module { }` block, a contextual instance whose method recurses through
+the class method *on the instance's own head type* reached the wrong dictionary:
+
+```flux
+module M {
+    public class MyEq<a> { fn my_eq(x: a, y: a) -> Bool }
+    public instance MyEq<Int> { fn my_eq(x, y) { x == y } }
+    public instance MyEq<a> => MyEq<List<a>> {
+        fn my_eq(xs, ys) {
+            match xs {
+                [h1 | t1] -> match ys { [h2 | t2] -> my_eq(h1, h2) && my_eq(t1, t2), _ -> false },
+                _ -> match ys { [h | t] -> false, _ -> true }
+            }
+        }
+    }
+}
+```
+
+`my_eq(t1, t2)` compares two `List<a>` and must recurse through the `List`
+instance applied to the element dictionary. It reached `MyEq<Int>` instead.
+
+**Cause.** A module-owned instance method is emitted twice: the implementation
+inside the module, and a bare forwarding alias outside it, because HM
+predeclaration and VM dispatch resolve by the canonical bare name. That alias
+forwards *every* parameter, dictionaries included, so its call is already
+complete when Core lowering sees it.
+
+`resolve_dict_args_for_module_member_call`
+([lower_ast/mod.rs](../src/core/lower_ast/mod.rs)) then inserted evidence a
+second time. It had no "the arguments already carry dictionaries" guard, which
+the three other insertion sites all have —
+`should_insert_source_dict_args_for_identifier`'s sibling branch,
+`Compiler::looks_like_dictionary_argument_ast`, and `already_has_dict_args` in
+[dict_elaborate.rs](../src/core/passes/dict_elaborate.rs). Resolving from
+arguments already shifted by one froze a *concrete* dictionary into a generic
+forwarder:
+
+```
+λ__dict_MyEq, xs, ys.
+    M.__tc_…_List<a>_my_eq(__dict_MyEq_Int, __dict_MyEq, xs, ys)
+```
+
+That is the call site's evidence baked into a function that is supposed to be
+generic — and a four-argument call into a three-parameter function. The alias
+now forwards its own dictionary unchanged. `lib/Flow/Eq.flx` was affected too:
+the aether Core dumps show the same `__dict_…_Eq_Int` removed from the
+prelude's own `List<a>` and `Option<a>` forwarders.
+
+**Fixed on both backends.** The AST compiler now materializes the runtime
+dictionary parameters implied by filtered class constraints, reuses hidden
+parameters supplied by the IR, and avoids duplicating dictionary parameters on
+generated contextual methods. AST contextual lookup also reuses the method's
+explicit leading dictionary, so recursive calls stay on the current context.
+The repro prints `true`, `true`, `false` under both the VM and native backend.
+
+Giving the callee those parameters changes its compiled arity, so the caller
+side had to move with it — see [KI-061](#ki-061), fixed together with this.
+
+**Correction to the earlier diagnosis.** This entry previously said the alias
+*shadows* the real definition. It does not: the module's implementation and the
+top-level alias are distinct symbols. The whole-program Core dump renders both
+without the module prefix ([KI-053](#ki-053)), which reads as a duplicate
+definition and is misleading.
+
+**Workaround:** recurse through a private helper rather than through the class
+method, and compare elements with the operator (see KI-061 for why the operator
+and not `my_eq(h1, h2)`). `lib/Flow/Eq.flx` is written this way.
+
+---
+
+### KI-061 — A constrained function inside a module that calls a class method by name gets no dictionary — FIXED 2026-09-02
+
+**Severity:** High · **Area:** type classes, dictionary elaboration, modules · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+```flux
+import Flow.Eq exposing (..)
+module M2 {
+    public fn all_same<a: Eq>(xs: List<a>, x: a) -> Bool {
+        match xs {
+            [h | t] -> eq(h, x) && all_same(t, x),
+            _ -> true
+        }
+    }
+}
+```
+
+```
+error[E1009]: panic: No instance of Eq.eq for the given type
+  at Flow.Eq.eq
+  at M2.all_same
+```
+
+The `eq(h, x)` call is compiled as a plain call to the class's runtime dispatch
+stub instead of a projection out of `all_same`'s dictionary parameter, so it
+panics for any non-primitive element. Three variations pin the shape:
+
+| where the function lives | how it calls the method | result |
+|---|---|---|
+| top level of the entry file | `eq(h, x)` | works (`derived_eq.flx`) |
+| inside `module M2` | `eq(h, x)` | **panics** |
+| inside `module M2` | `h == x` | works |
+
+The class may live in the same module or another; it makes no difference. The
+operator form works because it takes a different route to the same obligation,
+and that is why every constrained function in `lib/Flow` — `List.contains`,
+`Array.sort`, `Assert.assert_gt` — has only ever used operators.
+
+Not to be confused with KI-060, which is about an *instance method* recursing
+on its own head; this is about a *free function*.
+
+**Fixed together with [KI-060](#ki-060).** A constrained function's compiled
+arity is its source arity plus one leading dictionary per runtime-bearing
+constraint, on the AST path as well as the CFG path. KI-060 established that
+for the callee; this entry is the caller half, which took three changes:
+
+* `Module.f(..)` prepends the same evidence a local call does
+  (`try_build_constrained_module_member_call`), and a bare-name call to a
+  module sibling qualifies the name before looking its scheme up — otherwise a
+  module's own recursion missed the dictionaries the function was compiled
+  with.
+* A constraint instantiated at one of the *enclosing* function's type
+  parameters forwards that function's own dictionary instead of selecting an
+  instance. `sort<a: Ord>` calling `sort_by<a, b: Ord>` at `b = a` has no
+  instance to pick; the previous code defaulted the undetermined variable to
+  `Int` and passed the wrong evidence.
+* An imported instance's `__dict_*` global is declared by both preload paths
+  and stored at load time by `emit_imported_dict_globals`. Only the *defining*
+  module's Core carries the `__dict_*` def that `ir_lowering` declares from,
+  and a cached dependency contributes no Core at all, so a cross-module
+  reference otherwise failed with `E004` — or, once declared but unstored,
+  `E1001 Cannot call non-function value`.
+
+`CACHE_EPOCH` moved to 40: an epoch-39 `.fxc` was compiled to the old
+convention, so a fresh caller would arrive one argument too many.
+
+---
+
+### KI-062 — The parity harness accepts a fixture that fails to compile on both backends
+
+**Severity:** Medium · **Area:** parity harness · **Verified:** 2026-09-01
+
+`tests/parity/primop_string_ops.flx` declares `expect: success` and uses `++`,
+which is not a Flux operator:
+
+```
+error[E031]: Expected Expression
+Expected expression, found `+`.
+```
+
+The five-way parity sweep nonetheless reports it as passing. The harness
+compares the two backends' outputs; when both fail to compile with the same
+diagnostic, the outputs match, and `expect: success` is never checked against
+the compile result. A fixture can therefore pass parity without ever running —
+the one thing a parity fixture exists to prove. The fixture is stale and the
+harness should enforce `expect:`.
+
+There is also dead code behind this: `infer_semigroup_operator`, the
+`"++" => "append"` desugar arm and `CorePrimOp::Concat` all handle an operator
+the lexer never produces. `Semigroup` is reached only as `append(x, y)`.
+
+### KI-063 — A user function named after a class method broke `--no-cache` — **fixed 2026-09-02**
+
+**Severity:** High · **Area:** type classes, compiler · **Verified:** 2026-09-02
+
+A program defining a function named after a prelude class method failed to
+compile whenever the standard library was compiled rather than loaded from
+cache:
+
+```
+$ flux --no-cache file.flx
+error[E001]: Duplicate Name
+Duplicate binding: `add` is already defined.
+```
+
+`fn add`, `fn eq`, `fn show` — any of them. A warm or cold *cached* run was
+fine, which is what hid it: only `--no-cache` compiles every stdlib module in
+the same `Compiler` as the user's file. Four `examples/` fixtures were failing
+in `examples_fixtures_snapshots` for this reason, and it was first mistaken for
+a defect in that harness.
+
+**Cause.** Proposal 0179 Stage 8 moved `Eq`, `Ord`, `Num`, `Show` and
+`Semigroup` from Rust registration into Flux modules. `generate_dispatch_functions`
+emits a polymorphic dispatch stub under each class method's *bare* name, in
+every compilation unit that has the class in scope, skipping any name that
+unit's own program already defines (`reserved_names`). Compiling
+`lib/Flow/Num.flx` therefore defines a top-level `add`, and one `Compiler`
+compiles every module of a program, so that stub was still defined when the
+user's file declared `fn add`. Before Stage 8 there was no `Flow.Num` module to
+compile and nothing generated the stub ahead of user code.
+
+**Fix.** The compiler records the stub names it generates
+(`Compiler::generated_dispatch_stub_names`), and `phase_predeclaration` lets a
+real function declaration take one over instead of reporting a redeclaration.
+That matches the resolution rule already in force: a name bound to a function
+never dispatches as a class method, so the user's function was always going to
+win — it just could not be declared. A genuine duplicate (two `fn foo` in one
+file) still reports E001.
+
+Regression coverage: `tests/parity/user_fn_named_like_class_method.flx`, which
+the parity sweep runs with `--no-cache` in its `vm` and `llvm_strict` ways.
+
+### KI-064 — A class over a partially applied type constructor could not be used across a module boundary — **fixed 2026-09-02**
+
+**Severity:** High · **Area:** type classes, parser · **Verified:** 2026-09-02
+
+`Either` takes two type parameters, so an `instance Functor<Either<l>>` head is
+*partially applied* — the only head of that shape in the stdlib. Two unrelated
+defects stood between it and working code.
+
+**1. The predicate matcher rejected a partially applied head.** Matching the
+pattern `f<a>` against the actual `Either<String, Int>` compared arities: the
+pattern applies one argument and the actual has two, so both higher-kinded arms
+in `match_type` (`src/types/class_predicate.rs`) fell through to `_ => false`.
+`Option<Int>` lines up one-for-one, which is why nothing had hit this. Across a
+module boundary the failure surfaced as `E004 Undefined Variable` on the method
+name rather than `E444`, because instance resolution failed and the fallback
+dispatch stub is not defined in the calling module. Fixed by binding `f` to the
+partially applied head and matching the trailing arguments.
+
+**2. A class method with an effect-row parameter lost its return type.** With
+the matcher fixed, the cached path worked and `--no-cache` failed:
+
+```
+error[E1004]: Type Error
+  expected type: Unit
+  found type:    Right    runtime value: Right(3)
+  at Flow.Functor.__tc_..._Functor_Either<l>_fmap
+```
+
+This was **not** specific to `Either`, or to partially applied heads, or to
+`--no-cache` — it was a parser bug affecting every instance of every class
+whose method takes an effect-row parameter. `parse_class_method` located the
+parameter list's `)` by testing whether the current token was a `)` rather than
+by whether any parameters had been parsed. A parameter whose type carries an
+effect row is parenthesised (`g: ((a) -> b with |e)`), so parsing it leaves the
+cursor on *that* type's closing paren, which was mistaken for the list's. The
+real one stayed unconsumed, the `->` after it was never seen, and the method
+took the "no return type" branch — becoming `Unit`.
+
+Every `Functor` instance therefore carried a `Unit` return contract. Nothing
+rejected it: `List`, `Option` and `Array` bodies tail-call into
+`Flow.List.map` and friends, and the return check is not reached on that path.
+`Either`'s body returns a constructed `Right(...)` directly, so it was the
+first to trip the check. The `Unit` was equally wrong for the other three.
+
+The guard came from the fix for zero-parameter methods (`fn mempty() -> a`),
+which needed the cursor to be *on* `)` when the loop never ran. Discriminating
+on `params.is_empty()` instead handles both.
+
+Regression coverage:
+`class_method_with_effect_row_parameter_keeps_its_return_type` in
+`tests/integration/module_scoped_classes_tests.rs` asserts the parse directly,
+and `tests/parity/either_instances.flx` runs the whole chain five ways.
+
+### KI-065 — A module's own function was shadowed by a class-method dispatch stub — **fixed 2026-09-02**
+
+**Severity:** High · **Area:** type classes, name resolution · **Verified:** 2026-09-02
+
+A module that defines a function named after a class method reached the class's
+*dispatch stub* instead of its own function, from inside its own body:
+
+```flux
+module Flume.Resolve.Version {
+    public fn compare(a: Version, b: Version) -> Ordering { ... }
+    fn lt(a: Version, b: Version) -> Bool {
+        match compare(a, b) { Lt -> true, _ -> false }   // panics
+    }
+}
+```
+
+```
+panic: No instance of Ord.compare for the given type
+  at compare (lib/Flow/Ord.flx:0:1)
+```
+
+26 of the 60 tests in `tests/flux/flume_version.flx` failed this way, and every
+other `flume_*` fixture with them.
+
+**Cause.** `generate_dispatch_functions` emits a polymorphic stub under each
+class method's bare name; compiling `Flow.Ord` therefore defines a global
+`compare` whose body panics. Identifier compilation resolves the bare name
+first and only then looks for a sibling member of the enclosing module, which
+is stored under its qualified key. That order was harmless while no global of
+the name existed — before Proposal 0179 Stage 8 there was no `Flow.Ord` module
+to compile.
+
+Type inference was never confused: `class_method_call_info` correctly declined
+to treat the call as a class method, because the module's own `compare` is
+bound with a real span. The misrouting happened later, at symbol resolution.
+
+**Fix.** A generated stub does not shadow a member of the enclosing module. The
+check is narrow — it applies only when the resolved symbol is a *global*, the
+name is one this compiler generated a stub for, and the enclosing module has a
+member of that name — so locals still shadow both, as before.
+
+Regression coverage: `examples/type_classes/module_member_shadows_stub.flx`.
+
+Related: [KI-063](#ki-063) is the same collision at declaration time rather
+than at a call site.
+
+### KI-066 — A constrained function's operator resolved to nothing when its unit declared no instances — **fixed 2026-09-02**
+
+**Severity:** High · **Area:** type classes · **Verified:** 2026-09-02
+
+Compiling `lib/Flow/Array.flx` on its own failed:
+
+```
+error[E004]: Undefined Variable
+I can't find a value named `eq`.
+  lib/Flow/Array.flx:176:23
+```
+
+Line 176 is `any(arr, \v -> v == x)` inside
+`public fn contains<a: Eq>(arr: Array<a>, x: a) -> Bool`. Inside an explicit
+class-constraint context `==` desugars to `eq(x, y)`, and that call resolved to
+nothing.
+
+**Cause.** The polymorphic dispatch stub a desugared call lands on is generated
+from `dispatch_table`, which was filled from two places: instances declared in
+*this* unit's statements, and the phantom instances the Rust registration
+created. Proposal 0179 Stage 8 deleted the second — the standard classes'
+instances are now Flux source in `Flow.Eq` and its siblings. A unit that merely
+*uses* a class therefore contributed nothing to the table and generated no
+stub.
+
+The normal pipeline hid this: compiling `Flow.Eq` fills the table from its own
+instance statements and leaves a global `eq` stub behind in the shared
+`Compiler`, which later modules found. Only a unit compiled *without* that —
+a `Compiler` built directly, as the surface-wrapper tests do — was left with
+nothing to resolve against.
+
+**Fix.** `seed_dispatch_table_from_class_env` records every method of every
+class the class environment holds an instance for, so a stub is generated in
+any unit that can see the class rather than only where its instances are
+written. A class with no instance is skipped: there would be nothing for the
+stub to stand in for, and its name should stay free.
+
+Regression coverage: `flow_array_surface_wrappers_compile_without_legacy_warning`
+and its siblings in `tests/integration/compiler_rules_tests.rs`, which compile
+each `Flow.*` surface module through a bare `Compiler`.
+
+### KI-067 — A locally declared class of a prelude name could not be named in a bound — **fixed 2026-09-02**
+
+**Severity:** Medium · **Area:** type classes · **Verified:** 2026-09-02
+
+Declaring your own `class Eq` and then constraining on it was rejected:
+
+```
+error[E456]: Ambiguous Class Constraint
+Class constraint `Eq` is ambiguous: matches classes in <prelude>, Flow.Eq.
+```
+
+`report_ambiguous_class_constraint` reported whenever two classes shared a
+short name, with no precedence. Since Proposal 0179 Stage 8 the prelude
+contributes `Eq`, `Ord`, `Num`, `Show` and `Semigroup` to every module, so any
+program declaring a class of one of those names was ambiguous by construction
+and could not name its own class in a bound.
+
+**Fix.** A class declared in the module being compiled wins over one merely in
+scope — the precedence `ClassEnv::resolve_class_id` already applies, and which
+the constraint then resolves through. Two classes of the same name that are
+*both* foreign are still ambiguous.
+
+### KI-068 — A bare `Compiler` cannot supply the standard classes' instance bodies
+
+**Severity:** Low · **Area:** type classes, embedding · **Verified:** 2026-09-02
+
+Proposal 0179 Stage 8 moved `Eq`, `Ord`, `Num`, `Show` and `Semigroup` out of
+Rust and into `lib/Flow/*.flx`, deleting the `builtin_method_body` generation
+that used to synthesize `__tc_Ord_Int_lt` and friends into *every* compilation
+unit. Their implementations now exist only where those modules are compiled.
+
+A `Compiler` constructed directly — no module graph, no driver — therefore
+cannot build a working program that uses them. `ClassEnv::register_prelude_classes`
+puts the classes and instances in the environment, so inference and dispatch
+succeed, but no implementation is generated. For a *contextual* instance the
+failure is visible at compile time: `Ord<Int>` is `Eq<Int> => Ord<Int>`, its
+dictionary is a constructor, and `build_contextual_dictionary_expr` bails when
+the mangled method names are not interned, so the definition is skipped and the
+reference reports `E004 I can't find a value named '__dict_..._Ord_Int'`. A
+non-contextual instance such as `Num<Int>` is emitted as a plain tuple of
+external references and compiles, but would not link or run.
+
+Every real path is unaffected — the driver, `flux --test`, and the REPL all
+compile the `Flow` modules, and `fn max_of<A: Ord>(x: A, y: A)` using `>` works
+on both backends and under `--no-cache`. Only a directly constructed
+`Compiler` is affected, which is a test and embedding concern.
+Two tests drive the real binary for this reason:
+`generic_ord_operator_compiles_without_strict_types` in
+`tests/type_inference/constrained_type_params_integration.rs`, whose doc comment
+records why its `Eq`/`Num` siblings can still use a bare `Compiler`, and
+`polymorphic_operator_dump_core_uses_named_class_methods` in
+`tests/core_ir/ir_pipeline_tests.rs`, which needs a Core dump and so goes
+through `--dump-core --no-cache`.
+
+Restoring the capability means making the prelude modules' instance statements
+available to a unit that has no imported implementation — not reinstating the
+Rust bodies, which Stage 8 removed deliberately so there is one source of
+truth.
+
+---
+
+### KI-058 — A `let` annotation naming a rigid type parameter is rejected — FIXED 2026-09-02
+
+**Severity:** High · **Area:** Type inference, annotations · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+Inside a generic function, annotating a `let` with the function's own type
+parameter was rejected even when trivially correct:
+
+```flux
+fn annotated<a: Root>(x: a) -> Int {
+    let y: a = x                // error[E300]: Annotation Type Mismatch
+    root(y)                     // error[E444]: No Type Class Instance (cascade)
+}
+```
+
+```
+error[E300]: Annotation Type Mismatch
+14 |     let y: a = x
+   |                - this value has type `_`
+   |            - but `y` was annotated as `a`
+```
+
+**Correction to the earlier diagnosis.** This entry said the conversion failed.
+It did not. `infer_let_binding` converted the annotation with an empty
+type-parameter map, and `convert_type_expr_rec` falls through an unknown
+nullary name to `TypeConstructor::Adt(sym"a")`
+([type_env.rs](../src/types/type_env.rs)) — so `a` became a *nominal type named
+`a`*, which then failed to unify with the signature's rigid variable of the same
+name. That is why both sides of the diagnostic rendered as `a`, and why the
+value's type showed as `_`.
+
+**Fix.** `InferCtx` now carries `signature_type_params`, a stack of the declared
+type parameters of each function whose body is being inferred, pushed beside
+`mark_signature_skolems` and popped beside `unmark_skolems`
+([function.rs](../src/ast/type_infer/function.rs)). `infer_let_binding` reads
+its top and routes through `infer_type_from_annotation`, which also applies
+`normalize_associated_types` — a second thing the `let` path had been skipping.
+
+A stack rather than the inverted `skolem_names` the earlier note proposed:
+`skolem_names` is keyed by `TypeVarId` and is flat across the whole `InferCtx`,
+so inverting it collides whenever two functions use the same parameter name,
+and nested functions get no shadowing. `let_annotation_rigid_param.flx` covers
+the accepted case; `type_inference_tests.rs` covers the genuine-mismatch and
+sibling-function-shadowing cases.
+
+**The soundness hole this unblocked is now resolved.** With annotations usable,
+a body can hold more than one result-directed class-method call — the shape
+dictionary selection could not handle:
+
+```flux
+class Make<a> { fn make(tag: Int) -> a }
+instance Make<Int>    { fn make(tag) { 7 } }
+instance Make<String> { fn make(tag) { "s" } }
+
+fn two<a: Make, b: Make>(pa: a, pb: b) -> a {
+    let y: b = make(0)
+    make(0)
+}
+
+print(two(1, "z"))   // expected 7 — both backends printed "s"
+```
+
+A `String` returned from a function whose return type is `Int`, on the VM *and*
+natively (an earlier reading of this expected the two backends to disagree; they
+do not — both were wrong the same way).
+
+**Both halves are now fixed.** Selection reads the type a call's result is
+required to have, taken from the enclosing return type or `let` binder:
+
+- `ClassEnv::result_positions` says which class parameters a method names as
+  exactly its return type — the counterpart of `dispatch_positions`, which
+  searches value parameters only.
+- Core threads an expected type through `rewrite_expr`: a `Lam`'s declared
+  result at tail positions, a `let` binder's own type at its right-hand side.
+  `choose_candidate` reads those positions instead of falling back to
+  `candidates.last()`.
+- A `let`'s type cannot be recovered from Core — there is no type annotation
+  node and `CoreBinder` keeps only a `FluxRep`, which collapses every boxed
+  type to `TaggedRep` and so cannot tell one rigid parameter from another. It
+  is recorded at lowering and carried on `CoreDef::binder_types`.
+- The AST path derives the same predicate (`context_predicate_args`) and picks
+  the matching dictionary through `context_dictionary_symbol`, which already
+  knew how to tell `__dict_C` from `__dict_C_1`.
+
+`examples/type_classes/result_directed_two_dictionaries.flx` locks both
+directions, including the one that would pass by accident under the old
+last-candidate fallback.
+
+**Still reported, correctly:** a method that mentions its class parameter
+*nowhere* — `fn mk(tag: Int) -> Int` on `class Mk<a>` — can be named by no call
+site at all, and remains `E485`
+(`examples/compiler_errors/ambiguous_dictionary_e485.flx`).
+
+**Guarding the trap the notes recorded.** Scheme constraints are not dictionary
+parameters: `Flow.Json`'s `Decode<a> => Decode<List<a>>` method carries two
+`Decode` constraints but resolves through the one dictionary its context gave
+it. `report_ambiguous_dictionary_calls` therefore skips generated instance
+methods, testing the last segment of the name because a module qualifies them
+(`Flow.Json.__tc_…`) — the same treatment `emit_instance_method_aliases`
+applies.
+
+**On the abandoned attempt recorded here earlier:** it looked for a way to hand
+per-call inference data to lowering, and stalled on `CoreExpr` having no
+expression id (`CoreExpr::App` alone has ~155 construction sites). That was the
+wrong shape. What the selection sites need is not the call's identity but the
+type its result must have, and that is a property of the *enclosing* binder or
+signature — which Core already carries, or which lowering can record once per
+binder.
+
+---
+
+### KI-071 — An instance method captures unqualified calls to a module-level function of the same name
+
+**Severity:** High · **Area:** Type classes / name resolution · **Verified:** 2026-09-03 · **From:** Flume typeclass conversion
+
+Declaring an instance inside a module silently rebinds every *unqualified* call
+to a module-level function whose name matches one of the instance's methods.
+
+```flux
+module M {
+    public data Ordering { Lt, Eq, Gt }
+
+    public fn compare(a: Ver, b: Ver) -> Ordering { ... }
+
+    public fn equals(a: Ver, b: Ver) -> Bool {
+        match compare(a, b) { Eq -> true, _ -> false }   // resolves to Ord.compare
+    }
+
+    public instance Eq<Ver> => Ord<Ver> {
+        fn compare(x, y) { ... }                          // returns Int
+    }
+}
+```
+
+`equals(a, a)` returns `false`. The bare `compare(a, b)` reaches the `Ord`
+dispatch stub, which returns `Int`, and the `Ordering` constructor patterns then
+never match. Deleting the `Ord` instance restores the correct answer, which is
+how the capture was isolated.
+
+The two backends do not agree: the VM produces the wrong answer, and **the
+native backend terminates with SIGSEGV**. So this is a parity break and a
+memory-safety failure, not only a scoping defect.
+
+The failure is silent because a constructor pattern is never checked against the
+scrutinee's type — see [KI-072](#ki-072), which is what turns the capture into a
+wrong answer rather than a type error.
+
+**Workaround:** qualify the call (`M.compare(a, b)`), or route internal callers
+to a differently named private helper. Qualified calls are unaffected.
+
+Found by adding `Eq`/`Ord` instances to `Flume.Resolve.Version`, which turned 21
+of its 60 tests red.
+
+### KI-072 — A constructor pattern is never checked against the scrutinee's type
+
+**Severity:** High · **Area:** Type inference / pattern matching · **Verified:** 2026-09-03 · **From:** Flume typeclass conversion
+
+A `match` arm may name a constructor belonging to a completely unrelated type.
+It compiles clean and falls through to the wildcard.
+
+```flux
+data Colour { Red, Green }
+data Shape  { Circle(Int), Square }
+
+fn a(c: Colour) -> Int { match c { Circle(n) -> n, _ -> 0 } }   // compiles, returns 0
+```
+
+Verified across nullary and arity-bearing constructors, and with `Int`, `String`
+and `Bool` scrutinees — every combination compiles and silently takes the
+wildcard branch.
+
+**This has nothing to do with type classes** and predates Proposal 0179; it was
+found while investigating [KI-071](#ki-071), whose silence it explains. Any
+mistyped or misremembered constructor name degrades to a wrong answer instead of
+a diagnostic, which makes it the most consequential entry currently open.
+
+### KI-073 — Result-directed selection is lost on native when routed through a constrained function
+
+**Severity:** High · **Area:** Type classes / native backend · **Verified:** 2026-09-03 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+```flux
+class Convert<a, b> { fn convert(x: a) -> b }
+instance Convert<Int, String> { fn convert(x) { to_string(x) } }
+
+fn via<a, b>(x: a) -> b where Convert<a, b> { convert(x) }
+
+fn main() with IO {
+    let direct: String = convert(42)   // both backends print "42"
+    print(direct)
+    let routed: String = via(42)       // VM prints "42", native prints <value>
+    print(routed)
+}
+```
+
+A direct class-method call resolves from the result type on both backends —
+that is Stage 4 working as specified. Routing the same call through a
+`where`-constrained function loses it on native only.
+
+Since `where C<a, b>` is the *only* spelling that reaches a multi-parameter
+class (see [type_class_syntax.md](internals/type_class_syntax.md#3-constraining-a-function)),
+this makes multi-parameter classes unusable on the native backend in the general
+case.
+
+Reproduced by [`examples/type_classes/syntax_tour.flx`](../examples/type_classes/syntax_tour.flx),
+which is deliberately **not** mirrored into `tests/parity/` until this is fixed.
+
+### KI-074 — A lowercase class name is declarable but unusable in a `where` clause
+
+**Severity:** Low · **Area:** Parser · **Verified:** 2026-09-03 · **From:** syntax reference audit
+
+```flux
+class sz<a> { fn size_of(x: a) -> Int }              // accepted
+fn twice<a>(x: a) -> Int where sz<a> { ... }         // error[E034]
+```
+
+`peek_starts_class_constraint` ([statement.rs](../src/syntax/parser/statement.rs))
+distinguishes a signature-position `where` constraint from a `where x = expr`
+local binding by testing whether the next identifier begins with an uppercase
+letter. A lowercase class therefore cannot be written in the `where` spelling,
+though `<a: sz>` still works.
+
+The diagnostic compounds it: the error blames a missing function body ("This
+looks like the function body… Try adding `{` after the function signature")
+rather than naming the real rule.
+
+**Either** reject a lowercase class name at its declaration, **or** stop
+inferring class-ness from capitalisation. Accepting the declaration and then
+refusing the use is the one combination that should not stand.
+
+### KI-075 — `<a: C>` on a multi-parameter class suggests an instance that cannot be written
+
+**Severity:** Low · **Area:** Diagnostics / type classes · **Verified:** 2026-09-03 · **From:** syntax reference audit
+
+```flux
+class Convert<a, b> { fn convert(x: a) -> b }
+fn via<a: Convert>(x: a) -> String { convert(x) }
+```
+
+```
+error[E444]: No instance for `Convert<Int>`
+Hint: Add an instance: `instance Convert<Int> { ... }`
+```
+
+The hint proposes a one-argument instance of a two-parameter class, which is
+itself a parse error. The real problem is that the `<a: C>` sugar always means
+`C<a>` and cannot supply a second argument, so the constraint is unwritable in
+this spelling; `where Convert<a, b>` is what the user needs.
+
+The diagnostic should say so — that the class takes two parameters and the bound
+sugar reaches only one — rather than suggesting an impossible declaration.
+
+### KI-076 — An operator on a class-constrained type parameter does not dispatch inside a `module` block
+
+**Severity:** High · **Area:** Type classes / dictionary passing · **Verified:** 2026-09-03 · **From:** Flume typeclass conversion
+
+At top level, a constrained function's operator dispatches through the
+dictionary and works on a user type:
+
+```flux
+fn bigger<a: Ord>(x: a, y: a) -> a { if x <= y { y } else { x } }   // works
+```
+
+The identical function inside a `module` block traps at runtime:
+
+```
+cannot compare Adt with OpLessThanOrEqual
+```
+
+**The visible consequence is that `List.sort` and `List.sort_by` cannot sort a
+user type that has an `Ord` instance.** `sort_by<a, b: Ord>` delegates to
+`merge_by_key` ([List.flx](../lib/Flow/List.flx)), whose `key_fn(a) <= key_fn(b)`
+is inside `module Flow.List`; the public signature promises `b: Ord` and the
+implementation cannot honour it. Annotating the private helpers with `<a, b: Ord>`
+does *not* fix it — that was checked, and the constraint reaches them correctly;
+the operator is what fails to dispatch.
+
+This is the shape of [KI-061](#ki-061) but for *operators* rather than calls by
+name, so that fix did not reach it. The claim in
+[Flow/Eq.flx](../lib/Flow/Eq.flx) that "operators desugar through a path that
+does carry the dictionary" holds only outside module blocks.
+
+Found by trying to replace the hand-rolled insertion sort in
+`Flume.Resolve.Solver` — whose comment explains that the sort is hand-rolled
+because `Version` cannot be sorted generically — with `List.sort_by`.
+
+### KI-015 — A class whose variable appears only in the return position cannot dispatch — FIXED
+
+**Severity:** Medium · **Area:** Type classes / dispatch · **Verified fixed:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+Dispatch used to select an instance from the *first argument's* type, so a class
+whose type variable appeared only in the return position resolved against the
+parameter type and failed:
+
+```flux
+class Parse<a> { fn from_text(text: String) -> Result<a, String> }
+instance Parse<Int> { fn from_text(text) { Ok(len(text)) } }
+
+fn read_int(t: String) -> Result<Int, String> { from_text(t) }
+// error[E444]: No instance for `Parse<String>`   ← the parameter type, not `Int`
+```
+
+**Fixed by Proposal 0179 Stage 4**, which was never recorded here. A class-method
+call now derives its predicate from the positions the *class declaration* puts
+its parameters in, reading each from whichever argument — or from the result —
+actually carries it (`class_param_bindings`,
+[class_predicate.rs](../src/types/class_predicate.rs); `try_resolve_class_call`,
+[lower_ast/mod.rs](../src/core/lower_ast/mod.rs)). That subsumed and removed the
+hardcoded `Decode.decode` special case this entry described, so the general rule
+it asked for is the rule in force.
+
+Verified 2026-09-02 on both backends: the repro above prints `4`; two instances
+distinguished only by the expected result select correctly through a return type
+*and* through a `let` annotation; and a polymorphic forwarder
+`fn read_any<a: Parse>(t: String) -> Result<a, String>` resolves at its call
+site. `examples/type_classes/result_directed_resolution.flx` locks the shape.
+
+[KI-058](#ki-058) later extended the annotation channel to an annotation naming
+the enclosing signature's own rigid parameter, which had converted to a nominal
+type of the same name.
+
+**One shape remains unresolvable, and is reported rather than guessed.** A
+function constrained twice on one class, whose method is distinguished only by
+its result, cannot say which of its two dictionaries it means — selection reads
+argument types, and neither backend has the call's expected type. That is
+`E485`, covered by
+`examples/compiler_errors/result_directed_ambiguity_e485.flx`. The workaround
+this entry recorded still applies there: reify the choice as a value, as
+`Flume.Manifest` does with a `Reader<a>` record, which also composes further
+than an instance head can (`array_of(element: Reader<a>) -> Reader<List<a>>`
+needs no higher-kinded types).

@@ -229,6 +229,7 @@ fn core_contract_violation_includes_boundary_label() {
     // Function returning an unbound type variable — illegal residue.
     let ty = CoreType::Function(vec![CoreType::Int], Box::new(CoreType::Var(7)));
     let def = CoreDef {
+        binder_types: Default::default(),
         name,
         binder: CoreBinder::new(CoreBinderId(0), name),
         expr: CoreExpr::Lit(CoreLit::Unit, Default::default()),

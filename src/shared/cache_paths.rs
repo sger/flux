@@ -68,7 +68,29 @@ use sha2::{Digest, Sha256};
 /// Epoch 34: `Eq` has contextual instances over `List` and `Option`, so a
 /// predicate an epoch-33 interface answered structurally — with no dictionary
 /// behind it — now resolves to an instance and carries one.
-pub const CACHE_EPOCH: u16 = 34;
+/// Epoch 35: `Eq`, `Ord`, `Num`, `Show` and `Semigroup` moved from Rust
+/// registration into the Flux prelude, so their instances, dictionaries and
+/// mangled method names now carry the owning module.
+/// Epoch 36: `Ord` declares `Eq` as a superclass, so every `Ord` dictionary
+/// leads with an `Eq` evidence slot and each method sits one index later than
+/// an epoch-35 artifact recorded.
+/// Epoch 37: `Semigroup` gained instances over `List`, `Array` and `Option`,
+/// and the new `Monoid` class sits on top of it, so a predicate an epoch-36
+/// interface answered with no instance now resolves to one.
+/// Epoch 38: the `Functor`, `Applicative` and `Monad` classes exist, and a
+/// superclass constraint on a higher-kinded class parameter is kind-checked
+/// against the owner's parameters rather than defaulting to `Type` — an
+/// epoch-37 interface recorded the rejection.
+/// Epoch 39: a class method with an effect-row parameter kept its declared
+/// return type instead of silently becoming `Unit`, so every `Functor`
+/// instance's runtime contract changes; `Either` also gained `Functor`,
+/// `Applicative` and `Monad` instances.
+/// Epoch 40: a constrained function's compiled arity is now its source arity
+/// plus one leading dictionary per runtime-bearing constraint on the AST path
+/// as well as the CFG path, and callers across a module boundary pass that
+/// evidence (KI-060, KI-061). An epoch-39 `.fxc` was compiled to the old
+/// convention, so a fresh caller would arrive one argument too many.
+pub const CACHE_EPOCH: u16 = 40;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

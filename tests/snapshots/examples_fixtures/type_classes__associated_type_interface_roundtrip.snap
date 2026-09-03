@@ -16,21 +16,5 @@ error[E421]: Unknown Member in Exposing
 
 Hint:
   Check the public members of `AssociatedTypeAcrossModules.Collect` or remove `first_of` from the exposing list.
-
-
-error[E423]: Unknown Type
-
-I can't find a type named `Element`.
-
-  examples/type_classes/associated_type_interface_roundtrip.flx:21:37
-   |
-21 | fn head_of<c: Collection>(xs: c) -> Element<c> {
-   |                                     ^^^^^^^^^^
-   |                                     ---------- unknown type used here
-
-Hint:
-  Use a built-in type, an in-scope type parameter, or a declared ADT.
-
-Found 2 errors.
 == stdout ==
 <not executed>

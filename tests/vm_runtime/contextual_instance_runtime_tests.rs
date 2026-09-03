@@ -1,4 +1,6 @@
-#![cfg(all(feature = "native", not(feature = "llvm")))]
+// This suite launches both the VM and `flux --native`; the latter requires
+// the LLVM feature even though the VM path is also exercised here.
+#![cfg(feature = "llvm")]
 
 use std::path::Path;
 use std::process::Command;

@@ -9,11 +9,13 @@
 // buy little and cost both normalization and solver complexity, so a range is
 // always a single contiguous interval or an intersection of them.
 
+import Flow.Eq
 import Flow.Option as Option
 import Flow.Result as Result
 import Flow.String as Str
 import Flow.Array as Array
 import Flow.List as List
+import Flow.Ord
 
 module Flume.Resolve.Version {
 
@@ -114,6 +116,10 @@ module Flume.Resolve.Version {
     /// `1.0.0-alpha < 1.0.0`. Numeric fields are compared first, and only when
     /// all three are equal does the pre-release tag decide.
     public fn compare(a: Version, b: Version) -> Ordering {
+        semver_ordering(a, b)
+    }
+
+    fn semver_ordering(a: Version, b: Version) -> Ordering {
         match compare_int(major(a), major(b)) {
             Eq -> match compare_int(minor(a), minor(b)) {
                 Eq -> match compare_int(patch(a), patch(b)) {
@@ -187,17 +193,37 @@ module Flume.Resolve.Version {
 
     /// True when `a` and `b` denote the same version.
     public fn equals(a: Version, b: Version) -> Bool {
-        match compare(a, b) { Eq -> true, _ -> false }
+        match semver_ordering(a, b) { Eq -> true, _ -> false }
     }
 
     /// True when `a` precedes `b`.
     public fn less_than(a: Version, b: Version) -> Bool {
-        match compare(a, b) { Lt -> true, _ -> false }
+        match semver_ordering(a, b) { Lt -> true, _ -> false }
     }
 
     /// True when `a` follows `b`.
     public fn greater_than(a: Version, b: Version) -> Bool {
-        match compare(a, b) { Gt -> true, _ -> false }
+        match semver_ordering(a, b) { Gt -> true, _ -> false }
+    }
+
+    fn ordering_to_int(o: Ordering) -> Int {
+        match o { Lt -> -1, Eq -> 0, Gt -> 1 }
+    }
+
+    /// Semver precedence is not the structural order of the fields — an absent
+    /// `pre` *outranks* a present one — so both instances route through
+    /// `semver_ordering` rather than comparing fields position by position.
+    public instance Eq<Version> {
+        fn eq(x, y) { equals(x, y) }
+        fn neq(x, y) { !equals(x, y) }
+    }
+
+    public instance Eq<Version> => Ord<Version> {
+        fn compare(x, y) { ordering_to_int(semver_ordering(x, y)) }
+        fn lt(x, y) { less_than(x, y) }
+        fn lte(x, y) { !greater_than(x, y) }
+        fn gt(x, y) { greater_than(x, y) }
+        fn gte(x, y) { !less_than(x, y) }
     }
 
 //| parsing

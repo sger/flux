@@ -1,0 +1,20 @@
+// Proposal 0179 Stage 8: a module function named after a class method wins
+// over the generated dispatch stub, including from inside its own module.
+//
+// `Flow.Ord` is injected into every module and declares `compare`. Compiling
+// it defines a polymorphic dispatch stub under that bare name — a global whose
+// body panics. An unqualified `compare(a, b)` inside a module that defines its
+// own `compare` resolved to that global instead of the sibling member, and the
+// call panicked with `No instance of Ord.compare for the given type`.
+//
+// The sibling-member lookup existed, but the bare-name lookup ran first and
+// there had been no global of that name to find before Stage 8.
+//
+// Expected: true false 0
+import ModuleMemberShadowsStub.Version as V
+
+fn main() {
+    print(V.less(V.Ver(1), V.Ver(2)))
+    print(V.less(V.Ver(2), V.Ver(1)))
+    print(V.compare(V.Ver(1), V.Ver(1)))
+}

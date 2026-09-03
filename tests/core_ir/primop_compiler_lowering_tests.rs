@@ -64,7 +64,7 @@ fn assert_not_contains_primop(input: &str) {
 }
 
 #[test]
-fn compiler_emits_op_primop_for_existing_phase1_mappings() {
+fn compiler_emits_op_primop_for_mapped_primops() {
     assert_contains_primop("iadd(1, 2)");
     assert_contains_primop(r#"panic("boom")"#);
     assert_contains_primop(

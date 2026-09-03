@@ -21,10 +21,15 @@ use crate::types::module_interface::ModuleInterface;
 /// in [src/driver/frontend.rs]. Order matters: each entry may depend only on
 /// names exported by earlier entries.
 const FLOW_PRELUDE_MODULES: &[(&str, &str)] = &[
+    ("Flow.Eq", "Eq.flx"),
+    ("Flow.Ord", "Ord.flx"),
+    ("Flow.Num", "Num.flx"),
+    ("Flow.Show", "Show.flx"),
     ("Flow.Option", "Option.flx"),
     ("Flow.Either", "Either.flx"),
     ("Flow.List", "List.flx"),
     ("Flow.String", "String.flx"),
+    ("Flow.Semigroup", "Semigroup.flx"),
     ("Flow.Numeric", "Numeric.flx"),
     ("Flow.Math", "Math.flx"),
     ("Flow.Primops", "Primops.flx"),
@@ -415,11 +420,11 @@ mod tests {
     /// Entries are ordered so each may depend only on names exported by
     /// earlier ones. `Flow.Option` underpins the rest and must stay first.
     #[test]
-    fn prelude_order_starts_with_option() {
+    fn prelude_order_starts_with_eq() {
         assert_eq!(
             FLOW_PRELUDE_MODULES.first().map(|(name, _)| *name),
-            Some("Flow.Option"),
-            "Flow.Option must be injected first; later modules depend on it"
+            Some("Flow.Eq"),
+            "Flow.Eq must be injected first; `==` in every later module desugars to it"
         );
     }
 

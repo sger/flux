@@ -1043,7 +1043,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_phase3_package_commands_and_their_private_flags() {
+    fn parses_package_commands_and_their_private_flags() {
         let publish = parse_args(cli(&["flux", "publish", "--dry-run"])).unwrap();
         match publish {
             CliCommand::Package {

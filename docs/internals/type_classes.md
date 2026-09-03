@@ -245,6 +245,99 @@ unrelated error about the type it never became. The two counts are therefore
 compared when an imported instance is merged, and a mismatch is reported as a
 stale interface (E478).
 
+## The standard classes are Flux source
+
+`Eq`, `Ord`, `Num`, `Show` and `Semigroup` are declared in `lib/Flow/*.flx`,
+not registered from Rust. `ClassEnv::register_builtins` now registers only
+`Sendable` — a sealed marker class with no methods, which no Flux module could
+declare.
+
+| Module | Declares | Instances |
+|---|---|---|
+| `Flow.Eq` | `Eq` | `Int Float String Bool`; `Eq<a> => Eq<List<a>>`, `Eq<a> => Eq<Option<a>>` |
+| `Flow.Ord` | `Eq<a> => Ord<a>` | `Int Float String` |
+| `Flow.Num` | `Num` | `Int Float` |
+| `Flow.Show` | `Show` | `Int Float String Bool` |
+| `Flow.Semigroup` | `Semigroup` | `String`, `List<a>`, `Array<a>`, `Semigroup<a> => Semigroup<Option<a>>` |
+| `Flow.Monoid` | `Semigroup<a> => Monoid<a>` | `String List<a> Array<a> Option<a>` |
+| `Flow.Functor` | `Functor` | `List Option Array` |
+| `Flow.Applicative` | `Functor<f> => Applicative<f>` | `List Option Array` |
+| `Flow.Monad` | `Applicative<f> => Monad<f>` | `List Option Array` |
+
+The first five are the **class prelude** (`src/shared/class_prelude.rs`): they
+are injected into every module in the graph, not only the entry file. That is
+not a convenience. `==` emits an `Eq` obligation only when a class named `Eq`
+is in the environment and emits *nothing* otherwise, so a module compiled
+without them would type its operators unconstrained and silently. **E487**
+(`OPERATOR_CLASS_NOT_IN_SCOPE`) now reports that case rather than dropping it.
+
+`Flow.Monoid`, `Flow.Functor`, `Flow.Applicative` and `Flow.Monad` are
+explicit-import: no operator desugars to them, so a program that does not use
+them does not pay to compile them.
+
+Registration is centralised in `collect_class_declarations_diagnostics`, which
+calls `ClassEnv::register_prelude_classes` for every module that is not itself
+a class-prelude module. It is idempotent per class, so a module that already
+holds some of them keeps those and gains the rest rather than declaring one
+twice (E440 / E443).
+
+### `is_builtin` means "declared by the stdlib"
+
+`ClassDef::is_builtin` no longer means "registered from Rust". It is set at
+collection time for any class whose owning module path starts with `Flow.`
+(`ClassEnv::is_stdlib_module`), and it must also be set where an imported class
+is reconstructed from a module interface — the class arrives by that path, not
+through `collect_classes`, and setting it in only one of the two places has no
+effect. It gates `structural_builtin_evidence`, so a Flux-declared stdlib class
+keeps the structural answers the Rust registrations used to have.
+
+### Consequences worth knowing
+
+- **A user `class Eq` no longer collides with the prelude's.** They are
+  different classes in different modules, so both register. The user's shadows
+  for operators, and `1 == 2` then fails with a deterministic
+  `E444 No instance for Eq<Int>`. Loud, not silent — but a behaviour change.
+- **A stdlib function may not share a name with a class method.** A name bound
+  to a function definition never dispatches as a class method
+  (`reserved_names` in `types::class_dispatch`), so the function silently wins.
+  `Flow.Numeric.div` became `floor_div` and `Flow.List`'s private `append`
+  became `concat_lists` for exactly this reason; the second was caught only by
+  the native backend, which had no symbol for the class method the calls had
+  been rewritten to.
+- **A superclass edge is checked after imported instances are merged.**
+  `Ord`'s `Eq` evidence lives in `Flow.Eq`, so checking it at the end of
+  `collect_from_statements` reported every edge as unsatisfied. The check is
+  deferrable (`SuperclassCheck`), and the compiler runs it once merging is
+  done — judging only the instances the module declares, since an imported one
+  was already checked where its evidence was in scope.
+- **Each stdlib instance names its superclass evidence explicitly**
+  (`instance Eq<Int> => Ord<Int>`). Leaving it to be solved from `Flow.Eq`
+  sends the solver into a loop that overflows the compiler's stack.
+- **Transitive superclass evidence is not transitive through imports.**
+  `Flow.Monad` imports `Flow.Functor` directly even though `Flow.Applicative`
+  already does, or its instances cannot discharge the transitive obligation.
+
+### Higher-kinded classes
+
+`Functor`, `Applicative` and `Monad` take a type *constructor*, and their kinds
+are inferred from method signatures rather than written down. A superclass edge
+between two such classes was rejected until Stage 8: `validate_constraint`
+checked the constraint's argument with no local binders, so the `f` in
+`class Functor<f> => Applicative<f>` was unknown and defaulted to kind `Type`
+while `Functor` wanted `Type -> Type` (**E474**). It now binds the owner class's
+own parameters, which is what the caller already had to hand.
+
+`fmap` carries an effect row — `fn fmap<a, b>(x: f<a>, g: ((a) -> b with |e))
+-> f<b> with |e` — so a class method is not restricted to pure functions.
+`ap` cannot delegate to `Flow.List.map` for the same reason: `map` is
+effect-row polymorphic and `ap` is not, leaving the row nothing to resolve
+against (E419), so both go through `flat_map`.
+
+`Either` has **no** `Functor`/`Applicative`/`Monad` instance. Its head would be
+partially applied (`Either<l>`), which does not survive a module boundary — see
+[KI-064](../known_issues.md#ki-064). `Eq` and `Ord` over `Either` are
+unaffected; that evidence is structural.
+
 ## What `deriving` accepts
 
 A `deriving` clause is accepted when **every** method of the class can be given
@@ -291,10 +384,10 @@ constraint took a dictionary parameter nobody supplied and was called one
 argument short (`E1000 want=3, got=2`). Calling the method directly worked,
 which is what kept the gap out of sight.
 
-`Eq` over `List` and `Option` therefore has real contextual instances
-(`ClassEnv::register_builtin_container_instance`), and `solve_instance_evidence`
-tries instance resolution **before** the structural rule so they are not
-shadowed by it. The structural rule stays as the fallback for heads with no
+`Eq` over `List` and `Option` therefore has real contextual instances — written
+in `lib/Flow/Eq.flx` since Stage 8, previously registered from Rust — and
+`solve_instance_evidence` tries instance resolution **before** the structural
+rule so they are not shadowed by it. The structural rule stays as the fallback for heads with no
 instance: tuples, `Either`, `Array`, and every `Sendable` case — `Sendable` is a
 marker class with no methods, so it has no dictionary to build in the first
 place.

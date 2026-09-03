@@ -1,0 +1,41 @@
+// Proposal 0179 Stage 8: `Functor`, `Applicative` and `Monad` over `Either`.
+//
+// `Either` takes two type parameters, so the instance head `Either<l>` is a
+// *partially applied* constructor: `l` stays free and is fixed by the value,
+// while the class parameter `f` stands for `Either<l>` as a whole. This is the
+// only instance head in the stdlib of that shape, and it exercises a matching
+// path a one-parameter constructor never reaches — matching `f<a>` against
+// `Either<String, Int>` has to split the arguments rather than line them up
+// one for one.
+//
+// Sequencing stops at the first `Left`, so `bind` on a `Left` never runs its
+// function. That is the error-channel behaviour, shown here rather than
+// asserted.
+//
+// `Eq` over `Either` is deliberately *not* an instance: the solver derives
+// that evidence structurally. An instance would need two context constraints
+// — one per side, `Eq<l>` and `Eq<r>` — and the parser accepts exactly one.
+// The last two lines show `==` working over `Either` regardless, through
+// structural evidence rather than a dictionary.
+//
+// Expected: Right(3) Left("bad") Right(7) Right(20) Left("bad") true false
+
+import Flow.Monad
+
+fn main() {
+    let r: Either<String, Int> = Right(2)
+    let l: Either<String, Int> = Left("bad")
+
+    print(fmap(r, fn(x) { x + 1 }))
+    print(fmap(l, fn(x) { x + 1 }))
+
+    let p: Either<String, Int> = pure(7)
+    print(p)
+
+    print(bind(r, fn(x) { Right(x * 10) }))
+    print(bind(l, fn(x) { Right(x * 10) }))
+
+    let same: Either<String, Int> = Right(2)
+    print(r == same)
+    print(r == l)
+}

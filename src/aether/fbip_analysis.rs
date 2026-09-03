@@ -1019,6 +1019,7 @@ mod tests {
     ) -> CoreDef {
         let binder = self::binder(interner, raw, name);
         CoreDef {
+            binder_types: Default::default(),
             name: binder.name,
             binder,
             expr,
@@ -1210,6 +1211,7 @@ mod tests {
         );
         let caller_binder = binder(&mut interner, 4, "caller");
         let caller = CoreDef {
+            binder_types: Default::default(),
             name: caller_binder.name,
             binder: caller_binder,
             expr: CoreExpr::App {
@@ -1265,6 +1267,7 @@ mod tests {
         );
         let caller_binder = binder(&mut interner, 3, "caller");
         let caller = CoreDef {
+            binder_types: Default::default(),
             name: caller_binder.name,
             binder: caller_binder,
             expr: CoreExpr::App {
@@ -1312,6 +1315,7 @@ mod tests {
         );
         let caller_binder = binder(&mut interner, 4, "caller");
         let caller = CoreDef {
+            binder_types: Default::default(),
             name: caller_binder.name,
             binder: caller_binder,
             expr: CoreExpr::App {
@@ -1669,6 +1673,7 @@ mod tests {
         let x = binder(&mut interner, 2, "x");
         let program = CoreProgram {
             defs: vec![CoreDef {
+                binder_types: Default::default(),
                 name: f.name,
                 binder: f,
                 expr: CoreExpr::App {

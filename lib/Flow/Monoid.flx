@@ -1,0 +1,34 @@
+/// A `Semigroup` with an identity element, reached as `mempty()`.
+///
+/// `mempty` takes no arguments, so nothing at the call site says which
+/// instance to pick — it is chosen from the type the result is required to
+/// have (`let xs: List<Int> = mempty()`, or a declared return type).
+///
+/// Unlike `Eq`, `Ord`, `Num`, `Show` and `Semigroup`, this module is not part
+/// of the class prelude: no operator desugars to it, so a program that does
+/// not use it should not pay to compile it. Import it explicitly.
+/// (Proposal 0179 Stage 8.)
+module Flow.Monoid {
+    public class Semigroup<a> => Monoid<a> {
+        fn mempty() -> a
+    }
+
+    // Each instance names its `Semigroup` evidence, which lands in the leading
+    // slot of the `Monoid` dictionary. See `Flow.Ord` for why it is spelled
+    // out rather than left to be solved.
+    public instance Semigroup<String> => Monoid<String> {
+        fn mempty() { "" }
+    }
+
+    public instance Semigroup<List<a>> => Monoid<List<a>> {
+        fn mempty() { [] }
+    }
+
+    public instance Semigroup<Array<a>> => Monoid<Array<a>> {
+        fn mempty() { [||] }
+    }
+
+    public instance Semigroup<Option<a>> => Monoid<Option<a>> {
+        fn mempty() { None }
+    }
+}

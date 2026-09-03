@@ -1237,7 +1237,7 @@ fn print_box() -> Int with Console {
 }
 
 #[test]
-fn phase4_module_scoped_type_classes_acceptance_bar() {
+fn module_scoped_type_classes_acceptance_bar() {
     let source = r#"
 data Box<a> {
     Box(a)
@@ -1325,5 +1325,52 @@ module Phase1.SmokeReject {
         has_invalid_module_content(&diags),
         "stray return inside module body should still be rejected, got: {}",
         render_diagnostics(&diags, Some(source), None)
+    );
+}
+
+/// Proposal 0179 Stage 8: a class method whose parameter type carries an
+/// effect row must keep its declared return type.
+///
+/// The parameter list's `)` was located by testing whether the current token
+/// was a `)` rather than by whether any parameters had been parsed. A
+/// parameter whose type carries an effect row is parenthesised
+/// (`g: ((a) -> b with |e)`), so parsing it leaves the cursor on *that* type's
+/// closing paren — which was mistaken for the list's. The real one stayed
+/// unconsumed, the `->` after it was never seen, and the method silently took
+/// the "no return type" branch and became `Unit`.
+///
+/// Nothing rejected the result: it surfaced only when an instance method
+/// returned a constructed value rather than tail-calling, as `E1004 expected
+/// type: Unit`.
+#[test]
+fn class_method_with_effect_row_parameter_keeps_its_return_type() {
+    use flux::syntax::statement::Statement;
+
+    let source = r#"
+class Mapper<f> {
+    fn over<a, b>(x: f<a>, g: ((a) -> b with |e)) -> f<b> with |e
+}
+
+fn main() { 1 }
+"#;
+    let lexer = Lexer::new(source);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    assert!(parser.errors.is_empty(), "{:?}", parser.errors);
+
+    let interner = parser.interner();
+    let return_type = program
+        .statements
+        .iter()
+        .find_map(|stmt| match stmt {
+            Statement::Class { methods, .. } => methods.first().map(|m| m.return_type.clone()),
+            _ => None,
+        })
+        .expect("class with one method");
+
+    assert_eq!(
+        return_type.display_with(interner),
+        "f<b>",
+        "the return type must survive an effect-row parameter"
     );
 }

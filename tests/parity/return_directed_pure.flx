@@ -1,0 +1,39 @@
+// parity: vm, llvm
+// expect: success
+// bug: none — Stage 8's higher-kinded classes. A dictionary for a class
+//      whose parameter is a type constructor, reached through two levels of
+//      superclass evidence, is exactly the shape the two backends could
+//      lay out or index differently.
+// Proposal 0179 Stage 8: `pure` takes an argument, but nothing about that
+// argument says which structure to lift it into.
+//
+// `pure(1)` is a `List<Int>`, an `Option<Int>` or an `Array<Int>` depending
+// only on the type the result is required to have. This differs from
+// `mempty_result_dispatch.flx`, where the method takes no argument at all:
+// here there *is* an argument, and dispatching on it would still pick the
+// wrong instance, because its type is the element type rather than the
+// structure.
+//
+// Expected: [1] Some(1) [|1|] ["a"] [3, 4]
+
+import Flow.Applicative
+
+fn singleton_list(x: Int) -> List<Int> {
+    pure(x)
+}
+
+fn main() {
+    let l: List<Int> = pure(1)
+    print(l)
+    let o: Option<Int> = pure(1)
+    print(o)
+    let a: Array<Int> = pure(1)
+    print(a)
+
+    // The element type is `String` here; only the annotation picks `List`.
+    let s: List<String> = pure("a")
+    print(s)
+
+    // Through a declared return type rather than a `let`.
+    print(Flow.List.concat([singleton_list(3), singleton_list(4)]))
+}

@@ -10,18 +10,14 @@
 //   2 > 1        → Ord<Int>
 //   eq(42, 42)   → Eq<Int> (class method call)
 //   add(10, 20)  → Num<Int> (class method call)
+//
+// The instances the prelude already supplies are not redeclared here. Since
+// Proposal 0179 Stage 8 the standard classes are Flux source in `Flow.Eq`,
+// `Flow.Num` and `Flow.Show`, which every module imports, so `Int` and `Bool`
+// arrive with their instances; declaring them again is a duplicate instance.
+// The calls below dispatch through those prelude instances.
 
-instance Eq<Int> {
-    fn eq(x, y) { x == y }
-    fn neq(x, y) { x != y }
-}
 
-instance Num<Int> {
-    fn add(x, y) { x + y }
-    fn sub(x, y) { x - y }
-    fn mul(x, y) { x * y }
-    fn div(x, y) { x / y }
-}
 
 fn main() with IO {
     // Operator constraints

@@ -412,32 +412,40 @@ fn validate_statements(
 
 fn validate_constraint(
     constraint: &crate::syntax::type_class::ClassConstraint,
-    _owner: &ClassDef,
+    owner: &ClassDef,
     class_env: &ClassEnv,
     env: &KindEnv,
     interner: &Interner,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let Some(class_id) = class_env.resolve_class_id(_owner.module, constraint.class_name) else {
+    let Some(class_id) = class_env.resolve_class_id(owner.module, constraint.class_name) else {
         return;
     };
     let Some(class) = class_env.lookup_class_by_id(class_id) else {
         return;
     };
+    // The owner's own type parameters are in scope in its constraints. Without
+    // them a constraint argument that names one is unknown and defaults to
+    // `Type`, so `class Functor<f> => Applicative<f>` reported `f` as `Type`
+    // where `Functor` wants `Type -> Type` — rejecting every superclass edge
+    // between higher-kinded classes.
+    let locals: HashMap<Identifier, LocalBinder> = owner
+        .type_params
+        .iter()
+        .map(|param| {
+            (
+                *param,
+                LocalBinder::Known(owner.class_id(), env.class_parameter_kind(owner, *param)),
+            )
+        })
+        .collect();
     for (index, arg) in constraint.type_args.iter().enumerate() {
         let expected = class
             .type_params
             .get(index)
             .map(|param| env.class_parameter_kind(class, *param))
             .unwrap_or(Kind::Type);
-        let actual = check_type(
-            arg,
-            Some(&expected),
-            &HashMap::new(),
-            env,
-            interner,
-            diagnostics,
-        );
+        let actual = check_type(arg, Some(&expected), &locals, env, interner, diagnostics);
         if actual != expected {
             diagnostics.push(constraint_kind_diagnostic(
                 arg.span(),

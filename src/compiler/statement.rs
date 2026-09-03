@@ -1431,13 +1431,20 @@ impl Compiler {
                     if let Some(existing) = self.symbol_table.resolve(name)
                         && self.symbol_table.exists_in_current_scope(name)
                     {
-                        let name_str = self.sym(name);
-                        return Err(Self::boxed(self.make_redeclaration_error(
-                            name_str,
-                            *span,
-                            Some(existing.span),
-                            None,
-                        )));
+                        // A dispatch stub generated for a class method is not
+                        // a user declaration, and a binding of that name takes
+                        // precedence over it — the same rule `phase_predeclaration`
+                        // applies to `fn`. Without this, `let add = fn(x, y) { x + y }`
+                        // reads as a redeclaration of `Flow.Num`'s `add` stub.
+                        if !self.generated_dispatch_stub_names.remove(&name) {
+                            let name_str = self.sym(name);
+                            return Err(Self::boxed(self.make_redeclaration_error(
+                                name_str,
+                                *span,
+                                Some(existing.span),
+                                None,
+                            )));
+                        }
                     }
                     // Then check for import collision (only if not a duplicate in same scope)
                     if self.scope_index == 0 && self.file_scope_symbols.contains(&name) {
@@ -1752,9 +1759,26 @@ impl Compiler {
     /// select with, so a call this accepts is one they can resolve.
     fn report_ambiguous_dictionary_calls(
         &mut self,
+        function_name: Symbol,
         body: &Block,
         scheme_constraints: &[crate::ast::type_infer::constraint::SchemeConstraint],
     ) {
+        // A generated instance method's scheme constraints are not its
+        // dictionary parameters. `Flow.Json`'s `Decode<a> => Decode<List<a>>`
+        // method carries two `Decode` constraints but resolves through the one
+        // dictionary its context gave it, so counting constraints here would
+        // report it falsely.
+        //
+        // A module qualifies its generated methods (`Flow.Json.__tc_…`), so
+        // test the last segment, as `emit_instance_method_aliases` does.
+        let bare_name = {
+            let full = self.sym(function_name);
+            full.rsplit_once('.').map_or(full, |(_, suffix)| suffix)
+        };
+        if crate::types::class_env::is_generated_instance_method(bare_name) {
+            return;
+        }
+
         // Only a class constrained more than once can be ambiguous.
         let mut per_class: HashMap<crate::types::class_id::ClassId, Vec<Vec<InferType>>> =
             HashMap::new();
@@ -1791,32 +1815,46 @@ impl Compiler {
         let mut found = Vec::new();
         crate::ast::visit::Visitor::visit_block(&mut CallCollector { calls: &mut found }, body);
 
-        for (name, arguments, span) in found {
+        for (name, arguments, call_id, span) in found {
             let Some((declaring_class, occurrences)) = candidates.get(&name) else {
                 continue;
             };
             let Some(positions) = self.class_env.dispatch_positions(*declaring_class, name) else {
                 continue;
             };
-            // Nothing in argument position names the instance. If the class
-            // parameter still appears in the return type the call is dispatched
-            // on its result — `Flow.Json`'s `decode` is exactly that, and it
-            // resolves fine — so leave it to result-directed selection
-            // (KI-058). If it appears nowhere at all, no call site can ever
-            // say which instance it means, and that is what E485 reports.
-            if positions.iter().all(Option::is_none)
-                && self
-                    .class_env
-                    .method_mentions_class_parameters(*declaring_class, name)
-                    != Some(false)
-            {
-                continue;
-            }
+            // Nothing in argument position names the instance. This used to
+            // defer to result-directed selection whenever the class parameter
+            // still appeared in the return type, but no backend performs it:
+            // Core's `choose_candidate` takes `candidates.last()` and the AST
+            // path projects out of the unsuffixed `__dict_*`. With two
+            // dictionaries in scope that silently returns the wrong instance's
+            // value — a `String` from a function declared to return `Int`
+            // (KI-058). Reporting is the only sound answer while selection
+            // reads argument types only.
+            //
+            // Reached only for a class this function is constrained on more
+            // than once, so a singly-constrained result-dispatched call —
+            // `Flow.Json`'s `decode`, `mempty`, `pure` — is unaffected.
+            let results = self
+                .class_env
+                .result_positions(*declaring_class, name)
+                .unwrap_or_default();
             let observed: Vec<Option<InferType>> = positions
                 .iter()
-                .map(|position| {
-                    let argument = arguments.get((*position)?)?;
-                    self.hm_expr_types.get(&argument.expr_id()).cloned()
+                .enumerate()
+                .map(|(slot, position)| match position {
+                    Some(index) => {
+                        let argument = arguments.get(*index)?;
+                        self.hm_expr_types.get(&argument.expr_id()).cloned()
+                    }
+                    // The class parameter is the method's return type, so what
+                    // fixes it is the type this call's result is required to
+                    // have. Selection reads the same position, so a call it can
+                    // resolve must not be reported here.
+                    None if results.get(slot).copied().unwrap_or(false) => {
+                        self.hm_expr_types.get(&call_id).cloned()
+                    }
+                    None => None,
                 })
                 .collect();
             let indexed: Vec<(usize, Vec<InferType>)> =
@@ -1834,6 +1872,29 @@ impl Compiler {
                 ));
             }
         }
+    }
+
+    fn runtime_dictionary_parameter_names(
+        &mut self,
+        constraints: &[crate::ast::type_infer::constraint::SchemeConstraint],
+    ) -> Vec<Symbol> {
+        let mut occurrences: HashMap<crate::types::class_id::ClassId, usize> = HashMap::new();
+        let mut names = Vec::new();
+        for constraint in constraints
+            .iter()
+            .filter(|constraint| self.class_env.constraint_needs_dictionary(constraint))
+        {
+            let occurrence = occurrences.entry(constraint.class_id).or_insert(0);
+            let suffix = (*occurrence > 0).then(|| format!("_{}", *occurrence));
+            *occurrence += 1;
+            let prefix =
+                crate::types::class_env::dictionary_prefix(constraint.class_id, &self.interner);
+            names.push(
+                self.interner
+                    .intern(&format!("{}{}", prefix, suffix.unwrap_or_default())),
+            );
+        }
+        names
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1919,24 +1980,62 @@ impl Compiler {
                 .unwrap_or_default();
         }
 
-        self.report_ambiguous_dictionary_calls(body, &scheme_constraints);
+        self.report_ambiguous_dictionary_calls(name, body, &scheme_constraints);
 
-        // If the IR function has extra dict params (from dict elaboration),
-        // define them in the scope BEFORE the AST params so they get the
-        // correct local indices matching the VM calling convention.
-        // Only apply to user-defined constrained functions (not __tc_*
-        // mangled instance methods, which may have contextual dict params
-        // handled via a separate mechanism).
-        if let Some(ir_fn) = ir_function {
-            let extra = ir_fn.params.len().saturating_sub(parameters.len());
-            if extra > 0 && !scheme_constraints.is_empty() {
-                for ir_param in &ir_fn.params[..extra] {
-                    self.symbol_table.define(ir_param.name, Span::default());
-                }
-            }
+        // Dictionary elaboration changes the VM calling convention by placing
+        // one hidden dictionary parameter in front of every runtime-bearing
+        // constraint.  The CFG path exposes those parameters through its IR,
+        // but the AST path must establish the same locals itself.  This is
+        // especially important for functions inside modules: their IR lookup
+        // can be unavailable while the AST compiler still has to project a
+        // class method from the dictionary in scope for module-owned methods.
+        //
+        // Generated contextual instance methods already contain their context
+        // dictionaries in `parameters`.  Count and preserve that prefix so
+        // the AST path does not prepend a second copy.
+        let runtime_dict_names = self.runtime_dictionary_parameter_names(&scheme_constraints);
+        let existing_dict_count = runtime_dict_names
+            .iter()
+            .zip(parameters.iter())
+            .take_while(|(expected, actual)| expected == actual)
+            .count();
+        let required_dict_count = runtime_dict_names.len();
+
+        // Prefer the IR's names when available: they are the exact names used
+        // by Core dictionary elaboration. If no IR function was produced, the
+        // canonical names above give the AST path the same layout.
+        let ir_dict_names: Vec<Symbol> = ir_function
+            .map(|ir_fn| {
+                let extra = ir_fn.params.len().saturating_sub(parameters.len());
+                ir_fn
+                    .params
+                    .iter()
+                    .take(extra)
+                    .map(|param| param.name)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let dict_names = if ir_dict_names.len() >= required_dict_count {
+            ir_dict_names[..required_dict_count].to_vec()
+        } else {
+            runtime_dict_names.clone()
+        };
+        let missing_dict_names = dict_names
+            .iter()
+            .skip(existing_dict_count)
+            .copied()
+            .collect::<Vec<_>>();
+
+        // Define the already-declared dictionary prefix first, then any
+        // synthesized/IR-only dictionaries, then the visible source params.
+        // This keeps local indices in the same order as the call ABI.
+        for param in parameters.iter().take(existing_dict_count) {
+            self.symbol_table.define(*param, Span::default());
         }
-
-        for (index, param) in parameters.iter().enumerate() {
+        for param in &missing_dict_names {
+            self.symbol_table.define(*param, Span::default());
+        }
+        for (index, param) in parameters.iter().enumerate().skip(existing_dict_count) {
             self.symbol_table.define(*param, Span::default());
             if let Some(Some(param_ty)) = parameter_types.get(index)
                 && let Ok(runtime_ty) = convert_type_expr_checked(
@@ -1949,6 +2048,8 @@ impl Compiler {
                 self.bind_static_type(*param, runtime_ty);
             }
         }
+
+        let runtime_param_count = parameters.len() + missing_dict_names.len();
 
         // Emit cost centre entry when profiling is enabled.
         if self.profiling {
@@ -2114,7 +2215,7 @@ impl Compiler {
 
             // ── AST fallback path ──────────────────────────────────────────
             let body_errors = self.with_function_context_with_param_effect_rows(
-                parameters.len(),
+                runtime_param_count,
                 effects,
                 param_effect_rows,
                 |compiler| compiler.compile_block_with_tail_mode_collect_errors(body, true),
@@ -2217,7 +2318,7 @@ impl Compiler {
             CompiledFunction::new(
                 instructions,
                 num_locals,
-                cfg_param_count.get().unwrap_or(parameters.len()),
+                cfg_param_count.get().unwrap_or(runtime_param_count),
                 Some(
                     FunctionDebugInfo::new(Some(self.sym(name).to_string()), files, locations)
                         .with_boundary_location(Some(boundary_location))
@@ -3268,7 +3369,12 @@ fn block_needs_top_level_frame(block: &Block) -> bool {
 /// destructures every expression variant exhaustively, so a new one is a
 /// compile error here rather than a call this check silently stops seeing.
 struct CallCollector<'a, 'ast> {
-    calls: &'a mut Vec<(crate::syntax::Identifier, &'ast [Expression], Span)>,
+    calls: &'a mut Vec<(
+        crate::syntax::Identifier,
+        &'ast [Expression],
+        crate::syntax::expression::ExprId,
+        Span,
+    )>,
 }
 
 impl<'ast> crate::ast::visit::Visitor<'ast> for CallCollector<'_, 'ast> {
@@ -3276,12 +3382,12 @@ impl<'ast> crate::ast::visit::Visitor<'ast> for CallCollector<'_, 'ast> {
         if let Expression::Call {
             function,
             arguments,
+            id,
             span,
-            ..
         } = expr
             && let Expression::Identifier { name, .. } = function.as_ref()
         {
-            self.calls.push((*name, arguments.as_slice(), *span));
+            self.calls.push((*name, arguments.as_slice(), *id, *span));
         }
         crate::ast::visit::walk_expr(self, expr);
     }

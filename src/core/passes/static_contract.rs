@@ -165,6 +165,7 @@ mod tests {
 
     fn make_def(name: Identifier, ty: Option<CoreType>) -> CoreDef {
         CoreDef {
+            binder_types: Default::default(),
             name,
             binder: CoreBinder::new(CoreBinderId(0), name),
             expr: CoreExpr::Lit(CoreLit::Unit, Default::default()),

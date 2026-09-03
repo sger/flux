@@ -145,18 +145,18 @@ fn test_signum_reports_the_sign() {
 }
 
 fn test_div_and_mod_on_positives() {
-    assert_eq(Num.div(7, 2), 3)
+    assert_eq(Num.floor_div(7, 2), 3)
     assert_eq(Num.mod(7, 2), 1)
 }
 
-/// The division identity must hold: div(a,b) * b + mod(a,b) == a.
+/// The division identity must hold: floor_div(a,b) * b + mod(a,b) == a.
 fn test_div_and_mod_satisfy_the_division_identity() {
-    assert_eq(Num.div(7, 2) * 2 + Num.mod(7, 2), 7)
-    assert_eq(Num.div(20, 6) * 6 + Num.mod(20, 6), 20)
+    assert_eq(Num.floor_div(7, 2) * 2 + Num.mod(7, 2), 7)
+    assert_eq(Num.floor_div(20, 6) * 6 + Num.mod(20, 6), 20)
 }
 
 fn test_dividing_by_one_is_the_identity() {
-    assert_eq(Num.div(9, 1), 9)
+    assert_eq(Num.floor_div(9, 1), 9)
     assert_eq(Num.mod(9, 1), 0)
 }
 

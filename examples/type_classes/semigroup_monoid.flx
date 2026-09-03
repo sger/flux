@@ -1,0 +1,30 @@
+// Proposal 0179 Stage 8: `Semigroup` gains container instances, and `Monoid`
+// adds an identity on top of it as a superclass.
+//
+// `mconcat` is constrained by `Monoid` alone and takes one dictionary. It
+// calls `append` — a `Semigroup` method, reached through the evidence in the
+// dictionary's leading slot — and `mempty`, its own. Folding a list of any
+// `Monoid` needs both, so this is the pair working together rather than each
+// in isolation.
+//
+// `mconcat` is written here rather than shipped in `Flow.Monoid` because a
+// constrained function inside a `module` block does not receive its
+// dictionary and traps at run time — docs/known_issues.md#ki-061.
+//
+// Expected: "abc" [1, 2, 3] [|1, 2|] Some("ab")
+
+import Flow.Monoid
+
+fn mconcat<a: Monoid>(xs: List<a>) -> a {
+    match xs {
+        [h | t] -> append(h, mconcat(t)),
+        _ -> mempty()
+    }
+}
+
+fn main() {
+    print(mconcat(["a", "b", "c"]))
+    print(mconcat([[1], [2, 3]]))
+    print(mconcat([[|1|], [|2|]]))
+    print(mconcat([Some("a"), Some("b")]))
+}
