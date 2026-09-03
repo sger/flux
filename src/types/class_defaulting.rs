@@ -84,15 +84,14 @@ pub fn finalize_binding_class_constraints(
     // `collect_scheme_constraints`. Stage 3 folds that decision into the
     // solver's disposition (THIH's `split`); until then, record the outcome
     // on the dispositions so both halves report the same thing.
-    let scheme_constraints =
-        collect_scheme_constraints(
-            &finalized_constraints,
-            &finalized_type,
-            env_free_vars,
-            mode,
-            class_env,
-            interner,
-        );
+    let scheme_constraints = collect_scheme_constraints(
+        &finalized_constraints,
+        &finalized_type,
+        env_free_vars,
+        mode,
+        class_env,
+        interner,
+    );
     let dispositions = mark_generalized(outcome, &scheme_constraints);
 
     // A declared bound over a variable this signature never mentions cannot be

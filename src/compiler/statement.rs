@@ -1840,8 +1840,8 @@ impl Compiler {
             // Nothing in argument position names the instance. This used to
             // defer to result-directed selection whenever the class parameter
             // still appeared in the return type, but no backend performs it:
-            // Core's `choose_candidate` takes `candidates.last()` and the AST
-            // path projects out of the unsuffixed `__dict_*`. With two
+            // Core's `choose_candidate` declines once the candidates disagree
+            // and the AST path projects out of the unsuffixed `__dict_*`. With two
             // dictionaries in scope that silently returns the wrong instance's
             // value — a `String` from a function declared to return `Int`
             // (KI-058). Reporting is the only sound answer while selection
