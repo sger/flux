@@ -2576,6 +2576,61 @@ Found by trying to replace the hand-rolled insertion sort in
 `Flume.Resolve.Solver` — whose comment explains that the sort is hand-rolled
 because `Version` cannot be sorted generically — with `List.sort_by`.
 
+### KI-078 — An instance method calling a sibling method on its own head type gains a dictionary parameter
+
+**Severity:** High · **Area:** Type classes / constraint solving · **Verified:** 2026-09-03 · **From:** Phase 1 of the type-class audit
+
+A constraint on the instance's *own* head, raised inside one of its own
+methods, is generalized into a dictionary parameter instead of being
+discharged by the instance being defined:
+
+```flux
+class MyEq<a> {
+    fn meq(x: a, y: a) -> Bool
+    fn mneq(x: a, y: a) -> Bool
+}
+
+instance MyEq<Int> { fn meq(x, y) { x == y }  fn mneq(x, y) { x != y } }
+
+instance MyEq<a> => MyEq<List<a>> {
+    fn meq(xs, ys) { ... }
+    fn mneq(xs, ys) { !meq(xs, ys) }        // ← the sibling call
+}
+
+fn main() with IO { print(mneq([1, 2], [1, 3])) }
+// error[E004]: I can't find a value named `__dict_MyEq_List<a>`
+```
+
+`mneq`'s body calls `meq` at `List<a>`, the very head this instance defines.
+The solver classifies `MyEq<List<a>>` as `Generalized` — its argument is not
+ground, and only ground predicates are matched against instances — so it
+becomes a second dictionary parameter:
+
+```
+PROBE __tc_MyEq_List<a>_meq:  1 constraints: ["MyEq<?10761>"]
+PROBE __tc_MyEq_List<a>_mneq: 2 constraints: ["MyEq<?10775>", "MyEq<List<?10775>>"]
+
+letrec __tc_MyEq_List<a>_mneq = λ__dict_MyEq, __dict_MyEq_1, __dict_MyEq, xs, ys. ...
+```
+
+Callers pass one dictionary, the method wants more, and the program fails on
+arity — or, when the extra parameter is filled from the enclosing scope,
+reaches for a `__dict_*` global that only exists as a Core definition.
+
+A method calling *itself* is unaffected: that lowers to a direct call to the
+mangled name and raises no constraint.
+
+The fix is the standard one: match a non-ground predicate against declared
+instance heads (THIH's `byInst`, which does not require ground arguments), and
+discharge it with that instance's evidence applied to the context the enclosing
+function already holds. `resolve_instance_with_subst_by_id`
+([class_env.rs](../src/types/class_env.rs)) already does the matching half.
+
+This is the same root cause as the duplicated dictionary parameters in
+[KI-077](#ki-077), and it is what keeps the helper functions in
+[Flow/Eq.flx](../lib/Flow/Eq.flx): the container instances could otherwise
+define `eq` by recursion and `neq` as its negation.
+
 ### KI-077 — Superclass evidence for a contextual superclass instance is built from the wrong dictionary
 
 **Severity:** High · **Area:** Type classes / dictionary passing · **Verified:** 2026-09-03 · **From:** Phase 1 of the type-class audit

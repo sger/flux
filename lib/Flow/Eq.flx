@@ -36,21 +36,25 @@ module Flow.Eq {
     }
 
     // The container instances recurse through these constrained helpers, and
-    // the helpers compare elements with `==` rather than `eq(...)`. Both
-    // choices work around defects in module-scoped code, not preferences:
+    // the helpers compare elements with `==` rather than `eq(...)`.
     //
-    //   * an instance method that calls its own class method on its own head
-    //     type (`eq(t1, t2)` on the tail) is forwarded through a copy that
-    //     bakes in the caller's element dictionary, so the tail comparison
-    //     reaches the element instance and traps
-    //     (`E1009 unsupported comparison: List and List`);
-    //   * a constrained function inside a `module` block that calls a class
-    //     method *by name* never receives its dictionary and falls through
-    //     to the runtime dispatch stub (`panic: No instance of Eq.eq`).
+    // The first reason once recorded here — that an instance method calling
+    // its own class method on its own head type traps with
+    // `E1009 unsupported comparison: List and List` — was a misreading. That
+    // error came from the VM's comparison table, which had no arm for cons
+    // cells and so rejected `[1, 2] == [1, 2]` wherever it appeared. With that
+    // arm in place an instance method may recurse through `eq` directly, and
+    // doing so is the clearer definition.
     //
-    // Operators desugar through a path that does carry the dictionary, which
-    // is why every constrained function in the stdlib has only ever used them.
-    // See docs/known_issues.md#ki-060 and #ki-061.
+    // What still stops it is a sibling call: `fn neq(xs, ys) { !eq(xs, ys) }`
+    // gives the generated method a second dictionary parameter for
+    // `Eq<List<a>>` — a constraint the instance being defined discharges — and
+    // the call then fails on arity. See docs/known_issues.md#ki-078.
+    //
+    // The second reason still holds: a constrained function inside a `module`
+    // block that calls a class method *by name* never receives its dictionary
+    // and falls through to the runtime dispatch stub
+    // (`panic: No instance of Eq.eq`). See docs/known_issues.md#ki-061.
     fn list_eq<a: Eq>(xs: List<a>, ys: List<a>) -> Bool {
         match xs {
             [h1 | t1] -> match ys {
