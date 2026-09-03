@@ -498,21 +498,41 @@ exist — a misleading signal exactly when the cache is under suspicion.
 
 ---
 
-### KI-058 — A `let` annotation naming a rigid type parameter is rejected
+### KI-070 — A lambda's parameter or return annotation cannot name an enclosing rigid type parameter
 
-**Severity:** High · **Area:** Type inference, annotations · **Verified:** 2026-09-01
-
-Inside a generic function, annotating a `let` with the function's own type
-parameter fails, even when the annotation is trivially correct:
+**Severity:** Medium · **Area:** Type inference, annotations · **Verified:** 2026-09-02 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 ```flux
-class Root<a> { fn root(x: a) -> Int }
-instance Root<Int> { fn root(x) { x } }
-
-fn plain<a: Root>(x: a) -> Int {
-    root(x)                     // fine
+fn outer<a>(x: a) -> a {
+    let f = \y: a -> y      // `a` here is a nominal type, not `outer`'s parameter
+    f(x)
 }
+```
 
+The sibling of [KI-058](#ki-058), left open when that was fixed. `infer_lambda_expression`
+([lambda.rs](../src/ast/type_infer/expression/lambda.rs)) builds an explicitly
+empty `type_params` map and passes it to both `infer_and_bind_parameter_types`
+and `infer_return_type_with_optional_annotation`; `check_lambda_expression`
+([checked.rs](../src/ast/type_infer/expression/checked.rs)) does the same in
+check mode. So a lambda annotation naming `a` converts to
+`TypeConstructor::Adt("a")` rather than the enclosing signature's rigid
+variable, exactly as `let` annotations did.
+
+The fix is the one KI-058 used: read the top of
+`InferCtx::signature_type_params` instead of an empty map. It was scoped out
+deliberately rather than missed — the `let` path is what unblocked Stage 4, and
+the lambda path has no known consumer waiting on it.
+
+---
+
+### KI-058 — A `let` annotation naming a rigid type parameter is rejected — FIXED 2026-09-02
+
+**Severity:** High · **Area:** Type inference, annotations · **Verified:** 2026-09-02 · **From:** [0179](proposals/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+Inside a generic function, annotating a `let` with the function's own type
+parameter was rejected even when trivially correct:
+
+```flux
 fn annotated<a: Root>(x: a) -> Int {
     let y: a = x                // error[E300]: Annotation Type Mismatch
     root(y)                     // error[E444]: No Type Class Instance (cascade)
@@ -526,53 +546,32 @@ error[E300]: Annotation Type Mismatch
    |            - but `y` was annotated as `a`
 ```
 
-`x` has type `a` and `y` is annotated `a`, so there is nothing to mismatch. The
-two sides do not end up as the same type: the annotation's `a` and the
-signature's `a` are compared as different things. The E444 is a cascade — once
-`y`'s type is unrelated to the signature's `a`, the `Root` constraint no longer
-covers it.
+**Correction to the earlier diagnosis.** This entry said the conversion failed.
+It did not. `infer_let_binding` converted the annotation with an empty
+type-parameter map, and `convert_type_expr_rec` falls through an unknown
+nullary name to `TypeConstructor::Adt(sym"a")`
+([type_env.rs](../src/types/type_env.rs)) — so `a` became a *nominal type named
+`a`*, which then failed to unify with the signature's rigid variable of the same
+name. That is why both sides of the diagnostic rendered as `a`, and why the
+value's type showed as `_`.
 
-Note the diagnostic renders the value's type as `_`. Unresolved and rigid
-variables both display that way, so the message does not distinguish "not
-inferred yet" from "a rigid parameter that failed to match" — worth fixing
-alongside, since it is what makes this hard to read.
+**Fix.** `InferCtx` now carries `signature_type_params`, a stack of the declared
+type parameters of each function whose body is being inferred, pushed beside
+`mark_signature_skolems` and popped beside `unmark_skolems`
+([function.rs](../src/ast/type_infer/function.rs)). `infer_let_binding` reads
+its top and routes through `infer_type_from_annotation`, which also applies
+`normalize_associated_types` — a second thing the `let` path had been skipping.
 
-The same thing blocks result-directed dispatch outside return position. This
-resolves, because the return type drives it:
+A stack rather than the inverted `skolem_names` the earlier note proposed:
+`skolem_names` is keyed by `TypeVarId` and is flat across the whole `InferCtx`,
+so inverting it collides whenever two functions use the same parameter name,
+and nested functions get no shadowing. `let_annotation_rigid_param.flx` covers
+the accepted case; `type_inference_tests.rs` covers the genuine-mismatch and
+sibling-function-shadowing cases.
 
-```flux
-fn one<a: Make>(pa: a) -> a { make(0) }        // ok
-fn one<a: Make>(pa: a) -> a { let x: a = make(0)  x }   // error[E444]
-```
-
-**Consequence beyond the annotation itself.** A function has exactly one return
-position, so with `let` annotations unusable a body can contain at most one
-result-directed class-method call. Any design that assumes two — such as a
-function holding two dictionaries for one class distinguished only by result
-type — describes a program that cannot currently be written.
-
-**Workaround:** drop the annotation, or extract the value through a helper
-function whose return type carries it.
-
-**Cause — confirmed.** `infer_let_binding`
-([statement.rs](../src/ast/type_infer/statement.rs)) converts the annotation
-with an empty type-parameter map:
-
-```rust
-TypeEnv::convert_type_expr_rec(ann, &HashMap::new(), ...)
-```
-
-The return-annotation path threads the real map instead
-(`infer_type_from_annotation` in `src/ast/type_infer/function.rs`). The
-signature's parameters are recoverable on the spot without new plumbing:
-`mark_signature_skolems` records them in `InferCtx::skolem_names` for exactly
-this scope and drops them on the way out, so inverting that map supplies what
-the conversion needs. A prototype of this one-line change compiled every
-reproduction above and left the inference suites green (104, 51 and 33 tests).
-
-**Do not fix this in isolation.** The prototype also made a latent soundness bug
-reachable, because the programs it unblocks are precisely the ones dictionary
-selection cannot handle:
+**The soundness hole this unblocked is now reported, not miscompiled.** With
+annotations usable, a body can hold more than one result-directed class-method
+call, and that is the shape dictionary selection cannot handle:
 
 ```flux
 class Make<a> { fn make(tag: Int) -> a }
@@ -584,19 +583,39 @@ fn two<a: Make, b: Make>(pa: a, pb: b) -> a {
     make(0)
 }
 
-print(two(1, "z"))   // expect 7 — prints "s"
+print(two(1, "z"))   // expected 7 — both backends printed "s"
 ```
 
-A `String` returned from a function whose return type is `Int`. Both calls
-collapse onto the second dictionary — [KI-057](#ki-057) in *result* position,
-where the argument-type rule that fixed KI-057 is blind. E485 does not catch it
-either: `make` mentions its class parameter in the return type, which that check
-deliberately exempts. So closing this issue requires closing result-directed
-dictionary selection at the same time, or a diagnostic that rejects these
-programs rather than miscompiling them.
+A `String` returned from a function whose return type is `Int`, on the VM *and*
+natively (an earlier reading of this expected the two backends to disagree; they
+do not — both are wrong the same way). Selection reads argument types only:
+Core's `choose_candidate` ([dict_elaborate.rs](../src/core/passes/dict_elaborate.rs))
+takes `candidates.last()` when no value parameter names the class parameter, and
+the AST path projects out of the unsuffixed `__dict_*`.
 
-**Notes from an abandoned attempt at the selection half**, recorded so they are
-not re-derived:
+`report_ambiguous_dictionary_calls` ([statement.rs](../src/compiler/statement.rs))
+used to exempt a method whose class parameter appears in its return type,
+deferring to a result-directed selection that no backend performs. It no longer
+does: the check is only ever reached for a class this function is constrained on
+more than once, so a singly-constrained result-dispatched call — `mempty`,
+`pure`, `Flow.Json`'s `decode` — is unaffected, while the two-dictionary case
+reports `E485`, the same answer the argument-position case already got.
+Fixture: `examples/compiler_errors/result_directed_ambiguity_e485.flx`.
+
+**Guarding the trap the notes recorded.** Scheme constraints are not dictionary
+parameters: `Flow.Json`'s `Decode<a> => Decode<List<a>>` method carries two
+`Decode` constraints but resolves through the one dictionary its context gave
+it. The check therefore skips generated instance methods, testing the last
+segment of the name because a module qualifies them (`Flow.Json.__tc_…`) — the
+same treatment `emit_instance_method_aliases` applies.
+
+Result-directed *selection* remains unimplemented; it is now reported rather
+than silently resolved to the wrong instance. Closing it properly needs the
+call's result type at both selection sites, which the notes below still
+describe accurately.
+
+**Notes from an abandoned attempt at the selection half**, retained because they
+remain true of any future attempt:
 
 - `apply_hm_final` in `src/compiler/mod.rs` is **not** the funnel for inference
   results. Instrumenting it shows it fires only for the `lib/Flow/*.flx`
@@ -606,10 +625,13 @@ not re-derived:
 - `CoreExpr` carries no expression id and adding one is impractical —
   `CoreExpr::App` alone has ~155 construction sites. Spans survive lowering and
   are the only per-node key available, but that was never validated end to end.
-- Scheme constraints are not dictionary parameters. `Flow.Json`'s
-  `Decode<a> => Decode<List<a>>` instance method has two `Decode` scheme
-  constraints but resolves through a single dictionary, so any check that counts
-  the former will report it falsely.
+- `ClassEnv::dispatch_positions` searches `method_sig.param_types` only, and
+  both `observed` vectors are built from value arguments. `class_param_bindings`
+  ([class_predicate.rs](../src/types/class_predicate.rs)) does match against the
+  result type, but every codegen consumer discards a binding that is still a
+  type variable — which a rigid parameter always is.
+
+---
 
 ## Resolved
 

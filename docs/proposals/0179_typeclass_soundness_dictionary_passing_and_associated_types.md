@@ -396,7 +396,13 @@ reproduction uses no superclasses and fails identically before Stage 5. It
 belongs with the dictionary-selection work, not here — and was fixed there, by
 keying the method-to-dictionary map on the predicate rather than the method
 name. That discharges the argument-position half of Stage 4's "resolve from the
-complete predicate"; the result-directed half remains open as KI-058.
+complete predicate"; the result-directed half is **reported rather than
+resolved** (KI-058, fixed 2026-09-02). A `let` annotation may now name the
+enclosing signature's own type parameter, which is what lets a body hold more
+than one result-directed call at all; a call that then leaves its class
+parameter undetermined between two dictionaries reports `E485` instead of
+silently selecting one. Selecting from the result type still requires the
+call's expected type at both selection sites, which neither backend has.
 
 **Entailment needed no separate solver change.** A wanted predicate discharged
 by a superclass of a constraint already in scope is handled by the projection
