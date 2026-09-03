@@ -128,6 +128,8 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "superclass_across_modules.flx",
         "superclass_method_call.flx",
         "superclass_evidence_without_context.flx",
+        "sibling_method_call_in_instance.flx",
+        "contextual_superclass_evidence.flx",
         "transitive_superclass.flx",
         "kind_valid.flx",
         "hkt_instance_positive.flx",
@@ -418,6 +420,28 @@ fn main() { leaky(1) }
         errors.iter().any(|diag| diag.code() == Some("E400")),
         "the class method's effect row must reach its caller, got: {errors:?}"
     );
+}
+
+/// An instance method may call a sibling method of its own class on its own
+/// head type. The evidence is the dictionary being defined, so the predicate
+/// must reduce to the instance's context rather than becoming a second
+/// dictionary parameter (KI-078).
+#[test]
+fn an_instance_method_may_call_a_sibling_on_its_own_head() {
+    let fixture = "sibling_method_call_in_instance.flx";
+    let output = run_fixture(fixture).expect("fixture should compile and run");
+    assert_eq!(output.stdout, "true\nfalse");
+}
+
+/// Superclass evidence discharged by a *contextual* instance: `Mid<List<a>>`
+/// owes `Base<List<a>>`, and its context supplies `Base<a>`. Matching the
+/// context on class identity alone put the wrong dictionary in the slot, and
+/// the duplicated parameters it came with failed on arity (KI-077).
+#[test]
+fn superclass_evidence_comes_from_a_contextual_instance() {
+    let fixture = "contextual_superclass_evidence.flx";
+    let output = run_fixture(fixture).expect("fixture should compile and run");
+    assert_eq!(output.stdout, "9");
 }
 
 /// Superclass evidence has two spellings, and both must dispatch the same way.
