@@ -390,6 +390,58 @@ fn unsupported_deriving_does_not_fabricate_a_dictionary() {
     );
 }
 
+/// An instance that omits a required method with no default is rejected at the
+/// instance head. Before this was promoted out of the warning half of the
+/// `collect_class_declarations` partition, the missing method was filled in by
+/// `generate_polymorphic_stub` and the omission surfaced as a run-time panic on
+/// the first call instead of a compile error.
+#[test]
+fn missing_instance_method_is_rejected() {
+    let source = r#"
+class Describable<a> {
+    fn name(x: a) -> Int
+    fn value(x: a) -> Int
+}
+
+instance Describable<Int> {
+    fn name(x) { x }
+}
+
+fn main() { 42 }
+"#;
+    let (program, mut compiler) = parse_source(source, "missing_instance_method.flx");
+    let errors = compiler
+        .compile(&program)
+        .expect_err("an instance missing a required method must not compile");
+    assert!(
+        errors.iter().any(|diag| diag.code() == Some("E442")),
+        "missing instance method must be reported, got: {errors:?}"
+    );
+}
+
+/// The counterpart: a method the class defaults may be omitted, and doing so
+/// must stay a clean compile. E442 fires on the absence of *both* an
+/// implementation and a default.
+#[test]
+fn omitting_a_defaulted_method_is_accepted() {
+    let source = r#"
+class Describable<a> {
+    fn name(x: a) -> Int
+    fn value(x: a) -> Int { 0 }
+}
+
+instance Describable<Int> {
+    fn name(x) { x }
+}
+
+fn main() { 42 }
+"#;
+    let (program, mut compiler) = parse_source(source, "defaulted_instance_method.flx");
+    compiler
+        .compile(&program)
+        .expect("omitting a method that has a default must compile");
+}
+
 #[test]
 fn public_typeclass_metadata_survives_interface_serialization_roundtrip() {
     let interface = build_interface_from_fixture();
