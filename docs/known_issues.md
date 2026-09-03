@@ -2576,7 +2576,7 @@ Found by trying to replace the hand-rolled insertion sort in
 `Flume.Resolve.Solver` — whose comment explains that the sort is hand-rolled
 because `Version` cannot be sorted generically — with `List.sort_by`.
 
-### KI-078 — An instance method calling a sibling method on its own head type gains a dictionary parameter
+### KI-078 — An instance method calling a sibling method on its own head type gains a dictionary parameter — FIXED 2026-09-03
 
 **Severity:** High · **Area:** Type classes / constraint solving · **Verified:** 2026-09-03 · **From:** Phase 1 of the type-class audit
 
@@ -2657,7 +2657,17 @@ including "these fixtures exit 0 with no output", were measured against cached
 artifacts and are wrong. **Any behavioural comparison across a compiler change
 must pass `--no-cache` or clear the store first** (`flux clean --store`).
 
-### KI-077 — Superclass evidence for a contextual superclass instance is built from the wrong dictionary
+**Fixed 2026-09-03 by context reduction.** Both entries had one cause: the
+solver retained a scheme constraint whose argument was a *constructed* type,
+asking the caller for a dictionary the instance itself defines.
+`collect_scheme_constraints` ([class_defaulting.rs](../src/types/class_defaulting.rs))
+now reduces every retained predicate to head-normal form — THIH's `toHnfs` —
+replacing `Eq<List<a>>` with the `Eq<a>` its instance requires and dropping the
+duplicate that exposes. The extra dictionary parameter disappears, and with it
+the wrong evidence in the superclass slot. `lib/Flow/Eq.flx` lost its
+`list_eq` / `option_eq` workarounds in the same change.
+
+### KI-077 — Superclass evidence for a contextual superclass instance is built from the wrong dictionary — FIXED 2026-09-03
 
 **Severity:** High · **Area:** Type classes / dictionary passing · **Verified:** 2026-09-03 · **From:** Phase 1 of the type-class audit
 

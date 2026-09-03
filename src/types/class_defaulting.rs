@@ -85,7 +85,14 @@ pub fn finalize_binding_class_constraints(
     // solver's disposition (THIH's `split`); until then, record the outcome
     // on the dispositions so both halves report the same thing.
     let scheme_constraints =
-        collect_scheme_constraints(&finalized_constraints, &finalized_type, env_free_vars, mode);
+        collect_scheme_constraints(
+            &finalized_constraints,
+            &finalized_type,
+            env_free_vars,
+            mode,
+            class_env,
+            interner,
+        );
     let dispositions = mark_generalized(outcome, &scheme_constraints);
 
     // A declared bound over a variable this signature never mentions cannot be
@@ -258,6 +265,8 @@ fn collect_scheme_constraints(
     infer_type: &InferType,
     env_free_vars: &HashSet<TypeVarId>,
     mode: GeneralizationMode,
+    class_env: Option<&ClassEnv>,
+    interner: &Interner,
 ) -> Vec<SchemeConstraint> {
     let quantified: HashSet<TypeVarId> = infer_type
         .free_vars()
@@ -302,7 +311,109 @@ fn collect_scheme_constraints(
         }
     }
 
+    match class_env {
+        Some(class_env) => reduce_to_head_normal_form(result, class_env, interner),
+        None => result,
+    }
+}
+
+/// Whether every argument of `constraint` is headed by a type variable.
+///
+/// THIH's `inHnf`. A predicate over a bare variable is evidence the caller must
+/// supply; one over a *constructed* type — `MyEq<List<a>>` — is evidence an
+/// instance provides, and keeping it as a scheme constraint asks the caller for
+/// a dictionary that the instance already defines.
+fn constraint_is_head_normal(constraint: &SchemeConstraint) -> bool {
+    fn head_is_var(ty: &InferType) -> bool {
+        match ty {
+            InferType::Var(_) => true,
+            InferType::HktApp(head, _) => head_is_var(head),
+            _ => false,
+        }
+    }
+    constraint.type_args.iter().all(head_is_var)
+}
+
+/// Replace each predicate that an instance discharges with the context that
+/// instance requires, and drop the duplicates that exposes.
+///
+/// THIH's `toHnfs`. `instance MyEq<a> => MyEq<List<a>>` reduces `MyEq<List<a>>`
+/// to `MyEq<a>`, so an instance method calling a sibling method on its own head
+/// no longer carries a second dictionary parameter for a predicate the instance
+/// itself satisfies (KI-078).
+///
+/// A predicate no instance matches is kept unchanged: it may still be
+/// discharged by a caller, and rejecting it here would report the same missing
+/// instance twice.
+fn reduce_to_head_normal_form(
+    constraints: Vec<SchemeConstraint>,
+    class_env: &ClassEnv,
+    interner: &Interner,
+) -> Vec<SchemeConstraint> {
+    let mut result: Vec<SchemeConstraint> = Vec::new();
+    for constraint in constraints {
+        for reduced in reduce_one(constraint, class_env, interner, 0) {
+            if !result.contains(&reduced) {
+                result.push(reduced);
+            }
+        }
+    }
     result
+}
+
+fn reduce_one(
+    constraint: SchemeConstraint,
+    class_env: &ClassEnv,
+    interner: &Interner,
+    depth: usize,
+) -> Vec<SchemeConstraint> {
+    if depth >= crate::types::class_env::MAX_DICTIONARY_RESOLUTION_DEPTH
+        || constraint_is_head_normal(&constraint)
+    {
+        return vec![constraint];
+    }
+
+    let Some((instance, subst)) = class_env.resolve_instance_with_subst_by_id(
+        constraint.class_id,
+        &constraint.type_args,
+        interner,
+    ) else {
+        return vec![constraint];
+    };
+
+    let mut context = Vec::new();
+    for (index, ctx) in instance.context.iter().enumerate() {
+        let Some(type_args) = ctx
+            .type_args
+            .iter()
+            .map(|arg| {
+                crate::types::class_env::instantiate_instance_type_expr(arg, &subst, interner)
+            })
+            .collect::<Option<Vec<_>>>()
+        else {
+            // A context predicate that cannot be instantiated leaves the
+            // original in place rather than dropping an obligation.
+            return vec![constraint];
+        };
+        let Some(class_id) = instance
+            .context_class_ids
+            .get(index)
+            .copied()
+            .or_else(|| class_env.unique_class_id(ctx.class_name))
+        else {
+            return vec![constraint];
+        };
+        context.push(SchemeConstraint {
+            class_name: ctx.class_name,
+            class_id,
+            type_args,
+        });
+    }
+
+    context
+        .into_iter()
+        .flat_map(|ctx| reduce_one(ctx, class_env, interner, depth + 1))
+        .collect()
 }
 
 /// Diagnostics for declared bounds whose variables no call can determine.
