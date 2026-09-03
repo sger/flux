@@ -146,13 +146,17 @@ impl<'a> InferCtx<'a> {
         let final_ty = match annotation {
             Some(ann) => {
                 let mut row_var_env = HashMap::new();
-                match TypeEnv::convert_type_expr_rec(
-                    ann,
-                    &HashMap::new(),
-                    self.interner,
-                    &mut row_var_env,
-                    &mut self.env.counter,
-                ) {
+                // The enclosing signature's type parameters, so an annotation
+                // naming one of them resolves to that rigid variable rather
+                // than to a nominal type of the same name (KI-058). Cloned
+                // because the conversion needs `&mut self`; the map holds one
+                // entry per declared parameter.
+                let type_params = self
+                    .signature_type_params
+                    .last()
+                    .cloned()
+                    .unwrap_or_default();
+                match self.infer_type_from_annotation(ann, &type_params, &mut row_var_env) {
                     Some(ann_ty) => {
                         if benefits_from_check_propagation(value) {
                             self.check_expression(value, &ann_ty);
