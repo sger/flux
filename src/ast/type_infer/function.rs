@@ -26,6 +26,8 @@ impl<'a> InferCtx<'a> {
         let mut row_var_env: HashMap<Identifier, TypeVarId> = HashMap::new();
         self.emit_declared_type_param_constraints(input.type_params, &tp_map);
         let skolem_ids = self.mark_signature_skolems(input.type_params, &tp_map);
+        // The body needs these too: a `let` annotation may name one of them.
+        self.signature_type_params.push(tp_map.clone());
 
         self.env.enter_scope();
 
@@ -63,6 +65,7 @@ impl<'a> InferCtx<'a> {
         }
 
         self.unmark_skolems(&skolem_ids);
+        self.signature_type_params.pop();
 
         self.finalize_and_bind_function_scheme(
             input.name,
