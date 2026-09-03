@@ -3492,10 +3492,15 @@ impl Compiler {
         // Promoting them was once blocked on built-in shadowing (a user
         // `class Eq<a>` declaring only `eq` failed E440 and E442 against the
         // Rust-registered built-in), which Stage 8 removed by moving the
-        // standard classes into `lib/Flow/*.flx`. Promoting the remaining ten
-        // changed no program in `examples/`, `lib/` or `tests/`: verified with
-        // a no-cache sweep, which is the only kind that measures anything —
-        // see KI-079.
+        // standard classes into `lib/Flow/*.flx`.
+        //
+        // E449 (orphan instance) is the exception and stays a warning. Its
+        // rule — an instance is legal only where its class or its head type is
+        // local — makes `public instance Tagger<Int>` in a module that merely
+        // imports `Tagger` an orphan, and
+        // `imported_public_class_with_downstream_public_instance_runs_end_to_end`
+        // asserts that exact program runs. Whether Flux forbids orphans
+        // outright is a language decision, not a demotion to undo here.
         //
         // Proposal 0179 Stage 5 adds E445 (missing superclass instance) and
         // E477 (superclass cycle). Neither is caught by the built-in-shadowing
@@ -3521,7 +3526,6 @@ impl Compiler {
                         | "E446"
                         | "E447"
                         | "E448"
-                        | "E449"
                         | "E450"
                         | "E451"
                         | "E455"

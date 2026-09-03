@@ -1042,7 +1042,9 @@ module PhaseX.Console {
 }
 
 module PhaseX.Tracer {
-    class Tracer<h> {
+    // Public: `PhaseX.Impl` exports a `public instance` of it, and an
+    // instance may not be more visible than the class it implements (E450).
+    public class Tracer<h> {
         fn trace(hnd: h, msg: String) -> Int with Console, Clock
     }
 }
@@ -1051,7 +1053,10 @@ module PhaseX.Impl {
     import PhaseX.Console as Console
     import PhaseX.Clock as Clock
 
-    data Handle {
+    // Public: `default_handle` returns it and a `public instance` names it as
+    // its head type, so the type is already part of this module's interface
+    // (E455).
+    public data Handle {
         Handle
     }
 

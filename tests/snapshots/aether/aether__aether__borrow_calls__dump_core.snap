@@ -1813,31 +1813,14 @@ letrec __tc_m7_466C6F772E4571_Eq_Bool_neq =
 
 letrec __tc_m7_466C6F772E4571_Eq_List<a>_eq =
 λ__dict_m7_466C6F772E4571_Eq, xs, ys.
-    list_eq(xs, ys)
-
-letrec __tc_m7_466C6F772E4571_Eq_List<a>_neq =
-λ__dict_m7_466C6F772E4571_Eq, xs, ys.
-    let %t390 = list_eq(xs, ys)
-    Not(%t390)
-
-letrec __tc_m7_466C6F772E4571_Eq_Option<a>_eq =
-λ__dict_m7_466C6F772E4571_Eq, x, y.
-    option_eq(x, y)
-
-letrec __tc_m7_466C6F772E4571_Eq_Option<a>_neq =
-λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t391 = option_eq(x, y)
-    Not(%t391)
-
-letrec list_eq =
-λxs, ys.
     case xs of
       ::(h1, t1) →
         case ys of
           ::(h2, t2) →
-            let %t392 = Eq(h1, h2)
-            let %t393 = list_eq(t1, t2)
-            And(%t392, %t393)
+            let %t390 = (let %t391 = __dict_m7_466C6F772E4571_Eq.0
+            %t391(h1, h2))
+            let %t392 = __tc_m7_466C6F772E4571_Eq_List<a>_eq(__dict_m7_466C6F772E4571_Eq, t1, t2)
+            And(%t390, %t392)
           _ →
             false
       _ →
@@ -1847,13 +1830,19 @@ letrec list_eq =
           _ →
             true
 
-letrec option_eq =
-λx, y.
+letrec __tc_m7_466C6F772E4571_Eq_List<a>_neq =
+λ__dict_m7_466C6F772E4571_Eq, xs, ys.
+    let %t393 = __tc_m7_466C6F772E4571_Eq_List<a>_eq(__dict_m7_466C6F772E4571_Eq, xs, ys)
+    Not(%t393)
+
+letrec __tc_m7_466C6F772E4571_Eq_Option<a>_eq =
+λ__dict_m7_466C6F772E4571_Eq, x, y.
     case x of
       Some(u) →
         case y of
           Some(v) →
-            eq(u, v)
+            let %t394 = __dict_m7_466C6F772E4571_Eq.0
+            %t394(u, v)
           _ →
             false
       _ →
@@ -1863,104 +1852,109 @@ letrec option_eq =
           _ →
             true
 
+letrec __tc_m7_466C6F772E4571_Eq_Option<a>_neq =
+λ__dict_m7_466C6F772E4571_Eq, x, y.
+    let %t395 = __tc_m7_466C6F772E4571_Eq_Option<a>_eq(__dict_m7_466C6F772E4571_Eq, x, y)
+    Not(%t395)
+
 letrec __tc_m7_466C6F772E4571_Eq_Int_eq =
 λx, y.
-    let %t394 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Int_eq
-    %t394(x, y)
+    let %t396 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Int_eq
+    %t396(x, y)
 
 letrec __tc_m7_466C6F772E4571_Eq_Int_neq =
 λx, y.
-    let %t395 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Int_neq
-    %t395(x, y)
+    let %t397 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Int_neq
+    %t397(x, y)
 
 letrec __tc_m7_466C6F772E4571_Eq_Float_eq =
 λx, y.
-    let %t396 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Float_eq
-    %t396(x, y)
+    let %t398 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Float_eq
+    %t398(x, y)
 
 letrec __tc_m7_466C6F772E4571_Eq_Float_neq =
 λx, y.
-    let %t397 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Float_neq
-    %t397(x, y)
+    let %t399 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Float_neq
+    %t399(x, y)
 
 letrec __tc_m7_466C6F772E4571_Eq_String_eq =
 λx, y.
-    let %t398 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_String_eq
-    %t398(x, y)
+    let %t400 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_String_eq
+    %t400(x, y)
 
 letrec __tc_m7_466C6F772E4571_Eq_String_neq =
 λx, y.
-    let %t399 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_String_neq
-    %t399(x, y)
+    let %t401 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_String_neq
+    %t401(x, y)
 
 letrec __tc_m7_466C6F772E4571_Eq_Bool_eq =
 λx, y.
-    let %t400 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Bool_eq
-    %t400(x, y)
+    let %t402 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Bool_eq
+    %t402(x, y)
 
 letrec __tc_m7_466C6F772E4571_Eq_Bool_neq =
 λx, y.
-    let %t401 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Bool_neq
-    %t401(x, y)
+    let %t403 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Bool_neq
+    %t403(x, y)
 
 letrec __tc_m7_466C6F772E4571_Eq_List<a>_eq =
 λ__dict_m7_466C6F772E4571_Eq, xs, ys.
-    let %t402 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_List<a>_eq
-    %t402(__dict_m7_466C6F772E4571_Eq, xs, ys)
+    let %t404 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_List<a>_eq
+    %t404(__dict_m7_466C6F772E4571_Eq, xs, ys)
 
 letrec __tc_m7_466C6F772E4571_Eq_List<a>_neq =
 λ__dict_m7_466C6F772E4571_Eq, xs, ys.
-    let %t403 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_List<a>_neq
-    %t403(__dict_m7_466C6F772E4571_Eq, xs, ys)
+    let %t405 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_List<a>_neq
+    %t405(__dict_m7_466C6F772E4571_Eq, xs, ys)
 
 letrec __tc_m7_466C6F772E4571_Eq_Option<a>_eq =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t404 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Option<a>_eq
-    %t404(__dict_m7_466C6F772E4571_Eq, x, y)
+    let %t406 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Option<a>_eq
+    %t406(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m7_466C6F772E4571_Eq_Option<a>_neq =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t405 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Option<a>_neq
-    %t405(__dict_m7_466C6F772E4571_Eq, x, y)
+    let %t407 = Flow.Eq.__tc_m7_466C6F772E4571_Eq_Option<a>_neq
+    %t407(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec print_all =
 λarr.
     letrec pa_go = (λi.
-      let %t406 = (let %t407 = Len(arr)
-      Lt(i, %t407))
-      case %t406 of
+      let %t408 = (let %t409 = Len(arr)
+      Lt(i, %t409))
+      case %t408 of
         true →
-          let %t408 = (let %t409 = Index(arr, i)
-          case %t409 of
+          let %t410 = (let %t411 = Index(arr, i)
+          case %t411 of
             Some(v) →
               perform Console.print(v)
             _ →
               perform Console.print(""))
-          let %t410 = IAdd(i, 1)
-          pa_go(%t410)
+          let %t412 = IAdd(i, 1)
+          pa_go(%t412)
         _ →
           MakeTuple())
-    let %t411 = pa_go(0)
+    let %t413 = pa_go(0)
     ()
 
 letrec println_all =
 λarr.
     letrec pla_go = (λi.
-      let %t412 = (let %t413 = Len(arr)
-      Lt(i, %t413))
-      case %t412 of
+      let %t414 = (let %t415 = Len(arr)
+      Lt(i, %t415))
+      case %t414 of
         true →
-          let %t414 = (let %t415 = Index(arr, i)
-          case %t415 of
+          let %t416 = (let %t417 = Index(arr, i)
+          case %t417 of
             Some(v) →
               perform Console.println(v)
             _ →
               perform Console.println(""))
-          let %t416 = Add(i, 1)
-          pla_go(%t416)
+          let %t418 = Add(i, 1)
+          pla_go(%t418)
         _ →
           MakeTuple())
-    let %t417 = pla_go(0)
+    let %t419 = pla_go(0)
     ()
 
 letrec read_lines =
@@ -1971,25 +1965,25 @@ letrec read_lines =
 letrec parse_ints =
 λarr.
     letrec pi_go = (λi, result.
-      let %t418 = (let %t419 = Len(arr)
-      Ge(i, %t419))
-      case %t418 of
+      let %t420 = (let %t421 = Len(arr)
+      Ge(i, %t421))
+      case %t420 of
         true →
           result
         _ →
-          let %t420 = Index(arr, i)
-          case %t420 of
+          let %t422 = Index(arr, i)
+          case %t422 of
             Some(s) →
-              let %t421 = Add(i, 1)
-              let %t422 = (let %t423 = Array.push
-              let %t424 = ParseInt(s)
-              %t423(result, %t424))
-              pi_go(%t421, %t422)
+              let %t423 = Add(i, 1)
+              let %t424 = (let %t425 = Array.push
+              let %t426 = ParseInt(s)
+              %t425(result, %t426))
+              pi_go(%t423, %t424)
             _ →
-              let %t425 = Add(i, 1)
-              pi_go(%t425, result))
-    let %t426 = MakeArray()
-    pi_go(0, %t426)
+              let %t427 = Add(i, 1)
+              pi_go(%t427, result))
+    let %t428 = MakeArray()
+    pi_go(0, %t428)
 
 letrec split_ints =
 λs, sep.
@@ -2097,95 +2091,95 @@ letrec __tc_m8_466C6F772E4E756D_Num_Float_div =
 
 letrec __tc_m8_466C6F772E4E756D_Num_Int_add =
 λx, y.
-    let %t427 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Int_add
-    %t427(x, y)
+    let %t429 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Int_add
+    %t429(x, y)
 
 letrec __tc_m8_466C6F772E4E756D_Num_Int_sub =
 λx, y.
-    let %t428 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Int_sub
-    %t428(x, y)
+    let %t430 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Int_sub
+    %t430(x, y)
 
 letrec __tc_m8_466C6F772E4E756D_Num_Int_mul =
 λx, y.
-    let %t429 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Int_mul
-    %t429(x, y)
+    let %t431 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Int_mul
+    %t431(x, y)
 
 letrec __tc_m8_466C6F772E4E756D_Num_Int_div =
 λx, y.
-    let %t430 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Int_div
-    %t430(x, y)
+    let %t432 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Int_div
+    %t432(x, y)
 
 letrec __tc_m8_466C6F772E4E756D_Num_Float_add =
 λx, y.
-    let %t431 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Float_add
-    %t431(x, y)
+    let %t433 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Float_add
+    %t433(x, y)
 
 letrec __tc_m8_466C6F772E4E756D_Num_Float_sub =
 λx, y.
-    let %t432 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Float_sub
-    %t432(x, y)
+    let %t434 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Float_sub
+    %t434(x, y)
 
 letrec __tc_m8_466C6F772E4E756D_Num_Float_mul =
 λx, y.
-    let %t433 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Float_mul
-    %t433(x, y)
+    let %t435 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Float_mul
+    %t435(x, y)
 
 letrec __tc_m8_466C6F772E4E756D_Num_Float_div =
 λx, y.
-    let %t434 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Float_div
-    %t434(x, y)
+    let %t436 = Flow.Num.__tc_m8_466C6F772E4E756D_Num_Float_div
+    %t436(x, y)
 
 letrec even =
 λn.
-    let %t435 = Mod(n, 2)
-    Eq(%t435, 0)
+    let %t437 = Mod(n, 2)
+    Eq(%t437, 0)
 
 letrec odd =
 λn.
-    let %t436 = Mod(n, 2)
-    NEq(%t436, 0)
+    let %t438 = Mod(n, 2)
+    NEq(%t438, 0)
 
 letrec gcd =
 λa, b.
-    let aa = (let %t437 = Lt(a, 0)
-    case %t437 of
+    let aa = (let %t439 = Lt(a, 0)
+    case %t439 of
       true →
         Sub(0, a)
       _ →
         a)
-    let bb = (let %t438 = ICmpLt(b, 0)
-    case %t438 of
+    let bb = (let %t440 = ICmpLt(b, 0)
+    case %t440 of
       true →
         Sub(0, b)
       _ →
         b)
     letrec gcd_go = (λx, y.
-      let %t439 = Eq(y, 0)
-      case %t439 of
+      let %t441 = Eq(y, 0)
+      case %t441 of
         true →
           x
         _ →
-          let %t440 = Mod(x, y)
-          gcd_go(y, %t440))
+          let %t442 = Mod(x, y)
+          gcd_go(y, %t442))
     gcd_go(aa, bb)
 
 letrec lcm =
 λa, b.
-    let %t441 = Eq(a, 0)
-    case %t441 of
+    let %t443 = Eq(a, 0)
+    case %t443 of
       true →
         0
       _ →
-        let %t442 = ICmpEq(b, 0)
-        case %t442 of
+        let %t444 = ICmpEq(b, 0)
+        case %t444 of
           true →
             0
           _ →
             let g = gcd(a, b)
             let q = IDiv(a, g)
             let p = Mul(q, b)
-            let %t443 = Lt(p, 0)
-            case %t443 of
+            let %t445 = Lt(p, 0)
+            case %t445 of
               true →
                 Sub(0, p)
               _ →
@@ -2193,13 +2187,13 @@ letrec lcm =
 
 letrec signum =
 λn.
-    let %t444 = Gt(n, 0)
-    case %t444 of
+    let %t446 = Gt(n, 0)
+    case %t446 of
       true →
         1
       _ →
-        let %t445 = Lt(n, 0)
-        case %t445 of
+        let %t447 = Lt(n, 0)
+        case %t447 of
           true →
             -1
           _ →
@@ -2209,12 +2203,12 @@ letrec floor_div =
 λa, b.
     let q = Div(a, b)
     let r = Mod(a, b)
-    let %t446 = (let %t447 = NEq(r, 0)
-    let %t448 = (let %t449 = ICmpLt(a, 0)
-    let %t450 = Lt(b, 0)
-    NEq(%t449, %t450))
-    And(%t447, %t448))
-    case %t446 of
+    let %t448 = (let %t449 = NEq(r, 0)
+    let %t450 = (let %t451 = ICmpLt(a, 0)
+    let %t452 = Lt(b, 0)
+    NEq(%t451, %t452))
+    And(%t449, %t450))
+    case %t448 of
       true →
         Sub(q, 1)
       _ →
@@ -2223,12 +2217,12 @@ letrec floor_div =
 letrec mod =
 λa, b.
     let r = Mod(a, b)
-    let %t451 = (let %t452 = NEq(r, 0)
-    let %t453 = (let %t454 = Lt(r, 0)
-    let %t455 = Lt(b, 0)
-    NEq(%t454, %t455))
-    And(%t452, %t453))
-    case %t451 of
+    let %t453 = (let %t454 = NEq(r, 0)
+    let %t455 = (let %t456 = Lt(r, 0)
+    let %t457 = Lt(b, 0)
+    NEq(%t456, %t457))
+    And(%t454, %t455))
+    case %t453 of
       true →
         Add(r, b)
       _ →
@@ -2254,8 +2248,8 @@ letrec map_option =
 λopt, f.
     case opt of
       Some(v) →
-        let %t456 = f(v)
-        Some(%t456)
+        let %t458 = f(v)
+        Some(%t458)
       _ →
         None
 
@@ -2285,13 +2279,13 @@ letrec is_none_opt =
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Int_compare =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t457 = ICmpLt(x, y)
-    case %t457 of
+    let %t459 = ICmpLt(x, y)
+    case %t459 of
       true →
         Neg(1)
       _ →
-        let %t458 = ICmpGt(x, y)
-        case %t458 of
+        let %t460 = ICmpGt(x, y)
+        case %t460 of
           true →
             1
           _ →
@@ -2315,13 +2309,13 @@ letrec __tc_m8_466C6F772E4F7264_Ord_Int_gte =
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Float_compare =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t459 = FCmpLt(x, y)
-    case %t459 of
+    let %t461 = FCmpLt(x, y)
+    case %t461 of
       true →
         Neg(1)
       _ →
-        let %t460 = FCmpGt(x, y)
-        case %t460 of
+        let %t462 = FCmpGt(x, y)
+        case %t462 of
           true →
             1
           _ →
@@ -2345,13 +2339,13 @@ letrec __tc_m8_466C6F772E4F7264_Ord_Float_gte =
 
 letrec __tc_m8_466C6F772E4F7264_Ord_String_compare =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t461 = Lt(x, y)
-    case %t461 of
+    let %t463 = Lt(x, y)
+    case %t463 of
       true →
         Neg(1)
       _ →
-        let %t462 = Gt(x, y)
-        case %t462 of
+        let %t464 = Gt(x, y)
+        case %t464 of
           true →
             1
           _ →
@@ -2375,78 +2369,78 @@ letrec __tc_m8_466C6F772E4F7264_Ord_String_gte =
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Int_compare =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t463 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Int_compare
-    %t463(__dict_m7_466C6F772E4571_Eq, x, y)
+    let %t465 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Int_compare
+    %t465(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Int_lt =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t464 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Int_lt
-    %t464(__dict_m7_466C6F772E4571_Eq, x, y)
+    let %t466 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Int_lt
+    %t466(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Int_lte =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t465 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Int_lte
-    %t465(__dict_m7_466C6F772E4571_Eq, x, y)
+    let %t467 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Int_lte
+    %t467(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Int_gt =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t466 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Int_gt
-    %t466(__dict_m7_466C6F772E4571_Eq, x, y)
+    let %t468 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Int_gt
+    %t468(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Int_gte =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t467 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Int_gte
-    %t467(__dict_m7_466C6F772E4571_Eq, x, y)
+    let %t469 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Int_gte
+    %t469(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Float_compare =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t468 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Float_compare
-    %t468(__dict_m7_466C6F772E4571_Eq, x, y)
+    let %t470 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Float_compare
+    %t470(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Float_lt =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t469 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Float_lt
-    %t469(__dict_m7_466C6F772E4571_Eq, x, y)
+    let %t471 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Float_lt
+    %t471(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Float_lte =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t470 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Float_lte
-    %t470(__dict_m7_466C6F772E4571_Eq, x, y)
+    let %t472 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Float_lte
+    %t472(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Float_gt =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t471 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Float_gt
-    %t471(__dict_m7_466C6F772E4571_Eq, x, y)
+    let %t473 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Float_gt
+    %t473(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Float_gte =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t472 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Float_gte
-    %t472(__dict_m7_466C6F772E4571_Eq, x, y)
+    let %t474 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_Float_gte
+    %t474(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_String_compare =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t473 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_String_compare
-    %t473(__dict_m7_466C6F772E4571_Eq, x, y)
+    let %t475 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_String_compare
+    %t475(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_String_lt =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t474 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_String_lt
-    %t474(__dict_m7_466C6F772E4571_Eq, x, y)
+    let %t476 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_String_lt
+    %t476(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_String_lte =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t475 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_String_lte
-    %t475(__dict_m7_466C6F772E4571_Eq, x, y)
+    let %t477 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_String_lte
+    %t477(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_String_gt =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t476 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_String_gt
-    %t476(__dict_m7_466C6F772E4571_Eq, x, y)
+    let %t478 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_String_gt
+    %t478(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec __tc_m8_466C6F772E4F7264_Ord_String_gte =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t477 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_String_gte
-    %t477(__dict_m7_466C6F772E4571_Eq, x, y)
+    let %t479 = Flow.Ord.__tc_m8_466C6F772E4F7264_Ord_String_gte
+    %t479(__dict_m7_466C6F772E4571_Eq, x, y)
 
 letrec print =
 λx.
@@ -2554,9 +2548,9 @@ letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_Option<a>_append =
       Some(u) →
         case y of
           Some(v) →
-            let %t478 = (let %t479 = __dict_m14_466C6F772E53656D6967726F7570_Semigroup.0
-            %t479(u, v))
-            Some(%t478)
+            let %t480 = (let %t481 = __dict_m14_466C6F772E53656D6967726F7570_Semigroup.0
+            %t481(u, v))
+            Some(%t480)
           _ →
             x
       _ →
@@ -2574,30 +2568,30 @@ letrec append_lists =
 λxs, ys.
     case xs of
       ::(h, t) →
-        let %t480 = append_lists(t, ys)
-        ::(h, %t480)
+        let %t482 = append_lists(t, ys)
+        ::(h, %t482)
       _ →
         ys
 
 letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_String_append =
 λx, y.
-    let %t481 = Flow.Semigroup.__tc_m14_466C6F772E53656D6967726F7570_Semigroup_String_append
-    %t481(x, y)
+    let %t483 = Flow.Semigroup.__tc_m14_466C6F772E53656D6967726F7570_Semigroup_String_append
+    %t483(x, y)
 
 letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_List<a>_append =
 λxs, ys.
-    let %t482 = Flow.Semigroup.__tc_m14_466C6F772E53656D6967726F7570_Semigroup_List<a>_append
-    %t482(xs, ys)
+    let %t484 = Flow.Semigroup.__tc_m14_466C6F772E53656D6967726F7570_Semigroup_List<a>_append
+    %t484(xs, ys)
 
 letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_Array<a>_append =
 λxs, ys.
-    let %t483 = Flow.Semigroup.__tc_m14_466C6F772E53656D6967726F7570_Semigroup_Array<a>_append
-    %t483(xs, ys)
+    let %t485 = Flow.Semigroup.__tc_m14_466C6F772E53656D6967726F7570_Semigroup_Array<a>_append
+    %t485(xs, ys)
 
 letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_Option<a>_append =
 λ__dict_m14_466C6F772E53656D6967726F7570_Semigroup, x, y.
-    let %t484 = Flow.Semigroup.__tc_m14_466C6F772E53656D6967726F7570_Semigroup_Option<a>_append
-    %t484(__dict_m14_466C6F772E53656D6967726F7570_Semigroup, x, y)
+    let %t486 = Flow.Semigroup.__tc_m14_466C6F772E53656D6967726F7570_Semigroup_Option<a>_append
+    %t486(__dict_m14_466C6F772E53656D6967726F7570_Semigroup, x, y)
 
 letrec __tc_m9_466C6F772E53686F77_Show_Int_show =
 λx.
@@ -2617,94 +2611,94 @@ letrec __tc_m9_466C6F772E53686F77_Show_Bool_show =
 
 letrec __tc_m9_466C6F772E53686F77_Show_Int_show =
 λx.
-    let %t485 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_Int_show
-    %t485(x)
-
-letrec __tc_m9_466C6F772E53686F77_Show_Float_show =
-λx.
-    let %t486 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_Float_show
-    %t486(x)
-
-letrec __tc_m9_466C6F772E53686F77_Show_String_show =
-λx.
-    let %t487 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_String_show
+    let %t487 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_Int_show
     %t487(x)
 
+letrec __tc_m9_466C6F772E53686F77_Show_Float_show =
+λx.
+    let %t488 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_Float_show
+    %t488(x)
+
+letrec __tc_m9_466C6F772E53686F77_Show_String_show =
+λx.
+    let %t489 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_String_show
+    %t489(x)
+
 letrec __tc_m9_466C6F772E53686F77_Show_Bool_show =
 λx.
-    let %t488 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_Bool_show
-    %t488(x)
+    let %t490 = Flow.Show.__tc_m9_466C6F772E53686F77_Show_Bool_show
+    %t490(x)
 
 letrec starts_with =
 λs, prefix.
     let plen = Len(prefix)
-    let %t489 = (let %t490 = Len(s)
-    Gt(plen, %t490))
-    case %t489 of
+    let %t491 = (let %t492 = Len(s)
+    Gt(plen, %t492))
+    case %t491 of
       true →
         false
       _ →
-        let %t491 = Substring(s, 0, plen)
-        Eq(%t491, prefix)
+        let %t493 = Substring(s, 0, plen)
+        Eq(%t493, prefix)
 
 letrec ends_with =
 λs, suffix.
     let slen = Len(s)
     let plen = Len(suffix)
-    let %t492 = Gt(plen, slen)
-    case %t492 of
+    let %t494 = Gt(plen, slen)
+    case %t494 of
       true →
         false
       _ →
-        let %t493 = (let %t494 = Sub(slen, plen)
-        Substring(s, %t494, slen))
-        Eq(%t493, suffix)
+        let %t495 = (let %t496 = Sub(slen, plen)
+        Substring(s, %t496, slen))
+        Eq(%t495, suffix)
 
 letrec chars =
 λs.
     letrec chars_go = (λi, result.
-      let %t495 = (let %t496 = Len(s)
-      ICmpGe(i, %t496))
-      case %t495 of
+      let %t497 = (let %t498 = Len(s)
+      ICmpGe(i, %t498))
+      case %t497 of
         true →
           result
         _ →
-          let %t497 = IAdd(i, 1)
-          let %t498 = (let %t499 = Array.push
-          let %t500 = (let %t501 = IAdd(i, 1)
-          Substring(s, i, %t501))
-          %t499(result, %t500))
-          chars_go(%t497, %t498))
-    let %t502 = MakeArray()
-    chars_go(0, %t502)
+          let %t499 = IAdd(i, 1)
+          let %t500 = (let %t501 = Array.push
+          let %t502 = (let %t503 = IAdd(i, 1)
+          Substring(s, i, %t503))
+          %t501(result, %t502))
+          chars_go(%t499, %t500))
+    let %t504 = MakeArray()
+    chars_go(0, %t504)
 
 letrec join =
 λarr, sep.
-    let %t503 = (let %t504 = Len(arr)
-    ICmpEq(%t504, 0))
-    case %t503 of
+    let %t505 = (let %t506 = Len(arr)
+    ICmpEq(%t506, 0))
+    case %t505 of
       true →
         ""
       _ →
         letrec join_go = (λi, result.
-          let %t505 = (let %t506 = Len(arr)
-          ICmpGe(i, %t506))
-          case %t505 of
+          let %t507 = (let %t508 = Len(arr)
+          ICmpGe(i, %t508))
+          case %t507 of
             true →
               result
             _ →
-              let %t507 = Index(arr, i)
-              case %t507 of
+              let %t509 = Index(arr, i)
+              case %t509 of
                 Some(v) →
-                  let %t508 = IAdd(i, 1)
-                  let %t509 = (let %t510 = Add(result, sep)
-                  Add(%t510, v))
-                  join_go(%t508, %t509)
+                  let %t510 = IAdd(i, 1)
+                  let %t511 = (let %t512 = Add(result, sep)
+                  Add(%t512, v))
+                  join_go(%t510, %t511)
                 _ →
-                  let %t511 = IAdd(i, 1)
-                  join_go(%t511, result))
-        let %t512 = Index(arr, 0)
-        case %t512 of
+                  let %t513 = IAdd(i, 1)
+                  join_go(%t513, result))
+        let %t514 = Index(arr, 0)
+        case %t514 of
           Some(first_val) →
             join_go(1, first_val)
           _ →
@@ -2726,27 +2720,27 @@ letrec str_contains =
 λs, needle.
     let slen = Len(s)
     let nlen = Len(needle)
-    let %t513 = ICmpGt(nlen, slen)
-    case %t513 of
+    let %t515 = ICmpGt(nlen, slen)
+    case %t515 of
       true →
         false
       _ →
         letrec sc_go = (λi.
-          let %t514 = (let %t515 = IAdd(i, nlen)
-          ICmpGt(%t515, slen))
-          case %t514 of
+          let %t516 = (let %t517 = IAdd(i, nlen)
+          ICmpGt(%t517, slen))
+          case %t516 of
             true →
               false
             _ →
-              let %t516 = (let %t517 = (let %t518 = IAdd(i, nlen)
-              Substring(s, i, %t518))
-              Eq(%t517, needle))
-              case %t516 of
+              let %t518 = (let %t519 = (let %t520 = IAdd(i, nlen)
+              Substring(s, i, %t520))
+              Eq(%t519, needle))
+              case %t518 of
                 true →
                   true
                 _ →
-                  let %t519 = IAdd(i, 1)
-                  sc_go(%t519))
+                  let %t521 = IAdd(i, 1)
+                  sc_go(%t521))
         sc_go(0)
 
 letrec my_len =
@@ -2755,113 +2749,113 @@ letrec my_len =
 
 letrec len_twice =
 λxs.
-    let %t520 = my_len(xs)
-    let %t521 = my_len(xs)
-    IAdd(%t520, %t521)
+    let %t522 = my_len(xs)
+    let %t523 = my_len(xs)
+    IAdd(%t522, %t523)
 
 letrec borrow_then_return =
 λxs, y.
-    let %t522 = (let %t523 = Len(xs)
-    ICmpGt(%t523, 0))
-    case %t522 of
+    let %t524 = (let %t525 = Len(xs)
+    ICmpGt(%t525, 0))
+    case %t524 of
       true →
         y
       _ →
         y
 
 def main =
-let %t524 = (λ__resume_default, __arg0, __arg1.
-    let %t525 = ProcRun(__arg0, __arg1)
-    __resume_default(%t525))
+let %t526 = (λ__resume_default, __arg0, __arg1.
+    let %t527 = ProcRun(__arg0, __arg1)
+    __resume_default(%t527))
   handle Process {
     proc_run(__arg0, __arg1; __resume_default) →
-      let %t526 = ProcRun(__arg0, __arg1)
-      __resume_default(%t526)
+      let %t528 = ProcRun(__arg0, __arg1)
+      __resume_default(%t528)
   } with
-    let %t527 = (λ__resume_default, __arg0.
-      let %t528 = EnvVar(__arg0)
-      __resume_default(%t528))
-    let %t529 = (λ__resume_default.
-      let %t530 = EnvArgs()
+    let %t529 = (λ__resume_default, __arg0.
+      let %t530 = EnvVar(__arg0)
       __resume_default(%t530))
     let %t531 = (λ__resume_default.
-      let %t532 = EnvCwd()
+      let %t532 = EnvArgs()
       __resume_default(%t532))
     let %t533 = (λ__resume_default.
-      let %t534 = EnvHomeDir()
+      let %t534 = EnvCwd()
       __resume_default(%t534))
+    let %t535 = (λ__resume_default.
+      let %t536 = EnvHomeDir()
+      __resume_default(%t536))
     handle Env {
       env_var(__arg0; __resume_default) →
-        let %t535 = EnvVar(__arg0)
-        __resume_default(%t535)
-      env_args(; __resume_default) →
-        let %t536 = EnvArgs()
-        __resume_default(%t536)
-      env_cwd(; __resume_default) →
-        let %t537 = EnvCwd()
+        let %t537 = EnvVar(__arg0)
         __resume_default(%t537)
-      env_home_dir(; __resume_default) →
-        let %t538 = EnvHomeDir()
+      env_args(; __resume_default) →
+        let %t538 = EnvArgs()
         __resume_default(%t538)
+      env_cwd(; __resume_default) →
+        let %t539 = EnvCwd()
+        __resume_default(%t539)
+      env_home_dir(; __resume_default) →
+        let %t540 = EnvHomeDir()
+        __resume_default(%t540)
     } with
-      let %t539 = (λ__resume_default.
-        let %t540 = __primop_read_stdin()
-        __resume_default(%t540))
+      let %t541 = (λ__resume_default.
+        let %t542 = __primop_read_stdin()
+        __resume_default(%t542))
       handle Stdin {
         read_stdin(; __resume_default) →
-          let %t541 = __primop_read_stdin()
-          __resume_default(%t541)
+          let %t543 = __primop_read_stdin()
+          __resume_default(%t543)
       } with
-        let %t542 = (λ__resume_default, __arg0.
-          let %t543 = __primop_read_file(__arg0)
-          __resume_default(%t543))
         let %t544 = (λ__resume_default, __arg0.
-          let %t545 = __primop_read_lines(__arg0)
+          let %t545 = __primop_read_file(__arg0)
           __resume_default(%t545))
-        let %t546 = (λ__resume_default, __arg0, __arg1.
-          let %t547 = __primop_write_file(__arg0, __arg1)
-          let %t548 = MakeTuple()
-          __resume_default(%t548))
+        let %t546 = (λ__resume_default, __arg0.
+          let %t547 = __primop_read_lines(__arg0)
+          __resume_default(%t547))
+        let %t548 = (λ__resume_default, __arg0, __arg1.
+          let %t549 = __primop_write_file(__arg0, __arg1)
+          let %t550 = MakeTuple()
+          __resume_default(%t550))
         handle FileSystem {
           read_file(__arg0; __resume_default) →
-            let %t549 = __primop_read_file(__arg0)
-            __resume_default(%t549)
-          read_lines(__arg0; __resume_default) →
-            let %t550 = __primop_read_lines(__arg0)
-            __resume_default(%t550)
-          write_file(__arg0, __arg1; __resume_default) →
-            let %t547 = __primop_write_file(__arg0, __arg1)
-            let %t551 = MakeTuple()
+            let %t551 = __primop_read_file(__arg0)
             __resume_default(%t551)
+          read_lines(__arg0; __resume_default) →
+            let %t552 = __primop_read_lines(__arg0)
+            __resume_default(%t552)
+          write_file(__arg0, __arg1; __resume_default) →
+            let %t549 = __primop_write_file(__arg0, __arg1)
+            let %t553 = MakeTuple()
+            __resume_default(%t553)
         } with
-          let %t552 = (λ__resume_default, __arg0.
-            let %t553 = __primop_print(__arg0)
-            let %t554 = MakeTuple()
-            __resume_default(%t554))
-          let %t555 = (λ__resume_default, __arg0.
-            let %t556 = __primop_println(__arg0)
-            let %t557 = MakeTuple()
-            __resume_default(%t557))
+          let %t554 = (λ__resume_default, __arg0.
+            let %t555 = __primop_print(__arg0)
+            let %t556 = MakeTuple()
+            __resume_default(%t556))
+          let %t557 = (λ__resume_default, __arg0.
+            let %t558 = __primop_println(__arg0)
+            let %t559 = MakeTuple()
+            __resume_default(%t559))
           handle Console {
             print(__arg0; __resume_default) →
-              let %t553 = __primop_print(__arg0)
-              let %t558 = MakeTuple()
-              __resume_default(%t558)
+              let %t555 = __primop_print(__arg0)
+              let %t560 = MakeTuple()
+              __resume_default(%t560)
             println(__arg0; __resume_default) →
-              let %t556 = __primop_println(__arg0)
-              let %t559 = MakeTuple()
-              __resume_default(%t559)
+              let %t558 = __primop_println(__arg0)
+              let %t561 = MakeTuple()
+              __resume_default(%t561)
           } with
-            let %t560 = (let %t561 = (λ%t562.
-              %t562)
-            let %t563 = (let %t564 = MakeList(1, 2, 3)
-            len_twice(%t564))
-            %t552(%t561, %t563))
-            let %t565 = (λ%t566.
-              %t566)
-            let %t567 = (let %t568 = MakeList(1, 2, 3)
-            borrow_then_return(%t568, 42))
-            %t552(%t565, %t567)
+            let %t562 = (let %t563 = (λ%t564.
+              %t564)
+            let %t565 = (let %t566 = MakeList(1, 2, 3)
+            len_twice(%t566))
+            %t554(%t563, %t565))
+            let %t567 = (λ%t568.
+              %t568)
+            let %t569 = (let %t570 = MakeList(1, 2, 3)
+            borrow_then_return(%t570, 42))
+            %t554(%t567, %t569)
 
 [ 1 of 17] Compiling  Assert
 [ 2 of 17] Compiling  Debug

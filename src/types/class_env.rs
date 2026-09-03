@@ -1238,8 +1238,14 @@ impl ClassEnv {
             // ADT. Only fires when the head type is a user-defined ADT
             // present in `data_info`. Built-ins (Int, List, ...) are
             // treated as universally visible (same as built-in classes).
+            // A file-level `data` declaration has no module to be private
+            // from: `public` is meaningless outside a module, and the type is
+            // visible to the whole program. It is universally visible in the
+            // same sense a built-in is, so it cannot be the private head of a
+            // public instance.
             if let Some(head_name) = Self::head_type_name(&inst.type_args)
                 && let Some(head_info) = data_info.get(&head_name)
+                && !head_info.module.is_empty()
                 && !head_info.is_public
             {
                 let head_display = interner.resolve(head_name);
