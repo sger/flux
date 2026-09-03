@@ -1,0 +1,31 @@
+---
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/constructor_pattern_wrong_adt_e300.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/compiler_errors/constructor_pattern_wrong_adt_e300.flx:23:5
+   |
+23 |     match c {
+   |     ^^^^^^^^^
+24 |         Circle(n) -> n,
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+25 |         _ -> 0,
+   | ^^^^^^^^^^^^^^^
+26 |     }
+   | ^^^^^
+
+Note:
+  expected type: Colour
+  found type: Shape
+  the conflicting types meet at this expression
+
+Help:
+  These two types are not compatible.
+== stdout ==
+<not executed>

@@ -1,0 +1,31 @@
+// expect: compile_error
+// expect-error: E300
+// Expected: E300 Type Mismatch
+//   A `Shape` constructor is matched against a `Colour` scrutinee.
+//
+// KI-072: this compiled clean and returned `0`. A constructor pattern names
+// exactly one declaration, so matching it against a different type is always
+// an error — but the catch-all arm used to suppress it. When a match mixes
+// pattern families, each arm is bound against a fresh scrutinee variable so
+// that structural constructors like `Some` and `Left` do not constrain one
+// another through the shared slot. A fresh variable unifies with anything, so
+// isolating an ADT arm hid the mismatch instead of reporting it.
+//
+// Isolation is now limited to the built-in families, which is the case it was
+// introduced for; an arm whose constructors are all ADTs keeps the shared
+// scrutinee and reports.
+
+data Colour { Red, Green }
+
+data Shape { Circle(Int), Square }
+
+fn size_of(c: Colour) -> Int {
+    match c {
+        Circle(n) -> n,
+        _ -> 0,
+    }
+}
+
+fn main() with IO {
+    print(size_of(Red))
+}
