@@ -3482,20 +3482,20 @@ impl Compiler {
         // E453 (sealed-instance violation) and the Proposal 0179 Stage 1 kind
         // codes are hard errors.
         //
-        // E442 (missing instance method) joins them. Like E440 and E441 it was
-        // *also* reported by a later pipeline stage, so a program that omits a
-        // required method has always exited 1; what the demotion cost was the
-        // classification. Anything that reads this partition's answer — the
-        // LSP path, and the fixture snapshots, which stop after
+        // Every diagnostic the class environment reports is now an error.
+        // E440-E443 and E446-E451 were routed here as warnings; several were
+        // *also* reported by a later pipeline stage, so those programs did
+        // exit 1, but anything reading this partition's own answer — the LSP
+        // path, and the fixture snapshots, which stop after
         // `Compiler::compile` — saw a program that had merely warned.
-        // Promoting it was once blocked on built-in shadowing (a user
-        // `class Eq<a>` declaring only `eq` failed E442 against the
-        // Rust-registered built-in), which Stage 8 removed by moving the
-        // standard classes into `lib/Flow/*.flx`.
         //
-        // E440 (duplicate class) and E441 (unknown class) are still routed
-        // here as warnings, and are still re-reported later; promoting them at
-        // this partition is the same small change, separately verified.
+        // Promoting them was once blocked on built-in shadowing (a user
+        // `class Eq<a>` declaring only `eq` failed E440 and E442 against the
+        // Rust-registered built-in), which Stage 8 removed by moving the
+        // standard classes into `lib/Flow/*.flx`. Promoting the remaining ten
+        // changed no program in `examples/`, `lib/` or `tests/`: verified with
+        // a no-cache sweep, which is the only kind that measures anything —
+        // see KI-079.
         //
         // Proposal 0179 Stage 5 adds E445 (missing superclass instance) and
         // E477 (superclass cycle). Neither is caught by the built-in-shadowing
@@ -3513,8 +3513,18 @@ impl Compiler {
             matches!(
                 diag.code(),
                 Some(
-                    "E442"
+                    "E440"
+                        | "E441"
+                        | "E442"
+                        | "E443"
                         | "E445"
+                        | "E446"
+                        | "E447"
+                        | "E448"
+                        | "E449"
+                        | "E450"
+                        | "E451"
+                        | "E455"
                         | "E453"
                         | "E472"
                         | "E473"
