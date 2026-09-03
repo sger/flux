@@ -5082,11 +5082,20 @@ impl Compiler {
             Expression::Identifier { name, .. } => {
                 self.interner.resolve(*name).starts_with("__dict_")
             }
+            // A dictionary tuple holds one identifier per slot: a mangled
+            // instance method, or — for a class with superclasses — the
+            // `__dict_*` global standing for that superclass's evidence.
+            // Missing the second kind made this return `false` for every
+            // dictionary of a class that has a superclass, so the call was
+            // elaborated again on each recompilation and the rewrite never
+            // terminated.
             Expression::TupleLiteral { elements, .. } => {
                 !elements.is_empty()
                     && elements.iter().all(|element| {
                         matches!(element, Expression::Identifier { name, .. }
                         if crate::types::class_env::is_generated_instance_method(
+                            self.interner.resolve(*name),
+                        ) || crate::types::class_env::is_dictionary_name(
                             self.interner.resolve(*name),
                         ))
                     })
