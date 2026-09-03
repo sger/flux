@@ -970,6 +970,7 @@ impl Compiler {
                         *name,
                         *span,
                         arguments,
+                        *id,
                         expression.span(),
                     )
                 {
@@ -4721,6 +4722,7 @@ impl Compiler {
         name: crate::syntax::Identifier,
         function_span: Span,
         arguments: &[Expression],
+        call_id: crate::syntax::expression::ExprId,
         call_span: Span,
     ) -> Option<Expression> {
         if self.class_env.classes.is_empty() {
@@ -4732,7 +4734,8 @@ impl Compiler {
                 .unwrap_or(crate::types::class_id::ModulePath::EMPTY),
             name,
         )?;
-        let (dict_sym, path) = self.dictionary_path_to_method(class_id, name)?;
+        let wanted = self.context_predicate_args(class_id, name, arguments, call_id);
+        let (dict_sym, path) = self.dictionary_path_to_method(class_id, name, &wanted)?;
 
         let callee = path.into_iter().fold(
             Expression::Identifier {
@@ -4756,6 +4759,48 @@ impl Compiler {
         })
     }
 
+    /// The class type arguments this call fixes, read from the positions the
+    /// class declaration puts its parameters in.
+    ///
+    /// Unlike [`class_call_type_args`](Self::class_call_type_args) this keeps a
+    /// type variable rather than discarding it: inside a constrained function
+    /// the answer *is* one of the signature's rigid parameters, and that is
+    /// precisely what says which dictionary the call means. Returns empty when
+    /// any position is unknown, so the caller falls back rather than selecting
+    /// on a partial predicate.
+    fn context_predicate_args(
+        &mut self,
+        class_id: crate::types::class_id::ClassId,
+        method: crate::syntax::Identifier,
+        arguments: &[Expression],
+        call_id: crate::syntax::expression::ExprId,
+    ) -> Vec<crate::types::infer_type::InferType> {
+        let Some(positions) = self.class_env.dispatch_positions(class_id, method) else {
+            return Vec::new();
+        };
+        let results = self
+            .class_env
+            .result_positions(class_id, method)
+            .unwrap_or_default();
+        let mut wanted = Vec::with_capacity(positions.len());
+        for (slot, position) in positions.iter().enumerate() {
+            let found = match position {
+                Some(index) => arguments
+                    .get(*index)
+                    .and_then(|argument| self.hm_expr_types.get(&argument.expr_id())),
+                None if results.get(slot).copied().unwrap_or(false) => {
+                    self.hm_expr_types.get(&call_id)
+                }
+                None => None,
+            };
+            match found {
+                Some(ty) => wanted.push(ty.clone()),
+                None => return Vec::new(),
+            }
+        }
+        wanted
+    }
+
     /// Find a dictionary in scope that reaches `method` of `class_id`, and the
     /// slot path from it to that method.
     ///
@@ -4768,8 +4813,18 @@ impl Compiler {
         &mut self,
         class_id: crate::types::class_id::ClassId,
         method: crate::syntax::Identifier,
+        wanted: &[crate::types::infer_type::InferType],
     ) -> Option<(crate::syntax::Identifier, Vec<usize>)> {
         let method_index = self.class_env.method_index_by_id(class_id, method)?;
+        // With two dictionaries for one class in scope, `dictionary_in_scope`
+        // can only name the unsuffixed one. Ask the predicate which constraint
+        // this call means first; it is the only thing that tells `__dict_C`
+        // from `__dict_C_1` (Proposal 0179 Stage 4).
+        if !wanted.is_empty()
+            && let Some(dict_sym) = self.context_dictionary_symbol(class_id, wanted)
+        {
+            return Some((dict_sym, vec![method_index]));
+        }
         if let Some(dict_sym) = self.dictionary_in_scope(class_id) {
             return Some((dict_sym, vec![method_index]));
         }
@@ -5252,6 +5307,25 @@ impl Compiler {
         class_id: crate::types::class_id::ClassId,
         wanted: &[crate::types::infer_type::InferType],
     ) -> Option<Expression> {
+        let name = self.context_dictionary_symbol(class_id, wanted)?;
+        Some(Expression::Identifier {
+            name,
+            span: Span::default(),
+            id: crate::syntax::expression::ExprId::UNSET,
+        })
+    }
+
+    /// The symbol naming the enclosing function's dictionary for `class_id` at
+    /// type arguments `wanted`.
+    ///
+    /// A function constrained twice on one class holds `__dict_C` and
+    /// `__dict_C_1`; which one a call means is decided by matching `wanted`
+    /// against each constraint's own type arguments.
+    fn context_dictionary_symbol(
+        &mut self,
+        class_id: crate::types::class_id::ClassId,
+        wanted: &[crate::types::infer_type::InferType],
+    ) -> Option<crate::syntax::Identifier> {
         let current = self.current_function_name?;
         let fallback = |compiler: &mut Self| {
             let name = compiler
@@ -5261,11 +5335,7 @@ impl Compiler {
                     &compiler.interner,
                 ))?;
             compiler.symbol_table.resolve(name)?;
-            Some(Expression::Identifier {
-                name,
-                span: Span::default(),
-                id: crate::syntax::expression::ExprId::UNSET,
-            })
+            Some(name)
         };
         let Some(scheme) = self.type_env.lookup(current) else {
             // Synthetic module-owned instance methods have an explicit
@@ -5319,11 +5389,7 @@ impl Compiler {
                 continue;
             };
             if self.symbol_table.resolve(name).is_some() {
-                return Some(Expression::Identifier {
-                    name,
-                    span: Span::default(),
-                    id: crate::syntax::expression::ExprId::UNSET,
-                });
+                return Some(name);
             }
         }
         // A generated contextual instance method can have a qualified scheme

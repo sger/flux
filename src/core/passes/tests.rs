@@ -246,6 +246,7 @@ fn run_core_passes_reports_aether_contract_stage() {
     let x_binder = binder(0, x);
     let mut program = CoreProgram {
         defs: vec![CoreDef {
+            binder_types: Default::default(),
             name: x,
             binder: x_binder,
             expr: var_ref(x_binder),
@@ -280,6 +281,7 @@ fn primop_promote_keeps_bare_delete_bound_to_flow_list_delete() {
     let main_binder = binder(3, main);
 
     let delete_def = CoreDef {
+        binder_types: Default::default(),
         name: delete,
         binder: delete_binder,
         expr: CoreExpr::Lam {
@@ -299,6 +301,7 @@ fn primop_promote_keeps_bare_delete_bound_to_flow_list_delete() {
     };
 
     let main_def = CoreDef {
+        binder_types: Default::default(),
         name: main,
         binder: main_binder,
         expr: CoreExpr::App {
@@ -374,6 +377,7 @@ fn primop_promote_promotes_explicit_map_delete_name() {
     let main_binder = binder(0, main);
 
     let main_def = CoreDef {
+        binder_types: Default::default(),
         name: main,
         binder: main_binder,
         expr: CoreExpr::App {
@@ -1071,6 +1075,7 @@ fn core_lint_is_fatal_with_e998() {
     let x_binder = binder(0, x);
     let mut program = CoreProgram {
         defs: vec![CoreDef {
+            binder_types: Default::default(),
             name: f,
             binder: binder(1, f),
             expr: CoreExpr::Lam {

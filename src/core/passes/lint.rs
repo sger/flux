@@ -341,6 +341,7 @@ mod tests {
 
     fn make_def(id: u32, expr: CoreExpr) -> CoreDef {
         CoreDef {
+            binder_types: Default::default(),
             name: Symbol::new(id),
             binder: binder(id),
             expr,

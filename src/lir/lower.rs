@@ -6256,6 +6256,7 @@ mod tests {
         let program = CoreProgram {
             defs: vec![
                 CoreDef {
+                    binder_types: Default::default(),
                     name: add,
                     binder: mk_binder(1, add),
                     expr: CoreExpr::lambda(vec![], CoreExpr::Lit(CoreLit::Int(0), span), span),
@@ -6268,6 +6269,7 @@ mod tests {
                     span,
                 },
                 CoreDef {
+                    binder_types: Default::default(),
                     name: add,
                     binder: mk_binder(2, add),
                     expr: CoreExpr::Lit(CoreLit::Int(42), span),

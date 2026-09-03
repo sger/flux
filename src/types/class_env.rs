@@ -516,6 +516,32 @@ impl ClassEnv {
         )
     }
 
+    /// Which of `id`'s class parameters `method` names as exactly its return
+    /// type, in declaration order.
+    ///
+    /// The result-position counterpart of
+    /// [`dispatch_positions`](Self::dispatch_positions), which searches value
+    /// parameters only. A method like `fn make(tag: Int) -> a` reveals nothing
+    /// through its arguments; what fixes `a` is the type the call's result is
+    /// required to have, so selection reads that position from the call's
+    /// expected type instead (Proposal 0179 Stage 4).
+    pub fn result_positions(&self, id: ClassId, method: Identifier) -> Option<Vec<bool>> {
+        let class_def = self.lookup_class_by_id(id)?;
+        let method_sig = class_def.methods.iter().find(|m| m.name == method)?;
+        Some(
+            class_def
+                .type_params
+                .iter()
+                .map(|&param| {
+                    matches!(
+                        &method_sig.return_type,
+                        TypeExpr::Named { name, args, .. } if *name == param && args.is_empty()
+                    )
+                })
+                .collect(),
+        )
+    }
+
     /// The slot holding `method`'s implementation in a dictionary for `id`.
     pub fn method_slot(&self, id: ClassId, method: Identifier) -> Option<usize> {
         let class_def = self.lookup_class_by_id(id)?;
