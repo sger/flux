@@ -303,21 +303,7 @@ impl<'a> InferCtx<'a> {
         scrutinee_ty: &InferType,
         shared_family: Option<&PatternFamily>,
     ) -> bool {
-        let has_nonconstraining_arm = self.match_has_nonconstraining_arm(arms);
-        if has_nonconstraining_arm {
-            if let Some(family) = shared_family
-                && self.concrete_scrutinee_matches_family(scrutinee_ty, family)
-            {
-                return false;
-            }
-            return arms.iter().any(|arm| {
-                !matches!(
-                    self.pattern_family(&arm.pattern),
-                    PatternFamily::NonConstraining
-                )
-            });
-        }
-        if shared_family.is_some() {
+        if self.match_arms_agree_on_family(arms, scrutinee_ty, shared_family) {
             return false;
         }
         let constraining_families: Vec<PatternFamily> = arms
@@ -325,10 +311,38 @@ impl<'a> InferCtx<'a> {
             .map(|arm| self.pattern_family(&arm.pattern))
             .filter(|family| !matches!(family, PatternFamily::NonConstraining))
             .collect();
+        // Isolating an arm hides a genuine mismatch, because the arm then binds
+        // against a fresh variable that unifies with anything. That trade is
+        // only worth making for the built-in families, whose constructors are
+        // structural: `Some` and `Left` would otherwise constrain one another
+        // through the shared scrutinee slot. An ADT constructor names exactly
+        // one declaration, so matching it against a different type is always an
+        // error and must keep the shared scrutinee to be reported (KI-072).
         !constraining_families.is_empty()
             && !constraining_families
                 .iter()
                 .all(|family| matches!(family, PatternFamily::Adt(_)))
+    }
+
+    /// Whether the arms already settle the scrutinee's family, so isolating
+    /// them would gain nothing.
+    ///
+    /// With a catch-all arm present the shared family only settles the question
+    /// when the scrutinee is concrete and already matches it; without one, a
+    /// shared family is enough on its own.
+    fn match_arms_agree_on_family(
+        &self,
+        arms: &[MatchArm],
+        scrutinee_ty: &InferType,
+        shared_family: Option<&PatternFamily>,
+    ) -> bool {
+        let Some(family) = shared_family else {
+            return false;
+        };
+        if self.match_has_nonconstraining_arm(arms) {
+            return self.concrete_scrutinee_matches_family(scrutinee_ty, family);
+        }
+        true
     }
 
     /// Return true when a fully resolved scrutinee already matches the shared pattern family.
