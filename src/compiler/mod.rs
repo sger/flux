@@ -3482,19 +3482,20 @@ impl Compiler {
         // E453 (sealed-instance violation) and the Proposal 0179 Stage 1 kind
         // codes are hard errors.
         //
-        // E442 (missing instance method) joins them: an instance that omits a
-        // method the class requires and does not default gets a
-        // `generate_polymorphic_stub` body, so the omission became a run-time
-        // panic instead of a compile error. Promoting it was once blocked on
-        // built-in shadowing — a user `class Eq<a>` declaring only `eq` failed
-        // E442 against the Rust-registered built-in — which Stage 8 removed by
-        // moving the standard classes into `lib/Flow/*.flx`.
+        // E442 (missing instance method) joins them. Like E440 and E441 it was
+        // *also* reported by a later pipeline stage, so a program that omits a
+        // required method has always exited 1; what the demotion cost was the
+        // classification. Anything that reads this partition's answer — the
+        // LSP path, and the fixture snapshots, which stop after
+        // `Compiler::compile` — saw a program that had merely warned.
+        // Promoting it was once blocked on built-in shadowing (a user
+        // `class Eq<a>` declaring only `eq` failed E442 against the
+        // Rust-registered built-in), which Stage 8 removed by moving the
+        // standard classes into `lib/Flow/*.flx`.
         //
         // E440 (duplicate class) and E441 (unknown class) are still routed
-        // here as warnings. Unlike E442 they are re-reported by a later
-        // pipeline stage, so `duplicate_class.flx` and
-        // `instance_unknown_class.flx` do exit 1; promoting them at this
-        // partition is separate work.
+        // here as warnings, and are still re-reported later; promoting them at
+        // this partition is the same small change, separately verified.
         //
         // Proposal 0179 Stage 5 adds E445 (missing superclass instance) and
         // E477 (superclass cycle). Neither is caught by the built-in-shadowing

@@ -2631,6 +2631,32 @@ This is the same root cause as the duplicated dictionary parameters in
 [Flow/Eq.flx](../lib/Flow/Eq.flx): the container instances could otherwise
 define `eq` by recursion and `neq` as its negation.
 
+### KI-079 — A stale bytecode cache runs a program the current compiler rejects
+
+**Severity:** Medium · **Area:** Build caching · **Verified:** 2026-09-03 · **From:** Phase 1 of the type-class audit
+
+The bytecode cache key covers the module's source hash and
+`CARGO_PKG_VERSION` ([artifact_store.rs](../src/driver/artifact_store.rs),
+[module_cache.rs](../src/bytecode/bytecode_cache/module_cache.rs)) but not the
+compiler binary. Two builds of the same version therefore share cache entries,
+so a module compiled by an earlier build is reused verbatim — diagnostics
+included, which means diagnostics *not* re-reported:
+
+```
+$ ./target/debug/flux examples/compiler_errors/instance_missing_method.flx ; echo $?
+0
+$ ./target/debug/flux examples/compiler_errors/instance_missing_method.flx --no-cache ; echo $?
+error[E442]: Missing Instance Method
+1
+```
+
+For a released compiler the version bump invalidates everything, so this is a
+development-time hazard rather than a user-facing one. It is recorded because
+it silently invalidates measurement: several claims in the type-class audit,
+including "these fixtures exit 0 with no output", were measured against cached
+artifacts and are wrong. **Any behavioural comparison across a compiler change
+must pass `--no-cache` or clear the store first** (`flux clean --store`).
+
 ### KI-077 — Superclass evidence for a contextual superclass instance is built from the wrong dictionary
 
 **Severity:** High · **Area:** Type classes / dictionary passing · **Verified:** 2026-09-03 · **From:** Phase 1 of the type-class audit
