@@ -460,10 +460,11 @@ fn main() { ay(1) }
 }
 
 /// An instance that omits a required method with no default is rejected at the
-/// instance head. Before this was promoted out of the warning half of the
-/// `collect_class_declarations` partition, the missing method was filled in by
-/// `generate_polymorphic_stub` and the omission surfaced as a run-time panic on
-/// the first call instead of a compile error.
+/// instance head, and `Compiler::compile` is where that must be visible.
+/// E442 lived in the warning half of the `collect_class_declarations`
+/// partition, so this returned `Ok` and left the missing method to
+/// `generate_polymorphic_stub`; a later pipeline stage still rejected the
+/// program, which is why the escape went unnoticed.
 #[test]
 fn missing_instance_method_is_rejected() {
     let source = r#"
