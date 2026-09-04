@@ -101,7 +101,11 @@ use sha2::{Digest, Sha256};
 /// where it had no arithmetic instance at all. An epoch-41 artifact indexes the
 /// old slots. Proposal 0183 (R2 and R4 change dictionary shape too, and this
 /// bump covers them).
-pub const CACHE_EPOCH: u16 = 42;
+/// Epoch 43: a bare call to a name the program itself defines is no longer
+/// dispatched as a class method of that name (KI-085), so a call an epoch-42
+/// artifact lowered to `__tc_<Class>_<Type>_<name>` now calls the program's own
+/// function — different code, same source.
+pub const CACHE_EPOCH: u16 = 43;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

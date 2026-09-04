@@ -1406,6 +1406,14 @@ pub struct Compiler {
     /// module declares `fn add` — and that declaration is not a redeclaration
     /// of anything the user wrote.
     pub(super) generated_dispatch_stub_names: HashSet<Symbol>,
+    /// The names this unit binds to a *user-written* function.
+    ///
+    /// Excludes what dispatch generation synthesises — instance bodies and the
+    /// per-method stub carry `Span::default()`, a parsed declaration does not.
+    /// The mirror of `LowerCtx::user_function_names`; the two must agree or the
+    /// VM and the Core-driven backends dispatch a bare call differently.
+    /// See docs/known_issues.md#ki-085.
+    pub(super) user_function_names: HashSet<Symbol>,
     repl_mode: bool,
     /// Accumulated top-level binding schemes from previously-compiled REPL
     /// lines, merged into `build_infer_config`'s base schemes. Empty (and inert)
@@ -1907,6 +1915,7 @@ impl Compiler {
             class_env: crate::types::class_env::ClassEnv::new(),
             imported_public_classes: HashMap::new(),
             generated_dispatch_stub_names: HashSet::new(),
+            user_function_names: HashSet::new(),
             imported_public_instances: Vec::new(),
             pending_imported_public_instance_entries: Vec::new(),
             imported_instance_method_schemes: HashMap::new(),

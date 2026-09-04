@@ -159,6 +159,7 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "array_instances.flx",
         "either_instances.flx",
         "module_member_shadows_stub.flx",
+        "user_function_shadows_class_method.flx",
         "let_annotation_rigid_param.flx",
         "result_directed_two_dictionaries.flx",
         "syntax_tour.flx",

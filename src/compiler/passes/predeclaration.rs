@@ -1,4 +1,5 @@
 use crate::diagnostics::DiagnosticPhase;
+use crate::syntax::symbol::Symbol;
 use crate::syntax::{program::Program, statement::Statement};
 
 use super::super::{Compiler, pipeline::CollectionResult, tag_diagnostics};
@@ -60,6 +61,28 @@ impl Compiler {
         }
     }
 
+    /// Record every name this unit binds to a user-written function.
+    ///
+    /// A generated instance body or dispatch stub is built with
+    /// `Span::default()`; anything parsed from source carries a real one. Type
+    /// inference separates the two the same way, in `class_method_call_info`.
+    fn collect_user_function_names(&mut self, program: &Program) {
+        fn walk(stmts: &[Statement], out: &mut std::collections::HashSet<Symbol>) {
+            for stmt in stmts {
+                match stmt {
+                    Statement::Function { name, span, .. } => {
+                        if *span != crate::diagnostics::position::Span::default() {
+                            out.insert(*name);
+                        }
+                    }
+                    Statement::Module { body, .. } => walk(&body.statements, out),
+                    _ => {}
+                }
+            }
+        }
+        walk(&program.statements, &mut self.user_function_names);
+    }
+
     /// Phase 2: Forward-declare function names in symbol table.
     ///
     /// Enables forward references and mutual recursion by predeclaring all
@@ -70,6 +93,7 @@ impl Compiler {
         collection: &CollectionResult,
     ) {
         let main_symbol = self.interner.intern("main");
+        self.collect_user_function_names(program);
 
         for statement in &program.statements {
             if let Statement::Function { name, span, .. } = statement {
