@@ -135,7 +135,7 @@ impl<'a> InferCtx<'a> {
         annotation: Option<&TypeExpr>,
         value: &Expression,
     ) {
-        let constraint_start = self.class_constraints.len();
+        let constraint_start = self.class_constraints.emitted();
         // Propagation order (Proposal 0159): when the initializer benefits
         // from expected-type propagation, run check_expression BEFORE the
         // canonical annotation unify. Check mode emits per-sub-expression
@@ -172,7 +172,7 @@ impl<'a> InferCtx<'a> {
 
         // Generalize the let binding (Hindley-Milner let-polymorphism).
         let env_free = self.env.free_vars();
-        let relevant_constraints = self.class_constraints[constraint_start..].to_vec();
+        let relevant_constraints = self.class_constraints.captured_since(constraint_start);
         let scheme = self.finalize_binding_scheme(
             &final_ty,
             &relevant_constraints,
