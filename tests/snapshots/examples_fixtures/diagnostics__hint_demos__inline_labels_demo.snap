@@ -26,19 +26,6 @@ Help:
   adjust operand types or add explicit conversion
 
 
-error[E444]: No Type Class Instance
-
-No instance for `Num<String>`.
-
-  examples/diagnostics/hint_demos/inline_labels_demo.flx:8:16
-  |
-8 | fn add(a, b) { a + b }
-  |                ^^^^^
-
-Hint:
-  Add an instance: `instance Num<String> { ... }`
-
-
 error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 2nd argument to `add`.
@@ -60,6 +47,6 @@ Note:
 Help:
   Try `to_string(...)` to convert a `Int` into a `String`.
 
-Found 3 errors.
+Found 2 errors.
 == stdout ==
 <not executed>
