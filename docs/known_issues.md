@@ -2668,6 +2668,45 @@ including "these fixtures exit 0 with no output", were measured against cached
 artifacts and are wrong. **Any behavioural comparison across a compiler change
 must pass `--no-cache` or clear the store first** (`flux clean --store`).
 
+### KI-081 — A class-method call emits its instance's context at variables nothing binds — FIXED 2026-09-04
+
+**Severity:** Low · **Area:** Type classes / inference · **Verified:** 2026-09-04 · **From:** Proposal 0183, R6
+
+Resolving a direct class-method call looks up the generated mangled `__tc_*`
+function and instantiates its scheme, in order to constrain the caller's ambient
+effect row against that function's row
+([calls.rs](../src/ast/type_infer/expression/calls.rs),
+`propagate_resolved_class_call_effects`). The instantiation also emitted the
+scheme's *constraints* — the selected instance's context, `Eq<a>` for
+`instance Eq<a> => Eq<List<a>>`.
+
+Those constraints were unsolvable by construction. The instantiated signature is
+used only for its effect row; its parameters are never unified with the call's
+arguments, so the context landed on fresh variables nothing ever binds. Every
+direct class-method call therefore left one predicate over `_` behind:
+
+```flux
+instance MyEq<a> => MyEq<List<a>> {
+    fn meq(xs, ys) { true }
+    fn mneq(xs, ys) { !meq(xs, ys) }     // one stuck MyEq<_> here
+}
+
+fn main() with IO {
+    print(mneq([1], [1]))                // and one here
+}
+```
+
+**Fixed 2026-09-04** by not emitting them. The obligation is not lost: the
+call's predicate is emitted from the *argument* types by
+`emit_class_method_predicate`, it resolves against that same instance, and
+`solve_instance_evidence` checks the instance context as part of the evidence it
+builds — so `mneq(["s"], ["s"])` with no `MyEq<String>` in scope is still
+`E444`. Regression test
+`a_class_method_call_enforces_its_instances_context` pins both directions.
+
+The stdlib's stuck predicates fall from 11 to 9, with no diagnostic change
+across all 1,305 programs in the repository.
+
 ### KI-080 — A match arm binds pattern variables against a fresh type, losing the scrutinee's type — FIXED 2026-09-04
 
 **Severity:** Medium · **Area:** Type classes / inference · **Verified:** 2026-09-04 · **From:** Proposal 0183, R6
