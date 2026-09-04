@@ -34,7 +34,8 @@ checkout at commit `2ca87972f6`.
 | R4c | a deferred `String` operand discharges its addition obligation | shipped | `b6659cb3` | 3 programs; no spurious `Num<String>` |
 | R5 | verified defaulting against the whole group (M5) | shipped, **inert** | `00f53cc6` | **none** — see below |
 | R6a | `+` becomes `Flow.Add`, a class `String` instantiates | shipped | `f8d8f585` | no diagnostic change in 1,305 programs |
-| R6b | a match arm keeps the scrutinee's type (KI-080) | shipped | — | stdlib residue 15 → 11; no diagnostic change |
+| R6b | a match arm keeps the scrutinee's type (KI-080) | shipped | `fd4b5338` | stdlib residue 15 → 11; no diagnostic change |
+| R6c | a class-method call stops emitting an unbindable instance context (KI-081) | shipped | — | stdlib residue 11 → 9; no diagnostic change |
 | R6 | replace `StuckReason` with origin plus provenance, and report (M6) | **blocked** on [0184](0184_field_access_constraints.md) | — | needs field access to emit a constraint, not a hole |
 | R7 | clear the fallout across `lib/Flow`, `examples`, `tests` | not started | — | — |
 | — | one `CACHE_EPOCH` bump covering R2 and R4 | not started | — | — |
