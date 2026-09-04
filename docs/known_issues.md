@@ -2668,6 +2668,49 @@ including "these fixtures exit 0 with no output", were measured against cached
 artifacts and are wrong. **Any behavioural comparison across a compiler change
 must pass `--no-cache` or clear the store first** (`flux clean --store`).
 
+### KI-082 — Generalizing an unannotated definition breaks two call sites
+
+**Severity:** Medium · **Area:** Type inference / dictionary elaboration · **Verified:** 2026-09-04 · **From:** Proposal 0183, R6
+
+`finalize_and_bind_function_scheme` binds a function that declared no type
+parameters with `Scheme::mono`, so its inferred class obligations are never
+generalized and never consumed. Turning that off — generalizing every
+definition, quantifying the variables a class constraint mentions — is Proposal
+0183's R6, and it works: the standard library's terminal stuck predicates fall
+from 9 to **0**.
+
+Two programs of 1,305 stop working, and each is a real gap it exposes rather
+than a problem with generalizing:
+
+**1. A top-level `let` call site does not receive the dictionary.**
+
+```flux
+fn square(x) { x * x }      // now generalizes: Num<a> => (a) -> a
+let d = square(c)           // error[E1001]: Cannot call non-function value (got None)
+```
+
+(`tests/parity/toplevel_pure_expression.flx`.) Dictionary elaboration rewrites
+definitions and their call sites, but the initializer of a top-level `let` is
+not rewritten, so the call arrives at the wrong arity. This is a correctness
+regression and is what blocks R6.
+
+**2. An arity error is masked by a worse diagnostic.**
+
+```flux
+fn add(a, b) { a + b }
+let result3 = add(1, 2, 3);   // E056 "wrong number of arguments" → E430
+```
+
+(`examples/diagnostics/hint_demos/function_arg_mismatch.flx`.) The fixture
+exists to demonstrate `E056`; with `add` generalized the call's result type
+stays unresolved and `E430` is reported instead. Diagnostic quality, not
+correctness.
+
+A third failure — `[DuplicateBinder] in `multiply`` — was a separate latent bug
+in the CFG path's binder-id seeding and is fixed (see the commit that added this
+entry). The generalization patch itself is kept at
+`scratchpad/r6-generalize-unannotated.patch`.
+
 ### KI-081 — A class-method call emits its instance's context at variables nothing binds — FIXED 2026-09-04
 
 **Severity:** Low · **Area:** Type classes / inference · **Verified:** 2026-09-04 · **From:** Proposal 0183, R6
