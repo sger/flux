@@ -42,6 +42,13 @@ checkout at commit `2ca87972f6`.
 | — | one `CACHE_EPOCH` bump covering R2 and R4 | shipped | `f8d8f585` | epoch 42, comment names R2/R4 |
 | — | rewrite this proposal around the GHC study; file Examples A/B/C as `#KI-nnn` | not started | — | — |
 
+### Superseded
+
+The remaining work below is now tracked by
+[Proposal 0185](0185_generalize_by_arity.md), which reorders it on the evidence
+of the [GHC comparison](../internals/typeclass_vs_ghc.md). This list is kept
+for the record.
+
 ### Remaining work to close 0183
 
 Seven items, in dependency order. Everything above this line is shipped.
