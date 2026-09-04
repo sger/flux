@@ -2668,6 +2668,72 @@ including "these fixtures exit 0 with no output", were measured against cached
 artifacts and are wrong. **Any behavioural comparison across a compiler change
 must pass `--no-cache` or clear the store first** (`flux clean --store`).
 
+### KI-080 — An instance method body's type variable is not the one its instance declared
+
+**Severity:** Medium · **Area:** Type classes / inference · **Verified:** 2026-09-04 · **From:** Proposal 0183, R6
+
+A contextual instance's method body raises obligations over a type variable
+that is not the instance's own, so the context cannot discharge them. The
+program still runs — dispatch resolves separately — but the predicates never
+reach a terminal state, and they are the bulk of what
+[Proposal 0183](proposals/0183_constraint_solver_terminal_states.md) is trying
+to escalate.
+
+```flux
+class MyEq<a> {
+    fn meq(x: a, y: a) -> Bool
+}
+
+instance MyEq<Int> {
+    fn meq(x, y) { x == y }
+}
+
+instance MyEq<a> => MyEq<List<a>> {
+    fn meq(xs, ys) {
+        match xs {
+            [h1 | t1] -> match ys {
+                [h2 | t2] -> meq(h1, h2) && meq(t1, t2),
+                _ -> false
+            },
+            _ -> true
+        }
+    }
+}
+
+fn main() with IO {
+    print(meq([1, 2], [1, 2]))
+}
+```
+
+Prints `true`, and leaves three predicates undischarged. Traced with
+`FLUX_STUCK_TRACE=full`, and with the enclosing scope printed at the point
+`classify_constraint` gives up:
+
+```
+scope=WholeProgram want=[Var(10827)]                 givens=[("MyEq", [Var(10821)])] quant=[10821, 10822]
+scope=WholeProgram want=[App(List, [Var(10827)])]    givens=[("MyEq", [Var(10821)])] quant=[10821, 10822]
+```
+
+The implication is built correctly: the instance context *is* in scope as a
+given, and the method's variables are quantified. But the body's `h1` has type
+`Var(10827)` while the instance declared `Var(10821)`, and `10827` is not in the
+quantified set at all. `entailed_by_givens` compares type arguments
+syntactically, so `MyEq<10827>` cannot match `MyEq<10821>` and the predicate is
+recorded stuck.
+
+The synthesized `__tc_*` function for the instance method receives
+`parameter_types` specialized from the class signature (`xs: List<a>`) and
+`type_params` carrying the context (`build_instance_function_type_params`, both
+in [class_dispatch.rs](../src/types/class_dispatch.rs)), so the two `a`s should
+be one variable. They are not, which points at the conversion from the
+specialized `TypeExpr` to the function's type-parameter map — the same class of
+defect as [KI-058](#ki-058), where a name that should resolve to the enclosing
+function's type parameter converts to something else instead.
+
+A third predicate in the same program (`meq([1, 2], [1, 2])` in `main`, wanted
+`Var(10835)` with no givens) is a separate question: a class-method call whose
+predicate variable is never unified with the argument type.
+
 ### KI-077 — Superclass evidence for a contextual superclass instance is built from the wrong dictionary — FIXED 2026-09-03
 
 **Severity:** High · **Area:** Type classes / dictionary passing · **Verified:** 2026-09-03 · **From:** Phase 1 of the type-class audit
