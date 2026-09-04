@@ -60,15 +60,28 @@ elaboration pass for `Evidence` returns nothing; it calls
 `resolve_dictionary_ref_by_id` and walks `class_env.instances` itself.
 
 So instance selection happens twice, in two code paths, with no mechanism
-keeping them in agreement. Every "elaboration picked the wrong dictionary" bug —
-KI-052 (a second dictionary shadowing the first), KI-077 (superclass evidence
-built from the wrong dictionary), "stop picking the last dictionary when a call
-reveals nothing" — is a symptom of that split, not an unrelated series of
-mistakes. `Evidence::Unrecorded`'s own doc comment anticipates closing this
-("so dictionary elaboration can stop re-resolving"); it has not been closed.
+keeping them in agreement. The solver does produce real evidence —
+`Evidence::FromInstance { instance, subst, context }`, with `Unrecorded` only
+for a cycle in the instance-context graph — so there is something substantive to
+consume. `Evidence::Unrecorded`'s own doc comment anticipates consuming it ("so
+dictionary elaboration can stop re-resolving"); it has not been done.
 
-This is the highest-value structural fix available: it converts a class of bugs
-into an impossibility rather than fixing them one at a time.
+**Two caveats, both material to whether this is worth doing first.**
+
+*Causation is inferred, not established.* It is tempting to read KI-052 (a
+second dictionary shadowing the first), KI-077 (superclass evidence from the
+wrong dictionary) and "stop picking the last dictionary when a call reveals
+nothing" as symptoms of the split. They are certainly bugs in elaboration's own
+selection logic. Whether the solver would have chosen correctly in each case —
+and so whether consuming its evidence would have prevented them — has not been
+checked.
+
+*The plumbing does not exist.* `elaborate_dictionaries` receives
+`(CoreProgram, ClassEnv, TypeEnv, Interner, next_id)`. `SolveOutcome` and its
+dispositions never reach `src/core/` at all. Evidence is attached to wanted
+constraints carrying AST spans; elaboration works on Core binder ids, after
+lowering. Connecting them needs a correspondence between the two that is not
+currently kept anywhere, so this is a design task, not a swap.
 
 ### F3 — Typing is completed by unification where it should be completed by a constraint
 
@@ -110,18 +123,24 @@ The one place Flux does solve-then-unify is 0184's `discharge_field_predicates`,
 which unifies the field-type argument on discharge. That is the shape the rest
 of the solver would need in order to grow.
 
-### F5 — Class-method calls dispatch on the first argument
+### F5 — A second, first-argument instance lookup runs during inference
 
-Flux resolves a class-method call through
-`resolve_method_call_instance_from_first_arg`, ahead of and independently of the
-predicate. GHC has no such path: the call emits a wanted, and the instance is
-whatever the solver selects.
+*(Corrected. An earlier version of this section claimed class-method calls
+**dispatch** on the first argument. That is wrong: the obligation is emitted
+from the argument types by `class_method_predicate_args`, which is tried first,
+and the dictionary is selected in elaboration.)*
 
-The consequence was KI-081 — the predicate emitted from scheme instantiation was
-never tied to the call's arguments, because dispatch had already been decided by
-other means, leaving an unsolvable obligation over a variable nothing binds.
-Dispatching on one argument is also why a class whose variable appears only in
-the return position needs its own machinery (KI-015).
+What `resolve_method_call_instance_from_first_arg` actually feeds is
+`propagate_resolved_class_call_effects` — it resolves the instance in order to
+read its *effect row* and to record a dispatch target for LSP navigation. It is
+a third instance lookup, alongside the solver's and elaboration's, and it is
+first-argument-only.
+
+That is still worth recording, because it is where KI-081 came from: the lookup
+instantiated the instance method's scheme for its effect row, and emitting that
+scheme's constraints put the instance context on variables nothing binds. But it
+is a narrower fault than "dispatch is wrong", and the ranking below is adjusted
+accordingly.
 
 ### F6 — No ambiguity check
 
@@ -157,11 +176,19 @@ Worth stating, because it decides what the fixes should preserve.
 
 ## Priority
 
-1. **F2** — make elaboration consume the solver's `Evidence`. Removes a bug
-   class rather than a bug, and needs no language change.
-2. **F1** — generalize on arity, not annotation. Blocked today by KI-083.
-3. **F3** — continue converting deferred-unification constructs to predicates;
-   0184 is the template, tuple projection the next candidate.
-4. **F6** — the ambiguity check, once F1 lands.
-5. **F4/F5** — only worth it if Flux wants improvement, fundeps, or
-   return-position dispatch as first-class features. Both are large.
+Ordered by *confidence in the finding*, which is not the same as ordering by
+value:
+
+1. **F1** — generalize on arity, not annotation. The best-evidenced finding
+   here: read straight from `checkMonomorphismRestriction` and Note [When the MR
+   applies]. Blocked today by KI-083.
+2. **F3** — continue converting deferred-unification constructs to predicates.
+   Four instances observed, two already fixed; 0184 is the template and tuple
+   projection is the next candidate.
+3. **F6** — the ambiguity check, once F1 lands.
+4. **F2** — unify the two instance resolutions. Real and worth doing, but the
+   evidence→elaboration correspondence has to be designed first, so the cost is
+   unknown and could exceed F1's. Do not schedule it ahead of F1 on the strength
+   of this document alone.
+5. **F4/F5** — only worth it if Flux wants improvement, fundeps, or a single
+   instance lookup shared with the effect-row machinery. Both are large.
