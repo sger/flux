@@ -2682,17 +2682,9 @@ from 9 to **0**.
 Two programs of 1,305 stop working, and each is a real gap it exposes rather
 than a problem with generalizing:
 
-**1. A top-level `let` call site does not receive the dictionary.**
-
-```flux
-fn square(x) { x * x }      // now generalizes: Num<a> => (a) -> a
-let d = square(c)           // error[E1001]: Cannot call non-function value (got None)
-```
-
-(`tests/parity/toplevel_pure_expression.flx`.) Dictionary elaboration rewrites
-definitions and their call sites, but the initializer of a top-level `let` is
-not rewritten, so the call arrives at the wrong arity. This is a correctness
-regression and is what blocks R6.
+**1. A top-level `let` cannot call a constrained function.** Filed separately as
+[KI-083](#ki-083) — it is **not** caused by generalizing, only exposed by it,
+and reproduces on the current compiler with an explicit bound.
 
 **2. An arity error is masked by a worse diagnostic.**
 
@@ -2710,6 +2702,68 @@ A third failure — `[DuplicateBinder] in `multiply`` — was a separate latent 
 in the CFG path's binder-id seeding and is fixed (see the commit that added this
 entry). The generalization patch itself is kept at
 `scratchpad/r6-generalize-unannotated.patch`.
+
+### KI-083 — A top-level `let` cannot call a constrained function
+
+**Severity:** Medium · **Area:** Core lowering / VM · **Verified:** 2026-09-04 · **From:** Proposal 0183, R6
+
+A top-level `let` whose initializer calls a function with a class bound fails at
+run time. No generalization is involved — this reproduces on the current
+compiler with the bound written out:
+
+```flux
+fn square<a: Num>(x: a) -> a { x * x }
+
+let d = square(3)
+
+fn main() with IO {
+    print(d)
+}
+```
+
+```
+error[E1001]: Not A Function
+Cannot call non-function value (got None).
+  tl.flx:3:9
+3 | let d = square(3)
+  |         ^^^^^^
+```
+
+**Dictionary elaboration is not at fault.** The Core it produces is correct, and
+passes the dictionary:
+
+```
+letrec square =
+λ__dict_m8_466C6F772E4E756D_Num, x.
+    let %t526 = __dict_m8_466C6F772E4E756D_Num.2
+    %t526(x, x)
+
+def d =
+let %t527 = __dict_m8_466C6F772E4E756D_Num_Int(__dict_m8_466C6F772E416464_Add_Int)
+  square(%t527, 3)
+```
+
+The failure is at run time: `square` is `None` when `d`'s initializer runs, so
+the binding order between top-level value defs and rewritten `letrec` functions
+is wrong. Isolating it:
+
+| program | top-level `let` calls | dictionaries present | result |
+|---|---|---|---|
+| a | an unconstrained function | no | works |
+| b | *(call inside `main` instead)* | yes | works |
+| c | an unconstrained function | yes | works |
+| d | **a constrained function** | yes | **fails** |
+
+Row (c) rules out the prepended dictionary defs on their own, and row (b) rules
+out the constrained function on its own. Only a top-level value def *calling* a
+function that dictionary elaboration rewrote fails — which points at the point
+where rewritten `letrec` functions are bound relative to value defs, not at the
+elaboration.
+
+`tests/parity/toplevel_pure_expression.flx` carries a comment describing the
+same symptom for the native backend, so this is likely one bug seen from two
+sides. It blocks Proposal 0183's R6, because generalizing unannotated
+definitions turns almost every top-level helper into a constrained one.
 
 ### KI-081 — A class-method call emits its instance's context at variables nothing binds — FIXED 2026-09-04
 
