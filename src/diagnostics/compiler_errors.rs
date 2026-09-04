@@ -1042,6 +1042,24 @@ pub const OPERATOR_CLASS_NOT_IN_SCOPE: ErrorCode = ErrorCode {
     ),
 };
 
+/// Proposal 0183 R3: dictionary resolution ran out of budget.
+///
+/// An instance context that grows its argument at every step —
+/// `instance Foo<List<a>> => Foo<a>` — never repeats a predicate, so only a
+/// depth budget stops it. Exhausting that budget is not the same fact as "no
+/// such instance": the search was abandoned, and reporting it as a missing
+/// instance sends the reader looking for an instance that may well exist.
+pub const INSTANCE_SEARCH_EXHAUSTED: ErrorCode = ErrorCode {
+    code: "E488",
+    title: "INSTANCE SEARCH EXHAUSTED",
+    error_type: ErrorType::Compiler,
+    message: "Resolving `{}` exceeded the instance-context depth limit.",
+    hint: Some(
+        "An instance context that grows its type argument at every step never \
+         terminates. Check for a context like `instance C<List<a>> => C<a>`.",
+    ),
+};
+
 /// Proposal 0179 Stage 6: an instance defines an associated type its class does
 /// not declare.
 ///
