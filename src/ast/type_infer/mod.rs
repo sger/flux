@@ -562,10 +562,18 @@ impl<'a> InferCtx<'a> {
             .simple
             .retain(|_| !generalized.next().unwrap_or(false));
 
+        let quantified: Vec<TypeVarId> = finalized
+            .infer_type
+            .free_vars()
+            .difference(spec.env_free_vars)
+            .copied()
+            .collect();
+
         self.class_constraints
             .implications
             .push(constraint::Implication {
                 givens: finalized.scheme_constraints.clone(),
+                quantified,
                 wanted: scope,
                 span: spec.span,
                 binder: spec.binder,

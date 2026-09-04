@@ -1042,6 +1042,24 @@ pub const OPERATOR_CLASS_NOT_IN_SCOPE: ErrorCode = ErrorCode {
     ),
 };
 
+/// Proposal 0183: a body needs a predicate its own signature does not promise.
+///
+/// `fn cmp<a: MyEq>(x: a, y: a) -> Bool { mlt(x, y) }` raises `MyOrd<a>`, which
+/// nothing can ever discharge: `a` is quantified here, so no instance matches
+/// it, and the caller supplies evidence only for what the signature asks.
+///
+/// Reported at the definition rather than absorbed into the scheme. Inferring
+/// the missing predicate instead makes the signature a suggestion, and moves
+/// the error to whichever caller happens to use a type without that instance —
+/// a file the author of the mistake may never see.
+pub const COULD_NOT_DEDUCE: ErrorCode = ErrorCode {
+    code: "E489",
+    title: "COULD NOT DEDUCE",
+    error_type: ErrorType::Compiler,
+    message: "Could not deduce `{}` from the context `{}`.",
+    hint: Some("Add the missing bound to the signature's type parameters."),
+};
+
 /// Proposal 0183 R3: dictionary resolution ran out of budget.
 ///
 /// An instance context that grows its argument at every step —
