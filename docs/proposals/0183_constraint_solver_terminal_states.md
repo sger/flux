@@ -38,9 +38,62 @@ checkout at commit `2ca87972f6`.
 | R6c | a class-method call stops emitting an unbindable instance context (KI-081) | shipped | — | stdlib residue 11 → 9; no diagnostic change |
 | — | [0184](0184_field_access_constraints.md) Stage 1: field access emits a predicate | shipped | — | new `E490`; no diagnostic change in 1,305 programs |
 | R6 | generalize unannotated definitions, then report what survives (M6) | blocked on [KI-083](../known_issues.md#ki-083) | — | stdlib residue 9 → **0**; 2 of 1,305 programs break |
-| R7 | clear the fallout across `lib/Flow`, `examples`, `tests` | not started | — | — |
-| — | one `CACHE_EPOCH` bump covering R2 and R4 | not started | — | — |
+| R7 | clear the fallout across `lib/Flow`, `examples`, `tests` | not started | — | 2 programs, both covered by KI-082/083 |
+| — | one `CACHE_EPOCH` bump covering R2 and R4 | shipped | `f8d8f585` | epoch 42, comment names R2/R4 |
 | — | rewrite this proposal around the GHC study; file Examples A/B/C as `#KI-nnn` | not started | — | — |
+
+### Remaining work to close 0183
+
+Seven items, in dependency order. Everything above this line is shipped.
+
+**1. Fix [KI-083](../known_issues.md#ki-083) — a top-level `let` cannot call a
+constrained function.** *Blocks R6.* A live correctness bug on annotated code
+today, independent of this proposal; R6 merely makes it universal. Isolated to
+the seam between lowering's seeding of `Lam`-valued defs and the VM's global
+initialisation. Note the VM path runs `lower_aether_program`, which carries its
+*own* copy of the seeding loop over `aether.defs()` — instrumenting
+`lower_program` traces nothing.
+
+**2. Fix [KI-082](../known_issues.md#ki-082) — a generalized function masks an
+arity error.** `add(1, 2, 3)` reports `E430` instead of `E056`. Diagnostic
+quality, not correctness, but `examples/diagnostics/hint_demos/function_arg_mismatch.flx`
+exists to demonstrate `E056`, so R7 cannot be green without it.
+
+**3. Land R6a — generalize unannotated definitions.** The patch is written and
+applies cleanly (`scratchpad/r6-generalize-unannotated.patch`): every definition
+generalizes, quantifying the variables a class constraint mentions
+(`generalize_constrained_vars`), so the obligations a monomorphic binding
+stranded are consumed by a scheme. Takes the stdlib residue to **0**. Gated on
+items 1 and 2 — with those fixed it should be a clean landing, since they are
+the only two programs it breaks.
+
+**4. Land R6b — replace `StuckReason` with origin plus provenance, and report.**
+The original R6. `Disposition` loses `Stuck`; the terminal set becomes Solved /
+Generalized / Defaulted / Reported. This is what makes the proposal's central
+claim true, and it delivers **Example A** — ambiguity reported at compile time
+rather than as a runtime `E1009` with a line-0 span. Only tractable once item 3
+has taken the residue to zero: escalating a non-empty residue reports correct
+programs.
+
+**5. R7 — clear the fallout.** Currently *two* programs, both of them items 1
+and 2, so this may be empty once those land. Must include the parity sweeps
+(`parity-check tests/parity --ways vm,llvm` and `examples/guide --compile`)
+green, not merely surveyed — there is no defer flag.
+
+**6. Documentation.** Rewrite this proposal around the GHC study: fold R1–R7 and
+the M1–M6 citations into the reference section, keep the corrected measurement
+notes, and record the through-line — that three constructs (`+`, field access,
+match arms) were typed by deferred unification rather than by a constraint, and
+each had to be converted before the residue meant anything. File **Example A**
+as a known issue; Examples B and C are fixed and need only a line saying so.
+
+**7. Close the open questions.** Defaulting is `Num ⇒ [Int, Float]`, verified —
+and inert, which the Unresolved-questions section should say. There is no defer
+flag. Both were decided; neither is written down as decided yet.
+
+Not required to close 0183, but adjacent and now specified:
+[0184](0184_field_access_constraints.md) Stage 2, which would let a scheme carry
+`HasField` and make `fn label(r) { r.name }` genuinely record-polymorphic.
 
 ### R5 is inert, and that is a finding, not a gap
 
