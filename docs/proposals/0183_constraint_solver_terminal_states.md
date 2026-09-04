@@ -34,7 +34,7 @@ checkout at commit `2ca87972f6`.
 | R4c | a deferred `String` operand discharges its addition obligation | shipped | `b6659cb3` | 3 programs; no spurious `Num<String>` |
 | R5 | verified defaulting against the whole group (M5) | shipped, **inert** | `00f53cc6` | **none** — see below |
 | R6a | `+` becomes `Flow.Add`, a class `String` instantiates | shipped | — | no diagnostic change in 1,305 programs |
-| R6 | replace `StuckReason` with origin plus provenance, and report (M6) | **blocked** | — | still needs record-access constraints; see below |
+| R6 | replace `StuckReason` with origin plus provenance, and report (M6) | **blocked** on [0184](0184_field_access_constraints.md) | — | needs field access to emit a constraint, not a hole |
 | R7 | clear the fallout across `lib/Flow`, `examples`, `tests` | not started | — | — |
 | — | one `CACHE_EPOCH` bump covering R2 and R4 | not started | — | — |
 | — | rewrite this proposal around the GHC study; file Examples A/B/C as `#KI-nnn` | not started | — | — |
@@ -149,7 +149,8 @@ Zero diagnostic changes across all 1,305 programs, and `test_runner_cli`
 `Num` dictionary changes layout.
 
 The second prerequisite — record field access emitting a constraint rather than
-a hole — is untouched, so R6 remains blocked on it.
+a hole — is specified as [Proposal 0184](0184_field_access_constraints.md).
+R6 is blocked on its Stage 1.
 
 ### Generalizing unannotated definitions: attempted, and what stopped it
 
