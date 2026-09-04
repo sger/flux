@@ -127,30 +127,41 @@ impl<'a> InferCtx<'a> {
         if let Some(field_ty) = self.resolve_named_field_access(&object_ty, member, expr.span()) {
             return field_ty;
         }
-        // The predicate replaces the hole for a receiver whose type is *not yet
-        // known*, which is the case Proposal 0184 is about. A receiver whose
-        // type is already settled and is still not a named-field ADT is a
-        // different situation, and keeps the behaviour it had.
-        //
-        // That distinction matters because `a.b` is also the syntax for
-        // reaching into a module, and an unresolved module member falls through
-        // to here — an import that is missing, private, or misspelled, already
-        // reported as E011/E012/E013. Such a receiver either has no type or has
-        // a settled non-record one (`Lock.lock(..)`, where `Lock` also names a
-        // constructor), and neither is a field access to report on.
-        if !matches!(object_ty.apply_type_subst(&self.subst), InferType::Var(_)) {
-            return self.alloc_fallback_var();
-        }
-        // …and a name with no value binding is a module path, not a receiver.
-        // A module referred to from inside its own body (`Parse.here(..)` in
-        // `Flow.Toml.Parse`) has no binding and no type, so the type test alone
-        // would take it for an unknown record.
-        if let Expression::Identifier { name, .. } = object
-            && self.env.lookup(*name).is_none()
-        {
+        if !self.is_field_predicate_receiver(object, &object_ty) {
             return self.alloc_fallback_var();
         }
         self.emit_field_predicate(&object_ty, member, expr.span())
+    }
+
+    /// Whether `object` is a receiver a field predicate may be emitted for
+    /// (Proposal 0184).
+    ///
+    /// The predicate replaces the hole for a receiver whose type is *not yet
+    /// known*, which is the case 0184 is about. A receiver whose type is
+    /// already settled and is still not a named-field ADT is a different
+    /// situation, and keeps the behaviour it had.
+    ///
+    /// That distinction matters because `a.b` is also the syntax for reaching
+    /// into a module, and an unresolved module member falls through to the
+    /// field path — an import that is missing, private, or misspelled, already
+    /// reported as E011/E012/E013. Such a receiver either has no type or has a
+    /// settled non-record one (`Lock.lock(..)`, where `Lock` also names a
+    /// constructor), and neither is a field access to report on.
+    ///
+    /// The two tests are not redundant. A name with no value binding is a
+    /// module path, not a receiver: a module referred to from inside its own
+    /// body (`Parse.here(..)` in `Flow.Toml.Parse`) has no binding and no type,
+    /// so the type test alone would take it for an unknown record.
+    fn is_field_predicate_receiver(&self, object: &Expression, object_ty: &InferType) -> bool {
+        if !matches!(object_ty.apply_type_subst(&self.subst), InferType::Var(_)) {
+            return false;
+        }
+        if let Expression::Identifier { name, .. } = object
+            && self.env.lookup(*name).is_none()
+        {
+            return false;
+        }
+        true
     }
 
     /// Record that `object` must have a field `member`, and return that
