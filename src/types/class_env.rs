@@ -2925,6 +2925,7 @@ impl ClassEnv {
         const PRELUDE_CLASS_SOURCES: &[(&str, &str)] = &[
             ("Eq", include_str!("../../lib/Flow/Eq.flx")),
             ("Ord", include_str!("../../lib/Flow/Ord.flx")),
+            ("Add", include_str!("../../lib/Flow/Add.flx")),
             ("Num", include_str!("../../lib/Flow/Num.flx")),
             ("Show", include_str!("../../lib/Flow/Show.flx")),
             ("Semigroup", include_str!("../../lib/Flow/Semigroup.flx")),

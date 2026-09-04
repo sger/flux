@@ -67,28 +67,9 @@ pub enum Constraint {
 pub enum WantedClassConstraintOrigin {
     ExplicitBound,
     InferredOperator,
-    /// `+` specifically, which is overloaded over `Num` *and* `String`.
-    ///
-    /// Kept apart from [`Self::InferredOperator`] because the two have
-    /// different solutions: `String` discharges an addition obligation by a
-    /// built-in rule, and does not discharge a `-`/`*`/`/` one. When the
-    /// operand type is already known at emission `infer_add_operator` decides
-    /// this itself; this origin is what lets the solver decide it later, for
-    /// the operand that was still a variable when the operator was inferred.
-    InferredAddOperator,
     MethodCall,
     SchemeUse,
-    TaskSpawnCapture {
-        capture_name: Identifier,
-    },
-}
-
-impl WantedClassConstraintOrigin {
-    /// Whether this predicate came from an operator rather than from a written
-    /// bound, a method call, or a scheme instantiation.
-    pub fn is_inferred_operator(&self) -> bool {
-        matches!(self, Self::InferredOperator | Self::InferredAddOperator)
-    }
+    TaskSpawnCapture { capture_name: Identifier },
 }
 
 #[derive(Debug, Clone)]

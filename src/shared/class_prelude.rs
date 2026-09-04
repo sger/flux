@@ -1,7 +1,8 @@
 //! The standard class hierarchy's modules, which every module is given.
 //!
 //! Proposal 0179 Stage 8 moved `Eq`, `Ord`, `Num`, `Show` and `Semigroup` from
-//! Rust registration into Flux source. Before that, the Rust registration put
+//! Rust registration into Flux source; Proposal 0183 added `Add`, which owns
+//! `+`. Before that, the Rust registration put
 //! the classes into every module's class environment unconditionally, and the
 //! operators rely on it: `==` emits an `Eq` obligation only if a class named
 //! `Eq` is in scope, and emits *nothing* otherwise. So the modules declaring
@@ -10,14 +11,15 @@
 //! only into the entry file.
 //!
 //! The class modules themselves are excluded, since a module cannot import
-//! itself and the five import nothing from each other except what they
-//! declare explicitly.
+//! itself and they import nothing from each other except what they declare
+//! explicitly — `Flow.Num` names `Flow.Add` because `Add` is its superclass.
 
 /// `(module name, file name)` for each class-prelude module, in the order
 /// they are injected.
 pub const FLOW_CLASS_PRELUDE_MODULES: &[(&str, &str)] = &[
     ("Flow.Eq", "Eq.flx"),
     ("Flow.Ord", "Ord.flx"),
+    ("Flow.Add", "Add.flx"),
     ("Flow.Num", "Num.flx"),
     ("Flow.Show", "Show.flx"),
     ("Flow.Semigroup", "Semigroup.flx"),

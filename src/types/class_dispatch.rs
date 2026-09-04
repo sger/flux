@@ -467,7 +467,8 @@ fn has_builtin_method_body(class_name: &str, type_name: &str, method_name: &str)
         (class_name, type_name, method_name),
         ("Eq", _, "eq" | "neq")
             | ("Ord", _, "compare" | "lt" | "lte" | "gt" | "gte")
-            | ("Num", _, "add" | "sub" | "mul" | "div")
+            | ("Add", _, "add")
+            | ("Num", _, "sub" | "mul" | "div")
             | ("Show", _, "show")
             | ("Semigroup", "String", "append")
     )
@@ -1723,7 +1724,7 @@ fn builtin_method_body(
             let rhs = var(id_gen, y, span);
             infix(id_gen, lhs, ">=", rhs, span)
         }
-        ("Num", _, "add") => {
+        ("Add", _, "add") => {
             let lhs = var(id_gen, x, span);
             let rhs = var(id_gen, y, span);
             infix(id_gen, lhs, "+", rhs, span)
