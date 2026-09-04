@@ -2668,7 +2668,7 @@ including "these fixtures exit 0 with no output", were measured against cached
 artifacts and are wrong. **Any behavioural comparison across a compiler change
 must pass `--no-cache` or clear the store first** (`flux clean --store`).
 
-### KI-080 — A match arm binds pattern variables against a fresh type, losing the scrutinee's type
+### KI-080 — A match arm binds pattern variables against a fresh type, losing the scrutinee's type — FIXED 2026-09-04
 
 **Severity:** Medium · **Area:** Type classes / inference · **Verified:** 2026-09-04 · **From:** Proposal 0183, R6
 
@@ -2774,10 +2774,22 @@ call site, so a missing instance is caught there — `viapat(["s"])` reports
 why this has gone unnoticed. It matters because it is most of what Proposal 0183
 would escalate, and escalating it would produce errors on correct programs.
 
-Fixing it means narrowing arm isolation so it does not discard a scrutinee type
-that is already known. The isolation exists to stop `Some` and `Left` arms
-constraining one another, so the fix is to isolate only the arms whose family
-genuinely conflicts, rather than replacing the scrutinee for every arm.
+**Fixed 2026-09-04.** Only the head constructor and its arity decide a pattern
+family — `List<a>` is as much a list as `List<Int>` — so the check that decides
+whether the arms already agree no longer requires the scrutinee to be fully
+concrete. `concrete_scrutinee_matches_family` became
+`scrutinee_head_matches_family`: it resolves the scrutinee through the current
+substitution and matches its head, and a scrutinee whose head is still unknown
+(a bare variable) matches nothing and so continues to isolate, which is what
+kept `Some` and `Left` arms from constraining one another in the first place.
+
+The stdlib's stuck predicates fall from 15 to 11, and the reproduction above
+loses both of its instance-body predicates, with **no diagnostic change across
+all 1,305 programs** in the repository. Regression tests
+`a_pattern_variable_keeps_the_scrutinees_element_type` and
+`a_pattern_variable_from_a_concrete_scrutinee_is_still_checked` in
+[typeclass_baseline_tests.rs](../tests/type_inference/typeclass_baseline_tests.rs)
+cover both directions.
 
 ### KI-077 — Superclass evidence for a contextual superclass instance is built from the wrong dictionary — FIXED 2026-09-03
 

@@ -1142,3 +1142,68 @@ fn main() with IO {
         "only `+` is overloaded over `String`"
     );
 }
+
+/// A pattern variable keeps the scrutinee's element type, so an obligation
+/// raised on it is one the enclosing signature's context can discharge.
+///
+/// `match xs { [h | t] -> ..., _ -> ... }` mixes a constraining arm with a
+/// non-constraining one. Arm isolation used to hand every arm a fresh variable
+/// whenever the scrutinee was not *fully* concrete, and `List<a>` inside
+/// `fn f<a: C>(..)` is not — so `h` lost its connection to `a` and the `C<h>`
+/// obligation could not be matched against the `C<a>` the signature grants
+/// (docs/known_issues.md#ki-080). Only the head constructor decides a pattern
+/// family, so `List<a>` settles it as well as `List<Int>` does.
+#[test]
+fn a_pattern_variable_keeps_the_scrutinees_element_type() {
+    let source = r#"
+class MyEq<a> {
+    fn meq(x: a, y: a) -> Bool
+}
+
+instance MyEq<Int> {
+    fn meq(x, y) { x == y }
+}
+
+fn viapat<a: MyEq>(xs: List<a>) -> Bool {
+    match xs {
+        [h | t] -> meq(h, h),
+        _ -> true
+    }
+}
+
+fn main() with IO {
+    print(viapat([1, 2]))
+}
+"#;
+    let (program, mut compiler) = parse_source(source, "pattern_element_type.flx");
+    let result = compiler.compile(&program);
+    assert!(
+        result.is_ok(),
+        "the signature's own context must discharge the obligation: {:?}",
+        result.err()
+    );
+}
+
+/// The other half: isolating an arm must still not hide a real mismatch. A
+/// pattern variable bound from a `List<Int>` scrutinee is an `Int`, and using
+/// it as a `String` is an error whichever arms accompany it.
+#[test]
+fn a_pattern_variable_from_a_concrete_scrutinee_is_still_checked() {
+    let source = r#"
+fn f(xs: List<Int>) -> Int {
+    match xs {
+        [h | t] -> h + "oops",
+        _ -> 0
+    }
+}
+
+fn main() with IO {
+    print(f([1, 2]))
+}
+"#;
+    let (program, mut compiler) = parse_source(source, "pattern_mismatch.flx");
+    assert!(
+        compiler.compile(&program).is_err(),
+        "an `Int` element used as a `String` is a mismatch"
+    );
+}
