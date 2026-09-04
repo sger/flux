@@ -15,6 +15,65 @@ obligation nobody discharged, and the failure resurfaces at run time as an
 state by adopting GHC's structure: quantification *consumes* a predicate,
 defaulting resolves what it can, and whatever survives is reported.
 
+## Status
+[status]: #status
+
+Work is tracked as seven refactors (R1–R7) on `feat/0183-terminal-constraint-states`,
+which is merged into `fix/phase1-promote-e442`. GHC citations are read from the
+checkout at commit `2ca87972f6`.
+
+| Item | What it does | Status | Commit | Measured effect |
+|---|---|---|---|---|
+| Stage 1 | quantification consumes the predicate it discharges | shipped | `e89c3a8c` | residue 13,737 → 4,460 |
+| R1 | shape the wanted set as a tree of implications (GHC M1) | shipped | `9dbdf227` | none by design |
+| R2 | emit a residual implication instead of deleting (M2) | shipped | `a6cfb322`, `e26c51a9` | none by design |
+| R3 | solve each scope against the context it holds; budget exhaustion is its own error (M3) | shipped | `e26c51a9` | `E488` replaces a wrong `E444` |
+| R4 | classify on the substituted type, not a flag frozen at emission (M4) | shipped | `728f1764` | residue 4,460 → 3,496; fixes Example B |
+| R4a | superclass minimisation (`mkMinimalBySCs`) and given entailment | shipped | `31bf52e0` | `mconcat` loses a redundant dictionary |
+| R4b | a body is held to the context its signature declares (`E489`) | shipped | `5a76501c` | residue → 3,106; fixes Example C |
+| R4c | a deferred `String` operand discharges its addition obligation | shipped | `b6659cb3` | 3 programs; no spurious `Num<String>` |
+| R5 | verified defaulting against the whole group (M5) | shipped, **inert** | `00f53cc6` | **none** — see below |
+| R6 | replace `StuckReason` with origin plus provenance, and report (M6) | in progress | — | targets the 3,106 residue |
+| R7 | clear the fallout across `lib/Flow`, `examples`, `tests` | not started | — | — |
+| — | one `CACHE_EPOCH` bump covering R2 and R4 | not started | — | — |
+| — | rewrite this proposal around the GHC study; file Examples A/B/C as `#KI-nnn` | not started | — | — |
+
+### R5 is inert, and that is a finding, not a gap
+
+R5 was written to GHC's `disambigGroup`, and it is correct: it groups unary
+obligations per variable, blocks only on non-unary ones, tries `[Int, Float]`
+in order, keeps a candidate only if it discharges *every* obligation in the
+group, and commits the first survivor.
+
+Traced over all 1,305 `.flx` programs in the repository it **never fires**. Not
+because the class environment is missing — it is present, and groups do form —
+but because every candidate group is blocked before the defaultable-class test.
+The cause is upstream: Flux has no `Num`-polymorphic literal. `1` is `Int`, not
+`Num<a> => a`, so the ambiguous numeric variable that defaulting exists to
+resolve never arises, and the 3,106 remaining predicates (`Ord`, `Eq`,
+`Sendable`) contain no `Num` obligation for defaulting to act on.
+
+Two consequences for this proposal. `Float` in the candidate list is
+*unreachable*, not a language change, so it needs no guide-level note. And
+running defaulting at whole-program scope as well as binding scope — planned as
+the second half of R5 — is provably inert for the same reason and was not
+implemented.
+
+### The residue R6 inherits
+
+3,106 terminal stuck predicates over `examples/type_classes` + `tests/parity`,
+all but 6 of them `UnresolvedAfterGeneralization`:
+
+| count | class | origin |
+|---:|---|---|
+| 1,146 | `Ord` | `InferredOperator` |
+| 604 | `Eq` | `SchemeUse` |
+| 576 | `Eq` | `InferredOperator` |
+| 573 | `Eq` | `MethodCall` |
+| 116 | `Semigroup` / `Functor` / `Applicative` | `ExplicitBound` |
+| 42 | `Sendable` | `SchemeUse` |
+| 49 | everything else | mixed |
+
 ## Motivation
 [motivation]: #motivation
 
