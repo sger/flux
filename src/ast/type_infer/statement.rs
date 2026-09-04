@@ -135,7 +135,7 @@ impl<'a> InferCtx<'a> {
         annotation: Option<&TypeExpr>,
         value: &Expression,
     ) {
-        let constraint_start = self.class_constraints.emitted();
+        let window = self.class_constraints.open_window();
         // Propagation order (Proposal 0159): when the initializer benefits
         // from expected-type propagation, run check_expression BEFORE the
         // canonical annotation unify. Check mode emits per-sub-expression
@@ -172,13 +172,14 @@ impl<'a> InferCtx<'a> {
 
         // Generalize the let binding (Hindley-Milner let-polymorphism).
         let env_free = self.env.free_vars();
-        let relevant_constraints = self.class_constraints.captured_since(constraint_start);
-        let scheme = self.finalize_binding_scheme(
-            &final_ty,
-            &relevant_constraints,
-            &env_free,
-            GeneralizationMode::NestedBinding,
-        );
+        let scheme = self.finalize_binding_scheme(BindingSchemeSpec {
+            infer_type: &final_ty,
+            env_free_vars: &env_free,
+            window,
+            mode: GeneralizationMode::NestedBinding,
+            binder: name,
+            span: let_span,
+        });
         self.binding_schemes_by_span
             .insert(binding_span_key(let_span), scheme.clone());
         self.env.bind(name, scheme);

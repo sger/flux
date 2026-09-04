@@ -136,6 +136,21 @@ struct CallInferInput<'a> {
     span: Span,
 }
 
+/// Immutable inputs required to finalize one binding's scheme.
+///
+/// Grouped because the finalization now needs the binder's identity as well as
+/// its type: a definition's obligations become an [`constraint::Implication`],
+/// and an implication has to say which definition it belongs to.
+#[derive(Debug, Clone, Copy)]
+struct BindingSchemeSpec<'a> {
+    infer_type: &'a InferType,
+    env_free_vars: &'a HashSet<TypeVarId>,
+    window: constraint::CaptureWindow,
+    mode: GeneralizationMode,
+    binder: Identifier,
+    span: Span,
+}
+
 /// Immutable inputs required to infer a match expression.
 #[derive(Debug, Clone, Copy)]
 struct MatchInferInput<'a> {
@@ -197,19 +212,6 @@ struct InferCtx<'a> {
     /// `implications` will carry each binding's residue against the context it
     /// quantified.
     class_constraints: constraint::WantedConstraints,
-    /// Wanted constraints a binding quantified into its own scheme.
-    ///
-    /// Generalization *discharges* a predicate: its obligation moves to every
-    /// call site, which emits a fresh `SchemeUse` wanted when the scheme is
-    /// instantiated. Keeping the original in `class_constraints` presents it
-    /// again to the whole-program solve, where nothing remains to generalize
-    /// it and it can only come back as
-    /// `StuckReason::UnresolvedAfterGeneralization` — an artefact of solving
-    /// it twice, not a fact about the program. GHC has no equivalent because
-    /// `decideQuantification` removes a quantified predicate from the wanted
-    /// set. Keyed by span and class, which is the identity of the site that
-    /// emitted the wanted.
-    generalized_wanteds: HashSet<GeneralizedWantedKey>,
     /// Resolved class-method dispatches, keyed by the function-position
     /// `ExprId` of each class-method call site. Populated in
     /// `propagate_resolved_class_call_effects` once the matching
@@ -335,7 +337,6 @@ impl<'a> InferCtx<'a> {
             current_module: crate::types::class_id::ModulePath::EMPTY,
             module_aliases: HashMap::new(),
             class_constraints: constraint::WantedConstraints::default(),
-            generalized_wanteds: HashSet::new(),
             class_method_dispatch: HashMap::new(),
             class_sym_eq: None,
             class_sym_ord: None,
@@ -490,21 +491,16 @@ impl<'a> InferCtx<'a> {
     ///
     /// This validates concrete obligations, applies numeric defaulting for
     /// truly ambiguous `Num` variables, and returns the resulting scheme.
-    fn finalize_binding_scheme(
-        &mut self,
-        infer_type: &InferType,
-        relevant_constraints: &[constraint::WantedClassConstraint],
-        env_free_vars: &HashSet<TypeVarId>,
-        mode: GeneralizationMode,
-    ) -> Scheme {
+    fn finalize_binding_scheme(&mut self, spec: BindingSchemeSpec<'_>) -> Scheme {
+        let relevant_constraints = self.class_constraints.captured_since(spec.window);
         let finalized = finalize_binding_class_constraints(
-            infer_type,
-            env_free_vars,
-            relevant_constraints,
+            spec.infer_type,
+            spec.env_free_vars,
+            &relevant_constraints,
             &self.subst,
             self.class_env.as_ref(),
             self.interner,
-            mode,
+            spec.mode,
         );
         // Only a `Definition`'s obligation actually transfers: elaboration
         // rewrites its call sites to pass the dictionary. A nested binding
@@ -513,19 +509,8 @@ impl<'a> InferCtx<'a> {
         // whole-program solve — which is what reports it (E459 on
         // `let ignored = convert(42)`). This is the monomorphism
         // restriction's reason for existing, in the one place Flux needs it.
-        if mode == GeneralizationMode::Definition {
-            self.generalized_wanteds.extend(
-                finalized
-                    .dispositions
-                    .iter()
-                    .filter(|entry| {
-                        matches!(
-                            entry.disposition,
-                            crate::types::class_disposition::Disposition::Generalized { .. }
-                        )
-                    })
-                    .map(|entry| generalized_wanted_key(entry.wanted.span, entry.wanted.class_id)),
-            );
+        if spec.mode == GeneralizationMode::Definition {
+            self.close_definition_scope(&spec, &finalized);
         }
         if !finalized.default_subst.is_empty() {
             self.subst = std::mem::take(&mut self.subst).compose(&finalized.default_subst);
@@ -533,14 +518,60 @@ impl<'a> InferCtx<'a> {
         self.errors.extend(finalized.diagnostics);
 
         if finalized.scheme_constraints.is_empty() {
-            generalize(&finalized.infer_type, env_free_vars)
+            generalize(&finalized.infer_type, spec.env_free_vars)
         } else {
             generalize_with_constraints(
                 &finalized.infer_type,
-                env_free_vars,
+                spec.env_free_vars,
                 finalized.scheme_constraints,
             )
         }
+    }
+
+    /// Move a definition's obligations out of the enclosing scope and into an
+    /// implication carrying the context it quantified.
+    ///
+    /// This is GHC's `emitResidualConstraints`
+    /// (`compiler/GHC/Tc/Solver.hs`): the predicates the scheme retained become
+    /// the scope's *givens*, and what the body raised lives inside it. It
+    /// replaces the span-keyed removal Stage 1 used, whose key —
+    /// `(start, end, class)` — could not distinguish two predicates emitted at
+    /// one site for one class, which is what left the higher-kinded
+    /// `ExplicitBound` predicates behind.
+    ///
+    /// A predicate the solver generalized *is* the context, so it is not
+    /// repeated as an obligation inside the scope; the partition is positional
+    /// rather than keyed, because the solver guarantees one disposition per
+    /// supplied constraint.
+    fn close_definition_scope(
+        &mut self,
+        spec: &BindingSchemeSpec<'_>,
+        finalized: &crate::types::class_defaulting::FinalizedBindingClassConstraints,
+    ) {
+        let mut scope = self.class_constraints.close_window(spec.window);
+        debug_assert_eq!(
+            scope.simple.len(),
+            finalized.dispositions.len(),
+            "every captured predicate must carry exactly one disposition"
+        );
+        let mut generalized = finalized.dispositions.iter().map(|entry| {
+            matches!(
+                entry.disposition,
+                crate::types::class_disposition::Disposition::Generalized { .. }
+            )
+        });
+        scope
+            .simple
+            .retain(|_| !generalized.next().unwrap_or(false));
+
+        self.class_constraints
+            .implications
+            .push(constraint::Implication {
+                givens: finalized.scheme_constraints.clone(),
+                wanted: scope,
+                span: spec.span,
+                binder: spec.binder,
+            });
     }
 
     /// Mark a type variable as rigid (skolem) for the duration of a checked
@@ -800,11 +831,7 @@ fn build_infer_result(mut ctx: InferCtx<'_>) -> InferProgramResult {
         &expanded_fallback,
     );
     let resolved_expr_types = resolve_expr_types(ctx.expr_types, &ctx.subst);
-    let resolved_class_constraints = resolve_class_constraints(
-        ctx.class_constraints.simple,
-        &ctx.subst,
-        &ctx.generalized_wanteds,
-    );
+    let resolved_class_constraints = resolve_class_constraints(ctx.class_constraints, &ctx.subst);
 
     InferProgramResult {
         type_env: ctx.env,
@@ -929,35 +956,15 @@ fn resolve_expr_types(
         .collect()
 }
 
-/// Identity of the source site that emitted a wanted constraint.
-///
-/// `Span` is not `Hash`, so the position is spelled out; the class completes
-/// the key because one site can emit wanteds for several classes.
-type GeneralizedWantedKey = (usize, usize, usize, usize, crate::types::class_id::ClassId);
-
-fn generalized_wanted_key(
-    span: Span,
-    class_id: crate::types::class_id::ClassId,
-) -> GeneralizedWantedKey {
-    (
-        span.start.line,
-        span.start.column,
-        span.end.line,
-        span.end.column,
-        class_id,
-    )
-}
-
 /// Apply the final substitution to accumulated class constraints, dropping
 /// those a binding already discharged by quantifying them.
 fn resolve_class_constraints(
-    class_constraints: Vec<constraint::WantedClassConstraint>,
+    class_constraints: constraint::WantedConstraints,
     subst: &TypeSubst,
-    generalized: &HashSet<GeneralizedWantedKey>,
 ) -> Vec<constraint::WantedClassConstraint> {
-    class_constraints
-        .into_iter()
-        .filter(|c| !generalized.contains(&generalized_wanted_key(c.span, c.class_id)))
+    let mut flat = Vec::new();
+    flatten_wanted(class_constraints, &mut flat);
+    flat.into_iter()
         .map(|mut c| {
             c.type_args = c
                 .type_args
@@ -967,6 +974,25 @@ fn resolve_class_constraints(
             c
         })
         .collect()
+}
+
+/// Hoist every obligation in the tree into one list for the whole-program pass.
+///
+/// A predicate a definition generalized is already absent — it left the scope
+/// as a *given* when the implication was built, which is what replaced Stage
+/// 1's span-keyed removal. What remains inside an implication is genuinely
+/// undischarged, so it is presented to the whole-program solve exactly as a
+/// top-level predicate is. R3 replaces this hoist with a solve that has the
+/// implication's givens in scope, which is what lets a body be checked against
+/// the context its own signature promises.
+fn flatten_wanted(
+    wanted: constraint::WantedConstraints,
+    out: &mut Vec<constraint::WantedClassConstraint>,
+) {
+    out.extend(wanted.simple);
+    for implication in wanted.implications {
+        flatten_wanted(implication.wanted, out);
+    }
 }
 
 /// Convert a statement span into a stable hashable key for binding-scheme lookup.
