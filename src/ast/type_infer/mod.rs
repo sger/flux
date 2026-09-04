@@ -191,7 +191,12 @@ struct InferCtx<'a> {
     /// the semantic `ClassId` is carried into the rest of inference.
     module_aliases: HashMap<Identifier, Identifier>,
     /// Accumulated type class constraints (e.g., `Num<a>` from `x + y`).
-    class_constraints: Vec<constraint::WantedClassConstraint>,
+    ///
+    /// A tree rather than a list since Proposal 0183 R1: `simple` is the
+    /// emission log bindings slice their capture windows out of, and
+    /// `implications` will carry each binding's residue against the context it
+    /// quantified.
+    class_constraints: constraint::WantedConstraints,
     /// Wanted constraints a binding quantified into its own scheme.
     ///
     /// Generalization *discharges* a predicate: its obligation moves to every
@@ -329,7 +334,7 @@ impl<'a> InferCtx<'a> {
             class_env: None,
             current_module: crate::types::class_id::ModulePath::EMPTY,
             module_aliases: HashMap::new(),
-            class_constraints: Vec::new(),
+            class_constraints: constraint::WantedConstraints::default(),
             generalized_wanteds: HashSet::new(),
             class_method_dispatch: HashMap::new(),
             class_sym_eq: None,
@@ -432,6 +437,7 @@ impl<'a> InferCtx<'a> {
         origin: constraint::WantedClassConstraintOrigin,
     ) {
         self.class_constraints
+            .simple
             .push(constraint::WantedClassConstraint {
                 class_name,
                 class_id,
@@ -462,6 +468,7 @@ impl<'a> InferCtx<'a> {
         for constraint in constraints {
             let type_args = constraint.type_args.clone();
             self.class_constraints
+                .simple
                 .push(constraint::WantedClassConstraint {
                     class_name: constraint.class_name,
                     class_id: constraint.class_id,
@@ -793,8 +800,11 @@ fn build_infer_result(mut ctx: InferCtx<'_>) -> InferProgramResult {
         &expanded_fallback,
     );
     let resolved_expr_types = resolve_expr_types(ctx.expr_types, &ctx.subst);
-    let resolved_class_constraints =
-        resolve_class_constraints(ctx.class_constraints, &ctx.subst, &ctx.generalized_wanteds);
+    let resolved_class_constraints = resolve_class_constraints(
+        ctx.class_constraints.simple,
+        &ctx.subst,
+        &ctx.generalized_wanteds,
+    );
 
     InferProgramResult {
         type_env: ctx.env,
