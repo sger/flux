@@ -742,13 +742,27 @@ impl<'a> InferCtx<'a> {
         let (resolved_type_args, scheme) =
             self.resolve_class_method_instance(info, &first_arg_ty)?;
 
-        let (resolved_fn_ty, mapping, constraints) = scheme.instantiate(&mut self.env.counter);
+        // Instantiated for its effect row alone: the parameters of
+        // `resolved_fn_ty` are never unified with this call's arguments, since
+        // the predicate the call owes is emitted from the *argument* types by
+        // `emit_class_method_predicate`.
+        //
+        // So the scheme's own constraints are deliberately not emitted here.
+        // They are the selected instance's context — `Eq<a>` for
+        // `instance Eq<a> => Eq<List<a>>` — instantiated at variables nothing
+        // ever binds, which made them unsolvable by construction and left one
+        // undischarged predicate per class-method call
+        // (docs/known_issues.md#ki-081). The obligation itself is not lost:
+        // the method-call predicate resolves against that same instance, and
+        // `solve_instance_evidence` checks its context as part of the evidence
+        // it builds.
+        let (resolved_fn_ty, mapping, _instance_context) =
+            scheme.instantiate(&mut self.env.counter);
         let fresh_vars = mapping.values().copied().collect::<Vec<_>>();
         for &fresh in &fresh_vars {
             self.env.record_var_level(fresh);
         }
         self.record_instantiated_expr_vars(fresh_vars);
-        self.emit_scheme_constraints(&constraints, info.span);
 
         if let InferType::Fun(_, _, effect_row) = resolved_fn_ty.apply_type_subst(&self.subst) {
             let ambient_effect_row = self

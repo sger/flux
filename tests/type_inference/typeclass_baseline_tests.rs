@@ -1207,3 +1207,49 @@ fn main() with IO {
         "an `Int` element used as a `String` is a mismatch"
     );
 }
+
+/// A class-method call leaves no undischarged predicate behind, and the
+/// selected instance's context is still enforced.
+///
+/// Resolving such a call instantiates the mangled `__tc_*` scheme to read its
+/// effect row. That instantiation used to emit the scheme's own constraints —
+/// the instance's context — at variables nothing ever binds, because the
+/// instantiated signature is never unified with the call's arguments. The
+/// result was one permanently unsolvable predicate per class-method call
+/// (docs/known_issues.md#ki-081). The obligation is carried by the method-call
+/// predicate instead, whose evidence checks the same context, which is what
+/// this test pins: the valid call compiles, the one whose context cannot be
+/// met does not.
+#[test]
+fn a_class_method_call_enforces_its_instances_context() {
+    let common = r#"
+class MyEq<a> {
+    fn meq(x: a, y: a) -> Bool
+    fn mneq(x: a, y: a) -> Bool
+}
+
+instance MyEq<Int> {
+    fn meq(x, y) { x == y }
+    fn mneq(x, y) { !meq(x, y) }
+}
+
+instance MyEq<a> => MyEq<List<a>> {
+    fn meq(xs, ys) { true }
+    fn mneq(xs, ys) { !meq(xs, ys) }
+}
+"#;
+
+    let satisfied = format!("{common}\nfn main() with IO {{\n    print(mneq([1], [1]))\n}}\n");
+    let (program, mut compiler) = parse_source(&satisfied, "instance_context_met.flx");
+    compiler
+        .compile(&program)
+        .expect("`MyEq<Int>` satisfies the context of `MyEq<List<a>>`");
+
+    let unsatisfied =
+        format!("{common}\nfn main() with IO {{\n    print(mneq([\"s\"], [\"s\"]))\n}}\n");
+    let (program, mut compiler) = parse_source(&unsatisfied, "instance_context_unmet.flx");
+    assert!(
+        compiler.compile(&program).is_err(),
+        "there is no `MyEq<String>`, so the instance's context cannot be met"
+    );
+}
