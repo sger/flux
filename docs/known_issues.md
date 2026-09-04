@@ -2668,7 +2668,7 @@ including "these fixtures exit 0 with no output", were measured against cached
 artifacts and are wrong. **Any behavioural comparison across a compiler change
 must pass `--no-cache` or clear the store first** (`flux clean --store`).
 
-### KI-080 — An instance method body's type variable is not the one its instance declared
+### KI-080 — A match arm binds pattern variables against a fresh type, losing the scrutinee's type
 
 **Severity:** Medium · **Area:** Type classes / inference · **Verified:** 2026-09-04 · **From:** Proposal 0183, R6
 
@@ -2721,18 +2721,63 @@ quantified set at all. `entailed_by_givens` compares type arguments
 syntactically, so `MyEq<10827>` cannot match `MyEq<10821>` and the predicate is
 recorded stuck.
 
-The synthesized `__tc_*` function for the instance method receives
-`parameter_types` specialized from the class signature (`xs: List<a>`) and
-`type_params` carrying the context (`build_instance_function_type_params`, both
-in [class_dispatch.rs](../src/types/class_dispatch.rs)), so the two `a`s should
-be one variable. They are not, which points at the conversion from the
-specialized `TypeExpr` to the function's type-parameter map — the same class of
-defect as [KI-058](#ki-058), where a name that should resolve to the enclosing
-function's type parameter converts to something else instead.
+**Root cause — match-arm scrutinee isolation.** The instance machinery is not
+at fault: the synthesized `__tc_*` function binds its parameters correctly
+(`params=[Var(10822), App(List, [Var(10821)]), App(List, [Var(10821)])]`). The
+connection is lost inside the `match`.
 
-A third predicate in the same program (`meq([1, 2], [1, 2])` in `main`, wanted
-`Var(10835)` with no givens) is a separate question: a class-method call whose
-predicate variable is never unified with the argument type.
+`arm_pattern_scrutinee_ty`
+([control_flow.rs](../src/ast/type_infer/expression/control_flow.rs)) returns a
+fresh fallback variable instead of the scrutinee's type whenever
+`should_isolate_match_arm_scrutinees` says the arms disagree on pattern family:
+
+```rust
+if isolate_arm_scrutinees {
+    self.alloc_fallback_var()
+} else {
+    scrutinee_ty.clone()
+}
+```
+
+`match xs { [h | t] -> ..., _ -> ... }` mixes a `Cons` arm with a
+non-constraining one, so each arm binds against a fresh variable that "unifies
+with anything" — the comment on `should_isolate_match_arm_scrutinees` says so
+outright. `h` therefore gets a variable unrelated to the element type of `xs`,
+and every predicate raised on `h` is over a variable no context can discharge.
+
+Reproduced with no instance machinery at all:
+
+```flux
+fn direct<a: MyEq>(x: a) -> Bool { meq(x, x) }
+
+fn viapat<a: MyEq>(xs: List<a>) -> Bool {
+    match xs {
+        [h | t] -> meq(h, h),
+        _ -> true
+    }
+}
+```
+
+```
+[emit] MyEq [Var(10824)] origin=ExplicitBound   at 9:13     [emit] MyEq [Var(10824)] origin=MethodCall at 9:35
+[emit] MyEq [Var(10827)] origin=ExplicitBound   at 11:13    [emit] MyEq [Var(10830)] origin=MethodCall at 13:19
+```
+
+`direct` raises its obligation over the *same* variable as its bound; `viapat`
+raises it over a fresh one. The parameter is bound correctly
+(`params=[App(List, [Var(10827)])]`) and the pattern then sees
+`scrut=Var(10829)`.
+
+**Why no program misbehaves today.** The declared bound is still emitted at each
+call site, so a missing instance is caught there — `viapat(["s"])` reports
+`E444` correctly. The stale predicate is redundant rather than unsound, which is
+why this has gone unnoticed. It matters because it is most of what Proposal 0183
+would escalate, and escalating it would produce errors on correct programs.
+
+Fixing it means narrowing arm isolation so it does not discard a scrutinee type
+that is already known. The isolation exists to stop `Some` and `Left` arms
+constraining one another, so the fix is to isolate only the arms whose family
+genuinely conflicts, rather than replacing the scrutinee for every arm.
 
 ### KI-077 — Superclass evidence for a contextual superclass instance is built from the wrong dictionary — FIXED 2026-09-03
 
