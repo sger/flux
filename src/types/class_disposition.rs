@@ -29,7 +29,7 @@ use std::collections::HashMap;
 use crate::{
     ast::type_infer::constraint::{SchemeConstraint, WantedClassConstraint},
     diagnostics::Diagnostic,
-    syntax::Identifier,
+    syntax::{Identifier, interner::Interner},
     types::{class_id::ClassId, infer_type::InferType},
 };
 
@@ -70,6 +70,20 @@ pub enum Evidence {
     Structural {
         /// Evidence for each component the structural rule decomposed into.
         components: Vec<Evidence>,
+    },
+    /// Discharged by the context the enclosing scope already holds.
+    ///
+    /// THIH's `bySuper`: inside `fn f<a: Ord>(..)` the predicate `Ord<a>` — and
+    /// `Eq<a>`, which `Ord` implies — is evidence the caller supplies, so the
+    /// body owes nothing. Nothing is resolved here; the dictionary arrives as a
+    /// parameter, and `superclass_path` says which slot to project when the
+    /// given is a subclass of what was wanted.
+    FromGiven {
+        /// The scheme predicate that discharged it.
+        given: SchemeConstraint,
+        /// Slot path from the given's dictionary to the wanted evidence, empty
+        /// when the given *is* the wanted predicate.
+        superclass_path: Vec<usize>,
     },
     /// A marker class carries no dictionary, so there is nothing to pass.
     Marker,
@@ -204,6 +218,58 @@ impl SolveOutcome {
     }
 
     /// The predicates that could not be decided at this scope.
+    /// Print the terminal stuck set to stderr when `FLUX_STUCK_TRACE` is set.
+    ///
+    /// Proposal 0183 is measured, not argued: escalating a state whose size
+    /// nobody knows is how it stayed inert through 0179. Each refactor has to
+    /// report what it left behind, and a count nobody can reproduce is not a
+    /// measurement — so this ships rather than living in a scratch patch.
+    ///
+    /// One line per `(reason, class, origin)` group with its count, most
+    /// frequent first.
+    pub fn trace_stuck(&self, interner: &Interner) {
+        if std::env::var_os("FLUX_STUCK_TRACE").is_none() {
+            return;
+        }
+        let mut groups: HashMap<(String, String, String), usize> = HashMap::new();
+        for (entry, reason) in self.stuck() {
+            let key = (
+                format!("{reason:?}"),
+                interner.resolve(entry.wanted.class_name).to_string(),
+                format!("{:?}", entry.wanted.origin),
+            );
+            *groups.entry(key).or_default() += 1;
+        }
+        let mut rows: Vec<_> = groups.into_iter().collect();
+        rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        let total: usize = rows.iter().map(|(_, count)| count).sum();
+        eprintln!("[stuck] {total} terminal stuck predicate(s)");
+        for ((reason, class, origin), count) in rows {
+            eprintln!("[stuck] {count:>6}  {reason:<30} {class:<12} {origin}");
+        }
+
+        // `FLUX_STUCK_TRACE=full` adds one line per predicate with its type
+        // arguments, which is what tells a genuinely undecidable predicate
+        // apart from one the classifier merely mis-shelved.
+        if std::env::var_os("FLUX_STUCK_TRACE").is_some_and(|v| v == "full") {
+            for (entry, reason) in self.stuck() {
+                let args = entry
+                    .wanted
+                    .type_args
+                    .iter()
+                    .map(|ty| crate::ast::type_infer::display_infer_type(ty, interner))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                eprintln!(
+                    "[stuck]   {reason:?} {}<{args}> at {}:{}",
+                    interner.resolve(entry.wanted.class_name),
+                    entry.wanted.span.start.line,
+                    entry.wanted.span.start.column,
+                );
+            }
+        }
+    }
+
     pub fn stuck(&self) -> impl Iterator<Item = (&DispositionedConstraint, StuckReason)> {
         self.dispositions
             .iter()

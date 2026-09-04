@@ -11,7 +11,7 @@ Flux uses stable error codes for all diagnostics. Codes are prefixed `E` (error)
 | `E001–E060` | Compiler — semantic checks | `compiler_errors.rs` |
 | `E061–E070` | Internal compiler errors (ICE) | `compiler_errors.rs` |
 | `E071–E077` | Lexer / parser errors | `compiler_errors.rs` |
-| `E440–E459`, `E476–E487` | Type classes and instances | `compiler_errors.rs` |
+| `E440–E459`, `E476–E488` | Type classes and instances | `compiler_errors.rs` |
 | `E472–E475` | Kind checking (Proposal 0179 Stage 1) | `compiler_errors.rs` |
 | `E1000–E1021` | Runtime errors | `runtime_errors.rs` |
 | `W2xx` | Warnings (linter) | `compiler_errors.rs` |
@@ -146,6 +146,7 @@ Flux uses stable error codes for all diagnostics. Codes are prefixed `E` (error)
 | <a id="e485"></a>`E485` | `AMBIGUOUS_DICTIONARY_SELECTION` | A call cannot say which of several dictionaries for one class it needs |
 | <a id="e486"></a>`E486` | `UNDERIVABLE_CLASS` | A `deriving` clause names a class no method body can be generated for |
 | <a id="e487"></a>`E487` | `OPERATOR_CLASS_NOT_IN_SCOPE` | An operator was used where the class it desugars to is not in scope |
+| <a id="e488"></a>`E488` | `INSTANCE_SEARCH_EXHAUSTED` | Dictionary resolution exceeded the instance-context depth limit |
 | <a id="e476"></a>`E476` | `AMBIGUOUS_TYPE_VARIABLE` | A declared bound constrains a variable the signature never mentions |
 
 `E444`, `E454`, `E456`, `E459` and `E476` are easy to confuse. They differ in what is

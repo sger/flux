@@ -959,39 +959,35 @@ fn resolve_expr_types(
 /// Apply the final substitution to accumulated class constraints, dropping
 /// those a binding already discharged by quantifying them.
 fn resolve_class_constraints(
-    class_constraints: constraint::WantedConstraints,
+    mut class_constraints: constraint::WantedConstraints,
     subst: &TypeSubst,
-) -> Vec<constraint::WantedClassConstraint> {
-    let mut flat = Vec::new();
-    flatten_wanted(class_constraints, &mut flat);
-    flat.into_iter()
-        .map(|mut c| {
-            c.type_args = c
+) -> constraint::WantedConstraints {
+    apply_subst_to_wanted(&mut class_constraints, subst);
+    class_constraints
+}
+
+/// Resolve every predicate in the tree against the final substitution.
+///
+/// Both halves matter: a scope's *givens* are matched syntactically against its
+/// wanteds, so leaving either side unresolved would stop a context from
+/// discharging the obligation it exists to discharge.
+fn apply_subst_to_wanted(wanted: &mut constraint::WantedConstraints, subst: &TypeSubst) {
+    for constraint in &mut wanted.simple {
+        constraint.type_args = constraint
+            .type_args
+            .iter()
+            .map(|t| t.apply_type_subst(subst))
+            .collect();
+    }
+    for implication in &mut wanted.implications {
+        for given in &mut implication.givens {
+            given.type_args = given
                 .type_args
                 .iter()
                 .map(|t| t.apply_type_subst(subst))
                 .collect();
-            c
-        })
-        .collect()
-}
-
-/// Hoist every obligation in the tree into one list for the whole-program pass.
-///
-/// A predicate a definition generalized is already absent — it left the scope
-/// as a *given* when the implication was built, which is what replaced Stage
-/// 1's span-keyed removal. What remains inside an implication is genuinely
-/// undischarged, so it is presented to the whole-program solve exactly as a
-/// top-level predicate is. R3 replaces this hoist with a solve that has the
-/// implication's givens in scope, which is what lets a body be checked against
-/// the context its own signature promises.
-fn flatten_wanted(
-    wanted: constraint::WantedConstraints,
-    out: &mut Vec<constraint::WantedClassConstraint>,
-) {
-    out.extend(wanted.simple);
-    for implication in wanted.implications {
-        flatten_wanted(implication.wanted, out);
+        }
+        apply_subst_to_wanted(&mut implication.wanted, subst);
     }
 }
 
@@ -1049,7 +1045,7 @@ pub struct InferProgramResult {
     /// Each entry records a `ClassName<Type>` constraint arising from operator
     /// usage or class method calls. Currently informational — Step 4 (solving)
     /// will resolve these against known instances.
-    pub class_constraints: Vec<constraint::WantedClassConstraint>,
+    pub class_constraints: constraint::WantedConstraints,
     /// Type variables that were allocated as fallback after inference failures.
     /// Used by the static type validation pass to distinguish fallback vars
     /// from legitimately polymorphic vars in mono schemes.
