@@ -33,7 +33,8 @@ checkout at commit `2ca87972f6`.
 | R4b | a body is held to the context its signature declares (`E489`) | shipped | `5a76501c` | residue → 3,106; fixes Example C |
 | R4c | a deferred `String` operand discharges its addition obligation | shipped | `b6659cb3` | 3 programs; no spurious `Num<String>` |
 | R5 | verified defaulting against the whole group (M5) | shipped, **inert** | `00f53cc6` | **none** — see below |
-| R6a | `+` becomes `Flow.Add`, a class `String` instantiates | shipped | — | no diagnostic change in 1,305 programs |
+| R6a | `+` becomes `Flow.Add`, a class `String` instantiates | shipped | `f8d8f585` | no diagnostic change in 1,305 programs |
+| R6b | a match arm keeps the scrutinee's type (KI-080) | shipped | — | stdlib residue 15 → 11; no diagnostic change |
 | R6 | replace `StuckReason` with origin plus provenance, and report (M6) | **blocked** on [0184](0184_field_access_constraints.md) | — | needs field access to emit a constraint, not a hole |
 | R7 | clear the fallout across `lib/Flow`, `examples`, `tests` | not started | — | — |
 | — | one `CACHE_EPOCH` bump covering R2 and R4 | not started | — | — |
@@ -177,7 +178,9 @@ from the quantified set). The variable is lost in `match`:
 when the arms disagree on pattern family, discarding the scrutinee's type, so a
 pattern-bound variable inside a generic function has no connection to the
 function's type parameter. Filed as [KI-080](../known_issues.md#ki-080), with a
-reproduction that needs no instances at all.
+reproduction that needs no instances at all, and **fixed**: a pattern family is
+decided by the scrutinee's head, so `List<a>` settles it as well as `List<Int>`
+does. The stdlib residue falls from 15 to 11.
 
 This is a third instance of the pattern this proposal keeps meeting: a
 construct whose typing is completed by later unification rather than by a
