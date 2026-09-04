@@ -16,6 +16,12 @@
 //      and a real function takes precedence over it, which is already the
 //      resolution rule: a name bound to a function never dispatches as a
 //      class method.
+//
+//      That fixed the compile error but not the answer. Until KI-085 the
+//      calls below still lowered to `__tc_<Class>_<Type>_<name>`, so `show`,
+//      `lt` and `compare` returned the class method's result and this fixture
+//      passed anyway — it only asserted that the program ran. The asserts are
+//      here so a wrong value fails on both backends rather than agreeing.
 
 fn add(x: Int, y: Int) -> Int { x + y }
 fn eq(x: Int, y: Int) -> Bool { x == y }
@@ -25,6 +31,18 @@ fn append(x: Int, y: Int) -> Int { x - y }
 fn compare(x: Int, y: Int) -> Int { x + y + 1 }
 
 fn main() with IO {
+    // Each expected value is the *user's* function, and differs from what the
+    // prelude class would answer wherever an instance exists:
+    //   show(21)     -> Show<Int> would give "21"
+    //   lt(1, 2)     -> Ord<Int> would give true
+    //   compare(1,2) -> Ord<Int> would give -1
+    assert_eq(add(3, 4), 7)
+    assert_eq(eq(1, 1), true)
+    assert_eq(show(21), 42)
+    assert_eq(lt(1, 2), false)
+    assert_eq(append(9, 4), 5)
+    assert_eq(compare(1, 2), 4)
+
     print(add(3, 4))
     print(eq(1, 1))
     print(show(21))

@@ -2703,6 +2703,70 @@ in the CFG path's binder-id seeding and is fixed (see the commit that added this
 entry). The generalization patch itself is kept at
 `scratchpad/r6-generalize-unannotated.patch`.
 
+### KI-085 — A call to a program's own function was dispatched as a class method — FIXED 2026-09-04
+
+**Severity:** High · **Area:** type classes, Core lowering, VM codegen · **Verified:** 2026-09-04 · **From:** Proposal 0183
+
+A bare call to a function the program itself defines was rewritten to a class
+method of the same name whenever an instance applied — a **silent wrong
+answer**, with no diagnostic:
+
+```flux
+fn add(a: String, b: String) -> String {
+    "[" + a + "|" + b + "]"
+}
+
+fn main() with IO { print(add("a", "b")) }
+```
+
+```
+"ab"        // Flow.Add's add — string concatenation
+```
+
+The user's `add` was compiled correctly and simply never called. `main` held
+`__tc_m8_466C6F772E416464_Add_String_add("a", "b")`.
+
+**Cause.** Three places decide whether a bare call is a class method, and only
+one of them checked whether the name is already bound:
+
+| | decides by | checked the binding |
+|---|---|---|
+| `class_method_call_info` (inference) | `env.lookup_span(name) != Span::default()` | yes |
+| `LowerCtx::try_resolve_class_call` (Core) | `resolve_method_class_id(name)` | **no** |
+| `Compiler::try_resolve_class_method_call` (VM) | `resolve_method_class_id(name)` | **no** |
+
+Inference declined, correctly, and then both lowering paths re-derived dispatch
+from the bare name alone and disagreed with it. The two carry comments saying
+they "must stay in lockstep"; they were, with each other, and neither with
+inference.
+
+**Not introduced by 0183, but widened by it.** On `main` the same program is
+wrong whenever an instance exists for the argument type — `fn add(a: Int, b: Int)`
+returns `a + b`, and `eq`, `compare` and `show` are hijacked at every type with
+an instance. 0183 added `Add<String>`, which `Num` never had, so `add` at
+`String` — much the commonest shape — joined them. That is what broke
+`tests/flux/flume_edit.flx`: `Flume.Schema.Edit`'s wrapper
+`add(name: String, value: String)` became string concatenation, failing 6 of its
+18 tests.
+
+Verified against `main` (`b4e35838`): `add(String, String)` and the same call
+inside a `module` block both answer correctly there and wrongly on the 0183
+branch, while `add(Int, Int)`, `eq`, `compare` and `show` are already wrong on
+`main`.
+
+**Fix.** Both lowering sites decline a *bare* name the unit binds to a
+user-written function, using the same test inference uses — a `Statement::Function`
+carrying a real span, since dispatch generation synthesises its instance bodies
+and stubs with `Span::default()`. A **qualified** call still dispatches: it
+names the class outright. The fix also closes the pre-existing `eq` / `compare` /
+`show` / `add(Int, Int)` cases.
+
+Regression coverage: `examples/type_classes/user_function_shadows_class_method.flx`,
+where the user's function and the class method disagree on every line.
+
+Related: [KI-065](#ki-065) is the same collision at symbol resolution, and its
+fix covered only a sibling member of an enclosing module.
+
 ### KI-084 — A bare `Compiler` cannot build a dictionary for a contextual prelude instance
 
 **Severity:** Low · **Area:** Compiler harness / LSP · **Verified:** 2026-09-04 · **From:** Proposal 0183
