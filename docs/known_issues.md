@@ -2627,9 +2627,20 @@ function already holds. `resolve_instance_with_subst_by_id`
 ([class_env.rs](../src/types/class_env.rs)) already does the matching half.
 
 This is the same root cause as the duplicated dictionary parameters in
-[KI-077](#ki-077), and it is what keeps the helper functions in
-[Flow/Eq.flx](../lib/Flow/Eq.flx): the container instances could otherwise
-define `eq` by recursion and `neq` as its negation.
+[KI-077](#ki-077), and it is what kept the helper functions in
+[Flow/Eq.flx](../lib/Flow/Eq.flx): until it was fixed the container instances
+could not define `eq` by recursion and `neq` as its negation.
+
+**Fixed 2026-09-03 by context reduction.** This entry and [KI-077](#ki-077)
+had one cause: the solver retained a scheme constraint whose argument was a
+*constructed* type, asking the caller for a dictionary the instance itself
+defines. `collect_scheme_constraints`
+([class_defaulting.rs](../src/types/class_defaulting.rs)) now reduces every
+retained predicate to head-normal form — THIH's `toHnfs` — replacing
+`Eq<List<a>>` with the `Eq<a>` its instance requires and dropping the duplicate
+that exposes. The extra dictionary parameter disappears, and with it the wrong
+evidence in the superclass slot. `lib/Flow/Eq.flx` lost its `list_eq` /
+`option_eq` workarounds in the same change.
 
 ### KI-079 — A stale bytecode cache runs a program the current compiler rejects
 
@@ -2656,16 +2667,6 @@ it silently invalidates measurement: several claims in the type-class audit,
 including "these fixtures exit 0 with no output", were measured against cached
 artifacts and are wrong. **Any behavioural comparison across a compiler change
 must pass `--no-cache` or clear the store first** (`flux clean --store`).
-
-**Fixed 2026-09-03 by context reduction.** Both entries had one cause: the
-solver retained a scheme constraint whose argument was a *constructed* type,
-asking the caller for a dictionary the instance itself defines.
-`collect_scheme_constraints` ([class_defaulting.rs](../src/types/class_defaulting.rs))
-now reduces every retained predicate to head-normal form — THIH's `toHnfs` —
-replacing `Eq<List<a>>` with the `Eq<a>` its instance requires and dropping the
-duplicate that exposes. The extra dictionary parameter disappears, and with it
-the wrong evidence in the superclass slot. `lib/Flow/Eq.flx` lost its
-`list_eq` / `option_eq` workarounds in the same change.
 
 ### KI-077 — Superclass evidence for a contextual superclass instance is built from the wrong dictionary — FIXED 2026-09-03
 
