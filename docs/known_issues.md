@@ -2763,13 +2763,43 @@ the unconstrained cases pass. Neither annotating the result nor changing which
 class is involved makes any difference.
 
 So the failing combination is precisely *a top-level value def calling a
-function that dictionary elaboration rewrote*. Lowering (`lower_program` in
-`src/core/to_ir/mod.rs`) seeds every def whose expr is a `Lam` into the entry
-function with `LoadName`, then lowers value defs into that same entry function
-in `core.defs` order — and a rewritten constrained function is still a `Lam`, so
-on the face of it it should be seeded like any other. Where that breaks down is
-the open question; it is somewhere between this seeding and the VM's global
-initialisation, not in Core.
+function that dictionary elaboration synthesized*.
+
+**The callee is the dictionary constructor, not the user's function.** Tracing
+the VM's `execute_call` at the point it rejects the callee:
+
+```
+[call] callee not a function: None num_args=1
+```
+
+One argument — so it is `__dict_..._Num_Int(__dict_..._Add_Int)`, not
+`square(%t527, 3)`, which takes two. The reported span belongs to the enclosing
+call, which is what made this look like a problem with `square`.
+
+Established while investigating, to save the next attempt the detours:
+
+- The VM path lowers through `lower_aether_program`, which carries its **own**
+  copy of the seeding loop over `aether.defs()`. Instrumenting `lower_program`
+  in the same file traces nothing.
+- Lowering resolves the callee correctly: `bound_var` panics on a missing env
+  entry, and it does not fire. The `None` is a *runtime* value, so a global slot
+  was read before anything assigned it.
+- `bind_function_id_in_items` returns `true` for the dictionary constructor, so
+  a top-level item for it already exists. It is not the "synthesized function
+  with no item" case.
+- Binding the function's name to `IrExpr::MakeClosure(fn_id, [])` in the entry
+  function, plus an `IrProgram.global_bindings` entry, **does not fix it** —
+  and `IrProgram.global_bindings` appears never to be read by the VM backend.
+  The compiler reads `symbol_table.global_bindings()`, which is a different
+  structure. Whatever assigns a declared function's global slot is elsewhere,
+  and that is the thing a synthesized function is missing.
+
+The remaining question is narrow: *what assigns a top-level function's global
+slot in the VM path, and why does a dictionary constructor miss it?*
+`ir_lowering.rs` already special-cases `__dict_*` names to **define** their
+symbols ("weren't predeclared during Phase 2, which only sees AST function
+names") without giving them values, which is the strongest hint about where to
+look.
 
 `tests/parity/toplevel_pure_expression.flx` carries a comment describing the
 same symptom for the native backend, so this is likely one bug seen from two
