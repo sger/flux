@@ -33,7 +33,7 @@ checkout at commit `2ca87972f6`.
 | R4b | a body is held to the context its signature declares (`E489`) | shipped | `5a76501c` | residue → 3,106; fixes Example C |
 | R4c | a deferred `String` operand discharges its addition obligation | shipped | `b6659cb3` | 3 programs; no spurious `Num<String>` |
 | R5 | verified defaulting against the whole group (M5) | shipped, **inert** | `00f53cc6` | **none** — see below |
-| R6 | replace `StuckReason` with origin plus provenance, and report (M6) | **blocked** | — | root cause found; see below |
+| R6 | replace `StuckReason` with origin plus provenance, and report (M6) | **blocked** | — | needs record-access and `+` constraints first; see below |
 | R7 | clear the fallout across `lib/Flow`, `examples`, `tests` | not started | — | — |
 | — | one `CACHE_EPOCH` bump covering R2 and R4 | not started | — | — |
 | — | rewrite this proposal around the GHC study; file Examples A/B/C as `#KI-nnn` | not started | — | — |
@@ -108,6 +108,67 @@ obligations that generalization should have consumed and did not. R6 therefore
 depends on a decision recorded under Unresolved questions: whether an
 unannotated definition should be generalized (full Hindley–Milner, with the
 dictionary parameters that implies) or stay monomorphic.
+
+### Generalizing unannotated definitions: attempted, and what stopped it
+
+The blocker above was addressed directly: make every definition generalize,
+whether or not it declared type parameters. The patch is kept at
+`scratchpad/r6-generalize-unannotated.patch` rather than committed, because it
+is not green.
+
+It works, as far as the solver is concerned. Measured on a `print(1)` program,
+whose entire residue is stdlib:
+
+| | residue |
+|---|---:|
+| before | 15 |
+| generalize every definition | 6 |
+| generalize only the variables a class constraint mentions | 6 |
+
+The remaining 6 are a separate gap: an instance method body is not given its
+instance context as givens, so `eq(h1, h2)` inside `instance Eq<a> => Eq<List<a>>`
+cannot appeal to the `Eq<a>` the instance declares. That is GHC's `ic_given` for
+instance declarations, and it is tractable.
+
+What is not tractable inside this proposal is the fallout. Of 1,305 programs, 5
+broke, and 4 of them share one cause. Restricting quantification to the
+variables a class constraint mentions — `generalize_constrained_vars`, so that
+variables no predicate mentions stay free and keep their existing behaviour —
+fixed one (`contact_book.flx`) and left four:
+
+| program | failure |
+|---|---|
+| `mini_database.flx` | `E430` — `record.id` has no type |
+| `function_arg_mismatch.flx` | `E430` — unresolved variable reaches the backend |
+| `multi_file_lib.flx` | `E998` — Core lint: duplicate binder in a `Lam` |
+| `inline_labels_demo.flx` | `E444` — `Num<String>` from `+` at a call site |
+
+The cause is in `infer_member_access_expression`
+(`src/ast/type_infer/expression/access.rs`):
+
+```rust
+let object_ty = self.infer_expression(object);
+if let Some(field_ty) = self.resolve_named_field_access(&object_ty, member, expr.span()) {
+    return field_ty;
+}
+self.alloc_fallback_var()
+```
+
+Field access on a receiver whose type is not yet a known named-field ADT emits
+**no constraint** — it allocates a hole. Nothing later can discharge that hole
+except unifying the enclosing definition's type with a call site, which only
+happens while the definition is bound monomorphically. The adjacent tuple path
+says as much in its own comment: it exists so that "later call-site unification
+[can] discharge local helper projections". The `+` overload is the same shape:
+`Num<a>` at a call site where `a` is `String` is only accepted today because
+nothing generalized it.
+
+So generalization is incompatible with every construct Flux types by deferred
+unification rather than by a constraint. Making unannotated definitions
+generalize therefore depends on giving those constructs real constraints —
+row-polymorphic record access for `record.id`, and a class `String` instantiates
+for `+`. Both are separate proposals, and both are prerequisites for R6 rather
+than parts of it.
 
 ### The residue R6 inherits
 
