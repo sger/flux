@@ -29,6 +29,7 @@ use crate::{
     syntax::{Identifier, interner::Interner},
     types::{
         class_env::{ClassEnv, DictSelection, DictSlot, select_dictionary},
+        infer_type::InferType,
         scheme::Scheme,
         type_env::TypeEnv,
     },
@@ -1182,12 +1183,18 @@ fn insert_dict_args_expr(
 
 /// Resolve a dictionary argument for a callee's constraint.
 ///
-/// 1. If the caller has a dictionary for the same class, forward it.
-/// 2. Otherwise, try to find a concrete `__dict_{Class}_{Type}` reference.
+/// 1. The caller holds a dictionary for exactly this predicate — forward it.
+/// 2. The predicate is concrete — name the instance's dictionary directly.
+///
+/// There is deliberately no third case. Forwarding whichever dictionary the
+/// caller happens to hold for the same *class*, ignoring its type arguments,
+/// is a guess: it is right only when the caller's predicate and the callee's
+/// coincide, which is case 1. Guessing wrong substitutes one instance's
+/// methods for another's, which is what KI-052 was.
 fn resolve_dict_arg(
     constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
     caller_dicts: &CallerDicts,
-    _class_env: &ClassEnv,
+    class_env: &ClassEnv,
     interner: &Interner,
     span: Span,
 ) -> Option<CoreExpr> {
@@ -1197,27 +1204,52 @@ fn resolve_dict_arg(
         return Some(CoreExpr::bound_var(binder, span));
     }
 
-    // Case 2: the caller holds exactly one dictionary for this class and the
-    // predicate did not match structurally. Matching by class alone is only
-    // safe when there is no second dictionary to confuse it with; with two,
-    // picking either is a guess, and guessing wrong is what KI-052 was.
-    let mut same_class = caller_dicts
+    // Case 2: a predicate with no type variables left names one instance, so
+    // its evidence is that instance's dictionary. Nothing the caller holds is
+    // relevant to it — this is precisely the case the old class-only match
+    // used to answer with a caller dictionary for some other type.
+    if constraint
+        .type_args
         .iter()
-        .filter(|(held, _)| held.class_id == constraint.class_id);
-    if let Some((_, binder)) = same_class.next()
-        && same_class.next().is_none()
+        .all(|arg| arg.free_vars().is_empty())
+    {
+        let dict_ref = class_env.resolve_dictionary_ref_by_id(
+            constraint.class_id,
+            &constraint.type_args,
+            interner,
+        )?;
+        return Some(CoreExpr::dictionary_ref(&dict_ref, span));
+    }
+
+    // Case 3: the caller's predicate and the callee's are the same predicate
+    // written with different variables. `fn outer<a: C>` calling `fn inner<b: C>`
+    // instantiates two schemes, so the two `C` predicates carry different
+    // `TypeVarId`s and case 1 misses them; the dictionary the caller holds is
+    // still the right one.
+    //
+    // Both sides must be variables at every position. A caller holding `C<a>`
+    // is *not* evidence for `C<Int>`, which is what the class-only match this
+    // replaced would have concluded, and a second dictionary for the same
+    // class means the choice is not this pass's to make (KI-052).
+    let mut alpha_equivalent =
+        caller_dicts.iter().filter(|(held, _)| {
+            held.class_id == constraint.class_id
+                && held.type_args.len() == constraint.type_args.len()
+                && held.type_args.iter().zip(constraint.type_args.iter()).all(
+                    |(held_arg, wanted)| {
+                        held_arg == wanted
+                            || matches!((held_arg, wanted), (InferType::Var(_), InferType::Var(_)))
+                    },
+                )
+        });
+    if let Some((_, binder)) = alpha_equivalent.next()
+        && alpha_equivalent.next().is_none()
     {
         return Some(CoreExpr::bound_var(binder, span));
     }
 
-    // Case 2: For now, we don't have enough type info at this stage
-    // to determine which concrete dictionary to pass. This will be
-    // resolved when we thread type info from AST-to-Core lowering.
-    // For now, skip (the polymorphic stub still handles the call).
-    //
-    // TODO: When type info is available (e.g., from hm_expr_types),
-    // resolve to Var(__dict_{Class}_{Type}).
-    let _ = (interner, span);
+    // Anything else is undetermined here. Returning `None` leaves the call
+    // without this dictionary, which the arity contract reports.
     None
 }
 
@@ -1447,9 +1479,42 @@ fn choose_candidate<'a>(
         .unwrap_or_default();
     if positions.iter().all(Option::is_none) && (expected.is_none() || !results.iter().any(|r| *r))
     {
-        // Nothing reveals the parameter here. Preserve what the name-keyed map
-        // did rather than failing: the last constraint to record the method won.
-        return candidates.last();
+        // Nothing reveals the class parameter at this call: no argument
+        // carries it and no expected type fixes it. With several candidates
+        // there is nothing to choose between them, and choosing anyway is a
+        // guess — the previous rule returned the last constraint to record the
+        // method, which is an artefact of how the name-keyed map was built and
+        // not a fact about the call.
+        //
+        // Candidates that all name the same type arguments are not a choice at
+        // all. Coherence gives a type at most one instance per class, so the
+        // method's own class has one dictionary here however it is reached —
+        // `fmap` under `Monad f, Functor f, Applicative f` is the `Functor f`
+        // dictionary whether it arrives directly or through two superclass
+        // edges. Take the shortest path to it, which is the direct binder when
+        // one is in scope. Otherwise decline: the call keeps its dispatch-stub
+        // reference, which reports the unresolved instance rather than
+        // silently using one.
+        // Empty type arguments mean the constraint could not be expressed as
+        // `CoreType` at all, so equality between them says nothing; those fall
+        // back to the same-binder-and-same-path test.
+        let first = candidates.first()?;
+        let agree = if first.type_args.is_empty() {
+            candidates.iter().all(|candidate| {
+                candidate.binder.id == first.binder.id && candidate.path == first.path
+            })
+        } else {
+            candidates
+                .iter()
+                .all(|candidate| candidate.type_args == first.type_args)
+        };
+        return agree
+            .then(|| {
+                candidates
+                    .iter()
+                    .min_by_key(|candidate| candidate.path.len())
+            })
+            .flatten();
     }
     let observed: Vec<Option<CoreType>> = positions
         .iter()
@@ -1953,6 +2018,217 @@ mod tests {
     }
 
     // ── build_instance_dictionaries ──────────────────────────────────────
+
+    /// A class whose parameter appears in no method signature, so no argument
+    /// and no expected type can reveal which instance a call means.
+    fn build_hidden_param_class_env(interner: &mut Interner) -> ClassEnv {
+        let class_sym = interner.intern("Hidden");
+        let a_sym = interner.intern("a");
+        let method = interner.intern("flag");
+        let int_type = TypeExpr::Named {
+            name: interner.intern("Int"),
+            args: vec![],
+            span: s(),
+        };
+
+        let class_def = ClassDef {
+            name: class_sym,
+            module: crate::types::class_id::ModulePath::EMPTY,
+            is_public: false,
+            is_builtin: false,
+            type_params: vec![a_sym],
+            superclasses: vec![],
+            superclass_class_ids: vec![],
+            associated_types: vec![],
+            methods: vec![MethodSig {
+                name: method,
+                type_params: vec![],
+                param_names: vec![interner.intern("__x0")],
+                param_types: vec![int_type.clone()],
+                return_type: int_type,
+                arity: 1,
+                effects: vec![],
+                default_body: None,
+            }],
+            default_methods: vec![],
+            span: s(),
+        };
+
+        let mut class_env = ClassEnv::new();
+        class_env.classes.insert(class_def.class_id(), class_def);
+        class_env
+    }
+
+    fn hidden_candidate(interner: &Interner, binder: CoreBinder) -> MethodCandidate {
+        let class_sym = interner.lookup("Hidden").expect("Hidden interned");
+        MethodCandidate {
+            declaring_class: crate::types::class_id::ClassId::from_local_name(class_sym),
+            type_args: Vec::new(),
+            binder,
+            path: vec![0],
+        }
+    }
+
+    /// Two dictionaries reach `flag`, and the call reveals nothing about which
+    /// instance it means. The old rule returned the last candidate — an
+    /// artefact of the order the method map was built in. Declining leaves the
+    /// stub reference, which reports the unresolved instance.
+    #[test]
+    fn choose_candidate_declines_when_nothing_reveals_the_parameter() {
+        let mut interner = Interner::new();
+        let class_env = build_hidden_param_class_env(&mut interner);
+        let method = interner.lookup("flag").expect("flag interned");
+        let candidates = [
+            hidden_candidate(&interner, mk_binder(7, method)),
+            hidden_candidate(&interner, mk_binder(8, method)),
+        ];
+
+        let chosen = choose_candidate(&class_env, &candidates, method, &[], &HashMap::new(), None);
+
+        assert!(chosen.is_none(), "an unrevealed parameter is not a choice");
+    }
+
+    /// `chain<f: Monad>` holds three dictionaries — `Monad f`, `Functor f`,
+    /// `Applicative f` — and all three reach `fmap`. Nothing at the call
+    /// reveals `f`, but coherence gives `f` one `Functor` instance, so every
+    /// candidate names the same dictionary and there is nothing to choose.
+    /// Take the shortest path to it: the direct binder, not two superclass
+    /// edges. Declining here left the call on its dispatch stub, which the VM
+    /// resolved at run time and the native backend panicked on (`E1009`).
+    #[test]
+    fn choose_candidate_takes_the_shortest_path_when_candidates_name_one_dictionary() {
+        let mut interner = Interner::new();
+        let class_env = build_hidden_param_class_env(&mut interner);
+        let method = interner.lookup("flag").expect("flag interned");
+        let same_type_args = vec![CoreType::Var(0)];
+        let via_superclass = MethodCandidate {
+            type_args: same_type_args.clone(),
+            binder: mk_binder(7, method),
+            path: vec![0, 0],
+            ..hidden_candidate(&interner, mk_binder(7, method))
+        };
+        let direct = MethodCandidate {
+            type_args: same_type_args,
+            binder: mk_binder(8, method),
+            path: vec![0],
+            ..hidden_candidate(&interner, mk_binder(8, method))
+        };
+        let candidates = [via_superclass, direct];
+
+        let chosen = choose_candidate(&class_env, &candidates, method, &[], &HashMap::new(), None);
+
+        assert_eq!(
+            chosen.map(|candidate| candidate.binder.id),
+            Some(CoreBinderId(8)),
+            "one dictionary reached two ways resolves through the direct binder",
+        );
+    }
+
+    /// Two candidates that reach the same dictionary by the same path are not
+    /// a choice, so this still resolves.
+    #[test]
+    fn choose_candidate_accepts_candidates_that_agree() {
+        let mut interner = Interner::new();
+        let class_env = build_hidden_param_class_env(&mut interner);
+        let method = interner.lookup("flag").expect("flag interned");
+        let binder = mk_binder(7, method);
+        let candidates = [
+            hidden_candidate(&interner, binder),
+            hidden_candidate(&interner, binder),
+        ];
+
+        let chosen = choose_candidate(&class_env, &candidates, method, &[], &HashMap::new(), None);
+
+        assert_eq!(
+            chosen.map(|candidate| candidate.binder.id),
+            Some(CoreBinderId(7))
+        );
+    }
+
+    fn eq_constraint(interner: &Interner, args: Vec<InferType>) -> SchemeConstraint {
+        let eq_sym = interner.lookup("Eq").expect("Eq interned");
+        SchemeConstraint {
+            class_name: eq_sym,
+            class_id: crate::types::class_id::ClassId::new(
+                crate::types::class_id::ModulePath::EMPTY,
+                eq_sym,
+            ),
+            type_args: args,
+        }
+    }
+
+    fn dict_binder(interner: &mut Interner, id: u32) -> CoreBinder {
+        mk_binder(id, interner.intern(&format!("__dict_Eq_{id}")))
+    }
+
+    /// The predicate the caller holds and the one the callee wants are the
+    /// same predicate under different unification variables — two schemes
+    /// instantiated separately. The caller's dictionary is the right evidence.
+    #[test]
+    fn resolve_dict_arg_forwards_an_alpha_equivalent_predicate() {
+        let mut interner = Interner::new();
+        let class_env = build_eq_class_env(&mut interner);
+        let binder = dict_binder(&mut interner, 7);
+        let caller = vec![(eq_constraint(&interner, vec![InferType::Var(1)]), binder)];
+        let wanted = eq_constraint(&interner, vec![InferType::Var(2)]);
+
+        let resolved = resolve_dict_arg(&wanted, &caller, &class_env, &interner, s())
+            .expect("a caller dictionary over a type variable discharges the callee's");
+        match resolved {
+            CoreExpr::Var { var, .. } => assert_eq!(var.binder, Some(CoreBinderId(7))),
+            other => panic!("expected the caller's dictionary binder, got {other:?}"),
+        }
+    }
+
+    /// A dictionary over a type *variable* is not evidence for a concrete
+    /// predicate. Matching on the class alone used to conclude that it was,
+    /// substituting one instance's methods for another's.
+    #[test]
+    fn resolve_dict_arg_does_not_forward_a_variable_dictionary_for_a_concrete_predicate() {
+        let mut interner = Interner::new();
+        let class_env = build_eq_class_env(&mut interner);
+        let caller = vec![(
+            eq_constraint(&interner, vec![InferType::Var(1)]),
+            dict_binder(&mut interner, 7),
+        )];
+        let wanted = eq_constraint(
+            &interner,
+            vec![InferType::Con(
+                crate::types::type_constructor::TypeConstructor::Int,
+            )],
+        );
+
+        let resolved = resolve_dict_arg(&wanted, &caller, &class_env, &interner, s())
+            .expect("a concrete predicate names its own instance");
+        match resolved {
+            CoreExpr::Var { var, .. } => assert_eq!(interner.resolve(var.name), "__dict_Eq_Int"),
+            other => panic!("expected the concrete instance dictionary, got {other:?}"),
+        }
+    }
+
+    /// Two dictionaries for one class, and nothing here says which the callee
+    /// means. Picking either is the guess KI-052 was.
+    #[test]
+    fn resolve_dict_arg_declines_when_two_dictionaries_could_match() {
+        let mut interner = Interner::new();
+        let class_env = build_eq_class_env(&mut interner);
+        let caller = vec![
+            (
+                eq_constraint(&interner, vec![InferType::Var(1)]),
+                dict_binder(&mut interner, 7),
+            ),
+            (
+                eq_constraint(&interner, vec![InferType::Var(2)]),
+                dict_binder(&mut interner, 8),
+            ),
+        ];
+        let wanted = eq_constraint(&interner, vec![InferType::Var(3)]);
+
+        assert!(
+            resolve_dict_arg(&wanted, &caller, &class_env, &interner, s()).is_none(),
+            "an ambiguous choice must not be made here"
+        );
+    }
 
     #[test]
     fn build_dict_emits_one_def_per_instance() {

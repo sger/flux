@@ -19,7 +19,7 @@ use flux::{
     },
     types::{
         class_env::ClassEnv,
-        class_solver::solve_class_constraints,
+        class_solver::{solve_class_constraint_tree, solve_class_constraints},
         infer_effect_row::InferEffectRow,
         infer_type::InferType,
         scheme::{Scheme, generalize},
@@ -742,7 +742,7 @@ fn main() { same(1, 2) }
     env.register_builtins(&mut interner);
     env.register_prelude_classes(&mut interner);
     env.collect_from_statements(&program.statements, &interner);
-    let diags = solve_class_constraints(&result.class_constraints, &env, &interner);
+    let diags = solve_class_constraint_tree(&result.class_constraints, &env, &interner);
     assert!(
         diags.is_empty(),
         "Int call should satisfy explicit Eq constraint: {diags:?}"
@@ -762,7 +762,7 @@ fn main() { same(Red, Blue) }
     env.register_builtins(&mut interner);
     env.register_prelude_classes(&mut interner);
     env.collect_from_statements(&program.statements, &interner);
-    let diags = solve_class_constraints(&result.class_constraints, &env, &interner);
+    let diags = solve_class_constraint_tree(&result.class_constraints, &env, &interner);
     assert!(
         diags.iter().any(|d| d.code() == Some("E444")),
         "expected missing Eq<Color> to produce E444, got: {diags:?}"
@@ -984,7 +984,7 @@ fn main() { size(42) }
     env.register_prelude_classes(&mut interner);
     env.collect_from_statements(&program.statements, &interner);
 
-    let diags = solve_class_constraints(&result.class_constraints, &env, &interner);
+    let diags = solve_class_constraint_tree(&result.class_constraints, &env, &interner);
     let e444: Vec<_> = diags.iter().filter(|d| d.code() == Some("E444")).collect();
     assert!(
         e444.is_empty(),
@@ -1028,7 +1028,6 @@ instance Sizeable<Int> {
             },
         },
         origin: flux::ast::type_infer::constraint::WantedClassConstraintOrigin::ExplicitBound,
-        originated_from_concrete_type: true,
     };
 
     let diags = solve_class_constraints(&[constraint], &env, &interner);
@@ -1068,7 +1067,6 @@ class Sizeable<a> {
             },
         },
         origin: flux::ast::type_infer::constraint::WantedClassConstraintOrigin::ExplicitBound,
-        originated_from_concrete_type: false,
     };
 
     let diags = solve_class_constraints(&[constraint], &env, &interner);

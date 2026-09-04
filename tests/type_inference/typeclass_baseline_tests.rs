@@ -127,6 +127,9 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "SuperclassMetadata.flx",
         "superclass_across_modules.flx",
         "superclass_method_call.flx",
+        "superclass_evidence_without_context.flx",
+        "sibling_method_call_in_instance.flx",
+        "contextual_superclass_evidence.flx",
         "transitive_superclass.flx",
         "kind_valid.flx",
         "hkt_instance_positive.flx",
@@ -156,6 +159,7 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "array_instances.flx",
         "either_instances.flx",
         "module_member_shadows_stub.flx",
+        "user_function_shadows_class_method.flx",
         "let_annotation_rigid_param.flx",
         "result_directed_two_dictionaries.flx",
         "syntax_tour.flx",
@@ -388,6 +392,182 @@ fn unsupported_deriving_does_not_fabricate_a_dictionary() {
         errors.iter().any(|diag| diag.code() == Some("E486")),
         "unsupported deriving must be reported, got: {errors:?}"
     );
+}
+
+/// A class method declares its effects on the class, where no contract check
+/// could see them, so a caller with no `with` clause could call one and
+/// perform IO. The identical call to an ordinary effectful function was
+/// rejected; both must be now.
+#[test]
+fn a_class_method_effect_row_reaches_its_caller() {
+    let source = r#"
+class Flash<a> {
+    fn flash(x: a) -> Int with IO
+}
+
+instance Flash<Int> {
+    fn flash(x) with IO { x }
+}
+
+fn leaky(x: Int) -> Int { flash(x) }
+
+fn main() { leaky(1) }
+"#;
+    let (program, mut compiler) = parse_source(source, "effect_leak_through_class_method.flx");
+    let errors = compiler
+        .compile(&program)
+        .expect_err("a function calling an effectful class method must declare the effect");
+    assert!(
+        errors.iter().any(|diag| diag.code() == Some("E400")),
+        "the class method's effect row must reach its caller, got: {errors:?}"
+    );
+}
+
+/// An instance method may call a sibling method of its own class on its own
+/// head type. The evidence is the dictionary being defined, so the predicate
+/// must reduce to the instance's context rather than becoming a second
+/// dictionary parameter (KI-078).
+#[test]
+fn an_instance_method_may_call_a_sibling_on_its_own_head() {
+    let fixture = "sibling_method_call_in_instance.flx";
+    let output = run_fixture(fixture).expect("fixture should compile and run");
+    assert_eq!(output.stdout, "true\nfalse");
+}
+
+/// Superclass evidence discharged by a *contextual* instance: `Mid<List<a>>`
+/// owes `Base<List<a>>`, and its context supplies `Base<a>`. Matching the
+/// context on class identity alone put the wrong dictionary in the slot, and
+/// the duplicated parameters it came with failed on arity (KI-077).
+#[test]
+fn superclass_evidence_comes_from_a_contextual_instance() {
+    let fixture = "contextual_superclass_evidence.flx";
+    let output = run_fixture(fixture).expect("fixture should compile and run");
+    assert_eq!(output.stdout, "9");
+}
+
+/// Superclass evidence has two spellings, and both must dispatch the same way.
+/// `superclass_method_call.flx` writes the context out, so its dictionary is a
+/// constructor; this instance omits it, so the dictionary is a plain tuple whose
+/// leading slot names the `Sizeable<Int>` dictionary directly. That tuple was
+/// not recognised as an already-elaborated dictionary argument, so the call was
+/// re-elaborated on every recompilation until the compiler ran out of stack.
+#[test]
+fn superclass_evidence_is_supplied_without_an_explicit_context() {
+    let fixture = "superclass_evidence_without_context.flx";
+    let output = run_fixture(fixture).expect("fixture should compile and run");
+    assert_eq!(output.stdout, "505");
+}
+
+/// An instance context that grows its type argument at every step —
+/// `Foo<a>` needing `Foo<List<a>>` — has no finite evidence tree. The search
+/// never repeats a predicate, so the cycle check cannot see it; only the depth
+/// budget stops it. Before that budget existed this overflowed the compiler's
+/// stack and aborted the process.
+///
+/// Proposal 0183 R3 gave exhaustion its own code: the search was *abandoned*,
+/// which is not the same fact as no instance existing, and reporting E444 sent
+/// the reader looking for an instance that may well be there.
+#[test]
+fn a_growing_instance_context_terminates() {
+    let source = r#"
+class Foo<a> {
+    fn foo(x: a) -> Int
+}
+
+instance Foo<List<a>> => Foo<a> {
+    fn foo(x) { 1 }
+}
+
+fn use_it<a: Foo>(x: a) -> Int { foo(x) }
+
+fn main() { use_it(1) }
+"#;
+    let (program, mut compiler) = parse_source(source, "growing_instance_context.flx");
+    let errors = compiler
+        .compile(&program)
+        .expect_err("a context with no finite evidence tree must not resolve");
+    assert!(
+        errors.iter().any(|diag| diag.code() == Some("E488")),
+        "a non-terminating context should report an exhausted search, got: {errors:?}"
+    );
+}
+
+/// Two instances whose contexts name each other close a cycle in the
+/// instance-context graph. The solver treats a repeat on the current path as
+/// satisfied, so this compiles; what matters here is that resolution
+/// terminates at all, rather than recursing until the stack is gone.
+#[test]
+fn mutually_recursive_instance_contexts_terminate() {
+    let source = r#"
+class Ay<a> { fn ay(x: a) -> Int }
+class Bee<a> { fn bee(x: a) -> Int }
+
+instance Bee<a> => Ay<a> {
+    fn ay(x) { 1 }
+}
+instance Ay<a> => Bee<a> {
+    fn bee(x) { 2 }
+}
+
+fn main() { ay(1) }
+"#;
+    let (program, mut compiler) = parse_source(source, "mutual_instance_contexts.flx");
+    // Either outcome is acceptable; a stack overflow is not, and is what this
+    // guards against.
+    let _ = compiler.compile(&program);
+}
+
+/// An instance that omits a required method with no default is rejected at the
+/// instance head, and `Compiler::compile` is where that must be visible.
+/// E442 lived in the warning half of the `collect_class_declarations`
+/// partition, so this returned `Ok` and left the missing method to
+/// `generate_polymorphic_stub`; a later pipeline stage still rejected the
+/// program, which is why the escape went unnoticed.
+#[test]
+fn missing_instance_method_is_rejected() {
+    let source = r#"
+class Describable<a> {
+    fn name(x: a) -> Int
+    fn value(x: a) -> Int
+}
+
+instance Describable<Int> {
+    fn name(x) { x }
+}
+
+fn main() { 42 }
+"#;
+    let (program, mut compiler) = parse_source(source, "missing_instance_method.flx");
+    let errors = compiler
+        .compile(&program)
+        .expect_err("an instance missing a required method must not compile");
+    assert!(
+        errors.iter().any(|diag| diag.code() == Some("E442")),
+        "missing instance method must be reported, got: {errors:?}"
+    );
+}
+
+/// The counterpart: a method the class defaults may be omitted, and doing so
+/// must stay a clean compile. E442 fires on the absence of *both* an
+/// implementation and a default.
+#[test]
+fn omitting_a_defaulted_method_is_accepted() {
+    let source = r#"
+class Describable<a> {
+    fn name(x: a) -> Int
+    fn value(x: a) -> Int { 0 }
+}
+
+instance Describable<Int> {
+    fn name(x) { x }
+}
+
+fn main() { 42 }
+"#;
+    let (program, mut compiler) = parse_source(source, "defaulted_instance_method.flx");
+    compiler
+        .compile(&program)
+        .expect("omitting a method that has a default must compile");
 }
 
 #[test]
@@ -784,4 +964,334 @@ fn a_superclass_obligation_does_not_depend_on_declaration_order() {
     let output =
         run_fixture("superclass_order_independent.flx").unwrap_or_else(|error| panic!("{error}"));
     assert_eq!(output.stdout, "500\n5");
+}
+
+/// Proposal 0183: a scheme keeps only the predicates nothing else implies.
+///
+/// `mconcat<a: Monoid>` raises `Semigroup<a>` in its body, and every `Monoid`
+/// dictionary already carries `Semigroup` evidence in a superclass slot. Before
+/// GHC's `mkMinimalBySCs` was applied the scheme retained both, so the function
+/// took two dictionary parameters and every caller passed evidence it was
+/// already handing over.
+#[test]
+fn a_scheme_drops_a_predicate_its_superclass_already_supplies() {
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(workspace_root())
+        .args([
+            "--dump-core",
+            fixture_path("semigroup_monoid.flx")
+                .to_str()
+                .expect("fixture path is UTF-8"),
+            "--no-cache",
+        ])
+        .output()
+        .expect("dump core for the Monoid fixture");
+    let dump = String::from_utf8_lossy(&output.stdout);
+
+    let signature = dump
+        .lines()
+        .skip_while(|line| !line.starts_with("letrec mconcat"))
+        .nth(1)
+        .expect("mconcat is lowered with a parameter list");
+
+    assert!(
+        signature.contains("_Monoid"),
+        "mconcat keeps the context it declared: {signature}"
+    );
+    assert!(
+        !signature.contains("_Semigroup"),
+        "Semigroup is implied by Monoid and must not become a second \
+         dictionary parameter: {signature}"
+    );
+}
+
+/// Proposal 0183: a signature that names its context owns it.
+///
+/// `cmp` promises `MyEq<a>` and its body calls a `MyOrd` method. Inferring the
+/// missing predicate onto the scheme made the signature a suggestion and moved
+/// the error to whichever caller used a type without a `MyOrd` instance —
+/// a file the author of the mistake may never open. GHC reports it here, as
+/// case (P2) of Note [Constraints in partial type signatures].
+#[test]
+fn a_body_may_not_need_more_than_its_signature_declares() {
+    let source = r#"
+class MyEq<a> {
+    fn meq(x: a, y: a) -> Bool
+}
+
+class MyOrd<a> {
+    fn mlt(x: a, y: a) -> Bool
+}
+
+instance MyEq<Int> { fn meq(x, y) { x == y } }
+instance MyOrd<Int> { fn mlt(x, y) { x < y } }
+
+fn cmp<a: MyEq>(x: a, y: a) -> Bool {
+    mlt(x, y)
+}
+
+fn main() with IO { print(cmp(1, 2)) }
+"#;
+    let (program, mut compiler) = parse_source(source, "undeclared_context.flx");
+    let errors = compiler
+        .compile(&program)
+        .expect_err("a body needing more than its signature grants must not compile");
+
+    let deduce = errors
+        .iter()
+        .find(|diag| diag.code() == Some("E489"))
+        .unwrap_or_else(|| panic!("expected E489, got: {errors:?}"));
+    let message = deduce.message().unwrap_or_default();
+    assert!(
+        message.contains("MyOrd<a>") && message.contains("MyEq<a>"),
+        "the message names both the predicate and the context it was checked \
+         against, with the signature's own variable: {message}"
+    );
+}
+
+/// The other half of the same rule: a signature that names *no* bound has not
+/// specified a context, so inference still supplies one. Without this,
+/// `fn list_size<a>(value: List<a>)` would stop compiling.
+#[test]
+fn a_signature_without_bounds_still_infers_its_context() {
+    let output = run_fixture("structured_predicate.flx").unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(output.stdout, "7");
+}
+
+/// An instance context discharges a subgoal that is not ground.
+///
+/// `Dec<List<a>>`'s body decodes through a `Box`, so it needs `Dec<Box<a>>`,
+/// which reduces to the `Dec<a>` its own context grants. The instance search
+/// used to abandon any subgoal carrying a type variable — right only while
+/// there was no context to appeal to, and the reason `Flow.Json`'s
+/// `Decode<List<a>>` (which decodes through an array) stopped compiling when
+/// the residue was first reported.
+#[test]
+fn an_instance_context_discharges_a_non_ground_subgoal() {
+    let source = r#"
+class Dec<a> {
+    fn dec(x: Int) -> a
+}
+
+data Box<a> { Box(a) }
+
+instance Dec<Int> {
+    fn dec(x) { x }
+}
+
+instance Dec<a> => Dec<Box<a>> {
+    fn dec(x) { Box(dec(x)) }
+}
+
+instance Dec<a> => Dec<List<a>> {
+    fn dec(x) {
+        match dec(x) {
+            Box(v) -> [v]
+        }
+    }
+}
+
+fn main() with IO {
+    let xs: List<Int> = dec(1)
+    print(len(xs))
+}
+"#;
+    let (program, mut compiler) = parse_source(source, "non_ground_subgoal.flx");
+    compiler
+        .compile(&program)
+        .expect("a subgoal the instance context grants must resolve");
+}
+
+/// `+` resolves at `String` even when the operand's type arrives later.
+///
+/// In a lambda handed to a higher-order function both operands are still
+/// variables when the operator is inferred, so the obligation is emitted over
+/// a variable and only afterwards resolved to `String`. While `+` was a `Num`
+/// method this reported `Num<String>` as a missing instance; `Flow.Add` gives
+/// it a real instance to match, so the type it acquires later is one the
+/// solver can discharge.
+#[test]
+fn addition_over_strings_survives_a_deferred_operand() {
+    let source = r#"
+fn apply(f, a, b) { f(a, b) }
+
+fn main() with IO {
+    print(apply(fn(x, y) { x + y }, "a", "b"))
+}
+"#;
+    let (program, mut compiler) = parse_source(source, "deferred_string_add.flx");
+    compiler
+        .compile(&program)
+        .expect("`+` over strings is a built-in rule, not a missing `Num` instance");
+}
+
+/// The other half: `String` has `Add` and not `Num`, so it gains `+` without
+/// gaining the rest of arithmetic. `-` emits a `Num` predicate, which no
+/// `String` instance satisfies, so a deferred subtraction stays an error.
+#[test]
+fn subtraction_over_strings_is_still_rejected() {
+    let source = r#"
+fn sub(a, b) { a - b }
+
+fn main() with IO {
+    print(sub("a", "b"))
+}
+"#;
+    let (program, mut compiler) = parse_source(source, "deferred_string_sub.flx");
+    assert!(
+        compiler.compile(&program).is_err(),
+        "only `+` is overloaded over `String`"
+    );
+}
+
+/// A pattern variable keeps the scrutinee's element type, so an obligation
+/// raised on it is one the enclosing signature's context can discharge.
+///
+/// `match xs { [h | t] -> ..., _ -> ... }` mixes a constraining arm with a
+/// non-constraining one. Arm isolation used to hand every arm a fresh variable
+/// whenever the scrutinee was not *fully* concrete, and `List<a>` inside
+/// `fn f<a: C>(..)` is not — so `h` lost its connection to `a` and the `C<h>`
+/// obligation could not be matched against the `C<a>` the signature grants
+/// (docs/known_issues.md#ki-080). Only the head constructor decides a pattern
+/// family, so `List<a>` settles it as well as `List<Int>` does.
+#[test]
+fn a_pattern_variable_keeps_the_scrutinees_element_type() {
+    let source = r#"
+class MyEq<a> {
+    fn meq(x: a, y: a) -> Bool
+}
+
+instance MyEq<Int> {
+    fn meq(x, y) { x == y }
+}
+
+fn viapat<a: MyEq>(xs: List<a>) -> Bool {
+    match xs {
+        [h | t] -> meq(h, h),
+        _ -> true
+    }
+}
+
+fn main() with IO {
+    print(viapat([1, 2]))
+}
+"#;
+    let (program, mut compiler) = parse_source(source, "pattern_element_type.flx");
+    let result = compiler.compile(&program);
+    assert!(
+        result.is_ok(),
+        "the signature's own context must discharge the obligation: {:?}",
+        result.err()
+    );
+}
+
+/// The other half: isolating an arm must still not hide a real mismatch. A
+/// pattern variable bound from a `List<Int>` scrutinee is an `Int`, and using
+/// it as a `String` is an error whichever arms accompany it.
+#[test]
+fn a_pattern_variable_from_a_concrete_scrutinee_is_still_checked() {
+    let source = r#"
+fn f(xs: List<Int>) -> Int {
+    match xs {
+        [h | t] -> h + "oops",
+        _ -> 0
+    }
+}
+
+fn main() with IO {
+    print(f([1, 2]))
+}
+"#;
+    let (program, mut compiler) = parse_source(source, "pattern_mismatch.flx");
+    assert!(
+        compiler.compile(&program).is_err(),
+        "an `Int` element used as a `String` is a mismatch"
+    );
+}
+
+/// A class-method call leaves no undischarged predicate behind, and the
+/// selected instance's context is still enforced.
+///
+/// Resolving such a call instantiates the mangled `__tc_*` scheme to read its
+/// effect row. That instantiation used to emit the scheme's own constraints —
+/// the instance's context — at variables nothing ever binds, because the
+/// instantiated signature is never unified with the call's arguments. The
+/// result was one permanently unsolvable predicate per class-method call
+/// (docs/known_issues.md#ki-081). The obligation is carried by the method-call
+/// predicate instead, whose evidence checks the same context, which is what
+/// this test pins: the valid call compiles, the one whose context cannot be
+/// met does not.
+#[test]
+fn a_class_method_call_enforces_its_instances_context() {
+    let common = r#"
+class MyEq<a> {
+    fn meq(x: a, y: a) -> Bool
+    fn mneq(x: a, y: a) -> Bool
+}
+
+instance MyEq<Int> {
+    fn meq(x, y) { x == y }
+    fn mneq(x, y) { !meq(x, y) }
+}
+
+instance MyEq<a> => MyEq<List<a>> {
+    fn meq(xs, ys) { true }
+    fn mneq(xs, ys) { !meq(xs, ys) }
+}
+"#;
+
+    let satisfied = format!("{common}\nfn main() with IO {{\n    print(mneq([1], [1]))\n}}\n");
+    let (program, mut compiler) = parse_source(&satisfied, "instance_context_met.flx");
+    compiler
+        .compile(&program)
+        .expect("`MyEq<Int>` satisfies the context of `MyEq<List<a>>`");
+
+    let unsatisfied =
+        format!("{common}\nfn main() with IO {{\n    print(mneq([\"s\"], [\"s\"]))\n}}\n");
+    let (program, mut compiler) = parse_source(&unsatisfied, "instance_context_unmet.flx");
+    assert!(
+        compiler.compile(&program).is_err(),
+        "there is no `MyEq<String>`, so the instance's context cannot be met"
+    );
+}
+
+/// Field access on a receiver a call site determines still resolves, and one
+/// nothing determines is reported at the access (Proposal 0184, Stage 1).
+///
+/// `r.name` used to allocate a *fallback* variable — a hole excluded from every
+/// scheme's `forall`, fillable only by unifying the enclosing definition with a
+/// call site. It now raises `__field.name<Receiver, Field>`, discharged after
+/// unification against the receiver as it finally stands; discharging it
+/// determines the field type, which is what the hole could never do.
+#[test]
+fn a_field_access_resolves_or_is_reported_at_the_access() {
+    let resolved = r#"
+data Person { Person { name: String, age: Int } }
+
+fn label(r) { r.name }
+
+fn main() with IO {
+    print(label(Person { name: "Ada", age: 36 }))
+}
+"#;
+    let (program, mut compiler) = parse_source(resolved, "field_resolved.flx");
+    compiler
+        .compile(&program)
+        .expect("the call site determines the receiver, so the field resolves");
+
+    let undetermined = r#"
+fn label(r) { r.name }
+
+fn main() with IO {
+    print(1)
+}
+"#;
+    let (program, mut compiler) = parse_source(undetermined, "field_undetermined.flx");
+    let diagnostics = compiler
+        .compile(&program)
+        .expect_err("nothing determines the receiver, so the field cannot be looked up");
+    assert!(
+        diagnostics.iter().any(|d| d.code() == Some("E490")),
+        "expected E490 at the access, got: {diagnostics:?}"
+    );
 }

@@ -158,8 +158,8 @@ impl<'a> InferCtx<'a> {
             | InferType::Con(TypeConstructor::Float)
             | InferType::Var(_) => {
                 self.emit_operator_constraint_for_type(
-                    self.class_sym_num,
-                    "Num",
+                    self.class_sym_add,
+                    "Add",
                     substituted.clone(),
                     span,
                 );

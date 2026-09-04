@@ -74,6 +74,7 @@ pub(crate) fn find_flow_dir(entry_path: &Path) -> Option<PathBuf> {
 const FLOW_PRELUDE_MODULES: &[(&str, &str)] = &[
     ("Flow.Eq", "Eq.flx"),
     ("Flow.Ord", "Ord.flx"),
+    ("Flow.Add", "Add.flx"),
     ("Flow.Num", "Num.flx"),
     ("Flow.Show", "Show.flx"),
     ("Flow.Option", "Option.flx"),

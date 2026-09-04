@@ -80,8 +80,8 @@ impl<'a> InferCtx<'a> {
 
     /// Return the current index into `class_constraints` so one function can
     /// later slice out only the obligations it introduced during inference.
-    fn binding_constraint_start(&self) -> usize {
-        self.class_constraints.len()
+    fn binding_constraint_start(&self) -> constraint::CaptureWindow {
+        self.class_constraints.open_window()
     }
 
     /// Return whether this function qualifies for the extra self-recursive
@@ -508,7 +508,7 @@ impl<'a> InferCtx<'a> {
         param_tys: &[InferType],
         ret_ty: &InferType,
         declared_effect_row: &InferEffectRow,
-        constraint_start: usize,
+        constraint_start: constraint::CaptureWindow,
     ) {
         let final_param_tys: Vec<InferType> = param_tys
             .iter()
@@ -520,13 +520,14 @@ impl<'a> InferCtx<'a> {
         self.env.leave_scope();
 
         let scheme = if !type_params.is_empty() {
-            let relevant_constraints = self.class_constraints[constraint_start..].to_vec();
-            self.finalize_binding_scheme(
-                &fn_ty,
-                &relevant_constraints,
-                &self.env.free_vars(),
-                GeneralizationMode::Definition,
-            )
+            self.finalize_binding_scheme(BindingSchemeSpec {
+                infer_type: &fn_ty,
+                env_free_vars: &self.env.free_vars(),
+                window: constraint_start,
+                mode: GeneralizationMode::Definition,
+                binder: name,
+                span: fn_span,
+            })
         } else {
             Scheme::mono(fn_ty)
         };

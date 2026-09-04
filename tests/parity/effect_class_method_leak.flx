@@ -1,0 +1,24 @@
+// parity: vm, llvm
+// expect: compile_error
+// bug: a class method's declared effect row did not reach its caller, so a
+// function with no `with` clause could call it and perform IO; the same call
+// to an ordinary effectful function was rejected
+
+class Flash<a> {
+    fn flash(x: a) -> Int with IO
+}
+
+instance Flash<Int> {
+    fn flash(x) with IO {
+        print("flashed")
+        x
+    }
+}
+
+fn leaky(x: Int) -> Int {
+    flash(x)
+}
+
+fn main() with IO {
+    print(leaky(1))
+}

@@ -1,25 +1,30 @@
 /// Arithmetic.
 ///
-/// `+`, `-`, `*` and `/` desugar to `add`, `sub`, `mul` and `div`. A concrete
-/// primitive's operator lowers to a primop, so the instances below do not
-/// recurse. (Proposal 0179 Stage 8.)
+/// `-`, `*` and `/` desugar to `sub`, `mul` and `div`. `+` is not here: it
+/// belongs to `Flow.Add`, because `String` supports addition and nothing else
+/// in this class. `Add` is a superclass, so a function constrained by `Num`
+/// alone can still use `+`, reached through the evidence slot that leads every
+/// `Num` dictionary. As with `Ord`, each instance names that evidence
+/// explicitly (`Add<Int> => Num<Int>`) rather than leaving it to be solved.
+///
+/// A concrete primitive's operator lowers to a primop, so the instances below
+/// do not recurse. (Proposal 0179 Stage 8.)
+import Flow.Add
+
 module Flow.Num {
-    public class Num<a> {
-        fn add(x: a, y: a) -> a
+    public class Add<a> => Num<a> {
         fn sub(x: a, y: a) -> a
         fn mul(x: a, y: a) -> a
         fn div(x: a, y: a) -> a
     }
 
-    public instance Num<Int> {
-        fn add(x, y) { x + y }
+    public instance Add<Int> => Num<Int> {
         fn sub(x, y) { x - y }
         fn mul(x, y) { x * y }
         fn div(x, y) { x / y }
     }
 
-    public instance Num<Float> {
-        fn add(x, y) { x + y }
+    public instance Add<Float> => Num<Float> {
         fn sub(x, y) { x - y }
         fn mul(x, y) { x * y }
         fn div(x, y) { x / y }
