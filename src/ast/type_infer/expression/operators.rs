@@ -144,23 +144,6 @@ impl<'a> InferCtx<'a> {
         );
     }
 
-    /// [`Self::emit_operator_constraint_for_type`] with the origin chosen by
-    /// the caller, so `+` can record that it is the addition overload.
-    fn emit_class_constraint_for_operator(
-        &mut self,
-        class_sym: Option<Identifier>,
-        class_name: &str,
-        ty: InferType,
-        span: Span,
-        origin: constraint::WantedClassConstraintOrigin,
-    ) {
-        let Some(class_sym) = class_sym else {
-            self.emit_operator_constraint_for_type(None, class_name, ty, span);
-            return;
-        };
-        self.emit_class_constraint(class_sym, ty, span, origin);
-    }
-
     /// Infer `+` where result may be numeric or string.
     fn infer_add_operator(
         &mut self,
@@ -174,12 +157,11 @@ impl<'a> InferCtx<'a> {
             InferType::Con(TypeConstructor::Int)
             | InferType::Con(TypeConstructor::Float)
             | InferType::Var(_) => {
-                self.emit_class_constraint_for_operator(
-                    self.class_sym_num,
-                    "Num",
+                self.emit_operator_constraint_for_type(
+                    self.class_sym_add,
+                    "Add",
                     substituted.clone(),
                     span,
-                    constraint::WantedClassConstraintOrigin::InferredAddOperator,
                 );
                 substituted
             }

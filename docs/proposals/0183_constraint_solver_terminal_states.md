@@ -33,7 +33,8 @@ checkout at commit `2ca87972f6`.
 | R4b | a body is held to the context its signature declares (`E489`) | shipped | `5a76501c` | residue → 3,106; fixes Example C |
 | R4c | a deferred `String` operand discharges its addition obligation | shipped | `b6659cb3` | 3 programs; no spurious `Num<String>` |
 | R5 | verified defaulting against the whole group (M5) | shipped, **inert** | `00f53cc6` | **none** — see below |
-| R6 | replace `StuckReason` with origin plus provenance, and report (M6) | **blocked** | — | needs record-access and `+` constraints first; see below |
+| R6a | `+` becomes `Flow.Add`, a class `String` instantiates | shipped | — | no diagnostic change in 1,305 programs |
+| R6 | replace `StuckReason` with origin plus provenance, and report (M6) | **blocked** | — | still needs record-access constraints; see below |
 | R7 | clear the fallout across `lib/Flow`, `examples`, `tests` | not started | — | — |
 | — | one `CACHE_EPOCH` bump covering R2 and R4 | not started | — | — |
 | — | rewrite this proposal around the GHC study; file Examples A/B/C as `#KI-nnn` | not started | — | — |
@@ -108,6 +109,47 @@ obligations that generalization should have consumed and did not. R6 therefore
 depends on a decision recorded under Unresolved questions: whether an
 unannotated definition should be generalized (full Hindley–Milner, with the
 dictionary parameters that implies) or stay monomorphic.
+
+### R6a — `+` is its own class
+
+The first of R6's two prerequisites is done. `+` desugared to `Num`'s `add`,
+which forced a choice between rejecting `"a" + "b"` and hard-coding `String`
+into the solver — the latter is what shipped in `b6659cb3`, as a built-in rule
+keyed on a dedicated constraint origin.
+
+`Flow.Add` replaces that with the ordinary answer:
+
+```flux
+public class Add<a> { fn add(x: a, y: a) -> a }
+public instance Add<Int> { ... }
+public instance Add<Float> { ... }
+public instance Add<String> { ... }
+```
+
+`Num` names `Add` as a superclass (`public class Add<a> => Num<a>`) and keeps
+`sub`, `mul` and `div`, so a function constrained by `Num` alone still admits
+`+` through the superclass evidence slot, while `String` gains `+` without
+gaining the rest of arithmetic. The `InferredAddOperator` origin and the
+solver's built-in string rule are both deleted — the instance does the work.
+
+Verified behaviour:
+
+| program | result |
+|---|---|
+| `"a" + "b"` | runs |
+| `+` on operands still variable at emission | runs |
+| `fn cat(a, b) { a + b }` used at `String` | runs |
+| a deferred `-` at `String` | `E300` + `E444` |
+| `fn twice<a: Num>(x: a) { x + x }` | runs — superclass projection |
+| `+` on an ADT (Example B) | `E300` + `E444` |
+
+Zero diagnostic changes across all 1,305 programs, and `test_runner_cli`
+(129) and `typeclass_baseline_tests` (48) both pass. `CACHE_EPOCH` is bumped to
+42: `Num` loses its `add` slot and gains a leading superclass slot, so every
+`Num` dictionary changes layout.
+
+The second prerequisite — record field access emitting a constraint rather than
+a hole — is untouched, so R6 remains blocked on it.
 
 ### Generalizing unannotated definitions: attempted, and what stopped it
 

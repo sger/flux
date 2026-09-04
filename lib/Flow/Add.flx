@@ -1,0 +1,25 @@
+/// Addition.
+///
+/// `+` desugars to `add`. Addition is the one arithmetic operator that is also
+/// defined on `String`, so it is its own class rather than a `Num` method:
+/// `String` gets `+` without thereby gaining `-`, `*` and `/`, and `Num` names
+/// `Add` as a superclass so a function constrained by `Num` alone can still
+/// add. As with `Eq` and `Ord`, a concrete primitive's operator lowers to a
+/// primop, so the instances below do not recurse.
+module Flow.Add {
+    public class Add<a> {
+        fn add(x: a, y: a) -> a
+    }
+
+    public instance Add<Int> {
+        fn add(x, y) { x + y }
+    }
+
+    public instance Add<Float> {
+        fn add(x, y) { x + y }
+    }
+
+    public instance Add<String> {
+        fn add(x, y) { x + y }
+    }
+}
