@@ -445,7 +445,6 @@ impl<'a> InferCtx<'a> {
                 type_args: type_args.clone(),
                 span,
                 origin,
-                originated_from_concrete_type: type_args.iter().all(Self::is_fully_concrete),
             });
         self.record_constraint(constraint::Constraint::Class {
             class_name,
@@ -476,7 +475,6 @@ impl<'a> InferCtx<'a> {
                     type_args: type_args.clone(),
                     span,
                     origin: constraint::WantedClassConstraintOrigin::SchemeUse,
-                    originated_from_concrete_type: true,
                 });
             self.record_constraint(constraint::Constraint::Class {
                 class_name: constraint.class_name,

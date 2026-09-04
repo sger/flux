@@ -506,7 +506,6 @@ mod tests {
             type_args,
             span: Span::default(),
             origin,
-            originated_from_concrete_type: false,
         }
     }
 
