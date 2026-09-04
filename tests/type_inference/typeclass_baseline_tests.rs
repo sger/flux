@@ -1003,3 +1003,100 @@ fn a_scheme_drops_a_predicate_its_superclass_already_supplies() {
          dictionary parameter: {signature}"
     );
 }
+
+/// Proposal 0183: a signature that names its context owns it.
+///
+/// `cmp` promises `MyEq<a>` and its body calls a `MyOrd` method. Inferring the
+/// missing predicate onto the scheme made the signature a suggestion and moved
+/// the error to whichever caller used a type without a `MyOrd` instance —
+/// a file the author of the mistake may never open. GHC reports it here, as
+/// case (P2) of Note [Constraints in partial type signatures].
+#[test]
+fn a_body_may_not_need_more_than_its_signature_declares() {
+    let source = r#"
+class MyEq<a> {
+    fn meq(x: a, y: a) -> Bool
+}
+
+class MyOrd<a> {
+    fn mlt(x: a, y: a) -> Bool
+}
+
+instance MyEq<Int> { fn meq(x, y) { x == y } }
+instance MyOrd<Int> { fn mlt(x, y) { x < y } }
+
+fn cmp<a: MyEq>(x: a, y: a) -> Bool {
+    mlt(x, y)
+}
+
+fn main() with IO { print(cmp(1, 2)) }
+"#;
+    let (program, mut compiler) = parse_source(source, "undeclared_context.flx");
+    let errors = compiler
+        .compile(&program)
+        .expect_err("a body needing more than its signature grants must not compile");
+
+    let deduce = errors
+        .iter()
+        .find(|diag| diag.code() == Some("E489"))
+        .unwrap_or_else(|| panic!("expected E489, got: {errors:?}"));
+    let message = deduce.message().unwrap_or_default();
+    assert!(
+        message.contains("MyOrd<a>") && message.contains("MyEq<a>"),
+        "the message names both the predicate and the context it was checked \
+         against, with the signature's own variable: {message}"
+    );
+}
+
+/// The other half of the same rule: a signature that names *no* bound has not
+/// specified a context, so inference still supplies one. Without this,
+/// `fn list_size<a>(value: List<a>)` would stop compiling.
+#[test]
+fn a_signature_without_bounds_still_infers_its_context() {
+    let output = run_fixture("structured_predicate.flx").unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(output.stdout, "7");
+}
+
+/// An instance context discharges a subgoal that is not ground.
+///
+/// `Dec<List<a>>`'s body decodes through a `Box`, so it needs `Dec<Box<a>>`,
+/// which reduces to the `Dec<a>` its own context grants. The instance search
+/// used to abandon any subgoal carrying a type variable — right only while
+/// there was no context to appeal to, and the reason `Flow.Json`'s
+/// `Decode<List<a>>` (which decodes through an array) stopped compiling when
+/// the residue was first reported.
+#[test]
+fn an_instance_context_discharges_a_non_ground_subgoal() {
+    let source = r#"
+class Dec<a> {
+    fn dec(x: Int) -> a
+}
+
+data Box<a> { Box(a) }
+
+instance Dec<Int> {
+    fn dec(x) { x }
+}
+
+instance Dec<a> => Dec<Box<a>> {
+    fn dec(x) { Box(dec(x)) }
+}
+
+instance Dec<a> => Dec<List<a>> {
+    fn dec(x) {
+        match dec(x) {
+            Box(v) -> [v]
+        }
+    }
+}
+
+fn main() with IO {
+    let xs: List<Int> = dec(1)
+    print(len(xs))
+}
+"#;
+    let (program, mut compiler) = parse_source(source, "non_ground_subgoal.flx");
+    compiler
+        .compile(&program)
+        .expect("a subgoal the instance context grants must resolve");
+}

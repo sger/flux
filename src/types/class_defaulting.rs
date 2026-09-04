@@ -275,8 +275,31 @@ fn collect_scheme_constraints(
 
     let (_deferred, retained) = split(constraints, env_free_vars, &quantified);
 
+    // A signature that names its context owns it. GHC's `decideQuantification`
+    // calls this case (P2) in Note [Constraints in partial type signatures]:
+    // "Quantify over psig_theta: the user has explicitly specified the entire
+    // context. That may mean we have an unsolved residual constraint (Ix a)
+    // arising from the RHS of the function. But so be it."
+    //
+    // Inferring the rest instead is how `fn cmp<a: MyEq>` whose body needs
+    // `MyOrd<a>` came to compile: the predicate was quietly added to the
+    // scheme, and the mismatch surfaced at whichever caller used a type
+    // without that instance. Leaving it out of the scheme leaves it a wanted
+    // inside the binding's scope, where it is reported against the context.
+    //
+    // A signature that names *no* bound is the other case: nothing was
+    // specified, so inference still supplies the context, which is what keeps
+    // `fn list_size<a>(value: List<a>)` working.
+    let declared_context = mode == GeneralizationMode::Definition
+        && constraints
+            .iter()
+            .any(|c| c.origin == WantedClassConstraintOrigin::ExplicitBound);
+
     let mut result: Vec<SchemeConstraint> = Vec::new();
     for constraint in retained {
+        if declared_context && constraint.origin != WantedClassConstraintOrigin::ExplicitBound {
+            continue;
+        }
         // Only obligations over variables this binding quantifies become
         // scheme constraints; a fully concrete predicate was already
         // discharged against an instance by the solver.
@@ -389,7 +412,8 @@ fn reduce_to_head_normal_form(
 ) -> Vec<SchemeConstraint> {
     let mut result: Vec<SchemeConstraint> = Vec::new();
     for constraint in constraints {
-        for reduced in reduce_one(constraint, class_env, interner, 0) {
+        let original = constraint.clone();
+        for reduced in reduce_one(&original, constraint, class_env, interner, 0) {
             if !result.contains(&reduced) {
                 result.push(reduced);
             }
@@ -398,15 +422,25 @@ fn reduce_to_head_normal_form(
     result
 }
 
+/// One reduction step. `original` is the predicate reduction started from, and
+/// is what an exhausted budget falls back to.
+///
+/// A context that grows its argument — `instance C<List<a>> => C<a>` — has no
+/// head-normal form, so reduction runs to the budget. Returning the predicate
+/// *as expanded at that depth* put a 64-deep nested type on the scheme, which
+/// then appeared verbatim in diagnostics. The un-reduced predicate is the
+/// honest answer: reduction achieved nothing, so it should change nothing.
 fn reduce_one(
+    original: &SchemeConstraint,
     constraint: SchemeConstraint,
     class_env: &ClassEnv,
     interner: &Interner,
     depth: usize,
 ) -> Vec<SchemeConstraint> {
-    if depth >= crate::types::class_env::MAX_DICTIONARY_RESOLUTION_DEPTH
-        || constraint_is_head_normal(&constraint)
-    {
+    if depth >= crate::types::class_env::MAX_DICTIONARY_RESOLUTION_DEPTH {
+        return vec![original.clone()];
+    }
+    if constraint_is_head_normal(&constraint) {
         return vec![constraint];
     }
 
@@ -449,7 +483,7 @@ fn reduce_one(
 
     context
         .into_iter()
-        .flat_map(|ctx| reduce_one(ctx, class_env, interner, depth + 1))
+        .flat_map(|ctx| reduce_one(original, ctx, class_env, interner, depth + 1))
         .collect()
 }
 

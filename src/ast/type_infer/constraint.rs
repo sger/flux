@@ -119,6 +119,14 @@ pub struct WantedConstraints {
 pub struct Implication {
     /// The context this scope may assume: the scheme's retained predicates.
     pub givens: Vec<SchemeConstraint>,
+    /// The type variables this binding quantified — GHC's `ic_skols`.
+    ///
+    /// A predicate over these can never be discharged later: the binding has
+    /// already generalized, and a caller supplies evidence only for what the
+    /// scheme asks. That is what makes it reportable here rather than deferred,
+    /// and what distinguishes it from a predicate over a variable inference
+    /// simply never resolved, which is ambiguity instead.
+    pub quantified: Vec<crate::types::TypeVarId>,
     /// Obligations raised inside the binding, still to be discharged.
     pub wanted: WantedConstraints,
     /// The binding this scope belongs to, for diagnostics.
@@ -215,6 +223,7 @@ mod tests {
     fn implication(binder: Identifier, wanted_set: WantedConstraints) -> Implication {
         Implication {
             givens: Vec::new(),
+            quantified: Vec::new(),
             wanted: wanted_set,
             span: Span::default(),
             binder,

@@ -30,7 +30,8 @@ use crate::{
 };
 
 use super::super::diagnostics::compiler_errors::{
-    INSTANCE_SEARCH_EXHAUSTED, NO_INSTANCE, OVERLAPPING_INSTANCES, UNDETERMINED_CLASS_PARAMETER,
+    COULD_NOT_DEDUCE, INSTANCE_SEARCH_EXHAUSTED, NO_INSTANCE, OVERLAPPING_INSTANCES,
+    UNDETERMINED_CLASS_PARAMETER,
 };
 
 /// Solve class constraints against known instances.
@@ -92,13 +93,20 @@ pub fn solve_wanted_tree(
     interner: &Interner,
 ) -> SolveOutcome {
     let mut dispositions = Vec::new();
-    solve_scope(wanted, &[], scope, class_env, interner, &mut dispositions);
+    solve_scope(
+        wanted,
+        &Enclosing::default(),
+        scope,
+        class_env,
+        interner,
+        &mut dispositions,
+    );
     SolveOutcome { dispositions }
 }
 
 fn solve_scope(
     wanted: &WantedConstraints,
-    givens: &[SchemeConstraint],
+    enclosing: &Enclosing<'_>,
     scope: SolveScope,
     class_env: &ClassEnv,
     interner: &Interner,
@@ -107,12 +115,16 @@ fn solve_scope(
     for constraint in &wanted.simple {
         out.push(DispositionedConstraint {
             wanted: constraint.clone(),
-            disposition: classify_constraint(constraint, givens, scope, class_env, interner),
+            disposition: classify_constraint(constraint, enclosing, scope, class_env, interner),
         });
     }
     for implication in &wanted.implications {
-        let mut nested = givens.to_vec();
-        nested.extend(implication.givens.iter().cloned());
+        let mut givens = enclosing.givens.to_vec();
+        givens.extend(implication.givens.iter().cloned());
+        let nested = Enclosing {
+            givens: &givens,
+            quantified: &implication.quantified,
+        };
         solve_scope(
             &implication.wanted,
             &nested,
@@ -121,6 +133,123 @@ fn solve_scope(
             interner,
             out,
         );
+    }
+}
+
+/// What the scope a predicate was raised in offers, and what it binds.
+///
+/// GHC's `Implication` carries `ic_given` and `ic_skols` together for the same
+/// reason: the givens say what may discharge a predicate, and the skolems say
+/// whether anything else ever could.
+#[derive(Debug, Clone, Copy, Default)]
+struct Enclosing<'a> {
+    /// Context available for discharge, accumulated outward-in.
+    givens: &'a [SchemeConstraint],
+    /// Type variables the enclosing binding quantified.
+    quantified: &'a [crate::types::TypeVarId],
+}
+
+/// Render a predicate with the enclosing scope's variables named.
+fn display_predicate_named(
+    class_name: Identifier,
+    type_args: &[InferType],
+    names: &HashMap<TypeVarId, String>,
+    interner: &Interner,
+) -> String {
+    let args = type_args
+        .iter()
+        .map(|ty| display_type_named(ty, names, interner))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{}<{args}>", interner.resolve(class_name))
+}
+
+/// Render a type, substituting the canonical name of any variable in `names`.
+fn display_type_named(
+    ty: &InferType,
+    names: &HashMap<TypeVarId, String>,
+    interner: &Interner,
+) -> String {
+    match ty {
+        InferType::Var(var) => names
+            .get(var)
+            .cloned()
+            .unwrap_or_else(|| display_type(ty, interner)),
+        InferType::App(constructor, args) if !args.is_empty() => format!(
+            "{}<{}>",
+            display_type(&InferType::App(constructor.clone(), Vec::new()), interner)
+                .trim_end_matches("<>"),
+            args.iter()
+                .map(|arg| display_type_named(arg, names, interner))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        _ => display_type(ty, interner),
+    }
+}
+
+/// The canonical display name for the n-th quantified variable: `a`, `b`, ….
+fn alpha_name(index: usize) -> String {
+    let letter = ((index % 26) as u8 + b'a') as char;
+    let suffix = index / 26;
+    if suffix == 0 {
+        letter.to_string()
+    } else {
+        format!("{letter}{suffix}")
+    }
+}
+
+/// Report a predicate the enclosing signature does not promise.
+///
+/// Names the context so the reader can see what *was* promised; an empty one is
+/// spelled out rather than rendered as `` so the message stays readable.
+fn could_not_deduce(
+    constraint: &WantedClassConstraint,
+    enclosing: &Enclosing<'_>,
+    interner: &Interner,
+) -> Disposition {
+    // The binding's own variables get their canonical `a`, `b`, … names, in
+    // quantification order. Rendered raw they all print as `_`, so
+    // "Could not deduce `MyOrd<_>` from the context `MyEq<_>`" would not even
+    // say whether the two mention the same variable.
+    let names: HashMap<TypeVarId, String> = enclosing
+        .quantified
+        .iter()
+        .enumerate()
+        .map(|(index, var)| (*var, alpha_name(index)))
+        .collect();
+
+    let wanted = display_predicate_named(
+        constraint.class_name,
+        &constraint.type_args,
+        &names,
+        interner,
+    );
+    let context = if enclosing.givens.is_empty() {
+        "no constraints".to_string()
+    } else {
+        enclosing
+            .givens
+            .iter()
+            .map(|given| {
+                display_predicate_named(given.class_name, &given.type_args, &names, interner)
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+
+    Disposition::Diagnosed {
+        diagnostic: Box::new(
+            diagnostic_for(&COULD_NOT_DEDUCE)
+                .with_span(constraint.span)
+                .with_message(format!(
+                    "Could not deduce `{wanted}` from the context `{context}`."
+                ))
+                .with_hint_text(format!(
+                    "Add `{}` to the bounds this signature declares.",
+                    interner.resolve(constraint.class_name)
+                )),
+        ),
     }
 }
 
@@ -134,18 +263,19 @@ fn solve_scope(
 /// Matching is syntactic on the type arguments, which is what THIH does: a
 /// given is a promise about exactly the type it names.
 fn entailed_by_givens(
-    constraint: &WantedClassConstraint,
+    class_id: crate::types::class_id::ClassId,
+    type_args: &[InferType],
     givens: &[SchemeConstraint],
     class_env: &ClassEnv,
 ) -> Option<Evidence> {
     givens
         .iter()
-        .filter(|given| given.type_args == constraint.type_args)
+        .filter(|given| given.type_args == type_args)
         .find_map(|given| {
-            let path = if given.class_id == constraint.class_id {
+            let path = if given.class_id == class_id {
                 Vec::new()
             } else {
-                class_env.superclass_path(given.class_id, constraint.class_id)?
+                class_env.superclass_path(given.class_id, class_id)?
             };
             Some(Evidence::FromGiven {
                 given: given.clone(),
@@ -175,7 +305,13 @@ pub fn solve_class_constraints_dispositioned(
         .iter()
         .map(|constraint| DispositionedConstraint {
             wanted: constraint.clone(),
-            disposition: classify_constraint(constraint, &[], scope, class_env, interner),
+            disposition: classify_constraint(
+                constraint,
+                &Enclosing::default(),
+                scope,
+                class_env,
+                interner,
+            ),
         })
         .collect();
 
@@ -194,7 +330,7 @@ pub fn solve_class_constraints_dispositioned(
 /// reason a predicate went undecided is now recorded rather than lost.
 fn classify_constraint(
     constraint: &WantedClassConstraint,
-    givens: &[SchemeConstraint],
+    enclosing: &Enclosing<'_>,
     scope: SolveScope,
     class_env: &ClassEnv,
     interner: &Interner,
@@ -204,7 +340,12 @@ fn classify_constraint(
     // concreteness first would misfile it. `Num<a>` inside `fn f<a: Num>` is
     // the case that matters — no instance matches a rigid variable, so before
     // this it could only be recorded as undecided.
-    if let Some(evidence) = entailed_by_givens(constraint, givens, class_env) {
+    if let Some(evidence) = entailed_by_givens(
+        constraint.class_id,
+        &constraint.type_args,
+        enclosing.givens,
+        class_env,
+    ) {
         return Disposition::Solved { evidence };
     }
 
@@ -227,11 +368,37 @@ fn classify_constraint(
         };
     }
 
+    // A predicate whose variables the enclosing binding all *quantified* has
+    // one chance left: an instance may still match it — THIH's `byInst` does
+    // not require ground arguments, which is what lets an instance method call
+    // a sibling on its own head. So it skips the "not concrete, give up" exit
+    // below and goes to the instance search, and is reported only if that also
+    // finds nothing.
+    //
+    // Only when *every* variable involved is quantified here. One that is not
+    // is a variable inference never resolved, which is ambiguity — a different
+    // fact, reported elsewhere.
+    //
+    // A predicate the signature *declares* is excluded: `E489` is about a body
+    // asking for more than its signature grants, and a declared bound is the
+    // signature. Whether a written bound is itself satisfiable is a separate
+    // question — an instance context like `Semigroup<Option<a>> =>` is
+    // discharged by the instance the context names, not by the scope it sits
+    // in — and answering it here would report the declaration as if the body
+    // had overreached.
+    let over_quantified = !enclosing.quantified.is_empty()
+        && constraint.origin != WantedClassConstraintOrigin::ExplicitBound
+        && constraint
+            .type_args
+            .iter()
+            .flat_map(InferType::free_vars)
+            .all(|var| enclosing.quantified.contains(&var));
+
     // Only check concrete types by default — variables are left unsolved
     // for now. Function-shaped type arguments are already specific enough
     // to reject for marker classes like `Sendable`, even if their inner
     // parameter/return slots still contain variables.
-    if !constraint.type_args.iter().all(is_solvable_type_arg) {
+    if !over_quantified && !constraint.type_args.iter().all(is_solvable_type_arg) {
         return Disposition::Stuck {
             reason: match scope {
                 // A binding may still quantify this variable, in which case
@@ -260,7 +427,10 @@ fn classify_constraint(
         };
     }
 
-    let mut search = InstanceSearch::default();
+    let mut search = InstanceSearch {
+        givens: enclosing.givens,
+        ..InstanceSearch::default()
+    };
     let evidence = solve_instance_evidence(
         constraint.class_id,
         &constraint.type_args,
@@ -312,6 +482,14 @@ fn classify_constraint(
         return Disposition::Solved { evidence };
     }
 
+    // Nothing discharged it, and nothing ever will: the binding has already
+    // generalized, so no later scope can supply evidence for a variable it
+    // quantified. GHC reports this from inside the implication as
+    // "Could not deduce (C a) from the context ...".
+    if over_quantified && !constraint.type_args.iter().all(is_solvable_type_arg) {
+        return could_not_deduce(constraint, enclosing, interner);
+    }
+
     let type_display = display_type_args(&constraint.type_args, interner);
     let class_display = interner.resolve(constraint.class_name);
 
@@ -356,7 +534,9 @@ fn classify_constraint(
 /// The state of one instance search: the path being explored, and whether the
 /// depth budget was ever hit while exploring it.
 #[derive(Debug, Default)]
-struct InstanceSearch {
+struct InstanceSearch<'a> {
+    /// The context every subgoal may be discharged against.
+    givens: &'a [SchemeConstraint],
     /// Predicates on the current path, for cycle detection.
     seen: HashSet<String>,
     /// Set when the budget cut a branch short, so the caller can say the
@@ -369,8 +549,18 @@ fn solve_instance_evidence(
     type_args: &[InferType],
     class_env: &ClassEnv,
     interner: &Interner,
-    search: &mut InstanceSearch,
+    search: &mut InstanceSearch<'_>,
 ) -> Option<Evidence> {
+    // THIH's `entail` in full: a predicate holds if the context proves it, or
+    // if an instance matches and the context proves *its* subgoals —
+    // `entail ps p = any (elem p . bySuper ce) ps || case byInst ce p of
+    // Just qs -> all (entail ps) qs`. Checking the givens only at the top
+    // would leave an instance context like `Eq<a> => Eq<List<a>>` unable to
+    // discharge the `Eq<a>` its own methods rest on.
+    if let Some(evidence) = entailed_by_givens(class_id, type_args, search.givens, class_env) {
+        return Some(evidence);
+    }
+
     let class_module = class_id
         .module
         .as_identifier()
@@ -431,14 +621,25 @@ fn solve_instance_evidence(
                     .iter()
                     .map(|arg| instantiate_context_type_expr(arg, &subst, interner))
                     .collect::<Option<_>>()?;
-                if !args.iter().all(is_concrete_type) {
-                    return None;
-                }
                 let context_id = instance
                     .context_class_ids
                     .get(index)
                     .copied()
                     .or_else(|| class_env.unique_class_id(ctx.class_name))?;
+                // A subgoal over a type variable used to end the search: with
+                // no context to appeal to, nothing could ever discharge it.
+                // A scope's givens are exactly that context — THIH's `entail`
+                // recurses on subgoals whether or not they are ground — so the
+                // guard now only stops a subgoal no given can reach.
+                // `instance Dec<a> => Dec<Array<a>>` used from inside
+                // `instance Dec<a> => Dec<List<a>>` is the case: the subgoal is
+                // `Dec<a>`, which is precisely what the enclosing instance
+                // context grants.
+                if !args.iter().all(is_concrete_type)
+                    && entailed_by_givens(context_id, &args, search.givens, class_env).is_none()
+                {
+                    return None;
+                }
                 solve_instance_evidence(context_id, &args, class_env, interner, search)
             })
             .collect::<Option<Vec<_>>>()?;
@@ -477,7 +678,7 @@ fn structural_builtin_evidence(
     type_args: &[InferType],
     class_env: &ClassEnv,
     interner: &Interner,
-    search: &mut InstanceSearch,
+    search: &mut InstanceSearch<'_>,
 ) -> Option<Vec<Evidence>> {
     let class_name = interner.resolve(class_id.name);
     if !class_env
@@ -490,7 +691,7 @@ fn structural_builtin_evidence(
         return None;
     }
 
-    let components = |args: &[InferType], search: &mut InstanceSearch| {
+    let components = |args: &[InferType], search: &mut InstanceSearch<'_>| {
         args.iter()
             .map(|arg| single_evidence(class_name, arg, class_env, interner, search))
             .collect::<Option<Vec<_>>>()
@@ -521,7 +722,7 @@ fn single_evidence(
     ty: &InferType,
     class_env: &ClassEnv,
     interner: &Interner,
-    search: &mut InstanceSearch,
+    search: &mut InstanceSearch<'_>,
 ) -> Option<Evidence> {
     let class_id = class_env
         .classes
