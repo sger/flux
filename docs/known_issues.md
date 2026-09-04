@@ -2747,18 +2747,29 @@ The failure is at run time: `square` is `None` when `d`'s initializer runs, so
 the binding order between top-level value defs and rewritten `letrec` functions
 is wrong. Isolating it:
 
-| program | top-level `let` calls | dictionaries present | result |
-|---|---|---|---|
-| a | an unconstrained function | no | works |
-| b | *(call inside `main` instead)* | yes | works |
-| c | an unconstrained function | yes | works |
-| d | **a constrained function** | yes | **fails** |
+| top-level `let` calls | dictionaries present | result |
+|---|---|---|
+| an unconstrained function (`x * x`) | no | works |
+| an unconstrained, non-foldable function (`match` over a `List`) | no | works |
+| an unconstrained function | yes | works |
+| *(the constrained call moved inside `main`)* | yes | works |
+| a constrained function, result annotated `Int` | yes | **fails** |
+| a constrained function using `+` rather than `*` | yes | **fails** |
+| **a constrained function** | yes | **fails** |
 
-Row (c) rules out the prepended dictionary defs on their own, and row (b) rules
-out the constrained function on its own. Only a top-level value def *calling* a
-function that dictionary elaboration rewrote fails — which points at the point
-where rewritten `letrec` functions are bound relative to value defs, not at the
-elaboration.
+Row 3 rules out the prepended dictionary defs on their own; row 4 rules out the
+constrained function on its own; row 2 rules out constant folding as the reason
+the unconstrained cases pass. Neither annotating the result nor changing which
+class is involved makes any difference.
+
+So the failing combination is precisely *a top-level value def calling a
+function that dictionary elaboration rewrote*. Lowering (`lower_program` in
+`src/core/to_ir/mod.rs`) seeds every def whose expr is a `Lam` into the entry
+function with `LoadName`, then lowers value defs into that same entry function
+in `core.defs` order — and a rewritten constrained function is still a `Lam`, so
+on the face of it it should be seeded like any other. Where that breaks down is
+the open question; it is somewhere between this seeding and the VM's global
+initialisation, not in Core.
 
 `tests/parity/toplevel_pure_expression.flx` carries a comment describing the
 same symptom for the native backend, so this is likely one bug seen from two
