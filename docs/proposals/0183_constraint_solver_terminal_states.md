@@ -48,11 +48,21 @@ Seven items, in dependency order. Everything above this line is shipped.
 
 **1. Fix [KI-083](../known_issues.md#ki-083) — a top-level `let` cannot call a
 constrained function.** *Blocks R6.* A live correctness bug on annotated code
-today, independent of this proposal; R6 merely makes it universal. Isolated to
-the seam between lowering's seeding of `Lam`-valued defs and the VM's global
-initialisation. Note the VM path runs `lower_aether_program`, which carries its
-*own* copy of the seeding loop over `aether.defs()` — instrumenting
-`lower_program` traces nothing.
+today, independent of this proposal; R6 merely makes it universal.
+
+The failing callee is the *dictionary constructor*
+(`__dict_..._Num_Int`, one argument), not the user's function — the reported
+span belongs to the enclosing call. Its global slot is defined but never
+assigned, so reading it yields `None`. Current lead: `cfg_bytecode.rs` — the
+CFG→bytecode compiler the VM path uses — never emits `OpSetGlobal` at all;
+every such emission lives in the AST-based `statement.rs`/`expression.rs`
+paths, which only see functions that exist in the AST. A synthesized dictionary
+constructor does not. `ir_lowering.rs` already special-cases `__dict_*` names to
+*define* their symbols without giving them values, which is the same asymmetry
+seen from the other end.
+
+Four hypotheses are already ruled out; see
+[KI-083](../known_issues.md#ki-083) before re-deriving them.
 
 **2. Fix [KI-082](../known_issues.md#ki-082) — a generalized function masks an
 arity error.** `add(1, 2, 3)` reports `E430` instead of `E056`. Diagnostic
