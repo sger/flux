@@ -81,7 +81,7 @@ impl<'a> InferCtx<'a> {
     /// Return the current index into `class_constraints` so one function can
     /// later slice out only the obligations it introduced during inference.
     fn binding_constraint_start(&self) -> usize {
-        self.class_constraints.len()
+        self.class_constraints.emitted()
     }
 
     /// Return whether this function qualifies for the extra self-recursive
@@ -520,7 +520,7 @@ impl<'a> InferCtx<'a> {
         self.env.leave_scope();
 
         let scheme = if !type_params.is_empty() {
-            let relevant_constraints = self.class_constraints[constraint_start..].to_vec();
+            let relevant_constraints = self.class_constraints.captured_since(constraint_start);
             self.finalize_binding_scheme(
                 &fn_ty,
                 &relevant_constraints,
