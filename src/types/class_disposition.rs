@@ -115,10 +115,6 @@ pub enum StuckReason {
     /// Emitted by compiler-generated code (dispatch shims and similar), which
     /// carries a default span and so is not attributable to user source.
     SyntheticOrigin,
-    /// An operator-derived predicate whose type was not concrete when it was
-    /// emitted. Retained here so the count is visible; Stage 3 narrows this
-    /// case as the generalization fixes land.
-    NonConcreteOperator,
     /// A type argument was still polymorphic at whole-program scope, where
     /// nothing remains to generalize it. Distinct from
     /// [`StuckReason::OuterScopeVariable`], which is recoverable by an
@@ -333,7 +329,6 @@ mod tests {
             type_args: vec![InferType::Con(TypeConstructor::Int)],
             span: Span::default(),
             origin: WantedClassConstraintOrigin::ExplicitBound,
-            originated_from_concrete_type: true,
         }
     }
 
