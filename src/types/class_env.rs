@@ -2922,6 +2922,12 @@ impl ClassEnv {
     pub fn register_prelude_classes(&mut self, interner: &mut Interner) -> Vec<Diagnostic> {
         use crate::syntax::{lexer::Lexer, parser::Parser};
 
+        // The reserved owning module for field predicates (Proposal 0184).
+        // Interned here because it must exist before inference runs and this is
+        // the one place that both always runs and holds the interner mutably;
+        // `InferCtx` only ever looks it up.
+        interner.intern(crate::types::class_id::FIELD_PREDICATE_MODULE);
+
         const PRELUDE_CLASS_SOURCES: &[(&str, &str)] = &[
             ("Eq", include_str!("../../lib/Flow/Eq.flx")),
             ("Ord", include_str!("../../lib/Flow/Ord.flx")),

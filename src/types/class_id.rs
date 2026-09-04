@@ -64,6 +64,15 @@ impl ModulePath {
     }
 }
 
+/// The reserved owning module for field-access predicates (Proposal 0184).
+///
+/// `r.name` raises the predicate `__field.name<R, T>`: the field name lives in
+/// the predicate's *identity* rather than in a type argument, because Flux has
+/// no type-level strings. A reserved module keeps these off the orphan rules
+/// and out of the surface language — no user module can be called `__field`,
+/// since a module name cannot begin with an underscore.
+pub const FIELD_PREDICATE_MODULE: &str = "__field";
+
 /// A globally-unique class identity: `(owning module, class name)`.
 ///
 /// Two classes with the same short name in different modules are distinct

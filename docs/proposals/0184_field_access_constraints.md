@@ -139,8 +139,8 @@ the hole never could.
 
 ### Two stages
 
-**Stage 1 — emit and report.** Field access emits the predicate; the fallback
-variable at that site is deleted. `collect_scheme_constraints` does *not* retain
+**Stage 1 — emit and report.** *(Shipped.)* Field access emits the predicate;
+the fallback variable at that site is deleted. `collect_scheme_constraints` does *not* retain
 `HasField`, so nothing generalizes over it, and an undischarged one at
 whole-program scope is reported. This alone removes the hole and gives 0183 the
 terminal state it needs, with no change to lowering: every predicate that
@@ -157,6 +157,40 @@ separable and should not block Stage 1.
 Proposal 0183's R6 needs unannotated definitions to generalize, which needs
 Stage 1 (so field access no longer depends on call-site unification) and,
 for functions that are genuinely record-polymorphic, Stage 2.
+
+### Stage 1 as shipped
+
+Discharge runs as a pass at the end of inference (`discharge_field_predicates`
+in `src/ast/type_infer/mod.rs`) rather than inside `classify_constraint`. Two
+reasons: the tables saying which variants carry which field live on `InferCtx`,
+not on the `ClassEnv` the solver holds; and by the end of inference every
+receiver any call site determines *is* determined, which is exactly when the
+question can be answered. The predicates are removed from the wanted set either
+way — they carry no dictionary and the class solver has no rule for them.
+
+The predicate is raised only for a receiver whose type is still a variable, and
+only when the receiver is bound as a value. `a.b` is also the syntax for
+reaching into a module, and an unresolved module member falls through to the
+same code path — a missing, private or misspelled import, already reported as
+`E011`/`E012`/`E013`. Measured: without those two guards, 30 of 1,305 programs
+gained a spurious `E490`, `lib/Flume/*` among them; with them, **zero programs
+change**. The cases that forced each guard are `Lock.lock(..)`, where `Lock`
+names both a module alias and a constructor, and `Parse.here(..)`, a module
+referred to from inside its own body, which has neither a binding nor a type.
+
+`E490` is reported at the access, naming the field and the receiver:
+
+```
+error[E490]: Unresolved Field Receiver
+Cannot tell which type this is, so the field `name` cannot be resolved. Inferred receiver: `_`.
+  fld2.flx:1:15
+1 | fn label(r) { r.name }
+  |               ^^^^^^
+```
+
+Stage 2 — letting a scheme carry the predicate, so `fn label(r) { r.name }` is
+genuinely record-polymorphic — is not implemented. Its evidence has runtime
+content (an accessor), where Stage 1's is purely static.
 
 ## Drawbacks
 [drawbacks]: #drawbacks

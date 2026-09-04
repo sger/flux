@@ -69,7 +69,12 @@ pub enum WantedClassConstraintOrigin {
     InferredOperator,
     MethodCall,
     SchemeUse,
-    TaskSpawnCapture { capture_name: Identifier },
+    /// `record.field` on a receiver whose type was not yet known
+    /// (Proposal 0184). Two type arguments: the receiver and the field type.
+    FieldAccess,
+    TaskSpawnCapture {
+        capture_name: Identifier,
+    },
 }
 
 #[derive(Debug, Clone)]
