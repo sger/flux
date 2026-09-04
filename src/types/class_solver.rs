@@ -208,17 +208,6 @@ fn classify_constraint(
         return Disposition::Solved { evidence };
     }
 
-    // Operator constraints that originated from unresolved type variables
-    // should not become standalone missing-instance diagnostics just
-    // because later inference happened to concretize them.
-    if constraint.origin == WantedClassConstraintOrigin::InferredOperator
-        && !constraint.originated_from_concrete_type
-    {
-        return Disposition::Stuck {
-            reason: StuckReason::NonConcreteOperator,
-        };
-    }
-
     // A class-method call whose predicate still has an undetermined slot can
     // only be dispatched if the slots it *did* fix single out one instance.
     // When several remain compatible, the call has no way to choose, and
@@ -853,7 +842,6 @@ mod tests {
             type_args,
             span: Span::new(Position::new(1, 0), Position::new(1, 4)),
             origin: WantedClassConstraintOrigin::MethodCall,
-            originated_from_concrete_type: true,
         }
     }
 

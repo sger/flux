@@ -86,8 +86,6 @@ pub struct WantedClassConstraint {
     pub span: Span,
     /// Why this constraint was emitted.
     pub origin: WantedClassConstraintOrigin,
-    /// Whether the constraint was emitted from an already-concrete type.
-    pub originated_from_concrete_type: bool,
 }
 
 /// A wanted set, shaped as a tree rather than a list (Proposal 0183, R1).
@@ -211,7 +209,6 @@ mod tests {
             type_args: vec![InferType::Con(TypeConstructor::Int)],
             span: Span::default(),
             origin: WantedClassConstraintOrigin::ExplicitBound,
-            originated_from_concrete_type: true,
         }
     }
 

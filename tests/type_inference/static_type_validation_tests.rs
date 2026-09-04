@@ -1028,7 +1028,6 @@ instance Sizeable<Int> {
             },
         },
         origin: flux::ast::type_infer::constraint::WantedClassConstraintOrigin::ExplicitBound,
-        originated_from_concrete_type: true,
     };
 
     let diags = solve_class_constraints(&[constraint], &env, &interner);
@@ -1068,7 +1067,6 @@ class Sizeable<a> {
             },
         },
         origin: flux::ast::type_infer::constraint::WantedClassConstraintOrigin::ExplicitBound,
-        originated_from_concrete_type: false,
     };
 
     let diags = solve_class_constraints(&[constraint], &env, &interner);
