@@ -1,0 +1,50 @@
+// Proposal 0183 baseline: a function the program defines wins over a class
+// method of the same name, on every backend.
+//
+// `Flow.Add` (added by 0183, so `String` can have `+` without `-`, `*` and
+// `/`) declares `add`; `Flow.Eq`, `Flow.Ord` and `Flow.Show` declare `eq`,
+// `compare` and `show`. Every module gets those classes, so a program that
+// defines its own `add` binds a name a class also claims.
+//
+// Type inference has always resolved this correctly — `class_method_call_info`
+// declines once the name has a real binding — but Core lowering and the
+// bytecode compiler each re-derived dispatch from the bare name alone and
+// rewrote the call to `__tc_<Class>_<Type>_<name>`. The result was a silent
+// wrong answer whenever an instance happened to apply: `add("a", "b")` returned
+// `"ab"` rather than calling the function two lines above it. Each case below
+// is written so the class method and the user's function disagree.
+//
+// KI-065 fixed the sibling-member case at symbol resolution; this is the same
+// collision at the dispatch sites. See docs/known_issues.md#ki-085.
+//
+// Expected: [a|b] false 7 <Color>
+
+data Color { Red, Blue }
+
+/// `Add<String>` would concatenate; this brackets.
+fn add(a: String, b: String) -> String {
+    "[" + a + "|" + b + "]"
+}
+
+/// `Eq<Int>` would say `true`; this says `false`.
+fn eq(a: Int, b: Int) -> Bool {
+    a != b
+}
+
+/// `Ord<Int>` would say `-1`; this says `7`.
+fn compare(a: Int, b: Int) -> Int {
+    a + b
+}
+
+/// `Show<Color>` is not declared here at all, so only the user's function can
+/// answer — the case that already worked, kept so a fix cannot break it.
+fn show(c: Color) -> String {
+    "<Color>"
+}
+
+fn main() {
+    print(add("a", "b"))
+    print(eq(4, 4))
+    print(compare(3, 4))
+    print(show(Red))
+}

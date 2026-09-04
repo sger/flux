@@ -4743,6 +4743,17 @@ impl Compiler {
         if self.class_env.classes.is_empty() {
             return None;
         }
+        // A bare name this unit binds to its own function is that function, not
+        // a class method that happens to share the name. `LowerCtx` declines
+        // the same call for the same reason, and type inference never treated
+        // it as a class method at all — without this the VM alone rewrites it
+        // to `__tc_<Class>_<Type>_<name>` and silently computes something else.
+        // A *qualified* call still dispatches: it names the class outright,
+        // which is why the guard is here and not in
+        // `try_resolve_class_method_call_for_id`.
+        if self.user_function_names.contains(&name) {
+            return None;
+        }
         let class_id = self.class_env.resolve_method_class_id(
             self.current_module_prefix
                 .map(crate::types::class_id::ModulePath::from_identifier)
