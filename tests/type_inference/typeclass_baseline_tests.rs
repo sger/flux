@@ -462,6 +462,10 @@ fn superclass_evidence_is_supplied_without_an_explicit_context() {
 /// never repeats a predicate, so the cycle check cannot see it; only the depth
 /// budget stops it. Before that budget existed this overflowed the compiler's
 /// stack and aborted the process.
+///
+/// Proposal 0183 R3 gave exhaustion its own code: the search was *abandoned*,
+/// which is not the same fact as no instance existing, and reporting E444 sent
+/// the reader looking for an instance that may well be there.
 #[test]
 fn a_growing_instance_context_terminates() {
     let source = r#"
@@ -482,8 +486,8 @@ fn main() { use_it(1) }
         .compile(&program)
         .expect_err("a context with no finite evidence tree must not resolve");
     assert!(
-        errors.iter().any(|diag| diag.code() == Some("E444")),
-        "a non-terminating context should report no instance, got: {errors:?}"
+        errors.iter().any(|diag| diag.code() == Some("E488")),
+        "a non-terminating context should report an exhausted search, got: {errors:?}"
     );
 }
 
@@ -959,4 +963,43 @@ fn a_superclass_obligation_does_not_depend_on_declaration_order() {
     let output =
         run_fixture("superclass_order_independent.flx").unwrap_or_else(|error| panic!("{error}"));
     assert_eq!(output.stdout, "500\n5");
+}
+
+/// Proposal 0183: a scheme keeps only the predicates nothing else implies.
+///
+/// `mconcat<a: Monoid>` raises `Semigroup<a>` in its body, and every `Monoid`
+/// dictionary already carries `Semigroup` evidence in a superclass slot. Before
+/// GHC's `mkMinimalBySCs` was applied the scheme retained both, so the function
+/// took two dictionary parameters and every caller passed evidence it was
+/// already handing over.
+#[test]
+fn a_scheme_drops_a_predicate_its_superclass_already_supplies() {
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(workspace_root())
+        .args([
+            "--dump-core",
+            fixture_path("semigroup_monoid.flx")
+                .to_str()
+                .expect("fixture path is UTF-8"),
+            "--no-cache",
+        ])
+        .output()
+        .expect("dump core for the Monoid fixture");
+    let dump = String::from_utf8_lossy(&output.stdout);
+
+    let signature = dump
+        .lines()
+        .skip_while(|line| !line.starts_with("letrec mconcat"))
+        .nth(1)
+        .expect("mconcat is lowered with a parameter list");
+
+    assert!(
+        signature.contains("_Monoid"),
+        "mconcat keeps the context it declared: {signature}"
+    );
+    assert!(
+        !signature.contains("_Semigroup"),
+        "Semigroup is implied by Monoid and must not become a second \
+         dictionary parameter: {signature}"
+    );
 }

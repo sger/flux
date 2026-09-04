@@ -311,9 +311,47 @@ fn collect_scheme_constraints(
     }
 
     match class_env {
-        Some(class_env) => reduce_to_head_normal_form(result, class_env, interner),
+        Some(class_env) => {
+            let reduced = reduce_to_head_normal_form(result, class_env, interner);
+            retain_minimal_by_superclasses(reduced, class_env)
+        }
         None => result,
     }
+}
+
+/// Drop a retained predicate that another retained predicate already implies.
+///
+/// GHC's `mkMinimalBySCs`, called from `decideQuantification`
+/// (`compiler/GHC/Tc/Solver.hs`). Keeping both `Monoid<a>` and its superclass
+/// `Semigroup<a>` on a scheme asks every caller for two dictionaries when one
+/// carries the other: every `Monoid` dictionary holds `Semigroup` evidence in a
+/// superclass slot, which is where the body should project it from.
+///
+/// Only predicates over the *same* type arguments imply one another, so
+/// `Monoid<a>` says nothing about `Semigroup<b>`. Superclass cycles are already
+/// rejected as E477, so no pair can eliminate each other.
+fn retain_minimal_by_superclasses(
+    constraints: Vec<SchemeConstraint>,
+    class_env: &ClassEnv,
+) -> Vec<SchemeConstraint> {
+    let implied: Vec<bool> = constraints
+        .iter()
+        .map(|candidate| {
+            constraints.iter().any(|other| {
+                other != candidate
+                    && other.type_args == candidate.type_args
+                    && class_env
+                        .superclass_path(other.class_id, candidate.class_id)
+                        .is_some()
+            })
+        })
+        .collect();
+
+    constraints
+        .into_iter()
+        .zip(implied)
+        .filter_map(|(constraint, is_implied)| (!is_implied).then_some(constraint))
+        .collect()
 }
 
 /// Whether every argument of `constraint` is headed by a type variable.
