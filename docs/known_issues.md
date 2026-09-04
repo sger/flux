@@ -2703,6 +2703,57 @@ in the CFG path's binder-id seeding and is fixed (see the commit that added this
 entry). The generalization patch itself is kept at
 `scratchpad/r6-generalize-unannotated.patch`.
 
+### KI-084 — A bare `Compiler` cannot build a dictionary for a contextual prelude instance
+
+**Severity:** Low · **Area:** Compiler harness / LSP · **Verified:** 2026-09-04 · **From:** Proposal 0183
+
+A `Compiler` built directly — `Compiler::new_with_interner` plus
+`compile_with_opts`, with no module graph — rejects any program that needs a
+dictionary for a *contextual* instance of a prelude class:
+
+```flux
+fn big<A: Ord>(x: A, y: A) -> Bool { x < y }
+
+fn main() { big(8, 2) }
+```
+
+```
+error[E004]: I can't find a value named `__dict_m8_466C6F772E4F7264_Ord_Int`.
+```
+
+The same program compiles and runs through the driver, which is the path the
+CLI, the test runner and every real compilation take. Only the bare-`Compiler`
+harness is affected: unit tests that build one directly, and the LSP's
+"view Core IR" / "view bytecode" commands (`crates/flux-lsp/src/handlers/view.rs`),
+which show the error text in place of the dump. Ordinary LSP diagnostics,
+hovers and completion do not use it.
+
+**Cause.** `ClassEnv::register_prelude_classes` parses `lib/Flow/Eq.flx` and its
+siblings for their *declarations*, so the class environment knows every prelude
+class and instance. It never compiles their *bodies*, so no
+`__tc_<class>_<type>_<method>` symbol is interned. `emit_dictionary_defs`
+(`src/core/passes/dict_elaborate.rs`) needs all of a dictionary's slots or none
+— a short tuple would read every later slot at the wrong index — so it emits no
+def for any prelude instance. For a plain instance that is harmless: the
+dictionary is a tuple of external references and the reference resolves against
+the predeclared global. For a contextual instance the dictionary is a
+*constructor*, the reference is a call, and nothing defines it.
+
+`Compiler::predeclare_instance_dictionary_globals` does not cover the gap: it
+demands only classes some *visible* binding constrains, and in this harness
+`type_env.visible_bindings()` is empty at Phase 2. Declaring a global for every
+known instance closes the error, but the global is then never stored, which
+turns a compile error into a run-time nil — worse, not better.
+
+**Not a regression.** `Ord` has had this since Proposal 0179 Stage 8 made it
+`Eq<a> => Ord<a>`; verified failing at `f8d8f585^`. Proposal 0183 moved `Num`
+into the same position by giving it `Add` as a superclass, which is why
+`tests/type_inference/constrained_type_params_integration.rs` now runs its two
+`Num` cases through the driver, as the `Ord` case already did.
+
+**Fix would be** to compile the prelude bodies in this harness, or to fall back
+to direct dispatch when a unit cannot define the dictionary it references.
+
 ### KI-083 — A top-level `let` cannot call a constrained function
 
 **Severity:** Medium · **Area:** Core lowering / VM · **Verified:** 2026-09-04 · **From:** Proposal 0183, R6
