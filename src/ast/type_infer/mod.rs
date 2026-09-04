@@ -253,6 +253,7 @@ struct InferCtx<'a> {
     class_sym_eq: Option<Identifier>,
     class_sym_ord: Option<Identifier>,
     class_sym_num: Option<Identifier>,
+    class_sym_add: Option<Identifier>,
     class_sym_semigroup: Option<Identifier>,
     /// Typed holes (`_` / `_name`) recorded during inference. Finalized in
     /// [`build_infer_result`] into `TYPED HOLE` diagnostics once the substitution
@@ -341,6 +342,7 @@ impl<'a> InferCtx<'a> {
             class_sym_eq: None,
             class_sym_ord: None,
             class_sym_num: None,
+            class_sym_add: None,
             class_sym_semigroup: None,
             holes: Vec::new(),
         }
@@ -1023,6 +1025,7 @@ fn init_class_env(
                 "Eq" => ctx.class_sym_eq = Some(class_name),
                 "Ord" => ctx.class_sym_ord = Some(class_name),
                 "Num" => ctx.class_sym_num = Some(class_name),
+                "Add" => ctx.class_sym_add = Some(class_name),
                 "Semigroup" => ctx.class_sym_semigroup = Some(class_name),
                 _ => {}
             }

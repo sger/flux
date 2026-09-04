@@ -1101,17 +1101,14 @@ fn main() with IO {
         .expect("a subgoal the instance context grants must resolve");
 }
 
-/// `+` is overloaded over `Num` *and* `String`, and the solver has to apply
-/// the string half to an operand whose type only became known later.
+/// `+` resolves at `String` even when the operand's type arrives later.
 ///
-/// `infer_add_operator` decides this itself when the operand type is already
-/// concrete at emission, so `"a" + "b"` always worked. In a lambda handed to a
-/// higher-order function both operands are still variables when the operator
-/// is inferred, so a `Num` obligation is emitted and only afterwards resolved
-/// to `String`. Classifying that obligation on its substituted type — which is
-/// the point of deciding on the type as it is now — reported `Num<String>` as
-/// a missing instance until the addition overload was recorded on the
-/// constraint.
+/// In a lambda handed to a higher-order function both operands are still
+/// variables when the operator is inferred, so the obligation is emitted over
+/// a variable and only afterwards resolved to `String`. While `+` was a `Num`
+/// method this reported `Num<String>` as a missing instance; `Flow.Add` gives
+/// it a real instance to match, so the type it acquires later is one the
+/// solver can discharge.
 #[test]
 fn addition_over_strings_survives_a_deferred_operand() {
     let source = r#"
@@ -1127,9 +1124,9 @@ fn main() with IO {
         .expect("`+` over strings is a built-in rule, not a missing `Num` instance");
 }
 
-/// The other half of that rule: `String` discharges an *addition* obligation
-/// and nothing else. `-` emits its own `Num` predicate, which no built-in rule
-/// covers, so a deferred subtraction over strings stays an error.
+/// The other half: `String` has `Add` and not `Num`, so it gains `+` without
+/// gaining the rest of arithmetic. `-` emits a `Num` predicate, which no
+/// `String` instance satisfies, so a deferred subtraction stays an error.
 #[test]
 fn subtraction_over_strings_is_still_rejected() {
     let source = r#"

@@ -95,7 +95,13 @@ use sha2::{Digest, Sha256};
 /// take (KI-077, KI-078), and `Flow.Eq`'s `List` / `Option` instances recurse
 /// through `eq` instead of the removed `list_eq` / `option_eq` helpers. An
 /// epoch-40 artifact passes the old evidence at the old arity.
-pub const CACHE_EPOCH: u16 = 41;
+/// Epoch 42: `+` desugars to `Flow.Add`'s `add`, not `Flow.Num`'s. `Num` loses
+/// its `add` slot and gains a leading `Add` superclass slot, so every `Num`
+/// dictionary has a different layout, and `String` now has an `Add` instance
+/// where it had no arithmetic instance at all. An epoch-41 artifact indexes the
+/// old slots. Proposal 0183 (R2 and R4 change dictionary shape too, and this
+/// bump covers them).
+pub const CACHE_EPOCH: u16 = 42;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

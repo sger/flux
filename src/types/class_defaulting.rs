@@ -402,7 +402,9 @@ fn collect_scheme_constraints(
         // A nested binding cannot receive a dictionary parameter, so an
         // obligation that would need one is left for the enclosing scope to
         // discharge rather than recorded on a scheme no caller can satisfy.
-        if mode == GeneralizationMode::NestedBinding && constraint.origin.is_inferred_operator() {
+        if mode == GeneralizationMode::NestedBinding
+            && constraint.origin == WantedClassConstraintOrigin::InferredOperator
+        {
             continue;
         }
 
