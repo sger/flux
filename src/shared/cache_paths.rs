@@ -90,7 +90,12 @@ use sha2::{Digest, Sha256};
 /// as well as the CFG path, and callers across a module boundary pass that
 /// evidence (KI-060, KI-061). An epoch-39 `.fxc` was compiled to the old
 /// convention, so a fresh caller would arrive one argument too many.
-pub const CACHE_EPOCH: u16 = 40;
+/// Epoch 41: context reduction drops a scheme constraint over a constructed
+/// type, so a constrained function loses the dictionary parameter it used to
+/// take (KI-077, KI-078), and `Flow.Eq`'s `List` / `Option` instances recurse
+/// through `eq` instead of the removed `list_eq` / `option_eq` helpers. An
+/// epoch-40 artifact passes the old evidence at the old arity.
+pub const CACHE_EPOCH: u16 = 41;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {
