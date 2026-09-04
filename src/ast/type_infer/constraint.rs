@@ -129,6 +129,20 @@ pub struct Implication {
     pub binder: Identifier,
 }
 
+/// Where one binding's capture window opened.
+///
+/// A binding claims the obligations raised while its body was inferred, which
+/// is GHC's `captureConstraints`. Both counts are needed: a nested definition
+/// that has already closed its own window left an [`Implication`] behind, and
+/// that implication belongs to the enclosing binding's window too.
+#[derive(Debug, Clone, Copy)]
+pub struct CaptureWindow {
+    /// Length of `simple` when the window opened.
+    pub simple: usize,
+    /// Length of `implications` when the window opened.
+    pub implications: usize,
+}
+
 impl WantedConstraints {
     /// Whether every obligation in the tree has been discharged.
     ///
@@ -138,15 +152,30 @@ impl WantedConstraints {
         self.simple.is_empty() && self.implications.iter().all(|i| i.wanted.is_solved())
     }
 
-    /// Number of predicates emitted so far, for capture-window slicing.
-    pub fn emitted(&self) -> usize {
-        self.simple.len()
+    /// Open a capture window at the current position.
+    pub fn open_window(&self) -> CaptureWindow {
+        CaptureWindow {
+            simple: self.simple.len(),
+            implications: self.implications.len(),
+        }
     }
 
-    /// The predicates emitted since `start`, as GHC's `captureConstraints`
-    /// returns the constraints raised while checking one binding's body.
-    pub fn captured_since(&self, start: usize) -> Vec<WantedClassConstraint> {
-        self.simple[start..].to_vec()
+    /// The predicates emitted since `window` opened, without consuming them.
+    pub fn captured_since(&self, window: CaptureWindow) -> Vec<WantedClassConstraint> {
+        self.simple[window.simple..].to_vec()
+    }
+
+    /// Remove everything raised since `window` opened and return it as a
+    /// subtree, leaving the enclosing scope with only what preceded it.
+    ///
+    /// Sound because a window always closes before any later constraint of an
+    /// enclosing binding is emitted, so what it claims is a suffix: draining it
+    /// cannot shift an index an outer window still holds.
+    pub fn close_window(&mut self, window: CaptureWindow) -> WantedConstraints {
+        WantedConstraints {
+            simple: self.simple.split_off(window.simple),
+            implications: self.implications.split_off(window.implications),
+        }
     }
 }
 
@@ -230,11 +259,47 @@ mod tests {
 
         let mut tree = WantedConstraints::default();
         tree.simple.push(wanted(eq));
-        let start = tree.emitted();
+        let window = tree.open_window();
         tree.simple.push(wanted(ord));
 
-        let captured = tree.captured_since(start);
+        let captured = tree.captured_since(window);
         assert_eq!(captured.len(), 1);
         assert_eq!(captured[0].class_name, ord);
+    }
+
+    /// Closing a window takes the whole subtree with it, so what the enclosing
+    /// scope keeps is exactly what preceded the binding.
+    #[test]
+    fn closing_a_window_moves_the_scope_out_of_the_enclosing_one() {
+        let mut interner = Interner::new();
+        let eq = interner.intern("Eq");
+        let ord = interner.intern("Ord");
+        let show = interner.intern("Show");
+        let f = interner.intern("f");
+
+        let mut tree = WantedConstraints::default();
+        tree.simple.push(wanted(eq));
+        let window = tree.open_window();
+        tree.simple.push(wanted(ord));
+        tree.implications.push(implication(
+            f,
+            WantedConstraints {
+                simple: vec![wanted(show)],
+                implications: Vec::new(),
+            },
+        ));
+
+        let scope = tree.close_window(window);
+
+        assert_eq!(
+            tree.simple.len(),
+            1,
+            "only the pre-window predicate remains"
+        );
+        assert_eq!(tree.simple[0].class_name, eq);
+        assert!(tree.implications.is_empty(), "the nested scope moved too");
+        assert_eq!(scope.simple.len(), 1);
+        assert_eq!(scope.simple[0].class_name, ord);
+        assert_eq!(scope.implications.len(), 1);
     }
 }
