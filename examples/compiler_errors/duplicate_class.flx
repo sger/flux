@@ -1,8 +1,5 @@
 // expect: compile_error
 // expect-error: E440
-// KNOWN GAP: this fixture declares `expect: compile_error`, but E440/E441/E442
-// are still routed as warnings, so the compiler accepts this file and exits 0.
-// See the partition in src/compiler/mod.rs (collect_class_declarations).
 
 // Defining the same type class twice.
 //

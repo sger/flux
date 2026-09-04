@@ -1,0 +1,41 @@
+// Baseline contract: superclass evidence may come from a contextual instance.
+//
+// `Mid<List<a>>` owes evidence for its superclass `Base<List<a>>`. Its own
+// context supplies `Base<a>`, which is a different predicate — the evidence is
+// the contextual `Base<a> => Base<List<a>>` instance applied to it.
+//
+// Matching a context entry on class identity alone put the `Base<a>`
+// dictionary in the slot, and the predicate over the constructed head also
+// became an extra dictionary parameter, so the call failed on arity
+// (E1000: want=4, got=2).
+//
+// Expected output:
+// 9
+
+class Base<a> {
+    fn base(x: a) -> Int
+}
+
+class Base<a> => Mid<a> {
+    fn mid(x: a) -> Int
+}
+
+instance Base<Int> {
+    fn base(x) { x }
+}
+
+instance Base<a> => Base<List<a>> {
+    fn base(xs) { 9 }
+}
+
+instance Base<a> => Mid<List<a>> {
+    fn mid(xs) { base(xs) }
+}
+
+fn call_mid<a: Mid>(x: a) -> Int {
+    mid(x)
+}
+
+fn main() with IO {
+    print(call_mid([1, 2]))
+}

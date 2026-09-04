@@ -1042,6 +1042,61 @@ pub const OPERATOR_CLASS_NOT_IN_SCOPE: ErrorCode = ErrorCode {
     ),
 };
 
+/// Proposal 0183: a body needs a predicate its own signature does not promise.
+///
+/// `fn cmp<a: MyEq>(x: a, y: a) -> Bool { mlt(x, y) }` raises `MyOrd<a>`, which
+/// nothing can ever discharge: `a` is quantified here, so no instance matches
+/// it, and the caller supplies evidence only for what the signature asks.
+///
+/// Reported at the definition rather than absorbed into the scheme. Inferring
+/// the missing predicate instead makes the signature a suggestion, and moves
+/// the error to whichever caller happens to use a type without that instance —
+/// a file the author of the mistake may never see.
+pub const COULD_NOT_DEDUCE: ErrorCode = ErrorCode {
+    code: "E489",
+    title: "COULD NOT DEDUCE",
+    error_type: ErrorType::Compiler,
+    message: "Could not deduce `{}` from the context `{}`.",
+    hint: Some("Add the missing bound to the signature's type parameters."),
+};
+
+/// Proposal 0184: `record.field` on a receiver whose type is never determined.
+///
+/// Field access raises `__field.name<Receiver, Field>`, discharged once the
+/// receiver resolves to a named-field ADT. A receiver still unknown after all
+/// unification has no type to look the field up on, and nothing later can
+/// supply one.
+///
+/// Before 0184 this case allocated a hole instead: the access had no type at
+/// all, and the error surfaced wherever the hole happened to leak — a call
+/// site, or the backend as an unresolved type variable. Reporting it here names
+/// the field and the receiver at the access itself.
+pub const UNRESOLVED_FIELD_RECEIVER: ErrorCode = ErrorCode {
+    code: "E490",
+    title: "UNRESOLVED FIELD RECEIVER",
+    error_type: ErrorType::Compiler,
+    message: "Cannot tell which type this is, so the field `{}` cannot be resolved.",
+    hint: Some("Annotate the value so the field has a type to be looked up on."),
+};
+
+/// Proposal 0183 R3: dictionary resolution ran out of budget.
+///
+/// An instance context that grows its argument at every step —
+/// `instance Foo<List<a>> => Foo<a>` — never repeats a predicate, so only a
+/// depth budget stops it. Exhausting that budget is not the same fact as "no
+/// such instance": the search was abandoned, and reporting it as a missing
+/// instance sends the reader looking for an instance that may well exist.
+pub const INSTANCE_SEARCH_EXHAUSTED: ErrorCode = ErrorCode {
+    code: "E488",
+    title: "INSTANCE SEARCH EXHAUSTED",
+    error_type: ErrorType::Compiler,
+    message: "Resolving `{}` exceeded the instance-context depth limit.",
+    hint: Some(
+        "An instance context that grows its type argument at every step never \
+         terminates. Check for a context like `instance C<List<a>> => C<a>`.",
+    ),
+};
+
 /// Proposal 0179 Stage 6: an instance defines an associated type its class does
 /// not declare.
 ///

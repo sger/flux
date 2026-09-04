@@ -1406,6 +1406,14 @@ pub struct Compiler {
     /// module declares `fn add` — and that declaration is not a redeclaration
     /// of anything the user wrote.
     pub(super) generated_dispatch_stub_names: HashSet<Symbol>,
+    /// The names this unit binds to a *user-written* function.
+    ///
+    /// Excludes what dispatch generation synthesises — instance bodies and the
+    /// per-method stub carry `Span::default()`, a parsed declaration does not.
+    /// The mirror of `LowerCtx::user_function_names`; the two must agree or the
+    /// VM and the Core-driven backends dispatch a bare call differently.
+    /// See docs/known_issues.md#ki-085.
+    pub(super) user_function_names: HashSet<Symbol>,
     repl_mode: bool,
     /// Accumulated top-level binding schemes from previously-compiled REPL
     /// lines, merged into `build_infer_config`'s base schemes. Empty (and inert)
@@ -1907,6 +1915,7 @@ impl Compiler {
             class_env: crate::types::class_env::ClassEnv::new(),
             imported_public_classes: HashMap::new(),
             generated_dispatch_stub_names: HashSet::new(),
+            user_function_names: HashSet::new(),
             imported_public_instances: Vec::new(),
             pending_imported_public_instance_entries: Vec::new(),
             imported_instance_method_schemes: HashMap::new(),
@@ -3482,15 +3491,25 @@ impl Compiler {
         // E453 (sealed-instance violation) and the Proposal 0179 Stage 1 kind
         // codes are hard errors.
         //
-        // E440/E441/E442 are not in that set and are still routed here as
-        // warnings, but they no longer escape: `duplicate_class.flx`,
-        // `instance_unknown_class.flx` and `instance_missing_method.flx` all
-        // report their code and exit 1 (verified 2026-09-02), reaching the
-        // user through another path rather than this partition. Promoting
-        // them here was once blocked on built-in shadowing — a user
-        // `class Eq<a>` declaring only `eq` failed both E440 and E442 against
-        // the Rust-registered built-in — which Stage 8 removed by moving the
+        // Every diagnostic the class environment reports is now an error.
+        // E440-E443 and E446-E451 were routed here as warnings; several were
+        // *also* reported by a later pipeline stage, so those programs did
+        // exit 1, but anything reading this partition's own answer — the LSP
+        // path, and the fixture snapshots, which stop after
+        // `Compiler::compile` — saw a program that had merely warned.
+        //
+        // Promoting them was once blocked on built-in shadowing (a user
+        // `class Eq<a>` declaring only `eq` failed E440 and E442 against the
+        // Rust-registered built-in), which Stage 8 removed by moving the
         // standard classes into `lib/Flow/*.flx`.
+        //
+        // E449 (orphan instance) is the exception and stays a warning. Its
+        // rule — an instance is legal only where its class or its head type is
+        // local — makes `public instance Tagger<Int>` in a module that merely
+        // imports `Tagger` an orphan, and
+        // `imported_public_class_with_downstream_public_instance_runs_end_to_end`
+        // asserts that exact program runs. Whether Flux forbids orphans
+        // outright is a language decision, not a demotion to undo here.
         //
         // Proposal 0179 Stage 5 adds E445 (missing superclass instance) and
         // E477 (superclass cycle). Neither is caught by the built-in-shadowing
@@ -3508,7 +3527,17 @@ impl Compiler {
             matches!(
                 diag.code(),
                 Some(
-                    "E445"
+                    "E440"
+                        | "E441"
+                        | "E442"
+                        | "E443"
+                        | "E445"
+                        | "E446"
+                        | "E447"
+                        | "E448"
+                        | "E450"
+                        | "E451"
+                        | "E455"
                         | "E453"
                         | "E472"
                         | "E473"

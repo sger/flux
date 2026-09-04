@@ -110,11 +110,13 @@ fn lower_program_to_ir_impl(
     if let (Some(ce), Some(te), Some(int)) = (class_env, type_env, interner)
         && !ce.classes.is_empty()
     {
-        let mut max_id: u32 = 0;
-        for def in &core.defs {
-            max_id = max_id.max(def.binder.id.0);
-        }
-        let mut next_id = max_id + 1;
+        // Seeded from every binder in the program, bodies included. Scanning
+        // only the top-level def binders left the counter below ids already
+        // used by `Lam` parameters and `Let`s inside those bodies, so a fresh
+        // dictionary parameter could collide with one — `[DuplicateBinder] in
+        // `multiply` duplicate binder CoreBinderId(5) in Lam`. Latent while few
+        // functions carried dictionaries; reachable as soon as more do.
+        let mut next_id = crate::core::passes::next_fresh_binder_id(&core);
         crate::core::passes::elaborate_dictionaries(&mut core, ce, te, int, &mut next_id);
     }
 

@@ -228,6 +228,16 @@ pub(super) struct AstLowerer<'a> {
     module_aliases: HashMap<Identifier, Identifier>,
     pub(super) def_schemes: HashMap<crate::core::CoreBinderId, crate::types::scheme::Scheme>,
     pub(super) local_function_names: std::collections::HashSet<Identifier>,
+    /// The names this unit binds to a *user-written* top-level or module-level
+    /// function.
+    ///
+    /// A subset of [`Self::local_function_names`], excluding the functions
+    /// dispatch generation synthesises — instance bodies and the panicking
+    /// per-method stub, which carry `Span::default()` where a parsed
+    /// declaration carries a real one. Used to keep a bare call to a name the
+    /// program itself defines from being rewritten into a class-method
+    /// dispatch; see docs/known_issues.md#ki-085.
+    pub(super) user_function_names: std::collections::HashSet<Identifier>,
     pub(super) current_function_name: Option<Identifier>,
     current_module_name: Option<Identifier>,
     /// Proposal 0152: variant name → declared field names in declaration
@@ -266,6 +276,7 @@ impl<'a> AstLowerer<'a> {
             module_aliases,
             def_schemes: HashMap::new(),
             local_function_names: std::collections::HashSet::new(),
+            user_function_names: std::collections::HashSet::new(),
             current_function_name: None,
             current_module_name: None,
             ctor_field_names: std::collections::HashMap::new(),
@@ -343,18 +354,33 @@ impl<'a> AstLowerer<'a> {
     }
 
     fn collect_local_function_names(&mut self, program: &Program) {
-        fn walk(stmts: &[Statement], out: &mut std::collections::HashSet<Identifier>) {
+        fn walk(
+            stmts: &[Statement],
+            out: &mut std::collections::HashSet<Identifier>,
+            user: &mut std::collections::HashSet<Identifier>,
+        ) {
             for stmt in stmts {
                 match stmt {
-                    Statement::Function { name, .. } => {
+                    Statement::Function { name, span, .. } => {
                         out.insert(*name);
+                        // A generated instance body or dispatch stub is built
+                        // with `Span::default()`; anything parsed from source
+                        // has a real one. Type inference separates the two the
+                        // same way, in `class_method_call_info`.
+                        if *span != Span::default() {
+                            user.insert(*name);
+                        }
                     }
-                    Statement::Module { body, .. } => walk(&body.statements, out),
+                    Statement::Module { body, .. } => walk(&body.statements, out, user),
                     _ => {}
                 }
             }
         }
-        walk(&program.statements, &mut self.local_function_names);
+        walk(
+            &program.statements,
+            &mut self.local_function_names,
+            &mut self.user_function_names,
+        );
     }
 
     /// Proposal 0152: populate `ctor_field_names` from a program's `data`
@@ -614,6 +640,16 @@ impl<'a> AstLowerer<'a> {
     ) -> Option<Identifier> {
         match function {
             crate::syntax::expression::Expression::Identifier { name, .. } => {
+                // A bare name this unit binds to its own function is that
+                // function, not a class method that happens to share the name.
+                // Inference already declines here (`class_method_call_info`
+                // returns `None` once the name has a real binding), so without
+                // this the two disagree and lowering silently rewrites the call
+                // to `__tc_<Class>_<Type>_<name>`. A *qualified* call still
+                // dispatches: it names the class outright.
+                if self.user_function_names.contains(name) {
+                    return None;
+                }
                 self.try_resolve_class_call(*name, arguments, call_id)
             }
             crate::syntax::expression::Expression::MemberAccess { object, member, .. } => {
@@ -1046,20 +1082,7 @@ impl<'a> AstLowerer<'a> {
     }
 
     fn lower_dictionary_ref(dict_ref: &crate::types::class_env::ResolvedDictionaryRef) -> CoreExpr {
-        let span = crate::diagnostics::position::Span::default();
-        if dict_ref.context_args.is_empty() {
-            return CoreExpr::external_var(dict_ref.dict_name, span);
-        }
-
-        CoreExpr::App {
-            func: Box::new(CoreExpr::external_var(dict_ref.dict_name, span)),
-            args: dict_ref
-                .context_args
-                .iter()
-                .map(Self::lower_dictionary_ref)
-                .collect(),
-            span,
-        }
+        CoreExpr::dictionary_ref(dict_ref, crate::diagnostics::position::Span::default())
     }
 
     /// Convert an HM-inferred expression type to a `CoreType`, if available.

@@ -136,6 +136,21 @@ struct CallInferInput<'a> {
     span: Span,
 }
 
+/// Immutable inputs required to finalize one binding's scheme.
+///
+/// Grouped because the finalization now needs the binder's identity as well as
+/// its type: a definition's obligations become an [`constraint::Implication`],
+/// and an implication has to say which definition it belongs to.
+#[derive(Debug, Clone, Copy)]
+struct BindingSchemeSpec<'a> {
+    infer_type: &'a InferType,
+    env_free_vars: &'a HashSet<TypeVarId>,
+    window: constraint::CaptureWindow,
+    mode: GeneralizationMode,
+    binder: Identifier,
+    span: Span,
+}
+
 /// Immutable inputs required to infer a match expression.
 #[derive(Debug, Clone, Copy)]
 struct MatchInferInput<'a> {
@@ -191,7 +206,12 @@ struct InferCtx<'a> {
     /// the semantic `ClassId` is carried into the rest of inference.
     module_aliases: HashMap<Identifier, Identifier>,
     /// Accumulated type class constraints (e.g., `Num<a>` from `x + y`).
-    class_constraints: Vec<constraint::WantedClassConstraint>,
+    ///
+    /// A tree rather than a list since Proposal 0183 R1: `simple` is the
+    /// emission log bindings slice their capture windows out of, and
+    /// `implications` will carry each binding's residue against the context it
+    /// quantified.
+    class_constraints: constraint::WantedConstraints,
     /// Resolved class-method dispatches, keyed by the function-position
     /// `ExprId` of each class-method call site. Populated in
     /// `propagate_resolved_class_call_effects` once the matching
@@ -233,6 +253,12 @@ struct InferCtx<'a> {
     class_sym_eq: Option<Identifier>,
     class_sym_ord: Option<Identifier>,
     class_sym_num: Option<Identifier>,
+    /// The reserved module owning field-access predicates (Proposal 0184).
+    /// `None` when the class prelude was never registered — an embedder
+    /// running inference with no classes — in which case field access keeps
+    /// its pre-0184 behaviour and allocates a hole.
+    field_predicate_module: Option<crate::types::class_id::ModulePath>,
+    class_sym_add: Option<Identifier>,
     class_sym_semigroup: Option<Identifier>,
     /// Typed holes (`_` / `_name`) recorded during inference. Finalized in
     /// [`build_infer_result`] into `TYPED HOLE` diagnostics once the substitution
@@ -316,11 +342,15 @@ impl<'a> InferCtx<'a> {
             class_env: None,
             current_module: crate::types::class_id::ModulePath::EMPTY,
             module_aliases: HashMap::new(),
-            class_constraints: Vec::new(),
+            class_constraints: constraint::WantedConstraints::default(),
             class_method_dispatch: HashMap::new(),
             class_sym_eq: None,
             class_sym_ord: None,
             class_sym_num: None,
+            field_predicate_module: interner
+                .lookup(crate::types::class_id::FIELD_PREDICATE_MODULE)
+                .map(crate::types::class_id::ModulePath::from_identifier),
+            class_sym_add: None,
             class_sym_semigroup: None,
             holes: Vec::new(),
         }
@@ -418,13 +448,13 @@ impl<'a> InferCtx<'a> {
         origin: constraint::WantedClassConstraintOrigin,
     ) {
         self.class_constraints
+            .simple
             .push(constraint::WantedClassConstraint {
                 class_name,
                 class_id,
                 type_args: type_args.clone(),
                 span,
                 origin,
-                originated_from_concrete_type: type_args.iter().all(Self::is_fully_concrete),
             });
         self.record_constraint(constraint::Constraint::Class {
             class_name,
@@ -448,13 +478,13 @@ impl<'a> InferCtx<'a> {
         for constraint in constraints {
             let type_args = constraint.type_args.clone();
             self.class_constraints
+                .simple
                 .push(constraint::WantedClassConstraint {
                     class_name: constraint.class_name,
                     class_id: constraint.class_id,
                     type_args: type_args.clone(),
                     span,
                     origin: constraint::WantedClassConstraintOrigin::SchemeUse,
-                    originated_from_concrete_type: true,
                 });
             self.record_constraint(constraint::Constraint::Class {
                 class_name: constraint.class_name,
@@ -469,36 +499,95 @@ impl<'a> InferCtx<'a> {
     ///
     /// This validates concrete obligations, applies numeric defaulting for
     /// truly ambiguous `Num` variables, and returns the resulting scheme.
-    fn finalize_binding_scheme(
-        &mut self,
-        infer_type: &InferType,
-        relevant_constraints: &[constraint::WantedClassConstraint],
-        env_free_vars: &HashSet<TypeVarId>,
-        mode: GeneralizationMode,
-    ) -> Scheme {
+    fn finalize_binding_scheme(&mut self, spec: BindingSchemeSpec<'_>) -> Scheme {
+        let relevant_constraints = self.class_constraints.captured_since(spec.window);
         let finalized = finalize_binding_class_constraints(
-            infer_type,
-            env_free_vars,
-            relevant_constraints,
+            spec.infer_type,
+            spec.env_free_vars,
+            &relevant_constraints,
             &self.subst,
             self.class_env.as_ref(),
             self.interner,
-            mode,
+            spec.mode,
         );
+        // Only a `Definition`'s obligation actually transfers: elaboration
+        // rewrites its call sites to pass the dictionary. A nested binding
+        // cannot receive a dictionary parameter, so a predicate it
+        // "generalizes" is discharged nowhere and has to stay visible to the
+        // whole-program solve — which is what reports it (E459 on
+        // `let ignored = convert(42)`). This is the monomorphism
+        // restriction's reason for existing, in the one place Flux needs it.
+        if spec.mode == GeneralizationMode::Definition {
+            self.close_definition_scope(&spec, &finalized);
+        }
         if !finalized.default_subst.is_empty() {
             self.subst = std::mem::take(&mut self.subst).compose(&finalized.default_subst);
         }
         self.errors.extend(finalized.diagnostics);
 
         if finalized.scheme_constraints.is_empty() {
-            generalize(&finalized.infer_type, env_free_vars)
+            generalize(&finalized.infer_type, spec.env_free_vars)
         } else {
             generalize_with_constraints(
                 &finalized.infer_type,
-                env_free_vars,
+                spec.env_free_vars,
                 finalized.scheme_constraints,
             )
         }
+    }
+
+    /// Move a definition's obligations out of the enclosing scope and into an
+    /// implication carrying the context it quantified.
+    ///
+    /// This is GHC's `emitResidualConstraints`
+    /// (`compiler/GHC/Tc/Solver.hs`): the predicates the scheme retained become
+    /// the scope's *givens*, and what the body raised lives inside it. It
+    /// replaces the span-keyed removal Stage 1 used, whose key —
+    /// `(start, end, class)` — could not distinguish two predicates emitted at
+    /// one site for one class, which is what left the higher-kinded
+    /// `ExplicitBound` predicates behind.
+    ///
+    /// A predicate the solver generalized *is* the context, so it is not
+    /// repeated as an obligation inside the scope; the partition is positional
+    /// rather than keyed, because the solver guarantees one disposition per
+    /// supplied constraint.
+    fn close_definition_scope(
+        &mut self,
+        spec: &BindingSchemeSpec<'_>,
+        finalized: &crate::types::class_defaulting::FinalizedBindingClassConstraints,
+    ) {
+        let mut scope = self.class_constraints.close_window(spec.window);
+        debug_assert_eq!(
+            scope.simple.len(),
+            finalized.dispositions.len(),
+            "every captured predicate must carry exactly one disposition"
+        );
+        let mut generalized = finalized.dispositions.iter().map(|entry| {
+            matches!(
+                entry.disposition,
+                crate::types::class_disposition::Disposition::Generalized { .. }
+            )
+        });
+        scope
+            .simple
+            .retain(|_| !generalized.next().unwrap_or(false));
+
+        let quantified: Vec<TypeVarId> = finalized
+            .infer_type
+            .free_vars()
+            .difference(spec.env_free_vars)
+            .copied()
+            .collect();
+
+        self.class_constraints
+            .implications
+            .push(constraint::Implication {
+                givens: finalized.scheme_constraints.clone(),
+                quantified,
+                wanted: scope,
+                span: spec.span,
+                binder: spec.binder,
+            });
     }
 
     /// Mark a type variable as rigid (skolem) for the duration of a checked
@@ -743,9 +832,84 @@ fn resolve_binding_schemes(
     (expanded, schemes)
 }
 
+/// Discharge every `__field.name<Receiver, Field>` predicate (Proposal 0184).
+///
+/// Runs after all unification, which is the point of doing it here rather than
+/// in the class solver: a receiver that any call site determines is determined
+/// by now, and the tables that say which variants carry which field live on
+/// [`InferCtx`], not on the `ClassEnv` the solver holds.
+///
+/// Each predicate is resolved against the receiver as it finally stands and
+/// unified with the field-type argument, which is what makes the field type
+/// propagate — GHC's functional dependency `x r -> a` on `HasField x r a`. A
+/// receiver that is still unknown is reported: nothing later can decide it, and
+/// leaving it would be the hole this proposal removes.
+///
+/// The predicates are removed from the wanted set either way. They are not
+/// class obligations, carry no dictionary, and the solver has no rule for them.
+fn discharge_field_predicates(ctx: &mut InferCtx<'_>) {
+    let Some(module) = ctx.field_predicate_module else {
+        return;
+    };
+    let pending = take_field_predicates(&mut ctx.class_constraints, module);
+    for constraint in pending {
+        let [receiver, field_ty] = constraint.type_args.as_slice() else {
+            continue;
+        };
+        let resolved_receiver = receiver.apply_type_subst(&ctx.subst);
+        match ctx.resolve_named_field_access(
+            &resolved_receiver,
+            constraint.class_name,
+            constraint.span,
+        ) {
+            Some(resolved_field) => {
+                ctx.unify_reporting(field_ty, &resolved_field, constraint.span);
+            }
+            None => {
+                let receiver_display = ctx.display_type(&resolved_receiver);
+                let field = ctx.interner.resolve(constraint.class_name).to_string();
+                ctx.errors.push(
+                    diagnostic_for(&crate::diagnostics::compiler_errors::UNRESOLVED_FIELD_RECEIVER)
+                        .with_file(ctx.file_path.clone())
+                        .with_span(constraint.span)
+                        .with_message(format!(
+                            "Cannot tell which type this is, so the field `{field}` cannot be \
+                             resolved. Inferred receiver: `{receiver_display}`."
+                        ))
+                        .with_hint_text(format!(
+                            "Annotate the value so `{field}` has a type to be looked up on."
+                        )),
+                );
+            }
+        }
+    }
+}
+
+/// Remove every field predicate from the tree, innermost scopes included.
+fn take_field_predicates(
+    wanted: &mut constraint::WantedConstraints,
+    module: crate::types::class_id::ModulePath,
+) -> Vec<constraint::WantedClassConstraint> {
+    let mut taken: Vec<constraint::WantedClassConstraint> = Vec::new();
+    let mut kept = Vec::with_capacity(wanted.simple.len());
+    for constraint in std::mem::take(&mut wanted.simple) {
+        if constraint.class_id.module == module {
+            taken.push(constraint);
+        } else {
+            kept.push(constraint);
+        }
+    }
+    wanted.simple = kept;
+    for implication in &mut wanted.implications {
+        taken.extend(take_field_predicates(&mut implication.wanted, module));
+    }
+    taken
+}
+
 /// Apply final substitution to all inferred types and build the result.
 fn build_infer_result(mut ctx: InferCtx<'_>) -> InferProgramResult {
     finalize_holes(&mut ctx);
+    discharge_field_predicates(&mut ctx);
     let constraint_count = ctx.contraint_log.len();
     let (expanded_fallback, resolved_binding_schemes) =
         resolve_binding_schemes(&ctx.env, &ctx.subst, &ctx.fallback_vars);
@@ -883,22 +1047,39 @@ fn resolve_expr_types(
         .collect()
 }
 
-/// Apply the final substitution to accumulated class constraints.
+/// Apply the final substitution to accumulated class constraints, dropping
+/// those a binding already discharged by quantifying them.
 fn resolve_class_constraints(
-    class_constraints: Vec<constraint::WantedClassConstraint>,
+    mut class_constraints: constraint::WantedConstraints,
     subst: &TypeSubst,
-) -> Vec<constraint::WantedClassConstraint> {
+) -> constraint::WantedConstraints {
+    apply_subst_to_wanted(&mut class_constraints, subst);
     class_constraints
-        .into_iter()
-        .map(|mut c| {
-            c.type_args = c
+}
+
+/// Resolve every predicate in the tree against the final substitution.
+///
+/// Both halves matter: a scope's *givens* are matched syntactically against its
+/// wanteds, so leaving either side unresolved would stop a context from
+/// discharging the obligation it exists to discharge.
+fn apply_subst_to_wanted(wanted: &mut constraint::WantedConstraints, subst: &TypeSubst) {
+    for constraint in &mut wanted.simple {
+        constraint.type_args = constraint
+            .type_args
+            .iter()
+            .map(|t| t.apply_type_subst(subst))
+            .collect();
+    }
+    for implication in &mut wanted.implications {
+        for given in &mut implication.givens {
+            given.type_args = given
                 .type_args
                 .iter()
                 .map(|t| t.apply_type_subst(subst))
                 .collect();
-            c
-        })
-        .collect()
+        }
+        apply_subst_to_wanted(&mut implication.wanted, subst);
+    }
 }
 
 /// Convert a statement span into a stable hashable key for binding-scheme lookup.
@@ -927,6 +1108,7 @@ fn init_class_env(
                 "Eq" => ctx.class_sym_eq = Some(class_name),
                 "Ord" => ctx.class_sym_ord = Some(class_name),
                 "Num" => ctx.class_sym_num = Some(class_name),
+                "Add" => ctx.class_sym_add = Some(class_name),
                 "Semigroup" => ctx.class_sym_semigroup = Some(class_name),
                 _ => {}
             }
@@ -955,7 +1137,7 @@ pub struct InferProgramResult {
     /// Each entry records a `ClassName<Type>` constraint arising from operator
     /// usage or class method calls. Currently informational — Step 4 (solving)
     /// will resolve these against known instances.
-    pub class_constraints: Vec<constraint::WantedClassConstraint>,
+    pub class_constraints: constraint::WantedConstraints,
     /// Type variables that were allocated as fallback after inference failures.
     /// Used by the static type validation pass to distinguish fallback vars
     /// from legitimately polymorphic vars in mono schemes.

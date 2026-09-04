@@ -90,7 +90,22 @@ use sha2::{Digest, Sha256};
 /// as well as the CFG path, and callers across a module boundary pass that
 /// evidence (KI-060, KI-061). An epoch-39 `.fxc` was compiled to the old
 /// convention, so a fresh caller would arrive one argument too many.
-pub const CACHE_EPOCH: u16 = 40;
+/// Epoch 41: context reduction drops a scheme constraint over a constructed
+/// type, so a constrained function loses the dictionary parameter it used to
+/// take (KI-077, KI-078), and `Flow.Eq`'s `List` / `Option` instances recurse
+/// through `eq` instead of the removed `list_eq` / `option_eq` helpers. An
+/// epoch-40 artifact passes the old evidence at the old arity.
+/// Epoch 42: `+` desugars to `Flow.Add`'s `add`, not `Flow.Num`'s. `Num` loses
+/// its `add` slot and gains a leading `Add` superclass slot, so every `Num`
+/// dictionary has a different layout, and `String` now has an `Add` instance
+/// where it had no arithmetic instance at all. An epoch-41 artifact indexes the
+/// old slots. Proposal 0183 (R2 and R4 change dictionary shape too, and this
+/// bump covers them).
+/// Epoch 43: a bare call to a name the program itself defines is no longer
+/// dispatched as a class method of that name (KI-085), so a call an epoch-42
+/// artifact lowered to `__tc_<Class>_<Type>_<name>` now calls the program's own
+/// function — different code, same source.
+pub const CACHE_EPOCH: u16 = 43;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

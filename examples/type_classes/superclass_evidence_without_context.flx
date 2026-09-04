@@ -1,0 +1,40 @@
+// Proposal 0179 Stage 5 contract, second spelling: an instance may leave the
+// superclass off its head and still get the evidence.
+//
+// `instance Measurable<Int>` declares no context, so its dictionary is a plain
+// tuple rather than a constructor, and the superclass slot is filled in from
+// the `Sizeable<Int>` instance that already exists. The companion fixture
+// `superclass_method_call.flx` writes the context out
+// (`instance Sizeable<Int> => Measurable<Int>`) and gets a constructor instead.
+//
+// Both spellings must reach the same dispatch. Before the tuple form was
+// recognised as a dictionary argument, elaborating `describe(5)` prepended the
+// dictionary again on every recompilation of the rewritten call, and the
+// compiler ran out of stack.
+//
+// Expected output:
+// 505
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+class Sizeable<a> => Measurable<a> {
+    fn weight(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+instance Measurable<Int> {
+    fn weight(x) { x * 100 }
+}
+
+fn describe<a: Measurable>(x: a) -> Int {
+    size(x) + weight(x)
+}
+
+fn main() with IO {
+    print(describe(5))
+}

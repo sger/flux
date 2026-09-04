@@ -113,10 +113,15 @@ fn main() {
 /// synthesized in every unit from Rust. `Ord<Int>` is also *contextual*
 /// (`Eq<Int> => Ord<Int>`), so its dictionary is a constructor that needs
 /// `Flow.Ord`'s methods to exist — which a `Compiler` that never compiles
-/// `Flow.Ord` cannot provide. The sibling `Eq`/`Num` test above still uses a
-/// bare `Compiler` only because a non-contextual dictionary is emitted as a
-/// plain tuple of external references, which compiles without those
-/// references resolving.
+/// `Flow.Ord` cannot provide.
+///
+/// Proposal 0183 put `Num` in the same position: `+` moved to `Flow.Add` and
+/// `Num` gained it as a superclass, so `Num<Int>` is now `Add<Int> => Num<Int>`
+/// and its dictionary became a constructor too. The two `Num` tests below
+/// therefore go through the driver as well; they used a bare `Compiler` only
+/// while `Num<Int>` was non-contextual, since a plain dictionary is emitted as
+/// a tuple of external references that compiles without those references
+/// resolving. See docs/known_issues.md#ki-084.
 #[test]
 fn generic_ord_operator_compiles_without_strict_types() {
     let dir = std::env::temp_dir().join("flux-constrained-ord-operator");
@@ -157,9 +162,17 @@ fn main() {
     );
 }
 
+/// Generic functions bounded by `Eq` and by `Num` compile and run together.
+///
+/// Driver-based for the reason given on the `Ord` test above: `Num<Int>` is a
+/// contextual instance since Proposal 0183.
 #[test]
 fn generic_eq_and_num_operators_compile_without_strict_types() {
-    let (program, mut compiler) = compiler_for(
+    let dir = std::env::temp_dir().join("flux-constrained-eq-num-operators");
+    std::fs::create_dir_all(&dir).expect("create scratch dir");
+    let source_path = dir.join("eq_num.flx");
+    std::fs::write(
+        &source_path,
         r#"
 fn different<A: Eq>(x: A, y: A) -> Bool {
     x != y
@@ -170,36 +183,73 @@ fn half<A: Num>(x: A, y: A) -> A {
 }
 
 fn main() {
-    if different(10, 20) { half(8, 2) } else { 0 }
+    print(if different(10, 20) { half(8, 2) } else { 0 })
 }
 "#,
-    );
+    )
+    .expect("write source");
 
-    compiler
-        .compile_with_opts(&program, false, false)
-        .expect("generic Eq/Num operators should compile without strict-types");
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")))
+        .arg(&source_path)
+        .arg("--no-cache")
+        .arg("--cache-dir")
+        .arg(dir.join("cache"))
+        .output()
+        .expect("run flux");
+
+    assert!(
+        output.status.success(),
+        "generic Eq/Num operators should compile without strict-types:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains('4'),
+        "expected `half(8, 2)` to print 4, got:\n{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
 }
 
+/// An explicit `Num` bound survives defaulting and elaborates a dictionary.
+///
+/// Driver-based for the reason given on the `Ord` test above: `Num<Int>` is a
+/// contextual instance since Proposal 0183, so its dictionary is a constructor
+/// that needs `Flow.Num`'s methods to exist.
 #[test]
 fn explicit_num_bound_survives_defaulting_and_elaborates_dictionary() {
-    let (program, mut compiler) = compiler_for(
+    let dir = std::env::temp_dir().join("flux-constrained-explicit-num-bound");
+    std::fs::create_dir_all(&dir).expect("create scratch dir");
+    let source_path = dir.join("half.flx");
+    std::fs::write(
+        &source_path,
         r#"
 fn half<A: Num>(x: A, y: A) -> A {
     x / y
 }
 
 fn main() {
-    half(8, 2)
+    print(half(8, 2))
 }
 "#,
-    );
+    )
+    .expect("write source");
 
-    compiler
-        .compile_with_opts(&program, false, false)
-        .expect("explicit Num bound should remain constrained");
-    let dumped = compiler
-        .dump_core_with_opts(&program, false, CoreDisplayMode::Readable)
-        .expect("core dump should succeed");
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")))
+        .arg("--dump-core")
+        .arg(&source_path)
+        .arg("--no-cache")
+        .arg("--cache-dir")
+        .arg(dir.join("cache"))
+        .output()
+        .expect("run flux");
+
+    assert!(
+        output.status.success(),
+        "explicit Num bound should remain constrained:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let dumped = String::from_utf8_lossy(&output.stdout).into_owned();
 
     // `Num` is `Flow.Num`'s class since Proposal 0179 Stage 8, so its
     // dictionary carries the owning module in its mangled name

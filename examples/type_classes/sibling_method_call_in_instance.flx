@@ -1,0 +1,46 @@
+// Baseline contract: an instance method may call a sibling method of its own
+// class on its own head type.
+//
+// `mneq` calls `meq` at `List<a>` — the head this instance defines. The
+// evidence is the dictionary being defined, so nothing new is needed. The
+// solver only matched *ground* predicates against instance heads, so
+// `MyEq<List<a>>` was classified `Generalized` and became a second dictionary
+// parameter on the generated method; callers pass one, and the call failed.
+//
+// A method calling *itself* was unaffected: that lowers to a direct call to
+// the mangled name and raises no constraint.
+//
+// Expected output:
+// true
+// false
+
+class MyEq<a> {
+    fn meq(x: a, y: a) -> Bool
+    fn mneq(x: a, y: a) -> Bool
+}
+
+instance MyEq<Int> {
+    fn meq(x, y) { x == y }
+    fn mneq(x, y) { x != y }
+}
+
+instance MyEq<a> => MyEq<List<a>> {
+    fn meq(xs, ys) {
+        match xs {
+            [h1 | t1] -> match ys {
+                [h2 | t2] -> meq(h1, h2) && meq(t1, t2),
+                _ -> false
+            },
+            _ -> match ys {
+                [h | t] -> false,
+                _ -> true
+            }
+        }
+    }
+    fn mneq(xs, ys) { !meq(xs, ys) }
+}
+
+fn main() with IO {
+    print(mneq([1, 2], [1, 3]))
+    print(mneq([1, 2], [1, 2]))
+}
