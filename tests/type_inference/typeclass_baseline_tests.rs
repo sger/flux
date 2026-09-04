@@ -1100,3 +1100,48 @@ fn main() with IO {
         .compile(&program)
         .expect("a subgoal the instance context grants must resolve");
 }
+
+/// `+` is overloaded over `Num` *and* `String`, and the solver has to apply
+/// the string half to an operand whose type only became known later.
+///
+/// `infer_add_operator` decides this itself when the operand type is already
+/// concrete at emission, so `"a" + "b"` always worked. In a lambda handed to a
+/// higher-order function both operands are still variables when the operator
+/// is inferred, so a `Num` obligation is emitted and only afterwards resolved
+/// to `String`. Classifying that obligation on its substituted type — which is
+/// the point of deciding on the type as it is now — reported `Num<String>` as
+/// a missing instance until the addition overload was recorded on the
+/// constraint.
+#[test]
+fn addition_over_strings_survives_a_deferred_operand() {
+    let source = r#"
+fn apply(f, a, b) { f(a, b) }
+
+fn main() with IO {
+    print(apply(fn(x, y) { x + y }, "a", "b"))
+}
+"#;
+    let (program, mut compiler) = parse_source(source, "deferred_string_add.flx");
+    compiler
+        .compile(&program)
+        .expect("`+` over strings is a built-in rule, not a missing `Num` instance");
+}
+
+/// The other half of that rule: `String` discharges an *addition* obligation
+/// and nothing else. `-` emits its own `Num` predicate, which no built-in rule
+/// covers, so a deferred subtraction over strings stays an error.
+#[test]
+fn subtraction_over_strings_is_still_rejected() {
+    let source = r#"
+fn sub(a, b) { a - b }
+
+fn main() with IO {
+    print(sub("a", "b"))
+}
+"#;
+    let (program, mut compiler) = parse_source(source, "deferred_string_sub.flx");
+    assert!(
+        compiler.compile(&program).is_err(),
+        "only `+` is overloaded over `String`"
+    );
+}
