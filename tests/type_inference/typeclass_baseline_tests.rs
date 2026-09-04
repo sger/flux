@@ -1253,3 +1253,44 @@ instance MyEq<a> => MyEq<List<a>> {
         "there is no `MyEq<String>`, so the instance's context cannot be met"
     );
 }
+
+/// Field access on a receiver a call site determines still resolves, and one
+/// nothing determines is reported at the access (Proposal 0184, Stage 1).
+///
+/// `r.name` used to allocate a *fallback* variable — a hole excluded from every
+/// scheme's `forall`, fillable only by unifying the enclosing definition with a
+/// call site. It now raises `__field.name<Receiver, Field>`, discharged after
+/// unification against the receiver as it finally stands; discharging it
+/// determines the field type, which is what the hole could never do.
+#[test]
+fn a_field_access_resolves_or_is_reported_at_the_access() {
+    let resolved = r#"
+data Person { Person { name: String, age: Int } }
+
+fn label(r) { r.name }
+
+fn main() with IO {
+    print(label(Person { name: "Ada", age: 36 }))
+}
+"#;
+    let (program, mut compiler) = parse_source(resolved, "field_resolved.flx");
+    compiler
+        .compile(&program)
+        .expect("the call site determines the receiver, so the field resolves");
+
+    let undetermined = r#"
+fn label(r) { r.name }
+
+fn main() with IO {
+    print(1)
+}
+"#;
+    let (program, mut compiler) = parse_source(undetermined, "field_undetermined.flx");
+    let diagnostics = compiler
+        .compile(&program)
+        .expect_err("nothing determines the receiver, so the field cannot be looked up");
+    assert!(
+        diagnostics.iter().any(|d| d.code() == Some("E490")),
+        "expected E490 at the access, got: {diagnostics:?}"
+    );
+}

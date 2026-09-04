@@ -36,7 +36,8 @@ checkout at commit `2ca87972f6`.
 | R6a | `+` becomes `Flow.Add`, a class `String` instantiates | shipped | `f8d8f585` | no diagnostic change in 1,305 programs |
 | R6b | a match arm keeps the scrutinee's type (KI-080) | shipped | `fd4b5338` | stdlib residue 15 → 11; no diagnostic change |
 | R6c | a class-method call stops emitting an unbindable instance context (KI-081) | shipped | — | stdlib residue 11 → 9; no diagnostic change |
-| R6 | replace `StuckReason` with origin plus provenance, and report (M6) | **blocked** on [0184](0184_field_access_constraints.md) | — | needs field access to emit a constraint, not a hole |
+| — | [0184](0184_field_access_constraints.md) Stage 1: field access emits a predicate | shipped | — | new `E490`; no diagnostic change in 1,305 programs |
+| R6 | replace `StuckReason` with origin plus provenance, and report (M6) | unblocked, not started | — | 0184 Stage 1 removed the last prerequisite |
 | R7 | clear the fallout across `lib/Flow`, `examples`, `tests` | not started | — | — |
 | — | one `CACHE_EPOCH` bump covering R2 and R4 | not started | — | — |
 | — | rewrite this proposal around the GHC study; file Examples A/B/C as `#KI-nnn` | not started | — | — |

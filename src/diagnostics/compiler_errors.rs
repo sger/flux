@@ -1060,6 +1060,25 @@ pub const COULD_NOT_DEDUCE: ErrorCode = ErrorCode {
     hint: Some("Add the missing bound to the signature's type parameters."),
 };
 
+/// Proposal 0184: `record.field` on a receiver whose type is never determined.
+///
+/// Field access raises `__field.name<Receiver, Field>`, discharged once the
+/// receiver resolves to a named-field ADT. A receiver still unknown after all
+/// unification has no type to look the field up on, and nothing later can
+/// supply one.
+///
+/// Before 0184 this case allocated a hole instead: the access had no type at
+/// all, and the error surfaced wherever the hole happened to leak — a call
+/// site, or the backend as an unresolved type variable. Reporting it here names
+/// the field and the receiver at the access itself.
+pub const UNRESOLVED_FIELD_RECEIVER: ErrorCode = ErrorCode {
+    code: "E490",
+    title: "UNRESOLVED FIELD RECEIVER",
+    error_type: ErrorType::Compiler,
+    message: "Cannot tell which type this is, so the field `{}` cannot be resolved.",
+    hint: Some("Annotate the value so the field has a type to be looked up on."),
+};
+
 /// Proposal 0183 R3: dictionary resolution ran out of budget.
 ///
 /// An instance context that grows its argument at every step —
