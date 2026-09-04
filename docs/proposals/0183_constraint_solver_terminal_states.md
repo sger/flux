@@ -168,12 +168,22 @@ whose entire residue is stdlib:
 | generalize every definition | 6 |
 | generalize only the variables a class constraint mentions | 6 |
 
-The remaining 6 were investigated separately and are **not** a missing-givens
-problem: the implication is built correctly and the instance context *is* in
-scope. The body's type variable is simply not the one the instance declared
+The remaining 6 were traced to a cause outside the solver entirely. The
+implication is built correctly and the instance context *is* in scope; the
+body's type variable is simply not the one the instance declared
 (`want=[Var(10827)]` against `givens=[MyEq<Var(10821)>]`, with `10827` absent
-from the quantified set), so syntactic entailment cannot match them. Filed as
-[KI-080](../known_issues.md#ki-080) with a three-line reproduction.
+from the quantified set). The variable is lost in `match`:
+`arm_pattern_scrutinee_ty` binds each arm against a *fresh fallback variable*
+when the arms disagree on pattern family, discarding the scrutinee's type, so a
+pattern-bound variable inside a generic function has no connection to the
+function's type parameter. Filed as [KI-080](../known_issues.md#ki-080), with a
+reproduction that needs no instances at all.
+
+This is a third instance of the pattern this proposal keeps meeting: a
+construct whose typing is completed by later unification rather than by a
+constraint. `+` was one (fixed by `Flow.Add`), record field access is another
+([0184](0184_field_access_constraints.md)), and match-arm isolation is the
+third.
 
 What is not tractable inside this proposal is the fallout. Of 1,305 programs, 5
 broke, and 4 of them share one cause. Restricting quantification to the
