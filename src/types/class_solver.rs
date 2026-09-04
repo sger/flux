@@ -11,7 +11,9 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    ast::type_infer::constraint::{WantedClassConstraint, WantedClassConstraintOrigin},
+    ast::type_infer::constraint::{
+        SchemeConstraint, WantedClassConstraint, WantedClassConstraintOrigin, WantedConstraints,
+    },
     diagnostics::position::Span,
     diagnostics::{Diagnostic, DiagnosticBuilder, diagnostic_for},
     syntax::{Identifier, interner::Interner, type_expr::TypeExpr},
@@ -28,7 +30,7 @@ use crate::{
 };
 
 use super::super::diagnostics::compiler_errors::{
-    NO_INSTANCE, OVERLAPPING_INSTANCES, UNDETERMINED_CLASS_PARAMETER,
+    INSTANCE_SEARCH_EXHAUSTED, NO_INSTANCE, OVERLAPPING_INSTANCES, UNDETERMINED_CLASS_PARAMETER,
 };
 
 /// Solve class constraints against known instances.
@@ -57,6 +59,101 @@ pub fn solve_class_constraints(
     .collect()
 }
 
+/// Solve a whole wanted tree and project it to diagnostics.
+///
+/// The tree analogue of [`solve_class_constraints`], for callers that hold an
+/// [`InferProgramResult`]'s wanted set and only want the errors.
+///
+/// [`InferProgramResult`]: crate::ast::type_infer::InferProgramResult
+pub fn solve_class_constraint_tree(
+    wanted: &WantedConstraints,
+    class_env: &ClassEnv,
+    interner: &Interner,
+) -> Vec<Diagnostic> {
+    solve_wanted_tree(wanted, SolveScope::WholeProgram, class_env, interner)
+        .into_diagnostics()
+        .collect()
+}
+
+/// Solve a whole wanted tree, descending into each scope with its context.
+///
+/// GHC's `solveWanteds` walks `wc_simple` and then `wc_impl`, and inside an
+/// implication the `ic_given` predicates are available to discharge wanteds
+/// (`compiler/GHC/Tc/Solver/Solve.hs`). That is the step a flat list cannot
+/// express: without it a predicate over a rigid type variable can only be
+/// recorded as undecided, because no *instance* will ever match a variable.
+///
+/// Givens accumulate outward-in, so a nested scope may use the context of
+/// every scope enclosing it.
+pub fn solve_wanted_tree(
+    wanted: &WantedConstraints,
+    scope: SolveScope,
+    class_env: &ClassEnv,
+    interner: &Interner,
+) -> SolveOutcome {
+    let mut dispositions = Vec::new();
+    solve_scope(wanted, &[], scope, class_env, interner, &mut dispositions);
+    SolveOutcome { dispositions }
+}
+
+fn solve_scope(
+    wanted: &WantedConstraints,
+    givens: &[SchemeConstraint],
+    scope: SolveScope,
+    class_env: &ClassEnv,
+    interner: &Interner,
+    out: &mut Vec<DispositionedConstraint>,
+) {
+    for constraint in &wanted.simple {
+        out.push(DispositionedConstraint {
+            wanted: constraint.clone(),
+            disposition: classify_constraint(constraint, givens, scope, class_env, interner),
+        });
+    }
+    for implication in &wanted.implications {
+        let mut nested = givens.to_vec();
+        nested.extend(implication.givens.iter().cloned());
+        solve_scope(
+            &implication.wanted,
+            &nested,
+            scope,
+            class_env,
+            interner,
+            out,
+        );
+    }
+}
+
+/// Whether the context this scope holds already discharges `constraint`.
+///
+/// THIH's `bySuper`: a predicate is entailed by a given when it *is* that
+/// given, or when the given's class has it among its transitive superclasses —
+/// `Ord<a>` in scope discharges `Eq<a>`, since every `Ord` dictionary carries
+/// an `Eq` one in a superclass slot.
+///
+/// Matching is syntactic on the type arguments, which is what THIH does: a
+/// given is a promise about exactly the type it names.
+fn entailed_by_givens(
+    constraint: &WantedClassConstraint,
+    givens: &[SchemeConstraint],
+    class_env: &ClassEnv,
+) -> Option<Evidence> {
+    givens
+        .iter()
+        .filter(|given| given.type_args == constraint.type_args)
+        .find_map(|given| {
+            let path = if given.class_id == constraint.class_id {
+                Vec::new()
+            } else {
+                class_env.superclass_path(given.class_id, constraint.class_id)?
+            };
+            Some(Evidence::FromGiven {
+                given: given.clone(),
+                superclass_path: path,
+            })
+        })
+}
+
 /// Solve class constraints, assigning every predicate a [`Disposition`].
 ///
 /// Proposal 0179 Stage 3, Goal 2: every obligation is solved, generalized,
@@ -78,7 +175,7 @@ pub fn solve_class_constraints_dispositioned(
         .iter()
         .map(|constraint| DispositionedConstraint {
             wanted: constraint.clone(),
-            disposition: classify_constraint(constraint, scope, class_env, interner),
+            disposition: classify_constraint(constraint, &[], scope, class_env, interner),
         })
         .collect();
 
@@ -97,10 +194,20 @@ pub fn solve_class_constraints_dispositioned(
 /// reason a predicate went undecided is now recorded rather than lost.
 fn classify_constraint(
     constraint: &WantedClassConstraint,
+    givens: &[SchemeConstraint],
     scope: SolveScope,
     class_env: &ClassEnv,
     interner: &Interner,
 ) -> Disposition {
+    // The context comes first: a predicate the enclosing signature already
+    // promises is discharged whatever its shape, and asking about instances or
+    // concreteness first would misfile it. `Num<a>` inside `fn f<a: Num>` is
+    // the case that matters — no instance matches a rigid variable, so before
+    // this it could only be recorded as undecided.
+    if let Some(evidence) = entailed_by_givens(constraint, givens, class_env) {
+        return Disposition::Solved { evidence };
+    }
+
     // Operator constraints that originated from unresolved type variables
     // should not become standalone missing-instance diagnostics just
     // because later inference happened to concretize them.
@@ -164,13 +271,34 @@ fn classify_constraint(
         };
     }
 
+    let mut search = InstanceSearch::default();
     let evidence = solve_instance_evidence(
         constraint.class_id,
         &constraint.type_args,
         class_env,
         interner,
-        &mut HashSet::new(),
+        &mut search,
     );
+
+    // Running out of budget is a different fact from finding no instance, and
+    // GHC keeps them apart for the same reason: `simplify_loop`'s `check_limit`
+    // raises its own error rather than letting the unsolved constraint speak
+    // for it (`compiler/GHC/Tc/Solver/Solve.hs`). Reported as a missing
+    // instance, an abandoned search sends the reader looking for something that
+    // may already exist.
+    if search.exhausted && evidence.is_none() {
+        let predicate = display_predicate(constraint, interner);
+        return Disposition::Diagnosed {
+            diagnostic: Box::new(
+                diagnostic_for(&INSTANCE_SEARCH_EXHAUSTED)
+                    .with_span(constraint.span)
+                    .with_message(format!(
+                        "Resolving `{predicate}` exceeded the instance-context depth limit \
+                         ({MAX_DICTIONARY_RESOLUTION_DEPTH})."
+                    )),
+            ),
+        };
+    }
 
     // Two or more instances matching the same predicate would make evidence
     // selection depend on declaration order. Report it rather than silently
@@ -236,12 +364,23 @@ fn classify_constraint(
 /// substitution were already computed here before Stage 4 and then thrown
 /// away, which is why dictionary elaboration had to resolve a second time and
 /// could disagree with the solver.
+/// The state of one instance search: the path being explored, and whether the
+/// depth budget was ever hit while exploring it.
+#[derive(Debug, Default)]
+struct InstanceSearch {
+    /// Predicates on the current path, for cycle detection.
+    seen: HashSet<String>,
+    /// Set when the budget cut a branch short, so the caller can say the
+    /// search was abandoned rather than that no instance exists.
+    exhausted: bool,
+}
+
 fn solve_instance_evidence(
     class_id: crate::types::class_id::ClassId,
     type_args: &[InferType],
     class_env: &ClassEnv,
     interner: &Interner,
-    seen: &mut HashSet<String>,
+    search: &mut InstanceSearch,
 ) -> Option<Evidence> {
     let class_module = class_id
         .module
@@ -257,7 +396,7 @@ fn solve_instance_evidence(
             .collect::<Vec<_>>()
             .join(", ")
     );
-    if !seen.insert(key.clone()) {
+    if !search.seen.insert(key.clone()) {
         // A cycle in the instance-context graph. The predicate is assumed
         // satisfied to keep the search terminating, but there is no finite
         // evidence tree to hand back.
@@ -270,8 +409,9 @@ fn solve_instance_evidence(
     // budget stops the recursion. Without it the search overflowed the
     // compiler's stack. Reporting no evidence turns that into the same
     // diagnostic a missing instance produces.
-    if seen.len() > MAX_DICTIONARY_RESOLUTION_DEPTH {
-        seen.remove(&key);
+    if search.seen.len() > MAX_DICTIONARY_RESOLUTION_DEPTH {
+        search.seen.remove(&key);
+        search.exhausted = true;
         return None;
     }
 
@@ -310,7 +450,7 @@ fn solve_instance_evidence(
                     .get(index)
                     .copied()
                     .or_else(|| class_env.unique_class_id(ctx.class_name))?;
-                solve_instance_evidence(context_id, &args, class_env, interner, seen)
+                solve_instance_evidence(context_id, &args, class_env, interner, search)
             })
             .collect::<Option<Vec<_>>>()?;
 
@@ -333,11 +473,11 @@ fn solve_instance_evidence(
         })
     })();
     let evidence = from_instance.or_else(|| {
-        structural_builtin_evidence(class_id, type_args, class_env, interner, seen)
+        structural_builtin_evidence(class_id, type_args, class_env, interner, search)
             .map(|components| Evidence::Structural { components })
     });
 
-    seen.remove(&key);
+    search.seen.remove(&key);
     evidence
 }
 
@@ -348,7 +488,7 @@ fn structural_builtin_evidence(
     type_args: &[InferType],
     class_env: &ClassEnv,
     interner: &Interner,
-    seen: &mut HashSet<String>,
+    search: &mut InstanceSearch,
 ) -> Option<Vec<Evidence>> {
     let class_name = interner.resolve(class_id.name);
     if !class_env
@@ -361,28 +501,28 @@ fn structural_builtin_evidence(
         return None;
     }
 
-    let components = |args: &[InferType], seen: &mut HashSet<String>| {
+    let components = |args: &[InferType], search: &mut InstanceSearch| {
         args.iter()
-            .map(|arg| single_evidence(class_name, arg, class_env, interner, seen))
+            .map(|arg| single_evidence(class_name, arg, class_env, interner, search))
             .collect::<Option<Vec<_>>>()
     };
 
     match &type_args[0] {
-        InferType::Tuple(elements) => components(elements, seen),
+        InferType::Tuple(elements) => components(elements, search),
         InferType::App(TypeConstructor::Option, args)
         | InferType::App(TypeConstructor::List, args)
         | InferType::App(TypeConstructor::Array, args) => {
             let arg = args.first()?;
-            single_evidence(class_name, arg, class_env, interner, seen).map(|ev| vec![ev])
+            single_evidence(class_name, arg, class_env, interner, search).map(|ev| vec![ev])
         }
         // `Sendable<Map<k, v>>` requires both the keys and values to be
         // sendable. `Eq` and `Ord` are not currently auto-derived for `Map`
         // (the existing rules only cover `Option`/`List`/`Array`), so this
         // arm only fires for `Sendable`.
         InferType::App(TypeConstructor::Map, args) if class_name == "Sendable" => {
-            components(args, seen)
+            components(args, search)
         }
-        InferType::App(TypeConstructor::Either, args) => components(args, seen),
+        InferType::App(TypeConstructor::Either, args) => components(args, search),
         _ => None,
     }
 }
@@ -392,7 +532,7 @@ fn single_evidence(
     ty: &InferType,
     class_env: &ClassEnv,
     interner: &Interner,
-    seen: &mut HashSet<String>,
+    search: &mut InstanceSearch,
 ) -> Option<Evidence> {
     let class_id = class_env
         .classes
@@ -404,7 +544,7 @@ fn single_evidence(
         std::slice::from_ref(ty),
         class_env,
         interner,
-        seen,
+        search,
     )
 }
 
