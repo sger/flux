@@ -33,7 +33,7 @@ checkout at commit `2ca87972f6`.
 | R4b | a body is held to the context its signature declares (`E489`) | shipped | `5a76501c` | residue → 3,106; fixes Example C |
 | R4c | a deferred `String` operand discharges its addition obligation | shipped | `b6659cb3` | 3 programs; no spurious `Num<String>` |
 | R5 | verified defaulting against the whole group (M5) | shipped, **inert** | `00f53cc6` | **none** — see below |
-| R6 | replace `StuckReason` with origin plus provenance, and report (M6) | in progress | — | targets the 3,106 residue |
+| R6 | replace `StuckReason` with origin plus provenance, and report (M6) | **blocked** | — | root cause found; see below |
 | R7 | clear the fallout across `lib/Flow`, `examples`, `tests` | not started | — | — |
 | — | one `CACHE_EPOCH` bump covering R2 and R4 | not started | — | — |
 | — | rewrite this proposal around the GHC study; file Examples A/B/C as `#KI-nnn` | not started | — | — |
@@ -58,6 +58,56 @@ Two consequences for this proposal. `Float` in the candidate list is
 running defaulting at whole-program scope as well as binding scope — planned as
 the second half of R5 — is provably inert for the same reason and was not
 implemented.
+
+### R6's blocker: an unannotated definition is never generalized
+
+Investigating the residue found a single upstream cause, and it is not in the
+solver. `finalize_and_bind_function_scheme` (`src/ast/type_infer/function.rs`)
+generalizes only a function that declared type parameters:
+
+```rust
+let scheme = if !type_params.is_empty() {
+    self.finalize_binding_scheme(...)   // generalizes; consumes its predicates
+} else {
+    Scheme::mono(fn_ty)                 // no generalization at all
+};
+```
+
+So `fn pick(a, b) { if a > b { a } else { b } }` is bound monomorphically. Its
+`Ord<v>` obligation is never generalized, never consumed, and `v` stays one
+shared variable across every use. If some call site pins `v` to a concrete
+type the predicate solves by accident; if every caller is itself generic, it
+survives to whole-program scope and sits stuck forever.
+
+That is the whole residue. Measured on the module fixture in
+`/tmp/modtest`, against a stdlib baseline of 15:
+
+| variant | residue |
+|---|---:|
+| stdlib only (`print(1)`) | 15 |
+| + module-private unannotated recursive helper | 17 |
+| + the same helper made `public` | 17 |
+| + the same helper never called | 17 |
+| + a non-recursive unannotated helper | 16 |
+| + the helper annotated `fn pick<a: Ord>(..)` | 16 (moves to its unannotated caller) |
+| the identical helper at file top level, called at `Int` | 15 (a call site pinned it) |
+
+`lib/Flow/*` is entirely module-wrapped generic code, so it hits this on almost
+every helper — which is why a bare `print(1)` already carries 15 stuck
+predicates before the user's program is even read.
+
+**The 3,106 figure is a multiple, not a population.** The trace runs per
+compiled module, so re-compiling the stdlib for each of ~200 corpus programs
+counts the same ~15 predicates again and again. Every count in this document
+before this section is inflated the same way and should be read as a relative
+measure only.
+
+This blocks R6 as planned. Reporting what survives the fixpoint would reject
+the standard library, because these predicates are not defects — they are
+obligations that generalization should have consumed and did not. R6 therefore
+depends on a decision recorded under Unresolved questions: whether an
+unannotated definition should be generalized (full Hindley–Milner, with the
+dictionary parameters that implies) or stay monomorphic.
 
 ### The residue R6 inherits
 
