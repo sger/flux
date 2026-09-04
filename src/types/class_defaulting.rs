@@ -34,12 +34,6 @@ pub struct FinalizedBindingClassConstraints {
     pub dispositions: Vec<DispositionedConstraint>,
 }
 
-#[derive(Debug, Default)]
-struct VarConstraintSummary {
-    saw_num_var_obligation: bool,
-    blocked: bool,
-}
-
 /// Finalize one binding's class obligations before generalization.
 ///
 /// Behavior:
@@ -64,7 +58,8 @@ pub fn finalize_binding_class_constraints(
         .copied()
         .collect();
 
-    let default_subst = build_numeric_default_subst(&resolved_constraints, &public_vars, interner);
+    let default_subst =
+        build_numeric_default_subst(&resolved_constraints, &public_vars, class_env, interner);
     let finalized_type = resolved_type.apply_type_subst(&default_subst);
     let finalized_constraints =
         apply_wanted_constraints_subst(&resolved_constraints, &default_subst);
@@ -84,8 +79,14 @@ pub fn finalize_binding_class_constraints(
     // `collect_scheme_constraints`. Stage 3 folds that decision into the
     // solver's disposition (THIH's `split`); until then, record the outcome
     // on the dispositions so both halves report the same thing.
-    let scheme_constraints =
-        collect_scheme_constraints(&finalized_constraints, &finalized_type, env_free_vars, mode);
+    let scheme_constraints = collect_scheme_constraints(
+        &finalized_constraints,
+        &finalized_type,
+        env_free_vars,
+        mode,
+        class_env,
+        interner,
+    );
     let dispositions = mark_generalized(outcome, &scheme_constraints);
 
     // A declared bound over a variable this signature never mentions cannot be
@@ -159,21 +160,78 @@ fn apply_wanted_constraints_subst(
         .collect()
 }
 
+/// The types tried for a defaultable variable, in order.
+///
+/// Haskell's `default (Integer, Double)` over Flux's own numeric tower. `Int`
+/// comes first so that every program that already defaulted keeps the type it
+/// had; `Float` is reached only by a variable whose other obligations `Int`
+/// cannot meet, which previously had no terminal state at all.
+const NUMERIC_DEFAULT_CANDIDATES: [TypeConstructor; 2] =
+    [TypeConstructor::Int, TypeConstructor::Float];
+
+/// Resolve ambiguous variables by defaulting, following GHC's
+/// `disambigGroup` (`GHC.Tc.Solver.Default`) and Note [How type-class
+/// constraints are defaulted].
+///
+/// The four steps, and what each one means here:
+///
+/// 1. Group the *unary* obligations — those of the form `C<v>` — by their
+///    variable, and record which variables a non-unary obligation mentions.
+///    GHC's `findDefaultableGroups` blocks a variable only on the non-unary
+///    ones; `Num<v>` beside `Show<v>` is still a defaultable group, whereas
+///    `Num<v>` beside `Convert<v, b>` is not.
+/// 2. Keep a group only if some obligation in it belongs to a class that has a
+///    default declaration — for Flux, `Num`.
+/// 3. Try each candidate in order, keeping it only if it discharges *every*
+///    obligation in the group, not merely the `Num` one.
+/// 4. Commit the first candidate that survives.
+///
+/// The commit is a substitution the caller composes and then re-solves
+/// against, so a candidate accepted here on an instance head whose own context
+/// turns out to be unsatisfiable is still reported by the solver rather than
+/// silently accepted.
+///
+/// Step 3 is what the previous implementation lacked: it blocked a variable as
+/// soon as any second obligation mentioned it and then committed to `Int`
+/// unverified, so `Num<v>` with `Show<v>` defaulted to nothing and stayed
+/// stuck, while `Num<v>` alone defaulted to `Int` whether or not `Int` had the
+/// instance.
+///
+/// ## This never fires today, and that is the point of measuring it
+///
+/// Traced over all 1,305 `.flx` programs in the repository, no variable ever
+/// reaches step 2: every candidate group is blocked first. Flux has no
+/// `Num`-polymorphic literal — `1` is `Int`, not `Num<a> => a` — so an
+/// ambiguous numeric variable, the thing defaulting exists to resolve, does
+/// not arise. `Float` is therefore unreachable rather than a language change,
+/// and the residue Proposal 0183 is escalating (`Ord`, `Eq`, `Sendable`)
+/// contains no `Num` obligation for defaulting to act on.
+///
+/// It is written to GHC's rule anyway because the alternative is a function
+/// that is *both* dead and wrong: when Flux gives literals a `Num` bound, the
+/// unverified single-candidate version would start committing to `Int` without
+/// checking, and the failure would look like a mis-inferred type rather than a
+/// defaulting bug.
 fn build_numeric_default_subst(
     constraints: &[WantedClassConstraint],
     public_vars: &HashSet<TypeVarId>,
+    class_env: Option<&ClassEnv>,
     interner: &Interner,
 ) -> TypeSubst {
     // Pre-intern the `Num` class name once. If it was never interned in this
-    // session no `Num` constraints exist, so every var gets marked `blocked`
-    // (nothing to default) and we still do the work — but an identifier-equality
-    // check per constraint is cheaper than a per-constraint string compare, and
-    // it keeps the extension point clear for future numeric classes (Fractional,
-    // Integral, etc.) where we would intern additional IDs here.
+    // session no `Num` obligation exists and no group passes step 2. This is
+    // also the extension point for further defaultable classes (`Fractional`,
+    // `Integral`), each of which would bring its own candidate list.
     let num_id = interner.lookup("Num");
+    let is_num = |constraint: &WantedClassConstraint| {
+        num_id.is_some_and(|id| {
+            constraint.class_id.module.is_empty() && constraint.class_id.name == id
+        })
+    };
 
-    let mut summaries: HashMap<TypeVarId, VarConstraintSummary> = HashMap::new();
-
+    // Step 1.
+    let mut unary: HashMap<TypeVarId, Vec<&WantedClassConstraint>> = HashMap::new();
+    let mut blocked: HashSet<TypeVarId> = HashSet::new();
     for constraint in constraints {
         let vars = constraint
             .type_args
@@ -184,30 +242,65 @@ fn build_numeric_default_subst(
             continue;
         }
 
-        let is_single_num = constraint.type_args.len() == 1
-            && num_id.is_some_and(|id| {
-                constraint.class_id.module.is_empty() && constraint.class_id.name == id
-            })
-            && matches!(constraint.type_args.first(), Some(InferType::Var(_)));
-
-        if is_single_num && constraint.origin != WantedClassConstraintOrigin::ExplicitBound {
-            if let Some(InferType::Var(var)) = constraint.type_args.first() {
-                summaries.entry(*var).or_default().saw_num_var_obligation = true;
+        // A bound the signature *declares* is not ambiguity: the variable it
+        // constrains is the caller's to choose, so defaulting it here would
+        // silently monomorphise a polymorphic signature.
+        match constraint.type_args.as_slice() {
+            [InferType::Var(var)]
+                if constraint.origin != WantedClassConstraintOrigin::ExplicitBound =>
+            {
+                unary.entry(*var).or_default().push(constraint);
             }
+            _ => blocked.extend(vars),
+        }
+    }
+
+    // Sorted so that the substitution is built in the same order on every run,
+    // whatever the hash seed. Each variable is decided independently, so this
+    // does not change the result — it keeps it reproducible.
+    let mut groups: Vec<(TypeVarId, Vec<&WantedClassConstraint>)> = unary.into_iter().collect();
+    groups.sort_by_key(|(var, _)| *var);
+
+    let mut subst = TypeSubst::empty();
+    for (var, group) in groups {
+        if blocked.contains(&var) || public_vars.contains(&var) {
             continue;
         }
 
-        for var in vars {
-            summaries.entry(var).or_default().blocked = true;
+        // Step 2.
+        if !group.iter().copied().any(is_num) {
+            continue;
+        }
+
+        // An embedder may run inference with no class environment at all, and
+        // for that caller there is nothing to verify a candidate against. Step
+        // 3 cannot run, so neither can the relaxation it pays for: only a group
+        // that is entirely `Num` defaults, to `Int`, exactly as before.
+        let Some(env) = class_env else {
+            if group.iter().copied().all(is_num) {
+                subst.insert(var, InferType::Con(TypeConstructor::Int));
+            }
+            continue;
+        };
+
+        // Steps 3 and 4.
+        for candidate in NUMERIC_DEFAULT_CANDIDATES {
+            let candidate_ty = InferType::Con(candidate);
+            let discharges_group = group.iter().all(|constraint| {
+                env.resolve_instance_with_subst_by_id(
+                    constraint.class_id,
+                    std::slice::from_ref(&candidate_ty),
+                    interner,
+                )
+                .is_some()
+            });
+            if discharges_group {
+                subst.insert(var, candidate_ty);
+                break;
+            }
         }
     }
 
-    let mut subst = TypeSubst::empty();
-    for (var, summary) in summaries {
-        if summary.saw_num_var_obligation && !summary.blocked && !public_vars.contains(&var) {
-            subst.insert(var, InferType::Con(TypeConstructor::Int));
-        }
-    }
     subst
 }
 
@@ -258,6 +351,8 @@ fn collect_scheme_constraints(
     infer_type: &InferType,
     env_free_vars: &HashSet<TypeVarId>,
     mode: GeneralizationMode,
+    class_env: Option<&ClassEnv>,
+    interner: &Interner,
 ) -> Vec<SchemeConstraint> {
     let quantified: HashSet<TypeVarId> = infer_type
         .free_vars()
@@ -267,8 +362,31 @@ fn collect_scheme_constraints(
 
     let (_deferred, retained) = split(constraints, env_free_vars, &quantified);
 
+    // A signature that names its context owns it. GHC's `decideQuantification`
+    // calls this case (P2) in Note [Constraints in partial type signatures]:
+    // "Quantify over psig_theta: the user has explicitly specified the entire
+    // context. That may mean we have an unsolved residual constraint (Ix a)
+    // arising from the RHS of the function. But so be it."
+    //
+    // Inferring the rest instead is how `fn cmp<a: MyEq>` whose body needs
+    // `MyOrd<a>` came to compile: the predicate was quietly added to the
+    // scheme, and the mismatch surfaced at whichever caller used a type
+    // without that instance. Leaving it out of the scheme leaves it a wanted
+    // inside the binding's scope, where it is reported against the context.
+    //
+    // A signature that names *no* bound is the other case: nothing was
+    // specified, so inference still supplies the context, which is what keeps
+    // `fn list_size<a>(value: List<a>)` working.
+    let declared_context = mode == GeneralizationMode::Definition
+        && constraints
+            .iter()
+            .any(|c| c.origin == WantedClassConstraintOrigin::ExplicitBound);
+
     let mut result: Vec<SchemeConstraint> = Vec::new();
     for constraint in retained {
+        if declared_context && constraint.origin != WantedClassConstraintOrigin::ExplicitBound {
+            continue;
+        }
         // Only obligations over variables this binding quantifies become
         // scheme constraints; a fully concrete predicate was already
         // discharged against an instance by the solver.
@@ -302,7 +420,158 @@ fn collect_scheme_constraints(
         }
     }
 
+    match class_env {
+        Some(class_env) => {
+            let reduced = reduce_to_head_normal_form(result, class_env, interner);
+            retain_minimal_by_superclasses(reduced, class_env)
+        }
+        None => result,
+    }
+}
+
+/// Drop a retained predicate that another retained predicate already implies.
+///
+/// GHC's `mkMinimalBySCs`, called from `decideQuantification`
+/// (`compiler/GHC/Tc/Solver.hs`). Keeping both `Monoid<a>` and its superclass
+/// `Semigroup<a>` on a scheme asks every caller for two dictionaries when one
+/// carries the other: every `Monoid` dictionary holds `Semigroup` evidence in a
+/// superclass slot, which is where the body should project it from.
+///
+/// Only predicates over the *same* type arguments imply one another, so
+/// `Monoid<a>` says nothing about `Semigroup<b>`. Superclass cycles are already
+/// rejected as E477, so no pair can eliminate each other.
+fn retain_minimal_by_superclasses(
+    constraints: Vec<SchemeConstraint>,
+    class_env: &ClassEnv,
+) -> Vec<SchemeConstraint> {
+    let implied: Vec<bool> = constraints
+        .iter()
+        .map(|candidate| {
+            constraints.iter().any(|other| {
+                other != candidate
+                    && other.type_args == candidate.type_args
+                    && class_env
+                        .superclass_path(other.class_id, candidate.class_id)
+                        .is_some()
+            })
+        })
+        .collect();
+
+    constraints
+        .into_iter()
+        .zip(implied)
+        .filter_map(|(constraint, is_implied)| (!is_implied).then_some(constraint))
+        .collect()
+}
+
+/// Whether every argument of `constraint` is headed by a type variable.
+///
+/// THIH's `inHnf`. A predicate over a bare variable is evidence the caller must
+/// supply; one over a *constructed* type — `MyEq<List<a>>` — is evidence an
+/// instance provides, and keeping it as a scheme constraint asks the caller for
+/// a dictionary that the instance already defines.
+fn constraint_is_head_normal(constraint: &SchemeConstraint) -> bool {
+    fn head_is_var(ty: &InferType) -> bool {
+        match ty {
+            InferType::Var(_) => true,
+            InferType::HktApp(head, _) => head_is_var(head),
+            _ => false,
+        }
+    }
+    constraint.type_args.iter().all(head_is_var)
+}
+
+/// Replace each predicate that an instance discharges with the context that
+/// instance requires, and drop the duplicates that exposes.
+///
+/// THIH's `toHnfs`. `instance MyEq<a> => MyEq<List<a>>` reduces `MyEq<List<a>>`
+/// to `MyEq<a>`, so an instance method calling a sibling method on its own head
+/// no longer carries a second dictionary parameter for a predicate the instance
+/// itself satisfies (KI-078).
+///
+/// A predicate no instance matches is kept unchanged: it may still be
+/// discharged by a caller, and rejecting it here would report the same missing
+/// instance twice.
+fn reduce_to_head_normal_form(
+    constraints: Vec<SchemeConstraint>,
+    class_env: &ClassEnv,
+    interner: &Interner,
+) -> Vec<SchemeConstraint> {
+    let mut result: Vec<SchemeConstraint> = Vec::new();
+    for constraint in constraints {
+        let original = constraint.clone();
+        for reduced in reduce_one(&original, constraint, class_env, interner, 0) {
+            if !result.contains(&reduced) {
+                result.push(reduced);
+            }
+        }
+    }
     result
+}
+
+/// One reduction step. `original` is the predicate reduction started from, and
+/// is what an exhausted budget falls back to.
+///
+/// A context that grows its argument — `instance C<List<a>> => C<a>` — has no
+/// head-normal form, so reduction runs to the budget. Returning the predicate
+/// *as expanded at that depth* put a 64-deep nested type on the scheme, which
+/// then appeared verbatim in diagnostics. The un-reduced predicate is the
+/// honest answer: reduction achieved nothing, so it should change nothing.
+fn reduce_one(
+    original: &SchemeConstraint,
+    constraint: SchemeConstraint,
+    class_env: &ClassEnv,
+    interner: &Interner,
+    depth: usize,
+) -> Vec<SchemeConstraint> {
+    if depth >= crate::types::class_env::MAX_DICTIONARY_RESOLUTION_DEPTH {
+        return vec![original.clone()];
+    }
+    if constraint_is_head_normal(&constraint) {
+        return vec![constraint];
+    }
+
+    let Some((instance, subst)) = class_env.resolve_instance_with_subst_by_id(
+        constraint.class_id,
+        &constraint.type_args,
+        interner,
+    ) else {
+        return vec![constraint];
+    };
+
+    let mut context = Vec::new();
+    for (index, ctx) in instance.context.iter().enumerate() {
+        let Some(type_args) = ctx
+            .type_args
+            .iter()
+            .map(|arg| {
+                crate::types::class_env::instantiate_instance_type_expr(arg, &subst, interner)
+            })
+            .collect::<Option<Vec<_>>>()
+        else {
+            // A context predicate that cannot be instantiated leaves the
+            // original in place rather than dropping an obligation.
+            return vec![constraint];
+        };
+        let Some(class_id) = instance
+            .context_class_ids
+            .get(index)
+            .copied()
+            .or_else(|| class_env.unique_class_id(ctx.class_name))
+        else {
+            return vec![constraint];
+        };
+        context.push(SchemeConstraint {
+            class_name: ctx.class_name,
+            class_id,
+            type_args,
+        });
+    }
+
+    context
+        .into_iter()
+        .flat_map(|ctx| reduce_one(original, ctx, class_env, interner, depth + 1))
+        .collect()
 }
 
 /// Diagnostics for declared bounds whose variables no call can determine.
@@ -396,7 +665,6 @@ mod tests {
             type_args,
             span: Span::default(),
             origin,
-            originated_from_concrete_type: false,
         }
     }
 
@@ -482,8 +750,10 @@ mod tests {
         );
     }
 
+    /// With no class environment there is nothing to verify a candidate
+    /// against, so a group spanning more than one class does not default.
     #[test]
-    fn mixed_num_and_eq_constraints_do_not_default() {
+    fn mixed_num_and_eq_constraints_do_not_default_without_a_class_env() {
         let mut interner = Interner::new();
         let num = interner.intern("Num");
         let eq = interner.intern("Eq");

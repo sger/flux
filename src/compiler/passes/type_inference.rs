@@ -2,14 +2,14 @@ use crate::ast::desugar_named_fields::{
     NamedFieldDesugarCtx, collect_named_field_metadata, collect_named_field_metadata_in_statements,
     desugar_named_fields_in_program,
 };
-use crate::ast::type_infer::constraint::WantedClassConstraint;
+use crate::ast::type_infer::constraint::WantedConstraints;
 use crate::ast::type_infer::static_type_validation::{
     StaticTypeValidationCtx, validate_static_types,
 };
 use crate::diagnostics::DiagnosticPhase;
 use crate::syntax::program::Program;
 use crate::types::class_disposition::SolveScope;
-use crate::types::class_solver::solve_class_constraints_dispositioned;
+use crate::types::class_solver::solve_wanted_tree;
 
 use super::super::{Compiler, pipeline::TypeInferenceResult, tag_diagnostics};
 
@@ -38,7 +38,7 @@ impl Compiler {
         let module_member_schemes = hm_final.module_member_schemes;
         self.cached_member_schemes
             .extend(module_member_schemes.clone());
-        let class_constraints: Vec<WantedClassConstraint> = hm_final.class_constraints;
+        let class_constraints: WantedConstraints = hm_final.class_constraints;
         let instantiated_expr_vars = hm_final.instantiated_expr_vars;
         let resolved_binding_schemes = hm_final.resolved_binding_schemes;
 
@@ -77,15 +77,18 @@ impl Compiler {
 
         // Type class constraint solving: verify that concrete-type constraints
         // have matching instances in the ClassEnv (Proposal 0145, Step 4).
-        if !class_constraints.is_empty() && !self.class_env.classes.is_empty() {
+        if !class_constraints.is_solved() && !self.class_env.classes.is_empty() {
             // Whole-program scope: generalization has already had its chance,
-            // so nothing here is generalizable (Proposal 0179 Stage 3).
-            let outcome = solve_class_constraints_dispositioned(
+            // so nothing here is generalizable (Proposal 0179 Stage 3). Each
+            // definition's scope is solved with the context its signature
+            // promises, which is why the tree is passed rather than a list.
+            let outcome = solve_wanted_tree(
                 &class_constraints,
                 SolveScope::WholeProgram,
                 &self.class_env,
                 &self.interner,
             );
+            outcome.trace_stuck(&self.interner);
             let mut solver_diags: Vec<_> = outcome.into_diagnostics().collect();
             tag_diagnostics(&mut solver_diags, DiagnosticPhase::TypeInference);
             hm_diagnostics.extend(solver_diags);

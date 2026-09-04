@@ -340,21 +340,36 @@ impl<'a> InferCtx<'a> {
             return false;
         };
         if self.match_has_nonconstraining_arm(arms) {
-            return self.concrete_scrutinee_matches_family(scrutinee_ty, family);
+            return self.scrutinee_head_matches_family(scrutinee_ty, family);
         }
         true
     }
 
-    /// Return true when a fully resolved scrutinee already matches the shared pattern family.
-    fn concrete_scrutinee_matches_family(
+    /// Return true when the scrutinee's *head* already matches the shared
+    /// pattern family, so isolating the arms would gain nothing.
+    ///
+    /// Only the head constructor and its arity decide a family — `List<a>` is
+    /// as much a list as `List<Int>` — so this deliberately does not require
+    /// the scrutinee to be fully concrete. Requiring that was
+    /// [KI-080](../../../../docs/known_issues.md#ki-080): inside
+    /// `fn f<a: C>(xs: List<a>)`, `List<a>` has a free variable, so the arms
+    /// were judged not to agree and each one bound against a fresh variable
+    /// instead of the scrutinee. Every pattern variable in the match then lost
+    /// its connection to `a`, and the class obligations raised on it were over
+    /// a variable the signature's own context could not discharge.
+    ///
+    /// A scrutinee whose head is still unknown — a bare variable — matches no
+    /// arm below and so continues to isolate.
+    fn scrutinee_head_matches_family(
         &self,
         scrutinee_ty: &InferType,
         family: &PatternFamily,
     ) -> bool {
-        if !scrutinee_ty.free_vars().is_empty() {
-            return false;
-        }
-        match (scrutinee_ty, family) {
+        // The caller passes the type as inferred, not as resolved, so a
+        // scrutinee whose head was settled by a later unification would
+        // otherwise still look like a bare variable here.
+        let resolved = scrutinee_ty.apply_type_subst(&self.subst);
+        match (&resolved, family) {
             (InferType::App(TypeConstructor::Option, args), PatternFamily::Option) => {
                 args.len() == 1
             }

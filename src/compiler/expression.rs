@@ -1390,71 +1390,170 @@ impl Compiler {
         }
     }
 
+    /// Hold every class-method call in `body` to the effect row its class
+    /// declares.
+    ///
+    /// A class method's row lives on the class declaration, not on a function,
+    /// so it has no entry in the contract table and
+    /// [`Self::check_static_contract_call`] never sees it. It is also invisible
+    /// to the CFG path, which checks primops only. The result was that
+    ///
+    /// ```text
+    /// class Flash<a> { fn flash(x: a) -> Int with IO }
+    /// fn leaky(x: Int) -> Int { flash(x) }     // accepted, and prints
+    /// ```
+    ///
+    /// compiled, while the same call to an ordinary `with IO` function was
+    /// rejected with E400 — so a function could claim to be pure and perform
+    /// console output, and every one of its callers inherited that silently.
+    ///
+    /// Run before the body is compiled, so the answer does not depend on
+    /// whether this function ends up on the CFG or the AST path.
+    pub(super) fn check_class_method_effect_calls(&mut self, body: &Block) -> Vec<Diagnostic> {
+        if self.class_env.classes.is_empty() {
+            return Vec::new();
+        }
+
+        let mut calls: Vec<(crate::syntax::Identifier, Expression, Vec<Expression>)> = Vec::new();
+        collect_class_method_calls(body, &mut calls);
+
+        let mut diagnostics = Vec::new();
+        for (name, callee, arguments) in calls {
+            let module = self
+                .current_module_prefix
+                .map(crate::types::class_id::ModulePath::from_identifier)
+                .unwrap_or(crate::types::class_id::ModulePath::EMPTY);
+            let Some(class_id) = self.class_env.resolve_method_class_id(module, name) else {
+                continue;
+            };
+            let Some(effects) = self
+                .class_env
+                .lookup_class_by_id(class_id)
+                .and_then(|class_def| class_def.methods.iter().find(|m| m.name == name))
+                .filter(|method| !method.effects.is_empty())
+                .map(|method| (method.effects.clone(), method.param_types.clone()))
+            else {
+                continue;
+            };
+            let (effects, param_types) = effects;
+            // A *local* binding of the same name shadows the class method, so
+            // the call is not dispatching through the class. The generated
+            // dispatch stub is a global of the same name and must not count as
+            // shadowing, or this check would skip every class-method call.
+            if self.resolve_visible_symbol(name).is_some_and(|binding| {
+                binding.symbol_scope != crate::compiler::symbol_scope::SymbolScope::Global
+            }) {
+                continue;
+            }
+            // The class declaration is not alias-expanded, so `with IO` is
+            // still the alias here while the enclosing function's available
+            // set holds the labels it expands to.
+            let effects = effects
+                .iter()
+                .map(|effect| effect.expand_aliases(&self.effect_row_aliases))
+                .collect();
+            let contract = FnContract {
+                type_params: Vec::new(),
+                // Real parameter types, not placeholders: a method declared
+                // effect-polymorphic (`fmap(f: a -> b with e, ...) with e`)
+                // binds its row variable from a function-typed argument, and
+                // with placeholders `e` is left unresolved (E419).
+                params: param_types.into_iter().map(Some).collect(),
+                ret: None,
+                effects,
+            };
+            if let Err(diagnostic) = self.check_contract_effect_row(&callee, &arguments, &contract)
+            {
+                diagnostics.push(*diagnostic);
+            }
+        }
+        diagnostics
+    }
+
+    /// Check a call's declared effect row against what the enclosing function
+    /// makes available.
+    ///
+    /// Split out of [`Self::check_source_contract_call`] so that a call whose
+    /// callee has no registered contract — a class method, whose row lives on
+    /// the class declaration rather than on a function — can be held to the
+    /// same rule.
+    pub(super) fn check_contract_effect_row(
+        &mut self,
+        function: &Expression,
+        arguments: &[Expression],
+        contract: &FnContract,
+    ) -> CompileResult<()> {
+        if contract.effects.is_empty() {
+            return Ok(());
+        }
+
+        let required_row = EffectRow::from_effect_exprs(&contract.effects);
+        let constraints = self.collect_effect_row_constraints(contract, arguments);
+        let solution = solve_row_constraints(&constraints);
+
+        if let Some(first_violation) = solution.violations.first() {
+            return Err(Self::boxed(
+                self.diagnostic_for_row_violation(function, first_violation),
+            ));
+        }
+
+        let unresolved: Vec<Symbol> = required_row
+            .unresolved_vars(&solution)
+            .into_iter()
+            .filter(|effect_var| !self.is_effect_available(*effect_var))
+            .collect();
+
+        let function_name = self.call_function_name(function);
+        if !unresolved.is_empty()
+            && function_name != crate::syntax::select_desugar::EVENT_RUN_SELECTED_FN
+        {
+            let origin = self.effect_constraint_origin(function, None);
+            return Err(Self::boxed(self.unresolved_effect_vars_diagnostic(
+                &unresolved,
+                function.span(),
+                &origin,
+            )));
+        }
+
+        let mut required_effects: Vec<Symbol> = required_row
+            .concrete_effects(&solution)
+            .into_iter()
+            .collect();
+        required_effects.sort_by_key(|symbol| self.sym(*symbol).to_string());
+
+        for required_name in required_effects {
+            if !self.is_effect_available(required_name) {
+                let missing = self.sym(required_name).to_string();
+                return Err(Self::boxed(
+                    Diagnostic::make_error_dynamic(
+                        "E400",
+                        "MISSING EFFECT",
+                        ErrorType::Compiler,
+                        format!(
+                            "Call to `{}` requires effect `{}` in this function signature.",
+                            function_name, missing
+                        ),
+                        Some(format!("Add `with {}` to the enclosing function.", missing)),
+                        self.file_path.clone(),
+                        function.span(),
+                    )
+                    .with_display_title("Missing Ambient Effect")
+                    .with_category(DiagnosticCategory::Effects)
+                    .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
+                    .with_primary_label(function.span(), "effectful call occurs here"),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     fn check_source_contract_call(
         &mut self,
         function: &Expression,
         arguments: &[Expression],
         contract: &FnContract,
     ) -> CompileResult<()> {
-        if !contract.effects.is_empty() {
-            let required_row = EffectRow::from_effect_exprs(&contract.effects);
-            let constraints = self.collect_effect_row_constraints(contract, arguments);
-            let solution = solve_row_constraints(&constraints);
-
-            if let Some(first_violation) = solution.violations.first() {
-                return Err(Self::boxed(
-                    self.diagnostic_for_row_violation(function, first_violation),
-                ));
-            }
-
-            let unresolved: Vec<Symbol> = required_row
-                .unresolved_vars(&solution)
-                .into_iter()
-                .filter(|effect_var| !self.is_effect_available(*effect_var))
-                .collect();
-
-            let function_name = self.call_function_name(function);
-            if !unresolved.is_empty()
-                && function_name != crate::syntax::select_desugar::EVENT_RUN_SELECTED_FN
-            {
-                let origin = self.effect_constraint_origin(function, None);
-                return Err(Self::boxed(self.unresolved_effect_vars_diagnostic(
-                    &unresolved,
-                    function.span(),
-                    &origin,
-                )));
-            }
-
-            let mut required_effects: Vec<Symbol> = required_row
-                .concrete_effects(&solution)
-                .into_iter()
-                .collect();
-            required_effects.sort_by_key(|symbol| self.sym(*symbol).to_string());
-
-            for required_name in required_effects {
-                if !self.is_effect_available(required_name) {
-                    let missing = self.sym(required_name).to_string();
-                    return Err(Self::boxed(
-                        Diagnostic::make_error_dynamic(
-                            "E400",
-                            "MISSING EFFECT",
-                            ErrorType::Compiler,
-                            format!(
-                                "Call to `{}` requires effect `{}` in this function signature.",
-                                function_name, missing
-                            ),
-                            Some(format!("Add `with {}` to the enclosing function.", missing)),
-                            self.file_path.clone(),
-                            function.span(),
-                        )
-                        .with_display_title("Missing Ambient Effect")
-                        .with_category(DiagnosticCategory::Effects)
-                        .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
-                        .with_primary_label(function.span(), "effectful call occurs here"),
-                    ));
-                }
-            }
-        }
+        self.check_contract_effect_row(function, arguments, contract)?;
 
         let function_name = self.call_function_name(function);
         let def_span = self.call_definition_span(function);
@@ -4644,6 +4743,17 @@ impl Compiler {
         if self.class_env.classes.is_empty() {
             return None;
         }
+        // A bare name this unit binds to its own function is that function, not
+        // a class method that happens to share the name. `LowerCtx` declines
+        // the same call for the same reason, and type inference never treated
+        // it as a class method at all — without this the VM alone rewrites it
+        // to `__tc_<Class>_<Type>_<name>` and silently computes something else.
+        // A *qualified* call still dispatches: it names the class outright,
+        // which is why the guard is here and not in
+        // `try_resolve_class_method_call_for_id`.
+        if self.user_function_names.contains(&name) {
+            return None;
+        }
         let class_id = self.class_env.resolve_method_class_id(
             self.current_module_prefix
                 .map(crate::types::class_id::ModulePath::from_identifier)
@@ -5082,11 +5192,20 @@ impl Compiler {
             Expression::Identifier { name, .. } => {
                 self.interner.resolve(*name).starts_with("__dict_")
             }
+            // A dictionary tuple holds one identifier per slot: a mangled
+            // instance method, or — for a class with superclasses — the
+            // `__dict_*` global standing for that superclass's evidence.
+            // Missing the second kind made this return `false` for every
+            // dictionary of a class that has a superclass, so the call was
+            // elaborated again on each recompilation and the rewrite never
+            // terminated.
             Expression::TupleLiteral { elements, .. } => {
                 !elements.is_empty()
                     && elements.iter().all(|element| {
                         matches!(element, Expression::Identifier { name, .. }
                         if crate::types::class_env::is_generated_instance_method(
+                            self.interner.resolve(*name),
+                        ) || crate::types::class_env::is_dictionary_name(
                             self.interner.resolve(*name),
                         ))
                     })
@@ -5500,4 +5619,36 @@ impl Compiler {
                 .dictionary_slot_names(instance.class_id, &type_name, &self.interner)
         })
     }
+}
+
+/// Collect every `name(args)` call in `block`, innermost first.
+///
+/// Only calls through a bare identifier are collected: a class method reached
+/// through a dictionary projection or a qualified path is resolved elsewhere.
+fn collect_class_method_calls(
+    block: &Block,
+    out: &mut Vec<(crate::syntax::Identifier, Expression, Vec<Expression>)>,
+) {
+    struct Collector<'a> {
+        out: &'a mut Vec<(crate::syntax::Identifier, Expression, Vec<Expression>)>,
+    }
+
+    impl<'ast> crate::ast::visit::Visitor<'ast> for Collector<'_> {
+        fn visit_expr(&mut self, expr: &'ast Expression) {
+            if let Expression::Call {
+                function,
+                arguments,
+                ..
+            } = expr
+                && let Expression::Identifier { name, .. } = function.as_ref()
+            {
+                self.out
+                    .push((*name, (**function).clone(), arguments.clone()));
+            }
+            crate::ast::visit::walk_expr(self, expr);
+        }
+    }
+
+    let mut collector = Collector { out };
+    crate::ast::visit::walk_block(&mut collector, block);
 }

@@ -9,6 +9,12 @@
 /// element type is a rigid variable inside the body and `==` cannot be applied
 /// to it. They recurse through `eq` instead, routing each element through the
 /// dictionary the constructor is handed. (Proposal 0179 Stage 7 and Stage 8.)
+///
+/// Until context reduction landed these went through constrained helper
+/// functions (`list_eq`, `option_eq`) rather than recursing directly: a
+/// predicate over the instance's own head was generalized into a second
+/// dictionary parameter, so `neq(xs, ys) { !eq(xs, ys) }` failed on arity.
+/// See docs/known_issues.md#ki-078.
 module Flow.Eq {
     public class Eq<a> {
         fn eq(x: a, y: a) -> Bool
@@ -35,55 +41,35 @@ module Flow.Eq {
         fn neq(x, y) { x != y }
     }
 
-    // The container instances recurse through these constrained helpers, and
-    // the helpers compare elements with `==` rather than `eq(...)`. Both
-    // choices work around defects in module-scoped code, not preferences:
-    //
-    //   * an instance method that calls its own class method on its own head
-    //     type (`eq(t1, t2)` on the tail) is forwarded through a copy that
-    //     bakes in the caller's element dictionary, so the tail comparison
-    //     reaches the element instance and traps
-    //     (`E1009 unsupported comparison: List and List`);
-    //   * a constrained function inside a `module` block that calls a class
-    //     method *by name* never receives its dictionary and falls through
-    //     to the runtime dispatch stub (`panic: No instance of Eq.eq`).
-    //
-    // Operators desugar through a path that does carry the dictionary, which
-    // is why every constrained function in the stdlib has only ever used them.
-    // See docs/known_issues.md#ki-060 and #ki-061.
-    fn list_eq<a: Eq>(xs: List<a>, ys: List<a>) -> Bool {
-        match xs {
-            [h1 | t1] -> match ys {
-                [h2 | t2] -> h1 == h2 && list_eq(t1, t2),
-                _ -> false
-            },
-            _ -> match ys {
-                [h | t] -> false,
-                _ -> true
-            }
-        }
-    }
-
-    fn option_eq<a: Eq>(x: Option<a>, y: Option<a>) -> Bool {
-        match x {
-            Some(u) -> match y {
-                Some(v) -> u == v,
-                _ -> false
-            },
-            _ -> match y {
-                Some(v) -> false,
-                _ -> true
-            }
-        }
-    }
-
     public instance Eq<a> => Eq<List<a>> {
-        fn eq(xs, ys) { list_eq(xs, ys) }
-        fn neq(xs, ys) { !list_eq(xs, ys) }
+        fn eq(xs, ys) {
+            match xs {
+                [h1 | t1] -> match ys {
+                    [h2 | t2] -> eq(h1, h2) && eq(t1, t2),
+                    _ -> false
+                },
+                _ -> match ys {
+                    [h | t] -> false,
+                    _ -> true
+                }
+            }
+        }
+        fn neq(xs, ys) { !eq(xs, ys) }
     }
 
     public instance Eq<a> => Eq<Option<a>> {
-        fn eq(x, y) { option_eq(x, y) }
-        fn neq(x, y) { !option_eq(x, y) }
+        fn eq(x, y) {
+            match x {
+                Some(u) -> match y {
+                    Some(v) -> eq(u, v),
+                    _ -> false
+                },
+                _ -> match y {
+                    Some(v) -> false,
+                    _ -> true
+                }
+            }
+        }
+        fn neq(x, y) { !eq(x, y) }
     }
 }

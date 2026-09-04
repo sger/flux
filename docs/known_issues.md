@@ -2576,6 +2576,563 @@ Found by trying to replace the hand-rolled insertion sort in
 `Flume.Resolve.Solver` — whose comment explains that the sort is hand-rolled
 because `Version` cannot be sorted generically — with `List.sort_by`.
 
+### KI-078 — An instance method calling a sibling method on its own head type gains a dictionary parameter — FIXED 2026-09-03
+
+**Severity:** High · **Area:** Type classes / constraint solving · **Verified:** 2026-09-03 · **From:** Phase 1 of the type-class audit
+
+A constraint on the instance's *own* head, raised inside one of its own
+methods, is generalized into a dictionary parameter instead of being
+discharged by the instance being defined:
+
+```flux
+class MyEq<a> {
+    fn meq(x: a, y: a) -> Bool
+    fn mneq(x: a, y: a) -> Bool
+}
+
+instance MyEq<Int> { fn meq(x, y) { x == y }  fn mneq(x, y) { x != y } }
+
+instance MyEq<a> => MyEq<List<a>> {
+    fn meq(xs, ys) { ... }
+    fn mneq(xs, ys) { !meq(xs, ys) }        // ← the sibling call
+}
+
+fn main() with IO { print(mneq([1, 2], [1, 3])) }
+// error[E004]: I can't find a value named `__dict_MyEq_List<a>`
+```
+
+`mneq`'s body calls `meq` at `List<a>`, the very head this instance defines.
+The solver classifies `MyEq<List<a>>` as `Generalized` — its argument is not
+ground, and only ground predicates are matched against instances — so it
+becomes a second dictionary parameter:
+
+```
+PROBE __tc_MyEq_List<a>_meq:  1 constraints: ["MyEq<?10761>"]
+PROBE __tc_MyEq_List<a>_mneq: 2 constraints: ["MyEq<?10775>", "MyEq<List<?10775>>"]
+
+letrec __tc_MyEq_List<a>_mneq = λ__dict_MyEq, __dict_MyEq_1, __dict_MyEq, xs, ys. ...
+```
+
+Callers pass one dictionary, the method wants more, and the program fails on
+arity — or, when the extra parameter is filled from the enclosing scope,
+reaches for a `__dict_*` global that only exists as a Core definition.
+
+A method calling *itself* is unaffected: that lowers to a direct call to the
+mangled name and raises no constraint.
+
+The fix is the standard one: match a non-ground predicate against declared
+instance heads (THIH's `byInst`, which does not require ground arguments), and
+discharge it with that instance's evidence applied to the context the enclosing
+function already holds. `resolve_instance_with_subst_by_id`
+([class_env.rs](../src/types/class_env.rs)) already does the matching half.
+
+This is the same root cause as the duplicated dictionary parameters in
+[KI-077](#ki-077), and it is what kept the helper functions in
+[Flow/Eq.flx](../lib/Flow/Eq.flx): until it was fixed the container instances
+could not define `eq` by recursion and `neq` as its negation.
+
+**Fixed 2026-09-03 by context reduction.** This entry and [KI-077](#ki-077)
+had one cause: the solver retained a scheme constraint whose argument was a
+*constructed* type, asking the caller for a dictionary the instance itself
+defines. `collect_scheme_constraints`
+([class_defaulting.rs](../src/types/class_defaulting.rs)) now reduces every
+retained predicate to head-normal form — THIH's `toHnfs` — replacing
+`Eq<List<a>>` with the `Eq<a>` its instance requires and dropping the duplicate
+that exposes. The extra dictionary parameter disappears, and with it the wrong
+evidence in the superclass slot. `lib/Flow/Eq.flx` lost its `list_eq` /
+`option_eq` workarounds in the same change.
+
+### KI-079 — A stale bytecode cache runs a program the current compiler rejects
+
+**Severity:** Medium · **Area:** Build caching · **Verified:** 2026-09-03 · **From:** Phase 1 of the type-class audit
+
+The bytecode cache key covers the module's source hash and
+`CARGO_PKG_VERSION` ([artifact_store.rs](../src/driver/artifact_store.rs),
+[module_cache.rs](../src/bytecode/bytecode_cache/module_cache.rs)) but not the
+compiler binary. Two builds of the same version therefore share cache entries,
+so a module compiled by an earlier build is reused verbatim — diagnostics
+included, which means diagnostics *not* re-reported:
+
+```
+$ ./target/debug/flux examples/compiler_errors/instance_missing_method.flx ; echo $?
+0
+$ ./target/debug/flux examples/compiler_errors/instance_missing_method.flx --no-cache ; echo $?
+error[E442]: Missing Instance Method
+1
+```
+
+For a released compiler the version bump invalidates everything, so this is a
+development-time hazard rather than a user-facing one. It is recorded because
+it silently invalidates measurement: several claims in the type-class audit,
+including "these fixtures exit 0 with no output", were measured against cached
+artifacts and are wrong. **Any behavioural comparison across a compiler change
+must pass `--no-cache` or clear the store first** (`flux clean --store`).
+
+### KI-082 — Generalizing an unannotated definition breaks two call sites
+
+**Severity:** Medium · **Area:** Type inference / dictionary elaboration · **Verified:** 2026-09-04 · **From:** Proposal 0183, R6
+
+`finalize_and_bind_function_scheme` binds a function that declared no type
+parameters with `Scheme::mono`, so its inferred class obligations are never
+generalized and never consumed. Turning that off — generalizing every
+definition, quantifying the variables a class constraint mentions — is Proposal
+0183's R6, and it works: the standard library's terminal stuck predicates fall
+from 9 to **0**.
+
+Two programs of 1,305 stop working, and each is a real gap it exposes rather
+than a problem with generalizing:
+
+**1. A top-level `let` cannot call a constrained function.** Filed separately as
+[KI-083](#ki-083) — it is **not** caused by generalizing, only exposed by it,
+and reproduces on the current compiler with an explicit bound.
+
+**2. An arity error is masked by a worse diagnostic.**
+
+```flux
+fn add(a, b) { a + b }
+let result3 = add(1, 2, 3);   // E056 "wrong number of arguments" → E430
+```
+
+(`examples/diagnostics/hint_demos/function_arg_mismatch.flx`.) The fixture
+exists to demonstrate `E056`; with `add` generalized the call's result type
+stays unresolved and `E430` is reported instead. Diagnostic quality, not
+correctness.
+
+A third failure — `[DuplicateBinder] in `multiply`` — was a separate latent bug
+in the CFG path's binder-id seeding and is fixed (see the commit that added this
+entry). The generalization patch itself is kept at
+`scratchpad/r6-generalize-unannotated.patch`.
+
+### KI-085 — A call to a program's own function was dispatched as a class method — FIXED 2026-09-04
+
+**Severity:** High · **Area:** type classes, Core lowering, VM codegen · **Verified:** 2026-09-04 · **From:** Proposal 0183
+
+A bare call to a function the program itself defines was rewritten to a class
+method of the same name whenever an instance applied — a **silent wrong
+answer**, with no diagnostic:
+
+```flux
+fn add(a: String, b: String) -> String {
+    "[" + a + "|" + b + "]"
+}
+
+fn main() with IO { print(add("a", "b")) }
+```
+
+```
+"ab"        // Flow.Add's add — string concatenation
+```
+
+The user's `add` was compiled correctly and simply never called. `main` held
+`__tc_m8_466C6F772E416464_Add_String_add("a", "b")`.
+
+**Cause.** Three places decide whether a bare call is a class method, and only
+one of them checked whether the name is already bound:
+
+| | decides by | checked the binding |
+|---|---|---|
+| `class_method_call_info` (inference) | `env.lookup_span(name) != Span::default()` | yes |
+| `LowerCtx::try_resolve_class_call` (Core) | `resolve_method_class_id(name)` | **no** |
+| `Compiler::try_resolve_class_method_call` (VM) | `resolve_method_class_id(name)` | **no** |
+
+Inference declined, correctly, and then both lowering paths re-derived dispatch
+from the bare name alone and disagreed with it. The two carry comments saying
+they "must stay in lockstep"; they were, with each other, and neither with
+inference.
+
+**Not introduced by 0183, but widened by it.** On `main` the same program is
+wrong whenever an instance exists for the argument type — `fn add(a: Int, b: Int)`
+returns `a + b`, and `eq`, `compare` and `show` are hijacked at every type with
+an instance. 0183 added `Add<String>`, which `Num` never had, so `add` at
+`String` — much the commonest shape — joined them. That is what broke
+`tests/flux/flume_edit.flx`: `Flume.Schema.Edit`'s wrapper
+`add(name: String, value: String)` became string concatenation, failing 6 of its
+18 tests.
+
+Verified against `main` (`b4e35838`): `add(String, String)` and the same call
+inside a `module` block both answer correctly there and wrongly on the 0183
+branch, while `add(Int, Int)`, `eq`, `compare` and `show` are already wrong on
+`main`.
+
+**Fix.** Both lowering sites decline a *bare* name the unit binds to a
+user-written function, using the same test inference uses — a `Statement::Function`
+carrying a real span, since dispatch generation synthesises its instance bodies
+and stubs with `Span::default()`. A **qualified** call still dispatches: it
+names the class outright. The fix also closes the pre-existing `eq` / `compare` /
+`show` / `add(Int, Int)` cases.
+
+Regression coverage: `examples/type_classes/user_function_shadows_class_method.flx`,
+where the user's function and the class method disagree on every line.
+
+Related: [KI-065](#ki-065) is the same collision at symbol resolution, and its
+fix covered only a sibling member of an enclosing module.
+
+### KI-084 — A bare `Compiler` cannot build a dictionary for a contextual prelude instance
+
+**Severity:** Low · **Area:** Compiler harness / LSP · **Verified:** 2026-09-04 · **From:** Proposal 0183
+
+A `Compiler` built directly — `Compiler::new_with_interner` plus
+`compile_with_opts`, with no module graph — rejects any program that needs a
+dictionary for a *contextual* instance of a prelude class:
+
+```flux
+fn big<A: Ord>(x: A, y: A) -> Bool { x < y }
+
+fn main() { big(8, 2) }
+```
+
+```
+error[E004]: I can't find a value named `__dict_m8_466C6F772E4F7264_Ord_Int`.
+```
+
+The same program compiles and runs through the driver, which is the path the
+CLI, the test runner and every real compilation take. Only the bare-`Compiler`
+harness is affected: unit tests that build one directly, and the LSP's
+"view Core IR" / "view bytecode" commands (`crates/flux-lsp/src/handlers/view.rs`),
+which show the error text in place of the dump. Ordinary LSP diagnostics,
+hovers and completion do not use it.
+
+**Cause.** `ClassEnv::register_prelude_classes` parses `lib/Flow/Eq.flx` and its
+siblings for their *declarations*, so the class environment knows every prelude
+class and instance. It never compiles their *bodies*, so no
+`__tc_<class>_<type>_<method>` symbol is interned. `emit_dictionary_defs`
+(`src/core/passes/dict_elaborate.rs`) needs all of a dictionary's slots or none
+— a short tuple would read every later slot at the wrong index — so it emits no
+def for any prelude instance. For a plain instance that is harmless: the
+dictionary is a tuple of external references and the reference resolves against
+the predeclared global. For a contextual instance the dictionary is a
+*constructor*, the reference is a call, and nothing defines it.
+
+`Compiler::predeclare_instance_dictionary_globals` does not cover the gap: it
+demands only classes some *visible* binding constrains, and in this harness
+`type_env.visible_bindings()` is empty at Phase 2. Declaring a global for every
+known instance closes the error, but the global is then never stored, which
+turns a compile error into a run-time nil — worse, not better.
+
+**Not a regression.** `Ord` has had this since Proposal 0179 Stage 8 made it
+`Eq<a> => Ord<a>`; verified failing at `f8d8f585^`. Proposal 0183 moved `Num`
+into the same position by giving it `Add` as a superclass, which is why
+`tests/type_inference/constrained_type_params_integration.rs` now runs its two
+`Num` cases through the driver, as the `Ord` case already did.
+
+**Fix would be** to compile the prelude bodies in this harness, or to fall back
+to direct dispatch when a unit cannot define the dictionary it references.
+
+### KI-083 — A top-level `let` cannot call a constrained function
+
+**Severity:** Medium · **Area:** Core lowering / VM · **Verified:** 2026-09-04 · **From:** Proposal 0183, R6
+
+A top-level `let` whose initializer calls a function with a class bound fails at
+run time. No generalization is involved — this reproduces on the current
+compiler with the bound written out:
+
+```flux
+fn square<a: Num>(x: a) -> a { x * x }
+
+let d = square(3)
+
+fn main() with IO {
+    print(d)
+}
+```
+
+```
+error[E1001]: Not A Function
+Cannot call non-function value (got None).
+  tl.flx:3:9
+3 | let d = square(3)
+  |         ^^^^^^
+```
+
+**Dictionary elaboration is not at fault.** The Core it produces is correct, and
+passes the dictionary:
+
+```
+letrec square =
+λ__dict_m8_466C6F772E4E756D_Num, x.
+    let %t526 = __dict_m8_466C6F772E4E756D_Num.2
+    %t526(x, x)
+
+def d =
+let %t527 = __dict_m8_466C6F772E4E756D_Num_Int(__dict_m8_466C6F772E416464_Add_Int)
+  square(%t527, 3)
+```
+
+The failure is at run time: `square` is `None` when `d`'s initializer runs, so
+the binding order between top-level value defs and rewritten `letrec` functions
+is wrong. Isolating it:
+
+| top-level `let` calls | dictionaries present | result |
+|---|---|---|
+| an unconstrained function (`x * x`) | no | works |
+| an unconstrained, non-foldable function (`match` over a `List`) | no | works |
+| an unconstrained function | yes | works |
+| *(the constrained call moved inside `main`)* | yes | works |
+| a constrained function, result annotated `Int` | yes | **fails** |
+| a constrained function using `+` rather than `*` | yes | **fails** |
+| **a constrained function** | yes | **fails** |
+
+Row 3 rules out the prepended dictionary defs on their own; row 4 rules out the
+constrained function on its own; row 2 rules out constant folding as the reason
+the unconstrained cases pass. Neither annotating the result nor changing which
+class is involved makes any difference.
+
+So the failing combination is precisely *a top-level value def calling a
+function that dictionary elaboration synthesized*.
+
+**The callee is the dictionary constructor, not the user's function.** Tracing
+the VM's `execute_call` at the point it rejects the callee:
+
+```
+[call] callee not a function: None num_args=1
+```
+
+One argument — so it is `__dict_..._Num_Int(__dict_..._Add_Int)`, not
+`square(%t527, 3)`, which takes two. The reported span belongs to the enclosing
+call, which is what made this look like a problem with `square`.
+
+Established while investigating, to save the next attempt the detours:
+
+- The VM path lowers through `lower_aether_program`, which carries its **own**
+  copy of the seeding loop over `aether.defs()`. Instrumenting `lower_program`
+  in the same file traces nothing.
+- Lowering resolves the callee correctly: `bound_var` panics on a missing env
+  entry, and it does not fire. The `None` is a *runtime* value, so a global slot
+  was read before anything assigned it.
+- `bind_function_id_in_items` returns `true` for the dictionary constructor, so
+  a top-level item for it already exists. It is not the "synthesized function
+  with no item" case.
+- Binding the function's name to `IrExpr::MakeClosure(fn_id, [])` in the entry
+  function, plus an `IrProgram.global_bindings` entry, **does not fix it** —
+  and `IrProgram.global_bindings` appears never to be read by the VM backend.
+  The compiler reads `symbol_table.global_bindings()`, which is a different
+  structure. Whatever assigns a declared function's global slot is elsewhere,
+  and that is the thing a synthesized function is missing.
+
+The remaining question is narrow: *what assigns a top-level function's global
+slot in the VM path, and why does a dictionary constructor miss it?*
+`ir_lowering.rs` already special-cases `__dict_*` names to **define** their
+symbols ("weren't predeclared during Phase 2, which only sees AST function
+names") without giving them values, which is the strongest hint about where to
+look.
+
+`tests/parity/toplevel_pure_expression.flx` carries a comment describing the
+same symptom for the native backend, so this is likely one bug seen from two
+sides. It blocks Proposal 0183's R6, because generalizing unannotated
+definitions turns almost every top-level helper into a constrained one.
+
+### KI-081 — A class-method call emits its instance's context at variables nothing binds — FIXED 2026-09-04
+
+**Severity:** Low · **Area:** Type classes / inference · **Verified:** 2026-09-04 · **From:** Proposal 0183, R6
+
+Resolving a direct class-method call looks up the generated mangled `__tc_*`
+function and instantiates its scheme, in order to constrain the caller's ambient
+effect row against that function's row
+([calls.rs](../src/ast/type_infer/expression/calls.rs),
+`propagate_resolved_class_call_effects`). The instantiation also emitted the
+scheme's *constraints* — the selected instance's context, `Eq<a>` for
+`instance Eq<a> => Eq<List<a>>`.
+
+Those constraints were unsolvable by construction. The instantiated signature is
+used only for its effect row; its parameters are never unified with the call's
+arguments, so the context landed on fresh variables nothing ever binds. Every
+direct class-method call therefore left one predicate over `_` behind:
+
+```flux
+instance MyEq<a> => MyEq<List<a>> {
+    fn meq(xs, ys) { true }
+    fn mneq(xs, ys) { !meq(xs, ys) }     // one stuck MyEq<_> here
+}
+
+fn main() with IO {
+    print(mneq([1], [1]))                // and one here
+}
+```
+
+**Fixed 2026-09-04** by not emitting them. The obligation is not lost: the
+call's predicate is emitted from the *argument* types by
+`emit_class_method_predicate`, it resolves against that same instance, and
+`solve_instance_evidence` checks the instance context as part of the evidence it
+builds — so `mneq(["s"], ["s"])` with no `MyEq<String>` in scope is still
+`E444`. Regression test
+`a_class_method_call_enforces_its_instances_context` pins both directions.
+
+The stdlib's stuck predicates fall from 11 to 9, with no diagnostic change
+across all 1,305 programs in the repository.
+
+### KI-080 — A match arm binds pattern variables against a fresh type, losing the scrutinee's type — FIXED 2026-09-04
+
+**Severity:** Medium · **Area:** Type classes / inference · **Verified:** 2026-09-04 · **From:** Proposal 0183, R6
+
+A contextual instance's method body raises obligations over a type variable
+that is not the instance's own, so the context cannot discharge them. The
+program still runs — dispatch resolves separately — but the predicates never
+reach a terminal state, and they are the bulk of what
+[Proposal 0183](proposals/0183_constraint_solver_terminal_states.md) is trying
+to escalate.
+
+```flux
+class MyEq<a> {
+    fn meq(x: a, y: a) -> Bool
+}
+
+instance MyEq<Int> {
+    fn meq(x, y) { x == y }
+}
+
+instance MyEq<a> => MyEq<List<a>> {
+    fn meq(xs, ys) {
+        match xs {
+            [h1 | t1] -> match ys {
+                [h2 | t2] -> meq(h1, h2) && meq(t1, t2),
+                _ -> false
+            },
+            _ -> true
+        }
+    }
+}
+
+fn main() with IO {
+    print(meq([1, 2], [1, 2]))
+}
+```
+
+Prints `true`, and leaves three predicates undischarged. Traced with
+`FLUX_STUCK_TRACE=full`, and with the enclosing scope printed at the point
+`classify_constraint` gives up:
+
+```
+scope=WholeProgram want=[Var(10827)]                 givens=[("MyEq", [Var(10821)])] quant=[10821, 10822]
+scope=WholeProgram want=[App(List, [Var(10827)])]    givens=[("MyEq", [Var(10821)])] quant=[10821, 10822]
+```
+
+The implication is built correctly: the instance context *is* in scope as a
+given, and the method's variables are quantified. But the body's `h1` has type
+`Var(10827)` while the instance declared `Var(10821)`, and `10827` is not in the
+quantified set at all. `entailed_by_givens` compares type arguments
+syntactically, so `MyEq<10827>` cannot match `MyEq<10821>` and the predicate is
+recorded stuck.
+
+**Root cause — match-arm scrutinee isolation.** The instance machinery is not
+at fault: the synthesized `__tc_*` function binds its parameters correctly
+(`params=[Var(10822), App(List, [Var(10821)]), App(List, [Var(10821)])]`). The
+connection is lost inside the `match`.
+
+`arm_pattern_scrutinee_ty`
+([control_flow.rs](../src/ast/type_infer/expression/control_flow.rs)) returns a
+fresh fallback variable instead of the scrutinee's type whenever
+`should_isolate_match_arm_scrutinees` says the arms disagree on pattern family:
+
+```rust
+if isolate_arm_scrutinees {
+    self.alloc_fallback_var()
+} else {
+    scrutinee_ty.clone()
+}
+```
+
+`match xs { [h | t] -> ..., _ -> ... }` mixes a `Cons` arm with a
+non-constraining one, so each arm binds against a fresh variable that "unifies
+with anything" — the comment on `should_isolate_match_arm_scrutinees` says so
+outright. `h` therefore gets a variable unrelated to the element type of `xs`,
+and every predicate raised on `h` is over a variable no context can discharge.
+
+Reproduced with no instance machinery at all:
+
+```flux
+fn direct<a: MyEq>(x: a) -> Bool { meq(x, x) }
+
+fn viapat<a: MyEq>(xs: List<a>) -> Bool {
+    match xs {
+        [h | t] -> meq(h, h),
+        _ -> true
+    }
+}
+```
+
+```
+[emit] MyEq [Var(10824)] origin=ExplicitBound   at 9:13     [emit] MyEq [Var(10824)] origin=MethodCall at 9:35
+[emit] MyEq [Var(10827)] origin=ExplicitBound   at 11:13    [emit] MyEq [Var(10830)] origin=MethodCall at 13:19
+```
+
+`direct` raises its obligation over the *same* variable as its bound; `viapat`
+raises it over a fresh one. The parameter is bound correctly
+(`params=[App(List, [Var(10827)])]`) and the pattern then sees
+`scrut=Var(10829)`.
+
+**Why no program misbehaves today.** The declared bound is still emitted at each
+call site, so a missing instance is caught there — `viapat(["s"])` reports
+`E444` correctly. The stale predicate is redundant rather than unsound, which is
+why this has gone unnoticed. It matters because it is most of what Proposal 0183
+would escalate, and escalating it would produce errors on correct programs.
+
+**Fixed 2026-09-04.** Only the head constructor and its arity decide a pattern
+family — `List<a>` is as much a list as `List<Int>` — so the check that decides
+whether the arms already agree no longer requires the scrutinee to be fully
+concrete. `concrete_scrutinee_matches_family` became
+`scrutinee_head_matches_family`: it resolves the scrutinee through the current
+substitution and matches its head, and a scrutinee whose head is still unknown
+(a bare variable) matches nothing and so continues to isolate, which is what
+kept `Some` and `Left` arms from constraining one another in the first place.
+
+The stdlib's stuck predicates fall from 15 to 11, and the reproduction above
+loses both of its instance-body predicates, with **no diagnostic change across
+all 1,305 programs** in the repository. Regression tests
+`a_pattern_variable_keeps_the_scrutinees_element_type` and
+`a_pattern_variable_from_a_concrete_scrutinee_is_still_checked` in
+[typeclass_baseline_tests.rs](../tests/type_inference/typeclass_baseline_tests.rs)
+cover both directions.
+
+### KI-077 — Superclass evidence for a contextual superclass instance is built from the wrong dictionary — FIXED 2026-09-03
+
+**Severity:** High · **Area:** Type classes / dictionary passing · **Verified:** 2026-09-03 · **From:** Phase 1 of the type-class audit
+
+An instance whose superclass obligation is discharged by a *contextual*
+instance builds its superclass slot from whichever context dictionary names the
+same class, without checking that the type arguments agree:
+
+```flux
+class Base<a> { fn base(x: a) -> Int }
+class Base<a> => Mid<a> { fn mid(x: a) -> Int }
+
+instance Base<Int> { fn base(x) { x } }
+instance Base<a> => Base<List<a>> { fn base(xs) { 9 } }
+instance Base<a> => Mid<List<a>> { fn mid(xs) { base(xs) } }
+
+fn call_mid<a: Mid>(x: a) -> Int { mid(x) }
+fn main() with IO { print(call_mid([1, 2])) }   // E1000: want=4, got=2
+```
+
+`Mid<List<a>>` owes evidence for `Base<List<a>>`. Its context supplies
+`Base<a>`, which is a different predicate, but `superclass_evidence_expr`
+([dict_elaborate.rs](../src/core/passes/dict_elaborate.rs)) matches a context
+entry on the class alone — `position(|&class_id| class_id == superclass)` — so
+the `Base<a>` dictionary lands in the slot. The correct evidence is the
+contextual instance applied to it: `__dict_Base_List<a>(__dict_Base)`.
+
+Two things go wrong together, and the Core dump shows both:
+
+```
+def __dict_Mid_List<a> = λ__dict_Base. MakeTuple(__dict_Base, ...)
+letrec __tc_Mid_List<a>_mid = λ__dict_Base, __dict_Base_1, __dict_Base, xs. ...
+```
+
+The tuple's leading slot holds the wrong dictionary, and the instance method was
+given three dictionary parameters for one context predicate. The call therefore
+fails on arity before the wrong evidence can be observed — which is the only
+reason this is loud rather than silent.
+
+Validation is not at fault: `validate_superclass_obligations_for`
+([class_env.rs](../src/types/class_env.rs)) accepts the program correctly,
+because `Base<List<a>>` really does have an instance. The defect is entirely in
+evidence *construction*, and it has an AST-side twin: `dictionary_slot_names`
+names `__dict_Base_List<a>` without applying its context.
+
+The context-free spelling works — an instance that omits the `=>` context
+altogether has its superclass slot filled from the plain dictionary of the
+superclass instance, which `examples/type_classes/superclass_evidence_without_context.flx`
+locks. Only the contextual case is broken.
+
 ### KI-015 — A class whose variable appears only in the return position cannot dispatch — FIXED
 
 **Severity:** Medium · **Area:** Type classes / dispatch · **Verified fixed:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)

@@ -17,7 +17,7 @@ impl<'a> InferCtx<'a> {
     /// or `Some(Option<ty>)` when the member is only present on some
     /// variants. Returns `None` when `object_ty` isn't a named-field ADT;
     /// the caller then falls back to existing behavior.
-    pub(super) fn resolve_named_field_access(
+    pub(in crate::ast::type_infer) fn resolve_named_field_access(
         &mut self,
         object_ty: &InferType,
         member: Identifier,

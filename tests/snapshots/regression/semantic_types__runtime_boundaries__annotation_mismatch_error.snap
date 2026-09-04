@@ -4,22 +4,23 @@ source: tests/integration/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/semantic_types/runtime_boundaries/annotation_mismatch_error.flx
 exit_code: 1
 
-[ 1 of 17] Compiling  Assert
-[ 2 of 17] Compiling  Debug
-[ 3 of 17] Compiling  Array
-[ 4 of 17] Compiling  List
-[ 5 of 17] Compiling  Either
-[ 6 of 17] Compiling  Eq
-[ 7 of 17] Compiling  IO
-[ 8 of 17] Compiling  Math
-[ 9 of 17] Compiling  Num
-[10 of 17] Compiling  Numeric
-[11 of 17] Compiling  Option
-[12 of 17] Compiling  Ord
-[13 of 17] Compiling  Primops
-[14 of 17] Compiling  Semigroup
-[15 of 17] Compiling  Show
-[16 of 17] Compiling  String
+[ 1 of 18] Compiling  Add
+[ 2 of 18] Compiling  Assert
+[ 3 of 18] Compiling  Debug
+[ 4 of 18] Compiling  Array
+[ 5 of 18] Compiling  List
+[ 6 of 18] Compiling  Either
+[ 7 of 18] Compiling  Eq
+[ 8 of 18] Compiling  IO
+[ 9 of 18] Compiling  Math
+[10 of 18] Compiling  Num
+[11 of 18] Compiling  Numeric
+[12 of 18] Compiling  Option
+[13 of 18] Compiling  Ord
+[14 of 18] Compiling  Primops
+[15 of 18] Compiling  Semigroup
+[16 of 18] Compiling  Show
+[17 of 18] Compiling  String
 • 1 error • tests/fixtures/semantic_types/runtime_boundaries/annotation_mismatch_error.flx
 error[E300]: Argument Type Mismatch
 
