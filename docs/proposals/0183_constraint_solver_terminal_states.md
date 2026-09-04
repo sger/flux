@@ -168,10 +168,12 @@ whose entire residue is stdlib:
 | generalize every definition | 6 |
 | generalize only the variables a class constraint mentions | 6 |
 
-The remaining 6 are a separate gap: an instance method body is not given its
-instance context as givens, so `eq(h1, h2)` inside `instance Eq<a> => Eq<List<a>>`
-cannot appeal to the `Eq<a>` the instance declares. That is GHC's `ic_given` for
-instance declarations, and it is tractable.
+The remaining 6 were investigated separately and are **not** a missing-givens
+problem: the implication is built correctly and the instance context *is* in
+scope. The body's type variable is simply not the one the instance declared
+(`want=[Var(10827)]` against `givens=[MyEq<Var(10821)>]`, with `10827` absent
+from the quantified set), so syntactic entailment cannot match them. Filed as
+[KI-080](../known_issues.md#ki-080) with a three-line reproduction.
 
 What is not tractable inside this proposal is the fallout. Of 1,305 programs, 5
 broke, and 4 of them share one cause. Restricting quantification to the
