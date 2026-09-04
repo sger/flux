@@ -127,7 +127,68 @@ impl<'a> InferCtx<'a> {
         if let Some(field_ty) = self.resolve_named_field_access(&object_ty, member, expr.span()) {
             return field_ty;
         }
-        self.alloc_fallback_var()
+        // The predicate replaces the hole for a receiver whose type is *not yet
+        // known*, which is the case Proposal 0184 is about. A receiver whose
+        // type is already settled and is still not a named-field ADT is a
+        // different situation, and keeps the behaviour it had.
+        //
+        // That distinction matters because `a.b` is also the syntax for
+        // reaching into a module, and an unresolved module member falls through
+        // to here — an import that is missing, private, or misspelled, already
+        // reported as E011/E012/E013. Such a receiver either has no type or has
+        // a settled non-record one (`Lock.lock(..)`, where `Lock` also names a
+        // constructor), and neither is a field access to report on.
+        if !matches!(object_ty.apply_type_subst(&self.subst), InferType::Var(_)) {
+            return self.alloc_fallback_var();
+        }
+        // …and a name with no value binding is a module path, not a receiver.
+        // A module referred to from inside its own body (`Parse.here(..)` in
+        // `Flow.Toml.Parse`) has no binding and no type, so the type test alone
+        // would take it for an unknown record.
+        if let Expression::Identifier { name, .. } = object
+            && self.env.lookup(*name).is_none()
+        {
+            return self.alloc_fallback_var();
+        }
+        self.emit_field_predicate(&object_ty, member, expr.span())
+    }
+
+    /// Record that `object` must have a field `member`, and return that
+    /// field's type (Proposal 0184).
+    ///
+    /// Reached when the receiver's type is not yet a known named-field ADT.
+    /// Before 0184 this allocated a *fallback* variable — one
+    /// `resolve_binding_schemes` excludes from every scheme's `forall`, so it
+    /// could never be quantified and could only be filled in by unifying the
+    /// enclosing definition with a call site. That made field access depend on
+    /// the definition staying monomorphic, and left the obligation with no
+    /// terminal state.
+    ///
+    /// The predicate says the same thing in a form the solver can act on:
+    /// `__field.member<Receiver, Field>`. Discharging it *determines* the field
+    /// type, which is GHC's functional dependency `x r -> a` on
+    /// `HasField x r a`, so the type propagates where the hole could not.
+    ///
+    /// The field type is an ordinary variable, not a fallback one: it is
+    /// resolved by solving rather than by call-site unification.
+    fn emit_field_predicate(
+        &mut self,
+        object_ty: &InferType,
+        member: Identifier,
+        span: Span,
+    ) -> InferType {
+        let Some(module) = self.field_predicate_module else {
+            return self.alloc_fallback_var();
+        };
+        let field_ty = self.env.alloc_infer_type_var();
+        self.emit_class_constraint_args_for_id(
+            crate::types::class_id::ClassId::new(module, member),
+            member,
+            vec![object_ty.clone(), field_ty.clone()],
+            span,
+            constraint::WantedClassConstraintOrigin::FieldAccess,
+        );
+        field_ty
     }
 
     /// Infer tuple field projection by static index.
