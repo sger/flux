@@ -349,6 +349,23 @@ fn classify_constraint(
         return Disposition::Solved { evidence };
     }
 
+    // `+` is overloaded over `Num` *and* `String`, and the string half is a
+    // built-in rule rather than an instance: `"a" + "b"` lowers to a primitive
+    // append and needs no dictionary. `infer_add_operator` applies that rule
+    // itself when the operand type is known at emission; here it is applied to
+    // the operand that was still a variable then and resolved to `String`
+    // since — GHC's M4, decide on the type as it is now.
+    if constraint.origin == WantedClassConstraintOrigin::InferredAddOperator
+        && matches!(
+            constraint.type_args.as_slice(),
+            [InferType::Con(TypeConstructor::String)]
+        )
+    {
+        return Disposition::Solved {
+            evidence: Evidence::Structural { components: vec![] },
+        };
+    }
+
     // A class-method call whose predicate still has an undetermined slot can
     // only be dispatched if the slots it *did* fix single out one instance.
     // When several remain compatible, the call has no way to choose, and
