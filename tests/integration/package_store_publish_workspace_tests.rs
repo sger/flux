@@ -109,7 +109,7 @@ fn workspace_member_metadata_uses_the_workspace_root() {
     assert_eq!(value["workspace"]["root"], root.to_string_lossy().as_ref());
     assert_eq!(
         value["targets"]["cache_root"],
-        root.join("target/flux").to_string_lossy().as_ref()
+        root.join("target").join("flux").to_string_lossy().as_ref()
     );
     assert!(
         value["packages"]
