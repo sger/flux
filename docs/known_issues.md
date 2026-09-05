@@ -42,18 +42,6 @@ Severity is about consequence, not effort:
 
 ## Open
 
-### KI-004 — Native subprocess execution is POSIX-only
-
-**Severity:** Medium · **Area:** Native backend, `Flow.Process` · **Verified:** 2026-08-22 · **From:** [0178](proposals/implemented/0178_os_capabilities_for_tooling.md) Q8
-
-`Flow.Process.run` spawns via `posix_spawnp` in the C runtime. The Windows
-branch returns an `IoError` (`ENOSYS`) instead of spawning. The **VM** backend
-works on Windows, since it goes through Rust's `std::process::Command`.
-
-This is the only deliberate behavioural difference between the two backends in
-the OS-capability surface, and it must close before Windows is a supported
-target for Flux tooling.
-
 ### KI-006 — I/O uses `String`, so binary data cannot round-trip
 
 **Severity:** Medium · **Area:** `Flow.Fs`, stdlib API surface · **From:** [0178](proposals/implemented/0178_os_capabilities_for_tooling.md) Q7
@@ -497,6 +485,49 @@ the lambda path has no known consumer waiting on it.
 
 
 ## Resolved
+
+### KI-004 — Native subprocess execution is POSIX-only — FIXED 2026-09-05
+
+**Severity:** Medium · **Area:** Native backend, `Flow.Process` · **Verified fixed:** 2026-09-05 · **From:** [0178](proposals/implemented/0178_os_capabilities_for_tooling.md) Q8
+
+`flux_proc_run` returned `ENOSYS` on Windows instead of spawning, so every
+`Flow.Process.run` failed identically on the native backend whatever the
+command. The VM backend was unaffected, since it goes through Rust's
+`std::process::Command` — which is what made this the one deliberate
+behavioural difference between the backends.
+
+[`flux_rt.c`](../runtime/c/flux_rt.c) now spawns through `CreateProcessA`.
+Three parts of that were not mechanical:
+
+**Arguments.** POSIX hands a child its arguments already separated; Windows
+hands it one string and lets it split them itself, so the split has to be
+encoded by the caller. `flux_win_push_arg` follows the rule
+`CommandLineToArgvW` parses — a run of backslashes doubles exactly when a
+quote follows, the closing one included — which is what keeps
+`test_arguments_are_never_shell_interpreted`, `..._with_spaces_stay_one_argument`
+and `..._empty_string_argument_is_preserved` meaningful. `lpApplicationName` is
+left `NULL` so the command resolves against `PATH`/`PATHEXT` the way `execvp`
+does on the other branch.
+
+**Draining.** An anonymous pipe cannot be waited on, and reading one stream to
+the end before starting the other deadlocks as soon as the child fills the pipe
+nobody is reading — the hazard `poll` answers on POSIX, and the one
+`test_both_streams_can_be_busy_at_once` provokes on purpose. `PeekNamedPipe`
+reports what has arrived without blocking, so each pass takes whatever is ready.
+
+**Exit status.** Windows exit codes are unsigned, and an abnormal termination
+reports a status like `0xC0000005`. It is narrowed to signed 32 bits, which is
+what Rust's `ExitStatus::code` does, so both backends report one number for one
+child and a crash still lands on a negative status the way a signal does.
+
+The fixture that covers this had to move too. It spawned `/bin/echo`, `sh`,
+`true` and `false`, none of which exist on Windows — and none of which can be
+substituted there, because `cmd` is a shell and would re-parse precisely the
+arguments those tests exist to prove are never re-parsed. Nothing on a stock
+Windows install passes an argument vector through unaltered, so
+[`tests/support/proc_helper.rs`](../tests/support/proc_helper.rs) is now the
+child every test spawns, and one set of expectations holds on both platforms.
+`tests/flux/stdlib_process.flx` passes 19/19 on the VM and natively on Windows.
 
 ### KI-072 — A constructor pattern is never checked against the scrutinee's type — FIXED 2026-09-03
 
@@ -1294,6 +1325,15 @@ collected.
 The store layout has not been tested against long package names, compiler ABI
 segments, and nested target paths on Windows. A path-shortening strategy may be
 needed before Windows becomes a supported package-manager target.
+
+**Partly addressed 2026-09-05.** One case was reached in practice: a git
+checkout directory was named after the whole URL with its separators
+flattened, so a `file://` URL naming a deep directory produced a segment long
+enough to push the checkout past the 260-character limit, and `git clone`
+failed with "Filename too long". `Flume.Source.Git.slug` now names it
+`<repo>-<8 hex of the URL digest>`, bounded by the repository's own name
+whatever the URL's length. The rest of the entry stands: package names, ABI
+segments and target paths are still unmeasured.
 
 ### KI-049 — One-version-per-package remains a linker limitation
 
