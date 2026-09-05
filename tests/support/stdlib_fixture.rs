@@ -63,6 +63,11 @@ pub fn run_fixture(fixture: &str, native: bool) -> (String, bool) {
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args(&args)
+        // `stdlib_process.flx` spawns this rather than a system command, so
+        // its expectations hold on every host. Passed by path because only
+        // cargo knows where it was built; the native leg inherits it through
+        // the compiled fixture's own environment.
+        .env("FLUX_PROC_HELPER", env!("CARGO_BIN_EXE_flux_proc_helper"))
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux --test on {fixture}: {e}"));
 
