@@ -10,6 +10,30 @@ use crate::syntax::{
 
 use super::super::{Compiler, tag_diagnostics};
 
+/// Whether compiling `statement` emits code that runs when the module loads.
+///
+/// A declaration binds a name and evaluates nothing; these evaluate. The
+/// distinction is what decides where the dictionary globals are stored — see
+/// `phase_codegen`.
+fn runs_at_load_time(statement: &Statement) -> bool {
+    match statement {
+        Statement::Let { .. }
+        | Statement::LetDestructure { .. }
+        | Statement::Assign { .. }
+        | Statement::Expression { .. }
+        | Statement::Return { .. } => true,
+        Statement::Function { .. }
+        | Statement::Module { .. }
+        | Statement::Import { .. }
+        | Statement::Data { .. }
+        | Statement::EffectDecl { .. }
+        | Statement::EffectAlias { .. }
+        | Statement::Class { .. }
+        | Statement::Instance { .. }
+        | Statement::TypeAlias(_) => false,
+    }
+}
+
 impl Compiler {
     /// Phase 5: Pattern validation and compile all statements to bytecode.
     pub(in crate::compiler) fn phase_codegen(&mut self, program: &Program, ir_program: &IrProgram) {
@@ -17,7 +41,30 @@ impl Compiler {
         tag_diagnostics(&mut pattern_diags, DiagnosticPhase::Validation);
         self.errors.extend(pattern_diags);
 
+        // The dictionary globals are stored once before the first statement
+        // that can *run*, and again after the whole program is compiled.
+        //
+        // A top-level value definition's initializer executes at module load
+        // time, and if it calls a constrained function it reads a `__dict_*`
+        // slot. Stored only at the end, that slot is still `None` when the
+        // initializer runs, and the call fails as `E1001 Cannot call
+        // non-function value` — naming the dictionary constructor rather than
+        // the user's function, which is what made this look like a problem
+        // with the callee (KI-083).
+        //
+        // Not stored first either: a dictionary is built from its instance's
+        // compiled methods, so those globals must already hold their closures.
+        // The boundary satisfies both — every declaration ahead of the first
+        // executable statement has been compiled, and nothing has executed
+        // yet. An instance declared *after* a value definition that needs it
+        // stays out of reach, which is the rule the top level already follows:
+        // a value definition cannot call a function declared below it either.
+        let mut dictionaries_stored = false;
         for statement in &program.statements {
+            if !dictionaries_stored && runs_at_load_time(statement) {
+                self.store_dictionary_globals(ir_program);
+                dictionaries_stored = true;
+            }
             // Continue compilation even if there are errors
             let compile_result = match statement {
                 Statement::Function {
@@ -70,12 +117,32 @@ impl Compiler {
             }
         }
 
-        // Emit dict tuple construction bytecode after all functions are compiled.
-        // Dict values must be initialized at module load time before user code
-        // can call constrained functions.
+        // Stored again, unconditionally: the boundary above can only build a
+        // dictionary from the methods compiled before it, so an instance
+        // declared after the first executable statement would be left holding
+        // unassigned slots. Re-storing makes the boundary a strict addition
+        // rather than a move, and the two agree wherever both can build a
+        // dictionary at all.
+        self.store_dictionary_globals(ir_program);
+
+        // The aliases are emitted here and *only* here. Each copies a
+        // module-qualified instance method into its canonical name, so run
+        // before the module has initialized its functions they would copy
+        // `None` over the canonical binding — the very binding a dictionary
+        // constructor reads when it is finally called. That is what the
+        // boundary store above would otherwise walk straight into.
+        self.emit_instance_method_aliases(ir_program);
+    }
+
+    /// Store the dictionary globals: the ones this unit defines, and the ones
+    /// it imports.
+    ///
+    /// Both are values built from already-compiled functions, and both are
+    /// read by any constrained call. The instance-method aliases are
+    /// deliberately not here — see the call site.
+    fn store_dictionary_globals(&mut self, ir_program: &IrProgram) {
         self.emit_dict_globals(ir_program);
         self.emit_imported_dict_globals(ir_program);
-        self.emit_instance_method_aliases(ir_program);
     }
 
     /// Store the dictionary globals of instances this unit imports.

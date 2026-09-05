@@ -1,0 +1,50 @@
+// Baseline contract: a top-level value definition may call a constrained
+// function (KI-083).
+//
+// A top-level `let`'s initializer runs at module load time. The dictionary
+// globals were stored only after the whole program had been compiled, so the
+// initializer read a `__dict_*` slot nothing had assigned yet and the call
+// failed with `E1001 Cannot call non-function value (got None)` — naming the
+// dictionary constructor, not the user's function, which is what made this
+// look like a problem with the callee.
+//
+// Three orderings, because the fix has to satisfy both directions at once: a
+// dictionary must be stored before anything runs, and after the methods it is
+// built from have been compiled.
+//
+// Expected output:
+// 9
+// "int"
+// "late"
+
+class Tag<a> {
+    fn tag(x: a) -> String
+}
+
+instance Tag<Int> {
+    fn tag(x) { "int" }
+}
+
+fn describe<a: Tag>(x: a) -> String { tag(x) }
+
+fn square<a: Num>(x: a) -> a { x * x }
+
+// A stdlib class. `Num<Int>` is a contextual instance, so this reaches the
+// dictionary *constructor* — the shape that reproduced the failure.
+let squared = square(3)
+
+// A locally declared instance, above the definition that uses it.
+let described = describe(7)
+
+// Declared below a top-level value definition, and still complete by the time
+// `main` runs: the dictionaries are stored again once every declaration has
+// been compiled.
+instance Tag<Bool> {
+    fn tag(x) { "late" }
+}
+
+fn main() with IO {
+    print(squared)
+    print(described)
+    print(describe(true))
+}

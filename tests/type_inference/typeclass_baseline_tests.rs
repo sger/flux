@@ -136,6 +136,7 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
         "structured_predicate.flx",
         "interface_roundtrip.flx",
         "contextual_dictionary.flx",
+        "toplevel_constrained_call.flx",
         "no_partial_resolution.flx",
         "where_constraint.flx",
         "solved_constraint.flx",
@@ -268,6 +269,24 @@ fn marker_class_constraints_add_no_dictionary_parameter() {
 fn contextual_dictionary_is_initialised_for_constrained_calls() {
     let output = run_fixture("contextual_dictionary.flx").unwrap_or_else(|error| panic!("{error}"));
     assert_eq!(output.stdout, "false\nfalse\ntrue");
+}
+
+/// KI-083: a top-level value definition's initializer runs at module load
+/// time, so a dictionary it needs has to be stored before it — the globals
+/// were stored only after the whole program was compiled, and the call read a
+/// `__dict_*` slot still holding `None`.
+///
+/// The fixture pins both directions at once, because they pull opposite ways:
+/// a dictionary must be stored before anything runs, *and* after the methods
+/// it is built from are compiled. `squared` reaches a contextual stdlib
+/// dictionary from the top level, `described` reaches a locally declared
+/// instance above it, and `Tag<Bool>` is declared below both and still
+/// complete when `main` calls it.
+#[test]
+fn a_top_level_definition_can_call_a_constrained_function() {
+    let output =
+        run_fixture("toplevel_constrained_call.flx").unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(output.stdout, "9\n\"int\"\n\"late\"");
 }
 
 #[test]
