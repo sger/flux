@@ -23,6 +23,117 @@
 #include <io.h>
 #include <fcntl.h>
 #include <direct.h>
+
+/* -- POSIX filesystem shims ------------------------------------------------
+ *
+ * The filesystem section below is written against POSIX. Windows supplies
+ * most of it under other spellings and directory iteration not at all, so
+ * the difference is absorbed once here rather than branching every call
+ * site. Without these the runtime does not compile on Windows at all, and a
+ * native build fails at link time with every `flux_*` symbol undefined.
+ *
+ * Deliberately only what the runtime uses.
+ */
+#ifndef S_ISDIR
+#define S_ISDIR(mode) (((mode) & _S_IFMT) == _S_IFDIR)
+#endif
+#ifndef S_ISREG
+#define S_ISREG(mode) (((mode) & _S_IFMT) == _S_IFREG)
+#endif
+
+/* `_mkdir` takes no mode: Windows has no POSIX permission bits to apply. */
+#define mkdir(path, mode) _mkdir(path)
+
+/* Windows resolves a reparse point before reporting, so `lstat` and `stat`
+ * differ only across a symlink -- which this runtime never creates. */
+#define lstat(path, out) stat((path), (out))
+
+struct dirent {
+    char d_name[MAX_PATH];
+};
+
+typedef struct {
+    HANDLE           handle;
+    WIN32_FIND_DATAA find;
+    /* `FindFirstFileA` already read the first entry, so the first
+     * `readdir` must return it rather than advancing past it. */
+    int              pending;
+    struct dirent    entry;
+} DIR;
+
+/* Callers read `errno` to tell a failure from the end of a listing, so the
+ * Win32 status has to become the errno the rest of the file expects. */
+static int flux_win_errno(DWORD code) {
+    switch (code) {
+        case ERROR_FILE_NOT_FOUND:
+        case ERROR_PATH_NOT_FOUND:    return ENOENT;
+        case ERROR_ACCESS_DENIED:     return EACCES;
+        case ERROR_DIRECTORY:         return ENOTDIR;
+        case ERROR_NOT_ENOUGH_MEMORY:
+        case ERROR_OUTOFMEMORY:       return ENOMEM;
+        default:                      return EIO;
+    }
+}
+
+static DIR *opendir(const char *path) {
+    struct stat st;
+    /* `FindFirstFileA` on a file happily reports that file, which would turn
+     * `list_dir("x.txt")` into a one-entry listing instead of an error. */
+    if (stat(path, &st) != 0) return NULL;
+    if (!S_ISDIR(st.st_mode)) { errno = ENOTDIR; return NULL; }
+
+    size_t len = strlen(path);
+    char *pattern = (char *)malloc(len + 3);
+    if (!pattern) { errno = ENOMEM; return NULL; }
+    memcpy(pattern, path, len);
+    size_t at = len;
+    if (at > 0 && pattern[at - 1] != '\\' && pattern[at - 1] != '/') {
+        pattern[at++] = '\\';
+    }
+    pattern[at++] = '*';
+    pattern[at]   = '\0';
+
+    DIR *dir = (DIR *)malloc(sizeof(DIR));
+    if (!dir) { free(pattern); errno = ENOMEM; return NULL; }
+    dir->handle = FindFirstFileA(pattern, &dir->find);
+    free(pattern);
+    if (dir->handle == INVALID_HANDLE_VALUE) {
+        DWORD code = GetLastError();
+        free(dir);
+        errno = flux_win_errno(code);
+        return NULL;
+    }
+    dir->pending = 1;
+    return dir;
+}
+
+static struct dirent *readdir(DIR *dir) {
+    if (!dir) { errno = EBADF; return NULL; }
+    if (!dir->pending && !FindNextFileA(dir->handle, &dir->find)) {
+        DWORD code = GetLastError();
+        /* The end of a listing is not a failure, and must leave `errno`
+         * alone: the caller clears it before each call and reads it back to
+         * separate the two. */
+        if (code != ERROR_NO_MORE_FILES) errno = flux_win_errno(code);
+        return NULL;
+    }
+    dir->pending = 0;
+
+    size_t name_len = strlen(dir->find.cFileName);
+    if (name_len >= sizeof(dir->entry.d_name)) {
+        name_len = sizeof(dir->entry.d_name) - 1;
+    }
+    memcpy(dir->entry.d_name, dir->find.cFileName, name_len);
+    dir->entry.d_name[name_len] = '\0';
+    return &dir->entry;
+}
+
+static int closedir(DIR *dir) {
+    if (!dir) { errno = EBADF; return -1; }
+    FindClose(dir->handle);
+    free(dir);
+    return 0;
+}
 #else
 #include <dirent.h>
 #include <unistd.h>
@@ -990,8 +1101,6 @@ int64_t flux_fs_metadata(FLUX_IO_TAGS_DECL, int32_t file_meta_tag, int64_t path)
 
 /* ── Subprocess execution (proposal 0178, item 6) ───────────────────── */
 
-#if !defined(_MSC_VER) && !defined(_WIN32)
-
 /* A growable byte buffer for draining a pipe. */
 typedef struct {
     char  *data;
@@ -1013,6 +1122,145 @@ static int flux_proc_buf_push(FluxProcBuf *b, const char *src, size_t n) {
     b->len += n;
     return 1;
 }
+
+#if defined(_MSC_VER) || defined(_WIN32)
+
+static int flux_win_push_repeat(FluxProcBuf *line, char ch, size_t count) {
+    for (size_t i = 0; i < count; i++) {
+        if (!flux_proc_buf_push(line, &ch, 1)) return 0;
+    }
+    return 1;
+}
+
+/* Append one argument to a command line, quoted the way the child will read
+ * it back.
+ *
+ * POSIX hands a child its arguments already separated; Windows hands it one
+ * string and lets it split them itself. The split therefore has to be encoded
+ * here, or an argument holding a space arrives as two and an empty one
+ * vanishes entirely. The rule `CommandLineToArgvW` and the C runtimes parse
+ * by: a backslash is literal unless it precedes a quote, so a run of them is
+ * doubled exactly when a quote -- the argument's own, or the closing one --
+ * follows. No shell is involved either way, so an argument holding `;` stays
+ * one argument and cannot become a second command. */
+static int flux_win_push_arg(FluxProcBuf *line, const char *arg) {
+    size_t len = strlen(arg);
+
+    int needs_quotes = (len == 0);
+    for (size_t i = 0; i < len && !needs_quotes; i++) {
+        if (arg[i] == ' ' || arg[i] == '\t' || arg[i] == '"') needs_quotes = 1;
+    }
+    if (!needs_quotes) return flux_proc_buf_push(line, arg, len);
+
+    if (!flux_proc_buf_push(line, "\"", 1)) return 0;
+    size_t slashes = 0;
+    for (size_t i = 0; i < len; i++) {
+        char ch = arg[i];
+        if (ch == '\\') { slashes++; continue; }
+        if (ch == '"') {
+            /* Double the run, then escape the quote it guards. */
+            if (!flux_win_push_repeat(line, '\\', slashes * 2 + 1)) return 0;
+            slashes = 0;
+            if (!flux_proc_buf_push(line, "\"", 1)) return 0;
+            continue;
+        }
+        if (!flux_win_push_repeat(line, '\\', slashes)) return 0;
+        slashes = 0;
+        if (!flux_proc_buf_push(line, &ch, 1)) return 0;
+    }
+    /* The closing quote is a quote too: the run before it doubles as well. */
+    if (!flux_win_push_repeat(line, '\\', slashes * 2)) return 0;
+    return flux_proc_buf_push(line, "\"", 1);
+}
+
+/* The whole command line, NUL-terminated: the command, then its arguments,
+ * in the argv[0]-first order `execvp` takes on the POSIX side. */
+static char *flux_win_command_line(const char *cmd, char **args, int64_t argc) {
+    FluxProcBuf line = { NULL, 0, 0 };
+    char nul = '\0';
+
+    if (!flux_win_push_arg(&line, cmd)) { free(line.data); return NULL; }
+    for (int64_t i = 0; i < argc; i++) {
+        if (!flux_proc_buf_push(&line, " ", 1)
+            || !flux_win_push_arg(&line, args[i])) {
+            free(line.data);
+            return NULL;
+        }
+    }
+    if (!flux_proc_buf_push(&line, &nul, 1)) { free(line.data); return NULL; }
+    return line.data;
+}
+
+/* Drain both pipes until each reaches the end of its stream.
+ *
+ * Reading one to the end before starting the other deadlocks the moment the
+ * child fills the pipe nobody is reading -- the same hazard `poll` answers on
+ * POSIX. An anonymous pipe cannot be waited on, but `PeekNamedPipe` reports
+ * what has arrived without blocking, so each pass takes whatever is ready and
+ * sleeps only when neither stream has anything at all.
+ *
+ * Returns 0 on allocation or I/O failure, with *err_out set to an errno. */
+static int flux_proc_drain_both(HANDLE out_pipe, HANDLE err_pipe,
+                                FluxProcBuf *out, FluxProcBuf *err,
+                                int *err_out) {
+    HANDLE       pipes[2] = { out_pipe, err_pipe };
+    FluxProcBuf *bufs[2]  = { out, err };
+    int          live[2]  = { 1, 1 };
+    int          open_count = 2;
+    char         chunk[4096];
+
+    while (open_count > 0) {
+        int progressed = 0;
+        for (int i = 0; i < 2; i++) {
+            if (!live[i]) continue;
+
+            DWORD available = 0;
+            if (!PeekNamedPipe(pipes[i], NULL, 0, NULL, &available, NULL)) {
+                DWORD code = GetLastError();
+                /* The child closed its end: that is the end of the stream,
+                 * not a failure. */
+                if (code == ERROR_BROKEN_PIPE) {
+                    live[i] = 0;
+                    open_count--;
+                    continue;
+                }
+                *err_out = flux_win_errno(code);
+                return 0;
+            }
+            if (available == 0) continue;
+
+            DWORD want = available > (DWORD)sizeof(chunk)
+                             ? (DWORD)sizeof(chunk)
+                             : available;
+            DWORD got = 0;
+            if (!ReadFile(pipes[i], chunk, want, &got, NULL)) {
+                DWORD code = GetLastError();
+                if (code == ERROR_BROKEN_PIPE) {
+                    live[i] = 0;
+                    open_count--;
+                    continue;
+                }
+                *err_out = flux_win_errno(code);
+                return 0;
+            }
+            if (got == 0) {
+                live[i] = 0;
+                open_count--;
+                continue;
+            }
+            if (!flux_proc_buf_push(bufs[i], chunk, (size_t)got)) {
+                *err_out = ENOMEM;
+                return 0;
+            }
+            progressed = 1;
+        }
+        /* Nothing was ready anywhere: yield rather than spin the core. */
+        if (!progressed && open_count > 0) Sleep(1);
+    }
+    return 1;
+}
+
+#else
 
 /* Drain both pipes concurrently until each reaches EOF.
  *
@@ -1057,7 +1305,7 @@ static int flux_proc_drain_both(int out_fd, int err_fd, FluxProcBuf *out,
     return 1;
 }
 
-#endif /* POSIX */
+#endif /* platform */
 
 /* Run a subprocess to completion and capture both output streams.
  *
@@ -1073,12 +1321,135 @@ int64_t flux_proc_run(FLUX_IO_TAGS_ARGS, int32_t proc_output_tag, int64_t cmd,
     FluxIoTags tags = FLUX_IO_TAGS_INIT;
 
 #if defined(_MSC_VER) || defined(_WIN32)
-    (void)proc_output_tag;
-    (void)argv;
-    /* Windows subprocess support is not implemented yet. Report it as an
-     * unsupported operation rather than as a missing command, so the caller
-     * can tell the two apart. */
-    return flux_io_fail(tags, ENOSYS, cmd);
+    char *ccmd = flux_io_cstr(cmd);
+    if (!ccmd) return flux_io_fail(tags, ENOMEM, cmd);
+
+    /* flux_array_len returns a *tagged* integer; using it raw would spawn the
+     * command with phantom extra arguments. */
+    int64_t argc = flux_untag_int(flux_array_len(argv));
+    if (argc < 0) argc = 0;
+
+    char **args = (char **)calloc((size_t)argc + 1, sizeof(char *));
+    if (!args) {
+        free(ccmd);
+        return flux_io_fail(tags, ENOMEM, cmd);
+    }
+    for (int64_t i = 0; i < argc; i++) {
+        args[i] = flux_io_cstr(flux_array_at(argv, flux_tag_int(i)));
+        if (!args[i]) {
+            for (int64_t j = 0; j < i; j++) free(args[j]);
+            free(args);
+            free(ccmd);
+            return flux_io_fail(tags, ENOMEM, cmd);
+        }
+    }
+
+    char *line = flux_win_command_line(ccmd, args, argc);
+    for (int64_t j = 0; j < argc; j++) free(args[j]);
+    free(args);
+    if (!line) {
+        free(ccmd);
+        return flux_io_fail(tags, ENOMEM, cmd);
+    }
+
+    SECURITY_ATTRIBUTES inheritable;
+    inheritable.nLength              = sizeof(inheritable);
+    inheritable.lpSecurityDescriptor = NULL;
+    inheritable.bInheritHandle       = TRUE;
+
+    HANDLE out_read = NULL, out_write = NULL;
+    HANDLE err_read = NULL, err_write = NULL;
+    if (!CreatePipe(&out_read, &out_write, &inheritable, 0)) {
+        int saved = flux_win_errno(GetLastError());
+        free(line);
+        free(ccmd);
+        return flux_io_fail(tags, saved, cmd);
+    }
+    if (!CreatePipe(&err_read, &err_write, &inheritable, 0)) {
+        int saved = flux_win_errno(GetLastError());
+        CloseHandle(out_read);
+        CloseHandle(out_write);
+        free(line);
+        free(ccmd);
+        return flux_io_fail(tags, saved, cmd);
+    }
+    /* The read ends stay in this process. An inherited copy in the child
+     * would keep the pipe writable, and the drain below would wait for an end
+     * of stream that never comes. */
+    SetHandleInformation(out_read, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(err_read, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA startup;
+    memset(&startup, 0, sizeof(startup));
+    startup.cb        = sizeof(startup);
+    startup.dwFlags   = STARTF_USESTDHANDLES;
+    /* stdin is inherited, matching the POSIX branch, which redirects only the
+     * two streams it captures. */
+    startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    if (startup.hStdInput == INVALID_HANDLE_VALUE) startup.hStdInput = NULL;
+    startup.hStdOutput = out_write;
+    startup.hStdError  = err_write;
+
+    PROCESS_INFORMATION child;
+    memset(&child, 0, sizeof(child));
+
+    /* lpApplicationName is left NULL so the command is resolved against PATH
+     * and PATHEXT, which is what `execvp` gives the POSIX branch. */
+    BOOL  started     = CreateProcessA(NULL, line, NULL, NULL, TRUE, 0, NULL,
+                                       NULL, &startup, &child);
+    DWORD start_error = started ? 0 : GetLastError();
+
+    /* Close this process's copies of the write ends: the drain sees the end
+     * of a stream only once no writable handle remains open here. */
+    CloseHandle(out_write);
+    CloseHandle(err_write);
+    free(line);
+    free(ccmd);
+
+    if (!started) {
+        CloseHandle(out_read);
+        CloseHandle(err_read);
+        return flux_io_fail(tags, flux_win_errno(start_error), cmd);
+    }
+
+    FluxProcBuf out = { NULL, 0, 0 };
+    FluxProcBuf err = { NULL, 0, 0 };
+    int drain_errno = 0;
+    int drained = flux_proc_drain_both(out_read, err_read, &out, &err,
+                                       &drain_errno);
+    CloseHandle(out_read);
+    CloseHandle(err_read);
+
+    /* Reap the child even if draining failed, so a failure here cannot leave
+     * a process handle behind. */
+    WaitForSingleObject(child.hProcess, INFINITE);
+    DWORD status = 0;
+    if (!GetExitCodeProcess(child.hProcess, &status)) status = (DWORD)-1;
+    CloseHandle(child.hProcess);
+    CloseHandle(child.hThread);
+
+    if (!drained) {
+        free(out.data);
+        free(err.data);
+        return flux_io_fail(tags, drain_errno, cmd);
+    }
+
+    /* Windows exit codes are unsigned, and an abnormal termination reports
+     * something like 0xC0000005. Narrowing to signed 32 bits is what the VM
+     * backend does -- Rust's `ExitStatus::code` -- so both backends report one
+     * number for one child, and a crash still lands on a negative status the
+     * way a signal does on POSIX. */
+    int64_t code = (int64_t)(int32_t)status;
+
+    int64_t fields[3];
+    fields[0] = flux_tag_int(code);
+    fields[1] = flux_string_new(out.data ? out.data : "", (uint32_t)out.len);
+    fields[2] = flux_string_new(err.data ? err.data : "", (uint32_t)err.len);
+    free(out.data);
+    free(err.data);
+
+    int64_t result = flux_io_make_adt(proc_output_tag, fields, 3);
+    return flux_io_make_adt(tags.ok_tag, &result, 1);
 #else
     char *ccmd = flux_io_cstr(cmd);
     if (!ccmd) return flux_io_fail(tags, ENOMEM, cmd);

@@ -5,6 +5,7 @@ import Flow.Array as Array
 import Flow.List as List
 import Flow.Fs as Fs
 import Flow.Path as Path
+import Flow.Crypto as Crypto
 import Flow.Process as Proc
 import Flow.Process exposing (ProcOutput)
 import Flow.IoError exposing (IoError)
@@ -79,16 +80,83 @@ module Flume.Source.Git {
 
     /// A filesystem-safe directory name for a repository URL.
     ///
-    /// `https://github.com/user/repo.git` becomes `github.com-user-repo`. The
-    /// slug is for humans reading the cache directory; correctness rests on
-    /// the commit below it, so a collision between two slugs would be
-    /// cosmetic rather than a build hazard.
+    /// `https://github.com/user/repo.git` becomes `repo-a9b1c2d3`: the
+    /// repository's own name, then eight hex digits of the URL's digest.
+    ///
+    /// Naming the directory after the whole URL instead made its length grow
+    /// with the URL's, and a `file://` URL naming a deep directory produced a
+    /// segment long enough to push the checkout past the Windows path limit
+    /// (KI-048) — with nothing to truncate that would not also be arbitrary.
+    /// The last segment is bounded by what a filesystem already allows in one
+    /// name, whatever the URL's length, and the digest is what separates two
+    /// repositories that share it: `user/json` and `other/json` are one
+    /// directory under the name alone.
     public fn slug(url: String) -> String {
+        slug_of(canonical(url))
+    }
+
+    fn slug_of(canonical_url: String) -> String {
+        repo_name(canonical_url) + "-" + digest(canonical_url)
+    }
+
+    /// The spellings of one repository, reduced to one string.
+    ///
+    /// `https://host/user/repo.git`, `http://host/user/repo` and
+    /// `host/user/repo/` name the same repository, and hashing them as they
+    /// were written would clone it once per spelling.
+    fn canonical(url: String) -> String {
         url
             |> strip_scheme
             |> strip_git_suffix
+            |> trim_trailing_separators
+    }
+
+    /// The last path segment, made safe for a directory name.
+    fn repo_name(canonical_url: String) -> String {
+        canonical_url
+            |> last_segment
             |> Str.chars
             |> replace_separators
+    }
+
+    /// Eight hex digits of the URL's digest — the width git uses for a short
+    /// revision, over a space far smaller than the revisions it names.
+    fn digest(canonical_url: String) -> String {
+        substring(Crypto.sha256(canonical_url), 0, 8)
+    }
+
+    /// `https://host/user/repo/` names the repository `repo`, so the trailing
+    /// separator must go before the last segment is read or the name is empty.
+    fn trim_trailing_separators(text: String) -> String {
+        if len(text) > 0 && is_separator(substring(text, len(text) - 1, len(text))) {
+            trim_trailing_separators(substring(text, 0, len(text) - 1))
+        } else {
+            text
+        }
+    }
+
+    fn last_segment(text: String) -> String {
+        last_segment_from(text, len(text) - 1)
+    }
+
+    /// Scans from the right for the separator the name follows. A URL with no
+    /// separator left in it — `repo`, once the scheme is gone — is its own
+    /// last segment.
+    fn last_segment_from(text: String, i: Int) -> String {
+        if i < 0 {
+            text
+        } else if is_separator(substring(text, i, i + 1)) {
+            substring(text, i + 1, len(text))
+        } else {
+            last_segment_from(text, i - 1)
+        }
+    }
+
+    /// Both separators count: a `file://` URL on Windows names its directory
+    /// with `\`, and reading that as part of one segment would put the whole
+    /// path back into the name.
+    fn is_separator(ch: String) -> Bool {
+        ch == "/" || ch == "\\"
     }
 
     fn strip_scheme(url: String) -> String {

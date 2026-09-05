@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 
 use crate::cli::cmdline::PackageAction;
 use crate::cli::render::text::profile_native_without_llvm;
-use crate::driver::manifest_roots::{FLUX_SKIP_MANIFEST_ENV, flume_shim};
+use crate::driver::manifest_roots::{FLUX_SKIP_MANIFEST_ENV, flume_path, flume_shim};
 use crate::driver::{
     RunMode,
     backend::Backend,
@@ -157,7 +157,7 @@ pub fn init(name: Option<&str>, is_lib: bool) -> ExitCode {
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "package".to_string());
     let name = name.unwrap_or(&derived);
-    let dir = cwd.to_string_lossy().into_owned();
+    let dir = flume_path(&cwd);
     report(call_flume(&[
         "init",
         &dir,
@@ -175,7 +175,7 @@ pub fn new(name: &str, is_lib: bool) -> ExitCode {
         eprintln!("error: could not create {}: {err}", dir.display());
         return ExitCode::FAILURE;
     }
-    let dir = dir.to_string_lossy().into_owned();
+    let dir = flume_path(&dir);
     report(call_flume(&[
         "new",
         &dir,
@@ -189,7 +189,7 @@ pub fn new(name: &str, is_lib: bool) -> ExitCode {
 /// `bin` selects a named `[[bin]]` target; without one the package's
 /// conventional entry point is used.
 pub fn entry_file(project_dir: &Path, bin: Option<&str>) -> Result<PathBuf, String> {
-    let dir = project_dir.to_string_lossy().into_owned();
+    let dir = flume_path(project_dir);
     let reply = match bin {
         Some(name) => call_flume(&["bin", &dir, name])?,
         None => call_flume(&["entry", &dir])?,
@@ -248,7 +248,7 @@ pub fn package_command(
     // of the entry-point resolution below — a package with no entry point
     // still has a dependency graph worth showing.
     if action == PackageAction::Tree {
-        return report(call_flume(&["tree", &project.to_string_lossy()]));
+        return report(call_flume(&["tree", &flume_path(&project)]));
     }
 
     if action == PackageAction::Metadata {
@@ -269,7 +269,7 @@ pub fn package_command(
     // `update` re-resolves and rewrites `flux.lock` through the graph module,
     // which owns the resolver's progress and final package-manager record.
     if action == PackageAction::Update {
-        let dir = project.to_string_lossy().into_owned();
+        let dir = flume_path(&project);
         let mut call = vec![dir.as_str(), "--update"];
         call.extend(program_args.iter().map(String::as_str));
         return report(call_module("Flume.Build.Graph", &call));
@@ -279,7 +279,7 @@ pub fn package_command(
     // and the arguments after the subcommand are the dependency and its
     // source, forwarded verbatim to the package manager.
     if let Some(verb) = editing_verb(action) {
-        let dir = project.to_string_lossy().into_owned();
+        let dir = flume_path(&project);
         let mut call = vec![verb, &dir];
         call.extend(program_args.iter().map(String::as_str));
         return report(call_flume(&call));
@@ -328,7 +328,7 @@ fn apply_package_profile(
         .name
         .clone()
         .unwrap_or_else(|| "dev".to_string());
-    let dir = project.to_string_lossy().into_owned();
+    let dir = flume_path(project);
     let reply = call_flume(&["profile", &dir, &name])?;
     if reply.failed {
         return Err(reply.message);
@@ -383,7 +383,7 @@ fn emit_package_metadata(
     format: crate::driver::DiagnosticOutputFormat,
     flags: &DriverFlags,
 ) -> ExitCode {
-    let dir = project.to_string_lossy().into_owned();
+    let dir = flume_path(project);
     let reply = match resolve_graph(&dir, flags.cache.cache_dir.as_deref()) {
         Ok(reply) => reply,
         Err(error) => {
@@ -437,7 +437,7 @@ fn emit_package_metadata(
 }
 
 fn emit_package_build_plan(project: &Path, flags: &DriverFlags) -> ExitCode {
-    let dir = project.to_string_lossy().into_owned();
+    let dir = flume_path(project);
     let reply = match resolve_graph(&dir, flags.cache.cache_dir.as_deref()) {
         Ok(reply) => reply,
         Err(error) => {
