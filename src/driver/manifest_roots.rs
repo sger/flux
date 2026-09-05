@@ -86,6 +86,25 @@ fn write_if_changed(path: &Path, source: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Render `path` as the Flux side reads it.
+///
+/// `Flow.Path` is POSIX: `/` is the only separator it knows. Handed a Windows
+/// path, `Path.normalize` sees `E:\proj\app` as one component, so a
+/// `../shared` dependency normalises to a bare `shared` and the project
+/// directory silently disappears — the resolver then reports a manifest it
+/// cannot find. Windows accepts `/` in every path it is given, so the
+/// separator is converted once here, at the boundary, and the Flux half stays
+/// POSIX-only. Elsewhere a backslash is an ordinary filename character and is
+/// left alone.
+pub(crate) fn flume_path(path: &Path) -> String {
+    let text = path.to_string_lossy().into_owned();
+    if cfg!(windows) {
+        text.replace('\\', "/")
+    } else {
+        text
+    }
+}
+
 /// Resolve the package roots declared by the `flux.toml` at `project_dir`.
 ///
 /// Returns `None` when there is no manifest, when the guard is set, or when
@@ -127,7 +146,7 @@ pub(crate) fn resolve_project_roots(
         .arg("--cache-dir")
         .arg(cache_dir)
         .arg("--")
-        .arg(project_dir)
+        .arg(flume_path(project_dir))
         .args(mode_flags())
         .env(FLUX_SKIP_MANIFEST_ENV, "1")
         .env("NO_COLOR", "1")
@@ -377,9 +396,9 @@ fn unquote(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
-    use super::{parse_records, unquote};
+    use super::{flume_path, parse_records, unquote};
 
     #[test]
     fn parses_ok_records_into_scoped_roots() {
@@ -406,6 +425,17 @@ mod tests {
     #[test]
     fn unquote_leaves_bare_text_alone() {
         assert_eq!(unquote("ok\tA\tb"), "ok\tA\tb");
+    }
+
+    /// The Flux resolver splits paths on `/` alone, so a native Windows path
+    /// has to cross the boundary in POSIX form or `..` in a path dependency
+    /// swallows the project directory.
+    #[test]
+    fn a_project_directory_crosses_the_boundary_as_a_posix_path() {
+        let rendered = flume_path(Path::new("E:/proj/app"));
+        assert_eq!(rendered, "E:/proj/app");
+        #[cfg(windows)]
+        assert_eq!(flume_path(Path::new(r"E:\proj\app")), "E:/proj/app");
     }
 
     /// A Windows path is data, not separators: decoding its backslashes would

@@ -152,7 +152,10 @@ fn main() -> Unit with IO {{
     }}
 }}
 "#,
-            fixture.to_str().unwrap()
+            // The path is interpolated into a Flux string literal, where a
+            // Windows separator would read as an escape sequence rather than
+            // as itself. The filesystem accepts either separator.
+            fixture.to_str().unwrap().replace('\\', "/")
         ),
     );
     let _ = std::fs::remove_file(&fixture);

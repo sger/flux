@@ -65,8 +65,13 @@ fn new_git_package(scratch: &Scratch) -> (PathBuf, String) {
     (repo, first)
 }
 
+/// A `file://` URL for `path`.
+///
+/// The separators are rewritten because the URL is written into a
+/// `flux.toml` string, where a Windows path's `\C` is an invalid escape
+/// and the manifest fails to parse before git is ever reached.
 fn file_url(path: &Path) -> String {
-    format!("file://{}", path.to_string_lossy())
+    format!("file://{}", path.to_string_lossy().replace('\\', "/"))
 }
 
 fn app(scratch: &Scratch, dependency: &str) -> PathBuf {

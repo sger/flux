@@ -125,19 +125,29 @@ fn main() -> Unit with IO {
 /// subprocess without naming `Process` separately.
 #[test]
 fn the_io_alias_covers_the_process_effect() {
+    // What is under test is the effect row, not the program: the spawn only
+    // has to be one every host can perform. `/bin/echo` is not that on
+    // Windows, where `cmd` is the always-present equivalent.
+    let spawn = if cfg!(windows) {
+        r#"Proc.run("cmd", List.to_array(["/c", "echo covered"]))"#
+    } else {
+        r#"Proc.run("/bin/echo", List.to_array(["covered"]))"#
+    };
     let (guard, file) = scratch_file(
         "proc_io_alias.flx",
-        r#"
+        &format!(
+            r#"
 import Flow.Process as Proc
 import Flow.List as List
 
-fn main() -> Unit with IO {
-    match Proc.run("/bin/echo", List.to_array(["covered"])) {
+fn main() -> Unit with IO {{
+    match {spawn} {{
         Ok(out) -> print(Proc.stdout_of(out)),
         Err(_) -> print("failed"),
-    }
-}
-"#,
+    }}
+}}
+"#
+        ),
     );
     let (stdout, stderr, success) = compile(&file, &guard);
     assert!(success, "IO must cover Process:\n{stdout}\n{stderr}");
