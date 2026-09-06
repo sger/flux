@@ -41,11 +41,12 @@ a call site happens to pin the shared variable. Measured on a `print(1)`
 program, whose residue is entirely stdlib: 9 obligations survive to
 whole-program scope today; with the rule fixed, **0**.
 
-**The fix is blocked by a run-time bug that predates it.** A top-level `let`
-calling any constrained function fails with `E1001` on the current compiler
-([KI-083](../known_issues.md#ki-083)) — six lines of annotated Flux reproduce
+**The fix was blocked by a run-time bug that predates it.** A top-level `let`
+calling any constrained function failed with `E1001`
+([KI-083](../known_issues.md#ki-083)) — six lines of annotated Flux reproduced
 it. Generalizing by arity does not cause this; it makes nearly every top-level
-helper constrained, so it makes the bug universal. It has to go first.
+helper constrained, so it would have made the bug universal. It had to go
+first, and it has: Stage 1 is shipped.
 
 **Instance resolution is duplicated four times.** The solver produces
 `Evidence` that nothing reads; `lower_ast`, `dict_elaborate` and the AST
@@ -114,23 +115,45 @@ fixes, 44 commits and all green. Merge it before starting, with a merge commit
 rather than a squash, so later branches rebase across real ancestry. Delete the
 stale `feat/0183-terminal-constraint-states` pointer.
 
-### Stage 1 — fix KI-083
+### Stage 1 — fix KI-083 — **shipped**
 
 *A top-level value def cannot call a function dictionary elaboration
 synthesized.* The failing callee is the dictionary constructor
 (`__dict_..._Num_Int`, one argument), whose global slot is defined but never
-assigned. Established so far, and recorded in the KI so it is not re-derived:
-the VM path lowers through `lower_aether_program` (not `lower_program`); Core
-is correct; `bind_function_id_in_items` finds an item for the constructor;
-binding a `MakeClosure` into the entry function does not fix it and
-`IrProgram.global_bindings` is not read by the VM backend. The open question is
-what assigns a *declared* function's global slot in the CFG path — every
-`OpSetGlobal` emission is in the AST-based `statement.rs`/`expression.rs`, and
-`ir_lowering.rs` special-cases `__dict_*` names to *define* symbols without
-values.
+assigned *by the time the initializer runs*.
 
-Exit: the six-line reproduction prints `9`;
+The open question — what assigns a declared function's global slot in the CFG
+path — turned out to be the wrong question. Nothing was missing: the slots are
+assigned by `emit_dict_globals` / `emit_imported_dict_globals`, but
+`phase_codegen` ran them only *after* every statement had been compiled. A
+top-level initializer executes at module load time, so it read the slot while
+it still held `None`, and the `E1001` named the dictionary constructor rather
+than the user's function — which is what made this look like a problem with
+the callee. The prior findings stand and were not the cause: Core is correct,
+`bind_function_id_in_items` finds the item, and `IrProgram.global_bindings` is
+not read by the VM backend.
+
+The fix stores the dictionary globals twice — once before the first statement
+that can *run*, and again after every statement is compiled. Two constraints
+pull opposite ways: a dictionary must be stored before anything executes, and
+it can only be built from methods already compiled. The first store sits
+exactly on that boundary; the second keeps an instance declared *below* a
+top-level definition complete, so the boundary store is a strict addition
+rather than a move. A new `runs_at_load_time` matches `Statement`
+exhaustively, so a new variant cannot silently pick a side. The
+instance-method aliases stay at the end and are emitted only there: run
+earlier they would copy `None` over the canonical binding a dictionary
+constructor later reads.
+
+An instance declared after a top-level definition that needs it remains out of
+reach — the rule the top level already follows, since a value definition
+cannot call a function declared below it either.
+
+Exit — met: the six-line reproduction prints `9`;
 `tests/parity/toplevel_pure_expression.flx` runs on the VM; sweep neutral.
+Pinned by `examples/type_classes/toplevel_constrained_call.flx`, which covers
+a contextual stdlib dictionary, a local instance above its use, and an
+instance declared below one.
 
 ### Stage 2 — fix KI-082
 
