@@ -779,7 +779,7 @@ mod tests {
         let mut class_env = ClassEnv::new();
         class_env.register_builtins(&mut interner);
         class_env.register_prelude_classes(
-            &mut crate::types::class_bodies::ClassBodies::new(),
+            &mut crate::types::class_surface::ClassSurface::new(),
             &mut interner,
         );
         let num = interner.lookup("Num").expect("Num should be interned");
