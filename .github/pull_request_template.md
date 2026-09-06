@@ -18,7 +18,6 @@
 - [ ] `cargo clippy --all-targets --all-features -- -D warnings`
 - [ ] `cargo test --all --all-features`
 - [ ] VM smoke run (if relevant)
-- [ ] JIT smoke run (if relevant)
 
 ## Release Impact
 
