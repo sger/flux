@@ -1371,6 +1371,7 @@ module Local {
                 },
                 arity: 2,
                 effects: vec![],
+                infer_type: None,
             }],
             default_methods: vec![],
             span: Default::default(),

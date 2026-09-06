@@ -287,6 +287,11 @@ fn imported_class_def_from_entry(
     let module_sym = interner.intern(&entry.class_module);
     let class_sym = interner.intern(&entry.name);
     let module = crate::types::class_id::ModulePath::from_identifier(module_sym);
+    let class_type_params: Vec<_> = entry
+        .type_params
+        .iter()
+        .map(|tp| remap_identifier(*tp, remap))
+        .collect();
     let methods = entry
         .methods
         .iter()
@@ -312,6 +317,32 @@ fn imported_class_def_from_entry(
                 .iter()
                 .map(|effect| remap_effect_expr(effect, remap))
                 .collect(),
+            infer_type: {
+                let params: Vec<_> = method
+                    .param_types
+                    .iter()
+                    .map(|ty| remap_type_expr(ty, remap))
+                    .collect();
+                let ret = remap_type_expr(&method.return_type, remap);
+                let effects: Vec<_> = method
+                    .effects
+                    .iter()
+                    .map(|effect| remap_effect_expr(effect, remap))
+                    .collect();
+                let method_tps: Vec<_> = method
+                    .type_params
+                    .iter()
+                    .map(|tp| remap_identifier(*tp, remap))
+                    .collect();
+                crate::types::class_env::method_infer_type(
+                    &class_type_params,
+                    &method_tps,
+                    &params,
+                    &ret,
+                    &effects,
+                    interner,
+                )
+            },
         })
         .collect::<Vec<_>>();
 
@@ -525,47 +556,22 @@ fn build_public_class_method_scheme(
     method: &crate::types::class_env::MethodSig,
     interner: &Interner,
 ) -> Scheme {
-    let mut type_params = HashMap::new();
-    let mut next_var: TypeVarId = 0;
-    for &name in &class_def.type_params {
-        type_params.insert(name, next_var);
-        next_var += 1;
-    }
-    for &name in &method.type_params {
-        type_params.insert(name, next_var);
-        next_var += 1;
-    }
-    let mut row_var_env = HashMap::new();
-    let mut row_var_counter = next_var;
-    let param_tys: Vec<InferType> = method
-        .param_types
-        .iter()
-        .map(|ty| {
-            TypeEnv::convert_type_expr_rec(
-                ty,
-                &type_params,
-                interner,
-                &mut row_var_env,
-                &mut row_var_counter,
-            )
-            .expect("public class method param type should convert")
-        })
-        .collect();
-    let ret_ty = TypeEnv::convert_type_expr_rec(
-        &method.return_type,
-        &type_params,
-        interner,
-        &mut row_var_env,
-        &mut row_var_counter,
-    )
-    .expect("public class method return type should convert");
-    let effect_row =
-        InferEffectRow::from_effect_exprs(&method.effects, &mut row_var_env, &mut row_var_counter)
-            .expect("public class method effects should convert");
-    crate::types::scheme::generalize(
-        &InferType::Fun(param_tys, Box::new(ret_ty), effect_row),
-        &HashSet::new(),
-    )
+    // The conversion happens once, when the class is collected, and is shared
+    // by every consumer; this is only the generalization step. The fallback
+    // re-converts for a `MethodSig` built without one — the synthetic
+    // placeholders in dictionary elaboration and in tests.
+    let fun = method.infer_type.clone().unwrap_or_else(|| {
+        crate::types::class_env::method_infer_type(
+            &class_def.type_params,
+            &method.type_params,
+            &method.param_types,
+            &method.return_type,
+            &method.effects,
+            interner,
+        )
+        .expect("public class method signature should convert")
+    });
+    crate::types::scheme::generalize(&fun, &HashSet::new())
 }
 
 fn collect_implicit_type_params(ty: &TypeExpr, interner: &Interner, out: &mut HashSet<Identifier>) {
@@ -862,6 +868,14 @@ fn preload_imported_instance_schemes(
             .cloned()
             .filter(|effects| !effects.is_empty())
             .unwrap_or_else(|| method.effects.clone());
+        let specialized_infer_type = crate::types::class_env::method_infer_type(
+            &[],
+            &method.type_params,
+            &specialized_param_types,
+            &specialized_return_type,
+            &effects,
+            interner,
+        );
         let specialized_method = crate::types::class_env::MethodSig {
             name: method.name,
             type_params: method.type_params.clone(),
@@ -869,6 +883,7 @@ fn preload_imported_instance_schemes(
             param_types: specialized_param_types,
             return_type: specialized_return_type,
             arity: method.arity,
+            infer_type: specialized_infer_type,
             effects,
         };
         out.insert(
