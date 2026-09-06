@@ -1765,30 +1765,88 @@ impl Compiler {
         function: &Expression,
         arguments: &[Expression],
     ) -> CompileResult<()> {
-        use crate::compiler::hm_expr_typer::HmExprTypeResult;
+        // Dictionary constructors and generated instance methods are built by
+        // elaboration, not written by anyone. Their arities are this
+        // compiler's own business — reporting one to a user names a symbol
+        // they never typed — and elaboration hands them their arguments in
+        // stages, so a partially applied one is a normal intermediate state
+        // rather than a mistake.
+        let callee_name = self.call_function_name(function);
+        if crate::types::class_env::is_dictionary_name(&callee_name)
+            || crate::types::class_env::is_generated_instance_method(&callee_name)
+        {
+            return Ok(());
+        }
 
-        let HmExprTypeResult::Known(InferType::Fun(params, _, _)) =
-            self.hm_expr_type_strict_path(function)
-        else {
+        // Deliberately not the strict path: arity is a property of the `Fun`
+        // shape, so a callee whose parameter types are still variables — every
+        // generalized function at its call site — must be checked too.
+        let Some(recorded) = self.hm_expr_type_any(function).cloned() else {
             return Ok(());
         };
+        let InferType::Fun(params, _, _) = &recorded else {
+            return Ok(());
+        };
+
+        let def_span = self.call_definition_span(function);
+        if !recorded.free_vars().is_empty() && def_span.is_none() {
+            // Reaching past the strict path is only safe for a callee some
+            // declaration stands behind. A builtin bound at one arity only —
+            // `print` — records a type here but no definition to point at, and
+            // a call at another arity is not a miscount of its parameters: the
+            // name is genuinely unbound at that arity, which is what name
+            // resolution already reports.
+            return Ok(());
+        }
 
         let raw_expected = params.len();
         let hidden_dicts = self.injected_dictionary_count(function);
         let visible_expected = raw_expected.saturating_sub(hidden_dicts);
-        let elaborated_expected = raw_expected + hidden_dicts;
+
         let actual = arguments.len();
-        if actual == raw_expected || actual == visible_expected || actual == elaborated_expected {
+
+        // Whether the recorded type counts the dictionary parameters varies by
+        // callee — a generated `__tc_*` method declares them outright, while an
+        // ordinary constrained function keeps them in its scheme's constraints
+        // — and a dictionary parameter is a bare type variable either way, so
+        // the type alone cannot say. What does say is the call: elaboration
+        // prepends its dictionaries, so counting the ones actually there gives
+        // the source-level argument count without consulting the type at all.
+        //
+        // `hidden_dicts` is not that count. It is read from the callee's
+        // scheme, which at this point may hold no constraints even for a call
+        // that was elaborated, so it under-reports; it stays only for the
+        // unelaborated arm, where nothing better is available.
+        let supplied_dicts = arguments
+            .iter()
+            .take_while(|argument| self.looks_like_dictionary_argument_ast(argument))
+            .count();
+
+        let acceptable = if supplied_dicts > 0 {
+            // Elaboration inserts exactly as many dictionaries as the callee
+            // declares, so if the type counts them it counts these same ones.
+            actual - supplied_dicts == raw_expected || actual == raw_expected
+        } else {
+            actual == raw_expected || actual == visible_expected
+        };
+        if acceptable {
             return Ok(());
         }
 
-        let function_name = self.call_function_name(function);
-        let def_span = self.call_definition_span(function);
+        // The two arms above are what makes this exact. The check used to
+        // offer all of `raw - dicts`, `raw` and `raw + dicts` to every call,
+        // a band `2 * dicts` wide — so an unelaborated call with exactly
+        // `dicts` too many arguments landed on `raw + dicts` and was waved
+        // through, silently, and only for a callee carrying class
+        // constraints. The arity error then escaped type checking altogether
+        // and surfaced from the backend as `E430`, or from the VM as a
+        // run-time `E1000` (KI-082). A call that really does carry
+        // dictionaries is still accepted, by the first arm.
         Err(Self::boxed(wrong_argument_count(
             self.file_path.clone(),
             call_span,
-            &function_name,
-            visible_expected,
+            &callee_name,
+            raw_expected,
             actual,
             def_span,
         )))
