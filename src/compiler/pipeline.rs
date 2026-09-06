@@ -61,7 +61,10 @@ impl Compiler {
             };
             let extra = generate_dispatch_functions(
                 &program.statements,
-                &self.class_env,
+                crate::types::class_dispatch::DispatchClasses {
+                    env: &self.class_env,
+                    bodies: &self.class_bodies,
+                },
                 &mut self.interner,
                 &additional_reserved_names,
                 dispatch_options,

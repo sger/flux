@@ -2777,6 +2777,84 @@ entry). The generalization patch this entry used to point at,
 was never committed. See [Proposal 0185](proposals/0185_generalize_by_arity.md)
 Stage 3 for what survives of it.
 
+### KI-086 — A class declared inside a `module` loses its default method bodies
+
+**Severity:** High · **Area:** type classes, module interfaces · **Verified:** 2026-09-06 · **From:** Proposal 0186
+
+A default method body works when the class is declared at the top level of a
+script and stops working when the same class is declared inside a `module`.
+There are two separate failures, with two separate causes.
+
+**1. Across the module boundary the body is silently dropped, and the program
+panics at run time.**
+
+```flux
+// A.flx
+module A {
+    public class Greet<a> {
+        fn name(x: a) -> String
+        fn greet(x: a) -> String { "hi, someone" }
+    }
+}
+```
+```flux
+// main.flx
+import A
+data Dog { Dog }
+instance Greet<Dog> { fn name(x) { "dog" } }
+fn main() with IO { print(greet(Dog)) }
+```
+```
+error[E1009]: panic: No instance of Greet.greet for the given type
+  at greet
+  at main
+```
+
+The identical program with `class Greet` written at the top level of `main.flx`
+compiles and prints `"hi, someone"`.
+
+**Cause.** A class rebuilt from a cached `.flxi` interface entry is constructed
+with `default_body: None` (`src/compiler/mod.rs:315`) — method *types* survive
+the boundary, method *bodies* do not. `generate_dispatch_functions` then finds
+no body for the omitted method and `continue`s
+(`src/types/class_dispatch.rs:1306-1312`), so the mangled instance method is
+never generated and dispatch finds nothing at run time.
+
+Nothing reports this at compile time: `ClassDef::default_methods` is populated
+from the source AST, so the instance passes the "missing method" check —
+the class *says* it supplies a default, and only dispatch generation discovers
+that the body is not there. The check and the generator disagree about what the
+class provides.
+
+**2. Within the declaring module, a default body cannot call a sibling method.**
+
+```flux
+module Shape {
+    public class Greet<a> {
+        fn name(x: a) -> String
+        fn greet(x: a) -> String { "hello " + name(x) }   // E004
+    }
+}
+```
+```
+error[E004]: I can't find a value named `name`.
+  Shape.flx:4:47
+```
+
+The same body resolves `name` when the class is at the top level. Class methods
+are not brought into scope for sibling default bodies inside a module — the
+same shape as [KI-061](#ki-061), where a dictionary was not declared across a
+module boundary.
+
+**Why this is filed now.** Proposal 0186 moves default bodies out of `MethodSig`
+into a `ClassBodies` side table, because the class environment should carry
+types and not code. That move preserves the behaviour above exactly — the
+interface path contributes no bodies before or after — but it makes the reach
+of the table explicit and gives the fix one place to land rather than one per
+`MethodSig` construction site. Symptom 1 is fixed by recording bodies in the
+interface, or by generating the instance method in the defining module; symptom 2
+is a scope-construction fix in class collection.
+
 ### KI-085 — A call to a program's own function was dispatched as a class method — FIXED 2026-09-04
 
 **Severity:** High · **Area:** type classes, Core lowering, VM codegen · **Verified:** 2026-09-04 · **From:** Proposal 0183

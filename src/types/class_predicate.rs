@@ -344,7 +344,6 @@ mod tests {
             return_type,
             arity,
             effects: Vec::new(),
-            default_body: None,
         }
     }
 

@@ -312,7 +312,6 @@ fn imported_class_def_from_entry(
                 .iter()
                 .map(|effect| remap_effect_expr(effect, remap))
                 .collect(),
-            default_body: None,
         })
         .collect::<Vec<_>>();
 
@@ -871,7 +870,6 @@ fn preload_imported_instance_schemes(
             return_type: specialized_return_type,
             arity: method.arity,
             effects,
-            default_body: method.default_body.clone(),
         };
         out.insert(
             mangled_sym,
@@ -1374,9 +1372,23 @@ pub struct Compiler {
     pub cost_centre_infos: Vec<crate::bytecode::debug_info::CostCentreInfo>,
     /// Type class environment — populated during collection phase.
     pub(super) class_env: crate::types::class_env::ClassEnv,
+    /// Default method bodies for the classes in [`class_env`](Self::class_env).
+    ///
+    /// Held apart from the environment because a default body is code, not a
+    /// type: only dispatch generation reads it, and the solver never should.
+    /// See [`ClassBodies`](crate::types::class_bodies::ClassBodies).
+    pub(super) class_bodies: crate::types::class_bodies::ClassBodies,
     /// Imported `public class` entries reconstructed from preloaded module interfaces.
     imported_public_classes:
         HashMap<crate::types::class_id::ClassId, crate::types::class_env::ClassDef>,
+    /// Default method bodies recovered for imported classes, kept in parallel
+    /// with [`imported_public_classes`](Self::imported_public_classes).
+    ///
+    /// These survive across compiles, so collection seeds `class_bodies` from
+    /// this rather than from an empty table. Only the dependency-AST recovery
+    /// path contributes: a class rebuilt from a cached `.flxi` interface has
+    /// method types but no bodies (see `docs/known_issues.md#ki-086`).
+    imported_class_bodies: crate::types::class_bodies::ClassBodies,
     /// Imported `public instance` entries reconstructed from preloaded module interfaces.
     imported_public_instances: Vec<crate::types::class_env::InstanceDef>,
     /// Imported `public instance` entries waiting for their class interface to load.
@@ -1913,6 +1925,8 @@ impl Compiler {
             profiling: false,
             cost_centre_infos: Vec::new(),
             class_env: crate::types::class_env::ClassEnv::new(),
+            class_bodies: crate::types::class_bodies::ClassBodies::new(),
+            imported_class_bodies: crate::types::class_bodies::ClassBodies::new(),
             imported_public_classes: HashMap::new(),
             generated_dispatch_stub_names: HashSet::new(),
             user_function_names: HashSet::new(),
@@ -2318,7 +2332,10 @@ impl Compiler {
             };
             let extra = crate::types::class_dispatch::generate_dispatch_functions(
                 &program.statements,
-                &self.class_env,
+                crate::types::class_dispatch::DispatchClasses {
+                    env: &self.class_env,
+                    bodies: &self.class_bodies,
+                },
                 &mut self.interner,
                 &additional_reserved_names,
                 dispatch_options,
@@ -2753,7 +2770,11 @@ impl Compiler {
         dependency_classes
             .classes
             .extend(self.imported_public_classes.clone());
-        let _ = dependency_classes.collect_from_statements(&program.statements, &self.interner);
+        let _ = dependency_classes.collect_from_statements(
+            &program.statements,
+            &mut self.imported_class_bodies,
+            &self.interner,
+        );
         for (class_id, class_def) in dependency_classes.classes {
             if class_def.is_public {
                 self.imported_public_classes
@@ -3583,6 +3604,13 @@ impl Compiler {
         // Register the built-in classes first so that `deriving` clauses in
         // the program can reference them (`Sendable`).
         let mut env = crate::types::class_env::ClassEnv::new();
+        // The bodies table is rebuilt alongside the environment it describes.
+        // `class_env` is replaced wholesale below rather than cleared, so a
+        // table that merely accumulated would keep default bodies for classes
+        // that are no longer in scope — visible in the REPL, where one
+        // `Compiler` compiles many programs. It is seeded from the imported
+        // table, which is populated earlier by dependency-AST recovery.
+        self.class_bodies = self.imported_class_bodies.clone();
         env.register_builtins(&mut self.interner);
         env.classes.extend(self.imported_public_classes.clone());
         // The standard hierarchy is Flux source since Proposal 0179 Stage 8,
@@ -3598,7 +3626,8 @@ impl Compiler {
         // (E440 / E443). The class modules themselves are skipped entirely,
         // since a module cannot re-declare what it is defining.
         if !self.is_class_prelude_module(program) {
-            let prelude_diagnostics = env.register_prelude_classes(&mut self.interner);
+            let prelude_diagnostics =
+                env.register_prelude_classes(&mut self.class_bodies, &mut self.interner);
             debug_assert!(
                 prelude_diagnostics.is_empty(),
                 "the class prelude must collect cleanly: {prelude_diagnostics:?}"
@@ -3616,6 +3645,7 @@ impl Compiler {
         // check run here would not yet see it (E445 on every edge).
         let mut diagnostics = env.collect_from_statements_with(
             &program.statements,
+            &mut self.class_bodies,
             &self.interner,
             crate::types::class_env::SuperclassCheck::Deferred,
         );
