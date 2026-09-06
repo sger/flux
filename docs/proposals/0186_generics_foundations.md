@@ -289,19 +289,25 @@ would mean widening a dozen private helpers to `pub` and extracting nine
 `Statement`-reading collection functions, churn the design fixes would then
 undo. With them done, stage 0e is a move rather than surgery.
 
-| stage | change | exit |
-|---|---|---|
-| 0a | `crates/flux-source`: Symbol, Interner, Span, Position | suite green; pure move |
-| 0b | `crates/flux-diagnostics`: the diagnostics module | suite green; pure move |
-| 0c | Default method bodies out of `MethodSig` into a `ClassBodies` side table | suite + parity green; behaviour identical |
-| 0d | Class method signatures converted `TypeExpr` → `InferType` at collection | suite + parity green; class env holds no surface syntax |
-| 0e | `crates/flux-generics` + the `src/types/` move; `register_prelude_classes` stays behind | suite + parity green; pure move |
-| 1 | `scc.rs`: iterative, ordered, generic; delete both existing Tarjans | determinism under permuted input; 10k-node chain does not overflow |
-| 2 | `generics_frontend::plan`; wire Core lowering to consume binding groups | mutual recursion across an intervening `let`; suite green |
-| 3 | Bump `CACHE_EPOCH` **before** the red middle, not after | a stale artifact cannot survive stages 4–5 |
-| 4 | `quantify.rs`: one decision returning quantified vars *and* retained context; MR becomes a parameter | the 0185 `E490` regression cannot recur by construction |
-| 5 | `evidence.rs` + `translate.rs`: solver records evidence; delete the other resolution sites | the forwarding reproduction compiles and runs |
-| 6 | Land 0185's generalize-by-arity rule on the new foundation | stdlib residue **0**; suite + parity green |
+This table is the single source of truth for sequencing. An earlier draft
+numbered these 1–8 with the crate move second; that ordering did not survive
+contact, because `src/types/` cannot cross a crate boundary while the class
+environment stores surface syntax and executable code. The preparation stages
+below were introduced to fix that first, and everything after shifted.
+
+| stage | status | change | exit |
+|---|---|---|---|
+| 0a | done | `crates/flux-source`: Symbol, Interner, Span, Position | suite green; pure move |
+| 0b | done | `crates/flux-diagnostics`: the diagnostics module | suite green; pure move |
+| 0c | done | Default method bodies out of `MethodSig` into a side table (`ClassBodies`, widened to `ClassSurface` in 0d) | suite + parity green; behaviour identical |
+| 0d | partial | Class method signatures converted `TypeExpr` → `InferType` at collection. Done: `MethodSig.infer_type`, `match_type` deleted. Remaining: thread `&ClassSurface` into the eight surface consumers and drop `MethodSig`'s `TypeExpr` fields — tidiness, **not** a prerequisite for 0e, since `InstanceDef.type_args` keeps `TypeExpr` in the class environment regardless (131 structural reads). | suite + parity green |
+| 0e | | `crates/flux-generics` + the `src/types/` move; `register_prelude_classes` stays behind | suite + parity green; pure move |
+| 1 | done | `scc.rs`: iterative, ordered, generic; delete both existing Tarjans | determinism under permuted input; 10k-node chain does not overflow |
+| 2 | done | `generics_frontend::plan`; wire Core lowering to consume binding groups | mutual recursion across an intervening `let`; suite green |
+| 3 | next | Bump `CACHE_EPOCH` **before** the red middle, not after | a stale artifact cannot survive stages 4–5 |
+| 4 | | `quantify.rs`: one decision returning quantified vars *and* retained context; MR becomes a parameter | the 0185 `E490` regression cannot recur by construction |
+| 5 | | `evidence.rs` + `translate.rs`: solver records evidence; delete the other resolution sites | the forwarding reproduction compiles and runs |
+| 6 | | Land 0185's generalize-by-arity rule on the new foundation | stdlib residue **0**; suite + parity green |
 
 Measurement note: from stage 2 on, validation must **run** programs, not only
 compile them. The compile-only sweep used during the 0185 attempt reported
