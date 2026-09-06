@@ -1,0 +1,16 @@
+// parity: vm, llvm
+// expect: success
+// bug: two mutually recursive nested functions separated by a `let` were
+// grouped by adjacency rather than by reference, so each was bound
+// independently and the earlier one's call to the later was out of scope.
+// The VM reported `E1001 ... (got Uninit)` at run time; the native backend
+// failed the same way, so both agreed and parity did not catch it.
+// See docs/known_issues.md#ki-087.
+
+fn main() with IO {
+    fn is_even(n: Int) -> Bool { if n <= 0 { true } else { is_odd(n - 1) } }
+    let threshold = 5;
+    fn is_odd(n: Int) -> Bool { if n <= 0 { false } else { is_even(n - 1) } }
+    print(is_even(threshold))
+    print(is_odd(threshold))
+}
