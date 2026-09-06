@@ -18,10 +18,19 @@ impl fmt::Display for Symbol {
 impl Symbol {
     /// Creates a new symbol from a raw index.
     ///
-    /// This is intended for internal use by the `Interner` only.
-    /// Creating symbols with arbitrary indices can lead to panics when resolving.
+    /// **The index must come from an `Interner` that is still alive.** A symbol
+    /// is only a position in one interner's table; resolving one against a
+    /// different interner, or against an index no interner produced, panics or
+    /// silently yields the wrong name.
+    ///
+    /// Callers are therefore limited to two kinds: the `Interner` itself, and
+    /// code rebuilding symbols that an interner already issued — cache
+    /// deserialization reading back a `.fxc`, and passes that carry a raw index
+    /// across a serialization boundary. It is `pub` rather than `pub(crate)`
+    /// only because those callers now live in a different crate; the contract
+    /// is unchanged.
     #[inline]
-    pub(crate) fn new(index: u32) -> Self {
+    pub fn new(index: u32) -> Self {
         Self(index)
     }
 

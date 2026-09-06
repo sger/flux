@@ -8,7 +8,9 @@ pub mod builders;
 pub mod compiler_errors;
 pub mod diagnostic;
 pub mod format;
-pub mod position;
+// See `flux-source`: `Position`/`Span` are source vocabulary, shared with
+// `flux-generics`. Re-exported so `diagnostics::position::Span` still resolves.
+pub use flux_source::position;
 pub mod quality;
 pub mod ranking;
 pub mod registry;
