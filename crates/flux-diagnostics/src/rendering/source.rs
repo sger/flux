@@ -4,8 +4,8 @@
 //! including carets, labels, and inline suggestions.
 
 use super::colors::Colors;
-use crate::diagnostics::position::Span;
-use crate::diagnostics::types::{Label, LabelStyle};
+use crate::position::Span;
+use crate::types::{Label, LabelStyle};
 
 /// Sentinel value for end-of-line positions.
 const END_OF_LINE_SENTINEL: usize = usize::MAX - 1;
@@ -393,7 +393,7 @@ pub fn render_hint_snippet(out: &mut String, source: Option<&str>, span: Span, u
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::diagnostics::position::Position;
+    use crate::position::Position;
 
     // ── find_comment_start ──────────────────────────────────────────
 

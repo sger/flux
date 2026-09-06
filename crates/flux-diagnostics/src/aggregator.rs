@@ -12,8 +12,8 @@ use super::{
     rendering::Colors,
     types::DiagnosticPhase,
 };
-use crate::diagnostics::position::Span;
-use crate::syntax::parser::is_structural_parse_diagnostic_code;
+use crate::position::Span;
+use crate::registry::is_structural_parse_diagnostic_code;
 
 /// Default max error limit to avoid overwhelming output.
 pub const DEFAULT_MAX_ERRORS: usize = 50;
@@ -1006,9 +1006,9 @@ fn is_generic_parser_cascade(diag: &Diagnostic) -> bool {
         && match diag.category() {
             None => true,
             Some(
-                crate::diagnostics::DiagnosticCategory::ParserExpression
-                | crate::diagnostics::DiagnosticCategory::ParserSeparator
-                | crate::diagnostics::DiagnosticCategory::ParserDelimiter,
+                crate::DiagnosticCategory::ParserExpression
+                | crate::DiagnosticCategory::ParserSeparator
+                | crate::DiagnosticCategory::ParserDelimiter,
             ) => true,
             Some(_) => false,
         }
