@@ -14,7 +14,7 @@
 ///
 /// All surface Flux constructs (sugar, n-ary functions, multi-argument calls,
 /// pattern matching, effects) are desugared into the ~12-variant `CoreExpr`.
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::{
     ast::free_vars::collect_free_vars_in_function_body,
@@ -1568,110 +1568,37 @@ impl<'a> AstLowerer<'a> {
 
     /// Lower the full statement slice by prepending one statement at a time.
     ///
-    /// Detects runs of consecutive function statements that form mutual
-    /// recursion groups (any function references a sibling defined later)
-    /// and emits `LetRecGroup` for those instead of nested `LetRec`s.
+    /// Function definitions are grouped by mutual reference rather than by
+    /// adjacency — see [`crate::generics_frontend::plan_block`] — so a
+    /// statement standing between two mutually recursive definitions no longer
+    /// splits them into separate, wrongly nested bindings.
     fn prepend_stmts(&mut self, stmts: &[Statement], body: CoreExpr, span: Span) -> CoreExpr {
-        // Process statements right-to-left, but handle mutual recursion
-        // groups using SCC (Strongly Connected Component) analysis.
-        let mut result = body;
-        let mut i = stmts.len();
-        while i > 0 {
-            i -= 1;
-            if matches!(stmts[i], Statement::Function { .. }) {
-                // Found a function. Scan backward for a contiguous run.
-                let run_end = i + 1;
-                let mut run_start = i;
-                while run_start > 0 && matches!(stmts[run_start - 1], Statement::Function { .. }) {
-                    run_start -= 1;
-                }
-                let fn_run = &stmts[run_start..run_end];
-                if fn_run.len() >= 2 {
-                    // Compute SCCs to partition into minimal binding groups.
-                    result = self.lower_fn_run_with_scc(fn_run, result, span);
-                } else {
-                    result = self.prepend_one_stmt(&stmts[run_start], result, span);
-                }
-                i = run_start;
-            } else {
-                result = self.prepend_one_stmt(&stmts[i], result, span);
-            }
-        }
-        result
-    }
-
-    /// Partition a contiguous run of function definitions into minimal
-    /// binding groups by strongly connected component, then lower each group.
-    ///
-    /// This replaces the conservative "group all if any forward reference"
-    /// strategy with precise dependency analysis. Functions that don't
-    /// participate in cycles become individual `LetRec` bindings that
-    /// downstream passes (inliner, dead code elimination) can optimize.
-    fn lower_fn_run_with_scc(
-        &mut self,
-        fn_stmts: &[Statement],
-        tail: CoreExpr,
-        span: Span,
-    ) -> CoreExpr {
-        // Step 1: Collect function names and their dependencies on siblings.
-        let mut names: Vec<crate::syntax::Identifier> = Vec::new();
-        let mut stmt_by_name: HashMap<crate::syntax::Identifier, &Statement> = HashMap::new();
-        let mut deps: HashMap<crate::syntax::Identifier, HashSet<crate::syntax::Identifier>> =
-            HashMap::new();
-
-        let name_set: HashSet<crate::syntax::Identifier> = fn_stmts
-            .iter()
-            .filter_map(|s| {
-                if let Statement::Function { name, .. } = s {
-                    Some(*name)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        for stmt in fn_stmts {
+        let plan = crate::generics_frontend::plan_block(stmts, |stmt| {
             if let Statement::Function {
-                name,
-                parameters,
-                body,
-                ..
+                parameters, body, ..
             } = stmt
             {
-                names.push(*name);
-                stmt_by_name.insert(*name, stmt);
-                let fv = collect_free_vars_in_function_body(parameters, body);
-                // Only keep dependencies on siblings in this run.
-                let sibling_deps: HashSet<crate::syntax::Identifier> =
-                    fv.into_iter().filter(|v| name_set.contains(v)).collect();
-                deps.insert(*name, sibling_deps);
+                collect_free_vars_in_function_body(parameters, body)
+            } else {
+                std::collections::HashSet::new()
             }
-        }
-
-        // Step 2: Group mutually recursive siblings.
-        let sccs = flux_generics::strongly_connected_components(&names, |name| {
-            deps.get(&name)
-                .into_iter()
-                .flatten()
-                .copied()
-                .collect::<Vec<_>>()
         });
 
-        // Step 3: Emit bindings in dependency order (SCCs are returned
-        // in reverse topological order — dependencies come first).
-        // We process right-to-left to build nested lets.
-        let mut result = tail;
-        for scc in sccs.iter().rev() {
-            if scc.len() == 1 {
-                // Single function — emit as individual LetRec.
-                let name = scc[0];
-                let stmt = stmt_by_name[&name];
-                result = self.prepend_one_stmt(stmt, result, span);
-            } else {
-                // Multiple functions in a cycle — emit as LetRecGroup.
-                let group_stmts: Vec<&Statement> = scc.iter().map(|n| stmt_by_name[n]).collect();
-                result = self.lower_scc_group(&group_stmts, result);
-            }
+        // Right-to-left, so each item is prepended around the tail already built.
+        let mut result = body;
+        for item in plan.iter().rev() {
+            result = match item {
+                crate::generics_frontend::PlanItem::Group(members) => match members.as_slice() {
+                    [(_, single)] => self.prepend_one_stmt(single, result, span),
+                    many => {
+                        let stmts: Vec<&Statement> = many.iter().map(|(_, s)| *s).collect();
+                        self.lower_scc_group(&stmts, result)
+                    }
+                },
+                crate::generics_frontend::PlanItem::Other(_, stmt) => {
+                    self.prepend_one_stmt(stmt, result, span)
+                }
+            };
         }
         result
     }
@@ -1686,9 +1613,24 @@ impl<'a> AstLowerer<'a> {
             })
             .unwrap_or_default();
 
-        let bindings: Vec<_> = stmts
+        // Every member's name must be bound before any body is lowered: that is
+        // what makes the group recursive. Binding and lowering in one pass left
+        // the first member's body referring to a name the later members had not
+        // introduced yet.
+        let binders: Vec<_> = stmts
             .iter()
             .map(|stmt| {
+                let Statement::Function { name, .. } = stmt else {
+                    unreachable!("lower_scc_group called with non-function statement");
+                };
+                self.bind_name(*name)
+            })
+            .collect();
+
+        let bindings: Vec<_> = stmts
+            .iter()
+            .zip(binders)
+            .map(|(stmt, binder)| {
                 let Statement::Function {
                     name,
                     parameters,
@@ -1700,7 +1642,6 @@ impl<'a> AstLowerer<'a> {
                 else {
                     unreachable!("lower_scc_group called with non-function statement");
                 };
-                let binder = self.bind_name(*name);
                 let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
                 let (mut param_types, result_ty) = self.lambda_signature_from_function_name(*name);
                 if !param_types.is_empty() && param_types.len() != params.len() {

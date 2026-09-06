@@ -11,6 +11,7 @@ pub mod core;
 // `crate::diagnostics::…` resolves unchanged.
 pub use flux_diagnostics as diagnostics;
 pub mod driver;
+pub mod generics_frontend;
 pub mod lir;
 #[cfg(feature = "llvm")]
 pub mod llvm;
