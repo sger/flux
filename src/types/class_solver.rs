@@ -1011,6 +1011,7 @@ mod tests {
                     return_type: int,
                     arity: 1,
                     effects: Vec::new(),
+                    infer_type: None,
                 }],
                 default_methods: Vec::new(),
                 span: Span::default(),
