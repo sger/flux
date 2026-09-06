@@ -3,7 +3,7 @@ use std::{
     hash::{BuildHasher, RandomState},
 };
 
-use crate::syntax::{entry::Entry, symbol::Symbol};
+use crate::{entry::Entry, symbol::Symbol};
 
 /// A string interner that stores unique strings and returns symbols for efficient comparison.
 ///
@@ -14,7 +14,7 @@ use crate::syntax::{entry::Entry, symbol::Symbol};
 /// # Example
 ///
 /// ```
-/// use flux::syntax::interner::Interner;
+/// use flux_source::interner::Interner;
 ///
 /// let mut interner = Interner::new();
 /// let sym1 = interner.intern("hello");
