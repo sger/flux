@@ -105,7 +105,15 @@ use sha2::{Digest, Sha256};
 /// dispatched as a class method of that name (KI-085), so a call an epoch-42
 /// artifact lowered to `__tc_<Class>_<Type>_<name>` now calls the program's own
 /// function — different code, same source.
-pub const CACHE_EPOCH: u16 = 43;
+/// Epoch 44: the call arity check no longer accepts `parameters +
+/// dictionaries` from a call that carries no dictionaries (KI-082), so a
+/// program an epoch-43 artifact compiled and ran — passing a constrained
+/// function that many extra arguments — is now an `E056` at compile time. The
+/// stale artifact keeps running it, which is how the bug hid: with a warm
+/// cache it surfaced as a run-time `E1000` rather than a diagnostic. Epoch 43
+/// also predates the KI-083 fix, which changed where the dictionary globals
+/// are stored and so changed emitted bytecode.
+pub const CACHE_EPOCH: u16 = 44;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {
