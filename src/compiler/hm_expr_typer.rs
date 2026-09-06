@@ -37,6 +37,19 @@ impl Compiler {
         }
     }
 
+    /// The HM type recorded for `expression`, resolved or not.
+    ///
+    /// `hm_expr_type_strict_path` treats a type with free variables as
+    /// unknown, which is right for checks that *compare* types — an
+    /// unresolved type cannot be matched against another. Arity is not such a
+    /// check: a function's parameter count is fixed by its `Fun` shape and
+    /// says nothing about whether the element types are ground. Routing the
+    /// arity check through the strict path meant a generalized callee was
+    /// skipped entirely, and the error escaped to run time (KI-082).
+    pub(super) fn hm_expr_type_any(&self, expression: &Expression) -> Option<&InferType> {
+        self.hm_expr_types.get(&expression.expr_id())
+    }
+
     fn is_hm_type_resolved(infer: &InferType) -> bool {
         infer.free_vars().is_empty()
     }

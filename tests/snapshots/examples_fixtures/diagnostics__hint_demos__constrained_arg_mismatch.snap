@@ -1,0 +1,27 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/diagnostics/hint_demos/constrained_arg_mismatch.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E056]: Wrong Number Of Arguments
+
+The `describe` function takes 1 arguments, but 2 were provided.
+
+  examples/diagnostics/hint_demos/constrained_arg_mismatch.flx:22:11
+   |
+17 | fn describe<a: Show>(x: a) -> String {
+   | ------------------------------------ `describe` is defined with 1 parameters
+18 |     show(x)
+19 | }
+20 | 
+21 | fn main() with IO {
+22 |     print(describe(1, 2))
+   |           ^^^^^^^^^^^^^^
+   |           -------------- 2 arguments provided here, expected 1
+
+Help:
+  Remove 1 extra argument(s), for example: `describe(arg1)`.
+== stdout ==
+<not executed>
