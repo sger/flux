@@ -1,0 +1,23 @@
+// Baseline contract: an arity error is reported for a callee that carries a
+// class constraint, not just for an unconstrained one (KI-082).
+//
+// `describe` takes one parameter and one dictionary, so a call with two
+// arguments matched the arity check's `parameters + dictionaries` case and was
+// accepted. The check offered that count to every call, including one the
+// compiler had not yet handed its dictionaries to — so a plain miscount landed
+// on it and passed. Nothing reported it afterwards either: the call reached
+// the backend as `E430`, or ran and failed as `E1000 wrong number of
+// arguments` once the cache was warm.
+//
+// The count only belongs to a call whose arguments already include the
+// dictionaries, which this one's do not.
+//
+// Expected: E056, `describe` takes 1 argument, 2 provided.
+
+fn describe<a: Show>(x: a) -> String {
+    show(x)
+}
+
+fn main() with IO {
+    print(describe(1, 2))
+}
