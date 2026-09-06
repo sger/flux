@@ -184,9 +184,9 @@ fn infer(source: &str) -> (InferProgramResult, Program, Interner) {
     // Build ClassEnv from program statements (using same interner)
     let mut class_env = ClassEnv::new();
     class_env.register_builtins(&mut interner);
-    let mut class_bodies = flux::types::class_bodies::ClassBodies::new();
-    class_env.register_prelude_classes(&mut class_bodies, &mut interner);
-    class_env.collect_from_statements(&program.statements, &mut class_bodies, &interner);
+    let mut class_surface = flux::types::class_surface::ClassSurface::new();
+    class_env.register_prelude_classes(&mut class_surface, &mut interner);
+    class_env.collect_from_statements(&program.statements, &mut class_surface, &interner);
 
     let result = infer_program(
         &program,
@@ -220,10 +220,10 @@ fn build_class_env(source: &str) -> (ClassEnv, Vec<flux::diagnostics::Diagnostic
     let mut interner = parser.take_interner();
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
-    let mut class_bodies = flux::types::class_bodies::ClassBodies::new();
-    env.register_prelude_classes(&mut class_bodies, &mut interner);
+    let mut class_surface = flux::types::class_surface::ClassSurface::new();
+    env.register_prelude_classes(&mut class_surface, &mut interner);
     let diagnostics =
-        env.collect_from_statements(&program.statements, &mut class_bodies, &interner);
+        env.collect_from_statements(&program.statements, &mut class_surface, &interner);
     (env, diagnostics, interner)
 }
 
@@ -233,15 +233,15 @@ fn infer_with_dispatch(source: &str) -> (InferProgramResult, Program, Interner) 
 
     let mut class_env = ClassEnv::new();
     class_env.register_builtins(&mut interner);
-    let mut class_bodies = flux::types::class_bodies::ClassBodies::new();
-    class_env.register_prelude_classes(&mut class_bodies, &mut interner);
-    class_env.collect_from_statements(&program.statements, &mut class_bodies, &interner);
+    let mut class_surface = flux::types::class_surface::ClassSurface::new();
+    class_env.register_prelude_classes(&mut class_surface, &mut interner);
+    class_env.collect_from_statements(&program.statements, &mut class_surface, &interner);
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
         &program.statements,
         flux::types::class_dispatch::DispatchClasses {
             env: &class_env,
-            bodies: &class_bodies,
+            surface: &class_surface,
         },
         &mut interner,
         &std::collections::HashSet::new(),
@@ -747,9 +747,9 @@ fn main() { same(1, 2) }
     );
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
-    let mut class_bodies = flux::types::class_bodies::ClassBodies::new();
-    env.register_prelude_classes(&mut class_bodies, &mut interner);
-    env.collect_from_statements(&program.statements, &mut class_bodies, &interner);
+    let mut class_surface = flux::types::class_surface::ClassSurface::new();
+    env.register_prelude_classes(&mut class_surface, &mut interner);
+    env.collect_from_statements(&program.statements, &mut class_surface, &interner);
     let diags = solve_class_constraint_tree(&result.class_constraints, &env, &interner);
     assert!(
         diags.is_empty(),
@@ -768,9 +768,9 @@ fn main() { same(Red, Blue) }
     );
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
-    let mut class_bodies = flux::types::class_bodies::ClassBodies::new();
-    env.register_prelude_classes(&mut class_bodies, &mut interner);
-    env.collect_from_statements(&program.statements, &mut class_bodies, &interner);
+    let mut class_surface = flux::types::class_surface::ClassSurface::new();
+    env.register_prelude_classes(&mut class_surface, &mut interner);
+    env.collect_from_statements(&program.statements, &mut class_surface, &interner);
     let diags = solve_class_constraint_tree(&result.class_constraints, &env, &interner);
     assert!(
         diags.iter().any(|d| d.code() == Some("E444")),
@@ -990,9 +990,9 @@ fn main() { size(42) }
     // Rebuild ClassEnv from same interner for the solver
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
-    let mut class_bodies = flux::types::class_bodies::ClassBodies::new();
-    env.register_prelude_classes(&mut class_bodies, &mut interner);
-    env.collect_from_statements(&program.statements, &mut class_bodies, &interner);
+    let mut class_surface = flux::types::class_surface::ClassSurface::new();
+    env.register_prelude_classes(&mut class_surface, &mut interner);
+    env.collect_from_statements(&program.statements, &mut class_surface, &interner);
 
     let diags = solve_class_constraint_tree(&result.class_constraints, &env, &interner);
     let e444: Vec<_> = diags.iter().filter(|d| d.code() == Some("E444")).collect();
@@ -1017,9 +1017,9 @@ instance Sizeable<Int> {
     );
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
-    let mut class_bodies = flux::types::class_bodies::ClassBodies::new();
-    env.register_prelude_classes(&mut class_bodies, &mut interner);
-    env.collect_from_statements(&program.statements, &mut class_bodies, &interner);
+    let mut class_surface = flux::types::class_surface::ClassSurface::new();
+    env.register_prelude_classes(&mut class_surface, &mut interner);
+    env.collect_from_statements(&program.statements, &mut class_surface, &interner);
 
     let sizeable_sym = interner.lookup("Sizeable").expect("Sizeable interned");
 
@@ -1059,9 +1059,9 @@ class Sizeable<a> {
     );
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
-    let mut class_bodies = flux::types::class_bodies::ClassBodies::new();
-    env.register_prelude_classes(&mut class_bodies, &mut interner);
-    env.collect_from_statements(&program.statements, &mut class_bodies, &interner);
+    let mut class_surface = flux::types::class_surface::ClassSurface::new();
+    env.register_prelude_classes(&mut class_surface, &mut interner);
+    env.collect_from_statements(&program.statements, &mut class_surface, &interner);
 
     let sizeable_sym = interner.lookup("Sizeable").expect("Sizeable interned");
 
@@ -1107,15 +1107,15 @@ instance Sizeable<Int> {
     );
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
-    let mut class_bodies = flux::types::class_bodies::ClassBodies::new();
-    env.register_prelude_classes(&mut class_bodies, &mut interner);
-    env.collect_from_statements(&program.statements, &mut class_bodies, &interner);
+    let mut class_surface = flux::types::class_surface::ClassSurface::new();
+    env.register_prelude_classes(&mut class_surface, &mut interner);
+    env.collect_from_statements(&program.statements, &mut class_surface, &interner);
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
         &program.statements,
         flux::types::class_dispatch::DispatchClasses {
             env: &env,
-            bodies: &class_bodies,
+            surface: &class_surface,
         },
         &mut interner,
         &std::collections::HashSet::new(),
@@ -1157,9 +1157,9 @@ instance Enc<a> => Enc<List<a>> {
     );
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
-    let mut class_bodies = flux::types::class_bodies::ClassBodies::new();
-    env.register_prelude_classes(&mut class_bodies, &mut interner);
-    env.collect_from_statements(&program.statements, &mut class_bodies, &interner);
+    let mut class_surface = flux::types::class_surface::ClassSurface::new();
+    env.register_prelude_classes(&mut class_surface, &mut interner);
+    env.collect_from_statements(&program.statements, &mut class_surface, &interner);
 
     let source_ids = program
         .statements
@@ -1176,7 +1176,7 @@ instance Enc<a> => Enc<List<a>> {
         &program.statements,
         flux::types::class_dispatch::DispatchClasses {
             env: &env,
-            bodies: &class_bodies,
+            surface: &class_surface,
         },
         &mut interner,
         &HashSet::new(),
@@ -1217,15 +1217,15 @@ instance Sizeable<Int> {
     );
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
-    let mut class_bodies = flux::types::class_bodies::ClassBodies::new();
-    env.register_prelude_classes(&mut class_bodies, &mut interner);
-    env.collect_from_statements(&program.statements, &mut class_bodies, &interner);
+    let mut class_surface = flux::types::class_surface::ClassSurface::new();
+    env.register_prelude_classes(&mut class_surface, &mut interner);
+    env.collect_from_statements(&program.statements, &mut class_surface, &interner);
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
         &program.statements,
         flux::types::class_dispatch::DispatchClasses {
             env: &env,
-            bodies: &class_bodies,
+            surface: &class_surface,
         },
         &mut interner,
         &std::collections::HashSet::new(),
@@ -1265,15 +1265,15 @@ instance Sizeable<String> {
     );
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
-    let mut class_bodies = flux::types::class_bodies::ClassBodies::new();
-    env.register_prelude_classes(&mut class_bodies, &mut interner);
-    env.collect_from_statements(&program.statements, &mut class_bodies, &interner);
+    let mut class_surface = flux::types::class_surface::ClassSurface::new();
+    env.register_prelude_classes(&mut class_surface, &mut interner);
+    env.collect_from_statements(&program.statements, &mut class_surface, &interner);
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
         &program.statements,
         flux::types::class_dispatch::DispatchClasses {
             env: &env,
-            bodies: &class_bodies,
+            surface: &class_surface,
         },
         &mut interner,
         &std::collections::HashSet::new(),
@@ -1330,8 +1330,8 @@ module Local {
     let unit = interner.intern("Unit");
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
-    let mut class_bodies = flux::types::class_bodies::ClassBodies::new();
-    env.register_prelude_classes(&mut class_bodies, &mut interner);
+    let mut class_surface = flux::types::class_surface::ClassSurface::new();
+    env.register_prelude_classes(&mut class_surface, &mut interner);
     env.classes.insert(
         flux::types::class_id::ClassId::new(
             flux::types::class_id::ModulePath::from_identifier(interner.intern("Example.Logger")),
@@ -1376,13 +1376,13 @@ module Local {
             span: Default::default(),
         },
     );
-    env.collect_from_statements(&program.statements, &mut class_bodies, &interner);
+    env.collect_from_statements(&program.statements, &mut class_surface, &interner);
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
         &program.statements,
         flux::types::class_dispatch::DispatchClasses {
             env: &env,
-            bodies: &class_bodies,
+            surface: &class_surface,
         },
         &mut interner,
         &HashSet::new(),
@@ -1441,15 +1441,15 @@ instance MyEq<Int> {
     );
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
-    let mut class_bodies = flux::types::class_bodies::ClassBodies::new();
-    env.register_prelude_classes(&mut class_bodies, &mut interner);
-    env.collect_from_statements(&program.statements, &mut class_bodies, &interner);
+    let mut class_surface = flux::types::class_surface::ClassSurface::new();
+    env.register_prelude_classes(&mut class_surface, &mut interner);
+    env.collect_from_statements(&program.statements, &mut class_surface, &interner);
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
         &program.statements,
         flux::types::class_dispatch::DispatchClasses {
             env: &env,
-            bodies: &class_bodies,
+            surface: &class_surface,
         },
         &mut interner,
         &std::collections::HashSet::new(),
@@ -1495,14 +1495,14 @@ fn needs<A: Eq + Ord + Num>(x: A, y: A) -> A {
     );
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
-    let mut class_bodies = flux::types::class_bodies::ClassBodies::new();
-    env.register_prelude_classes(&mut class_bodies, &mut interner);
+    let mut class_surface = flux::types::class_surface::ClassSurface::new();
+    env.register_prelude_classes(&mut class_surface, &mut interner);
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
         &program.statements,
         flux::types::class_dispatch::DispatchClasses {
             env: &env,
-            bodies: &class_bodies,
+            surface: &class_surface,
         },
         &mut interner,
         &std::collections::HashSet::new(),
@@ -1548,15 +1548,15 @@ instance Eq<a> => MyEq<List<a>> {
     );
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
-    let mut class_bodies = flux::types::class_bodies::ClassBodies::new();
-    env.register_prelude_classes(&mut class_bodies, &mut interner);
-    env.collect_from_statements(&program.statements, &mut class_bodies, &interner);
+    let mut class_surface = flux::types::class_surface::ClassSurface::new();
+    env.register_prelude_classes(&mut class_surface, &mut interner);
+    env.collect_from_statements(&program.statements, &mut class_surface, &interner);
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
         &program.statements,
         flux::types::class_dispatch::DispatchClasses {
             env: &env,
-            bodies: &class_bodies,
+            surface: &class_surface,
         },
         &mut interner,
         &std::collections::HashSet::new(),
@@ -1680,8 +1680,8 @@ fn builtin_classes_registered() {
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
 
-    let mut class_bodies = flux::types::class_bodies::ClassBodies::new();
-    env.register_prelude_classes(&mut class_bodies, &mut interner);
+    let mut class_surface = flux::types::class_surface::ClassSurface::new();
+    env.register_prelude_classes(&mut class_surface, &mut interner);
     let eq = interner.lookup("Eq").expect("Eq should be interned");
     let ord = interner.lookup("Ord").expect("Ord should be interned");
     let num = interner.lookup("Num").expect("Num should be interned");
@@ -1730,8 +1730,8 @@ fn builtin_instances_registered() {
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
 
-    let mut class_bodies = flux::types::class_bodies::ClassBodies::new();
-    env.register_prelude_classes(&mut class_bodies, &mut interner);
+    let mut class_surface = flux::types::class_surface::ClassSurface::new();
+    env.register_prelude_classes(&mut class_surface, &mut interner);
     let eq = interner.lookup("Eq").expect("Eq interned");
     let num = interner.lookup("Num").expect("Num interned");
 

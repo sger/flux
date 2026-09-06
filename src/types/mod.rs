@@ -5,7 +5,6 @@
 //! - surface syntax types (`TypeExpr`)
 //! - runtime contract/checking types (`RuntimeType`)
 pub mod assoc_type;
-pub mod class_bodies;
 pub mod class_defaulting;
 pub mod class_dispatch;
 pub mod class_disposition;
@@ -13,6 +12,7 @@ pub mod class_env;
 pub mod class_id;
 pub mod class_predicate;
 pub mod class_solver;
+pub mod class_surface;
 pub mod infer_effect_row;
 pub mod infer_type;
 pub mod kind;

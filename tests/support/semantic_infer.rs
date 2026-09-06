@@ -172,9 +172,10 @@ fn build_class_env(
 ) -> (ClassEnv, Vec<Diagnostic>) {
     let mut class_env = ClassEnv::new();
     class_env.register_builtins(interner);
-    let mut class_bodies = flux::types::class_bodies::ClassBodies::new();
-    class_env.register_prelude_classes(&mut class_bodies, interner);
-    let diags = class_env.collect_from_statements(&program.statements, &mut class_bodies, interner);
+    let mut class_surface = flux::types::class_surface::ClassSurface::new();
+    class_env.register_prelude_classes(&mut class_surface, interner);
+    let diags =
+        class_env.collect_from_statements(&program.statements, &mut class_surface, interner);
     (class_env, diags)
 }
 
