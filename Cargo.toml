@@ -1,5 +1,6 @@
 [workspace]
-members = [".", "crates/flux-source", "crates/flux-diagnostics", "crates/flux-lsp"]
+members = [".", "crates/flux-source", "crates/flux-diagnostics",
+    "crates/flux-generics", "crates/flux-lsp"]
 exclude = ["vendor/clipboard-win-stub"]
 resolver = "2"
 
@@ -36,6 +37,7 @@ crate-type = ["rlib", "staticlib"]
 [dependencies]
 sha2 = "0.10"
 flux-diagnostics = { path = "crates/flux-diagnostics" }
+flux-generics = { path = "crates/flux-generics" }
 flux-source = { path = "crates/flux-source" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

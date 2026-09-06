@@ -316,84 +316,25 @@ struct ParamConstraint {
 
 fn compute_recursive_groups(program: &CoreProgram) -> Vec<Vec<CoreBinderId>> {
     let def_ids: HashSet<_> = program.defs.iter().map(|def| def.binder.id).collect();
-    let adjacency: HashMap<CoreBinderId, Vec<CoreBinderId>> = program
+    let adjacency: HashMap<CoreBinderId, HashSet<CoreBinderId>> = program
         .defs
         .iter()
         .map(|def| {
             let mut callees = HashSet::new();
             collect_local_callees(&def.expr, &def_ids, &mut callees);
-            (def.binder.id, callees.into_iter().collect())
+            (def.binder.id, callees)
         })
         .collect();
 
-    let mut index = 0usize;
-    let mut stack = Vec::new();
-    let mut on_stack = HashSet::new();
-    let mut indices = HashMap::<CoreBinderId, usize>::new();
-    let mut lowlinks = HashMap::<CoreBinderId, usize>::new();
-    let mut components = Vec::new();
-
-    #[allow(clippy::too_many_arguments)]
-    fn strongconnect(
-        v: CoreBinderId,
-        adjacency: &HashMap<CoreBinderId, Vec<CoreBinderId>>,
-        index: &mut usize,
-        stack: &mut Vec<CoreBinderId>,
-        on_stack: &mut HashSet<CoreBinderId>,
-        indices: &mut HashMap<CoreBinderId, usize>,
-        lowlinks: &mut HashMap<CoreBinderId, usize>,
-        components: &mut Vec<Vec<CoreBinderId>>,
-    ) {
-        indices.insert(v, *index);
-        lowlinks.insert(v, *index);
-        *index += 1;
-        stack.push(v);
-        on_stack.insert(v);
-
-        for w in adjacency.get(&v).into_iter().flatten().cloned() {
-            if !indices.contains_key(&w) {
-                strongconnect(
-                    w, adjacency, index, stack, on_stack, indices, lowlinks, components,
-                );
-                let low_v = *lowlinks.get(&v).expect("lowlink for current node");
-                let low_w = *lowlinks.get(&w).expect("lowlink for child");
-                lowlinks.insert(v, low_v.min(low_w));
-            } else if on_stack.contains(&w) {
-                let low_v = *lowlinks.get(&v).expect("lowlink for current node");
-                let idx_w = *indices.get(&w).expect("index for child");
-                lowlinks.insert(v, low_v.min(idx_w));
-            }
-        }
-
-        if indices.get(&v) == lowlinks.get(&v) {
-            let mut component = Vec::new();
-            while let Some(w) = stack.pop() {
-                on_stack.remove(&w);
-                component.push(w);
-                if w == v {
-                    break;
-                }
-            }
-            components.push(component);
-        }
-    }
-
-    for def in &program.defs {
-        if !indices.contains_key(&def.binder.id) {
-            strongconnect(
-                def.binder.id,
-                &adjacency,
-                &mut index,
-                &mut stack,
-                &mut on_stack,
-                &mut indices,
-                &mut lowlinks,
-                &mut components,
-            );
-        }
-    }
-
-    components
+    let nodes: Vec<CoreBinderId> = program.defs.iter().map(|def| def.binder.id).collect();
+    flux_generics::strongly_connected_components(&nodes, |id| {
+        adjacency
+            .get(&id)
+            .into_iter()
+            .flatten()
+            .copied()
+            .collect::<Vec<_>>()
+    })
 }
 
 fn collect_local_callees(
