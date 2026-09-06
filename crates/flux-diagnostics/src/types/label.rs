@@ -1,6 +1,6 @@
 //! Label types for inline source code annotations
 
-use crate::diagnostics::position::Span;
+use crate::position::Span;
 
 /// Style for inline source labels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

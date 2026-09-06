@@ -85,7 +85,7 @@ type CompileResult<T> = Result<T, Box<Diagnostic>>;
 fn tag_diagnostics(diags: &mut [Diagnostic], phase: DiagnosticPhase) {
     for diag in diags {
         if diag.phase().is_none() {
-            diag.phase = Some(phase);
+            diag.set_phase(phase);
         }
     }
 }

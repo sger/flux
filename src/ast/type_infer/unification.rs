@@ -394,7 +394,7 @@ impl<'a> InferCtx<'a> {
                 let name = self.interner.resolve(*sym);
                 if let Some(suggestion) = suggest_type_name(name) {
                     diagnostic
-                        .hints
+                        .hints_mut()
                         .push(Hint::help(format!("Unknown type `{name}` — {suggestion}")));
                 }
             }

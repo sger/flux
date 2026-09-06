@@ -58,7 +58,7 @@ fn has_preceding_doc_block(lines: &[&str], item_line_idx: usize) -> bool {
 
 #[test]
 fn diagnostics_public_items_require_rustdoc() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/diagnostics");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut files = Vec::new();
     collect_rs_files(&root, &mut files);
     files.sort();
@@ -94,7 +94,7 @@ fn diagnostics_public_items_require_rustdoc() {
 
     assert!(
         violations.is_empty(),
-        "undocumented public items in src/diagnostics:\n{}",
+        "undocumented public items in flux-diagnostics/src:\n{}",
         violations.join("\n")
     );
 }

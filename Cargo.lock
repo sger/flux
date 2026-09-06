@@ -321,6 +321,7 @@ name = "flux"
 version = "0.0.7"
 dependencies = [
  "criterion",
+ "flux-diagnostics",
  "flux-source",
  "insta",
  "mio",
@@ -329,6 +330,15 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "flux-diagnostics"
+version = "0.0.7"
+dependencies = [
+ "flux-source",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

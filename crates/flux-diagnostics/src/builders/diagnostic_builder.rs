@@ -5,8 +5,8 @@
 
 use std::sync::Arc;
 
-use crate::diagnostics::position::{Position, Span};
-use crate::diagnostics::{
+use crate::position::{Position, Span};
+use crate::{
     DiagnosticCategory, ErrorType, Hint, HintChain, InlineSuggestion, Label, RelatedDiagnostic,
     StackTraceFrame,
 };
@@ -19,8 +19,8 @@ use crate::diagnostics::{
 ///
 /// # Example
 /// ```
-/// use flux::diagnostics::{diagnostic_for, UNEXPECTED_TOKEN, DiagnosticBuilder};
-/// # use flux::diagnostics::position::{Position, Span};
+/// use flux_diagnostics::{diagnostic_for, UNEXPECTED_TOKEN, DiagnosticBuilder};
+/// # use flux_diagnostics::position::{Position, Span};
 /// # let span = Span::new(Position::new(1, 0), Position::new(1, 5));
 ///
 /// let diag = diagnostic_for(&UNEXPECTED_TOKEN)
