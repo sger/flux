@@ -321,6 +321,7 @@ name = "flux"
 version = "0.0.7"
 dependencies = [
  "criterion",
+ "flux-source",
  "insta",
  "mio",
  "rayon",
@@ -346,6 +347,13 @@ dependencies = [
  "tempfile",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "flux-source"
+version = "0.0.7"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
