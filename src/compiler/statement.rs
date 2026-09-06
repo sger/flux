@@ -46,12 +46,6 @@ use super::hm_expr_typer::HmExprTypeResult;
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
 
-/// A range [start, end) of statements forming a mutual recursion group.
-struct MutualRecRange {
-    start: usize,
-    end: usize,
-}
-
 impl Compiler {
     pub(super) fn find_ir_function_by_symbol<'a>(
         &self,
@@ -3077,7 +3071,36 @@ impl Compiler {
         }
 
         // Detect mutual recursion groups among consecutive function statements.
-        let mutual_groups = Self::detect_mutual_rec_groups(&block.statements);
+        // The same planner Core lowering uses, so both backends group by
+        // reference rather than by adjacency and cannot disagree. A run scan
+        // lived here too, and left a mutually recursive pair separated by a
+        // `let` compiled as two independent bindings — see
+        // `docs/known_issues.md#ki-087`.
+        let plan = crate::generics_frontend::plan_block(&block.statements, |stmt| {
+            if let Statement::Function {
+                parameters, body, ..
+            } = stmt
+            {
+                crate::ast::free_vars::collect_free_vars_in_function_body(parameters, body)
+            } else {
+                std::collections::HashSet::new()
+            }
+        });
+        // Anchor index → the group's members; and the member positions that the
+        // statement loop must skip because their group was emitted elsewhere.
+        let mut group_at: HashMap<usize, Vec<&Statement>> = HashMap::new();
+        let mut covered: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        for item in &plan {
+            if let crate::generics_frontend::PlanItem::Group(members) = item
+                && members.len() >= 2
+            {
+                let anchor = members[0].0;
+                group_at.insert(anchor, members.iter().map(|(_, s)| *s).collect());
+                for (index, _) in members {
+                    covered.insert(*index);
+                }
+            }
+        }
 
         let len = block.statements.len();
         let mut errors = Vec::new();
@@ -3089,14 +3112,17 @@ impl Compiler {
         self.with_consumable_local_use_counts(consumable_counts, |compiler| {
             let mut i = 0;
             while i < len {
-                // Check if this statement starts a mutual recursion group.
-                if let Some(group) = mutual_groups.iter().find(|g| g.start == i) {
-                    let stmts: Vec<&Statement> =
-                        block.statements[group.start..group.end].iter().collect();
-                    if let Err(err) = compiler.compile_mutual_rec_group(&stmts) {
+                // A group is compiled once, at its first member; the other
+                // members are skipped where they stand.
+                if let Some(members) = group_at.get(&i) {
+                    if let Err(err) = compiler.compile_mutual_rec_group(members) {
                         errors.push(err);
                     }
-                    i = group.end;
+                    i += 1;
+                    continue;
+                }
+                if covered.contains(&i) {
+                    i += 1;
                     continue;
                 }
 
@@ -3139,66 +3165,6 @@ impl Compiler {
         });
 
         errors
-    }
-
-    /// Detect runs of consecutive function statements that form mutual
-    /// recursion groups (any function references a sibling defined later).
-    fn detect_mutual_rec_groups(stmts: &[Statement]) -> Vec<MutualRecRange> {
-        let mut groups = Vec::new();
-        let mut i = 0;
-        while i < stmts.len() {
-            if !matches!(stmts[i], Statement::Function { .. }) {
-                i += 1;
-                continue;
-            }
-            // Find the end of this run of consecutive functions.
-            let run_start = i;
-            while i < stmts.len() && matches!(stmts[i], Statement::Function { .. }) {
-                i += 1;
-            }
-            let run_end = i;
-            if run_end - run_start < 2 {
-                continue;
-            }
-            // Check for forward references among siblings.
-            let fn_run = &stmts[run_start..run_end];
-            if Self::has_mutual_references(fn_run) {
-                groups.push(MutualRecRange {
-                    start: run_start,
-                    end: run_end,
-                });
-            }
-        }
-        groups
-    }
-
-    /// Check whether any function in a run references a sibling defined later.
-    fn has_mutual_references(fn_stmts: &[Statement]) -> bool {
-        let names: Vec<Symbol> = fn_stmts
-            .iter()
-            .filter_map(|s| {
-                if let Statement::Function { name, .. } = s {
-                    Some(*name)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        for (idx, stmt) in fn_stmts.iter().enumerate() {
-            if let Statement::Function {
-                parameters, body, ..
-            } = stmt
-            {
-                let fv = collect_free_vars_in_function_body(parameters, body);
-                for &sibling_name in &names[idx + 1..] {
-                    if fv.contains(&sibling_name) {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
     }
 
     /// Compile a block with tail position awareness for the last statement

@@ -2777,6 +2777,68 @@ entry). The generalization patch this entry used to point at,
 was never committed. See [Proposal 0185](proposals/0185_generalize_by_arity.md)
 Stage 3 for what survives of it.
 
+### KI-087 — Mutually recursive nested functions separated by any statement were miscompiled — FIXED 2026-09-06
+
+**Severity:** High · **Area:** Core lowering, VM codegen · **Verified:** 2026-09-06 · **From:** Proposal 0186
+
+Two mutually recursive functions declared inside a block were bound
+independently whenever *any* statement stood between them, so the earlier one's
+call to the later reached a slot nothing had filled:
+
+```flux
+fn main() with IO {
+    fn is_even(n: Int) -> Bool { if n <= 0 { true } else { is_odd(n - 1) } }
+    let threshold = 5;
+    fn is_odd(n: Int) -> Bool { if n <= 0 { false } else { is_even(n - 1) } }
+    print(is_even(threshold))
+}
+```
+```
+error[E1001]: Not A Function
+Cannot call non-function value (got Uninit).
+  |
+2 |     fn is_even(n: Int) -> Bool { if n <= 0 { true } else { is_odd(n - 1) } }
+  |                                                           ^^^^^^^^^^^^^
+```
+
+Deleting the `let` makes it compile and print `false`. The program type-checks
+either way: this is a lowering fault, discovered at run time.
+
+Top-level declarations were unaffected — they take a different path — so the
+shape only appears for functions nested in a block.
+
+**Cause.** Two passes decided which functions form a recursive group, and both
+decided it by **adjacency**:
+
+| | scanned |
+|---|---|
+| `lower_ast::prepend_stmts` (Core) | backward for a contiguous run of `fn` statements |
+| `compiler::statement::detect_mutual_rec_groups` (VM) | forward for `[start, end)` ranges of consecutive functions |
+
+Any non-function statement ended the run in both, so the pair became two
+separate bindings, nested so that the first could not see the second. This is
+the same duplication that produced [KI-085](#ki-085) — one decision made in
+more than one place — and it is what Proposal 0186 exists to remove.
+
+**Why parity did not catch it.** Both backends were wrong *identically*: the VM
+and native runs agreed on the same wrong answer, and the harness compares them
+against each other. A fixture now pins it —
+`tests/parity/closure_mutual_recursion_split_by_let.flx`.
+
+**Fix.** Both passes now call one planner,
+`generics_frontend::plan_block`, which groups by **reference** using the
+strongly connected components of the sibling-reference graph
+(`flux_generics::strongly_connected_components`) rather than by adjacency.
+Placement still respects evaluation order: a group is emitted at its first
+member, except where a member reads a name bound between the members, in which
+case it moves to the last so that binding exists first. Both adjacency scanners
+are deleted.
+
+A second, latent fault was fixed alongside: `lower_scc_group` bound each
+member's name and lowered its body in one pass, so the first body was lowered
+before the later members existed. A recursive group requires every name bound
+before any body.
+
 ### KI-086 — A class declared inside a `module` loses its default method bodies
 
 **Severity:** High · **Area:** type classes, module interfaces · **Verified:** 2026-09-06 · **From:** Proposal 0186
