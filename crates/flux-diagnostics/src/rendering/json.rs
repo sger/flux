@@ -1,7 +1,7 @@
 use serde::Serialize;
 
-use crate::diagnostics::position::{Position, Span};
-use crate::diagnostics::{
+use crate::position::{Position, Span};
+use crate::{
     Diagnostic, DiagnosticCategory, DiagnosticPhase, DiagnosticsAggregator, Hint, HintKind,
     InlineSuggestion, Label, LabelStyle, RelatedDiagnostic, RelatedKind, Severity, StackTraceFrame,
 };

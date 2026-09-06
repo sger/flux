@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::diagnostics::position::Span;
+use crate::position::Span;
 
 use super::builders::DiagnosticBuilder;
 use super::quality::runtime_type_error_diagnostic;

@@ -1113,7 +1113,7 @@ fn missing_open_brace_reports_contextual_error() {
         !parser.errors.is_empty(),
         "expected parser error for missing opening brace"
     );
-    let msg = parser.errors[0].message.as_deref().unwrap_or("");
+    let msg = parser.errors[0].message().unwrap_or("");
     assert!(
         msg.contains("This function body needs to start with `{`."),
         "expected contextual brace error, got: {msg}"
@@ -1126,7 +1126,7 @@ fn missing_open_brace_mentions_function_name() {
     assert!(!parser.errors.is_empty());
     // The diagnostic should reference the function name in a label
     let has_fn_name = parser.errors[0]
-        .labels
+        .labels()
         .iter()
         .any(|l| l.text.contains("distance_tag"));
     assert!(has_fn_name, "expected label mentioning function name");
@@ -1139,6 +1139,6 @@ fn missing_close_brace_reports_unclosed_delimiter() {
         !parser.errors.is_empty(),
         "expected parser error for missing closing brace"
     );
-    let code = parser.errors[0].code.as_deref().unwrap_or("");
+    let code = parser.errors[0].code().unwrap_or("");
     assert_eq!(code, "E076", "expected UNCLOSED_DELIMITER error code");
 }

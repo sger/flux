@@ -2014,10 +2014,10 @@ fn an_imported_instance_missing_an_associated_type_equation_is_a_stale_interface
     assert_eq!(truncated[0].code(), Some("E478"));
     assert!(
         truncated[0]
-            .message
+            .message()
             .as_deref()
             .is_some_and(|message| message.contains("declares 1 associated type(s) but 0")),
         "unexpected message: {:?}",
-        truncated[0].message
+        truncated[0].message()
     );
 }

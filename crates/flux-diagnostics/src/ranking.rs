@@ -32,7 +32,7 @@
 //! [`is_suppressed_by`] with a predicate on the existing code. If no
 //! predicate is supplied, every existing diagnostic is considered.
 
-use crate::diagnostics::{
+use crate::{
     Diagnostic,
     position::{Position, Span},
     types::LabelStyle,

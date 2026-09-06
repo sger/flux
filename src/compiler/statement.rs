@@ -2269,7 +2269,7 @@ impl Compiler {
             for err in body_errors {
                 let mut diag = *err;
                 if diag.phase().is_none() {
-                    diag.phase = Some(DiagnosticPhase::TypeCheck);
+                    diag.set_phase(DiagnosticPhase::TypeCheck);
                 }
                 self.errors.push(diag);
             }
@@ -2744,7 +2744,7 @@ impl Compiler {
                 ) {
                     let mut diag = *err;
                     if diag.phase().is_none() {
-                        diag.phase = Some(DiagnosticPhase::TypeCheck);
+                        diag.set_phase(DiagnosticPhase::TypeCheck);
                     }
                     self.errors.push(diag);
                 }
@@ -3220,7 +3220,7 @@ impl Compiler {
             for err in errors {
                 let mut diag = *err;
                 if diag.phase().is_none() {
-                    diag.phase = Some(DiagnosticPhase::TypeCheck);
+                    diag.set_phase(DiagnosticPhase::TypeCheck);
                 }
                 self.errors.push(diag);
             }

@@ -5,7 +5,11 @@ pub mod cfg;
 pub mod cli;
 pub mod compiler;
 pub mod core;
-pub mod diagnostics;
+// Diagnostics are their own crate: they depend only on `flux-source`, and
+// keeping them out of the compiler crate is what will let the type layer
+// report without depending on the compiler. Re-exported so
+// `crate::diagnostics::…` resolves unchanged.
+pub use flux_diagnostics as diagnostics;
 pub mod driver;
 pub mod lir;
 #[cfg(feature = "llvm")]

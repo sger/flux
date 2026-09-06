@@ -1,6 +1,6 @@
 //! Text formatting utilities for diagnostics
 
-use crate::diagnostics::Diagnostic;
+use crate::Diagnostic;
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 

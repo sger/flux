@@ -4,8 +4,8 @@
 //! diagnostics, including headers, messages, locations, source snippets, suggestions,
 //! hints, and related diagnostics.
 
-use crate::diagnostics::position::Span;
-use crate::diagnostics::types::{
+use crate::position::Span;
+use crate::types::{
     Hint, HintChain, HintKind, InlineSuggestion, RelatedDiagnostic, RelatedKind, Severity,
     StackTraceFrame,
 };

@@ -1497,7 +1497,7 @@ pub const ORPHAN_INSTANCE: ErrorCode = ErrorCode {
 use super::diagnostic::Diagnostic;
 use super::registry::diagnostic_for;
 use super::types::{Label, RelatedDiagnostic};
-use crate::diagnostics::position::Span;
+use crate::position::Span;
 
 // Parser Errors
 

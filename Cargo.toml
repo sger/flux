@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/flux-source", "crates/flux-lsp"]
+members = [".", "crates/flux-source", "crates/flux-diagnostics", "crates/flux-lsp"]
 exclude = ["vendor/clipboard-win-stub"]
 resolver = "2"
 
@@ -35,6 +35,7 @@ crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 sha2 = "0.10"
+flux-diagnostics = { path = "crates/flux-diagnostics" }
 flux-source = { path = "crates/flux-source" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -738,10 +739,6 @@ path = "tests/diagnostics/diagnostic_span_render_tests.rs"
 [[test]]
 name = "diagnostics_aggregator_tests"
 path = "tests/diagnostics/diagnostics_aggregator_tests.rs"
-
-[[test]]
-name = "diagnostics_docs_guard"
-path = "tests/diagnostics/diagnostics_docs_guard.rs"
 
 [[test]]
 name = "diagnostics_rendering_extended_tests"

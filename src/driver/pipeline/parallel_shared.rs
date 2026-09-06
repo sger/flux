@@ -289,7 +289,7 @@ mod tests {
         let diags = vec![
             Diagnostic::warning("warn"),
             Diagnostic::warning("warn2"),
-            crate::ice!("boom"),
+            flux_diagnostics::ice!("boom"),
         ];
 
         let filtered = filter_non_error_diagnostics(diags);

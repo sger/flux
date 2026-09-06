@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use crate::diagnostics::position::Span;
-use crate::diagnostics::{
+use crate::position::Span;
+use crate::{
     Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, DiagnosticsAggregator,
     ErrorType, OCCURS_CHECK_FAILURE, RUNTIME_TYPE_ERROR, StackTraceFrame, TYPE_UNIFICATION_ERROR,
     diagnostic_for,
@@ -152,7 +152,7 @@ pub fn parser_category_for_display_title(display_title: &str) -> DiagnosticCateg
 
 /// Build a parser diagnostic for constructs that are missing their opening token.
 pub fn missing_construct_opener_diagnostic(
-    code: &'static crate::diagnostics::types::ErrorCode,
+    code: &'static crate::types::ErrorCode,
     span: Span,
     display_title: &str,
     category: DiagnosticCategory,
@@ -171,7 +171,7 @@ pub fn missing_construct_opener_diagnostic(
 
 /// Build a parser diagnostic for a missing syntax token without an origin label.
 pub fn missing_syntax_token_diagnostic(
-    code: &'static crate::diagnostics::types::ErrorCode,
+    code: &'static crate::types::ErrorCode,
     span: Span,
     display_title: &str,
     category: DiagnosticCategory,
@@ -188,7 +188,7 @@ pub fn missing_syntax_token_diagnostic(
 
 /// Build a parser diagnostic for a missing syntax token and attach its origin label.
 pub fn missing_syntax_token_diagnostic_with_origin(
-    code: &'static crate::diagnostics::types::ErrorCode,
+    code: &'static crate::types::ErrorCode,
     span: Span,
     display_title: &str,
     category: DiagnosticCategory,
