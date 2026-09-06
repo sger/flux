@@ -272,7 +272,7 @@ A cost, not a correctness issue.
 
 1. **§1 generalization** — read directly from GHC's MR code and Flux's
    `finalize_and_bind_function_scheme`. Highest confidence, largest effect.
-   Blocked by KI-083.
+   Was blocked by KI-083 and KI-082; both are fixed, so this is unblocked.
 2. **§4 tuple projection** — one construct left, the 0184 template applies.
 3. **§5 inferred ambiguity** — after §1.
 4. **§3 unify instance resolution** — real, but its cost depends on a
