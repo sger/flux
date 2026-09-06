@@ -1601,7 +1601,7 @@ impl<'a> AstLowerer<'a> {
     }
 
     /// Partition a contiguous run of function definitions into minimal
-    /// binding groups using Tarjan's SCC algorithm, then lower each group.
+    /// binding groups by strongly connected component, then lower each group.
     ///
     /// This replaces the conservative "group all if any forward reference"
     /// strategy with precise dependency analysis. Functions that don't
@@ -1648,8 +1648,14 @@ impl<'a> AstLowerer<'a> {
             }
         }
 
-        // Step 2: Compute SCCs via Tarjan's algorithm.
-        let sccs = tarjan_scc(&names, &deps);
+        // Step 2: Group mutually recursive siblings.
+        let sccs = flux_generics::strongly_connected_components(&names, |name| {
+            deps.get(&name)
+                .into_iter()
+                .flatten()
+                .copied()
+                .collect::<Vec<_>>()
+        });
 
         // Step 3: Emit bindings in dependency order (SCCs are returned
         // in reverse topological order — dependencies come first).
@@ -1923,111 +1929,6 @@ impl<'a> AstLowerer<'a> {
             }
         }
     }
-}
-
-// ── Tarjan's SCC algorithm ─────────────────────────────────────────────────
-
-/// Compute strongly connected components of a function dependency graph
-/// using Tarjan's algorithm. Returns SCCs in reverse topological order
-/// (dependencies before dependents).
-///
-/// Each function name maps to a set of sibling function names it references.
-/// Single-element SCCs that are not self-referencing represent non-recursive
-/// functions; multi-element SCCs represent true mutual recursion.
-fn tarjan_scc(
-    names: &[crate::syntax::Identifier],
-    deps: &HashMap<crate::syntax::Identifier, HashSet<crate::syntax::Identifier>>,
-) -> Vec<Vec<crate::syntax::Identifier>> {
-    let n = names.len();
-    let name_to_idx: HashMap<crate::syntax::Identifier, usize> =
-        names.iter().enumerate().map(|(i, &n)| (n, i)).collect();
-
-    let mut index_counter: usize = 0;
-    let mut indices = vec![usize::MAX; n];
-    let mut lowlinks = vec![0usize; n];
-    let mut on_stack = vec![false; n];
-    let mut stack: Vec<usize> = Vec::new();
-    let mut result: Vec<Vec<crate::syntax::Identifier>> = Vec::new();
-
-    #[allow(clippy::too_many_arguments)]
-    fn strongconnect(
-        v: usize,
-        names: &[crate::syntax::Identifier],
-        deps: &HashMap<crate::syntax::Identifier, HashSet<crate::syntax::Identifier>>,
-        name_to_idx: &HashMap<crate::syntax::Identifier, usize>,
-        index_counter: &mut usize,
-        indices: &mut [usize],
-        lowlinks: &mut [usize],
-        on_stack: &mut [bool],
-        stack: &mut Vec<usize>,
-        result: &mut Vec<Vec<crate::syntax::Identifier>>,
-    ) {
-        indices[v] = *index_counter;
-        lowlinks[v] = *index_counter;
-        *index_counter += 1;
-        stack.push(v);
-        on_stack[v] = true;
-
-        // Visit successors.
-        if let Some(v_deps) = deps.get(&names[v]) {
-            for dep in v_deps {
-                if let Some(&w) = name_to_idx.get(dep) {
-                    if indices[w] == usize::MAX {
-                        // w not yet visited — recurse.
-                        strongconnect(
-                            w,
-                            names,
-                            deps,
-                            name_to_idx,
-                            index_counter,
-                            indices,
-                            lowlinks,
-                            on_stack,
-                            stack,
-                            result,
-                        );
-                        lowlinks[v] = lowlinks[v].min(lowlinks[w]);
-                    } else if on_stack[w] {
-                        // w is on the stack — part of current SCC.
-                        lowlinks[v] = lowlinks[v].min(indices[w]);
-                    }
-                }
-            }
-        }
-
-        // If v is a root node, pop the SCC.
-        if lowlinks[v] == indices[v] {
-            let mut scc = Vec::new();
-            loop {
-                let w = stack.pop().unwrap();
-                on_stack[w] = false;
-                scc.push(names[w]);
-                if w == v {
-                    break;
-                }
-            }
-            result.push(scc);
-        }
-    }
-
-    for i in 0..n {
-        if indices[i] == usize::MAX {
-            strongconnect(
-                i,
-                names,
-                deps,
-                &name_to_idx,
-                &mut index_counter,
-                &mut indices,
-                &mut lowlinks,
-                &mut on_stack,
-                &mut stack,
-                &mut result,
-            );
-        }
-    }
-
-    result
 }
 
 #[cfg(test)]
@@ -2378,120 +2279,6 @@ f("flux")
             Some(f_def.binder.id),
             "top-level Symbol(0) binding should still resolve lexically"
         );
-    }
-
-    // ── Tarjan SCC unit tests ──────────────────────────────────────────
-
-    fn sym(id: u32) -> crate::syntax::symbol::Symbol {
-        crate::syntax::symbol::Symbol::new(id)
-    }
-
-    #[test]
-    fn tarjan_scc_chain_produces_separate_sccs() {
-        // a→b→c (no cycle) → three separate SCCs
-        let names = vec![sym(0), sym(1), sym(2)];
-        let mut deps = HashMap::new();
-        deps.insert(sym(0), HashSet::from([sym(1)])); // a depends on b
-        deps.insert(sym(1), HashSet::from([sym(2)])); // b depends on c
-        deps.insert(sym(2), HashSet::new()); // c depends on nothing
-
-        let sccs = tarjan_scc(&names, &deps);
-        assert_eq!(sccs.len(), 3, "chain should produce 3 SCCs: {sccs:?}");
-        // Each SCC has exactly one element.
-        for scc in &sccs {
-            assert_eq!(scc.len(), 1);
-        }
-    }
-
-    #[test]
-    fn tarjan_scc_mutual_recursion_produces_single_group() {
-        // a↔b (cycle) → one SCC with both
-        let names = vec![sym(0), sym(1)];
-        let mut deps = HashMap::new();
-        deps.insert(sym(0), HashSet::from([sym(1)])); // a depends on b
-        deps.insert(sym(1), HashSet::from([sym(0)])); // b depends on a
-
-        let sccs = tarjan_scc(&names, &deps);
-        assert_eq!(
-            sccs.len(),
-            1,
-            "mutual recursion should produce 1 SCC: {sccs:?}"
-        );
-        assert_eq!(sccs[0].len(), 2);
-    }
-
-    #[test]
-    fn tarjan_scc_mixed_cycle_and_independent() {
-        // a↔b, c independent → two SCCs: {c} and {a,b}
-        let names = vec![sym(0), sym(1), sym(2)];
-        let mut deps = HashMap::new();
-        deps.insert(sym(0), HashSet::from([sym(1)])); // a depends on b
-        deps.insert(sym(1), HashSet::from([sym(0)])); // b depends on a
-        deps.insert(sym(2), HashSet::new()); // c independent
-
-        let sccs = tarjan_scc(&names, &deps);
-        assert_eq!(sccs.len(), 2, "should produce 2 SCCs: {sccs:?}");
-        let cycle_scc = sccs
-            .iter()
-            .find(|s| s.len() == 2)
-            .expect("one SCC with 2 elements");
-        assert!(cycle_scc.contains(&sym(0)));
-        assert!(cycle_scc.contains(&sym(1)));
-    }
-
-    #[test]
-    fn tarjan_scc_three_way_cycle() {
-        // a→b→c→a (triangle cycle)
-        let names = vec![sym(0), sym(1), sym(2)];
-        let mut deps = HashMap::new();
-        deps.insert(sym(0), HashSet::from([sym(1)]));
-        deps.insert(sym(1), HashSet::from([sym(2)]));
-        deps.insert(sym(2), HashSet::from([sym(0)]));
-
-        let sccs = tarjan_scc(&names, &deps);
-        assert_eq!(sccs.len(), 1, "triangle cycle should be one SCC: {sccs:?}");
-        assert_eq!(sccs[0].len(), 3);
-    }
-
-    #[test]
-    fn tarjan_scc_no_dependencies() {
-        // a, b, c all independent → three separate SCCs
-        let names = vec![sym(0), sym(1), sym(2)];
-        let deps = HashMap::from([
-            (sym(0), HashSet::new()),
-            (sym(1), HashSet::new()),
-            (sym(2), HashSet::new()),
-        ]);
-
-        let sccs = tarjan_scc(&names, &deps);
-        assert_eq!(sccs.len(), 3);
-    }
-
-    #[test]
-    fn tarjan_scc_self_recursive_single() {
-        // a→a (self-recursive) → one SCC with one element
-        let names = vec![sym(0)];
-        let deps = HashMap::from([(sym(0), HashSet::from([sym(0)]))]);
-
-        let sccs = tarjan_scc(&names, &deps);
-        assert_eq!(sccs.len(), 1);
-        assert_eq!(sccs[0].len(), 1);
-        assert_eq!(sccs[0][0], sym(0));
-    }
-
-    #[test]
-    fn tarjan_scc_reverse_topological_order() {
-        // a→b→c: SCCs should come out as [c], [b], [a] (deps first)
-        let names = vec![sym(0), sym(1), sym(2)];
-        let mut deps = HashMap::new();
-        deps.insert(sym(0), HashSet::from([sym(1)]));
-        deps.insert(sym(1), HashSet::from([sym(2)]));
-        deps.insert(sym(2), HashSet::new());
-
-        let sccs = tarjan_scc(&names, &deps);
-        assert_eq!(sccs[0][0], sym(2), "c should come first (no deps)");
-        assert_eq!(sccs[1][0], sym(1), "b should come second");
-        assert_eq!(sccs[2][0], sym(0), "a should come last (depends on b)");
     }
 
     // ── SCC integration tests (full lowering) ─────────────────────────
