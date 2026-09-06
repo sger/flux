@@ -23,8 +23,8 @@ use crate::{
         type_class::ClassConstraint,
         type_expr::TypeExpr,
     },
-    types::class_bodies::ClassBodies,
     types::class_env::ClassEnv,
+    types::class_surface::ClassSurface,
     types::infer_type::InferType,
 };
 
@@ -125,13 +125,13 @@ pub struct DispatchGenerationOptions {
 /// both — the class's method *types* to build the signature, and its default
 /// *body* when the instance omits the method. They are stored apart because
 /// only this pass wants the bodies; see
-/// [`ClassBodies`](crate::types::class_bodies::ClassBodies).
+/// [`ClassSurface`](crate::types::class_surface::ClassSurface).
 #[derive(Clone, Copy)]
 pub struct DispatchClasses<'a> {
     /// Classes and instances in scope.
     pub env: &'a ClassEnv,
-    /// Default method bodies for the classes in `env`.
-    pub bodies: &'a ClassBodies,
+    /// Surface syntax for the classes in `env`.
+    pub surface: &'a ClassSurface,
 }
 
 pub fn generate_dispatch_functions(
@@ -1322,8 +1322,9 @@ fn generate_from_statements(
                         // `encode(value)` was lowered as a recursive container
                         // call in Flow.Json (KI-051).
                         refresh_block_expr_ids(method.body.clone(), id_gen)
-                    } else if let Some(default_body) =
-                        classes.bodies.get(class_def.class_id(), method_sig.name)
+                    } else if let Some(default_body) = classes
+                        .surface
+                        .default_body(class_def.class_id(), method_sig.name)
                     {
                         // A default body is cloned into every instance, so each
                         // copy needs its own ExprIds: typed dispatch keys on
@@ -2107,7 +2108,7 @@ instance Renderable<Int> {
             parser.errors
         );
         let mut interner = parser.take_interner();
-        let (class_env, class_bodies, diagnostics) =
+        let (class_env, class_surface, diagnostics) =
             ClassEnv::from_statements(&program.statements, &interner);
         assert!(
             diagnostics.is_empty(),
@@ -2130,7 +2131,7 @@ instance Renderable<Int> {
             &program.statements,
             DispatchClasses {
                 env: &class_env,
-                bodies: &class_bodies,
+                surface: &class_surface,
             },
             &mut interner,
             &HashSet::new(),

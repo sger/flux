@@ -18,8 +18,8 @@ use crate::{
         type_expr::TypeExpr,
     },
     types::{
-        class_bodies::ClassBodies,
         class_id::{ClassId, ModulePath},
+        class_surface::ClassSurface,
         infer_type::InferType,
         type_constructor::TypeConstructor,
     },
@@ -279,14 +279,14 @@ impl ClassEnv {
 
     /// Build a `ClassEnv` from a program's top-level statements.
     ///
-    /// Returns the environment, the [`ClassBodies`] table holding any default
+    /// Returns the environment, the [`ClassSurface`] table holding any default
     /// method bodies the classes declared, and any validation diagnostics.
     pub fn from_statements(
         statements: &[Statement],
         interner: &Interner,
-    ) -> (Self, ClassBodies, Vec<Diagnostic>) {
+    ) -> (Self, ClassSurface, Vec<Diagnostic>) {
         let mut env = ClassEnv::new();
-        let mut bodies = ClassBodies::new();
+        let mut bodies = ClassSurface::new();
         let diagnostics = env.collect_from_statements(statements, &mut bodies, interner);
         (env, bodies, diagnostics)
     }
@@ -302,10 +302,10 @@ impl ClassEnv {
     pub fn collect_from_statements(
         &mut self,
         statements: &[Statement],
-        bodies: &mut ClassBodies,
+        surface: &mut ClassSurface,
         interner: &Interner,
     ) -> Vec<Diagnostic> {
-        self.collect_from_statements_with(statements, bodies, interner, SuperclassCheck::Now)
+        self.collect_from_statements_with(statements, surface, interner, SuperclassCheck::Now)
     }
 
     /// [`collect_from_statements`](Self::collect_from_statements), with control
@@ -313,7 +313,7 @@ impl ClassEnv {
     pub fn collect_from_statements_with(
         &mut self,
         statements: &[Statement],
-        bodies: &mut ClassBodies,
+        surface: &mut ClassSurface,
         interner: &Interner,
         superclass_check: SuperclassCheck,
     ) -> Vec<Diagnostic> {
@@ -322,7 +322,7 @@ impl ClassEnv {
             statements,
             ModulePath::EMPTY,
             self,
-            bodies,
+            surface,
             &mut diagnostics,
             interner,
         );
@@ -1624,7 +1624,7 @@ impl ClassEnv {
         statements: &[Statement],
         current_module: ModulePath,
         env: &mut ClassEnv,
-        bodies: &mut ClassBodies,
+        surface: &mut ClassSurface,
         diagnostics: &mut Vec<Diagnostic>,
         interner: &Interner,
     ) {
@@ -1677,10 +1677,18 @@ impl ClassEnv {
                     // omit the method.
                     let mut default_methods: Vec<Identifier> = Vec::new();
                     for m in methods {
-                        if let Some(body) = &m.default_body {
+                        if m.default_body.is_some() {
                             default_methods.push(m.name);
-                            bodies.insert(class_id, m.name, body.clone());
                         }
+                        surface.insert(
+                            class_id,
+                            m.name,
+                            crate::types::class_surface::MethodSurface {
+                                param_types: m.param_types.clone(),
+                                return_type: Some(m.return_type.clone()),
+                                default_body: m.default_body.clone(),
+                            },
+                        );
                     }
 
                     env.classes.insert(
@@ -1722,7 +1730,7 @@ impl ClassEnv {
                         &body.statements,
                         module_path,
                         env,
-                        bodies,
+                        surface,
                         diagnostics,
                         interner,
                     );
@@ -2933,7 +2941,7 @@ impl ClassEnv {
     /// tree; a non-empty result means the prelude itself no longer parses.
     pub fn register_prelude_classes(
         &mut self,
-        bodies: &mut ClassBodies,
+        surface: &mut ClassSurface,
         interner: &mut Interner,
     ) -> Vec<Diagnostic> {
         use crate::syntax::{lexer::Lexer, parser::Parser};
@@ -2971,7 +2979,11 @@ impl ClassEnv {
             let program = parser.parse_program();
             diagnostics.extend(parser.errors.iter().cloned());
             *interner = parser.take_interner();
-            diagnostics.extend(self.collect_from_statements(&program.statements, bodies, interner));
+            diagnostics.extend(self.collect_from_statements(
+                &program.statements,
+                surface,
+                interner,
+            ));
         }
         diagnostics
     }

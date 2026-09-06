@@ -1372,23 +1372,23 @@ pub struct Compiler {
     pub cost_centre_infos: Vec<crate::bytecode::debug_info::CostCentreInfo>,
     /// Type class environment — populated during collection phase.
     pub(super) class_env: crate::types::class_env::ClassEnv,
-    /// Default method bodies for the classes in [`class_env`](Self::class_env).
+    /// Surface syntax for the classes in [`class_env`](Self::class_env).
     ///
-    /// Held apart from the environment because a default body is code, not a
-    /// type: only dispatch generation reads it, and the solver never should.
-    /// See [`ClassBodies`](crate::types::class_bodies::ClassBodies).
-    pub(super) class_bodies: crate::types::class_bodies::ClassBodies,
+    /// Held apart from the environment because surface syntax is not what the
+    /// solver reasons about: only the frontend wants a `TypeExpr` or a default
+    /// body. See [`ClassSurface`](crate::types::class_surface::ClassSurface).
+    pub(super) class_surface: crate::types::class_surface::ClassSurface,
     /// Imported `public class` entries reconstructed from preloaded module interfaces.
     imported_public_classes:
         HashMap<crate::types::class_id::ClassId, crate::types::class_env::ClassDef>,
     /// Default method bodies recovered for imported classes, kept in parallel
     /// with [`imported_public_classes`](Self::imported_public_classes).
     ///
-    /// These survive across compiles, so collection seeds `class_bodies` from
+    /// These survive across compiles, so collection seeds `class_surface` from
     /// this rather than from an empty table. Only the dependency-AST recovery
     /// path contributes: a class rebuilt from a cached `.flxi` interface has
     /// method types but no bodies (see `docs/known_issues.md#ki-086`).
-    imported_class_bodies: crate::types::class_bodies::ClassBodies,
+    imported_class_surface: crate::types::class_surface::ClassSurface,
     /// Imported `public instance` entries reconstructed from preloaded module interfaces.
     imported_public_instances: Vec<crate::types::class_env::InstanceDef>,
     /// Imported `public instance` entries waiting for their class interface to load.
@@ -1925,8 +1925,8 @@ impl Compiler {
             profiling: false,
             cost_centre_infos: Vec::new(),
             class_env: crate::types::class_env::ClassEnv::new(),
-            class_bodies: crate::types::class_bodies::ClassBodies::new(),
-            imported_class_bodies: crate::types::class_bodies::ClassBodies::new(),
+            class_surface: crate::types::class_surface::ClassSurface::new(),
+            imported_class_surface: crate::types::class_surface::ClassSurface::new(),
             imported_public_classes: HashMap::new(),
             generated_dispatch_stub_names: HashSet::new(),
             user_function_names: HashSet::new(),
@@ -2334,7 +2334,7 @@ impl Compiler {
                 &program.statements,
                 crate::types::class_dispatch::DispatchClasses {
                     env: &self.class_env,
-                    bodies: &self.class_bodies,
+                    surface: &self.class_surface,
                 },
                 &mut self.interner,
                 &additional_reserved_names,
@@ -2772,7 +2772,7 @@ impl Compiler {
             .extend(self.imported_public_classes.clone());
         let _ = dependency_classes.collect_from_statements(
             &program.statements,
-            &mut self.imported_class_bodies,
+            &mut self.imported_class_surface,
             &self.interner,
         );
         for (class_id, class_def) in dependency_classes.classes {
@@ -3610,7 +3610,7 @@ impl Compiler {
         // that are no longer in scope — visible in the REPL, where one
         // `Compiler` compiles many programs. It is seeded from the imported
         // table, which is populated earlier by dependency-AST recovery.
-        self.class_bodies = self.imported_class_bodies.clone();
+        self.class_surface = self.imported_class_surface.clone();
         env.register_builtins(&mut self.interner);
         env.classes.extend(self.imported_public_classes.clone());
         // The standard hierarchy is Flux source since Proposal 0179 Stage 8,
@@ -3627,7 +3627,7 @@ impl Compiler {
         // since a module cannot re-declare what it is defining.
         if !self.is_class_prelude_module(program) {
             let prelude_diagnostics =
-                env.register_prelude_classes(&mut self.class_bodies, &mut self.interner);
+                env.register_prelude_classes(&mut self.class_surface, &mut self.interner);
             debug_assert!(
                 prelude_diagnostics.is_empty(),
                 "the class prelude must collect cleanly: {prelude_diagnostics:?}"
@@ -3645,7 +3645,7 @@ impl Compiler {
         // check run here would not yet see it (E445 on every edge).
         let mut diagnostics = env.collect_from_statements_with(
             &program.statements,
-            &mut self.class_bodies,
+            &mut self.class_surface,
             &self.interner,
             crate::types::class_env::SuperclassCheck::Deferred,
         );

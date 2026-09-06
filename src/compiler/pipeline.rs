@@ -63,7 +63,7 @@ impl Compiler {
                 &program.statements,
                 crate::types::class_dispatch::DispatchClasses {
                     env: &self.class_env,
-                    bodies: &self.class_bodies,
+                    surface: &self.class_surface,
                 },
                 &mut self.interner,
                 &additional_reserved_names,
