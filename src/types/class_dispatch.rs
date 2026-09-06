@@ -23,6 +23,7 @@ use crate::{
         type_class::ClassConstraint,
         type_expr::TypeExpr,
     },
+    types::class_bodies::ClassBodies,
     types::class_env::ClassEnv,
     types::infer_type::InferType,
 };
@@ -117,13 +118,30 @@ pub struct DispatchGenerationOptions {
 /// Returns a list of new `Statement::Function` to inject into the program:
 /// 1. Mangled instance method functions (one per instance method)
 /// 2. Dispatch functions for methods with instances (one per class method)
+/// The class information dispatch generation reads: the environment, and the
+/// default method bodies held beside it.
+///
+/// The two are passed together because generating an instance method needs
+/// both — the class's method *types* to build the signature, and its default
+/// *body* when the instance omits the method. They are stored apart because
+/// only this pass wants the bodies; see
+/// [`ClassBodies`](crate::types::class_bodies::ClassBodies).
+#[derive(Clone, Copy)]
+pub struct DispatchClasses<'a> {
+    /// Classes and instances in scope.
+    pub env: &'a ClassEnv,
+    /// Default method bodies for the classes in `env`.
+    pub bodies: &'a ClassBodies,
+}
+
 pub fn generate_dispatch_functions(
     statements: &[Statement],
-    class_env: &ClassEnv,
+    classes: DispatchClasses<'_>,
     interner: &mut Interner,
     additional_reserved_names: &HashSet<Identifier>,
     options: DispatchGenerationOptions,
 ) -> Vec<Statement> {
+    let class_env = classes.env;
     let mut generated = Vec::new();
     let mut reserved_names = collect_existing_function_names(statements);
     reserved_names.extend(additional_reserved_names.iter().copied());
@@ -140,7 +158,7 @@ pub fn generate_dispatch_functions(
 
     generate_from_statements(
         statements,
-        class_env,
+        classes,
         interner,
         &mut generated,
         &mut dispatch_table,
@@ -1220,13 +1238,14 @@ fn generate_default_method_functions(
 /// Recursively walk statements, generating mangled functions for instance methods.
 fn generate_from_statements(
     statements: &[Statement],
-    class_env: &ClassEnv,
+    classes: DispatchClasses<'_>,
     interner: &mut Interner,
     generated: &mut Vec<Statement>,
     dispatch_table: &mut HashSet<(crate::types::class_id::ClassId, Identifier)>,
     id_gen: &mut ExprIdGen,
     current_module: crate::types::class_id::ModulePath,
 ) {
+    let class_env = classes.env;
     fn resolve_instance_class_def<'a>(
         class_env: &'a ClassEnv,
         class_name: Identifier,
@@ -1303,7 +1322,9 @@ fn generate_from_statements(
                         // `encode(value)` was lowered as a recursive container
                         // call in Flow.Json (KI-051).
                         refresh_block_expr_ids(method.body.clone(), id_gen)
-                    } else if let Some(default_body) = &method_sig.default_body {
+                    } else if let Some(default_body) =
+                        classes.bodies.get(class_def.class_id(), method_sig.name)
+                    {
                         // A default body is cloned into every instance, so each
                         // copy needs its own ExprIds: typed dispatch keys on
                         // `hm_expr_types[expr_id]`, and shared ids would let the
@@ -1399,7 +1420,7 @@ fn generate_from_statements(
             Statement::Module { name, body, .. } => {
                 generate_from_statements(
                     &body.statements,
-                    class_env,
+                    classes,
                     interner,
                     generated,
                     dispatch_table,
@@ -2086,7 +2107,8 @@ instance Renderable<Int> {
             parser.errors
         );
         let mut interner = parser.take_interner();
-        let (class_env, diagnostics) = ClassEnv::from_statements(&program.statements, &interner);
+        let (class_env, class_bodies, diagnostics) =
+            ClassEnv::from_statements(&program.statements, &interner);
         assert!(
             diagnostics.is_empty(),
             "class diagnostics: {:?}",
@@ -2106,7 +2128,10 @@ instance Renderable<Int> {
 
         let generated = generate_dispatch_functions(
             &program.statements,
-            &class_env,
+            DispatchClasses {
+                env: &class_env,
+                bodies: &class_bodies,
+            },
             &mut interner,
             &HashSet::new(),
             DispatchGenerationOptions {
