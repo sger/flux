@@ -155,27 +155,78 @@ Pinned by `examples/type_classes/toplevel_constrained_call.flx`, which covers
 a contextual stdlib dictionary, a local instance above its use, and an
 instance declared below one.
 
-### Stage 2 — fix KI-082
+### Stage 2 — fix KI-082 — **shipped**
 
 *A generalized function masks an arity error.* `add(1, 2, 3)` reports `E430`
-where `E056` belongs. Diagnostic quality only, but
-`examples/diagnostics/hint_demos/function_arg_mismatch.flx` exists to
-demonstrate `E056`, so Stage 3 cannot be neutral without it.
+where `E056` belongs. Recorded as diagnostic quality, but it was neither
+confined to generalized functions nor, in the end, only a diagnostic.
 
-Exit: that fixture reports `E056`; sweep neutral.
+The arity check accepted any of `parameters`, `parameters - dictionaries` or
+`parameters + dictionaries` — a band `2 * dictionaries` wide. A call with
+exactly `dictionaries` too many arguments landed on the top of it and was
+accepted, so **any** function carrying a class bound took that many extra
+arguments silently. Six lines reproduce it with no generalization at all:
+
+```flux
+fn describe<a: Show>(x: a) -> String { show(x) }
+
+fn main() with IO { print(describe(1, 2)) }
+```
+
+Generalizing does not cause this either; by making nearly every helper
+constrained it makes it universal — the same relationship Stage 1 turned out
+to have. The escape is also worse than `E430`: nothing reported the call at
+all, so it reached the backend as `E430` under `--no-cache`, and ran and
+failed as a *run-time* `E1000` once the cache was warm.
+
+`parameters + dictionaries` is a real shape, but only for a call elaboration
+has already handed its dictionaries to. The fix counts the dictionaries a call
+actually carries instead of offering the count to every call. Two supporting
+narrowings came out of the sweep: the check now reaches past
+`hm_expr_type_strict_path` — a generalized callee's type has free variables, so
+the strict path skipped it entirely — and it exempts callees nobody writes,
+dictionary constructors and generated instance methods, whose arities are
+elaboration's own business.
+
+Exit — met: `examples/diagnostics/hint_demos/function_arg_mismatch.flx` reports
+`E056` both with and without the Stage 3 rule; sweep neutral. Pinned by
+`examples/diagnostics/hint_demos/constrained_arg_mismatch.flx`, which
+reproduces the bug without generalization and so fails on the unfixed
+compiler.
 
 ### Stage 3 — generalize by arity
 
 Replace the `type_params.is_empty()` test in
 `finalize_and_bind_function_scheme` with GHC's rule: a definition with
 parameters is generalized in `GeneralizationMode::Definition`; a nullary one is
-not. The patch exists (`scratchpad/r6-generalize-unannotated.patch`, 174
-lines) and applies cleanly; it quantifies the variables a class constraint
-mentions (`generalize_constrained_vars`) rather than all free variables, a
-deliberate narrowing while tuple projection (Stage 5) is still a hole.
+not.
+
+**The patch this stage used to point at is gone.** `scratchpad/` was never
+committed — no commit in the repository touches it — so plan for a rewrite,
+not an application. The two halves are not equally lost:
+
+- The rule itself is one line, and Stages 1 and 2 both reconstructed it to
+  reproduce their bugs:
+
+  ```rust
+  let scheme = if !type_params.is_empty() || !param_tys.is_empty() {
+  ```
+
+- The narrowing is not. `generalize_constrained_vars` — quantifying the
+  variables a class constraint mentions rather than all free variables, held
+  deliberately narrow while tuple projection (Stage 5) is still a hole — has
+  never existed in source in any commit, and has to be written from this
+  description.
 
 Measured before Stages 1–2: stdlib residue 9 → 0, and exactly two programs
 change — the two those stages fix.
+
+Expect one cascade this stage has to settle. With the rule applied, the Stage 2
+fixture reports its `E056` *and* an `E430` on the same call: the arity error is
+reported, then the backend separately finds the definition's type unresolved —
+a consequence of the error already in hand. It is left here rather than fixed
+in Stage 2 because it cannot be reproduced, and so cannot be tested, until this
+rule lands; Stage 4 then rewrites how such predicates are reported at all.
 
 Exit: stdlib residue **0**; sweep diff is empty; `CACHE_EPOCH` bumped, since
 every unannotated constrained helper changes arity.
