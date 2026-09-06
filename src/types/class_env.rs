@@ -131,6 +131,69 @@ pub struct MethodSig {
     /// Acts as a *floor*: implementing instances must declare a row that
     /// is a superset of this one (validated by the E452 walker).
     pub effects: Vec<EffectExpr>,
+    /// The method's type as the solver sees it: an [`InferType::Fun`] over the
+    /// converted parameter types, return type and effect row.
+    ///
+    /// Type variables follow one fixed numbering, so that two independently
+    /// converted signatures for the same class agree:
+    ///
+    /// - class parameter `i` is `TypeVarId(i)`;
+    /// - the method's own generic `j` is `TypeVarId(class_type_params + j)`;
+    /// - effect-row variables are numbered after both.
+    ///
+    /// `None` when conversion failed, which today means only that a
+    /// function-typed parameter carried an effect row that would not convert.
+    /// A consumer that needs the surface form reads it from
+    /// [`ClassSurface`](crate::types::class_surface::ClassSurface) instead.
+    pub infer_type: Option<InferType>,
+}
+
+/// Converts a class method's declared signature to the solver's representation.
+///
+/// The variable numbering is the one documented on
+/// [`MethodSig::infer_type`]; `class_type_params` are the owning class's
+/// parameters, in declaration order.
+pub fn method_infer_type(
+    class_type_params: &[Identifier],
+    method_type_params: &[Identifier],
+    param_types: &[TypeExpr],
+    return_type: &TypeExpr,
+    effects: &[EffectExpr],
+    interner: &Interner,
+) -> Option<InferType> {
+    use crate::types::{infer_effect_row::InferEffectRow, type_env::TypeEnv};
+
+    let mut vars = HashMap::new();
+    let mut next: crate::types::TypeVarId = 0;
+    for &name in class_type_params.iter().chain(method_type_params) {
+        vars.insert(name, next);
+        next += 1;
+    }
+    let mut row_var_env = HashMap::new();
+    let mut row_var_counter = next;
+
+    let params = param_types
+        .iter()
+        .map(|ty| {
+            TypeEnv::convert_type_expr_rec(
+                ty,
+                &vars,
+                interner,
+                &mut row_var_env,
+                &mut row_var_counter,
+            )
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let ret = TypeEnv::convert_type_expr_rec(
+        return_type,
+        &vars,
+        interner,
+        &mut row_var_env,
+        &mut row_var_counter,
+    )?;
+    let row =
+        InferEffectRow::from_effect_exprs(effects, &mut row_var_env, &mut row_var_counter).ok()?;
+    Some(InferType::Fun(params, Box::new(ret), row))
 }
 
 /// Why an instance is present in the environment.
@@ -1667,6 +1730,14 @@ impl ClassEnv {
                             return_type: m.return_type.clone(),
                             arity: m.params.len(),
                             effects: m.effects.clone(),
+                            infer_type: method_infer_type(
+                                type_params,
+                                &m.type_params,
+                                &m.param_types,
+                                &m.return_type,
+                                &m.effects,
+                                interner,
+                            ),
                         })
                         .collect();
 
