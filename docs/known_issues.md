@@ -2708,9 +2708,9 @@ including "these fixtures exit 0 with no output", were measured against cached
 artifacts and are wrong. **Any behavioural comparison across a compiler change
 must pass `--no-cache` or clear the store first** (`flux clean --store`).
 
-### KI-082 — Generalizing an unannotated definition breaks two call sites
+### KI-082 — Generalizing an unannotated definition breaks two call sites — FIXED 2026-09-06
 
-**Severity:** Medium · **Area:** Type inference / dictionary elaboration · **Verified:** 2026-09-04 · **From:** Proposal 0183, R6
+**Severity:** Medium · **Area:** Type inference / dictionary elaboration · **Verified:** 2026-09-06 · **From:** Proposal 0183, R6
 
 `finalize_and_bind_function_scheme` binds a function that declared no type
 parameters with `Scheme::mono`, so its inferred class obligations are never
@@ -2735,13 +2735,47 @@ let result3 = add(1, 2, 3);   // E056 "wrong number of arguments" → E430
 
 (`examples/diagnostics/hint_demos/function_arg_mismatch.flx`.) The fixture
 exists to demonstrate `E056`; with `add` generalized the call's result type
-stays unresolved and `E430` is reported instead. Diagnostic quality, not
-correctness.
+stays unresolved and `E430` is reported instead.
+
+**Two corrections, established when this was fixed.** Neither the entry above
+nor its "diagnostic quality, not correctness" reading survived contact.
+
+*It is not confined to generalized definitions.* The arity check accepted any
+of `parameters`, `parameters - dictionaries` or `parameters + dictionaries`, a
+band `2 * dictionaries` wide, so a call with exactly `dictionaries` too many
+arguments landed on the top of it. Every function carrying a class bound
+therefore took that many extra arguments silently, on the compiler as shipped:
+
+```flux
+fn describe<a: Show>(x: a) -> String { show(x) }
+
+fn main() with IO { print(describe(1, 2)) }
+```
+
+Generalizing does not cause this; by making nearly every helper constrained it
+makes it universal — the same relationship [KI-083](#ki-083) has.
+
+*The symptom depends on the cache.* Nothing reported the call at all, so with
+`--no-cache` it reached the backend as `E430`, and with a warm cache it
+compiled and failed at run time with `E1000 wrong number of arguments`. A
+reproduction that does not pass `--no-cache` sees the run-time error, not
+`E430`.
+
+**Fix.** `parameters + dictionaries` is a real shape, but only for a call that
+elaboration has already handed its dictionaries to, so the check counts the
+dictionaries a call actually carries rather than offering the count to every
+call. It also reaches past `hm_expr_type_strict_path`, which treats a
+generalized callee's type as unknown because its variables are free, and
+exempts dictionary constructors and generated instance methods, whose arities
+belong to elaboration rather than to anyone's source.
+Pinned by `examples/diagnostics/hint_demos/constrained_arg_mismatch.flx`.
 
 A third failure — `[DuplicateBinder] in `multiply`` — was a separate latent bug
 in the CFG path's binder-id seeding and is fixed (see the commit that added this
-entry). The generalization patch itself is kept at
-`scratchpad/r6-generalize-unannotated.patch`.
+entry). The generalization patch this entry used to point at,
+`scratchpad/r6-generalize-unannotated.patch`, no longer exists: `scratchpad/`
+was never committed. See [Proposal 0185](proposals/0185_generalize_by_arity.md)
+Stage 3 for what survives of it.
 
 ### KI-085 — A call to a program's own function was dispatched as a class method — FIXED 2026-09-04
 
@@ -2858,9 +2892,16 @@ into the same position by giving it `Add` as a superclass, which is why
 **Fix would be** to compile the prelude bodies in this harness, or to fall back
 to direct dispatch when a unit cannot define the dictionary it references.
 
-### KI-083 — A top-level `let` cannot call a constrained function
+### KI-083 — A top-level `let` cannot call a constrained function — FIXED 2026-09-05
 
-**Severity:** Medium · **Area:** Core lowering / VM · **Verified:** 2026-09-04 · **From:** Proposal 0183, R6
+**Severity:** Medium · **Area:** Core lowering / VM · **Verified:** 2026-09-05 · **From:** Proposal 0183, R6
+
+**Fixed.** The dictionary globals were stored only after the whole program had
+been compiled, so a top-level initializer — which runs at module load time —
+read a `__dict_*` slot still holding `None`. They are now stored before the
+first statement that can run, and again at the end so an instance declared
+below a value definition is still complete. Pinned by
+`examples/type_classes/toplevel_constrained_call.flx`.
 
 A top-level `let` whose initializer calls a function with a class bound fails at
 run time. No generalization is involved — this reproduces on the current

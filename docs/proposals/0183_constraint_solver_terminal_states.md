@@ -37,7 +37,7 @@ checkout at commit `2ca87972f6`.
 | R6b | a match arm keeps the scrutinee's type (KI-080) | shipped | `fd4b5338` | stdlib residue 15 → 11; no diagnostic change |
 | R6c | a class-method call stops emitting an unbindable instance context (KI-081) | shipped | — | stdlib residue 11 → 9; no diagnostic change |
 | — | [0184](0184_field_access_constraints.md) Stage 1: field access emits a predicate | shipped | — | new `E490`; no diagnostic change in 1,305 programs |
-| R6 | generalize unannotated definitions, then report what survives (M6) | blocked on [KI-083](../known_issues.md#ki-083) | — | stdlib residue 9 → **0**; 2 of 1,305 programs break |
+| R6 | generalize unannotated definitions, then report what survives (M6) | unblocked ([KI-083](../known_issues.md#ki-083) and [KI-082](../known_issues.md#ki-082) fixed); tracked as [0185](0185_generalize_by_arity.md) Stage 3 | — | stdlib residue 9 → **0**; 2 of 1,305 programs break |
 | R7 | clear the fallout across `lib/Flow`, `examples`, `tests` | not started | — | 2 programs, both covered by KI-082/083 |
 | — | one `CACHE_EPOCH` bump covering R2 and R4 | shipped | `f8d8f585` | epoch 42, comment names R2/R4 |
 | — | rewrite this proposal around the GHC study; file Examples A/B/C as `#KI-nnn` | not started | — | — |
