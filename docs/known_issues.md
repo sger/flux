@@ -2826,6 +2826,38 @@ So the missing information is per-site evidence, which is what
 `EvidenceMap`/`EvidenceSite` are for. Resolving it any other way here would
 mean guessing an instance from the class name — which is what KI-052 was.
 
+**Second attempt (2026-09-07), from AST lowering with evidence in hand.** This
+got the Core right and still failed, and the remaining obstacle is *not* about
+evidence. Recorded so the next attempt starts here:
+
+- Evidence reaches lowering once `LowerInputs` carries it. Note the VM path
+  lowers through `cfg/mod.rs`, not the `compiler/mod.rs` entry point — wiring
+  only the latter leaves the map absent where it matters.
+- `Num<Int>` is a *contextual* instance (`instance Add<Int> => Num<Int>` in
+  `lib/Flow/Num.flx`), so its evidence is `FromInstance` with a context and
+  `translate` yields `DictArg::Applied`. That still names a single global: a
+  concrete instance's dictionary is built once, already applied. Only a context
+  reaching a `DictArg::Param` must be assembled at the use site.
+- Naming works. `dictionary_name(class_id, "Int", interner)` produces the
+  module-mangled `__dict_m8_466C6F772E4E756D_Num_Int`, which is the symbol the
+  program actually defines.
+- The lambda's parameters must **not** be named after the function. `λdbl.
+  dbl(dict, dbl)` shadows the callee it wraps.
+
+With all of that, `--dump-core` shows exactly the intended form:
+
+```
+let %t568 = (λ%t569. dbl(__dict_m8_466C6F772E4E756D_Num_Int, %t569))
+twice(%t568, 2)
+```
+
+and **both backends still reject it** — the VM reports the same `E1000` and the
+native backend segfaults. So the defect is downstream of Core: a synthesized
+`CoreExpr::Lam` needs more than the right shape. The prime suspect is
+`param_types: vec![None; n]` and `result_ty: None`, which drive `FluxRep`
+selection and closure conversion; every lambda the ordinary path builds carries
+types. Fixing that is the next step, not more work on evidence.
+
 ### KI-088 — A nested `fn` that shadows a top-level name is called at the outer function's type
 
 **Severity:** Medium · **Area:** Name resolution, VM codegen · **Verified:** 2026-09-07 · **From:** Proposal 0186
