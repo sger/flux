@@ -1,0 +1,37 @@
+// parity: vm, llvm
+// expect: success
+// bug: An unannotated self-recursive function's return type used to be
+//       recovered by a second whole-body inference pass that picked between
+//       two independently derived answers by concreteness. The predeclared
+//       binding slot is now unified with the type the body produced, so the
+//       self-call and the definition are one variable. A regression shows up
+//       as an unresolved return type or a wrong one, not as a crash.
+
+fn fact(n) {
+    if n <= 1 { 1 } else { n * fact(n - 1) }
+}
+
+fn sum_to(n) {
+    if n == 0 { 0 } else { n + sum_to(n - 1) }
+}
+
+// The recursive call is the only thing that says what this returns.
+fn count_down(n) {
+    if n <= 0 { "done" } else { count_down(n - 1) }
+}
+
+fn is_even(n: Int) -> Bool {
+    if n == 0 { true } else { is_odd(n - 1) }
+}
+
+fn is_odd(n: Int) -> Bool {
+    if n == 0 { false } else { is_even(n - 1) }
+}
+
+fn main() with IO {
+    print(fact(5));
+    print(sum_to(4));
+    print(count_down(3));
+    print(is_even(10));
+    print(is_odd(10));
+}
