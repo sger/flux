@@ -1588,13 +1588,15 @@ impl<'a> AstLowerer<'a> {
         let mut result = body;
         for item in plan.iter().rev() {
             result = match item {
-                crate::generics_frontend::PlanItem::Group(members) => match members.as_slice() {
-                    [(_, single)] => self.prepend_one_stmt(single, result, span),
-                    many => {
-                        let stmts: Vec<&Statement> = many.iter().map(|(_, s)| *s).collect();
-                        self.lower_scc_group(&stmts, result)
+                crate::generics_frontend::PlanItem::Group { members, .. } => {
+                    match members.as_slice() {
+                        [(_, single)] => self.prepend_one_stmt(single, result, span),
+                        many => {
+                            let stmts: Vec<&Statement> = many.iter().map(|(_, s)| *s).collect();
+                            self.lower_scc_group(&stmts, result)
+                        }
                     }
-                },
+                }
                 crate::generics_frontend::PlanItem::Other(_, stmt) => {
                     self.prepend_one_stmt(stmt, result, span)
                 }

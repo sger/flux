@@ -3088,19 +3088,7 @@ impl Compiler {
         });
         // Anchor index → the group's members; and the member positions that the
         // statement loop must skip because their group was emitted elsewhere.
-        let mut group_at: HashMap<usize, Vec<&Statement>> = HashMap::new();
-        let mut covered: std::collections::HashSet<usize> = std::collections::HashSet::new();
-        for item in &plan {
-            if let crate::generics_frontend::PlanItem::Group(members) = item
-                && members.len() >= 2
-            {
-                let anchor = members[0].0;
-                group_at.insert(anchor, members.iter().map(|(_, s)| *s).collect());
-                for (index, _) in members {
-                    covered.insert(*index);
-                }
-            }
-        }
+        let (group_at, covered) = crate::generics_frontend::group_index(&plan);
 
         let len = block.statements.len();
         let mut errors = Vec::new();

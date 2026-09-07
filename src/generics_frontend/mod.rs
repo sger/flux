@@ -11,4 +11,4 @@
 
 pub mod plan;
 
-pub use plan::{PlanItem, plan_block};
+pub use plan::{PlanItem, group_index, plan_block};

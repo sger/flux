@@ -2777,6 +2777,47 @@ entry). The generalization patch this entry used to point at,
 was never committed. See [Proposal 0185](proposals/0185_generalize_by_arity.md)
 Stage 3 for what survives of it.
 
+### KI-088 — A nested `fn` that shadows a top-level name is called at the outer function's type
+
+**Severity:** Medium · **Area:** Name resolution, VM codegen · **Verified:** 2026-09-07 · **From:** Proposal 0186
+
+A nested function whose name also exists at the top level is resolved to the
+*outer* definition by a sibling's forward reference:
+
+```flux
+fn helper(x: Int) -> Int { x }
+
+fn outer() -> String {
+    fn caller() -> String { helper("hi") }
+    fn helper(s: String) -> String { s }
+    caller()
+}
+```
+
+```
+error[E300]: Argument Type Mismatch
+I found the wrong type in the 1st argument to `helper`.
+4 |     fn caller() -> String { helper("hi") }
+  |                                    ---- this argument has type `String`
+5 |     fn helper(s: String) -> String { s }
+  |     ------------------------------ `helper` expects `Int` as the 1st parameter
+```
+
+Note the label: the span is the *nested* definition while the type is the
+*outer* one, so the two halves of the lookup disagree with each other.
+
+Inference's half of this is fixed: its predeclaration guard asked
+`env.lookup(name).is_none()` — whether the name was *visible* — which is true
+for any outer binding, so the nested definition was never predeclared.
+`TypeEnv::is_bound_in_current_scope` asks whether *this scope* declared it.
+The diagnostic above survives that fix, so a second lookup — in the compiler's
+own resolution rather than in `type_infer` — still reaches past the nested
+definition. That one is unfixed.
+
+**Why no test pins it:** the reproduction is rejected by a *compiler boundary*
+check, not by `infer_program`, so a case added to `tests/type_inference/` passes
+whether or not the bug is present. Pinning it needs an end-to-end test.
+
 ### KI-087 — Mutually recursive nested functions separated by any statement were miscompiled — FIXED 2026-09-06
 
 **Severity:** High · **Area:** Core lowering, VM codegen · **Verified:** 2026-09-06 · **From:** Proposal 0186

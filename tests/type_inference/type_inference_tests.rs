@@ -2622,30 +2622,3 @@ fn from_list(xs: List<Int>) -> Int {
         result.diagnostics
     );
 }
-
-/// A nested `fn` that shadows an outer name must be predeclared in its own
-/// scope, so a sibling's forward reference resolves to it and not to the outer
-/// definition it shadows.
-///
-/// The predeclaration guard used to ask `env.lookup(name).is_none()` — whether
-/// the name was *visible* — which is true for any outer binding, so the nested
-/// definition was skipped and `caller` typed `helper` at the top-level
-/// `Int -> Int`.
-#[test]
-fn infer_nested_function_shadowing_an_outer_name_is_predeclared() {
-    let source = r#"
-fn helper(x: Int) -> Int { x }
-
-fn outer() -> String {
-    fn caller() -> String { helper("hi") }
-    fn helper(s: String) -> String { s }
-    caller()
-}
-"#;
-    let (result, _) = infer_program_from_source(source);
-    assert!(
-        !has_diagnostic_code(&result, "E300") && !has_diagnostic_code(&result, "E301"),
-        "the forward reference must resolve to the nested `helper`, got: {:#?}",
-        result.diagnostics
-    );
-}

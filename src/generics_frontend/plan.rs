@@ -30,10 +30,17 @@ pub enum PlanItem<'a> {
     /// another, in source order, each with its index in the original slice.
     /// A group of one is an ordinary, possibly self-recursive, binding.
     ///
-    /// Indices are carried because the VM backend drives its own
-    /// statement loop by index and needs to know which positions a group
-    /// covers, and which to skip.
-    Group(Vec<(usize, &'a Statement)>),
+    /// Indices are carried because the VM backend and inference both drive
+    /// their own statement loop by index and need to know which positions a
+    /// group covers, and which to skip.
+    Group {
+        /// The position the group is emitted at. Usually its first member,
+        /// but its *last* when the group reads a name bound in between — see
+        /// [`plan_block`]. A consumer that assumes the first member will put
+        /// the group above a binding it reads.
+        anchor: usize,
+        members: Vec<(usize, &'a Statement)>,
+    },
     /// Any other statement, with its index, emitted where it stands.
     Other(usize, &'a Statement),
 }
@@ -84,7 +91,10 @@ where
             .iter()
             .enumerate()
             .map(|(index, stmt)| match stmt {
-                Statement::Function { .. } => PlanItem::Group(vec![(index, stmt)]),
+                Statement::Function { .. } => PlanItem::Group {
+                    anchor: index,
+                    members: vec![(index, stmt)],
+                },
                 other => PlanItem::Other(index, other),
             })
             .collect();
@@ -143,13 +153,43 @@ where
                 // members where they stand.
                 if anchor_of.get(&index) == Some(&index) {
                     let members = &members_at[&index];
-                    plan.push(PlanItem::Group(
-                        members.iter().map(|m| (*m, &stmts[*m])).collect(),
-                    ));
+                    plan.push(PlanItem::Group {
+                        anchor: index,
+                        members: members.iter().map(|m| (*m, &stmts[*m])).collect(),
+                    });
                 }
             }
             other => plan.push(PlanItem::Other(index, other)),
         }
     }
     plan
+}
+
+/// Index a plan for a caller that walks the statement slice by position.
+///
+/// Returns the members of each multi-member group keyed by the anchor index it
+/// is emitted at, and the set of positions whose group was emitted elsewhere
+/// and which the caller must therefore skip. A group of one is left out of
+/// both: it is emitted where it stands, so an index-driven loop needs to know
+/// nothing about it.
+///
+/// Every consumer of a plan — Core lowering, VM compilation, inference — drives
+/// its own loop this way, so the indexing lives here rather than three times
+/// over.
+pub fn group_index<'a>(
+    plan: &[PlanItem<'a>],
+) -> (HashMap<usize, Vec<&'a Statement>>, HashSet<usize>) {
+    let mut group_at: HashMap<usize, Vec<&'a Statement>> = HashMap::new();
+    let mut covered: HashSet<usize> = HashSet::new();
+    for item in plan {
+        let PlanItem::Group { anchor, members } = item else {
+            continue;
+        };
+        if members.len() < 2 {
+            continue;
+        }
+        group_at.insert(*anchor, members.iter().map(|(_, stmt)| *stmt).collect());
+        covered.extend(members.iter().map(|(index, _)| *index));
+    }
+    (group_at, covered)
 }
