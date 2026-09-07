@@ -1485,7 +1485,7 @@ letrec sum =
     letrec sum_go = (λys, acc.
       case ys of
         ::(h, t) →
-          let %t331 = Add(acc, h)
+          let %t331 = IAdd(acc, h)
           sum_go(t, %t331)
         _ →
           acc)
@@ -1496,7 +1496,7 @@ letrec product =
     letrec product_go = (λys, acc.
       case ys of
         ::(h, t) →
-          let %t332 = Mul(acc, h)
+          let %t332 = IMul(acc, h)
           product_go(t, %t332)
         _ →
           acc)
@@ -1957,7 +1957,7 @@ letrec print_all =
               perform Console.print(v)
             _ →
               perform Console.print(""))
-          let %t415 = Add(i, 1)
+          let %t415 = IAdd(i, 1)
           pa_go(%t415)
         _ →
           MakeTuple())

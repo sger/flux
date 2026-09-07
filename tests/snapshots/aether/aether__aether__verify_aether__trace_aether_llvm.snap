@@ -91,34 +91,22 @@ lam(t) ->
     _ ->
       t#10
 ── fn my_filter ──
-  Dups: 1  Drops: 0  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
-  FreshAllocs: 1
+  Dups: 0  Drops: 1  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
+  FreshAllocs: 0
   verifier: ok
 lam(xs, f) ->
   case xs#18 of
     Cons(h, t) ->
-      drop_specialized xs#18 {
-        unique ->
-          let <sym:4000070> =
-            aether_call[owned] f#19(h#20)
-          case <sym:4000070>#70 of
-            true ->
-              let <sym:4000071> =
-                aether_call[borrowed, borrowed] my_filter#17(t#21, f#19)
-              reuse xs#18 as Cons mask=0x2(h#20, <sym:4000071>#71)
-            _ ->
-              aether_call[borrowed, borrowed] my_filter#17(t#21, f#19)
-        shared ->
-          let <sym:4000070> =
-            aether_call[owned] f#19(dup h#20 in h#20)
-          case <sym:4000070>#70 of
-            true ->
-              let <sym:4000071> =
-                aether_call[borrowed, borrowed] my_filter#17(t#21, f#19)
-              Cons(h#20, <sym:4000071>#71)
-            _ ->
-              aether_call[borrowed, borrowed] my_filter#17(t#21, f#19)
-      }
+      let <sym:4000070> =
+        aether_call[owned] f#19(h#20)
+      case <sym:4000070>#70 of
+        true ->
+          let <sym:4000071> =
+            aether_call[borrowed, borrowed] my_filter#17(t#21, f#19)
+          reuse xs#18 as Cons mask=0x2(h#20, <sym:4000071>#71)
+        _ ->
+          drop xs#18 in
+            aether_call[borrowed, borrowed] my_filter#17(t#21, f#19)
     _ ->
       Nil
 ── fn main [handle×5] ──
@@ -139,8 +127,8 @@ lam() ->
         aether_call[owned] __resume_default#65(<sym:4000126>#126)
 
 ── Total ──
-  Dups: 1  Drops: 21  Reuses: 4  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(2)  Yields: 0  Handles: 5  HandlerArms: 11
-  FreshAllocs: 2
+  Dups: 0  Drops: 22  Reuses: 4  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)  Yields: 0  Handles: 5  HandlerArms: 11
+  FreshAllocs: 1
 
 [2, 4, 6]
 Some(43)
