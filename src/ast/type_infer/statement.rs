@@ -388,9 +388,14 @@ impl<'a> InferCtx<'a> {
     pub(super) fn infer_block(&mut self, block: &Block) -> InferType {
         // Predeclare nested function names so forward references and mutual
         // recursion work inside function bodies (mirrors top-level Phase A).
+        //
+        // The guard asks whether *this* scope already declared the name, not
+        // whether the name is visible: a nested `fn` that shadows an outer one
+        // must still be predeclared here, or its siblings resolve their
+        // references to the outer definition instead of to it.
         for stmt in &block.statements {
             if let Statement::Function { name, span, .. } = stmt
-                && self.env.lookup(*name).is_none()
+                && !self.env.is_bound_in_current_scope(*name)
             {
                 let v = self.env.alloc_infer_type_var();
                 self.env.bind_with_span(*name, Scheme::mono(v), Some(*span));
