@@ -113,11 +113,6 @@ pub struct DispatchGenerationOptions {
     pub include_builtin_instances: bool,
 }
 
-/// Generate function statements from class/instance declarations.
-///
-/// Returns a list of new `Statement::Function` to inject into the program:
-/// 1. Mangled instance method functions (one per instance method)
-/// 2. Dispatch functions for methods with instances (one per class method)
 /// The class information dispatch generation reads: the environment, and the
 /// default method bodies held beside it.
 ///
@@ -134,6 +129,12 @@ pub struct DispatchClasses<'a> {
     pub surface: &'a ClassSurface,
 }
 
+/// Generate function statements from class/instance declarations.
+///
+/// Returns a list of new `Statement::Function` to inject into the program:
+///
+/// 1. Mangled instance method functions (one per instance method)
+/// 2. Dispatch functions for methods with instances (one per class method)
 pub fn generate_dispatch_functions(
     statements: &[Statement],
     classes: DispatchClasses<'_>,
