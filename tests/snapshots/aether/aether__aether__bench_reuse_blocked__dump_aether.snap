@@ -2093,7 +2093,7 @@ lam(token, value) ->
   drop token#1306 in
     value#1307
 ── fn map_blocked @fip ──
-  Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier:
     - MissedReuse: MISSED REUSE (TokenEscapesIntoFields): Case arm destructures Cons and constructs Cons
@@ -2106,7 +2106,7 @@ lam(xs, f) ->
     Cons(h, t) ->
       let <sym:4001881> =
         let <sym:4001880> =
-          aether_call[owned] f#1310(dup h#1311 in h#1311)
+          aether_call[owned] f#1310(h#1311)
         aether_call[borrowed, owned] touch_token#1305(xs#1309, <sym:4001880>#1880)
       let <sym:4001882> =
         aether_call[borrowed, borrowed] map_blocked#1308(t#1312, f#1310)
@@ -2131,7 +2131,7 @@ lam() ->
         aether_call[owned] __resume_default#1347(<sym:4001923>#1923)
 
 ── Total ──
-  Dups: 50  Drops: 163  Reuses: 16  DropSpecs: 1  BorrowedCallGuards: 45  FBIP: fbip(27)  Yields: 11  Handles: 5  HandlerArms: 11
+  Dups: 49  Drops: 163  Reuses: 16  DropSpecs: 1  BorrowedCallGuards: 45  FBIP: fbip(27)  Yields: 11  Handles: 5  HandlerArms: 11
   FreshAllocs: 27
 
 [ 1 of 18] Compiling  Add

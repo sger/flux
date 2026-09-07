@@ -120,12 +120,12 @@ use sha2::{Digest, Sha256};
 /// miscompiled form, which ran as `E1001 ... (got Uninit)`. Bumped ahead of the
 /// quantification and evidence stages so no artifact written during them is
 /// epoch-compatible with the finished compiler.
-/// Epoch 46: proposal 0186 stage 6 generalizes a function by arity rather than
-/// by whether type parameters were written, so an unannotated helper is now
-/// polymorphic and constrained. `fn sum(acc, h) { acc + h }` lowered to `IAdd`
-/// under epoch 45 and to a dictionary-dispatched `Add` now — different code
-/// from the same source, and a different Aether reuse decision with it. An
-/// epoch-45 artifact holds the monomorphic form.
+/// Epoch 46: a field-access predicate no longer contributes its receiver's
+/// variables to the quantified set (proposal 0186 stage 4). A binding that
+/// quantified such a variable under epoch 45 got a scheme one variable wider,
+/// and the predicate that should have been reported at the access was
+/// generalized away instead — so an epoch-45 artifact can hold a program that
+/// is now an `E490`.
 pub const CACHE_EPOCH: u16 = 46;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

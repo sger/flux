@@ -2814,39 +2814,6 @@ either applies the dictionary there or eta-expands. This is precisely the case
 the six independent resolution sites cannot agree on, because none of them is
 looking at a call.
 
-### KI-089 — An unannotated helper is no longer specialised: `IAdd` became a dictionary call
-
-**Severity:** Medium (performance, not correctness) · **Area:** Core lowering, Aether · **Verified:** 2026-09-07 · **From:** Proposal 0186 stage 6
-
-Generalizing by arity makes every unannotated helper polymorphic and therefore
-constrained, so arithmetic that used to lower to a specialised primop now
-dispatches through a dictionary:
-
-```
-- let %t331:Int = IAdd(acc#621, h#622)
-+ let %t331     = Add(acc#621, h#622)
-```
-
-Aether loses in-place reuse along with the concrete type. `my_filter` in
-`tests/aether/fixtures/verify_aether.flx` went from fully in-place to
-allocating:
-
-```
-- Dups: 0  Drops: 1  Reuses: 1  DropSpecs: 0  FBIP: fip      FreshAllocs: 0
-+ Dups: 1  Drops: 0  Reuses: 1  DropSpecs: 1  FBIP: fbip(1)  FreshAllocs: 1
-```
-
-This is the cost the rule was landed with eyes open: it is what
-[Proposal 0185](proposals/0185_generalize_by_arity.md) predicted, and it is the
-same trade GHC makes — generalize first, recover the performance with a
-specialisation pass rather than by refusing to generalize. Twenty
-`aether_cli_snapshots` were re-blessed to record the new lowering; the diffs
-*are* the reproduction.
-
-**Fix direction:** a monomorphisation/specialisation pass over `core/` that
-clones a constrained function at each concrete instantiation, which restores
-both the primop and the reuse decision. Not yet scheduled.
-
 ### KI-088 — A nested `fn` that shadows a top-level name is called at the outer function's type
 
 **Severity:** Medium · **Area:** Name resolution, VM codegen · **Verified:** 2026-09-07 · **From:** Proposal 0186
