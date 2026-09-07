@@ -1385,3 +1385,45 @@ fn main() { twice_size(21) }
         "the `Sized<Int>` instance must record `Int` as its dictionary key, got: {named:?}"
     );
 }
+
+/// A predicate raised while *checking* a sub-expression is recorded against
+/// that sub-expression, not against the call that propagated the expected type
+/// into it.
+///
+/// `infer_expression` sets the current site on the way in; the checked path did
+/// not. A constrained function passed as an argument is checked against the
+/// parameter type, so its predicate landed on the enclosing call — a site
+/// nothing looks up for it, which is invisible until something tries to read
+/// the evidence back.
+#[test]
+fn a_checked_arguments_predicate_is_recorded_against_the_argument() {
+    let source = r#"
+class Sized<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sized<Int> {
+    fn size(x) { x }
+}
+
+fn measure<a: Sized>(x: a) -> Int { size(x) }
+
+fn apply(f: (Int) -> Int, x: Int) -> Int { f(x) }
+
+fn main() { apply(measure, 21) }
+"#;
+    let (program, mut compiler) = parse_source(source, "checked_arg_site.flx");
+    compiler.compile(&program).expect("program type-checks");
+
+    // `measure` is checked against `apply`'s parameter type, so its `Sized<Int>`
+    // must be recorded — against some site — rather than lost.
+    let named: Vec<String> = compiler
+        .evidence_map()
+        .instances()
+        .map(|instance| instance.dict_type_key.clone())
+        .collect();
+    assert!(
+        named.iter().any(|key| key == "Int"),
+        "the checked argument's `Sized<Int>` must be recorded, got: {named:?}"
+    );
+}
