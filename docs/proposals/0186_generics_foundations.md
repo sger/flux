@@ -305,7 +305,7 @@ below were introduced to fix that first, and everything after shifted.
 | 1 | done | `scc.rs`: iterative, ordered, generic; delete both existing Tarjans | determinism under permuted input; 10k-node chain does not overflow |
 | 2 | done | `generics_frontend::plan`; wire Core lowering to consume binding groups | mutual recursion across an intervening `let`; suite green |
 | 3 | done | Bump `CACHE_EPOCH` 44 → 45 **before** the red middle, not after | a stale artifact cannot survive stages 4–5 |
-| 4 | next | `quantify.rs`: one decision returning quantified vars *and* retained context; MR becomes a parameter | the 0185 `E490` regression cannot recur by construction |
+| 4 | partial | `quantify.rs`: one decision returning quantified vars *and* retained context; MR becomes a parameter. Done: `decide_quantification` computes the quantified set once (it was derived at four sites) and `Quantified::into_scheme` consumes that set rather than re-deriving it; `GeneralizationMode` becomes `MonoRestriction` with `monomorphism_restriction(arity, has_signature)` as the rule. Remaining: `infer_binding_group`, so the decision is taken per *group* — this is what retires `finalize_and_bind_function_scheme` and `refine_unannotated_self_recursive_return`. | the 0185 `E490` regression cannot recur by construction |
 | 5 | | `evidence.rs` + `translate.rs`: solver records evidence; delete the other resolution sites | the forwarding reproduction compiles and runs |
 | 6 | | Land 0185's generalize-by-arity rule on the new foundation | stdlib residue **0**; suite + parity green |
 
