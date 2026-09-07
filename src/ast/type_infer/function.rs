@@ -477,6 +477,36 @@ impl<'a> InferCtx<'a> {
         ))
     }
 
+    /// Unify the monotype `name` was predeclared at with the type its body
+    /// produced, and return the result.
+    ///
+    /// A function's name is bound at a bare monotype before its body is checked
+    /// so that a self-call can refer to it, but nothing connected that slot to
+    /// the function's inferred type: a self-call and the definition were two
+    /// variables that merely happened to agree. Where they did not, a second
+    /// whole-body inference pass re-derived the return type and chose between
+    /// the two answers by concreteness. Unifying is what that pass was
+    /// approximating.
+    ///
+    /// Silent because a genuine disagreement is already reported against the
+    /// body; recovering keeps one shape for everything downstream.
+    ///
+    /// A name predeclared at its *declared* scheme is left alone: that scheme is
+    /// polymorphic, and instantiating it against this one monomorphic use would
+    /// pin the type parameters the signature asked to keep open.
+    fn tie_predeclared_slot(&mut self, name: Identifier, fn_ty: InferType) -> InferType {
+        let Some(slot) = self
+            .env
+            .lookup(name)
+            .filter(|scheme| scheme.forall.is_empty() && scheme.constraints.is_empty())
+            .map(|scheme| scheme.infer_type.clone())
+        else {
+            return fn_ty;
+        };
+        self.unify_silent(&slot, &fn_ty);
+        fn_ty.apply_type_subst(&self.subst)
+    }
+
     /// Finalize and bind the inferred function scheme in the outer scope.
     #[allow(clippy::too_many_arguments)]
     fn finalize_and_bind_function_scheme(
@@ -498,32 +528,7 @@ impl<'a> InferCtx<'a> {
 
         self.env.leave_scope();
 
-        // Tie the predeclared slot to the type the body produced.
-        //
-        // The name was bound at a bare monotype before the body was checked so
-        // that a self-call could refer to it. Nothing then connected that slot
-        // to the function's inferred type, so a self-call and the definition
-        // were two variables that merely happened to agree — and where they did
-        // not, a second whole-body inference pass
-        // (`refine_unannotated_self_recursive_return`) re-derived the return
-        // type and picked between the two answers by concreteness. Unifying
-        // here is what that pass was approximating.
-        //
-        // Silent because a genuine disagreement is already reported against the
-        // body; recovering keeps one shape for everything downstream.
-        //
-        // A name predeclared at its *declared* scheme is skipped: that scheme is
-        // polymorphic, and instantiating it against this one monomorphic use
-        // would pin the type parameters the signature asked to keep open.
-        if let Some(slot) = self
-            .env
-            .lookup(name)
-            .filter(|scheme| scheme.forall.is_empty() && scheme.constraints.is_empty())
-            .map(|scheme| scheme.infer_type.clone())
-        {
-            self.unify_silent(&slot, &fn_ty);
-            fn_ty = fn_ty.apply_type_subst(&self.subst);
-        }
+        fn_ty = self.tie_predeclared_slot(name, fn_ty);
 
         let scheme = if !type_params.is_empty() {
             self.finalize_binding_scheme(BindingSchemeSpec {
