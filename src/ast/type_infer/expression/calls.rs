@@ -129,7 +129,7 @@ impl<'a> InferCtx<'a> {
     ///
     /// A parameter whose type is not yet known contributes a variable rather
     /// than a guess. Wanted constraints are re-substituted after unification
-    /// (`finalize_binding_class_constraints`), so the predicate is refined once
+    /// (`decide_quantification`), so the predicate is refined once
     /// an annotation or a later use fixes the type. Before Stage 4 this fell
     /// back to the first parameter's type, which silently dispatched
     /// `tag(1, true)` on `Int` for `class Tagged<a> { fn tag(n: Int, x: a) }`.

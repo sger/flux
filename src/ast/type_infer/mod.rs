@@ -29,10 +29,10 @@ use crate::{
     },
     types::{
         TypeVarId,
-        class_defaulting::{GeneralizationMode, finalize_binding_class_constraints},
         infer_effect_row::InferEffectRow,
         infer_type::InferType,
-        scheme::{Scheme, generalize, generalize_with_constraints},
+        quantify::{MonoRestriction, QuantifySpec, decide_quantification},
+        scheme::{Scheme, generalize},
         type_constructor::TypeConstructor,
         type_env::TypeEnv,
         type_subst::TypeSubst,
@@ -146,7 +146,7 @@ struct BindingSchemeSpec<'a> {
     infer_type: &'a InferType,
     env_free_vars: &'a HashSet<TypeVarId>,
     window: constraint::CaptureWindow,
-    mode: GeneralizationMode,
+    mode: MonoRestriction,
     binder: Identifier,
     span: Span,
 }
@@ -501,15 +501,15 @@ impl<'a> InferCtx<'a> {
     /// truly ambiguous `Num` variables, and returns the resulting scheme.
     fn finalize_binding_scheme(&mut self, spec: BindingSchemeSpec<'_>) -> Scheme {
         let relevant_constraints = self.class_constraints.captured_since(spec.window);
-        let finalized = finalize_binding_class_constraints(
-            spec.infer_type,
-            spec.env_free_vars,
-            &relevant_constraints,
-            &self.subst,
-            self.class_env.as_ref(),
-            self.interner,
-            spec.mode,
-        );
+        let mut finalized = decide_quantification(QuantifySpec {
+            infer_type: spec.infer_type,
+            env_free_vars: spec.env_free_vars,
+            constraints: &relevant_constraints,
+            current_subst: &self.subst,
+            class_env: self.class_env.as_ref(),
+            interner: self.interner,
+            restriction: spec.mode,
+        });
         // Only a `Definition`'s obligation actually transfers: elaboration
         // rewrites its call sites to pass the dictionary. A nested binding
         // cannot receive a dictionary parameter, so a predicate it
@@ -517,23 +517,16 @@ impl<'a> InferCtx<'a> {
         // whole-program solve — which is what reports it (E459 on
         // `let ignored = convert(42)`). This is the monomorphism
         // restriction's reason for existing, in the one place Flux needs it.
-        if spec.mode == GeneralizationMode::Definition {
+        if spec.mode == MonoRestriction::Generalize {
             self.close_definition_scope(&spec, &finalized);
         }
         if !finalized.default_subst.is_empty() {
             self.subst = std::mem::take(&mut self.subst).compose(&finalized.default_subst);
         }
-        self.errors.extend(finalized.diagnostics);
+        self.errors
+            .extend(std::mem::take(&mut finalized.diagnostics));
 
-        if finalized.scheme_constraints.is_empty() {
-            generalize(&finalized.infer_type, spec.env_free_vars)
-        } else {
-            generalize_with_constraints(
-                &finalized.infer_type,
-                spec.env_free_vars,
-                finalized.scheme_constraints,
-            )
-        }
+        finalized.into_scheme()
     }
 
     /// Move a definition's obligations out of the enclosing scope and into an
@@ -554,7 +547,7 @@ impl<'a> InferCtx<'a> {
     fn close_definition_scope(
         &mut self,
         spec: &BindingSchemeSpec<'_>,
-        finalized: &crate::types::class_defaulting::FinalizedBindingClassConstraints,
+        finalized: &crate::types::quantify::Quantified,
     ) {
         let mut scope = self.class_constraints.close_window(spec.window);
         debug_assert_eq!(
