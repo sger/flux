@@ -301,7 +301,7 @@ below were introduced to fix that first, and everything after shifted.
 | 0b | done | `crates/flux-diagnostics`: the diagnostics module | suite green; pure move |
 | 0c | done | Default method bodies out of `MethodSig` into a side table (`ClassBodies`, widened to `ClassSurface` in 0d) | suite + parity green; behaviour identical |
 | 0d | done (descoped) | Class method signatures converted `TypeExpr` → `InferType` at collection. Done: `MethodSig.infer_type`, `match_type` deleted. Remaining work **descoped**: threading `&ClassSurface` into the eight surface consumers buys nothing this proposal needs, because `InstanceDef.type_args` keeps `TypeExpr` in the class environment regardless (131 structural reads). The goal was to get executable code and surface syntax out of `MethodSig`, and that is done. | suite + parity green |
-| 0e | | `crates/flux-generics` + the `src/types/` move; `register_prelude_classes` stays behind | suite + parity green; pure move |
+| 0e | in progress | `crates/flux-generics` + the `src/types/` move. **Not a pure move** — measured, not estimated. `src/types/` holds 149 production references to `TypeExpr`, and `flux-source` deliberately knows nothing about types. Ordered work below. | suite + parity green |
 | 1 | done | `scc.rs`: iterative, ordered, generic; delete both existing Tarjans | determinism under permuted input; 10k-node chain does not overflow |
 | 2 | done | `generics_frontend::plan`; wire Core lowering to consume binding groups | mutual recursion across an intervening `let`; suite green |
 | 3 | done | Bump `CACHE_EPOCH` 44 → 45 **before** the red middle, not after | a stale artifact cannot survive stages 4–5 |
@@ -310,6 +310,34 @@ below were introduced to fix that first, and everything after shifted.
 **`refine_unannotated_self_recursive_return` cannot be deleted on its own.** It was tried (and reverted): predeclaration already links a self-call to its definition, so the pass looked dead, and unannotated `fact` / `sum_to` / a function whose return type comes only from its recursive call all stayed correct without it. What it actually carries is *precision*, not correctness — it re-infers the body against fully substituted parameter types and keeps the more concrete of the two answers. Removing it dropped `:Box` binder annotations throughout the Aether Core dumps (`aether__drop_spec_recursive`, `drop_spec_branchy`, and six more), because recursive functions over lists lost the second pass's refinement. Tying the predeclared slot to the inferred type does not recover it, and leaks the declared effect row: `List.map(non_empty_lines(text), from_line)` in `lib/Flume/Schema/Index.flx` became `expected () -> Unit, found () -> Unit with Fail`. The precision has to come from the group's own quantification decision before the pass can go. | the 0185 `E490` regression cannot recur by construction |
 | 5 | next | `evidence.rs` + `translate.rs`: solver records evidence; delete the other resolution sites. The forwarding reproduction already compiles and runs on this branch, so [KI-090](../known_issues.md#ki-090) is the exit criterion instead — a constrained function referenced *as a value* never has its dictionary applied. **Fixing it locally was attempted and is impossible**, which is the strongest available argument for the evidence map: eta-expanding the reference is the right shape, but `resolve_dict_arg` can only answer for a concrete predicate or one the caller already holds, and at a reference the scheme says `Num<a>` while the instantiation to `Num<Int>` lives at the use site. Core cannot supply it — `CoreVarRef` is a name and a binder id — so the evidence has to be recorded during inference and carried. | KI-090's reproduction runs; the six sites are gone |
 | 6 | moved out | Generalize-by-arity now lives in [Proposal 0187](0187_specialisation.md), behind the `core/` specialisation pass it requires. It was implemented here and reverted: the rule is correct, but an unannotated helper becomes constrained and loses its specialised lowering, failing 16 tests that assert an optimisation still fires. A prerequisite outside this proposal should not hold a stage inside it. | — |
+
+### Stage 0e, measured
+
+Two-thirds of the `TypeExpr` use in `src/types/` is code that should not move
+at all: `class_dispatch.rs` (34 refs) synthesises `Statement::Function`, and
+`class_surface.rs` (9) holds surface syntax by definition. The blocker is the
+residue.
+
+1. **`InstanceDef.type_key`** — done (`6eb113c9`). Every `__dict_*` and `__tc_*`
+   symbol is derived from the instance head, and four sites re-rendered it from
+   `TypeExpr`. Holding the key means changing the representation cannot
+   silently rename every dictionary in a program.
+2. **`InstanceDef.type_args: Vec<TypeExpr>` → `Vec<InferType>`** — **56
+   compile errors**, 41 of them in `class_env.rs`. Smaller than the 131
+   `.type_args` reads suggested, because most of those are on
+   `SchemeConstraint`, which is already `InferType`. Two decisions this forces:
+   - instance head type parameters need a numbering convention, the same one
+     stage 0d gave method signatures (class parameter `i` is `TypeVarId(i)`);
+   - `PublicInstanceEntry.type_args` (`module_interface.rs:113`) is part of the
+     `.flxi` format. Convert at the boundary and the format is unchanged, so no
+     further epoch bump is owed.
+
+   The payoff is concrete: `match_instance_type_expr` — four call sites, the
+   last `TypeExpr`-pattern matcher — is replaced by `match_infer`, which stage
+   0d already wrote and which currently has one caller.
+3. **Move `class_dispatch.rs` and `class_env`'s collection half** into the root
+   crate. Mechanical.
+4. **Move what remains** into `flux-generics` and re-export.
 
 Measurement note: from stage 2 on, validation must **run** programs, not only
 compile them. The compile-only sweep used during the 0185 attempt reported
