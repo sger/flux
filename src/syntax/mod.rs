@@ -10,10 +10,10 @@ pub mod effect_ops;
 // can depend on it without depending on the compiler. Re-exported under the
 // original paths: `syntax::symbol::Symbol`, `syntax::Interner` and the rest
 // keep working unchanged.
-pub use flux_source::entry;
+pub use crate::source::entry;
 pub mod expression;
 pub mod formatter;
-pub use flux_source::interner;
+pub use crate::source::interner;
 pub mod lexeme;
 pub mod lexer;
 pub mod linter;
@@ -24,7 +24,7 @@ pub mod precedence;
 pub mod program;
 pub mod select_desugar;
 pub mod statement;
-pub use flux_source::symbol;
+pub use crate::source::symbol;
 pub mod token;
 pub mod token_type;
 pub mod type_class;

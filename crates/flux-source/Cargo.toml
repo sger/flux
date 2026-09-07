@@ -1,9 +1,0 @@
-[package]
-name = "flux-source"
-version = "0.0.7"
-edition = "2024"
-authors = ["Spiros Gerokostas <spiros.gerokostas@gmail.com>"]
-license = "MIT"
-
-[dependencies]
-serde = { version = "1.0", features = ["derive"] }

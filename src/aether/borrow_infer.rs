@@ -327,7 +327,7 @@ fn compute_recursive_groups(program: &CoreProgram) -> Vec<Vec<CoreBinderId>> {
         .collect();
 
     let nodes: Vec<CoreBinderId> = program.defs.iter().map(|def| def.binder.id).collect();
-    flux_generics::strongly_connected_components(&nodes, |id| {
+    crate::shared::scc::strongly_connected_components(&nodes, |id| {
         adjacency
             .get(&id)
             .into_iter()

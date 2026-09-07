@@ -230,80 +230,101 @@ solver recorded — in which case the translation emits it — or it is not need
 - The AST twin of `current_context_dictionary`.
 - Two of the four instance-resolution sites.
 
-### Where it lives: `crates/flux-generics/`
+### Where it lives: `src/` — the crate boundary, reconsidered
 
-The four changes above are one subject, and today that subject is smeared across
-`ast/type_infer/`, `types/`, `core/passes/` and `compiler/`. It gets its own
-**workspace crate**, not a module.
+**This section records a decision that was reversed.** The original design put
+this subject in a workspace crate, on the argument that a module leaves the
+boundary to review and review is what already failed — the six resolution sites
+are held in agreement by hand-written comments saying they "must stay in
+lockstep", and KI-085 is what happened when they stayed in lockstep with each
+other and not with inference.
 
-A module would leave the boundary to review, which is what the rest of this
-document argues has already failed: the six resolution sites are held in
-agreement by hand-written comments saying they "must stay in lockstep", and
-KI-085 is what happened when they did stay in lockstep with each other and not
-with inference. A crate boundary is checked by the compiler on every build.
+Stages 0a and 0b executed that plan: `crates/flux-source` and
+`crates/flux-diagnostics`, both pure moves, both green. Stage 0e — the crate the
+proposal is named for, plus the `src/types/` move — was abandoned, and 0a/0b
+were then folded back. `src/types/` now holds `quantify.rs`, `evidence.rs` and
+`translate.rs`; the vocabulary lives in `src/source/`, `src/diagnostics/` and
+`src/shared/scc.rs`; and the workspace is the root crate plus `crates/flux-lsp`.
+
+Three findings overturned the argument:
+
+1. **`src/types/` cannot be moved cheaply.** Measured, not estimated: 149
+   production references into `syntax`, two-thirds in code that should not move
+   at all. Not a pure move — surgery, on the axis this work is most likely to
+   break.
+
+2. **A crate boundary enforces dependency *direction*, and nothing else.** Two
+   of the architecture rules this proposal wanted mechanised are about
+   *contents* — "`bytecode/` must not gain compile-time or execution logic",
+   "`shared_ir/` is ID plumbing, not a pipeline stage" — and no crate graph can
+   express either. The two directional rules were then measured and found to be
+   one edge each: `llvm → bytecode` is `hash_bytes`, `syntax → core` is
+   `CorePrimOp`. Two edges is a guard test, not a workspace split.
+
+3. **Each extracted crate had exactly one consumer.** `flux-lsp` depends on
+   `flux`, not on any of them, so the boundary constrained a single client — and
+   a guard test constrains every module in `src/`, not just three.
+
+What settled it was stage 2's own regression. Every commit on this branch passed
+a full suite plus a parity sweep while a nested forward reference miscompiled to
+`E1001 ... (got Uninit)`. No boundary would have caught it: the defect is an
+ordering inside one function, not a dependency anyone crossed. The scarce thing
+is tests that assert behaviour, not tests that assert shape.
+
+`flux-generics` is the cautionary case in miniature. It shipped as 342 lines
+holding one Tarjan function — whose second consumer turned out to be the borrow
+checker — under a `lib.rs` advertising "binding groups, quantification, evidence
+and the dictionary translation". The name described the plan; the contents were
+a graph algorithm. It is now `src/shared/scc.rs`, and the naming rule that came
+out of it is applied to its neighbour: the AST-walking half is
+`src/binding_groups.rs`, named for what is in the file rather than for what may
+one day join it.
+
+**What survives unchanged.** The layering the crate was meant to enforce is
+still the design, and still correct:
 
 ```
-crates/flux-source/        Symbol, Interner, Span, Position          (no deps)
-crates/flux-diagnostics/   Diagnostic, error codes, rendering        -> flux-source
-crates/flux-generics/                                                -> both
-├── lib.rs          — the public surface: what inference and lowering call
-├── scc.rs          — generic iterative Tarjan, ordered successors
-├── types/          — the type and class vocabulary, moved from src/types/
-├── solver/         — class_solver, class_disposition, Evidence
-├── quantify.rs     — the single quantification decision (GHC's decideQuantification)
-├── evidence.rs     — the recorded solver decision: wanted constraint → evidence
-└── translate.rs    — the dictionary-passing translation, the only emitter
-
-flux (root crate)          -> flux-generics, flux-diagnostics, flux-source
-└── src/generics_frontend/ — AST → binding plan; the renamer-equivalent
+src/source/          Symbol, Interner, Span, Position          (depends on nothing)
+src/diagnostics/     Diagnostic, error codes, rendering        -> source
+src/shared/scc.rs    generic iterative Tarjan, ordered successors
+src/types/           type + class vocabulary, the solver, quantify / evidence / translate
+src/binding_groups.rs  AST -> binding plan; the renamer-equivalent
 ```
 
-The two supporting crates exist because `flux-generics` must be able to name a
-symbol and report an error without depending on the compiler. They are pure
-extractions and carry no design of their own.
-
-Dependency direction is one-way and now enforced mechanically: `flux-generics`
-cannot reach into `compiler/`, `cfg/`, `bytecode/` or `llvm/` because it does
-not depend on the crate they live in. A backend receives a program whose
-evidence is already explicit, and has no say in it.
-
-**Binding-group *graph construction* stays in the root crate**, in
-`generics_frontend`, because it walks the AST; only the graph algorithm
-(`scc.rs`) moves. This is GHC's split exactly — dependency analysis lives in the
-renamer, and the solver never sees surface syntax.
-
-`scc.rs` is deliberately first and deliberately standalone: it is a graph
-algorithm over names, it needs nothing from the type checker, and it can be
-tested on its own before anything else moves.
+Dependency direction is one-way, the solver still never sees surface syntax, and
+a backend still receives a program whose evidence is already explicit and has no
+say in it. **Binding-group graph construction stays out of the solver** because
+it walks the AST — GHC's split, where dependency analysis is the renamer's job.
+The difference is that this is now asserted by a guard test over module imports
+rather than by the crate graph, which costs one file instead of 149 call sites
+and covers the two contents rules a crate graph could never reach.
 
 ### Staging
 
 Each stage is independently landable and independently testable. No stage
 depends on a later one being designed correctly.
 
-Stages 0a–0d are preparation: two pure crate extractions, then two design fixes
-made **in place**, in the root crate, where the tree stays green. They come
-first because `src/types/` cannot cross a crate boundary while the class
-environment stores surface syntax and executable code — moving it in that state
-would mean widening a dozen private helpers to `pub` and extracting nine
-`Statement`-reading collection functions, churn the design fixes would then
-undo. With them done, stage 0e is a move rather than surgery.
+Stages 0a–0d are preparation. 0a and 0b were pure crate extractions and have
+since been folded back into `src/` (see above); they are left in the table
+because 0c and 0d were sequenced behind them. 0c and 0d are design fixes made
+**in place**, in the root crate, where the tree stays green.
 
-This table is the single source of truth for sequencing. An earlier draft
-numbered these 1–8 with the crate move second; that ordering did not survive
-contact, because `src/types/` cannot cross a crate boundary while the class
-environment stores surface syntax and executable code. The preparation stages
-below were introduced to fix that first, and everything after shifted.
+This table is the single source of truth for sequencing. Two earlier orderings
+did not survive contact. The first numbered these 1–8 with the crate move
+second; that failed because `src/types/` cannot cross a crate boundary while the
+class environment stores surface syntax and executable code, so the preparation
+stages were introduced to fix that first. The second kept 0e — the crate move
+itself — and that is now **withdrawn**: the boundary is a guard test instead.
 
 | stage | status | change | exit |
 |---|---|---|---|
-| 0a | done | `crates/flux-source`: Symbol, Interner, Span, Position | suite green; pure move |
-| 0b | done | `crates/flux-diagnostics`: the diagnostics module | suite green; pure move |
+| 0a | reverted | `crates/flux-source` — extracted, then folded back to `src/source/` | suite green; pure move, both ways |
+| 0b | reverted | `crates/flux-diagnostics` — extracted, then folded back to `src/diagnostics/` | suite green; pure move, both ways |
 | 0c | done | Default method bodies out of `MethodSig` into a side table (`ClassBodies`, widened to `ClassSurface` in 0d) | suite + parity green; behaviour identical |
 | 0d | done (descoped) | Class method signatures converted `TypeExpr` → `InferType` at collection. Done: `MethodSig.infer_type`, `match_type` deleted. Remaining work **descoped**: threading `&ClassSurface` into the eight surface consumers buys nothing this proposal needs, because `InstanceDef.type_args` keeps `TypeExpr` in the class environment regardless (131 structural reads). The goal was to get executable code and surface syntax out of `MethodSig`, and that is done. | suite + parity green |
-| 0e | in progress | `crates/flux-generics` + the `src/types/` move. **Not a pure move** — measured, not estimated. `src/types/` holds 149 production references to `TypeExpr`, and `flux-source` deliberately knows nothing about types. Ordered work below. | suite + parity green |
+| 0e | withdrawn | `crates/flux-generics` + the `src/types/` move. Not a pure move: `src/types/` holds 149 production references into `syntax`. Replaced by a guard test over module imports — see *Where it lives*. | — |
 | 1 | done | `scc.rs`: iterative, ordered, generic; delete both existing Tarjans | determinism under permuted input; 10k-node chain does not overflow |
-| 2 | done | `generics_frontend::plan`; wire Core lowering to consume binding groups | mutual recursion across an intervening `let`; suite green |
+| 2 | done | `binding_groups`; wire Core lowering to consume binding groups | mutual recursion across an intervening `let`; suite green |
 | 3 | done | Bump `CACHE_EPOCH` 44 → 45 **before** the red middle, not after | a stale artifact cannot survive stages 4–5 |
 | 4 | partial | `quantify.rs`: one decision returning quantified vars *and* retained context; MR becomes a parameter. Done: `decide_quantification` computes the quantified set once (it was derived at four sites) and `Quantified::into_scheme` consumes that set rather than re-deriving it; `GeneralizationMode` becomes `MonoRestriction` with `monomorphism_restriction(arity, has_signature)` as the rule. Done: `infer_binding_group`, so all four statement passes walk the same plan. Remaining: one quantification decision *per group* rather than per member — this is what retires `finalize_and_bind_function_scheme` and `refine_unannotated_self_recursive_return`.
 
