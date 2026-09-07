@@ -1314,3 +1314,36 @@ fn main() with IO {
         "expected E490 at the access, got: {diagnostics:?}"
     );
 }
+
+/// The solver's answer for a call site's predicate is recorded against that
+/// site (proposal 0186 stage 5).
+///
+/// Six places in `core/` and `compiler/` re-derive which instance a call uses,
+/// kept in agreement by hand-written comments, because the solver's own answer
+/// was thrown away. This pins that it is kept, keyed by the expression that
+/// raised the predicate rather than by a span — a span cannot tell apart two
+/// predicates raised at one site for one class.
+#[test]
+fn a_call_sites_evidence_is_recorded_against_that_site() {
+    let source = r#"
+class Sized<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sized<Int> {
+    fn size(x) { x }
+}
+
+fn twice_size<a: Sized>(x: a) -> Int { size(x) + size(x) }
+
+fn main() { twice_size(21) }
+"#;
+    let (program, mut compiler) = parse_source(source, "evidence_recorded.flx");
+    compiler.compile(&program).expect("program type-checks");
+
+    assert!(
+        !compiler.evidence_map().is_empty(),
+        "the whole-program solve discharged `Sized<Int>` for `twice_size(21)`, \
+         so its evidence must be recorded against that call"
+    );
+}
