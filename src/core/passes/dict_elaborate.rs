@@ -233,12 +233,7 @@ fn build_instance_dictionaries(
         if instance.type_args.is_empty() {
             continue;
         }
-        let type_name = instance
-            .type_args
-            .iter()
-            .map(|a| a.display_with(interner))
-            .collect::<Vec<_>>()
-            .join("_");
+        let type_name = instance.type_key.clone();
 
         // Build the dictionary name: __dict_{Class}_{Type}
         // These names are pre-interned during dispatch generation (Phase 1b).
@@ -320,12 +315,7 @@ fn build_contextual_dictionary_expr(
     next_id: &mut u32,
 ) -> Option<CoreExpr> {
     let span = Span::default();
-    let type_name = instance
-        .type_args
-        .iter()
-        .map(|a| a.display_with(interner))
-        .collect::<Vec<_>>()
-        .join("_");
+    let type_name = instance.type_key.clone();
 
     let mut context_occurrences: HashMap<crate::types::class_id::ClassId, usize> = HashMap::new();
     let context_binders: Vec<CoreBinder> = instance
@@ -1995,6 +1985,7 @@ mod tests {
             class_id: crate::types::class_id::ClassId::from_local_name(eq_sym),
             instance_module: crate::types::class_id::ModulePath::EMPTY,
             is_public: false,
+            type_key: "Int".to_string(),
             type_args: vec![TypeExpr::Named {
                 name: int_sym,
                 args: vec![],
@@ -2336,6 +2327,7 @@ mod tests {
             class_id: crate::types::class_id::ClassId::from_local_name(eq_sym),
             instance_module: crate::types::class_id::ModulePath::EMPTY,
             is_public: false,
+            type_key: "Int".to_string(),
             type_args: vec![TypeExpr::Named {
                 name: float_sym,
                 args: vec![],
