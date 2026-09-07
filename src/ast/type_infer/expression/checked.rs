@@ -18,12 +18,19 @@ impl<'a> InferCtx<'a> {
         expr: &Expression,
         expected: &InferType,
     ) -> InferType {
+        // A checked sub-expression owes its predicates to *itself*, not to the
+        // expression that propagated the expected type inward. `infer_expression`
+        // sets this on the way in; the checked path did not, so a constrained
+        // function passed as an argument had its `Num<Int>` recorded against the
+        // enclosing call — a site nothing looks up for it.
+        let enclosing_expr = self.current_expr.replace(expr.expr_id());
         let resolved = self
             .dispatch_check_expression(expr, expected)
             .unwrap_or_else(|| {
                 let actual = self.infer_expression(expr);
                 self.unify_reporting(expected, &actual, expr.span())
             });
+        self.current_expr = enclosing_expr;
         resolved.apply_type_subst(&self.subst)
     }
 
