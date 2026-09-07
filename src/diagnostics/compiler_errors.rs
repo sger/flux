@@ -1,0 +1,2236 @@
+use std::sync::Arc;
+
+use super::builders::DiagnosticBuilder;
+use super::quality::{
+    TypeMismatchNotes, missing_construct_opener_diagnostic, missing_syntax_token_diagnostic,
+    occurs_check_diagnostic, type_mismatch_diagnostic,
+};
+use super::types::{DiagnosticCategory, ErrorCode, ErrorType};
+
+pub const DUPLICATE_NAME: ErrorCode = ErrorCode {
+    code: "E001",
+    title: "DUPLICATE NAME",
+    error_type: ErrorType::Compiler,
+    message: "Duplicate binding: `{}` is already defined.",
+    hint: Some("Use a different name or remove the previous definition."),
+};
+
+pub const IMMUTABLE_BINDING: ErrorCode = ErrorCode {
+    code: "E002",
+    title: "IMMUTABLE BINDING",
+    error_type: ErrorType::Compiler,
+    message: "Cannot reassign to immutable variable `{}`.",
+    hint: Some(
+        "In Flux, bindings are immutable. Compute a new value with a new binding name (for example: `let next_{} = ...`).",
+    ),
+};
+
+pub const OUTER_ASSIGNMENT: ErrorCode = ErrorCode {
+    code: "E003",
+    title: "OUTER ASSIGNMENT",
+    error_type: ErrorType::Compiler,
+    message: "Cannot assign to variable `{}` from outer scope.",
+    hint: Some(
+        "Variables captured by closures cannot be reassigned. Return the updated value from the function or bind it to a new name.",
+    ),
+};
+
+pub const UNDEFINED_VARIABLE: ErrorCode = ErrorCode {
+    code: "E004",
+    title: "UNDEFINED VARIABLE",
+    error_type: ErrorType::Compiler,
+    message: "I can't find a value named `{}`.",
+    hint: Some("Define it first: let {} = ...;"),
+};
+
+pub const UNKNOWN_PREFIX_OPERATOR: ErrorCode = ErrorCode {
+    code: "E005",
+    title: "UNKNOWN PREFIX OPERATOR",
+    error_type: ErrorType::Compiler,
+    message: "Unknown prefix operator: `{}`.",
+    hint: Some("Valid prefix operators: !, -"),
+};
+
+pub const UNKNOWN_INFIX_OPERATOR: ErrorCode = ErrorCode {
+    code: "E006",
+    title: "UNKNOWN INFIX OPERATOR",
+    error_type: ErrorType::Compiler,
+    message: "Unknown infix operator: `{}`.",
+    hint: Some("Valid infix operators: +, -, *, /, %, ==, !=, <, >, <=, >=, &&, ||, |>"),
+};
+
+pub const DUPLICATE_PARAMETER: ErrorCode = ErrorCode {
+    code: "E007",
+    title: "DUPLICATE PARAMETER",
+    error_type: ErrorType::Compiler,
+    message: "Duplicate parameter name: `{}`.",
+    hint: Some("Each parameter must have a unique name."),
+};
+
+pub const INVALID_MODULE_NAME: ErrorCode = ErrorCode {
+    code: "E008",
+    title: "INVALID MODULE NAME",
+    error_type: ErrorType::Compiler,
+    message: "Invalid module name: `{}`.",
+    hint: Some(
+        "Module names must start with an uppercase letter and contain only alphanumeric characters and dots.",
+    ),
+};
+
+pub const MODULE_NAME_CLASH: ErrorCode = ErrorCode {
+    code: "E009",
+    title: "MODULE NAME CLASH",
+    error_type: ErrorType::Compiler,
+    message: "Module name `{}` conflicts with existing binding.",
+    hint: Some("Choose a different module name or rename the conflicting binding."),
+};
+
+pub const INVALID_MODULE_CONTENT: ErrorCode = ErrorCode {
+    code: "E010",
+    title: "INVALID MODULE CONTENT",
+    error_type: ErrorType::Compiler,
+    message: "Invalid content in module `{}`: {}.",
+    hint: Some("Modules can only contain function definitions and constant declarations."),
+};
+
+pub const PRIVATE_MEMBER: ErrorCode = ErrorCode {
+    code: "E011",
+    title: "PRIVATE MEMBER",
+    error_type: ErrorType::Compiler,
+    message: "Cannot access private member `{}`.",
+    hint: Some(
+        "Private members can only be accessed within the same module. Use `public fn` to export a function.",
+    ),
+};
+
+pub const UNKNOWN_MODULE_MEMBER: ErrorCode = ErrorCode {
+    code: "E012",
+    title: "UNKNOWN MODULE MEMBER",
+    error_type: ErrorType::Compiler,
+    message: "Module `{}` has no member named `{}`.",
+    hint: Some("Check the module's public members or import the correct module."),
+};
+
+pub const MODULE_NOT_IMPORTED: ErrorCode = ErrorCode {
+    code: "E013",
+    title: "MODULE NOT IMPORTED",
+    error_type: ErrorType::Compiler,
+    message: "Module `{}` is not imported.",
+    hint: Some(
+        "Add an import statement at the top of your file: `import {}`. You can also use an alias: `import {} as ShorterName`. Remember: imports must be at the top, before any other code.",
+    ),
+};
+
+pub const EMPTY_MATCH: ErrorCode = ErrorCode {
+    code: "E014",
+    title: "EMPTY MATCH",
+    error_type: ErrorType::Compiler,
+    message: "Match expression must have at least one arm.",
+    hint: Some("Add at least one pattern match arm: match value { pattern -> expr; }"),
+};
+
+pub const NON_EXHAUSTIVE_MATCH: ErrorCode = ErrorCode {
+    code: "E015",
+    title: "NON-EXHAUSTIVE MATCH",
+    error_type: ErrorType::Compiler,
+    message: "Match expressions must end with a `_` or identifier arm.",
+    hint: Some("Add a catch-all pattern: _ -> default_value"),
+};
+
+pub const CATCHALL_NOT_LAST: ErrorCode = ErrorCode {
+    code: "E016",
+    title: "INVALID PATTERN",
+    error_type: ErrorType::Compiler,
+    message: "Catch-all patterns must be the final match arm.",
+    hint: Some("Move `_` or the binding pattern to the last arm."),
+};
+
+pub const IMPORT_SCOPE: ErrorCode = ErrorCode {
+    code: "E017",
+    title: "IMPORT SCOPE",
+    error_type: ErrorType::Compiler,
+    message: "Import statements must be at the top of the file.",
+    hint: Some("Move all import statements before any other declarations."),
+};
+
+pub const IMPORT_NOT_FOUND: ErrorCode = ErrorCode {
+    code: "E018",
+    title: "IMPORT NOT FOUND",
+    error_type: ErrorType::Compiler,
+    message: "Cannot find module `{}` to import.",
+    hint: Some(
+        "Check that: 1) The module file exists (e.g., `{}.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.",
+    ),
+};
+
+pub const IMPORT_READ_FAILED: ErrorCode = ErrorCode {
+    code: "E019",
+    title: "IMPORT READ FAILED",
+    error_type: ErrorType::Compiler,
+    message: "Failed to read module file `{}`: {}.",
+    hint: Some("Check file permissions and that the file is valid UTF-8."),
+};
+
+pub const INVALID_PATTERN: ErrorCode = ErrorCode {
+    code: "E020",
+    title: "INVALID PATTERN",
+    error_type: ErrorType::Compiler,
+    message: "Invalid pattern in match expression: {}.",
+    hint: Some("Valid patterns: literals, identifiers, None, Some(x), Left(x), Right(x), _"),
+};
+
+pub const IMPORT_CYCLE: ErrorCode = ErrorCode {
+    code: "E021",
+    title: "IMPORT CYCLE",
+    error_type: ErrorType::Compiler,
+    message: "Circular import detected: {}.",
+    hint: Some("Reorganize your modules to break the circular dependency."),
+};
+
+pub const SCRIPT_NOT_IMPORTABLE: ErrorCode = ErrorCode {
+    code: "E022",
+    title: "SCRIPT NOT IMPORTABLE",
+    error_type: ErrorType::Compiler,
+    message: "Cannot import from script file `{}` (scripts cannot be imported).",
+    hint: Some("Only module files can be imported. Convert the script to a module."),
+};
+
+pub const MULTIPLE_MODULES: ErrorCode = ErrorCode {
+    code: "E023",
+    title: "MULTIPLE MODULES",
+    error_type: ErrorType::Compiler,
+    message: "File contains multiple module declarations.",
+    hint: Some("Each file should contain only one module declaration."),
+};
+
+pub const MODULE_PATH_MISMATCH: ErrorCode = ErrorCode {
+    code: "E024",
+    title: "MODULE PATH MISMATCH",
+    error_type: ErrorType::Compiler,
+    message: "Module name `{}` doesn't match file path `{}`.",
+    hint: Some("Rename the module or move the file to match."),
+};
+
+pub const MODULE_SCOPE: ErrorCode = ErrorCode {
+    code: "E025",
+    title: "MODULE SCOPE",
+    error_type: ErrorType::Compiler,
+    message: "Module declaration must be at the top of the file.",
+    hint: Some("Move the module declaration before all other statements."),
+};
+
+pub const INVALID_MODULE_ALIAS: ErrorCode = ErrorCode {
+    code: "E026",
+    title: "INVALID MODULE ALIAS",
+    error_type: ErrorType::Compiler,
+    message: "Invalid module alias: `{}`.",
+    hint: Some("Module aliases must start with an uppercase letter."),
+};
+
+pub const DUPLICATE_MODULE: ErrorCode = ErrorCode {
+    code: "E027",
+    title: "DUPLICATE MODULE",
+    error_type: ErrorType::Compiler,
+    message: "Duplicate module declaration: `{}`.",
+    hint: Some("Remove one of the duplicate module declarations."),
+};
+
+/// Two resolved packages claim the same namespace, so
+/// an import beneath it is ambiguous. Reported at resolution time, where the
+/// package identities are known, rather than as a bare `E027 Duplicate Module`
+/// naming only the two colliding files.
+pub const NAMESPACE_COLLISION: ErrorCode = ErrorCode {
+    code: "E469",
+    title: "NAMESPACE COLLISION",
+    error_type: ErrorType::Compiler,
+    message: "Packages `{}` and `{}` both claim namespace `{}`.",
+    hint: Some(
+        "Each package must own a distinct namespace. Rename one package, or set \
+         a different `namespace` in its `flux.toml`.",
+    ),
+};
+
+/// The project's `flux.toml` exists but its packages
+/// could not be resolved — an unreadable or malformed manifest, or a
+/// dependency kind Phase 1 does not support. The message comes from the Flux
+/// manifest resolver, which owns all manifest parsing.
+pub const MANIFEST_UNRESOLVED: ErrorCode = ErrorCode {
+    code: "E470",
+    title: "MANIFEST UNRESOLVED",
+    error_type: ErrorType::Compiler,
+    message: "Could not resolve the project manifest: {}.",
+    hint: Some("Check `flux.toml` and the dependencies it declares."),
+};
+
+/// A package declared a module outside the namespace it owns. Reported at the
+/// offending package's own build rather than at a consumer's, where it would
+/// surface as a confusing missing-module or duplicate-module error.
+pub const NAMESPACE_ESCAPE: ErrorCode = ErrorCode {
+    code: "E471",
+    title: "MODULE ESCAPES PACKAGE NAMESPACE",
+    error_type: ErrorType::Compiler,
+    message: "Package `{}` may only declare modules under `{}`, but this file declares `module {}`.",
+    hint: Some(
+        "Rename the module to sit under the package's namespace, and move the file to match.",
+    ),
+};
+
+pub const INVALID_MODULE_FILE: ErrorCode = ErrorCode {
+    code: "E028",
+    title: "INVALID MODULE FILE",
+    error_type: ErrorType::Compiler,
+    message: "Invalid module file: {}.",
+    hint: Some("Module files must have .flx extension and valid Flux code."),
+};
+
+pub const IMPORT_NAME_COLLISION: ErrorCode = ErrorCode {
+    code: "E029",
+    title: "IMPORT NAME COLLISION",
+    error_type: ErrorType::Compiler,
+    message: "Import name `{}` collides with existing binding.",
+    hint: Some("Use an alias: import Module as Alias"),
+};
+
+// Syntax Errors (E100-E199)
+pub const UNKNOWN_KEYWORD: ErrorCode = ErrorCode {
+    code: "E030",
+    title: "UNKNOWN KEYWORD",
+    error_type: ErrorType::Compiler,
+    message: "Unknown keyword: `{}`.",
+    hint: Some(
+        "Flux keywords are: let, fn, if, else, match, import, module, return, true, false, None. Common mistakes: use `fn` (not `function` or `def`), use `let` (not `var` or `const`). Check for typos in your keyword.",
+    ),
+};
+
+pub const EXPECTED_EXPRESSION: ErrorCode = ErrorCode {
+    code: "E031",
+    title: "EXPECTED EXPRESSION",
+    error_type: ErrorType::Compiler,
+    message: "Expected expression, found {}.",
+    hint: None,
+};
+
+pub const INVALID_INTEGER: ErrorCode = ErrorCode {
+    code: "E032",
+    title: "INVALID INTEGER",
+    error_type: ErrorType::Compiler,
+    message: "Invalid integer literal: {}.",
+    hint: Some("Integer literals must be valid numbers without leading zeros."),
+};
+
+pub const INVALID_FLOAT: ErrorCode = ErrorCode {
+    code: "E033",
+    title: "INVALID FLOAT",
+    error_type: ErrorType::Compiler,
+    message: "Invalid float literal: {}.",
+    hint: Some("Float literals must have digits before and after the decimal point."),
+};
+
+pub const UNEXPECTED_TOKEN: ErrorCode = ErrorCode {
+    code: "E034",
+    title: "UNEXPECTED TOKEN",
+    error_type: ErrorType::Compiler,
+    message: "Unexpected token: {} (expected {}).",
+    hint: Some(
+        "Common causes: missing semicolon, unclosed parenthesis/bracket, or misplaced operator. Check the line above for syntax errors.",
+    ),
+};
+
+pub const INVALID_PATTERN_LEGACY: ErrorCode = ErrorCode {
+    code: "E035",
+    title: "INVALID PATTERN",
+    error_type: ErrorType::Compiler,
+    message: "Invalid pattern: {}.",
+    hint: None,
+};
+
+pub const LAMBDA_SYNTAX_ERROR: ErrorCode = ErrorCode {
+    code: "E036",
+    title: "LAMBDA SYNTAX ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Invalid lambda syntax: {}.",
+    hint: Some("Use: \\x -> expr or \\(x, y) -> expr"),
+};
+
+pub const LAMBDA_PARAMETER_ERROR: ErrorCode = ErrorCode {
+    code: "E037",
+    title: "LAMBDA PARAMETER ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Invalid lambda parameter: {}.",
+    hint: Some("Lambda parameters must be identifiers."),
+};
+
+pub const LAMBDA_BODY_ERROR: ErrorCode = ErrorCode {
+    code: "E038",
+    title: "LAMBDA BODY ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Lambda must have an expression body.",
+    hint: Some("Lambda syntax: \\params -> expression"),
+};
+
+pub const PIPE_OPERATOR_ERROR: ErrorCode = ErrorCode {
+    code: "E039",
+    title: "PIPE OPERATOR ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Invalid pipe expression: {}.",
+    hint: Some("Pipe operator requires: value |> function"),
+};
+
+pub const PIPE_TARGET_ERROR: ErrorCode = ErrorCode {
+    code: "E040",
+    title: "PIPE TARGET ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Pipe target must be a function call.",
+    hint: Some("Use: value |> func or value |> func(arg)"),
+};
+
+pub const EITHER_CONSTRUCTOR_ERROR: ErrorCode = ErrorCode {
+    code: "E041",
+    title: "EITHER CONSTRUCTOR ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Either requires Left or Right constructor.",
+    hint: Some("Use: Left(value) or Right(value)"),
+};
+
+pub const EITHER_VALUE_ERROR: ErrorCode = ErrorCode {
+    code: "E042",
+    title: "EITHER VALUE ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Either constructor requires exactly one argument.",
+    hint: Some("Use: Left(value) or Right(value), not Left() or Left(a, b)"),
+};
+
+pub const SHORT_CIRCUIT_ERROR: ErrorCode = ErrorCode {
+    code: "E043",
+    title: "SHORT-CIRCUIT EVALUATION ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Invalid short-circuit expression: {}.",
+    hint: Some("Use && for logical AND, || for logical OR"),
+};
+
+pub const CIRCULAR_DEPENDENCY: ErrorCode = ErrorCode {
+    code: "E044",
+    title: "CIRCULAR DEPENDENCY",
+    error_type: ErrorType::Compiler,
+    message: "Circular dependency in module constants: {}.",
+    hint: Some(
+        "Break the cycle by using a literal value or moving one constant to a different module.",
+    ),
+};
+
+pub const CONST_EVAL_ERROR: ErrorCode = ErrorCode {
+    code: "E045",
+    title: "CONSTANT EVALUATION ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Cannot evaluate constant at compile time: {}.",
+    hint: Some(
+        "Constants must be evaluable at compile time using only literals and other constants.",
+    ),
+};
+
+pub const CONST_NOT_FOUND: ErrorCode = ErrorCode {
+    code: "E046",
+    title: "CONSTANT NOT FOUND",
+    error_type: ErrorType::Compiler,
+    message: "Constant `{}` not found in module `{}`.",
+    hint: Some("Check that the constant is defined and public."),
+};
+
+pub const CONST_NOT_PUBLIC: ErrorCode = ErrorCode {
+    code: "E047",
+    title: "CONSTANT NOT PUBLIC",
+    error_type: ErrorType::Compiler,
+    message: "Constant `{}` is private in module `{}`.",
+    hint: Some("Use `pub const` to make it accessible from other modules."),
+};
+
+pub const CONST_INVALID_EXPR: ErrorCode = ErrorCode {
+    code: "E048",
+    title: "INVALID CONSTANT EXPRESSION",
+    error_type: ErrorType::Compiler,
+    message: "Invalid expression in constant declaration: {}.",
+    hint: Some("Constants can only use literals, arithmetic, and other constants."),
+};
+
+pub const CONST_TYPE_ERROR: ErrorCode = ErrorCode {
+    code: "E049",
+    title: "CONSTANT TYPE ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Type error in constant evaluation: {}.",
+    hint: None,
+};
+
+pub const CONST_SCOPE_ERROR: ErrorCode = ErrorCode {
+    code: "E050",
+    title: "CONSTANT SCOPE ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Constants can only be declared at module level.",
+    hint: Some("Move the constant declaration to the top level of the module."),
+};
+
+pub const DIVISION_BY_ZERO_COMPILE: ErrorCode = ErrorCode {
+    code: "E051",
+    title: "DIVISION BY ZERO",
+    error_type: ErrorType::Compiler,
+    message: "Division by zero detected at compile time.",
+    hint: Some("Check divisor is non-zero before division."),
+};
+
+pub const MODULO_BY_ZERO_COMPILE: ErrorCode = ErrorCode {
+    code: "E052",
+    title: "MODULO BY ZERO",
+    error_type: ErrorType::Compiler,
+    message: "Modulo by zero detected at compile time.",
+    hint: Some("Check divisor is non-zero before modulo operation."),
+};
+
+pub const EITHER_UNWRAP_ERROR_LEFT: ErrorCode = ErrorCode {
+    code: "E053",
+    title: "EITHER UNWRAP ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Cannot unwrap Left value as Right.",
+    hint: Some("Use pattern matching to handle both Left and Right cases."),
+};
+
+pub const EITHER_UNWRAP_ERROR_RIGHT: ErrorCode = ErrorCode {
+    code: "E054",
+    title: "EITHER UNWRAP ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Cannot unwrap Right value as Left.",
+    hint: Some("Use pattern matching to handle both Left and Right cases."),
+};
+
+pub const TYPE_MISMATCH: ErrorCode = ErrorCode {
+    code: "E055",
+    title: "TYPE MISMATCH",
+    error_type: ErrorType::Compiler,
+    message: "Expected {}, got {}.",
+    hint: None,
+};
+
+pub const TYPE_ERROR: ErrorCode = ErrorCode {
+    code: "E056",
+    title: "WRONG NUMBER OF ARGUMENTS",
+    error_type: ErrorType::Compiler,
+    message: "Expected {} arguments, got {}.",
+    hint: None,
+};
+
+pub const INCOMPATIBLE_TYPES: ErrorCode = ErrorCode {
+    code: "E057",
+    title: "INCOMPATIBLE TYPES",
+    error_type: ErrorType::Compiler,
+    message: "Cannot {} {} and {} values.",
+    hint: None,
+};
+
+pub const CONST_RUNTIME_ERROR: ErrorCode = ErrorCode {
+    code: "E058",
+    title: "CONSTANT RUNTIME ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Runtime error while evaluating constant: {}.",
+    hint: None,
+};
+
+pub const CONST_DIVISION_BY_ZERO: ErrorCode = ErrorCode {
+    code: "E059",
+    title: "CONSTANT DIVISION BY ZERO",
+    error_type: ErrorType::Compiler,
+    message: "Division by zero in constant evaluation.",
+    hint: Some("Ensure all constant expressions have non-zero divisors."),
+};
+
+pub const CONST_OVERFLOW: ErrorCode = ErrorCode {
+    code: "E060",
+    title: "CONSTANT OVERFLOW",
+    error_type: ErrorType::Compiler,
+    message: "Integer overflow in constant evaluation.",
+    hint: Some("Use smaller numbers or break the computation into parts."),
+};
+
+// ============================================================================
+// INTERNAL COMPILER ERRORS (E061-E070)
+// ============================================================================
+
+pub const ICE_SYMBOL_SCOPE_LET: ErrorCode = ErrorCode {
+    code: "E061",
+    title: "INTERNAL COMPILER ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Unexpected symbol scope for let binding.",
+    hint: Some(
+        "This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues",
+    ),
+};
+
+pub const ICE_SYMBOL_SCOPE_ASSIGN: ErrorCode = ErrorCode {
+    code: "E062",
+    title: "INTERNAL COMPILER ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Unexpected symbol scope for assignment.",
+    hint: Some(
+        "This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues",
+    ),
+};
+
+pub const ICE_TEMP_SYMBOL_MATCH: ErrorCode = ErrorCode {
+    code: "E063",
+    title: "INTERNAL COMPILER ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Unexpected temp symbol scope in match scrutinee.",
+    hint: Some(
+        "This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues",
+    ),
+};
+
+pub const ICE_TEMP_SYMBOL_SOME_PATTERN: ErrorCode = ErrorCode {
+    code: "E064",
+    title: "INTERNAL COMPILER ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Unexpected temp symbol scope in Some pattern.",
+    hint: Some(
+        "This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues",
+    ),
+};
+
+pub const ICE_SYMBOL_SCOPE_PATTERN: ErrorCode = ErrorCode {
+    code: "E065",
+    title: "INTERNAL COMPILER ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Unexpected symbol scope for pattern binding.",
+    hint: Some(
+        "This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues",
+    ),
+};
+
+pub const ICE_TEMP_SYMBOL_SOME_BINDING: ErrorCode = ErrorCode {
+    code: "E066",
+    title: "INTERNAL COMPILER ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Unexpected temp symbol scope in Some binding.",
+    hint: Some(
+        "This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues",
+    ),
+};
+
+pub const ICE_TEMP_SYMBOL_LEFT_PATTERN: ErrorCode = ErrorCode {
+    code: "E067",
+    title: "INTERNAL COMPILER ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Unexpected temp symbol scope in Left pattern.",
+    hint: Some(
+        "This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues",
+    ),
+};
+
+pub const ICE_TEMP_SYMBOL_RIGHT_PATTERN: ErrorCode = ErrorCode {
+    code: "E068",
+    title: "INTERNAL COMPILER ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Unexpected temp symbol scope in Right pattern.",
+    hint: Some(
+        "This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues",
+    ),
+};
+
+pub const ICE_TEMP_SYMBOL_LEFT_BINDING: ErrorCode = ErrorCode {
+    code: "E069",
+    title: "INTERNAL COMPILER ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Unexpected temp symbol scope in Left binding.",
+    hint: Some(
+        "This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues",
+    ),
+};
+
+pub const ICE_TEMP_SYMBOL_RIGHT_BINDING: ErrorCode = ErrorCode {
+    code: "E070",
+    title: "INTERNAL COMPILER ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Unexpected temp symbol scope in Right binding.",
+    hint: Some(
+        "This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues",
+    ),
+};
+
+pub const UNTERMINATED_STRING: ErrorCode = ErrorCode {
+    code: "E071",
+    title: "UNTERMINATED STRING",
+    error_type: ErrorType::Compiler,
+    message: "String literal is missing closing quote.",
+    hint: Some("Add a closing \" at the end of the string."),
+};
+
+pub const UNTERMINATED_INTERPOLATION: ErrorCode = ErrorCode {
+    code: "E072",
+    title: "UNTERMINATED INTERPOLATION",
+    error_type: ErrorType::Compiler,
+    message: "Expected string continuation or end after interpolation.",
+    hint: Some(
+        "String interpolation must be followed by more string content or the closing quote.",
+    ),
+};
+
+pub const UNTERMINATED_BLOCK_COMMENT: ErrorCode = ErrorCode {
+    code: "E074",
+    title: "UNTERMINATED BLOCK COMMENT",
+    error_type: ErrorType::Compiler,
+    message: "Block comment is missing closing */.",
+    hint: Some("Add a closing */ to end the comment."),
+};
+
+pub const MISSING_COMMA: ErrorCode = ErrorCode {
+    code: "E073",
+    title: "MISSING COMMA",
+    error_type: ErrorType::Compiler,
+    message: "Missing comma between {}.",
+    hint: Some("Insert a comma between adjacent items, e.g. `a, b`."),
+};
+
+pub const DUPLICATE_PATTERN_BINDING: ErrorCode = ErrorCode {
+    code: "E075",
+    title: "DUPLICATE PATTERN BINDING",
+    error_type: ErrorType::Compiler,
+    message: "Pattern binds `{}` more than once.",
+    hint: Some("Use unique binding names within a single pattern."),
+};
+
+pub const UNCLOSED_DELIMITER: ErrorCode = ErrorCode {
+    code: "E076",
+    title: "UNCLOSED DELIMITER",
+    error_type: ErrorType::Compiler,
+    message: "Expected a closing delimiter to match the opening one.",
+    hint: Some("Add the missing closing delimiter."),
+};
+
+pub const LEGACY_LIST_TAIL_NONE: ErrorCode = ErrorCode {
+    code: "E077",
+    title: "LEGACY LIST TAIL",
+    error_type: ErrorType::Compiler,
+    message: "Use `[]` as the empty list tail instead of `None`.",
+    hint: Some("Replace `None` with `[]` in cons expressions, for example: `[1 | []]`."),
+};
+
+pub const BASE_ALIAS_FORBIDDEN: ErrorCode = ErrorCode {
+    code: "E078",
+    title: "INVALID BASE DIRECTIVE",
+    error_type: ErrorType::Compiler,
+    message: "`import Flow as {}` is not allowed.",
+    hint: Some("Use `import Flow` or `import Flow except [...]`."),
+};
+
+pub const DUPLICATE_BASE_EXCLUSION: ErrorCode = ErrorCode {
+    code: "E079",
+    title: "INVALID BASE DIRECTIVE",
+    error_type: ErrorType::Compiler,
+    message: "Duplicate Flow exclusion `{}`.",
+    hint: Some("Each name in `import Flow except [...]` must appear only once."),
+};
+
+pub const UNKNOWN_BASE_MEMBER: ErrorCode = ErrorCode {
+    code: "E080",
+    title: "UNKNOWN FLOW MEMBER",
+    error_type: ErrorType::Compiler,
+    message: "Flow has no member named `{}`.",
+    hint: Some("Check the Flow surface or remove this name from `except`."),
+};
+
+// ============================================================================
+// ADT ERRORS (E081-E084)
+// ============================================================================
+
+pub const UNKNOWN_CONSTRUCTOR: ErrorCode = ErrorCode {
+    code: "E081",
+    title: "UNKNOWN CONSTRUCTOR",
+    error_type: ErrorType::Compiler,
+    message: "Unknown constructor `{}`.",
+    hint: Some("Check that the constructor is defined in a `data` declaration in scope."),
+};
+
+pub const CONSTRUCTOR_ARITY_MISMATCH: ErrorCode = ErrorCode {
+    code: "E082",
+    title: "CONSTRUCTOR ARITY MISMATCH",
+    error_type: ErrorType::Compiler,
+    message: "Constructor `{}` expects {} argument(s) but got {}.",
+    hint: Some("Check the `data` declaration for the correct number of fields."),
+};
+
+pub const MODULE_ADT_CONSTRUCTOR_NOT_EXPORTED: ErrorCode = ErrorCode {
+    code: "E084",
+    title: "MODULE ADT CONSTRUCTOR NOT EXPORTED",
+    error_type: ErrorType::Compiler,
+    message: "Constructor `{}` from module `{}` is not part of the public API.",
+    hint: Some(
+        "Use the module's `public fn` factory/accessor API instead of direct constructor access.",
+    ),
+};
+
+pub const CONSTRUCTOR_PATTERN_ARITY_MISMATCH: ErrorCode = ErrorCode {
+    code: "E085",
+    title: "CONSTRUCTOR PATTERN ARITY MISMATCH",
+    error_type: ErrorType::Compiler,
+    message: "Constructor pattern `{}` expects {} argument(s) but got {}.",
+    hint: Some("Check the constructor's declared pattern field count."),
+};
+
+pub const CROSS_MODULE_CONSTRUCTOR_ACCESS: ErrorCode = ErrorCode {
+    code: "E086",
+    title: "CROSS-MODULE CONSTRUCTOR ACCESS",
+    error_type: ErrorType::Compiler,
+    message: "Direct constructor access `{}` from module `{}` is not allowed in strict mode.",
+    hint: Some("Use the module's public factory/accessor functions instead."),
+};
+
+pub const CROSS_MODULE_CONSTRUCTOR_ACCESS_WARNING: ErrorCode = ErrorCode {
+    code: "W201",
+    title: "CROSS-MODULE CONSTRUCTOR ACCESS",
+    error_type: ErrorType::Compiler,
+    message: "Direct constructor access `{}` from module `{}` bypasses module API boundaries.",
+    hint: Some("Prefer module `public fn` factory/accessor API for cross-module usage."),
+};
+
+pub const UNKNOWN_FUNCTION_EFFECT: ErrorCode = ErrorCode {
+    code: "E407",
+    title: "UNKNOWN FUNCTION EFFECT",
+    error_type: ErrorType::Compiler,
+    message: "Function effect annotation references unknown effect `{}`.",
+    hint: Some("Use a declared effect name in `with ...` or declare the effect first."),
+};
+
+// ============================================================================
+// Type Inference Errors (E300–E399)
+// ============================================================================
+
+pub const TYPE_UNIFICATION_ERROR: ErrorCode = ErrorCode {
+    code: "E300",
+    title: "TYPE UNIFICATION ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Cannot unify {} with {}.",
+    hint: None,
+};
+
+pub const OCCURS_CHECK_FAILURE: ErrorCode = ErrorCode {
+    code: "E301",
+    title: "OCCURS CHECK FAILURE",
+    error_type: ErrorType::Compiler,
+    message: "Infinite type: type variable {} occurs in {}.",
+    hint: Some(
+        "A type cannot contain itself. This usually indicates a recursive type without a data wrapper.",
+    ),
+};
+
+pub const UNDEFINED_TYPE_VAR: ErrorCode = ErrorCode {
+    code: "E302",
+    title: "UNDEFINED TYPE VARIABLE",
+    error_type: ErrorType::Compiler,
+    message: "Undefined type variable `{}`.",
+    hint: Some("Declare the type variable in the function's generic parameter list: fn f<T>(...)"),
+};
+
+pub const INVALID_TYPE_ANNOTATION: ErrorCode = ErrorCode {
+    code: "E303",
+    title: "INVALID TYPE ANNOTATION",
+    error_type: ErrorType::Compiler,
+    message: "Cannot interpret this type annotation.",
+    hint: Some(
+        "Check the annotation for unknown type constructors, malformed effect rows, or unsupported syntax.",
+    ),
+};
+
+pub const INVALID_EFFECT_ROW: ErrorCode = ErrorCode {
+    code: "E304",
+    title: "INVALID EFFECT ROW",
+    error_type: ErrorType::Compiler,
+    message: "Cannot interpret this effect row: `{}` and `{}` are distinct row variables in the same row.",
+    hint: Some(
+        "Use a single row variable per `with ...` clause (for example `|e` instead of `|e, |f`).",
+    ),
+};
+
+pub const RIGID_VAR_ESCAPE: ErrorCode = ErrorCode {
+    code: "E305",
+    title: "RIGID TYPE VARIABLE ESCAPE",
+    error_type: ErrorType::Compiler,
+    message: "Rigid type variable `{}` cannot be unified with `{}`.",
+    hint: Some(
+        "The declared signature introduces this as a universally quantified type parameter; the body must keep it abstract.",
+    ),
+};
+
+pub const STRICT_TYPES_ANY_INFERRED: ErrorCode = ErrorCode {
+    code: "E430",
+    title: "COULD NOT INFER CONCRETE TYPE",
+    error_type: ErrorType::Compiler,
+    message: "Could not determine a concrete type for `{}`.",
+    hint: Some("Add a type annotation so the compiler can verify type safety."),
+};
+
+pub const CORE_LINT_FAILURE: ErrorCode = ErrorCode {
+    code: "E998",
+    title: "CORE LINT FAILURE",
+    error_type: ErrorType::Compiler,
+    message: "Core IR validation failed after `{}`.",
+    hint: Some("This is a compiler bug. Inspect --dump-core around the failing stage."),
+};
+
+// Type class errors (E440–E449)
+
+pub const DUPLICATE_CLASS: ErrorCode = ErrorCode {
+    code: "E440",
+    title: "DUPLICATE TYPE CLASS",
+    error_type: ErrorType::Compiler,
+    message: "Type class `{}` is already defined.",
+    hint: Some("Each type class name must be unique."),
+};
+
+pub const INSTANCE_UNKNOWN_CLASS: ErrorCode = ErrorCode {
+    code: "E441",
+    title: "UNKNOWN TYPE CLASS",
+    error_type: ErrorType::Compiler,
+    message: "No type class `{}` is defined.",
+    hint: Some("Declare the class before writing instances for it."),
+};
+
+pub const INSTANCE_MISSING_METHOD: ErrorCode = ErrorCode {
+    code: "E442",
+    title: "MISSING INSTANCE METHOD",
+    error_type: ErrorType::Compiler,
+    message: "Missing method `{}` in instance.",
+    hint: Some("Implement all required methods that don't have defaults."),
+};
+
+pub const DUPLICATE_INSTANCE: ErrorCode = ErrorCode {
+    code: "E443",
+    title: "DUPLICATE INSTANCE",
+    error_type: ErrorType::Compiler,
+    message: "Duplicate instance for `{}`.",
+    hint: Some("Each type can have at most one instance per class."),
+};
+
+pub const NO_INSTANCE: ErrorCode = ErrorCode {
+    code: "E444",
+    title: "NO TYPE CLASS INSTANCE",
+    error_type: ErrorType::Compiler,
+    message: "No instance for `{}`.",
+    hint: Some("Add an instance declaration for this type."),
+};
+
+/// Proposal 0179 Stage 5: a class reaches itself through its own superclass
+/// declarations, so the hierarchy has no base and its superclass closure does
+/// not terminate.
+///
+/// The superclass relation must be acyclic: a dictionary carries evidence for
+/// its superclasses, so a cycle would require a dictionary to contain itself.
+pub const SUPERCLASS_CYCLE: ErrorCode = ErrorCode {
+    code: "E477",
+    title: "SUPERCLASS CYCLE",
+    error_type: ErrorType::Compiler,
+    message: "Class `{}` is its own superclass.",
+    hint: Some(
+        "Break the cycle by removing one of the superclass constraints; \
+         the superclass relation must be acyclic.",
+    ),
+};
+
+/// Proposal 0179 Stage 6: an instance defines the same associated type twice.
+///
+/// Each associated type reduces to exactly one body per instance; two
+/// equations for one name leave no rule for choosing between them.
+pub const DUPLICATE_ASSOCIATED_TYPE: ErrorCode = ErrorCode {
+    code: "E479",
+    title: "DUPLICATE ASSOCIATED TYPE",
+    error_type: ErrorType::Compiler,
+    message: "Associated type `{}` is defined more than once in this instance.",
+    hint: Some("Keep one equation per associated type and remove the rest."),
+};
+
+/// Proposal 0179 Stage 6: an instance omits an associated type its class
+/// declares.
+///
+/// Without the equation an application of that type at this instance's head has
+/// nothing to reduce to, so it would stay stuck at a type the compiler already
+/// knows completely.
+pub const MISSING_ASSOCIATED_TYPE: ErrorCode = ErrorCode {
+    code: "E480",
+    title: "MISSING ASSOCIATED TYPE",
+    error_type: ErrorType::Compiler,
+    message: "Instance does not define associated type `{}`.",
+    hint: Some("Add an equation, for example `type Name<Head> = Body`."),
+};
+
+/// Proposal 0179 Stage 6: an equation's body mentions a type variable that its
+/// head does not bind.
+///
+/// Reduction substitutes the head's variables into the body, so a variable the
+/// head never binds has no value to receive — the reduction would produce a
+/// type out of nothing.
+pub const UNBOUND_ASSOCIATED_TYPE_VARIABLE: ErrorCode = ErrorCode {
+    code: "E481",
+    title: "UNBOUND ASSOCIATED TYPE VARIABLE",
+    error_type: ErrorType::Compiler,
+    message: "`{}` is not bound by this equation's head.",
+    hint: Some(
+        "Every type variable in the body must appear in the head,          otherwise reduction has nothing to substitute for it.",
+    ),
+};
+
+/// Proposal 0179 Stage 6: an equation's head does not match the shape the class
+/// declared the associated type with.
+pub const ASSOCIATED_TYPE_KIND_MISMATCH: ErrorCode = ErrorCode {
+    code: "E482",
+    title: "ASSOCIATED TYPE KIND MISMATCH",
+    error_type: ErrorType::Compiler,
+    message: "Associated type `{}` is applied to the wrong number of arguments.",
+    hint: Some("Match the arity the class declaration gives the associated type."),
+};
+
+/// KI-057: a call cannot say which of several dictionaries for one class it
+/// means.
+///
+/// A function constrained twice on the same class holds two dictionaries. A
+/// call whose argument types name neither could be dispatched through either,
+/// and the two are not interchangeable — they are instances for different
+/// types. Reporting is the only sound answer: selecting the first is what made
+/// `both(5, "hi")` return `14` instead of `12`.
+pub const AMBIGUOUS_DICTIONARY_SELECTION: ErrorCode = ErrorCode {
+    code: "E485",
+    title: "AMBIGUOUS DICTIONARY SELECTION",
+    error_type: ErrorType::Compiler,
+    message: "This call to `{}` does not say which `{}` instance it needs.",
+    hint: Some(
+        "Annotate the call, or pass a value whose type names the instance, so one \
+         constraint is chosen.",
+    ),
+};
+
+/// Proposal 0179 Stage 7: a `deriving` clause names a class no body can be
+/// generated for.
+///
+/// Deriving used to accept any known class and then silently skip the methods
+/// it could not synthesize, leaving an instance the solver accepts but nothing
+/// can call. Rejecting at the clause is what makes the two remaining outcomes
+/// the only ones: either the clause produces callable methods and usable
+/// evidence, or it is an error here.
+pub const UNDERIVABLE_CLASS: ErrorCode = ErrorCode {
+    code: "E486",
+    title: "UNDERIVABLE CLASS",
+    error_type: ErrorType::Compiler,
+    message: "`{}` cannot be derived for `{}`.",
+    hint: Some(
+        "Write an `instance` block with the method bodies, or derive one of \
+         `Eq`, `Show`, `Encode` or `Decode`.",
+    ),
+};
+
+/// Proposal 0179 Stage 8: an operator was used in a module where the class it
+/// desugars to is not in scope.
+///
+/// `==` emits an `Eq` obligation only when a class named `Eq` is in the
+/// environment. Before Stage 8 that was guaranteed by Rust registering the
+/// class into every module; now it is guaranteed by the class prelude being
+/// injected into every module. If neither holds — the standard library is not
+/// found, or a module was compiled outside the graph — the obligation would
+/// silently vanish and the operator would compile unconstrained. Reporting is
+/// the only honest alternative.
+pub const OPERATOR_CLASS_NOT_IN_SCOPE: ErrorCode = ErrorCode {
+    code: "E487",
+    title: "OPERATOR CLASS NOT IN SCOPE",
+    error_type: ErrorType::Compiler,
+    message: "This operator needs the class `{}`, which is not in scope here.",
+    hint: Some(
+        "The Flow prelude supplies it. Check that the standard library is found \
+         (`FLUX_LIB_DIR`, or `lib/Flow` beside the project).",
+    ),
+};
+
+/// Proposal 0183: a body needs a predicate its own signature does not promise.
+///
+/// `fn cmp<a: MyEq>(x: a, y: a) -> Bool { mlt(x, y) }` raises `MyOrd<a>`, which
+/// nothing can ever discharge: `a` is quantified here, so no instance matches
+/// it, and the caller supplies evidence only for what the signature asks.
+///
+/// Reported at the definition rather than absorbed into the scheme. Inferring
+/// the missing predicate instead makes the signature a suggestion, and moves
+/// the error to whichever caller happens to use a type without that instance —
+/// a file the author of the mistake may never see.
+pub const COULD_NOT_DEDUCE: ErrorCode = ErrorCode {
+    code: "E489",
+    title: "COULD NOT DEDUCE",
+    error_type: ErrorType::Compiler,
+    message: "Could not deduce `{}` from the context `{}`.",
+    hint: Some("Add the missing bound to the signature's type parameters."),
+};
+
+/// Proposal 0184: `record.field` on a receiver whose type is never determined.
+///
+/// Field access raises `__field.name<Receiver, Field>`, discharged once the
+/// receiver resolves to a named-field ADT. A receiver still unknown after all
+/// unification has no type to look the field up on, and nothing later can
+/// supply one.
+///
+/// Before 0184 this case allocated a hole instead: the access had no type at
+/// all, and the error surfaced wherever the hole happened to leak — a call
+/// site, or the backend as an unresolved type variable. Reporting it here names
+/// the field and the receiver at the access itself.
+pub const UNRESOLVED_FIELD_RECEIVER: ErrorCode = ErrorCode {
+    code: "E490",
+    title: "UNRESOLVED FIELD RECEIVER",
+    error_type: ErrorType::Compiler,
+    message: "Cannot tell which type this is, so the field `{}` cannot be resolved.",
+    hint: Some("Annotate the value so the field has a type to be looked up on."),
+};
+
+/// Proposal 0183 R3: dictionary resolution ran out of budget.
+///
+/// An instance context that grows its argument at every step —
+/// `instance Foo<List<a>> => Foo<a>` — never repeats a predicate, so only a
+/// depth budget stops it. Exhausting that budget is not the same fact as "no
+/// such instance": the search was abandoned, and reporting it as a missing
+/// instance sends the reader looking for an instance that may well exist.
+pub const INSTANCE_SEARCH_EXHAUSTED: ErrorCode = ErrorCode {
+    code: "E488",
+    title: "INSTANCE SEARCH EXHAUSTED",
+    error_type: ErrorType::Compiler,
+    message: "Resolving `{}` exceeded the instance-context depth limit.",
+    hint: Some(
+        "An instance context that grows its type argument at every step never \
+         terminates. Check for a context like `instance C<List<a>> => C<a>`.",
+    ),
+};
+
+/// Proposal 0179 Stage 6: an instance defines an associated type its class does
+/// not declare.
+///
+/// The dual of [`INSTANCE_EXTRA_METHOD`]. Without it a misspelled equation is
+/// accepted and silently does nothing, while the type it was meant to define is
+/// reported missing somewhere else entirely.
+pub const UNKNOWN_ASSOCIATED_TYPE: ErrorCode = ErrorCode {
+    code: "E484",
+    title: "UNKNOWN ASSOCIATED TYPE",
+    error_type: ErrorType::Compiler,
+    message: "`{}` is not an associated type of class `{}`.",
+    hint: Some("Match a name the class declares, or remove the equation."),
+};
+
+/// Proposal 0179 Stage 6: an equation reduces to a type mentioning itself.
+///
+/// Reduction must terminate. A body that reaches its own associated type
+/// applied to the same head would expand forever.
+pub const RECURSIVE_ASSOCIATED_TYPE: ErrorCode = ErrorCode {
+    code: "E483",
+    title: "RECURSIVE ASSOCIATED TYPE",
+    error_type: ErrorType::Compiler,
+    message: "Associated type `{}` reduces to a type mentioning itself.",
+    hint: Some(
+        "Break the recursion; an associated type's body must not reach the          type it is defining.",
+    ),
+};
+
+/// Proposal 0179 Stage 5: a cached module interface describes a `public class`
+/// that cannot be rebuilt, so the class is unavailable to this module.
+///
+/// The interface was written by an older compiler, or is otherwise
+/// inconsistent. It is reported rather than skipped because a partially
+/// rebuilt class is worse than an absent one: the number of superclasses
+/// decides how many evidence slots its dictionaries lead with, so a class
+/// reconstructed one slot short would have every method read at the wrong
+/// index.
+pub const STALE_CLASS_INTERFACE: ErrorCode = ErrorCode {
+    code: "E478",
+    title: "STALE CLASS INTERFACE",
+    error_type: ErrorType::Compiler,
+    message: "Cached interface for `{}` describes class `{}` incompletely.",
+    hint: Some(
+        "The cached interface predates the current compiler. Delete the          build cache (`target/flux`) and rebuild.",
+    ),
+};
+
+/// Proposal 0179 Stage 4: a declared bound constrains a type variable that
+/// does not appear in the signature's own type, so no caller can ever fix it.
+///
+/// Distinct from
+/// [`UNDETERMINED_CLASS_PARAMETER`] (E459), which reports one *call* that
+/// leaves a parameter open: this is a property of the signature itself, and
+/// every call to it would be affected.
+pub const AMBIGUOUS_TYPE_VARIABLE: ErrorCode = ErrorCode {
+    code: "E476",
+    title: "AMBIGUOUS TYPE VARIABLE",
+    error_type: ErrorType::Compiler,
+    message: "`{}` in `{}` is not determined by this signature.",
+    hint: Some(
+        "A constrained type variable must appear in the signature's own type, \
+         otherwise no call can determine which instance to use.",
+    ),
+};
+
+/// Proposal 0179 Stage 4: a class type parameter is not determined by the
+/// call, and more than one instance is compatible with what the call does fix.
+///
+/// Distinct from [`NO_INSTANCE`] (E444), where the predicate is fully known
+/// and nothing matches, and from [`OVERLAPPING_INSTANCES`] (E454), where the
+/// predicate is fully known and several instances match it. Here the predicate
+/// itself is incomplete, so the remedy is to supply the missing type — usually
+/// with an annotation — rather than to change the instances.
+pub const UNDETERMINED_CLASS_PARAMETER: ErrorCode = ErrorCode {
+    code: "E459",
+    title: "UNDETERMINED CLASS PARAMETER",
+    error_type: ErrorType::Compiler,
+    message: "Cannot determine `{}` in `{}`.",
+    hint: Some(
+        "Annotate the expression so the type class parameter is fixed, for \
+         example with a `let` binding that names the type.",
+    ),
+};
+
+/// Proposal 0179 Stage 3: two or more instances match the same predicate, so
+/// evidence selection would depend on declaration order.
+///
+/// Distinct from [`AMBIGUOUS_CLASS_CONSTRAINT`] (E456), which reports two
+/// *classes* sharing a short name — a name-resolution failure whose remedy is
+/// to qualify the class. This code reports two *instances* of one class, whose
+/// remedy is to remove or narrow one of them.
+pub const OVERLAPPING_INSTANCES: ErrorCode = ErrorCode {
+    code: "E454",
+    title: "OVERLAPPING INSTANCES",
+    error_type: ErrorType::Compiler,
+    message: "Multiple instances match `{}`.",
+    hint: Some(
+        "Instance selection must be unambiguous; remove or narrow one of the \
+         overlapping instances.",
+    ),
+};
+
+pub const INSTANCE_EXTRA_METHOD: ErrorCode = ErrorCode {
+    code: "E446",
+    title: "UNKNOWN INSTANCE METHOD",
+    error_type: ErrorType::Compiler,
+    message: "`{}` is not a method of this class.",
+    hint: Some("Instance methods must match the class declaration."),
+};
+
+pub const INSTANCE_TYPE_ARG_ARITY: ErrorCode = ErrorCode {
+    code: "E447",
+    title: "INSTANCE TYPE ARG ARITY MISMATCH",
+    error_type: ErrorType::Compiler,
+    message: "Instance for `{}` uses the wrong number of type arguments.",
+    hint: Some("Match the number of type arguments declared by the class."),
+};
+
+pub const INSTANCE_METHOD_ARITY: ErrorCode = ErrorCode {
+    code: "E448",
+    title: "INSTANCE METHOD ARITY MISMATCH",
+    error_type: ErrorType::Compiler,
+    message: "Method `{}` has the wrong number of parameters.",
+    hint: Some("Instance method arity must match the class declaration."),
+};
+
+pub const MISSING_SUPERCLASS_INSTANCE: ErrorCode = ErrorCode {
+    code: "E445",
+    title: "MISSING SUPERCLASS INSTANCE",
+    error_type: ErrorType::Compiler,
+    message: "Missing superclass instance `{}`.",
+    hint: Some("Add the required superclass instance before this instance."),
+};
+
+/// Proposal 0151, Phase 2: a `public instance` cannot reference a private
+/// class. The class's visibility caps the instance's effective visibility,
+/// because downstream importers cannot name the class to dispatch through.
+pub const PUBLIC_INSTANCE_OF_PRIVATE_CLASS: ErrorCode = ErrorCode {
+    code: "E450",
+    title: "PUBLIC INSTANCE OF PRIVATE CLASS",
+    error_type: ErrorType::Compiler,
+    message: "`public instance` `{}` references a private class.",
+    hint: Some(
+        "Either mark the class `public class` or remove `public` from \
+         this instance.",
+    ),
+};
+
+/// Proposal 0151, Phase 4a: floor-semantics violation. An `instance`
+/// method declares an effect row that is *narrower* than the class
+/// method's declared row. The class row is a *floor*: implementing
+/// methods must declare at least every effect the class declared.
+pub const INSTANCE_METHOD_EFFECT_FLOOR: ErrorCode = ErrorCode {
+    code: "E452",
+    title: "INSTANCE METHOD MISSING CLASS EFFECT",
+    error_type: ErrorType::Compiler,
+    message: "Instance method `{}` is missing class-declared effect `{}`.",
+    hint: Some(
+        "Add the missing effect to the instance method's `with` clause, \
+         or remove it from the class declaration if it should not be required.",
+    ),
+};
+
+pub const SEALED_CLASS_INSTANCE: ErrorCode = ErrorCode {
+    code: "E453",
+    title: "SEALED CLASS INSTANCE",
+    error_type: ErrorType::Compiler,
+    message: "Class `{}` is compiler-derived and cannot be implemented manually.",
+    hint: Some(
+        "Remove the instance; data types become Sendable automatically when all fields are Sendable.",
+    ),
+};
+
+/// Proposal 0151, Phase 2: a `public class` signature must not mention a
+/// private type — otherwise importers see a class method whose parameter
+/// or return type they cannot name.
+pub const PUBLIC_CLASS_LEAKS_PRIVATE_TYPE: ErrorCode = ErrorCode {
+    code: "E451",
+    title: "PUBLIC CLASS LEAKS PRIVATE TYPE",
+    error_type: ErrorType::Compiler,
+    message: "`public class` `{}` mentions a private type `{}`.",
+    hint: Some(
+        "Either mark the type `public data` or remove `public` from \
+         this class.",
+    ),
+};
+
+/// Proposal 0151, Phase 3: an `exposing (foo)` clause collides with a
+/// local top-level `fn foo` (or any locally bound short name `foo`).
+/// The exposing brings `foo` into unqualified scope, but the local
+/// declaration already owns that name in the same scope.
+pub const EXPOSING_LOCAL_COLLISION: ErrorCode = ErrorCode {
+    code: "E457",
+    title: "EXPOSING LOCAL COLLISION",
+    error_type: ErrorType::Compiler,
+    message: "`exposing ({})` collides with a local declaration of the same name.",
+    hint: Some(
+        "Either rename the local declaration, drop the exposing entry, or \
+         continue using the qualified `Module.{}` form.",
+    ),
+};
+
+/// Proposal 0152: a named constructor expression omits one or more declared
+/// fields. Named-field construction has no "default field" semantics.
+pub const NAMED_FIELD_MISSING: ErrorCode = ErrorCode {
+    code: "E460",
+    title: "MISSING NAMED FIELD",
+    error_type: ErrorType::Compiler,
+    message: "Missing field `{}` in `{}` constructor.",
+    hint: Some(
+        "Provide every declared field, or add a default using a spread over an existing value.",
+    ),
+};
+
+/// Proposal 0152: a named constructor, pattern, or spread references a field
+/// name that is not declared by the target variant.
+pub const NAMED_FIELD_UNKNOWN: ErrorCode = ErrorCode {
+    code: "E461",
+    title: "UNKNOWN NAMED FIELD",
+    error_type: ErrorType::Compiler,
+    message: "`{}` has no field named `{}`.",
+    hint: Some("Check the field list declared by this variant."),
+};
+
+/// Proposal 0152: a field name appears more than once inside one named
+/// constructor expression, pattern, or spread override list.
+pub const NAMED_FIELD_DUPLICATE: ErrorCode = ErrorCode {
+    code: "E462",
+    title: "DUPLICATE NAMED FIELD",
+    error_type: ErrorType::Compiler,
+    message: "Field `{}` is listed more than once.",
+    hint: Some("Remove the duplicate field entry."),
+};
+
+/// Proposal 0152: dot access on a value whose ADT declares the field in no
+/// variant at all.
+pub const NAMED_FIELD_NOT_ON_TYPE: ErrorCode = ErrorCode {
+    code: "E463",
+    title: "FIELD NOT ON TYPE",
+    error_type: ErrorType::Compiler,
+    message: "Type `{}` has no field `{}`.",
+    hint: Some(
+        "Check the variant's declared fields or use pattern matching to access variant-specific fields.",
+    ),
+};
+
+/// Proposal 0152: spread `{ ...base, ... }` used on a value whose type is not
+/// a named-field ADT.
+pub const SPREAD_NON_NAMED_ADT: ErrorCode = ErrorCode {
+    code: "E464",
+    title: "SPREAD REQUIRES NAMED-FIELD TYPE",
+    error_type: ErrorType::Compiler,
+    message: "Cannot spread a value of type `{}`; spread requires a named-field data type.",
+    hint: Some("Wrap the value in a named-field constructor or use explicit field assignment."),
+};
+
+/// Proposal 0152: a `data` declaration mixes positional and named-field
+/// variants, which is forbidden.
+pub const DATA_MIXED_FIELD_FORMS: ErrorCode = ErrorCode {
+    code: "E465",
+    title: "MIXED POSITIONAL AND NAMED VARIANTS",
+    error_type: ErrorType::Compiler,
+    message: "Data type `{}` mixes positional and named-field variants.",
+    hint: Some("Pick one style — all variants must use the same field form."),
+};
+
+/// Proposal 0152: a punned field name `Foo { x }` in an expression context
+/// must resolve to an in-scope variable named `x`.
+pub const NAMED_FIELD_PUN_UNBOUND: ErrorCode = ErrorCode {
+    code: "E466",
+    title: "PUNNED FIELD NOT IN SCOPE",
+    error_type: ErrorType::Compiler,
+    message: "No variable named `{}` is in scope for punning.",
+    hint: Some("Declare a binding with this name, or use `{}: <expr>` instead."),
+};
+
+/// Proposal 0152: the same field name appears in more than one variant of an
+/// ADT but with different declared types, so dot access cannot produce a
+/// single coherent result type.
+pub const NAMED_FIELD_TYPE_DIVERGES: ErrorCode = ErrorCode {
+    code: "E467",
+    title: "DIVERGENT FIELD TYPES ACROSS VARIANTS",
+    error_type: ErrorType::Compiler,
+    message: "Field `{}` has inconsistent types across variants of `{}`.",
+    hint: Some("Give the field the same type in every variant, or rename one of them."),
+};
+
+/// Proposal 0152: spread `{ ...base, ... }` targets an ADT with more than
+/// one named-field variant, and the concrete variant cannot be determined
+/// statically from `base`.
+pub const SPREAD_UNKNOWN_VARIANT: ErrorCode = ErrorCode {
+    code: "E468",
+    title: "SPREAD WITH UNKNOWN VARIANT",
+    error_type: ErrorType::Compiler,
+    message: "Cannot spread `{}` because its variant is not statically known.",
+    hint: Some("Pattern match on the value first so the variant is known at this point."),
+};
+
+/// Proposal 0151, Phase 3: a file-level `import A exposing (foo)` and a
+/// module-body `import B exposing (foo)` (where `A != B`) bind the same
+/// short name to two different module targets in overlapping scopes.
+/// The compiler can't pick one without surprising the user.
+pub const IMPORT_NAME_COLLISION_FILE_VS_MODULE: ErrorCode = ErrorCode {
+    code: "E458",
+    title: "IMPORT NAME COLLISION",
+    error_type: ErrorType::Compiler,
+    message: "`{}` is exposed by two different imports in overlapping scopes.",
+    hint: Some(
+        "Pick one source — either drop the duplicate exposing entry or \
+         restructure the imports so the short names don't overlap.",
+    ),
+};
+
+/// Proposal 0151, Phase 2: a class constraint written with a short name
+/// (e.g. `<a: Foldable>`) is ambiguous when two or more classes named
+/// `Foldable` are visible in the program. Users must qualify with a
+/// module path or rely on `import ... as Alias` to disambiguate.
+pub const AMBIGUOUS_CLASS_CONSTRAINT: ErrorCode = ErrorCode {
+    code: "E456",
+    title: "AMBIGUOUS CLASS CONSTRAINT",
+    error_type: ErrorType::Compiler,
+    message: "Class constraint `{}` is ambiguous: multiple classes have this short name.",
+    hint: Some(
+        "Qualify the class with its module path, or use `import ... as Alias` \
+         to bring exactly one into scope.",
+    ),
+};
+
+pub const TYPE_CONSTRUCTOR_KIND_ARITY: ErrorCode = ErrorCode {
+    code: "E472",
+    title: "TYPE CONSTRUCTOR ARITY MISMATCH",
+    error_type: ErrorType::Compiler,
+    message: "Type `{}` expects {} type argument(s), but {} were given.",
+    hint: Some("Apply the type constructor with the correct number of arguments."),
+};
+
+pub const INSTANCE_HEAD_KIND_MISMATCH: ErrorCode = ErrorCode {
+    code: "E473",
+    title: "INSTANCE HEAD KIND MISMATCH",
+    error_type: ErrorType::Compiler,
+    message: "Instance head `{}` has kind `{}`, but class `{}` expects a parameter of kind `{}`.",
+    hint: Some("Use a type constructor with the kind required by the class."),
+};
+
+pub const CONSTRAINT_KIND_MISMATCH: ErrorCode = ErrorCode {
+    code: "E474",
+    title: "CONSTRAINT KIND MISMATCH",
+    error_type: ErrorType::Compiler,
+    message: "Constraint `{}` applies class `{}` to a type of kind `{}`, but it expects `{}`.",
+    hint: Some("Use a type or type constructor with the required kind."),
+};
+
+pub const CLASS_PARAMETER_KIND_CONFLICT: ErrorCode = ErrorCode {
+    code: "E475",
+    title: "CLASS PARAMETER KIND CONFLICT",
+    error_type: ErrorType::Compiler,
+    message: "Class parameter `{}` is used at kind `{}` and at kind `{}` in `{}`'s methods.",
+    hint: Some("Use each class parameter consistently at one kind."),
+};
+
+/// Proposal 0151, Phase 2: a `public instance` of a `public class` must
+/// not have a private head ADT — downstream importers cannot name the
+/// type to actually use the dispatch.
+pub const PUBLIC_INSTANCE_HAS_PRIVATE_HEAD: ErrorCode = ErrorCode {
+    code: "E455",
+    title: "PUBLIC INSTANCE HAS PRIVATE HEAD TYPE",
+    error_type: ErrorType::Compiler,
+    message: "`public instance` `{}` has a private head type `{}`.",
+    hint: Some(
+        "Either mark the head type `public data` or remove `public` \
+         from this instance.",
+    ),
+};
+
+/// Proposal 0151, Phase 2: orphan instance rejection.
+///
+/// An `instance C<T>` is "orphan" when neither the class `C` nor the head
+/// type `T` is defined in the module where the instance lives. The orphan
+/// rule keeps the dictionary lookup table coherent in the presence of
+/// separate compilation and incremental caching.
+pub const ORPHAN_INSTANCE: ErrorCode = ErrorCode {
+    code: "E449",
+    title: "ORPHAN INSTANCE",
+    error_type: ErrorType::Compiler,
+    message: "Orphan instance `{}` is not allowed.",
+    hint: Some(
+        "An instance must be declared in the module that defines the class \
+         or in the module that defines the head type.",
+    ),
+};
+
+// ============================================================================
+// Error Constructor Functions
+// ============================================================================
+// These functions provide a clean API for creating diagnostics with proper
+// error codes. Use these instead of Diagnostic::error() in production code.
+
+use super::diagnostic::Diagnostic;
+use super::registry::diagnostic_for;
+use super::types::{Label, RelatedDiagnostic};
+use crate::diagnostics::position::Span;
+
+// Parser Errors
+
+/// Create an "unknown keyword" error for unrecognized keywords
+pub fn unknown_keyword(span: Span, keyword: &str, suggestion: Option<(&str, &str)>) -> Diagnostic {
+    let mut diag = diagnostic_for(&UNKNOWN_KEYWORD)
+        .with_category(DiagnosticCategory::ParserKeyword)
+        .with_span(span)
+        .with_message(format!("Unknown keyword: `{}`.", keyword));
+
+    if let Some((correct_keyword, description)) = suggestion {
+        diag = diag.with_suggestion_message(span, correct_keyword, description);
+    }
+
+    diag
+}
+
+/// Create an alias-style unknown keyword diagnostic (E030).
+pub fn unknown_keyword_alias(
+    span: Span,
+    found: &str,
+    replacement: &str,
+    context: &str,
+) -> Diagnostic {
+    unknown_keyword(span, found, None)
+        .with_message(format!(
+            "Unknown keyword `{found}`. Flux uses `{replacement}` for {context}."
+        ))
+        .with_hint_text(format!("Did you mean `{replacement}`?"))
+}
+
+/// Create an "unexpected token" error
+pub fn unexpected_token(span: Span, message: impl Into<String>) -> Diagnostic {
+    diagnostic_for(&UNEXPECTED_TOKEN)
+        .with_span(span)
+        .with_message(message.into())
+}
+
+/// Create an "unexpected token" error with explicit parser-facing metadata.
+pub fn unexpected_token_with_details(
+    span: Span,
+    display_title: impl Into<String>,
+    category: DiagnosticCategory,
+    message: impl Into<String>,
+) -> Diagnostic {
+    unexpected_token(span, message)
+        .with_display_title(display_title.into())
+        .with_category(category)
+}
+
+/// Create a missing-if-body-brace diagnostic (E034).
+pub fn missing_if_body_brace(span: Span) -> Diagnostic {
+    missing_construct_opener_diagnostic(
+        &UNEXPECTED_TOKEN,
+        span,
+        "Missing If Body",
+        DiagnosticCategory::ParserDeclaration,
+        "This `if` branch needs to start with `{`.",
+        "This looks like the `if` body",
+        "Try adding `{` after the `if` condition.",
+    )
+}
+
+/// Create a missing-else-body-brace diagnostic (E034).
+pub fn missing_else_body_brace(span: Span) -> Diagnostic {
+    missing_construct_opener_diagnostic(
+        &UNEXPECTED_TOKEN,
+        span,
+        "Missing Else Body",
+        DiagnosticCategory::ParserDeclaration,
+        "This `else` branch needs to start with `{`.",
+        "This looks like the `else` body",
+        "Try adding `{` after `else`.",
+    )
+}
+
+/// Create a missing-do-block-brace diagnostic (E034).
+pub fn missing_do_block_brace(span: Span) -> Diagnostic {
+    missing_construct_opener_diagnostic(
+        &UNEXPECTED_TOKEN,
+        span,
+        "Missing Do Block",
+        DiagnosticCategory::ParserDeclaration,
+        "This `do` block needs to start with `{`.",
+        "This looks like the `do` block body",
+        "Try adding `{` after `do`.",
+    )
+}
+
+/// Create a missing-let-assignment diagnostic (E034).
+pub fn missing_let_assign(span: Span, name: &str) -> Diagnostic {
+    unexpected_token(
+        span,
+        format!("Expected `=` after `let {name}`. Did you mean `let {name} = ...`?"),
+    )
+    .with_category(DiagnosticCategory::ParserDeclaration)
+    .with_hint_text("Let bindings require `=`: `let name = value`")
+}
+
+/// Create a missing-function-parameter-list diagnostic (E034).
+pub fn missing_fn_param_list(span: Span, fn_name: &str) -> Diagnostic {
+    missing_syntax_token_diagnostic(
+        &UNEXPECTED_TOKEN,
+        span,
+        "Missing Function Parameter List",
+        DiagnosticCategory::ParserDeclaration,
+        format!("This function declaration needs a parameter list after `{fn_name}`."),
+        format!("Try `fn {fn_name}()` or `fn {fn_name}(x: Type)`."),
+    )
+}
+
+/// Create a match-arm `|` separator diagnostic (E034).
+pub fn match_pipe_separator(span: Span) -> Diagnostic {
+    unexpected_token(span, "Match arms are separated by `,` in Flux, not `|`.")
+        .with_display_title("Invalid Match Arm Separator")
+        .with_category(DiagnosticCategory::ParserSeparator)
+        .with_hint_text("Replace `|` with `,`.")
+}
+
+/// Create a match-arm `=>` arrow diagnostic (E034).
+pub fn match_fat_arrow(span: Span) -> Diagnostic {
+    missing_syntax_token_diagnostic(
+        &UNEXPECTED_TOKEN,
+        span,
+        "Missing Match Arm Arrow",
+        DiagnosticCategory::ParserSeparator,
+        "This match arm needs `->`, not `=>`.",
+        "Replace `=>` with `->`.",
+    )
+}
+
+/// Create a missing-match-arrow diagnostic (E034).
+pub fn missing_match_arrow(span: Span, found: &str) -> Diagnostic {
+    missing_syntax_token_diagnostic(
+        &UNEXPECTED_TOKEN,
+        span,
+        "Missing Match Arm Arrow",
+        DiagnosticCategory::ParserSeparator,
+        format!("I was expecting `->` in this match arm, but I found {found}."),
+        "Write match arms as `match x { pattern -> body, ... }`.",
+    )
+}
+
+/// Create a missing-lambda-arrow diagnostic (E034).
+pub fn missing_lambda_arrow(span: Span, found: &str) -> Diagnostic {
+    missing_syntax_token_diagnostic(
+        &UNEXPECTED_TOKEN,
+        span,
+        "Missing Lambda Arrow",
+        DiagnosticCategory::ParserSeparator,
+        format!("I was expecting `->` after the lambda parameters, but I found {found}."),
+        "Use `\\x -> expr` or `\\(x, y) -> expr`.",
+    )
+}
+
+/// Create an orphan-constructor-pattern diagnostic (E034).
+pub fn orphan_constructor_pattern(span: Span, name: &str) -> Diagnostic {
+    unexpected_token(
+        span,
+        format!("`{name}(...)` looks like a pattern but appears outside `match`."),
+    )
+    .with_category(DiagnosticCategory::ParserPattern)
+    .with_hint_text(format!(
+        "Did you mean `match value {{ {name}(x) -> ... }}`?"
+    ))
+}
+
+/// Create a missing-qualified-path-segment diagnostic (E034).
+pub fn missing_qualified_path_segment(span: Span) -> Diagnostic {
+    missing_syntax_token_diagnostic(
+        &UNEXPECTED_TOKEN,
+        span,
+        "Missing Qualified Path Segment",
+        DiagnosticCategory::ParserExpression,
+        "Qualified paths need an identifier after `.`.",
+        "Write qualified paths as `Module.Name`.",
+    )
+}
+
+/// Create an empty-string-interpolation diagnostic (E034).
+pub fn empty_string_interpolation(span: Span) -> Diagnostic {
+    unexpected_token_with_details(
+        span,
+        "Empty String Interpolation",
+        DiagnosticCategory::ParserExpression,
+        "Empty interpolation `#{}` needs an expression between the braces.",
+    )
+    .with_hint_text("Interpolation segments use `#{expr}` inside strings.")
+}
+
+/// Create an unexpected `end` keyword diagnostic (E034).
+pub fn unexpected_end_keyword(span: Span) -> Diagnostic {
+    unexpected_token(
+        span,
+        "`end` is not a keyword in Flux. Use `}` to close blocks.",
+    )
+    .with_category(DiagnosticCategory::ParserKeyword)
+    .with_hint_text("Replace `end` with `}`.")
+}
+
+/// Create a missing-hash-close-brace diagnostic (E034).
+pub fn missing_hash_close_brace(span: Span) -> Diagnostic {
+    unexpected_token(span, "Expected `}` to close hash literal.")
+        .with_display_title("Missing Closing Delimiter")
+        .with_category(DiagnosticCategory::ParserDelimiter)
+        .with_hint_text("Hash literals use `{key: value, ...}` and must end with `}`.")
+}
+
+/// Create a missing-array-close-bracket diagnostic (E034).
+pub fn missing_array_close_bracket(span: Span) -> Diagnostic {
+    unexpected_token(span, "Expected `]` to close array literal.")
+        .with_display_title("Missing Closing Delimiter")
+        .with_category(DiagnosticCategory::ParserDelimiter)
+        .with_hint_text("Array literals use `[| ... |]` and must end with `]`.")
+}
+
+/// Create a missing-lambda-close-paren diagnostic (E034).
+pub fn missing_lambda_close_paren(span: Span) -> Diagnostic {
+    unexpected_token(span, "Expected `)` to close lambda parameter list.")
+        .with_display_title("Missing Closing Delimiter")
+        .with_category(DiagnosticCategory::ParserDelimiter)
+        .with_hint_text("Use `\\(x, y) -> expr` for parenthesized lambda parameters.")
+}
+
+/// Create a missing-string-interpolation-close diagnostic (E034).
+pub fn missing_string_interpolation_close(span: Span) -> Diagnostic {
+    unexpected_token(span, "Expected `}` to close string interpolation.")
+        .with_display_title("Missing Closing Delimiter")
+        .with_category(DiagnosticCategory::ParserDelimiter)
+        .with_hint_text("Interpolation segments use `#{expr}` inside strings.")
+}
+
+/// Create a missing-comprehension-close-bracket diagnostic (E034).
+pub fn missing_comprehension_close_bracket(span: Span) -> Diagnostic {
+    unexpected_token(span, "Expected `]` to close list comprehension.")
+        .with_display_title("Missing Closing Delimiter")
+        .with_category(DiagnosticCategory::ParserDelimiter)
+        .with_hint_text("List comprehensions use `[expr | x <- xs, ...]`.")
+}
+
+/// Create a constructor-pattern arity mismatch diagnostic (E085).
+pub fn constructor_pattern_arity_mismatch(
+    span: Span,
+    name: &str,
+    expected: usize,
+    found: usize,
+) -> Diagnostic {
+    Diagnostic::make_error(
+        &CONSTRUCTOR_PATTERN_ARITY_MISMATCH,
+        &[name, &expected.to_string(), &found.to_string()],
+        "<unknown>",
+        span,
+    )
+}
+
+/// Create a strict cross-module constructor access diagnostic (E086).
+pub fn cross_module_constructor_access_error(span: Span, ctor: &str, module: &str) -> Diagnostic {
+    Diagnostic::make_error(
+        &CROSS_MODULE_CONSTRUCTOR_ACCESS,
+        &[ctor, module],
+        "<unknown>",
+        span,
+    )
+}
+
+/// Create a non-strict cross-module constructor access warning (W201).
+pub fn cross_module_constructor_access_warning(span: Span, ctor: &str, module: &str) -> Diagnostic {
+    Diagnostic::make_warning_from_code(
+        &CROSS_MODULE_CONSTRUCTOR_ACCESS_WARNING,
+        &[ctor, module],
+        "<unknown>",
+        span,
+    )
+}
+
+/// Create an "invalid integer" error
+pub fn invalid_integer(span: Span, literal: &str) -> Diagnostic {
+    diagnostic_for(&INVALID_INTEGER)
+        .with_category(DiagnosticCategory::ParserExpression)
+        .with_span(span)
+        .with_message(format!("Could not parse `{}` as an integer.", literal))
+}
+
+/// Create an "invalid float" error
+pub fn invalid_float(span: Span, literal: &str) -> Diagnostic {
+    diagnostic_for(&INVALID_FLOAT)
+        .with_category(DiagnosticCategory::ParserExpression)
+        .with_span(span)
+        .with_message(format!("Could not parse `{}` as a float.", literal))
+}
+
+/// Create a "pipe target error"
+pub fn pipe_target_error(span: Span) -> Diagnostic {
+    diagnostic_for(&PIPE_TARGET_ERROR)
+        .with_category(DiagnosticCategory::ParserExpression)
+        .with_span(span)
+        .with_message("Pipe operator expects a function or function call.")
+        .with_hint_text("Use `value |> func` or `value |> func(arg)`")
+}
+
+/// Create an "invalid pattern" error
+pub fn invalid_pattern(span: Span, found: &str) -> Diagnostic {
+    diagnostic_for(&INVALID_PATTERN)
+        .with_category(DiagnosticCategory::ParserPattern)
+        .with_span(span)
+        .with_message(format!("Expected a pattern, found `{}`.", found))
+}
+
+/// Create a "lambda syntax error"
+pub fn lambda_syntax_error(span: Span, message: impl Into<String>) -> Diagnostic {
+    diagnostic_for(&LAMBDA_SYNTAX_ERROR)
+        .with_category(DiagnosticCategory::ParserExpression)
+        .with_span(span)
+        .with_message(message.into())
+        .with_hint_text("Use `\\x -> expr` or `\\(x, y) -> expr`.")
+}
+
+/// Create an "unterminated interpolation" error
+pub fn unterminated_interpolation(span: Span) -> Diagnostic {
+    diagnostic_for(&UNTERMINATED_INTERPOLATION)
+        .with_category(DiagnosticCategory::ParserExpression)
+        .with_span(span)
+        .with_message("Expected string continuation or end after interpolation.")
+}
+
+/// Create an "unterminated block comment" error
+pub fn unterminated_block_comment(span: Span) -> Diagnostic {
+    diagnostic_for(&UNTERMINATED_BLOCK_COMMENT)
+        .with_category(DiagnosticCategory::ParserDelimiter)
+        .with_span(span)
+        .with_message("Block comment is missing closing */.")
+}
+
+/// Create a "missing comma" error for adjacent list items/arguments
+pub fn missing_comma(span: Span, context: &str, example: &str) -> Diagnostic {
+    diagnostic_for(&MISSING_COMMA)
+        .with_category(DiagnosticCategory::ParserSeparator)
+        .with_span(span)
+        .with_message(format!("Missing comma between {}.", context))
+        .with_hint_text(format!("Add a comma between items, e.g. {}.", example))
+}
+
+/// Create an "unclosed delimiter" error for unmatched `{`, `[`, or `(`
+///
+/// Points the primary span at the opening delimiter. If `found_span` is
+/// provided, adds a related note showing where the mismatch was detected
+/// (Rust-style two-location diagnostic).
+pub fn unclosed_delimiter(
+    open_span: Span,
+    open: &str,
+    close: &str,
+    found_span: Option<Span>,
+) -> Diagnostic {
+    let mut diag = diagnostic_for(&UNCLOSED_DELIMITER)
+        .with_display_title("Missing Closing Delimiter")
+        .with_category(DiagnosticCategory::ParserDelimiter)
+        .with_span(open_span)
+        .with_message(format!(
+            "Expected a closing `{}` to match this opening `{}`.",
+            close, open
+        ));
+    if let Some(span) = found_span {
+        diag = diag.with_related(
+            RelatedDiagnostic::note(format!("Expected `{}` before this token.", close))
+                .with_span(span),
+        );
+    }
+    diag
+}
+
+/// Create a "missing opening brace" error for a function definition.
+///
+/// Emits a contextual error when `{` is missing after a function signature,
+/// pointing at the unexpected token and providing a help hint.
+pub fn missing_function_body_brace(
+    fn_span: Span,
+    fn_name: &str,
+    found_span: Span,
+    _found_token: &str,
+) -> Diagnostic {
+    missing_construct_opener_diagnostic(
+        &UNEXPECTED_TOKEN,
+        found_span,
+        "Missing Function Body",
+        DiagnosticCategory::ParserDeclaration,
+        "This function body needs to start with `{`.",
+        "This looks like the function body",
+        "Try adding `{` after the function signature.",
+    )
+    .with_label(Label::secondary(
+        fn_span,
+        format!("`{}` starts here", fn_name),
+    ))
+}
+
+// Type Inference Errors (E300–E399)
+
+/// Create a type unification error (E300) with a source snippet at `span`.
+///
+/// Used by the HM inference pass when two concrete types cannot be unified,
+/// e.g. `Int` vs `String` at a function call site.
+pub fn type_unification_error(
+    file: impl Into<Arc<str>>,
+    span: Span,
+    expected: &str,
+    actual: &str,
+) -> Diagnostic {
+    type_mismatch_diagnostic(
+        file,
+        span,
+        "I found a type mismatch.",
+        format!("this expression has type `{actual}`"),
+        expected,
+        actual,
+        TypeMismatchNotes::new("expected type", "found type"),
+        "These two types are not compatible.",
+    )
+    .with_display_title("Type Mismatch")
+    .with_category(DiagnosticCategory::TypeInference)
+}
+
+/// Create a wrong-argument-count diagnostic (E056).
+pub fn wrong_argument_count(
+    file: impl Into<Arc<str>>,
+    call_span: Span,
+    fn_name: &str,
+    expected: usize,
+    actual: usize,
+    def_span: Option<Span>,
+) -> Diagnostic {
+    let mut diag = diagnostic_for(&TYPE_ERROR)
+        .with_display_title("Wrong Number Of Arguments")
+        .with_category(DiagnosticCategory::TypeInference)
+        .with_phase(super::types::DiagnosticPhase::TypeInference)
+        .with_file(file)
+        .with_span(call_span)
+        .with_message(format!(
+            "The `{fn_name}` function takes {expected} arguments, but {actual} were provided."
+        ))
+        .with_primary_label(
+            call_span,
+            format!("{actual} arguments provided here, expected {expected}"),
+        );
+
+    let expected_call = format_call_skeleton(fn_name, expected);
+    if actual > expected {
+        let extra = actual - expected;
+        diag = diag.with_help(format!(
+            "Remove {extra} extra argument(s), for example: `{expected_call}`."
+        ));
+    } else if actual < expected {
+        let missing = expected - actual;
+        diag = diag.with_help(format!(
+            "Add {missing} missing argument(s), for example: `{expected_call}`."
+        ));
+    }
+
+    if let Some(span) = def_span {
+        diag = diag.with_secondary_label(
+            span,
+            format!("`{fn_name}` is defined with {expected} parameters"),
+        );
+    }
+
+    diag
+}
+
+fn format_call_skeleton(fn_name: &str, arity: usize) -> String {
+    if arity == 0 {
+        return format!("{fn_name}()");
+    }
+    let args: Vec<String> = (1..=arity).map(|i| format!("arg{i}")).collect();
+    format!("{fn_name}({})", args.join(", "))
+}
+
+fn ordinal(index: usize) -> String {
+    let suffix = match index % 100 {
+        11..=13 => "th",
+        _ => match index % 10 {
+            1 => "st",
+            2 => "nd",
+            3 => "rd",
+            _ => "th",
+        },
+    };
+    format!("{index}{suffix}")
+}
+
+/// Create a call-argument type mismatch diagnostic (E300).
+pub fn call_arg_type_mismatch(
+    file: impl Into<Arc<str>>,
+    arg_span: Span,
+    fn_name: Option<&str>,
+    arg_index: usize,
+    fn_def_span: Option<Span>,
+    expected: &str,
+    actual: &str,
+) -> Diagnostic {
+    let ord = ordinal(arg_index);
+    let message = if let Some(name) = fn_name {
+        format!("I found the wrong type in the {ord} argument to `{name}`.")
+    } else {
+        format!("I found the wrong type in the {ord} argument to this function.")
+    };
+    let mut diag = type_mismatch_diagnostic(
+        file,
+        arg_span,
+        message,
+        format!("this argument has type `{actual}`"),
+        expected,
+        actual,
+        TypeMismatchNotes::new("expected argument type", "found argument type"),
+        format!("Pass a `{expected}` value as the {ord} argument."),
+    )
+    .with_display_title("Argument Type Mismatch")
+    .with_category(DiagnosticCategory::TypeInference)
+    .with_note("the actual argument type is inferred from this expression");
+
+    if let Some(def_span) = fn_def_span {
+        if let Some(name) = fn_name {
+            diag = diag.with_secondary_label(
+                def_span,
+                format!("`{name}` expects `{expected}` as the {ord} parameter"),
+            );
+        } else {
+            diag =
+                diag.with_secondary_label(def_span, format!("this function expects `{expected}`"));
+        }
+        diag = diag.with_note("the expected argument type comes from the function signature");
+    }
+
+    diag
+}
+
+/// Create a typed-let annotation mismatch diagnostic (E300).
+pub fn let_annotation_type_mismatch(
+    file: impl Into<Arc<str>>,
+    ann_span: Span,
+    value_span: Span,
+    name: &str,
+    ann_ty: &str,
+    value_ty: &str,
+) -> Diagnostic {
+    type_mismatch_diagnostic(
+        file,
+        value_span,
+        format!("The value of `{name}` does not match its type annotation."),
+        format!("this value has type `{value_ty}`"),
+        ann_ty,
+        value_ty,
+        TypeMismatchNotes::new("annotated type", "value type"),
+        format!("Change `{name}` to a `{ann_ty}` value or update the annotation."),
+    )
+    .with_display_title("Annotation Type Mismatch")
+    .with_category(DiagnosticCategory::TypeInference)
+    .with_secondary_label(
+        ann_span,
+        format!("but `{name}` was annotated as `{ann_ty}`"),
+    )
+}
+
+/// Create a function return-annotation mismatch diagnostic (E300).
+pub fn fun_return_annotation_mismatch(
+    file: impl Into<Arc<str>>,
+    ret_ann_span: Span,
+    return_expr_span: Span,
+    fn_name: &str,
+    declared_ty: &str,
+    actual_ty: &str,
+) -> Diagnostic {
+    type_mismatch_diagnostic(
+        file,
+        return_expr_span,
+        format!("The body of `{fn_name}` does not match its declared return type."),
+        format!("this expression has type `{actual_ty}`"),
+        declared_ty,
+        actual_ty,
+        TypeMismatchNotes::new("declared return type", "body type"),
+        format!("Return a `{declared_ty}` value from `{fn_name}` or change its annotation."),
+    )
+    .with_display_title("Return Type Mismatch")
+    .with_category(DiagnosticCategory::TypeInference)
+    .with_secondary_label(
+        ret_ann_span,
+        format!("`{fn_name}` was declared to return `{declared_ty}`"),
+    )
+    // Offer the inferred type as a structured fix: rewrite the return annotation
+    // to what the body actually produces. `actual_ty` is only ever concrete here
+    // (the caller guards on `is_concrete`), so it is valid Flux source. The LSP's
+    // `suggestion_actions` turns this into a "Change return type to `T`" quick
+    // fix; it also renders in the CLI/JSON diagnostics.
+    .with_suggestion_message(
+        ret_ann_span,
+        actual_ty,
+        format!("Change return type to `{actual_ty}`"),
+    )
+}
+
+/// Create an if-branch mismatch diagnostic (E300).
+pub fn if_branch_type_mismatch(
+    file: impl Into<Arc<str>>,
+    then_span: Span,
+    else_span: Span,
+    then_ty: &str,
+    else_ty: &str,
+) -> Diagnostic {
+    type_mismatch_diagnostic(
+        file,
+        else_span,
+        "The branches of this `if` expression do not agree on a type.",
+        format!("the `else` branch has type `{else_ty}`"),
+        then_ty,
+        else_ty,
+        TypeMismatchNotes::new("then branch type", "else branch type"),
+        "Both branches of an `if` must produce the same type.",
+    )
+    .with_display_title("Branch Type Mismatch")
+    .with_category(DiagnosticCategory::TypeInference)
+    .with_secondary_label(then_span, format!("`then` branch returns `{then_ty}`"))
+}
+
+/// Create a match-arm mismatch diagnostic (E300).
+pub fn match_arm_type_mismatch(
+    file: impl Into<Arc<str>>,
+    first_span: Span,
+    arm_span: Span,
+    first_ty: &str,
+    arm_ty: &str,
+    arm_index: usize,
+) -> Diagnostic {
+    type_mismatch_diagnostic(
+        file,
+        arm_span,
+        "The arms of this `match` expression do not agree on a type.",
+        format!("arm {arm_index} has type `{arm_ty}`"),
+        first_ty,
+        arm_ty,
+        TypeMismatchNotes::new("first arm type", "this arm type"),
+        format!("Change arm {arm_index} so every arm returns the same type."),
+    )
+    .with_display_title("Match Arm Type Mismatch")
+    .with_category(DiagnosticCategory::TypeInference)
+    .with_secondary_label(first_span, format!("first arm returns `{first_ty}`"))
+}
+
+/// Create a function return-type mismatch diagnostic (E300).
+pub fn fun_return_type_mismatch(
+    file: impl Into<Arc<str>>,
+    span: Span,
+    expected_ret: &str,
+    actual_ret: &str,
+) -> Diagnostic {
+    type_mismatch_diagnostic(
+        file,
+        span,
+        "The body of this function does not match its return type.",
+        format!("this expression has type `{actual_ret}`"),
+        expected_ret,
+        actual_ret,
+        TypeMismatchNotes::new("declared return type", "body type"),
+        format!("Change the return annotation to `-> {actual_ret}` or change the body."),
+    )
+    .with_display_title("Return Type Mismatch")
+    .with_category(DiagnosticCategory::TypeInference)
+}
+
+/// Create a function parameter-type mismatch diagnostic (E300).
+pub fn fun_param_type_mismatch(
+    file: impl Into<Arc<str>>,
+    span: Span,
+    index: usize,
+    expected: &str,
+    actual: &str,
+) -> Diagnostic {
+    type_mismatch_diagnostic(
+        file,
+        span,
+        format!("Parameter {index} has the wrong type."),
+        format!("parameter {index} has type `{actual}`"),
+        expected,
+        actual,
+        TypeMismatchNotes::new("expected parameter type", "found parameter type"),
+        format!("Change parameter {index} to use `{expected}` consistently."),
+    )
+    .with_display_title("Parameter Type Mismatch")
+    .with_category(DiagnosticCategory::TypeInference)
+}
+
+/// Create a function arity mismatch diagnostic (E300).
+pub fn fun_arity_mismatch(
+    file: impl Into<Arc<str>>,
+    span: Span,
+    expected: usize,
+    actual: usize,
+) -> Diagnostic {
+    let direction = if actual > expected {
+        "too many"
+    } else if actual < expected {
+        "too few"
+    } else {
+        "the wrong number of"
+    };
+    diagnostic_for(&TYPE_UNIFICATION_ERROR)
+        .with_display_title("Wrong Number Of Arguments")
+        .with_category(DiagnosticCategory::TypeInference)
+        .with_phase(super::types::DiagnosticPhase::TypeInference)
+        .with_file(file)
+        .with_span(span)
+        .with_message(format!(
+            "I am applying a function to {direction} arguments."
+        ))
+        .with_primary_label(span, format!("this call passes {actual} argument(s)"))
+        .with_note(format!("this function takes: {expected} argument(s)"))
+        .with_note(format!("but this call passes: {actual} argument(s)"))
+        .with_help(if actual > expected {
+            format!("Remove {} extra argument(s).", actual - expected)
+        } else if actual < expected {
+            format!("Add {} missing argument(s).", expected - actual)
+        } else {
+            "Check the call site and the function definition.".to_string()
+        })
+}
+
+/// Create an occurs-check failure (E301) with a source snippet at `span`.
+///
+/// Fires when a type variable would be bound to a type that contains itself,
+/// creating an infinite recursive type.
+pub fn occurs_check_failure(
+    file: impl Into<Arc<str>>,
+    span: Span,
+    var: &str,
+    ty: &str,
+) -> Diagnostic {
+    let _ = var;
+    occurs_check_diagnostic(file, span, ty)
+}

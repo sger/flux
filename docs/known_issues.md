@@ -2948,7 +2948,7 @@ against each other. A fixture now pins it —
 `tests/parity/closure_mutual_recursion_split_by_let.flx`.
 
 **Fix.** Both passes now call one planner,
-`generics_frontend::plan_block`, which groups by **reference** using the
+`binding_groups::plan_block`, which groups by **reference** using the
 strongly connected components of the sibling-reference graph
 (`flux_generics::strongly_connected_components`) rather than by adjacency.
 Placement still respects evaluation order: a group is emitted at its first

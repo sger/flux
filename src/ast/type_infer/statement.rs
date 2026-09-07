@@ -41,7 +41,7 @@ impl<'a> InferCtx<'a> {
 
         // Phase B: infer each top-level statement, a binding group at a time.
         let plan = self.plan_statements(&program.statements);
-        let (group_at, covered) = crate::generics_frontend::group_index(&plan);
+        let (group_at, covered) = crate::binding_groups::group_index(&plan);
         for (index, stmt) in program.statements.iter().enumerate() {
             if let Some(members) = group_at.get(&index) {
                 self.infer_binding_group(members);
@@ -54,12 +54,12 @@ impl<'a> InferCtx<'a> {
     /// The statement list, planned into binding groups.
     ///
     /// The same plan Core lowering and VM compilation use, so all three agree
-    /// on what a binding group *is* — see [`crate::generics_frontend`].
+    /// on what a binding group *is* — see [`crate::binding_groups`].
     fn plan_statements<'s>(
         &self,
         stmts: &'s [Statement],
-    ) -> Vec<crate::generics_frontend::PlanItem<'s>> {
-        crate::generics_frontend::plan_block(stmts, |stmt| {
+    ) -> Vec<crate::binding_groups::PlanItem<'s>> {
+        crate::binding_groups::plan_block(stmts, |stmt| {
             if let Statement::Function {
                 parameters, body, ..
             } = stmt
@@ -309,7 +309,7 @@ impl<'a> InferCtx<'a> {
         self.predeclare_data_constructors_in_statements(&body.statements);
         self.predeclare_module_members(&body.statements);
         let plan = self.plan_statements(&body.statements);
-        let (group_at, covered) = crate::generics_frontend::group_index(&plan);
+        let (group_at, covered) = crate::binding_groups::group_index(&plan);
         for (index, stmt) in body.statements.iter().enumerate() {
             if let Some(members) = group_at.get(&index) {
                 self.infer_binding_group(members);
@@ -485,7 +485,7 @@ impl<'a> InferCtx<'a> {
         }
 
         let plan = self.plan_statements(&block.statements);
-        let (group_at, covered) = crate::generics_frontend::group_index(&plan);
+        let (group_at, covered) = crate::binding_groups::group_index(&plan);
 
         let mut last_ty = InferType::Con(TypeConstructor::Unit);
         for (index, stmt) in block.statements.iter().enumerate() {
