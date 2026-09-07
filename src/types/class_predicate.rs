@@ -28,7 +28,7 @@
 //! two demand opposite treatment. `Pending` means the parameter's position is
 //! known but the type there is still an unsolved variable — the wanted
 //! constraint is re-substituted after unification (see
-//! `finalize_binding_class_constraints`), so it will very likely be refined,
+//! `decide_quantification`), so it will very likely be refined,
 //! and diagnosing it at emission would reject correct programs. `Unmentioned`
 //! means the parameter occurs nowhere in the signature, so *no* call can ever
 //! determine it; that is a property of the class declaration and is refutable

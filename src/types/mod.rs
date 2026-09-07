@@ -18,6 +18,7 @@ pub mod infer_type;
 pub mod kind;
 pub mod kind_check;
 pub mod module_interface;
+pub mod quantify;
 pub mod scheme;
 pub mod type_constructor;
 pub mod type_env;
