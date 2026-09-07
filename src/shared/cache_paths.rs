@@ -113,7 +113,14 @@ use sha2::{Digest, Sha256};
 /// cache it surfaced as a run-time `E1000` rather than a diagnostic. Epoch 43
 /// also predates the KI-083 fix, which changed where the dictionary globals
 /// are stored and so changed emitted bytecode.
-pub const CACHE_EPOCH: u16 = 44;
+/// Epoch 45: proposal 0186 rebuilds generics on binding groups. Statements are
+/// now grouped by reference rather than by adjacency (KI-087), so a mutually
+/// recursive pair separated by an intervening statement lowers to one recursive
+/// group instead of two independent binders — an epoch-44 artifact holds the
+/// miscompiled form, which ran as `E1001 ... (got Uninit)`. Bumped ahead of the
+/// quantification and evidence stages so no artifact written during them is
+/// epoch-compatible with the finished compiler.
+pub const CACHE_EPOCH: u16 = 45;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {
