@@ -1038,6 +1038,7 @@ instance Sizeable<Int> {
                 column: 10,
             },
         },
+        expr: None,
         origin: flux::ast::type_infer::constraint::WantedClassConstraintOrigin::ExplicitBound,
     };
 
@@ -1078,6 +1079,7 @@ class Sizeable<a> {
                 column: 10,
             },
         },
+        expr: None,
         origin: flux::ast::type_infer::constraint::WantedClassConstraintOrigin::ExplicitBound,
     };
 

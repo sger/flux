@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     ast::type_infer::ReportContext,
     diagnostics::position::Span,
-    syntax::Identifier,
+    syntax::{Identifier, expression::ExprId},
     types::{class_id::ClassId, infer_effect_row::InferEffectRow, infer_type::InferType},
 };
 
@@ -89,6 +89,15 @@ pub struct WantedClassConstraint {
     pub type_args: Vec<InferType>,
     /// Where in the source the constraint arose.
     pub span: Span,
+    /// The expression that raised it, when one did.
+    ///
+    /// Evidence has to be looked up later by the code generating that
+    /// expression, and a span cannot serve as the key: it cannot tell apart two
+    /// predicates raised at one site for one class, which is the failure
+    /// `close_definition_scope` was already recording. `None` marks a predicate
+    /// raised by a declaration rather than by an expression — an explicit
+    /// bound, say — which no call site consumes.
+    pub expr: Option<ExprId>,
     /// Why this constraint was emitted.
     pub origin: WantedClassConstraintOrigin,
 }
@@ -221,6 +230,7 @@ mod tests {
             class_id: ClassId::from_local_name(class_name),
             type_args: vec![InferType::Con(TypeConstructor::Int)],
             span: Span::default(),
+            expr: None,
             origin: WantedClassConstraintOrigin::ExplicitBound,
         }
     }

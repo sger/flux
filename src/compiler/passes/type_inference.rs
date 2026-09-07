@@ -89,6 +89,7 @@ impl Compiler {
                 &self.interner,
             );
             outcome.trace_stuck(&self.interner);
+            self.evidence_map = harvest_evidence(&outcome);
             let mut solver_diags: Vec<_> = outcome.into_diagnostics().collect();
             tag_diagnostics(&mut solver_diags, DiagnosticPhase::TypeInference);
             hm_diagnostics.extend(solver_diags);
@@ -138,4 +139,36 @@ impl Compiler {
             hm_diagnostics,
         }
     }
+}
+
+/// Collect the solver's evidence, keyed by the site that raised each predicate.
+///
+/// Only `Solved` predicates carry evidence: a `Generalized` one becomes a
+/// dictionary *parameter* of the enclosing definition rather than an argument
+/// at this site, and a `Stuck` or `Diagnosed` one has no instance to name.
+///
+/// The index within a site is the emission order of that site's predicates,
+/// which is also the order its dictionaries are passed — so it doubles as the
+/// argument position.
+fn harvest_evidence(
+    outcome: &crate::types::class_disposition::SolveOutcome,
+) -> crate::types::evidence::EvidenceMap {
+    use crate::types::class_disposition::Disposition;
+    use crate::types::evidence::{EvidenceMap, EvidenceSite};
+
+    let mut map = EvidenceMap::new();
+    let mut next_index: std::collections::HashMap<crate::syntax::expression::ExprId, u16> =
+        std::collections::HashMap::new();
+    for entry in &outcome.dispositions {
+        let Some(expr) = entry.wanted.expr else {
+            continue;
+        };
+        let Disposition::Solved { evidence } = &entry.disposition else {
+            continue;
+        };
+        let index = next_index.entry(expr).or_insert(0);
+        map.insert(EvidenceSite::new(expr, *index), evidence.clone());
+        *index += 1;
+    }
+    map
 }

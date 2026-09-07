@@ -1042,6 +1042,7 @@ mod tests {
             class_id: crate::types::class_id::ClassId::from_local_name(class_name),
             type_args,
             span: Span::new(Position::new(1, 0), Position::new(1, 4)),
+            expr: None,
             origin: WantedClassConstraintOrigin::MethodCall,
         }
     }

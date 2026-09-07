@@ -227,6 +227,11 @@ struct InferCtx<'a> {
     /// use sites. Surviving unresolved vars from this set are expected to be
     /// resolved by later call-site unification and should not trigger E430.
     instantiated_expr_vars: HashSet<TypeVarId>,
+    /// The expression currently being inferred, so a predicate raised while
+    /// checking it can record which site owes the evidence. Saved and restored
+    /// around each `infer_expression`, so a nested expression does not leave
+    /// its id behind for its parent's predicates.
+    current_expr: Option<ExprId>,
     /// Rigid (skolem) type variables introduced by a declared signature
     /// (Proposal 0159). A skolem cannot be unified with anything other than
     /// itself; `unify_core` enforces this inline via the threaded
@@ -336,6 +341,7 @@ impl<'a> InferCtx<'a> {
             deferred_constraints: Vec::new(),
             fallback_vars: HashSet::new(),
             instantiated_expr_vars: HashSet::new(),
+            current_expr: None,
             skolem_vars: HashSet::new(),
             skolem_names: HashMap::new(),
             signature_type_params: Vec::new(),
@@ -447,6 +453,7 @@ impl<'a> InferCtx<'a> {
         span: Span,
         origin: constraint::WantedClassConstraintOrigin,
     ) {
+        let expr = self.current_expr;
         self.class_constraints
             .simple
             .push(constraint::WantedClassConstraint {
@@ -454,6 +461,7 @@ impl<'a> InferCtx<'a> {
                 class_id,
                 type_args: type_args.clone(),
                 span,
+                expr,
                 origin,
             });
         self.record_constraint(constraint::Constraint::Class {
@@ -475,6 +483,7 @@ impl<'a> InferCtx<'a> {
         constraints: &[constraint::SchemeConstraint],
         span: Span,
     ) {
+        let expr = self.current_expr;
         for constraint in constraints {
             let type_args = constraint.type_args.clone();
             self.class_constraints
@@ -484,6 +493,7 @@ impl<'a> InferCtx<'a> {
                     class_id: constraint.class_id,
                     type_args: type_args.clone(),
                     span,
+                    expr,
                     origin: constraint::WantedClassConstraintOrigin::SchemeUse,
                 });
             self.record_constraint(constraint::Constraint::Class {
