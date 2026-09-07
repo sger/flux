@@ -2,19 +2,109 @@
 
 Working list for proposals [0186](../proposals/0186_generics_foundations.md) and
 [0187](../proposals/0187_specialisation.md), on `feat/0186-generics-foundations`
-(30 commits, green at every gate).
+(30 commits).
 
 Ordered within each track, and the tracks are listed in the order to do them.
-C first — it is the only track that deletes anything, and A exists to protect
-what C removes. B is independent of both and is the only track a user would
-notice.
+**Track R first** — the branch has a confirmed correctness regression, and it is
+worse than the bug it was introduced to fix. Then C, the only track that deletes
+anything; A exists to protect what C removes. B is independent of both and is
+the only track a user would notice.
+
+Every commit on this branch passed a full `cargo test --all --all-features` plus
+a parity sweep, and R1 was present the whole time. Nothing on Track A would have
+caught it — a dependency-shape guard test cannot see a runtime miscompilation.
+That is the reason R ranks above A here.
+
+---
+
+## Track R — regressions this branch introduced
+
+Found by the stage-5 code review, all in stage 2's `plan_block`
+(`src/binding_groups.rs`). R1 is confirmed by running the program; R2–R4
+are reasoned from the same code and not yet reproduced.
+
+- [ ] **R1. Binding groups are emitted in source-anchor order, not dependency
+      order.** *Confirmed, cold cache, on this branch:*
+
+      ```flux
+      fn main() with IO {
+          fn a() -> Int { b() + 1 }
+          fn b() -> Int { 41 }
+          print(a())
+      }
+      ```
+      ```
+      error[E1001]: Not A Function — Cannot call non-function value (got Uninit).
+      ```
+
+      `main` prints 42. A nested helper calling a *later* sibling is ordinary
+      code — far more common than the KI-087 shape (mutual recursion split by a
+      `let`) that stage 2 was written to fix.
+
+      `flux_generics::strongly_connected_components` already returns reverse
+      topological order — dependencies first, which is exactly the order
+      `prepend_stmts` needs, since it folds `plan.iter().rev()` so the *first*
+      plan item becomes the outermost binding. `plan_block` discards that order
+      and anchors each group at its first member instead, so `a` becomes the
+      outer `LetRec` and its closure captures `b`'s uninitialised slot. The
+      deleted `lower_fn_run_with_scc` kept the SCC order; nothing replaced it.
+
+      Two consumers share the defect: `prepend_stmts`
+      (`core/lower_ast/mod.rs:1589`) and the VM's statement loop
+      (`compiler/statement.rs:3105`).
+
+      The fix is not a plain sort — non-function statements must keep their
+      source order, and a group may not hoist above a `let` whose binding it
+      reads. What is needed is a topological order over *plan items*, with edges
+      for: consecutive `Other`s (source order), `Other → Group` where a member
+      reads what it binds, `Group → Other` where it reads a member (R3), and
+      `Group → Group` for dependencies — tie-broken by source index so ordinary
+      programs are laid out exactly as they are today.
+- [ ] **R2. `bound_name` sees only `Let` and `Function`.** A `LetDestructure`
+      between two members binds names invisibly to the hoist check, so a group
+      can be placed above a destructured binding it reads. It should return
+      *every* binder of a statement, walking the pattern.
+- [ ] **R3. The hoist check is one-sided.** `reads_intervening_binding` asks
+      whether a member reads an intervening binding, but nothing asks whether an
+      intervening statement *uses* a member — so a group can be emitted after
+      code that calls it. Needs free variables of non-function statements, which
+      the `free_vars` callback does not currently supply (lowering returns an
+      empty set for anything but a `Function`).
+- [ ] **R4. Close the test gap that let R1 through.** Three parts, and the third
+      is the one that matters:
+      - a `tests/parity/` fixture for the plain nested forward reference.
+        `expect: success` catches it — the program fails outright rather than
+        diverging between backends, which is why VM-vs-native comparison alone
+        would not have;
+      - a lowering test that asserts `LetRec` **nesting**. The surviving ones
+        only count nodes, which is why they stayed green;
+      - restore the determinism/ordering coverage lost when
+        `tarjan_scc_reverse_topological_order` was deleted along with
+        `lower_fn_run_with_scc`. It was the only thing guarding this order, and
+        it went out with the function it tested.
+
+### Unverified — from the same review, verification never reported
+
+The review's finder pass returned eight angles; the verification pass had not
+reported when the session ended, so these two are plausible and unconfirmed.
+Check them before acting.
+
+- [ ] **R5. `close_definition_scope` re-derives `quantified`**, which stage 4
+      made `decide_quantification`'s job. If the two derivations disagree, one
+      of them is wrong and the whole point of stage 4 — *one* quantification
+      decision — is not yet true.
+- [ ] **R6. `harvest_evidence` indexes only `Disposition::Solved` predicates.**
+      `EvidenceSite.index` is documented as the predicate's argument position;
+      skipping unsolved predicates shifts every later index, so a site with a
+      stuck predicate before a solved one would pass a dictionary in the wrong
+      slot.
 
 ---
 
 ## Track C — 0186 stage 5: one evidence-passing translation
 
-**Do this first.** Recording is done and gated; what remains is the emitter,
-and it is the only track that deletes anything.
+**Do this after Track R.** Recording is done and gated; what remains is the
+emitter, and it is the only track that deletes anything.
 
 One fact decides the shape of all of it: **`CoreExpr` carries no `ExprId`** —
 zero references in `src/core/mod.rs`. Evidence is keyed by `ExprId`, so no Core
@@ -63,37 +153,46 @@ hand, and the Core pass retired behind that.
 
 ---
 
-## Track A — 0e: the crate boundary
+---
 
-The boundary 0186 is named for. Measured, not estimated: `src/types/` holds 149
-production references to `TypeExpr`, two-thirds of them in code that should not
-move at all.
+## Track A — the boundary, as a guard test
 
-**Do this after Track C.** The boundary exists to stop the six resolution sites
-growing back; they are all still there, so building it now walls the
-duplication in rather than out — and A2's 56 sites would be re-touched by C's
-work anyway.
+0e is withdrawn. The crate split it called for is not being built, and the three
+crates that had been extracted are folded back: `src/source/`, `src/diagnostics/`
+and `src/shared/scc.rs`. The workspace is the root crate plus `crates/flux-lsp`.
+The reasoning is recorded in
+[0186's *Where it lives*](../proposals/0186_generics_foundations.md).
 
+- [x] **A0. Fold the crates back.** `flux-source` → `src/source/`,
+      `flux-diagnostics` → `src/diagnostics/`, `flux-generics` →
+      `src/shared/scc.rs`, `generics_frontend` → `src/binding_groups.rs`.
+      ~35 line edits: the re-export aliases already matched the destination
+      module names, so no import path outside the moved files changed.
 - [x] **A1. `InstanceDef.type_key`** — hold the string every `__dict_*` and
       `__tc_*` symbol is derived from, so changing the representation cannot
       silently rename every dictionary. `6eb113c9`
 - [ ] **A2. `InstanceDef.type_args: Vec<TypeExpr>` → `Vec<InferType>`**
-      — 56 compile errors, 41 in `class_env.rs`. Two decisions to make first:
+      — 56 compile errors, 41 in `class_env.rs`. **Keep this one**: it stands on
+      its own merits, independent of any boundary. It deletes
+      `match_instance_type_expr` (4 call sites, the last `TypeExpr`-pattern
+      matcher) in favour of `match_infer`, which already exists with one caller.
+      Two decisions first:
       - instance head type parameters need a numbering convention — reuse stage
         0d's, class parameter `i` is `TypeVarId(i)`;
       - `PublicInstanceEntry.type_args` (`module_interface.rs:113`) is `.flxi`
         format. Convert at the boundary and the format is unchanged, so no
         further epoch bump is owed.
+- [ ] **A3. The guard test.** One file, walking module imports, asserting all
+      four CLAUDE.md architecture rules. It covers what a crate graph cannot:
+      two of the four are about *contents* (`bytecode/` must not gain execution
+      logic; `shared_ir/` is ID plumbing, not a pipeline stage). The two
+      directional rules are one edge each — `llvm → bytecode` is `hash_bytes`,
+      `syntax → core` is `CorePrimOp` — so the test should pin those two known
+      edges and fail on a third.
 
-      Payoff: deletes `match_instance_type_expr` (4 call sites, the last
-      `TypeExpr`-pattern matcher) in favour of `match_infer`, which already
-      exists with one caller.
-- [ ] **A3. Move the frontend halves to the root crate** — `class_dispatch.rs`
-      (2,191 lines; it synthesises `Statement::Function`) and `class_env`'s
-      `Statement`-reading collection functions (~900 lines). Mechanical.
-      Depends on A2 only for tidiness, not correctness.
-- [ ] **A4. Move what remains into `flux-generics`**, re-export as
-      `crate::types` so existing imports are untouched.
+      Rank it below R4. A shape test would not have caught R1, and R4 would
+      have.
+- [ ] ~~**A4. Move what remains into `flux-generics`**~~ — withdrawn with 0e.
 
 ---
 

@@ -1569,11 +1569,11 @@ impl<'a> AstLowerer<'a> {
     /// Lower the full statement slice by prepending one statement at a time.
     ///
     /// Function definitions are grouped by mutual reference rather than by
-    /// adjacency — see [`crate::generics_frontend::plan_block`] — so a
+    /// adjacency — see [`crate::binding_groups::plan_block`] — so a
     /// statement standing between two mutually recursive definitions no longer
     /// splits them into separate, wrongly nested bindings.
     fn prepend_stmts(&mut self, stmts: &[Statement], body: CoreExpr, span: Span) -> CoreExpr {
-        let plan = crate::generics_frontend::plan_block(stmts, |stmt| {
+        let plan = crate::binding_groups::plan_block(stmts, |stmt| {
             if let Statement::Function {
                 parameters, body, ..
             } = stmt
@@ -1588,7 +1588,7 @@ impl<'a> AstLowerer<'a> {
         let mut result = body;
         for item in plan.iter().rev() {
             result = match item {
-                crate::generics_frontend::PlanItem::Group { members, .. } => {
+                crate::binding_groups::PlanItem::Group { members, .. } => {
                     match members.as_slice() {
                         [(_, single)] => self.prepend_one_stmt(single, result, span),
                         many => {
@@ -1597,7 +1597,7 @@ impl<'a> AstLowerer<'a> {
                         }
                     }
                 }
-                crate::generics_frontend::PlanItem::Other(_, stmt) => {
+                crate::binding_groups::PlanItem::Other(_, stmt) => {
                     self.prepend_one_stmt(stmt, result, span)
                 }
             };

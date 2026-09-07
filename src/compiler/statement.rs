@@ -3076,7 +3076,7 @@ impl Compiler {
         // lived here too, and left a mutually recursive pair separated by a
         // `let` compiled as two independent bindings — see
         // `docs/known_issues.md#ki-087`.
-        let plan = crate::generics_frontend::plan_block(&block.statements, |stmt| {
+        let plan = crate::binding_groups::plan_block(&block.statements, |stmt| {
             if let Statement::Function {
                 parameters, body, ..
             } = stmt
@@ -3088,7 +3088,7 @@ impl Compiler {
         });
         // Anchor index → the group's members; and the member positions that the
         // statement loop must skip because their group was emitted elsewhere.
-        let (group_at, covered) = crate::generics_frontend::group_index(&plan);
+        let (group_at, covered) = crate::binding_groups::group_index(&plan);
 
         let len = block.statements.len();
         let mut errors = Vec::new();
