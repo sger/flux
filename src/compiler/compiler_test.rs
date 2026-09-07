@@ -1978,6 +1978,7 @@ fn an_imported_instance_missing_an_associated_type_equation_is_a_stale_interface
         class_id,
         instance_module: module,
         is_public: true,
+        type_key: String::new(),
         type_args: Vec::new(),
         context: Vec::new(),
         context_class_ids: Vec::new(),

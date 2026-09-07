@@ -314,12 +314,7 @@ fn generate_builtin_instance_functions(
         let Some(class_def) = class_env.lookup_class_by_id(instance.class_id) else {
             continue;
         };
-        let type_name = instance
-            .type_args
-            .iter()
-            .map(|a| a.display_with(interner))
-            .collect::<Vec<_>>()
-            .join("_");
+        let type_name = instance.type_key.clone();
         let class_name_str = interner.resolve(instance.class_name).to_string();
 
         for method_sig in &class_def.methods {
@@ -1137,12 +1132,7 @@ fn pre_intern_dict_names(class_env: &ClassEnv, interner: &mut Interner) {
         if instance.type_args.is_empty() {
             continue;
         }
-        let type_name = instance
-            .type_args
-            .iter()
-            .map(|a| a.display_with(interner))
-            .collect::<Vec<_>>()
-            .join("_");
+        let type_name = instance.type_key.clone();
         let dict_name =
             crate::types::class_env::dictionary_name(instance.class_id, &type_name, interner);
         interner.intern(&dict_name);
