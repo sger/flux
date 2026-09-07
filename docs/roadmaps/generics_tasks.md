@@ -4,8 +4,62 @@ Working list for proposals [0186](../proposals/0186_generics_foundations.md) and
 [0187](../proposals/0187_specialisation.md), on `feat/0186-generics-foundations`
 (30 commits, green at every gate).
 
-Ordered within each track. Tracks are independent of each other unless a
-dependency is stated.
+Ordered within each track, and the tracks are listed in the order to do them.
+C first — it is the only track that deletes anything, and A exists to protect
+what C removes. B is independent of both and is the only track a user would
+notice.
+
+---
+
+## Track C — 0186 stage 5: one evidence-passing translation
+
+**Do this first.** Recording is done and gated; what remains is the emitter,
+and it is the only track that deletes anything.
+
+One fact decides the shape of all of it: **`CoreExpr` carries no `ExprId`** —
+zero references in `src/core/mod.rs`. Evidence is keyed by `ExprId`, so no Core
+pass can consume it. `dict_elaborate` cannot be rewired in place; dictionary
+arguments have to be emitted during AST→Core lowering, where the id is still in
+hand, and the Core pass retired behind that.
+
+- [x] **C1. `EvidenceMap` / `EvidenceSite`**, populated from the whole-program
+      solve. `2426909e`
+- [x] **C2. `translate.rs`** — evidence → `DictArg`, resolving nothing.
+      `e04593a7`
+- [x] **C3. `InstanceKey.dict_type_key`** — name a chosen instance without
+      re-searching the class environment. `6e8d259f`
+- [x] **C4. Attribute a checked sub-expression's predicates to itself.**
+      `912e9bba`
+- [ ] **C5. Emit dictionary arguments for ordinary constrained *calls* at
+      lowering.** The safe first target: `insert_dict_args_at_call_sites`
+      already handles these, so the new emission has a reference output to diff
+      against — a divergence is a bug in the new path, and parity catches it
+      rather than inspection. No synthesized `Lam` is needed for a call, so none
+      of C6's difficulty applies here.
+- [ ] **C6. Delete the six resolution sites.** Depends on C5.
+      - `class_call_type_args` — both copies (`lower_ast/mod.rs:594`,
+        `compiler/expression.rs:5368`) and the "must stay in lockstep" comment
+      - `resolve_dict_arg`, `build_caller_dict_map`, `choose_candidate` and its
+        first-candidate recovery, `build_contextual_dictionary_expr`,
+        `superclass_evidence_expr` (`dict_elaborate.rs`)
+      - `predeclare_instance_dictionary_globals` (`predeclaration.rs`)
+      - the `±dictionaries` band in `check_known_call_arity`
+
+      Answer first whether the AST bytecode fallback can be retired (E3's open
+      question), so this has two consumers to satisfy rather than three.
+- [ ] **C7. KI-090 — a constrained function referenced as a *value*.** The last
+      case of the same emission, and the hardest: it is the only one needing a
+      synthesized `CoreExpr::Lam`, which is where three attempts failed. Core is
+      provably correct (`λ%t569. dbl(__dict_..._Num_Int, %t569)`) and **both
+      backends still reject it** — VM `E1000`, native SIGSEGV. The defect is
+      below Core, in how a synthesized `Lam` must be built for closure
+      conversion; prime suspect is `param_types: vec![None; n]` /
+      `result_ty: None`, which drive `FluxRep` selection. See
+      [the known issue](../known_issues.md#ki-090) for the four obstacles
+      already solved.
+
+      *This is closure-conversion work, not generics work — and it does not
+      block C6.*
 
 ---
 
@@ -14,6 +68,11 @@ dependency is stated.
 The boundary 0186 is named for. Measured, not estimated: `src/types/` holds 149
 production references to `TypeExpr`, two-thirds of them in code that should not
 move at all.
+
+**Do this after Track C.** The boundary exists to stop the six resolution sites
+growing back; they are all still there, so building it now walls the
+duplication in rather than out — and A2's 56 sites would be re-touched by C's
+work anyway.
 
 - [x] **A1. `InstanceDef.type_key`** — hold the string every `__dict_*` and
       `__tc_*` symbol is derived from, so changing the representation cannot
@@ -48,50 +107,28 @@ Track A.
       Exit: a constrained helper called only at `Int` lowers to `IAdd` again,
       **with the current generalization rule unchanged**, and the 16
       optimisation tests pass untouched.
+
+      *Scope it narrowly first:* specialise only a function whose call sites all
+      use **one** instance. That is the common case in `lib/Flow/`, it is a
+      fraction of general monomorphisation, and it is very likely enough to
+      satisfy all 16 tests. Widen only if it is not.
 - [ ] **B2. Land generalize-by-arity** — `monomorphism_restriction` by arity in
       `finalize_and_bind_function_scheme`. Two lines; written and reverted in
       `60b3fa39`, so the diff already exists. Depends on B1.
       Exit: the same 16 tests still pass **without being weakened**.
 - [ ] **B3. Bump `CACHE_EPOCH`.** Depends on B2.
+- [ ] **B4. 0186 stage 4's remainder — one quantification decision per
+      *group*.** Depends on B2, and only on B2. No failing case exists today:
+      mutually recursive polymorphic functions, constrained ones included,
+      already work. It becomes necessary once unannotated helpers are
+      constrained, because one member's `forall` must not mention a variable
+      another member left free.
 
 Why this order: B2 alone despecialises every unannotated helper — `IAdd`
 becomes a dictionary call, and `my_filter` goes from `FBIP: fip, FreshAllocs: 0`
 to `fbip(1), FreshAllocs: 1`. Landing it before B1 means dismantling 16 tests
 that assert superinstruction fusion, `DropSpecialized` elimination and tail
 calls still fire.
-
----
-
-## Track C — 0186 stage 5: one evidence-passing translation
-
-Recording is done and gated. Everything left needs a working consumer.
-
-- [x] **C1. `EvidenceMap` / `EvidenceSite`**, populated from the whole-program
-      solve. `2426909e`
-- [x] **C2. `translate.rs`** — evidence → `DictArg`, resolving nothing.
-      `e04593a7`
-- [x] **C3. `InstanceKey.dict_type_key`** — name a chosen instance without
-      re-searching the class environment. `6e8d259f`
-- [x] **C4. Attribute a checked sub-expression's predicates to itself.**
-      `912e9bba`
-- [ ] **C5. KI-090** — a constrained function referenced as a value. Three
-      attempts; see [the known issue](../known_issues.md#ki-090) for the four
-      obstacles already solved. Core is provably correct
-      (`λ%t569. dbl(__dict_..._Num_Int, %t569)`) and **both backends still
-      reject it** — VM `E1000`, native SIGSEGV. The remaining defect is below
-      Core, in how a synthesized `CoreExpr::Lam` must be built for closure
-      conversion. Prime suspect: `param_types: vec![None; n]` and
-      `result_ty: None`, which drive `FluxRep` selection.
-      *This is closure-conversion work, not generics work.*
-- [ ] **C6. Delete the six resolution sites.** Depends on C5 or an equivalent
-      consumer.
-      - `class_call_type_args` — both copies (`lower_ast/mod.rs:594`,
-        `compiler/expression.rs:5368`) and the "must stay in lockstep" comment
-      - `resolve_dict_arg`, `build_caller_dict_map`, `choose_candidate` and its
-        first-candidate recovery, `build_contextual_dictionary_expr`,
-        `superclass_evidence_expr` (`dict_elaborate.rs`)
-      - `predeclare_instance_dictionary_globals` (`predeclaration.rs`)
-      - the `±dictionaries` band in `check_known_call_arity`
 
 ---
 
@@ -158,10 +195,5 @@ what two of them cost.
 
 ## Deliberately not doing
 
-- **0186 stage 4's remainder** — one quantification decision per *group* rather
-  than per member. No failing case could be constructed: mutually recursive
-  polymorphic functions, constrained ones included, already work. It only pays
-  off once B2 makes unannotated helpers constrained, so it is speculative until
-  then.
 - **0186 stage 0d's remainder** — threading `&ClassSurface` into eight more
   consumers. Superseded by A2, which addresses the same dependency at its root.
