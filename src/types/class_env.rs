@@ -4007,7 +4007,7 @@ module Mod.Same {
         // First declaration succeeds, second is rejected as a duplicate.
         assert_eq!(env.classes.len(), 1, "only one class should be inserted");
         assert!(
-            diags.iter().any(|d| d.code().as_deref() == Some("E440")),
+            diags.iter().any(|d| d.code() == Some("E440")),
             "expected DUPLICATE_CLASS (E440), got: {:?}",
             diags
         );
@@ -4080,7 +4080,7 @@ module Mod.A {
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code().as_deref() == Some("E449")),
+            !diags.iter().any(|d| d.code() == Some("E449")),
             "instance in class's own module must not be orphan, got: {:?}",
             diags
         );
@@ -4118,7 +4118,7 @@ module Mod.Type {
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code().as_deref() == Some("E449")),
+            !diags.iter().any(|d| d.code() == Some("E449")),
             "instance in head type's own module must not be orphan, got: {:?}",
             diags
         );
@@ -4158,7 +4158,7 @@ module Mod.Third {
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            diags.iter().any(|d| d.code().as_deref() == Some("E449")),
+            diags.iter().any(|d| d.code() == Some("E449")),
             "third-module instance should be rejected as orphan, got: {:?}",
             diags
         );
@@ -4192,7 +4192,7 @@ module Mod.Type {
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code().as_deref() == Some("E449")),
+            !diags.iter().any(|d| d.code() == Some("E449")),
             "deriving instance lives in the data's module — must not be orphan, got: {:?}",
             diags
         );
@@ -4224,7 +4224,7 @@ instance TopLvlShow<Int> {
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code().as_deref() == Some("E449")),
+            !diags.iter().any(|d| d.code() == Some("E449")),
             "legacy top-level instances must be grandfathered, got: {:?}",
             diags
         );
@@ -4262,7 +4262,7 @@ module Mod.A {
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code().as_deref() == Some("E450")),
+            !diags.iter().any(|d| d.code() == Some("E450")),
             "public instance of public class must not fire E450, got: {:?}",
             diags
         );
@@ -4296,7 +4296,7 @@ module Mod.A {
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code().as_deref() == Some("E450")),
+            !diags.iter().any(|d| d.code() == Some("E450")),
             "private instance of private class must not fire E450, got: {:?}",
             diags
         );
@@ -4329,7 +4329,7 @@ module Mod.A {
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            diags.iter().any(|d| d.code().as_deref() == Some("E450")),
+            diags.iter().any(|d| d.code() == Some("E450")),
             "public instance of private class must fire E450, got: {:?}",
             diags
         );
@@ -4371,7 +4371,7 @@ module Mod.A {
         // not the absence of all errors.
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code().as_deref() == Some("E450")),
+            !diags.iter().any(|d| d.code() == Some("E450")),
             "instance for unknown/built-in class must not fire E450, got: {:?}",
             diags
         );
@@ -4410,7 +4410,7 @@ module Mod.A {
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code().as_deref() == Some("E455")),
+            !diags.iter().any(|d| d.code() == Some("E455")),
             "public instance with public head must not fire E455, got: {:?}",
             diags
         );
@@ -4445,7 +4445,7 @@ module Mod.A {
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            diags.iter().any(|d| d.code().as_deref() == Some("E455")),
+            diags.iter().any(|d| d.code() == Some("E455")),
             "public instance with private head must fire E455, got: {:?}",
             diags
         );
@@ -4481,7 +4481,7 @@ module Mod.A {
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code().as_deref() == Some("E455")),
+            !diags.iter().any(|d| d.code() == Some("E455")),
             "private instance must not fire E455, got: {:?}",
             diags
         );
@@ -4515,7 +4515,7 @@ module Mod.A {
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code().as_deref() == Some("E455")),
+            !diags.iter().any(|d| d.code() == Some("E455")),
             "public instance with built-in head must not fire E455, got: {:?}",
             diags
         );
@@ -4551,7 +4551,7 @@ module Mod.A {
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            diags.iter().any(|d| d.code().as_deref() == Some("E451")),
+            diags.iter().any(|d| d.code() == Some("E451")),
             "public class with private type in method param must fire E451, got: {:?}",
             diags
         );
@@ -4582,7 +4582,7 @@ module Mod.A {
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            diags.iter().any(|d| d.code().as_deref() == Some("E451")),
+            diags.iter().any(|d| d.code() == Some("E451")),
             "public class with private return type must fire E451, got: {:?}",
             diags
         );
@@ -4613,7 +4613,7 @@ module Mod.A {
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code().as_deref() == Some("E451")),
+            !diags.iter().any(|d| d.code() == Some("E451")),
             "public class with all-public ADTs must not fire E451, got: {:?}",
             diags
         );
@@ -4645,7 +4645,7 @@ module Mod.A {
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code().as_deref() == Some("E451")),
+            !diags.iter().any(|d| d.code() == Some("E451")),
             "private class is allowed to mention private types, got: {:?}",
             diags
         );
@@ -4709,7 +4709,7 @@ module Mod.Class {
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            diags.iter().any(|d| d.code().as_deref() == Some("E443")),
+            diags.iter().any(|d| d.code() == Some("E443")),
             "duplicate public instance must fire E443, got: {:?}",
             diags
         );
@@ -4756,7 +4756,7 @@ module Mod.Class {
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            diags.iter().any(|d| d.code().as_deref() == Some("E443")),
+            diags.iter().any(|d| d.code() == Some("E443")),
             "duplicate public ADT instance must fire E443, got: {:?}",
             diags
         );
@@ -4823,7 +4823,7 @@ module Mod.Other {
         // The duplicate-instance gate must fire (E443).
         let dupe = diags
             .iter()
-            .find(|d| d.code().as_deref() == Some("E443"))
+            .find(|d| d.code() == Some("E443"))
             .expect("expected E443 to fire on cross-module duplicate instance");
 
         // The hint must mention BOTH module names so users can find
@@ -4872,7 +4872,7 @@ module Mod.Class {
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code().as_deref() == Some("E443")),
+            !diags.iter().any(|d| d.code() == Some("E443")),
             "distinct head types must not fire E443, got: {:?}",
             diags
         );
