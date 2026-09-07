@@ -657,6 +657,12 @@ fn solve_instance_evidence(
             instance: InstanceKey {
                 class_id: instance.class_id,
                 head_type_args: type_args.to_vec(),
+                dict_type_key: instance
+                    .type_args
+                    .iter()
+                    .map(|arg| arg.display_with(interner))
+                    .collect::<Vec<_>>()
+                    .join("_"),
             },
             subst,
             context,
