@@ -176,7 +176,7 @@ impl<'a> InferCtx<'a> {
             infer_type: &final_ty,
             env_free_vars: &env_free,
             window,
-            mode: GeneralizationMode::NestedBinding,
+            mode: MonoRestriction::Restricted,
             binder: name,
             span: let_span,
         });

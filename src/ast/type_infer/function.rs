@@ -524,7 +524,7 @@ impl<'a> InferCtx<'a> {
                 infer_type: &fn_ty,
                 env_free_vars: &self.env.free_vars(),
                 window: constraint_start,
-                mode: GeneralizationMode::Definition,
+                mode: MonoRestriction::Generalize,
                 binder: name,
                 span: fn_span,
             })
