@@ -21,6 +21,7 @@ pub mod kind_check;
 pub mod module_interface;
 pub mod quantify;
 pub mod scheme;
+pub mod translate;
 pub mod type_constructor;
 pub mod type_env;
 pub mod type_subst;
