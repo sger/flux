@@ -132,11 +132,37 @@ pub fn decide_quantification(spec: QuantifySpec<'_>) -> Quantified {
         apply_wanted_constraints_subst(&resolved_constraints, &default_subst);
 
     // The one derivation of the quantified set. Everything below reads it.
-    let quantified: HashSet<TypeVarId> = finalized_type
+    let mut quantified: HashSet<TypeVarId> = finalized_type
         .free_vars()
         .difference(spec.env_free_vars)
         .copied()
         .collect();
+
+    // A field predicate never justifies quantification: it *pins* its receiver.
+    //
+    // `fn label(r) { r.name }` raises `__field.name<R, T>` (proposal 0184).
+    // Quantifying `R` would make the binding polymorphic in a receiver whose
+    // field cannot be looked up until some caller says what it is — and, having
+    // been quantified, the predicate is discharged nowhere and the E490 that
+    // should be reported at the access is silently lost. That is what happened
+    // the first time generalization was widened to unannotated functions.
+    //
+    // Removing the receiver's variables from the quantifiable set leaves the
+    // predicate over a monomorphic variable, so `split` defers it to the
+    // enclosing scope and the whole-program solve
+    // (`discharge_field_predicates`) either determines it from a call site or
+    // reports it.
+    for constraint in &finalized_constraints {
+        if constraint.origin != WantedClassConstraintOrigin::FieldAccess {
+            continue;
+        }
+        for arg in &constraint.type_args {
+            for var in arg.free_vars() {
+                quantified.remove(&var);
+            }
+        }
+    }
+    let quantified = quantified;
 
     let outcome = spec
         .class_env

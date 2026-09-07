@@ -844,7 +844,7 @@ letrec update_many =
 
 letrec accum =
 λsize#320, init#321, pairs#322, f#323.
-    let base#330:Box = (let %t213:Box = (λ_#331.
+    let base#330 = (let %t213:Box = (λ_#331.
       init#321)
     tabulate#285(size#320, #4001553[synthetic]#1553))
     letrec accum_go#324 = (λa#325, ps#326.
@@ -889,7 +889,7 @@ letrec map =
 λxs#338:Box, f#339.
     letrec map_acc#340 = (λys#341, acc#342.
       case ys#341 of
-        ::(h#343:Int, t#344:Box) →
+        ::(h#343, t#344:Box) →
           let %t226:Box = (let %t227 = f#339(h#343)
           ::(#4001566[synthetic]#1566, acc#342))
           map_acc#340(t#344, #4001567[synthetic]#1567)
@@ -902,7 +902,7 @@ letrec filter =
 λxs#346:Box, pred#347.
     letrec filter_acc#348 = (λys#349, acc#350.
       case ys#349 of
-        ::(h#351:Int, t#352:Box) →
+        ::(h#351, t#352:Box) →
           let %t229 = pred#347(h#351)
           case #4001569[synthetic]#1569 of
             true →
@@ -1484,8 +1484,8 @@ letrec sum =
 λxs#618:Box.
     letrec sum_go#619 = (λys#620, acc#621.
       case ys#620 of
-        ::(h#622:Int, t#623:Box) →
-          let %t331:Int = IAdd(acc#621, h#622)
+        ::(h#622, t#623:Box) →
+          let %t331 = Add(acc#621, h#622)
           sum_go#619(t#623, #4001670[synthetic]#1670)
         _ →
           acc#621)
@@ -1495,8 +1495,8 @@ letrec product =
 λxs#625:Box.
     letrec product_go#626 = (λys#627, acc#628.
       case ys#627 of
-        ::(h#629:Int, t#630:Box) →
-          let %t332:Int = IMul(acc#628, h#629)
+        ::(h#629, t#630:Box) →
+          let %t332 = Mul(acc#628, h#629)
           product_go#626(t#630, #4001671[synthetic]#1671)
         _ →
           acc#628)
@@ -1627,7 +1627,7 @@ letrec scanr_finish =
 letrec merge_sort_by =
 λxs#708, key_fn#709.
     case xs#708 of
-      ::(_, t#710:Box) →
+      ::(_, t#710) →
         case t#710 of
           ::(_, _) →
             merge_sort_do#711(xs#708, key_fn#709)
@@ -1760,10 +1760,10 @@ letrec lefts =
 λxs#773:Box.
     letrec lefts_acc#774 = (λys#775, acc#776.
       case ys#775 of
-        ::(Left(x#777), t#778:Int) →
+        ::(Left(x#777), t#778) →
           let %t379:Box = ::(x#777, acc#776)
           lefts_acc#774(t#778, #4001718[synthetic]#1718)
-        ::(Right(_), t#779:Int) →
+        ::(Right(_), t#779) →
           lefts_acc#774(t#779, acc#776)
         _ →
           let %t380 = List#?[external].reverse
@@ -2017,7 +2017,7 @@ letrec split_ints =
     let parts#913:Box = Split(s#911, sep#912)
     parse_ints#904(parts#913)
 
-def pi : List<Int> =
+def pi : List<a> =
 3.141592653589793
 
 letrec sqrt =
@@ -2576,7 +2576,7 @@ letrec concat_arrays =
 letrec append_lists =
 λxs#1229, ys#1230.
     case xs#1229 of
-      ::(h#1231, t#1232:Int) →
+      ::(h#1231, t#1232) →
         let %t483 = append_lists#1228(t#1232, ys#1230)
         ::(h#1231, #4001818[synthetic]#1818)
       _ →
@@ -2640,7 +2640,7 @@ letrec __tc_m9_466C6F772E53686F77_Show_Bool_show : (Bool) -> String =
 
 letrec starts_with =
 λs#1263:Box, prefix#1264:Box.
-    let plen#1265:Int = Len(prefix#1264)
+    let plen#1265 = Len(prefix#1264)
     let %t492:Bool = (let %t493 = Len(s#1263)
     Gt(plen#1265, #4001827[synthetic]#1827))
     case #4001828[synthetic]#1828 of
@@ -2755,7 +2755,7 @@ letrec str_contains =
 letrec rec_copy_or_keep : forall a. (List<a>, Bool) -> List<a> =
 λxs#1301:Box, choose#1302:Bool.
     case xs#1301 of
-      ::(h#1303:Int, t#1304:Box) →
+      ::(h#1303, t#1304:Box) →
         case choose#1302 of
           true →
             let %t523 = rec_copy_or_keep#1300(t#1304, choose#1302)

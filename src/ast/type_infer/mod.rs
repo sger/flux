@@ -31,7 +31,9 @@ use crate::{
         TypeVarId,
         infer_effect_row::InferEffectRow,
         infer_type::InferType,
-        quantify::{MonoRestriction, QuantifySpec, decide_quantification},
+        quantify::{
+            MonoRestriction, QuantifySpec, decide_quantification, monomorphism_restriction,
+        },
         scheme::{Scheme, generalize},
         type_constructor::TypeConstructor,
         type_env::TypeEnv,

@@ -844,7 +844,7 @@ letrec update_many =
 
 letrec accum =
 λsize#320, init#321, pairs#322, f#323.
-    let base#330:Box = (let %t213:Box = (λ_#331.
+    let base#330 = (let %t213:Box = (λ_#331.
       init#321)
     tabulate#285(size#320, #4001562[synthetic]#1562))
     letrec accum_go#324 = (λa#325, ps#326.
@@ -889,7 +889,7 @@ letrec map =
 λxs#338:Box, f#339.
     letrec map_acc#340 = (λys#341, acc#342.
       case ys#341 of
-        ::(h#343:Int, t#344:Box) →
+        ::(h#343, t#344) →
           let %t226:Box = (let %t227 = f#339(h#343)
           ::(#4001575[synthetic]#1575, acc#342))
           map_acc#340(t#344, #4001576[synthetic]#1576)
@@ -1484,8 +1484,8 @@ letrec sum =
 λxs#618:Box.
     letrec sum_go#619 = (λys#620, acc#621.
       case ys#620 of
-        ::(h#622:Int, t#623:Box) →
-          let %t331:Int = IAdd(acc#621, h#622)
+        ::(h#622, t#623:Box) →
+          let %t331 = Add(acc#621, h#622)
           sum_go#619(t#623, #4001679[synthetic]#1679)
         _ →
           acc#621)
@@ -1495,8 +1495,8 @@ letrec product =
 λxs#625:Box.
     letrec product_go#626 = (λys#627, acc#628.
       case ys#627 of
-        ::(h#629:Int, t#630:Box) →
-          let %t332:Int = IMul(acc#628, h#629)
+        ::(h#629, t#630:Box) →
+          let %t332 = Mul(acc#628, h#629)
           product_go#626(t#630, #4001680[synthetic]#1680)
         _ →
           acc#628)
@@ -1627,7 +1627,7 @@ letrec scanr_finish =
 letrec merge_sort_by =
 λxs#708, key_fn#709.
     case xs#708 of
-      ::(_, t#710:Box) →
+      ::(_, t#710) →
         case t#710 of
           ::(_, _) →
             merge_sort_do#711(xs#708, key_fn#709)
@@ -2017,7 +2017,7 @@ letrec split_ints =
     let parts#913:Box = Split(s#911, sep#912)
     parse_ints#904(parts#913)
 
-def pi : List<Int> =
+def pi : a =
 3.141592653589793
 
 letrec sqrt =
@@ -2755,7 +2755,7 @@ letrec str_contains =
 letrec copy_or_keep_head : forall a, b. (a, Bool) -> List<b> =
 λxs#1301, copy#1302:Bool.
     case xs#1301 of
-      ::(h#1303:Int, t#1304:Box) →
+      ::(h#1303, t#1304) →
         case copy#1302 of
           true →
             let %t523:Box = ::(h#1303, t#1304)
