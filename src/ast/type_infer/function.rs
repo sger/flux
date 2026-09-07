@@ -1,5 +1,3 @@
-use crate::ast::{Visitor, walk_block, walk_expr, walk_stmt};
-
 use super::*;
 
 impl<'a> InferCtx<'a> {
@@ -44,7 +42,7 @@ impl<'a> InferCtx<'a> {
         let body_ty = self.with_ambient_effect_row(ambient_effect_row.clone(), |ctx| {
             ctx.infer_block(input.body)
         });
-        let mut ret_ty = self.infer_return_type_with_optional_annotation(
+        let ret_ty = self.infer_return_type_with_optional_annotation(
             &tp_map,
             &mut row_var_env,
             input.return_type,
@@ -52,17 +50,6 @@ impl<'a> InferCtx<'a> {
             Some(input.name),
             input.body,
         );
-
-        if self.should_refine_self_recursive_return(input) {
-            ret_ty = self.refine_unannotated_self_recursive_return(
-                input.name,
-                input.parameters,
-                &param_tys,
-                &ambient_effect_row,
-                input.body,
-                &ret_ty,
-            );
-        }
 
         self.unmark_skolems(&skolem_ids);
         self.signature_type_params.pop();
@@ -82,14 +69,6 @@ impl<'a> InferCtx<'a> {
     /// later slice out only the obligations it introduced during inference.
     fn binding_constraint_start(&self) -> constraint::CaptureWindow {
         self.class_constraints.open_window()
-    }
-
-    /// Return whether this function qualifies for the extra self-recursive
-    /// return-refinement pass used for unannotated self recursion.
-    fn should_refine_self_recursive_return(&self, input: FnInferInput<'_>) -> bool {
-        input.return_type.is_none()
-            && input.type_params.is_empty()
-            && self.block_contains_self_call(input.body, input.name)
     }
 
     /// Mark the declared type parameters of a function as rigid (skolems)
@@ -515,9 +494,36 @@ impl<'a> InferCtx<'a> {
             .map(|ty| ty.apply_type_subst(&self.subst))
             .collect();
         let effect_row = declared_effect_row.apply_row_subst(&self.subst);
-        let fn_ty = InferType::Fun(final_param_tys, Box::new(ret_ty.clone()), effect_row);
+        let mut fn_ty = InferType::Fun(final_param_tys, Box::new(ret_ty.clone()), effect_row);
 
         self.env.leave_scope();
+
+        // Tie the predeclared slot to the type the body produced.
+        //
+        // The name was bound at a bare monotype before the body was checked so
+        // that a self-call could refer to it. Nothing then connected that slot
+        // to the function's inferred type, so a self-call and the definition
+        // were two variables that merely happened to agree — and where they did
+        // not, a second whole-body inference pass
+        // (`refine_unannotated_self_recursive_return`) re-derived the return
+        // type and picked between the two answers by concreteness. Unifying
+        // here is what that pass was approximating.
+        //
+        // Silent because a genuine disagreement is already reported against the
+        // body; recovering keeps one shape for everything downstream.
+        //
+        // A name predeclared at its *declared* scheme is skipped: that scheme is
+        // polymorphic, and instantiating it against this one monomorphic use
+        // would pin the type parameters the signature asked to keep open.
+        if let Some(slot) = self
+            .env
+            .lookup(name)
+            .filter(|scheme| scheme.forall.is_empty() && scheme.constraints.is_empty())
+            .map(|scheme| scheme.infer_type.clone())
+        {
+            self.unify_silent(&slot, &fn_ty);
+            fn_ty = fn_ty.apply_type_subst(&self.subst);
+        }
 
         let scheme = if !type_params.is_empty() {
             self.finalize_binding_scheme(BindingSchemeSpec {
@@ -535,117 +541,5 @@ impl<'a> InferCtx<'a> {
         self.binding_schemes_by_span
             .insert(binding_span_key(fn_span), scheme.clone());
         self.env.bind_with_span(name, scheme, Some(fn_span));
-    }
-
-    /// Run a second pass for unannotated self recursive functions to refine type.
-    ///
-    /// This preserves existing T11 behavior by feeding recursive call result
-    /// constraints back into the function return slot.
-    pub(super) fn refine_unannotated_self_recursive_return(
-        &mut self,
-        name: Identifier,
-        parameters: &[Identifier],
-        param_tys: &[InferType],
-        effect_row: &InferEffectRow,
-        body: &Block,
-        current_ret: &InferType,
-    ) -> InferType {
-        self.env.enter_scope();
-        let refined_param_tys: Vec<InferType> = param_tys
-            .iter()
-            .map(|ty| ty.apply_type_subst(&self.subst))
-            .collect();
-        for (param_name, param_ty) in parameters.iter().zip(refined_param_tys.iter()) {
-            self.env.bind(*param_name, Scheme::mono(param_ty.clone()));
-        }
-        let ret_slot = self.env.alloc_infer_type_var();
-        let self_fn_ty = InferType::Fun(
-            refined_param_tys,
-            Box::new(ret_slot.clone()),
-            effect_row.apply_row_subst(&self.subst),
-        );
-        self.env.bind(name, Scheme::mono(self_fn_ty));
-        let second_body_ty =
-            self.with_ambient_effect_row(effect_row.clone(), |ctx| ctx.infer_block(body));
-        let refined_ret = self.unify_silent(&second_body_ty, &ret_slot);
-        self.env.leave_scope();
-        let refined_resolved = refined_ret.apply_type_subst(&self.subst);
-        let current_resolved = current_ret.apply_type_subst(&self.subst);
-        let current_concrete = Self::is_fully_concrete(&current_resolved);
-        let refined_concrete = Self::is_fully_concrete(&refined_resolved);
-
-        if current_concrete && !refined_concrete {
-            current_resolved
-        } else if (refined_concrete && !current_concrete) || !current_ret.is_concrete() {
-            refined_resolved
-        } else if !refined_resolved.is_concrete() {
-            // Keep the prior concrete inference when the refinement pass did not
-            // increase precision and would otherwise fall back to an unresolved variable.
-            current_resolved
-        } else {
-            self.unify_silent(&current_resolved, &refined_resolved)
-                .apply_type_subst(&self.subst)
-        }
-    }
-
-    /// Return `true` when any statement in `block` contains a self call to `name`.
-    pub(super) fn block_contains_self_call(&self, block: &Block, name: Identifier) -> bool {
-        let mut search = SelfCallSearch::new(name);
-        search.visit_block(block);
-        search.found
-    }
-}
-
-/// Read-only AST search for direct self-calls to a named function.
-///
-/// Short-circuits on first match. Does not descend into nested function literals.
-struct SelfCallSearch {
-    target_name: Identifier,
-    found: bool,
-}
-
-impl SelfCallSearch {
-    /// Create a new self call search instance for `target_name`.
-    fn new(target_name: Identifier) -> Self {
-        Self {
-            target_name,
-            found: false,
-        }
-    }
-}
-
-impl<'ast> Visitor<'ast> for SelfCallSearch {
-    /// Walk child statements, short-circuiting if already found.
-    fn visit_block(&mut self, block: &'ast Block) {
-        if self.found {
-            return;
-        }
-        walk_block(self, block);
-    }
-
-    /// Walk child expressions, short-circuiting if already found.
-    fn visit_stmt(&mut self, stmt: &'ast Statement) {
-        if self.found {
-            return;
-        }
-        walk_stmt(self, stmt);
-    }
-
-    /// Mark found on direct `target_name(...)` call; skip nested function bodies.
-    fn visit_expr(&mut self, expr: &'ast Expression) {
-        if self.found {
-            return;
-        }
-        if let Expression::Call { function, .. } = expr
-            && let Expression::Identifier { name, .. } = function.as_ref()
-            && *name == self.target_name
-        {
-            self.found = true;
-            return;
-        }
-        if matches!(expr, Expression::Function { .. }) {
-            return;
-        }
-        walk_expr(self, expr);
     }
 }
