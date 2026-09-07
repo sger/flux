@@ -1347,3 +1347,41 @@ fn main() { twice_size(21) }
          so its evidence must be recorded against that call"
     );
 }
+
+/// The instance the solver chose can be named without asking the class
+/// environment again.
+///
+/// Naming a dictionary means rendering the instance head — `__dict_Sized_Int`.
+/// Everything downstream of the solver holds `InferType`s, which render
+/// differently from the `TypeExpr`s that name was built from, so recovering the
+/// name later would mean searching `class_env.instances` for the instance that
+/// was *already chosen*. `InstanceKey::dict_type_key` is recorded where the
+/// match happens instead.
+#[test]
+fn recorded_evidence_names_a_dictionary_that_exists() {
+    let source = r#"
+class Sized<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sized<Int> {
+    fn size(x) { x }
+}
+
+fn twice_size<a: Sized>(x: a) -> Int { size(x) + size(x) }
+
+fn main() { twice_size(21) }
+"#;
+    let (program, mut compiler) = parse_source(source, "evidence_names_dict.flx");
+    compiler.compile(&program).expect("program type-checks");
+
+    let named: Vec<String> = compiler
+        .evidence_map()
+        .instances()
+        .map(|instance| instance.dict_type_key.clone())
+        .collect();
+    assert!(
+        named.iter().any(|key| key == "Int"),
+        "the `Sized<Int>` instance must record `Int` as its dictionary key, got: {named:?}"
+    );
+}

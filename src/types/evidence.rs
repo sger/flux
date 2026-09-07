@@ -75,6 +75,41 @@ impl EvidenceMap {
             .collect()
     }
 
+    /// Every instance named by the evidence recorded here.
+    ///
+    /// Walks an instance's context as well as its head, because a contextual
+    /// instance's dictionary is only buildable if the dictionaries it applies
+    /// are too.
+    pub fn instances(&self) -> impl Iterator<Item = &crate::types::class_disposition::InstanceKey> {
+        fn walk<'e>(
+            evidence: &'e Evidence,
+            out: &mut Vec<&'e crate::types::class_disposition::InstanceKey>,
+        ) {
+            match evidence {
+                Evidence::FromInstance {
+                    instance, context, ..
+                } => {
+                    out.push(instance);
+                    for inner in context {
+                        walk(inner, out);
+                    }
+                }
+                Evidence::Structural { components } => {
+                    for inner in components {
+                        walk(inner, out);
+                    }
+                }
+                Evidence::FromGiven { .. } | Evidence::Marker | Evidence::Unrecorded => {}
+            }
+        }
+
+        let mut out = Vec::new();
+        for evidence in self.by_site.values() {
+            walk(evidence, &mut out);
+        }
+        out.into_iter()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.by_site.is_empty()
     }

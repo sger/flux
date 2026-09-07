@@ -140,18 +140,24 @@ mod tests {
         },
     };
 
-    fn key(interner: &mut Interner, class: &str, arg: InferType) -> InstanceKey {
+    fn key(interner: &mut Interner, class: &str, arg: InferType, dict_key: &str) -> InstanceKey {
         let name = interner.intern(class);
         InstanceKey {
             class_id: ClassId::from_local_name(name),
             head_type_args: vec![arg],
+            dict_type_key: dict_key.to_string(),
         }
     }
 
     #[test]
     fn a_context_free_instance_becomes_its_global_dictionary() {
         let mut interner = Interner::new();
-        let instance = key(&mut interner, "Eq", InferType::Con(TypeConstructor::Int));
+        let instance = key(
+            &mut interner,
+            "Eq",
+            InferType::Con(TypeConstructor::Int),
+            "Int",
+        );
         let arg = evidence_to_arg(
             &Evidence::FromInstance {
                 instance: instance.clone(),
@@ -177,8 +183,14 @@ mod tests {
                 TypeConstructor::List,
                 vec![InferType::Con(TypeConstructor::Int)],
             ),
+            "List<Int>",
         );
-        let inner = key(&mut interner, "Eq", InferType::Con(TypeConstructor::Int));
+        let inner = key(
+            &mut interner,
+            "Eq",
+            InferType::Con(TypeConstructor::Int),
+            "Int",
+        );
 
         let arg = evidence_to_arg(
             &Evidence::FromInstance {
@@ -260,19 +272,18 @@ mod tests {
 
     #[test]
     fn a_marker_class_passes_nothing() {
-        let mut interner = Interner::new();
-        let _ = key(
-            &mut interner,
-            "Sendable",
-            InferType::Con(TypeConstructor::Int),
-        );
         assert_eq!(evidence_to_arg(&Evidence::Marker, &[]), Some(DictArg::None));
     }
 
     #[test]
     fn head_args_are_reachable_for_naming_a_dictionary() {
         let mut interner = Interner::new();
-        let instance = key(&mut interner, "Eq", InferType::Con(TypeConstructor::Int));
+        let instance = key(
+            &mut interner,
+            "Eq",
+            InferType::Con(TypeConstructor::Int),
+            "Int",
+        );
         assert_eq!(
             instance_head_args(&instance),
             &[InferType::Con(TypeConstructor::Int)]
