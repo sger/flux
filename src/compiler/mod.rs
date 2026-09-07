@@ -1361,6 +1361,12 @@ pub struct Compiler {
     /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
     pub(super) type_env: TypeEnv,
     pub(super) hm_expr_types: HashMap<ExprId, InferType>,
+    /// The solver's answer for every predicate a call site raised, keyed by
+    /// that site (proposal 0186 stage 5). Populated by the whole-program solve;
+    /// consumed where a dictionary argument has to be produced, so that
+    /// deciding which instance a call uses happens once rather than at six
+    /// independent sites.
+    pub(super) evidence_map: crate::types::evidence::EvidenceMap,
     pub(super) contextual_function_contracts: HashMap<ExprId, FunctionContract>,
     pub(super) current_member_schemes: HashMap<(Symbol, Symbol), Scheme>,
     /// Accumulated HM-inferred type schemes for public module members.
@@ -1493,6 +1499,13 @@ fn collect_program_module_names(program: &Program, out: &mut HashSet<Identifier>
 }
 
 impl Compiler {
+    /// The solver's evidence for every predicate a call site raised.
+    ///
+    /// Empty until the whole-program solve has run, which `compile` does.
+    pub fn evidence_map(&self) -> &crate::types::evidence::EvidenceMap {
+        &self.evidence_map
+    }
+
     pub(super) fn injected_dictionary_count(&self, function: &Expression) -> usize {
         let scheme = match function {
             Expression::Identifier { name, .. } => self.type_env.lookup(*name),
@@ -1926,6 +1939,7 @@ impl Compiler {
             preloaded_effect_op_signatures: HashMap::new(),
             type_env: TypeEnv::new(),
             hm_expr_types: HashMap::new(),
+            evidence_map: crate::types::evidence::EvidenceMap::new(),
             contextual_function_contracts: HashMap::new(),
             current_member_schemes: HashMap::new(),
             cached_member_schemes: HashMap::new(),

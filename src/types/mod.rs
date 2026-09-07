@@ -13,6 +13,7 @@ pub mod class_id;
 pub mod class_predicate;
 pub mod class_solver;
 pub mod class_surface;
+pub mod evidence;
 pub mod infer_effect_row;
 pub mod infer_type;
 pub mod kind;
