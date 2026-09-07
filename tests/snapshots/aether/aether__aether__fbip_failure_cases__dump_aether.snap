@@ -115,7 +115,7 @@ lam(__x0, __x1) ->
   verifier: ok
 lam(name) ->
   let <sym:4001369> =
-    Add("ASSERTION FAILED: ", name#59)
+    IAdd("ASSERTION FAILED: ", name#59)
   perform /*yield_to*/ Console.println(<sym:4001369>#1369)
 ── fn assert_eq [yield×2] ──
   Dups: 0  Drops: 6  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 2  Yields: 2  Handles: 0  HandlerArms: 0

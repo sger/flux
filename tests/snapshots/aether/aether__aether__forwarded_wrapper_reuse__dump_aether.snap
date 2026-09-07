@@ -2076,26 +2076,18 @@ lam(xs, acc) ->
     _ ->
       aether_call[owned, owned] Pair2(xs#1301, acc#1302)
 ── fn forwarded_child_near_miss ──
-  Dups: 3  Drops: 0  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(4)
-  FreshAllocs: 4
+  Dups: 1  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(2)
+  FreshAllocs: 2
   verifier: ok
 lam(xs, acc) ->
   case xs#1306 of
     Cons(y, ys) ->
-      drop_specialized xs#1306 {
-        unique ->
-          let <sym:4001868> =
-            Cons(y#1308, dup acc#1307 in acc#1307)
-          let <sym:4001869> =
-            Cons(y#1308, acc#1307)
-          aether_call[owned, owned] Pair2(<sym:4001868>#1868, <sym:4001869>#1869)
-        shared ->
-          let <sym:4001868> =
-            Cons(dup y#1308 in y#1308, dup acc#1307 in acc#1307)
-          let <sym:4001869> =
-            Cons(y#1308, acc#1307)
-          aether_call[owned, owned] Pair2(<sym:4001868>#1868, <sym:4001869>#1869)
-      }
+      drop xs#1306 in
+        let <sym:4001868> =
+          Cons(y#1308, dup acc#1307 in acc#1307)
+        let <sym:4001869> =
+          Cons(y#1308, acc#1307)
+        aether_call[owned, owned] Pair2(<sym:4001868>#1868, <sym:4001869>#1869)
     _ ->
       aether_call[owned, owned] Pair2(xs#1306, acc#1307)
 ── fn main [handle×5] ──
@@ -2116,8 +2108,8 @@ lam() ->
         aether_call[owned] __resume_default#1336(<sym:4001912>#1912)
 
 ── Total ──
-  Dups: 52  Drops: 162  Reuses: 17  DropSpecs: 2  BorrowedCallGuards: 45  FBIP: fbip(30)  Yields: 11  Handles: 5  HandlerArms: 11
-  FreshAllocs: 30
+  Dups: 50  Drops: 163  Reuses: 17  DropSpecs: 1  BorrowedCallGuards: 45  FBIP: fbip(28)  Yields: 11  Handles: 5  HandlerArms: 11
+  FreshAllocs: 28
 
 [ 1 of 18] Compiling  Add
 [ 2 of 18] Compiling  Assert
