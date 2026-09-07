@@ -2809,10 +2809,22 @@ function whose author wrote `<a: Num>` could hit this. Now any unannotated
 helper over a class method can.
 
 **Fix direction:** the single evidence-passing translation (proposal 0186 stage
-5). A reference to a constrained binding is a site like any other; the emitter
-either applies the dictionary there or eta-expands. This is precisely the case
-the six independent resolution sites cannot agree on, because none of them is
-looking at a call.
+5), and *only* that — this was attempted locally first and the attempt is what
+established it.
+
+Eta-expanding the reference is the right shape: `dbl` becomes
+`λp0. dbl(__dict_Num_Int, p0)`, since Flux calls are arity-checked rather than
+curried and the dictionary must be applied alongside the value arguments. But
+`insert_dict_args_at_call_sites` cannot build that argument. `resolve_dict_arg`
+answers only two cases — the caller already holds a dictionary for exactly this
+predicate, or the predicate is concrete — and at a reference the scheme's
+predicate is `Num<a>`. The instantiation to `Num<Int>` exists at the *use*, and
+Core does not carry it: `CoreVarRef` is a name and a binder id, with no type,
+and `hm_expr_types` is keyed by AST `ExprId`.
+
+So the missing information is per-site evidence, which is what
+`EvidenceMap`/`EvidenceSite` are for. Resolving it any other way here would
+mean guessing an instance from the class name — which is what KI-052 was.
 
 ### KI-088 — A nested `fn` that shadows a top-level name is called at the outer function's type
 
