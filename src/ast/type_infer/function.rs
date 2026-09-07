@@ -519,12 +519,18 @@ impl<'a> InferCtx<'a> {
 
         self.env.leave_scope();
 
-        let scheme = if !type_params.is_empty() {
+        // Generalize by arity, not by whether type parameters were written
+        // (proposal 0186 stage 6, formerly 0185 stage 3). A function with
+        // parameters is a function and gets a scheme; a nullary one is a value
+        // whose context cannot be re-elaborated per use. `fn identity(x) { x }`
+        // was monomorphic purely because its author did not spell out `<a>`.
+        let restriction = monomorphism_restriction(param_tys.len(), !type_params.is_empty());
+        let scheme = if restriction == MonoRestriction::Generalize {
             self.finalize_binding_scheme(BindingSchemeSpec {
                 infer_type: &fn_ty,
                 env_free_vars: &self.env.free_vars(),
                 window: constraint_start,
-                mode: MonoRestriction::Generalize,
+                mode: restriction,
                 binder: name,
                 span: fn_span,
             })
