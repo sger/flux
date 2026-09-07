@@ -1,6 +1,12 @@
 ---
 source: tests/aether/cli_snapshots.rs
 ---
+def __dict_Sizeable_Int =
+MakeTuple(__tc_Sizeable_Int_size)
+
+def __dict_Sizeable_String =
+MakeTuple(__tc_Sizeable_String_size)
+
 def __dict_m7_466C6F772E4571_Eq_Int =
 MakeTuple(__tc_m7_466C6F772E4571_Eq_Int_eq, __tc_m7_466C6F772E4571_Eq_Int_neq)
 
@@ -1497,7 +1503,7 @@ letrec sum =
     letrec sum_go = (λys, acc.
       case ys of
         ::(h, t) →
-          let %t331 = IAdd(acc, h)
+          let %t331 = Add(acc, h)
           sum_go(t, %t331)
         _ →
           acc)
@@ -1508,7 +1514,7 @@ letrec product =
     letrec product_go = (λys, acc.
       case ys of
         ::(h, t) →
-          let %t332 = IMul(acc, h)
+          let %t332 = Mul(acc, h)
           product_go(t, %t332)
         _ →
           acc)
@@ -2765,108 +2771,112 @@ letrec str_contains =
         sc_go(0)
 
 letrec total_size =
-λa, b.
-    let %t523 = __tc_Sizeable_Int_size(a)
-    let %t524 = __tc_Sizeable_String_size(b)
-    IAdd(%t523, %t524)
+λ__dict_Sizeable, __dict_Sizeable_1, a, b.
+    let %t523 = (let %t524 = __dict_Sizeable.0
+    %t524(a))
+    let %t525 = (let %t526 = __dict_Sizeable_1.0
+    %t526(b))
+    IAdd(%t523, %t525)
 
 letrec size_twice =
-λx.
-    let %t525 = __tc_Sizeable_String_size(x)
-    let %t526 = __tc_Sizeable_String_size(x)
-    IAdd(%t525, %t526)
+λ__dict_Sizeable, x.
+    let %t527 = (let %t528 = __dict_Sizeable.0
+    %t528(x))
+    let %t529 = (let %t530 = __dict_Sizeable.0
+    %t530(x))
+    IAdd(%t527, %t529)
 
 def main =
-let %t527 = (λ__resume_default, __arg0, __arg1.
-    let %t528 = ProcRun(__arg0, __arg1)
-    __resume_default(%t528))
+let %t531 = (λ__resume_default, __arg0, __arg1.
+    let %t532 = ProcRun(__arg0, __arg1)
+    __resume_default(%t532))
   handle Process {
     proc_run(__arg0, __arg1; __resume_default) →
-      let %t529 = ProcRun(__arg0, __arg1)
-      __resume_default(%t529)
+      let %t533 = ProcRun(__arg0, __arg1)
+      __resume_default(%t533)
   } with
-    let %t530 = (λ__resume_default, __arg0.
-      let %t531 = EnvVar(__arg0)
-      __resume_default(%t531))
-    let %t532 = (λ__resume_default.
-      let %t533 = EnvArgs()
-      __resume_default(%t533))
-    let %t534 = (λ__resume_default.
-      let %t535 = EnvCwd()
+    let %t534 = (λ__resume_default, __arg0.
+      let %t535 = EnvVar(__arg0)
       __resume_default(%t535))
     let %t536 = (λ__resume_default.
-      let %t537 = EnvHomeDir()
+      let %t537 = EnvArgs()
       __resume_default(%t537))
+    let %t538 = (λ__resume_default.
+      let %t539 = EnvCwd()
+      __resume_default(%t539))
+    let %t540 = (λ__resume_default.
+      let %t541 = EnvHomeDir()
+      __resume_default(%t541))
     handle Env {
       env_var(__arg0; __resume_default) →
-        let %t538 = EnvVar(__arg0)
-        __resume_default(%t538)
+        let %t542 = EnvVar(__arg0)
+        __resume_default(%t542)
       env_args(; __resume_default) →
-        let %t539 = EnvArgs()
-        __resume_default(%t539)
+        let %t543 = EnvArgs()
+        __resume_default(%t543)
       env_cwd(; __resume_default) →
-        let %t540 = EnvCwd()
-        __resume_default(%t540)
+        let %t544 = EnvCwd()
+        __resume_default(%t544)
       env_home_dir(; __resume_default) →
-        let %t541 = EnvHomeDir()
-        __resume_default(%t541)
+        let %t545 = EnvHomeDir()
+        __resume_default(%t545)
     } with
-      let %t542 = (λ__resume_default.
-        let %t543 = __primop_read_stdin()
-        __resume_default(%t543))
+      let %t546 = (λ__resume_default.
+        let %t547 = __primop_read_stdin()
+        __resume_default(%t547))
       handle Stdin {
         read_stdin(; __resume_default) →
-          let %t544 = __primop_read_stdin()
-          __resume_default(%t544)
+          let %t548 = __primop_read_stdin()
+          __resume_default(%t548)
       } with
-        let %t545 = (λ__resume_default, __arg0.
-          let %t546 = __primop_read_file(__arg0)
-          __resume_default(%t546))
-        let %t547 = (λ__resume_default, __arg0.
-          let %t548 = __primop_read_lines(__arg0)
-          __resume_default(%t548))
-        let %t549 = (λ__resume_default, __arg0, __arg1.
-          let %t550 = __primop_write_file(__arg0, __arg1)
-          let %t551 = MakeTuple()
-          __resume_default(%t551))
+        let %t549 = (λ__resume_default, __arg0.
+          let %t550 = __primop_read_file(__arg0)
+          __resume_default(%t550))
+        let %t551 = (λ__resume_default, __arg0.
+          let %t552 = __primop_read_lines(__arg0)
+          __resume_default(%t552))
+        let %t553 = (λ__resume_default, __arg0, __arg1.
+          let %t554 = __primop_write_file(__arg0, __arg1)
+          let %t555 = MakeTuple()
+          __resume_default(%t555))
         handle FileSystem {
           read_file(__arg0; __resume_default) →
-            let %t552 = __primop_read_file(__arg0)
-            __resume_default(%t552)
+            let %t556 = __primop_read_file(__arg0)
+            __resume_default(%t556)
           read_lines(__arg0; __resume_default) →
-            let %t553 = __primop_read_lines(__arg0)
-            __resume_default(%t553)
+            let %t557 = __primop_read_lines(__arg0)
+            __resume_default(%t557)
           write_file(__arg0, __arg1; __resume_default) →
-            let %t550 = __primop_write_file(__arg0, __arg1)
-            let %t554 = MakeTuple()
-            __resume_default(%t554)
+            let %t554 = __primop_write_file(__arg0, __arg1)
+            let %t558 = MakeTuple()
+            __resume_default(%t558)
         } with
-          let %t555 = (λ__resume_default, __arg0.
-            let %t556 = __primop_print(__arg0)
-            let %t557 = MakeTuple()
-            __resume_default(%t557))
-          let %t558 = (λ__resume_default, __arg0.
-            let %t559 = __primop_println(__arg0)
-            let %t560 = MakeTuple()
-            __resume_default(%t560))
+          let %t559 = (λ__resume_default, __arg0.
+            let %t560 = __primop_print(__arg0)
+            let %t561 = MakeTuple()
+            __resume_default(%t561))
+          let %t562 = (λ__resume_default, __arg0.
+            let %t563 = __primop_println(__arg0)
+            let %t564 = MakeTuple()
+            __resume_default(%t564))
           handle Console {
             print(__arg0; __resume_default) →
-              let %t556 = __primop_print(__arg0)
-              let %t561 = MakeTuple()
-              __resume_default(%t561)
+              let %t560 = __primop_print(__arg0)
+              let %t565 = MakeTuple()
+              __resume_default(%t565)
             println(__arg0; __resume_default) →
-              let %t559 = __primop_println(__arg0)
-              let %t562 = MakeTuple()
-              __resume_default(%t562)
+              let %t563 = __primop_println(__arg0)
+              let %t566 = MakeTuple()
+              __resume_default(%t566)
           } with
-            let %t563 = (let %t564 = (λ%t565.
-              %t565)
-            let %t566 = total_size(42, "hello")
-            %t555(%t564, %t566))
-            let %t567 = (λ%t568.
-              %t568)
-            let %t569 = size_twice("world")
-            %t555(%t567, %t569)
+            let %t567 = (let %t568 = (λ%t569.
+              %t569)
+            let %t570 = total_size(__dict_Sizeable_Int, __dict_Sizeable_String, 42, "hello")
+            %t559(%t568, %t570))
+            let %t571 = (λ%t572.
+              %t572)
+            let %t573 = size_twice(__dict_Sizeable_String, "world")
+            %t559(%t571, %t573)
 
 [ 1 of 18] Compiling  Add
 [ 2 of 18] Compiling  Assert
