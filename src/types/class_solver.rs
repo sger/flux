@@ -1030,6 +1030,7 @@ mod tests {
                 class_id,
                 instance_module: ModulePath::EMPTY,
                 is_public: false,
+                type_key: String::new(),
                 type_args: vec![head.clone()],
                 context: Vec::new(),
                 context_class_ids: Vec::new(),

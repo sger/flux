@@ -253,6 +253,18 @@ pub struct InstanceDef {
     /// instances are always recorded as `false`.
     pub is_public: bool,
     pub type_args: Vec<TypeExpr>,
+    /// The instance head rendered as the key its dictionary and mangled method
+    /// names are built from — `Int`, or `Int_String` for a multi-parameter
+    /// class.
+    ///
+    /// Held rather than re-rendered so that symbol naming does not depend on
+    /// how [`type_args`] happens to be represented. Every `__dict_*` and
+    /// `__tc_*` symbol in a program is derived from this string, so a change in
+    /// rendering is a change in every generated name — which is why the value
+    /// is computed once, where the instance is built.
+    ///
+    /// [`type_args`]: InstanceDef::type_args
+    pub type_key: String,
     pub context: Vec<ClassConstraint>,
     /// Resolved identities corresponding positionally to `context`.
     pub context_class_ids: Vec<ClassId>,
@@ -1547,6 +1559,7 @@ impl ClassEnv {
             // Phase 1 doesn't enforce this distinction since `Sendable` has
             // no methods.
             is_public: false,
+            type_key: instance_type_key(&head_args, interner),
             type_args: head_args,
             context,
             context_class_ids: vec![ClassId::from_local_name(sendable_id); type_params.len()],
@@ -2057,6 +2070,7 @@ impl ClassEnv {
                         class_id: class_def.class_id(),
                         instance_module: current_module,
                         is_public: *is_public,
+                        type_key: instance_type_key(type_args, interner),
                         type_args: type_args.clone(),
                         context: context.clone(),
                         context_class_ids: context
@@ -2256,6 +2270,7 @@ impl ClassEnv {
                             class_id,
                             instance_module: current_module,
                             is_public: *is_public,
+                            type_key: instance_type_key(std::slice::from_ref(&type_arg), interner),
                             type_args: vec![type_arg],
                             context,
                             context_class_ids: type_params
@@ -3086,7 +3101,7 @@ impl ClassEnv {
         // Sendable instances: Int, Float, String, Bool, Unit.
         for ty in ["Int", "Float", "String", "Bool", "Unit"] {
             let ty = interner.intern(ty);
-            self.register_builtin_instance(sendable, ty);
+            self.register_builtin_instance(sendable, ty, &*interner);
         }
     }
 
@@ -3134,7 +3149,12 @@ impl ClassEnv {
     }
 
     /// Register a single built-in instance.
-    fn register_builtin_instance(&mut self, class_name: Identifier, type_name: Identifier) {
+    fn register_builtin_instance(
+        &mut self,
+        class_name: Identifier,
+        type_name: Identifier,
+        interner: &Interner,
+    ) {
         // Don't duplicate if user already declared this instance.
         let expected = builtin_type(type_name);
         let already_exists = self.instances.iter().any(|i| {
@@ -3160,6 +3180,7 @@ impl ClassEnv {
             // Built-ins are universally visible via the prelude; the flag
             // is irrelevant for them.
             is_public: false,
+            type_key: instance_type_key(&[builtin_type(type_name)], interner),
             type_args: vec![builtin_type(type_name)],
             context: vec![],
             context_class_ids: vec![],
@@ -3346,6 +3367,18 @@ pub fn mangled_method_name(
 ) -> String {
     let class = class_symbol_name(class_id, interner);
     format!("{INSTANCE_METHOD_PREFIX}{class}_{type_key}_{method}")
+}
+
+/// The key an instance's dictionary and mangled method names are built from.
+///
+/// One definition, so every generated symbol for an instance agrees. Multi-
+/// parameter classes join their arguments: `Int_String`.
+pub fn instance_type_key(type_args: &[TypeExpr], interner: &Interner) -> String {
+    type_args
+        .iter()
+        .map(|arg| arg.display_with(interner))
+        .collect::<Vec<_>>()
+        .join("_")
 }
 
 /// Render the canonical dictionary global for a concrete instance head.
@@ -4891,6 +4924,7 @@ module Mod.Class {
             class_id: crate::types::class_id::ClassId::from_local_name(class_sym),
             instance_module: ModulePath::EMPTY,
             is_public: false,
+            type_key: super::instance_type_key(&type_args, interner),
             type_args,
             context: vec![],
             context_class_ids: vec![],

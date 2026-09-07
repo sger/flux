@@ -448,6 +448,11 @@ fn imported_instance_def_from_entry(
             })
             .collect()
     };
+    let remapped_type_args: Vec<_> = entry
+        .type_args
+        .iter()
+        .map(|ty| remap_type_expr(ty, remap))
+        .collect();
     Some(crate::types::class_env::InstanceDef {
         origin: crate::types::class_env::InstanceOrigin::Declared,
         class_name,
@@ -461,11 +466,8 @@ fn imported_instance_def_from_entry(
             interner.intern(&entry.instance_module),
         ),
         is_public: true,
-        type_args: entry
-            .type_args
-            .iter()
-            .map(|ty| remap_type_expr(ty, remap))
-            .collect(),
+        type_key: crate::types::class_env::instance_type_key(&remapped_type_args, interner),
+        type_args: remapped_type_args,
         context,
         context_class_ids,
         method_names: entry
