@@ -110,6 +110,52 @@ Recording is done and gated. Everything left needs a working consumer.
 
 ---
 
+## Track E — 0185's remaining stages
+
+[0185](../proposals/0185_generalize_by_arity.md) stages 0–2 shipped; stage 3
+became 0186 stage 6 and is now Track B. Four stages remain, and 0186 changed
+what two of them cost.
+
+- [ ] **E1. Stage 5 — tuple projection as a constraint.** *Independent, and the
+      most actionable thing left in 0185.*
+      `infer_tuple_field_access_expression` (`expression/access.rs:206`) still
+      types an unresolved receiver with a hole, delaying the failure until a
+      call site pins it. Convert it on 0184's template — a solver-internal
+      predicate in the reserved module, discharged after inference, reported if
+      the receiver is never determined.
+
+      0186 makes this cheaper than when it was written: the field-access
+      predicate it copies now also **pins** its receiver in
+      `decide_quantification`, so the tuple predicate gets that behaviour for
+      free rather than having to rediscover it. The proposal's note that this
+      retires `generalize_constrained_vars` is stale — that function no longer
+      exists.
+- [ ] **E2. Stage 4 — report inferred ambiguity.** 0183's R6b. `Disposition`
+      loses `Stuck`; a predicate reaching whole-program scope over an
+      unresolved variable is reported with its origin. **Blocked on B2**: the
+      stage's premise is that with generalize-by-arity landed, the residue is
+      ambiguity rather than stranded obligations. Until then the residue is
+      still the old kind and the report would be wrong.
+- [x] **E3. Stage 6 — size the instance-resolution unification.** Answered by
+      0186 stage 5; close the stage rather than run the spike. Its three
+      questions:
+      - *What identifies a call site in Core such that the solver's `Evidence`
+        can be found?* `ExprId` plus the predicate's index at that site
+        (`EvidenceSite`). A span cannot serve — it cannot tell apart two
+        predicates raised at one site for one class. `ExprId` already reached
+        both re-resolvers before this work.
+      - *Which derivation becomes canonical?* `class_solver.rs` —
+        `solve_instance_evidence`, `entailed_by_givens`,
+        `structural_builtin_evidence`.
+      - *Can the AST bytecode fallback be retired?* Not answered; still open,
+        and still worth answering before C6.
+- [ ] **E4. Stage 7 — close 0183.** Documentation only. Mark R1–R5 shipped,
+      record R6 as delivered by E2 + B2, close its open questions as decided,
+      and move it to `docs/proposals/implemented/`. Do this **after** E2, or the
+      record is written before the thing it records.
+
+---
+
 ## Deliberately not doing
 
 - **0186 stage 4's remainder** — one quantification decision per *group* rather
