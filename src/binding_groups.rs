@@ -1,4 +1,4 @@
-//! Grouping a statement list into minimal binding groups.
+//! Grouping a statement list into minimal binding groups, in dependency order.
 //!
 //! Dependency analysis: which definitions must be bound together, and in what
 //! order. GHC does this in the renamer, before the constraint solver runs and
@@ -6,15 +6,7 @@
 //! which is why this walks the AST and delegates the graph algorithm to
 //! [`crate::shared::scc::strongly_connected_components`].
 //!
-//! See `docs/proposals/0186_generics_foundations.md`.
-//!
-//! A run of function definitions is not one recursive binding: only the
-//! definitions that actually reference one another need to be bound together.
-//! Splitting them into strongly connected components gives each group the
-//! smallest scope that still lets its members see each other, which is what
-//! makes the rest of the pipeline able to generalize a group at a time.
-//!
-//! # Why statements between definitions do not end a group
+//! # Why grouping is by reference, not adjacency
 //!
 //! Lowering used to scan for a *contiguous* run of `fn` statements, so any
 //! other statement ended the run. Two mutually recursive functions separated by
@@ -23,12 +15,35 @@
 //! at run time with `E1001 ... (got Uninit)`. See
 //! `docs/known_issues.md#ki-087`.
 //!
-//! Grouping here is by reference, not by adjacency. What an intervening
-//! statement *does* affect is where the group is placed: a `let` initializer
-//! runs, so a group that reads a `let`'s binding cannot be hoisted above it.
+//! # Why order is by dependency, not by source position
+//!
+//! Grouping alone is not enough. Core lowering folds the plan from the back, so
+//! the *first* item becomes the outermost binding, and a definition's
+//! dependencies must be bound outside it. An earlier version of this module
+//! emitted each group at its source position, which put
+//!
+//! ```flux
+//! fn a() -> Int { b() + 1 }
+//! fn b() -> Int { 41 }
+//! ```
+//!
+//! in the order written — so `a` closed over `b`'s uninitialised slot and the
+//! same `E1001 ... (got Uninit)` came back for a plainer program than the one
+//! the grouping had fixed.
+//!
+//! So the plan is ordered by a topological sort over its items, not by source
+//! position. It is not a free reordering: a `let` initializer *runs*, so
+//! statements that are not definitions keep their order relative to each other,
+//! a group may not be hoisted above a binding it reads, and it may not sink
+//! below a statement that calls it. Ties are broken by source position, so a
+//! program whose order was already correct is laid out exactly as written.
 
-use std::collections::{HashMap, HashSet};
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
+use crate::ast::free_vars::{
+    collect_free_vars_in_function_body, collect_free_vars_in_statement, collect_pattern_bindings,
+};
 use crate::syntax::{Identifier, statement::Statement};
 
 /// One item of a planned statement list, in emission order.
@@ -42,45 +57,70 @@ pub enum PlanItem<'a> {
     /// their own statement loop by index and need to know which positions a
     /// group covers, and which to skip.
     Group {
-        /// The position the group is emitted at. Usually its first member,
-        /// but its *last* when the group reads a name bound in between — see
-        /// [`plan_block`]. A consumer that assumes the first member will put
-        /// the group above a binding it reads.
+        /// The position an *index-driven* consumer emits the group at. Usually
+        /// its first member, but its last when the group reads a name bound in
+        /// between.
+        ///
+        /// This is not the same thing as the group's place in the plan. A
+        /// consumer that walks the plan in order (Core lowering) gets
+        /// dependency order and should ignore this; a consumer that walks the
+        /// statement slice by index (inference, the AST bytecode path) uses it
+        /// via [`group_index`].
         anchor: usize,
         members: Vec<(usize, &'a Statement)>,
     },
-    /// Any other statement, with its index, emitted where it stands.
+    /// Any other statement, with its index.
     Other(usize, &'a Statement),
 }
 
-/// The name a statement binds, when it binds exactly one.
+/// The names a statement binds.
 ///
 /// Used to decide whether a function group may be hoisted above a statement:
-/// it may not, if a member reads what that statement binds.
-fn bound_name(stmt: &Statement) -> Option<Identifier> {
+/// it may not, if a member reads what that statement binds. A destructuring
+/// `let` binds every name in its pattern, and missing those would let a group
+/// be placed above a binding it reads.
+fn bound_names(stmt: &Statement) -> HashSet<Identifier> {
     match stmt {
-        Statement::Let { name, .. } | Statement::Function { name, .. } => Some(*name),
-        _ => None,
+        Statement::Let { name, .. } | Statement::Function { name, .. } => {
+            HashSet::from_iter([*name])
+        }
+        Statement::LetDestructure { pattern, .. } => collect_pattern_bindings(pattern),
+        _ => HashSet::new(),
     }
 }
 
-/// Partitions `stmts` into binding groups and everything else.
+/// A node of the ordering graph: either a binding group or a lone statement.
+enum Node {
+    Group { members: Vec<usize>, anchor: usize },
+    Other(usize),
+}
+
+impl Node {
+    /// The source position a node sorts at when nothing else separates it from
+    /// another. For a group that is its first member, so an already-correct
+    /// program keeps the order it was written in.
+    fn key(&self) -> usize {
+        match self {
+            Node::Group { members, .. } => members[0],
+            Node::Other(index) => *index,
+        }
+    }
+}
+
+/// Partitions `stmts` into binding groups and everything else, in the order
+/// they must be emitted.
 ///
-/// `free_vars` is asked, for each function statement, which names its body
-/// references — parameters and locally bound names already excluded. The caller
-/// supplies it so that this module does not depend on lowering internals.
+/// Function definitions are grouped by mutual reference into strongly connected
+/// components, and the resulting items are ordered so that a definition's
+/// dependencies come first — which is what Core lowering needs, since it folds
+/// the plan from the back and the first item becomes the outermost binding.
 ///
-/// Non-function statements keep their source order relative to each other,
-/// because a `let` initializer is evaluated and reordering one would change
-/// what the program does. A function group is placed at its **first** member,
-/// which is where the old contiguous-run scan put it and therefore preserves
-/// the behaviour of every program that already worked — unless a member reads a
-/// name bound between the group's first and last member, in which case the
-/// group is placed at its last member so that name is in scope.
-pub fn plan_block<'a, F>(stmts: &'a [Statement], free_vars: F) -> Vec<PlanItem<'a>>
-where
-    F: Fn(&'a Statement) -> HashSet<Identifier>,
-{
+/// Statements that are not definitions keep their order relative to each other,
+/// because a `let` initializer is evaluated and reordering one would change what
+/// the program does. Groups may move past them in either direction, because
+/// binding a function evaluates nothing — but only as far as the names allow:
+/// not above a binding a member reads, and not below a statement that calls one.
+pub fn plan_block(stmts: &[Statement]) -> Vec<PlanItem<'_>> {
     // Index every function definition by name. A shadowing redefinition keeps
     // the first, matching the scoping the rest of the pipeline assumes.
     let mut index_of_fn: HashMap<Identifier, usize> = HashMap::new();
@@ -92,26 +132,20 @@ where
         }
     }
 
-    if fn_indices.len() < 2 {
-        // Nothing to group: a single definition is its own group, and a block
-        // with none needs no analysis.
-        return stmts
-            .iter()
-            .enumerate()
-            .map(|(index, stmt)| match stmt {
-                Statement::Function { .. } => PlanItem::Group {
-                    anchor: index,
-                    members: vec![(index, stmt)],
-                },
-                other => PlanItem::Other(index, other),
-            })
-            .collect();
-    }
-
-    // What each definition references, restricted to sibling definitions.
+    // What each definition references. Function bodies are asked the same
+    // question they were asked before dependency order arrived, so which
+    // definitions land in a group together is unchanged.
     let references: HashMap<usize, HashSet<Identifier>> = fn_indices
         .iter()
-        .map(|&index| (index, free_vars(&stmts[index])))
+        .map(|&index| {
+            let refs = match &stmts[index] {
+                Statement::Function {
+                    parameters, body, ..
+                } => collect_free_vars_in_function_body(parameters, body),
+                _ => HashSet::new(),
+            };
+            (index, refs)
+        })
         .collect();
 
     let groups = crate::shared::scc::strongly_connected_components(&fn_indices, |index| {
@@ -123,54 +157,168 @@ where
             .collect::<Vec<_>>()
     });
 
-    // Where each group is emitted, and which group each definition belongs to.
-    let mut anchor_of: HashMap<usize, usize> = HashMap::new();
-    let mut members_at: HashMap<usize, Vec<usize>> = HashMap::new();
-
+    let mut nodes: Vec<Node> = Vec::with_capacity(stmts.len());
     for group in &groups {
         let mut members = group.clone();
         members.sort_unstable();
-        let first = members[0];
-        let last = members[members.len() - 1];
-
-        // A statement between the members that binds a name a member reads
-        // forces the group down to its last member: the binding must exist
-        // before the group is created, because a closure captures it.
-        let reads_intervening_binding = (first + 1..last).any(|between| {
-            !matches!(stmts[between], Statement::Function { .. })
-                && bound_name(&stmts[between])
-                    .is_some_and(|name| members.iter().any(|m| references[m].contains(&name)))
-        });
-
-        let anchor = if reads_intervening_binding {
-            last
-        } else {
-            first
-        };
-        for member in &members {
-            anchor_of.insert(*member, anchor);
-        }
-        members_at.insert(anchor, members);
+        let anchor = group_anchor(stmts, &members, &references);
+        nodes.push(Node::Group { members, anchor });
     }
-
-    let mut plan = Vec::with_capacity(stmts.len());
     for (index, stmt) in stmts.iter().enumerate() {
-        match stmt {
-            Statement::Function { .. } => {
-                // Emit the whole group once, at its anchor; skip its other
-                // members where they stand.
-                if anchor_of.get(&index) == Some(&index) {
-                    let members = &members_at[&index];
-                    plan.push(PlanItem::Group {
-                        anchor: index,
-                        members: members.iter().map(|m| (*m, &stmts[*m])).collect(),
-                    });
+        if !matches!(stmt, Statement::Function { .. }) {
+            nodes.push(Node::Other(index));
+        }
+    }
+    nodes.sort_by_key(Node::key);
+
+    let order = topological_order(stmts, &nodes, &references);
+
+    order
+        .into_iter()
+        .map(|node| match &nodes[node] {
+            Node::Group { members, anchor } => PlanItem::Group {
+                anchor: *anchor,
+                members: members.iter().map(|m| (*m, &stmts[*m])).collect(),
+            },
+            Node::Other(index) => PlanItem::Other(*index, &stmts[*index]),
+        })
+        .collect()
+}
+
+/// Where an index-driven consumer emits a group.
+///
+/// Its first member, unless a statement in between binds a name a member reads
+/// — then its last, because the binding must exist before the closure that
+/// captures it is created.
+fn group_anchor(
+    stmts: &[Statement],
+    members: &[usize],
+    references: &HashMap<usize, HashSet<Identifier>>,
+) -> usize {
+    let first = members[0];
+    let last = members[members.len() - 1];
+    let reads_intervening_binding = (first + 1..last).any(|between| {
+        !matches!(stmts[between], Statement::Function { .. })
+            && bound_names(&stmts[between])
+                .iter()
+                .any(|name| members.iter().any(|m| references[m].contains(name)))
+    });
+    if reads_intervening_binding {
+        last
+    } else {
+        first
+    }
+}
+
+/// Order the nodes so that each comes after everything it depends on.
+///
+/// Four kinds of edge, all meaning "must come first":
+///
+/// - consecutive non-definition statements, so their relative order — and with
+///   it the order their side effects happen in — is preserved;
+/// - a statement that binds a name a group reads, before that group;
+/// - a group, before a statement that references one of its members;
+/// - a group, before another group that references one of its members.
+///
+/// Ties go to the lower source position, so a plan that was already in
+/// dependency order is emitted exactly as written. A cycle — `let x = f()`
+/// alongside `fn f() { x }` — is a program that cannot be lowered either way;
+/// its nodes are emitted in source order rather than dropped.
+fn topological_order(
+    stmts: &[Statement],
+    nodes: &[Node],
+    references: &HashMap<usize, HashSet<Identifier>>,
+) -> Vec<usize> {
+    let member_names: Vec<HashSet<Identifier>> = nodes
+        .iter()
+        .map(|node| match node {
+            Node::Group { members, .. } => members
+                .iter()
+                .filter_map(|m| match &stmts[*m] {
+                    Statement::Function { name, .. } => Some(*name),
+                    _ => None,
+                })
+                .collect(),
+            Node::Other(_) => HashSet::new(),
+        })
+        .collect();
+
+    let mut successors: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
+    let mut indegree: Vec<usize> = vec![0; nodes.len()];
+    let mut edge = |from: usize, to: usize, successors: &mut Vec<Vec<usize>>| {
+        if from != to && !successors[from].contains(&to) {
+            successors[from].push(to);
+            indegree[to] += 1;
+        }
+    };
+
+    let mut previous_other: Option<usize> = None;
+    for (node, item) in nodes.iter().enumerate() {
+        match item {
+            Node::Other(index) => {
+                if let Some(previous) = previous_other {
+                    edge(previous, node, &mut successors);
+                }
+                previous_other = Some(node);
+
+                // This statement reads a group's member: the group first.
+                let free = collect_free_vars_in_statement(&stmts[*index]);
+                for (other, names) in member_names.iter().enumerate() {
+                    if !names.is_disjoint(&free) {
+                        edge(other, node, &mut successors);
+                    }
                 }
             }
-            other => plan.push(PlanItem::Other(index, other)),
+            Node::Group { members, .. } => {
+                let group_refs: HashSet<Identifier> = members
+                    .iter()
+                    .flat_map(|m| references[m].iter().copied())
+                    .collect();
+
+                for (other, item) in nodes.iter().enumerate() {
+                    match item {
+                        // A statement binding a name this group reads: it first.
+                        Node::Other(index) => {
+                            if !bound_names(&stmts[*index]).is_disjoint(&group_refs) {
+                                edge(other, node, &mut successors);
+                            }
+                        }
+                        // A group defining a name this group reads: it first.
+                        Node::Group { .. } => {
+                            if !member_names[other].is_disjoint(&group_refs) {
+                                edge(other, node, &mut successors);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
-    plan
+
+    let mut ready: BinaryHeap<Reverse<(usize, usize)>> = (0..nodes.len())
+        .filter(|node| indegree[*node] == 0)
+        .map(|node| Reverse((nodes[node].key(), node)))
+        .collect();
+
+    let mut order = Vec::with_capacity(nodes.len());
+    while let Some(Reverse((_, node))) = ready.pop() {
+        order.push(node);
+        for &next in &successors[node] {
+            indegree[next] -= 1;
+            if indegree[next] == 0 {
+                ready.push(Reverse((nodes[next].key(), next)));
+            }
+        }
+    }
+
+    if order.len() < nodes.len() {
+        // A cycle. Emit what is left in source order: the program is not
+        // lowerable in any order, and a deterministic plan gives the later
+        // passes a chance to report it rather than a missing binding.
+        let emitted: HashSet<usize> = order.iter().copied().collect();
+        order.extend((0..nodes.len()).filter(|node| !emitted.contains(node)));
+    }
+    order
 }
 
 /// Index a plan for a caller that walks the statement slice by position.
@@ -181,9 +329,8 @@ where
 /// both: it is emitted where it stands, so an index-driven loop needs to know
 /// nothing about it.
 ///
-/// Every consumer of a plan — Core lowering, VM compilation, inference — drives
-/// its own loop this way, so the indexing lives here rather than three times
-/// over.
+/// Note that this discards the plan's *order*. A caller that can honour
+/// dependency order — Core lowering — should walk the plan itself instead.
 pub fn group_index<'a>(
     plan: &[PlanItem<'a>],
 ) -> (HashMap<usize, Vec<&'a Statement>>, HashSet<usize>) {
@@ -200,4 +347,138 @@ pub fn group_index<'a>(
         covered.extend(members.iter().map(|(index, _)| *index));
     }
     (group_at, covered)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PlanItem, plan_block};
+    use crate::syntax::{interner::Interner, lexer::Lexer, parser::Parser, statement::Statement};
+
+    /// Parse a program and describe its plan as a list of names, in emission
+    /// order. A group of more than one member is rendered `a+b`.
+    fn plan_names(source: &str) -> Vec<String> {
+        let lexer = Lexer::new(source);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
+        let interner = parser.take_interner();
+
+        let describe = |stmt: &Statement, interner: &Interner| match stmt {
+            Statement::Let { name, .. } | Statement::Function { name, .. } => {
+                interner.resolve(*name).to_string()
+            }
+            _ => "_".to_string(),
+        };
+
+        plan_block(&program.statements)
+            .iter()
+            .map(|item| match item {
+                PlanItem::Group { members, .. } => members
+                    .iter()
+                    .map(|(_, stmt)| describe(stmt, &interner))
+                    .collect::<Vec<_>>()
+                    .join("+"),
+                PlanItem::Other(_, stmt) => describe(stmt, &interner),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_definition_is_emitted_after_the_one_it_calls() {
+        // The regression: source order would put `a` first, and Core lowering
+        // folds the plan from the back, so `a` would become the outermost
+        // binding and close over b's uninitialised slot.
+        assert_eq!(
+            plan_names("fn a() { b() }\nfn b() { 41 }\n"),
+            vec!["b", "a"]
+        );
+    }
+
+    #[test]
+    fn a_chain_is_emitted_deepest_dependency_first() {
+        assert_eq!(
+            plan_names("fn a() { b() }\nfn b() { c() }\nfn c() { 40 }\n"),
+            vec!["c", "b", "a"]
+        );
+    }
+
+    #[test]
+    fn an_already_ordered_program_is_left_alone() {
+        // Ties break by source position, so nothing moves without a reason.
+        assert_eq!(
+            plan_names("fn c() { 40 }\nfn b() { c() }\nfn a() { b() }\n"),
+            vec!["c", "b", "a"]
+        );
+    }
+
+    #[test]
+    fn unrelated_definitions_keep_source_order() {
+        assert_eq!(
+            plan_names("fn a() { 1 }\nfn b() { 2 }\nfn c() { 3 }\n"),
+            vec!["a", "b", "c"]
+        );
+    }
+
+    #[test]
+    fn mutually_recursive_definitions_form_one_group() {
+        let plan = plan_names("fn even(n) { odd(n) }\nfn odd(n) { even(n) }\n");
+        assert_eq!(plan.len(), 1, "expected a single group, got {plan:?}");
+        assert_eq!(plan[0], "even+odd");
+    }
+
+    #[test]
+    fn a_group_split_by_a_value_binding_is_still_one_group() {
+        // KI-087: grouping is by reference, not adjacency.
+        let plan = plan_names("fn even(n) { odd(n) }\nlet k = 1\nfn odd(n) { even(n - k) }\n");
+        assert!(
+            plan.contains(&"even+odd".to_string()),
+            "expected one group, got {plan:?}"
+        );
+    }
+
+    #[test]
+    fn a_group_is_emitted_after_a_binding_it_reads() {
+        let plan = plan_names("fn f() { base }\nlet base = 10\n");
+        assert_eq!(plan, vec!["base", "f"]);
+    }
+
+    #[test]
+    fn a_group_is_emitted_before_a_statement_that_calls_it() {
+        let plan = plan_names("let answer = f()\nfn f() { 42 }\n");
+        assert_eq!(plan, vec!["f", "answer"]);
+    }
+
+    #[test]
+    fn value_bindings_keep_their_order_relative_to_each_other() {
+        // A `let` initializer runs, so reordering one would change what the
+        // program does — only definitions may move.
+        let plan = plan_names("let a = 1\nfn f() { 2 }\nlet b = 3\nlet c = 4\n");
+        let lets: Vec<&String> = plan.iter().filter(|n| *n != "f").collect();
+        assert_eq!(lets, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn every_statement_is_emitted_exactly_once() {
+        let plan = plan_names(
+            "fn a() { b() }\nlet x = 1\nfn b() { x }\nlet y = a()\nfn c() { y }\nlet z = c()\n",
+        );
+        let mut sorted = plan.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), plan.len(), "duplicate items in {plan:?}");
+        assert_eq!(plan.len(), 6, "missing items in {plan:?}");
+    }
+
+    #[test]
+    fn a_cycle_between_a_definition_and_a_binding_still_emits_everything() {
+        // `let x = f()` needs `f`; `fn f() { x }` needs `x`. Not lowerable in
+        // any order — but the plan must still name both, so a later pass can
+        // report it rather than a binding going missing.
+        let plan = plan_names("let x = f()\nfn f() { x }\n");
+        assert_eq!(plan.len(), 2, "expected both items, got {plan:?}");
+    }
 }
