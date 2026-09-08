@@ -575,12 +575,21 @@ impl<'a> InferCtx<'a> {
             .simple
             .retain(|_| !generalized.next().unwrap_or(false));
 
-        let quantified: Vec<TypeVarId> = finalized
-            .infer_type
-            .free_vars()
-            .difference(spec.env_free_vars)
-            .copied()
-            .collect();
+        // Use the decision, do not re-derive it. Recomputing
+        // `free_vars() - env_free_vars` here reaches the same base set but
+        // skips the field-predicate pinning `decide_quantification` applied, so
+        // the implication would claim to quantify exactly the receiver
+        // variables that were deliberately withheld — and the predicate `split`
+        // deferred to this scope would then be discharged against a variable
+        // the enclosing solve believes is bound here.
+        //
+        // The two derivations were instrumented and compared across the type
+        // inference suites, `examples/guide` and `tests/parity` — ~190 programs
+        // including the whole stdlib — and never diverged, so this is a latent
+        // contradiction rather than a fixed bug. It is corrected because a
+        // second derivation of the quantified set is the thing proposal 0186
+        // exists to remove, not because a program was observed to miscompile.
+        let quantified: Vec<TypeVarId> = finalized.forall.clone();
 
         self.class_constraints
             .implications

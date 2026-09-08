@@ -130,15 +130,29 @@ reproduced.
 
 ### Unverified — same review, verification pass never reported
 
-- [ ] **R6. `close_definition_scope` re-derives `quantified`**, which stage 4
-      made `decide_quantification`'s job. If the two disagree, stage 4's premise
-      — *one* quantification decision — is not yet true.
-- [ ] **R7. `harvest_evidence` indexes only `Disposition::Solved` predicates.**
-      *Fix lands in 0.0.8 with Track C, but verify now — it is cheap, and if it
-      is real it changes what C5 is building on.*
-      `EvidenceSite.index` is the predicate's argument position; skipping
-      unsolved predicates shifts every later index, so a site with a stuck
-      predicate before a solved one passes a dictionary in the wrong slot.
+- [x] **R6. `close_definition_scope` re-derives `quantified`** — *confirmed, and
+      fixed.* It reached the same base set as `decide_quantification` but skipped
+      the field-predicate pinning, so the implication would claim exactly the
+      receiver variables stage 4 withheld. `Quantified::forall` is documented as
+      "every other answer here is derived from this set", so the re-derivation
+      contradicted its own contract.
+
+      **No behavioural change.** Both derivations were instrumented and compared
+      across the inference suites, `examples/guide` and `tests/parity` — ~190
+      programs including the whole stdlib — and never diverged. Landed because a
+      second derivation is what 0186 exists to remove, not because a program
+      miscompiled. Stage 4's "one quantification decision" is now true.
+- [x] **R7. `harvest_evidence` indexed only `Disposition::Solved` predicates** —
+      *confirmed, and fixed.* `EvidenceSite.index` is the argument position, so
+      `[Stuck, Solved]` put the solved evidence in the stuck predicate's slot.
+
+      Worse, it defeated a guard: `EvidenceMap::args_for` returns `None` on a
+      missing index precisely so a caller cannot build a partial argument list
+      and emit "a call with the wrong arity that type-checks". Compacting made
+      the list dense, so `args_for` returned `Some(short_list)` and the guard
+      never fired. The counter now advances for every predicate and only solved
+      ones are inserted, so a hole stays a hole. Three tests; two fail on the
+      old code. **C5 would have been built on this.**
 
 ---
 
