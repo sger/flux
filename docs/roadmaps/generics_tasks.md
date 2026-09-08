@@ -202,12 +202,19 @@ reproduced.
 
       Fixed: the unit's own function names are collected once and never treated
       as imported. `tests/parity/user_fn_name_no_collision.flx` is unskipped.
-- [ ] **G2. [KI-093](../known_issues.md#ki-093)** — *High.* Member access on a
-      map holding a function silently yields `None`:
-      `{ "square": fn(x) { x * x; } }` then `obj.square(5)` prints `None` on both
-      backends, no diagnostic, where `25` is expected. A non-function member
-      works. **This is KI-062's failure mode found independently** — the
-      backends agree on a wrong answer, so parity reports a match.
+- [x] **G2. [KI-093](../known_issues.md#ki-093)** — *High, fixed.* A local
+      binding named like an imported module is shadowed by the module:
+      `let Math = { .. }` then `Math.square(5)` is `E012`, while the same code
+      with the binding named `Widget` prints `25`. Same family as G1 — a
+      definition losing to an import — via the module qualifier rather than a
+      function contract. Fixed by checking `SymbolTable::is_bound` first.
+      `tests/parity/import_member_access.flx` is unskipped.
+
+      **The issue was originally filed with the wrong diagnosis** ("map member
+      access silently yields `None`"). That was a mistake in the reproduction:
+      a trailing `;` made the lambda return unit, which Flux spells `None`.
+      Map member access on a function value has always worked.
+
 - [ ] **G3. [KI-092](../known_issues.md#ki-092)** — *Medium.* A type parameter
       used only in an effect row is rejected as phantom, so
       `alias Handler<a, e> = (a) -> a with <Async | e>` cannot be written. The
