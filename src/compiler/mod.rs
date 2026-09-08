@@ -6408,6 +6408,14 @@ impl Compiler {
         function_name: Symbol,
         arity: usize,
     ) -> Option<&FnContract> {
+        // A local definition shadows a top-level one, so a top-level function's
+        // contract does not describe this call. Without this, `fn helper` inside
+        // a function is checked against the top-level `helper`'s signature — an
+        // `E300` whose two halves disagree, or an `E1000` at run time.
+        // See `docs/known_issues.md#ki-088`.
+        if self.symbol_table.is_bound_in_inner_scope(function_name) {
+            return None;
+        }
         if let Some(module_name) = self.current_module_prefix
             && let Some(contract) = self.lookup_contract(Some(module_name), function_name, arity)
         {
