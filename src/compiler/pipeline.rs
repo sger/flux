@@ -5,6 +5,8 @@ use crate::ast::expand_type_aliases::expand_type_aliases_in_program;
 use crate::ast::route_effectful_primops::route_effectful_primops_and_synthesize_handlers;
 use crate::diagnostics::Diagnostic;
 use crate::syntax::program::Program;
+use crate::syntax::statement::Statement;
+use crate::syntax::symbol::Symbol;
 use crate::types::class_dispatch::generate_dispatch_functions;
 
 use super::{Compiler, MainValidationState};
@@ -42,6 +44,10 @@ impl Compiler {
         self.routed_call_perform_ids = routing.routed_call_perform_ids;
         let routed_program = routing.program;
         let program = &routed_program;
+
+        // The unit's own function names, before anything consults an imported
+        // contract. A definition here shadows an import of the same name.
+        self.unit_function_names = collect_unit_function_names(program);
 
         // Phase 1: Collect definitions + validate structure
         let collection = self.phase_collection(program);
@@ -131,4 +137,26 @@ impl Compiler {
         // Phase 6: Finalization
         self.phase_finalization(program, &collection, ti.hm_diagnostics)
     }
+}
+
+/// Every function name a program defines, at top level or inside a `module`.
+///
+/// Nested functions are deliberately left out: they are scoped to their
+/// enclosing body, while this set is consulted for unqualified names anywhere
+/// in the unit.
+fn collect_unit_function_names(program: &Program) -> std::collections::HashSet<Symbol> {
+    fn walk(statements: &[Statement], out: &mut std::collections::HashSet<Symbol>) {
+        for statement in statements {
+            match statement {
+                Statement::Function { name, .. } => {
+                    out.insert(*name);
+                }
+                Statement::Module { body, .. } => walk(&body.statements, out),
+                _ => {}
+            }
+        }
+    }
+    let mut names = std::collections::HashSet::new();
+    walk(&program.statements, &mut names);
+    names
 }

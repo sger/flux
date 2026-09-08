@@ -2796,7 +2796,7 @@ entry). The generalization patch this entry used to point at,
 was never committed. See [Proposal 0185](proposals/0185_generalize_by_arity.md)
 Stage 3 for what survives of it.
 
-### KI-091 — A user-defined function is shadowed by a prelude function of the same name
+### KI-091 — A user-defined function is shadowed by a prelude function of the same name — FIXED 2026-09-08
 
 **Severity:** High · **Area:** Name resolution, prelude · **Verified:** 2026-09-08
 
@@ -2821,8 +2821,21 @@ in its own file.
 
 Found by `tests/parity/user_fn_name_no_collision.flx`, which was written to
 catch exactly this and reported as passing for as long as
-[KI-062](#ki-062) has been open. The fixture is marked `skip:` pointing here
-until it is fixed.
+[KI-062](#ki-062) was open.
+
+**Fixed.** `lookup_unqualified_runtime_contract` resolved an unqualified name
+against every imported module's contracts, with "explicit imports beat prelude"
+tie-breaking but no check for a definition in the unit itself — so `fn sum` was
+checked against `Flow.List.sum`'s `List<Int> -> Int`. The compiler now collects
+the unit's own function names once per run (`collect_unit_function_names`, the
+same guard `build_native_extern_symbols` already applied to native extern
+symbols) and a name in that set is never treated as imported. The fixture is
+unskipped and passes.
+
+Nested functions are deliberately excluded from the set: they are scoped to
+their enclosing body, while the set is consulted for unqualified names anywhere
+in the unit. A nested `fn` shadowing a prelude name is [KI-088](#ki-088)'s
+territory.
 
 ### KI-092 — A type parameter used only in an effect row is reported as phantom
 
