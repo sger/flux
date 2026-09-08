@@ -6482,6 +6482,13 @@ impl Compiler {
 
     pub(super) fn resolve_module_name_from_expr(&self, expr: &Expression) -> Option<Symbol> {
         if let Expression::Identifier { name, .. } = expr {
+            // A name the program binds is a value, not a module qualifier —
+            // `let Math = { .. }` then `Math.square(5)` means the binding, not
+            // `Flow.Math`. Modules are not entered in the symbol table, so a hit
+            // here is always a real binding. See `docs/known_issues.md#ki-093`.
+            if self.symbol_table.is_bound(*name) {
+                return None;
+            }
             if let Some(target) = self.import_aliases.get(name) {
                 return Some(*target);
             }

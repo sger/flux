@@ -106,6 +106,19 @@ impl SymbolTable {
         symbol
     }
 
+    /// Whether `name` is bound in this scope or any enclosing one.
+    ///
+    /// Read-only counterpart to [`SymbolTable::resolve`], which may *define* a
+    /// free-variable binding as a side effect and so cannot be called from a
+    /// `&self` context.
+    pub fn is_bound(&self, name: Symbol) -> bool {
+        self.store.contains_key(&name)
+            || self
+                .outer
+                .as_ref()
+                .is_some_and(|outer| outer.is_bound(name))
+    }
+
     pub fn resolve(&mut self, name: Symbol) -> Option<Binding> {
         match self.store.get(&name) {
             Some(symbol) => Some(symbol.clone()),
