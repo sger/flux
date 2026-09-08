@@ -1,0 +1,24 @@
+// parity: vm, llvm
+// expect: success
+// Transparent type aliases that carry no effects. Aliases whose expansion has
+// an effect row, or that take an effect-row parameter, are KI-094.
+
+alias IntPair = (Int, Int)
+alias Mapper<a, b> = (a) -> b
+
+fn inc(x: Int) -> Int {
+    x + 1
+}
+
+fn apply(f: Mapper<Int, Int>, x: Int) -> Int {
+    f(x)
+}
+
+fn make_pair() -> IntPair {
+    (20, 22)
+}
+
+fn main() with IO {
+    let pair = make_pair()
+    print(apply(inc, 9) + pair.0 + pair.1)
+}

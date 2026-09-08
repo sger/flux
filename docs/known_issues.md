@@ -2837,7 +2837,7 @@ their enclosing body, while the set is consulted for unqualified names anywhere
 in the unit. A nested `fn` shadowing a prelude name is [KI-088](#ki-088)'s
 territory.
 
-### KI-092 — A type parameter used only in an effect row is reported as phantom
+### KI-092 — A type parameter used only in an effect row is reported as phantom — FIXED 2026-09-08
 
 **Severity:** Medium · **Area:** Type aliases, effect rows · **Verified:** 2026-09-08
 
@@ -2855,7 +2855,49 @@ cascades into `E423 Unknown Type` at every use site of the alias, because the
 parameter it rejected is the one those sites bind.
 
 Found by `tests/parity/type_alias_transparent.flx`, whose whole purpose is
-effect-polymorphic aliases. Marked `skip:` pointing here.
+effect-polymorphic aliases.
+
+**Fixed.** `collect_type_expr_named_symbols` matched
+`TypeExpr::Function { params, ret, .. }`, and the `..` discarded the `effects`
+field — so the row was never searched for uses. It now walks the row, through
+`Add`/`Subtract`, collecting both effect atoms and open row variables. A
+genuinely unused parameter still reports `E308`.
+
+Fixing it exposed [KI-094](#ki-094): transparent type aliases did not resolve at
+all, which that error had been masking.
+
+### KI-094 — A type alias carrying an effect row is unusable — partly fixed 2026-09-08
+
+**Severity:** Medium · **Area:** Type aliases, effect rows · **Verified:** 2026-09-08
+
+Two separable defects, found behind [KI-092](#ki-092) once its `E308` stopped
+masking them. Only `tests/parity/type_alias_transparent.flx` exercises
+transparent type aliases, and it has never run
+([KI-062](#ki-062)) — the feature was effectively untested.
+
+**Fixed: an alias name was reported unknown.** `alias IntPair = (Int, Int)` then
+`fn make_pair() -> IntPair` was `E423 I can't find a type named IntPair`, so
+*no* transparent type alias was usable. `is_known_annotation_type` consulted
+built-ins, both ADT registries and associated types, but not
+`transparent_type_aliases` — and that validation runs during collection, before
+the Phase 1d expansion that would have rewritten the name away. Adding the map
+to the check fixes it; covered by `tests/parity/type_alias_transparent_basic.flx`.
+
+**Still open: an effect row in an alias.** Two shapes, both failing:
+
+```flux
+alias Stream<a> = () -> Option<a> with Async        // runtime E1004: expected `() -> Option<Int> with $1`, found Closure
+alias AsyncFn<a, b, e> = (a) -> b with <Async | e>  // E423: I can't find a type named `e`
+```
+
+The first expands to a type whose effect row does not match what a closure
+argument presents. The second passes an effect row as an alias *argument*, which
+the annotation validator sees as an unknown type name — there is no way to
+declare `e` as an effect-row parameter at the use site. That is a design
+question, not a missing check.
+
+`tests/parity/type_alias_transparent.flx` stays skipped pointing here; its
+effect-free half is now `type_alias_transparent_basic.flx` and passes.
 
 ### KI-093 — A local binding named like an imported module is shadowed by the module — FIXED 2026-09-08
 

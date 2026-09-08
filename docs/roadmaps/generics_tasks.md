@@ -215,13 +215,26 @@ reproduced.
       a trailing `;` made the lambda return unit, which Flux spells `None`.
       Map member access on a function value has always worked.
 
-- [ ] **G3. [KI-092](../known_issues.md#ki-092)** — *Medium.* A type parameter
-      used only in an effect row is rejected as phantom, so
-      `alias Handler<a, e> = (a) -> a with <Async | e>` cannot be written. The
-      `E308` cascades into `E423` at every use site.
-- [ ] **D9. [KI-079](../known_issues.md#ki-079)** — a stale bytecode cache runs a
-      program the current compiler rejects. Not generics, but it is the failure
-      mode every `CACHE_EPOCH` bump on this branch is defending against.
+- [x] **G3. [KI-092](../known_issues.md#ki-092)** — *Medium, fixed.* A type
+      parameter used only in an effect row was rejected as phantom, so
+      `alias Handler<a, e> = (a) -> a with <Async | e>` could not be written.
+      `collect_type_expr_named_symbols` matched
+      `TypeExpr::Function { params, ret, .. }` and the `..` discarded `effects`.
+- [ ] **G4. [KI-094](../known_issues.md#ki-094)** — *Medium, found behind G3.*
+      Its `E308` had been masking two further defects.
+
+      **Fixed half:** *no* transparent type alias resolved —
+      `alias IntPair = (Int, Int)` then `-> IntPair` was `E423`, because
+      `is_known_annotation_type` did not consult `transparent_type_aliases` and
+      that check runs before the Phase 1d expansion. New fixture
+      `type_alias_transparent_basic.flx` covers it.
+
+      **Open half:** an alias whose expansion carries an effect row
+      (`() -> Option<a> with Async`) fails at runtime, and an alias taking an
+      effect-row *parameter* (`AsyncFn<Int, Int, e>`) has no way to declare `e`
+      at the use site. The second is a design question. Only
+      `type_alias_transparent.flx` exercised any of this and it had never run,
+      so the feature was effectively untested.
 
 ---
 

@@ -1,6 +1,7 @@
 // parity: vm, llvm
-// skip: KI-092 — a type parameter used only in an effect row is rejected as
-//       phantom, so an effect-polymorphic alias cannot be written. Unskip on fix.
+// skip: KI-094 — a type alias whose expansion carries an effect row, or that
+//       takes an effect-row parameter, is not usable. The effect-free half of
+//       this fixture lives in type_alias_transparent_basic.flx. Unskip on fix.
 
 import Flow.Async exposing (..)
 
