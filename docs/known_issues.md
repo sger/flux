@@ -3026,7 +3026,7 @@ native backend segfaults. So the defect is downstream of Core: a synthesized
 selection and closure conversion; every lambda the ordinary path builds carries
 types. Fixing that is the next step, not more work on evidence.
 
-### KI-088 — A `fn` name cannot be shadowed, in two different broken ways
+### KI-088 — A `fn` name cannot be shadowed, in two different broken ways — partly fixed 2026-09-08
 
 **Severity:** Medium · **Area:** Name resolution · **Verified:** 2026-09-08 (rescoped) · **From:** Proposal 0186
 
@@ -3074,15 +3074,42 @@ The bottom row is a separate defect: those two definitions are in *different*
 scopes, so `E001 Duplicate binding` — which is about a name defined twice in one
 scope — should not fire at all.
 
-**Blocked on a decision, not on a diagnosis.** Flux has no documented shadowing
-rule, and the three behaviours above are mutually inconsistent, so there is no
-"restore the intended behaviour" to implement. Either:
+**Decided 2026-09-08: `fn` names shadow like `let` names do.** Flux had no
+documented shadowing rule and the three behaviours were mutually inconsistent,
+so this was a design choice rather than a behaviour to restore.
 
-- **`fn` names shadow like `let` names do.** Consistent with the top-level-`let`
-  row and with most languages; fixes all three rows.
-- **A `fn` name may not be shadowed at all.** Then the middle row must report
-  `E001` like the bottom row does, turning a runtime `E1000` into a compile
-  error, and the bottom row's message needs to stop saying "duplicate".
+**Fixed: the typing half.** Inference was never wrong — `TypeEnv::lookup`
+returns the shadowing scheme, verified by instrumentation. The error came from
+the *compiler*: `check_source_contract_call` → `lookup_unqualified_contract`
+resolved a top-level function's contract by name with no scope awareness, so it
+was applied to a call the local binding owns. It now returns `None` when the
+name is bound in a scope inner to the outermost one
+(`SymbolTable::is_bound_in_inner_scope`, a read-only counterpart to `resolve`,
+which mutates). Covered end-to-end by
+`tests/parity/local_shadows_toplevel_fn.flx`.
+
+**Still open: the nested-`fn` half, in codegen.** A nested `fn` shadowing a
+top-level `fn` still fails at run time:
+
+```flux
+fn helper(x: Int) -> Int { x }
+fn outer() -> String {
+    fn helper(s: String) -> String { s }
+    helper("hi")
+}
+```
+```
+error[E1000]: wrong number of arguments: want=2, got=1
+```
+
+Core lowering is correct — `--dump-core` shows `letrec helper = (λs. s)` inside
+`outer`, calling itself. The AST bytecode path is not: `outer` compiles to
+`OpClosure 0 0`, and constant 0 is the *top-level* `helper`'s compiled function,
+so the nested body is never emitted. The symbol binding is already right —
+`compile_function_statement` deliberately creates a fresh local binding when an
+outer one exists — so the defect is in how the function *constant* is chosen,
+not in name resolution. This is the same "two paths reach bytecode" split that
+produced the KI-087 regression.
 
 Inference's predeclaration half was fixed in `4654bad1`: its guard asked
 `env.lookup(name).is_none()` — whether the name was *visible*, true for any
