@@ -7,7 +7,7 @@ fn wrap_some(x) {
 
 fn main() with IO {
     match wrap_some(42) {
-        Some(value) -> print(value)
-        None -> print(0)
+        Some(value) -> print(value),
+        None -> print(0),
     }
 }

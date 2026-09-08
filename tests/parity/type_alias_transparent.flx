@@ -1,4 +1,6 @@
 // parity: vm, llvm
+// skip: KI-092 — a type parameter used only in an effect row is rejected as
+//       phantom, so an effect-polymorphic alias cannot be written. Unskip on fix.
 
 import Flow.Async exposing (..)
 

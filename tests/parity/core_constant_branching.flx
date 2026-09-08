@@ -9,7 +9,7 @@ fn main() with IO {
     }
 
     match 3 {
-        3 -> print(33)
-        _ -> print(44)
+        3 -> print(33),
+        _ -> print(44),
     }
 }

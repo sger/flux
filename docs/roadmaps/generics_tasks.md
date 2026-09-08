@@ -180,7 +180,7 @@ calls still fire.
 
 ---
 
-## Track G — generics bugs and the instrument
+## Track G — the instrument, and what it found
 
 - [ ] **D8. [KI-088](../known_issues.md#ki-088)** — a nested `fn` shadowing a
       top-level name. Inference half fixed (`4654bad1`); a second lookup in the
@@ -188,10 +188,34 @@ calls still fire.
       reproduction is rejected by a *compiler boundary* check, so a case in
       `tests/type_inference/` passes whether or not the bug is present —
       pinning it needs an end-to-end test.
-- [ ] **D6. [KI-062](../known_issues.md#ki-062)** — the parity harness accepts a
-      fixture that fails to compile on both backends. Promoted to **R5** — it
-      blocks the regression test for R1, and it means every `expect: success`
-      fixture in the tree is weaker than it looks.
+- [x] **D6. [KI-062](../known_issues.md#ki-062)** — the parity harness accepted a
+      fixture that fails to compile on both backends. **Fixed**: `expect: success`
+      now requires every way to exit `Success`, and a support module with no
+      entry point is no longer swept as a fixture.
+
+      It found **7 of 133 fixtures had never run**. Four were stale and are
+      repaired; three were reproducing real bugs while reporting as passing, and
+      are filed below and marked `skip:`.
+
+      Still open in that entry: the dead `++` code — `infer_semigroup_operator`,
+      the `"++" => "append"` desugar arms, `CorePrimOp::Concat`. Removing a
+      `CorePrimOp` variant changes lowering and owes an epoch bump, so it is its
+      own branch.
+- [ ] **G1. [KI-091](../known_issues.md#ki-091)** — *High.* A user-defined
+      top-level function is shadowed by a prelude function of the same name:
+      `fn sum(a, b) { a + b }` then `sum(3, 4)` is `E300 expected List<Int>`.
+      Same for `product`, `min`, `max`, `reverse`, `length`. Same family as
+      KI-088 — a definition losing to something further away.
+- [ ] **G2. [KI-093](../known_issues.md#ki-093)** — *High.* Member access on a
+      map holding a function silently yields `None`:
+      `{ "square": fn(x) { x * x; } }` then `obj.square(5)` prints `None` on both
+      backends, no diagnostic, where `25` is expected. A non-function member
+      works. **This is KI-062's failure mode found independently** — the
+      backends agree on a wrong answer, so parity reports a match.
+- [ ] **G3. [KI-092](../known_issues.md#ki-092)** — *Medium.* A type parameter
+      used only in an effect row is rejected as phantom, so
+      `alias Handler<a, e> = (a) -> a with <Async | e>` cannot be written. The
+      `E308` cascades into `E423` at every use site.
 - [ ] **D9. [KI-079](../known_issues.md#ki-079)** — a stale bytecode cache runs a
       program the current compiler rejects. Not generics, but it is the failure
       mode every `CACHE_EPOCH` bump on this branch is defending against.

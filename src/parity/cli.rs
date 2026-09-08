@@ -380,6 +380,17 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
                 actual,
             }
         }
+    } else if let Some(failed) = first_unsuccessful_run(&run_results) {
+        // Fixture declares `expect: success`, so every way must actually have
+        // run. Comparing the backends against each other is not enough: when
+        // both fail the same way their outputs match and `details` is empty, so
+        // the fixture would pass without the program ever running — the one
+        // thing a parity fixture exists to prove. See
+        // `docs/known_issues.md#ki-062`.
+        Verdict::ExpectedOutputMismatch {
+            expected: ExitKind::Success.to_string(),
+            actual: format!("{}: {}", failed.way, failed.exit_kind),
+        }
     } else if let Some(expected_stdout) = opts.expected_stdout {
         let expected = expected_stdout.trim();
         let actual = run_results
@@ -497,6 +508,16 @@ fn capture_artifacts(
             (way, arts)
         })
         .collect()
+}
+
+/// The first way whose run did not succeed, if any.
+///
+/// Only meaningful for a fixture declaring `expect: success` — a fixture that
+/// declares a failure is judged against its own expected phase instead.
+fn first_unsuccessful_run(run_results: &[super::RunResult]) -> Option<&super::RunResult> {
+    run_results
+        .iter()
+        .find(|run| run.exit_kind != ExitKind::Success)
 }
 
 fn expected_exit_kind(expect: Expect) -> ExitKind {
@@ -793,6 +814,39 @@ fn allowed_strict_compile_error(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A support module — no `main` — is not a fixture, and a real fixture is.
+    /// Both are checked against the tree so the rule cannot drift from it.
+    #[test]
+    fn a_support_module_is_not_swept_as_a_fixture() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/parity");
+        assert!(
+            should_skip_fixture(&root.join("ImportedCtor/Shapes.flx")),
+            "a module with no entry point must not be swept as a fixture"
+        );
+        assert!(
+            !should_skip_fixture(&root.join("imported_constructor_types.flx")),
+            "the fixture that imports it must still be swept"
+        );
+    }
+
+    #[test]
+    fn every_swept_fixture_declares_an_entry_point() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/parity");
+        let orphans: Vec<_> = collect_fixtures(&root)
+            .into_iter()
+            .filter(|path| !declares_entry_point(path))
+            .collect();
+        assert!(
+            orphans.is_empty(),
+            "swept fixtures without a `main`: {orphans:?}"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_path_is_reported_rather_than_dropped() {
+        assert!(declares_entry_point(Path::new("does/not/exist.flx")));
+    }
 
     fn result(
         way: Way,
@@ -1214,12 +1268,43 @@ fn collect_fixtures_recursive(path: &Path, files: &mut Vec<PathBuf>) {
     }
 }
 
-/// Skip benchmark/profile files — they produce timing-oriented output and may
-/// intentionally use workloads that are too heavy for parity sweeps.
+/// Whether a `.flx` file found by a directory sweep is not a fixture.
+///
+/// Two kinds are skipped:
+///
+/// - benchmark and profile files, which produce timing-oriented output and may
+///   use workloads too heavy for a parity sweep;
+/// - support modules — a file with no entry point cannot be run, so it is
+///   something an actual fixture imports (`ImportedCtor/Shapes.flx` is imported
+///   by `imported_constructor_types.flx`). Sweeping one in used to be invisible
+///   because a fixture that failed to compile still passed; see
+///   `docs/known_issues.md#ki-062`.
+///
+/// Only applies to a directory sweep. A file named explicitly on the command
+/// line is always run, so a support module can still be inspected on purpose.
 fn should_skip_fixture(path: &Path) -> bool {
-    path.file_stem()
+    let is_bench_or_profile = path
+        .file_stem()
         .and_then(|s| s.to_str())
-        .is_some_and(|stem| stem.contains("_bench") || stem.contains("_profile"))
+        .is_some_and(|stem| stem.contains("_bench") || stem.contains("_profile"));
+    is_bench_or_profile || !declares_entry_point(path)
+}
+
+/// Whether a file declares a `main` a parity run could execute.
+///
+/// Unreadable is treated as "yes" so the sweep reports the read failure rather
+/// than silently dropping a fixture.
+fn declares_entry_point(path: &Path) -> bool {
+    let Ok(source) = std::fs::read_to_string(path) else {
+        return true;
+    };
+    source.lines().any(|line| {
+        let trimmed = line.trim_start();
+        let trimmed = trimmed.strip_prefix("public ").unwrap_or(trimmed);
+        trimmed
+            .strip_prefix("fn main")
+            .is_some_and(|rest| rest.starts_with('(') || rest.starts_with(' '))
+    })
 }
 
 // ── Argument parsing ───────────────────────────────────────────────────────
