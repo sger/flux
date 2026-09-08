@@ -3026,46 +3026,73 @@ native backend segfaults. So the defect is downstream of Core: a synthesized
 selection and closure conversion; every lambda the ordinary path builds carries
 types. Fixing that is the next step, not more work on evidence.
 
-### KI-088 — A nested `fn` that shadows a top-level name is called at the outer function's type
+### KI-088 — A `fn` name cannot be shadowed, in two different broken ways
 
-**Severity:** Medium · **Area:** Name resolution, VM codegen · **Verified:** 2026-09-07 · **From:** Proposal 0186
+**Severity:** Medium · **Area:** Name resolution · **Verified:** 2026-09-08 (rescoped) · **From:** Proposal 0186
 
-A nested function whose name also exists at the top level is resolved to the
-*outer* definition by a sibling's forward reference:
+Originally filed as "a nested `fn` that shadows a top-level name is called at
+the outer function's type". Measuring it on 2026-09-08 showed the defect is
+neither specific to nested `fn`s nor to forward references. **Shadowing works
+for a `let` and is broken for a `fn`**, differently depending on where the `fn`
+is:
+
+| shadowing | result |
+|---|---|
+| a local binding shadows a top-level `let` | **works** |
+| a local binding shadows a top-level `fn` | **silently resolves to the outer one** |
+| a local binding shadows a `fn` in an enclosing non-top-level scope | **`E001 Duplicate Name`** |
+
+The middle row is the dangerous one, because it can reach run time:
 
 ```flux
 fn helper(x: Int) -> Int { x }
-
 fn outer() -> String {
-    fn caller() -> String { helper("hi") }
     fn helper(s: String) -> String { s }
-    caller()
+    helper("hi")
 }
 ```
+```
+error[E1000]: wrong number of arguments: want=2, got=1     ← at run time
+```
+
+With a `let`-bound lambda instead, the same shadow gives a compile error whose
+two halves disagree — the span is the local binding, the type is the top-level
+one:
 
 ```
-error[E300]: Argument Type Mismatch
-I found the wrong type in the 1st argument to `helper`.
-4 |     fn caller() -> String { helper("hi") }
-  |                                    ---- this argument has type `String`
-5 |     fn helper(s: String) -> String { s }
+3 |     let helper = \(s: String) -> s
   |     ------------------------------ `helper` expects `Int` as the 1st parameter
+4 |     helper("hi")
+  |            ---- this argument has type `String`
 ```
 
-Note the label: the span is the *nested* definition while the type is the
-*outer* one, so the two halves of the lookup disagree with each other.
+Renaming the local binding to anything else makes both programs work, so
+`TypeEnv`'s shadow stack is not itself at fault — the local binding never
+reaches it under that name.
 
-Inference's half of this is fixed: its predeclaration guard asked
-`env.lookup(name).is_none()` — whether the name was *visible* — which is true
-for any outer binding, so the nested definition was never predeclared.
-`TypeEnv::is_bound_in_current_scope` asks whether *this scope* declared it.
-The diagnostic above survives that fix, so a second lookup — in the compiler's
-own resolution rather than in `type_infer` — still reaches past the nested
-definition. That one is unfixed.
+The bottom row is a separate defect: those two definitions are in *different*
+scopes, so `E001 Duplicate binding` — which is about a name defined twice in one
+scope — should not fire at all.
 
-**Why no test pins it:** the reproduction is rejected by a *compiler boundary*
-check, not by `infer_program`, so a case added to `tests/type_inference/` passes
-whether or not the bug is present. Pinning it needs an end-to-end test.
+**Blocked on a decision, not on a diagnosis.** Flux has no documented shadowing
+rule, and the three behaviours above are mutually inconsistent, so there is no
+"restore the intended behaviour" to implement. Either:
+
+- **`fn` names shadow like `let` names do.** Consistent with the top-level-`let`
+  row and with most languages; fixes all three rows.
+- **A `fn` name may not be shadowed at all.** Then the middle row must report
+  `E001` like the bottom row does, turning a runtime `E1000` into a compile
+  error, and the bottom row's message needs to stop saying "duplicate".
+
+Inference's predeclaration half was fixed in `4654bad1`: its guard asked
+`env.lookup(name).is_none()` — whether the name was *visible*, true for any
+outer binding — and now asks `TypeEnv::is_bound_in_current_scope`. That fix
+stands and is not what remains.
+
+**Why no test pins it:** the original reproduction is rejected by a *compiler
+boundary* check, not by `infer_program`, so a case added to
+`tests/type_inference/` passes whether or not the bug is present. Pinning it
+needs an end-to-end test that runs the program.
 
 ### KI-087 — Mutually recursive nested functions separated by any statement were miscompiled — FIXED 2026-09-06, regressed, re-fixed 2026-09-08
 
