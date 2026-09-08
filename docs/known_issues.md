@@ -2857,32 +2857,51 @@ parameter it rejected is the one those sites bind.
 Found by `tests/parity/type_alias_transparent.flx`, whose whole purpose is
 effect-polymorphic aliases. Marked `skip:` pointing here.
 
-### KI-093 — Member access on a map holding a function silently yields `None`
+### KI-093 — A local binding named like an imported module is shadowed by the module — FIXED 2026-09-08
 
-**Severity:** High · **Area:** Records/maps, member access · **Verified:** 2026-09-08
+**Severity:** High · **Area:** Name resolution, member access · **Verified:** 2026-09-08
 
 ```flux
 fn main() with IO {
-    let obj = { "square": fn(x) { x * x; } }
-    print(obj.square(5))
+    let Math = { "square": fn(x) { x * x } }
+    print(Math.square(5))
 }
 ```
-
-Prints `None` on **both** backends. No diagnostic. The expected result is `25`,
-or a type error — not a wrong value.
-
-A map holding a non-function value works (`{ "k": 7 }` then `obj.k` prints `7`),
-so this is specific to a function-valued member. Binding it first is at least
-honest about not knowing:
-
-```flux
-let g = obj.f     // error[E430]: Could Not Infer Concrete Type — Inferred type: `_`
+```
+error[E012]: Unknown Module Member
+Module `Flow.Math` has no member named `square`.
 ```
 
-Because both backends agree on the wrong answer, parity reports a match; and
-because `expect: success` was not enforced, the fixture written to catch this —
-`tests/parity/import_member_access.flx` — passed anyway. It is a second,
-independent demonstration of [KI-062](#ki-062). Marked `skip:` pointing here.
+Renaming the binding to `Widget` prints `25`. `resolve_module_name_from_expr`
+matched an identifier against imported module names — including by *short* name,
+so `Math` matched `Flow.Math` — without first asking whether the program binds
+that name itself.
+
+Same family as [KI-091](#ki-091): a definition losing to an import. Different
+mechanism — that one was function contracts, this one is the module qualifier in
+member-access position.
+
+**Fixed** by checking `SymbolTable::is_bound` first. Modules are not entered in
+the symbol table, so a hit there is always a real binding. `is_bound` is a new
+read-only counterpart to `resolve`, which may *define* a free-variable binding as
+a side effect and so cannot be called from a `&self` context.
+
+> **This issue was originally filed with the wrong diagnosis** — "member access on
+> a map holding a function silently yields `None`" — and that was my error, not a
+> second bug. The reproduction used `fn(x) { x * x; }`; the trailing semicolon
+> makes the body a statement, so the lambda returns unit, which Flux spells
+> `None` (`TypeConstructor::Unit` is "spelled `None` in source-level type
+> annotations"). Map member access on a function value has always worked:
+> without the semicolon the same program prints `25`. The real defect was the
+> `Math`/`Flow.Math` collision in the same fixture.
+
+**Noticed while investigating, not filed as a bug:** `Unit` and `()` do not
+unify — `unit_fn() == ()` is `E300 expected Unit, found ()`. There is a
+workaround for exactly this at one site
+(`resume_argument_type_for_operation_return`), whose comment says Flux "writes
+the unit value as `()`, which HM *currently* infers as an empty tuple". Two
+spellings of one type, reconciled in one place. Worth a decision, but it is a
+design question rather than a defect, so it is recorded here rather than filed.
 
 ### KI-090 — A constrained function passed as a value loses its dictionary
 
