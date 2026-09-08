@@ -1301,9 +1301,9 @@ impl Parser {
                 "Expected a closing `}` to match this opening `{`.".to_string()
             };
             let mut diag = unclosed_delimiter(open_span, "{", "}", None);
-            diag.message = Some(msg);
+            diag.set_message(msg);
             if let Some(name) = context {
-                diag.hints
+                diag.hints_mut()
                     .push(crate::diagnostics::types::Hint::help(format!(
                         "Add `}}` to close the body of function `{}`.",
                         name

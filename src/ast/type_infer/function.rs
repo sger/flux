@@ -519,12 +519,17 @@ impl<'a> InferCtx<'a> {
 
         self.env.leave_scope();
 
+        // Generalization is still gated on *written* type parameters. Proposal
+        // 0186 stage 6 replaces this with `monomorphism_restriction` by arity;
+        // it was attempted and reverted, because an unannotated helper then
+        // becomes constrained and the specialised lowering goes with it — see
+        // the stage 6 row in `docs/proposals/0186_generics_foundations.md`.
         let scheme = if !type_params.is_empty() {
             self.finalize_binding_scheme(BindingSchemeSpec {
                 infer_type: &fn_ty,
                 env_free_vars: &self.env.free_vars(),
                 window: constraint_start,
-                mode: GeneralizationMode::Definition,
+                mode: MonoRestriction::Generalize,
                 binder: name,
                 span: fn_span,
             })

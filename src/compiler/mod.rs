@@ -85,7 +85,7 @@ type CompileResult<T> = Result<T, Box<Diagnostic>>;
 fn tag_diagnostics(diags: &mut [Diagnostic], phase: DiagnosticPhase) {
     for diag in diags {
         if diag.phase().is_none() {
-            diag.phase = Some(phase);
+            diag.set_phase(phase);
         }
     }
 }
@@ -287,6 +287,11 @@ fn imported_class_def_from_entry(
     let module_sym = interner.intern(&entry.class_module);
     let class_sym = interner.intern(&entry.name);
     let module = crate::types::class_id::ModulePath::from_identifier(module_sym);
+    let class_type_params: Vec<_> = entry
+        .type_params
+        .iter()
+        .map(|tp| remap_identifier(*tp, remap))
+        .collect();
     let methods = entry
         .methods
         .iter()
@@ -312,7 +317,32 @@ fn imported_class_def_from_entry(
                 .iter()
                 .map(|effect| remap_effect_expr(effect, remap))
                 .collect(),
-            default_body: None,
+            infer_type: {
+                let params: Vec<_> = method
+                    .param_types
+                    .iter()
+                    .map(|ty| remap_type_expr(ty, remap))
+                    .collect();
+                let ret = remap_type_expr(&method.return_type, remap);
+                let effects: Vec<_> = method
+                    .effects
+                    .iter()
+                    .map(|effect| remap_effect_expr(effect, remap))
+                    .collect();
+                let method_tps: Vec<_> = method
+                    .type_params
+                    .iter()
+                    .map(|tp| remap_identifier(*tp, remap))
+                    .collect();
+                crate::types::class_env::method_infer_type(
+                    &class_type_params,
+                    &method_tps,
+                    &params,
+                    &ret,
+                    &effects,
+                    interner,
+                )
+            },
         })
         .collect::<Vec<_>>();
 
@@ -418,6 +448,11 @@ fn imported_instance_def_from_entry(
             })
             .collect()
     };
+    let remapped_type_args: Vec<_> = entry
+        .type_args
+        .iter()
+        .map(|ty| remap_type_expr(ty, remap))
+        .collect();
     Some(crate::types::class_env::InstanceDef {
         origin: crate::types::class_env::InstanceOrigin::Declared,
         class_name,
@@ -431,11 +466,8 @@ fn imported_instance_def_from_entry(
             interner.intern(&entry.instance_module),
         ),
         is_public: true,
-        type_args: entry
-            .type_args
-            .iter()
-            .map(|ty| remap_type_expr(ty, remap))
-            .collect(),
+        type_key: crate::types::class_env::instance_type_key(&remapped_type_args, interner),
+        type_args: remapped_type_args,
         context,
         context_class_ids,
         method_names: entry
@@ -526,47 +558,22 @@ fn build_public_class_method_scheme(
     method: &crate::types::class_env::MethodSig,
     interner: &Interner,
 ) -> Scheme {
-    let mut type_params = HashMap::new();
-    let mut next_var: TypeVarId = 0;
-    for &name in &class_def.type_params {
-        type_params.insert(name, next_var);
-        next_var += 1;
-    }
-    for &name in &method.type_params {
-        type_params.insert(name, next_var);
-        next_var += 1;
-    }
-    let mut row_var_env = HashMap::new();
-    let mut row_var_counter = next_var;
-    let param_tys: Vec<InferType> = method
-        .param_types
-        .iter()
-        .map(|ty| {
-            TypeEnv::convert_type_expr_rec(
-                ty,
-                &type_params,
-                interner,
-                &mut row_var_env,
-                &mut row_var_counter,
-            )
-            .expect("public class method param type should convert")
-        })
-        .collect();
-    let ret_ty = TypeEnv::convert_type_expr_rec(
-        &method.return_type,
-        &type_params,
-        interner,
-        &mut row_var_env,
-        &mut row_var_counter,
-    )
-    .expect("public class method return type should convert");
-    let effect_row =
-        InferEffectRow::from_effect_exprs(&method.effects, &mut row_var_env, &mut row_var_counter)
-            .expect("public class method effects should convert");
-    crate::types::scheme::generalize(
-        &InferType::Fun(param_tys, Box::new(ret_ty), effect_row),
-        &HashSet::new(),
-    )
+    // The conversion happens once, when the class is collected, and is shared
+    // by every consumer; this is only the generalization step. The fallback
+    // re-converts for a `MethodSig` built without one — the synthetic
+    // placeholders in dictionary elaboration and in tests.
+    let fun = method.infer_type.clone().unwrap_or_else(|| {
+        crate::types::class_env::method_infer_type(
+            &class_def.type_params,
+            &method.type_params,
+            &method.param_types,
+            &method.return_type,
+            &method.effects,
+            interner,
+        )
+        .expect("public class method signature should convert")
+    });
+    crate::types::scheme::generalize(&fun, &HashSet::new())
 }
 
 fn collect_implicit_type_params(ty: &TypeExpr, interner: &Interner, out: &mut HashSet<Identifier>) {
@@ -863,6 +870,14 @@ fn preload_imported_instance_schemes(
             .cloned()
             .filter(|effects| !effects.is_empty())
             .unwrap_or_else(|| method.effects.clone());
+        let specialized_infer_type = crate::types::class_env::method_infer_type(
+            &[],
+            &method.type_params,
+            &specialized_param_types,
+            &specialized_return_type,
+            &effects,
+            interner,
+        );
         let specialized_method = crate::types::class_env::MethodSig {
             name: method.name,
             type_params: method.type_params.clone(),
@@ -870,8 +885,8 @@ fn preload_imported_instance_schemes(
             param_types: specialized_param_types,
             return_type: specialized_return_type,
             arity: method.arity,
+            infer_type: specialized_infer_type,
             effects,
-            default_body: method.default_body.clone(),
         };
         out.insert(
             mangled_sym,
@@ -1348,6 +1363,12 @@ pub struct Compiler {
     /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
     pub(super) type_env: TypeEnv,
     pub(super) hm_expr_types: HashMap<ExprId, InferType>,
+    /// The solver's answer for every predicate a call site raised, keyed by
+    /// that site (proposal 0186 stage 5). Populated by the whole-program solve;
+    /// consumed where a dictionary argument has to be produced, so that
+    /// deciding which instance a call uses happens once rather than at six
+    /// independent sites.
+    pub(super) evidence_map: crate::types::evidence::EvidenceMap,
     pub(super) contextual_function_contracts: HashMap<ExprId, FunctionContract>,
     pub(super) current_member_schemes: HashMap<(Symbol, Symbol), Scheme>,
     /// Accumulated HM-inferred type schemes for public module members.
@@ -1374,9 +1395,23 @@ pub struct Compiler {
     pub cost_centre_infos: Vec<crate::bytecode::debug_info::CostCentreInfo>,
     /// Type class environment — populated during collection phase.
     pub(super) class_env: crate::types::class_env::ClassEnv,
+    /// Surface syntax for the classes in [`class_env`](Self::class_env).
+    ///
+    /// Held apart from the environment because surface syntax is not what the
+    /// solver reasons about: only the frontend wants a `TypeExpr` or a default
+    /// body. See [`ClassSurface`](crate::types::class_surface::ClassSurface).
+    pub(super) class_surface: crate::types::class_surface::ClassSurface,
     /// Imported `public class` entries reconstructed from preloaded module interfaces.
     imported_public_classes:
         HashMap<crate::types::class_id::ClassId, crate::types::class_env::ClassDef>,
+    /// Default method bodies recovered for imported classes, kept in parallel
+    /// with [`imported_public_classes`](Self::imported_public_classes).
+    ///
+    /// These survive across compiles, so collection seeds `class_surface` from
+    /// this rather than from an empty table. Only the dependency-AST recovery
+    /// path contributes: a class rebuilt from a cached `.flxi` interface has
+    /// method types but no bodies (see `docs/known_issues.md#ki-086`).
+    imported_class_surface: crate::types::class_surface::ClassSurface,
     /// Imported `public instance` entries reconstructed from preloaded module interfaces.
     imported_public_instances: Vec<crate::types::class_env::InstanceDef>,
     /// Imported `public instance` entries waiting for their class interface to load.
@@ -1466,6 +1501,13 @@ fn collect_program_module_names(program: &Program, out: &mut HashSet<Identifier>
 }
 
 impl Compiler {
+    /// The solver's evidence for every predicate a call site raised.
+    ///
+    /// Empty until the whole-program solve has run, which `compile` does.
+    pub fn evidence_map(&self) -> &crate::types::evidence::EvidenceMap {
+        &self.evidence_map
+    }
+
     pub(super) fn injected_dictionary_count(&self, function: &Expression) -> usize {
         let scheme = match function {
             Expression::Identifier { name, .. } => self.type_env.lookup(*name),
@@ -1899,6 +1941,7 @@ impl Compiler {
             preloaded_effect_op_signatures: HashMap::new(),
             type_env: TypeEnv::new(),
             hm_expr_types: HashMap::new(),
+            evidence_map: crate::types::evidence::EvidenceMap::new(),
             contextual_function_contracts: HashMap::new(),
             current_member_schemes: HashMap::new(),
             cached_member_schemes: HashMap::new(),
@@ -1913,6 +1956,8 @@ impl Compiler {
             profiling: false,
             cost_centre_infos: Vec::new(),
             class_env: crate::types::class_env::ClassEnv::new(),
+            class_surface: crate::types::class_surface::ClassSurface::new(),
+            imported_class_surface: crate::types::class_surface::ClassSurface::new(),
             imported_public_classes: HashMap::new(),
             generated_dispatch_stub_names: HashSet::new(),
             user_function_names: HashSet::new(),
@@ -2318,7 +2363,10 @@ impl Compiler {
             };
             let extra = crate::types::class_dispatch::generate_dispatch_functions(
                 &program.statements,
-                &self.class_env,
+                crate::types::class_dispatch::DispatchClasses {
+                    env: &self.class_env,
+                    surface: &self.class_surface,
+                },
                 &mut self.interner,
                 &additional_reserved_names,
                 dispatch_options,
@@ -2753,7 +2801,11 @@ impl Compiler {
         dependency_classes
             .classes
             .extend(self.imported_public_classes.clone());
-        let _ = dependency_classes.collect_from_statements(&program.statements, &self.interner);
+        let _ = dependency_classes.collect_from_statements(
+            &program.statements,
+            &mut self.imported_class_surface,
+            &self.interner,
+        );
         for (class_id, class_def) in dependency_classes.classes {
             if class_def.is_public {
                 self.imported_public_classes
@@ -3583,6 +3635,13 @@ impl Compiler {
         // Register the built-in classes first so that `deriving` clauses in
         // the program can reference them (`Sendable`).
         let mut env = crate::types::class_env::ClassEnv::new();
+        // The bodies table is rebuilt alongside the environment it describes.
+        // `class_env` is replaced wholesale below rather than cleared, so a
+        // table that merely accumulated would keep default bodies for classes
+        // that are no longer in scope — visible in the REPL, where one
+        // `Compiler` compiles many programs. It is seeded from the imported
+        // table, which is populated earlier by dependency-AST recovery.
+        self.class_surface = self.imported_class_surface.clone();
         env.register_builtins(&mut self.interner);
         env.classes.extend(self.imported_public_classes.clone());
         // The standard hierarchy is Flux source since Proposal 0179 Stage 8,
@@ -3598,7 +3657,8 @@ impl Compiler {
         // (E440 / E443). The class modules themselves are skipped entirely,
         // since a module cannot re-declare what it is defining.
         if !self.is_class_prelude_module(program) {
-            let prelude_diagnostics = env.register_prelude_classes(&mut self.interner);
+            let prelude_diagnostics =
+                env.register_prelude_classes(&mut self.class_surface, &mut self.interner);
             debug_assert!(
                 prelude_diagnostics.is_empty(),
                 "the class prelude must collect cleanly: {prelude_diagnostics:?}"
@@ -3616,6 +3676,7 @@ impl Compiler {
         // check run here would not yet see it (E445 on every edge).
         let mut diagnostics = env.collect_from_statements_with(
             &program.statements,
+            &mut self.class_surface,
             &self.interner,
             crate::types::class_env::SuperclassCheck::Deferred,
         );

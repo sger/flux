@@ -46,12 +46,6 @@ use super::hm_expr_typer::HmExprTypeResult;
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
 
-/// A range [start, end) of statements forming a mutual recursion group.
-struct MutualRecRange {
-    start: usize,
-    end: usize,
-}
-
 impl Compiler {
     pub(super) fn find_ir_function_by_symbol<'a>(
         &self,
@@ -2269,7 +2263,7 @@ impl Compiler {
             for err in body_errors {
                 let mut diag = *err;
                 if diag.phase().is_none() {
-                    diag.phase = Some(DiagnosticPhase::TypeCheck);
+                    diag.set_phase(DiagnosticPhase::TypeCheck);
                 }
                 self.errors.push(diag);
             }
@@ -2744,7 +2738,7 @@ impl Compiler {
                 ) {
                     let mut diag = *err;
                     if diag.phase().is_none() {
-                        diag.phase = Some(DiagnosticPhase::TypeCheck);
+                        diag.set_phase(DiagnosticPhase::TypeCheck);
                     }
                     self.errors.push(diag);
                 }
@@ -3076,8 +3070,17 @@ impl Compiler {
             }
         }
 
-        // Detect mutual recursion groups among consecutive function statements.
-        let mutual_groups = Self::detect_mutual_rec_groups(&block.statements);
+        // The same planner Core lowering uses, so both backends group by
+        // reference rather than by adjacency and cannot disagree. A run scan
+        // lived here too, and left a mutually recursive pair separated by a
+        // `let` compiled as two independent bindings — see
+        // `docs/known_issues.md#ki-087`.
+        //
+        // The plan is walked in **its** order, not the statement slice's. A
+        // definition's dependencies have to be bound before the closure that
+        // captures them is built, and a source-order walk binds `fn a` calling
+        // a later `fn b` against b's uninitialised slot.
+        let plan = crate::binding_groups::plan_block(&block.statements);
 
         let len = block.statements.len();
         let mut errors = Vec::new();
@@ -3087,20 +3090,24 @@ impl Compiler {
         }
 
         self.with_consumable_local_use_counts(consumable_counts, |compiler| {
-            let mut i = 0;
-            while i < len {
-                // Check if this statement starts a mutual recursion group.
-                if let Some(group) = mutual_groups.iter().find(|g| g.start == i) {
-                    let stmts: Vec<&Statement> =
-                        block.statements[group.start..group.end].iter().collect();
-                    if let Err(err) = compiler.compile_mutual_rec_group(&stmts) {
-                        errors.push(err);
+            for item in &plan {
+                // A multi-member group is one recursive binding; a group of one
+                // is an ordinary statement compiled where the plan puts it.
+                let (i, statement) = match item {
+                    crate::binding_groups::PlanItem::Group { members, .. } if members.len() > 1 => {
+                        let members: Vec<&Statement> =
+                            members.iter().map(|(_, stmt)| *stmt).collect();
+                        if let Err(err) = compiler.compile_mutual_rec_group(&members) {
+                            errors.push(err);
+                        }
+                        continue;
                     }
-                    i = group.end;
-                    continue;
-                }
+                    crate::binding_groups::PlanItem::Group { members, .. } => members[0],
+                    crate::binding_groups::PlanItem::Other(index, stmt) => (*index, *stmt),
+                };
 
-                let statement = &block.statements[i];
+                // Tail position is a property of the *source* last statement —
+                // the block's value — not of whatever the plan emits last.
                 let is_last = i == len - 1;
                 let tail_eligible = matches!(
                     statement,
@@ -3134,71 +3141,10 @@ impl Compiler {
                 if let Err(err) = result {
                     errors.push(err);
                 }
-                i += 1;
             }
         });
 
         errors
-    }
-
-    /// Detect runs of consecutive function statements that form mutual
-    /// recursion groups (any function references a sibling defined later).
-    fn detect_mutual_rec_groups(stmts: &[Statement]) -> Vec<MutualRecRange> {
-        let mut groups = Vec::new();
-        let mut i = 0;
-        while i < stmts.len() {
-            if !matches!(stmts[i], Statement::Function { .. }) {
-                i += 1;
-                continue;
-            }
-            // Find the end of this run of consecutive functions.
-            let run_start = i;
-            while i < stmts.len() && matches!(stmts[i], Statement::Function { .. }) {
-                i += 1;
-            }
-            let run_end = i;
-            if run_end - run_start < 2 {
-                continue;
-            }
-            // Check for forward references among siblings.
-            let fn_run = &stmts[run_start..run_end];
-            if Self::has_mutual_references(fn_run) {
-                groups.push(MutualRecRange {
-                    start: run_start,
-                    end: run_end,
-                });
-            }
-        }
-        groups
-    }
-
-    /// Check whether any function in a run references a sibling defined later.
-    fn has_mutual_references(fn_stmts: &[Statement]) -> bool {
-        let names: Vec<Symbol> = fn_stmts
-            .iter()
-            .filter_map(|s| {
-                if let Statement::Function { name, .. } = s {
-                    Some(*name)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        for (idx, stmt) in fn_stmts.iter().enumerate() {
-            if let Statement::Function {
-                parameters, body, ..
-            } = stmt
-            {
-                let fv = collect_free_vars_in_function_body(parameters, body);
-                for &sibling_name in &names[idx + 1..] {
-                    if fv.contains(&sibling_name) {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
     }
 
     /// Compile a block with tail position awareness for the last statement
@@ -3220,7 +3166,7 @@ impl Compiler {
             for err in errors {
                 let mut diag = *err;
                 if diag.phase().is_none() {
-                    diag.phase = Some(DiagnosticPhase::TypeCheck);
+                    diag.set_phase(DiagnosticPhase::TypeCheck);
                 }
                 self.errors.push(diag);
             }
