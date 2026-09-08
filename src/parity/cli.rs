@@ -514,10 +514,15 @@ fn capture_artifacts(
 ///
 /// Only meaningful for a fixture declaring `expect: success` — a fixture that
 /// declares a failure is judged against its own expected phase instead.
+///
+/// A strict way that rejects a program its non-strict counterpart accepted does
+/// not count: strict mode exists to reject more, and the same allowance is made
+/// when comparing the ways against each other. `expect: success` is a claim
+/// about the program running, not about it surviving strict mode.
 fn first_unsuccessful_run(run_results: &[super::RunResult]) -> Option<&super::RunResult> {
-    run_results
-        .iter()
-        .find(|run| run.exit_kind != ExitKind::Success)
+    run_results.iter().find(|run| {
+        run.exit_kind != ExitKind::Success && !allowed_strict_compile_error(run, run_results)
+    })
 }
 
 fn expected_exit_kind(expect: Expect) -> ExitKind {
@@ -878,6 +883,30 @@ mod tests {
         let details = collect_mismatch_details(&run_results, &[], false, Expect::Success);
 
         assert!(details.is_empty(), "unexpected parity details: {details:?}");
+    }
+
+    /// The 5-way guide sweep caught this: `expect: success` must not fail a
+    /// fixture because strict mode rejected what normal mode ran, since the
+    /// harness already treats that difference as allowed.
+    #[test]
+    fn a_strict_only_compile_error_does_not_fail_an_expect_success_fixture() {
+        let run_results = vec![
+            result(Way::Vm, ExitKind::Success, "output", ""),
+            result(Way::VmStrict, ExitKind::CompileError, "", "E425"),
+        ];
+
+        assert!(first_unsuccessful_run(&run_results).is_none());
+    }
+
+    /// But a strict failure with no successful counterpart is still a failure,
+    /// and so is any non-strict one.
+    #[test]
+    fn a_run_that_simply_failed_still_fails_an_expect_success_fixture() {
+        let normal_failed = vec![result(Way::Vm, ExitKind::CompileError, "", "E004")];
+        assert!(first_unsuccessful_run(&normal_failed).is_some());
+
+        let strict_alone = vec![result(Way::VmStrict, ExitKind::CompileError, "", "E425")];
+        assert!(first_unsuccessful_run(&strict_alone).is_some());
     }
 
     #[test]
