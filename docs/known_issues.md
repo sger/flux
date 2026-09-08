@@ -2899,9 +2899,37 @@ definition. That one is unfixed.
 check, not by `infer_program`, so a case added to `tests/type_inference/` passes
 whether or not the bug is present. Pinning it needs an end-to-end test.
 
-### KI-087 — Mutually recursive nested functions separated by any statement were miscompiled — FIXED 2026-09-06
+### KI-087 — Mutually recursive nested functions separated by any statement were miscompiled — FIXED 2026-09-06, regressed, re-fixed 2026-09-08
 
-**Severity:** High · **Area:** Core lowering, VM codegen · **Verified:** 2026-09-06 · **From:** Proposal 0186
+**Severity:** High · **Area:** Core lowering, VM codegen · **Verified:** 2026-09-08 · **From:** Proposal 0186
+
+> **The first fix introduced a worse bug.** Grouping by reference was correct,
+> but the new planner emitted each group at its *source position*, and both
+> consumers that build bindings — Core lowering, which folds the plan from the
+> back, and the AST bytecode compiler, which walked the statement slice by
+> index — then bound a definition before the one it calls:
+>
+> ```flux
+> fn main() with IO {
+>     fn a() -> Int { b() + 1 }
+>     fn b() -> Int { 41 }
+>     print(a())
+> }
+> ```
+>
+> This is a plain forward reference with no mutual recursion, it is far more
+> common than the shape above, and it failed with the same
+> `E1001 ... (got Uninit)` this issue is about. It survived six full suite runs
+> and six parity sweeps: no test asserted `LetRec` *nesting* — the lowering
+> tests only counted nodes — and parity cannot see it, because both backends
+> fail identically and matching outputs are reported as a pass
+> ([KI-062](#ki-062)).
+>
+> Fixed by ordering the plan with a topological sort over its items and making
+> the bytecode compiler walk the plan rather than the statement slice.
+> Regression coverage: `test_forward_reference_*` in
+> `tests/flux/mutual_recursion.flx`, which *run*, plus ordering unit tests in
+> `src/binding_groups.rs`.
 
 Two mutually recursive functions declared inside a block were bound
 independently whenever *any* statement stood between them, so the earlier one's

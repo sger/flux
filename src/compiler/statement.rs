@@ -3070,25 +3070,17 @@ impl Compiler {
             }
         }
 
-        // Detect mutual recursion groups among consecutive function statements.
         // The same planner Core lowering uses, so both backends group by
         // reference rather than by adjacency and cannot disagree. A run scan
         // lived here too, and left a mutually recursive pair separated by a
         // `let` compiled as two independent bindings — see
         // `docs/known_issues.md#ki-087`.
-        let plan = crate::binding_groups::plan_block(&block.statements, |stmt| {
-            if let Statement::Function {
-                parameters, body, ..
-            } = stmt
-            {
-                crate::ast::free_vars::collect_free_vars_in_function_body(parameters, body)
-            } else {
-                std::collections::HashSet::new()
-            }
-        });
-        // Anchor index → the group's members; and the member positions that the
-        // statement loop must skip because their group was emitted elsewhere.
-        let (group_at, covered) = crate::binding_groups::group_index(&plan);
+        //
+        // The plan is walked in **its** order, not the statement slice's. A
+        // definition's dependencies have to be bound before the closure that
+        // captures them is built, and a source-order walk binds `fn a` calling
+        // a later `fn b` against b's uninitialised slot.
+        let plan = crate::binding_groups::plan_block(&block.statements);
 
         let len = block.statements.len();
         let mut errors = Vec::new();
@@ -3098,23 +3090,24 @@ impl Compiler {
         }
 
         self.with_consumable_local_use_counts(consumable_counts, |compiler| {
-            let mut i = 0;
-            while i < len {
-                // A group is compiled once, at its first member; the other
-                // members are skipped where they stand.
-                if let Some(members) = group_at.get(&i) {
-                    if let Err(err) = compiler.compile_mutual_rec_group(members) {
-                        errors.push(err);
+            for item in &plan {
+                // A multi-member group is one recursive binding; a group of one
+                // is an ordinary statement compiled where the plan puts it.
+                let (i, statement) = match item {
+                    crate::binding_groups::PlanItem::Group { members, .. } if members.len() > 1 => {
+                        let members: Vec<&Statement> =
+                            members.iter().map(|(_, stmt)| *stmt).collect();
+                        if let Err(err) = compiler.compile_mutual_rec_group(&members) {
+                            errors.push(err);
+                        }
+                        continue;
                     }
-                    i += 1;
-                    continue;
-                }
-                if covered.contains(&i) {
-                    i += 1;
-                    continue;
-                }
+                    crate::binding_groups::PlanItem::Group { members, .. } => members[0],
+                    crate::binding_groups::PlanItem::Other(index, stmt) => (*index, *stmt),
+                };
 
-                let statement = &block.statements[i];
+                // Tail position is a property of the *source* last statement —
+                // the block's value — not of whatever the plan emits last.
                 let is_last = i == len - 1;
                 let tail_eligible = matches!(
                     statement,
@@ -3148,7 +3141,6 @@ impl Compiler {
                 if let Err(err) = result {
                     errors.push(err);
                 }
-                i += 1;
             }
         });
 

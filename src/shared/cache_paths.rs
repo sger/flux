@@ -126,7 +126,13 @@ use sha2::{Digest, Sha256};
 /// and the predicate that should have been reported at the access was
 /// generalized away instead — so an epoch-45 artifact can hold a program that
 /// is now an `E490`.
-pub const CACHE_EPOCH: u16 = 46;
+/// Epoch 47: binding groups are emitted in dependency order rather than at
+/// their source position. Epoch 45 fixed adjacency-based *grouping* but kept
+/// source-order *placement*, so a nested `fn a()` calling a later `fn b()`
+/// lowered to `a` outside `b` and captured b's uninitialised slot — the same
+/// `E1001 ... (got Uninit)` KI-087 was about, for a plainer program. An
+/// epoch-46 artifact holds that miscompiled nesting.
+pub const CACHE_EPOCH: u16 = 47;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

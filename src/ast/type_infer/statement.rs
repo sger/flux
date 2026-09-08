@@ -59,16 +59,7 @@ impl<'a> InferCtx<'a> {
         &self,
         stmts: &'s [Statement],
     ) -> Vec<crate::binding_groups::PlanItem<'s>> {
-        crate::binding_groups::plan_block(stmts, |stmt| {
-            if let Statement::Function {
-                parameters, body, ..
-            } = stmt
-            {
-                crate::ast::free_vars::collect_free_vars_in_function_body(parameters, body)
-            } else {
-                HashSet::new()
-            }
-        })
+        crate::binding_groups::plan_block(stmts)
     }
 
     /// Infer one binding group: every member is bound before any body is
