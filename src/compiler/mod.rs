@@ -1282,6 +1282,14 @@ pub struct Compiler {
     imported_files: HashSet<String>,
     pub(super) file_scope_symbols: HashSet<Symbol>,
     pub(super) imported_modules: HashSet<Symbol>,
+    /// Every function this compilation unit defines itself, at top level or in
+    /// a `module` block.
+    ///
+    /// A unit's own definition shadows an import of the same name, so this is
+    /// what stops an imported contract being applied to it — see
+    /// `lookup_unqualified_runtime_contract` and
+    /// `docs/known_issues.md#ki-091`.
+    pub(super) unit_function_names: HashSet<Symbol>,
     pub(super) import_aliases: HashMap<Symbol, Symbol>,
     pub(super) imported_module_exclusions: HashMap<Symbol, HashSet<Symbol>>,
     /// Maps unqualified member name → qualified "Module.member" symbol
@@ -1895,6 +1903,7 @@ impl Compiler {
             imported_files: HashSet::new(),
             file_scope_symbols: HashSet::new(),
             imported_modules: HashSet::new(),
+            unit_function_names: HashSet::new(),
             import_aliases: HashMap::new(),
             imported_module_exclusions: HashMap::new(),
             exposed_bindings: HashMap::new(),
@@ -6390,6 +6399,13 @@ impl Compiler {
         &self,
         function_name: Symbol,
     ) -> Option<&FunctionContract> {
+        // A name this unit defines is not an imported one, whatever a module it
+        // imports happens to call its own function. Without this, `fn sum(a, b)`
+        // is checked against `Flow.List.sum`'s `List<Int> -> Int` contract and
+        // every call to it is an `E300` — see `docs/known_issues.md#ki-091`.
+        if self.unit_function_names.contains(&function_name) {
+            return None;
+        }
         if let Some(module_name) = self.current_module_prefix
             && let Some(contract) = self.lookup_runtime_contract(module_name, function_name)
         {

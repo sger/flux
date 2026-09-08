@@ -194,11 +194,14 @@ reproduced.
       the `"++" => "append"` desugar arms, `CorePrimOp::Concat`. Removing a
       `CorePrimOp` variant changes lowering and owes an epoch bump, so it is its
       own branch.
-- [ ] **G1. [KI-091](../known_issues.md#ki-091)** — *High.* A user-defined
+- [x] **G1. [KI-091](../known_issues.md#ki-091)** — *High, fixed.* A user-defined
       top-level function is shadowed by a prelude function of the same name:
       `fn sum(a, b) { a + b }` then `sum(3, 4)` is `E300 expected List<Int>`.
       Same for `product`, `min`, `max`, `reverse`, `length`. Same family as
       KI-088 — a definition losing to something further away.
+
+      Fixed: the unit's own function names are collected once and never treated
+      as imported. `tests/parity/user_fn_name_no_collision.flx` is unskipped.
 - [ ] **G2. [KI-093](../known_issues.md#ki-093)** — *High.* Member access on a
       map holding a function silently yields `None`:
       `{ "square": fn(x) { x * x; } }` then `obj.square(5)` prints `None` on both
