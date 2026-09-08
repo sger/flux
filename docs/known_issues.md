@@ -2085,7 +2085,7 @@ convention, so a fresh caller would arrive one argument too many.
 
 ---
 
-### KI-062 — The parity harness accepts a fixture that fails to compile on both backends
+### KI-062 — The parity harness accepts a fixture that fails to compile on both backends — FIXED 2026-09-08
 
 **Severity:** Medium · **Area:** parity harness · **Verified:** 2026-09-01
 
@@ -2106,7 +2106,26 @@ harness should enforce `expect:`.
 
 There is also dead code behind this: `infer_semigroup_operator`, the
 `"++" => "append"` desugar arm and `CorePrimOp::Concat` all handle an operator
-the lexer never produces. `Semigroup` is reached only as `append(x, y)`.
+the lexer never produces. `Semigroup` is reached only as `append(x, y)`. **Still
+open** — removing a `CorePrimOp` variant changes lowering and owes a cache epoch
+bump, so it is tracked separately from the harness fix.
+
+**Fixed** by requiring every run to exit `Success` when a fixture declares
+`expect: success`. The verdict had a branch for `compile_error`/`runtime_error`
+that checked the failure phase, and no branch at all for `success` — so such a
+fixture fell through to `Verdict::Pass` unless it also declared a `stdout:`
+block.
+
+**What it found: 7 of 133 fixtures had never run.** Four were merely stale and
+are repaired — `primop_string_ops` (four separate rots, including `++`),
+`closure_capture_value` (`++`), `core_constant_branching` and
+`core_known_shape_specialization` (match-arm commas). The other three were
+reproducing real bugs while being reported as passing, and are now filed and
+marked `skip:`: [KI-091](#ki-091), [KI-092](#ki-092), [KI-093](#ki-093).
+
+KI-093 is the same failure mode as this issue, found independently: both
+backends print `None` for an expression that should be `25`, they agree, and
+the fixture written to catch it passed.
 
 ### KI-063 — A user function named after a class method broke `--no-cache` — **fixed 2026-09-02**
 
@@ -2776,6 +2795,81 @@ entry). The generalization patch this entry used to point at,
 `scratchpad/r6-generalize-unannotated.patch`, no longer exists: `scratchpad/`
 was never committed. See [Proposal 0185](proposals/0185_generalize_by_arity.md)
 Stage 3 for what survives of it.
+
+### KI-091 — A user-defined function is shadowed by a prelude function of the same name
+
+**Severity:** High · **Area:** Name resolution, prelude · **Verified:** 2026-09-08
+
+A top-level definition loses to a prelude function of the same name, so the
+name cannot be used at all:
+
+```flux
+fn sum(a, b) { a + b }
+fn main() with IO { print(sum(3, 4)) }
+```
+```
+error[E300]: Type Mismatch
+  expected type: List<Int>
+  found type: Int
+  argument 1 to `sum` does not match the imported boundary type
+```
+
+`sum` resolves to the prelude's `List<Int> -> Int` rather than the definition
+two lines above the call. The same applies to any prelude name — `product`,
+`min`, `max`, `reverse`, `length`. A user's own top-level definition should win
+in its own file.
+
+Found by `tests/parity/user_fn_name_no_collision.flx`, which was written to
+catch exactly this and reported as passing for as long as
+[KI-062](#ki-062) has been open. The fixture is marked `skip:` pointing here
+until it is fixed.
+
+### KI-092 — A type parameter used only in an effect row is reported as phantom
+
+**Severity:** Medium · **Area:** Type aliases, effect rows · **Verified:** 2026-09-08
+
+```flux
+alias Handler<a, e> = (a) -> a with <Async | e>
+```
+```
+error[E308]: Phantom Type Alias Parameter
+Transparent type aliases cannot declare unused type parameters.
+```
+
+`e` *is* used — in the effect row. The phantom check counts only value
+positions, so an effect-polymorphic alias cannot be written. The E308 then
+cascades into `E423 Unknown Type` at every use site of the alias, because the
+parameter it rejected is the one those sites bind.
+
+Found by `tests/parity/type_alias_transparent.flx`, whose whole purpose is
+effect-polymorphic aliases. Marked `skip:` pointing here.
+
+### KI-093 — Member access on a map holding a function silently yields `None`
+
+**Severity:** High · **Area:** Records/maps, member access · **Verified:** 2026-09-08
+
+```flux
+fn main() with IO {
+    let obj = { "square": fn(x) { x * x; } }
+    print(obj.square(5))
+}
+```
+
+Prints `None` on **both** backends. No diagnostic. The expected result is `25`,
+or a type error — not a wrong value.
+
+A map holding a non-function value works (`{ "k": 7 }` then `obj.k` prints `7`),
+so this is specific to a function-valued member. Binding it first is at least
+honest about not knowing:
+
+```flux
+let g = obj.f     // error[E430]: Could Not Infer Concrete Type — Inferred type: `_`
+```
+
+Because both backends agree on the wrong answer, parity reports a match; and
+because `expect: success` was not enforced, the fixture written to catch this —
+`tests/parity/import_member_access.flx` — passed anyway. It is a second,
+independent demonstration of [KI-062](#ki-062). Marked `skip:` pointing here.
 
 ### KI-090 — A constrained function passed as a value loses its dictionary
 
