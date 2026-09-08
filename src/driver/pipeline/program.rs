@@ -128,7 +128,7 @@ fn should_dispatch_native_backend(flags: &DriverFlags) -> bool {
 fn has_error_diagnostics(diagnostics: &[Diagnostic]) -> bool {
     diagnostics
         .iter()
-        .any(|diagnostic| diagnostic.severity == Severity::Error)
+        .any(|diagnostic| diagnostic.severity() == Severity::Error)
 }
 
 /// Builds the initial run context after frontend parsing and compiler setup.
@@ -533,7 +533,7 @@ pub(crate) fn render_repl_diagnostics(
 ) {
     let errors: Vec<Diagnostic> = diagnostics
         .iter()
-        .filter(|diag| diag.severity == Severity::Error)
+        .filter(|diag| diag.severity() == Severity::Error)
         .cloned()
         .collect();
     if errors.is_empty() {
@@ -646,7 +646,7 @@ mod tests {
 
     fn diagnostic_with_severity(severity: Severity) -> Diagnostic {
         let mut diagnostic = Diagnostic::warning("test diagnostic");
-        diagnostic.severity = severity;
+        diagnostic.set_severity(severity);
         diagnostic
     }
 

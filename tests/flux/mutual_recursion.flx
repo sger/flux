@@ -72,3 +72,49 @@ fn test_non_mutual_in_same_block_unchanged() {
     assert_eq(double(5), 10)
     assert_eq(triple(5), 15)
 }
+
+fn test_forward_reference_without_mutual_recursion() {
+    // A nested function calling a *later* sibling. Not mutual recursion, so
+    // grouping alone does not cover it: the plan has to bind `b` outside `a`,
+    // or `a`'s closure captures b's uninitialised slot and the call fails at
+    // run time with `E1001 ... (got Uninit)`.
+    fn a() { b() + 1 }
+    fn b() { 41 }
+    assert_eq(a(), 42)
+}
+
+fn test_forward_reference_chain() {
+    // The same, three deep, so a fix that only swaps adjacent pairs fails.
+    fn first() { second() + 1 }
+    fn second() { third() + 1 }
+    fn third() { 40 }
+    assert_eq(first(), 42)
+}
+
+fn test_forward_reference_over_a_value_binding() {
+    // The dependency is below a `let` the caller also reads: `b` must still be
+    // bound before `a`, and both after `base`.
+    fn a() { b() + base }
+    let base = 2
+    fn b() { 40 }
+    assert_eq(a(), 42)
+}
+
+fn test_forward_reference_over_a_destructuring_binding() {
+    // A destructuring `let` binds names too. A planner that only understands
+    // `Statement::Let` cannot see `lo`/`hi` and may hoist the group above them.
+    fn total() { lo + hi }
+    let (lo, hi) = (2, 40)
+    assert_eq(total(), 42)
+}
+
+fn test_definitions_bind_around_the_statements_that_use_them() {
+    // A group must be emitted *after* a binding it reads and *before* a
+    // statement that calls one of its members. Both directions in one block.
+    let base = 1
+    fn note(x) { x + base }
+    let first = note(0)
+    fn later() { 2 }
+    let second = later()
+    assert_eq([first, second], [1, 2])
+}

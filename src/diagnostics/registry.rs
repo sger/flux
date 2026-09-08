@@ -260,3 +260,16 @@ pub fn diagnostic_for(code: &'static ErrorCode) -> Diagnostic {
         phase: None,
     }
 }
+
+/// Structural parser diagnostics are parse-root errors that suppress noisier
+/// followups until recovery completes. `E071` mostly matters in aggregator
+/// collapse logic because it originates from lexer-level unterminated tokens,
+/// while parser-emitted suppression typically starts from structural roots
+/// encountered during parsing such as `E034` and `E076`.
+///
+/// It lives here rather than in the parser because it is a statement about
+/// diagnostic codes, and because the parser is in a crate that depends on this
+/// one rather than the other way round.
+pub fn is_structural_parse_diagnostic_code(code: Option<&str>) -> bool {
+    matches!(code, Some("E034" | "E071" | "E076"))
+}

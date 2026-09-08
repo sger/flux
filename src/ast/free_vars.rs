@@ -227,6 +227,28 @@ pub fn collect_free_vars_in_function_body(parameters: &[Symbol], body: &Block) -
     collector.free
 }
 
+/// Collect the free variables of a single statement.
+///
+/// Complements [`collect_free_vars_in_function_body`], which answers the same
+/// question for a function. Binding-group planning needs both: a function's
+/// references decide which group it belongs to, and a *non*-function
+/// statement's references decide whether a group may be emitted after it.
+pub fn collect_free_vars_in_statement(stmt: &Statement) -> HashSet<Symbol> {
+    let mut collector = FreeVarCollector::new();
+    collector.visit_stmt(stmt);
+    collector.free
+}
+
+/// Collect the names a pattern binds.
+///
+/// `let (a, b) = pair` binds two names, and a planner that only understands
+/// `Statement::Let` cannot see either of them.
+pub fn collect_pattern_bindings(pattern: &Pattern) -> HashSet<Symbol> {
+    let mut collector = FreeVarCollector::new();
+    collector.define_pattern_bindings(pattern);
+    collector.bound.into_keys().collect()
+}
+
 /// Collect free variables across an entire program.
 pub fn collect_free_vars_in_program(program: &Program) -> HashSet<Symbol> {
     let mut collector = FreeVarCollector::new();
