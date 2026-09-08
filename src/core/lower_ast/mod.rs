@@ -17,7 +17,6 @@
 use std::collections::HashMap;
 
 use crate::{
-    ast::free_vars::collect_free_vars_in_function_body,
     diagnostics::position::Span,
     syntax::{
         Identifier, block::Block, expression::ExprId, program::Program, statement::Statement,
@@ -1573,16 +1572,7 @@ impl<'a> AstLowerer<'a> {
     /// statement standing between two mutually recursive definitions no longer
     /// splits them into separate, wrongly nested bindings.
     fn prepend_stmts(&mut self, stmts: &[Statement], body: CoreExpr, span: Span) -> CoreExpr {
-        let plan = crate::binding_groups::plan_block(stmts, |stmt| {
-            if let Statement::Function {
-                parameters, body, ..
-            } = stmt
-            {
-                collect_free_vars_in_function_body(parameters, body)
-            } else {
-                std::collections::HashSet::new()
-            }
-        });
+        let plan = crate::binding_groups::plan_block(stmts);
 
         // Right-to-left, so each item is prepended around the tail already built.
         let mut result = body;
