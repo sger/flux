@@ -175,7 +175,7 @@ reproduced.
 
 ## Track G — the instrument, and what it found
 
-- [ ] **D8. [KI-088](../known_issues.md#ki-088)** — a nested `fn` shadowing a
+- [~] **D8. [KI-088](../known_issues.md#ki-088)** — *typing half fixed; codegen half open.* — a nested `fn` shadowing a
       top-level name. Inference half fixed (`4654bad1`); a second lookup in the
       compiler's own resolution still reaches past the nested definition. The
       reproduction is rejected by a *compiler boundary* check, so a case in

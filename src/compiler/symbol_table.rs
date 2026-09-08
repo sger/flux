@@ -119,6 +119,19 @@ impl SymbolTable {
                 .is_some_and(|outer| outer.is_bound(name))
     }
 
+    /// Whether `name` is bound in a scope *inner* to the outermost one.
+    ///
+    /// The outermost table holds the unit's own top-level definitions, so a hit
+    /// there is the definition a contract describes. A hit anywhere inner is
+    /// something shadowing it, and the contract does not apply — see
+    /// `docs/known_issues.md#ki-088`.
+    pub fn is_bound_in_inner_scope(&self, name: Symbol) -> bool {
+        match &self.outer {
+            None => false,
+            Some(outer) => self.store.contains_key(&name) || outer.is_bound_in_inner_scope(name),
+        }
+    }
+
     pub fn resolve(&mut self, name: Symbol) -> Option<Binding> {
         match self.store.get(&name) {
             Some(symbol) => Some(symbol.clone()),
