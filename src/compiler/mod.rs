@@ -733,11 +733,36 @@ fn collect_type_expr_named_symbols(ty: &TypeExpr, symbols: &mut HashSet<Identifi
                 collect_type_expr_named_symbols(elem, symbols);
             }
         }
-        TypeExpr::Function { params, ret, .. } => {
+        TypeExpr::Function {
+            params,
+            ret,
+            effects,
+            ..
+        } => {
             for param in params {
                 collect_type_expr_named_symbols(param, symbols);
             }
             collect_type_expr_named_symbols(ret, symbols);
+            // The effect row is part of the type. A parameter used only there —
+            // the `e` in `alias Handler<a, e> = (a) -> a with <Async | e>` — is
+            // used, and skipping the row reported it as phantom.
+            // See `docs/known_issues.md#ki-092`.
+            for effect in effects {
+                collect_effect_expr_named_symbols(effect, symbols);
+            }
+        }
+    }
+}
+
+/// The names an effect row mentions: effect atoms and open row variables.
+fn collect_effect_expr_named_symbols(effect: &EffectExpr, symbols: &mut HashSet<Identifier>) {
+    match effect {
+        EffectExpr::Named { name, .. } | EffectExpr::RowVar { name, .. } => {
+            symbols.insert(*name);
+        }
+        EffectExpr::Add { left, right, .. } | EffectExpr::Subtract { left, right, .. } => {
+            collect_effect_expr_named_symbols(left, symbols);
+            collect_effect_expr_named_symbols(right, symbols);
         }
     }
 }
@@ -6232,6 +6257,12 @@ impl Compiler {
             // an application of a class's type-level declaration, and whether
             // it reduces is inference's business, not name resolution's.
             || self.class_env.associated_type_class(name).is_some()
+            // A transparent type alias is a real type name here. It is
+            // rewritten to its expansion in Phase 1d, but this validation runs
+            // during collection — before that — so without this the alias is
+            // reported unknown and the expansion never gets the chance.
+            // See `docs/known_issues.md#ki-094`.
+            || self.transparent_type_aliases.contains_key(&name)
     }
 
     /// Resolve a constructor name to its `ConstructorInfo` across both the
