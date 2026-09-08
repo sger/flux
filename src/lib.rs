@@ -1,5 +1,6 @@
 pub mod aether;
 pub mod ast;
+pub mod binding_groups;
 pub mod bytecode;
 pub mod cfg;
 pub mod cli;
@@ -17,6 +18,9 @@ pub mod repl;
 pub mod runtime;
 pub mod shared;
 pub mod shared_ir;
+// The bottom of the module DAG: interned names and source positions, depended
+// on by `diagnostics` and `syntax` and depending on nothing.
+pub mod source;
 pub mod syntax;
 pub mod types;
 pub mod vm;

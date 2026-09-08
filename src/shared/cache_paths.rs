@@ -113,7 +113,26 @@ use sha2::{Digest, Sha256};
 /// cache it surfaced as a run-time `E1000` rather than a diagnostic. Epoch 43
 /// also predates the KI-083 fix, which changed where the dictionary globals
 /// are stored and so changed emitted bytecode.
-pub const CACHE_EPOCH: u16 = 44;
+/// Epoch 45: proposal 0186 rebuilds generics on binding groups. Statements are
+/// now grouped by reference rather than by adjacency (KI-087), so a mutually
+/// recursive pair separated by an intervening statement lowers to one recursive
+/// group instead of two independent binders — an epoch-44 artifact holds the
+/// miscompiled form, which ran as `E1001 ... (got Uninit)`. Bumped ahead of the
+/// quantification and evidence stages so no artifact written during them is
+/// epoch-compatible with the finished compiler.
+/// Epoch 46: a field-access predicate no longer contributes its receiver's
+/// variables to the quantified set (proposal 0186 stage 4). A binding that
+/// quantified such a variable under epoch 45 got a scheme one variable wider,
+/// and the predicate that should have been reported at the access was
+/// generalized away instead — so an epoch-45 artifact can hold a program that
+/// is now an `E490`.
+/// Epoch 47: binding groups are emitted in dependency order rather than at
+/// their source position. Epoch 45 fixed adjacency-based *grouping* but kept
+/// source-order *placement*, so a nested `fn a()` calling a later `fn b()`
+/// lowered to `a` outside `b` and captured b's uninitialised slot — the same
+/// `E1001 ... (got Uninit)` KI-087 was about, for a plainer program. An
+/// epoch-46 artifact holds that miscompiled nesting.
+pub const CACHE_EPOCH: u16 = 47;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

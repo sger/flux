@@ -49,6 +49,7 @@ impl<'a> InferCtx<'a> {
     /// dispatched exactly once with no intermediate Option layers.
     pub(super) fn infer_expression(&mut self, expr: &Expression) -> InferType {
         let expr_id = expr.expr_id();
+        let enclosing_expr = self.current_expr.replace(expr_id);
 
         let inferred = match expr {
             // Literals
@@ -188,6 +189,7 @@ impl<'a> InferCtx<'a> {
             _ => self.infer_unsupported_expression(expr),
         };
 
+        self.current_expr = enclosing_expr;
         let resolved = inferred.apply_type_subst(&self.subst);
         self.expr_types.insert(expr_id, resolved.clone());
         resolved

@@ -105,7 +105,7 @@ impl Compiler {
         // Add "did you mean?" hint for likely type name typos
         for name in [expected, actual] {
             if let Some(suggestion) = suggest_type_name(name) {
-                diag.hints
+                diag.hints_mut()
                     .push(crate::diagnostics::types::Hint::help(format!(
                         "Unknown type `{name}` — {suggestion}"
                     )));

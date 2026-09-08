@@ -1314,3 +1314,116 @@ fn main() with IO {
         "expected E490 at the access, got: {diagnostics:?}"
     );
 }
+
+/// The solver's answer for a call site's predicate is recorded against that
+/// site (proposal 0186 stage 5).
+///
+/// Six places in `core/` and `compiler/` re-derive which instance a call uses,
+/// kept in agreement by hand-written comments, because the solver's own answer
+/// was thrown away. This pins that it is kept, keyed by the expression that
+/// raised the predicate rather than by a span — a span cannot tell apart two
+/// predicates raised at one site for one class.
+#[test]
+fn a_call_sites_evidence_is_recorded_against_that_site() {
+    let source = r#"
+class Sized<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sized<Int> {
+    fn size(x) { x }
+}
+
+fn twice_size<a: Sized>(x: a) -> Int { size(x) + size(x) }
+
+fn main() { twice_size(21) }
+"#;
+    let (program, mut compiler) = parse_source(source, "evidence_recorded.flx");
+    compiler.compile(&program).expect("program type-checks");
+
+    assert!(
+        !compiler.evidence_map().is_empty(),
+        "the whole-program solve discharged `Sized<Int>` for `twice_size(21)`, \
+         so its evidence must be recorded against that call"
+    );
+}
+
+/// The instance the solver chose can be named without asking the class
+/// environment again.
+///
+/// Naming a dictionary means rendering the instance head — `__dict_Sized_Int`.
+/// Everything downstream of the solver holds `InferType`s, which render
+/// differently from the `TypeExpr`s that name was built from, so recovering the
+/// name later would mean searching `class_env.instances` for the instance that
+/// was *already chosen*. `InstanceKey::dict_type_key` is recorded where the
+/// match happens instead.
+#[test]
+fn recorded_evidence_names_a_dictionary_that_exists() {
+    let source = r#"
+class Sized<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sized<Int> {
+    fn size(x) { x }
+}
+
+fn twice_size<a: Sized>(x: a) -> Int { size(x) + size(x) }
+
+fn main() { twice_size(21) }
+"#;
+    let (program, mut compiler) = parse_source(source, "evidence_names_dict.flx");
+    compiler.compile(&program).expect("program type-checks");
+
+    let named: Vec<String> = compiler
+        .evidence_map()
+        .instances()
+        .map(|instance| instance.dict_type_key.clone())
+        .collect();
+    assert!(
+        named.iter().any(|key| key == "Int"),
+        "the `Sized<Int>` instance must record `Int` as its dictionary key, got: {named:?}"
+    );
+}
+
+/// A predicate raised while *checking* a sub-expression is recorded against
+/// that sub-expression, not against the call that propagated the expected type
+/// into it.
+///
+/// `infer_expression` sets the current site on the way in; the checked path did
+/// not. A constrained function passed as an argument is checked against the
+/// parameter type, so its predicate landed on the enclosing call — a site
+/// nothing looks up for it, which is invisible until something tries to read
+/// the evidence back.
+#[test]
+fn a_checked_arguments_predicate_is_recorded_against_the_argument() {
+    let source = r#"
+class Sized<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sized<Int> {
+    fn size(x) { x }
+}
+
+fn measure<a: Sized>(x: a) -> Int { size(x) }
+
+fn apply(f: (Int) -> Int, x: Int) -> Int { f(x) }
+
+fn main() { apply(measure, 21) }
+"#;
+    let (program, mut compiler) = parse_source(source, "checked_arg_site.flx");
+    compiler.compile(&program).expect("program type-checks");
+
+    // `measure` is checked against `apply`'s parameter type, so its `Sized<Int>`
+    // must be recorded — against some site — rather than lost.
+    let named: Vec<String> = compiler
+        .evidence_map()
+        .instances()
+        .map(|instance| instance.dict_type_key.clone())
+        .collect();
+    assert!(
+        named.iter().any(|key| key == "Int"),
+        "the checked argument's `Sized<Int>` must be recorded, got: {named:?}"
+    );
+}

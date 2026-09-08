@@ -39,8 +39,72 @@ impl<'a> InferCtx<'a> {
             }
         }
 
-        // Phase B: infer each top-level statement.
-        for stmt in &program.statements {
+        // Phase B: infer each top-level statement, a binding group at a time.
+        let plan = self.plan_statements(&program.statements);
+        let (group_at, covered) = crate::binding_groups::group_index(&plan);
+        for (index, stmt) in program.statements.iter().enumerate() {
+            if let Some(members) = group_at.get(&index) {
+                self.infer_binding_group(members);
+            } else if !covered.contains(&index) {
+                self.infer_statement(stmt);
+            }
+        }
+    }
+
+    /// The statement list, planned into binding groups.
+    ///
+    /// The same plan Core lowering and VM compilation use, so all three agree
+    /// on what a binding group *is* — see [`crate::binding_groups`].
+    fn plan_statements<'s>(
+        &self,
+        stmts: &'s [Statement],
+    ) -> Vec<crate::binding_groups::PlanItem<'s>> {
+        crate::binding_groups::plan_block(stmts)
+    }
+
+    /// Infer one binding group: every member is bound before any body is
+    /// checked.
+    ///
+    /// A group of one is an ordinary, possibly self-recursive, definition and
+    /// takes the path it always did. For a group of several — definitions that
+    /// reference one another — the names are bound together first, so each
+    /// body sees its siblings at a shared monotype rather than at whatever a
+    /// per-scope predeclaration pass happened to leave behind. That is the
+    /// difference that lets mutually recursive members resolve in a module
+    /// scope, where predeclaration covers only functions carrying a complete
+    /// signature.
+    ///
+    /// A member that already has a binding in this scope keeps it: the
+    /// top-level and block passes predeclare ahead of this, and rebinding
+    /// would shadow the scheme their forward references were typed against.
+    fn infer_binding_group(&mut self, members: &[&Statement]) {
+        if members.len() > 1 {
+            for stmt in members {
+                let Statement::Function {
+                    name,
+                    span,
+                    type_params,
+                    parameter_types,
+                    return_type,
+                    effects,
+                    ..
+                } = stmt
+                else {
+                    continue;
+                };
+                if self.env.is_bound_in_current_scope(*name) {
+                    continue;
+                }
+                let scheme = self
+                    .declared_fn_scheme(type_params, parameter_types, return_type, effects)
+                    .unwrap_or_else(|| {
+                        let v = self.env.alloc_infer_type_var();
+                        Scheme::mono(v)
+                    });
+                self.env.bind_with_span(*name, scheme, Some(*span));
+            }
+        }
+        for stmt in members {
             self.infer_statement(stmt);
         }
     }
@@ -176,7 +240,7 @@ impl<'a> InferCtx<'a> {
             infer_type: &final_ty,
             env_free_vars: &env_free,
             window,
-            mode: GeneralizationMode::NestedBinding,
+            mode: MonoRestriction::Restricted,
             binder: name,
             span: let_span,
         });
@@ -235,9 +299,18 @@ impl<'a> InferCtx<'a> {
         self.env.enter_scope();
         self.predeclare_data_constructors_in_statements(&body.statements);
         self.predeclare_module_members(&body.statements);
-        for stmt in &body.statements {
-            self.infer_statement(stmt);
-            self.capture_public_module_member_scheme(module_name, stmt);
+        let plan = self.plan_statements(&body.statements);
+        let (group_at, covered) = crate::binding_groups::group_index(&plan);
+        for (index, stmt) in body.statements.iter().enumerate() {
+            if let Some(members) = group_at.get(&index) {
+                self.infer_binding_group(members);
+                for member in members {
+                    self.capture_public_module_member_scheme(module_name, member);
+                }
+            } else if !covered.contains(&index) {
+                self.infer_statement(stmt);
+                self.capture_public_module_member_scheme(module_name, stmt);
+            }
         }
         self.env.leave_scope();
         self.current_module = previous_module;
@@ -388,17 +461,36 @@ impl<'a> InferCtx<'a> {
     pub(super) fn infer_block(&mut self, block: &Block) -> InferType {
         // Predeclare nested function names so forward references and mutual
         // recursion work inside function bodies (mirrors top-level Phase A).
+        //
+        // The guard asks whether *this* scope already declared the name, not
+        // whether the name is visible: a nested `fn` that shadows an outer one
+        // must still be predeclared here, or its siblings resolve their
+        // references to the outer definition instead of to it.
         for stmt in &block.statements {
             if let Statement::Function { name, span, .. } = stmt
-                && self.env.lookup(*name).is_none()
+                && !self.env.is_bound_in_current_scope(*name)
             {
                 let v = self.env.alloc_infer_type_var();
                 self.env.bind_with_span(*name, Scheme::mono(v), Some(*span));
             }
         }
 
+        let plan = self.plan_statements(&block.statements);
+        let (group_at, covered) = crate::binding_groups::group_index(&plan);
+
         let mut last_ty = InferType::Con(TypeConstructor::Unit);
-        for stmt in &block.statements {
+        for (index, stmt) in block.statements.iter().enumerate() {
+            // A mutually recursive group is inferred once, at its first
+            // member. Members are function definitions, so a group can never
+            // hold the block's value expression.
+            if let Some(members) = group_at.get(&index) {
+                self.infer_binding_group(members);
+                last_ty = InferType::Con(TypeConstructor::Unit);
+                continue;
+            }
+            if covered.contains(&index) {
+                continue;
+            }
             match stmt {
                 // The last no-semicolon expression is the block's value.
                 Statement::Expression {

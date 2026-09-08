@@ -6,10 +6,14 @@ pub mod byte_span;
 pub mod data_variant;
 pub mod effect_expr;
 pub mod effect_ops;
-pub mod entry;
+// Source vocabulary now lives in the `flux-source` crate, so `flux-generics`
+// can depend on it without depending on the compiler. Re-exported under the
+// original paths: `syntax::symbol::Symbol`, `syntax::Interner` and the rest
+// keep working unchanged.
+pub use crate::source::entry;
 pub mod expression;
 pub mod formatter;
-pub mod interner;
+pub use crate::source::interner;
 pub mod lexeme;
 pub mod lexer;
 pub mod linter;
@@ -20,7 +24,7 @@ pub mod precedence;
 pub mod program;
 pub mod select_desugar;
 pub mod statement;
-pub mod symbol;
+pub use crate::source::symbol;
 pub mod token;
 pub mod token_type;
 pub mod type_class;

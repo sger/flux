@@ -13,7 +13,7 @@ use super::{
     types::DiagnosticPhase,
 };
 use crate::diagnostics::position::Span;
-use crate::syntax::parser::is_structural_parse_diagnostic_code;
+use crate::diagnostics::registry::is_structural_parse_diagnostic_code;
 
 /// Default max error limit to avoid overwhelming output.
 pub const DEFAULT_MAX_ERRORS: usize = 50;

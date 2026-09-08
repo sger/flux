@@ -2777,6 +2777,296 @@ entry). The generalization patch this entry used to point at,
 was never committed. See [Proposal 0185](proposals/0185_generalize_by_arity.md)
 Stage 3 for what survives of it.
 
+### KI-090 — A constrained function passed as a value loses its dictionary
+
+**Severity:** High · **Area:** Dictionary elaboration · **Verified:** 2026-09-07 · **From:** Proposal 0186
+
+Referencing a constrained function *as a value* rather than calling it does not
+supply its dictionary, so the callee invokes an arity it does not have:
+
+```flux
+fn twice<a>(f: (a) -> a, x: a) -> a { f(f(x)) }
+fn dbl<a: Num>(x: a) -> a { x + x }
+
+fn main() with IO { print(twice(dbl, 2)) }
+```
+
+```
+error[E1000]: wrong number of arguments: want=2, got=1
+1 | fn twice<a>(f: (a) -> a, x: a) -> a { f(f(x)) }
+  |                                         ^^^^
+```
+
+`dbl` is elaborated to take `(dictionary, x)`, but `f` is called with one
+argument. Elaboration rewrites *call sites* of a constrained function; a
+reference that is not a call has no site to rewrite, and nothing eta-expands it
+into one.
+
+**Not caused by generalize-by-arity** — it reproduces identically on `main`,
+with proposal 0186 stashed. What stage 6 changes is the *reach*: before it, an
+unannotated helper was monomorphic and so carried no dictionary, and only a
+function whose author wrote `<a: Num>` could hit this. Now any unannotated
+helper over a class method can.
+
+**Fix direction:** the single evidence-passing translation (proposal 0186 stage
+5), and *only* that — this was attempted locally first and the attempt is what
+established it.
+
+Eta-expanding the reference is the right shape: `dbl` becomes
+`λp0. dbl(__dict_Num_Int, p0)`, since Flux calls are arity-checked rather than
+curried and the dictionary must be applied alongside the value arguments. But
+`insert_dict_args_at_call_sites` cannot build that argument. `resolve_dict_arg`
+answers only two cases — the caller already holds a dictionary for exactly this
+predicate, or the predicate is concrete — and at a reference the scheme's
+predicate is `Num<a>`. The instantiation to `Num<Int>` exists at the *use*, and
+Core does not carry it: `CoreVarRef` is a name and a binder id, with no type,
+and `hm_expr_types` is keyed by AST `ExprId`.
+
+So the missing information is per-site evidence, which is what
+`EvidenceMap`/`EvidenceSite` are for. Resolving it any other way here would
+mean guessing an instance from the class name — which is what KI-052 was.
+
+**Second attempt (2026-09-07), from AST lowering with evidence in hand.** This
+got the Core right and still failed, and the remaining obstacle is *not* about
+evidence. Recorded so the next attempt starts here:
+
+- Evidence reaches lowering once `LowerInputs` carries it. Note the VM path
+  lowers through `cfg/mod.rs`, not the `compiler/mod.rs` entry point — wiring
+  only the latter leaves the map absent where it matters.
+- `Num<Int>` is a *contextual* instance (`instance Add<Int> => Num<Int>` in
+  `lib/Flow/Num.flx`), so its evidence is `FromInstance` with a context and
+  `translate` yields `DictArg::Applied`. That still names a single global: a
+  concrete instance's dictionary is built once, already applied. Only a context
+  reaching a `DictArg::Param` must be assembled at the use site.
+- Naming works. `dictionary_name(class_id, "Int", interner)` produces the
+  module-mangled `__dict_m8_466C6F772E4E756D_Num_Int`, which is the symbol the
+  program actually defines.
+- The lambda's parameters must **not** be named after the function. `λdbl.
+  dbl(dict, dbl)` shadows the callee it wraps.
+
+With all of that, `--dump-core` shows exactly the intended form:
+
+```
+let %t568 = (λ%t569. dbl(__dict_m8_466C6F772E4E756D_Num_Int, %t569))
+twice(%t568, 2)
+```
+
+and **both backends still reject it** — the VM reports the same `E1000` and the
+native backend segfaults. So the defect is downstream of Core: a synthesized
+`CoreExpr::Lam` needs more than the right shape. The prime suspect is
+`param_types: vec![None; n]` and `result_ty: None`, which drive `FluxRep`
+selection and closure conversion; every lambda the ordinary path builds carries
+types. Fixing that is the next step, not more work on evidence.
+
+### KI-088 — A nested `fn` that shadows a top-level name is called at the outer function's type
+
+**Severity:** Medium · **Area:** Name resolution, VM codegen · **Verified:** 2026-09-07 · **From:** Proposal 0186
+
+A nested function whose name also exists at the top level is resolved to the
+*outer* definition by a sibling's forward reference:
+
+```flux
+fn helper(x: Int) -> Int { x }
+
+fn outer() -> String {
+    fn caller() -> String { helper("hi") }
+    fn helper(s: String) -> String { s }
+    caller()
+}
+```
+
+```
+error[E300]: Argument Type Mismatch
+I found the wrong type in the 1st argument to `helper`.
+4 |     fn caller() -> String { helper("hi") }
+  |                                    ---- this argument has type `String`
+5 |     fn helper(s: String) -> String { s }
+  |     ------------------------------ `helper` expects `Int` as the 1st parameter
+```
+
+Note the label: the span is the *nested* definition while the type is the
+*outer* one, so the two halves of the lookup disagree with each other.
+
+Inference's half of this is fixed: its predeclaration guard asked
+`env.lookup(name).is_none()` — whether the name was *visible* — which is true
+for any outer binding, so the nested definition was never predeclared.
+`TypeEnv::is_bound_in_current_scope` asks whether *this scope* declared it.
+The diagnostic above survives that fix, so a second lookup — in the compiler's
+own resolution rather than in `type_infer` — still reaches past the nested
+definition. That one is unfixed.
+
+**Why no test pins it:** the reproduction is rejected by a *compiler boundary*
+check, not by `infer_program`, so a case added to `tests/type_inference/` passes
+whether or not the bug is present. Pinning it needs an end-to-end test.
+
+### KI-087 — Mutually recursive nested functions separated by any statement were miscompiled — FIXED 2026-09-06, regressed, re-fixed 2026-09-08
+
+**Severity:** High · **Area:** Core lowering, VM codegen · **Verified:** 2026-09-08 · **From:** Proposal 0186
+
+> **The first fix introduced a worse bug.** Grouping by reference was correct,
+> but the new planner emitted each group at its *source position*, and both
+> consumers that build bindings — Core lowering, which folds the plan from the
+> back, and the AST bytecode compiler, which walked the statement slice by
+> index — then bound a definition before the one it calls:
+>
+> ```flux
+> fn main() with IO {
+>     fn a() -> Int { b() + 1 }
+>     fn b() -> Int { 41 }
+>     print(a())
+> }
+> ```
+>
+> This is a plain forward reference with no mutual recursion, it is far more
+> common than the shape above, and it failed with the same
+> `E1001 ... (got Uninit)` this issue is about. It survived six full suite runs
+> and six parity sweeps: no test asserted `LetRec` *nesting* — the lowering
+> tests only counted nodes — and parity cannot see it, because both backends
+> fail identically and matching outputs are reported as a pass
+> ([KI-062](#ki-062)).
+>
+> Fixed by ordering the plan with a topological sort over its items and making
+> the bytecode compiler walk the plan rather than the statement slice.
+> Regression coverage: `test_forward_reference_*` in
+> `tests/flux/mutual_recursion.flx`, which *run*, plus ordering unit tests in
+> `src/binding_groups.rs`.
+
+Two mutually recursive functions declared inside a block were bound
+independently whenever *any* statement stood between them, so the earlier one's
+call to the later reached a slot nothing had filled:
+
+```flux
+fn main() with IO {
+    fn is_even(n: Int) -> Bool { if n <= 0 { true } else { is_odd(n - 1) } }
+    let threshold = 5;
+    fn is_odd(n: Int) -> Bool { if n <= 0 { false } else { is_even(n - 1) } }
+    print(is_even(threshold))
+}
+```
+```
+error[E1001]: Not A Function
+Cannot call non-function value (got Uninit).
+  |
+2 |     fn is_even(n: Int) -> Bool { if n <= 0 { true } else { is_odd(n - 1) } }
+  |                                                           ^^^^^^^^^^^^^
+```
+
+Deleting the `let` makes it compile and print `false`. The program type-checks
+either way: this is a lowering fault, discovered at run time.
+
+Top-level declarations were unaffected — they take a different path — so the
+shape only appears for functions nested in a block.
+
+**Cause.** Two passes decided which functions form a recursive group, and both
+decided it by **adjacency**:
+
+| | scanned |
+|---|---|
+| `lower_ast::prepend_stmts` (Core) | backward for a contiguous run of `fn` statements |
+| `compiler::statement::detect_mutual_rec_groups` (VM) | forward for `[start, end)` ranges of consecutive functions |
+
+Any non-function statement ended the run in both, so the pair became two
+separate bindings, nested so that the first could not see the second. This is
+the same duplication that produced [KI-085](#ki-085) — one decision made in
+more than one place — and it is what Proposal 0186 exists to remove.
+
+**Why parity did not catch it.** Both backends were wrong *identically*: the VM
+and native runs agreed on the same wrong answer, and the harness compares them
+against each other. A fixture now pins it —
+`tests/parity/closure_mutual_recursion_split_by_let.flx`.
+
+**Fix.** Both passes now call one planner,
+`binding_groups::plan_block`, which groups by **reference** using the
+strongly connected components of the sibling-reference graph
+(`flux_generics::strongly_connected_components`) rather than by adjacency.
+Placement still respects evaluation order: a group is emitted at its first
+member, except where a member reads a name bound between the members, in which
+case it moves to the last so that binding exists first. Both adjacency scanners
+are deleted.
+
+A second, latent fault was fixed alongside: `lower_scc_group` bound each
+member's name and lowered its body in one pass, so the first body was lowered
+before the later members existed. A recursive group requires every name bound
+before any body.
+
+### KI-086 — A class declared inside a `module` loses its default method bodies
+
+**Severity:** High · **Area:** type classes, module interfaces · **Verified:** 2026-09-06 · **From:** Proposal 0186
+
+A default method body works when the class is declared at the top level of a
+script and stops working when the same class is declared inside a `module`.
+There are two separate failures, with two separate causes.
+
+**1. Across the module boundary the body is silently dropped, and the program
+panics at run time.**
+
+```flux
+// A.flx
+module A {
+    public class Greet<a> {
+        fn name(x: a) -> String
+        fn greet(x: a) -> String { "hi, someone" }
+    }
+}
+```
+```flux
+// main.flx
+import A
+data Dog { Dog }
+instance Greet<Dog> { fn name(x) { "dog" } }
+fn main() with IO { print(greet(Dog)) }
+```
+```
+error[E1009]: panic: No instance of Greet.greet for the given type
+  at greet
+  at main
+```
+
+The identical program with `class Greet` written at the top level of `main.flx`
+compiles and prints `"hi, someone"`.
+
+**Cause.** A class rebuilt from a cached `.flxi` interface entry is constructed
+with `default_body: None` (`src/compiler/mod.rs:315`) — method *types* survive
+the boundary, method *bodies* do not. `generate_dispatch_functions` then finds
+no body for the omitted method and `continue`s
+(`src/types/class_dispatch.rs:1306-1312`), so the mangled instance method is
+never generated and dispatch finds nothing at run time.
+
+Nothing reports this at compile time: `ClassDef::default_methods` is populated
+from the source AST, so the instance passes the "missing method" check —
+the class *says* it supplies a default, and only dispatch generation discovers
+that the body is not there. The check and the generator disagree about what the
+class provides.
+
+**2. Within the declaring module, a default body cannot call a sibling method.**
+
+```flux
+module Shape {
+    public class Greet<a> {
+        fn name(x: a) -> String
+        fn greet(x: a) -> String { "hello " + name(x) }   // E004
+    }
+}
+```
+```
+error[E004]: I can't find a value named `name`.
+  Shape.flx:4:47
+```
+
+The same body resolves `name` when the class is at the top level. Class methods
+are not brought into scope for sibling default bodies inside a module — the
+same shape as [KI-061](#ki-061), where a dictionary was not declared across a
+module boundary.
+
+**Why this is filed now.** Proposal 0186 moves default bodies out of `MethodSig`
+into a `ClassBodies` side table, because the class environment should carry
+types and not code. That move preserves the behaviour above exactly — the
+interface path contributes no bodies before or after — but it makes the reach
+of the table explicit and gives the fix one place to land rather than one per
+`MethodSig` construction site. Symptom 1 is fixed by recording bodies in the
+interface, or by generating the instance method in the defining module; symptom 2
+is a scope-construction fix in class collection.
+
 ### KI-085 — A call to a program's own function was dispatched as a class method — FIXED 2026-09-04
 
 **Severity:** High · **Area:** type classes, Core lowering, VM codegen · **Verified:** 2026-09-04 · **From:** Proposal 0183

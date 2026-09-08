@@ -30,32 +30,18 @@ pub struct Diagnostic {
 }
 
 // ICE = Internal Compiler Error (a compiler bug, not user code).
+//
+// The macro captures the *call site* — `file!`, `line!`, `module_path!` all
+// expand where `ice!` is written, which is the whole point — and then hands off
+// to a constructor. It cannot build the struct itself: a `#[macro_export]`
+// macro expands in the calling crate, where `Diagnostic`'s fields are private.
 #[macro_export]
 macro_rules! ice {
     ($msg:expr) => {{
-        $crate::diagnostics::Diagnostic {
-            severity: $crate::diagnostics::Severity::Error,
-            title: "INTERNAL COMPILER ERROR".to_string(),
-            display_title: None,
-            category: None,
-            code: None,
-            error_type: Some($crate::diagnostics::ErrorType::Compiler),
-            message: Some($msg.to_string()),
-            file: None,
-            span: None,
-            labels: Vec::new(),
-            hints: vec![$crate::diagnostics::Hint::text(format!(
-                "{}:{} ({})",
-                file!(),
-                line!(),
-                module_path!()
-            ))],
-            suggestions: Vec::new(),
-            hint_chains: Vec::new(),
-            related: Vec::new(),
-            stack_trace: Vec::new(),
-            phase: None,
-        }
+        $crate::diagnostics::Diagnostic::internal_compiler_error(
+            $msg.to_string(),
+            format!("{}:{} ({})", file!(), line!(), module_path!()),
+        )
     }};
 }
 
@@ -178,10 +164,70 @@ impl Diagnostic {
         self
     }
 
+    /// Build an internal-compiler-error diagnostic.
+    ///
+    /// Call it through the [`ice!`](crate::diagnostics::ice) macro rather than directly:
+    /// `origin` is meant to be the source location of the failure, and only the
+    /// macro can capture the caller's own `file!`/`line!`.
+    pub fn internal_compiler_error(message: String, origin: String) -> Self {
+        Self {
+            severity: Severity::Error,
+            title: "INTERNAL COMPILER ERROR".to_string(),
+            display_title: None,
+            category: None,
+            code: None,
+            error_type: Some(ErrorType::Compiler),
+            message: Some(message),
+            file: None,
+            span: None,
+            labels: Vec::new(),
+            hints: vec![Hint::text(origin)],
+            suggestions: Vec::new(),
+            hint_chains: Vec::new(),
+            related: Vec::new(),
+            stack_trace: Vec::new(),
+            phase: None,
+        }
+    }
+
     /// Mutate the diagnostic in place to set its file path.
     pub fn set_file(&mut self, file: impl Into<Arc<str>>) {
         let file = file.into();
         self.file = if file.is_empty() { None } else { Some(file) };
+    }
+
+    /// Tag which compiler phase produced this diagnostic.
+    ///
+    /// Set after construction because a diagnostic is usually built by the code
+    /// that *detects* the problem, while the phase is known by the code that
+    /// collects it — see `tag_diagnostics`.
+    pub fn set_phase(&mut self, phase: DiagnosticPhase) {
+        self.phase = Some(phase);
+    }
+
+    /// Raise or lower the severity after construction.
+    ///
+    /// A pass sometimes learns that what it built as a warning is fatal in its
+    /// context, or the reverse. The Core static-contract check is the example:
+    /// residue reaching the backend boundary is an error, while the same shape
+    /// earlier is observability.
+    pub fn set_severity(&mut self, severity: Severity) {
+        self.severity = severity;
+    }
+
+    /// Replace the human-readable message.
+    ///
+    /// Used where a later pass has more context than the one that raised the
+    /// diagnostic — the parser's recovery rewrites a generic message once it
+    /// knows which construct it was in.
+    pub fn set_message(&mut self, message: impl Into<String>) {
+        self.message = Some(message.into());
+    }
+
+    /// Mutable access to the hint list, for a pass that refines hints it did
+    /// not create.
+    pub fn hints_mut(&mut self) -> &mut Vec<Hint> {
+        &mut self.hints
     }
 }
 

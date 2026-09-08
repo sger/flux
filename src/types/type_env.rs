@@ -120,6 +120,18 @@ impl TypeEnv {
         self.bindings.get(&name)?.last().map(|e| &e.scheme)
     }
 
+    /// Whether `name` was bound in the innermost scope specifically.
+    ///
+    /// [`TypeEnv::lookup`] answers a different question — whether the name is
+    /// *visible* — and a predeclaration pass that asks that one skips a nested
+    /// definition whose name also exists further out, leaving the body to
+    /// resolve against the outer binding it shadows.
+    pub fn is_bound_in_current_scope(&self, name: Identifier) -> bool {
+        self.scope_markers
+            .last()
+            .is_some_and(|marker| marker.contains(&name))
+    }
+
     /// Iterate over all currently visible bindings (top of each shadow stack).
     pub fn visible_bindings(&self) -> impl Iterator<Item = (Identifier, &Scheme)> {
         self.bindings

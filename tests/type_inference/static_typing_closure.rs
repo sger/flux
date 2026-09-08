@@ -66,7 +66,10 @@ fn infer_scheme(source: &str, name: &str) -> (String, String) {
     let (program, mut interner) = parse(source);
     let mut class_env = ClassEnv::new();
     class_env.register_builtins(&mut interner);
-    class_env.register_prelude_classes(&mut interner);
+    class_env.register_prelude_classes(
+        &mut flux::types::class_surface::ClassSurface::new(),
+        &mut interner,
+    );
     let flow_module_symbol = interner.intern("Flow");
     let result = infer_program(
         &program,

@@ -111,7 +111,7 @@ impl Compiler {
             if let Err(err) = compile_result {
                 let mut diag = *err;
                 if diag.phase().is_none() {
-                    diag.phase = Some(DiagnosticPhase::TypeCheck);
+                    diag.set_phase(DiagnosticPhase::TypeCheck);
                 }
                 self.errors.push(diag);
             }

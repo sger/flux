@@ -739,10 +739,6 @@ name = "diagnostics_aggregator_tests"
 path = "tests/diagnostics/diagnostics_aggregator_tests.rs"
 
 [[test]]
-name = "diagnostics_docs_guard"
-path = "tests/diagnostics/diagnostics_docs_guard.rs"
-
-[[test]]
 name = "diagnostics_rendering_extended_tests"
 path = "tests/diagnostics/diagnostics_rendering_extended_tests.rs"
 
@@ -753,6 +749,10 @@ path = "tests/diagnostics/unified_diagnostics_tests.rs"
 [[test]]
 name = "error_codes_registry_tests"
 path = "tests/diagnostics/error_codes_registry_tests.rs"
+
+[[test]]
+name = "diagnostics_rustdoc_guard"
+path = "tests/diagnostics/diagnostics_rustdoc_guard.rs"
 
 [[test]]
 name = "examples_guide_snapshots"

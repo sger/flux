@@ -11,7 +11,6 @@ use crate::{
     diagnostics::{Diagnostic, DiagnosticBuilder, diagnostic_for, position::Span},
     syntax::{
         Identifier,
-        block::Block,
         effect_expr::EffectExpr,
         interner::Interner,
         statement::Statement,
@@ -20,6 +19,7 @@ use crate::{
     },
     types::{
         class_id::{ClassId, ModulePath},
+        class_surface::ClassSurface,
         infer_type::InferType,
         type_constructor::TypeConstructor,
     },
@@ -131,8 +131,69 @@ pub struct MethodSig {
     /// Acts as a *floor*: implementing instances must declare a row that
     /// is a superset of this one (validated by the E452 walker).
     pub effects: Vec<EffectExpr>,
-    /// Optional default method body from the class declaration.
-    pub default_body: Option<Block>,
+    /// The method's type as the solver sees it: an [`InferType::Fun`] over the
+    /// converted parameter types, return type and effect row.
+    ///
+    /// Type variables follow one fixed numbering, so that two independently
+    /// converted signatures for the same class agree:
+    ///
+    /// - class parameter `i` is `TypeVarId(i)`;
+    /// - the method's own generic `j` is `TypeVarId(class_type_params + j)`;
+    /// - effect-row variables are numbered after both.
+    ///
+    /// `None` when conversion failed, which today means only that a
+    /// function-typed parameter carried an effect row that would not convert.
+    /// A consumer that needs the surface form reads it from
+    /// [`ClassSurface`](crate::types::class_surface::ClassSurface) instead.
+    pub infer_type: Option<InferType>,
+}
+
+/// Converts a class method's declared signature to the solver's representation.
+///
+/// The variable numbering is the one documented on
+/// [`MethodSig::infer_type`]; `class_type_params` are the owning class's
+/// parameters, in declaration order.
+pub fn method_infer_type(
+    class_type_params: &[Identifier],
+    method_type_params: &[Identifier],
+    param_types: &[TypeExpr],
+    return_type: &TypeExpr,
+    effects: &[EffectExpr],
+    interner: &Interner,
+) -> Option<InferType> {
+    use crate::types::{infer_effect_row::InferEffectRow, type_env::TypeEnv};
+
+    let mut vars = HashMap::new();
+    let mut next: crate::types::TypeVarId = 0;
+    for &name in class_type_params.iter().chain(method_type_params) {
+        vars.insert(name, next);
+        next += 1;
+    }
+    let mut row_var_env = HashMap::new();
+    let mut row_var_counter = next;
+
+    let params = param_types
+        .iter()
+        .map(|ty| {
+            TypeEnv::convert_type_expr_rec(
+                ty,
+                &vars,
+                interner,
+                &mut row_var_env,
+                &mut row_var_counter,
+            )
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let ret = TypeEnv::convert_type_expr_rec(
+        return_type,
+        &vars,
+        interner,
+        &mut row_var_env,
+        &mut row_var_counter,
+    )?;
+    let row =
+        InferEffectRow::from_effect_exprs(effects, &mut row_var_env, &mut row_var_counter).ok()?;
+    Some(InferType::Fun(params, Box::new(ret), row))
 }
 
 /// Why an instance is present in the environment.
@@ -192,6 +253,18 @@ pub struct InstanceDef {
     /// instances are always recorded as `false`.
     pub is_public: bool,
     pub type_args: Vec<TypeExpr>,
+    /// The instance head rendered as the key its dictionary and mangled method
+    /// names are built from — `Int`, or `Int_String` for a multi-parameter
+    /// class.
+    ///
+    /// Held rather than re-rendered so that symbol naming does not depend on
+    /// how [`type_args`] happens to be represented. Every `__dict_*` and
+    /// `__tc_*` symbol in a program is derived from this string, so a change in
+    /// rendering is a change in every generated name — which is why the value
+    /// is computed once, where the instance is built.
+    ///
+    /// [`type_args`]: InstanceDef::type_args
+    pub type_key: String,
     pub context: Vec<ClassConstraint>,
     /// Resolved identities corresponding positionally to `context`.
     pub context_class_ids: Vec<ClassId>,
@@ -280,14 +353,17 @@ impl ClassEnv {
     }
 
     /// Build a `ClassEnv` from a program's top-level statements.
-    /// Returns the environment and any validation diagnostics.
+    ///
+    /// Returns the environment, the [`ClassSurface`] table holding any default
+    /// method bodies the classes declared, and any validation diagnostics.
     pub fn from_statements(
         statements: &[Statement],
         interner: &Interner,
-    ) -> (Self, Vec<Diagnostic>) {
+    ) -> (Self, ClassSurface, Vec<Diagnostic>) {
         let mut env = ClassEnv::new();
-        let diagnostics = env.collect_from_statements(statements, interner);
-        (env, diagnostics)
+        let mut bodies = ClassSurface::new();
+        let diagnostics = env.collect_from_statements(statements, &mut bodies, interner);
+        (env, bodies, diagnostics)
     }
 
     /// Collect class, instance, and deriving declarations from statements
@@ -301,9 +377,10 @@ impl ClassEnv {
     pub fn collect_from_statements(
         &mut self,
         statements: &[Statement],
+        surface: &mut ClassSurface,
         interner: &Interner,
     ) -> Vec<Diagnostic> {
-        self.collect_from_statements_with(statements, interner, SuperclassCheck::Now)
+        self.collect_from_statements_with(statements, surface, interner, SuperclassCheck::Now)
     }
 
     /// [`collect_from_statements`](Self::collect_from_statements), with control
@@ -311,6 +388,7 @@ impl ClassEnv {
     pub fn collect_from_statements_with(
         &mut self,
         statements: &[Statement],
+        surface: &mut ClassSurface,
         interner: &Interner,
         superclass_check: SuperclassCheck,
     ) -> Vec<Diagnostic> {
@@ -319,6 +397,7 @@ impl ClassEnv {
             statements,
             ModulePath::EMPTY,
             self,
+            surface,
             &mut diagnostics,
             interner,
         );
@@ -1480,6 +1559,7 @@ impl ClassEnv {
             // Phase 1 doesn't enforce this distinction since `Sendable` has
             // no methods.
             is_public: false,
+            type_key: instance_type_key(&head_args, interner),
             type_args: head_args,
             context,
             context_class_ids: vec![ClassId::from_local_name(sendable_id); type_params.len()],
@@ -1620,6 +1700,7 @@ impl ClassEnv {
         statements: &[Statement],
         current_module: ModulePath,
         env: &mut ClassEnv,
+        surface: &mut ClassSurface,
         diagnostics: &mut Vec<Diagnostic>,
         interner: &Interner,
     ) {
@@ -1662,15 +1743,37 @@ impl ClassEnv {
                             return_type: m.return_type.clone(),
                             arity: m.params.len(),
                             effects: m.effects.clone(),
-                            default_body: m.default_body.clone(),
+                            infer_type: method_infer_type(
+                                type_params,
+                                &m.type_params,
+                                &m.param_types,
+                                &m.return_type,
+                                &m.effects,
+                                interner,
+                            ),
                         })
                         .collect();
 
-                    let default_methods: Vec<Identifier> = methods
-                        .iter()
-                        .filter(|m| m.default_body.is_some())
-                        .map(|m| m.name)
-                        .collect();
+                    // A default body is code, not a type, so it is recorded
+                    // beside the environment rather than in it. `default_methods`
+                    // stays here because "does this class supply a default?" is
+                    // part of the class's interface — it is what lets an instance
+                    // omit the method.
+                    let mut default_methods: Vec<Identifier> = Vec::new();
+                    for m in methods {
+                        if m.default_body.is_some() {
+                            default_methods.push(m.name);
+                        }
+                        surface.insert(
+                            class_id,
+                            m.name,
+                            crate::types::class_surface::MethodSurface {
+                                param_types: m.param_types.clone(),
+                                return_type: Some(m.return_type.clone()),
+                                default_body: m.default_body.clone(),
+                            },
+                        );
+                    }
 
                     env.classes.insert(
                         class_id,
@@ -1711,6 +1814,7 @@ impl ClassEnv {
                         &body.statements,
                         module_path,
                         env,
+                        surface,
                         diagnostics,
                         interner,
                     );
@@ -1966,6 +2070,7 @@ impl ClassEnv {
                         class_id: class_def.class_id(),
                         instance_module: current_module,
                         is_public: *is_public,
+                        type_key: instance_type_key(type_args, interner),
                         type_args: type_args.clone(),
                         context: context.clone(),
                         context_class_ids: context
@@ -2165,6 +2270,7 @@ impl ClassEnv {
                             class_id,
                             instance_module: current_module,
                             is_public: *is_public,
+                            type_key: instance_type_key(std::slice::from_ref(&type_arg), interner),
                             type_args: vec![type_arg],
                             context,
                             context_class_ids: type_params
@@ -2919,7 +3025,11 @@ impl ClassEnv {
     ///
     /// Returns the collection diagnostics, which are empty for a consistent
     /// tree; a non-empty result means the prelude itself no longer parses.
-    pub fn register_prelude_classes(&mut self, interner: &mut Interner) -> Vec<Diagnostic> {
+    pub fn register_prelude_classes(
+        &mut self,
+        surface: &mut ClassSurface,
+        interner: &mut Interner,
+    ) -> Vec<Diagnostic> {
         use crate::syntax::{lexer::Lexer, parser::Parser};
 
         // The reserved owning module for field predicates (Proposal 0184).
@@ -2955,7 +3065,11 @@ impl ClassEnv {
             let program = parser.parse_program();
             diagnostics.extend(parser.errors.iter().cloned());
             *interner = parser.take_interner();
-            diagnostics.extend(self.collect_from_statements(&program.statements, interner));
+            diagnostics.extend(self.collect_from_statements(
+                &program.statements,
+                surface,
+                interner,
+            ));
         }
         diagnostics
     }
@@ -2987,7 +3101,7 @@ impl ClassEnv {
         // Sendable instances: Int, Float, String, Bool, Unit.
         for ty in ["Int", "Float", "String", "Bool", "Unit"] {
             let ty = interner.intern(ty);
-            self.register_builtin_instance(sendable, ty);
+            self.register_builtin_instance(sendable, ty, &*interner);
         }
     }
 
@@ -3035,7 +3149,12 @@ impl ClassEnv {
     }
 
     /// Register a single built-in instance.
-    fn register_builtin_instance(&mut self, class_name: Identifier, type_name: Identifier) {
+    fn register_builtin_instance(
+        &mut self,
+        class_name: Identifier,
+        type_name: Identifier,
+        interner: &Interner,
+    ) {
         // Don't duplicate if user already declared this instance.
         let expected = builtin_type(type_name);
         let already_exists = self.instances.iter().any(|i| {
@@ -3061,6 +3180,7 @@ impl ClassEnv {
             // Built-ins are universally visible via the prelude; the flag
             // is irrelevant for them.
             is_public: false,
+            type_key: instance_type_key(&[builtin_type(type_name)], interner),
             type_args: vec![builtin_type(type_name)],
             context: vec![],
             context_class_ids: vec![],
@@ -3249,6 +3369,18 @@ pub fn mangled_method_name(
     format!("{INSTANCE_METHOD_PREFIX}{class}_{type_key}_{method}")
 }
 
+/// The key an instance's dictionary and mangled method names are built from.
+///
+/// One definition, so every generated symbol for an instance agrees. Multi-
+/// parameter classes join their arguments: `Int_String`.
+pub fn instance_type_key(type_args: &[TypeExpr], interner: &Interner) -> String {
+    type_args
+        .iter()
+        .map(|arg| arg.display_with(interner))
+        .collect::<Vec<_>>()
+        .join("_")
+}
+
 /// Render the canonical dictionary global for a concrete instance head.
 pub fn dictionary_name(class_id: ClassId, type_key: &str, interner: &Interner) -> String {
     format!(
@@ -3391,7 +3523,7 @@ class TopLvlClass<a> {
         );
         let interner = parser.take_interner();
 
-        let (env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(diags.is_empty(), "collection errors: {:?}", diags);
 
         let class_sym = interner
@@ -3429,7 +3561,7 @@ module Phase1b.Step1 {
         );
         let interner = parser.take_interner();
 
-        let (env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(diags.is_empty(), "collection errors: {:?}", diags);
 
         let class_sym = interner.lookup("ModScoped").expect("class interned");
@@ -3477,7 +3609,7 @@ instance Step2Eq<Int> {
         );
         let interner = parser.take_interner();
 
-        let (env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(diags.is_empty(), "collection errors: {:?}", diags);
 
         let class_sym = interner.lookup("Step2Eq").unwrap();
@@ -3519,7 +3651,7 @@ module Phase1b.Step2 {
         );
         let interner = parser.take_interner();
 
-        let (env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(diags.is_empty(), "collection errors: {:?}", diags);
 
         let class_sym = interner.lookup("ModEq").unwrap();
@@ -3571,7 +3703,7 @@ module Phase1b.Step2Derive {
         );
         let interner = parser.take_interner();
 
-        let (env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
             diags.is_empty(),
             "unexpected collection errors: {:?}",
@@ -3632,7 +3764,7 @@ module Mod.B {
         );
         let interner = parser.take_interner();
 
-        let (env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
             diags.is_empty(),
             "two same-name classes in different modules should NOT trigger DUPLICATE_CLASS, \
@@ -3699,7 +3831,7 @@ module Mod.B {
             parser.errors
         );
         let interner = parser.take_interner();
-        let (env, diagnostics) = ClassEnv::from_statements(&program.statements, &interner);
+        let (env, _, diagnostics) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
             diagnostics.is_empty(),
             "collection errors: {:?}",
@@ -3772,7 +3904,7 @@ module Mod.B {
         );
         let interner = parser.take_interner();
 
-        let (env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(diags.is_empty(), "collection errors: {:?}", diags);
 
         // Both classes coexist (Step 3 invariant).
@@ -3850,7 +3982,7 @@ module Mod.B {
         );
         let interner = parser.take_interner();
 
-        let (env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(diags.is_empty(), "collection errors: {:?}", diags);
 
         let foo_sym = interner.lookup("Foo").unwrap();
@@ -3903,12 +4035,12 @@ module Mod.Same {
         );
         let interner = parser.take_interner();
 
-        let (env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
 
         // First declaration succeeds, second is rejected as a duplicate.
         assert_eq!(env.classes.len(), 1, "only one class should be inserted");
         assert!(
-            diags.iter().any(|d| d.code.as_deref() == Some("E440")),
+            diags.iter().any(|d| d.code() == Some("E440")),
             "expected DUPLICATE_CLASS (E440), got: {:?}",
             diags
         );
@@ -3939,7 +4071,7 @@ module Outer.Inner.Deep {
         );
         let interner = parser.take_interner();
 
-        let (env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(diags.is_empty(), "collection errors: {:?}", diags);
 
         let class_sym = interner.lookup("DeeplyNested").unwrap();
@@ -3979,9 +4111,9 @@ module Mod.A {
         );
         let interner = parser.take_interner();
 
-        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code.as_deref() == Some("E449")),
+            !diags.iter().any(|d| d.code() == Some("E449")),
             "instance in class's own module must not be orphan, got: {:?}",
             diags
         );
@@ -4017,9 +4149,9 @@ module Mod.Type {
         );
         let interner = parser.take_interner();
 
-        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code.as_deref() == Some("E449")),
+            !diags.iter().any(|d| d.code() == Some("E449")),
             "instance in head type's own module must not be orphan, got: {:?}",
             diags
         );
@@ -4057,9 +4189,9 @@ module Mod.Third {
         );
         let interner = parser.take_interner();
 
-        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            diags.iter().any(|d| d.code.as_deref() == Some("E449")),
+            diags.iter().any(|d| d.code() == Some("E449")),
             "third-module instance should be rejected as orphan, got: {:?}",
             diags
         );
@@ -4091,9 +4223,9 @@ module Mod.Type {
         );
         let interner = parser.take_interner();
 
-        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code.as_deref() == Some("E449")),
+            !diags.iter().any(|d| d.code() == Some("E449")),
             "deriving instance lives in the data's module — must not be orphan, got: {:?}",
             diags
         );
@@ -4123,9 +4255,9 @@ instance TopLvlShow<Int> {
         );
         let interner = parser.take_interner();
 
-        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code.as_deref() == Some("E449")),
+            !diags.iter().any(|d| d.code() == Some("E449")),
             "legacy top-level instances must be grandfathered, got: {:?}",
             diags
         );
@@ -4161,9 +4293,9 @@ module Mod.A {
         );
         let interner = parser.take_interner();
 
-        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code.as_deref() == Some("E450")),
+            !diags.iter().any(|d| d.code() == Some("E450")),
             "public instance of public class must not fire E450, got: {:?}",
             diags
         );
@@ -4195,9 +4327,9 @@ module Mod.A {
         );
         let interner = parser.take_interner();
 
-        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code.as_deref() == Some("E450")),
+            !diags.iter().any(|d| d.code() == Some("E450")),
             "private instance of private class must not fire E450, got: {:?}",
             diags
         );
@@ -4228,9 +4360,9 @@ module Mod.A {
         );
         let interner = parser.take_interner();
 
-        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            diags.iter().any(|d| d.code.as_deref() == Some("E450")),
+            diags.iter().any(|d| d.code() == Some("E450")),
             "public instance of private class must fire E450, got: {:?}",
             diags
         );
@@ -4270,9 +4402,9 @@ module Mod.A {
         // instance won't be added, which means the visibility walker has
         // nothing to flag. That's fine: the test is asserting "no E450",
         // not the absence of all errors.
-        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code.as_deref() == Some("E450")),
+            !diags.iter().any(|d| d.code() == Some("E450")),
             "instance for unknown/built-in class must not fire E450, got: {:?}",
             diags
         );
@@ -4309,9 +4441,9 @@ module Mod.A {
         );
         let interner = parser.take_interner();
 
-        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code.as_deref() == Some("E455")),
+            !diags.iter().any(|d| d.code() == Some("E455")),
             "public instance with public head must not fire E455, got: {:?}",
             diags
         );
@@ -4344,9 +4476,9 @@ module Mod.A {
         );
         let interner = parser.take_interner();
 
-        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            diags.iter().any(|d| d.code.as_deref() == Some("E455")),
+            diags.iter().any(|d| d.code() == Some("E455")),
             "public instance with private head must fire E455, got: {:?}",
             diags
         );
@@ -4380,9 +4512,9 @@ module Mod.A {
         );
         let interner = parser.take_interner();
 
-        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code.as_deref() == Some("E455")),
+            !diags.iter().any(|d| d.code() == Some("E455")),
             "private instance must not fire E455, got: {:?}",
             diags
         );
@@ -4414,9 +4546,9 @@ module Mod.A {
         );
         let interner = parser.take_interner();
 
-        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code.as_deref() == Some("E455")),
+            !diags.iter().any(|d| d.code() == Some("E455")),
             "public instance with built-in head must not fire E455, got: {:?}",
             diags
         );
@@ -4450,9 +4582,9 @@ module Mod.A {
         );
         let interner = parser.take_interner();
 
-        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            diags.iter().any(|d| d.code.as_deref() == Some("E451")),
+            diags.iter().any(|d| d.code() == Some("E451")),
             "public class with private type in method param must fire E451, got: {:?}",
             diags
         );
@@ -4481,9 +4613,9 @@ module Mod.A {
         );
         let interner = parser.take_interner();
 
-        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            diags.iter().any(|d| d.code.as_deref() == Some("E451")),
+            diags.iter().any(|d| d.code() == Some("E451")),
             "public class with private return type must fire E451, got: {:?}",
             diags
         );
@@ -4512,9 +4644,9 @@ module Mod.A {
         );
         let interner = parser.take_interner();
 
-        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code.as_deref() == Some("E451")),
+            !diags.iter().any(|d| d.code() == Some("E451")),
             "public class with all-public ADTs must not fire E451, got: {:?}",
             diags
         );
@@ -4544,9 +4676,9 @@ module Mod.A {
         );
         let interner = parser.take_interner();
 
-        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code.as_deref() == Some("E451")),
+            !diags.iter().any(|d| d.code() == Some("E451")),
             "private class is allowed to mention private types, got: {:?}",
             diags
         );
@@ -4608,9 +4740,9 @@ module Mod.Class {
         );
         let interner = parser.take_interner();
 
-        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            diags.iter().any(|d| d.code.as_deref() == Some("E443")),
+            diags.iter().any(|d| d.code() == Some("E443")),
             "duplicate public instance must fire E443, got: {:?}",
             diags
         );
@@ -4655,9 +4787,9 @@ module Mod.Class {
         );
         let interner = parser.take_interner();
 
-        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            diags.iter().any(|d| d.code.as_deref() == Some("E443")),
+            diags.iter().any(|d| d.code() == Some("E443")),
             "duplicate public ADT instance must fire E443, got: {:?}",
             diags
         );
@@ -4719,18 +4851,18 @@ module Mod.Other {
         );
         let interner = parser.take_interner();
 
-        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
 
         // The duplicate-instance gate must fire (E443).
         let dupe = diags
             .iter()
-            .find(|d| d.code.as_deref() == Some("E443"))
+            .find(|d| d.code() == Some("E443"))
             .expect("expected E443 to fire on cross-module duplicate instance");
 
         // The hint must mention BOTH module names so users can find
         // the existing colliding declaration.
         let hint_text = dupe
-            .hints
+            .hints()
             .iter()
             .map(|h| h.text.clone())
             .collect::<Vec<_>>()
@@ -4771,9 +4903,9 @@ module Mod.Class {
         );
         let interner = parser.take_interner();
 
-        let (_env, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(
-            !diags.iter().any(|d| d.code.as_deref() == Some("E443")),
+            !diags.iter().any(|d| d.code() == Some("E443")),
             "distinct head types must not fire E443, got: {:?}",
             diags
         );
@@ -4792,6 +4924,7 @@ module Mod.Class {
             class_id: crate::types::class_id::ClassId::from_local_name(class_sym),
             instance_module: ModulePath::EMPTY,
             is_public: false,
+            type_key: super::instance_type_key(&type_args, interner),
             type_args,
             context: vec![],
             context_class_ids: vec![],

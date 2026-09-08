@@ -1,3 +1,5 @@
+//! Every public item in `src/diagnostics` must carry a rustdoc comment.
+
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -58,7 +60,12 @@ fn has_preceding_doc_block(lines: &[&str], item_line_idx: usize) -> bool {
 
 #[test]
 fn diagnostics_public_items_require_rustdoc() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/diagnostics");
+    // Scoped to `src/diagnostics` deliberately. This guard came from
+    // `crates/flux-diagnostics`, where `CARGO_MANIFEST_DIR/src` *was* the
+    // diagnostics tree; at the workspace root that path is the whole compiler.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("diagnostics");
     let mut files = Vec::new();
     collect_rs_files(&root, &mut files);
     files.sort();

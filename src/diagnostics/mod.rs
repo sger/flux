@@ -1,14 +1,14 @@
-//! Diagnostics module.
-//!
-//! Provides structured diagnostics with severity, optional error codes, source spans,
-//! and rendering helpers for consistent compiler/runtime output.
+//! Structured diagnostics: severity, error codes, source spans, rendering.
 
 pub mod aggregator;
 pub mod builders;
 pub mod compiler_errors;
 pub mod diagnostic;
 pub mod format;
-pub mod position;
+// `Position`/`Span` are source vocabulary, not diagnostic vocabulary — they
+// live in `crate::source`. Re-exported so `diagnostics::position::Span`
+// resolves, as ~everything spells it that way.
+pub use crate::source::position;
 pub mod quality;
 pub mod ranking;
 pub mod registry;

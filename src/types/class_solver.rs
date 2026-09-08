@@ -657,6 +657,12 @@ fn solve_instance_evidence(
             instance: InstanceKey {
                 class_id: instance.class_id,
                 head_type_args: type_args.to_vec(),
+                dict_type_key: instance
+                    .type_args
+                    .iter()
+                    .map(|arg| arg.display_with(interner))
+                    .collect::<Vec<_>>()
+                    .join("_"),
             },
             subst,
             context,
@@ -1011,7 +1017,7 @@ mod tests {
                     return_type: int,
                     arity: 1,
                     effects: Vec::new(),
-                    default_body: None,
+                    infer_type: None,
                 }],
                 default_methods: Vec::new(),
                 span: Span::default(),
@@ -1024,6 +1030,7 @@ mod tests {
                 class_id,
                 instance_module: ModulePath::EMPTY,
                 is_public: false,
+                type_key: String::new(),
                 type_args: vec![head.clone()],
                 context: Vec::new(),
                 context_class_ids: Vec::new(),
@@ -1042,6 +1049,7 @@ mod tests {
             class_id: crate::types::class_id::ClassId::from_local_name(class_name),
             type_args,
             span: Span::new(Position::new(1, 0), Position::new(1, 4)),
+            expr: None,
             origin: WantedClassConstraintOrigin::MethodCall,
         }
     }

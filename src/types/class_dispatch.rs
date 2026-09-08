@@ -24,6 +24,7 @@ use crate::{
         type_expr::TypeExpr,
     },
     types::class_env::ClassEnv,
+    types::class_surface::ClassSurface,
     types::infer_type::InferType,
 };
 
@@ -112,18 +113,36 @@ pub struct DispatchGenerationOptions {
     pub include_builtin_instances: bool,
 }
 
+/// The class information dispatch generation reads: the environment, and the
+/// default method bodies held beside it.
+///
+/// The two are passed together because generating an instance method needs
+/// both — the class's method *types* to build the signature, and its default
+/// *body* when the instance omits the method. They are stored apart because
+/// only this pass wants the bodies; see
+/// [`ClassSurface`](crate::types::class_surface::ClassSurface).
+#[derive(Clone, Copy)]
+pub struct DispatchClasses<'a> {
+    /// Classes and instances in scope.
+    pub env: &'a ClassEnv,
+    /// Surface syntax for the classes in `env`.
+    pub surface: &'a ClassSurface,
+}
+
 /// Generate function statements from class/instance declarations.
 ///
 /// Returns a list of new `Statement::Function` to inject into the program:
+///
 /// 1. Mangled instance method functions (one per instance method)
 /// 2. Dispatch functions for methods with instances (one per class method)
 pub fn generate_dispatch_functions(
     statements: &[Statement],
-    class_env: &ClassEnv,
+    classes: DispatchClasses<'_>,
     interner: &mut Interner,
     additional_reserved_names: &HashSet<Identifier>,
     options: DispatchGenerationOptions,
 ) -> Vec<Statement> {
+    let class_env = classes.env;
     let mut generated = Vec::new();
     let mut reserved_names = collect_existing_function_names(statements);
     reserved_names.extend(additional_reserved_names.iter().copied());
@@ -140,7 +159,7 @@ pub fn generate_dispatch_functions(
 
     generate_from_statements(
         statements,
-        class_env,
+        classes,
         interner,
         &mut generated,
         &mut dispatch_table,
@@ -295,12 +314,7 @@ fn generate_builtin_instance_functions(
         let Some(class_def) = class_env.lookup_class_by_id(instance.class_id) else {
             continue;
         };
-        let type_name = instance
-            .type_args
-            .iter()
-            .map(|a| a.display_with(interner))
-            .collect::<Vec<_>>()
-            .join("_");
+        let type_name = instance.type_key.clone();
         let class_name_str = interner.resolve(instance.class_name).to_string();
 
         for method_sig in &class_def.methods {
@@ -1118,12 +1132,7 @@ fn pre_intern_dict_names(class_env: &ClassEnv, interner: &mut Interner) {
         if instance.type_args.is_empty() {
             continue;
         }
-        let type_name = instance
-            .type_args
-            .iter()
-            .map(|a| a.display_with(interner))
-            .collect::<Vec<_>>()
-            .join("_");
+        let type_name = instance.type_key.clone();
         let dict_name =
             crate::types::class_env::dictionary_name(instance.class_id, &type_name, interner);
         interner.intern(&dict_name);
@@ -1220,13 +1229,14 @@ fn generate_default_method_functions(
 /// Recursively walk statements, generating mangled functions for instance methods.
 fn generate_from_statements(
     statements: &[Statement],
-    class_env: &ClassEnv,
+    classes: DispatchClasses<'_>,
     interner: &mut Interner,
     generated: &mut Vec<Statement>,
     dispatch_table: &mut HashSet<(crate::types::class_id::ClassId, Identifier)>,
     id_gen: &mut ExprIdGen,
     current_module: crate::types::class_id::ModulePath,
 ) {
+    let class_env = classes.env;
     fn resolve_instance_class_def<'a>(
         class_env: &'a ClassEnv,
         class_name: Identifier,
@@ -1303,7 +1313,10 @@ fn generate_from_statements(
                         // `encode(value)` was lowered as a recursive container
                         // call in Flow.Json (KI-051).
                         refresh_block_expr_ids(method.body.clone(), id_gen)
-                    } else if let Some(default_body) = &method_sig.default_body {
+                    } else if let Some(default_body) = classes
+                        .surface
+                        .default_body(class_def.class_id(), method_sig.name)
+                    {
                         // A default body is cloned into every instance, so each
                         // copy needs its own ExprIds: typed dispatch keys on
                         // `hm_expr_types[expr_id]`, and shared ids would let the
@@ -1399,7 +1412,7 @@ fn generate_from_statements(
             Statement::Module { name, body, .. } => {
                 generate_from_statements(
                     &body.statements,
-                    class_env,
+                    classes,
                     interner,
                     generated,
                     dispatch_table,
@@ -2086,7 +2099,8 @@ instance Renderable<Int> {
             parser.errors
         );
         let mut interner = parser.take_interner();
-        let (class_env, diagnostics) = ClassEnv::from_statements(&program.statements, &interner);
+        let (class_env, class_surface, diagnostics) =
+            ClassEnv::from_statements(&program.statements, &interner);
         assert!(
             diagnostics.is_empty(),
             "class diagnostics: {:?}",
@@ -2106,7 +2120,10 @@ instance Renderable<Int> {
 
         let generated = generate_dispatch_functions(
             &program.statements,
-            &class_env,
+            DispatchClasses {
+                env: &class_env,
+                surface: &class_surface,
+            },
             &mut interner,
             &HashSet::new(),
             DispatchGenerationOptions {

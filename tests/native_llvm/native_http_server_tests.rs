@@ -2,6 +2,7 @@
 
 #![cfg(feature = "llvm")]
 
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -12,7 +13,6 @@ mod scratch;
 use scratch::Scratch;
 
 static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(1);
-static NEXT_PORT: AtomicUsize = AtomicUsize::new(21880);
 static NATIVE_HTTP_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn workspace_root() -> &'static Path {
@@ -20,7 +20,16 @@ fn workspace_root() -> &'static Path {
 }
 
 fn next_port() -> u16 {
-    NEXT_PORT.fetch_add(1, Ordering::Relaxed) as u16
+    // Ask the OS for a free loopback port rather than counting up from a fixed
+    // base. The counter this replaces lived in a `static`, so it was unique
+    // only within one process: under a process-per-test runner such as
+    // cargo-nextest every process handed out the same first port and the tests
+    // collided, failing a different subset each run.
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind ephemeral loopback port");
+    listener
+        .local_addr()
+        .expect("read ephemeral loopback port")
+        .port()
 }
 
 fn write_fixture(source: String) -> PathBuf {

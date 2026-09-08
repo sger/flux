@@ -28,19 +28,18 @@
 //! two demand opposite treatment. `Pending` means the parameter's position is
 //! known but the type there is still an unsolved variable — the wanted
 //! constraint is re-substituted after unification (see
-//! `finalize_binding_class_constraints`), so it will very likely be refined,
+//! `decide_quantification`), so it will very likely be refined,
 //! and diagnosing it at emission would reject correct programs. `Unmentioned`
 //! means the parameter occurs nowhere in the signature, so *no* call can ever
 //! determine it; that is a property of the class declaration and is refutable
 //! immediately. Collapsing both into `None` is what produced the wrong-guess
 //! behaviour this module replaces.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-use crate::syntax::Identifier;
 use crate::syntax::interner::Interner;
-use crate::syntax::type_expr::TypeExpr;
-use crate::types::class_env::{ClassDef, ClassEnv, MethodSig};
+use crate::types::TypeVarId;
+use crate::types::class_env::{ClassDef, MethodSig};
 use crate::types::infer_type::InferType;
 
 /// How a single class type parameter was determined at a call site.
@@ -87,49 +86,86 @@ pub fn class_param_bindings(
     interner: &Interner,
     mut fresh_var: impl FnMut() -> InferType,
 ) -> Vec<ClassParamBinding> {
+    let unmentioned = || {
+        class_def
+            .type_params
+            .iter()
+            .map(|_| ClassParamBinding::Unmentioned)
+            .collect::<Vec<_>>()
+    };
+
+    let Some(declared) = method_fun_type(class_def, method, interner) else {
+        return unmentioned();
+    };
+    let InferType::Fun(declared_params, declared_ret, _) = &declared else {
+        return unmentioned();
+    };
+
     // Both the class's parameters and the method's own generics are variables
     // for matching purposes: in `fn fmap<a, b>(xs: f<a>, g: (a) -> b) -> f<b>`
     // the pattern `f<a>` only matches `List<Int>` if `a` is treated as a
-    // variable. Only the class parameters are projected out afterwards, so the
-    // method's generics cannot leak into the predicate.
-    let mut vars: HashSet<Identifier> = class_def.type_params.iter().copied().collect();
-    vars.extend(method.type_params.iter().copied());
+    // variable. The numbering documented on `MethodSig::infer_type` puts both
+    // below `var_count`, and only the class parameters — which come first —
+    // are projected out afterwards, so a method generic cannot leak into the
+    // predicate.
+    let class_count = class_def.type_params.len();
+    let var_count = (class_count + method.type_params.len()) as TypeVarId;
 
-    let mut subst: HashMap<Identifier, InferType> = HashMap::new();
+    let mut subst: HashMap<TypeVarId, InferType> = HashMap::new();
 
     // Value parameters first, so a class parameter appearing in both an
     // argument and the return type is pinned by the argument.
-    for (declared, actual) in method.param_types.iter().zip(actual_arg_tys) {
-        // A failed match is a type error the unifier reports against a better
-        // span; it must not stop the remaining positions from contributing.
-        // Bindings recorded before a failure stay sound because `match_type`
-        // only inserts on a successful leaf match.
-        match_type(declared, actual, &vars, &mut subst, interner);
+    //
+    // `actual_arg_tys` may be shorter than the declared list (an under-applied
+    // call still yields whatever the present arguments fix); `zip` ignores the
+    // surplus on either side. A failed match is a type error the unifier
+    // reports against a better span, so it must not stop the remaining
+    // positions from contributing — and bindings recorded before a failure
+    // stay sound because `match_infer` only inserts on a successful leaf match.
+    for (declared, actual) in declared_params.iter().zip(actual_arg_tys) {
+        match_infer(declared, actual, var_count, &mut subst);
     }
-    match_type(
-        &method.return_type,
-        actual_result_ty,
-        &vars,
-        &mut subst,
-        interner,
-    );
+    match_infer(declared_ret, actual_result_ty, var_count, &mut subst);
 
-    class_def
-        .type_params
-        .iter()
-        .map(|param| match subst.get(param) {
-            Some(ty) if is_resolved(ty) => ClassParamBinding::Determined(ty.clone()),
-            Some(ty) => ClassParamBinding::Pending(ty.clone()),
-            // The parameter occurs in the signature but nothing bound it —
-            // typically the actual type is still a bare variable that cannot
-            // match a constructor pattern. A fresh variable keeps the predicate
-            // well-formed and lets unification refine it, which is exactly what
-            // makes a not-yet-known result type work.
-            None if mentions_param(method, *param) => ClassParamBinding::Pending(fresh_var()),
-            // Genuinely absent from the signature: no call can ever fix it.
-            None => ClassParamBinding::Unmentioned,
+    (0..class_count)
+        .map(|index| {
+            let var = index as TypeVarId;
+            match subst.get(&var) {
+                Some(ty) if is_resolved(ty) => ClassParamBinding::Determined(ty.clone()),
+                Some(ty) => ClassParamBinding::Pending(ty.clone()),
+                // The parameter occurs in the signature but nothing bound it —
+                // typically the actual type is still a bare variable that cannot
+                // match a constructor pattern. A fresh variable keeps the predicate
+                // well-formed and lets unification refine it, which is exactly what
+                // makes a not-yet-known result type work.
+                None if mentions_var(&declared, var) => ClassParamBinding::Pending(fresh_var()),
+                // Genuinely absent from the signature: no call can ever fix it.
+                None => ClassParamBinding::Unmentioned,
+            }
         })
         .collect()
+}
+
+/// The method's declared type in the solver's representation.
+///
+/// Normally this is the conversion recorded when the class was collected. The
+/// fallback re-converts, for a `MethodSig` built without one — the synthetic
+/// placeholders in dictionary elaboration, and tests.
+fn method_fun_type(
+    class_def: &ClassDef,
+    method: &MethodSig,
+    interner: &Interner,
+) -> Option<InferType> {
+    method.infer_type.clone().or_else(|| {
+        crate::types::class_env::method_infer_type(
+            &class_def.type_params,
+            &method.type_params,
+            &method.param_types,
+            &method.return_type,
+            &method.effects,
+            interner,
+        )
+    })
 }
 
 /// True when `ty` carries enough structure to select an instance.
@@ -141,160 +177,153 @@ fn is_resolved(ty: &InferType) -> bool {
     !matches!(ty, InferType::Var(_))
 }
 
-/// True when `param` occurs anywhere in the method's declared signature.
-fn mentions_param(method: &MethodSig, param: Identifier) -> bool {
-    method
-        .param_types
-        .iter()
-        .chain(std::iter::once(&method.return_type))
-        .any(|ty| type_expr_mentions(ty, param))
-}
-
-fn type_expr_mentions(expr: &TypeExpr, param: Identifier) -> bool {
-    match expr {
-        TypeExpr::Named { name, args, .. } => {
-            *name == param || args.iter().any(|a| type_expr_mentions(a, param))
+/// True when `var` occurs anywhere in `ty`.
+fn mentions_var(ty: &InferType, var: TypeVarId) -> bool {
+    match ty {
+        InferType::Var(v) => *v == var,
+        InferType::Con(_) => false,
+        InferType::App(_, args) | InferType::Assoc(_, _, args) | InferType::Tuple(args) => {
+            args.iter().any(|a| mentions_var(a, var))
         }
-        TypeExpr::Tuple { elements, .. } => elements.iter().any(|e| type_expr_mentions(e, param)),
-        TypeExpr::Function { params, ret, .. } => {
-            params.iter().any(|p| type_expr_mentions(p, param)) || type_expr_mentions(ret, param)
+        InferType::HktApp(head, args) => {
+            mentions_var(head, var) || args.iter().any(|a| mentions_var(a, var))
+        }
+        InferType::Fun(params, ret, _) => {
+            params.iter().any(|p| mentions_var(p, var)) || mentions_var(ret, var)
         }
     }
 }
 
-/// Match a declared type against an actual one, binding names in `vars`.
+/// One-sided match of a declared class-method type against an inferred one.
 ///
-/// This mirrors `ClassEnv::match_instance_type_expr`, but takes its notion of
-/// "is a variable" from an explicit set rather than from the lowercase-initial
-/// heuristic that instance-head matching uses. A method-level generic or a
-/// lowercase ADT name must not be mistaken for a class parameter.
-fn match_type(
-    pattern: &TypeExpr,
+/// Only variables below `var_count` — the class's parameters followed by the
+/// method's own generics, per the numbering on `MethodSig::infer_type` — are
+/// treated as pattern variables. Anything else, including a variable the
+/// inferencer created, must match structurally.
+///
+/// Returns whether the match succeeded. Bindings are inserted only on a
+/// successful leaf match, so a partial failure leaves the substitution sound.
+fn match_infer(
+    pattern: &InferType,
     actual: &InferType,
-    vars: &HashSet<Identifier>,
-    subst: &mut HashMap<Identifier, InferType>,
-    interner: &Interner,
+    var_count: TypeVarId,
+    subst: &mut HashMap<TypeVarId, InferType>,
 ) -> bool {
-    match pattern {
-        TypeExpr::Named { name, args, .. } if args.is_empty() && vars.contains(name) => {
-            match subst.get(name) {
-                // Occurs-consistency: a parameter bound twice must agree. This
-                // is what makes the return-type match verify the argument match
-                // rather than silently overwrite it.
-                Some(bound) => bound == actual,
-                None => {
-                    subst.insert(*name, actual.clone());
-                    true
-                }
+    /// Records `binding` for `var`, or checks it against what is already there.
+    ///
+    /// Occurs-consistency: a parameter bound twice must agree. This is what
+    /// makes the return-type match verify the argument match rather than
+    /// silently overwrite it.
+    fn bind(var: TypeVarId, binding: InferType, subst: &mut HashMap<TypeVarId, InferType>) -> bool {
+        match subst.get(&var) {
+            Some(bound) => *bound == binding,
+            None => {
+                subst.insert(var, binding);
+                true
             }
         }
-        // A variable applied to arguments — `f<a>` in a higher-kinded
+    }
+
+    fn all_match(
+        patterns: &[InferType],
+        actuals: &[InferType],
+        var_count: TypeVarId,
+        subst: &mut HashMap<TypeVarId, InferType>,
+    ) -> bool {
+        patterns.len() == actuals.len()
+            && patterns
+                .iter()
+                .zip(actuals)
+                .all(|(p, a)| match_infer(p, a, var_count, subst))
+    }
+
+    match pattern {
+        InferType::Var(v) if *v < var_count => bind(*v, actual.clone(), subst),
+
+        // A pattern variable applied to arguments — `f<a>` in a higher-kinded
         // signature. Bind the head to the actual constructor and recurse.
-        TypeExpr::Named { name, args, .. } if vars.contains(name) => match actual {
-            InferType::App(tc, actual_args) if args.len() == actual_args.len() => {
-                let head = InferType::Con(tc.clone());
-                let head_ok = match subst.get(name) {
-                    Some(bound) => *bound == head,
-                    None => {
-                        subst.insert(*name, head);
-                        true
+        InferType::HktApp(head, args) => {
+            let InferType::Var(v) = head.as_ref() else {
+                // A non-variable head is structural; match it as such.
+                return match actual {
+                    InferType::HktApp(actual_head, actual_args) => {
+                        match_infer(head, actual_head, var_count, subst)
+                            && all_match(args, actual_args, var_count, subst)
                     }
+                    _ => false,
                 };
-                head_ok
-                    && args
-                        .iter()
-                        .zip(actual_args)
-                        .all(|(p, a)| match_type(p, a, vars, subst, interner))
+            };
+            if *v >= var_count {
+                return false;
             }
-            InferType::HktApp(head, actual_args) if args.len() == actual_args.len() => {
-                let head_ok = match subst.get(name) {
-                    Some(bound) => bound == head.as_ref(),
-                    None => {
-                        subst.insert(*name, head.as_ref().clone());
-                        true
-                    }
-                };
-                head_ok
-                    && args
-                        .iter()
-                        .zip(actual_args)
-                        .all(|(p, a)| match_type(p, a, vars, subst, interner))
-            }
-            // The pattern applies fewer arguments than the actual type has:
-            // `f<a>` against `Either<String, Int>`. The head is then partially
-            // applied — `f` is `Either<String>` and `a` is the trailing
-            // argument. Without this the arity guards above reject the match,
-            // so a class whose parameter is higher-kinded could not be used
-            // over a two-parameter constructor at all.
-            InferType::App(tc, actual_args) if actual_args.len() > args.len() => {
-                let applied = actual_args.len() - args.len();
-                let head = InferType::HktApp(
-                    Box::new(InferType::Con(tc.clone())),
-                    actual_args[..applied].to_vec(),
-                );
-                let head_ok = match subst.get(name) {
-                    Some(bound) => *bound == head,
-                    None => {
-                        subst.insert(*name, head);
-                        true
-                    }
-                };
-                head_ok
-                    && args
-                        .iter()
-                        .zip(&actual_args[applied..])
-                        .all(|(p, a)| match_type(p, a, vars, subst, interner))
-            }
-            _ => false,
-        },
-        TypeExpr::Named { name, args, .. } => match actual {
-            InferType::Con(tc) => {
-                args.is_empty() && ClassEnv::type_constructor_matches(*name, tc, interner)
-            }
-            InferType::App(tc, actual_args) => {
-                ClassEnv::type_constructor_matches(*name, tc, interner)
-                    && (args.is_empty()
-                        || (args.len() == actual_args.len()
-                            && args
-                                .iter()
-                                .zip(actual_args)
-                                .all(|(p, a)| match_type(p, a, vars, subst, interner))))
-            }
-            InferType::HktApp(head, actual_args) => match head.as_ref() {
-                InferType::Con(tc) => {
-                    ClassEnv::type_constructor_matches(*name, tc, interner)
-                        && (args.is_empty()
-                            || (args.len() == actual_args.len()
-                                && args
-                                    .iter()
-                                    .zip(actual_args)
-                                    .all(|(p, a)| match_type(p, a, vars, subst, interner))))
+            match actual {
+                InferType::App(tc, actual_args) if args.len() == actual_args.len() => {
+                    bind(*v, InferType::Con(tc.clone()), subst)
+                        && all_match(args, actual_args, var_count, subst)
+                }
+                InferType::HktApp(actual_head, actual_args) if args.len() == actual_args.len() => {
+                    bind(*v, actual_head.as_ref().clone(), subst)
+                        && all_match(args, actual_args, var_count, subst)
+                }
+                // The pattern applies fewer arguments than the actual type has:
+                // `f<a>` against `Either<String, Int>`. The head is then partially
+                // applied — `f` is `Either<String>` and `a` is the trailing
+                // argument. Without this the arity guards above reject the match,
+                // so a class whose parameter is higher-kinded could not be used
+                // over a two-parameter constructor at all.
+                InferType::App(tc, actual_args) if actual_args.len() > args.len() => {
+                    let applied = actual_args.len() - args.len();
+                    let head = InferType::HktApp(
+                        Box::new(InferType::Con(tc.clone())),
+                        actual_args[..applied].to_vec(),
+                    );
+                    bind(*v, head, subst)
+                        && all_match(args, &actual_args[applied..], var_count, subst)
                 }
                 _ => false,
-            },
+            }
+        }
+
+        InferType::Var(_) => matches!(actual, InferType::Var(v) if pattern == &InferType::Var(*v)),
+
+        InferType::Con(tc) => match actual {
+            InferType::Con(actual_tc) => tc == actual_tc,
+            // A nullary pattern against an applied type matches on the head
+            // alone, as the surface form did: `List` matches `List<Int>`.
+            InferType::App(actual_tc, _) => tc == actual_tc,
+            InferType::HktApp(head, _) => matches!(head.as_ref(), InferType::Con(h) if h == tc),
             _ => false,
         },
-        TypeExpr::Tuple { elements, .. } => match actual {
-            InferType::Tuple(actual_elems) => {
-                elements.len() == actual_elems.len()
-                    && elements
-                        .iter()
-                        .zip(actual_elems)
-                        .all(|(p, a)| match_type(p, a, vars, subst, interner))
+
+        InferType::App(tc, args) => match actual {
+            InferType::App(actual_tc, actual_args) => {
+                tc == actual_tc && all_match(args, actual_args, var_count, subst)
+            }
+            InferType::HktApp(head, actual_args) => {
+                matches!(head.as_ref(), InferType::Con(h) if h == tc)
+                    && all_match(args, actual_args, var_count, subst)
             }
             _ => false,
         },
-        TypeExpr::Function { params, ret, .. } => match actual {
+
+        InferType::Tuple(elements) => match actual {
+            InferType::Tuple(actual_elements) => {
+                all_match(elements, actual_elements, var_count, subst)
+            }
+            _ => false,
+        },
+
+        InferType::Fun(params, ret, _) => match actual {
             InferType::Fun(actual_params, actual_ret, _) => {
-                params.len() == actual_params.len()
-                    && params
-                        .iter()
-                        .zip(actual_params)
-                        .all(|(p, a)| match_type(p, a, vars, subst, interner))
-                    && match_type(ret, actual_ret, vars, subst, interner)
+                all_match(params, actual_params, var_count, subst)
+                    && match_infer(ret, actual_ret, var_count, subst)
             }
             _ => false,
         },
+
+        // An unreduced associated type is not something a call site can pin a
+        // class parameter through; `normalize_associated_types` runs first.
+        InferType::Assoc(..) => false,
     }
 }
 
@@ -302,6 +331,7 @@ fn match_type(
 mod tests {
     use super::*;
     use crate::diagnostics::position::Span;
+    use crate::syntax::type_expr::TypeExpr;
     use crate::types::class_id::ModulePath;
     use crate::types::type_constructor::TypeConstructor;
 
@@ -344,7 +374,7 @@ mod tests {
             return_type,
             arity,
             effects: Vec::new(),
-            default_body: None,
+            infer_type: None,
         }
     }
 

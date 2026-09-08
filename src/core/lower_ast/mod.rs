@@ -14,10 +14,9 @@
 ///
 /// All surface Flux constructs (sugar, n-ary functions, multi-argument calls,
 /// pattern matching, effects) are desugared into the ~12-variant `CoreExpr`.
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::{
-    ast::free_vars::collect_free_vars_in_function_body,
     diagnostics::position::Span,
     syntax::{
         Identifier, block::Block, expression::ExprId, program::Program, statement::Statement,
@@ -1568,104 +1567,30 @@ impl<'a> AstLowerer<'a> {
 
     /// Lower the full statement slice by prepending one statement at a time.
     ///
-    /// Detects runs of consecutive function statements that form mutual
-    /// recursion groups (any function references a sibling defined later)
-    /// and emits `LetRecGroup` for those instead of nested `LetRec`s.
+    /// Function definitions are grouped by mutual reference rather than by
+    /// adjacency — see [`crate::binding_groups::plan_block`] — so a
+    /// statement standing between two mutually recursive definitions no longer
+    /// splits them into separate, wrongly nested bindings.
     fn prepend_stmts(&mut self, stmts: &[Statement], body: CoreExpr, span: Span) -> CoreExpr {
-        // Process statements right-to-left, but handle mutual recursion
-        // groups using SCC (Strongly Connected Component) analysis.
+        let plan = crate::binding_groups::plan_block(stmts);
+
+        // Right-to-left, so each item is prepended around the tail already built.
         let mut result = body;
-        let mut i = stmts.len();
-        while i > 0 {
-            i -= 1;
-            if matches!(stmts[i], Statement::Function { .. }) {
-                // Found a function. Scan backward for a contiguous run.
-                let run_end = i + 1;
-                let mut run_start = i;
-                while run_start > 0 && matches!(stmts[run_start - 1], Statement::Function { .. }) {
-                    run_start -= 1;
+        for item in plan.iter().rev() {
+            result = match item {
+                crate::binding_groups::PlanItem::Group { members, .. } => {
+                    match members.as_slice() {
+                        [(_, single)] => self.prepend_one_stmt(single, result, span),
+                        many => {
+                            let stmts: Vec<&Statement> = many.iter().map(|(_, s)| *s).collect();
+                            self.lower_scc_group(&stmts, result)
+                        }
+                    }
                 }
-                let fn_run = &stmts[run_start..run_end];
-                if fn_run.len() >= 2 {
-                    // Compute SCCs to partition into minimal binding groups.
-                    result = self.lower_fn_run_with_scc(fn_run, result, span);
-                } else {
-                    result = self.prepend_one_stmt(&stmts[run_start], result, span);
+                crate::binding_groups::PlanItem::Other(_, stmt) => {
+                    self.prepend_one_stmt(stmt, result, span)
                 }
-                i = run_start;
-            } else {
-                result = self.prepend_one_stmt(&stmts[i], result, span);
-            }
-        }
-        result
-    }
-
-    /// Partition a contiguous run of function definitions into minimal
-    /// binding groups using Tarjan's SCC algorithm, then lower each group.
-    ///
-    /// This replaces the conservative "group all if any forward reference"
-    /// strategy with precise dependency analysis. Functions that don't
-    /// participate in cycles become individual `LetRec` bindings that
-    /// downstream passes (inliner, dead code elimination) can optimize.
-    fn lower_fn_run_with_scc(
-        &mut self,
-        fn_stmts: &[Statement],
-        tail: CoreExpr,
-        span: Span,
-    ) -> CoreExpr {
-        // Step 1: Collect function names and their dependencies on siblings.
-        let mut names: Vec<crate::syntax::Identifier> = Vec::new();
-        let mut stmt_by_name: HashMap<crate::syntax::Identifier, &Statement> = HashMap::new();
-        let mut deps: HashMap<crate::syntax::Identifier, HashSet<crate::syntax::Identifier>> =
-            HashMap::new();
-
-        let name_set: HashSet<crate::syntax::Identifier> = fn_stmts
-            .iter()
-            .filter_map(|s| {
-                if let Statement::Function { name, .. } = s {
-                    Some(*name)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        for stmt in fn_stmts {
-            if let Statement::Function {
-                name,
-                parameters,
-                body,
-                ..
-            } = stmt
-            {
-                names.push(*name);
-                stmt_by_name.insert(*name, stmt);
-                let fv = collect_free_vars_in_function_body(parameters, body);
-                // Only keep dependencies on siblings in this run.
-                let sibling_deps: HashSet<crate::syntax::Identifier> =
-                    fv.into_iter().filter(|v| name_set.contains(v)).collect();
-                deps.insert(*name, sibling_deps);
-            }
-        }
-
-        // Step 2: Compute SCCs via Tarjan's algorithm.
-        let sccs = tarjan_scc(&names, &deps);
-
-        // Step 3: Emit bindings in dependency order (SCCs are returned
-        // in reverse topological order — dependencies come first).
-        // We process right-to-left to build nested lets.
-        let mut result = tail;
-        for scc in sccs.iter().rev() {
-            if scc.len() == 1 {
-                // Single function — emit as individual LetRec.
-                let name = scc[0];
-                let stmt = stmt_by_name[&name];
-                result = self.prepend_one_stmt(stmt, result, span);
-            } else {
-                // Multiple functions in a cycle — emit as LetRecGroup.
-                let group_stmts: Vec<&Statement> = scc.iter().map(|n| stmt_by_name[n]).collect();
-                result = self.lower_scc_group(&group_stmts, result);
-            }
+            };
         }
         result
     }
@@ -1680,9 +1605,24 @@ impl<'a> AstLowerer<'a> {
             })
             .unwrap_or_default();
 
-        let bindings: Vec<_> = stmts
+        // Every member's name must be bound before any body is lowered: that is
+        // what makes the group recursive. Binding and lowering in one pass left
+        // the first member's body referring to a name the later members had not
+        // introduced yet.
+        let binders: Vec<_> = stmts
             .iter()
             .map(|stmt| {
+                let Statement::Function { name, .. } = stmt else {
+                    unreachable!("lower_scc_group called with non-function statement");
+                };
+                self.bind_name(*name)
+            })
+            .collect();
+
+        let bindings: Vec<_> = stmts
+            .iter()
+            .zip(binders)
+            .map(|(stmt, binder)| {
                 let Statement::Function {
                     name,
                     parameters,
@@ -1694,7 +1634,6 @@ impl<'a> AstLowerer<'a> {
                 else {
                     unreachable!("lower_scc_group called with non-function statement");
                 };
-                let binder = self.bind_name(*name);
                 let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
                 let (mut param_types, result_ty) = self.lambda_signature_from_function_name(*name);
                 if !param_types.is_empty() && param_types.len() != params.len() {
@@ -1923,111 +1862,6 @@ impl<'a> AstLowerer<'a> {
             }
         }
     }
-}
-
-// ── Tarjan's SCC algorithm ─────────────────────────────────────────────────
-
-/// Compute strongly connected components of a function dependency graph
-/// using Tarjan's algorithm. Returns SCCs in reverse topological order
-/// (dependencies before dependents).
-///
-/// Each function name maps to a set of sibling function names it references.
-/// Single-element SCCs that are not self-referencing represent non-recursive
-/// functions; multi-element SCCs represent true mutual recursion.
-fn tarjan_scc(
-    names: &[crate::syntax::Identifier],
-    deps: &HashMap<crate::syntax::Identifier, HashSet<crate::syntax::Identifier>>,
-) -> Vec<Vec<crate::syntax::Identifier>> {
-    let n = names.len();
-    let name_to_idx: HashMap<crate::syntax::Identifier, usize> =
-        names.iter().enumerate().map(|(i, &n)| (n, i)).collect();
-
-    let mut index_counter: usize = 0;
-    let mut indices = vec![usize::MAX; n];
-    let mut lowlinks = vec![0usize; n];
-    let mut on_stack = vec![false; n];
-    let mut stack: Vec<usize> = Vec::new();
-    let mut result: Vec<Vec<crate::syntax::Identifier>> = Vec::new();
-
-    #[allow(clippy::too_many_arguments)]
-    fn strongconnect(
-        v: usize,
-        names: &[crate::syntax::Identifier],
-        deps: &HashMap<crate::syntax::Identifier, HashSet<crate::syntax::Identifier>>,
-        name_to_idx: &HashMap<crate::syntax::Identifier, usize>,
-        index_counter: &mut usize,
-        indices: &mut [usize],
-        lowlinks: &mut [usize],
-        on_stack: &mut [bool],
-        stack: &mut Vec<usize>,
-        result: &mut Vec<Vec<crate::syntax::Identifier>>,
-    ) {
-        indices[v] = *index_counter;
-        lowlinks[v] = *index_counter;
-        *index_counter += 1;
-        stack.push(v);
-        on_stack[v] = true;
-
-        // Visit successors.
-        if let Some(v_deps) = deps.get(&names[v]) {
-            for dep in v_deps {
-                if let Some(&w) = name_to_idx.get(dep) {
-                    if indices[w] == usize::MAX {
-                        // w not yet visited — recurse.
-                        strongconnect(
-                            w,
-                            names,
-                            deps,
-                            name_to_idx,
-                            index_counter,
-                            indices,
-                            lowlinks,
-                            on_stack,
-                            stack,
-                            result,
-                        );
-                        lowlinks[v] = lowlinks[v].min(lowlinks[w]);
-                    } else if on_stack[w] {
-                        // w is on the stack — part of current SCC.
-                        lowlinks[v] = lowlinks[v].min(indices[w]);
-                    }
-                }
-            }
-        }
-
-        // If v is a root node, pop the SCC.
-        if lowlinks[v] == indices[v] {
-            let mut scc = Vec::new();
-            loop {
-                let w = stack.pop().unwrap();
-                on_stack[w] = false;
-                scc.push(names[w]);
-                if w == v {
-                    break;
-                }
-            }
-            result.push(scc);
-        }
-    }
-
-    for i in 0..n {
-        if indices[i] == usize::MAX {
-            strongconnect(
-                i,
-                names,
-                deps,
-                &name_to_idx,
-                &mut index_counter,
-                &mut indices,
-                &mut lowlinks,
-                &mut on_stack,
-                &mut stack,
-                &mut result,
-            );
-        }
-    }
-
-    result
 }
 
 #[cfg(test)]
@@ -2378,120 +2212,6 @@ f("flux")
             Some(f_def.binder.id),
             "top-level Symbol(0) binding should still resolve lexically"
         );
-    }
-
-    // ── Tarjan SCC unit tests ──────────────────────────────────────────
-
-    fn sym(id: u32) -> crate::syntax::symbol::Symbol {
-        crate::syntax::symbol::Symbol::new(id)
-    }
-
-    #[test]
-    fn tarjan_scc_chain_produces_separate_sccs() {
-        // a→b→c (no cycle) → three separate SCCs
-        let names = vec![sym(0), sym(1), sym(2)];
-        let mut deps = HashMap::new();
-        deps.insert(sym(0), HashSet::from([sym(1)])); // a depends on b
-        deps.insert(sym(1), HashSet::from([sym(2)])); // b depends on c
-        deps.insert(sym(2), HashSet::new()); // c depends on nothing
-
-        let sccs = tarjan_scc(&names, &deps);
-        assert_eq!(sccs.len(), 3, "chain should produce 3 SCCs: {sccs:?}");
-        // Each SCC has exactly one element.
-        for scc in &sccs {
-            assert_eq!(scc.len(), 1);
-        }
-    }
-
-    #[test]
-    fn tarjan_scc_mutual_recursion_produces_single_group() {
-        // a↔b (cycle) → one SCC with both
-        let names = vec![sym(0), sym(1)];
-        let mut deps = HashMap::new();
-        deps.insert(sym(0), HashSet::from([sym(1)])); // a depends on b
-        deps.insert(sym(1), HashSet::from([sym(0)])); // b depends on a
-
-        let sccs = tarjan_scc(&names, &deps);
-        assert_eq!(
-            sccs.len(),
-            1,
-            "mutual recursion should produce 1 SCC: {sccs:?}"
-        );
-        assert_eq!(sccs[0].len(), 2);
-    }
-
-    #[test]
-    fn tarjan_scc_mixed_cycle_and_independent() {
-        // a↔b, c independent → two SCCs: {c} and {a,b}
-        let names = vec![sym(0), sym(1), sym(2)];
-        let mut deps = HashMap::new();
-        deps.insert(sym(0), HashSet::from([sym(1)])); // a depends on b
-        deps.insert(sym(1), HashSet::from([sym(0)])); // b depends on a
-        deps.insert(sym(2), HashSet::new()); // c independent
-
-        let sccs = tarjan_scc(&names, &deps);
-        assert_eq!(sccs.len(), 2, "should produce 2 SCCs: {sccs:?}");
-        let cycle_scc = sccs
-            .iter()
-            .find(|s| s.len() == 2)
-            .expect("one SCC with 2 elements");
-        assert!(cycle_scc.contains(&sym(0)));
-        assert!(cycle_scc.contains(&sym(1)));
-    }
-
-    #[test]
-    fn tarjan_scc_three_way_cycle() {
-        // a→b→c→a (triangle cycle)
-        let names = vec![sym(0), sym(1), sym(2)];
-        let mut deps = HashMap::new();
-        deps.insert(sym(0), HashSet::from([sym(1)]));
-        deps.insert(sym(1), HashSet::from([sym(2)]));
-        deps.insert(sym(2), HashSet::from([sym(0)]));
-
-        let sccs = tarjan_scc(&names, &deps);
-        assert_eq!(sccs.len(), 1, "triangle cycle should be one SCC: {sccs:?}");
-        assert_eq!(sccs[0].len(), 3);
-    }
-
-    #[test]
-    fn tarjan_scc_no_dependencies() {
-        // a, b, c all independent → three separate SCCs
-        let names = vec![sym(0), sym(1), sym(2)];
-        let deps = HashMap::from([
-            (sym(0), HashSet::new()),
-            (sym(1), HashSet::new()),
-            (sym(2), HashSet::new()),
-        ]);
-
-        let sccs = tarjan_scc(&names, &deps);
-        assert_eq!(sccs.len(), 3);
-    }
-
-    #[test]
-    fn tarjan_scc_self_recursive_single() {
-        // a→a (self-recursive) → one SCC with one element
-        let names = vec![sym(0)];
-        let deps = HashMap::from([(sym(0), HashSet::from([sym(0)]))]);
-
-        let sccs = tarjan_scc(&names, &deps);
-        assert_eq!(sccs.len(), 1);
-        assert_eq!(sccs[0].len(), 1);
-        assert_eq!(sccs[0][0], sym(0));
-    }
-
-    #[test]
-    fn tarjan_scc_reverse_topological_order() {
-        // a→b→c: SCCs should come out as [c], [b], [a] (deps first)
-        let names = vec![sym(0), sym(1), sym(2)];
-        let mut deps = HashMap::new();
-        deps.insert(sym(0), HashSet::from([sym(1)]));
-        deps.insert(sym(1), HashSet::from([sym(2)]));
-        deps.insert(sym(2), HashSet::new());
-
-        let sccs = tarjan_scc(&names, &deps);
-        assert_eq!(sccs[0][0], sym(2), "c should come first (no deps)");
-        assert_eq!(sccs[1][0], sym(1), "b should come second");
-        assert_eq!(sccs[2][0], sym(0), "a should come last (depends on b)");
     }
 
     // ── SCC integration tests (full lowering) ─────────────────────────

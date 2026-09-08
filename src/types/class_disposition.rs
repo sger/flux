@@ -46,6 +46,31 @@ pub struct InstanceKey {
     pub class_id: ClassId,
     /// The instance head's type arguments.
     pub head_type_args: Vec<InferType>,
+    /// The instance head rendered as the key its dictionary is named by —
+    /// `Int`, or `Int_String` for a multi-parameter class.
+    ///
+    /// Recorded here because the solver holds the matched `InstanceDef` and can
+    /// simply read it, while everything downstream holds only
+    /// [`InferType`]s — which render differently from the `TypeExpr`s the name
+    /// was built from. Recovering it later would mean searching the class
+    /// environment for the instance that was *already chosen*, which is the
+    /// re-resolution this design exists to remove.
+    pub dict_type_key: String,
+}
+
+impl InstanceKey {
+    /// The symbol this instance's dictionary is defined under, when the
+    /// program interned one.
+    ///
+    /// `None` means no dictionary was generated for this instance — a class
+    /// with no methods, or an instance dispatch generation did not reach.
+    pub fn dict_name(&self, interner: &crate::syntax::interner::Interner) -> Option<Identifier> {
+        interner.lookup(&crate::types::class_env::dictionary_name(
+            self.class_id,
+            &self.dict_type_key,
+            interner,
+        ))
+    }
 }
 
 /// How a predicate was discharged.
@@ -328,6 +353,7 @@ mod tests {
             class_id: crate::types::class_id::ClassId::from_local_name(class_name),
             type_args: vec![InferType::Con(TypeConstructor::Int)],
             span: Span::default(),
+            expr: None,
             origin: WantedClassConstraintOrigin::ExplicitBound,
         }
     }

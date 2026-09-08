@@ -667,11 +667,7 @@ fn colliding_namespaces_report_the_packages() {
     ];
     let result =
         ModuleGraph::build_with_entry_and_module_roots(&entry_path, &program, interner, &roots);
-    let codes: Vec<&str> = result
-        .diagnostics
-        .iter()
-        .filter_map(|d| d.code.as_deref())
-        .collect();
+    let codes: Vec<&str> = result.diagnostics.iter().filter_map(|d| d.code()).collect();
     assert!(
         codes.contains(&"E469"),
         "expected a namespace collision, got {codes:?}: {:#?}",
