@@ -163,12 +163,102 @@ fn harvest_evidence(
         let Some(expr) = entry.wanted.expr else {
             continue;
         };
+        // Count every predicate the expression raised, not just the solved
+        // ones. `EvidenceSite.index` is the argument position, so skipping an
+        // unsolved predicate would slide every later dictionary one slot left.
+        // Leaving the gap is also what lets `EvidenceMap::args_for` refuse to
+        // build a partial argument list: a dense short list would be a call
+        // with the wrong arity that still type-checks.
+        let index = next_index.entry(expr).or_insert(0);
+        let position = *index;
+        *index += 1;
         let Disposition::Solved { evidence } = &entry.disposition else {
             continue;
         };
-        let index = next_index.entry(expr).or_insert(0);
-        map.insert(EvidenceSite::new(expr, *index), evidence.clone());
-        *index += 1;
+        map.insert(EvidenceSite::new(expr, position), evidence.clone());
     }
     map
+}
+
+#[cfg(test)]
+mod tests {
+    use super::harvest_evidence;
+    use crate::ast::type_infer::constraint::{WantedClassConstraint, WantedClassConstraintOrigin};
+    use crate::diagnostics::position::Span;
+    use crate::syntax::expression::ExprId;
+    use crate::syntax::symbol::Symbol;
+    use crate::types::class_disposition::{
+        Disposition, DispositionedConstraint, Evidence, SolveOutcome, StuckReason,
+    };
+    use crate::types::class_id::ClassId;
+    use crate::types::evidence::EvidenceSite;
+
+    /// Symbols are only ever compared here, never resolved, so a raw index is
+    /// safe — see `Symbol::new`.
+    fn wanted(expr: ExprId) -> WantedClassConstraint {
+        let name = Symbol::new(0);
+        WantedClassConstraint {
+            class_name: name,
+            class_id: ClassId::from_local_name(name),
+            type_args: vec![],
+            span: Span::default(),
+            expr: Some(expr),
+            origin: WantedClassConstraintOrigin::MethodCall,
+        }
+    }
+
+    fn outcome(dispositions: Vec<Disposition>, expr: ExprId) -> SolveOutcome {
+        SolveOutcome {
+            dispositions: dispositions
+                .into_iter()
+                .map(|disposition| DispositionedConstraint {
+                    wanted: wanted(expr),
+                    disposition,
+                })
+                .collect(),
+        }
+    }
+
+    fn solved() -> Disposition {
+        Disposition::Solved {
+            evidence: Evidence::Structural { components: vec![] },
+        }
+    }
+
+    fn stuck() -> Disposition {
+        Disposition::Stuck {
+            reason: StuckReason::OuterScopeVariable,
+        }
+    }
+
+    #[test]
+    fn an_unsolved_predicate_does_not_shift_the_ones_after_it() {
+        // `index` is the argument position. Counting only solved predicates
+        // would put this evidence at slot 0, which is the slot the *stuck*
+        // predicate's dictionary occupies.
+        let expr = ExprId::UNSET;
+        let map = harvest_evidence(&outcome(vec![stuck(), solved()], expr));
+
+        assert!(map.get(&EvidenceSite::new(expr, 0)).is_none());
+        assert!(map.get(&EvidenceSite::new(expr, 1)).is_some());
+    }
+
+    #[test]
+    fn a_site_with_a_hole_refuses_to_build_an_argument_list() {
+        // `args_for` returns None rather than a short list, so a caller cannot
+        // emit a call with the wrong arity. Compacting the indices would defeat
+        // that guard by making the list dense.
+        let expr = ExprId::UNSET;
+        let map = harvest_evidence(&outcome(vec![stuck(), solved()], expr));
+
+        assert!(map.args_for(expr).is_none());
+    }
+
+    #[test]
+    fn a_fully_solved_site_still_yields_every_argument_in_order() {
+        let expr = ExprId::UNSET;
+        let map = harvest_evidence(&outcome(vec![solved(), solved()], expr));
+
+        assert_eq!(map.args_for(expr).map(|args| args.len()), Some(2));
+    }
 }
