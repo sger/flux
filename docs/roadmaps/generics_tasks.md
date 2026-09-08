@@ -2,49 +2,66 @@
 
 Working list for [0185](../proposals/0185_generalize_by_arity.md),
 [0186](../proposals/0186_generics_foundations.md) and
-[0187](../proposals/0187_specialisation.md), on
-`feat/0186-generics-foundations`.
+[0187](../proposals/0187_specialisation.md).
 
 ## The split
 
-**0.0.7 is generics. 0.0.8 is type classes.** That line decides where almost
-everything on this list goes, and it is a good line: generics is *which
-definitions get quantified, over what, and in what order* — binding groups,
-the monomorphism restriction, specialisation. Type classes is *what a call site
-is handed* — evidence, dictionaries, instance selection. The first can be
-finished without the second.
+**0.0.7 is generics. 0.0.8 is type classes.** Generics is *which definitions get
+quantified, over what, and in what order* — binding groups, the monomorphism
+restriction, specialisation. Type classes is *what a call site is handed* —
+evidence, dictionaries, instance selection.
 
-It also means the two headline items separate cleanly. Generalize-by-arity —
-`fn identity(x) { x }` usable at two types — is generics and ships in 0.0.7.
-The single evidence-passing translation, and the five open High-severity
-dispatch bugs, are type classes and ship in 0.0.8.
+### Generalize-by-arity moved to 0.0.8 — measured, not assumed
 
-`roadmap_to_1_0_0.md` still lists 0.0.7 as *Tests, linter, language identity*
-with no generics work at all, and has no 0.0.8 entry matching this. Both are
-stale (F5).
+It was the 0.0.7 headline. It is not reachable there, and the reason was
+measured on 2026-09-08 by reapplying the two-line change and reading the
+failures:
+
+| what fails | count | fixed by |
+|---|---|---|
+| `E004: can't find a value named __dict_m8_..._Num_Int` / `_Ord_Int` | 5 | Track C |
+| `E1000: wrong number of arguments: want=2, got=1` | 2 | Track C |
+| `expected function constant` | 1 | Track C |
+| `typed pattern binders (IntRep) should eliminate DropSpecialized` | 4 | B1 |
+
+**Only 4 of 13 are the lost-optimisation problem [0187](../proposals/0187_specialisation.md)
+is written to solve.** The other 9 are dictionary plumbing, and the missing
+symbol is `__dict_m8_466C6F772E4E756D_Num_Int` — character for character the one
+in 0186's opening motivation as the unfiled forwarding bug that reproduces on
+shipped `main`.
+
+So 0187's premise — that specialisation is what unblocks generalize-by-arity —
+is only a quarter true. **B1 → B2 becomes C → B1 → B2**, and all three are
+0.0.8. 0187 needs amending to say so (F8).
+
+The alternative was patching forwarding where it surfaces, without C6's
+deletion. That is what was done for KI-052, KI-061, KI-082, KI-083 and one
+unfiled case — five local fixes to one bug — and it is the pattern 0186 exists
+to stop.
 
 ### 0.0.7 exit criteria
 
-1. **No known miscompilation** — Track R. Non-negotiable, and R1 is open.
-2. **`fn identity(x) { x }` works at two types** — Track B. This is what makes
-   the release *about* generics rather than about internals.
-3. **The gate can detect a generics regression** — R5. Neither the suite nor
-   parity caught R1; that has to stop being true before the release, not after.
+1. **No known miscompilation** — Track R. **Done**: R1–R7 are all closed.
+2. **The gate can detect a generics regression** — R5 and KI-062. **Done**: a
+   fixture declaring `expect: success` must now actually run.
+3. **The remaining generics-side bugs and the release mechanics** — Tracks G, E
+   and F below. This is what is left.
 
 ### 0.0.8 exit criteria
 
-1. **One evidence-passing translation** — Track C. The six independent
-   resolution sites are deleted, not merely agreeing.
-2. **No open High-severity type-class bug** — Track D: KI-071, KI-073, KI-076,
-   KI-086, KI-090. Three of the five are dispatch and dictionary bugs of
-   exactly the kind the duplication keeps producing, so C is their fix at the
-   root — attempt them after C6, not before.
+1. **One evidence-passing translation** — Track C. The six resolution sites are
+   deleted, not merely agreeing.
+2. **`fn identity(x) { x }` works at two types** — B1 then B2, on top of C.
+3. **No open High-severity type-class bug** — Track D: KI-071, KI-073, KI-076,
+   KI-086, KI-090. (KI-091, KI-092 and KI-093 are name resolution, effect rows
+   and map member access — they stay in 0.0.7's Track G.)
 
 ---
 
 # 0.0.7 — generics
 
-Order: **R → B → G → E → F**.
+Tracks R and the KI-062 half of G are done. What remains is E1, two bugs, and
+the release mechanics.
 
 ---
 
@@ -156,44 +173,6 @@ reproduced.
 
 ---
 
-## Track B — 0187: specialisation, then generalize-by-arity
-
-**The 0.0.7 headline**, and the reason the release is *about* generics:
-`fn identity(x) { x }` usable at two types. B1 is the largest piece of new work
-on this list. Nothing in 0.0.8 blocks it.
-
-- [ ] **B1. Specialisation pass over `core/`** — clone a constrained function at
-      each concrete instantiation and rewrite that call site to the clone.
-      Exit: a constrained helper called only at `Int` lowers to `IAdd` again,
-      **with the current generalization rule unchanged**, and the 16
-      optimisation tests pass untouched.
-
-      *Scope it narrowly first:* specialise only a function whose call sites all
-      use **one** instance. That is the common case in `lib/Flow/`, it is a
-      fraction of general monomorphisation, and it is very likely enough to
-      satisfy all 16 tests. Widen only if it is not.
-- [ ] **B2. Land generalize-by-arity** — `monomorphism_restriction` by arity in
-      `finalize_and_bind_function_scheme`. Two lines; written and reverted in
-      `60b3fa39`, so the diff already exists. Depends on B1.
-      Exit: the same 16 tests still pass **without being weakened**.
-- [ ] **B3. Bump `CACHE_EPOCH`.** Depends on B2.
-- [ ] **B4. 0186 stage 4's remainder — one quantification decision per
-      *group*.** Depends on B2, and only on B2. No failing case exists today:
-      mutually recursive polymorphic functions, constrained ones included,
-      already work. It becomes necessary once unannotated helpers are
-      constrained, because one member's `forall` must not mention a variable
-      another member left free.
-
-Why this order: B2 alone despecialises every unannotated helper — `IAdd`
-becomes a dictionary call, and `my_filter` goes from `FBIP: fip, FreshAllocs: 0`
-to `fbip(1), FreshAllocs: 1`. Landing it before B1 means dismantling 16 tests
-that assert superinstruction fusion, `DropSpecialized` elimination and tail
-calls still fire.
-
----
-
----
-
 ## Track G — the instrument, and what it found
 
 - [ ] **D8. [KI-088](../known_issues.md#ki-088)** — a nested `fn` shadowing a
@@ -261,7 +240,9 @@ what two of them cost.
       unresolved variable is reported with its origin. **Blocked on B2**: the
       stage's premise is that with generalize-by-arity landed, the residue is
       ambiguity rather than stranded obligations. Until then the residue is
-      still the old kind and the report would be wrong.
+      still the old kind and the report would be wrong. **B2 moved to 0.0.8, so
+      this moves with it** — it is listed here only because it belongs to
+      0185.
 - [x] **E3. Stage 6 — size the instance-resolution unification.** Answered by
       0186 stage 5; close the stage rather than run the spike. Its three
       questions:
@@ -275,7 +256,7 @@ what two of them cost.
         `structural_builtin_evidence`.
       - *Can the AST bytecode fallback be retired?* Not answered; still open,
         and still worth answering before C6.
-- [ ] **E4. Stage 7 — close 0183.** Documentation only. Mark R1–R5 shipped,
+- [ ] **E4. Stage 7 — close 0183.** *0.0.8, with E2.* Documentation only. Mark R1–R5 shipped,
       record R6 as delivered by E2 + B2, close its open questions as decided,
       and move it to `docs/proposals/implemented/`. Do this **after** E2, or the
       record is written before the thing it records.
@@ -310,6 +291,12 @@ Runs alongside the others; none of it is optional for a release.
       (`src/generics_frontend/`, the extracted crates). Its architecture section
       and its workspace description are both stale. Decide whether it is
       tracked, then fix it.
+- [ ] **F8. Amend [0187](../proposals/0187_specialisation.md).** Its "Why this is
+      a separate proposal" section says the cost of landing generalize-by-arity
+      is "16 tests that assert an optimisation still fires". Measured: 4 do. The
+      other 9 are missing or miscounted dictionaries, which specialisation does
+      not touch. Its staging table needs Track C ahead of stage 1, and its open
+      question "where specialisation runs" is answerable now — see B1.
 - [ ] **F7. Write the PR description.** `CHANGELOG.md` is assembled from merged
       PRs at release time, so the PR description *is* the changelog entry.
 
@@ -337,7 +324,9 @@ I use `cargo build` and `cargo test --no-run` for compile correctness only.
 
 # 0.0.8 — type classes
 
-Order: **C → D(High) → D(rest) → A2**. Nothing here blocks 0.0.7.
+Order: **C → B1 → B2 → B3 → B4 → D → A2**. C first: it is what the measurement
+above says B2 is actually waiting on, and three of Track D's High-severity bugs
+are the same class of defect it deletes at the root.
 
 ---
 
@@ -391,6 +380,63 @@ hand, and the Core pass retired behind that.
 
       *This is closure-conversion work, not generics work — and it does not
       block C6.*
+
+---
+
+---
+
+## Track B — 0187: specialisation, then generalize-by-arity
+
+`fn identity(x) { x }` usable at two types. **Moved here from 0.0.7**, because
+the measurement in *The split* shows 9 of the 13 tests it breaks are dictionary
+plumbing that only Track C fixes — B1 addresses 4. **C must land first**, which
+is the opposite of what 0187 assumes.
+
+- [ ] **B1. Specialisation pass over `core/`** — clone a constrained function at
+      each concrete instantiation and rewrite that call site to the clone.
+
+      *Where it goes, answered:* `elaborate_dictionaries` runs whole-program at
+      Stage 0.5 in `run_core_passes_with_class_env`, before the per-def
+      simplification loop and before `promote_builtins`. A specialisation pass
+      slots in at Stage 0.6 — clone on a known-global dictionary argument,
+      rewrite the call — and `promote_builtins` then sees a monomorphic body and
+      can emit `IAdd` again. It must be **whole-program**: the simplification
+      loop is `for def in &mut program.defs`, and specialisation rewrites call
+      sites in *other* defs. It must also satisfy `verify_aether_contract_stage`
+      and `core_lint_stage`.
+
+      This answers 0187's open question in favour of "after `dict_elaborate`"
+      rather than "on the solver's evidence". Note `src/core/passes/specialize.rs`
+      already exists and is unrelated — it inlines single-use wrappers — so the
+      new pass needs a different name.
+
+      *Exit:* the 4 `DropSpecialized` tests pass with the current
+      generalization rule unchanged.
+      Exit: a constrained helper called only at `Int` lowers to `IAdd` again,
+      **with the current generalization rule unchanged**, and the 16
+      optimisation tests pass untouched.
+
+      *Scope it narrowly first:* specialise only a function whose call sites all
+      use **one** instance. That is the common case in `lib/Flow/`, it is a
+      fraction of general monomorphisation, and it is very likely enough to
+      satisfy all 16 tests. Widen only if it is not.
+- [ ] **B2. Land generalize-by-arity** — `monomorphism_restriction` by arity in
+      `finalize_and_bind_function_scheme`. Two lines; written and reverted in
+      `60b3fa39`, so the diff already exists. Depends on B1.
+      Exit: the same 16 tests still pass **without being weakened**.
+- [ ] **B3. Bump `CACHE_EPOCH`.** Depends on B2.
+- [ ] **B4. 0186 stage 4's remainder — one quantification decision per
+      *group*.** Depends on B2, and only on B2. No failing case exists today:
+      mutually recursive polymorphic functions, constrained ones included,
+      already work. It becomes necessary once unannotated helpers are
+      constrained, because one member's `forall` must not mention a variable
+      another member left free.
+
+Why this order: B2 alone despecialises every unannotated helper — `IAdd`
+becomes a dictionary call, and `my_filter` goes from `FBIP: fip, FreshAllocs: 0`
+to `fbip(1), FreshAllocs: 1`. Landing it before B1 means dismantling 16 tests
+that assert superinstruction fusion, `DropSpecialized` elimination and tail
+calls still fire.
 
 ---
 
