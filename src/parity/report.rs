@@ -103,10 +103,10 @@ pub fn print_result(result: &ParityResult, filter: DisplayFilter, explain: bool)
         Verdict::ExpectedOutputMismatch { expected, actual } => {
             println!("{} {name}", red("EXPECTED_OUTPUT_MISMATCH"));
             println!(
-                "  {} backends agree, but the output disagrees with the fixture expected output",
+                "  {} the run disagrees with what the fixture declares",
                 cyan("diagnosis:")
             );
-            println!("  {}", cyan("expected stdout differs:"));
+            println!("  {}", cyan("declared vs actual:"));
             print_inline_diff(
                 "expected".to_string(),
                 expected,
@@ -130,10 +130,10 @@ pub fn print_debug_first_failure(result: &ParityResult) {
         Verdict::ExpectedOutputMismatch { expected, actual } => {
             println!("{} {}", cyan("debug:"), result.file.display());
             println!(
-                "  {} backends agree, but the output disagrees with the fixture expected output",
+                "  {} the run disagrees with what the fixture declares",
                 cyan("diagnosis:")
             );
-            println!("  {}", cyan("expected stdout differs:"));
+            println!("  {}", cyan("declared vs actual:"));
             print_inline_diff(
                 "expected".to_string(),
                 expected,

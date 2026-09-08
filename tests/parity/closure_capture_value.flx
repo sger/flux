@@ -11,6 +11,6 @@ fn main() with IO {
     print(add_x(20));
 
     let name = "flux";
-    let greet = \prefix -> prefix ++ " " ++ name;
+    let greet = \prefix -> prefix + " " + name;
     print(greet("hello"));
 }

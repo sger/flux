@@ -1,14 +1,17 @@
 // parity: vm, llvm
 // expect: success
-// Tests string primops: string_concat, slice, len, upper, lower, split, trim.
+// Tests the Flow.String primops — concat, length, slice — and the helpers
+// built on them.
+
+import Flow.String
 
 fn main() with IO {
-    print("hello" ++ " world")
-    print(len("hello"))
-    print(upper("hello"))
-    print(lower("HELLO"))
-    print(trim("  hi  "))
-    print(slice("hello world", 0, 5))
-    print(split("a,b,c", ","))
-    print(join(["x", "y", "z"], "-"))
+    print(String.string_concat("hello", " world"))
+    print(String.string_len("hello"))
+    print(String.string_slice("hello world", 0, 5))
+    print(String.join([|"x", "y", "z"|], "-"))
+    print(String.chars("abc"))
+    print(String.starts_with("hello", "he"))
+    print(String.ends_with("hello", "lo"))
+    print(String.str_contains("hello world", "o w"))
 }

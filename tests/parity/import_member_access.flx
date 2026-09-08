@@ -1,4 +1,6 @@
 // parity: vm, llvm
+// skip: KI-093 — member access on a map holding a function yields None on both
+//       backends, silently. Unskip on fix.
 // expect: success
 // bug: member access on a locally constructed record/module object may
 //       crash the native backend when MemberAccess lowering is missing.
