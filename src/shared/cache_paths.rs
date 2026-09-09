@@ -152,7 +152,12 @@ use sha2::{Digest, Sha256};
 /// discharged after inference. Types an epoch-49 artifact recorded for such a
 /// binding can differ, and the projection is rejected where it used to be
 /// accepted silently.
-pub const CACHE_EPOCH: u16 = 50;
+/// Epoch 51: an unannotated definition that takes parameters and raises no
+/// class constraint is now generalized (the unconstrained half of
+/// generalize-by-arity). `fn identity(x) { x }` has a scheme where an epoch-50
+/// compiler gave it a monotype, so a cached `.flxi` records the narrower type
+/// and a fresh caller would be rejected at a second argument type.
+pub const CACHE_EPOCH: u16 = 51;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
