@@ -249,21 +249,36 @@ reproduced.
       `alias Handler<a, e> = (a) -> a with <Async | e>` could not be written.
       `collect_type_expr_named_symbols` matched
       `TypeExpr::Function { params, ret, .. }` and the `..` discarded `effects`.
-- [ ] **G4. [KI-094](../known_issues.md#ki-094)** — *Medium, found behind G3.*
-      Its `E308` had been masking two further defects.
+- [x] **G4. [KI-094](../known_issues.md#ki-094) — DONE 2026-09-09.** *Found
+      behind G3, whose `E308` had been masking three further defects.*
 
-      **Fixed half:** *no* transparent type alias resolved —
+      **Alias resolution:** *no* transparent type alias resolved —
       `alias IntPair = (Int, Int)` then `-> IntPair` was `E423`, because
       `is_known_annotation_type` did not consult `transparent_type_aliases` and
-      that check runs before the Phase 1d expansion. New fixture
-      `type_alias_transparent_basic.flx` covers it.
+      that check runs before the Phase 1d expansion. Fixture
+      `type_alias_transparent_basic.flx`.
 
-      **Open half:** an alias whose expansion carries an effect row
-      (`() -> Option<a> with Async`) fails at runtime, and an alias taking an
-      effect-row *parameter* (`AsyncFn<Int, Int, e>`) has no way to declare `e`
-      at the use site. The second is a design question. Only
-      `type_alias_transparent.flx` exercised any of this and it had never run,
-      so the feature was effectively untested.
+      **The effect row was never about aliases.** An alias-free program has the
+      same failure: `fn consume(s: (Int) -> Int with Async)` called with a
+      matching `with Async` function is `E422 missing required effects: Async`.
+      `Async` is an effect *alias*, and two sites left it undecomposed while
+      every other row had been rewritten — `collect_contracts_from_statement`
+      stored parameter and return annotations verbatim, and the pipeline ran
+      effect-row expansion *before* transparent type alias expansion, so a row
+      living in an alias body did not yet exist when its turn came. The phases
+      now run in the other order. The `$1` in the original runtime `E1004` was
+      that undecomposed row reaching contract lowering.
+
+      **The design question was a fixture bug.** An alias's effect-row parameter
+      is declared like any other type parameter, in the function's own `<...>`
+      list: `fn apply_async<e>(f: AsyncFn<Int, Int, e>, ...)`. That works
+      *because of G3* — a type parameter used only in an effect row is no longer
+      rejected as phantom. Nothing had exercised it.
+
+      `type_alias_transparent.flx` is unskipped, and because a parity fixture
+      that fails on both backends reads as passing (KI-062 — which is how this
+      stayed broken), `tests/integration/type_alias_effect_row_tests.rs` runs it
+      and asserts the output.
 
 - [x] **G5. Generalize an unannotated definition that raises no class
       constraints — DONE 2026-09-09.** The unconstrained half of
