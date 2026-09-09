@@ -245,17 +245,35 @@ registered, with a docs row.
 Exit: Example A is a compile error; sweep diff is exactly the programs that
 were ambiguous, each moved to `examples/compiler_errors/` with a snapshot.
 
-### Stage 5 — tuple projection as a constraint
+### Stage 5 — tuple projection as a constraint — **shipped**
 
 The last construct typed by a hole. `infer_tuple_field_access_expression`
-(`src/ast/type_infer/expression/access.rs:146`) constrains an unknown receiver
-to a tuple shape so that "later call-site unification [can] discharge local
-helper projections". Convert it on 0184's template: a solver-internal predicate
-in the reserved module, discharged after inference, reported if the receiver
-is never determined. Once done, `generalize_constrained_vars` can be retired
-in favour of ordinary full generalization plus `growThetaTyVars`.
+constrained an unknown receiver to a *guessed* tuple shape — `max(index + 1, 2)`
+fresh variables — so that "later call-site unification [can] discharge local
+helper projections". The guess was not a property of the program: `t.0` claimed
+a pair, and a receiver a call site later revealed to be a triple only worked
+because the unification was silent and its failure discarded.
 
-Exit: sweep neutral; the narrowing in Stage 3 removed.
+It now raises a solver-internal predicate in the reserved `__field` module,
+carrying the index on the constraint's origin rather than in its name, and
+discharged after inference: a wide enough tuple projects and the element type
+propagates, a tuple too narrow is `E492`, and a receiver never determined is
+`E491`.
+
+*Corrections to this stage as written.* The note that it retires
+`generalize_constrained_vars` was already stale — that function no longer
+exists. And the stage was not the self-contained conversion it reads as: it was
+blocked twice by pre-existing defects in the field-predicate machinery it
+copies, both of which reproduce for *record fields* on the compiler as shipped
+and neither of which any stdlib or test code had hit —
+[KI-095](../known_issues.md#ki-095) and [KI-096](../known_issues.md#ki-096).
+Tuple projection is common where named-field access through a match arm or a
+recursive sibling is not, so this stage found them immediately. Three further
+fixes followed, recorded in the E1 entry of
+[generics_tasks.md](../roadmaps/generics_tasks.md).
+
+Exit, met: 1313 files compiled with `--no-cache`, **0** newly rejected. The
+Stage 3 narrowing is unrelated and stays — Stage 3 is now 0.0.8's Track B.
 
 ### Stage 6 — size the instance-resolution unification
 

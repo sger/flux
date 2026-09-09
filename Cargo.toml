@@ -779,6 +779,10 @@ name = "cache_invalidation_tests"
 path = "tests/integration/cache_invalidation_tests.rs"
 
 [[test]]
+name = "tuple_projection_predicate_tests"
+path = "tests/integration/tuple_projection_predicate_tests.rs"
+
+[[test]]
 name = "compiler_optimization_tests"
 path = "tests/integration/compiler_optimization_tests.rs"
 

@@ -145,7 +145,14 @@ use sha2::{Digest, Sha256};
 /// epoch-48 compiler either rejected with `E490` or generalized too widely
 /// infers a different — narrower, and correct — type, so cached interfaces
 /// disagree with what this compiler would produce.
-pub const CACHE_EPOCH: u16 = 49;
+/// Epoch 50: tuple projection is a solver predicate rather than a guessed tuple
+/// shape (proposal 0185 stage 5). An unresolved receiver used to be unified with
+/// a tuple of `max(index + 1, 2)` fresh variables, so a program could be typed
+/// against a width no source line asked for; it now carries a predicate
+/// discharged after inference. Types an epoch-49 artifact recorded for such a
+/// binding can differ, and the projection is rejected where it used to be
+/// accepted silently.
+pub const CACHE_EPOCH: u16 = 50;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
