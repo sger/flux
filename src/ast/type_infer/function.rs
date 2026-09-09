@@ -533,42 +533,59 @@ impl<'a> InferCtx<'a> {
         // unify step of the standard binding-group algorithm.
         self.unify_with_group_predeclaration(name, &fn_ty, fn_span);
 
-        // Generalize a definition that declared type parameters, and an
-        // unannotated one that raised **no class constraints**.
-        //
-        // Generalizing by arity alone was attempted and reverted: an
-        // unannotated helper then becomes *constrained*, its specialised
-        // lowering goes with it (`IAdd` becomes a dictionary call), and the
-        // dictionaries it now needs are plumbed by the six re-resolution sites
-        // that 0186 stage 5 exists to replace. Both of those are 0.0.8.
-        //
-        // Neither applies to a definition with no constraints. `fn fst(p)
-        // { p.0 }` has no dictionary to plumb and no specialised arithmetic to
-        // lose, so the reason to withhold generalization does not reach it —
-        // and this is the larger half of the unannotated helpers people write.
-        // `fn double(x) { x + x }` raises `Num` and stays monomorphic until the
-        // evidence translation lands.
-        let unconstrained = self
-            .class_constraints
-            .captured_since(constraint_start)
-            .is_empty()
-            && !self.shares_var_with_pending_field_predicate(&fn_ty);
-        let scheme = if !type_params.is_empty() || (!param_tys.is_empty() && unconstrained) {
-            self.finalize_binding_scheme(BindingSchemeSpec {
-                infer_type: &fn_ty,
-                env_free_vars: &self.env.free_vars(),
-                window: constraint_start,
-                mode: MonoRestriction::Generalize,
-                binder: name,
-                span: fn_span,
-            })
-        } else {
-            Scheme::mono(fn_ty)
-        };
+        let scheme =
+            if self.should_generalize_function(type_params, param_tys, &fn_ty, constraint_start) {
+                self.finalize_binding_scheme(BindingSchemeSpec {
+                    infer_type: &fn_ty,
+                    env_free_vars: &self.env.free_vars(),
+                    window: constraint_start,
+                    mode: MonoRestriction::Generalize,
+                    binder: name,
+                    span: fn_span,
+                })
+            } else {
+                Scheme::mono(fn_ty)
+            };
 
         self.binding_schemes_by_span
             .insert(binding_span_key(fn_span), scheme.clone());
         self.env.bind_with_span(name, scheme, Some(fn_span));
+    }
+
+    /// Whether a definition's inferred type is generalized rather than bound at
+    /// a monotype.
+    ///
+    /// True for one that declared type parameters, and for an unannotated one
+    /// that takes parameters and raised **no class constraints**.
+    ///
+    /// Generalizing by arity alone was attempted and reverted: an unannotated
+    /// helper then becomes *constrained*, its specialised lowering goes with it
+    /// (`IAdd` becomes a dictionary call), and the dictionaries it now needs are
+    /// plumbed by the six re-resolution sites that 0186 stage 5 exists to
+    /// replace. Both of those are 0.0.8.
+    ///
+    /// Neither applies to a definition with no constraints. `fn fst(p) { p.0 }`
+    /// has no dictionary to plumb and no specialised arithmetic to lose, so the
+    /// reason to withhold generalization does not reach it — and this is the
+    /// larger half of the unannotated helpers people write. `fn double(x)
+    /// { x + x }` raises `Num` and stays monomorphic until the evidence
+    /// translation lands.
+    fn should_generalize_function(
+        &self,
+        type_params: &[crate::syntax::statement::FunctionTypeParam],
+        param_tys: &[InferType],
+        fn_ty: &InferType,
+        constraint_start: constraint::CaptureWindow,
+    ) -> bool {
+        if !type_params.is_empty() {
+            return true;
+        }
+        let unconstrained = self
+            .class_constraints
+            .captured_since(constraint_start)
+            .is_empty()
+            && !self.shares_var_with_pending_field_predicate(fn_ty);
+        !param_tys.is_empty() && unconstrained
     }
 
     /// Whether `fn_ty` mentions a variable some *undischarged* field or tuple
