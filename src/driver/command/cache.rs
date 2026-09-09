@@ -443,7 +443,7 @@ fn print_module_cache_summary(
     match module_cache.inspect(
         module_path,
         &cache_key,
-        env!("CARGO_PKG_VERSION"),
+        crate::shared::cache_paths::compiler_build_id(),
         cache_layout.root(),
     ) {
         Ok(info) => {

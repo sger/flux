@@ -128,7 +128,7 @@ fn compile_parallel_module(
         .load(
             &node.path,
             &cache_key,
-            env!("CARGO_PKG_VERSION"),
+            crate::shared::cache_paths::compiler_build_id(),
             request.cache.cache_layout.root(),
         )
         .is_some();
@@ -164,7 +164,7 @@ fn compile_parallel_module(
         module_cache.load_failure_reason(
             &node.path,
             &cache_key,
-            env!("CARGO_PKG_VERSION"),
+            crate::shared::cache_paths::compiler_build_id(),
             request.cache.cache_layout.root(),
         ),
     );
@@ -246,7 +246,7 @@ fn compile_parallel_module(
         let _ = module_cache.store(
             &node.path,
             &cache_key,
-            env!("CARGO_PKG_VERSION"),
+            crate::shared::cache_paths::compiler_build_id(),
             &artifact,
             &module_deps,
         );
@@ -476,7 +476,7 @@ fn load_and_link_artifact(
         .load(
             &result.path,
             &result.cache_key,
-            env!("CARGO_PKG_VERSION"),
+            crate::shared::cache_paths::compiler_build_id(),
             request.cache.cache_layout.root(),
         )
         .ok_or_else(|| {
@@ -484,7 +484,7 @@ fn load_and_link_artifact(
                 .load_failure_reason(
                     &result.path,
                     &result.cache_key,
-                    env!("CARGO_PKG_VERSION"),
+                    crate::shared::cache_paths::compiler_build_id(),
                     request.cache.cache_layout.root(),
                 )
                 .unwrap_or_else(|| "unknown".to_string());

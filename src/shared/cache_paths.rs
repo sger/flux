@@ -1,6 +1,7 @@
 use std::{
     fs,
     path::{Component, Path, PathBuf},
+    sync::OnceLock,
 };
 
 use sha2::{Digest, Sha256};
@@ -133,6 +134,55 @@ use sha2::{Digest, Sha256};
 /// `E1001 ... (got Uninit)` KI-087 was about, for a plainer program. An
 /// epoch-46 artifact holds that miscompiled nesting.
 pub const CACHE_EPOCH: u16 = 47;
+
+/// Identity of the *build* that produced this compiler, not just its released
+/// version number.
+///
+/// Every cache key and every cached-artifact metadata record embeds this
+/// string. `CARGO_PKG_VERSION` alone is not enough: two builds of the same
+/// version — a rebuild after a source change, or the same source built with
+/// and without `--features llvm` — produce different compilers that would
+/// otherwise share cache entries, so a module compiled by an earlier build is
+/// reused verbatim and the current compiler's diagnostics are never reported
+/// (see `docs/known_issues.md#ki-079`).
+///
+/// The fingerprint is the executable's path, length and modification time,
+/// which is stable for a given build and changes whenever Cargo relinks. The
+/// file is deliberately not hashed: a debug binary is hundreds of megabytes and
+/// this runs on every invocation. Set `FLUX_BUILD_ID` to pin the value when a
+/// reproducible key is wanted across machines.
+pub fn compiler_build_id() -> &'static str {
+    static BUILD_ID: OnceLock<String> = OnceLock::new();
+    BUILD_ID.get_or_init(|| {
+        if let Ok(pinned) = std::env::var("FLUX_BUILD_ID")
+            && !pinned.is_empty()
+        {
+            return pinned;
+        }
+        match current_exe_fingerprint() {
+            Some(fingerprint) => format!("{}+{fingerprint}", env!("CARGO_PKG_VERSION")),
+            // An unreadable executable is not a reason to refuse to run. The
+            // result is the old behaviour: keyed by version alone.
+            None => env!("CARGO_PKG_VERSION").to_string(),
+        }
+    })
+}
+
+fn current_exe_fingerprint() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    let metadata = fs::metadata(&exe).ok()?;
+    let modified = metadata
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?;
+    let mut hasher = Sha256::new();
+    hasher.update(exe.to_string_lossy().as_bytes());
+    hasher.update([0]);
+    hasher.update(metadata.len().to_le_bytes());
+    hasher.update(modified.as_nanos().to_le_bytes());
+    Some(crate::shared::hex::encode(&hasher.finalize())[..16].to_string())
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

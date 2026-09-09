@@ -128,7 +128,7 @@ impl NativeModuleCache {
     ) -> std::io::Result<PathBuf> {
         fs::create_dir_all(&self.cache_dir)?;
         let metadata = NativeModuleArtifactMetadata {
-            compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+            compiler_version: crate::shared::cache_paths::compiler_build_id().to_string(),
             format_version: NATIVE_MODULE_CACHE_FORMAT_VERSION,
             cache_key: hex::encode(cache_key),
             dependency_fingerprints,
@@ -159,7 +159,7 @@ impl NativeModuleCache {
             &fs::read(&metadata_path).map_err(|_| NativeModuleCacheLoadError::InvalidMetadata)?,
         )
         .map_err(|_| NativeModuleCacheLoadError::InvalidMetadata)?;
-        if metadata.compiler_version != env!("CARGO_PKG_VERSION") {
+        if metadata.compiler_version != crate::shared::cache_paths::compiler_build_id() {
             return Err(NativeModuleCacheLoadError::CompilerVersionMismatch);
         }
         if metadata.format_version != NATIVE_MODULE_CACHE_FORMAT_VERSION {
