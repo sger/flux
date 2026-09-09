@@ -3060,9 +3060,9 @@ genuinely unused parameter still reports `E308`.
 Fixing it exposed [KI-094](#ki-094): transparent type aliases did not resolve at
 all, which that error had been masking.
 
-### KI-094 — A type alias carrying an effect row is unusable — partly fixed 2026-09-08
+### KI-094 — A type alias carrying an effect row is unusable — FIXED 2026-09-09
 
-**Severity:** Medium · **Area:** Type aliases, effect rows · **Verified:** 2026-09-08
+**Severity:** Medium · **Area:** Type aliases, effect rows · **Verified:** 2026-09-09
 
 Two separable defects, found behind [KI-092](#ki-092) once its `E308` stopped
 masking them. Only `tests/parity/type_alias_transparent.flx` exercises
@@ -3077,21 +3077,61 @@ built-ins, both ADT registries and associated types, but not
 the Phase 1d expansion that would have rewritten the name away. Adding the map
 to the check fixes it; covered by `tests/parity/type_alias_transparent_basic.flx`.
 
-**Still open: an effect row in an alias.** Two shapes, both failing:
+**Fixed: an effect row in an alias.** Two shapes were failing:
 
 ```flux
 alias Stream<a> = () -> Option<a> with Async        // runtime E1004: expected `() -> Option<Int> with $1`, found Closure
 alias AsyncFn<a, b, e> = (a) -> b with <Async | e>  // E423: I can't find a type named `e`
 ```
 
-The first expands to a type whose effect row does not match what a closure
-argument presents. The second passes an effect row as an alias *argument*, which
-the annotation validator sees as an unknown type name — there is no way to
-declare `e` as an effect-row parameter at the use site. That is a design
-question, not a missing check.
+Neither was really about aliases, and the second was not a design question.
 
-`tests/parity/type_alias_transparent.flx` stays skipped pointing here; its
-effect-free half is now `type_alias_transparent_basic.flx` and passes.
+*The first* is a **phase-order defect with an alias-free reproduction**, which
+is how it was found:
+
+```flux
+fn five(n: Int) -> Int with Async { n }
+fn consume(s: (Int) -> Int with Async) -> Int with Async { s(5) }
+fn body() -> Int with Async { consume(five) }   // E422: missing required effects: Async
+```
+
+`Async` is an effect *alias* for `<Suspend | Fork | GetContext | AsyncFail>`.
+Two sites left it undecomposed while every other row had been rewritten, so the
+row solver compared one atom named `Async` against four atoms that are what
+`Async` means and reported them disjoint:
+
+- `collect_contracts_from_statement` expanded a function's *own* effect row —
+  with a comment saying why a contract has to, since it outlives the AST
+  expansion pass — but stored `parameter_types` and `return_type` verbatim, so a
+  row nested inside an annotation kept the alias name.
+- `pipeline` ran effect-row expansion (Phase 1c) *before* transparent type alias
+  expansion (Phase 1d). A row living in an alias *body* does not exist in the
+  AST until the type alias has been substituted, so it was never reached at all.
+  The two phases are now in the other order; nothing depends on the old one,
+  because an effect alias body is an `EffectExpr` and can never name a type
+  alias.
+
+The `$1` in the original `E1004` was that undecomposed row reaching runtime
+contract lowering, not a distinct defect.
+
+*The second* needed no compiler change. An alias's effect-row parameter is
+declared exactly the way any type parameter is — in the function's own `<...>`
+list:
+
+```flux
+fn apply_async<e>(f: AsyncFn<Int, Int, e>, x: Int) -> Int with Async { f(x) }
+```
+
+The fixture had simply omitted the `<e>`, and `E423 I can't find a type named e`
+was the correct answer to what it actually wrote. Declaring it works because
+[KI-092](#ki-092) stopped rejecting a type parameter used only in an effect row
+as phantom — the feature landed with that fix and nothing exercised it.
+
+`tests/parity/type_alias_transparent.flx` is unskipped and expects success.
+Because a parity fixture that fails identically on both backends is reported as
+passing ([KI-062](#ki-062)) — which is exactly how this feature stayed broken
+and unnoticed — `tests/integration/type_alias_effect_row_tests.rs` runs the
+fixture and both reproductions and asserts their output.
 
 ### KI-093 — A local binding named like an imported module is shadowed by the module — FIXED 2026-09-08
 

@@ -230,6 +230,15 @@ fn expand_expr(expr: &mut Expression, aliases: &HashMap<Identifier, EffectExpr>)
     }
 }
 
+/// Expand effect-row aliases inside a single type, in place.
+///
+/// Exposed for contract collection: a `FnContract` outlives the AST expansion
+/// pass, so the parameter and return annotations it captures have to be
+/// expanded eagerly or they keep an alias name every other row has lost.
+pub fn expand_type_effect_aliases(ty: &mut TypeExpr, aliases: &HashMap<Identifier, EffectExpr>) {
+    expand_type(ty, aliases);
+}
+
 fn expand_type(ty: &mut TypeExpr, aliases: &HashMap<Identifier, EffectExpr>) {
     match ty {
         TypeExpr::Function {

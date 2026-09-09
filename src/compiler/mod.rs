@@ -3936,6 +3936,24 @@ impl Compiler {
                         .iter()
                         .map(|e| e.expand_aliases(&self.effect_row_aliases))
                         .collect();
+                    // The same reasoning covers a row nested inside an
+                    // annotation: `fn consume(s: () -> Int with Async)` keeps
+                    // `Async` as a single atom otherwise, while the argument's
+                    // own contract is decomposed, and the row solver reports
+                    // the two as disjoint (E422). See docs/known_issues.md#ki-094.
+                    let expand = |ty: &TypeExpr| {
+                        let mut ty = ty.clone();
+                        crate::ast::expand_effect_aliases::expand_type_effect_aliases(
+                            &mut ty,
+                            &self.effect_row_aliases,
+                        );
+                        ty
+                    };
+                    let expanded_params: Vec<Option<TypeExpr>> = parameter_types
+                        .iter()
+                        .map(|ty| ty.as_ref().map(&expand))
+                        .collect();
+                    let expanded_ret = return_type.as_ref().map(&expand);
                     self.module_contracts.insert(
                         ContractKey {
                             module_name,
@@ -3944,8 +3962,8 @@ impl Compiler {
                         },
                         FnContract {
                             type_params: Statement::function_type_param_names(type_params),
-                            params: parameter_types.clone(),
-                            ret: return_type.clone(),
+                            params: expanded_params,
+                            ret: expanded_ret,
                             effects: expanded_effects,
                         },
                     );

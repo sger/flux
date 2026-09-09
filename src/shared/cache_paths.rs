@@ -157,7 +157,13 @@ use sha2::{Digest, Sha256};
 /// generalize-by-arity). `fn identity(x) { x }` has a scheme where an epoch-50
 /// compiler gave it a monotype, so a cached `.flxi` records the narrower type
 /// and a fresh caller would be rejected at a second argument type.
-pub const CACHE_EPOCH: u16 = 51;
+/// Epoch 52: transparent type aliases now expand before effect-row aliases, and
+/// a `FnContract` captures parameter and return annotations with their effect
+/// rows already decomposed. A row reachable only through an alias body is a set
+/// of atoms where an epoch-51 artifact recorded a single alias name, so cached
+/// contracts and interfaces disagree with a fresh compiler about whether a
+/// higher-order call satisfies its effect row (KI-094).
+pub const CACHE_EPOCH: u16 = 52;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

@@ -1,7 +1,9 @@
 // parity: vm, llvm
-// skip: KI-094 — a type alias whose expansion carries an effect row, or that
-//       takes an effect-row parameter, is not usable. The effect-free half of
-//       this fixture lives in type_alias_transparent_basic.flx. Unskip on fix.
+// expect: success
+// Covers KI-094 in full: an alias whose expansion carries an effect row
+// (`Stream`), and one that takes an effect-row parameter (`AsyncFn`). The row
+// parameter is declared the same way any type parameter is — in the function's
+// own `<...>` list — which is what KI-092 unblocked.
 
 import Flow.Async exposing (..)
 
@@ -37,7 +39,7 @@ fn async_inc(x: Int) -> Int with Async {
     x + 1
 }
 
-fn apply_async(f: AsyncFn<Int, Int, e>, x: Int) -> Int with Async {
+fn apply_async<e>(f: AsyncFn<Int, Int, e>, x: Int) -> Int with Async {
     f(x)
 }
 
