@@ -2760,3 +2760,44 @@ fn main() -> Int {
         result.diagnostics
     );
 }
+
+/// An unannotated definition that raises no class constraint is generic.
+///
+/// The unconstrained half of generalize-by-arity: `identity` has no dictionary
+/// to plumb and no specialised arithmetic to lose, so neither reason to
+/// withhold generalization reaches it.
+#[test]
+fn an_unconstrained_unannotated_function_is_generic() {
+    let source = r#"
+fn identity(x) { x }
+
+fn main() -> Int {
+    let s = identity("hi")
+    identity(1)
+}
+"#;
+    let (result, _program) = infer_program_from_source(source);
+    assert!(
+        result.diagnostics.is_empty(),
+        "an unconstrained helper should type at two argument types: {:?}",
+        result.diagnostics
+    );
+}
+
+/// A *nullary* definition stays monomorphic. Generalization is by arity, so a
+/// value binding is still restricted — this is the monomorphism restriction's
+/// own case, and widening it is not what the unconstrained rule does.
+#[test]
+fn a_nullary_definition_is_not_generalized_by_the_unconstrained_rule() {
+    let source = r#"
+fn pick() { 1 }
+
+fn main() -> Int { pick() }
+"#;
+    let (result, _program) = infer_program_from_source(source);
+    assert!(
+        result.diagnostics.is_empty(),
+        "a nullary definition should still compile: {:?}",
+        result.diagnostics
+    );
+}
