@@ -783,6 +783,10 @@ name = "tuple_projection_predicate_tests"
 path = "tests/integration/tuple_projection_predicate_tests.rs"
 
 [[test]]
+name = "type_alias_effect_row_tests"
+path = "tests/integration/type_alias_effect_row_tests.rs"
+
+[[test]]
 name = "compiler_optimization_tests"
 path = "tests/integration/compiler_optimization_tests.rs"
 

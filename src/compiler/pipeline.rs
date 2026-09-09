@@ -85,25 +85,15 @@ impl Compiler {
             program
         };
 
-        // Phase 1c (Proposal 0161 B1): expand effect-row aliases in place.
-        // After this pass, every EffectExpr in the AST has any
-        // `alias Name = <...>` reference replaced by its decomposed body, so
-        // downstream phases (predeclaration, inference, codegen) never see
-        // unexpanded aliases.
-        let alias_expanded;
-        let program: &Program = if !self.effect_row_aliases.is_empty() {
-            alias_expanded = {
-                let mut owned: Program = program.clone();
-                expand_effect_aliases_in_program(&mut owned, &self.effect_row_aliases);
-                owned
-            };
-            &alias_expanded
-        } else {
-            program
-        };
-
-        // Phase 1d (Proposal 0174 Phase 2): expand transparent type aliases
+        // Phase 1c (Proposal 0174 Phase 2): expand transparent type aliases
         // before HM inference so later phases only see structural types.
+        //
+        // This runs *before* effect-row alias expansion, not after: an alias
+        // body may itself carry a row (`alias Stream<a> = () -> Option<a> with
+        // Async`), and that row only exists in the AST once the type alias has
+        // been substituted. Expanding effects first left it as a single atom
+        // `Async` while every other row was decomposed.
+        // See docs/known_issues.md#ki-094.
         let type_alias_expanded;
         let program: &Program = if !self.transparent_type_aliases.is_empty() {
             type_alias_expanded = {
@@ -117,6 +107,23 @@ impl Compiler {
                 owned
             };
             &type_alias_expanded
+        } else {
+            program
+        };
+
+        // Phase 1d (Proposal 0161 B1): expand effect-row aliases in place.
+        // After this pass, every EffectExpr in the AST has any
+        // `alias Name = <...>` reference replaced by its decomposed body, so
+        // downstream phases (predeclaration, inference, codegen) never see
+        // unexpanded aliases.
+        let alias_expanded;
+        let program: &Program = if !self.effect_row_aliases.is_empty() {
+            alias_expanded = {
+                let mut owned: Program = program.clone();
+                expand_effect_aliases_in_program(&mut owned, &self.effect_row_aliases);
+                owned
+            };
+            &alias_expanded
         } else {
             program
         };
