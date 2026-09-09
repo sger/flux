@@ -71,7 +71,7 @@ All in stage 2's [`plan_block`](../../src/binding_groups.rs). R1 is confirmed by
 running the program; R2, R3 and R5–R6 are reasoned from the code and not yet
 reproduced.
 
-- [ ] **R1. Binding groups are emitted in source-anchor order, not dependency
+- [x] **R1. Binding groups are emitted in source-anchor order, not dependency
       order.** *Confirmed, cold cache:*
 
       ```flux
@@ -111,25 +111,25 @@ reproduced.
       index so ordinary programs lay out exactly as they do today. A cycle
       (`let x = f(); fn f() { x }`) is a real error — fall back to source order
       deterministically.
-- [ ] **R2. `bound_name` sees only `Let` and `Function`.** A `LetDestructure`
+- [x] **R2. `bound_name` sees only `Let` and `Function`.** A `LetDestructure`
       between two members binds names invisibly to the hoist check. It should
       return *every* binder, walking the pattern —
       `FreeVarCollector::define_pattern_bindings` already does this walk and can
       be reused.
-- [ ] **R3. The hoist check is one-sided.** Nothing asks whether an intervening
+- [x] **R3. The hoist check is one-sided.** Nothing asks whether an intervening
       statement *uses* a member, so a group can be emitted after code that calls
       it. Needs free variables of non-function statements:
       `collect_free_vars_in_statement` does not exist and must be added beside
       `collect_free_vars_in_function_body` — `FreeVarCollector` already has the
       `visit_stmt` arms.
-- [ ] **R4. Drop `plan_block`'s `free_vars` callback.** All three call sites
+- [x] **R4. Drop `plan_block`'s `free_vars` callback.** All three call sites
       pass a byte-identical closure delegating to
       `crate::ast::free_vars::collect_free_vars_in_function_body`. The callback
       was justified as keeping the module off lowering internals, but it is
       `crate::ast`, which `binding_groups` already depends on. Removing it
       deletes three copies and is a prerequisite for R3 supplying statement
       free vars in one place.
-- [ ] **R5. Close the test gap that let R1 through.** Ordered — the first is a
+- [x] **R5. Close the test gap that let R1 through.** Ordered — the first is a
       prerequisite for the second.
       - **Fix [KI-062](../known_issues.md#ki-062) first.** *A parity fixture
         would not have caught R1.* The harness compares the two backends'
