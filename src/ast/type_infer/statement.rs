@@ -208,29 +208,7 @@ impl<'a> InferCtx<'a> {
         // unify, canonical annotation E300) don't duplicate the same
         // (expected, actual) pair at a vaguer span.
         let final_ty = match annotation {
-            Some(ann) => {
-                let mut row_var_env = HashMap::new();
-                // The enclosing signature's type parameters, so an annotation
-                // naming one of them resolves to that rigid variable rather
-                // than to a nominal type of the same name (KI-058). Cloned
-                // because the conversion needs `&mut self`; the map holds one
-                // entry per declared parameter.
-                let type_params = self
-                    .signature_type_params
-                    .last()
-                    .cloned()
-                    .unwrap_or_default();
-                match self.infer_type_from_annotation(ann, &type_params, &mut row_var_env) {
-                    Some(ann_ty) => {
-                        if benefits_from_check_propagation(value) {
-                            self.check_expression(value, &ann_ty);
-                        }
-                        let val_ty = self.infer_expression(value);
-                        self.check_let_annotation(name, ann, &ann_ty, value, &val_ty)
-                    }
-                    None => self.infer_expression(value).apply_type_subst(&self.subst),
-                }
-            }
+            Some(ann) => self.infer_annotated_let_value(name, ann, value),
             None => self.infer_expression(value).apply_type_subst(&self.subst),
         };
 
@@ -252,6 +230,35 @@ impl<'a> InferCtx<'a> {
         self.binding_schemes_by_span
             .insert(binding_span_key(let_span), scheme.clone());
         self.env.bind(name, scheme);
+    }
+
+    /// Infer an annotated `let` initializer, in the propagation order Proposal
+    /// 0159 fixed: `check_expression` before the canonical annotation unify.
+    fn infer_annotated_let_value(
+        &mut self,
+        name: Identifier,
+        ann: &TypeExpr,
+        value: &Expression,
+    ) -> InferType {
+        let mut row_var_env = HashMap::new();
+        // The enclosing signature's type parameters, so an annotation naming
+        // one of them resolves to that rigid variable rather than to a nominal
+        // type of the same name (KI-058). Cloned because the conversion needs
+        // `&mut self`; the map holds one entry per declared parameter.
+        let type_params = self
+            .signature_type_params
+            .last()
+            .cloned()
+            .unwrap_or_default();
+        let Some(ann_ty) = self.infer_type_from_annotation(ann, &type_params, &mut row_var_env)
+        else {
+            return self.infer_expression(value).apply_type_subst(&self.subst);
+        };
+        if benefits_from_check_propagation(value) {
+            self.check_expression(value, &ann_ty);
+        }
+        let val_ty = self.infer_expression(value);
+        self.check_let_annotation(name, ann, &ann_ty, value, &val_ty)
     }
 
     /// Unify a `let` binding's value type against its annotation, emitting
