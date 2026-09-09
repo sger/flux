@@ -564,9 +564,9 @@ of this shape now infers a type where an epoch-47 compiler reported `E490`.
 **This unblocks E1** (0185 stage 5), whose work is on
 `wip/e1-tuple-projection-predicate`.
 
-### KI-096 — A recursive group's predeclared monotype is never unified with what the member infers
+### KI-096 — A recursive group's predeclared monotype is never unified with what the member infers — FIXED 2026-09-09
 
-**Severity:** Medium · **Area:** Type inference / binding groups · **Verified:** 2026-09-09 · **From:** Proposal 0185 stage 5 (E1), second attempt
+**Severity:** Medium · **Area:** Type inference / binding groups · **Verified:** 2026-09-09 · **Fixed:** 2026-09-09 · **From:** Proposal 0185 stage 5 (E1), second attempt
 
 A member of a mutually recursive group is predeclared at `Scheme::mono(v)` so
 its siblings can refer to it. When that member is then inferred, its result is
@@ -612,12 +612,38 @@ monotype and the inferred type are two unrelated things.
 Adding a complete signature to both functions fixes it, because
 `declared_fn_scheme` then predeclares the real type instead of a fresh variable.
 
-**Scope.** This is [B4](roadmaps/generics_tasks.md) — one quantification
-decision per *group* — and belongs with it in 0.0.8. It is not a safe local
-patch: making the unification happen changes what every recursive group
-generalizes.
+**Fix, in two parts.** The first was the missing algorithm step; the second was
+found because the first alone did not repair the reproduction.
 
-**It also blocks E1 a second time.** 0185 stage 5 converts tuple projection onto
+1. *Close the loop with the predeclaration.* `finalize_and_bind_function_scheme`
+   now unifies the finished function type with the placeholder the group
+   predeclared, when the innermost scope holds one. The placeholder is
+   recognised by its **stored** shape — no `forall`, a bare variable — not by
+   resolving it through the substitution, because a sibling's call has usually
+   already unified that variable with a function type by then. The check is
+   restricted to the innermost scope so a nested `fn` shadowing an outer
+   function of the same name is not tied to it — [KI-088](#ki-088)'s failure
+   mode, in a different pass.
+
+2. *Read the environment through the substitution.* Fixing (1) left the
+   reproduction failing, and removing the intervening `let` made it pass — which
+   pointed at generalization rather than at the group. `TypeEnv::free_vars`
+   reads each scheme **as stored**, so a binding held as `Scheme::mono(Var(v))`
+   contributes only `v`, never the type `v` has since been unified with. The
+   variables inside that type look free in nothing, so the `let` quantifies
+   them, binds a fresh variable at every use, and its value's type is again
+   determined by nothing. `TypeEnv::free_vars_through` resolves through the
+   substitution, and `infer_let_binding` uses it.
+
+Part (2) narrows `let` generalization, which is the risk the 0186 plan names
+first. Measured: 431 tests across ten suites, no change.
+
+Pinned by `a_recursive_group_member_resolves_its_siblings_result` and
+`a_recursive_group_member_resolves_an_inline_sibling_projection` in
+`tests/type_inference/type_inference_tests.rs` — the second isolates part (1),
+since it has no `let` to generalize.
+
+**It blocked E1 a second time, and no longer does.** 0185 stage 5 converts tuple projection onto
 the same predicate, so `r.0` in this shape becomes `E491` where it used to
 compile — `examples/aoc/2025/aoc_day11_haskell_style.flx` is exactly this
 program. It compiled before only because the old code unified an unresolved

@@ -2680,3 +2680,63 @@ fn main() -> Int {
         result.diagnostics
     );
 }
+
+/// A recursive group's predeclared placeholder must end up *being* what the
+/// member inferred, not merely replaced by it (`docs/known_issues.md#ki-096`).
+///
+/// `step` is predeclared at `Scheme::mono(v)` so `go` can call it. If `v` is
+/// never unified with `step`'s inferred type, the `let` in `go` holds a type
+/// nothing resolves, and the projection on it has no receiver — while `main`'s
+/// identical projection resolves, because it reads the finished binding.
+#[test]
+fn a_recursive_group_member_resolves_its_siblings_result() {
+    let source = r#"
+data Pair { Pair { a: Int, b: Int } }
+
+fn go(n, acc) {
+    if n <= 0 {
+        Pair { a: acc, b: 0 }
+    } else {
+        let r = step(n)
+        go(n - 1, acc + r.a)
+    }
+}
+
+fn step(n) { go(n - 1, 0) }
+
+fn main() -> Int {
+    go(3, 0).a
+}
+"#;
+    let (result, _program) = infer_program_from_source(source);
+    assert!(
+        result.diagnostics.is_empty(),
+        "a sibling's result should have a type to project: {:?}",
+        result.diagnostics
+    );
+}
+
+/// The same program without the intervening `let`, which isolates the two
+/// halves of the fix: this one needs only the group unification, while the
+/// version above additionally needs the environment to be read through the
+/// substitution before the `let` generalizes.
+#[test]
+fn a_recursive_group_member_resolves_an_inline_sibling_projection() {
+    let source = r#"
+data Pair { Pair { a: Int, b: Int } }
+
+fn go(n, acc) {
+    if n <= 0 { Pair { a: acc, b: 0 } } else { go(n - 1, acc + step(n).a) }
+}
+
+fn step(n) { go(n - 1, 0) }
+
+fn main() -> Int { go(3, 0).a }
+"#;
+    let (result, _program) = infer_program_from_source(source);
+    assert!(
+        result.diagnostics.is_empty(),
+        "an inline sibling projection should resolve: {:?}",
+        result.diagnostics
+    );
+}

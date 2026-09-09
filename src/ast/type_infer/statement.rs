@@ -235,7 +235,12 @@ impl<'a> InferCtx<'a> {
         };
 
         // Generalize the let binding (Hindley-Milner let-polymorphism).
-        let env_free = self.env.free_vars();
+        //
+        // Read the environment *through* the substitution: a variable that only
+        // reaches the environment via a predeclared placeholder is not free to
+        // quantify, and reading the schemes as stored misses it — see
+        // `TypeEnv::free_vars_through` and `docs/known_issues.md#ki-096`.
+        let env_free = self.env.free_vars_through(&self.subst);
         let scheme = self.finalize_binding_scheme(BindingSchemeSpec {
             infer_type: &final_ty,
             env_free_vars: &env_free,
