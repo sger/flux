@@ -2740,3 +2740,23 @@ fn main() -> Int { go(3, 0).a }
         result.diagnostics
     );
 }
+
+/// Tuple projection is a predicate, not a guessed tuple shape (proposal 0185
+/// stage 5). `t.0` used to unify an unknown receiver with a *pair*, so this
+/// program typed only because the failure against a triple was discarded.
+#[test]
+fn tuple_projection_does_not_guess_the_receivers_width() {
+    let source = r#"
+fn fst(t) { t.0 }
+
+fn main() -> Int {
+    fst((1, 2, 3))
+}
+"#;
+    let (result, _program) = infer_program_from_source(source);
+    assert!(
+        result.diagnostics.is_empty(),
+        "projecting .0 says nothing about the tuple's width: {:?}",
+        result.diagnostics
+    );
+}

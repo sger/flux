@@ -72,6 +72,18 @@ pub enum WantedClassConstraintOrigin {
     /// `record.field` on a receiver whose type was not yet known
     /// (Proposal 0184). Two type arguments: the receiver and the field type.
     FieldAccess,
+    /// `pair.0` on a receiver whose type was not yet known (Proposal 0185
+    /// stage 5). Carries the same two type arguments as [`Self::FieldAccess`]
+    /// — the receiver and the projected element — and lives in the same
+    /// reserved `__field` module, so it pins its receiver and is taken by the
+    /// same whole-program discharge.
+    ///
+    /// The index is held here rather than parsed back out of the predicate's
+    /// name: the name exists for diagnostics, and a digit-string is not a
+    /// discriminator worth relying on.
+    TupleProjection {
+        index: usize,
+    },
     TaskSpawnCapture {
         capture_name: Identifier,
     },

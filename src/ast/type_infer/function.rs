@@ -583,8 +583,43 @@ impl<'a> InferCtx<'a> {
         let InferType::Var(_) = scheme.infer_type else {
             return;
         };
-        let placeholder = scheme.infer_type.clone();
-        self.unify_reporting(&placeholder, fn_ty, span);
+        let placeholder = scheme.infer_type.apply_type_subst(&self.subst);
+
+        // Parameters and result only — never the effect row.
+        //
+        // The placeholder's row is the one the siblings' calls accumulated, and
+        // it carries their effects. `fn_ty`'s row is the *declared* one, which
+        // for an unannotated function is empty and closed. Unifying the two
+        // whole types therefore fails on the row, and the result type — the
+        // thing this exists to connect — is left unbound. That is exactly the
+        // case that survived the first version of this fix: at the top level the
+        // two rows happened to agree, and inside a function performing `IO` they
+        // did not.
+        if let (
+            InferType::Fun(placeholder_params, placeholder_ret, _),
+            InferType::Fun(params, ret, _),
+        ) = (&placeholder, fn_ty)
+            && placeholder_params.len() == params.len()
+        {
+            let pairs: Vec<(InferType, InferType)> = placeholder_params
+                .iter()
+                .cloned()
+                .zip(params.iter().cloned())
+                .collect();
+            let placeholder_ret = (**placeholder_ret).clone();
+            let ret = (**ret).clone();
+            for (expected, actual) in pairs {
+                self.unify_reporting(&expected, &actual, span);
+            }
+            self.unify_reporting(&placeholder_ret, &ret, span);
+            return;
+        }
+
+        // Still an unresolved variable: nothing has shaped it yet, so binding it
+        // to the whole function type is right and there is no row to conflict.
+        if matches!(placeholder, InferType::Var(_)) {
+            self.unify_reporting(&placeholder, fn_ty, span);
+        }
     }
 
     /// Run a second pass for unannotated self recursive functions to refine type.

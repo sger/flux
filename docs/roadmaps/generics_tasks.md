@@ -244,8 +244,7 @@ reproduced.
 became 0186 stage 6 and is now Track B. Four stages remain, and 0186 changed
 what two of them cost.
 
-- [ ] **E1. Stage 5 — tuple projection as a constraint.** *Independent, and the
-      most actionable thing left in 0185.*
+- [x] **E1. Stage 5 — tuple projection as a constraint — DONE 2026-09-09.**
       `infer_tuple_field_access_expression` (`expression/access.rs:206`) still
       types an unresolved receiver with a hole, delaying the failure until a
       call site pins it. Convert it on 0184's template — a solver-internal
@@ -259,9 +258,9 @@ what two of them cost.
       retires `generalize_constrained_vars` is stale — that function no longer
       exists.
 
-      **Unblocked 2026-09-09.** Attempted twice, blocked both times by a
-      pre-existing hole in the machinery it copies rather than by anything in
-      the conversion — and both are now fixed:
+      Landed on the third attempt. The first two were blocked by pre-existing
+      holes in the machinery it copies rather than by anything in the
+      conversion, and both are now fixed:
 
       1. [KI-095](../known_issues.md#ki-095) — a receiver bound by a match arm
          was never determined. **Fixed**; that took the stdlib failures from six
@@ -285,8 +284,30 @@ what two of them cost.
       named field that way, so 0184 shipped over it — but `Flow.Array`'s
       `update_many_go` and `accum_go` match a list of pairs and project `p.0`,
       so the tuple version breaks the standard library in six places on its
-      first run — one after KI-095, and that one was KI-096. With both fixed,
-      re-measuring the branch is the remaining step.
+      first run — one after KI-095, and that one was KI-096.
+
+      **Three more fixes were needed after those two**, each found by measuring
+      rather than by reading:
+
+      - *The effect row.* KI-096's unification compared whole function types.
+        The placeholder's row is the one the siblings' calls accumulated; the
+        inferred `fn_ty`'s row is the *declared* one, empty and closed for an
+        unannotated function. Unifying the two fails on the row and leaves the
+        result type — the thing being connected — unbound. At the top level the
+        rows agreed, so a minimal repro passed while the real program failed.
+        Parameters and result only, never the row.
+      - *The pin.* `decide_quantification` pinned the receiver whether or not it
+        was still unknown. Once it has resolved to a structure, pinning strips
+        *that structure's* variables — which is how `Flow.Array.sort_by<a, b:
+        Ord>` came to report its own declared `Ord<b>` as an ambiguity. It now
+        applies only while the receiver is an unresolved variable.
+      - *The cascade.* `mystery.0` on an undefined name reported `E004` and then
+        a redundant `E491`. The field predicate already refuses an unbound
+        receiver; the tuple path now uses the same guard.
+
+      *Measured:* 1313 files under `examples/`, `tests/` and `lib/` compiled with
+      `--no-cache`, **0** with `E491`/`E492`.
+      `examples/aoc/2025/aoc_day11_haskell_style.flx` runs. `CACHE_EPOCH` 50.
 
       The work is on `wip/e1-tuple-projection-predicate` and is otherwise
       complete: predicate, pinning, discharge, `E491` for a receiver never
