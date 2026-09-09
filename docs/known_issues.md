@@ -2701,9 +2701,9 @@ that exposes. The extra dictionary parameter disappears, and with it the wrong
 evidence in the superclass slot. `lib/Flow/Eq.flx` lost its `list_eq` /
 `option_eq` workarounds in the same change.
 
-### KI-079 — A stale bytecode cache runs a program the current compiler rejects
+### KI-079 — A stale bytecode cache runs a program the current compiler rejects — FIXED 2026-09-09
 
-**Severity:** Medium · **Area:** Build caching · **Verified:** 2026-09-03 · **From:** Phase 1 of the type-class audit
+**Severity:** Medium · **Area:** Build caching · **Verified:** 2026-09-03 · **Fixed:** 2026-09-09 · **From:** Phase 1 of the type-class audit
 
 The bytecode cache key covers the module's source hash and
 `CARGO_PKG_VERSION` ([artifact_store.rs](../src/driver/artifact_store.rs),
@@ -2726,6 +2726,30 @@ it silently invalidates measurement: several claims in the type-class audit,
 including "these fixtures exit 0 with no output", were measured against cached
 artifacts and are wrong. **Any behavioural comparison across a compiler change
 must pass `--no-cache` or clear the store first** (`flux clean --store`).
+
+**Fix.** Every cache key and every cached-artifact metadata record now embeds
+`compiler_build_id()` ([cache_paths.rs](../src/shared/cache_paths.rs)) rather
+than `CARGO_PKG_VERSION`: the version plus a fingerprint of the running
+executable's path, length and modification time. A rebuild relinks the binary
+and so changes the key, and the same source built with and without
+`--features llvm` — two compilers that also shared entries — now keys apart
+too. The file is deliberately not hashed; a debug binary is hundreds of
+megabytes and this runs on every invocation. `FLUX_BUILD_ID` pins the value
+when a key reproducible across machines is wanted.
+
+No cache-epoch bump accompanies this. Adding a field to the key changes every
+hash, so epoch-47 artifacts are not read and mistaken for current ones — they
+simply stop being found, and the metadata comparisons reject the ones stored
+under a name-addressed path.
+
+Two builds used alternately each recompile what the other wrote. That is the
+point of the fix rather than a cost of it, but it is worth knowing before
+timing a parity sweep that builds its own binaries.
+
+Pinned by `a_different_compiler_build_does_not_reuse_cached_modules` in
+[tests/integration/cache_invalidation_tests.rs](../tests/integration/cache_invalidation_tests.rs),
+which fails on the previous behaviour with `Cached main` where it expects
+`Compiling  main`.
 
 ### KI-082 — Generalizing an unannotated definition breaks two call sites — FIXED 2026-09-06
 
