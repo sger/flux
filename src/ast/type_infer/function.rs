@@ -519,6 +519,20 @@ impl<'a> InferCtx<'a> {
 
         self.env.leave_scope();
 
+        // Close the loop with the group's predeclaration.
+        //
+        // A member of a recursive group is predeclared at `Scheme::mono(v)` so
+        // its siblings can refer to it. Binding the inferred type over the top
+        // of `v` — which is all this used to do — leaves `v` unconstrained, so a
+        // sibling that already referred to the member holds a type nothing will
+        // ever resolve. Ordinary calls survive that, because the call site
+        // unifies arguments and results anyway; a *projection* does not, and
+        // that is where it surfaced (`docs/known_issues.md#ki-096`).
+        //
+        // Bind at a monotype, infer the bodies, **unify**, then generalize — the
+        // unify step of the standard binding-group algorithm.
+        self.unify_with_group_predeclaration(name, &fn_ty, fn_span);
+
         // Generalization is still gated on *written* type parameters. Proposal
         // 0186 stage 6 replaces this with `monomorphism_restriction` by arity;
         // it was attempted and reverted, because an unannotated helper then
@@ -540,6 +554,37 @@ impl<'a> InferCtx<'a> {
         self.binding_schemes_by_span
             .insert(binding_span_key(fn_span), scheme.clone());
         self.env.bind_with_span(name, scheme, Some(fn_span));
+    }
+
+    /// Unify a finished function type with the placeholder its binding group
+    /// predeclared, if that is what the enclosing scope currently holds.
+    ///
+    /// The placeholder is recognised by its *stored* shape — a scheme with no
+    /// `forall` whose type is a bare variable — rather than by resolving it
+    /// through the substitution. By this point a sibling's call has usually
+    /// already unified that variable with a function type, so the resolved form
+    /// says nothing; the stored form still distinguishes a predeclared slot
+    /// from a real earlier binding, whose type is a `Fun`.
+    ///
+    /// Restricted to the innermost scope on purpose. A nested `fn` may shadow an
+    /// outer function of the same name, and unifying with *that* would tie two
+    /// unrelated definitions together — the failure mode of
+    /// `docs/known_issues.md#ki-088`, in a different pass.
+    fn unify_with_group_predeclaration(&mut self, name: Identifier, fn_ty: &InferType, span: Span) {
+        if !self.env.is_bound_in_current_scope(name) {
+            return;
+        }
+        let Some(scheme) = self.env.lookup(name) else {
+            return;
+        };
+        if !scheme.forall.is_empty() {
+            return;
+        }
+        let InferType::Var(_) = scheme.infer_type else {
+            return;
+        };
+        let placeholder = scheme.infer_type.clone();
+        self.unify_reporting(&placeholder, fn_ty, span);
     }
 
     /// Run a second pass for unannotated self recursive functions to refine type.
