@@ -258,6 +258,18 @@ what two of them cost.
       free rather than having to rediscover it. The proposal's note that this
       retires `generalize_constrained_vars` is stale — that function no longer
       exists.
+
+      **Blocked on [KI-095](../known_issues.md#ki-095).** Attempted 2026-09-09.
+      The conversion itself is small and works — predicate, pinning, discharge,
+      `E491` for a receiver never determined, `E492` for an index past the end
+      of the tuple. What it inherits is a hole in what it copies: a predicate
+      whose receiver is bound by a **match arm** is never determined by its call
+      site, on shipped `main`, for record fields too. No stdlib code accesses a
+      named field that way, so 0184 shipped over it — but `Flow.Array`'s
+      `update_many_go` and `accum_go` match a list of pairs and project `p.0`,
+      so the tuple version breaks the standard library in six places on its
+      first run. Fix KI-095 first; the E1 work is on
+      `wip/e1-tuple-projection-predicate` and is otherwise complete.
 - [ ] **E2. Stage 4 — report inferred ambiguity.** 0183's R6b. `Disposition`
       loses `Stuck`; a predicate reaching whole-program scope over an
       unresolved variable is reported with its origin. **Blocked on B2**: the

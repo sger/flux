@@ -481,6 +481,63 @@ The fix is the one KI-058 used: read the top of
 deliberately rather than missed — the `let` path is what unblocked Stage 4, and
 the lambda path has no known consumer waiting on it.
 
+### KI-095 — A field predicate whose receiver is bound by a match arm is never determined
+
+**Severity:** Medium · **Area:** Type inference / proposal 0184 · **Verified:** 2026-09-09 · **From:** Proposal 0185 stage 5 (E1)
+
+`r.v` where `r` is bound by a *match arm* pattern reports `E490` even when the
+call site says exactly what the receiver is:
+
+```flux
+data Box { Box { v: Int } }
+
+fn head_v(rs) {
+    match rs {
+        [r | _] -> r.v,
+        _ -> 0
+    }
+}
+
+fn main() with IO { print(head_v([Box { v: 7 }])) }
+```
+```
+error[E490]: Unresolved Field Receiver
+Cannot tell which type this is, so the field `v` cannot be resolved. Inferred receiver: `_`.
+```
+
+The program is unambiguous: `head_v` has one call, at `List<Box>`.
+
+**What separates the working cases from the broken one.** Three neighbouring
+shapes all compile, which is what narrows it:
+
+| receiver | result |
+|---|---|
+| a direct parameter (`fn inner(r) { r.v }`) | works |
+| a direct parameter, self-recursive helper | works |
+| `let (r, _) = pair` destructuring | works |
+| **a match-arm pattern (`[r \| _] -> r.v`)** | **`E490`** |
+
+So it is neither nesting nor recursion. `decide_quantification` pins the
+*receiver's* variable, which stops the binding generalizing over it and is what
+lets a call site determine a direct parameter. A match-arm binding introduces a
+fresh variable for `r` that is related to the scrutinee's element type by the
+match rather than being it, so pinning `r` leaves the scrutinee's variable
+quantified: the call instantiates a copy, `r`'s own variable is determined by
+nothing, and the whole-program discharge reports it.
+
+**Why it was not noticed.** Nothing in `lib/Flow` or the test suite accesses a
+named field through a match-arm binding, so 0184 shipped over it.
+
+**How it surfaced.** Proposal 0185 stage 5 (E1) converts tuple projection onto
+the same predicate, and the standard library *is* full of that shape —
+`Flow.Array`'s `update_many_go` and `accum_go` both match a list of pairs and
+project `p.0` / `p.1`. Applying the field-predicate template to tuples turns
+this latent defect into six errors compiling the standard library, so **E1 is
+blocked on this**: the machinery it copies has a hole that tuples hit
+immediately and records never did.
+
+The reproduction above is on shipped `main`, with no part of E1 applied.
+
 ---
 
 
