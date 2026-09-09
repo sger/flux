@@ -481,9 +481,9 @@ The fix is the one KI-058 used: read the top of
 deliberately rather than missed — the `let` path is what unblocked Stage 4, and
 the lambda path has no known consumer waiting on it.
 
-### KI-095 — A field predicate whose receiver is bound by a match arm is never determined
+### KI-095 — A field predicate whose receiver is bound by a match arm is never determined — FIXED 2026-09-09
 
-**Severity:** Medium · **Area:** Type inference / proposal 0184 · **Verified:** 2026-09-09 · **From:** Proposal 0185 stage 5 (E1)
+**Severity:** Medium · **Area:** Type inference / proposal 0184 · **Verified:** 2026-09-09 · **Fixed:** 2026-09-09 · **From:** Proposal 0185 stage 5 (E1)
 
 `r.v` where `r` is bound by a *match arm* pattern reports `E490` even when the
 call site says exactly what the receiver is:
@@ -537,6 +537,32 @@ blocked on this**: the machinery it copies has a hole that tuples hit
 immediately and records never did.
 
 The reproduction above is on shipped `main`, with no part of E1 applied.
+
+**Cause, and it is not where the pin is.** Two decisions in
+`infer_match_expression` ([control_flow.rs](../src/ast/type_infer/expression/control_flow.rs))
+compound. `propagate_match_scrutinee_constraint` declines to propagate the arms'
+shared pattern family whenever *any* catch-all arm is present, so an unresolved
+scrutinee stays unresolved; `should_isolate_match_arm_scrutinees` then sees a
+scrutinee whose head matches no family and isolates the arms — binding each
+against a fresh variable that, in its own words, "unifies with anything". The
+receiver `r` is therefore related to the scrutinee by nothing, and pinning it
+pins a variable no call site can reach.
+
+**Fix.** Propagate to an *unresolved* scrutinee even with a catch-all present —
+`[r | _]` can only match a list whatever the catch-all covers, so there is
+nothing to contradict — and decide isolation against the propagated scrutinee
+rather than the pre-propagation one. Isolating on the strength of ignorance the
+propagation just removed is what bound the arms to fresh variables. A resolved
+scrutinee keeps the old behaviour exactly, which is what preserves KI-072's
+requirement that a mismatched ADT constructor still be reported.
+
+Pinned by `match_arm_bound_receiver_is_determined_by_its_call_site` and
+`mixed_pattern_families_still_do_not_constrain_one_another` in
+`tests/type_inference/type_inference_tests.rs`. `CACHE_EPOCH` 47 → 48: a binding
+of this shape now infers a type where an epoch-47 compiler reported `E490`.
+
+**This unblocks E1** (0185 stage 5), whose work is on
+`wip/e1-tuple-projection-predicate`.
 
 ---
 
@@ -3281,7 +3307,7 @@ against each other. A fixture now pins it —
 **Fix.** Both passes now call one planner,
 `binding_groups::plan_block`, which groups by **reference** using the
 strongly connected components of the sibling-reference graph
-(`flux_generics::strongly_connected_components`) rather than by adjacency.
+(`crate::shared::scc::strongly_connected_components`) rather than by adjacency.
 Placement still respects evaluation order: a group is emitted at its first
 member, except where a member reads a name bound between the members, in which
 case it moves to the last so that binding exists first. Both adjacency scanners
@@ -3291,6 +3317,23 @@ A second, latent fault was fixed alongside: `lower_scc_group` bound each
 member's name and lowered its body in one pass, so the first body was lowered
 before the later members existed. A recursive group requires every name bound
 before any body.
+
+**Verified when.** Both shapes, not just the one this entry is named after,
+because the regression proved the mutual-recursion case can pass while the
+plainer one fails:
+
+| shape | pinned by |
+|---|---|
+| mutual recursion split by a `let` | `tests/parity/closure_mutual_recursion_split_by_let.flx` |
+| forward reference, no mutual recursion | `test_forward_reference_without_mutual_recursion` |
+| forward reference through a chain | `test_forward_reference_chain` |
+| forward reference over a value binding | `test_forward_reference_over_a_value_binding` |
+| emission order itself | the ordering unit tests in `src/binding_groups.rs` |
+
+The last three run under `cargo run -- --test tests/flux/mutual_recursion.flx`
+and assert output. Treat the parity fixture alone as insufficient evidence
+here: it was green throughout the six sweeps the regression survived
+([KI-062](#ki-062)).
 
 ### KI-086 — A class declared inside a `module` loses its default method bodies
 

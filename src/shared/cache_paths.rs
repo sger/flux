@@ -133,7 +133,13 @@ use sha2::{Digest, Sha256};
 /// lowered to `a` outside `b` and captured b's uninitialised slot — the same
 /// `E1001 ... (got Uninit)` KI-087 was about, for a plainer program. An
 /// epoch-46 artifact holds that miscompiled nesting.
-pub const CACHE_EPOCH: u16 = 47;
+/// Epoch 48: a match whose arms share a pattern family now propagates that
+/// family to an unresolved scrutinee even when a catch-all arm is present, and
+/// decides arm isolation against the result (KI-095). A binding whose receiver
+/// is bound by a match arm therefore infers a type where an epoch-47 compiler
+/// either reported `E490` or inferred a narrower one, so cached interfaces and
+/// bytecode from epoch 47 disagree with what this compiler would produce.
+pub const CACHE_EPOCH: u16 = 48;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
