@@ -2622,3 +2622,61 @@ fn from_list(xs: List<Int>) -> Int {
         result.diagnostics
     );
 }
+
+/// A field predicate whose receiver is bound by a match arm must be determined
+/// by the call site, like one bound as a parameter
+/// (`docs/known_issues.md#ki-095`).
+///
+/// Before the fix a catch-all arm stopped the shared pattern family reaching an
+/// unresolved scrutinee, and the arms were then isolated onto fresh variables
+/// — so `r` was related to nothing the single call could reach, and `r.v` was
+/// reported as `E490` for a program with exactly one call at exactly one type.
+#[test]
+fn match_arm_bound_receiver_is_determined_by_its_call_site() {
+    let source = r#"
+data Box { Box { v: Int } }
+
+fn head_v(rs) {
+    match rs {
+        [r | _] -> r.v,
+        _ -> 0
+    }
+}
+
+fn main() -> Int {
+    head_v([Box { v: 7 }])
+}
+"#;
+    let (result, _program) = infer_program_from_source(source);
+    assert!(
+        result.diagnostics.is_empty(),
+        "a match-arm receiver with one call site should need no annotation, got {:?}",
+        result.diagnostics
+    );
+}
+
+/// The isolation this relaxes exists to keep arms of *different* families from
+/// constraining one another through the shared scrutinee slot, so that must
+/// still hold: `Some` and `Left` arms over an unknown scrutinee have no shared
+/// family, and neither arm may be forced into the other's shape.
+#[test]
+fn mixed_pattern_families_still_do_not_constrain_one_another() {
+    let source = r#"
+fn describe(x) {
+    match x {
+        Some(v) -> v,
+        _ -> 0
+    }
+}
+
+fn main() -> Int {
+    describe(Some(1))
+}
+"#;
+    let (result, _program) = infer_program_from_source(source);
+    assert!(
+        result.diagnostics.is_empty(),
+        "a single-family match with a catch-all should still infer cleanly: {:?}",
+        result.diagnostics
+    );
+}
