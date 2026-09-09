@@ -139,7 +139,13 @@ use sha2::{Digest, Sha256};
 /// is bound by a match arm therefore infers a type where an epoch-47 compiler
 /// either reported `E490` or inferred a narrower one, so cached interfaces and
 /// bytecode from epoch 47 disagree with what this compiler would produce.
-pub const CACHE_EPOCH: u16 = 48;
+/// Epoch 49: a recursive group's predeclared placeholder is now unified with
+/// what the member infers, and a `let` reads the environment's free variables
+/// through the substitution before generalizing (KI-096). A binding that an
+/// epoch-48 compiler either rejected with `E490` or generalized too widely
+/// infers a different — narrower, and correct — type, so cached interfaces
+/// disagree with what this compiler would produce.
+pub const CACHE_EPOCH: u16 = 49;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

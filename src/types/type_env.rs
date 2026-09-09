@@ -194,6 +194,35 @@ impl TypeEnv {
         set
     }
 
+    /// The environment's free variables, seen *through* a substitution.
+    ///
+    /// [`TypeEnv::free_vars`] reads each scheme as stored, which is not the same
+    /// question once unification has been at work. A recursive group's member is
+    /// predeclared as `Scheme::mono(Var(v))`; by the time a sibling's `let` is
+    /// generalized, `v` stands for a whole function type, and the stored form
+    /// reports only `v` itself. The variables inside that function type then
+    /// look free in nothing and get quantified — so the `let` binds a fresh
+    /// variable at every use and its value's type is determined by nothing
+    /// (`docs/known_issues.md#ki-096`).
+    pub fn free_vars_through(&self, subst: &TypeSubst) -> HashSet<TypeVarId> {
+        let mut set = HashSet::new();
+        for stack in self.bindings.values() {
+            if let Some(entry) = stack.last() {
+                for var in entry.scheme.free_vars() {
+                    // Resolve transitively: a substitution entry may itself
+                    // mention variables that have since been bound.
+                    match subst.get(var) {
+                        Some(ty) => set.extend(ty.apply_type_subst(subst).free_vars()),
+                        None => {
+                            set.insert(var);
+                        }
+                    }
+                }
+            }
+        }
+        set
+    }
+
     /// Level-based generalization: quantify all free type variables whose
     /// allocation level is strictly greater than the current environment level.
     ///

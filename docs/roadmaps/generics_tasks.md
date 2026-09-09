@@ -259,16 +259,18 @@ what two of them cost.
       retires `generalize_constrained_vars` is stale — that function no longer
       exists.
 
-      **Moved to 0.0.8, behind B4.** Attempted twice on 2026-09-09 and blocked
-      both times by a pre-existing hole in the machinery it copies, not by
-      anything in the conversion:
+      **Unblocked 2026-09-09.** Attempted twice, blocked both times by a
+      pre-existing hole in the machinery it copies rather than by anything in
+      the conversion — and both are now fixed:
 
       1. [KI-095](../known_issues.md#ki-095) — a receiver bound by a match arm
          was never determined. **Fixed**; that took the stdlib failures from six
          to one.
       2. [KI-096](../known_issues.md#ki-096) — a recursive group's predeclared
          monotype is never unified with what the member infers, so a sibling's
-         projection has no receiver. **Open, and it is B4**, so E1 goes with it.
+         projection has no receiver. **Fixed**, in two parts: the missing
+         unification, and reading the environment through the substitution
+         before a `let` generalizes.
 
       Both reproduce for *record fields* on shipped `main`, with no part of E1
       applied. The pattern is worth stating: field predicates shipped in 0184
@@ -283,7 +285,8 @@ what two of them cost.
       named field that way, so 0184 shipped over it — but `Flow.Array`'s
       `update_many_go` and `accum_go` match a list of pairs and project `p.0`,
       so the tuple version breaks the standard library in six places on its
-      first run — one after KI-095, and that one is KI-096.
+      first run — one after KI-095, and that one was KI-096. With both fixed,
+      re-measuring the branch is the remaining step.
 
       The work is on `wip/e1-tuple-projection-predicate` and is otherwise
       complete: predicate, pinning, discharge, `E491` for a receiver never
