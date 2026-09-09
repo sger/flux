@@ -139,6 +139,8 @@ pub fn decide_quantification(spec: QuantifySpec<'_>) -> Quantified {
         .collect();
 
     // A field predicate never justifies quantification: it *pins* its receiver.
+    // A tuple-projection predicate (`pair.0`, proposal 0185 stage 5) says the
+    // same thing about the same receiver and is pinned for the same reason.
     //
     // `fn label(r) { r.name }` raises `__field.name<R, T>` (proposal 0184).
     // Quantifying `R` would make the binding polymorphic in a receiver whose
@@ -153,7 +155,29 @@ pub fn decide_quantification(spec: QuantifySpec<'_>) -> Quantified {
     // (`discharge_field_predicates`) either determines it from a call site or
     // reports it.
     for constraint in &finalized_constraints {
-        if constraint.origin != WantedClassConstraintOrigin::FieldAccess {
+        if !matches!(
+            constraint.origin,
+            WantedClassConstraintOrigin::FieldAccess
+                | WantedClassConstraintOrigin::TupleProjection { .. }
+        ) {
+            continue;
+        }
+        // Only while the receiver is still *unknown*. The pin exists to stop a
+        // binding generalizing over a receiver nothing can determine; once the
+        // receiver has resolved to a structure it is determined, the predicate
+        // is dischargeable, and pinning only strips that structure's variables
+        // from the quantified set.
+        //
+        // Those variables can belong to an enclosing signature.
+        // `Flow.Array.sort_by<a, b: Ord>` compares `pair.0` in a nested helper;
+        // by the time the predicate floats out to `sort_by`, its receiver has
+        // resolved to `(b, a)`. Pinning it there removed `b`, and `sort_by`'s
+        // own declared `Ord<b>` was then reported as an ambiguity in a
+        // signature that plainly determines it.
+        let Some(receiver) = constraint.type_args.first() else {
+            continue;
+        };
+        if !matches!(receiver, InferType::Var(_)) {
             continue;
         }
         for arg in &constraint.type_args {

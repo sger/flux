@@ -155,9 +155,12 @@ impl<'a> InferCtx<'a> {
             Expression::MemberAccess { object, member, .. } => {
                 self.infer_member_access_expression(expr, object, *member)
             }
-            Expression::TupleFieldAccess { object, index, .. } => {
-                self.infer_tuple_field_access_expression(object, *index)
-            }
+            Expression::TupleFieldAccess {
+                object,
+                index,
+                span,
+                ..
+            } => self.infer_tuple_field_access_expression(object, *index, *span),
             // Effects
             Expression::Perform {
                 effect,
