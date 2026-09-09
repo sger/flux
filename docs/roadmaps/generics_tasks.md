@@ -259,7 +259,8 @@ what two of them cost.
       retires `generalize_constrained_vars` is stale — that function no longer
       exists.
 
-      **Blocked on [KI-095](../known_issues.md#ki-095).** Attempted 2026-09-09.
+      **Unblocked 2026-09-09** — [KI-095](../known_issues.md#ki-095) is fixed;
+      what follows is the record of why E1 stopped. Attempted 2026-09-09.
       The conversion itself is small and works — predicate, pinning, discharge,
       `E491` for a receiver never determined, `E492` for an index past the end
       of the tuple. What it inherits is a hole in what it copies: a predicate
@@ -268,8 +269,10 @@ what two of them cost.
       named field that way, so 0184 shipped over it — but `Flow.Array`'s
       `update_many_go` and `accum_go` match a list of pairs and project `p.0`,
       so the tuple version breaks the standard library in six places on its
-      first run. Fix KI-095 first; the E1 work is on
-      `wip/e1-tuple-projection-predicate` and is otherwise complete.
+      first run. KI-095 is now fixed, so the remaining step is to rebase
+      `wip/e1-tuple-projection-predicate` — which is otherwise complete,
+      including `E491` and `E492` — and re-measure against the standard
+      library.
 - [ ] **E2. Stage 4 — report inferred ambiguity.** 0183's R6b. `Disposition`
       loses `Stuck`; a predicate reaching whole-program scope over an
       unresolved variable is reported with its origin. **Blocked on B2**: the
@@ -304,34 +307,57 @@ what two of them cost.
 
 Runs alongside the others; none of it is optional for a release.
 
-- [ ] **F1. `CACHE_EPOCH`.** Currently 46. R1's fix changes lowering output, and
-      B2 changes inferred schemes — each needs a bump with a one-line reason, or
-      users get silently stale artifacts (D9 is what that looks like). One bump
-      per landing, not one at the end.
-- [ ] **F2. Amend KI-087.** Marked FIXED 2026-09-06; its fix introduced R1. The
-      entry needs the regression recorded and a "verified when" note that
-      covers the forward-reference shape, not just the mutual-recursion one.
+- [x] **F1. `CACHE_EPOCH` — at 48.** Bumped per landing rather than once at the
+      end: 47 for R1's dependency-order emission, **48** for KI-095's match
+      propagation, which changes inferred types and so what a cached interface
+      records. D9's fix (KI-079) deliberately took no bump — adding the compiler
+      build to the key changes every hash, so stale entries stop being *found*
+      rather than being read and mistaken for current; the reasoning is in the
+      KI. B2 will need its own bump in 0.0.8.
+- [x] **F2. Amend KI-087.** Done 2026-09-09. The regression was already
+      recorded in the entry; what it lacked was a *verified when* note, now a
+      table naming what pins each shape — the parity fixture for the
+      mutual-recursion case, three `test_forward_reference_*` cases that run and
+      assert output for the forward-reference one, and the ordering unit tests
+      for emission order — with the warning that the parity fixture alone is
+      insufficient evidence, since it was green throughout the six sweeps the
+      regression survived. Also corrected a stale
+      `flux_generics::strongly_connected_components` path left by the crate
+      fold-back.
 - [ ] **F3. Mark the fixed issues.** *0.0.8.* KI-052, KI-061, KI-082, KI-083 are
       already marked FIXED individually; 0186 claims to have removed the *cause*
       they share. That claim is only true once C6 lands, so it is a 0.0.8 note —
       do not write it in the 0.0.7 release.
-- [ ] **F4. Move the proposals.** 0185 and 0187 can move at 0.0.7 once their
-      tables are all `done` or `withdrawn`. **0186 cannot** — its stage 5 is
-      Track C, which is 0.0.8. Its stage 0e is already marked withdrawn.
-- [ ] **F5. Update `roadmap_to_1_0_0.md`.** Its 0.0.7 entry lists tests, linter
-      and language identity with no generics work at all, and nothing there
-      matches 0.0.8 = type classes. Both entries need rewriting, and whatever
-      0.0.7 displaces has to land somewhere.
-- [ ] **F6. `CLAUDE.md` is untracked** and names paths this branch moved
-      (`src/generics_frontend/`, the extracted crates). Its architecture section
-      and its workspace description are both stale. Decide whether it is
-      tracked, then fix it.
-- [ ] **F8. Amend [0187](../proposals/0187_specialisation.md).** Its "Why this is
-      a separate proposal" section says the cost of landing generalize-by-arity
-      is "16 tests that assert an optimisation still fires". Measured: 4 do. The
-      other 9 are missing or miscounted dictionaries, which specialisation does
-      not touch. Its staging table needs Track C ahead of stage 1, and its open
-      question "where specialisation runs" is answerable now — see B1.
+- [x] **F4. Move the proposals — none of them move at 0.0.7.** Checked
+      2026-09-09; the premise was wrong. **0185** has four stages still open,
+      not zero: stage 3 became Track B, stage 4 is blocked on B2, stage 5 is
+      blocked on [KI-095](../known_issues.md#ki-095) and stage 7 is documentation
+      that must follow stage 4. **0187** has not started — it is 0.0.8 in its
+      entirety. **0186** cannot move for the reason already recorded: its stage 5
+      is Track C. So all three stay in `docs/proposals/`, and the move is a
+      0.0.8 task for whichever of them the type-class work finishes.
+- [x] **F5. Update `roadmap_to_1_0_0.md`.** Done 2026-09-09. Both the release
+      table rows and both prose sections rewritten: 0.0.7 is generics
+      foundations, 0.0.8 is type classes. The displaced work is rehomed rather
+      than dropped — the architecture theme (`0044`, `0085`, `0086`) and the
+      tests/linter/identity theme (`0035`, `0010`, `0025`, `0043`) both move to
+      0.0.9, where the architecture work sits next to the Aether work it was
+      always meant to precede. Each entry says what it displaced.
+- [x] **F6. `CLAUDE.md` — decided: stays untracked.** It was tracked briefly on
+      this branch and that commit was removed on 2026-09-09 at the maintainer's
+      instruction, so the decision the item asked for is made. Its content was
+      corrected for the current tree while it was tracked (the crate fold-back,
+      the two false claims about the docs guard and a `deny` attribute that does
+      not exist), and that corrected copy is what remains on disk. Nothing about
+      the compiler depends on it, so an untracked file is a defensible answer —
+      but note the corollary: it is not reviewed, and it will drift again with
+      no gate to catch it.
+- [x] **F8. Amend [0187](../proposals/0187_specialisation.md).** Done
+      2026-09-09. The 16 became 4, with the other 9 named as dictionary
+      plumbing and the conclusion drawn — specialisation is necessary but not
+      sufficient. Track C is now stage 0 of its table, and "where specialisation
+      runs" is answered in favour of after `dict_elaborate`, with the Stage 0.6
+      placement and the narrow first scope recorded there rather than only here.
 - [ ] **F7. Write the PR description.** `CHANGELOG.md` is assembled from merged
       PRs at release time, so the PR description *is* the changelog entry.
 
@@ -445,11 +471,11 @@ is the opposite of what 0187 assumes.
       already exists and is unrelated — it inlines single-use wrappers — so the
       new pass needs a different name.
 
-      *Exit:* the 4 `DropSpecialized` tests pass with the current
-      generalization rule unchanged.
-      Exit: a constrained helper called only at `Int` lowers to `IAdd` again,
-      **with the current generalization rule unchanged**, and the 16
-      optimisation tests pass untouched.
+      *Exit:* a constrained helper called only at `Int` lowers to `IAdd`
+      again, and the **4** optimisation tests pass untouched, with the current
+      generalization rule unchanged. Four, not sixteen — the other 9 of the 13
+      failures are dictionary plumbing, which Track C fixes and specialisation
+      does not touch (F8).
 
       *Scope it narrowly first:* specialise only a function whose call sites all
       use **one** instance. That is the common case in `lib/Flow/`, it is a
@@ -458,7 +484,7 @@ is the opposite of what 0187 assumes.
 - [ ] **B2. Land generalize-by-arity** — `monomorphism_restriction` by arity in
       `finalize_and_bind_function_scheme`. Two lines; written and reverted in
       `60b3fa39`, so the diff already exists. Depends on B1.
-      Exit: the same 16 tests still pass **without being weakened**.
+      Exit: the same 4 still pass **without being weakened**.
 - [ ] **B3. Bump `CACHE_EPOCH`.** Depends on B2.
 - [ ] **B4. 0186 stage 4's remainder — one quantification decision per
       *group*.** Depends on B2, and only on B2. No failing case exists today:
@@ -469,7 +495,7 @@ is the opposite of what 0187 assumes.
 
 Why this order: B2 alone despecialises every unannotated helper — `IAdd`
 becomes a dictionary call, and `my_filter` goes from `FBIP: fip, FreshAllocs: 0`
-to `fbip(1), FreshAllocs: 1`. Landing it before B1 means dismantling 16 tests
+to `fbip(1), FreshAllocs: 1`. Landing it before B1 means dismantling the 4 tests
 that assert superinstruction fusion, `DropSpecialized` elimination and tail
 calls still fire.
 
