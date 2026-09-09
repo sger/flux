@@ -11,11 +11,31 @@ quantified, over what, and in what order* — binding groups, the monomorphism
 restriction, specialisation. Type classes is *what a call site is handed* —
 evidence, dictionaries, instance selection.
 
-### Generalize-by-arity moved to 0.0.8 — measured, not assumed
+### Generalize-by-arity splits along the constraint boundary
 
-It was the 0.0.7 headline. It is not reachable there, and the reason was
-measured on 2026-09-08 by reapplying the two-line change and reading the
-failures:
+**The unconstrained half is 0.0.7; the constrained half is 0.0.8.** That is the
+same line the release split already draws — generics is which definitions get
+quantified, type classes is what a call site is handed — and it turns out to cut
+generalize-by-arity cleanly in two.
+
+`fn identity(x) { x }` raises no class constraint. There is no dictionary to
+plumb and no specialised arithmetic to lose, so **neither** reason to withhold
+generalization reaches it. `fn double(x) { x + x }` raises `Num`, and both
+reasons apply. Generalizing by arity *and an empty constraint set*
+(`finalize_and_bind_function_scheme`) therefore lands in 0.0.7 on its own:
+
+```flux
+fn identity(x) { x }
+fn main() with IO { print(identity(1)) print(identity("hi")) }   // works
+```
+
+Measured 2026-09-09: 445 tests across twelve suites, no change. The rule cannot
+despecialise anything, because a definition with no constraints had no
+dictionary call to specialise away.
+
+What stays in 0.0.8 is generalizing a *constrained* definition — the case whose
+cost was measured on 2026-09-08 by reapplying the unrestricted two-line change
+and reading the failures:
 
 | what fails | count | fixed by |
 |---|---|---|
@@ -34,6 +54,10 @@ So 0187's premise — that specialisation is what unblocks generalize-by-arity �
 is only a quarter true. **B1 → B2 becomes C → B1 → B2**, and all three are
 0.0.8. 0187 needs amending to say so (F8).
 
+Every one of those 13 failures is a *constrained* definition. None of them is
+reachable by the unconstrained rule above, which is why that half can ship now
+rather than waiting behind the whole of Track C.
+
 The alternative was patching forwarding where it surfaces, without C6's
 deletion. That is what was done for KI-052, KI-061, KI-082, KI-083 and one
 unfiled case — five local fixes to one bug — and it is the pattern 0186 exists
@@ -44,14 +68,19 @@ to stop.
 1. **No known miscompilation** — Track R. **Done**: R1–R7 are all closed.
 2. **The gate can detect a generics regression** — R5 and KI-062. **Done**: a
    fixture declaring `expect: success` must now actually run.
-3. **The remaining generics-side bugs and the release mechanics** — Tracks G, E
+3. **An unannotated definition with no class constraints is generic** — the
+   unconstrained half of generalize-by-arity. **Done** (G5).
+4. **The remaining generics-side bugs and the release mechanics** — Tracks G, E
    and F below. This is what is left.
 
 ### 0.0.8 exit criteria
 
 1. **One evidence-passing translation** — Track C. The six resolution sites are
    deleted, not merely agreeing.
-2. **`fn identity(x) { x }` works at two types** — B1 then B2, on top of C.
+2. **`fn double(x) { x + x }` works at two types** — B1 then B2, on top of C.
+   The *unconstrained* case (`fn identity(x) { x }`) shipped in 0.0.7; what
+   remains here is the constrained one, which is the half that needs both the
+   evidence translation and specialisation.
 3. **No open High-severity type-class bug** — Track D: KI-071, KI-073, KI-076,
    KI-086, KI-090. (KI-091, KI-092 and KI-093 are name resolution, effect rows
    and map member access — they stay in 0.0.7's Track G.)
@@ -235,6 +264,44 @@ reproduced.
       at the use site. The second is a design question. Only
       `type_alias_transparent.flx` exercised any of this and it had never run,
       so the feature was effectively untested.
+
+- [x] **G5. Generalize an unannotated definition that raises no class
+      constraints — DONE 2026-09-09.** The unconstrained half of
+      generalize-by-arity, and the reason it is 0.0.7 work rather than 0.0.8 is
+      in *The split* above: the two things that block the constrained case —
+      dictionary plumbing and lost specialisation — have nothing to act on when
+      there are no constraints.
+
+      In `finalize_and_bind_function_scheme`: generalize when the definition
+      declared type parameters **or** it takes parameters, raised no constraint
+      of its own, and shares no type variable with a still-undischarged field or
+      tuple predicate.
+
+      **The second condition was not in the first version, and the suites did
+      not catch its absence.** Raising no constraint is not enough: a definition
+      that merely *forwards* a value to a constrained one has none of its own,
+      and generalizing it quantifies the variable the callee's pinned receiver
+      is waiting on. `jump_step(axis, ..)` passes `axis` to `jump_step_up`,
+      which projects `axis.1` — four `examples/aoc/2024/day06*` programs broke
+      with `E491` while all 445 tests stayed green. It is the disconnect of
+      [KI-095](../known_issues.md#ki-095) and [KI-096](../known_issues.md#ki-096)
+      by a third route: not a match arm, not a recursive sibling, but a plain
+      forwarding call. Pinning covers the definition that owns a predicate; this
+      covers everyone the receiver passes through on the way there.
+
+      *Measured, differentially:* every `.flx` under `examples/`, `tests/` and
+      `lib/` compiled with `--no-cache` before and after, comparing per-file
+      error codes — **221 failures before, 221 after, the two lists identical**.
+      An absolute count says nothing here, since the corpus contains hundreds of
+      intentional-error fixtures; only the diff does. Plus 426 tests across ten
+      suites. `fn identity(x) { x }` types at `Int` and `String`; annotated
+      generics, constrained generics and two-level dictionary forwarding are
+      unchanged.
+
+      *What it deliberately does not cover:* `fn double(x) { x + x }` (raises
+      `Num`) and `fn fst(p) { p.0 }` (raises a field predicate, which is also a
+      constraint and is *pinned* — a receiver nothing determines must not be
+      quantified). Both wait on B2.
 
 ---
 

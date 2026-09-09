@@ -533,12 +533,27 @@ impl<'a> InferCtx<'a> {
         // unify step of the standard binding-group algorithm.
         self.unify_with_group_predeclaration(name, &fn_ty, fn_span);
 
-        // Generalization is still gated on *written* type parameters. Proposal
-        // 0186 stage 6 replaces this with `monomorphism_restriction` by arity;
-        // it was attempted and reverted, because an unannotated helper then
-        // becomes constrained and the specialised lowering goes with it — see
-        // the stage 6 row in `docs/proposals/0186_generics_foundations.md`.
-        let scheme = if !type_params.is_empty() {
+        // Generalize a definition that declared type parameters, and an
+        // unannotated one that raised **no class constraints**.
+        //
+        // Generalizing by arity alone was attempted and reverted: an
+        // unannotated helper then becomes *constrained*, its specialised
+        // lowering goes with it (`IAdd` becomes a dictionary call), and the
+        // dictionaries it now needs are plumbed by the six re-resolution sites
+        // that 0186 stage 5 exists to replace. Both of those are 0.0.8.
+        //
+        // Neither applies to a definition with no constraints. `fn fst(p)
+        // { p.0 }` has no dictionary to plumb and no specialised arithmetic to
+        // lose, so the reason to withhold generalization does not reach it —
+        // and this is the larger half of the unannotated helpers people write.
+        // `fn double(x) { x + x }` raises `Num` and stays monomorphic until the
+        // evidence translation lands.
+        let unconstrained = self
+            .class_constraints
+            .captured_since(constraint_start)
+            .is_empty()
+            && !self.shares_var_with_pending_field_predicate(&fn_ty);
+        let scheme = if !type_params.is_empty() || (!param_tys.is_empty() && unconstrained) {
             self.finalize_binding_scheme(BindingSchemeSpec {
                 infer_type: &fn_ty,
                 env_free_vars: &self.env.free_vars(),
@@ -554,6 +569,43 @@ impl<'a> InferCtx<'a> {
         self.binding_schemes_by_span
             .insert(binding_span_key(fn_span), scheme.clone());
         self.env.bind_with_span(name, scheme, Some(fn_span));
+    }
+
+    /// Whether `fn_ty` mentions a variable some *undischarged* field or tuple
+    /// predicate is still waiting to have determined.
+    ///
+    /// Raising no constraint of its own is not enough to make a definition safe
+    /// to generalize. A predicate belongs to whichever definition *performed*
+    /// the access, but the receiver often arrives from a caller that merely
+    /// passes it along — `jump_step(axis, ..)` forwards `axis` to
+    /// `jump_step_up`, which projects `axis.1`. Generalizing the forwarder
+    /// quantifies that variable, so every call instantiates a fresh copy and the
+    /// pinned receiver inside the callee is determined by nothing. It is the
+    /// disconnect of `docs/known_issues.md#ki-095` and `#ki-096` arriving by a
+    /// third route, and it cost four `examples/aoc/2024/day06*` programs when
+    /// the rule was first written without this test.
+    ///
+    /// Pinning already covers the definition that owns the predicate. This
+    /// covers everyone the receiver passes through on its way there.
+    fn shares_var_with_pending_field_predicate(&self, fn_ty: &InferType) -> bool {
+        let Some(module) = self.field_predicate_module else {
+            return false;
+        };
+        let own_vars = fn_ty.apply_type_subst(&self.subst).free_vars();
+        if own_vars.is_empty() {
+            return false;
+        }
+        self.class_constraints
+            .simple
+            .iter()
+            .filter(|constraint| constraint.class_id.module == module)
+            .flat_map(|constraint| constraint.type_args.iter())
+            .any(|arg| {
+                arg.apply_type_subst(&self.subst)
+                    .free_vars()
+                    .iter()
+                    .any(|var| own_vars.contains(var))
+            })
     }
 
     /// Unify a finished function type with the placeholder its binding group
