@@ -564,6 +564,67 @@ of this shape now infers a type where an epoch-47 compiler reported `E490`.
 **This unblocks E1** (0185 stage 5), whose work is on
 `wip/e1-tuple-projection-predicate`.
 
+### KI-096 — A recursive group's predeclared monotype is never unified with what the member infers
+
+**Severity:** Medium · **Area:** Type inference / binding groups · **Verified:** 2026-09-09 · **From:** Proposal 0185 stage 5 (E1), second attempt
+
+A member of a mutually recursive group is predeclared at `Scheme::mono(v)` so
+its siblings can refer to it. When that member is then inferred, its result is
+**bound over the top of `v`** rather than unified with it, so `v` stays an
+unconstrained variable — and any sibling that had already referred to the member
+holds a type nothing will ever resolve.
+
+Ordinary uses survive this, because a call unifies argument and result types at
+the call site. A *projection* does not: it needs the receiver's type to be
+known, so it is where the missing connection becomes visible.
+
+```flux
+data Pair { Pair { a: Int, b: Int } }
+
+fn go(n, acc) {
+    if n <= 0 { Pair { a: acc, b: 0 } }
+    else {
+        let r = step(n)
+        go(n - 1, acc + r.a)
+    }
+}
+
+fn step(n) { go(n - 1, 0) }
+
+fn main() with IO { print(go(3, 0).a) }
+```
+```
+error[E490]: Unresolved Field Receiver
+Cannot tell which type this is, so the field `a` cannot be resolved. Inferred receiver: `_`.
+```
+
+Note `main`'s own `go(3, 0).a` resolves. Only the *within-group* reference fails,
+which is what points at the predeclared slot rather than at `go`'s type.
+
+**Cause.** `finalize_and_bind_function_scheme`
+([function.rs](../src/ast/type_infer/function.rs)) builds `fn_ty` from the
+inferred parameter and return types and calls `env.bind_with_span` — it never
+unifies `fn_ty` with the monotype `infer_binding_group` predeclared. The
+standard binding-group algorithm is *bind at a monotype, infer the bodies,
+**unify**, then generalize the group*; the unify step is missing, so the
+monotype and the inferred type are two unrelated things.
+
+Adding a complete signature to both functions fixes it, because
+`declared_fn_scheme` then predeclares the real type instead of a fresh variable.
+
+**Scope.** This is [B4](roadmaps/generics_tasks.md) — one quantification
+decision per *group* — and belongs with it in 0.0.8. It is not a safe local
+patch: making the unification happen changes what every recursive group
+generalizes.
+
+**It also blocks E1 a second time.** 0185 stage 5 converts tuple projection onto
+the same predicate, so `r.0` in this shape becomes `E491` where it used to
+compile — `examples/aoc/2025/aoc_day11_haskell_style.flx` is exactly this
+program. It compiled before only because the old code unified an unresolved
+receiver with a *guessed* tuple shape, which is to say it was typed by luck
+rather than by inference. Both of E1's blockers ([KI-095](#ki-095) and this) are
+pre-existing holes in what it copies, not defects in the conversion.
+
 ---
 
 

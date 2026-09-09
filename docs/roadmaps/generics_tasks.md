@@ -259,8 +259,22 @@ what two of them cost.
       retires `generalize_constrained_vars` is stale — that function no longer
       exists.
 
-      **Unblocked 2026-09-09** — [KI-095](../known_issues.md#ki-095) is fixed;
-      what follows is the record of why E1 stopped. Attempted 2026-09-09.
+      **Moved to 0.0.8, behind B4.** Attempted twice on 2026-09-09 and blocked
+      both times by a pre-existing hole in the machinery it copies, not by
+      anything in the conversion:
+
+      1. [KI-095](../known_issues.md#ki-095) — a receiver bound by a match arm
+         was never determined. **Fixed**; that took the stdlib failures from six
+         to one.
+      2. [KI-096](../known_issues.md#ki-096) — a recursive group's predeclared
+         monotype is never unified with what the member infers, so a sibling's
+         projection has no receiver. **Open, and it is B4**, so E1 goes with it.
+
+      Both reproduce for *record fields* on shipped `main`, with no part of E1
+      applied. The pattern is worth stating: field predicates shipped in 0184
+      with two shapes that cannot be determined, and no stdlib or test code hit
+      either. Tuples hit both immediately, because tuple projection is common
+      where named-field access is not. E1 is the instrument that found them.
       The conversion itself is small and works — predicate, pinning, discharge,
       `E491` for a receiver never determined, `E492` for an index past the end
       of the tuple. What it inherits is a hole in what it copies: a predicate
@@ -269,10 +283,17 @@ what two of them cost.
       named field that way, so 0184 shipped over it — but `Flow.Array`'s
       `update_many_go` and `accum_go` match a list of pairs and project `p.0`,
       so the tuple version breaks the standard library in six places on its
-      first run. KI-095 is now fixed, so the remaining step is to rebase
-      `wip/e1-tuple-projection-predicate` — which is otherwise complete,
-      including `E491` and `E492` — and re-measure against the standard
-      library.
+      first run — one after KI-095, and that one is KI-096.
+
+      The work is on `wip/e1-tuple-projection-predicate` and is otherwise
+      complete: predicate, pinning, discharge, `E491` for a receiver never
+      determined, `E492` for an index past the end of the tuple. One refinement
+      came out of the second attempt and is worth keeping whichever way E1
+      goes — the pin in `decide_quantification` now applies only while the
+      receiver is still an unresolved variable. Pinning a receiver that has
+      already resolved to a structure strips *that structure's* variables, which
+      is how `Flow.Array.sort_by<a, b: Ord>` came to report its own declared
+      `Ord<b>` as an ambiguity.
 - [ ] **E2. Stage 4 — report inferred ambiguity.** 0183's R6b. `Disposition`
       loses `Stuck`; a predicate reaching whole-program scope over an
       unresolved variable is reported with its origin. **Blocked on B2**: the
