@@ -810,7 +810,7 @@ pub fn load_cached_interface(
     let primary_path = interface_path(cache_root, source_path);
     if primary_path.exists() {
         let interface = load_interface(&primary_path).ok_or(InterfaceLoadError::InvalidJson)?;
-        if interface.compiler_version != env!("CARGO_PKG_VERSION") {
+        if interface.compiler_version != crate::shared::cache_paths::compiler_build_id() {
             return Err(InterfaceLoadError::CompilerVersionMismatch);
         }
         if interface.cache_format_version != MODULE_INTERFACE_FORMAT_VERSION {
@@ -829,7 +829,7 @@ pub fn dependency_fingerprints_match(interface: &ModuleInterface, cache_root: &P
             return false;
         };
 
-        current.compiler_version == env!("CARGO_PKG_VERSION")
+        current.compiler_version == crate::shared::cache_paths::compiler_build_id()
             && current.cache_format_version == MODULE_INTERFACE_FORMAT_VERSION
             && current.interface_fingerprint == dependency.interface_fingerprint
     })
@@ -844,7 +844,7 @@ pub fn load_valid_interface(
 ) -> Result<ModuleInterface, InterfaceLoadError> {
     let interface = load_cached_interface(cache_root, source_path)?;
 
-    if interface.compiler_version != env!("CARGO_PKG_VERSION") {
+    if interface.compiler_version != crate::shared::cache_paths::compiler_build_id() {
         return Err(InterfaceLoadError::CompilerVersionMismatch);
     }
 
@@ -870,7 +870,7 @@ pub fn load_valid_interface(
                 reason: DependencyMissReason::InterfaceMissing,
             });
         };
-        if current.compiler_version != env!("CARGO_PKG_VERSION") {
+        if current.compiler_version != crate::shared::cache_paths::compiler_build_id() {
             return Err(InterfaceLoadError::DependencyFingerprintMismatch {
                 module_name: dependency.module_name.clone(),
                 source_path: dependency.source_path.clone(),
@@ -1192,7 +1192,7 @@ mod tests {
         let interface = ModuleInterface {
             module_name: "TestMod".to_string(),
             source_hash: "abc123".to_string(),
-            compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+            compiler_version: crate::shared::cache_paths::compiler_build_id().to_string(),
             cache_format_version: MODULE_INTERFACE_FORMAT_VERSION,
             semantic_config_hash: "config".to_string(),
             interface_fingerprint: "abi".to_string(),

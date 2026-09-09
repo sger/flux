@@ -52,7 +52,11 @@ pub(crate) fn unit_hash(
     let mut hasher = Sha256::new();
     feed(&mut hasher, "format", &cache_paths::CACHE_EPOCH.to_string());
     feed(&mut hasher, "compiler-abi", COMPILER_ABI);
-    feed(&mut hasher, "compiler-version", env!("CARGO_PKG_VERSION"));
+    feed(
+        &mut hasher,
+        "compiler-version",
+        cache_paths::compiler_build_id(),
+    );
     feed(&mut hasher, "backend", backend_name(backend));
     feed(&mut hasher, "package", &package);
     feed(&mut hasher, "relative-source", &relative);

@@ -466,14 +466,19 @@ mod tests {
             .store(
                 &source_path,
                 &cache_key,
-                env!("CARGO_PKG_VERSION"),
+                crate::shared::cache_paths::compiler_build_id(),
                 &payload,
                 &[],
             )
             .unwrap();
 
         let loaded = cache
-            .load(&source_path, &cache_key, env!("CARGO_PKG_VERSION"), &dir)
+            .load(
+                &source_path,
+                &cache_key,
+                crate::shared::cache_paths::compiler_build_id(),
+                &dir,
+            )
             .expect("expected module cache hit");
 
         assert_eq!(loaded, payload);
@@ -511,7 +516,7 @@ mod tests {
             .store(
                 source_path,
                 &cache_key,
-                env!("CARGO_PKG_VERSION"),
+                crate::shared::cache_paths::compiler_build_id(),
                 &bytecode,
                 &[(
                     dep_path.to_string_lossy().to_string(),
@@ -524,7 +529,7 @@ mod tests {
             .inspect(
                 source_path,
                 &cache_key,
-                env!("CARGO_PKG_VERSION"),
+                crate::shared::cache_paths::compiler_build_id(),
                 &cache_root,
             )
             .expect("inspect");
@@ -561,7 +566,7 @@ mod tests {
             .store(
                 &source_path,
                 &cache_key,
-                env!("CARGO_PKG_VERSION"),
+                crate::shared::cache_paths::compiler_build_id(),
                 &payload,
                 &[(
                     dep_source.to_string_lossy().to_string(),
@@ -570,11 +575,21 @@ mod tests {
             )
             .unwrap();
 
-        let loaded = cache.load(&source_path, &cache_key, env!("CARGO_PKG_VERSION"), &dir);
+        let loaded = cache.load(
+            &source_path,
+            &cache_key,
+            crate::shared::cache_paths::compiler_build_id(),
+            &dir,
+        );
         assert!(loaded.is_none());
 
         let reason = cache
-            .load_failure_reason(&source_path, &cache_key, env!("CARGO_PKG_VERSION"), &dir)
+            .load_failure_reason(
+                &source_path,
+                &cache_key,
+                crate::shared::cache_paths::compiler_build_id(),
+                &dir,
+            )
             .expect("expected cache miss reason");
         assert!(
             reason.contains("dependency mismatch"),
@@ -618,14 +633,19 @@ mod tests {
             .store(
                 &source_path,
                 &cache_key,
-                env!("CARGO_PKG_VERSION"),
+                crate::shared::cache_paths::compiler_build_id(),
                 &payload,
                 &[],
             )
             .expect("store");
 
         let loaded = cache
-            .load(&source_path, &cache_key, env!("CARGO_PKG_VERSION"), &dir)
+            .load(
+                &source_path,
+                &cache_key,
+                crate::shared::cache_paths::compiler_build_id(),
+                &dir,
+            )
             .expect("expected module cache hit");
 
         assert_eq!(loaded, payload);

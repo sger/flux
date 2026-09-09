@@ -263,7 +263,7 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
                 .load(
                     &node.path,
                     &module_cache_key,
-                    env!("CARGO_PKG_VERSION"),
+                    crate::shared::cache_paths::compiler_build_id(),
                     request.cache.cache_layout.root(),
                 )
                 .is_some();
@@ -275,7 +275,7 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
                 .load(
                     &node.path,
                     &module_cache_key,
-                    env!("CARGO_PKG_VERSION"),
+                    crate::shared::cache_paths::compiler_build_id(),
                     request.cache.cache_layout.root(),
                 )
                 .is_some();
@@ -300,7 +300,7 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
                 && let Some(cached) = module_cache.load(
                     &node.path,
                     &module_cache_key,
-                    env!("CARGO_PKG_VERSION"),
+                    crate::shared::cache_paths::compiler_build_id(),
                     request.cache.cache_layout.root(),
                 )
             {
@@ -341,7 +341,7 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
                     .load_failure_reason(
                         &node.path,
                         &module_cache_key,
-                        env!("CARGO_PKG_VERSION"),
+                        crate::shared::cache_paths::compiler_build_id(),
                         request.cache.cache_layout.root(),
                     )
                     .unwrap_or_else(|| "not eligible".to_string());
@@ -420,7 +420,7 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
             if let Err(e) = module_cache.store(
                 &node.path,
                 &module_cache_key,
-                env!("CARGO_PKG_VERSION"),
+                crate::shared::cache_paths::compiler_build_id(),
                 &cached_module,
                 &module_deps,
             ) && request.runtime.verbose

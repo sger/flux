@@ -4,6 +4,13 @@
 //! fingerprint unchanged) and public changes invalidate them (interface
 //! fingerprint changed).
 
+use std::path::Path;
+use std::process::Command;
+
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 use flux::{
     bytecode::bytecode_cache::hash_bytes,
     compiler::{Compiler, module_interface},
@@ -202,5 +209,51 @@ fn private_helper_added_preserves_interface_fingerprint() {
     assert_eq!(
         iface1.interface_fingerprint, iface2.interface_fingerprint,
         "adding a private helper should not change interface fingerprint"
+    );
+}
+
+/// A cache entry written by one build of the compiler must not be reused by a
+/// different build of the same version — see `docs/known_issues.md#ki-079`.
+///
+/// `FLUX_BUILD_ID` stands in for the executable fingerprint the compiler
+/// normally derives from its own binary: a test cannot rebuild the compiler,
+/// but pinning the identity exercises the same key.
+#[test]
+fn a_different_compiler_build_does_not_reuse_cached_modules() {
+    let scratch = Scratch::new("ki079-build-id");
+    let program = scratch.write("main.flx", "fn main() with IO { print(\"hi\") }\n");
+    let home = scratch.join("flux-home");
+
+    let run = |build_id: &str| -> String {
+        let output = Command::new(Path::new(env!("CARGO_BIN_EXE_flux")))
+            .arg(&program)
+            .args(scratch.cache_args())
+            .env("FLUX_BUILD_ID", build_id)
+            .env("FLUX_HOME", &home)
+            .output()
+            .expect("run flux");
+        assert!(
+            output.status.success(),
+            "flux failed under build {build_id}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+    };
+
+    run("build-a");
+    let warm = run("build-a");
+    assert!(
+        warm.contains("Cached     main"),
+        "the same build should reuse its own cache, got:\n{warm}"
+    );
+
+    let other_build = run("build-b");
+    assert!(
+        other_build.contains("Compiling  main"),
+        "a different build must recompile rather than reuse, got:\n{other_build}"
     );
 }
