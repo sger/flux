@@ -90,6 +90,9 @@ impl Compiler {
             );
             outcome.trace_stuck(&self.interner);
             self.evidence_map = harvest_evidence(&outcome);
+            if std::env::var("FLUX_DBG_EVIDENCE").is_ok() {
+                self.dump_evidence_map();
+            }
             let mut solver_diags: Vec<_> = outcome.into_diagnostics().collect();
             tag_diagnostics(&mut solver_diags, DiagnosticPhase::TypeInference);
             hm_diagnostics.extend(solver_diags);
@@ -178,6 +181,51 @@ fn harvest_evidence(
         map.insert(EvidenceSite::new(expr, position), evidence.clone());
     }
     map
+}
+
+impl crate::compiler::Compiler {
+    /// Dump the solver's evidence, one line per site, to stderr.
+    ///
+    /// Enabled by `FLUX_DBG_EVIDENCE`. This is the instrument for 0186 stage 5:
+    /// the emitter reads exactly this map, so when a call site gets the wrong
+    /// dictionary the first question is whether the solver recorded the wrong
+    /// evidence or the emitter mistranslated right evidence, and these lines
+    /// answer it directly.
+    pub(in crate::compiler) fn dump_evidence_map(&self) {
+        use crate::types::class_disposition::Evidence;
+        eprintln!(
+            "EVIDENCE for {}: {} entries",
+            self.file_path,
+            self.evidence_map.len()
+        );
+        for (site, evidence) in self.evidence_map.entries() {
+            let kind = match evidence {
+                Evidence::FromInstance {
+                    instance, context, ..
+                } => format!(
+                    "FromInstance dict={:?} ctx={}",
+                    instance
+                        .dict_name(&self.interner)
+                        .map(|n| self.interner.resolve(n).to_string()),
+                    context.len()
+                ),
+                Evidence::FromGiven {
+                    given,
+                    superclass_path,
+                } => {
+                    format!(
+                        "FromGiven class={} path={:?}",
+                        self.interner.resolve(given.class_name),
+                        superclass_path
+                    )
+                }
+                Evidence::Structural { .. } => "Structural".to_string(),
+                Evidence::Marker => "Marker".to_string(),
+                Evidence::Unrecorded => "Unrecorded".to_string(),
+            };
+            eprintln!("  site expr={:?} idx={} -> {}", site.expr, site.index, kind);
+        }
+    }
 }
 
 #[cfg(test)]

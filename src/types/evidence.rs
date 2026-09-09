@@ -110,6 +110,11 @@ impl EvidenceMap {
         out.into_iter()
     }
 
+    /// Every recorded site and its evidence. Iteration order is unspecified.
+    pub fn entries(&self) -> impl Iterator<Item = (&EvidenceSite, &Evidence)> {
+        self.by_site.iter()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.by_site.is_empty()
     }
