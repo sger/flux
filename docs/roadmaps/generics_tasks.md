@@ -485,8 +485,14 @@ Runs alongside the others; none of it is optional for a release.
       sufficient. Track C is now stage 0 of its table, and "where specialisation
       runs" is answered in favour of after `dict_elaborate`, with the Stage 0.6
       placement and the narrow first scope recorded there rather than only here.
-- [ ] **F7. Write the PR description.** `CHANGELOG.md` is assembled from merged
-      PRs at release time, so the PR description *is* the changelog entry.
+- [x] **F7. Write the PR description — DONE 2026-09-09.** `CHANGELOG.md` is
+      assembled from merged PRs at release time, so the PR description *is* the
+      changelog entry. Written against the branch as it stands: G5 and 0185
+      stage 5 as the features, the eight fixes, the epoch 47 → 52 run, and an
+      explicit section on what the validation does *not* establish (KI-062, and
+      that a sweep sees outcomes rather than precision). Paste it into the PR;
+      it is deliberately not a tracked file, since the PR body is where the
+      release assembles it from.
 
 ---
 
