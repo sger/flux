@@ -3296,6 +3296,45 @@ fn outer() -> String {
 error[E1000]: wrong number of arguments: want=2, got=1
 ```
 
+**Diagnosed 2026-09-09; the fix is larger than the entry assumed.** Core is
+correct — `--dump-core` shows `letrec helper = (λs. Add(s, "!"))` inside
+`outer` — and so is `compile_function_statement`, which already creates a fresh
+local binding for a nested definition that shadows an outer one.
+
+The defect is in `IrExpr::MakeClosure`
+([cfg_bytecode.rs](../src/compiler/cfg_bytecode.rs)), which resolved
+`FunctionId → Symbol → Binding` and emitted `fn_binding.index`. That is wrong
+twice over:
+
+- A binding index is a global or local **slot**; `OpClosure` takes a **constant**
+  index. They are different numbering spaces that happen to be small integers.
+- A **name** cannot tell a nested definition from a top-level one that shares
+  it. The IR knows exactly which function it means — it holds a `FunctionId` —
+  and the lookup discards that.
+
+*The path is otherwise unreached.* Instrumented across 60 programs in
+`examples/guide` and `tests/parity`: **zero** emit a `MakeClosure` that resolves.
+Every other program that reaches this arm fails the lookup, and the caller rolls
+the scope and constant table back and recompiles the body on the AST path, which
+is correct. So the old code only ever *succeeded* when a shadowed name made it
+find the wrong function — the miscompiling case is the only case.
+
+*Fixing the lookup is necessary and not sufficient.* Recording
+`FunctionId → constant index` when a function is compiled, and failing the arm
+when there is no entry (so the existing rollback runs), removes the arity error:
+the nested function is compiled, gets its own constant, and `outer` emits
+`OpClosure 3` at it. The dumped bytecode is then correct in every respect.
+**The program still returns the wrong value** — `""hi""` for the program above,
+with the `!` never appended — so a second defect lies beyond this one, and the
+`bytecode` subcommand and the runner disagree about what they compile. That is
+the *two paths reach bytecode* split again, and it is why this belongs with
+Track C (0186 stage 5) rather than being patched here: E3's unanswered question
+is exactly "can the AST bytecode fallback be retired?".
+
+Trading a loud `E1000` for a silent wrong answer is worse than the bug, so the
+partial fix is **not** on the release branch. It is on
+`wip/ki-088-makeclosure-constant` with this reasoning in its comments.
+
 Core lowering is correct — `--dump-core` shows `letrec helper = (λs. s)` inside
 `outer`, calling itself. The AST bytecode path is not: `outer` compiles to
 `OpClosure 0 0`, and constant 0 is the *top-level* `helper`'s compiled function,
