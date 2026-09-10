@@ -512,6 +512,20 @@ I use `cargo build` and `cargo test --no-run` for compile correctness only.
   while a three-line program miscompiled. Parity could not catch it for the
   reason in KI-062, and no unit test asserted `LetRec` nesting. Treat a green
   gate on this branch as necessary, not sufficient, until R5 lands.
+- **`aether_cli_snapshots` is the only thing that shows *precision*.** A
+  despecialised program compiles, runs, and gives the right answer, so neither
+  parity nor a compile-and-run corpus sweep can see it — a sweep reports
+  *outcomes*, and precision is not one. This suite captures `--dump-core` and
+  `--dump-aether`, where a lost `:Int` on a binder is visible as a lost `:Int`.
+  Run it after **any** change to inference, generalization or lowering.
+
+  It was not run during the 0.0.7 generics work, and three separate regressions
+  hid behind that: KI-095's snapshots were never updated (7 tests, red for
+  fourteen commits), G5 despecialised nine more, and the corpus sweep reported
+  a confident *zero regressions* for both because it is blind to this by
+  construction. Choosing test binaries by topic is what failed — a suite named
+  for Aether does not sound related to type inference, and it is the one that
+  matters most.
 - Diagnostics changes need `--no-cache` to verify: a warm cache masks them.
 
 ---
@@ -586,34 +600,57 @@ the measurement in *The split* shows 9 of the 13 tests it breaks are dictionary
 plumbing that only Track C fixes — B1 addresses 4. **C must land first**, which
 is the opposite of what 0187 assumes.
 
-- [ ] **B1. Specialisation pass over `core/`** — clone a constrained function at
-      each concrete instantiation and rewrite that call site to the clone.
+- [x] **B1. Specialise a generalized definition at its single concrete
+      instantiation — DONE 2026-09-10.** `4f45fb70`.
 
-      *Where it goes, answered:* `elaborate_dictionaries` runs whole-program at
-      Stage 0.5 in `run_core_passes_with_class_env`, before the per-def
-      simplification loop and before `promote_builtins`. A specialisation pass
-      slots in at Stage 0.6 — clone on a known-global dictionary argument,
-      rewrite the call — and `promote_builtins` then sees a monomorphic body and
-      can emit `IAdd` again. It must be **whole-program**: the simplification
-      loop is `for def in &mut program.defs`, and specialisation rewrites call
-      sites in *other* defs. It must also satisfy `verify_aether_contract_stage`
-      and `core_lint_stage`.
+      **This entry previously described a different pass, and the difference is
+      the finding.** It said: a `core/` pass at Stage 0.6, cloning on a
+      known-global *dictionary argument*. That cannot fix what needed fixing.
 
-      This answers 0187's open question in favour of "after `dict_elaborate`"
-      rather than "on the solver's evidence". Note `src/core/passes/specialize.rs`
-      already exists and is unrelated — it inlines single-use wrappers — so the
-      new pass needs a different name.
+      G5 introduced a **second** kind of despecialisation this list did not
+      anticipate. The four optimisation tests it broke are class-free —
+      `fn copy_head(xs) { match xs { [h | t] -> [h | [h | t]], _ -> [] } }` has
+      no dictionary to clone on. Generalizing it replaces a concrete parameter
+      type with a variable, and a variable has no `FluxRep`, so `IntRep` is lost
+      and Aether must emit a `DropSpecialized` it had proved unnecessary. The
+      constrained kind (`IAdd` → dictionary call) is real too, but it is B2's,
+      and F8's "16 became 4" measured both at once because full
+      generalize-by-arity triggers both.
 
-      *Exit:* a constrained helper called only at `Int` lowers to `IAdd`
-      again, and the **4** optimisation tests pass untouched, with the current
-      generalization rule unchanged. Four, not sixteen — the other 9 of the 13
-      failures are dictionary plumbing, which Track C fixes and specialisation
-      does not touch (F8).
+      **And it cannot live at Stage 0.6.** A `core/` pass cannot see a call
+      site's instantiation: `CoreExpr` carries no `ExprId` and a `CoreBinder`
+      carries only a `FluxRep`. The type is in `hm_expr_types`, which is live
+      during AST → Core lowering and gone afterwards — the same constraint that
+      puts C5's emitter at lowering rather than inside `dict_elaborate`.
 
-      *Scope it narrowly first:* specialise only a function whose call sites all
-      use **one** instance. That is the common case in `lib/Flow/`, it is a
-      fraction of general monomorphisation, and it is very likely enough to
-      satisfy all 16 tests. Widen only if it is not.
+      What landed: during lowering, a definition whose call sites all agree on
+      one fully concrete instantiation has its body lowered under that
+      substitution. **In place — no clone, no call-site rewriting, no arity
+      change**, so none of the `verify_aether_contract_stage` /
+      `core_lint_stage` risk a cloning pass carries.
+
+      Three things that had to be right:
+
+      - **Self-calls are not instantiations.** A recursive occurrence is at the
+        definition's own type by construction; counting it excludes every
+        recursive function, which is half the failing tests.
+      - **No `TypeEnv` dependency.** The first version read the function's
+        scheme, which works in the compiler and does nothing under
+        `lower_program_ast` (`type_env: None`) — the optimisation would have
+        silently not happened on any path without a scheme table. The generic
+        side is now recovered from parameter occurrences in the body.
+      - **Constrained functions are excluded.** Specialising one rewrites the
+        body types that several sites read to decide which instance a method
+        call means, while its dictionaries stay positional and fixed by its
+        signature. Verified failure: `result_directed_two_dictionaries.flx`
+        prints `7` for a `String`. That is a *sixth* instance of the
+        re-derivation family in `CLAUDE.md`, produced while fixing the fifth.
+
+      *Exit:* the 4 optimisation tests pass untouched, the generalization rule
+      unchanged. **Remainder: [KI-098](../known_issues.md#ki-098)** — a
+      definition used at *two* types is still despecialised. Cloning is owed to
+      B2, where it is the common case rather than seven sites.
+
 - [ ] **B2. Land generalize-by-arity** — `monomorphism_restriction` by arity in
       `finalize_and_bind_function_scheme`. Two lines; written and reverted in
       `60b3fa39`, so the diff already exists. Depends on B1.
