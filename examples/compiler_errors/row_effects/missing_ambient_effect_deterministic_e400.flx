@@ -1,5 +1,5 @@
 // expect: compile_error
-// expect-error: E422
+// expect-error: E400
 
 fn call_requires_io_time(f: (() -> Int with Time, IO)) -> Int with Time, IO {
     f()

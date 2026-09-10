@@ -383,6 +383,30 @@ fn collect_scheme_constraints(
             continue;
         }
 
+        // A field or tuple-projection predicate whose receiver has already
+        // resolved to a structure is discharged where it was raised. The pin
+        // above exists for the opposite case — a receiver nothing here can
+        // determine — and such a predicate never reaches this loop, because
+        // pinning took its variables out of `quantified`.
+        //
+        // Retaining a determined one is not merely redundant, it loses the
+        // access: a `SchemeConstraint` carries the class and its type
+        // arguments, and `TupleProjection`'s index lives in the *origin*, so
+        // `emit_scheme_constraints` re-raises `pair.0` at each call site as a
+        // bare `SchemeUse` and the whole-program solve then looks for a field
+        // literally named `__tuple` — E490 at every caller of
+        // `Flow.Array.update_many`. Leaving it off the scheme keeps it in this
+        // binding's wanted set, where `discharge_field_predicates` resolves it
+        // against the receiver it already has.
+        if matches!(
+            constraint.origin,
+            WantedClassConstraintOrigin::FieldAccess
+                | WantedClassConstraintOrigin::TupleProjection { .. }
+        ) && !matches!(constraint.type_args.first(), Some(InferType::Var(_)))
+        {
+            continue;
+        }
+
         let candidate = SchemeConstraint {
             class_name: constraint.class_name,
             class_id: constraint.class_id,

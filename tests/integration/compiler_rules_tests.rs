@@ -2429,9 +2429,12 @@ fn effect_row_subset_missing_list_is_sorted() {
         "expected E422 for ordered missing-list fixture, got:\n{}",
         rendered
     );
+    // `IO` and `Time` are effect aliases, so the row solver reports their
+    // atoms rather than the alias names (KI-094). The list is still sorted,
+    // which is what this test is about.
     assert!(
-        rendered.contains("IO, Time"),
-        "expected sorted missing effects list (`IO, Time`), got:\n{}",
+        rendered.contains("Clock, Console, Env, FileSystem, Process, Stdin"),
+        "expected sorted missing effects list (the atoms of `IO, Time`), got:\n{}",
         rendered
     );
 }

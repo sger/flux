@@ -1,3 +1,5 @@
+import Flow.Array as Array
+
 fn main() with IO, Time {
     let x = 5;
     let y = x + 10;
@@ -29,7 +31,7 @@ fn main() with IO, Time {
     }
 
     // In a real implementation, you'd use map here
-    let first_number = match first(numbers) {
+    let first_number = match Array.first(numbers) {
         Some(v) -> v,
         _ -> 0,
     };
