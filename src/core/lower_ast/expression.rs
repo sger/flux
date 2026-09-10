@@ -349,7 +349,7 @@ impl<'a> super::AstLowerer<'a> {
                 id,
             } => {
                 // Look up the scrutinee's HM-inferred type for typed pattern binders.
-                let scrutinee_ty = self.hm_expr_types.get(&scrutinee.expr_id()).cloned();
+                let scrutinee_ty = self.hm_type(scrutinee.expr_id());
                 let scrut = self.lower_expr(scrutinee);
                 let alts: Vec<CoreAlt> = arms
                     .iter()
@@ -499,9 +499,11 @@ impl<'a> super::AstLowerer<'a> {
         // Under gradual typing, a type mismatch (e.g. 1 + None) may infer the
         // result as Int while one operand is unresolved/None — emitting IAdd would skip
         // the runtime type check and produce garbage.
-        let result_ty = self.hm_expr_types.get(&id);
-        let left_ty = self.hm_expr_types.get(&left.expr_id());
-        let right_ty = self.hm_expr_types.get(&right.expr_id());
+        let result_ty = self.hm_type(id);
+        let left_ty = self.hm_type(left.expr_id());
+        let right_ty = self.hm_type(right.expr_id());
+        let (result_ty, left_ty, right_ty) =
+            (result_ty.as_ref(), left_ty.as_ref(), right_ty.as_ref());
         let is_int = matches!(result_ty, Some(InferType::Con(TypeConstructor::Int)))
             && matches!(left_ty, Some(InferType::Con(TypeConstructor::Int)))
             && matches!(right_ty, Some(InferType::Con(TypeConstructor::Int)));
@@ -682,7 +684,7 @@ impl<'a> super::AstLowerer<'a> {
         if let Expression::NamedConstructor { name, .. } = base {
             return Some(*name);
         }
-        let base_ty = self.hm_expr_types.get(&base.expr_id())?;
+        let base_ty = &self.hm_type(base.expr_id())?;
         let adt_name = match base_ty {
             InferType::Con(TypeConstructor::Adt(n)) => *n,
             InferType::App(TypeConstructor::Adt(n), _) => *n,
@@ -755,7 +757,7 @@ impl<'a> super::AstLowerer<'a> {
         member: Identifier,
         span: Span,
     ) -> Option<CoreExpr> {
-        let object_ty = self.hm_expr_types.get(&object.expr_id())?;
+        let object_ty = &self.hm_type(object.expr_id())?;
         let adt_name = match object_ty {
             InferType::Con(TypeConstructor::Adt(n)) => *n,
             InferType::App(TypeConstructor::Adt(n), _) => *n,
