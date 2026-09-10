@@ -739,6 +739,26 @@ fn build_caller_dict_map(
     map
 }
 
+/// Whether `arg` is already a dictionary being passed to a constrained call.
+///
+/// Two shapes count. A context-free instance passes its dictionary global
+/// directly, as a `Var`. A *contextual* one — `Num Int`, whose dictionary is a
+/// lambda over `Add Int` — passes that global applied to its context, so the
+/// argument is an `App` whose head is the dictionary. `CoreExpr::dictionary_ref`
+/// builds both, and this recognises both.
+///
+/// Missing the applied shape means a site that already has its dictionaries
+/// gets a second set prepended, which is a call with the wrong arity that still
+/// type-checks. That matters now that 0186 stage 5 fills some sites during
+/// AST → Core lowering, before this pass runs.
+fn is_dictionary_argument(arg: &CoreExpr, interner: &Interner) -> bool {
+    match arg {
+        CoreExpr::Var { var, .. } => interner.resolve(var.name).starts_with("__dict_"),
+        CoreExpr::App { func, .. } => is_dictionary_argument(func, interner),
+        _ => false,
+    }
+}
+
 fn insert_dict_args_expr(
     expr: CoreExpr,
     constrained_fns_by_binder: &HashMap<
@@ -766,12 +786,7 @@ fn insert_dict_args_expr(
                     && args
                         .iter()
                         .take(callee_constraints.len())
-                        .all(|arg| match arg {
-                            CoreExpr::Var { var, .. } => {
-                                interner.resolve(var.name).starts_with("__dict_")
-                            }
-                            _ => false,
-                        });
+                        .all(|arg| is_dictionary_argument(arg, interner));
                 if already_has_dict_args {
                     return CoreExpr::App {
                         func,
