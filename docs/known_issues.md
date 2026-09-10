@@ -481,6 +481,59 @@ The fix is the one KI-058 used: read the top of
 deliberately rather than missed — the `let` path is what unblocked Stage 4, and
 the lambda path has no known consumer waiting on it.
 
+### KI-098 — A generalized helper used at two types loses its representation
+
+**Severity:** Low · **Area:** Core lowering, specialisation · **Verified:** 2026-09-10 · **From:** G5 / 0187 B1
+
+Generalizing an unannotated definition (G5) replaces a concrete parameter type
+with a variable, and a variable carries no `FluxRep`. B1 restores it for a
+definition whose call sites all agree on **one** concrete instantiation, by
+lowering the body under that substitution. A definition used at *two* types is
+still left generalized, and stays despecialised:
+
+```
+- ::(h#343:Int, t#344:Box) →        before G5
++ ::(h#343, t#344:Box) →            after G5 and B1
+```
+
+Seven such places remain in `tests/snapshots/aether/`, all in `lib/Flow/`
+helpers, and they are recorded in the accepted baseline rather than hidden —
+`aether_cli_snapshots` is the only suite that shows this, because a
+despecialised program still compiles, still runs and still gives the right
+answer. A corpus sweep cannot see it; see [KI-062](#ki-062) for the parity
+harness's version of the same blindness.
+
+**Not a correctness bug.** The generated code is slower and allocates more; it
+is not wrong.
+
+**The fix is cloning**, which B1 deliberately does not do: specialise a
+definition at *each* concrete instantiation and rewrite each call site to its
+clone. That is owed to 0.0.8's B2 regardless — generalizing constrained
+definitions makes this the common case rather than a seven-site curiosity — so
+it is scoped there rather than retrofitted onto B1.
+
+### KI-097 — A top-level `Float` binding is recorded in Core as `List<Int>`
+
+**Severity:** Low · **Area:** Core lowering, `--dump-core` metadata · **Verified:** 2026-09-10
+
+`examples/aether/verify_aether.flx` lowers `pi` to:
+
+```
+def pi : List<Int> =
+    3.141592653589793
+```
+
+The value is a `Float`; the recorded `CoreDef::result_ty` says `List<Int>`. The
+type is metadata for Core dumps and type-directed passes, not something the VM
+reads back, which is presumably why nothing has failed on it.
+
+**Pre-existing and not from the 0.0.7 generics work** — it is in the baseline
+snapshot on `main`, committed by `10ffdaef`. Found while attributing snapshot
+drift, and filed rather than fixed because it is unrelated to that branch.
+`def pi` becomes `List<a>` once G5 generalizes, which is differently wrong; both
+spellings point at the same defect in how `result_ty` is chosen for a value
+binding.
+
 ### KI-095 — A field predicate whose receiver is bound by a match arm is never determined — FIXED 2026-09-09
 
 **Severity:** Medium · **Area:** Type inference / proposal 0184 · **Verified:** 2026-09-09 · **Fixed:** 2026-09-09 · **From:** Proposal 0185 stage 5 (E1)

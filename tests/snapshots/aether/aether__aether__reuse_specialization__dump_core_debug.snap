@@ -612,7 +612,7 @@ letrec minimum =
             0
 
 letrec first =
-λarr#239.
+λarr#239:Box.
     Index(arr#239, 0)
 
 letrec last =
@@ -777,7 +777,7 @@ letrec from_list =
 λxs#292.
     letrec from_list_go#293 = (λys#294, acc#295.
       case ys#294 of
-        ::(h#296, t#297) →
+        ::(h#296, t#297:Box) →
           let %t196 = push#202(acc#295, h#296)
           from_list_go#293(t#297, #4001551[synthetic]#1551)
         _ →
@@ -1165,9 +1165,9 @@ letrec sort_by =
     merge_sort_by#707(xs#474, f#475)
 
 letrec first =
-λxs#477.
+λxs#477:Box.
     case xs#477 of
-      ::(h#478, t#479) →
+      ::(h#478:Box, t#479:Box) →
         h#478
       _ →
         None
@@ -1571,7 +1571,7 @@ letrec intercalate_rest =
 letrec scanl_rest =
 λxs#665, acc#666, f#667.
     case xs#665 of
-      ::(h#668, t#669) →
+      ::(h#668, t#669:Box) →
         let %t346 = f#667(acc#666, h#668)
         scanl_emit#670(t#669, #4001699[synthetic]#1699, f#667)
       _ →
@@ -1585,7 +1585,7 @@ letrec scanl_emit =
 letrec unique_by_go =
 λxs#675, f#676, seen#677, acc#678.
     case xs#675 of
-      ::(h#679, t#680) →
+      ::(h#679, t#680:Box) →
         let %t348 = f#676(h#679)
         unique_by_step#681(t#680, h#679, #4001701[synthetic]#1701, f#676, seen#677, acc#678)
       _ →
@@ -2652,7 +2652,7 @@ letrec starts_with =
 
 letrec ends_with =
 λs#1267:Box, suffix#1268:Box.
-    let slen#1270:Box = Len(s#1267)
+    let slen#1270 = Len(s#1267)
     let plen#1269:Box = Len(suffix#1268)
     let %t495:Bool = Gt(plen#1269, slen#1270)
     case #4001844[synthetic]#1844 of
@@ -2768,10 +2768,10 @@ letrec keep_right_only : (Tree) -> Tree =
       _ →
         t#1306
 
-letrec option_map : forall a, b. (a, forall c, b. (c) -> b) -> Option<b> =
-λopt#1312, f#1313.
+letrec option_map : forall a, b. (Option<a>, forall a, b. (a) -> b) -> Option<b> =
+λopt#1312:Box, f#1313.
     case opt#1312 of
-      Some(x#1314:Int) →
+      Some(x#1314) →
         let %t523 = f#1313(x#1314)
         Some(#4001872[synthetic]#1872)
       _ →
