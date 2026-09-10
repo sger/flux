@@ -612,7 +612,7 @@ letrec minimum =
             0
 
 letrec first =
-λarr#239.
+λarr#239:Box.
     Index(arr#239, 0)
 
 letrec last =
@@ -777,7 +777,7 @@ letrec from_list =
 λxs#292.
     letrec from_list_go#293 = (λys#294, acc#295.
       case ys#294 of
-        ::(h#296, t#297) →
+        ::(h#296, t#297:Box) →
           let %t196 = push#202(acc#295, h#296)
           from_list_go#293(t#297, #4001572[synthetic]#1572)
         _ →
@@ -1165,9 +1165,9 @@ letrec sort_by =
     merge_sort_by#707(xs#474, f#475)
 
 letrec first =
-λxs#477.
+λxs#477:Box.
     case xs#477 of
-      ::(h#478, t#479) →
+      ::(h#478:Box, t#479:Box) →
         h#478
       _ →
         None
@@ -1571,7 +1571,7 @@ letrec intercalate_rest =
 letrec scanl_rest =
 λxs#665, acc#666, f#667.
     case xs#665 of
-      ::(h#668, t#669) →
+      ::(h#668, t#669:Box) →
         let %t346 = f#667(acc#666, h#668)
         scanl_emit#670(t#669, #4001720[synthetic]#1720, f#667)
       _ →
@@ -1585,7 +1585,7 @@ letrec scanl_emit =
 letrec unique_by_go =
 λxs#675, f#676, seen#677, acc#678.
     case xs#675 of
-      ::(h#679, t#680) →
+      ::(h#679, t#680:Box) →
         let %t348 = f#676(h#679)
         unique_by_step#681(t#680, h#679, #4001722[synthetic]#1722, f#676, seen#677, acc#678)
       _ →

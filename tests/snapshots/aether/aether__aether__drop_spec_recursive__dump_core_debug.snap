@@ -612,7 +612,7 @@ letrec minimum =
             0
 
 letrec first =
-λarr#239.
+λarr#239:Box.
     Index(arr#239, 0)
 
 letrec last =
@@ -777,7 +777,7 @@ letrec from_list =
 λxs#292.
     letrec from_list_go#293 = (λys#294, acc#295.
       case ys#294 of
-        ::(h#296, t#297) →
+        ::(h#296, t#297:Box) →
           let %t196 = push#202(acc#295, h#296)
           from_list_go#293(t#297, #4001537[synthetic]#1537)
         _ →
@@ -889,7 +889,7 @@ letrec map =
 λxs#338:Box, f#339.
     letrec map_acc#340 = (λys#341, acc#342.
       case ys#341 of
-        ::(h#343:Int, t#344:Box) →
+        ::(h#343, t#344:Box) →
           let %t226:Box = (let %t227 = f#339(h#343)
           ::(#4001566[synthetic]#1566, acc#342))
           map_acc#340(t#344, #4001567[synthetic]#1567)
@@ -902,7 +902,7 @@ letrec filter =
 λxs#346:Box, pred#347.
     letrec filter_acc#348 = (λys#349, acc#350.
       case ys#349 of
-        ::(h#351:Int, t#352:Box) →
+        ::(h#351, t#352:Box) →
           let %t229 = pred#347(h#351)
           case #4001569[synthetic]#1569 of
             true →
@@ -1165,9 +1165,9 @@ letrec sort_by =
     merge_sort_by#707(xs#474, f#475)
 
 letrec first =
-λxs#477.
+λxs#477:Box.
     case xs#477 of
-      ::(h#478, t#479) →
+      ::(h#478:Box, t#479:Box) →
         h#478
       _ →
         None
@@ -1571,7 +1571,7 @@ letrec intercalate_rest =
 letrec scanl_rest =
 λxs#665, acc#666, f#667.
     case xs#665 of
-      ::(h#668, t#669) →
+      ::(h#668, t#669:Box) →
         let %t346 = f#667(acc#666, h#668)
         scanl_emit#670(t#669, #4001685[synthetic]#1685, f#667)
       _ →
@@ -1585,7 +1585,7 @@ letrec scanl_emit =
 letrec unique_by_go =
 λxs#675, f#676, seen#677, acc#678.
     case xs#675 of
-      ::(h#679, t#680) →
+      ::(h#679, t#680:Box) →
         let %t348 = f#676(h#679)
         unique_by_step#681(t#680, h#679, #4001687[synthetic]#1687, f#676, seen#677, acc#678)
       _ →
@@ -1760,10 +1760,10 @@ letrec lefts =
 λxs#773:Box.
     letrec lefts_acc#774 = (λys#775, acc#776.
       case ys#775 of
-        ::(Left(x#777), t#778:Int) →
+        ::(Left(x#777), t#778) →
           let %t379:Box = ::(x#777, acc#776)
           lefts_acc#774(t#778, #4001718[synthetic]#1718)
-        ::(Right(_), t#779:Int) →
+        ::(Right(_), t#779) →
           lefts_acc#774(t#779, acc#776)
         _ →
           let %t380 = List#?[external].reverse
@@ -2017,7 +2017,7 @@ letrec split_ints =
     let parts#913:Box = Split(s#911, sep#912)
     parse_ints#904(parts#913)
 
-def pi : List<Int> =
+def pi : List<a> =
 3.141592653589793
 
 letrec sqrt =
@@ -2576,7 +2576,7 @@ letrec concat_arrays =
 letrec append_lists =
 λxs#1229, ys#1230.
     case xs#1229 of
-      ::(h#1231, t#1232:Int) →
+      ::(h#1231, t#1232) →
         let %t483 = append_lists#1228(t#1232, ys#1230)
         ::(h#1231, #4001818[synthetic]#1818)
       _ →
@@ -2640,7 +2640,7 @@ letrec __tc_m9_466C6F772E53686F77_Show_Bool_show : (Bool) -> String =
 
 letrec starts_with =
 λs#1263:Box, prefix#1264:Box.
-    let plen#1265:Int = Len(prefix#1264)
+    let plen#1265 = Len(prefix#1264)
     let %t492:Bool = (let %t493 = Len(s#1263)
     Gt(plen#1265, #4001827[synthetic]#1827))
     case #4001828[synthetic]#1828 of
