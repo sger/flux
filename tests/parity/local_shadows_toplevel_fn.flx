@@ -5,8 +5,8 @@
 // giving an E300 whose span was the local binding and whose type was the
 // top-level one. See docs/known_issues.md#ki-088.
 //
-// The nested-`fn` form of this shadow is still broken at codegen and is not
-// covered here.
+// The nested-`fn` form of this shadow was broken at codegen until 2026-09-11,
+// and is covered end-to-end on both backends by `tests/flux/fn_shadowing.flx`.
 
 fn helper(x: Int) -> Int { x }
 

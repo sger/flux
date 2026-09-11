@@ -204,12 +204,31 @@ reproduced.
 
 ## Track G — the instrument, and what it found
 
-- [~] **D8. [KI-088](../known_issues.md#ki-088)** — *typing half fixed; codegen half open.* — a nested `fn` shadowing a
-      top-level name. Inference half fixed (`4654bad1`); a second lookup in the
-      compiler's own resolution still reaches past the nested definition. The
-      reproduction is rejected by a *compiler boundary* check, so a case in
-      `tests/type_inference/` passes whether or not the bug is present —
-      pinning it needs an end-to-end test.
+- [~] **D8. [KI-088](../known_issues.md#ki-088)** — *shadowing fixed; one
+      spurious `E001` left.* A nested `fn` shadowing a top-level name now runs
+      the nested definition. Inference was fixed in `4654bad1`, the compiler's
+      contract lookup in `33e43a28`, and codegen on 2026-09-11: `MakeClosure`
+      was passing a binding **slot** where `OpClosure` takes a **constant**
+      index, which by then reached the VM as `index out of bounds: the len is
+      680 but the index is 915`.
+
+      The fix is that the arm now *fails*, so the existing rollback recompiles
+      the body on the AST path. The entry's earlier plan — record
+      `FunctionId → constant index` — was the wrong target: it emits correct
+      bytecode and then hits a second defect that returns the wrong value. The
+      instrumentation already said this arm never legitimately succeeds, so it
+      does not need to emit anything at all. **This does not answer E3's
+      question** (can the AST bytecode fallback be retired?); it is one more
+      reason the answer is still no.
+
+      Pinned end-to-end on both backends by `tests/flux/fn_shadowing.flx`,
+      which is the test the entry said was needed — including a shadow at a
+      *different arity*, the case that tells a wrong constant from a wrong
+      arity.
+
+      **What is left** is the third row of the entry's table: a local binding
+      shadowing a `fn` in an enclosing non-top-level scope is a spurious
+      `E001 Duplicate Name`. Different subsystem — scope handling, not codegen.
 - [x] **D6. [KI-062](../known_issues.md#ki-062)** — the parity harness accepted a
       fixture that fails to compile on both backends. **Fixed**: `expect: success`
       now requires every way to exit `Success`, and a support module with no

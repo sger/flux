@@ -627,30 +627,36 @@ impl Compiler {
                 };
                 Ok(())
             }
-            IrExpr::MakeClosure(fn_id, captures) => {
-                // Load each capture variable onto the stack
-                for cap in captures {
-                    self.load_symbol(bindings.get(cap).ok_or_else(|| {
-                        Self::boxed(Diagnostic::warning(
-                            "missing CFG bytecode closure capture binding",
-                        ))
-                    })?);
-                }
-                // Resolve FunctionId → Symbol → Binding to get the constant index
-                let fn_symbol = self
-                    .lookup_ir_function_symbol_by_raw_id(fn_id.0)
-                    .ok_or_else(|| {
-                        Self::boxed(Diagnostic::warning(
-                            "missing CFG bytecode closure function symbol",
-                        ))
-                    })?;
-                let fn_binding = self.symbol_table.resolve(fn_symbol).ok_or_else(|| {
-                    Self::boxed(Diagnostic::warning(
-                        "missing CFG bytecode closure function binding",
-                    ))
-                })?;
-                self.emit_closure_index(fn_binding.index, captures.len());
-                Ok(())
+            IrExpr::MakeClosure(_fn_id, _captures) => {
+                // Hand this back to the AST path, which owns the constant table
+                // (docs/known_issues.md#ki-088).
+                //
+                // `OpClosure` takes a **constant** index. What this arm used to
+                // supply was `symbol_table.resolve(name).index`, a global or
+                // local **slot** — a different numbering space that happens to
+                // also be a small integer, so nothing caught it. The program in
+                // KI-088 reached the VM as `index out of bounds: the len is 680
+                // but the index is 915`.
+                //
+                // Resolving it correctly is not a matter of finding a better
+                // lookup. A *name* cannot tell a nested definition from the
+                // top-level one it shadows, which is the case that made this
+                // visible, and this compiler never records the
+                // `FunctionId → constant index` mapping that would answer it —
+                // constants are added by the AST path, in
+                // `compile_function_literal`.
+                //
+                // Failing is not a fallback here, it is the whole behaviour:
+                // instrumented across `examples/guide` and `tests/parity`, no
+                // program emitted a `MakeClosure` whose lookup resolved. Every
+                // one of them already failed this arm on a missing symbol, and
+                // the caller rolled back the scope and the constant table and
+                // recompiled the body on the AST path — correctly. The lookup
+                // only ever *succeeded* when a shadowed name found the wrong
+                // function, so the miscompiling case was the only case.
+                Err(Self::boxed(Diagnostic::warning(
+                    "CFG bytecode cannot supply a closure's function constant",
+                )))
             }
             IrExpr::Perform {
                 effect,
