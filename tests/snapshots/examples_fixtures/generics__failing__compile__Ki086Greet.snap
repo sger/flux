@@ -1,0 +1,20 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/generics/failing/compile/Ki086Greet.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E004]: Undefined Variable
+
+I can't find a value named `name`.
+
+  examples/generics/failing/compile/Ki086Greet.flx:38:45
+   |
+38 |         fn greet(x: a) -> String { "hi, " + name(x) }
+   |                                             ^^^^
+
+Hint:
+  Define it first: let name = ...;
+== stdout ==
+<not executed>

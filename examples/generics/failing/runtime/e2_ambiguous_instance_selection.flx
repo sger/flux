@@ -1,0 +1,43 @@
+// expect: runtime_error
+// expect-error: E1009
+
+// GAP — owner: roadmap E2 (0185 stage 4 / R6b), 0.0.8.
+// Measured 2026-09-11 on the VM: error[E1009] panic: No instance of Def.zero
+// for the given type.
+//
+// NOTE: this file compiles. The gap is at run time, which is why it lives
+// here rather than in ../compile/.
+//
+// `zero()` takes no argument, so nothing at the call site determines `a`, and
+// `let x = zero()` never uses the result in a way that would. Two instances
+// are in scope. This is *ambiguity*, and it is what E2 exists to report:
+// "a predicate reaching whole-program scope over an unresolved variable is
+// reported with its origin".
+//
+// What happens instead is that the program compiles and the dispatch stub
+// panics at run time with a message that describes the wrong thing — it says
+// no instance matched, when the real problem is that two did and nothing
+// chose between them. A reader given this message would go looking for a
+// missing instance.
+//
+// E2 is **blocked on B2**, and B2 moved to 0.0.8, so this moves with it. The
+// stage's premise is that once generalize-by-arity has landed the residue is
+// ambiguity rather than stranded obligations; until then the residue is still
+// the old kind and the report would be wrong.
+
+class Def<a> {
+    fn zero() -> a
+}
+
+instance Def<Int> {
+    fn zero() { 0 }
+}
+
+instance Def<String> {
+    fn zero() { "" }
+}
+
+fn main() with IO {
+    let x = zero()
+    print("reached")
+}

@@ -2882,7 +2882,20 @@ sugar reaches only one — rather than suggesting an impossible declaration.
 
 ### KI-076 — An operator on a class-constrained type parameter does not dispatch inside a `module` block
 
-**Severity:** High · **Area:** Type classes / dictionary passing · **Verified:** 2026-09-03 · **From:** Flume typeclass conversion
+**Severity:** High · **Area:** Type classes / dictionary passing · **Verified:** 2026-09-11 · **From:** Flume typeclass conversion
+
+> **Re-measured 2026-09-11: the symptom below is out of date.** The trap is no
+> longer `cannot compare Adt with OpLessThanOrEqual`. It is now
+> `error[E1000]: wrong number of arguments: want=3, got=2`, raised at the
+> `x <= y` itself. `want=3` is `lte(dict, x, y)` and `got=2` is `lte(x, y)`, so
+> the operator *does* now route to the dictionary-passing method — it just
+> arrives without the dictionary. That is a different and later failure point
+> than "cannot compare", which was a missing dispatch entirely, so anyone
+> working from the description below should re-derive it. The control still
+> holds: the identical program at the top level of a script prints `9`.
+> Reproduced by
+> [`examples/generics/failing/runtime/ki_076_operator_in_module.flx`](../examples/generics/failing/runtime/ki_076_operator_in_module.flx),
+> which is snapshot-pinned, so the next change of symptom shows up as a diff.
 
 At top level, a constrained function's operator dispatches through the
 dictionary and works on a user type:
@@ -3668,7 +3681,24 @@ here: it was green throughout the six sweeps the regression survived
 
 ### KI-086 — A class declared inside a `module` loses its default method bodies
 
-**Severity:** High · **Area:** type classes, module interfaces · **Verified:** 2026-09-06 · **From:** Proposal 0186
+**Severity:** High · **Area:** type classes, module interfaces · **Verified:** 2026-09-11 · **From:** Proposal 0186
+
+> **`--no-cache` hides failure 1** (measured 2026-09-11). On the same file:
+>
+> ```
+> flux --no-strict            <repro>   ->  error[E1009]: panic: No instance of Greet.greet
+> flux --no-cache --no-strict <repro>   ->  prints "hi, someone", exit 0
+> ```
+>
+> This follows from the cause given below — the body is lost when the class is
+> rebuilt from a cached `.flxi` entry, and `--no-cache` skips that round-trip —
+> but it is worth stating as a reproduction condition, because it is also a
+> usable workaround and it makes the defect invisible to any harness that
+> passes the flag. `generics_runtime_fixtures_snapshot` does, which is why
+> `examples/generics/` pins **failure 2** (the compile-time `E004`, in
+> [`failing/compile/Ki086Greet.flx`](../examples/generics/failing/compile/Ki086Greet.flx))
+> and deliberately does not file failure 1: a snapshot there would pin the bug
+> not reproducing.
 
 A default method body works when the class is declared at the top level of a
 script and stops working when the same class is declared inside a `module`.
