@@ -507,7 +507,7 @@ Runs alongside the others; none of it is optional for a release.
       the compiler depends on it, so an untracked file is a defensible answer —
       but note the corollary: it is not reviewed, and it will drift again with
       no gate to catch it.
-- [x] **F9. `examples/generics/` — the capability map.** Done 2026-09-11. 41
+- [x] **F9. `examples/generics/` — the capability map.** Done 2026-09-11. 48
       programs organised by what the compiler does with them: `working/accepts`
       (compiles, runs, right answer), `working/rejects` (correctly rejected —
       the diagnostic is the feature), `failing/compile` and `failing/runtime`.
@@ -552,9 +552,41 @@ Runs alongside the others; none of it is optional for a release.
       it cannot be reconstructed after B2 lands** — which is why it is pinned
       now rather than when that work starts.
 
-      Six gaps are mapped in the README but have no file yet: KI-071, KI-073,
-      KI-076, KI-086, KI-088 and E2. The first two are VM/native divergences
-      that no VM-only harness can show.
+      **Three more entries came back different when the last gaps were
+      filed**, on top of the three above:
+
+      4. **KI-088 is fixed** (see D8) and is now a `working/accepts/` file
+         rather than a `failing/runtime/` one.
+      5. **KI-076's symptom has changed.** It is no longer `cannot compare Adt
+         with OpLessThanOrEqual` but `E1000: wrong number of arguments:
+         want=3, got=2` at the `x <= y` — `want=3` is `lte(dict, x, y)`, so
+         the operator now routes to the dictionary-passing method and arrives
+         without the dictionary. A later failure point than a missing
+         dispatch; the entry is corrected.
+      6. **KI-086 is hidden by `--no-cache`**, which follows from its own
+         stated cause (the body is lost when the class is rebuilt from a
+         cached `.flxi`) but was never written down as a reproduction
+         condition. This changed what got built: the runtime harness passes
+         that flag, so a snapshot there pins the bug *not* reproducing and
+         whoever fixes it sees no diff. KI-086's runtime half is therefore
+         deliberately unpinned, and what ships instead is its compile-time
+         `E004` half — a default body cannot call a sibling method inside a
+         `module` — which needs only one file, the error being raised inside
+         the module itself.
+
+      Three gaps remain mapped in the README with no runnable file, each for a
+      stated reason rather than for want of writing: KI-071 and KI-073 are
+      VM/native divergences that no VM-only harness can show (and on the VM,
+      KI-073's program is *correct*), and KI-086's runtime half is the
+      `--no-cache` case above. KI-073 is registered as a skipped parity fixture
+      so the runner reports it rather than dropping it; KI-071 is not, because
+      it needs a module pair and no `tests/parity/` fixture has ever imported a
+      local module.
+
+      `generics/working/accepts` is in the release parity sweep
+      (`scripts/release/release_check.sh`), 30/30 on vm,llvm. It cannot be
+      added as bare `generics` — `failing/` is fail-on-purpose, the same reason
+      `parser_errors` and `runtime_errors` are excluded there.
 - [x] **F8. Amend [0187](../proposals/0187_specialisation.md).** Done
       2026-09-09. The 16 became 4, with the other 9 named as dictionary
       plumbing and the conclusion drawn — specialisation is necessary but not
@@ -793,11 +825,24 @@ Ranked by severity; complete as of this writing.
       *Native backend; a VM/native divergence.*
 - [ ] **D3. [KI-076](../known_issues.md#ki-076)** — an operator on a
       class-constrained type parameter does not dispatch inside a `module`
-      block. *Dictionary passing.*
+      block. *Dictionary passing.* **Symptom re-measured 2026-09-11 and the
+      entry corrected**: not `cannot compare Adt with OpLessThanOrEqual` but
+      `E1000: wrong number of arguments: want=3, got=2` at the `x <= y`.
+      `want=3` is `lte(dict, x, y)`, so the operator does now reach the
+      dictionary-passing method — it arrives without the dictionary. Pinned by
+      `examples/generics/failing/runtime/ki_076_operator_in_module.flx`.
 - [ ] **D4. [KI-086](../known_issues.md#ki-086)** — a class declared inside a
       `module` loses its default method bodies. Two symptoms: a runtime
-      `E1001 panic: No instance of Greet.greet` cross-module, and a default body
-      cannot call a sibling method (`E004`). *Module interfaces.*
+      `E1009 panic: No instance of Greet.greet` cross-module (this item said
+      `E1001`; the entry always had it right, and `E1009` is what 2026-09-11
+      measured), and a default body cannot call a sibling method (`E004`).
+      *Module interfaces.*
+      **The runtime symptom is hidden by `--no-cache`**, which follows from the
+      cause — the body is lost when the class is rebuilt from a cached `.flxi`
+      — but had not been recorded as a reproduction condition. It is both a
+      workaround and the reason the runtime half cannot be pinned in F9's
+      corpus, whose runtime harness passes that flag; the `E004` half is pinned
+      instead, at `examples/generics/failing/compile/Ki086Greet.flx`.
 - [ ] **D5. [KI-090](../known_issues.md#ki-090)** — a constrained function
       passed as a value loses its dictionary. Tracked as **C7**; listed here so
       the High count is honest. Closure-conversion work, not generics work.
