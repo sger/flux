@@ -710,6 +710,93 @@ Order: **C → B1 → B2 → B3 → B4 → D → A2**. C first: it is what the m
 above says B2 is actually waiting on, and three of Track D's High-severity bugs
 are the same class of defect it deletes at the root.
 
+## Full generic support — the work grouped by the proposal that owns it
+
+The track letters above say what to do; this says **which proposal each one is
+implementing**, which the letters hide. Assembled 2026-09-11 from
+[0182](../proposals/0182_typeclass_syntax_completeness.md)–[0187](../proposals/0187_specialisation.md)
+after checking every proposal's status.
+
+**Only two proposals get implemented: 0186, then 0187.** Everything else here is
+closure, a bug no proposal owns, or out of scope. Two proposals span more than
+one phase, which is what the track letters obscure.
+
+### Plan 0 — prerequisites *(no proposal owns these)*
+
+A measurement, and two defects found while planning that
+[0186](../proposals/0186_generics_foundations.md) stage 5 would otherwise
+inherit.
+
+| # | Item | Why first |
+|---|---|---|
+| 0a | Correct the proposal statuses | **done** 2026-09-11 |
+| 0b | Re-measure B2's cost: delete the `unconstrained` conjunct, run the suite, classify, revert | The 13/9/4 split predates B1, KI-094/095/096, 0185 s5 and the projection fix |
+| 0c | `EvidenceMap::args_for` returns a **short list** when the hole is at the tail: `harvest_evidence` leaves a gap, but `EvidenceMap` never records the raised count and `args_for` derives it from *present* keys | 0186 s5 reads this map; unfixed it inherits "a call with the wrong arity that type-checks" — the failure the design excludes |
+| 0d | `choose_candidate`'s `Ambiguous \| NoMatch => Some(first)` (`dict_elaborate.rs:1543`) | A silently wrong instance today; `NoMatch` answers with a dictionary known *not* to match. No test pins it. Do it alone so the fallout is attributable |
+
+### Plan 0186 — *Generics foundations*, stages 4 and 5 — **the spine**
+
+**Phase 1 — stage 5, the evidence translation** (**C5**, **C6**)
+
+| # | Item | Notes |
+|---|---|---|
+| 1 | Emit dictionary **arguments** at lowering | `evidence_to_arg`/`DictArg` exist, fully tested, **zero callers**; evidence is consumed nowhere in `src/` |
+| 2 | Create dictionary **parameters** at lowering | **The step no document names.** `DictArg::Param` cannot render until the def has dict params, which today only `rewrite_constrained_functions` adds |
+| 3 | Delete deletion-group 1 (~320 lines) and the Core `Int` default | Group 2 (~920 lines, AST path) waits for the fallback |
+
+**Phase 2 — stage 4's remainder** (**B4**), after 0187 stage 2 ·
+**Phase 3 — stage 5's exit criterion** (**C7**/**D5**, KI-090)
+
+### Plan 0187 — *Specialisation*, stages 1–3
+
+Depends wholly on 0186 stage 5 landing first: 9 of the 13 failures are
+dictionaries, and no amount of specialisation reaches them.
+
+**Phase 2 — the headline** (**B2**, **B3**)
+
+| # | Item | Notes |
+|---|---|---|
+| 4 | **Stage 2** — generalize a *constrained* definition by arity | Supersedes 0185 stage 3 and 0186 stage 6 — which is why those are not separate work. One conjunct; the work is making phase 1 carry it |
+| 5 | **Stage 1 remainder** — clone a definition used at *two* types (KI-098) | Budget **inside** step 4: B2 makes this the common case, not seven sites |
+| 6 | **Stage 3** — `CACHE_EPOCH` bump | Inferred types change ⇒ `.flxi` contents change |
+
+### Plan 0183 — *Terminal states*, closure
+
+**Phase 4**, after 0187 stage 2 (**E2**, **E4**, **F3**). `R6d` reports an
+inferred ambiguity — [0185](../proposals/0185_generalize_by_arity.md) stage 4 is
+the same work written twice. Then `R7`, then the documentation close.
+
+### No plan — field reports (**Track D**)
+
+Three of the five High bugs have no proposal: **KI-076** and **KI-071** came
+from the Flume conversion, **KI-086** was raised by 0186 but no stage covers it,
+**KI-073** is a regression against 0179. **This is why "three of Track D's
+High-severity bugs are the same class of defect Track C deletes at the root" is
+an assertion nobody has tested** — measure it after step 3 by re-running
+`examples_generics` and `generics_runtime` and reading the snapshot diff. The
+capability map was built for exactly this question.
+
+### Not being worked
+
+**0182** entirely (parser only; D15, D16) · **0184 stage 2** (record-polymorphic
+access, whose evidence has *runtime* content) · retiring the AST bytecode
+fallback (**E3**, answered **no**) · D10–D14, D17 · A2, A3.
+
+### Execution order
+
+```
+Phase 0   0a done  0b  0c  0d        no plan — prerequisites
+Phase 1   1   2   3                  0186 stage 5
+Phase 2   4   5   6                  0187 stages 2, 1-rem, 3
+          7                          0186 stage 4-rem
+Phase 3   8                          0186 stage 5 exit criterion
+          9   10                     no plan — Track D
+Phase 4   11  12  13                 0183 closure
+```
+
+**0187 stage 2 — the headline, `fn double(x) { x + x }` at two types — is one
+conjunct** once 0186 stage 5 can carry it.
+
 ---
 
 ## Track C — 0186 stage 5: one evidence-passing translation
