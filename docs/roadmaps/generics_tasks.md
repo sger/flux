@@ -488,6 +488,36 @@ Runs alongside the others; none of it is optional for a release.
       the compiler depends on it, so an untracked file is a defensible answer —
       but note the corollary: it is not reviewed, and it will drift again with
       no gate to catch it.
+- [x] **F9. `examples/generics/` — the capability map.** Done 2026-09-11. 41
+      programs organised by what the compiler does with them: `working/accepts`
+      (compiles, runs, right answer), `working/rejects` (correctly rejected —
+      the diagnostic is the feature), `failing/compile` and `failing/runtime`.
+      Every file is pinned — the compile-only `examples_generics` snapshot, plus
+      a second VM-only run snapshot for the runtime bucket, because a gap that
+      compiles cleanly records as `ok` and pins nothing. Behaviour is asserted
+      separately in `tests/flux/generics.flx` (19 cases, VM and native), which
+      deliberately mirrors nothing from `failing/` so the native leg is safe by
+      construction rather than by an exclusion list.
+
+      **Every error code in it was measured, not copied from this file**, and
+      three things came back different from what was written down:
+
+      1. **KI-011, KI-069 and KI-070 no longer reproduce** against their own
+         filed repros. Each now has a file in `working/accepts/` so a
+         regression is a snapshot diff. They are candidates for F3's marking
+         pass. KI-070's repro is additionally unrunnable as filed —
+         `\y: a -> y` is a parse error, since lambda parameter annotations
+         need parentheses — which may be why it read as unfixed.
+      2. **A `let` bound to a lambda is generalized**, nested and top-level.
+         Assuming the monomorphism restriction covered it was wrong; it applies
+         to nullary bindings.
+      3. The guide's "Only `fn f<T>(x: T)` syntax triggers let-polymorphism"
+         (09_type_system_basics.md:181) was false after G5 and is corrected.
+
+      Seven gaps are mapped in the README but have no file yet: KI-071, KI-073,
+      KI-076, KI-086, KI-088, KI-098 and E2. The first two are VM/native
+      divergences that no VM-only harness can show, and KI-098 is invisible to
+      every harness including parity — only `--dump-aether` sees it.
 - [x] **F8. Amend [0187](../proposals/0187_specialisation.md).** Done
       2026-09-09. The 16 became 4, with the other 9 named as dictionary
       plumbing and the conclusion drawn — specialisation is necessary but not

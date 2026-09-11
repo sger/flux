@@ -1,0 +1,28 @@
+// expect: compile_error
+// expect-error: E300
+
+// GAP — owner: 0.0.8, the same boundary as B2.
+// Measured 2026-09-11: two error[E300] Argument Type Mismatch.
+//
+// `fst` works perfectly at one tuple shape — see
+// ../../working/accepts/project_tuple_known_shape.flx. What it cannot do is
+// serve two.
+//
+// The reason is that a field or tuple predicate *pins* its receiver rather
+// than quantifying it. `decide_quantification` removes the receiver's
+// variables from the quantifiable set, precisely so that a binding cannot go
+// polymorphic over a receiver nothing can determine — because a quantified
+// receiver's predicate is discharged nowhere, and the `E490` that should be
+// reported at the access is silently lost. That was the failure mode the first
+// attempt at widening generalization hit.
+//
+// So the pin is not an oversight; it is what makes the error reportable. The
+// cost is this file: the first call site determines the receiver, and the
+// second disagrees with it.
+
+fn fst(p) { p.0 }
+
+fn main() with IO {
+    print(fst((1, 2)))
+    print(fst(("a", true)))
+}

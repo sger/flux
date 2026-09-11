@@ -1,0 +1,27 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/generics/working/rejects/annot_instantiation_mismatch.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E300]: Annotation Type Mismatch
+
+The value of `wrapped` does not match its type annotation.
+
+  examples/generics/working/rejects/annot_instantiation_mismatch.flx:18:35
+   |
+18 |     let wrapped: Option<String> = wrap(42)
+   |                                   ^^^^^^^^
+   |                                   -------- this value has type `Option<Int>`
+
+   |                  -------------- but `wrapped` was annotated as `Option<String>`
+
+Note:
+  annotated type: Option<String>
+  value type: Option<Int>
+
+Help:
+  Change `wrapped` to a `Option<String>` value or update the annotation.
+== stdout ==
+<not executed>
