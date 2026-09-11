@@ -289,7 +289,7 @@ What Flux lacks is the *inferred* half: `let d = zero()` with two `Default`
 instances reaches run time (Proposal 0183, Example A). The predicate sits in
 `Disposition::Stuck` and nothing reports it. Flux records five constraint
 origins (`constraint.rs:68–74`), enough to say "arising from a use of `zero`",
-but no report is produced. This is 0183's R6b, gated on §1 because the residue
+but no report is produced. This is 0183's R6d, gated on §1 because the residue
 it would report is today dominated by §1's stranded obligations.
 
 **Verdict.** Narrower than "no ambiguity check": the signature check exists and
@@ -345,7 +345,7 @@ A cost, not a correctness issue.
 | field access | `HasField`, built-in, solved in the fixpoint | predicate since 0184, discharged in a post-pass | converted; **not quantifiable**, see §4 |
 | tuple projection | ordinary typing | predicate since 0185 stage 5 | converted |
 | signature ambiguity | `checkAmbiguity` | `AMBIGUOUS_TYPE_VARIABLE` | match |
-| inferred ambiguity | reported with origin | stuck, then panics at run time | gap (R6b/E2); pinned by `examples/generics/failing/runtime/e2_*` |
+| inferred ambiguity | reported with origin | stuck, then panics at run time | gap (R6d/E2); pinned by `examples/generics/failing/runtime/e2_*` |
 | overlap | specificity + pragmas | prohibited | sound simplification |
 | fundeps | yes; `x r -> a` carries `HasField` | no | absent — but load-bearing in GHC's §4, which is why Flux pins instead |
 | dictionaries | data con, SC fields first | tuple, SC slots first | match |
