@@ -1,0 +1,24 @@
+// parity-expected-stdout-begin
+// true
+// false
+// parity-expected-stdout-end
+
+// A named-field variant over a type parameter, with a derived instance.
+//
+// `deriving (Eq)` writes the instance for `Named<a>` structurally, so equality
+// works at every element type that is itself `Eq` — here `Int` and `String`
+// from one declaration.
+//
+// The derived instance is contextual: comparing `Named<a>` needs `Eq<a>`, and
+// the dictionary for the element is passed through. A *hand-written*
+// contextual instance over a recursive parameterized head still fails —
+// see ../../failing/compile/ki_069_contextual_instance_recursive_head.flx.
+
+data Named<a> {
+    Named { tag: String, val: a },
+} deriving (Eq)
+
+fn main() with IO {
+    print(eq(Named { tag: "n", val: 1 }, Named { tag: "n", val: 1 }))
+    print(eq(Named { tag: "n", val: "x" }, Named { tag: "n", val: "y" }))
+}

@@ -1,0 +1,23 @@
+// expect: compile_error
+// expect-error: E300
+
+// A generic function instantiated inconsistently with its annotation.
+//
+// `wrap(42)` is `Option<Int>`. Annotating the binding as `Option<String>` does
+// not re-instantiate the scheme — it constrains it, and the two disagree.
+//
+// This is the ordinary, correct behaviour of a polymorphic scheme: generic
+// means "usable at any type the caller picks", not "coerces to whatever is
+// asked of it".
+
+fn wrap<T>(x: T) -> Option<T> {
+    Some(x)
+}
+
+fn main() with IO {
+    let wrapped: Option<String> = wrap(42)
+    match wrapped {
+        Some(v) -> print(v),
+        None -> print("none"),
+    }
+}

@@ -1,0 +1,40 @@
+// parity-expected-stdout-begin
+// true
+// false
+// parity-expected-stdout-end
+
+// A hand-written contextual instance over a *recursive* parameterized head.
+//
+// Filed as KI-069: the recursive calls `eq(l1, l2)` compare fields whose type
+// is the head type `Tree<a>`, which resolves to this very instance — whose
+// dictionary is a constructor rather than a value — and the reference was said
+// to have nothing to bind to: `error[E004]: I can't find a value named
+// '__dict_Eq_Tree<a>'`. The entry records "no workaround" for this shape.
+//
+// MEASURED 2026-09-11: this does not reproduce. The instance below is the
+// filed repro, and it compiles and dispatches correctly at `Tree<Int>`.
+// Presumably one of the dictionary fixes on this branch reached it. The file is
+// here so a regression shows up as a snapshot diff.
+
+data Tree<a> {
+    Leaf,
+    Node(Tree<a>, a, Tree<a>),
+}
+
+instance Eq<a> => Eq<Tree<a>> {
+    fn eq(x, y) {
+        match x {
+            Leaf -> match y { Leaf -> true, _ -> false },
+            Node(l1, v1, r1) -> match y {
+                Node(l2, v2, r2) -> eq(l1, l2) && eq(v1, v2) && eq(r1, r2),
+                _ -> false,
+            },
+        }
+    }
+    fn neq(x, y) { !eq(x, y) }
+}
+
+fn main() with IO {
+    print(eq(Node(Leaf, 1, Leaf), Node(Leaf, 1, Leaf)))
+    print(eq(Node(Leaf, 1, Leaf), Node(Leaf, 2, Leaf)))
+}

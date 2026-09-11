@@ -1,0 +1,30 @@
+// parity-expected-stdout-begin
+// "value: 1"
+// "value: true"
+// parity-expected-stdout-end
+
+// Spelling 1 of 4: an inline bound on the type parameter.
+//
+// The four constraint spellings are one feature with four surfaces. These
+// files keep near-identical bodies on purpose, so the diff between them is
+// only the syntax:
+//
+//   constraint_inline_single.flx     fn describe<a: Show>(x: a)
+//   constraint_inline_multiple.flx   fn report<a: Eq + Show>(x: a, y: a)
+//   constraint_where_single.flx      fn describe<a>(x: a) ... where Show<a>
+//   constraint_where_multiple.flx    fn report<a>(x: a, y: a) ... where Eq<a>, Show<a>
+//
+// `Show` comes from the class prelude, which is injected into every module.
+// These files instantiate at `Int` and `Bool` rather than `Int` and `String`
+// because `Show<String>` renders through `to_string`, which keeps the quotes —
+// `show("hi")` is `"hi"` including them, which would make the output below
+// read as though something had gone wrong.
+
+fn describe<a: Show>(x: a) -> String {
+    "value: " + show(x)
+}
+
+fn main() with IO {
+    print(describe(1))
+    print(describe(true))
+}

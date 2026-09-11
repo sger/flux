@@ -1,0 +1,31 @@
+// expect: compile_error
+// expect-error: E034
+
+// GAP — owner: KI-074, Low, 0.0.8 (item D15).
+// Measured 2026-09-11: error[E034] Missing Function Body.
+//
+// A lowercase class name is accepted at the declaration and at the instance,
+// then rejected in a `where` clause — the parser reads `sz<a>` there as
+// something other than a class name and reports a missing function body, which
+// blames the wrong construct entirely. Nothing in the language says class names
+// must be capitalized; this is a grammar gap, not a naming rule.
+//
+// The inline bound `<a: sz>` still works, so the same program compiles with the
+// constraint moved — which is what makes this a surface inconsistency rather
+// than a missing feature.
+
+class sz<a> {
+    fn size_of(x: a) -> Int
+}
+
+instance sz<Int> {
+    fn size_of(x) { x }
+}
+
+fn twice<a>(x: a) -> Int where sz<a> {
+    size_of(x) + size_of(x)
+}
+
+fn main() with IO {
+    print(twice(2))
+}

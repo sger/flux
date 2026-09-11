@@ -1,0 +1,18 @@
+// parity-expected-stdout-begin
+// 1
+// "left"
+// parity-expected-stdout-end
+
+// Generalize-by-arity is not an arity-1 rule — roadmap G5.
+//
+// `take_first` is unannotated and binary. Both of its parameters generalize,
+// and the two call sites instantiate them independently: `(Int, String)` here
+// and `(String, Bool)` below. The rule is "declared type parameters, or takes
+// parameters, and raised no constraint of its own".
+
+fn take_first(a, b) { a }
+
+fn main() with IO {
+    print(take_first(1, "ignored"))
+    print(take_first("left", true))
+}

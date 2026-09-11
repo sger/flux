@@ -1,0 +1,32 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/generics/failing/compile/b2_unannotated_constrained_double.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 1st argument to `double`.
+
+  examples/generics/failing/compile/b2_unannotated_constrained_double.flx:30:18
+   |
+26 | fn double(x) { x + x }
+   | ------------ `double` expects `Int` as the 1st parameter
+27 | 
+28 | fn main() with IO {
+29 |     print(double(2))
+30 |     print(double(2.5))
+   |                  ^^^
+   |                  --- this argument has type `Float`
+
+Note:
+  expected argument type: Int
+  found argument type: Float
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Try `to_int(...)` if truncating a `Float` to an `Int` is intended.
+== stdout ==
+<not executed>

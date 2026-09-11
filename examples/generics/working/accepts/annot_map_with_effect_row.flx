@@ -1,0 +1,25 @@
+// parity-expected-stdout-begin
+// [2, 4, 6]
+// ["A", "B"]
+// parity-expected-stdout-end
+
+// Type parameters and an effect row variable in one signature.
+//
+// This is the shape the standard library uses for every traversal — compare
+// `Flow.List.map` at lib/Flow/List.flx:16. `a` and `b` say the element types
+// are independent; `|e` says the traversal performs whatever the callback
+// performs and nothing more.
+//
+// One definition, used at `(Int) -> Int` and `(String) -> String`.
+
+fn map_list<a, b>(xs: List<a>, f: ((a) -> b with |e)) -> List<b> with |e {
+    match xs {
+        [h | t] -> [f(h) | map_list(t, f)],
+        _ -> [],
+    }
+}
+
+fn main() with IO {
+    print(map_list([1, 2, 3], \n -> n * 2))
+    print(map_list(["a", "b"], \s -> upper(s)))
+}

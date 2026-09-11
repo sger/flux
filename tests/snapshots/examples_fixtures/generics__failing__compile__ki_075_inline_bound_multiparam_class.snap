@@ -1,0 +1,35 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/generics/failing/compile/ki_075_inline_bound_multiparam_class.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E489]: Could Not Deduce
+
+Could not deduce `Convert<a, String>` from the context `Convert<a>`.
+
+  examples/generics/failing/compile/ki_075_inline_bound_multiparam_class.flx:34:5
+   |
+34 |     convert(x)
+   |     ^^^^^^^^^^
+
+Hint:
+  Add `Convert` to the bounds this signature declares.
+
+
+error[E444]: No Type Class Instance
+
+No instance for `Convert<Int>`.
+
+  examples/generics/failing/compile/ki_075_inline_bound_multiparam_class.flx:38:11
+   |
+38 |     print(via(42))
+   |           ^^^
+
+Hint:
+  Add an instance: `instance Convert<Int> { ... }`
+
+Found 2 errors.
+== stdout ==
+<not executed>

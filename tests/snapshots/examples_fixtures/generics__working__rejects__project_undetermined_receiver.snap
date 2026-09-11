@@ -1,0 +1,20 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/generics/working/rejects/project_undetermined_receiver.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E491]: Unresolved Tuple Receiver
+
+Cannot tell which type this is, so the projection `.0` cannot be resolved. Inferred receiver: `_`.
+
+  examples/generics/working/rejects/project_undetermined_receiver.flx:15:13
+   |
+15 | fn fst(p) { p.0 }
+   |             ^^^
+
+Hint:
+  Annotate the value with a tuple type so the element has a type to project.
+== stdout ==
+<not executed>

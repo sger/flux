@@ -1,0 +1,42 @@
+// parity-expected-stdout-begin
+// "int/4"
+// parity-expected-stdout-end
+
+// A superclass, and a generic function that uses both levels.
+//
+// `Ranked<a>` declares `Named<a>` as its superclass, so a `Ranked` dictionary
+// carries a `Named` dictionary in a superclass slot. `label` is constrained
+// only by `Ranked`, yet calls `name` — the `Named` method — and the evidence
+// for it is projected out of the dictionary it already has rather than passed
+// separately.
+//
+// Exactly one superclass is supported. `class (Eq<a>, Show<a>) => Ord<a>` is a
+// grammar limit (proposal 0182), not an inference one.
+//
+// Note that the instance names its superclass evidence explicitly, as
+// `Named<Int> => Ranked<Int>`. lib/Flow/Ord.flx:8-12 warns that leaving that
+// to be solved sends the solver into a stack-overflowing loop.
+
+class Named<a> {
+    fn name(x: a) -> String
+}
+
+class Named<a> => Ranked<a> {
+    fn rank(x: a) -> Int
+}
+
+instance Named<Int> {
+    fn name(x) { "int" }
+}
+
+instance Named<Int> => Ranked<Int> {
+    fn rank(x) { x - 1 }
+}
+
+fn label<a: Ranked>(x: a) -> String {
+    name(x) + "/" + to_string(rank(x))
+}
+
+fn main() with IO {
+    print(label(5))
+}

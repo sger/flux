@@ -1,0 +1,42 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/generics/failing/compile/grammar_0182_multiple_superclasses.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E034]: Missing Class Name
+
+Expected class name or constraint after `class`.
+
+  examples/generics/failing/compile/grammar_0182_multiple_superclasses.flx:27:7
+   |
+27 | class (Named<a>, Tagged<a>) => Both<a> {
+   |       ^
+
+Hint:
+  Class declarations use `class Name<a> { ... }`.
+
+
+error[E031]: Expected Expression
+
+Expected expression, found `=>`.
+
+  examples/generics/failing/compile/grammar_0182_multiple_superclasses.flx:27:29
+   |
+27 | class (Named<a>, Tagged<a>) => Both<a> {
+   |                             ^^
+
+
+error[E031]: Expected Expression
+
+Expected expression, found `->`.
+
+  examples/generics/failing/compile/grammar_0182_multiple_superclasses.flx:28:19
+   |
+28 |     fn both(x: a) -> String
+   |                   ^^
+
+Found 3 errors.
+== stdout ==
+<not executed>

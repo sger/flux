@@ -107,13 +107,20 @@ fn build_runtime_transcript(workspace_root: &Path, flux_bin: &Path, fixture_rel:
     )
 }
 
-#[test]
-fn runtime_error_fixtures_snapshot() {
+/// Snapshot every fixture under `fixtures_rel` by *running* it on the VM.
+///
+/// Split out so the generics corpus can reuse it. A gap whose only symptom is
+/// at run time — a constrained function passed as a value, say — compiles
+/// cleanly, so the compile-only `examples_generics` snapshot records it as
+/// `ok` and pins nothing. This is the harness that can see it.
+///
+/// VM only, deliberately: the native backend segfaults on KI-090.
+fn snapshot_runtime_dir(fixtures_rel: &str, snapshot_dir: &str) {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let flux_bin = Path::new(env!("CARGO_BIN_EXE_flux"));
-    let fixtures_root = workspace_root.join("examples/runtime_errors");
+    let fixtures_root = workspace_root.join(fixtures_rel);
     let fixtures = examples_snapshot::discover_fixtures(&fixtures_root);
 
     assert!(
@@ -137,13 +144,29 @@ fn runtime_error_fixtures_snapshot() {
         let transcript = build_runtime_transcript(workspace_root, flux_bin, &rel);
 
         insta::with_settings!({
-            snapshot_path => "../snapshots/runtime_error_fixtures",
+            snapshot_path => snapshot_dir,
             prepend_module_to_snapshot => false,
             omit_expression => true,
         }, {
             insta::assert_snapshot!(snapshot_name, transcript);
         });
     }
+}
+
+#[test]
+fn runtime_error_fixtures_snapshot() {
+    snapshot_runtime_dir(
+        "examples/runtime_errors",
+        "../snapshots/runtime_error_fixtures",
+    );
+}
+
+#[test]
+fn generics_runtime_fixtures_snapshot() {
+    snapshot_runtime_dir(
+        "examples/generics/failing/runtime",
+        "../snapshots/generics_runtime",
+    );
 }
 
 /// The type checker now catches boundary argument mismatches at compile time
