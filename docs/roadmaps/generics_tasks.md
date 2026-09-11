@@ -769,9 +769,14 @@ Ranked by severity; complete as of this writing.
 ### Medium
 
 
-- [ ] **D7. [KI-069](../known_issues.md#ki-069)** — a contextual instance cannot
-      compare a field of its own head type. *Dictionary elaboration; a C
-      candidate.*
+- [x] **D7. [KI-069](../known_issues.md#ki-069)** — a contextual instance cannot
+      compare a field of its own head type. **No longer reproduces, verified
+      2026-09-11** against the entry's own repro, which now compiles and
+      dispatches at `Tree<Int>`. The fixing change was not identified — this
+      came out of building the generics corpus (F9), not a deliberate fix — so
+      the entry is marked fixed-by-verification and pinned by
+      `examples/generics/working/accepts/data_contextual_instance_recursive_head.flx`.
+      Its "no workaround" line was the misleading part and is retracted.
 
 
 - [ ] **D10. [KI-053](../known_issues.md#ki-053)** — the whole-program dumps

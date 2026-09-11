@@ -498,8 +498,12 @@ module Flume.Schema.Manifest {
     /// A schema failure, at the nominal head of the document.
     ///
     /// Returns the bare error rather than a `Result`: a generic `Err` whose
-    /// success type is still free does not infer (KI-011). Callers wrap it,
+    /// success type is still free did not infer (KI-011). Callers wrap it,
     /// where their own return annotation has already fixed the type.
+    ///
+    /// KI-011 no longer reproduces as of 2026-09-11, so the shape this avoids
+    /// is available again and the indirection could be removed. Left in place
+    /// rather than changed alongside the verification.
     fn schema_error(kind: String, message: String) -> ParseError {
         ParseError {
             kind: kind,

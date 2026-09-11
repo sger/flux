@@ -69,9 +69,9 @@ streaming API could take.
 TCP operations use blocking stdlib calls with no fiber-scheduler integration, so
 concurrent TCP tests are not yet possible. Needs the mio reactor wiring.
 
-### KI-011 — Re-wrapping `Err(e)` into a `Result` with a different success type fails inference
+### KI-011 — Re-wrapping `Err(e)` into a `Result` with a different success type fails inference — FIXED, verified 2026-09-11
 
-**Severity:** Medium · **Area:** HM inference · **Verified:** 2026-08-24
+**Severity:** Medium · **Area:** HM inference · **Verified:** 2026-08-24 · **Fixed:** verified 2026-09-11
 
 The standard error short-circuit — match a `Result`, pass `Err` through
 unchanged, produce a different success type — does not infer:
@@ -124,6 +124,19 @@ code is written, because a green `flux run` is not evidence the module is clean.
 Reconstructing the payload rather than forwarding it also avoids the error
 (`Err(message) -> Err(message + "")` infers), which is further evidence the
 failure is about the *forwarded binding* and not the surrounding types.
+
+**No longer reproduces (2026-09-11).** The program above — the entry's own
+repro, unchanged — compiles and runs. `outer`'s declared return type fixes both
+parameters and the `Err` arm unifies against `Result<Bool, String>`, which is
+what this entry said should happen and did not.
+
+The fixing change was not identified. This was found by re-testing every gap
+while building `examples/generics/`, not by a deliberate fix, so the date above
+is when it was verified fixed rather than when it was fixed. The workaround and
+the `--test`-only visibility note above are kept for anyone reading an older
+tree. Pinned by
+`examples/generics/working/accepts/data_result_err_rewrap.flx`, so a regression
+is a snapshot diff rather than a rediscovery.
 
 ---
 ### KI-023 — `exposing` cannot rename, so two modules' same-named types cannot both be used
@@ -456,9 +469,9 @@ exist — a misleading signal exactly when the cache is under suspicion.
 
 ---
 
-### KI-070 — A lambda's parameter or return annotation cannot name an enclosing rigid type parameter
+### KI-070 — A lambda's parameter or return annotation cannot name an enclosing rigid type parameter — FIXED, verified 2026-09-11
 
-**Severity:** Medium · **Area:** Type inference, annotations · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** Medium · **Area:** Type inference, annotations · **Verified:** 2026-09-02 · **Fixed:** verified 2026-09-11 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 ```flux
 fn outer<a>(x: a) -> a {
@@ -480,6 +493,32 @@ The fix is the one KI-058 used: read the top of
 `InferCtx::signature_type_params` instead of an empty map. It was scoped out
 deliberately rather than missed — the `let` path is what unblocked Stage 4, and
 the lambda path has no known consumer waiting on it.
+
+**No longer reproduces (2026-09-11), and the repro above never ran.** Two
+separate things were wrong with this entry.
+
+First, `\y: a -> y` is a parse error — `error[E034]: Missing Lambda Arrow` —
+because a lambda parameter annotation needs parentheses. So the snippet above
+never reached inference at all, and whatever was observed in 2026-09-02 was not
+observed through it. Written correctly:
+
+```flux
+fn outer<a>(x: a) -> a {
+    let f = \(y: a) -> y
+    f(x)
+}
+
+fn main() with IO { print(outer(1)) print(outer("s")) }
+```
+
+Second, that program compiles and prints both lines. If the annotation still
+converted to `TypeConstructor::Adt("a")`, `f(x)` would be a mismatch and `outer`
+could not be used at two instantiations — so the annotation is reaching the
+enclosing signature's rigid variable.
+
+The fixing change was not identified; this was found by re-testing while
+building `examples/generics/`. Pinned by
+`examples/generics/working/accepts/annot_lambda_names_rigid_param.flx`.
 
 ### KI-098 — A generalized helper used at two types loses its representation
 
@@ -2125,9 +2164,9 @@ tracked separately as [KI-069](#ki-069).
 
 ---
 
-### KI-069 — A contextual instance cannot compare a field of its own head type
+### KI-069 — A contextual instance cannot compare a field of its own head type — FIXED, verified 2026-09-11
 
-**Severity:** Medium · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** Medium · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-02 · **Fixed:** verified 2026-09-11 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 A recursive parameterized ADT cannot get an `Eq` instance, derived or written
 by hand:
@@ -2162,8 +2201,25 @@ The fix is for a recursive reference to reuse the dictionary being constructed
 rather than demanding it as a value, which is what a self-referential
 (knot-tying) dictionary binding provides.
 
-**Workaround:** none for a recursive parameterized head. A recursive
-*monomorphic* ADT is unaffected, since its dictionary is a plain tuple.
+**No longer reproduces (2026-09-11).** The instance above — the entry's own
+repro, unchanged — compiles and dispatches correctly at `Tree<Int>`, returning
+`true` for equal trees and `false` for unequal ones. The recursive
+`eq(l1, l2)` calls resolve, so a recursive reference is no longer demanding its
+own dictionary as a value.
+
+**The "no workaround" line below is therefore obsolete**, and was the most
+misleading thing in this file: it told anyone who needed `Eq` on a recursive
+parameterized ADT that they were blocked, for a shape that works. `deriving
+(Eq)` over a parameterized head also works — see
+`examples/generics/working/accepts/data_named_fields_deriving_eq.flx`.
+
+The fixing change was not identified; this was found by re-testing while
+building `examples/generics/`. Pinned by
+`examples/generics/working/accepts/data_contextual_instance_recursive_head.flx`.
+
+**Workaround (obsolete, kept for older trees):** none for a recursive
+parameterized head. A recursive *monomorphic* ADT is unaffected, since its
+dictionary is a plain tuple.
 
 ---
 
