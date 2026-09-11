@@ -19,6 +19,7 @@ The release split this corpus is measured against
 | `working/rejects/` | correctly **rejected** — the diagnostic is the feature | `examples_generics` snapshot |
 | `failing/compile/` | a gap that surfaces as a compile error | `examples_generics` snapshot |
 | `failing/runtime/` | compiles clean, then misbehaves at run time | `generics_runtime_fixtures_snapshot` (VM only) |
+| `failing/degraded/` | compiles, runs, **right answer** — the loss is in the generated code | `snapshot_ki_098_*_core_def` in `tests/aether/cli_snapshots.rs` |
 
 The split between the last two is not taxonomy for its own sake. The
 `examples/` snapshot harness is compile-only, so a gap whose symptom is at run
@@ -99,6 +100,7 @@ Codes were measured on 2026-09-11, not copied from the roadmap.
 | `failing/compile/ki_075_inline_bound_multiparam_class.flx` | `E489`, `E444` | `<a: C>` on a multi-parameter class, with a hint that cannot be followed | KI-075 |
 | `failing/compile/grammar_0182_multiple_superclasses.flx` | `E034` | more than one superclass | proposal 0182 |
 | `failing/runtime/ki_090_constrained_fn_as_value.flx` | `E1000` | a constrained function passed as a **value** loses its dictionary | KI-090, High, 0.0.8 |
+| `failing/degraded/ki_098_despecialised_two_instantiations.flx` | none | a generalized helper used at **two** types loses its representation | KI-098, Low, 0.0.8 |
 
 ### The distance to "full generic support"
 
@@ -138,13 +140,33 @@ cannot be shown by any VM-only harness; the rest are simply not written yet.
 | KI-076 | an operator on a class-constrained parameter does not dispatch inside a `module` | 0.0.8 (D3) |
 | KI-086 | a class declared inside a `module` loses its default method bodies | 0.0.8 (D4) |
 | KI-088 | nested `fn` shadowing an outer `fn` — the codegen half, `E1000` at run time | 0.0.7 (D8) |
-| KI-098 | a G5-generalized helper used at two types is despecialised — compiles, runs, **right answer**, worse code | 0.0.8 (B2) |
 | E2 | inferred ambiguity panics at run time instead of reporting a compile error | 0.0.8 |
 
-KI-098 is worth singling out: it is invisible to every harness here *and* to a
-parity sweep, because a despecialised program still gives the right answer. Only
-`--dump-aether` and `--dump-core` show it, which is why its seven sites live in
-`tests/snapshots/aether/`.
+## The specialisation gate
+
+KI-098 is the one gap no behavioural test can reach: a despecialised program
+compiles, runs and returns the right answer, so parity, the runtime snapshot and
+every compile snapshot here all pass it.
+
+`failing/degraded/` therefore holds a **contrast pair** — two programs identical
+apart from one extra call site — and the diff between their pinned Core is the
+measurement:
+
+```
+baseline (one call site):   ::(h#N:Int, t#N:Box) →
+two call sites:             ::(h#N,     t#N:Box) →
+```
+
+B1 restores the representation where every call site agrees on one concrete
+instantiation. A second instantiation loses it, and Aether can no longer prove
+the in-place reuse it could before.
+
+Both snapshots normalize binder ids and temporaries to `N`, so the gate watches
+the representation annotations rather than counters that renumber on any
+unrelated change. When B2 lands and specialises per instantiation, the second
+snapshot should converge on the first — and that diff is what says the work paid
+off. It cannot be reconstructed afterwards, which is why the baseline is pinned
+now rather than when B2 starts.
 
 ## See also
 

@@ -514,10 +514,28 @@ Runs alongside the others; none of it is optional for a release.
       3. The guide's "Only `fn f<T>(x: T)` syntax triggers let-polymorphism"
          (09_type_system_basics.md:181) was false after G5 and is corrected.
 
-      Seven gaps are mapped in the README but have no file yet: KI-071, KI-073,
-      KI-076, KI-086, KI-088, KI-098 and E2. The first two are VM/native
-      divergences that no VM-only harness can show, and KI-098 is invisible to
-      every harness including parity — only `--dump-aether` sees it.
+      **A specialisation gate ships with it.** KI-098 is invisible to every
+      behavioural harness — a despecialised program compiles, runs and returns
+      the right answer, so parity and every snapshot pass it. `failing/degraded/`
+      holds a contrast pair, two programs differing only in one extra call site,
+      and `snapshot_ki_098_*_core_def` in `tests/aether/cli_snapshots.rs` pins
+      one extracted Core definition from each:
+
+      ```
+      baseline (one call site):   ::(h#N:Int, t#N:Box) →
+      two call sites:             ::(h#N,     t#N:Box) →
+      ```
+
+      The extraction matters: a full `--dump-core=debug` is ~2900 lines of
+      mostly stdlib, which would bury the signal and repaint on every unrelated
+      `lib/Flow` change. Binder ids and temporaries are normalized to `N` for
+      the same reason. **This is the baseline B2 will be measured against, and
+      it cannot be reconstructed after B2 lands** — which is why it is pinned
+      now rather than when that work starts.
+
+      Six gaps are mapped in the README but have no file yet: KI-071, KI-073,
+      KI-076, KI-086, KI-088 and E2. The first two are VM/native divergences
+      that no VM-only harness can show.
 - [x] **F8. Amend [0187](../proposals/0187_specialisation.md).** Done
       2026-09-09. The 16 became 4, with the other 9 named as dictionary
       plumbing and the conclusion drawn — specialisation is necessary but not
