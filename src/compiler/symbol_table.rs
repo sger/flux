@@ -153,6 +153,27 @@ impl SymbolTable {
         }
     }
 
+    /// Look a name up without capturing it.
+    ///
+    /// [`SymbolTable::resolve`] takes `&mut self` for a reason: on a miss it
+    /// walks outward and, for any binding that is not `Global`, calls
+    /// `define_free`, which records a capture *and inserts a `Free` entry into
+    /// this scope*. That is what compilation wants — reading an outer local
+    /// from a closure has to go through the capture list.
+    ///
+    /// An *analysis* wants none of it. A pass that only inspects bindings and
+    /// emits nothing must not leave a capture behind, and must not make
+    /// `exists_in_current_scope` start answering true for a name this scope
+    /// never bound. `collect_consumable_param_uses` did exactly that and cost
+    /// a spurious `E001` on every `let` shadowing an enclosing function's name
+    /// (docs/known_issues.md#ki-088).
+    pub fn lookup(&self, name: Symbol) -> Option<Binding> {
+        match self.store.get(&name) {
+            Some(symbol) => Some(symbol.clone()),
+            None => self.outer.as_ref()?.lookup(name),
+        }
+    }
+
     /// Get all symbol names visible from this scope
     ///
     /// Returns all symbols from the current scope and outer scopes,
