@@ -354,6 +354,10 @@ name = "stdlib_map_tests"
 path = "tests/vm_runtime/stdlib_map_tests.rs"
 
 [[test]]
+name = "fn_shadowing_tests"
+path = "tests/vm_runtime/fn_shadowing_tests.rs"
+
+[[test]]
 name = "generics_tests"
 path = "tests/vm_runtime/generics_tests.rs"
 
