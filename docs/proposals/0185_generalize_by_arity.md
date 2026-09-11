@@ -3,6 +3,18 @@
 - Proposal PR:
 - Flux Issue:
 
+**Status (checked 2026-09-11):** Stages 1, 2 and 5 **shipped**. Stage 3 is
+**half shipped** — the unconstrained case landed as G5 in 0.0.7; the constrained
+case is [0187](0187_specialisation.md) stage 2, which supersedes this stage.
+Stage 4 (report inferred ambiguity, 0183's `R6d`) is **open** and blocked on
+that constrained half.
+
+The centrepiece rule is therefore now in the compiler:
+`should_generalize_function` (`src/ast/type_infer/function.rs:573-589`) tests
+arity, matching GHC's `matchGroupVisArity mg == 0`. What it adds beyond GHC is a
+no-constraint side condition — not a different view of the monomorphism
+restriction, but the absence of the machinery to pass a dictionary.
+
 ## Summary
 [summary]: #summary
 
@@ -194,7 +206,40 @@ Exit — met: `examples/diagnostics/hint_demos/function_arg_mismatch.flx` report
 reproduces the bug without generalization and so fails on the unfixed
 compiler.
 
-### Stage 3 — generalize by arity
+### Stage 3 — generalize by arity — **half shipped (G5, 0.0.7)**
+
+> **Amended 2026-09-11.** This stage splits along the constraint boundary, and
+> the unconstrained half shipped in 0.0.7 as roadmap item **G5** (`1a30c716`).
+> The text below described the whole stage as pending and told the reader to
+> rewrite a lost patch; neither is true any more. Superseded in full by
+> [0187](0187_specialisation.md), which owns the remainder.
+>
+> **What shipped.** `should_generalize_function`
+> (`src/ast/type_infer/function.rs:573-589`) generalizes a definition with
+> parameters that raises no class constraint. `!param_tys.is_empty()` is GHC's
+> `matchGroupVisArity mg == 0` negated — the same arity test — so
+> `fn identity(x) { x }` is usable at `Int` and `String` with no signature.
+>
+> **What remains** is the constrained case, `fn double(x) { x + x }`, which is
+> 0187 stage 2. It is not withheld for a reason about quantification: there is
+> nowhere to get the dictionary from until Track C's evidence translation
+> lands. Measured 2026-09-08, applying the rule unrestricted breaks 13 tests —
+> **9 dictionary plumbing, 4 lost optimisation** — so specialisation was only a
+> quarter of the answer.
+>
+> **A second condition was needed that this stage did not foresee.**
+> `shares_var_with_pending_field_predicate` withholds generalization from a
+> definition sharing a type variable with an *undischarged* field or tuple
+> predicate. A predicate belongs to whichever definition performed the access,
+> but the receiver often arrives from a caller that merely forwards it;
+> generalizing the forwarder quantifies that variable and the pinned receiver
+> inside the callee is then determined by nothing. It cost four
+> `examples/aoc/2024/day06*` programs when the rule was first written without
+> it. GHC needs no such condition because `HasField` carries a functional
+> dependency and is solved in the ordinary fixpoint — see
+> [the GHC comparison](../internals/typeclass_vs_ghc.md) §4.
+
+The original text follows, for the record.
 
 Replace the `type_params.is_empty()` test in
 `finalize_and_bind_function_scheme` with GHC's rule: a definition with
@@ -233,7 +278,9 @@ every unannotated constrained helper changes arity.
 
 ### Stage 4 — report inferred ambiguity
 
-0183's R6b. With Stage 3 landed the whole-program residue is the set of
+0183's R6d (called `R6b` there until 2026-09-11, when it was renamed off a
+collision with a shipped row of that name). With Stage 3 landed the
+whole-program residue is the set of
 predicates over variables *inference* never resolved — ambiguity, not stranded
 obligations. `Disposition` loses `Stuck`; the terminal set becomes Solved /
 Generalized / Defaulted / Reported. A predicate reaching whole-program scope

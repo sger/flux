@@ -3,6 +3,15 @@
 - Proposal PR:
 - Flux Issue:
 
+**Status (checked 2026-09-11):** Stage 1 and R1–R6c shipped. **Open:** `R6d`
+(report an inferred ambiguity — renamed from `R6b` on 2026-09-11, see the table
+and item 4), `R6` (generalize unannotated definitions — *half shipped* as G5 in
+0.0.7; the constrained half is [0187](0187_specialisation.md) stage 2), and
+`R7`. The proposal's central claim — every wanted constraint has a terminal
+outcome — is **not yet true**: `Disposition::Stuck` still exists, and a stuck
+predicate reaches run time as an `E1009` panic naming the wrong cause. Pinned by
+`examples/generics/failing/runtime/e2_ambiguous_instance_selection.flx`.
+
 ## Summary
 [summary]: #summary
 
@@ -36,6 +45,7 @@ checkout at commit `2ca87972f6`.
 | R6a | `+` becomes `Flow.Add`, a class `String` instantiates | shipped | `f8d8f585` | no diagnostic change in 1,305 programs |
 | R6b | a match arm keeps the scrutinee's type (KI-080) | shipped | `fd4b5338` | stdlib residue 15 → 11; no diagnostic change |
 | R6c | a class-method call stops emitting an unbindable instance context (KI-081) | shipped | — | stdlib residue 11 → 9; no diagnostic change |
+| R6d | `Disposition` loses `Stuck`; an inferred ambiguity is reported with its origin (Example A). **Was called `R6b` until 2026-09-11** — see item 4 below | not started; tracked as [0185](0185_generalize_by_arity.md) Stage 4 and roadmap **E2**, blocked on generalize-by-arity's constrained half | — | pinned today by `examples/generics/failing/runtime/e2_ambiguous_instance_selection.flx`, which panics at run time instead |
 | — | [0184](0184_field_access_constraints.md) Stage 1: field access emits a predicate | shipped | — | new `E490`; no diagnostic change in 1,305 programs |
 | R6 | generalize unannotated definitions, then report what survives (M6) | unblocked ([KI-083](../known_issues.md#ki-083) and [KI-082](../known_issues.md#ki-082) fixed); tracked as [0185](0185_generalize_by_arity.md) Stage 3 | — | stdlib residue 9 → **0**; 2 of 1,305 programs break |
 | R7 | clear the fallout across `lib/Flow`, `examples`, `tests` | not started | — | 2 programs, both covered by KI-082/083 |
@@ -84,8 +94,17 @@ stranded are consumed by a scheme. Takes the stdlib residue to **0**. Gated on
 items 1 and 2 — with those fixed it should be a clean landing, since they are
 the only two programs it breaks.
 
-**4. Land R6b — replace `StuckReason` with origin plus provenance, and report.**
-The original R6. `Disposition` loses `Stuck`; the terminal set becomes Solved /
+**4. Land R6d — replace `StuckReason` with origin plus provenance, and report.**
+The original R6.
+
+> **Renamed 2026-09-11, from `R6b`.** This item and the *shipped* table row
+> `R6b` (a match arm keeps the scrutinee's type, KI-080, `fd4b5338`) are
+> different pieces of work that carried one name inside a single document, and
+> four places outside it cite "0183's R6b" meaning **this** one. The shipped row
+> keeps its name because it is in the commit record; the open item becomes
+> `R6d`.
+
+`Disposition` loses `Stuck`; the terminal set becomes Solved /
 Generalized / Defaulted / Reported. This is what makes the proposal's central
 claim true, and it delivers **Example A** — ambiguity reported at compile time
 rather than as a runtime `E1009` with a line-0 span. Only tractable once item 3

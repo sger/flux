@@ -3,6 +3,25 @@
 - Proposal PR:
 - Flux Issue:
 
+**Status (checked 2026-09-11):** Stage 1 **shipped** — field access emits
+`__field.name<R, T>` rather than a fallback variable, and 0185 stage 5 extended
+the same mechanism to tuple projection (`__tuple`, with the index on the
+origin). Out-of-range and undetermined receivers are reported (`E492`, `E491`).
+
+**Not implemented:** genuinely record-polymorphic access (see the Stage 2
+discussion below).
+
+**One consequence worth recording here**, because it reaches generalization
+rather than field access: the predicate is discharged in a *post-unification*
+pass (`discharge_field_predicates`, `src/ast/type_infer/mod.rs:850`), not in the
+class solver, so it **cannot be quantified**. GHC has no equivalent restriction
+because `HasField x r a | x r -> a` carries a functional dependency and is
+solved in the ordinary fixpoint. Flux has neither fundeps nor equality
+constraints, so a definition sharing a type variable with an undischarged
+predicate must stay monomorphic — which is why G5's rule needs
+`shares_var_with_pending_field_predicate`. See
+[the GHC comparison](../internals/typeclass_vs_ghc.md) §4.
+
 ## Summary
 [summary]: #summary
 

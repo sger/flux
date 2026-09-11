@@ -3,6 +3,18 @@
 - Proposal PR:
 - Flux Issue:
 
+**Status (checked 2026-09-11):** Stages 0c, 0d (descoped), 1, 2 and 3
+**done**. Stage 4 **partial** — `decide_quantification` computes the quantified
+set once; the remainder is one decision per *group* rather than per member
+(roadmap **B4**). Stage 5 is **next** and is the 0.0.8 headline: recording is
+done and gated (`EvidenceMap`, `translate.rs`, `FLUX_DBG_EVIDENCE`), but the
+evidence is **consumed nowhere in `src/`** — what remains is the emitter. Stage
+0e was abandoned and stage 6 moved to [0187](0187_specialisation.md).
+
+Stage 5's exit criterion was narrowed on 2026-09-11: "the six sites are gone"
+is not reachable in one landing, because the AST bytecode fallback is a third
+consumer that cannot yet be retired. See the note under the stage table.
+
 ## Summary
 [summary]: #summary
 
@@ -329,7 +341,40 @@ itself — and that is now **withdrawn**: the boundary is a guard test instead.
 | 4 | partial | `quantify.rs`: one decision returning quantified vars *and* retained context; MR becomes a parameter. Done: `decide_quantification` computes the quantified set once (it was derived at four sites) and `Quantified::into_scheme` consumes that set rather than re-deriving it; `GeneralizationMode` becomes `MonoRestriction` with `monomorphism_restriction(arity, has_signature)` as the rule. Done: `infer_binding_group`, so all four statement passes walk the same plan. Remaining: one quantification decision *per group* rather than per member — this is what retires `finalize_and_bind_function_scheme` and `refine_unannotated_self_recursive_return`.
 
 **`refine_unannotated_self_recursive_return` cannot be deleted on its own.** It was tried (and reverted): predeclaration already links a self-call to its definition, so the pass looked dead, and unannotated `fact` / `sum_to` / a function whose return type comes only from its recursive call all stayed correct without it. What it actually carries is *precision*, not correctness — it re-infers the body against fully substituted parameter types and keeps the more concrete of the two answers. Removing it dropped `:Box` binder annotations throughout the Aether Core dumps (`aether__drop_spec_recursive`, `drop_spec_branchy`, and six more), because recursive functions over lists lost the second pass's refinement. Tying the predeclared slot to the inferred type does not recover it, and leaks the declared effect row: `List.map(non_empty_lines(text), from_line)` in `lib/Flume/Schema/Index.flx` became `expected () -> Unit, found () -> Unit with Fail`. The precision has to come from the group's own quantification decision before the pass can go. | the 0185 `E490` regression cannot recur by construction |
-| 5 | next | `evidence.rs` + `translate.rs`: solver records evidence; delete the other resolution sites. The forwarding reproduction already compiles and runs on this branch, so [KI-090](../known_issues.md#ki-090) is the exit criterion instead — a constrained function referenced *as a value* never has its dictionary applied. **Fixing it locally was attempted and is impossible**, which is the strongest available argument for the evidence map: eta-expanding the reference is the right shape, but `resolve_dict_arg` can only answer for a concrete predicate or one the caller already holds, and at a reference the scheme says `Num<a>` while the instantiation to `Num<Int>` lives at the use site. Core cannot supply it — `CoreVarRef` is a name and a binder id — so the evidence has to be recorded during inference and carried. | KI-090's reproduction runs; the six sites are gone |
+| 5 | next | `evidence.rs` + `translate.rs`: solver records evidence; delete the other resolution sites. The forwarding reproduction already compiles and runs on this branch, so [KI-090](../known_issues.md#ki-090) is the exit criterion instead — a constrained function referenced *as a value* never has its dictionary applied. **Fixing it locally was attempted and is impossible**, which is the strongest available argument for the evidence map: eta-expanding the reference is the right shape, but `resolve_dict_arg` can only answer for a concrete predicate or one the caller already holds, and at a reference the scheme says `Num<a>` while the instantiation to `Num<Int>` lives at the use site. Core cannot supply it — `CoreVarRef` is a name and a binder id — so the evidence has to be recorded during inference and carried. | KI-090's reproduction runs; **the first deletion group is gone** — see below |
+
+**Stage 5's exit criterion, narrowed 2026-09-11.** "The six sites are gone" is
+not reachable in one landing, because the AST bytecode fallback is a *third*
+consumer with its own copies, and it cannot be retired yet. E3 asked whether it
+could; the answer, recorded at `docs/known_issues.md:3564`, is **no** — top-level
+non-function statements have no IR path (`compiler/passes/codegen.rs:109`),
+`IrExpr::MakeClosure` now fails unconditionally so any body containing a lambda
+takes the AST path, `Flow.Json`'s inner `decode` is on it, and a dozen
+diagnostics are AST-path-only checks.
+
+So the six split in two, and only the first group is this stage's exit:
+
+- **Deletable once the emitter lands:** `resolve_dict_arg`,
+  `build_caller_dict_map`, `choose_candidate`, `build_contextual_dictionary_expr`,
+  `superclass_evidence_expr` (all `dict_elaborate.rs`) and the Core-side
+  `class_call_type_args` (`lower_ast/mod.rs:834`) — about 320 lines.
+- **Deletable only with the fallback:** `compiler/expression.rs:4798-5715`
+  (~920 lines) and `predeclare_instance_dictionary_globals`, which is the AST
+  path's substitute for `build_instance_dictionaries`.
+
+This is not a weakening. `requires_ir_only` (`compiler/statement.rs:2188`)
+already pins a body containing a constrained call to the Core path, so the
+dictionary case is effectively single-emitter today; what the stage removes is
+the *duplication of the resolution rule*, which is what the "must stay in
+lockstep" comments were holding together by hand.
+
+Two related corrections. The `±dictionaries` band in `check_known_call_arity`
+is **already gone**, narrowed by `ad02f51b` (the KI-082 fix); only residual
+dictionary-awareness remains. And a second `Int`-defaulting hazard lives on the
+AST path (`default_type_vars_to_int`, `compiler/expression.rs:5291`) alongside
+the Core one (`lower_ast/mod.rs:1263`) — both concede in their own comments that
+the guess "can dispatch to the wrong dictionary". The Core one goes with this
+stage; the AST one goes with the fallback.
 | 6 | moved out | Generalize-by-arity now lives in [Proposal 0187](0187_specialisation.md), behind the `core/` specialisation pass it requires. It was implemented here and reverted: the rule is correct, but an unannotated helper becomes constrained and loses its specialised lowering, failing 16 tests that assert an optimisation still fires. A prerequisite outside this proposal should not hold a stage inside it. | — |
 
 ### Stage 0e, measured
