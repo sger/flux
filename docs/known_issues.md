@@ -3382,7 +3382,7 @@ native backend segfaults. So the defect is downstream of Core: a synthesized
 selection and closure conversion; every lambda the ordinary path builds carries
 types. Fixing that is the next step, not more work on evidence.
 
-### KI-088 — A `fn` name cannot be shadowed, in two different broken ways — shadowing fixed 2026-09-11; the `E001` row open
+### KI-088 — A `fn` name cannot be shadowed, in two different broken ways — FIXED 2026-09-11
 
 **Severity:** Medium · **Area:** Name resolution, bytecode emission · **Verified:** 2026-09-11 · **From:** Proposal 0186
 
@@ -3397,6 +3397,51 @@ is:
 | a local binding shadows a top-level `let` | **works** |
 | a local binding shadows a top-level `fn` | **silently resolves to the outer one** |
 | a local binding shadows a `fn` in an enclosing non-top-level scope | **`E001 Duplicate Name`** |
+
+**All three rows are fixed.** The third one was fixed on 2026-09-11, and its
+cause is not the shadowing rule but an aliasing one worth recording on its own.
+
+`SymbolTable::resolve` takes `&mut self` and is not a query. On a miss it walks
+outward and, for any binding that is not `Global`, calls `define_free` — which
+records a capture *and inserts a `Free` entry for that name into the current
+scope*. That is correct for compilation: reading an outer local from a closure
+has to go through the capture list.
+
+The duplicate check asked it first:
+
+```rust
+if let Some(existing) = self.symbol_table.resolve(name)
+    && self.symbol_table.exists_in_current_scope(name)
+```
+
+so `resolve` **created the current-scope entry that `exists_in_current_scope`
+then found**. The check manufactured the duplicate it reported. This also
+explains the shape of the table above: a top-level `fn` escaped it because
+`resolve` returns a `Global` binding before reaching the capture path, which is
+exactly why the row is an enclosing *non-top-level* scope and not the
+top-level one.
+
+Two more callers had the same defect, both read-only passes reaching for the
+mutating resolver and leaving a capture behind:
+
+- `collect_consumable_param_uses` — counts uses, emits nothing.
+- `expr_has_undefined_ident` — a predicate; both it and
+  `stmt_has_undefined_ident` are now `&self`, so the type records that they are
+  analysis.
+
+The `fn`-shadowing spelling failed through the second one differently: the
+stray `Free` entry made `should_predeclare` false in
+`compile_block_with_tail_mode_collect_errors`, so the inner definition was
+never predeclared and the check then compared it against the *outer* span.
+
+The fix is `SymbolTable::lookup(&self, ...)` — walks outward, captures nothing
+— at the analysis sites, plus asking `exists_in_current_scope` before `resolve`
+in both duplicate checks. Each half was reverted separately to confirm it is
+load-bearing; neither alone is sufficient.
+
+Pinned by `tests/flux/fn_shadowing.flx`, both spellings, VM and native. With
+the `src/` changes stashed those cases fail with two errors, so they pin the
+behaviour rather than passing by construction.
 
 The middle row is the dangerous one, because it can reach run time:
 

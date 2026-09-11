@@ -1192,7 +1192,7 @@ impl Compiler {
         false
     }
 
-    fn stmt_has_undefined_ident(&mut self, stmt: &Statement, locals: &[Symbol]) -> bool {
+    fn stmt_has_undefined_ident(&self, stmt: &Statement, locals: &[Symbol]) -> bool {
         match stmt {
             Statement::Expression { expression, .. } => {
                 self.expr_has_undefined_ident(expression, locals)
@@ -1202,7 +1202,7 @@ impl Compiler {
         }
     }
 
-    fn expr_has_undefined_ident(&mut self, expr: &Expression, locals: &[Symbol]) -> bool {
+    fn expr_has_undefined_ident(&self, expr: &Expression, locals: &[Symbol]) -> bool {
         match expr {
             Expression::Identifier { name, .. } => {
                 // Check: local binding, symbol table, exposed bindings,
@@ -1210,7 +1210,12 @@ impl Compiler {
                 if locals.contains(name) || self.exposed_bindings.contains_key(name) {
                     return false;
                 }
-                if self.symbol_table.resolve(*name).is_some() {
+                // `lookup`, not `resolve`: this predicate only asks whether the
+                // name is known. `resolve` would capture it into the current
+                // scope on the way to answering, which is how a nested `fn`
+                // shadowing an enclosing one stopped being predeclared and
+                // reported itself as a duplicate. See `SymbolTable::lookup`.
+                if self.symbol_table.lookup(*name).is_some() {
                     return false;
                 }
                 let name_str = self.sym(*name).to_string();
@@ -1436,9 +1441,28 @@ impl Compiler {
                     ..
                 } => {
                     let name = *name;
-                    // Check for duplicate in current scope FIRST (takes precedence)
-                    if let Some(existing) = self.symbol_table.resolve(name)
-                        && self.symbol_table.exists_in_current_scope(name)
+                    // Check for duplicate in current scope FIRST (takes precedence).
+                    //
+                    // `exists_in_current_scope` is asked *before* `resolve`, and the
+                    // order is the whole point (docs/known_issues.md#ki-088).
+                    // `SymbolTable::resolve` takes `&mut self` and is not a query: on
+                    // a miss it walks outward and, for any binding that is not
+                    // `Global`, calls `define_free` — which inserts a `Free` entry for
+                    // that name *into this scope*. Asking `resolve` first therefore
+                    // creates exactly what `exists_in_current_scope` then finds, and
+                    // every `let` shadowing a name from an enclosing function scope
+                    // reported a duplicate of itself.
+                    //
+                    // A top-level `fn` escaped it only because `resolve` returns a
+                    // `Global` binding before reaching the capture path, which is why
+                    // the entry's table records this row for an enclosing
+                    // *non-top-level* scope and not for the top-level one.
+                    //
+                    // When `exists_in_current_scope` is true the name is already in
+                    // this scope's store, so the `resolve` that follows hits that
+                    // entry and cannot capture anything.
+                    if self.symbol_table.exists_in_current_scope(name)
+                        && let Some(existing) = self.symbol_table.resolve(name)
                     {
                         // A dispatch stub generated for a class method is not
                         // a user declaration, and a binding of that name takes
@@ -1616,9 +1640,13 @@ impl Compiler {
                     let name = *name;
                     // For top-level functions, checks were already done in pass 1
                     // Only check for nested functions (scope_index > 0)
+                    // `exists_in_current_scope` before `resolve`, for the reason
+                    // spelled out on the `Let` arm above: `resolve` captures on a
+                    // miss, so asking it first manufactures the duplicate it is
+                    // then asked about.
                     if self.scope_index > 0
-                        && let Some(existing) = self.symbol_table.resolve(name)
                         && self.symbol_table.exists_in_current_scope(name)
+                        && let Some(existing) = self.symbol_table.resolve(name)
                         && existing.symbol_scope != SymbolScope::Function
                         // Skip if this binding was predeclared for forward references
                         && existing.span != *span

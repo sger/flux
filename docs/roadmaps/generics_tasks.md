@@ -204,8 +204,7 @@ reproduced.
 
 ## Track G — the instrument, and what it found
 
-- [~] **D8. [KI-088](../known_issues.md#ki-088)** — *shadowing fixed; one
-      spurious `E001` left.* A nested `fn` shadowing a top-level name now runs
+- [x] **D8. [KI-088](../known_issues.md#ki-088)** — *fixed, all three rows.* A nested `fn` shadowing a top-level name now runs
       the nested definition. Inference was fixed in `4654bad1`, the compiler's
       contract lookup in `33e43a28`, and codegen on 2026-09-11: `MakeClosure`
       was passing a binding **slot** where `OpClosure` takes a **constant**
@@ -226,9 +225,20 @@ reproduced.
       *different arity*, the case that tells a wrong constant from a wrong
       arity.
 
-      **What is left** is the third row of the entry's table: a local binding
-      shadowing a `fn` in an enclosing non-top-level scope is a spurious
-      `E001 Duplicate Name`. Different subsystem — scope handling, not codegen.
+      **The third row is fixed too**, on 2026-09-11, and its cause is worth
+      recording separately: `SymbolTable::resolve` takes `&mut self` and
+      captures an outer non-`Global` binding into the current scope as a side
+      effect of answering. The duplicate check asked `resolve` before
+      `exists_in_current_scope`, so it manufactured the duplicate it reported —
+      and a top-level `fn` escaped only because `resolve` returns `Global`
+      before reaching the capture path, which is why the row was scoped to an
+      enclosing *non-top-level* scope.
+
+      Two read-only passes had the same defect (`collect_consumable_param_uses`
+      and `expr_has_undefined_ident`), each leaving a capture behind. The fix
+      is a non-capturing `SymbolTable::lookup` at the analysis sites plus the
+      check order in both duplicate checks; each half was reverted separately
+      to confirm it is load-bearing.
 - [x] **D6. [KI-062](../known_issues.md#ki-062)** — the parity harness accepted a
       fixture that fails to compile on both backends. **Fixed**: `expect: success`
       now requires every way to exit `Success`, and a support module with no
@@ -647,7 +657,9 @@ Runs alongside the others; none of it is optional for a release.
       **As written**, the body opens on "0.0.7 has open items — they are listed
       below rather than left for a reader to find. One of them is caused by
       this branch", and the Open section names KI-098 (with its cause in G5 and
-      B1 stated), KI-097, KI-088's third row, and F3's deferral. It also
+      B1 stated), KI-097 and F3's deferral. (It named KI-088's third row too;
+      that was fixed on 2026-09-11, after the body was written, so the body
+      needs that line dropped before it is posted — see D8.) It also
       carries what the validation does *not* establish: that a sweep sees
       outcomes rather than precision, KI-062 as the case in point, and the
       three entries that turned out not to describe the compiler any more
