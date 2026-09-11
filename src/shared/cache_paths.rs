@@ -163,7 +163,15 @@ use sha2::{Digest, Sha256};
 /// of atoms where an epoch-51 artifact recorded a single alias name, so cached
 /// contracts and interfaces disagree with a fresh compiler about whether a
 /// higher-order call satisfies its effect row (KI-094).
-pub const CACHE_EPOCH: u16 = 52;
+/// Epoch 53: a field or tuple-projection predicate whose receiver has already
+/// resolved to a structure is discharged where it was raised rather than
+/// retained on the binding's scheme. An epoch-52 `.flxi` records such a
+/// predicate in a scheme's context — `Flow.Array.update_many` carries
+/// `__tuple` — and every call site re-raises it as a bare `SchemeUse`, without
+/// the index that `TupleProjection` held, so the whole-program solve looks for
+/// a field literally named `__tuple`. A caller compiled against a cached
+/// epoch-52 interface is therefore an `E490` that a fresh compiler accepts.
+pub const CACHE_EPOCH: u16 = 53;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

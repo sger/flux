@@ -475,6 +475,14 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
                 use std::os::unix::process::CommandExt as _;
                 native_cmd.arg0(script);
             }
+            // `arg0` is a Unix extension. Windows fixes the child's argv[0] at
+            // spawn, so the override above cannot run there and the script path
+            // has no consumer — which also means `Env.args()` still reads the
+            // cache path on the native backend on Windows, where the VM reads
+            // the script. Binding it away keeps the gate's `-D warnings` clean
+            // without hiding that the divergence is unaddressed.
+            #[cfg(not(unix))]
+            let _ = script;
             native_cmd.args(rest);
         }
         native_cmd.stdout(std::process::Stdio::inherit());
