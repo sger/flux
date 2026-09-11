@@ -778,9 +778,10 @@ capability map was built for exactly this question.
 
 ### Not being worked
 
-**0182** entirely (parser only; D15, D16) · **0184 stage 2** (record-polymorphic
+**0182** entirely, plus D11–D16 — **scheduled for 0.0.9**, the type-class
+surface and its Low defects · **0184 stage 2** (record-polymorphic
 access, whose evidence has *runtime* content) · retiring the AST bytecode
-fallback (**E3**, answered **no**) · D10–D14, D17 · A2, A3.
+fallback (**E3**, answered **no**) · D10 and D17 (not generics) · A2, A3.
 
 ### Execution order
 

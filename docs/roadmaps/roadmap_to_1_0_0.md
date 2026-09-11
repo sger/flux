@@ -41,7 +41,7 @@ It does **not** require:
 | `0.0.6` | Finish partials + named fields | `0152`, `0151`, `0126`, `0135`, `0015` | `0011` |
 | `0.0.7` | Generics foundations | `0186` stages 0–4 (binding groups, one quantification decision, evidence recorded) | — |
 | `0.0.8` | Type classes | `0186` stage 5 (one evidence-passing translation), `0187`, `0185` stages 3–4 | `0083` |
-| `0.0.9` | Tooling and language identity | `0010`, `0025` (the Aether-foundation blockers this entry listed have all shipped) | `0024` |
+| `0.0.9` | Tooling and language identity, and the type-class tail | `0010`, `0025`, `0182` + the Low type-class defects (D11–D16) | `0024` |
 | `0.1.0` | First coherent preview | Consolidate `0.0.5` to `0.0.9` | — |
 | `0.2.0` | Actor concurrency maturity | `0143` remaining phases | — |
 | `0.3.0` | Reuse and ownership hardening | `0068`, `0069` | `0077` |
@@ -174,10 +174,44 @@ generics rebuild having taken its slot:
 - [0010_advanced_linter.md](../proposals/0010_advanced_linter.md)
 - [0025_pure_fp_language_vision.md](../proposals/0025_pure_fp_language_vision.md)
 
+**Also here, added 2026-09-11: the type-class tail.** 0.0.8 closes the
+*semantics* — constrained generalization and every **High** type-class bug. What
+it does not close is the class **surface** and a handful of Low defects, and
+until now those belonged to no release at all. They land here because they are
+independent of the evidence translation 0.0.8 is built around: pulling them
+forward would add risk to the release already carrying the hard part.
+
+- [0182_typeclass_syntax_completeness.md](../proposals/0182_typeclass_syntax_completeness.md)
+  — parser only. More than one superclass
+  (`class (Eq<a>, Show<a>) => Ord<a>`), a superclass over a non-variable type,
+  and whether `where` becomes the single spelling for class contexts. Exactly
+  one superclass is supported today.
+- The Low type-class defects, none of them blocking:
+  [KI-054](../known_issues.md#ki-054) and [KI-055](../known_issues.md#ki-055)
+  (native: contextual-instance arity, unreferenced forwarding copies),
+  [KI-068](../known_issues.md#ki-068) and
+  [KI-084](../known_issues.md#ki-084) (a bare `Compiler` cannot supply instance
+  bodies or build a contextual dictionary),
+  [KI-074](../known_issues.md#ki-074) and
+  [KI-075](../known_issues.md#ki-075) (a lowercase class name in `where`;
+  `<a: C>` on a multi-parameter class) — roadmap items D11–D16.
+
+Two things deliberately **not** scheduled, here or anywhere:
+
+- **Functional dependencies.** No proposal exists. Flux reaches the same
+  determination for field access with a post-unification pass instead, which is
+  why its generalization rule needs a side condition GHC has no use for — see
+  [the GHC comparison](../internals/typeclass_vs_ghc.md) §4.
+- **[0184](../proposals/0184_field_access_constraints.md) stage 2**, genuinely
+  record-polymorphic field access. Its evidence carries a runtime accessor,
+  unlike stage 1's, so it is a different kind of work rather than a remainder.
+
 Exit criteria:
 
 - linting enforces the language's intended style rather than only checking it
 - the project's identity is explicit: pure FP with effects
+- the type-class **surface** is complete: more than one superclass is
+  declarable, and no open type-class defect is above Low
 
 ### `0.1.0` — First coherent preview
 

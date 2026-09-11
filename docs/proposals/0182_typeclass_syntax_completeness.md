@@ -5,7 +5,7 @@
 
 # Proposal 0182: Type Class Syntax Completeness
 
-**Status:** design, not started (checked 2026-09-11) · **Scope:** parser only —
+**Status:** design, not started (checked 2026-09-11) · **Scheduled:** 0.0.9 · **Scope:** parser only —
 the solver, the dictionary layout and instance resolution already handle every
 case below
 
@@ -17,9 +17,11 @@ Still reproducing, each pinned by a file in the generics capability map:
 | a lowercase class name used in `where` | `E034` | `.../ki_074_lowercase_class_in_where.flx` |
 | `<a: C>` on a multi-parameter class | `E489`, `E444` | `.../ki_075_inline_bound_multiparam_class.flx` |
 
-Deliberately **out of scope for 0.0.8's generics work**: these are grammar
-limits, independent of the evidence translation that Track C and 0187 are
-sequenced around. Exactly one superclass is supported today, and
+**Scheduled for 0.0.9**, not 0.0.8. These are grammar limits, independent of
+the evidence translation that Track C and 0187 are sequenced around: 0.0.8
+closes the type-class *semantics*, and this proposal is the *surface*. Pulling
+it forward would add risk to the release already carrying the hard part. See
+[the release roadmap](../roadmaps/roadmap_to_1_0_0.md) under `0.0.9`. Exactly one superclass is supported today, and
 `lib/Flow/Ord.flx:8-12` records why an instance must name its superclass
 evidence explicitly rather than leave it to be solved.
 
