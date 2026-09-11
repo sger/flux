@@ -429,7 +429,9 @@ what two of them cost.
       already resolved to a structure strips *that structure's* variables, which
       is how `Flow.Array.sort_by<a, b: Ord>` came to report its own declared
       `Ord<b>` as an ambiguity.
-- [ ] **E2. Stage 4 — report inferred ambiguity.** 0183's R6b. `Disposition`
+- [ ] **E2. Stage 4 — report inferred ambiguity.** 0183's R6d (called `R6b`
+      until 2026-09-11, when it was renamed off a collision with a shipped
+      row of that name). `Disposition`
       loses `Stuck`; a predicate reaching whole-program scope over an
       unresolved variable is reported with its origin. **Blocked on B2**: the
       stage's premise is that with generalize-by-arity landed, the residue is
