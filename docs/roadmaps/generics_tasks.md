@@ -593,7 +593,10 @@ Runs alongside the others; none of it is optional for a release.
       sufficient. Track C is now stage 0 of its table, and "where specialisation
       runs" is answered in favour of after `dict_elaborate`, with the Stage 0.6
       placement and the narrow first scope recorded there rather than only here.
-- [ ] **F7. Rewrite the PR description — the 2026-09-09 text is stale.**
+- [x] **F7. Rewrite the PR description.** Done 2026-09-11. The 2026-09-09 text
+      was stale; what follows is the record of what it was missing, kept because
+      the PR body is not a tracked file and this is the only place the reasoning
+      survives.
       `CHANGELOG.md` is assembled from merged PRs at release time, so the PR
       description *is* the changelog entry, and it is deliberately not a tracked
       file — the PR body is where the release assembles it from. What was
@@ -621,7 +624,16 @@ Runs alongside the others; none of it is optional for a release.
       `examples/functions/immutability_valid.flx`, four baselines and two
       fixture expectations that G5 and KI-094 had left stale, and a
       Windows-only `-D warnings` failure in the native driver. The "eight
-      fixes" count no longer matches, and the epoch run is now 47 → 53.
+      fixes" count no longer matches — it is **eleven** fixed (KI-079, KI-082,
+      KI-083, KI-087, KI-091, KI-092, KI-093, KI-094, KI-095, KI-096, and
+      KI-088 all but one row) plus three marked fixed by verification (KI-011,
+      KI-069, KI-070).
+
+      **The epoch run is 43 → 53, not 47 → 53** — this item said 47, which is
+      where the *per-landing* bumps start, not where the branch does. `main` is
+      at 43 and is the merge-base, so 43 → 53 is what the PR changes. F1's
+      "every bump after 47" narrative is right about the reasons and was never
+      a claim about the range.
 
       **The claim to drop.** "0.0.7 has no open items" is false.
       [KI-098](../known_issues.md#ki-098) is open and is *caused by this
@@ -631,6 +643,16 @@ Runs alongside the others; none of it is optional for a release.
       `ba239f68`'s subject line repeats the claim, and that commit is in the
       history a reviewer reads, so the PR body has to state what is open
       plainly rather than leave that subject standing as the summary.
+
+      **As written**, the body opens on "0.0.7 has open items — they are listed
+      below rather than left for a reader to find. One of them is caused by
+      this branch", and the Open section names KI-098 (with its cause in G5 and
+      B1 stated), KI-097, KI-088's third row, and F3's deferral. It also
+      carries what the validation does *not* establish: that a sweep sees
+      outcomes rather than precision, KI-062 as the case in point, and the
+      three entries that turned out not to describe the compiler any more
+      (KI-076's changed symptom, KI-086's `--no-cache` condition, KI-088's
+      degraded symptom).
 
 ---
 
