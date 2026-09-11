@@ -1,0 +1,29 @@
+// parity-expected-stdout-begin
+// 1
+// "s"
+// parity-expected-stdout-end
+
+// A lambda annotation naming the enclosing signature's type parameter.
+//
+// Filed as KI-070: the `a` in the lambda was said to become a nominal type
+// `Adt("a")` rather than `outer`'s rigid variable, because
+// `infer_lambda_expression` passed an explicitly empty `type_params` map.
+//
+// MEASURED 2026-09-11: this does not reproduce. If the annotation resolved to
+// a nominal type, `f(x)` would be a mismatch and `outer` could not be used at
+// two instantiations — both lines below print. The file is here so that a
+// regression shows up as a snapshot diff.
+//
+// The entry's own repro is written `\y: a -> y`, which is a parse error for an
+// unrelated reason — lambda parameter annotations require parentheses. That
+// may be why it read as unfixed.
+
+fn outer<a>(x: a) -> a {
+    let f = \(y: a) -> y
+    f(x)
+}
+
+fn main() with IO {
+    print(outer(1))
+    print(outer("s"))
+}

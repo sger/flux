@@ -1,0 +1,27 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/generics/failing/compile/ki_032_unannotated_row_poly_wrapper.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E419]: Unresolved Effect Row
+
+I cannot resolve the effect variable `e` introduced by this call.
+
+  examples/generics/failing/compile/ki_032_unannotated_row_poly_wrapper.flx:25:22
+   |
+25 | fn map_wrap(xs, f) { L.map(xs, f) }
+   |                      ^^^^^
+   |                      ----- this call leaves an effect variable unconstrained
+
+   |                      ----- this call to `map` creates the effect obligation
+
+Note:
+  unresolved effect variable: e
+  constraint source: effect-row checking for `map`
+
+Help:
+  Add an explicit effect annotation such as `with e` or pass a callback with concrete effects.
+== stdout ==
+<not executed>

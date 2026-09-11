@@ -97,6 +97,11 @@ fn examples_functions() {
 }
 
 #[test]
+fn examples_generics() {
+    run_subdir(Path::new(env!("CARGO_MANIFEST_DIR")), "generics");
+}
+
+#[test]
 fn examples_guide() {
     run_subdir(Path::new(env!("CARGO_MANIFEST_DIR")), "guide");
 }

@@ -1,0 +1,37 @@
+// parity-expected-stdout-begin
+// 5
+// 3
+// parity-expected-stdout-end
+
+// A class with two instances, one of them over a parameterized head.
+//
+// `measure` is written once against the constraint, not against either
+// instance. The call site picks the dictionary: `Sizeable<Int>` for the first
+// call, `Sizeable<List<Int>>` for the second.
+//
+// This is the piece of the type-class machinery that generics depends on — a
+// constrained type parameter is only useful if the dictionary reaches the body
+// that needs it. Where that breaks is the subject of most of ../../failing/:
+// a constrained function passed as a *value* loses its dictionary (KI-090),
+// and a class declared inside a `module` loses its default bodies (KI-086).
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+instance Sizeable<List<Int>> {
+    fn size(xs) { length(xs) }
+}
+
+fn measure<a: Sizeable>(x: a) -> Int {
+    size(x)
+}
+
+fn main() with IO {
+    print(measure(5))
+    print(measure([10, 20, 30]))
+}

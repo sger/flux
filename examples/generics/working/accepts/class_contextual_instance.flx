@@ -1,0 +1,33 @@
+// parity-expected-stdout-begin
+// true
+// false
+// parity-expected-stdout-end
+
+// A contextual instance over a parameterized head, reached through a
+// constrained generic function.
+//
+// `instance Eq<a> => MyEq<List<a>>` says: a list is `MyEq` whenever its
+// elements are `Eq`. Satisfying `MyEq<List<Int>>` at the call site therefore
+// requires building a dictionary *from* another dictionary, and passing it
+// through `pair_eq`, which knows only the constraint.
+//
+// Exactly one instance context is supported. `instance (Eq<a>, Show<a>) => ...`
+// is a grammar limit, not an inference one — see
+// ../../failing/compile/grammar_0182_multiple_contexts.flx.
+
+class MyEq<a> {
+    fn my_eq(x: a, y: a) -> Bool
+}
+
+instance Eq<a> => MyEq<List<a>> {
+    fn my_eq(xs, ys) { xs == ys }
+}
+
+fn pair_eq<a: MyEq>(x: a, y: a) -> Bool {
+    my_eq(x, y)
+}
+
+fn main() with IO {
+    print(pair_eq([1, 2, 3], [1, 2, 3]))
+    print(pair_eq([1, 2, 3], [1, 2, 4]))
+}

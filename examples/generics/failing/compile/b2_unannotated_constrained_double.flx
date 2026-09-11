@@ -1,0 +1,31 @@
+// expect: compile_error
+// expect-error: E300
+
+// GAP — owner: B2 (generalize-by-arity, constrained half), scoped to 0.0.8.
+// Measured 2026-09-11: error[E300] Argument Type Mismatch at the second call.
+//
+// This is the exact counterpart of ../../working/accepts/infer_identity_two_types.flx.
+// `identity` raises no class constraint and is generalized; `double` raises
+// `Num` through `+` and is not. The first call fixes `x` to `Int`, and the
+// second is rejected against it.
+//
+// The line is the constraint, not the annotation, and it is drawn deliberately
+// (docs/roadmaps/generics_tasks.md:16): "The unconstrained half is 0.0.7; the
+// constrained half is 0.0.8." Both reasons to withhold generalization —
+// dictionary plumbing and lost specialisation — have nothing to act on when
+// there are no constraints, and both apply here.
+//
+// Note what does *not* block this: correctness. Proposal 0187 records that the
+// unrestricted version was implemented and reverted on 2026-09-07, and that it
+// worked — `fn double(x) { x + x }` typed at `Int` and `Float`. What it cost
+// was specialisation: a constrained function is dictionary-dispatched, so
+// `IAdd` becomes `Add` and Aether loses in-place reuse. B1 restores the single
+// -instantiation case; B2 needs cloning per instantiation, which is why it is
+// sequenced after Track C.
+
+fn double(x) { x + x }
+
+fn main() with IO {
+    print(double(2))
+    print(double(2.5))
+}

@@ -1,0 +1,28 @@
+// parity-expected-stdout-begin
+// 2
+// 1
+// parity-expected-stdout-end
+
+// A transparent type alias — roadmap G4 / KI-094.
+//
+// This is the simplest possible alias, and until KI-094 it did not work at
+// all: `is_known_annotation_type` did not consult the transparent-alias map,
+// and that check runs before the expansion that would have rewritten the name
+// away, so *every* transparent alias was `E423 I can't find a type named
+// IntPair`. The feature was effectively untested because the only fixture
+// covering it had never run (KI-062).
+//
+// "Transparent" means the alias is erased: `IntPair` and `(Int, Int)` are the
+// same type, not two types related by a conversion.
+
+alias IntPair = (Int, Int)
+
+fn swap_pair(p: IntPair) -> IntPair {
+    (p.1, p.0)
+}
+
+fn main() with IO {
+    let swapped = swap_pair((1, 2))
+    print(swapped.0)
+    print(swapped.1)
+}
