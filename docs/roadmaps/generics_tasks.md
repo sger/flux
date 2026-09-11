@@ -434,13 +434,22 @@ what two of them cost.
 
 Runs alongside the others; none of it is optional for a release.
 
-- [x] **F1. `CACHE_EPOCH` — at 48.** Bumped per landing rather than once at the
-      end: 47 for R1's dependency-order emission, **48** for KI-095's match
-      propagation, which changes inferred types and so what a cached interface
-      records. D9's fix (KI-079) deliberately took no bump — adding the compiler
-      build to the key changes every hash, so stale entries stop being *found*
-      rather than being read and mistaken for current; the reasoning is in the
-      KI. B2 will need its own bump in 0.0.8.
+- [x] **F1. `CACHE_EPOCH` — at 53.** Bumped per landing rather than once at the
+      end, and every bump after 47 is for the same reason: the change alters
+      inferred types, and so what a cached interface records. 47 for R1's
+      dependency-order emission, 48 for KI-095's match propagation, 49 for
+      KI-096's recursive-group predeclaration, 50 for 0185 stage 5's projection
+      predicate, 51 for G5, 52 for KI-094's alias decomposition, **53** for the
+      projection predicate no longer being retained on a scheme — an epoch-52
+      `.flxi` records `__tuple` in `Flow.Array.update_many`'s context, and a
+      caller reading it is an `E490` this compiler accepts.
+
+      D9's fix (KI-079) deliberately took no bump — adding the compiler build to
+      the key changes every hash, so stale entries stop being *found* rather
+      than being read and mistaken for current; the reasoning is in the KI. That
+      is specific to the landing whose own mechanism invalidated everything: 48
+      through 53 all followed it and all bumped. B2 will need its own bump in
+      0.0.8.
 - [x] **F2. Amend KI-087.** Done 2026-09-09. The regression was already
       recorded in the entry; what it lacked was a *verified when* note, now a
       table naming what pins each shape — the parity fixture for the
@@ -485,14 +494,44 @@ Runs alongside the others; none of it is optional for a release.
       sufficient. Track C is now stage 0 of its table, and "where specialisation
       runs" is answered in favour of after `dict_elaborate`, with the Stage 0.6
       placement and the narrow first scope recorded there rather than only here.
-- [x] **F7. Write the PR description — DONE 2026-09-09.** `CHANGELOG.md` is
-      assembled from merged PRs at release time, so the PR description *is* the
-      changelog entry. Written against the branch as it stands: G5 and 0185
-      stage 5 as the features, the eight fixes, the epoch 47 → 52 run, and an
-      explicit section on what the validation does *not* establish (KI-062, and
-      that a sweep sees outcomes rather than precision). Paste it into the PR;
-      it is deliberately not a tracked file, since the PR body is where the
-      release assembles it from.
+- [ ] **F7. Rewrite the PR description — the 2026-09-09 text is stale.**
+      `CHANGELOG.md` is assembled from merged PRs at release time, so the PR
+      description *is* the changelog entry, and it is deliberately not a tracked
+      file — the PR body is where the release assembles it from. What was
+      written on 2026-09-09 (G5 and 0185 stage 5 as the features, the eight
+      fixes, the epoch 47 → 52 run, and a section on what the validation does
+      *not* establish — KI-062, and that a sweep sees outcomes rather than
+      precision) still holds as far as it goes, but it predates four things and
+      closes on a claim that is now false.
+
+      **Missing from it.** G4 ([KI-094](../known_issues.md#ki-094)) — no
+      transparent type alias resolved at all, and an effect alias left
+      undecomposed at two sites. B1 (`4f45fb70`) — specialisation at a single
+      concrete instantiation, and with it the finding that rewrote the entry:
+      G5 introduced a *second* kind of despecialisation this list had not
+      anticipated, one with no dictionary to clone on. The Aether baseline
+      update (`cd91f954`), which is the evidence for both.
+      [KI-097](../known_issues.md#ki-097) and
+      [KI-098](../known_issues.md#ki-098), filed rather than fixed. And the
+      2026-09-10 gate run's own findings: a determined field or tuple
+      projection predicate is no longer retained on a scheme
+      (`src/types/quantify.rs`) — retaining it made every caller of
+      `Flow.Array.update_many` an `E490`, because a `SchemeConstraint` cannot
+      carry `TupleProjection`'s index, and it takes the epoch to **53** — plus
+      `Flow.List.first` reached with an `Array` in
+      `examples/functions/immutability_valid.flx`, four baselines and two
+      fixture expectations that G5 and KI-094 had left stale, and a
+      Windows-only `-D warnings` failure in the native driver. The "eight
+      fixes" count no longer matches, and the epoch run is now 47 → 53.
+
+      **The claim to drop.** "0.0.7 has no open items" is false.
+      [KI-098](../known_issues.md#ki-098) is open and is *caused by this
+      branch's own* G5 and B1 — a definition used at two types is still left
+      despecialised, at seven sites recorded in the accepted baseline.
+      [KI-097](../known_issues.md#ki-097) is open. F3 is deferred to 0.0.8.
+      `ba239f68`'s subject line repeats the claim, and that commit is in the
+      history a reviewer reads, so the PR body has to state what is open
+      plainly rather than leave that subject standing as the summary.
 
 ---
 
