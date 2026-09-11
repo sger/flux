@@ -1,0 +1,42 @@
+// parity: vm, llvm
+// expect: success
+// skip: KI-073 — native loses result-directed selection through a `where`-constrained function
+// bug: Registered so the divergence is listed rather than forgotten, and so
+//      the skip disappears the day it starts passing. Do not un-skip without
+//      re-measuring both backends.
+//
+// Measured 2026-09-11:
+//   VM     prints "42" then "42"   (correct)
+//   native prints "42" then "<value>"
+//
+// The first call resolves the instance from the *result* type, which is
+// proposal 0179 stage 4 working as specified, and both backends get it right.
+// The second routes the identical call through `via`, whose `where Convert<a, b>`
+// is the only spelling that reaches a multi-parameter class — and native loses
+// the selection there. That makes multi-parameter classes unusable natively in
+// the general case.
+//
+// Mirrored as a capability-map entry under examples/generics/. It cannot live
+// in that corpus as a running file: both of its harnesses are VM-only, and on
+// the VM this program is correct, so neither would show anything.
+//
+// See docs/known_issues.md#ki-073.
+
+class Convert<a, b> {
+    fn convert(x: a) -> b
+}
+
+instance Convert<Int, String> {
+    fn convert(x) { to_string(x) }
+}
+
+fn via<a, b>(x: a) -> b where Convert<a, b> {
+    convert(x)
+}
+
+fn main() with IO {
+    let direct: String = convert(42)
+    print(direct)
+    let routed: String = via(42)
+    print(routed)
+}

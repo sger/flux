@@ -27,6 +27,18 @@ time records as `ok` with no diagnostics and pins nothing — compare
 `generics__failing__runtime__ki_090_constrained_fn_as_value.snap`, which says
 `ok`, with the real symptom in `tests/snapshots/generics_runtime/`.
 
+### Files whose name starts with a capital
+
+`Ki076Ord.flx` and `Ki086Greet.flx` are **module halves**, not gaps in their own
+right. A gap that only appears inside a `module` block cannot be shown in one
+file: the module name has to match the file stem, and a module file may not
+contain `main` (`E028`). So those gaps are a pair — a `Ki*.flx` module and a
+lowercase script that imports it — and the script is the one to read.
+
+The module halves get snapshots too, and they correctly record `ok` /
+`status: 0`. That is not the gap being fixed; it is the point. The module
+compiles clean on its own, and only misbehaves once something calls into it.
+
 ## Supported
 
 ### Quantification — what 0.0.7 changed
@@ -100,6 +112,9 @@ Codes were measured on 2026-09-11, not copied from the roadmap.
 | `failing/compile/ki_075_inline_bound_multiparam_class.flx` | `E489`, `E444` | `<a: C>` on a multi-parameter class, with a hint that cannot be followed | KI-075 |
 | `failing/compile/grammar_0182_multiple_superclasses.flx` | `E034` | more than one superclass | proposal 0182 |
 | `failing/runtime/ki_090_constrained_fn_as_value.flx` | `E1000` | a constrained function passed as a **value** loses its dictionary | KI-090, High, 0.0.8 |
+| `failing/runtime/ki_076_operator_in_module.flx` | `E1000` | an operator on a class-constrained parameter does not dispatch inside a `module` | KI-076, High, 0.0.8 |
+| `failing/runtime/e2_ambiguous_instance_selection.flx` | `E1009` | an ambiguous instance choice panics at run time instead of being reported | **E2** (blocked on B2), 0.0.8 |
+| `failing/compile/Ki086Greet.flx` | `E004` | a class default body cannot call a sibling method inside a `module` | KI-086, High, 0.0.8 |
 | `failing/degraded/ki_098_despecialised_two_instantiations.flx` | none | a generalized helper used at **two** types loses its representation | KI-098, Low, 0.0.8 |
 
 ### The distance to "full generic support"
@@ -114,8 +129,9 @@ roadmap draws, and this corpus is the evidence for it.
 
 ## Filed, but no longer reproducing
 
-Three entries were re-tested on 2026-09-11 against their own filed repros and
-did not reproduce. Each now has a file in `working/accepts/` so that a
+Four entries were re-tested on 2026-09-11 against their own filed repros and
+did not reproduce. KI-088 is different from the other three: it was *fixed* on
+that date rather than found already working. Each now has a file in `working/accepts/` so that a
 regression is a snapshot diff:
 
 | Entry | Filed symptom | Now | File |
@@ -123,24 +139,49 @@ regression is a snapshot diff:
 | KI-011 | `E430` re-wrapping `Err(e)` into a different success type | works | `data_result_err_rewrap.flx` |
 | KI-069 | `E004 __dict_Eq_Tree<a>` for a contextual instance over a recursive head | works | `data_contextual_instance_recursive_head.flx` |
 | KI-070 | a lambda annotation naming an enclosing rigid parameter | works | `annot_lambda_names_rigid_param.flx` |
+| KI-088 | nested `fn` shadowing an outer `fn` — miscompiled to the wrong function constant | **fixed 2026-09-11** | `fn_nested_shadowing.flx` |
 
 KI-070's filed repro is written `\y: a -> y`, which is a parse error for an
 unrelated reason — lambda parameter annotations require parentheses,
 `\(y: a) -> y`. That may be why it read as unfixed.
 
-## Known gaps not yet given a file
+## Known gaps not yet given a runnable file
 
-Listed so the map is complete even where the corpus is not. The first two
-cannot be shown by any VM-only harness; the rest are simply not written yet.
+Listed so the map is complete even where the corpus is not. These are not
+"unwritten" — each was measured on 2026-09-11 and each is unpinnable *here*,
+for a stated reason.
 
-| Gap | Symptom | Owner |
-|---|---|---|
-| KI-071 | instance method captures an unqualified same-named module fn — wrong answer on VM, **SIGSEGV** natively | 0.0.8 (D1) |
-| KI-073 | result-directed selection through `where Convert<a, b>` — VM prints `42`, native prints `<value>` | 0.0.8 (D2) |
-| KI-076 | an operator on a class-constrained parameter does not dispatch inside a `module` | 0.0.8 (D3) |
-| KI-086 | a class declared inside a `module` loses its default method bodies | 0.0.8 (D4) |
-| KI-088 | nested `fn` shadowing an outer `fn` — the codegen half, `E1000` at run time | 0.0.7 (D8) |
-| E2 | inferred ambiguity panics at run time instead of reporting a compile error | 0.0.8 |
+| Gap | Symptom | Why no file | Owner |
+|---|---|---|---|
+| KI-071 | instance method captures an unqualified same-named module fn — wrong answer on VM, **SIGSEGV** natively | needs a module pair, and both harnesses are VM-only; the native leg crashes | 0.0.8 (D1) |
+| KI-073 | result-directed selection through `where Convert<a, b>` — VM prints `"42"`, native prints `<value>` | VM-only harnesses; on the VM this program is **correct**, so neither would show anything | 0.0.8 (D2) |
+| KI-086 (runtime half) | across a module boundary a class default body is dropped and dispatch panics, `E1009` | the runtime harness passes `--no-cache`, which is precisely what hides it — see below | 0.0.8 (D4) |
+
+KI-073 is nonetheless registered, as
+[`tests/parity/ki_073_result_selection_through_constrained_fn.flx`](../../tests/parity/ki_073_result_selection_through_constrained_fn.flx)
+carrying a `// skip:` directive. The parity runner reports it as `SKIP` with its
+reason rather than dropping it, so the divergence is listed rather than
+forgotten, and the skip disappears the day it starts passing.
+
+### Why KI-086's runtime half cannot be pinned here
+
+Measured 2026-09-11, on the same file:
+
+```
+flux --no-strict            <repro>   ->  error[E1009]: panic: No instance of Greet.greet
+flux --no-cache --no-strict <repro>   ->  prints "hi, someone", exit 0
+```
+
+The entry's cause is that a class rebuilt from a cached `.flxi` interface entry
+gets `default_body: None` — method *types* cross the module boundary, method
+*bodies* do not. `--no-cache` skips that round-trip, so the defect never
+happens. Since `generics_runtime_fixtures_snapshot` passes `--no-cache` for
+isolation, a snapshot taken there would pin the bug **not** reproducing, and
+whoever fixes KI-086 would see no diff. That is worse than no snapshot.
+
+What *is* pinned is KI-086's other failure, the compile-time `E004` in
+`failing/compile/Ki086Greet.flx`. That `--no-cache` is a workaround is a
+sharper statement of the cause than the entry currently carries.
 
 ## The specialisation gate
 

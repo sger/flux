@@ -26,6 +26,11 @@ PARITY_FOLDERS=(
   imports io ModuleGraph Modules namespaces
   optimizations patterns performance primop roots runtime_boundaries
   sealing strict_types tail_call tests type_inference
+  # Only the working subtree of the generics capability map. `examples/generics`
+  # as a whole cannot go here: `failing/` is fail-on-purpose by construction,
+  # the same reason parser_errors and runtime_errors are excluded above.
+  # Swept clean 30/30 on vm,llvm on 2026-09-11.
+  generics/working/accepts
 )
 for folder in "${PARITY_FOLDERS[@]}"; do
   run_cmd cargo run -- parity-check "examples/$folder" --compile --ways vm,llvm
