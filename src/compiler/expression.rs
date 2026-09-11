@@ -4505,7 +4505,10 @@ impl Compiler {
     ) {
         match expression {
             Expression::Identifier { name, .. } => {
-                if let Some(symbol) = self.symbol_table.resolve(*name)
+                // `lookup`, not `resolve`: this pass counts uses and emits
+                // nothing, and `resolve` would capture the name into this scope
+                // as a side effect. See `SymbolTable::lookup`.
+                if let Some(symbol) = self.symbol_table.lookup(*name)
                     && self.is_consumable_local(&symbol)
                 {
                     *counts.entry(*name).or_insert(0) += 1;

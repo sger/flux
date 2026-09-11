@@ -73,3 +73,51 @@ fn test_a_nested_fn_may_shadow_at_a_different_arity() {
     assert_eq(shadowed_at_a_different_arity(), "abab")
     assert_eq(pair(20, 22), 42)
 }
+
+// ── shadowing a name from an enclosing *non-top-level* scope ────
+//
+// KI-088's third row, fixed 2026-09-11. Both of these used to be a spurious
+// `error[E001]: Duplicate Name` whose "first defined here" pointed at the
+// enclosing definition.
+//
+// The cause was not the shadowing rule but an aliasing one:
+// `SymbolTable::resolve` takes `&mut self` and, on a miss, captures the outer
+// binding into the current scope as a `Free` entry. Three callers that only
+// wanted to *ask* about a name went through it — the duplicate check itself,
+// `collect_consumable_param_uses`, and `expr_has_undefined_ident` — so asking
+// the question created the duplicate the question was about. `lookup` is the
+// non-capturing answer, and these two cases are the pin.
+//
+// Both spellings matter: the `let` form is the row as filed, and the `fn`
+// form additionally stopped the inner definition from being predeclared,
+// which is a different downstream failure from the same cause.
+
+fn enclosing_let_shadow() -> String {
+    fn inner_helper(x: Int) -> Int { x }
+
+    fn uses_a_let() -> String {
+        let inner_helper = \(s: String) -> s + "?"
+        inner_helper("hi")
+    }
+
+    to_string(inner_helper(7)) + "/" + uses_a_let()
+}
+
+fn test_a_let_shadows_a_fn_from_an_enclosing_non_top_level_scope() {
+    assert_eq(enclosing_let_shadow(), "7/hi?")
+}
+
+fn enclosing_fn_shadow() -> String {
+    fn inner_helper(x: Int) -> Int { x }
+
+    fn uses_a_fn() -> String {
+        fn inner_helper(s: String) -> String { s + "!" }
+        inner_helper("hi")
+    }
+
+    to_string(inner_helper(7)) + "/" + uses_a_fn()
+}
+
+fn test_a_fn_shadows_a_fn_from_an_enclosing_non_top_level_scope() {
+    assert_eq(enclosing_fn_shadow(), "7/hi!")
+}
