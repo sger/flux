@@ -1,0 +1,75 @@
+// Regression tests: a `fn` name can be shadowed, and the shadowing definition
+// is the one that runs. See docs/known_issues.md#ki-088.
+//
+// KI-088 decided that `fn` names shadow the way `let` names do. Flux had no
+// documented shadowing rule and three mutually inconsistent behaviours, so this
+// was a design choice rather than a behaviour to restore.
+//
+// These cases have to *run*, not merely compile. Both halves of KI-088 produced
+// programs the type checker accepted:
+//
+//   - the `let` half applied the outer function's contract to the shadowed
+//     call, an `E300` whose span was the local binding and whose type was the
+//     top-level one (fixed 2026-09-08);
+//   - the nested-`fn` half compiled the call against the wrong function
+//     constant, which reached the VM as `index out of bounds: the len is 680
+//     but the index is 915` (fixed 2026-09-11).
+//
+// The entry noted that no test pinned the second one, because the original
+// reproduction is rejected by a compiler boundary check rather than by
+// `infer_program`, so a case in `tests/type_inference/` passes whether or not
+// the bug is present. This file is the end-to-end pin it asked for, and its
+// driver runs it on the VM and natively.
+
+fn helper(x: Int) -> Int {
+    x
+}
+
+// ── a nested `fn` shadows a top-level `fn` ──────────────────────
+
+fn shadowed_by_nested_fn() -> String {
+    fn helper(s: String) -> String { s + "!" }
+    helper("hi")
+}
+
+fn test_a_nested_fn_shadows_a_top_level_fn() {
+    assert_eq(shadowed_by_nested_fn(), "hi!")
+}
+
+// ── a `let` binding shadows a top-level `fn` ────────────────────
+
+fn shadowed_by_let() -> String {
+    let helper = \(s: String) -> s + "?"
+    helper("hi")
+}
+
+fn test_a_let_binding_shadows_a_top_level_fn() {
+    assert_eq(shadowed_by_let(), "hi?")
+}
+
+// ── the shadowed definition is untouched elsewhere ──────────────
+
+fn test_the_top_level_fn_still_resolves_where_it_is_not_shadowed() {
+    assert_eq(helper(41), 41)
+}
+
+// ── shadowing at a different arity ──────────────────────────────
+//
+// The nested definition takes one argument and the top-level one takes one
+// too, so the case above cannot tell a wrong *constant* from a wrong *arity*.
+// This one can: if the call resolved to the outer `pair`, it would arrive with
+// one argument against two.
+
+fn pair(a: Int, b: Int) -> Int {
+    a + b
+}
+
+fn shadowed_at_a_different_arity() -> String {
+    fn pair(s: String) -> String { s + s }
+    pair("ab")
+}
+
+fn test_a_nested_fn_may_shadow_at_a_different_arity() {
+    assert_eq(shadowed_at_a_different_arity(), "abab")
+    assert_eq(pair(20, 22), 42)
+}

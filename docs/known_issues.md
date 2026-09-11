@@ -3369,9 +3369,9 @@ native backend segfaults. So the defect is downstream of Core: a synthesized
 selection and closure conversion; every lambda the ordinary path builds carries
 types. Fixing that is the next step, not more work on evidence.
 
-### KI-088 — A `fn` name cannot be shadowed, in two different broken ways — partly fixed 2026-09-08
+### KI-088 — A `fn` name cannot be shadowed, in two different broken ways — shadowing fixed 2026-09-11; the `E001` row open
 
-**Severity:** Medium · **Area:** Name resolution · **Verified:** 2026-09-08 (rescoped) · **From:** Proposal 0186
+**Severity:** Medium · **Area:** Name resolution, bytecode emission · **Verified:** 2026-09-11 · **From:** Proposal 0186
 
 Originally filed as "a nested `fn` that shadows a top-level name is called at
 the outer function's type". Measuring it on 2026-09-08 showed the defect is
@@ -3431,8 +3431,12 @@ name is bound in a scope inner to the outermost one
 which mutates). Covered end-to-end by
 `tests/parity/local_shadows_toplevel_fn.flx`.
 
-**Still open: the nested-`fn` half, in codegen.** A nested `fn` shadowing a
-top-level `fn` still fails at run time:
+**Fixed 2026-09-11: the nested-`fn` half, in codegen.** A nested `fn`
+shadowing a top-level `fn` used to fail at run time. The symptom had also
+worsened since this was written — by 2026-09-11 it was no longer the `E1000`
+below but a VM panic, `index out of bounds: the len is 680 but the index is
+915`, which is the slot-versus-constant confusion landing as an out-of-bounds
+read rather than an arity check:
 
 ```flux
 fn helper(x: Int) -> Int { x }
@@ -3481,8 +3485,37 @@ Track C (0186 stage 5) rather than being patched here: E3's unanswered question
 is exactly "can the AST bytecode fallback be retired?".
 
 Trading a loud `E1000` for a silent wrong answer is worse than the bug, so the
-partial fix is **not** on the release branch. It is on
-`wip/ki-088-makeclosure-constant` with this reasoning in its comments.
+partial fix was **not** taken.
+
+*What was done instead (2026-09-11): the arm fails, and the AST path takes it.*
+The paragraph above chased the wrong fix. Recording `FunctionId → constant
+index` makes this arm emit correct bytecode, and then runs into the second
+defect. But the instrumentation two paragraphs up already says the arm never
+legitimately succeeds — so it does not need to emit anything. Making
+`IrExpr::MakeClosure` return `Err` hands the whole function body to the
+rollback that every other program already takes, and the AST path compiles it
+correctly:
+
+- the program returns `"hi!"`, with the `!` appended — the value the partial
+  fix got wrong;
+- `flux bytecode` shows two distinct `helper` constants, the top-level one and
+  the nested one, where before the nested body was never emitted;
+- so the `bytecode` subcommand and the runner no longer disagree, because
+  neither uses the CFG path here.
+
+The second defect is therefore not on the path any more, and E3's question —
+"can the AST bytecode fallback be retired?" — is untouched by this: the answer
+is still no, and this arm is now one more reason why. `HandleScope` resolves
+its arm closures the same unsound way (`cfg_bytecode.rs`, the
+`IrInstr::HandleScope` arm) and is **not** changed here; handler arms are
+exercised by many passing tests, so unlike `MakeClosure` that path evidently
+does reach the VM successfully, and whether it does so by luck is a separate
+question.
+
+Pinned end-to-end, on the VM and natively, by `tests/flux/fn_shadowing.flx`
+and `tests/vm_runtime/fn_shadowing_tests.rs` — including a case where the
+shadowing definition takes a *different arity*, which is what tells a wrong
+constant from a wrong arity.
 
 Core lowering is correct — `--dump-core` shows `letrec helper = (λs. s)` inside
 `outer`, calling itself. The AST bytecode path is not: `outer` compiles to
@@ -3498,10 +3531,33 @@ Inference's predeclaration half was fixed in `4654bad1`: its guard asked
 outer binding — and now asks `TypeEnv::is_bound_in_current_scope`. That fix
 stands and is not what remains.
 
-**Why no test pins it:** the original reproduction is rejected by a *compiler
+**Why no test pinned it:** the original reproduction is rejected by a *compiler
 boundary* check, not by `infer_program`, so a case added to
 `tests/type_inference/` passes whether or not the bug is present. Pinning it
-needs an end-to-end test that runs the program.
+needed an end-to-end test that runs the program, which is what
+`tests/flux/fn_shadowing.flx` now is.
+
+**Still open: the `E001` row.** A local binding that shadows a `fn` in an
+enclosing *non-top-level* scope is still a spurious `error[E001]: Duplicate
+Name`, re-verified 2026-09-11:
+
+```flux
+fn main() with IO {
+    fn helper(x: Int) -> Int { x }
+    fn inner() -> String {
+        let helper = \(s: String) -> s + "!"   // E001: `helper` is already defined
+        helper("hi")
+    }
+    print(inner())
+}
+```
+
+Those two definitions are in different scopes, so a check about a name defined
+twice in *one* scope should not fire. The guard at the `Statement::Let` arm of
+`compile_statement` already asks `exists_in_current_scope`, which is the right
+question — so either the nested function's body is not compiled in a scope of
+its own, or the enclosing block's predeclaration reaches into it. Untouched by
+the 2026-09-11 fix, which was in bytecode emission.
 
 ### KI-087 — Mutually recursive nested functions separated by any statement were miscompiled — FIXED 2026-09-06, regressed, re-fixed 2026-09-08
 
