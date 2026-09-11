@@ -1,0 +1,35 @@
+// parity-expected-stdout-begin
+// [1, 1, 2, 3]
+// parity-expected-stdout-end
+
+// BASELINE for KI-098 — this file is the *good* case. Its pair is
+// ki_098_despecialised_two_instantiations.flx, which is this program with one
+// extra call.
+//
+// `copy_head` is unannotated, so G5 generalizes it and its parameter type
+// becomes a variable — and a variable carries no `FluxRep`. B1 restores the
+// representation for a definition whose call sites all agree on **one**
+// concrete instantiation, by lowering the body under that substitution.
+//
+// Here there is exactly one call site, so B1 applies and the element binder
+// keeps its `Int` representation:
+//
+//     ::(h#1302:Int, t#1303:Box) →
+//
+// Observe it with:
+//
+//     cargo run -- --dump-core=debug examples/generics/failing/degraded/ki_098_baseline_one_instantiation.flx
+//
+// Pinned by `snapshot_ki_098_baseline_core_def` in
+// tests/aether/cli_snapshots.rs, which extracts just this definition.
+
+fn copy_head(xs) {
+    match xs {
+        [h | t] -> [h | [h | t]],
+        _ -> [],
+    }
+}
+
+fn main() with IO {
+    print(copy_head([1, 2, 3]))
+}
