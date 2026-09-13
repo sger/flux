@@ -10,6 +10,7 @@
 //! // error[E300]: type mismatch
 //! // parity-expected-stderr-end
 //! // skip: reason to skip this fixture
+//! // requires: unix        (or `windows`) — skip elsewhere, with a reason
 //! // bug: description of the bug shape
 //! ```
 
@@ -40,6 +41,15 @@ pub struct FixtureMeta {
     pub bug: Option<String>,
     /// Optional reason to skip this fixture while still reporting it.
     pub skip: Option<String>,
+    /// Platform this fixture requires, verbatim from `// requires:`.
+    ///
+    /// A fixture that spawns `/bin/echo`, or asserts that reading a directory
+    /// gives `IsADirectory`, is making a claim about the host OS rather than
+    /// about Flux. Declaring that here keeps the coverage where it is real and
+    /// turns the other platforms into a reported `SKIP` rather than a failure
+    /// nobody can act on. An unmet requirement is folded into [`Self::skip`],
+    /// so the reporter needs no special case.
+    pub requires: Option<String>,
     /// Optional expected normalized stdout block.
     pub expected_stdout: Option<String>,
     /// Optional expected normalized stderr block.
@@ -55,6 +65,7 @@ impl Default for FixtureMeta {
             extra_args: Vec::new(),
             bug: None,
             skip: None,
+            requires: None,
             expected_stdout: None,
             expected_stderr: None,
         }
@@ -153,6 +164,11 @@ pub fn parse_fixture_meta(path: &Path) -> FixtureMeta {
             }
         } else if let Some(value) = comment.strip_prefix("bug:") {
             meta.bug = Some(value.trim().to_string());
+        } else if let Some(value) = comment.strip_prefix("requires:") {
+            let value = value.trim();
+            if !value.is_empty() {
+                meta.requires = Some(value.to_string());
+            }
         } else if let Some(value) = comment.strip_prefix("skip:") {
             let value = value.trim();
             meta.skip = Some(if value.is_empty() {
@@ -171,7 +187,30 @@ pub fn parse_fixture_meta(path: &Path) -> FixtureMeta {
         }
     }
 
+    apply_platform_requirement(&mut meta);
     meta
+}
+
+/// Turn an unmet `// requires:` into a skip, leaving an explicit `// skip:` alone.
+///
+/// An unrecognised platform skips too, and says so. Silently ignoring a typo
+/// would run the fixture on the platform it declared it cannot run on, which is
+/// the failure this directive exists to prevent; skipping loudly costs coverage
+/// on one platform and is visible in the `SKIP` line.
+fn apply_platform_requirement(meta: &mut FixtureMeta) {
+    let Some(requires) = meta.requires.as_deref() else {
+        return;
+    };
+    if meta.skip.is_some() {
+        return;
+    }
+    meta.skip = match requires {
+        "unix" => (!cfg!(unix)).then(|| "fixture requires a unix host".to_string()),
+        "windows" => (!cfg!(windows)).then(|| "fixture requires a windows host".to_string()),
+        other => Some(format!(
+            "unrecognised `requires: {other}` (expected `unix` or `windows`)"
+        )),
+    };
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -237,6 +276,59 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn requires_matching_platform_does_not_skip() {
+        let mut meta = FixtureMeta {
+            requires: Some(if cfg!(windows) { "windows" } else { "unix" }.to_string()),
+            ..Default::default()
+        };
+        apply_platform_requirement(&mut meta);
+        assert_eq!(meta.skip, None);
+    }
+
+    #[test]
+    fn requires_other_platform_skips_with_a_reason() {
+        let mut meta = FixtureMeta {
+            requires: Some(if cfg!(windows) { "unix" } else { "windows" }.to_string()),
+            ..Default::default()
+        };
+        apply_platform_requirement(&mut meta);
+        assert!(
+            meta.skip
+                .as_deref()
+                .is_some_and(|r| r.contains("requires a")),
+            "expected a platform skip reason, got {:?}",
+            meta.skip
+        );
+    }
+
+    #[test]
+    fn unrecognised_requires_skips_rather_than_running() {
+        // A typo must not run the fixture on the platform it declared it
+        // cannot run on. Skipping is visible in the SKIP line; ignoring is not.
+        let mut meta = FixtureMeta {
+            requires: Some("unixx".to_string()),
+            ..Default::default()
+        };
+        apply_platform_requirement(&mut meta);
+        assert!(
+            meta.skip.as_deref().is_some_and(|r| r.contains("unixx")),
+            "expected the typo to be named, got {:?}",
+            meta.skip
+        );
+    }
+
+    #[test]
+    fn an_explicit_skip_survives_a_met_requirement() {
+        let mut meta = FixtureMeta {
+            requires: Some(if cfg!(windows) { "windows" } else { "unix" }.to_string()),
+            skip: Some("a real backend gap".to_string()),
+            ..Default::default()
+        };
+        apply_platform_requirement(&mut meta);
+        assert_eq!(meta.skip.as_deref(), Some("a real backend gap"));
     }
 
     #[test]
