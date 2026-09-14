@@ -1,0 +1,56 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/generics/failing/compile/b2_projection_reused_two_shapes.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 1st argument to `fst`.
+
+  examples/generics/failing/compile/b2_projection_reused_two_shapes.flx:27:15
+   |
+23 | fn fst(p) { p.0 }
+   | --------- `fst` expects `(Int, Int)` as the 1st parameter
+24 | 
+25 | fn main() with IO {
+26 |     print(fst((1, 2)))
+27 |     print(fst(("a", true)))
+   |               ^^^^^^^^^^^
+   |               ----------- this argument has type `(String, Bool)`
+
+Note:
+  expected argument type: (Int, Int)
+  found argument type: (String, Bool)
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Pass a `(Int, Int)` value as the 1st argument.
+
+
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/generics/failing/compile/b2_projection_reused_two_shapes.flx:27:16
+   |
+27 |     print(fst(("a", true)))
+   |                ^^^
+   |                --- this expression has type `String`
+
+   |                --- this type mismatch is reported here
+
+Note:
+  expected type: Int
+  found type: String
+  the conflicting types meet at this expression
+
+Help:
+  These two types are not compatible.
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
+
+Found 2 errors.
+== stdout ==
+<not executed>

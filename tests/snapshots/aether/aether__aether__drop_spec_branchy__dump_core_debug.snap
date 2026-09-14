@@ -612,7 +612,7 @@ letrec minimum =
             0
 
 letrec first =
-λarr#239.
+λarr#239:Box.
     Index(arr#239, 0)
 
 letrec last =
@@ -777,7 +777,7 @@ letrec from_list =
 λxs#292.
     letrec from_list_go#293 = (λys#294, acc#295.
       case ys#294 of
-        ::(h#296, t#297) →
+        ::(h#296, t#297:Box) →
           let %t196 = push#202(acc#295, h#296)
           from_list_go#293(t#297, #4001546[synthetic]#1546)
         _ →
@@ -889,7 +889,7 @@ letrec map =
 λxs#338:Box, f#339.
     letrec map_acc#340 = (λys#341, acc#342.
       case ys#341 of
-        ::(h#343:Int, t#344:Box) →
+        ::(h#343, t#344:Box) →
           let %t226:Box = (let %t227 = f#339(h#343)
           ::(#4001575[synthetic]#1575, acc#342))
           map_acc#340(t#344, #4001576[synthetic]#1576)
@@ -1165,9 +1165,9 @@ letrec sort_by =
     merge_sort_by#707(xs#474, f#475)
 
 letrec first =
-λxs#477.
+λxs#477:Box.
     case xs#477 of
-      ::(h#478, t#479) →
+      ::(h#478:Box, t#479:Box) →
         h#478
       _ →
         None
@@ -1571,7 +1571,7 @@ letrec intercalate_rest =
 letrec scanl_rest =
 λxs#665, acc#666, f#667.
     case xs#665 of
-      ::(h#668, t#669) →
+      ::(h#668, t#669:Box) →
         let %t346 = f#667(acc#666, h#668)
         scanl_emit#670(t#669, #4001694[synthetic]#1694, f#667)
       _ →
@@ -1585,7 +1585,7 @@ letrec scanl_emit =
 letrec unique_by_go =
 λxs#675, f#676, seen#677, acc#678.
     case xs#675 of
-      ::(h#679, t#680) →
+      ::(h#679, t#680:Box) →
         let %t348 = f#676(h#679)
         unique_by_step#681(t#680, h#679, #4001696[synthetic]#1696, f#676, seen#677, acc#678)
       _ →
@@ -2017,7 +2017,7 @@ letrec split_ints =
     let parts#913:Box = Split(s#911, sep#912)
     parse_ints#904(parts#913)
 
-def pi : List<Int> =
+def pi : List<a> =
 3.141592653589793
 
 letrec sqrt =
@@ -2752,8 +2752,8 @@ letrec str_contains =
                   sc_go#1296(#4001866[synthetic]#1866))
         sc_go#1296(0)
 
-letrec copy_or_keep_head : forall a, b. (a, Bool) -> List<b> =
-λxs#1301, copy#1302:Bool.
+letrec copy_or_keep_head : forall a. (List<a>, Bool) -> List<a> =
+λxs#1301:Box, copy#1302:Bool.
     case xs#1301 of
       ::(h#1303:Int, t#1304:Box) →
         case copy#1302 of

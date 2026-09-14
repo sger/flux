@@ -1,0 +1,27 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/generics/working/rejects/constrained_call_wrong_arity.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E056]: Wrong Number Of Arguments
+
+The `describe` function takes 1 arguments, but 2 were provided.
+
+  examples/generics/working/rejects/constrained_call_wrong_arity.flx:21:11
+   |
+16 | fn describe<a: Show>(x: a) -> String {
+   | ------------------------------------ `describe` is defined with 1 parameters
+17 |     show(x)
+18 | }
+19 | 
+20 | fn main() with IO {
+21 |     print(describe(1, 2))
+   |           ^^^^^^^^^^^^^^
+   |           -------------- 2 arguments provided here, expected 1
+
+Help:
+  Remove 1 extra argument(s), for example: `describe(arg1)`.
+== stdout ==
+<not executed>

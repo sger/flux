@@ -1,0 +1,22 @@
+// expect: compile_error
+// expect-error: E056
+
+// Calling a constrained generic function with the wrong number of arguments —
+// proposal 0185 stage 2 / KI-082.
+//
+// `describe` takes one argument. The interesting part is *why* this was ever
+// accepted: a constrained function is lowered with its dictionaries prepended
+// to the parameter list, so arity checking that counted lowered parameters saw
+// a band of acceptable counts rather than one number, and a call carrying as
+// many extra arguments as the function has dictionaries slipped through — to
+// fail at run time as `E1000` instead.
+//
+// Arity is now checked against the source signature.
+
+fn describe<a: Show>(x: a) -> String {
+    show(x)
+}
+
+fn main() with IO {
+    print(describe(1, 2))
+}

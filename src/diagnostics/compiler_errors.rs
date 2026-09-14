@@ -1079,6 +1079,37 @@ pub const UNRESOLVED_FIELD_RECEIVER: ErrorCode = ErrorCode {
     hint: Some("Annotate the value so the field has a type to be looked up on."),
 };
 
+/// Proposal 0185 stage 5: `pair.0` on a receiver whose type is never
+/// determined.
+///
+/// The tuple analogue of [`UNRESOLVED_FIELD_RECEIVER`], and reported by the
+/// same whole-program discharge. Before stage 5 the access unified its receiver
+/// with a *guessed* tuple shape instead, so a receiver nothing ever determined
+/// silently acquired one and the program compiled with an element type that no
+/// source line asked for.
+pub const UNRESOLVED_TUPLE_RECEIVER: ErrorCode = ErrorCode {
+    code: "E491",
+    title: "UNRESOLVED TUPLE RECEIVER",
+    error_type: ErrorType::Compiler,
+    message: "Cannot tell which type this is, so the projection `{}` cannot be resolved.",
+    hint: Some("Annotate the value with a tuple type so the element has a type to project."),
+};
+
+/// Proposal 0185 stage 5: projecting past the end of a tuple.
+///
+/// `t.3` on a receiver that turns out to be a triple. This was reachable before
+/// stage 5 only where the receiver's type was already known at the access; an
+/// unresolved receiver was unified with a tuple shape wide enough to contain
+/// the index, so the projection made the receiver wider rather than being
+/// rejected.
+pub const TUPLE_INDEX_OUT_OF_RANGE: ErrorCode = ErrorCode {
+    code: "E492",
+    title: "TUPLE INDEX OUT OF RANGE",
+    error_type: ErrorType::Compiler,
+    message: "This tuple has no element at that index.",
+    hint: Some("Tuple indices start at 0 and stop one short of the tuple's width."),
+};
+
 /// Proposal 0183 R3: dictionary resolution ran out of budget.
 ///
 /// An instance context that grows its argument at every step —

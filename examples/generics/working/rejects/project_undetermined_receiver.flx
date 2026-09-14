@@ -1,0 +1,19 @@
+// expect: compile_error
+// expect-error: E491
+
+// A projection whose receiver nothing ever determines — proposal 0185 stage 5.
+//
+// `fst` is never called, so no call site says what `p` is. The predicate the
+// projection raised reaches the end of inference undischarged, and is reported
+// at the access rather than being silently dropped or leaking into the backend
+// as an unresolved type variable.
+//
+// The fix is to say what the receiver is — either annotate `p`, or call `fst`
+// somewhere with a concrete tuple, as ../accepts/project_tuple_known_shape.flx
+// does.
+
+fn fst(p) { p.0 }
+
+fn main() with IO {
+    print("fst is never called")
+}

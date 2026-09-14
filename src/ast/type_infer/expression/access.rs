@@ -207,6 +207,7 @@ impl<'a> InferCtx<'a> {
         &mut self,
         object: &Expression,
         index: usize,
+        span: Span,
     ) -> InferType {
         let object_ty = self.infer_expression(object);
         match object_ty.apply_type_subst(&self.subst) {
@@ -214,21 +215,53 @@ impl<'a> InferCtx<'a> {
                 .get(index)
                 .cloned()
                 .unwrap_or_else(|| self.alloc_fallback_var()),
-            InferType::Var(_) => {
-                // Delay projection failure for unresolved tuple-typed values by
-                // constraining them to a tuple shape. This lets later call-site
-                // unification discharge local helper projections like `pair.0`
-                // instead of poisoning the expression with a fallback hole.
-                let arity = std::cmp::max(index + 1, 2);
-                let elements: Vec<InferType> = (0..arity)
-                    .map(|_| self.env.alloc_infer_type_var())
-                    .collect();
-                let projected = elements[index].clone();
-                let tuple_shape = InferType::Tuple(elements);
-                self.unify_silent(&object_ty, &tuple_shape);
-                projected.apply_type_subst(&self.subst)
+            // The same guard the field predicate uses: a receiver that is an
+            // unbound name has already been reported as `E004`, and its type is
+            // a fallback variable rather than something a call site will
+            // determine. Raising a predicate on it adds a second error saying
+            // the projection cannot be resolved, which the reader already knows.
+            InferType::Var(_) if self.is_field_predicate_receiver(object, &object_ty) => {
+                self.emit_tuple_predicate(&object_ty, index, span)
             }
+            InferType::Var(_) => self.alloc_fallback_var(),
             _other => self.alloc_fallback_var(),
         }
+    }
+
+    /// Record that `object` must be a tuple with an element at `index`, and
+    /// return that element's type (Proposal 0185 stage 5).
+    ///
+    /// Before this, an unresolved receiver was unified with a *guessed* tuple
+    /// shape of `max(index + 1, 2)` fresh variables. The guess is not a
+    /// property of the program: `t.0` claimed a pair, so a receiver that a call
+    /// site later revealed to be a triple only worked because the unification
+    /// was silent and its failure discarded. What the access actually knows is
+    /// that the receiver has *an* element at `index`, which is what the
+    /// predicate says.
+    ///
+    /// It is the field predicate with an index in place of a name, so it takes
+    /// that machinery unchanged: the same reserved module, so
+    /// `take_field_predicates` collects it and no user module can collide; and
+    /// an origin that `decide_quantification` pins, so the receiver is not
+    /// quantified away before anything can determine it.
+    fn emit_tuple_predicate(
+        &mut self,
+        object_ty: &InferType,
+        index: usize,
+        span: Span,
+    ) -> InferType {
+        let (Some(module), Some(name)) = (self.field_predicate_module, self.tuple_predicate_name)
+        else {
+            return self.alloc_fallback_var();
+        };
+        let element_ty = self.env.alloc_infer_type_var();
+        self.emit_class_constraint_args_for_id(
+            crate::types::class_id::ClassId::new(module, name),
+            name,
+            vec![object_ty.clone(), element_ty.clone()],
+            span,
+            constraint::WantedClassConstraintOrigin::TupleProjection { index },
+        );
+        element_ty
     }
 }

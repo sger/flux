@@ -3,6 +3,18 @@
 - Proposal PR:
 - Flux Issue:
 
+**Status (checked 2026-09-11):** Stages 1, 2 and 5 **shipped**. Stage 3 is
+**half shipped** — the unconstrained case landed as G5 in 0.0.7; the constrained
+case is [0187](0187_specialisation.md) stage 2, which supersedes this stage.
+Stage 4 (report inferred ambiguity, 0183's `R6d`) is **open** and blocked on
+that constrained half.
+
+The centrepiece rule is therefore now in the compiler:
+`should_generalize_function` (`src/ast/type_infer/function.rs:573-589`) tests
+arity, matching GHC's `matchGroupVisArity mg == 0`. What it adds beyond GHC is a
+no-constraint side condition — not a different view of the monomorphism
+restriction, but the absence of the machinery to pass a dictionary.
+
 ## Summary
 [summary]: #summary
 
@@ -194,7 +206,40 @@ Exit — met: `examples/diagnostics/hint_demos/function_arg_mismatch.flx` report
 reproduces the bug without generalization and so fails on the unfixed
 compiler.
 
-### Stage 3 — generalize by arity
+### Stage 3 — generalize by arity — **half shipped (G5, 0.0.7)**
+
+> **Amended 2026-09-11.** This stage splits along the constraint boundary, and
+> the unconstrained half shipped in 0.0.7 as roadmap item **G5** (`1a30c716`).
+> The text below described the whole stage as pending and told the reader to
+> rewrite a lost patch; neither is true any more. Superseded in full by
+> [0187](0187_specialisation.md), which owns the remainder.
+>
+> **What shipped.** `should_generalize_function`
+> (`src/ast/type_infer/function.rs:573-589`) generalizes a definition with
+> parameters that raises no class constraint. `!param_tys.is_empty()` is GHC's
+> `matchGroupVisArity mg == 0` negated — the same arity test — so
+> `fn identity(x) { x }` is usable at `Int` and `String` with no signature.
+>
+> **What remains** is the constrained case, `fn double(x) { x + x }`, which is
+> 0187 stage 2. It is not withheld for a reason about quantification: there is
+> nowhere to get the dictionary from until Track C's evidence translation
+> lands. Measured 2026-09-08, applying the rule unrestricted breaks 13 tests —
+> **9 dictionary plumbing, 4 lost optimisation** — so specialisation was only a
+> quarter of the answer.
+>
+> **A second condition was needed that this stage did not foresee.**
+> `shares_var_with_pending_field_predicate` withholds generalization from a
+> definition sharing a type variable with an *undischarged* field or tuple
+> predicate. A predicate belongs to whichever definition performed the access,
+> but the receiver often arrives from a caller that merely forwards it;
+> generalizing the forwarder quantifies that variable and the pinned receiver
+> inside the callee is then determined by nothing. It cost four
+> `examples/aoc/2024/day06*` programs when the rule was first written without
+> it. GHC needs no such condition because `HasField` carries a functional
+> dependency and is solved in the ordinary fixpoint — see
+> [the GHC comparison](../internals/typeclass_vs_ghc.md) §4.
+
+The original text follows, for the record.
 
 Replace the `type_params.is_empty()` test in
 `finalize_and_bind_function_scheme` with GHC's rule: a definition with
@@ -233,7 +278,9 @@ every unannotated constrained helper changes arity.
 
 ### Stage 4 — report inferred ambiguity
 
-0183's R6b. With Stage 3 landed the whole-program residue is the set of
+0183's R6d (called `R6b` there until 2026-09-11, when it was renamed off a
+collision with a shipped row of that name). With Stage 3 landed the
+whole-program residue is the set of
 predicates over variables *inference* never resolved — ambiguity, not stranded
 obligations. `Disposition` loses `Stuck`; the terminal set becomes Solved /
 Generalized / Defaulted / Reported. A predicate reaching whole-program scope
@@ -245,17 +292,35 @@ registered, with a docs row.
 Exit: Example A is a compile error; sweep diff is exactly the programs that
 were ambiguous, each moved to `examples/compiler_errors/` with a snapshot.
 
-### Stage 5 — tuple projection as a constraint
+### Stage 5 — tuple projection as a constraint — **shipped**
 
 The last construct typed by a hole. `infer_tuple_field_access_expression`
-(`src/ast/type_infer/expression/access.rs:146`) constrains an unknown receiver
-to a tuple shape so that "later call-site unification [can] discharge local
-helper projections". Convert it on 0184's template: a solver-internal predicate
-in the reserved module, discharged after inference, reported if the receiver
-is never determined. Once done, `generalize_constrained_vars` can be retired
-in favour of ordinary full generalization plus `growThetaTyVars`.
+constrained an unknown receiver to a *guessed* tuple shape — `max(index + 1, 2)`
+fresh variables — so that "later call-site unification [can] discharge local
+helper projections". The guess was not a property of the program: `t.0` claimed
+a pair, and a receiver a call site later revealed to be a triple only worked
+because the unification was silent and its failure discarded.
 
-Exit: sweep neutral; the narrowing in Stage 3 removed.
+It now raises a solver-internal predicate in the reserved `__field` module,
+carrying the index on the constraint's origin rather than in its name, and
+discharged after inference: a wide enough tuple projects and the element type
+propagates, a tuple too narrow is `E492`, and a receiver never determined is
+`E491`.
+
+*Corrections to this stage as written.* The note that it retires
+`generalize_constrained_vars` was already stale — that function no longer
+exists. And the stage was not the self-contained conversion it reads as: it was
+blocked twice by pre-existing defects in the field-predicate machinery it
+copies, both of which reproduce for *record fields* on the compiler as shipped
+and neither of which any stdlib or test code had hit —
+[KI-095](../known_issues.md#ki-095) and [KI-096](../known_issues.md#ki-096).
+Tuple projection is common where named-field access through a match arm or a
+recursive sibling is not, so this stage found them immediately. Three further
+fixes followed, recorded in the E1 entry of
+[generics_tasks.md](../roadmaps/generics_tasks.md).
+
+Exit, met: 1313 files compiled with `--no-cache`, **0** newly rejected. The
+Stage 3 narrowing is unrelated and stays — Stage 3 is now 0.0.8's Track B.
 
 ### Stage 6 — size the instance-resolution unification
 

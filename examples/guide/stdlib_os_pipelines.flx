@@ -1,3 +1,13 @@
+// requires: unix
+//
+// This fixture reads a directory as a file and declares `IsADirectory`. Windows
+// returns `ERROR_ACCESS_DENIED` for that, which Rust maps to
+// `PermissionDenied`, so the run says `<denied>` where the fixture says
+// `<is-a-dir>`. Both are correct for their platform — the difference is in the
+// OS, not in `Flow.Fs` — and there is no portable spelling of "the error you
+// get for opening a directory", which is exactly why this is gated rather than
+// rewritten.
+
 // parity-expected-stdout-begin
 // "true"
 // "── write a small tree ──"

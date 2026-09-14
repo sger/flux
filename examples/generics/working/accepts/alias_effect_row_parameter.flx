@@ -1,0 +1,37 @@
+// parity-expected-stdout-begin
+// 15
+// parity-expected-stdout-end
+
+// An alias that takes an *effect row* parameter — roadmap G3 / KI-092, and the
+// second half of G4 / KI-094.
+//
+// `AsyncFn<a, b, e>` has three parameters and the third is a row, declared in
+// `apply_async`'s own `<...>` list exactly like a type parameter. Two separate
+// defects had to be fixed for this line to exist: a parameter used *only* in an
+// effect row was rejected as phantom (KI-092), and an effect alias reachable
+// only through an annotation stayed undecomposed, so the row solver compared
+// the atom `Async` against the four atoms `Async` means and called them
+// disjoint (KI-094, `E422`).
+//
+// `Async` is an effect alias for `<Suspend | Fork | GetContext | AsyncFail>`,
+// which is why decomposition matters here and not for a single-atom row.
+
+import Flow.Async exposing (..)
+
+alias AsyncFn<a, b, e> = (a) -> b with <Async | e>
+
+fn async_double(x: Int) -> Int with Async {
+    x * 2
+}
+
+fn apply_async<e>(f: AsyncFn<Int, Int, e>, x: Int) -> Int with Async {
+    f(x)
+}
+
+fn body() -> Int with Async {
+    apply_async(async_double, 5) + 5
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

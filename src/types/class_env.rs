@@ -3037,6 +3037,7 @@ impl ClassEnv {
         // the one place that both always runs and holds the interner mutably;
         // `InferCtx` only ever looks it up.
         interner.intern(crate::types::class_id::FIELD_PREDICATE_MODULE);
+        interner.intern(crate::types::class_id::TUPLE_PREDICATE_NAME);
 
         const PRELUDE_CLASS_SOURCES: &[(&str, &str)] = &[
             ("Eq", include_str!("../../lib/Flow/Eq.flx")),

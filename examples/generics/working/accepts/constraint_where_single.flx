@@ -1,0 +1,21 @@
+// parity-expected-stdout-begin
+// "value: 1"
+// "value: true"
+// parity-expected-stdout-end
+
+// Spelling 3 of 4: the same constraint written as a `where` clause after the
+// return type.
+//
+// Body identical to constraint_inline_single.flx — only the signature differs.
+// The `where` form is the one that scales to constraints over several
+// parameters, and to multi-parameter classes, which the inline `<a: C>` sugar
+// cannot express (see ../../failing/compile/ki_075_inline_bound_multiparam_class.flx).
+
+fn describe<a>(x: a) -> String where Show<a> {
+    "value: " + show(x)
+}
+
+fn main() with IO {
+    print(describe(1))
+    print(describe(true))
+}

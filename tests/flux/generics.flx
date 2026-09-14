@@ -1,0 +1,245 @@
+// Behavioural coverage for the generics corpus in examples/generics/working/.
+//
+// The examples themselves are pinned by a compile-only snapshot, which proves
+// they are *accepted*. This fixture proves they are accepted for the right
+// reason — that a generic definition used at two types produces the right
+// value at each — and `assert_backends_agree` proves the VM and the native
+// backend agree about it.
+//
+// Rule for this file: nothing from examples/generics/failing/ is mirrored
+// here. The three gaps that segfault or diverge natively (KI-090, KI-071,
+// KI-073) all live under failing/, so keeping them out makes the native leg
+// safe by construction rather than by an exclusion list this harness has no
+// way to express.
+
+import Flow.Result exposing (..)
+
+// ── generalization without annotations (G5) ─────────────────────
+
+fn identity(x) { x }
+
+fn take_first(a, b) { a }
+
+fn apply(f, x) { f(x) }
+
+fn succ(n: Int) -> Int { n + 1 }
+
+fn test_unannotated_definition_generalizes_over_two_types() {
+    assert_eq(identity(1), 1)
+    assert_eq(identity("hi"), "hi")
+}
+
+fn test_generalization_is_not_limited_to_arity_one() {
+    assert_eq(take_first(1, "ignored"), 1)
+    assert_eq(take_first("left", true), "left")
+}
+
+fn test_unannotated_higher_order_over_unconstrained_callee() {
+    assert_eq(apply(succ, 1), 2)
+    assert_eq(apply(\s -> upper(s), "ab"), "AB")
+}
+
+fn test_let_bound_lambda_is_polymorphic() {
+    let f = \x -> x
+    assert_eq(f(1), 1)
+    assert_eq(f("hi"), "hi")
+}
+
+// ── annotated generics ──────────────────────────────────────────
+
+fn wrap<T>(x: T) -> Option<T> { Some(x) }
+
+fn nest<a>(n: Int, x: a) -> Int {
+    if n <= 0 { 0 } else { nest(n - 1, [x]) + 1 }
+}
+
+fn test_annotated_generic_at_two_types() {
+    assert_eq(wrap(42), Some(42))
+    assert_eq(wrap("hi"), Some("hi"))
+}
+
+fn test_polymorphic_recursion_with_a_signature() {
+    assert_eq(nest(3, "seed"), 3)
+}
+
+// ── the four constraint spellings agree ─────────────────────────
+
+fn describe_inline<a: Show>(x: a) -> String { "value: " + show(x) }
+
+fn describe_where<a>(x: a) -> String where Show<a> { "value: " + show(x) }
+
+fn report_inline<a: Eq + Show>(x: a, y: a) -> String {
+    if eq(x, y) { "same: " + show(x) } else { "differ" }
+}
+
+fn report_where<a>(x: a, y: a) -> String where Eq<a>, Show<a> {
+    if eq(x, y) { "same: " + show(x) } else { "differ" }
+}
+
+fn test_inline_and_where_spellings_are_the_same_feature() {
+    assert_eq(describe_inline(1), describe_where(1))
+    assert_eq(describe_inline(true), describe_where(true))
+    assert_eq(report_inline(3, 3), report_where(3, 3))
+    assert_eq(report_inline(1, 2), report_where(1, 2))
+}
+
+fn test_constrained_generic_produces_the_expected_text() {
+    assert_eq(describe_inline(1), "value: 1")
+    assert_eq(report_inline(3, 3), "same: 3")
+}
+
+// ── generic data types ──────────────────────────────────────────
+
+data Tree<a> {
+    Leaf(a),
+    Node(Tree<a>, Tree<a>),
+}
+
+fn larger(a: Int, b: Int) -> Int { if a >= b { a } else { b } }
+
+fn depth<a>(t: Tree<a>) -> Int {
+    match t {
+        Leaf(_) -> 1,
+        Node(l, r) -> larger(depth(l), depth(r)) + 1,
+    }
+}
+
+data Named<a> {
+    Named { tag: String, val: a },
+} deriving (Eq)
+
+fn test_generic_adt_at_two_element_types() {
+    assert_eq(depth(Node(Leaf(1), Node(Leaf(2), Leaf(3)))), 3)
+    assert_eq(depth(Node(Leaf("a"), Leaf("b"))), 2)
+}
+
+fn test_derived_eq_over_a_type_parameter() {
+    assert_true(eq(Named { tag: "n", val: 1 }, Named { tag: "n", val: 1 }))
+    assert_false(eq(Named { tag: "n", val: "x" }, Named { tag: "n", val: "y" }))
+}
+
+fn test_err_passes_through_into_a_different_success_type() {
+    assert_eq(rewrap(), Err("boom"))
+}
+
+fn inner_result() -> Result<Int, String> { Err("boom") }
+
+fn rewrap() -> Result<Bool, String> {
+    match inner_result() {
+        Ok(_) -> Ok(true),
+        Err(e) -> Err(e),
+    }
+}
+
+// ── aliases ─────────────────────────────────────────────────────
+
+alias Mapper<a, b> = (a) -> b
+
+fn apply_mapper<a, b>(f: Mapper<a, b>, x: a) -> b { f(x) }
+
+fn test_transparent_alias_applies_at_two_instantiations() {
+    assert_eq(apply_mapper(\n -> n * 2, 21), 42)
+    assert_eq(apply_mapper(\s -> upper(s), "abc"), "ABC")
+}
+
+// ── projection predicates ───────────────────────────────────────
+
+fn fst(p) { p.0 }
+
+data Box {
+    Box { v: Int },
+}
+
+fn head_v(rs) {
+    match rs {
+        [r | _] -> r.v,
+        _ -> 0,
+    }
+}
+
+fn test_tuple_projection_at_a_known_shape() {
+    assert_eq(fst((1, "x")), 1)
+}
+
+fn test_field_predicate_bound_by_a_match_arm() {
+    assert_eq(head_v([Box { v: 7 }]), 7)
+}
+
+// ── effect polymorphism ─────────────────────────────────────────
+
+fn apply_twice(f: ((Int) -> Int with |e), x: Int) -> Int with |e {
+    f(f(x))
+}
+
+fn map_list<a, b>(xs: List<a>, f: ((a) -> b with |e)) -> List<b> with |e {
+    match xs {
+        [h | t] -> [f(h) | map_list(t, f)],
+        _ -> [],
+    }
+}
+
+fn test_row_variable_threads_a_pure_callback() {
+    assert_eq(apply_twice(\n -> n + 1, 1), 3)
+}
+
+fn test_generic_map_with_an_effect_row_at_two_types() {
+    assert_eq(map_list([1, 2, 3], \n -> n * 2), [2, 4, 6])
+    assert_eq(map_list(["a", "b"], \s -> upper(s)), ["A", "B"])
+}
+
+// ── classes over generic heads ──────────────────────────────────
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+instance Sizeable<List<Int>> {
+    fn size(xs) { length(xs) }
+}
+
+fn measure<a: Sizeable>(x: a) -> Int { size(x) }
+
+class MyEq<a> {
+    fn my_eq(x: a, y: a) -> Bool
+}
+
+instance Eq<a> => MyEq<List<a>> {
+    fn my_eq(xs, ys) { xs == ys }
+}
+
+fn pair_eq<a: MyEq>(x: a, y: a) -> Bool { my_eq(x, y) }
+
+fn test_class_dispatch_picks_the_instance_at_the_call_site() {
+    assert_eq(measure(5), 5)
+    assert_eq(measure([10, 20, 30]), 3)
+}
+
+fn test_contextual_instance_builds_a_dictionary_from_a_dictionary() {
+    assert_true(pair_eq([1, 2, 3], [1, 2, 3]))
+    assert_false(pair_eq([1, 2, 3], [1, 2, 4]))
+}
+
+// ── mutual recursion ────────────────────────────────────────────
+
+fn evens<a>(xs: List<a>) -> List<a> {
+    match xs {
+        [h | t] -> [h | odds(t)],
+        _ -> [],
+    }
+}
+
+fn odds<a>(xs: List<a>) -> List<a> {
+    match xs {
+        [_ | t] -> evens(t),
+        _ -> [],
+    }
+}
+
+fn test_mutually_recursive_generic_group_at_two_types() {
+    assert_eq(evens([1, 2, 3, 4, 5]), [1, 3, 5])
+    assert_eq(evens(["a", "b", "c"]), ["a", "c"])
+}

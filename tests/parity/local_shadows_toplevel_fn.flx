@@ -1,0 +1,25 @@
+// parity: vm, llvm
+// expect: success
+// A local binding shadows a top-level function of the same name. The top-level
+// function's contract must not be applied to the shadowed call — it used to be,
+// giving an E300 whose span was the local binding and whose type was the
+// top-level one. See docs/known_issues.md#ki-088.
+//
+// The nested-`fn` form of this shadow was broken at codegen until 2026-09-11,
+// and is covered end-to-end on both backends by `tests/flux/fn_shadowing.flx`.
+
+fn helper(x: Int) -> Int { x }
+
+fn shadowed_by_let() -> String {
+    let helper = \(s: String) -> s
+    helper("shadowed")
+}
+
+fn unshadowed() -> Int {
+    helper(41)
+}
+
+fn main() with IO {
+    print(shadowed_by_let())
+    print(unshadowed())
+}

@@ -1,0 +1,30 @@
+// parity-expected-stdout-begin
+// 7
+// parity-expected-stdout-end
+
+// A field predicate whose receiver is bound by a match arm — KI-095, fixed.
+//
+// `r` comes from destructuring a list in a pattern, so at `r.v` its type is
+// still a variable. The access raises a field predicate, and determining it
+// requires the match to propagate the pattern family to the scrutinee — which
+// it did not do when a catch-all arm was present. The receiver was therefore
+// never determined and the program was `E490 Unresolved Field Receiver`, even
+// though the call site plainly says what the element is.
+//
+// This blocked E1 (0185 stage 5) until it was fixed: the same discharge path
+// serves both field and tuple predicates.
+
+data Box {
+    Box { v: Int },
+}
+
+fn head_v(rs) {
+    match rs {
+        [r | _] -> r.v,
+        _ -> 0,
+    }
+}
+
+fn main() with IO {
+    print(head_v([Box { v: 7 }]))
+}

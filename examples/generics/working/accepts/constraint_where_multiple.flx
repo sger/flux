@@ -1,0 +1,26 @@
+// parity-expected-stdout-begin
+// "same: 3"
+// "differ: true / false"
+// parity-expected-stdout-end
+
+// Spelling 4 of 4: several constraints in one `where` clause, comma-separated.
+//
+// Body identical to constraint_inline_multiple.flx. See
+// constraint_inline_single.flx for the four-way comparison.
+//
+// A `where` constraint naming a parameter the signature did not declare is
+// silently attached to the first one rather than rejected — a sharp edge worth
+// knowing when reading an unfamiliar signature.
+
+fn report<a>(x: a, y: a) -> String where Eq<a>, Show<a> {
+    if eq(x, y) {
+        "same: " + show(x)
+    } else {
+        "differ: " + show(x) + " / " + show(y)
+    }
+}
+
+fn main() with IO {
+    print(report(3, 3))
+    print(report(true, false))
+}

@@ -154,6 +154,83 @@ fn snapshot_name(rel: &str, mode: &str) -> String {
     )
 }
 
+/// Extract one top-level definition from a `--dump-core=debug` transcript.
+///
+/// The full dump is ~2900 lines and nearly all of it is standard library, so
+/// pinning it whole would bury the signal and repaint the snapshot on every
+/// unrelated `lib/Flow` change. What this gate is watching is four characters —
+/// whether a binder still carries its representation — so it snapshots the one
+/// definition that shows them.
+fn extract_core_def(transcript: &str, def_name: &str) -> String {
+    let head = format!("letrec {def_name} ");
+    let mut out = Vec::new();
+    let mut inside = false;
+    for line in transcript.lines() {
+        let starts_def = line.starts_with("letrec ") || line.starts_with("def ");
+        if inside && starts_def {
+            break;
+        }
+        if !inside && line.starts_with(&head) {
+            inside = true;
+        }
+        if inside {
+            out.push(line.trim_end());
+        }
+    }
+    assert!(
+        !out.is_empty(),
+        "no `{head}...` definition in the Core dump; it was renamed, inlined away, or the dump format changed"
+    );
+    // Binder ids (`#1302`) and temporaries (`%t523`) are counters over the
+    // whole program, standard library included, so any unrelated change
+    // renumbers them and this gate would cry wolf. Both are replaced with `N`.
+    // The representation annotations that follow them — `:Int`, `:Box` — are
+    // what this is watching, and they survive the normalization.
+    let mut normalized = String::new();
+    let joined = out.join("\n");
+    let mut chars = joined.chars().peekable();
+    while let Some(c) = chars.next() {
+        normalized.push(c);
+        if c == '%' && chars.peek() == Some(&'t') {
+            chars.next();
+            normalized.push('t');
+        } else if c != '#' {
+            continue;
+        }
+        let mut saw_digit = false;
+        while chars.peek().is_some_and(char::is_ascii_digit) {
+            chars.next();
+            saw_digit = true;
+        }
+        if saw_digit {
+            normalized.push('N');
+        }
+    }
+    normalized.push('\n');
+    normalized
+}
+
+/// Pin one Core definition, to gate *specialisation quality* rather than
+/// behaviour.
+///
+/// A despecialised program compiles, runs and returns the right answer, so no
+/// test, parity sweep or compile snapshot in this repo can see it
+/// (docs/known_issues.md#ki-098). This is the only gate that can. All of
+/// 0.0.8's B-track is about specialisation, so the baseline has to exist
+/// *before* that work lands, or there is nothing to measure it against.
+fn assert_core_def_snapshot(rel: &str, def_name: &str, mode: &str) {
+    let file = example_path(rel);
+    let transcript = run_flux(&["--dump-core=debug", file.to_str().unwrap()]);
+    let extracted = extract_core_def(&transcript, def_name);
+    insta::with_settings!({
+        snapshot_path => "../snapshots/aether",
+        prepend_module_to_snapshot => false,
+        omit_expression => true,
+    }, {
+        insta::assert_snapshot!(snapshot_name(rel, mode), extracted);
+    });
+}
+
 fn assert_cli_snapshot(rel: &str, args: &[&str], mode: &str) {
     let file = example_path(rel);
     let mut cmd = args.to_vec();
@@ -562,4 +639,38 @@ fn dump_aether_and_native_trace_aether_share_report_content() {
             "native trace stderr should include the fixture-local dump-aether sections\nmissing `{needle}`\n== report ==\n{shared_report}\n== stderr ==\n{stderr}"
         );
     }
+}
+
+// ── KI-098: the specialisation gate ─────────────────────────────
+//
+// These two are a contrast pair, and the diff between their snapshots is the
+// measurement. The programs are identical apart from one extra call site in
+// the second, and both print the right answer — so nothing else in the test
+// suite can tell them apart.
+//
+// `copy_head` is unannotated, so G5 generalizes it and its parameter type
+// becomes a variable, which carries no `FluxRep`. B1 restores the
+// representation where every call site agrees on one concrete instantiation.
+// One call: `::(h#N:Int, t#N:Box)`. Two calls: `::(h#N, t#N:Box)`.
+//
+// When B2 lands and specialises per instantiation, the despecialised snapshot
+// should converge on the baseline's. That diff is what says the work paid off,
+// and it cannot be reconstructed after the fact.
+
+#[test]
+fn snapshot_ki_098_baseline_core_def() {
+    assert_core_def_snapshot(
+        "generics/failing/degraded/ki_098_baseline_one_instantiation.flx",
+        "copy_head",
+        "dump_core_def",
+    );
+}
+
+#[test]
+fn snapshot_ki_098_despecialised_core_def() {
+    assert_core_def_snapshot(
+        "generics/failing/degraded/ki_098_despecialised_two_instantiations.flx",
+        "copy_head",
+        "dump_core_def",
+    );
 }
