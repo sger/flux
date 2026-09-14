@@ -1,0 +1,29 @@
+// expect: compile_error
+// expect-error: E419
+
+// GAP — owner: KI-032, Medium, not tracked in the 0.0.7 or 0.0.8 lists.
+// Measured 2026-09-11: error[E419] Unresolved Effect Row.
+//
+// This is the effect-row analogue of the generalization problem, and it is
+// worth reading next to ../../working/accepts/annot_map_with_effect_row.flx —
+// the same wrapper, with the signature written, compiles and runs.
+//
+// `L.map` is row-polymorphic: its row is whatever its callback's row is.
+// Wrapping it without an annotation leaves that row a variable with nothing to
+// determine it, and inference has no rule that generalizes over it the way G5
+// generalizes over a type parameter. Effect rows did not get the 0.0.7
+// treatment that types did.
+//
+// Workaround, and the shape to copy:
+//
+//   fn map_wrap<a, b>(xs: List<a>, f: ((a) -> b with |e)) -> List<b> with |e {
+//       L.map(xs, f)
+//   }
+
+import Flow.List as L
+
+fn map_wrap(xs, f) { L.map(xs, f) }
+
+fn main() with IO {
+    print(map_wrap([1, 2], \n -> n * 2))
+}

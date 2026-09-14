@@ -178,7 +178,7 @@ cargo run -- --no-cache examples/guide_type_system/03_pure_function_boundaries.f
 
 ## Generics
 
-Generic functions use `<T>` type parameters. Only `fn f<T>(x: T)` syntax triggers let-polymorphism for explicitly-parameterized forms:
+Generic functions use `<T>` type parameters:
 
 ```flux
 fn wrap<T>(x: T) -> Option<T> { Some(x) }
@@ -187,7 +187,17 @@ let a = wrap(42)     // Option<Int>
 let b = wrap("hi")   // Option<String>
 ```
 
+Since 0.0.7 the annotation is not what makes a function generic. A definition
+that takes parameters and raises no class constraint is generalized whether or
+not it was annotated, so `fn identity(x) { x }` is usable at `Int` and `String`
+exactly as `fn identity<a>(x: a) -> a` is. A definition that *does* raise a
+constraint — `fn double(x) { x + x }` raises `Num` — is still monomorphic
+without a signature; that half is 0.0.8 work.
+
 User-defined generic ADTs use the same syntax (see [Chapter 13](13_match_exhaustiveness_and_adts.md)).
+
+`examples/generics/` is a worked map of what the generic surface supports and
+what it does not, with each gap labelled by its owner.
 
 ---
 

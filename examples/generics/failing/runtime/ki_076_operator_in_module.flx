@@ -1,0 +1,37 @@
+// expect: runtime_error
+// expect-error: E1000
+
+// GAP — owner: KI-076, High, 0.0.8.
+// Measured 2026-09-11 on the VM: error[E1000] wrong number of arguments:
+// want=3, got=2, raised at the `x <= y` in Ki076Ord.bigger.
+//
+// NOTE: the symptom has changed since the entry was written. KI-076 records
+// `cannot compare Adt with OpLessThanOrEqual`; what happens now is an arity
+// mismatch. want=3 is `lte(dict, x, y)` and got=2 is `lte(x, y)`, so the
+// operator *does* now route to the dictionary-passing method — it just
+// arrives without the dictionary. The entry should be re-verified against
+// this before anyone works from its description.
+//
+// NOTE: this file compiles. The gap is at run time, which is why it lives
+// here rather than in ../compile/ — a compile-only snapshot records it as
+// `ok` and shows nothing.
+//
+// The control is in the *same* file pair: ../../working/accepts/ has no
+// module-block equivalent because at the top level this program is correct.
+// Written as a script, the identical class, instances and `bigger` print 9.
+// The `module` block is the whole difference.
+//
+// The visible consequence, per the entry, is that `List.sort`/`sort_by`
+// cannot sort a user type with an `Ord` instance: `sort_by<a, b: Ord>`
+// delegates to a helper whose `key_fn(a) <= key_fn(b)` sits inside
+// `module Flow.List`. Annotating the private helpers does not help — the
+// constraint reaches them; the operator is what fails to dispatch.
+//
+// This is the shape of KI-061 but for *operators* rather than calls by name,
+// so that fix did not reach it.
+
+import Ki076Ord
+
+fn main() with IO {
+    print(Ki076Ord.demo())
+}

@@ -1,0 +1,18 @@
+// expect: compile_error
+// expect-error: E492
+
+// Projecting past the end of a tuple — proposal 0185 stage 5.
+//
+// `p.2` on a pair is now an error. Before stage 5 the receiver of an
+// unresolved projection was unified with a *guessed* tuple of
+// `max(index + 1, 2)` fresh variables, so this projection made `p` a triple
+// instead of being checked against it, and the program compiled with a shape
+// no source line asked for.
+//
+// This file is in working/ deliberately: the rejection is the feature.
+
+fn third(p) { p.2 }
+
+fn main() with IO {
+    print(third((1, 2)))
+}

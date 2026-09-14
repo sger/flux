@@ -262,7 +262,7 @@ fn imported_public_instance_method_is_emitted_and_called_directly_in_native_lowe
     let class_interface = ModuleInterface {
         module_name: "Example.Logger".to_string(),
         source_hash: "hash".to_string(),
-        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        compiler_version: flux::shared::cache_paths::compiler_build_id().to_string(),
         cache_format_version: flux::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
         semantic_config_hash: "cfg".to_string(),
         interface_fingerprint: "abi".to_string(),
@@ -337,7 +337,7 @@ fn imported_public_instance_method_is_emitted_and_called_directly_in_native_lowe
     let instance_interface = ModuleInterface {
         module_name: "Example.StdLog".to_string(),
         source_hash: "hash".to_string(),
-        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        compiler_version: flux::shared::cache_paths::compiler_build_id().to_string(),
         cache_format_version: flux::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
         semantic_config_hash: "cfg".to_string(),
         interface_fingerprint: "abi".to_string(),

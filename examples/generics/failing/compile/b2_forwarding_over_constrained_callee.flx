@@ -1,0 +1,26 @@
+// expect: compile_error
+// expect-error: E300
+
+// GAP — owner: B2, scoped to 0.0.8.
+// Measured 2026-09-11: error[E300] Argument Type Mismatch at the second call.
+//
+// `forward` has no annotation and no constraint *of its own* — it only calls
+// something constrained. That is enough to withhold generalization: G5's rule
+// requires that the definition "raised no constraint of its own", and the
+// obligation `dbl` raises passes through `forward` as if it were its own.
+//
+// The exclusion is deliberate rather than incidental. Generalizing a
+// forwarding helper was tried and produced `E491` in four
+// examples/aoc/2024/day06* programs, where the helper forwarded a value whose
+// field the callee projected — so the receiver reached the callee unpinned.
+//
+// Adding the annotation `fn forward<a: Num>(x: a) -> a` fixes this file today.
+
+fn dbl<a: Num>(x: a) -> a { x + x }
+
+fn forward(x) { dbl(x) }
+
+fn main() with IO {
+    print(forward(2))
+    print(forward(2.5))
+}

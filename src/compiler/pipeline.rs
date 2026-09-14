@@ -5,6 +5,8 @@ use crate::ast::expand_type_aliases::expand_type_aliases_in_program;
 use crate::ast::route_effectful_primops::route_effectful_primops_and_synthesize_handlers;
 use crate::diagnostics::Diagnostic;
 use crate::syntax::program::Program;
+use crate::syntax::statement::Statement;
+use crate::syntax::symbol::Symbol;
 use crate::types::class_dispatch::generate_dispatch_functions;
 
 use super::{Compiler, MainValidationState};
@@ -43,6 +45,10 @@ impl Compiler {
         let routed_program = routing.program;
         let program = &routed_program;
 
+        // The unit's own function names, before anything consults an imported
+        // contract. A definition here shadows an import of the same name.
+        self.unit_function_names = collect_unit_function_names(program);
+
         // Phase 1: Collect definitions + validate structure
         let collection = self.phase_collection(program);
 
@@ -79,25 +85,15 @@ impl Compiler {
             program
         };
 
-        // Phase 1c (Proposal 0161 B1): expand effect-row aliases in place.
-        // After this pass, every EffectExpr in the AST has any
-        // `alias Name = <...>` reference replaced by its decomposed body, so
-        // downstream phases (predeclaration, inference, codegen) never see
-        // unexpanded aliases.
-        let alias_expanded;
-        let program: &Program = if !self.effect_row_aliases.is_empty() {
-            alias_expanded = {
-                let mut owned: Program = program.clone();
-                expand_effect_aliases_in_program(&mut owned, &self.effect_row_aliases);
-                owned
-            };
-            &alias_expanded
-        } else {
-            program
-        };
-
-        // Phase 1d (Proposal 0174 Phase 2): expand transparent type aliases
+        // Phase 1c (Proposal 0174 Phase 2): expand transparent type aliases
         // before HM inference so later phases only see structural types.
+        //
+        // This runs *before* effect-row alias expansion, not after: an alias
+        // body may itself carry a row (`alias Stream<a> = () -> Option<a> with
+        // Async`), and that row only exists in the AST once the type alias has
+        // been substituted. Expanding effects first left it as a single atom
+        // `Async` while every other row was decomposed.
+        // See docs/known_issues.md#ki-094.
         let type_alias_expanded;
         let program: &Program = if !self.transparent_type_aliases.is_empty() {
             type_alias_expanded = {
@@ -111,6 +107,23 @@ impl Compiler {
                 owned
             };
             &type_alias_expanded
+        } else {
+            program
+        };
+
+        // Phase 1d (Proposal 0161 B1): expand effect-row aliases in place.
+        // After this pass, every EffectExpr in the AST has any
+        // `alias Name = <...>` reference replaced by its decomposed body, so
+        // downstream phases (predeclaration, inference, codegen) never see
+        // unexpanded aliases.
+        let alias_expanded;
+        let program: &Program = if !self.effect_row_aliases.is_empty() {
+            alias_expanded = {
+                let mut owned: Program = program.clone();
+                expand_effect_aliases_in_program(&mut owned, &self.effect_row_aliases);
+                owned
+            };
+            &alias_expanded
         } else {
             program
         };
@@ -131,4 +144,26 @@ impl Compiler {
         // Phase 6: Finalization
         self.phase_finalization(program, &collection, ti.hm_diagnostics)
     }
+}
+
+/// Every function name a program defines, at top level or inside a `module`.
+///
+/// Nested functions are deliberately left out: they are scoped to their
+/// enclosing body, while this set is consulted for unqualified names anywhere
+/// in the unit.
+fn collect_unit_function_names(program: &Program) -> std::collections::HashSet<Symbol> {
+    fn walk(statements: &[Statement], out: &mut std::collections::HashSet<Symbol>) {
+        for statement in statements {
+            match statement {
+                Statement::Function { name, .. } => {
+                    out.insert(*name);
+                }
+                Statement::Module { body, .. } => walk(&body.statements, out),
+                _ => {}
+            }
+        }
+    }
+    let mut names = std::collections::HashSet::new();
+    walk(&program.statements, &mut names);
+    names
 }

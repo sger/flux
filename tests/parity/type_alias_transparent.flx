@@ -1,6 +1,9 @@
 // parity: vm, llvm
-// skip: KI-092 — a type parameter used only in an effect row is rejected as
-//       phantom, so an effect-polymorphic alias cannot be written. Unskip on fix.
+// expect: success
+// Covers KI-094 in full: an alias whose expansion carries an effect row
+// (`Stream`), and one that takes an effect-row parameter (`AsyncFn`). The row
+// parameter is declared the same way any type parameter is — in the function's
+// own `<...>` list — which is what KI-092 unblocked.
 
 import Flow.Async exposing (..)
 
@@ -36,7 +39,7 @@ fn async_inc(x: Int) -> Int with Async {
     x + 1
 }
 
-fn apply_async(f: AsyncFn<Int, Int, e>, x: Int) -> Int with Async {
+fn apply_async<e>(f: AsyncFn<Int, Int, e>, x: Int) -> Int with Async {
     f(x)
 }
 

@@ -1,6 +1,7 @@
 use std::{
     fs,
     path::{Component, Path, PathBuf},
+    sync::OnceLock,
 };
 
 use sha2::{Digest, Sha256};
@@ -132,7 +133,94 @@ use sha2::{Digest, Sha256};
 /// lowered to `a` outside `b` and captured b's uninitialised slot — the same
 /// `E1001 ... (got Uninit)` KI-087 was about, for a plainer program. An
 /// epoch-46 artifact holds that miscompiled nesting.
-pub const CACHE_EPOCH: u16 = 47;
+/// Epoch 48: a match whose arms share a pattern family now propagates that
+/// family to an unresolved scrutinee even when a catch-all arm is present, and
+/// decides arm isolation against the result (KI-095). A binding whose receiver
+/// is bound by a match arm therefore infers a type where an epoch-47 compiler
+/// either reported `E490` or inferred a narrower one, so cached interfaces and
+/// bytecode from epoch 47 disagree with what this compiler would produce.
+/// Epoch 49: a recursive group's predeclared placeholder is now unified with
+/// what the member infers, and a `let` reads the environment's free variables
+/// through the substitution before generalizing (KI-096). A binding that an
+/// epoch-48 compiler either rejected with `E490` or generalized too widely
+/// infers a different — narrower, and correct — type, so cached interfaces
+/// disagree with what this compiler would produce.
+/// Epoch 50: tuple projection is a solver predicate rather than a guessed tuple
+/// shape (proposal 0185 stage 5). An unresolved receiver used to be unified with
+/// a tuple of `max(index + 1, 2)` fresh variables, so a program could be typed
+/// against a width no source line asked for; it now carries a predicate
+/// discharged after inference. Types an epoch-49 artifact recorded for such a
+/// binding can differ, and the projection is rejected where it used to be
+/// accepted silently.
+/// Epoch 51: an unannotated definition that takes parameters and raises no
+/// class constraint is now generalized (the unconstrained half of
+/// generalize-by-arity). `fn identity(x) { x }` has a scheme where an epoch-50
+/// compiler gave it a monotype, so a cached `.flxi` records the narrower type
+/// and a fresh caller would be rejected at a second argument type.
+/// Epoch 52: transparent type aliases now expand before effect-row aliases, and
+/// a `FnContract` captures parameter and return annotations with their effect
+/// rows already decomposed. A row reachable only through an alias body is a set
+/// of atoms where an epoch-51 artifact recorded a single alias name, so cached
+/// contracts and interfaces disagree with a fresh compiler about whether a
+/// higher-order call satisfies its effect row (KI-094).
+/// Epoch 53: a field or tuple-projection predicate whose receiver has already
+/// resolved to a structure is discharged where it was raised rather than
+/// retained on the binding's scheme. An epoch-52 `.flxi` records such a
+/// predicate in a scheme's context — `Flow.Array.update_many` carries
+/// `__tuple` — and every call site re-raises it as a bare `SchemeUse`, without
+/// the index that `TupleProjection` held, so the whole-program solve looks for
+/// a field literally named `__tuple`. A caller compiled against a cached
+/// epoch-52 interface is therefore an `E490` that a fresh compiler accepts.
+pub const CACHE_EPOCH: u16 = 53;
+
+/// Identity of the *build* that produced this compiler, not just its released
+/// version number.
+///
+/// Every cache key and every cached-artifact metadata record embeds this
+/// string. `CARGO_PKG_VERSION` alone is not enough: two builds of the same
+/// version — a rebuild after a source change, or the same source built with
+/// and without `--features llvm` — produce different compilers that would
+/// otherwise share cache entries, so a module compiled by an earlier build is
+/// reused verbatim and the current compiler's diagnostics are never reported
+/// (see `docs/known_issues.md#ki-079`).
+///
+/// The fingerprint is the executable's path, length and modification time,
+/// which is stable for a given build and changes whenever Cargo relinks. The
+/// file is deliberately not hashed: a debug binary is hundreds of megabytes and
+/// this runs on every invocation. Set `FLUX_BUILD_ID` to pin the value when a
+/// reproducible key is wanted across machines.
+pub fn compiler_build_id() -> &'static str {
+    static BUILD_ID: OnceLock<String> = OnceLock::new();
+    BUILD_ID.get_or_init(|| {
+        if let Ok(pinned) = std::env::var("FLUX_BUILD_ID")
+            && !pinned.is_empty()
+        {
+            return pinned;
+        }
+        match current_exe_fingerprint() {
+            Some(fingerprint) => format!("{}+{fingerprint}", env!("CARGO_PKG_VERSION")),
+            // An unreadable executable is not a reason to refuse to run. The
+            // result is the old behaviour: keyed by version alone.
+            None => env!("CARGO_PKG_VERSION").to_string(),
+        }
+    })
+}
+
+fn current_exe_fingerprint() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    let metadata = fs::metadata(&exe).ok()?;
+    let modified = metadata
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?;
+    let mut hasher = Sha256::new();
+    hasher.update(exe.to_string_lossy().as_bytes());
+    hasher.update([0]);
+    hasher.update(metadata.len().to_le_bytes());
+    hasher.update(modified.as_nanos().to_le_bytes());
+    Some(crate::shared::hex::encode(&hasher.finalize())[..16].to_string())
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheLayout {

@@ -1,0 +1,22 @@
+// parity-expected-stdout-begin
+// "same: 3"
+// "differ: true / false"
+// parity-expected-stdout-end
+
+// Spelling 2 of 4: two bounds on one type parameter, joined with `+`.
+//
+// Both dictionaries are passed to the same call. See
+// constraint_inline_single.flx for the four-way comparison.
+
+fn report<a: Eq + Show>(x: a, y: a) -> String {
+    if eq(x, y) {
+        "same: " + show(x)
+    } else {
+        "differ: " + show(x) + " / " + show(y)
+    }
+}
+
+fn main() with IO {
+    print(report(3, 3))
+    print(report(true, false))
+}

@@ -1,0 +1,42 @@
+---
+source: tests/error_fixtures/runtime_error_fixtures_snapshots.rs
+---
+Fixture: examples/generics/failing/runtime/ki_076_operator_in_module.flx
+== vm ==
+status: 1
+stdout:
+<empty>
+stderr:
+[ 1 of 19] Compiling  Add
+[ 2 of 19] Compiling  Assert
+[ 3 of 19] Compiling  Debug
+[ 4 of 19] Compiling  Array
+[ 5 of 19] Compiling  List
+[ 6 of 19] Compiling  Either
+[ 7 of 19] Compiling  Eq
+[ 8 of 19] Compiling  IO
+[ 9 of 19] Compiling  Math
+[10 of 19] Compiling  Num
+[11 of 19] Compiling  Numeric
+[12 of 19] Compiling  Option
+[13 of 19] Compiling  Ord
+[14 of 19] Compiling  Primops
+[15 of 19] Compiling  Semigroup
+[16 of 19] Compiling  Show
+[17 of 19] Compiling  String
+[18 of 19] Compiling  Ki076Ord
+[19 of 19] Compiling  ki_076_operator_in_module
+[cfg→vm] Running via CFG → bytecode VM backend...
+• 1 error • examples/generics/failing/runtime/Ki076Ord.flx
+error[E1000]: wrong number of arguments: want=3, got=2
+
+  examples/generics/failing/runtime/Ki076Ord.flx:32:12
+   |
+32 |         if x <= y { y } else { x }
+   |            ^^^^^^
+
+Stack trace:
+  at Ki076Ord.bigger (examples/generics/failing/runtime/Ki076Ord.flx:32:12)
+  at Ki076Ord.demo (examples/generics/failing/runtime/Ki076Ord.flx:36:9)
+  at main (examples/generics/failing/runtime/ki_076_operator_in_module.flx:36:5)
+  at <main>

@@ -1,3 +1,14 @@
+// requires: unix
+//
+// This fixture spawns `/bin/echo`, `sh`, `true` and `false`. Those are claims
+// about the host, not about Flux: Windows cannot resolve a POSIX path through
+// `CreateProcess`, and `sh`/`true`/`false` exist there only when an MSYS2 `bin`
+// happens to be on `PATH` — so the same commit gave different output from
+// PowerShell and from Git Bash on one machine (2026-09-13). The subprocess
+// semantics being demonstrated are real and worth covering; the binaries are
+// incidental, and pinning them to unix keeps the coverage honest rather than
+// making the release gate unrunnable off it.
+
 // parity-expected-stdout-begin
 // "── running a command ──"
 // "0"

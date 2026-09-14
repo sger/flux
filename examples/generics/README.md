@@ -1,0 +1,218 @@
+# Generics Examples
+
+What Flux generics supports today, and what it does not. Every file here is
+pinned by a snapshot, so a gap that gets fixed — or a feature that regresses —
+shows up as a diff rather than as prose nobody re-checked.
+
+The release split this corpus is measured against
+(`docs/roadmaps/generics_tasks.md:9`):
+
+> **0.0.7 is generics. 0.0.8 is type classes.** Generics is *which definitions
+> get quantified, over what, and in what order*. Type classes is *what a call
+> site is handed*.
+
+## How to read the directories
+
+| Directory | Means | Pinned by |
+|---|---|---|
+| `working/accepts/` | compiles, runs, right answer | `examples_generics` snapshot + `tests/flux/generics.flx` on VM and native |
+| `working/rejects/` | correctly **rejected** — the diagnostic is the feature | `examples_generics` snapshot |
+| `failing/compile/` | a gap that surfaces as a compile error | `examples_generics` snapshot |
+| `failing/runtime/` | compiles clean, then misbehaves at run time | `generics_runtime_fixtures_snapshot` (VM only) |
+| `failing/degraded/` | compiles, runs, **right answer** — the loss is in the generated code | `snapshot_ki_098_*_core_def` in `tests/aether/cli_snapshots.rs` |
+
+The split between the last two is not taxonomy for its own sake. The
+`examples/` snapshot harness is compile-only, so a gap whose symptom is at run
+time records as `ok` with no diagnostics and pins nothing — compare
+`generics__failing__runtime__ki_090_constrained_fn_as_value.snap`, which says
+`ok`, with the real symptom in `tests/snapshots/generics_runtime/`.
+
+### Files whose name starts with a capital
+
+`Ki076Ord.flx` and `Ki086Greet.flx` are **module halves**, not gaps in their own
+right. A gap that only appears inside a `module` block cannot be shown in one
+file: the module name has to match the file stem, and a module file may not
+contain `main` (`E028`). So those gaps are a pair — a `Ki*.flx` module and a
+lowercase script that imports it — and the script is the one to read.
+
+The module halves get snapshots too, and they correctly record `ok` /
+`status: 0`. That is not the gap being fixed; it is the point. The module
+compiles clean on its own, and only misbehaves once something calls into it.
+
+## Supported
+
+### Quantification — what 0.0.7 changed
+
+| File | Construct |
+|---|---|
+| `infer_identity_two_types.flx` | **G5:** an unannotated definition with parameters and no constraints is generalized |
+| `infer_arity2_take_first.flx` | the same rule at arity 2 |
+| `infer_higher_order_apply.flx` | unannotated higher-order over an unconstrained callee |
+| `infer_let_lambda_polymorphic.flx` | a `let` bound to a lambda is generalized, nested and top-level |
+| `infer_binding_group_order.flx` | **R1:** groups emitted in dependency order, not source order |
+| `recursion_mutual_generic.flx` | **KI-096:** a mutually recursive group unifies with its predeclaration |
+| `annot_polymorphic_recursion.flx` | recursion at a different instantiation, legal with a signature |
+
+### Annotated generics and constraints
+
+| File | Construct |
+|---|---|
+| `annot_identity_signature.flx` | `fn identity<a>(x: a) -> a` |
+| `annot_wrap_option.flx` | a parameter flowing into `Option<T>` |
+| `annot_map_with_effect_row.flx` | type parameters and `with |e` in one signature |
+| `annot_lambda_names_rigid_param.flx` | a lambda annotation naming the enclosing rigid parameter |
+| `constraint_inline_single.flx` | `<a: Show>` |
+| `constraint_inline_multiple.flx` | `<a: Eq + Show>` |
+| `constraint_where_single.flx` | `where Show<a>` |
+| `constraint_where_multiple.flx` | `where Eq<a>, Show<a>` |
+
+The four constraint files keep near-identical bodies so the diff between them
+is only the syntax.
+
+### Data, aliases, projection, effects, classes
+
+| File | Construct |
+|---|---|
+| `data_tree_recursive.flx` | recursive parameterized ADT + a generic function over it |
+| `data_named_fields_deriving_eq.flx` | named-field variant, `deriving (Eq)` over a parameter |
+| `data_two_type_params.flx` | two parameters instantiated independently |
+| `data_contextual_instance_recursive_head.flx` | hand-written contextual instance over a recursive head |
+| `data_result_err_rewrap.flx` | `Err(e)` passed into a `Result` with a different success type |
+| `alias_concrete_tuple.flx` | **G4:** a transparent alias resolves at all |
+| `alias_generic_function.flx` | a parameterized function-type alias |
+| `alias_effect_row_parameter.flx` | **G3/G4:** an alias taking an effect-row parameter |
+| `project_tuple_known_shape.flx` | **0185 stage 5:** projection as a solver predicate |
+| `project_field_from_match_arm.flx` | **KI-095:** a field receiver bound by a match arm |
+| `effect_row_polymorphic_callback.flx` | a row variable threaded from callback to caller |
+| `class_instance_two_types.flx` | one class, two instances, dispatch at both |
+| `class_superclass_chain.flx` | a superclass method reached through a subclass constraint |
+| `class_contextual_instance.flx` | `instance Eq<a> => MyEq<List<a>>` |
+
+### Correctly rejected
+
+| File | Code | Rule |
+|---|---|---|
+| `project_index_out_of_range.flx` | `E492` | `p.2` on a pair is checked, not silently widened |
+| `project_undetermined_receiver.flx` | `E491` | a receiver nothing determines is reported at the access |
+| `constrained_call_wrong_arity.flx` | `E056` | arity is counted on the source signature, not the lowered one |
+| `annot_instantiation_mismatch.flx` | `E300` | a scheme is instantiated, not coerced |
+
+## Not supported
+
+Each file names its owner — a roadmap item, or a `docs/known_issues.md` entry.
+Codes were measured on 2026-09-11, not copied from the roadmap.
+
+| File | Code | Gap | Owner |
+|---|---|---|---|
+| `failing/compile/b2_unannotated_constrained_double.flx` | `E300` | `fn double(x) { x + x }` at two types — the constrained half of generalize-by-arity | **B2**, 0.0.8 |
+| `failing/compile/b2_projection_reused_two_shapes.flx` | `E300` | `fn fst(p) { p.0 }` at two tuple shapes — the receiver is pinned, not quantified | 0.0.8 |
+| `failing/compile/b2_forwarding_over_constrained_callee.flx` | `E300` | a helper that only *forwards* to a constrained callee is withheld too | **B2**, 0.0.8 |
+| `failing/compile/ki_032_unannotated_row_poly_wrapper.flx` | `E419` | the effect-row analogue: an unannotated wrapper over a row-polymorphic function | KI-032 |
+| `failing/compile/ki_074_lowercase_class_in_where.flx` | `E034` | a lowercase class name is declarable but unusable in `where` | KI-074 |
+| `failing/compile/ki_075_inline_bound_multiparam_class.flx` | `E489`, `E444` | `<a: C>` on a multi-parameter class, with a hint that cannot be followed | KI-075 |
+| `failing/compile/grammar_0182_multiple_superclasses.flx` | `E034` | more than one superclass | proposal 0182 |
+| `failing/runtime/ki_090_constrained_fn_as_value.flx` | `E1000` | a constrained function passed as a **value** loses its dictionary | KI-090, High, 0.0.8 |
+| `failing/runtime/ki_076_operator_in_module.flx` | `E1000` | an operator on a class-constrained parameter does not dispatch inside a `module` | KI-076, High, 0.0.8 |
+| `failing/runtime/e2_ambiguous_instance_selection.flx` | `E1009` | an ambiguous instance choice panics at run time instead of being reported | **E2** (blocked on B2), 0.0.8 |
+| `failing/compile/Ki086Greet.flx` | `E004` | a class default body cannot call a sibling method inside a `module` | KI-086, High, 0.0.8 |
+| `failing/degraded/ki_098_despecialised_two_instantiations.flx` | none | a generalized helper used at **two** types loses its representation | KI-098, Low, 0.0.8 |
+
+### The distance to "full generic support"
+
+One sentence: **generics works; what does not work is generics meeting
+evidence.** Every gap above is a constrained definition, or a constrained value,
+or a class surface — not a quantification failure. That is the same line the
+roadmap draws, and this corpus is the evidence for it.
+
+`docs/roadmaps/generics_tasks.md:80` puts it as one of 0.0.8's exit criteria:
+"`fn double(x) { x + x }` works at two types — B1 then B2, on top of C."
+
+## Filed, but no longer reproducing
+
+Four entries were re-tested on 2026-09-11 against their own filed repros and
+did not reproduce. KI-088 is different from the other three: it was *fixed* on
+that date rather than found already working. Each now has a file in `working/accepts/` so that a
+regression is a snapshot diff:
+
+| Entry | Filed symptom | Now | File |
+|---|---|---|---|
+| KI-011 | `E430` re-wrapping `Err(e)` into a different success type | works | `data_result_err_rewrap.flx` |
+| KI-069 | `E004 __dict_Eq_Tree<a>` for a contextual instance over a recursive head | works | `data_contextual_instance_recursive_head.flx` |
+| KI-070 | a lambda annotation naming an enclosing rigid parameter | works | `annot_lambda_names_rigid_param.flx` |
+| KI-088 | nested `fn` shadowing an outer `fn` — miscompiled to the wrong function constant | **fixed 2026-09-11** | `fn_nested_shadowing.flx` |
+
+KI-070's filed repro is written `\y: a -> y`, which is a parse error for an
+unrelated reason — lambda parameter annotations require parentheses,
+`\(y: a) -> y`. That may be why it read as unfixed.
+
+## Known gaps not yet given a runnable file
+
+Listed so the map is complete even where the corpus is not. These are not
+"unwritten" — each was measured on 2026-09-11 and each is unpinnable *here*,
+for a stated reason.
+
+| Gap | Symptom | Why no file | Owner |
+|---|---|---|---|
+| KI-071 | instance method captures an unqualified same-named module fn — wrong answer on VM, **SIGSEGV** natively | needs a module pair, and both harnesses are VM-only; the native leg crashes | 0.0.8 (D1) |
+| KI-073 | result-directed selection through `where Convert<a, b>` — VM prints `"42"`, native prints `<value>` | VM-only harnesses; on the VM this program is **correct**, so neither would show anything | 0.0.8 (D2) |
+| KI-086 (runtime half) | across a module boundary a class default body is dropped and dispatch panics, `E1009` | the runtime harness passes `--no-cache`, which is precisely what hides it — see below | 0.0.8 (D4) |
+
+KI-073 is nonetheless registered, as
+[`tests/parity/ki_073_result_selection_through_constrained_fn.flx`](../../tests/parity/ki_073_result_selection_through_constrained_fn.flx)
+carrying a `// skip:` directive. The parity runner reports it as `SKIP` with its
+reason rather than dropping it, so the divergence is listed rather than
+forgotten, and the skip disappears the day it starts passing.
+
+### Why KI-086's runtime half cannot be pinned here
+
+Measured 2026-09-11, on the same file:
+
+```
+flux --no-strict            <repro>   ->  error[E1009]: panic: No instance of Greet.greet
+flux --no-cache --no-strict <repro>   ->  prints "hi, someone", exit 0
+```
+
+The entry's cause is that a class rebuilt from a cached `.flxi` interface entry
+gets `default_body: None` — method *types* cross the module boundary, method
+*bodies* do not. `--no-cache` skips that round-trip, so the defect never
+happens. Since `generics_runtime_fixtures_snapshot` passes `--no-cache` for
+isolation, a snapshot taken there would pin the bug **not** reproducing, and
+whoever fixes KI-086 would see no diff. That is worse than no snapshot.
+
+What *is* pinned is KI-086's other failure, the compile-time `E004` in
+`failing/compile/Ki086Greet.flx`. That `--no-cache` is a workaround is a
+sharper statement of the cause than the entry currently carries.
+
+## The specialisation gate
+
+KI-098 is the one gap no behavioural test can reach: a despecialised program
+compiles, runs and returns the right answer, so parity, the runtime snapshot and
+every compile snapshot here all pass it.
+
+`failing/degraded/` therefore holds a **contrast pair** — two programs identical
+apart from one extra call site — and the diff between their pinned Core is the
+measurement:
+
+```
+baseline (one call site):   ::(h#N:Int, t#N:Box) →
+two call sites:             ::(h#N,     t#N:Box) →
+```
+
+B1 restores the representation where every call site agrees on one concrete
+instantiation. A second instantiation loses it, and Aether can no longer prove
+the in-place reuse it could before.
+
+Both snapshots normalize binder ids and temporaries to `N`, so the gate watches
+the representation annotations rather than counters that renumber on any
+unrelated change. When B2 lands and specialises per instantiation, the second
+snapshot should converge on the first — and that diff is what says the work paid
+off. It cannot be reconstructed afterwards, which is why the baseline is pinned
+now rather than when B2 starts.
+
+## See also
+
+- `examples/type_classes/` — the class/instance surface in full, including
+  associated types and default bodies
+- `examples/effects/README.md` — effect-row syntax, which generic signatures
+  carry
+- `docs/guide/09_type_system_basics.md` — the guide chapter

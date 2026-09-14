@@ -519,27 +519,176 @@ impl<'a> InferCtx<'a> {
 
         self.env.leave_scope();
 
-        // Generalization is still gated on *written* type parameters. Proposal
-        // 0186 stage 6 replaces this with `monomorphism_restriction` by arity;
-        // it was attempted and reverted, because an unannotated helper then
-        // becomes constrained and the specialised lowering goes with it — see
-        // the stage 6 row in `docs/proposals/0186_generics_foundations.md`.
-        let scheme = if !type_params.is_empty() {
-            self.finalize_binding_scheme(BindingSchemeSpec {
-                infer_type: &fn_ty,
-                env_free_vars: &self.env.free_vars(),
-                window: constraint_start,
-                mode: MonoRestriction::Generalize,
-                binder: name,
-                span: fn_span,
-            })
-        } else {
-            Scheme::mono(fn_ty)
-        };
+        // Close the loop with the group's predeclaration.
+        //
+        // A member of a recursive group is predeclared at `Scheme::mono(v)` so
+        // its siblings can refer to it. Binding the inferred type over the top
+        // of `v` — which is all this used to do — leaves `v` unconstrained, so a
+        // sibling that already referred to the member holds a type nothing will
+        // ever resolve. Ordinary calls survive that, because the call site
+        // unifies arguments and results anyway; a *projection* does not, and
+        // that is where it surfaced (`docs/known_issues.md#ki-096`).
+        //
+        // Bind at a monotype, infer the bodies, **unify**, then generalize — the
+        // unify step of the standard binding-group algorithm.
+        self.unify_with_group_predeclaration(name, &fn_ty, fn_span);
+
+        let scheme =
+            if self.should_generalize_function(type_params, param_tys, &fn_ty, constraint_start) {
+                self.finalize_binding_scheme(BindingSchemeSpec {
+                    infer_type: &fn_ty,
+                    env_free_vars: &self.env.free_vars(),
+                    window: constraint_start,
+                    mode: MonoRestriction::Generalize,
+                    binder: name,
+                    span: fn_span,
+                })
+            } else {
+                Scheme::mono(fn_ty)
+            };
 
         self.binding_schemes_by_span
             .insert(binding_span_key(fn_span), scheme.clone());
         self.env.bind_with_span(name, scheme, Some(fn_span));
+    }
+
+    /// Whether a definition's inferred type is generalized rather than bound at
+    /// a monotype.
+    ///
+    /// True for one that declared type parameters, and for an unannotated one
+    /// that takes parameters and raised **no class constraints**.
+    ///
+    /// Generalizing by arity alone was attempted and reverted: an unannotated
+    /// helper then becomes *constrained*, its specialised lowering goes with it
+    /// (`IAdd` becomes a dictionary call), and the dictionaries it now needs are
+    /// plumbed by the six re-resolution sites that 0186 stage 5 exists to
+    /// replace. Both of those are 0.0.8.
+    ///
+    /// Neither applies to a definition with no constraints. `fn fst(p) { p.0 }`
+    /// has no dictionary to plumb and no specialised arithmetic to lose, so the
+    /// reason to withhold generalization does not reach it — and this is the
+    /// larger half of the unannotated helpers people write. `fn double(x)
+    /// { x + x }` raises `Num` and stays monomorphic until the evidence
+    /// translation lands.
+    fn should_generalize_function(
+        &self,
+        type_params: &[crate::syntax::statement::FunctionTypeParam],
+        param_tys: &[InferType],
+        fn_ty: &InferType,
+        constraint_start: constraint::CaptureWindow,
+    ) -> bool {
+        if !type_params.is_empty() {
+            return true;
+        }
+        let unconstrained = self
+            .class_constraints
+            .captured_since(constraint_start)
+            .is_empty()
+            && !self.shares_var_with_pending_field_predicate(fn_ty);
+        !param_tys.is_empty() && unconstrained
+    }
+
+    /// Whether `fn_ty` mentions a variable some *undischarged* field or tuple
+    /// predicate is still waiting to have determined.
+    ///
+    /// Raising no constraint of its own is not enough to make a definition safe
+    /// to generalize. A predicate belongs to whichever definition *performed*
+    /// the access, but the receiver often arrives from a caller that merely
+    /// passes it along — `jump_step(axis, ..)` forwards `axis` to
+    /// `jump_step_up`, which projects `axis.1`. Generalizing the forwarder
+    /// quantifies that variable, so every call instantiates a fresh copy and the
+    /// pinned receiver inside the callee is determined by nothing. It is the
+    /// disconnect of `docs/known_issues.md#ki-095` and `#ki-096` arriving by a
+    /// third route, and it cost four `examples/aoc/2024/day06*` programs when
+    /// the rule was first written without this test.
+    ///
+    /// Pinning already covers the definition that owns the predicate. This
+    /// covers everyone the receiver passes through on its way there.
+    fn shares_var_with_pending_field_predicate(&self, fn_ty: &InferType) -> bool {
+        let Some(module) = self.field_predicate_module else {
+            return false;
+        };
+        let own_vars = fn_ty.apply_type_subst(&self.subst).free_vars();
+        if own_vars.is_empty() {
+            return false;
+        }
+        self.class_constraints
+            .simple
+            .iter()
+            .filter(|constraint| constraint.class_id.module == module)
+            .flat_map(|constraint| constraint.type_args.iter())
+            .any(|arg| {
+                arg.apply_type_subst(&self.subst)
+                    .free_vars()
+                    .iter()
+                    .any(|var| own_vars.contains(var))
+            })
+    }
+
+    /// Unify a finished function type with the placeholder its binding group
+    /// predeclared, if that is what the enclosing scope currently holds.
+    ///
+    /// The placeholder is recognised by its *stored* shape — a scheme with no
+    /// `forall` whose type is a bare variable — rather than by resolving it
+    /// through the substitution. By this point a sibling's call has usually
+    /// already unified that variable with a function type, so the resolved form
+    /// says nothing; the stored form still distinguishes a predeclared slot
+    /// from a real earlier binding, whose type is a `Fun`.
+    ///
+    /// Restricted to the innermost scope on purpose. A nested `fn` may shadow an
+    /// outer function of the same name, and unifying with *that* would tie two
+    /// unrelated definitions together — the failure mode of
+    /// `docs/known_issues.md#ki-088`, in a different pass.
+    fn unify_with_group_predeclaration(&mut self, name: Identifier, fn_ty: &InferType, span: Span) {
+        if !self.env.is_bound_in_current_scope(name) {
+            return;
+        }
+        let Some(scheme) = self.env.lookup(name) else {
+            return;
+        };
+        if !scheme.forall.is_empty() {
+            return;
+        }
+        let InferType::Var(_) = scheme.infer_type else {
+            return;
+        };
+        let placeholder = scheme.infer_type.apply_type_subst(&self.subst);
+
+        // Parameters and result only — never the effect row.
+        //
+        // The placeholder's row is the one the siblings' calls accumulated, and
+        // it carries their effects. `fn_ty`'s row is the *declared* one, which
+        // for an unannotated function is empty and closed. Unifying the two
+        // whole types therefore fails on the row, and the result type — the
+        // thing this exists to connect — is left unbound. That is exactly the
+        // case that survived the first version of this fix: at the top level the
+        // two rows happened to agree, and inside a function performing `IO` they
+        // did not.
+        if let (
+            InferType::Fun(placeholder_params, placeholder_ret, _),
+            InferType::Fun(params, ret, _),
+        ) = (&placeholder, fn_ty)
+            && placeholder_params.len() == params.len()
+        {
+            let pairs: Vec<(InferType, InferType)> = placeholder_params
+                .iter()
+                .cloned()
+                .zip(params.iter().cloned())
+                .collect();
+            let placeholder_ret = (**placeholder_ret).clone();
+            let ret = (**ret).clone();
+            for (expected, actual) in pairs {
+                self.unify_reporting(&expected, &actual, span);
+            }
+            self.unify_reporting(&placeholder_ret, &ret, span);
+            return;
+        }
+
+        // Still an unresolved variable: nothing has shaped it yet, so binding it
+        // to the whole function type is right and there is no row to conflict.
+        if matches!(placeholder, InferType::Var(_)) {
+            self.unify_reporting(&placeholder, fn_ty, span);
+        }
     }
 
     /// Run a second pass for unannotated self recursive functions to refine type.

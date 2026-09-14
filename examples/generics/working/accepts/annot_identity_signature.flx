@@ -1,0 +1,20 @@
+// parity-expected-stdout-begin
+// 7
+// "seven"
+// parity-expected-stdout-end
+
+// The annotated form of the same thing, unchanged by this release.
+//
+// Writing `<a>` has always produced a scheme. G5's contribution was making the
+// *unannotated* definition behave the same way — compare
+// infer_identity_two_types.flx, which is this file with the signature deleted.
+//
+// Type parameters are lowercase by convention; uppercase `<T>` parses
+// identically.
+
+fn identity<a>(x: a) -> a { x }
+
+fn main() with IO {
+    print(identity(7))
+    print(identity("seven"))
+}

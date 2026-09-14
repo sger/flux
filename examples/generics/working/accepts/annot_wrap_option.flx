@@ -1,0 +1,26 @@
+// parity-expected-stdout-begin
+// 42
+// "hi"
+// parity-expected-stdout-end
+
+// A type parameter flowing into a generic return type.
+//
+// `wrap` puts its argument into `Option<T>`, so the parameter is carried
+// through a type constructor rather than returned bare. Each call site gets
+// its own instantiation: `Option<Int>` and `Option<String>`.
+//
+// The values are unwrapped with `match` rather than printed as `Some(..)`,
+// which keeps the expected output independent of how `Option` renders.
+
+fn wrap<T>(x: T) -> Option<T> { Some(x) }
+
+fn main() with IO {
+    match wrap(42) {
+        Some(v) -> print(v),
+        None -> print(0),
+    }
+    match wrap("hi") {
+        Some(v) -> print(v),
+        None -> print(""),
+    }
+}

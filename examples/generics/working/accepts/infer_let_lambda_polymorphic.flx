@@ -1,0 +1,29 @@
+// parity-expected-stdout-begin
+// 1
+// "hi"
+// 2
+// "HI"
+// parity-expected-stdout-end
+
+// Let-polymorphism: a `let` bound to a lambda is generalized.
+//
+// `local` is used at `Int` and `String` from one binding, and so is the
+// top-level `shared`. Both positions generalize — `let` bindings are the
+// branch of generalization Flux always had, in
+// `GeneralizationMode::NestedBinding`.
+//
+// Measured 2026-09-11, because the roadmap's prose does not say it and it is
+// easy to assume the opposite: the monomorphism restriction is real in Flux,
+// but it applies to *nullary* bindings, not to a lambda with parameters. What
+// 0.0.7 added was the other branch — a `fn` definition with parameters and no
+// constraints, which is ../accepts/infer_identity_two_types.flx.
+
+let shared = \x -> x
+
+fn main() with IO {
+    let local = \x -> x
+    print(local(1))
+    print(local("hi"))
+    print(shared(2))
+    print(shared("HI"))
+}

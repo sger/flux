@@ -73,6 +73,15 @@ impl ModulePath {
 /// since a module name cannot begin with an underscore.
 pub const FIELD_PREDICATE_MODULE: &str = "__field";
 
+/// The reserved name a tuple-projection predicate is raised under (Proposal
+/// 0185 stage 5).
+///
+/// One name serves every index. Unlike a field predicate, whose identity *is*
+/// the field name, the index a projection needs is a number and rides on the
+/// constraint's origin, where it stays a `usize` — so nothing has to intern a
+/// digit-string per projection or parse one back out.
+pub const TUPLE_PREDICATE_NAME: &str = "__tuple";
+
 /// A globally-unique class identity: `(owning module, class name)`.
 ///
 /// Two classes with the same short name in different modules are distinct

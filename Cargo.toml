@@ -354,6 +354,14 @@ name = "stdlib_map_tests"
 path = "tests/vm_runtime/stdlib_map_tests.rs"
 
 [[test]]
+name = "fn_shadowing_tests"
+path = "tests/vm_runtime/fn_shadowing_tests.rs"
+
+[[test]]
+name = "generics_tests"
+path = "tests/vm_runtime/generics_tests.rs"
+
+[[test]]
 name = "stdlib_array_tests"
 path = "tests/vm_runtime/stdlib_array_tests.rs"
 
@@ -777,6 +785,14 @@ path = "tests/error_fixtures/runtime_error_fixtures_snapshots.rs"
 [[test]]
 name = "cache_invalidation_tests"
 path = "tests/integration/cache_invalidation_tests.rs"
+
+[[test]]
+name = "tuple_projection_predicate_tests"
+path = "tests/integration/tuple_projection_predicate_tests.rs"
+
+[[test]]
+name = "type_alias_effect_row_tests"
+path = "tests/integration/type_alias_effect_row_tests.rs"
 
 [[test]]
 name = "compiler_optimization_tests"

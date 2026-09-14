@@ -69,9 +69,9 @@ streaming API could take.
 TCP operations use blocking stdlib calls with no fiber-scheduler integration, so
 concurrent TCP tests are not yet possible. Needs the mio reactor wiring.
 
-### KI-011 — Re-wrapping `Err(e)` into a `Result` with a different success type fails inference
+### KI-011 — Re-wrapping `Err(e)` into a `Result` with a different success type fails inference — FIXED, verified 2026-09-11
 
-**Severity:** Medium · **Area:** HM inference · **Verified:** 2026-08-24
+**Severity:** Medium · **Area:** HM inference · **Verified:** 2026-08-24 · **Fixed:** verified 2026-09-11
 
 The standard error short-circuit — match a `Result`, pass `Err` through
 unchanged, produce a different success type — does not infer:
@@ -124,6 +124,19 @@ code is written, because a green `flux run` is not evidence the module is clean.
 Reconstructing the payload rather than forwarding it also avoids the error
 (`Err(message) -> Err(message + "")` infers), which is further evidence the
 failure is about the *forwarded binding* and not the surrounding types.
+
+**No longer reproduces (2026-09-11).** The program above — the entry's own
+repro, unchanged — compiles and runs. `outer`'s declared return type fixes both
+parameters and the `Err` arm unifies against `Result<Bool, String>`, which is
+what this entry said should happen and did not.
+
+The fixing change was not identified. This was found by re-testing every gap
+while building `examples/generics/`, not by a deliberate fix, so the date above
+is when it was verified fixed rather than when it was fixed. The workaround and
+the `--test`-only visibility note above are kept for anyone reading an older
+tree. Pinned by
+`examples/generics/working/accepts/data_result_err_rewrap.flx`, so a regression
+is a snapshot diff rather than a rediscovery.
 
 ---
 ### KI-023 — `exposing` cannot rename, so two modules' same-named types cannot both be used
@@ -456,9 +469,9 @@ exist — a misleading signal exactly when the cache is under suspicion.
 
 ---
 
-### KI-070 — A lambda's parameter or return annotation cannot name an enclosing rigid type parameter
+### KI-070 — A lambda's parameter or return annotation cannot name an enclosing rigid type parameter — FIXED, verified 2026-09-11
 
-**Severity:** Medium · **Area:** Type inference, annotations · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** Medium · **Area:** Type inference, annotations · **Verified:** 2026-09-02 · **Fixed:** verified 2026-09-11 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 ```flux
 fn outer<a>(x: a) -> a {
@@ -480,6 +493,255 @@ The fix is the one KI-058 used: read the top of
 `InferCtx::signature_type_params` instead of an empty map. It was scoped out
 deliberately rather than missed — the `let` path is what unblocked Stage 4, and
 the lambda path has no known consumer waiting on it.
+
+**No longer reproduces (2026-09-11), and the repro above never ran.** Two
+separate things were wrong with this entry.
+
+First, `\y: a -> y` is a parse error — `error[E034]: Missing Lambda Arrow` —
+because a lambda parameter annotation needs parentheses. So the snippet above
+never reached inference at all, and whatever was observed in 2026-09-02 was not
+observed through it. Written correctly:
+
+```flux
+fn outer<a>(x: a) -> a {
+    let f = \(y: a) -> y
+    f(x)
+}
+
+fn main() with IO { print(outer(1)) print(outer("s")) }
+```
+
+Second, that program compiles and prints both lines. If the annotation still
+converted to `TypeConstructor::Adt("a")`, `f(x)` would be a mismatch and `outer`
+could not be used at two instantiations — so the annotation is reaching the
+enclosing signature's rigid variable.
+
+The fixing change was not identified; this was found by re-testing while
+building `examples/generics/`. Pinned by
+`examples/generics/working/accepts/annot_lambda_names_rigid_param.flx`.
+
+### KI-098 — A generalized helper used at two types loses its representation
+
+**Severity:** Low · **Area:** Core lowering, specialisation · **Verified:** 2026-09-10 · **From:** G5 / 0187 B1
+
+Generalizing an unannotated definition (G5) replaces a concrete parameter type
+with a variable, and a variable carries no `FluxRep`. B1 restores it for a
+definition whose call sites all agree on **one** concrete instantiation, by
+lowering the body under that substitution. A definition used at *two* types is
+still left generalized, and stays despecialised:
+
+```
+- ::(h#343:Int, t#344:Box) →        before G5
++ ::(h#343, t#344:Box) →            after G5 and B1
+```
+
+Seven such places remain in `tests/snapshots/aether/`, all in `lib/Flow/`
+helpers, and they are recorded in the accepted baseline rather than hidden —
+`aether_cli_snapshots` is the only suite that shows this, because a
+despecialised program still compiles, still runs and still gives the right
+answer. A corpus sweep cannot see it; see [KI-062](#ki-062) for the parity
+harness's version of the same blindness.
+
+**Not a correctness bug.** The generated code is slower and allocates more; it
+is not wrong.
+
+**The fix is cloning**, which B1 deliberately does not do: specialise a
+definition at *each* concrete instantiation and rewrite each call site to its
+clone. That is owed to 0.0.8's B2 regardless — generalizing constrained
+definitions makes this the common case rather than a seven-site curiosity — so
+it is scoped there rather than retrofitted onto B1.
+
+### KI-097 — A top-level `Float` binding is recorded in Core as `List<Int>`
+
+**Severity:** Low · **Area:** Core lowering, `--dump-core` metadata · **Verified:** 2026-09-10
+
+`examples/aether/verify_aether.flx` lowers `pi` to:
+
+```
+def pi : List<Int> =
+    3.141592653589793
+```
+
+The value is a `Float`; the recorded `CoreDef::result_ty` says `List<Int>`. The
+type is metadata for Core dumps and type-directed passes, not something the VM
+reads back, which is presumably why nothing has failed on it.
+
+**Pre-existing and not from the 0.0.7 generics work** — it is in the baseline
+snapshot on `main`, committed by `10ffdaef`. Found while attributing snapshot
+drift, and filed rather than fixed because it is unrelated to that branch.
+`def pi` becomes `List<a>` once G5 generalizes, which is differently wrong; both
+spellings point at the same defect in how `result_ty` is chosen for a value
+binding.
+
+### KI-095 — A field predicate whose receiver is bound by a match arm is never determined — FIXED 2026-09-09
+
+**Severity:** Medium · **Area:** Type inference / proposal 0184 · **Verified:** 2026-09-09 · **Fixed:** 2026-09-09 · **From:** Proposal 0185 stage 5 (E1)
+
+`r.v` where `r` is bound by a *match arm* pattern reports `E490` even when the
+call site says exactly what the receiver is:
+
+```flux
+data Box { Box { v: Int } }
+
+fn head_v(rs) {
+    match rs {
+        [r | _] -> r.v,
+        _ -> 0
+    }
+}
+
+fn main() with IO { print(head_v([Box { v: 7 }])) }
+```
+```
+error[E490]: Unresolved Field Receiver
+Cannot tell which type this is, so the field `v` cannot be resolved. Inferred receiver: `_`.
+```
+
+The program is unambiguous: `head_v` has one call, at `List<Box>`.
+
+**What separates the working cases from the broken one.** Three neighbouring
+shapes all compile, which is what narrows it:
+
+| receiver | result |
+|---|---|
+| a direct parameter (`fn inner(r) { r.v }`) | works |
+| a direct parameter, self-recursive helper | works |
+| `let (r, _) = pair` destructuring | works |
+| **a match-arm pattern (`[r \| _] -> r.v`)** | **`E490`** |
+
+So it is neither nesting nor recursion. `decide_quantification` pins the
+*receiver's* variable, which stops the binding generalizing over it and is what
+lets a call site determine a direct parameter. A match-arm binding introduces a
+fresh variable for `r` that is related to the scrutinee's element type by the
+match rather than being it, so pinning `r` leaves the scrutinee's variable
+quantified: the call instantiates a copy, `r`'s own variable is determined by
+nothing, and the whole-program discharge reports it.
+
+**Why it was not noticed.** Nothing in `lib/Flow` or the test suite accesses a
+named field through a match-arm binding, so 0184 shipped over it.
+
+**How it surfaced.** Proposal 0185 stage 5 (E1) converts tuple projection onto
+the same predicate, and the standard library *is* full of that shape —
+`Flow.Array`'s `update_many_go` and `accum_go` both match a list of pairs and
+project `p.0` / `p.1`. Applying the field-predicate template to tuples turns
+this latent defect into six errors compiling the standard library, so **E1 is
+blocked on this**: the machinery it copies has a hole that tuples hit
+immediately and records never did.
+
+The reproduction above is on shipped `main`, with no part of E1 applied.
+
+**Cause, and it is not where the pin is.** Two decisions in
+`infer_match_expression` ([control_flow.rs](../src/ast/type_infer/expression/control_flow.rs))
+compound. `propagate_match_scrutinee_constraint` declines to propagate the arms'
+shared pattern family whenever *any* catch-all arm is present, so an unresolved
+scrutinee stays unresolved; `should_isolate_match_arm_scrutinees` then sees a
+scrutinee whose head matches no family and isolates the arms — binding each
+against a fresh variable that, in its own words, "unifies with anything". The
+receiver `r` is therefore related to the scrutinee by nothing, and pinning it
+pins a variable no call site can reach.
+
+**Fix.** Propagate to an *unresolved* scrutinee even with a catch-all present —
+`[r | _]` can only match a list whatever the catch-all covers, so there is
+nothing to contradict — and decide isolation against the propagated scrutinee
+rather than the pre-propagation one. Isolating on the strength of ignorance the
+propagation just removed is what bound the arms to fresh variables. A resolved
+scrutinee keeps the old behaviour exactly, which is what preserves KI-072's
+requirement that a mismatched ADT constructor still be reported.
+
+Pinned by `match_arm_bound_receiver_is_determined_by_its_call_site` and
+`mixed_pattern_families_still_do_not_constrain_one_another` in
+`tests/type_inference/type_inference_tests.rs`. `CACHE_EPOCH` 47 → 48: a binding
+of this shape now infers a type where an epoch-47 compiler reported `E490`.
+
+**This unblocks E1** (0185 stage 5), whose work is on
+`wip/e1-tuple-projection-predicate`.
+
+### KI-096 — A recursive group's predeclared monotype is never unified with what the member infers — FIXED 2026-09-09
+
+**Severity:** Medium · **Area:** Type inference / binding groups · **Verified:** 2026-09-09 · **Fixed:** 2026-09-09 · **From:** Proposal 0185 stage 5 (E1), second attempt
+
+A member of a mutually recursive group is predeclared at `Scheme::mono(v)` so
+its siblings can refer to it. When that member is then inferred, its result is
+**bound over the top of `v`** rather than unified with it, so `v` stays an
+unconstrained variable — and any sibling that had already referred to the member
+holds a type nothing will ever resolve.
+
+Ordinary uses survive this, because a call unifies argument and result types at
+the call site. A *projection* does not: it needs the receiver's type to be
+known, so it is where the missing connection becomes visible.
+
+```flux
+data Pair { Pair { a: Int, b: Int } }
+
+fn go(n, acc) {
+    if n <= 0 { Pair { a: acc, b: 0 } }
+    else {
+        let r = step(n)
+        go(n - 1, acc + r.a)
+    }
+}
+
+fn step(n) { go(n - 1, 0) }
+
+fn main() with IO { print(go(3, 0).a) }
+```
+```
+error[E490]: Unresolved Field Receiver
+Cannot tell which type this is, so the field `a` cannot be resolved. Inferred receiver: `_`.
+```
+
+Note `main`'s own `go(3, 0).a` resolves. Only the *within-group* reference fails,
+which is what points at the predeclared slot rather than at `go`'s type.
+
+**Cause.** `finalize_and_bind_function_scheme`
+([function.rs](../src/ast/type_infer/function.rs)) builds `fn_ty` from the
+inferred parameter and return types and calls `env.bind_with_span` — it never
+unifies `fn_ty` with the monotype `infer_binding_group` predeclared. The
+standard binding-group algorithm is *bind at a monotype, infer the bodies,
+**unify**, then generalize the group*; the unify step is missing, so the
+monotype and the inferred type are two unrelated things.
+
+Adding a complete signature to both functions fixes it, because
+`declared_fn_scheme` then predeclares the real type instead of a fresh variable.
+
+**Fix, in two parts.** The first was the missing algorithm step; the second was
+found because the first alone did not repair the reproduction.
+
+1. *Close the loop with the predeclaration.* `finalize_and_bind_function_scheme`
+   now unifies the finished function type with the placeholder the group
+   predeclared, when the innermost scope holds one. The placeholder is
+   recognised by its **stored** shape — no `forall`, a bare variable — not by
+   resolving it through the substitution, because a sibling's call has usually
+   already unified that variable with a function type by then. The check is
+   restricted to the innermost scope so a nested `fn` shadowing an outer
+   function of the same name is not tied to it — [KI-088](#ki-088)'s failure
+   mode, in a different pass.
+
+2. *Read the environment through the substitution.* Fixing (1) left the
+   reproduction failing, and removing the intervening `let` made it pass — which
+   pointed at generalization rather than at the group. `TypeEnv::free_vars`
+   reads each scheme **as stored**, so a binding held as `Scheme::mono(Var(v))`
+   contributes only `v`, never the type `v` has since been unified with. The
+   variables inside that type look free in nothing, so the `let` quantifies
+   them, binds a fresh variable at every use, and its value's type is again
+   determined by nothing. `TypeEnv::free_vars_through` resolves through the
+   substitution, and `infer_let_binding` uses it.
+
+Part (2) narrows `let` generalization, which is the risk the 0186 plan names
+first. Measured: 431 tests across ten suites, no change.
+
+Pinned by `a_recursive_group_member_resolves_its_siblings_result` and
+`a_recursive_group_member_resolves_an_inline_sibling_projection` in
+`tests/type_inference/type_inference_tests.rs` — the second isolates part (1),
+since it has no `let` to generalize.
+
+**It blocked E1 a second time, and no longer does.** 0185 stage 5 converts tuple projection onto
+the same predicate, so `r.0` in this shape becomes `E491` where it used to
+compile — `examples/aoc/2025/aoc_day11_haskell_style.flx` is exactly this
+program. It compiled before only because the old code unified an unresolved
+receiver with a *guessed* tuple shape, which is to say it was typed by luck
+rather than by inference. Both of E1's blockers ([KI-095](#ki-095) and this) are
+pre-existing holes in what it copies, not defects in the conversion.
 
 ---
 
@@ -1902,9 +2164,9 @@ tracked separately as [KI-069](#ki-069).
 
 ---
 
-### KI-069 — A contextual instance cannot compare a field of its own head type
+### KI-069 — A contextual instance cannot compare a field of its own head type — FIXED, verified 2026-09-11
 
-**Severity:** Medium · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** Medium · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-02 · **Fixed:** verified 2026-09-11 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
 
 A recursive parameterized ADT cannot get an `Eq` instance, derived or written
 by hand:
@@ -1939,8 +2201,25 @@ The fix is for a recursive reference to reuse the dictionary being constructed
 rather than demanding it as a value, which is what a self-referential
 (knot-tying) dictionary binding provides.
 
-**Workaround:** none for a recursive parameterized head. A recursive
-*monomorphic* ADT is unaffected, since its dictionary is a plain tuple.
+**No longer reproduces (2026-09-11).** The instance above — the entry's own
+repro, unchanged — compiles and dispatches correctly at `Tree<Int>`, returning
+`true` for equal trees and `false` for unequal ones. The recursive
+`eq(l1, l2)` calls resolve, so a recursive reference is no longer demanding its
+own dictionary as a value.
+
+**The "no workaround" line below is therefore obsolete**, and was the most
+misleading thing in this file: it told anyone who needed `Eq` on a recursive
+parameterized ADT that they were blocked, for a shape that works. `deriving
+(Eq)` over a parameterized head also works — see
+`examples/generics/working/accepts/data_named_fields_deriving_eq.flx`.
+
+The fixing change was not identified; this was found by re-testing while
+building `examples/generics/`. Pinned by
+`examples/generics/working/accepts/data_contextual_instance_recursive_head.flx`.
+
+**Workaround (obsolete, kept for older trees):** none for a recursive
+parameterized head. A recursive *monomorphic* ADT is unaffected, since its
+dictionary is a plain tuple.
 
 ---
 
@@ -2603,7 +2882,20 @@ sugar reaches only one — rather than suggesting an impossible declaration.
 
 ### KI-076 — An operator on a class-constrained type parameter does not dispatch inside a `module` block
 
-**Severity:** High · **Area:** Type classes / dictionary passing · **Verified:** 2026-09-03 · **From:** Flume typeclass conversion
+**Severity:** High · **Area:** Type classes / dictionary passing · **Verified:** 2026-09-11 · **From:** Flume typeclass conversion
+
+> **Re-measured 2026-09-11: the symptom below is out of date.** The trap is no
+> longer `cannot compare Adt with OpLessThanOrEqual`. It is now
+> `error[E1000]: wrong number of arguments: want=3, got=2`, raised at the
+> `x <= y` itself. `want=3` is `lte(dict, x, y)` and `got=2` is `lte(x, y)`, so
+> the operator *does* now route to the dictionary-passing method — it just
+> arrives without the dictionary. That is a different and later failure point
+> than "cannot compare", which was a missing dispatch entirely, so anyone
+> working from the description below should re-derive it. The control still
+> holds: the identical program at the top level of a script prints `9`.
+> Reproduced by
+> [`examples/generics/failing/runtime/ki_076_operator_in_module.flx`](../examples/generics/failing/runtime/ki_076_operator_in_module.flx),
+> which is snapshot-pinned, so the next change of symptom shows up as a diff.
 
 At top level, a constrained function's operator dispatches through the
 dictionary and works on a user type:
@@ -2701,9 +2993,9 @@ that exposes. The extra dictionary parameter disappears, and with it the wrong
 evidence in the superclass slot. `lib/Flow/Eq.flx` lost its `list_eq` /
 `option_eq` workarounds in the same change.
 
-### KI-079 — A stale bytecode cache runs a program the current compiler rejects
+### KI-079 — A stale bytecode cache runs a program the current compiler rejects — FIXED 2026-09-09
 
-**Severity:** Medium · **Area:** Build caching · **Verified:** 2026-09-03 · **From:** Phase 1 of the type-class audit
+**Severity:** Medium · **Area:** Build caching · **Verified:** 2026-09-03 · **Fixed:** 2026-09-09 · **From:** Phase 1 of the type-class audit
 
 The bytecode cache key covers the module's source hash and
 `CARGO_PKG_VERSION` ([artifact_store.rs](../src/driver/artifact_store.rs),
@@ -2726,6 +3018,30 @@ it silently invalidates measurement: several claims in the type-class audit,
 including "these fixtures exit 0 with no output", were measured against cached
 artifacts and are wrong. **Any behavioural comparison across a compiler change
 must pass `--no-cache` or clear the store first** (`flux clean --store`).
+
+**Fix.** Every cache key and every cached-artifact metadata record now embeds
+`compiler_build_id()` ([cache_paths.rs](../src/shared/cache_paths.rs)) rather
+than `CARGO_PKG_VERSION`: the version plus a fingerprint of the running
+executable's path, length and modification time. A rebuild relinks the binary
+and so changes the key, and the same source built with and without
+`--features llvm` — two compilers that also shared entries — now keys apart
+too. The file is deliberately not hashed; a debug binary is hundreds of
+megabytes and this runs on every invocation. `FLUX_BUILD_ID` pins the value
+when a key reproducible across machines is wanted.
+
+No cache-epoch bump accompanies this. Adding a field to the key changes every
+hash, so epoch-47 artifacts are not read and mistaken for current ones — they
+simply stop being found, and the metadata comparisons reject the ones stored
+under a name-addressed path.
+
+Two builds used alternately each recompile what the other wrote. That is the
+point of the fix rather than a cost of it, but it is worth knowing before
+timing a parity sweep that builds its own binaries.
+
+Pinned by `a_different_compiler_build_does_not_reuse_cached_modules` in
+[tests/integration/cache_invalidation_tests.rs](../tests/integration/cache_invalidation_tests.rs),
+which fails on the previous behaviour with `Cached main` where it expects
+`Compiling  main`.
 
 ### KI-082 — Generalizing an unannotated definition breaks two call sites — FIXED 2026-09-06
 
@@ -2796,7 +3112,7 @@ entry). The generalization patch this entry used to point at,
 was never committed. See [Proposal 0185](proposals/0185_generalize_by_arity.md)
 Stage 3 for what survives of it.
 
-### KI-091 — A user-defined function is shadowed by a prelude function of the same name
+### KI-091 — A user-defined function is shadowed by a prelude function of the same name — FIXED 2026-09-08
 
 **Severity:** High · **Area:** Name resolution, prelude · **Verified:** 2026-09-08
 
@@ -2821,10 +3137,23 @@ in its own file.
 
 Found by `tests/parity/user_fn_name_no_collision.flx`, which was written to
 catch exactly this and reported as passing for as long as
-[KI-062](#ki-062) has been open. The fixture is marked `skip:` pointing here
-until it is fixed.
+[KI-062](#ki-062) was open.
 
-### KI-092 — A type parameter used only in an effect row is reported as phantom
+**Fixed.** `lookup_unqualified_runtime_contract` resolved an unqualified name
+against every imported module's contracts, with "explicit imports beat prelude"
+tie-breaking but no check for a definition in the unit itself — so `fn sum` was
+checked against `Flow.List.sum`'s `List<Int> -> Int`. The compiler now collects
+the unit's own function names once per run (`collect_unit_function_names`, the
+same guard `build_native_extern_symbols` already applied to native extern
+symbols) and a name in that set is never treated as imported. The fixture is
+unskipped and passes.
+
+Nested functions are deliberately excluded from the set: they are scoped to
+their enclosing body, while the set is consulted for unqualified names anywhere
+in the unit. A nested `fn` shadowing a prelude name is [KI-088](#ki-088)'s
+territory.
+
+### KI-092 — A type parameter used only in an effect row is reported as phantom — FIXED 2026-09-08
 
 **Severity:** Medium · **Area:** Type aliases, effect rows · **Verified:** 2026-09-08
 
@@ -2842,34 +3171,135 @@ cascades into `E423 Unknown Type` at every use site of the alias, because the
 parameter it rejected is the one those sites bind.
 
 Found by `tests/parity/type_alias_transparent.flx`, whose whole purpose is
-effect-polymorphic aliases. Marked `skip:` pointing here.
+effect-polymorphic aliases.
 
-### KI-093 — Member access on a map holding a function silently yields `None`
+**Fixed.** `collect_type_expr_named_symbols` matched
+`TypeExpr::Function { params, ret, .. }`, and the `..` discarded the `effects`
+field — so the row was never searched for uses. It now walks the row, through
+`Add`/`Subtract`, collecting both effect atoms and open row variables. A
+genuinely unused parameter still reports `E308`.
 
-**Severity:** High · **Area:** Records/maps, member access · **Verified:** 2026-09-08
+Fixing it exposed [KI-094](#ki-094): transparent type aliases did not resolve at
+all, which that error had been masking.
+
+### KI-094 — A type alias carrying an effect row is unusable — FIXED 2026-09-09
+
+**Severity:** Medium · **Area:** Type aliases, effect rows · **Verified:** 2026-09-09
+
+Two separable defects, found behind [KI-092](#ki-092) once its `E308` stopped
+masking them. Only `tests/parity/type_alias_transparent.flx` exercises
+transparent type aliases, and it has never run
+([KI-062](#ki-062)) — the feature was effectively untested.
+
+**Fixed: an alias name was reported unknown.** `alias IntPair = (Int, Int)` then
+`fn make_pair() -> IntPair` was `E423 I can't find a type named IntPair`, so
+*no* transparent type alias was usable. `is_known_annotation_type` consulted
+built-ins, both ADT registries and associated types, but not
+`transparent_type_aliases` — and that validation runs during collection, before
+the Phase 1d expansion that would have rewritten the name away. Adding the map
+to the check fixes it; covered by `tests/parity/type_alias_transparent_basic.flx`.
+
+**Fixed: an effect row in an alias.** Two shapes were failing:
+
+```flux
+alias Stream<a> = () -> Option<a> with Async        // runtime E1004: expected `() -> Option<Int> with $1`, found Closure
+alias AsyncFn<a, b, e> = (a) -> b with <Async | e>  // E423: I can't find a type named `e`
+```
+
+Neither was really about aliases, and the second was not a design question.
+
+*The first* is a **phase-order defect with an alias-free reproduction**, which
+is how it was found:
+
+```flux
+fn five(n: Int) -> Int with Async { n }
+fn consume(s: (Int) -> Int with Async) -> Int with Async { s(5) }
+fn body() -> Int with Async { consume(five) }   // E422: missing required effects: Async
+```
+
+`Async` is an effect *alias* for `<Suspend | Fork | GetContext | AsyncFail>`.
+Two sites left it undecomposed while every other row had been rewritten, so the
+row solver compared one atom named `Async` against four atoms that are what
+`Async` means and reported them disjoint:
+
+- `collect_contracts_from_statement` expanded a function's *own* effect row —
+  with a comment saying why a contract has to, since it outlives the AST
+  expansion pass — but stored `parameter_types` and `return_type` verbatim, so a
+  row nested inside an annotation kept the alias name.
+- `pipeline` ran effect-row expansion (Phase 1c) *before* transparent type alias
+  expansion (Phase 1d). A row living in an alias *body* does not exist in the
+  AST until the type alias has been substituted, so it was never reached at all.
+  The two phases are now in the other order; nothing depends on the old one,
+  because an effect alias body is an `EffectExpr` and can never name a type
+  alias.
+
+The `$1` in the original `E1004` was that undecomposed row reaching runtime
+contract lowering, not a distinct defect.
+
+*The second* needed no compiler change. An alias's effect-row parameter is
+declared exactly the way any type parameter is — in the function's own `<...>`
+list:
+
+```flux
+fn apply_async<e>(f: AsyncFn<Int, Int, e>, x: Int) -> Int with Async { f(x) }
+```
+
+The fixture had simply omitted the `<e>`, and `E423 I can't find a type named e`
+was the correct answer to what it actually wrote. Declaring it works because
+[KI-092](#ki-092) stopped rejecting a type parameter used only in an effect row
+as phantom — the feature landed with that fix and nothing exercised it.
+
+`tests/parity/type_alias_transparent.flx` is unskipped and expects success.
+Because a parity fixture that fails identically on both backends is reported as
+passing ([KI-062](#ki-062)) — which is exactly how this feature stayed broken
+and unnoticed — `tests/integration/type_alias_effect_row_tests.rs` runs the
+fixture and both reproductions and asserts their output.
+
+### KI-093 — A local binding named like an imported module is shadowed by the module — FIXED 2026-09-08
+
+**Severity:** High · **Area:** Name resolution, member access · **Verified:** 2026-09-08
 
 ```flux
 fn main() with IO {
-    let obj = { "square": fn(x) { x * x; } }
-    print(obj.square(5))
+    let Math = { "square": fn(x) { x * x } }
+    print(Math.square(5))
 }
 ```
-
-Prints `None` on **both** backends. No diagnostic. The expected result is `25`,
-or a type error — not a wrong value.
-
-A map holding a non-function value works (`{ "k": 7 }` then `obj.k` prints `7`),
-so this is specific to a function-valued member. Binding it first is at least
-honest about not knowing:
-
-```flux
-let g = obj.f     // error[E430]: Could Not Infer Concrete Type — Inferred type: `_`
+```
+error[E012]: Unknown Module Member
+Module `Flow.Math` has no member named `square`.
 ```
 
-Because both backends agree on the wrong answer, parity reports a match; and
-because `expect: success` was not enforced, the fixture written to catch this —
-`tests/parity/import_member_access.flx` — passed anyway. It is a second,
-independent demonstration of [KI-062](#ki-062). Marked `skip:` pointing here.
+Renaming the binding to `Widget` prints `25`. `resolve_module_name_from_expr`
+matched an identifier against imported module names — including by *short* name,
+so `Math` matched `Flow.Math` — without first asking whether the program binds
+that name itself.
+
+Same family as [KI-091](#ki-091): a definition losing to an import. Different
+mechanism — that one was function contracts, this one is the module qualifier in
+member-access position.
+
+**Fixed** by checking `SymbolTable::is_bound` first. Modules are not entered in
+the symbol table, so a hit there is always a real binding. `is_bound` is a new
+read-only counterpart to `resolve`, which may *define* a free-variable binding as
+a side effect and so cannot be called from a `&self` context.
+
+> **This issue was originally filed with the wrong diagnosis** — "member access on
+> a map holding a function silently yields `None`" — and that was my error, not a
+> second bug. The reproduction used `fn(x) { x * x; }`; the trailing semicolon
+> makes the body a statement, so the lambda returns unit, which Flux spells
+> `None` (`TypeConstructor::Unit` is "spelled `None` in source-level type
+> annotations"). Map member access on a function value has always worked:
+> without the semicolon the same program prints `25`. The real defect was the
+> `Math`/`Flow.Math` collision in the same fixture.
+
+**Noticed while investigating, not filed as a bug:** `Unit` and `()` do not
+unify — `unit_fn() == ()` is `E300 expected Unit, found ()`. There is a
+workaround for exactly this at one site
+(`resume_argument_type_for_operation_return`), whose comment says Flux "writes
+the unit value as `()`, which HM *currently* infers as an empty tuple". Two
+spellings of one type, reconciled in one place. Worth a decision, but it is a
+design question rather than a defect, so it is recorded here rather than filed.
 
 ### KI-090 — A constrained function passed as a value loses its dictionary
 
@@ -2952,46 +3382,240 @@ native backend segfaults. So the defect is downstream of Core: a synthesized
 selection and closure conversion; every lambda the ordinary path builds carries
 types. Fixing that is the next step, not more work on evidence.
 
-### KI-088 — A nested `fn` that shadows a top-level name is called at the outer function's type
+### KI-088 — A `fn` name cannot be shadowed, in two different broken ways — FIXED 2026-09-11
 
-**Severity:** Medium · **Area:** Name resolution, VM codegen · **Verified:** 2026-09-07 · **From:** Proposal 0186
+**Severity:** Medium · **Area:** Name resolution, bytecode emission · **Verified:** 2026-09-11 · **From:** Proposal 0186
 
-A nested function whose name also exists at the top level is resolved to the
-*outer* definition by a sibling's forward reference:
+Originally filed as "a nested `fn` that shadows a top-level name is called at
+the outer function's type". Measuring it on 2026-09-08 showed the defect is
+neither specific to nested `fn`s nor to forward references. **Shadowing works
+for a `let` and is broken for a `fn`**, differently depending on where the `fn`
+is:
+
+| shadowing | result |
+|---|---|
+| a local binding shadows a top-level `let` | **works** |
+| a local binding shadows a top-level `fn` | **silently resolves to the outer one** |
+| a local binding shadows a `fn` in an enclosing non-top-level scope | **`E001 Duplicate Name`** |
+
+**All three rows are fixed.** The third one was fixed on 2026-09-11, and its
+cause is not the shadowing rule but an aliasing one worth recording on its own.
+
+`SymbolTable::resolve` takes `&mut self` and is not a query. On a miss it walks
+outward and, for any binding that is not `Global`, calls `define_free` — which
+records a capture *and inserts a `Free` entry for that name into the current
+scope*. That is correct for compilation: reading an outer local from a closure
+has to go through the capture list.
+
+The duplicate check asked it first:
+
+```rust
+if let Some(existing) = self.symbol_table.resolve(name)
+    && self.symbol_table.exists_in_current_scope(name)
+```
+
+so `resolve` **created the current-scope entry that `exists_in_current_scope`
+then found**. The check manufactured the duplicate it reported. This also
+explains the shape of the table above: a top-level `fn` escaped it because
+`resolve` returns a `Global` binding before reaching the capture path, which is
+exactly why the row is an enclosing *non-top-level* scope and not the
+top-level one.
+
+Two more callers had the same defect, both read-only passes reaching for the
+mutating resolver and leaving a capture behind:
+
+- `collect_consumable_param_uses` — counts uses, emits nothing.
+- `expr_has_undefined_ident` — a predicate; both it and
+  `stmt_has_undefined_ident` are now `&self`, so the type records that they are
+  analysis.
+
+The `fn`-shadowing spelling failed through the second one differently: the
+stray `Free` entry made `should_predeclare` false in
+`compile_block_with_tail_mode_collect_errors`, so the inner definition was
+never predeclared and the check then compared it against the *outer* span.
+
+The fix is `SymbolTable::lookup(&self, ...)` — walks outward, captures nothing
+— at the analysis sites, plus asking `exists_in_current_scope` before `resolve`
+in both duplicate checks. Each half was reverted separately to confirm it is
+load-bearing; neither alone is sufficient.
+
+Pinned by `tests/flux/fn_shadowing.flx`, both spellings, VM and native. With
+the `src/` changes stashed those cases fail with two errors, so they pin the
+behaviour rather than passing by construction.
+
+The middle row is the dangerous one, because it can reach run time:
 
 ```flux
 fn helper(x: Int) -> Int { x }
-
 fn outer() -> String {
-    fn caller() -> String { helper("hi") }
     fn helper(s: String) -> String { s }
-    caller()
+    helper("hi")
+}
+```
+```
+error[E1000]: wrong number of arguments: want=2, got=1     ← at run time
+```
+
+With a `let`-bound lambda instead, the same shadow gives a compile error whose
+two halves disagree — the span is the local binding, the type is the top-level
+one:
+
+```
+3 |     let helper = \(s: String) -> s
+  |     ------------------------------ `helper` expects `Int` as the 1st parameter
+4 |     helper("hi")
+  |            ---- this argument has type `String`
+```
+
+Renaming the local binding to anything else makes both programs work, so
+`TypeEnv`'s shadow stack is not itself at fault — the local binding never
+reaches it under that name.
+
+The bottom row is a separate defect: those two definitions are in *different*
+scopes, so `E001 Duplicate binding` — which is about a name defined twice in one
+scope — should not fire at all.
+
+**Decided 2026-09-08: `fn` names shadow like `let` names do.** Flux had no
+documented shadowing rule and the three behaviours were mutually inconsistent,
+so this was a design choice rather than a behaviour to restore.
+
+**Fixed: the typing half.** Inference was never wrong — `TypeEnv::lookup`
+returns the shadowing scheme, verified by instrumentation. The error came from
+the *compiler*: `check_source_contract_call` → `lookup_unqualified_contract`
+resolved a top-level function's contract by name with no scope awareness, so it
+was applied to a call the local binding owns. It now returns `None` when the
+name is bound in a scope inner to the outermost one
+(`SymbolTable::is_bound_in_inner_scope`, a read-only counterpart to `resolve`,
+which mutates). Covered end-to-end by
+`tests/parity/local_shadows_toplevel_fn.flx`.
+
+**Fixed 2026-09-11: the nested-`fn` half, in codegen.** A nested `fn`
+shadowing a top-level `fn` used to fail at run time. The symptom had also
+worsened since this was written — by 2026-09-11 it was no longer the `E1000`
+below but a VM panic, `index out of bounds: the len is 680 but the index is
+915`, which is the slot-versus-constant confusion landing as an out-of-bounds
+read rather than an arity check:
+
+```flux
+fn helper(x: Int) -> Int { x }
+fn outer() -> String {
+    fn helper(s: String) -> String { s }
+    helper("hi")
+}
+```
+```
+error[E1000]: wrong number of arguments: want=2, got=1
+```
+
+**Diagnosed 2026-09-09; the fix is larger than the entry assumed.** Core is
+correct — `--dump-core` shows `letrec helper = (λs. Add(s, "!"))` inside
+`outer` — and so is `compile_function_statement`, which already creates a fresh
+local binding for a nested definition that shadows an outer one.
+
+The defect is in `IrExpr::MakeClosure`
+([cfg_bytecode.rs](../src/compiler/cfg_bytecode.rs)), which resolved
+`FunctionId → Symbol → Binding` and emitted `fn_binding.index`. That is wrong
+twice over:
+
+- A binding index is a global or local **slot**; `OpClosure` takes a **constant**
+  index. They are different numbering spaces that happen to be small integers.
+- A **name** cannot tell a nested definition from a top-level one that shares
+  it. The IR knows exactly which function it means — it holds a `FunctionId` —
+  and the lookup discards that.
+
+*The path is otherwise unreached.* Instrumented across 60 programs in
+`examples/guide` and `tests/parity`: **zero** emit a `MakeClosure` that resolves.
+Every other program that reaches this arm fails the lookup, and the caller rolls
+the scope and constant table back and recompiles the body on the AST path, which
+is correct. So the old code only ever *succeeded* when a shadowed name made it
+find the wrong function — the miscompiling case is the only case.
+
+*Fixing the lookup is necessary and not sufficient.* Recording
+`FunctionId → constant index` when a function is compiled, and failing the arm
+when there is no entry (so the existing rollback runs), removes the arity error:
+the nested function is compiled, gets its own constant, and `outer` emits
+`OpClosure 3` at it. The dumped bytecode is then correct in every respect.
+**The program still returns the wrong value** — `""hi""` for the program above,
+with the `!` never appended — so a second defect lies beyond this one, and the
+`bytecode` subcommand and the runner disagree about what they compile. That is
+the *two paths reach bytecode* split again, and it is why this belongs with
+Track C (0186 stage 5) rather than being patched here: E3's unanswered question
+is exactly "can the AST bytecode fallback be retired?".
+
+Trading a loud `E1000` for a silent wrong answer is worse than the bug, so the
+partial fix was **not** taken.
+
+*What was done instead (2026-09-11): the arm fails, and the AST path takes it.*
+The paragraph above chased the wrong fix. Recording `FunctionId → constant
+index` makes this arm emit correct bytecode, and then runs into the second
+defect. But the instrumentation two paragraphs up already says the arm never
+legitimately succeeds — so it does not need to emit anything. Making
+`IrExpr::MakeClosure` return `Err` hands the whole function body to the
+rollback that every other program already takes, and the AST path compiles it
+correctly:
+
+- the program returns `"hi!"`, with the `!` appended — the value the partial
+  fix got wrong;
+- `flux bytecode` shows two distinct `helper` constants, the top-level one and
+  the nested one, where before the nested body was never emitted;
+- so the `bytecode` subcommand and the runner no longer disagree, because
+  neither uses the CFG path here.
+
+The second defect is therefore not on the path any more, and E3's question —
+"can the AST bytecode fallback be retired?" — is untouched by this: the answer
+is still no, and this arm is now one more reason why. `HandleScope` resolves
+its arm closures the same unsound way (`cfg_bytecode.rs`, the
+`IrInstr::HandleScope` arm) and is **not** changed here; handler arms are
+exercised by many passing tests, so unlike `MakeClosure` that path evidently
+does reach the VM successfully, and whether it does so by luck is a separate
+question.
+
+Pinned end-to-end, on the VM and natively, by `tests/flux/fn_shadowing.flx`
+and `tests/vm_runtime/fn_shadowing_tests.rs` — including a case where the
+shadowing definition takes a *different arity*, which is what tells a wrong
+constant from a wrong arity.
+
+Core lowering is correct — `--dump-core` shows `letrec helper = (λs. s)` inside
+`outer`, calling itself. The AST bytecode path is not: `outer` compiles to
+`OpClosure 0 0`, and constant 0 is the *top-level* `helper`'s compiled function,
+so the nested body is never emitted. The symbol binding is already right —
+`compile_function_statement` deliberately creates a fresh local binding when an
+outer one exists — so the defect is in how the function *constant* is chosen,
+not in name resolution. This is the same "two paths reach bytecode" split that
+produced the KI-087 regression.
+
+Inference's predeclaration half was fixed in `4654bad1`: its guard asked
+`env.lookup(name).is_none()` — whether the name was *visible*, true for any
+outer binding — and now asks `TypeEnv::is_bound_in_current_scope`. That fix
+stands and is not what remains.
+
+**Why no test pinned it:** the original reproduction is rejected by a *compiler
+boundary* check, not by `infer_program`, so a case added to
+`tests/type_inference/` passes whether or not the bug is present. Pinning it
+needed an end-to-end test that runs the program, which is what
+`tests/flux/fn_shadowing.flx` now is.
+
+**Still open: the `E001` row.** A local binding that shadows a `fn` in an
+enclosing *non-top-level* scope is still a spurious `error[E001]: Duplicate
+Name`, re-verified 2026-09-11:
+
+```flux
+fn main() with IO {
+    fn helper(x: Int) -> Int { x }
+    fn inner() -> String {
+        let helper = \(s: String) -> s + "!"   // E001: `helper` is already defined
+        helper("hi")
+    }
+    print(inner())
 }
 ```
 
-```
-error[E300]: Argument Type Mismatch
-I found the wrong type in the 1st argument to `helper`.
-4 |     fn caller() -> String { helper("hi") }
-  |                                    ---- this argument has type `String`
-5 |     fn helper(s: String) -> String { s }
-  |     ------------------------------ `helper` expects `Int` as the 1st parameter
-```
-
-Note the label: the span is the *nested* definition while the type is the
-*outer* one, so the two halves of the lookup disagree with each other.
-
-Inference's half of this is fixed: its predeclaration guard asked
-`env.lookup(name).is_none()` — whether the name was *visible* — which is true
-for any outer binding, so the nested definition was never predeclared.
-`TypeEnv::is_bound_in_current_scope` asks whether *this scope* declared it.
-The diagnostic above survives that fix, so a second lookup — in the compiler's
-own resolution rather than in `type_infer` — still reaches past the nested
-definition. That one is unfixed.
-
-**Why no test pins it:** the reproduction is rejected by a *compiler boundary*
-check, not by `infer_program`, so a case added to `tests/type_inference/` passes
-whether or not the bug is present. Pinning it needs an end-to-end test.
+Those two definitions are in different scopes, so a check about a name defined
+twice in *one* scope should not fire. The guard at the `Statement::Let` arm of
+`compile_statement` already asks `exists_in_current_scope`, which is the right
+question — so either the nested function's body is not compiled in a scope of
+its own, or the enclosing block's predeclaration reaches into it. Untouched by
+the 2026-09-11 fix, which was in bytecode emission.
 
 ### KI-087 — Mutually recursive nested functions separated by any statement were miscompiled — FIXED 2026-09-06, regressed, re-fixed 2026-09-08
 
@@ -3072,7 +3696,7 @@ against each other. A fixture now pins it —
 **Fix.** Both passes now call one planner,
 `binding_groups::plan_block`, which groups by **reference** using the
 strongly connected components of the sibling-reference graph
-(`flux_generics::strongly_connected_components`) rather than by adjacency.
+(`crate::shared::scc::strongly_connected_components`) rather than by adjacency.
 Placement still respects evaluation order: a group is emitted at its first
 member, except where a member reads a name bound between the members, in which
 case it moves to the last so that binding exists first. Both adjacency scanners
@@ -3083,9 +3707,43 @@ member's name and lowered its body in one pass, so the first body was lowered
 before the later members existed. A recursive group requires every name bound
 before any body.
 
+**Verified when.** Both shapes, not just the one this entry is named after,
+because the regression proved the mutual-recursion case can pass while the
+plainer one fails:
+
+| shape | pinned by |
+|---|---|
+| mutual recursion split by a `let` | `tests/parity/closure_mutual_recursion_split_by_let.flx` |
+| forward reference, no mutual recursion | `test_forward_reference_without_mutual_recursion` |
+| forward reference through a chain | `test_forward_reference_chain` |
+| forward reference over a value binding | `test_forward_reference_over_a_value_binding` |
+| emission order itself | the ordering unit tests in `src/binding_groups.rs` |
+
+The last three run under `cargo run -- --test tests/flux/mutual_recursion.flx`
+and assert output. Treat the parity fixture alone as insufficient evidence
+here: it was green throughout the six sweeps the regression survived
+([KI-062](#ki-062)).
+
 ### KI-086 — A class declared inside a `module` loses its default method bodies
 
-**Severity:** High · **Area:** type classes, module interfaces · **Verified:** 2026-09-06 · **From:** Proposal 0186
+**Severity:** High · **Area:** type classes, module interfaces · **Verified:** 2026-09-11 · **From:** Proposal 0186
+
+> **`--no-cache` hides failure 1** (measured 2026-09-11). On the same file:
+>
+> ```
+> flux --no-strict            <repro>   ->  error[E1009]: panic: No instance of Greet.greet
+> flux --no-cache --no-strict <repro>   ->  prints "hi, someone", exit 0
+> ```
+>
+> This follows from the cause given below — the body is lost when the class is
+> rebuilt from a cached `.flxi` entry, and `--no-cache` skips that round-trip —
+> but it is worth stating as a reproduction condition, because it is also a
+> usable workaround and it makes the defect invisible to any harness that
+> passes the flag. `generics_runtime_fixtures_snapshot` does, which is why
+> `examples/generics/` pins **failure 2** (the compile-time `E004`, in
+> [`failing/compile/Ki086Greet.flx`](../examples/generics/failing/compile/Ki086Greet.flx))
+> and deliberately does not file failure 1: a snapshot there would pin the bug
+> not reproducing.
 
 A default method body works when the class is declared at the top level of a
 script and stops working when the same class is declared inside a `module`.

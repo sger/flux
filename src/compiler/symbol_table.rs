@@ -106,6 +106,32 @@ impl SymbolTable {
         symbol
     }
 
+    /// Whether `name` is bound in this scope or any enclosing one.
+    ///
+    /// Read-only counterpart to [`SymbolTable::resolve`], which may *define* a
+    /// free-variable binding as a side effect and so cannot be called from a
+    /// `&self` context.
+    pub fn is_bound(&self, name: Symbol) -> bool {
+        self.store.contains_key(&name)
+            || self
+                .outer
+                .as_ref()
+                .is_some_and(|outer| outer.is_bound(name))
+    }
+
+    /// Whether `name` is bound in a scope *inner* to the outermost one.
+    ///
+    /// The outermost table holds the unit's own top-level definitions, so a hit
+    /// there is the definition a contract describes. A hit anywhere inner is
+    /// something shadowing it, and the contract does not apply — see
+    /// `docs/known_issues.md#ki-088`.
+    pub fn is_bound_in_inner_scope(&self, name: Symbol) -> bool {
+        match &self.outer {
+            None => false,
+            Some(outer) => self.store.contains_key(&name) || outer.is_bound_in_inner_scope(name),
+        }
+    }
+
     pub fn resolve(&mut self, name: Symbol) -> Option<Binding> {
         match self.store.get(&name) {
             Some(symbol) => Some(symbol.clone()),
@@ -124,6 +150,27 @@ impl SymbolTable {
                     None
                 }
             }
+        }
+    }
+
+    /// Look a name up without capturing it.
+    ///
+    /// [`SymbolTable::resolve`] takes `&mut self` for a reason: on a miss it
+    /// walks outward and, for any binding that is not `Global`, calls
+    /// `define_free`, which records a capture *and inserts a `Free` entry into
+    /// this scope*. That is what compilation wants — reading an outer local
+    /// from a closure has to go through the capture list.
+    ///
+    /// An *analysis* wants none of it. A pass that only inspects bindings and
+    /// emits nothing must not leave a capture behind, and must not make
+    /// `exists_in_current_scope` start answering true for a name this scope
+    /// never bound. `collect_consumable_param_uses` did exactly that and cost
+    /// a spurious `E001` on every `let` shadowing an enclosing function's name
+    /// (docs/known_issues.md#ki-088).
+    pub fn lookup(&self, name: Symbol) -> Option<Binding> {
+        match self.store.get(&name) {
+            Some(symbol) => Some(symbol.clone()),
+            None => self.outer.as_ref()?.lookup(name),
         }
     }
 

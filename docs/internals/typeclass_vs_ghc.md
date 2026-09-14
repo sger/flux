@@ -1,10 +1,16 @@
 # Type classes and generics: Flux against GHC
 
-A structural comparison of Flux's class and generics machinery with GHC's. GHC
-is read from the checkout at `2ca87972f6`; Flux from branch
-`fix/phase1-promote-e442` at `98302de0`. Every claim below cites the line it
-was read from. Where a claim is an inference rather than something read, it
-says so.
+A structural comparison of Flux's class and generics machinery with GHC's.
+Every claim below cites the line it was read from. Where a claim is an
+inference rather than something read, it says so.
+
+**Re-verified 2026-09-11** against GHC at `c673ecf057` and Flux at
+`feat/0-0-7-generics-remainder`. The body was written on 2026-09-04 against GHC
+`2ca87972f6`; the GHC citations were re-read at the newer revision and
+`Bind.hs:804-811`, quoted below, is byte-identical. What moved is Flux:
+**§1's headline divergence is closed and §4's remaining hole is filled**, both
+by 0.0.7. The rows are rewritten in place and listed under *Corrections* at the
+end.
 
 This is a second, from-scratch pass. The first version of this document made
 three errors, corrected here and listed at the end so they are not
@@ -41,19 +47,46 @@ another one implies through superclasses. Before that, `growThetaTyVars`
 (`Solver.hs:1977`) *extends* the quantified set through the constraints, so a
 variable reachable from a quantified one via a predicate is quantified too.
 
-**Flux** generalizes a function only if the author wrote type parameters:
+**Flux** generalized a function only if the author wrote type parameters. That
+was true when this section was written and is no longer: **G5 shipped in 0.0.7**
+and arity now decides, as in GHC — with one extra condition GHC does not have:
 
 ```rust
-let scheme = if !type_params.is_empty() {
-    self.finalize_binding_scheme(BindingSchemeSpec { .. mode: Definition .. })
-} else {
-    Scheme::mono(fn_ty)
-};
+fn should_generalize_function(&self, type_params, param_tys, fn_ty, constraint_start) -> bool {
+    if !type_params.is_empty() {
+        return true;
+    }
+    let unconstrained = self
+        .class_constraints
+        .captured_since(constraint_start)
+        .is_empty()
+        && !self.shares_var_with_pending_field_predicate(fn_ty);
+    !param_tys.is_empty() && unconstrained
+}
 ```
-— `finalize_and_bind_function_scheme`, `src/ast/type_infer/function.rs:522–533`.
-Arity plays no part. An unannotated `fn pick(a, b) { a > b }` is monomorphic,
-its `Ord` obligation is never consumed by a scheme, and its type variable is
-shared across every call site.
+— `src/ast/type_infer/function.rs:573–589`.
+
+`!param_tys.is_empty()` **is** GHC's `matchGroupVisArity mg == 0`, negated: a
+binding with arguments is unrestricted, a nullary one is restricted. On that
+test the two compilers now agree, and `fn identity(x) { x }` is usable at `Int`
+and `String` with no signature.
+
+The divergence that remains is the `unconstrained` conjunct. GHC generalizes a
+binding with arguments *whatever* it raises — `f x = x * x` becomes
+`Num a => a -> a`, with the dictionary passed at each call. Flux withholds
+generalization from a definition that raises a class constraint, so
+`fn double(x) { x + x }` is still monomorphic. That is not a different rule
+about quantification; it is the absence of the machinery to pass the dictionary
+a quantified constraint would require. Roadmap B2, behind the evidence
+translation (Track C), on top of specialisation (B1).
+
+So the shape of the gap has changed. It was *"Flux does not generalize"*. It is
+now *"Flux generalizes exactly what needs no evidence"* — which is the larger
+half of the unannotated helpers people write, and which is why the remaining
+half is a dictionary-plumbing problem rather than an inference one.
+
+The second conjunct, `shares_var_with_pending_field_predicate`, has no GHC
+analogue at all, and §4 explains why.
 
 Flux *does* have the monomorphism restriction, and has it correctly: a `let`
 is generalized in `GeneralizationMode::NestedBinding`
@@ -72,11 +105,11 @@ variables), which is a deliberate narrowing while the holes in §4 exist.
 
 Lambdas are not generalized in either compiler.
 
-**Verdict.** This is the largest divergence and the best-evidenced. The
-GHC-shaped rule is mechanical: generalize a definition with parameters; apply
-the restriction to nullary bindings. It is blocked in Flux by
-[KI-083](../known_issues.md#ki-083), a run-time bug that generalization makes
-universal but did not cause.
+**Verdict.** Was the largest divergence; now half closed. The arity test
+matches GHC. What is left is constrained generalization, which is blocked on
+evidence passing rather than on anything about the MR.
+[KI-083](../known_issues.md#ki-083), named here as the blocker when this was
+written, is fixed.
 
 ## 2. Solving
 
@@ -171,7 +204,7 @@ unification to fill it:
 | construct | mechanism | status |
 |---|---|---|
 | `record.field`, receiver unknown | `alloc_fallback_var()` | fixed — Proposal 0184 Stage 1 emits `__field.name<R, T>` |
-| `pair.0`, receiver unknown | constrain to a tuple shape "so later call-site unification [can] discharge local helper projections" (`access.rs:146`) | open |
+| `pair.0`, receiver unknown | was: constrain to a tuple shape, so call-site unification discharges it | fixed — 0185 Stage 5 emits `__tuple<R, T>` with the index on the origin |
 | `match` arms of different families | each arm bound against a fresh variable | fixed — KI-080 |
 | `+` at `String` | hard-coded case at emission, no predicate | fixed — `Flow.Add` |
 
@@ -180,8 +213,58 @@ A fallback variable is excluded from every scheme's `forall` by
 filled only by unifying the enclosing definition with a call site — which is
 why §1 and §4 are locked together.
 
-**Verdict.** Three of four are converted. Tuple projection is the remaining
-one, and the same shape as 0184.
+**Verdict.** All four are converted, tuple projection as of 0185 Stage 5 in
+0.0.7. Out-of-range and undetermined receivers are now reported (`E492`,
+`E491`) instead of being widened into whatever the call site happened to
+supply.
+
+### Where the field predicate is solved, and what that costs
+
+Converting the construct is not the whole comparison. GHC and Flux both make
+field access a predicate and both *determine* the field type from the receiver;
+they differ in **where** that happens, and Flux pays for the difference in §1.
+
+GHC declares the dependency on the class:
+
+```haskell
+class HasField x r a | x r -> a where
+  getField :: r -> a
+```
+— Note [HasField instances], `GHC/Tc/Instance/Class.hs:1161–1190`. `matchHasField`
+solves a wanted by instantiating the selector and emitting an *equality*,
+`[W] co : (T alpha -> [alpha]) ~# (T rty -> fty)`, which the solver's unifier
+discharges. Because it is an ordinary predicate solved in the ordinary
+fixpoint, it can be quantified by `pickQuantifiablePreds` like any other, and a
+function that merely forwards a record to a field-accessing callee generalizes
+with a `HasField` in its context.
+
+Flux has no functional dependencies and no equality constraints in its solver,
+so it cannot do that. It gets the same determination from a **post-unification
+pass**:
+
+> Runs after all unification, which is the point of doing it here rather than
+> in the class solver: a receiver that any call site determines is determined
+> by now … Each predicate is resolved against the receiver as it finally
+> stands and unified with the field-type argument, which is what makes the
+> field type propagate — GHC's functional dependency `x r -> a` on
+> `HasField x r a`.
+
+— `discharge_field_predicates`, `src/ast/type_infer/mod.rs:850–865`.
+
+The consequence is that a field predicate **cannot be quantified**: it has no
+dictionary, the solver has no rule for it, and it is discharged only once
+everything is known. A definition whose type shares a variable with an
+undischarged one therefore has to stay monomorphic, or the receiver inside the
+callee ends up determined by nothing — which is exactly what
+`shares_var_with_pending_field_predicate` withholds generalization for, and
+what cost four `examples/aoc/2024/day06*` programs when G5's rule was first
+written without it.
+
+So the two designs reach the same answer for direct access and diverge on
+*forwarders*. GHC quantifies the constraint and passes it along; Flux pins the
+receiver. Giving Flux either fundeps or solver-level equalities would remove
+the pin — which is a larger change than it looks, and is why the table below
+now lists fundeps as *load-bearing elsewhere* rather than simply absent.
 
 ## 5. Ambiguity
 
@@ -206,7 +289,7 @@ What Flux lacks is the *inferred* half: `let d = zero()` with two `Default`
 instances reaches run time (Proposal 0183, Example A). The predicate sits in
 `Disposition::Stuck` and nothing reports it. Flux records five constraint
 origins (`constraint.rs:68–74`), enough to say "arising from a use of `zero`",
-but no report is produced. This is 0183's R6b, gated on §1 because the residue
+but no report is produced. This is 0183's R6d, gated on §1 because the residue
 it would report is today dominated by §1's stranded obligations.
 
 **Verdict.** Narrower than "no ambiguity check": the signature check exists and
@@ -253,32 +336,65 @@ A cost, not a correctness issue.
 
 | area | GHC | Flux | verdict |
 |---|---|---|---|
-| when to generalize | every binding; MR on nullary | only with written type params | **divergent, fix well-defined** |
+| when to generalize | every binding; MR on nullary | **same arity test since G5**; plus a no-constraint side condition | converged on arity; constrained half is B2 |
 | which predicates | mentions qtv + minimal by SC | same | match |
 | grow quantified set | `growThetaTyVars` | none | gap, minor while §4 open |
 | solver | fixpoint, unifies, budgeted | single pass, verifies | design difference; adequate today |
 | superclass use | givens eager 1 layer; wanteds lazy, fuel | givens only, by path | adequate; no fundeps to feed |
 | instance resolution | once, in solver, evidence flows | 4 phases, 3 derivations, evidence unused | **structural hazard** |
-| field access | `HasField`, built-in | predicate since 0184 | converted |
-| tuple projection | ordinary typing | tuple-shape hole | open |
+| field access | `HasField`, built-in, solved in the fixpoint | predicate since 0184, discharged in a post-pass | converted; **not quantifiable**, see §4 |
+| tuple projection | ordinary typing | predicate since 0185 stage 5 | converted |
 | signature ambiguity | `checkAmbiguity` | `AMBIGUOUS_TYPE_VARIABLE` | match |
-| inferred ambiguity | reported with origin | stuck, silent | gap (R6b) |
+| inferred ambiguity | reported with origin | stuck, then panics at run time | gap (R6d/E2); pinned by `examples/generics/failing/runtime/e2_*` |
 | overlap | specificity + pragmas | prohibited | sound simplification |
-| fundeps | yes | no | absent, not a bug |
+| fundeps | yes; `x r -> a` carries `HasField` | no | absent — but load-bearing in GHC's §4, which is why Flux pins instead |
 | dictionaries | data con, SC fields first | tuple, SC slots first | match |
-| specialisation | `Specialise` | none | performance only |
+| specialisation | `Specialise` | B1: single concrete instantiation | partial; KI-098 is the gap |
 
 ## 9. Priority, by confidence in the finding
 
-1. **§1 generalization** — read directly from GHC's MR code and Flux's
-   `finalize_and_bind_function_scheme`. Highest confidence, largest effect.
-   Was blocked by KI-083 and KI-082; both are fixed, so this is unblocked.
-2. **§4 tuple projection** — one construct left, the 0184 template applies.
-3. **§5 inferred ambiguity** — after §1.
-4. **§3 unify instance resolution** — real, but its cost depends on a
-   span↔binder correspondence that has to be designed. Size it before
-   sequencing it.
+Re-ordered 2026-09-11. Items 1 and 2 of the previous list are **done**:
+§1's arity rule shipped as G5 and §4's tuple projection as 0185 stage 5, both
+in 0.0.7.
+
+1. **§1's remaining half — constrained generalization.** `fn double(x) { x + x }`
+   at two types. Not an inference problem: the rule is already written, and what
+   it waits on is a dictionary to pass. Roadmap B2, behind Track C's evidence
+   translation, on top of B1.
+2. **§5 inferred ambiguity.** Still the gap it was, and now pinned — the
+   program reaches run time and panics with a message naming the wrong cause
+   ("No instance of Def.zero", when the problem is that two matched). Roadmap
+   E2, blocked on B2 for the reason 0183 gives: until generalize-by-arity is
+   complete the residue is stranded obligations rather than ambiguity, so the
+   report would be wrong.
+3. **§3 unify instance resolution.** Unchanged in substance; 0186 stage 5
+   answered its sizing question (`ExprId` plus the predicate's index at the
+   site identifies a call site; a span cannot).
+4. **§4's forwarder pin.** Not a defect — `shares_var_with_pending_field_predicate`
+   is correct for a compiler without fundeps. It is listed because removing it
+   is the only thing that would close the last structural difference in field
+   access, and because the cost of *not* removing it is a class of definition
+   that cannot generalize for a reason unrelated to its own constraints.
 5. **§2 / §6** — only if Flux wants improvement or fundeps.
+
+## Corrections from the 2026-09-11 re-verification
+
+- **§1 said Flux generalizes only with written type parameters.** False since
+  G5. Arity now decides, matching GHC's `matchGroupVisArity mg == 0`; what is
+  withheld is the *constrained* case, and for a different reason (no evidence
+  to pass) than the one this section originally gave.
+- **§1 said the fix was blocked by KI-083.** That was true when written;
+  KI-083 was fixed on 2026-09-05.
+- **§4 listed tuple projection as the one remaining hole.** Filled by 0185
+  stage 5.
+- **The table called fundeps "absent, not a bug".** Accurate as far as it went,
+  but it missed that GHC's `HasField` *depends* on one, which is the reason
+  Flux's field predicate cannot be quantified and the reason §1's rule needs a
+  side condition GHC has no use for. The two rows were treated as independent
+  and are not.
+- **The table called specialisation "none / performance only".** B1 landed in
+  0.0.7. It is also not purely performance: G5 introduced a despecialisation
+  with no dictionary to clone on ([KI-098](../known_issues.md#ki-098)).
 
 ## Corrections to the first version of this document
 

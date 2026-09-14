@@ -1,0 +1,52 @@
+// parity-expected-stdout-begin
+// [1, 1, 2, 3]
+// ["a", "a", "b"]
+// parity-expected-stdout-end
+
+// GAP — owner: KI-098, Low, fix scoped to 0.0.8 (B2).
+//
+// NOTE: this program compiles, runs, and prints the right answer. There is no
+// error to show. It is the one gap in this corpus that *no* test, parity sweep
+// or snapshot here can see — the loss is in the generated code, not the
+// behaviour.
+//
+// The only difference from ki_098_baseline_one_instantiation.flx is the second
+// call, at `List<String>`. That is enough. B1 restores the representation only
+// where every call site agrees on one concrete instantiation; used at two
+// types, `copy_head` stays generalized and its element binder loses `IntRep`:
+//
+//     baseline (one call):   ::(h#1302:Int, t#1303:Box) →
+//     this file (two calls): ::(h#1302,     t#1303:Box) →
+//
+// Downstream, Aether cannot prove the in-place reuse it could prove before, so
+// the program allocates where it used to overwrite. That is why KI-098 records
+// `Dups: 0 → 1`, `DropSpecs: 0 → 1`, `FreshAllocs: 1 → 2` at the seven sites it
+// affects in `lib/Flow/`.
+//
+// **Not a correctness bug.** The generated code is slower and allocates more;
+// it is not wrong.
+//
+// The fix is cloning, which B1 deliberately does not do: specialise at *each*
+// concrete instantiation and rewrite each call site to its clone. That is owed
+// to 0.0.8's B2 regardless, since generalizing constrained definitions makes
+// this the common case rather than a seven-site curiosity.
+//
+// Observe it with:
+//
+//     cargo run -- --dump-core=debug examples/generics/failing/degraded/ki_098_despecialised_two_instantiations.flx
+//
+// Pinned by `snapshot_ki_098_despecialised_core_def` in
+// tests/aether/cli_snapshots.rs. When B2 lands, this snapshot should converge
+// on the baseline's — that diff is the measurement.
+
+fn copy_head(xs) {
+    match xs {
+        [h | t] -> [h | [h | t]],
+        _ -> [],
+    }
+}
+
+fn main() with IO {
+    print(copy_head([1, 2, 3]))
+    print(copy_head(["a", "b"]))
+}

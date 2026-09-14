@@ -1,0 +1,33 @@
+// parity-expected-stdout-begin
+// [1, 3, 5]
+// ["a", "c"]
+// parity-expected-stdout-end
+
+// A mutually recursive generic group — KI-096.
+//
+// `evens` and `odds` call each other, so neither can be inferred before the
+// other. The group is predeclared, and each member's inferred type is unified
+// with its placeholder. Until KI-096 that unification never happened: the
+// placeholder stayed a bare monotype and the group was rejected with `E490`,
+// or generalized too widely.
+//
+// One definition each, used at `List<Int>` and `List<String>`.
+
+fn evens<a>(xs: List<a>) -> List<a> {
+    match xs {
+        [h | t] -> [h | odds(t)],
+        _ -> [],
+    }
+}
+
+fn odds<a>(xs: List<a>) -> List<a> {
+    match xs {
+        [_ | t] -> evens(t),
+        _ -> [],
+    }
+}
+
+fn main() with IO {
+    print(evens([1, 2, 3, 4, 5]))
+    print(evens(["a", "b", "c"]))
+}

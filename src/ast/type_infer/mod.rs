@@ -263,6 +263,8 @@ struct InferCtx<'a> {
     /// running inference with no classes — in which case field access keeps
     /// its pre-0184 behaviour and allocates a hole.
     field_predicate_module: Option<crate::types::class_id::ModulePath>,
+    /// The reserved predicate name every tuple projection is raised under.
+    tuple_predicate_name: Option<Identifier>,
     class_sym_add: Option<Identifier>,
     class_sym_semigroup: Option<Identifier>,
     /// Typed holes (`_` / `_name`) recorded during inference. Finalized in
@@ -356,6 +358,7 @@ impl<'a> InferCtx<'a> {
             field_predicate_module: interner
                 .lookup(crate::types::class_id::FIELD_PREDICATE_MODULE)
                 .map(crate::types::class_id::ModulePath::from_identifier),
+            tuple_predicate_name: interner.lookup(crate::types::class_id::TUPLE_PREDICATE_NAME),
             class_sym_add: None,
             class_sym_semigroup: None,
             holes: Vec::new(),
@@ -869,6 +872,12 @@ fn discharge_field_predicates(ctx: &mut InferCtx<'_>) {
             continue;
         };
         let resolved_receiver = receiver.apply_type_subst(&ctx.subst);
+        if let constraint::WantedClassConstraintOrigin::TupleProjection { index } =
+            constraint.origin
+        {
+            discharge_tuple_predicate(ctx, &constraint, &resolved_receiver, field_ty, index);
+            continue;
+        }
         match ctx.resolve_named_field_access(
             &resolved_receiver,
             constraint.class_name,
@@ -895,6 +904,61 @@ fn discharge_field_predicates(ctx: &mut InferCtx<'_>) {
             }
         }
     }
+}
+
+/// Discharge one `pair.<index>` predicate against the receiver as it finally
+/// stands (Proposal 0185 stage 5).
+///
+/// Three outcomes, and the last two are the point of the predicate. A tuple
+/// wide enough projects, and the element type is unified into the access so it
+/// propagates. A tuple too narrow is an out-of-range projection, which the
+/// guessed tuple shape used to accept by silently widening the receiver. A
+/// receiver still unknown is reported rather than left: nothing after this can
+/// decide it.
+fn discharge_tuple_predicate(
+    ctx: &mut InferCtx<'_>,
+    constraint: &constraint::WantedClassConstraint,
+    receiver: &InferType,
+    element_ty: &InferType,
+    index: usize,
+) {
+    if let InferType::Tuple(elements) = receiver {
+        match elements.get(index) {
+            Some(element) => {
+                let element = element.clone();
+                ctx.unify_reporting(element_ty, &element, constraint.span);
+            }
+            None => {
+                let arity = elements.len();
+                ctx.errors.push(
+                    diagnostic_for(&crate::diagnostics::compiler_errors::TUPLE_INDEX_OUT_OF_RANGE)
+                        .with_file(ctx.file_path.clone())
+                        .with_span(constraint.span)
+                        .with_message(format!(
+                            "This tuple has {arity} elements, so there is no `.{index}` to \
+                             project. Valid indices are 0 to {}.",
+                            arity.saturating_sub(1)
+                        )),
+                );
+            }
+        }
+        return;
+    }
+
+    let receiver_display = ctx.display_type(receiver);
+    ctx.errors.push(
+        diagnostic_for(&crate::diagnostics::compiler_errors::UNRESOLVED_TUPLE_RECEIVER)
+            .with_file(ctx.file_path.clone())
+            .with_span(constraint.span)
+            .with_message(format!(
+                "Cannot tell which type this is, so the projection `.{index}` cannot be \
+                 resolved. Inferred receiver: `{receiver_display}`."
+            ))
+            .with_hint_text(
+                "Annotate the value with a tuple type so the element has a type to project."
+                    .to_string(),
+            ),
+    );
 }
 
 /// Remove every field predicate from the tree, innermost scopes included.

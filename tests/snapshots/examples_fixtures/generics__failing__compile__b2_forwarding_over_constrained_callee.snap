@@ -1,0 +1,32 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/generics/failing/compile/b2_forwarding_over_constrained_callee.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 1st argument to `forward`.
+
+  examples/generics/failing/compile/b2_forwarding_over_constrained_callee.flx:25:19
+   |
+21 | fn forward(x) { dbl(x) }
+   | ------------- `forward` expects `Int` as the 1st parameter
+22 | 
+23 | fn main() with IO {
+24 |     print(forward(2))
+25 |     print(forward(2.5))
+   |                   ^^^
+   |                   --- this argument has type `Float`
+
+Note:
+  expected argument type: Int
+  found argument type: Float
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Try `to_int(...)` if truncating a `Float` to an `Int` is intended.
+== stdout ==
+<not executed>

@@ -139,6 +139,8 @@ pub fn decide_quantification(spec: QuantifySpec<'_>) -> Quantified {
         .collect();
 
     // A field predicate never justifies quantification: it *pins* its receiver.
+    // A tuple-projection predicate (`pair.0`, proposal 0185 stage 5) says the
+    // same thing about the same receiver and is pinned for the same reason.
     //
     // `fn label(r) { r.name }` raises `__field.name<R, T>` (proposal 0184).
     // Quantifying `R` would make the binding polymorphic in a receiver whose
@@ -153,7 +155,29 @@ pub fn decide_quantification(spec: QuantifySpec<'_>) -> Quantified {
     // (`discharge_field_predicates`) either determines it from a call site or
     // reports it.
     for constraint in &finalized_constraints {
-        if constraint.origin != WantedClassConstraintOrigin::FieldAccess {
+        if !matches!(
+            constraint.origin,
+            WantedClassConstraintOrigin::FieldAccess
+                | WantedClassConstraintOrigin::TupleProjection { .. }
+        ) {
+            continue;
+        }
+        // Only while the receiver is still *unknown*. The pin exists to stop a
+        // binding generalizing over a receiver nothing can determine; once the
+        // receiver has resolved to a structure it is determined, the predicate
+        // is dischargeable, and pinning only strips that structure's variables
+        // from the quantified set.
+        //
+        // Those variables can belong to an enclosing signature.
+        // `Flow.Array.sort_by<a, b: Ord>` compares `pair.0` in a nested helper;
+        // by the time the predicate floats out to `sort_by`, its receiver has
+        // resolved to `(b, a)`. Pinning it there removed `b`, and `sort_by`'s
+        // own declared `Ord<b>` was then reported as an ambiguity in a
+        // signature that plainly determines it.
+        let Some(receiver) = constraint.type_args.first() else {
+            continue;
+        };
+        if !matches!(receiver, InferType::Var(_)) {
             continue;
         }
         for arg in &constraint.type_args {
@@ -355,6 +379,30 @@ fn collect_scheme_constraints(
         // discharge rather than recorded on a scheme no caller can satisfy.
         if mode == MonoRestriction::Restricted
             && constraint.origin == WantedClassConstraintOrigin::InferredOperator
+        {
+            continue;
+        }
+
+        // A field or tuple-projection predicate whose receiver has already
+        // resolved to a structure is discharged where it was raised. The pin
+        // above exists for the opposite case — a receiver nothing here can
+        // determine — and such a predicate never reaches this loop, because
+        // pinning took its variables out of `quantified`.
+        //
+        // Retaining a determined one is not merely redundant, it loses the
+        // access: a `SchemeConstraint` carries the class and its type
+        // arguments, and `TupleProjection`'s index lives in the *origin*, so
+        // `emit_scheme_constraints` re-raises `pair.0` at each call site as a
+        // bare `SchemeUse` and the whole-program solve then looks for a field
+        // literally named `__tuple` — E490 at every caller of
+        // `Flow.Array.update_many`. Leaving it off the scheme keeps it in this
+        // binding's wanted set, where `discharge_field_predicates` resolves it
+        // against the receiver it already has.
+        if matches!(
+            constraint.origin,
+            WantedClassConstraintOrigin::FieldAccess
+                | WantedClassConstraintOrigin::TupleProjection { .. }
+        ) && !matches!(constraint.type_args.first(), Some(InferType::Var(_)))
         {
             continue;
         }

@@ -1,0 +1,41 @@
+// expect: runtime_error
+// expect-error: E1000
+
+// GAP — owner: KI-090, High, 0.0.8 (item C7 / D5).
+// Measured 2026-09-11 on the VM: error[E1000] wrong number of arguments:
+// want=2, got=1.
+//
+// NOTE: this file compiles. The gap is at run time, which is why it lives here
+// rather than in ../compile/ — a compile-only snapshot records it as `ok` and
+// shows nothing.
+//
+// DO NOT RUN THIS NATIVELY. The native backend segfaults on it. The VM-only
+// runtime snapshot is the pin; the native side is registered as a skipped
+// parity fixture instead.
+//
+// Passing an *unconstrained* function as a value works —
+// ../../working/accepts/infer_higher_order_apply.flx does exactly that. What
+// fails is passing a *constrained* one. `dbl` is lowered with its dictionary
+// prepended, so it is arity 2, but `twice` stores it as a value of type
+// `(a) -> a` and calls it with one argument.
+//
+// The Core is provably right: it reads
+// `λ%t569. dbl(__dict_m8_466C6F772E4E756D_Num_Int, %t569)`, which is the
+// partial application that should work. Both backends still reject it — the
+// dictionary never gets bound at the point the value is built.
+//
+// This is the clearest single demonstration that generics and type classes are
+// one problem at the boundary: the generic higher-order machinery is fine, and
+// what breaks is the evidence reaching the value.
+
+fn twice<a>(f: (a) -> a, x: a) -> a {
+    f(f(x))
+}
+
+fn dbl<a: Num>(x: a) -> a {
+    x + x
+}
+
+fn main() with IO {
+    print(twice(dbl, 2))
+}

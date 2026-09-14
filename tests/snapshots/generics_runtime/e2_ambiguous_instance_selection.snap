@@ -1,0 +1,38 @@
+---
+source: tests/error_fixtures/runtime_error_fixtures_snapshots.rs
+---
+Fixture: examples/generics/failing/runtime/e2_ambiguous_instance_selection.flx
+== vm ==
+status: 1
+stdout:
+<empty>
+stderr:
+[ 1 of 18] Compiling  Add
+[ 2 of 18] Compiling  Assert
+[ 3 of 18] Compiling  Debug
+[ 4 of 18] Compiling  Array
+[ 5 of 18] Compiling  List
+[ 6 of 18] Compiling  Either
+[ 7 of 18] Compiling  Eq
+[ 8 of 18] Compiling  IO
+[ 9 of 18] Compiling  Math
+[10 of 18] Compiling  Num
+[11 of 18] Compiling  Numeric
+[12 of 18] Compiling  Option
+[13 of 18] Compiling  Ord
+[14 of 18] Compiling  Primops
+[15 of 18] Compiling  Semigroup
+[16 of 18] Compiling  Show
+[17 of 18] Compiling  String
+[18 of 18] Compiling  e2_ambiguous_instance_selection
+[cfg→vm] Running via CFG → bytecode VM backend...
+• 1 error • examples/generics/failing/runtime/e2_ambiguous_instance_selection.flx
+error[E1009]: panic: No instance of Def.zero for the given type
+
+  examples/generics/failing/runtime/e2_ambiguous_instance_selection.flx:0:1
+  |
+
+Stack trace:
+  at zero (examples/generics/failing/runtime/e2_ambiguous_instance_selection.flx:0:1)
+  at main (examples/generics/failing/runtime/e2_ambiguous_instance_selection.flx:41:5)
+  at <main>

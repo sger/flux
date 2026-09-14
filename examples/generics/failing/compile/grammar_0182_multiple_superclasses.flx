@@ -1,0 +1,33 @@
+// expect: compile_error
+// expect-error: E034
+
+// GAP — owner: proposal 0182 (grammar). Not scheduled in 0.0.7 or 0.0.8.
+// Measured 2026-09-11: error[E034] Missing Class Name.
+//
+// Exactly one superclass is supported. The single-superclass form works — see
+// ../../working/accepts/class_superclass_chain.flx — but the parenthesized list
+// that would declare two is not in the grammar, and the error names the
+// symptom at the parser rather than the limitation.
+//
+// The same one-context limit applies to instances: `instance Eq<a> => C<T<a>>`
+// works, `instance (Eq<a>, Show<a>) => C<T<a>>` does not.
+//
+// The workaround is a chain — `class Named<a> => Tagged<a>` and
+// `class Tagged<a> => Both<a>` — which imposes an ordering the design does not
+// actually mean.
+
+class Named<a> {
+    fn name(x: a) -> String
+}
+
+class Tagged<a> {
+    fn tag(x: a) -> String
+}
+
+class (Named<a>, Tagged<a>) => Both<a> {
+    fn both(x: a) -> String
+}
+
+fn main() with IO {
+    print("unreachable")
+}

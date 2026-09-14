@@ -1,0 +1,35 @@
+// parity-expected-stdout-begin
+// "hi!"
+// 41
+// parity-expected-stdout-end
+
+// A nested `fn` shadows a top-level one, and the nested definition is the one
+// that runs.
+//
+// This was a gap until 2026-09-11 (KI-088) and is listed here because it is
+// now fixed. It is a generics file rather than a scoping one because the
+// failure was in how a *function value* is built: `IrExpr::MakeClosure`
+// resolved its target by name through the symbol table and passed a binding
+// slot where `OpClosure` takes a constant index. A name cannot tell a nested
+// definition from the top-level one it shadows, so the call compiled against
+// the wrong function constant and reached the VM as an out-of-bounds read.
+//
+// The fix was to make that arm fail, which routes the body to the AST path
+// that owns the constant table. See docs/known_issues.md#ki-088.
+//
+// `tests/flux/fn_shadowing.flx` pins the behaviour end-to-end on both
+// backends, including a shadow at a different arity.
+
+fn helper(x: Int) -> Int {
+    x
+}
+
+fn shadowed() -> String {
+    fn helper(s: String) -> String { s + "!" }
+    helper("hi")
+}
+
+fn main() with IO {
+    print(shadowed())
+    print(helper(41))
+}

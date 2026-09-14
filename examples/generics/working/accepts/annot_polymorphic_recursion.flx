@@ -1,0 +1,28 @@
+// parity-expected-stdout-begin
+// 3
+// parity-expected-stdout-end
+
+// Polymorphic recursion — a function calling itself at a *different*
+// instantiation of its own type parameter.
+//
+// `nest` recurses at `List<a>`, then `List<List<a>>`, and so on. Inference
+// alone cannot type this: unifying the recursive call with the definition
+// would demand `a = List<a>`, which is the occurs check. The signature is what
+// makes it legal, because the call is checked against the declared scheme
+// rather than against a monotype being inferred.
+//
+// This is the one place where deleting the annotation is not equivalent. G5
+// generalizes unannotated definitions, but an unannotated recursive group is
+// still inferred monomorphically within its own body.
+
+fn nest<a>(n: Int, x: a) -> Int {
+    if n <= 0 {
+        0
+    } else {
+        nest(n - 1, [x]) + 1
+    }
+}
+
+fn main() with IO {
+    print(nest(3, "seed"))
+}

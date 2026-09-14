@@ -1,0 +1,26 @@
+// parity-expected-stdout-begin
+// 3
+// parity-expected-stdout-end
+
+// Effect polymorphism: a row variable threaded from a callback to the caller.
+//
+// `apply_twice` does not say *which* effects `f` performs. It says its own row
+// is whatever `f`'s row is, by naming the same variable `|e` in both places.
+// A pure callback makes the whole call pure; an effectful one makes the caller
+// carry those effects, with no second definition.
+//
+// Two syntax rules are load-bearing here. A row variable is written `|e`, not
+// a bare `e`; and a callback parameter carrying a row must have its function
+// type parenthesized unless it is the final parameter.
+//
+// This works because the signature is written. The unannotated version of the
+// same wrapper does not infer — see
+// ../../failing/compile/ki_032_unannotated_row_poly_wrapper.flx.
+
+fn apply_twice(f: ((Int) -> Int with |e), x: Int) -> Int with |e {
+    f(f(x))
+}
+
+fn main() with IO {
+    print(apply_twice(\n -> n + 1, 1))
+}

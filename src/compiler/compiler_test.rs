@@ -559,7 +559,7 @@ fn preload_module_interface_remaps_adt_symbols_across_sessions() {
     let interface = ModuleInterface {
         module_name: "Example.Types".to_string(),
         source_hash: "hash".to_string(),
-        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        compiler_version: crate::shared::cache_paths::compiler_build_id().to_string(),
         cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
         semantic_config_hash: "cfg".to_string(),
         interface_fingerprint: "abi".to_string(),
@@ -621,7 +621,7 @@ fn preload_module_interface_remaps_effect_symbols_across_sessions() {
     let interface = ModuleInterface {
         module_name: "Example.IO".to_string(),
         source_hash: "hash".to_string(),
-        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        compiler_version: crate::shared::cache_paths::compiler_build_id().to_string(),
         cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
         semantic_config_hash: "cfg".to_string(),
         interface_fingerprint: "abi".to_string(),
@@ -681,7 +681,7 @@ fn preload_module_interface_inserts_cached_public_schemes() {
     let interface = ModuleInterface {
         module_name: "Example.Math".to_string(),
         source_hash: "hash".to_string(),
-        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        compiler_version: crate::shared::cache_paths::compiler_build_id().to_string(),
         cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
         semantic_config_hash: "cfg".to_string(),
         interface_fingerprint: "abi".to_string(),
@@ -991,7 +991,7 @@ fn preload_module_interface_inserts_cached_borrow_signatures() {
     let interface = ModuleInterface {
         module_name: "Example.Math".to_string(),
         source_hash: "hash".to_string(),
-        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        compiler_version: crate::shared::cache_paths::compiler_build_id().to_string(),
         cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
         semantic_config_hash: "cfg".to_string(),
         interface_fingerprint: "abi".to_string(),
@@ -1046,7 +1046,7 @@ module Local {
     let interface = ModuleInterface {
         module_name: "Example.Logger".to_string(),
         source_hash: "hash".to_string(),
-        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        compiler_version: crate::shared::cache_paths::compiler_build_id().to_string(),
         cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
         semantic_config_hash: "cfg".to_string(),
         interface_fingerprint: "abi".to_string(),
@@ -1130,7 +1130,7 @@ import Example.StdLog as StdLog
     let class_interface = ModuleInterface {
         module_name: "Example.Logger".to_string(),
         source_hash: "hash".to_string(),
-        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        compiler_version: crate::shared::cache_paths::compiler_build_id().to_string(),
         cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
         semantic_config_hash: "cfg".to_string(),
         interface_fingerprint: "abi".to_string(),
@@ -1182,7 +1182,7 @@ import Example.StdLog as StdLog
     let instance_interface = ModuleInterface {
         module_name: "Example.StdLog".to_string(),
         source_hash: "hash".to_string(),
-        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        compiler_version: crate::shared::cache_paths::compiler_build_id().to_string(),
         cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
         semantic_config_hash: "cfg".to_string(),
         interface_fingerprint: "abi".to_string(),
@@ -1276,7 +1276,7 @@ module Local {
     let interface = ModuleInterface {
         module_name: "Example.Logger".to_string(),
         source_hash: "hash".to_string(),
-        compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+        compiler_version: crate::shared::cache_paths::compiler_build_id().to_string(),
         cache_format_version: crate::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
         semantic_config_hash: "cfg".to_string(),
         interface_fingerprint: "abi".to_string(),

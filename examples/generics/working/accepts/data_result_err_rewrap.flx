@@ -1,0 +1,38 @@
+// parity-expected-stdout-begin
+// "boom"
+// parity-expected-stdout-end
+
+// Passing `Err(e)` through into a `Result` with a different success type.
+//
+// Filed as KI-011: the standard error short-circuit — match a `Result`, pass
+// `Err` through unchanged, produce a different success type — was said not to
+// infer, with `error[E430]: Could Not Infer Concrete Type` on the `Err` arm,
+// and no help from arm order or an intermediate `let`.
+//
+// MEASURED 2026-09-11: this does not reproduce. The program below is the filed
+// repro and it infers. `outer`'s declared return type fixes both parameters,
+// and the `Err` arm unifies against `Result<Bool, String>` as the entry said it
+// should. The file is here so a regression shows up as a snapshot diff.
+//
+// `Result` is not a built-in — it is an ordinary `data` in `Flow.Result` — so
+// unlike `Option` it needs the import.
+
+import Flow.Result exposing (..)
+
+fn inner() -> Result<Int, String> {
+    Err("boom")
+}
+
+fn outer() -> Result<Bool, String> {
+    match inner() {
+        Ok(_) -> Ok(true),
+        Err(e) -> Err(e),
+    }
+}
+
+fn main() with IO {
+    match outer() {
+        Ok(v) -> print(v),
+        Err(e) -> print(e),
+    }
+}
