@@ -1,6 +1,4 @@
 // parity: vm, llvm
-// skip: KI-091 — a user fn is shadowed by the prelude fn of the same name.
-//       This fixture reproduces the bug it was written to catch; unskip on fix.
 // expect: success
 // Tests that user-defined functions named the same as C runtime primops
 // (sum, product, min, max, reverse, etc.) don't cause linker collisions.

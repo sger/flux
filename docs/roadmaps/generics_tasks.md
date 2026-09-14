@@ -2,49 +2,95 @@
 
 Working list for [0185](../proposals/0185_generalize_by_arity.md),
 [0186](../proposals/0186_generics_foundations.md) and
-[0187](../proposals/0187_specialisation.md), on
-`feat/0186-generics-foundations`.
+[0187](../proposals/0187_specialisation.md).
 
 ## The split
 
-**0.0.7 is generics. 0.0.8 is type classes.** That line decides where almost
-everything on this list goes, and it is a good line: generics is *which
-definitions get quantified, over what, and in what order* — binding groups,
-the monomorphism restriction, specialisation. Type classes is *what a call site
-is handed* — evidence, dictionaries, instance selection. The first can be
-finished without the second.
+**0.0.7 is generics. 0.0.8 is type classes.** Generics is *which definitions get
+quantified, over what, and in what order* — binding groups, the monomorphism
+restriction, specialisation. Type classes is *what a call site is handed* —
+evidence, dictionaries, instance selection.
 
-It also means the two headline items separate cleanly. Generalize-by-arity —
-`fn identity(x) { x }` usable at two types — is generics and ships in 0.0.7.
-The single evidence-passing translation, and the five open High-severity
-dispatch bugs, are type classes and ship in 0.0.8.
+### Generalize-by-arity splits along the constraint boundary
 
-`roadmap_to_1_0_0.md` still lists 0.0.7 as *Tests, linter, language identity*
-with no generics work at all, and has no 0.0.8 entry matching this. Both are
-stale (F5).
+**The unconstrained half is 0.0.7; the constrained half is 0.0.8.** That is the
+same line the release split already draws — generics is which definitions get
+quantified, type classes is what a call site is handed — and it turns out to cut
+generalize-by-arity cleanly in two.
+
+`fn identity(x) { x }` raises no class constraint. There is no dictionary to
+plumb and no specialised arithmetic to lose, so **neither** reason to withhold
+generalization reaches it. `fn double(x) { x + x }` raises `Num`, and both
+reasons apply. Generalizing by arity *and an empty constraint set*
+(`finalize_and_bind_function_scheme`) therefore lands in 0.0.7 on its own:
+
+```flux
+fn identity(x) { x }
+fn main() with IO { print(identity(1)) print(identity("hi")) }   // works
+```
+
+Measured 2026-09-09: 445 tests across twelve suites, no change. The rule cannot
+despecialise anything, because a definition with no constraints had no
+dictionary call to specialise away.
+
+What stays in 0.0.8 is generalizing a *constrained* definition — the case whose
+cost was measured on 2026-09-08 by reapplying the unrestricted two-line change
+and reading the failures:
+
+| what fails | count | fixed by |
+|---|---|---|
+| `E004: can't find a value named __dict_m8_..._Num_Int` / `_Ord_Int` | 5 | Track C |
+| `E1000: wrong number of arguments: want=2, got=1` | 2 | Track C |
+| `expected function constant` | 1 | Track C |
+| `typed pattern binders (IntRep) should eliminate DropSpecialized` | 4 | B1 |
+
+**Only 4 of 13 are the lost-optimisation problem [0187](../proposals/0187_specialisation.md)
+is written to solve.** The other 9 are dictionary plumbing, and the missing
+symbol is `__dict_m8_466C6F772E4E756D_Num_Int` — character for character the one
+in 0186's opening motivation as the unfiled forwarding bug that reproduces on
+shipped `main`.
+
+So 0187's premise — that specialisation is what unblocks generalize-by-arity —
+is only a quarter true. **B1 → B2 becomes C → B1 → B2**, and all three are
+0.0.8. 0187 needs amending to say so (F8).
+
+Every one of those 13 failures is a *constrained* definition. None of them is
+reachable by the unconstrained rule above, which is why that half can ship now
+rather than waiting behind the whole of Track C.
+
+The alternative was patching forwarding where it surfaces, without C6's
+deletion. That is what was done for KI-052, KI-061, KI-082, KI-083 and one
+unfiled case — five local fixes to one bug — and it is the pattern 0186 exists
+to stop.
 
 ### 0.0.7 exit criteria
 
-1. **No known miscompilation** — Track R. Non-negotiable, and R1 is open.
-2. **`fn identity(x) { x }` works at two types** — Track B. This is what makes
-   the release *about* generics rather than about internals.
-3. **The gate can detect a generics regression** — R5. Neither the suite nor
-   parity caught R1; that has to stop being true before the release, not after.
+1. **No known miscompilation** — Track R. **Done**: R1–R7 are all closed.
+2. **The gate can detect a generics regression** — R5 and KI-062. **Done**: a
+   fixture declaring `expect: success` must now actually run.
+3. **An unannotated definition with no class constraints is generic** — the
+   unconstrained half of generalize-by-arity. **Done** (G5).
+4. **The remaining generics-side bugs and the release mechanics** — Tracks G, E
+   and F below. This is what is left.
 
 ### 0.0.8 exit criteria
 
-1. **One evidence-passing translation** — Track C. The six independent
-   resolution sites are deleted, not merely agreeing.
-2. **No open High-severity type-class bug** — Track D: KI-071, KI-073, KI-076,
-   KI-086, KI-090. Three of the five are dispatch and dictionary bugs of
-   exactly the kind the duplication keeps producing, so C is their fix at the
-   root — attempt them after C6, not before.
+1. **One evidence-passing translation** — Track C. The six resolution sites are
+   deleted, not merely agreeing.
+2. **`fn double(x) { x + x }` works at two types** — B1 then B2, on top of C.
+   The *unconstrained* case (`fn identity(x) { x }`) shipped in 0.0.7; what
+   remains here is the constrained one, which is the half that needs both the
+   evidence translation and specialisation.
+3. **No open High-severity type-class bug** — Track D: KI-071, KI-073, KI-076,
+   KI-086, KI-090. (KI-091, KI-092 and KI-093 are name resolution, effect rows
+   and map member access — they stay in 0.0.7's Track G.)
 
 ---
 
 # 0.0.7 — generics
 
-Order: **R → B → G → E → F**.
+Tracks R and the KI-062 half of G are done. What remains is E1, two bugs, and
+the release mechanics.
 
 ---
 
@@ -54,7 +100,7 @@ All in stage 2's [`plan_block`](../../src/binding_groups.rs). R1 is confirmed by
 running the program; R2, R3 and R5–R6 are reasoned from the code and not yet
 reproduced.
 
-- [ ] **R1. Binding groups are emitted in source-anchor order, not dependency
+- [x] **R1. Binding groups are emitted in source-anchor order, not dependency
       order.** *Confirmed, cold cache:*
 
       ```flux
@@ -94,25 +140,25 @@ reproduced.
       index so ordinary programs lay out exactly as they do today. A cycle
       (`let x = f(); fn f() { x }`) is a real error — fall back to source order
       deterministically.
-- [ ] **R2. `bound_name` sees only `Let` and `Function`.** A `LetDestructure`
+- [x] **R2. `bound_name` sees only `Let` and `Function`.** A `LetDestructure`
       between two members binds names invisibly to the hoist check. It should
       return *every* binder, walking the pattern —
       `FreeVarCollector::define_pattern_bindings` already does this walk and can
       be reused.
-- [ ] **R3. The hoist check is one-sided.** Nothing asks whether an intervening
+- [x] **R3. The hoist check is one-sided.** Nothing asks whether an intervening
       statement *uses* a member, so a group can be emitted after code that calls
       it. Needs free variables of non-function statements:
       `collect_free_vars_in_statement` does not exist and must be added beside
       `collect_free_vars_in_function_body` — `FreeVarCollector` already has the
       `visit_stmt` arms.
-- [ ] **R4. Drop `plan_block`'s `free_vars` callback.** All three call sites
+- [x] **R4. Drop `plan_block`'s `free_vars` callback.** All three call sites
       pass a byte-identical closure delegating to
       `crate::ast::free_vars::collect_free_vars_in_function_body`. The callback
       was justified as keeping the module off lowering internals, but it is
       `crate::ast`, which `binding_groups` already depends on. Removing it
       deletes three copies and is a prerequisite for R3 supplying statement
       free vars in one place.
-- [ ] **R5. Close the test gap that let R1 through.** Ordered — the first is a
+- [x] **R5. Close the test gap that let R1 through.** Ordered — the first is a
       prerequisite for the second.
       - **Fix [KI-062](../known_issues.md#ki-062) first.** *A parity fixture
         would not have caught R1.* The harness compares the two backends'
@@ -156,52 +202,43 @@ reproduced.
 
 ---
 
-## Track B — 0187: specialisation, then generalize-by-arity
-
-**The 0.0.7 headline**, and the reason the release is *about* generics:
-`fn identity(x) { x }` usable at two types. B1 is the largest piece of new work
-on this list. Nothing in 0.0.8 blocks it.
-
-- [ ] **B1. Specialisation pass over `core/`** — clone a constrained function at
-      each concrete instantiation and rewrite that call site to the clone.
-      Exit: a constrained helper called only at `Int` lowers to `IAdd` again,
-      **with the current generalization rule unchanged**, and the 16
-      optimisation tests pass untouched.
-
-      *Scope it narrowly first:* specialise only a function whose call sites all
-      use **one** instance. That is the common case in `lib/Flow/`, it is a
-      fraction of general monomorphisation, and it is very likely enough to
-      satisfy all 16 tests. Widen only if it is not.
-- [ ] **B2. Land generalize-by-arity** — `monomorphism_restriction` by arity in
-      `finalize_and_bind_function_scheme`. Two lines; written and reverted in
-      `60b3fa39`, so the diff already exists. Depends on B1.
-      Exit: the same 16 tests still pass **without being weakened**.
-- [ ] **B3. Bump `CACHE_EPOCH`.** Depends on B2.
-- [ ] **B4. 0186 stage 4's remainder — one quantification decision per
-      *group*.** Depends on B2, and only on B2. No failing case exists today:
-      mutually recursive polymorphic functions, constrained ones included,
-      already work. It becomes necessary once unannotated helpers are
-      constrained, because one member's `forall` must not mention a variable
-      another member left free.
-
-Why this order: B2 alone despecialises every unannotated helper — `IAdd`
-becomes a dictionary call, and `my_filter` goes from `FBIP: fip, FreshAllocs: 0`
-to `fbip(1), FreshAllocs: 1`. Landing it before B1 means dismantling 16 tests
-that assert superinstruction fusion, `DropSpecialized` elimination and tail
-calls still fire.
-
----
-
----
-
 ## Track G — the instrument, and what it found
 
-- [ ] **D8. [KI-088](../known_issues.md#ki-088)** — a nested `fn` shadowing a
-      top-level name. Inference half fixed (`4654bad1`); a second lookup in the
-      compiler's own resolution still reaches past the nested definition. The
-      reproduction is rejected by a *compiler boundary* check, so a case in
-      `tests/type_inference/` passes whether or not the bug is present —
-      pinning it needs an end-to-end test.
+- [x] **D8. [KI-088](../known_issues.md#ki-088)** — *fixed, all three rows.* A nested `fn` shadowing a top-level name now runs
+      the nested definition. Inference was fixed in `4654bad1`, the compiler's
+      contract lookup in `33e43a28`, and codegen on 2026-09-11: `MakeClosure`
+      was passing a binding **slot** where `OpClosure` takes a **constant**
+      index, which by then reached the VM as `index out of bounds: the len is
+      680 but the index is 915`.
+
+      The fix is that the arm now *fails*, so the existing rollback recompiles
+      the body on the AST path. The entry's earlier plan — record
+      `FunctionId → constant index` — was the wrong target: it emits correct
+      bytecode and then hits a second defect that returns the wrong value. The
+      instrumentation already said this arm never legitimately succeeds, so it
+      does not need to emit anything at all. **This does not answer E3's
+      question** (can the AST bytecode fallback be retired?); it is one more
+      reason the answer is still no.
+
+      Pinned end-to-end on both backends by `tests/flux/fn_shadowing.flx`,
+      which is the test the entry said was needed — including a shadow at a
+      *different arity*, the case that tells a wrong constant from a wrong
+      arity.
+
+      **The third row is fixed too**, on 2026-09-11, and its cause is worth
+      recording separately: `SymbolTable::resolve` takes `&mut self` and
+      captures an outer non-`Global` binding into the current scope as a side
+      effect of answering. The duplicate check asked `resolve` before
+      `exists_in_current_scope`, so it manufactured the duplicate it reported —
+      and a top-level `fn` escaped only because `resolve` returns `Global`
+      before reaching the capture path, which is why the row was scoped to an
+      enclosing *non-top-level* scope.
+
+      Two read-only passes had the same defect (`collect_consumable_param_uses`
+      and `expr_has_undefined_ident`), each leaving a capture behind. The fix
+      is a non-capturing `SymbolTable::lookup` at the analysis sites plus the
+      check order in both duplicate checks; each half was reverted separately
+      to confirm it is load-bearing.
 - [x] **D6. [KI-062](../known_issues.md#ki-062)** — the parity harness accepted a
       fixture that fails to compile on both backends. **Fixed**: `expect: success`
       now requires every way to exit `Success`, and a support module with no
@@ -215,24 +252,100 @@ calls still fire.
       the `"++" => "append"` desugar arms, `CorePrimOp::Concat`. Removing a
       `CorePrimOp` variant changes lowering and owes an epoch bump, so it is its
       own branch.
-- [ ] **G1. [KI-091](../known_issues.md#ki-091)** — *High.* A user-defined
+- [x] **G1. [KI-091](../known_issues.md#ki-091)** — *High, fixed.* A user-defined
       top-level function is shadowed by a prelude function of the same name:
       `fn sum(a, b) { a + b }` then `sum(3, 4)` is `E300 expected List<Int>`.
       Same for `product`, `min`, `max`, `reverse`, `length`. Same family as
       KI-088 — a definition losing to something further away.
-- [ ] **G2. [KI-093](../known_issues.md#ki-093)** — *High.* Member access on a
-      map holding a function silently yields `None`:
-      `{ "square": fn(x) { x * x; } }` then `obj.square(5)` prints `None` on both
-      backends, no diagnostic, where `25` is expected. A non-function member
-      works. **This is KI-062's failure mode found independently** — the
-      backends agree on a wrong answer, so parity reports a match.
-- [ ] **G3. [KI-092](../known_issues.md#ki-092)** — *Medium.* A type parameter
-      used only in an effect row is rejected as phantom, so
-      `alias Handler<a, e> = (a) -> a with <Async | e>` cannot be written. The
-      `E308` cascades into `E423` at every use site.
-- [ ] **D9. [KI-079](../known_issues.md#ki-079)** — a stale bytecode cache runs a
-      program the current compiler rejects. Not generics, but it is the failure
-      mode every `CACHE_EPOCH` bump on this branch is defending against.
+
+      Fixed: the unit's own function names are collected once and never treated
+      as imported. `tests/parity/user_fn_name_no_collision.flx` is unskipped.
+- [x] **G2. [KI-093](../known_issues.md#ki-093)** — *High, fixed.* A local
+      binding named like an imported module is shadowed by the module:
+      `let Math = { .. }` then `Math.square(5)` is `E012`, while the same code
+      with the binding named `Widget` prints `25`. Same family as G1 — a
+      definition losing to an import — via the module qualifier rather than a
+      function contract. Fixed by checking `SymbolTable::is_bound` first.
+      `tests/parity/import_member_access.flx` is unskipped.
+
+      **The issue was originally filed with the wrong diagnosis** ("map member
+      access silently yields `None`"). That was a mistake in the reproduction:
+      a trailing `;` made the lambda return unit, which Flux spells `None`.
+      Map member access on a function value has always worked.
+
+- [x] **G3. [KI-092](../known_issues.md#ki-092)** — *Medium, fixed.* A type
+      parameter used only in an effect row was rejected as phantom, so
+      `alias Handler<a, e> = (a) -> a with <Async | e>` could not be written.
+      `collect_type_expr_named_symbols` matched
+      `TypeExpr::Function { params, ret, .. }` and the `..` discarded `effects`.
+- [x] **G4. [KI-094](../known_issues.md#ki-094) — DONE 2026-09-09.** *Found
+      behind G3, whose `E308` had been masking three further defects.*
+
+      **Alias resolution:** *no* transparent type alias resolved —
+      `alias IntPair = (Int, Int)` then `-> IntPair` was `E423`, because
+      `is_known_annotation_type` did not consult `transparent_type_aliases` and
+      that check runs before the Phase 1d expansion. Fixture
+      `type_alias_transparent_basic.flx`.
+
+      **The effect row was never about aliases.** An alias-free program has the
+      same failure: `fn consume(s: (Int) -> Int with Async)` called with a
+      matching `with Async` function is `E422 missing required effects: Async`.
+      `Async` is an effect *alias*, and two sites left it undecomposed while
+      every other row had been rewritten — `collect_contracts_from_statement`
+      stored parameter and return annotations verbatim, and the pipeline ran
+      effect-row expansion *before* transparent type alias expansion, so a row
+      living in an alias body did not yet exist when its turn came. The phases
+      now run in the other order. The `$1` in the original runtime `E1004` was
+      that undecomposed row reaching contract lowering.
+
+      **The design question was a fixture bug.** An alias's effect-row parameter
+      is declared like any other type parameter, in the function's own `<...>`
+      list: `fn apply_async<e>(f: AsyncFn<Int, Int, e>, ...)`. That works
+      *because of G3* — a type parameter used only in an effect row is no longer
+      rejected as phantom. Nothing had exercised it.
+
+      `type_alias_transparent.flx` is unskipped, and because a parity fixture
+      that fails on both backends reads as passing (KI-062 — which is how this
+      stayed broken), `tests/integration/type_alias_effect_row_tests.rs` runs it
+      and asserts the output.
+
+- [x] **G5. Generalize an unannotated definition that raises no class
+      constraints — DONE 2026-09-09.** The unconstrained half of
+      generalize-by-arity, and the reason it is 0.0.7 work rather than 0.0.8 is
+      in *The split* above: the two things that block the constrained case —
+      dictionary plumbing and lost specialisation — have nothing to act on when
+      there are no constraints.
+
+      In `finalize_and_bind_function_scheme`: generalize when the definition
+      declared type parameters **or** it takes parameters, raised no constraint
+      of its own, and shares no type variable with a still-undischarged field or
+      tuple predicate.
+
+      **The second condition was not in the first version, and the suites did
+      not catch its absence.** Raising no constraint is not enough: a definition
+      that merely *forwards* a value to a constrained one has none of its own,
+      and generalizing it quantifies the variable the callee's pinned receiver
+      is waiting on. `jump_step(axis, ..)` passes `axis` to `jump_step_up`,
+      which projects `axis.1` — four `examples/aoc/2024/day06*` programs broke
+      with `E491` while all 445 tests stayed green. It is the disconnect of
+      [KI-095](../known_issues.md#ki-095) and [KI-096](../known_issues.md#ki-096)
+      by a third route: not a match arm, not a recursive sibling, but a plain
+      forwarding call. Pinning covers the definition that owns a predicate; this
+      covers everyone the receiver passes through on the way there.
+
+      *Measured, differentially:* every `.flx` under `examples/`, `tests/` and
+      `lib/` compiled with `--no-cache` before and after, comparing per-file
+      error codes — **221 failures before, 221 after, the two lists identical**.
+      An absolute count says nothing here, since the corpus contains hundreds of
+      intentional-error fixtures; only the diff does. Plus 426 tests across ten
+      suites. `fn identity(x) { x }` types at `Int` and `String`; annotated
+      generics, constrained generics and two-level dictionary forwarding are
+      unchanged.
+
+      *What it deliberately does not cover:* `fn double(x) { x + x }` (raises
+      `Num`) and `fn fst(p) { p.0 }` (raises a field predicate, which is also a
+      constraint and is *pinned* — a receiver nothing determines must not be
+      quantified). Both wait on B2.
 
 ---
 
@@ -242,8 +355,7 @@ calls still fire.
 became 0186 stage 6 and is now Track B. Four stages remain, and 0186 changed
 what two of them cost.
 
-- [ ] **E1. Stage 5 — tuple projection as a constraint.** *Independent, and the
-      most actionable thing left in 0185.*
+- [x] **E1. Stage 5 — tuple projection as a constraint — DONE 2026-09-09.**
       `infer_tuple_field_access_expression` (`expression/access.rs:206`) still
       types an unresolved receiver with a hole, delaying the failure until a
       call site pins it. Convert it on 0184's template — a solver-internal
@@ -256,12 +368,77 @@ what two of them cost.
       free rather than having to rediscover it. The proposal's note that this
       retires `generalize_constrained_vars` is stale — that function no longer
       exists.
-- [ ] **E2. Stage 4 — report inferred ambiguity.** 0183's R6b. `Disposition`
+
+      Landed on the third attempt. The first two were blocked by pre-existing
+      holes in the machinery it copies rather than by anything in the
+      conversion, and both are now fixed:
+
+      1. [KI-095](../known_issues.md#ki-095) — a receiver bound by a match arm
+         was never determined. **Fixed**; that took the stdlib failures from six
+         to one.
+      2. [KI-096](../known_issues.md#ki-096) — a recursive group's predeclared
+         monotype is never unified with what the member infers, so a sibling's
+         projection has no receiver. **Fixed**, in two parts: the missing
+         unification, and reading the environment through the substitution
+         before a `let` generalizes.
+
+      Both reproduce for *record fields* on shipped `main`, with no part of E1
+      applied. The pattern is worth stating: field predicates shipped in 0184
+      with two shapes that cannot be determined, and no stdlib or test code hit
+      either. Tuples hit both immediately, because tuple projection is common
+      where named-field access is not. E1 is the instrument that found them.
+      The conversion itself is small and works — predicate, pinning, discharge,
+      `E491` for a receiver never determined, `E492` for an index past the end
+      of the tuple. What it inherits is a hole in what it copies: a predicate
+      whose receiver is bound by a **match arm** is never determined by its call
+      site, on shipped `main`, for record fields too. No stdlib code accesses a
+      named field that way, so 0184 shipped over it — but `Flow.Array`'s
+      `update_many_go` and `accum_go` match a list of pairs and project `p.0`,
+      so the tuple version breaks the standard library in six places on its
+      first run — one after KI-095, and that one was KI-096.
+
+      **Three more fixes were needed after those two**, each found by measuring
+      rather than by reading:
+
+      - *The effect row.* KI-096's unification compared whole function types.
+        The placeholder's row is the one the siblings' calls accumulated; the
+        inferred `fn_ty`'s row is the *declared* one, empty and closed for an
+        unannotated function. Unifying the two fails on the row and leaves the
+        result type — the thing being connected — unbound. At the top level the
+        rows agreed, so a minimal repro passed while the real program failed.
+        Parameters and result only, never the row.
+      - *The pin.* `decide_quantification` pinned the receiver whether or not it
+        was still unknown. Once it has resolved to a structure, pinning strips
+        *that structure's* variables — which is how `Flow.Array.sort_by<a, b:
+        Ord>` came to report its own declared `Ord<b>` as an ambiguity. It now
+        applies only while the receiver is an unresolved variable.
+      - *The cascade.* `mystery.0` on an undefined name reported `E004` and then
+        a redundant `E491`. The field predicate already refuses an unbound
+        receiver; the tuple path now uses the same guard.
+
+      *Measured:* 1313 files under `examples/`, `tests/` and `lib/` compiled with
+      `--no-cache`, **0** with `E491`/`E492`.
+      `examples/aoc/2025/aoc_day11_haskell_style.flx` runs. `CACHE_EPOCH` 50.
+
+      The work is on `wip/e1-tuple-projection-predicate` and is otherwise
+      complete: predicate, pinning, discharge, `E491` for a receiver never
+      determined, `E492` for an index past the end of the tuple. One refinement
+      came out of the second attempt and is worth keeping whichever way E1
+      goes — the pin in `decide_quantification` now applies only while the
+      receiver is still an unresolved variable. Pinning a receiver that has
+      already resolved to a structure strips *that structure's* variables, which
+      is how `Flow.Array.sort_by<a, b: Ord>` came to report its own declared
+      `Ord<b>` as an ambiguity.
+- [ ] **E2. Stage 4 — report inferred ambiguity.** 0183's R6d (called `R6b`
+      until 2026-09-11, when it was renamed off a collision with a shipped
+      row of that name). `Disposition`
       loses `Stuck`; a predicate reaching whole-program scope over an
       unresolved variable is reported with its origin. **Blocked on B2**: the
       stage's premise is that with generalize-by-arity landed, the residue is
       ambiguity rather than stranded obligations. Until then the residue is
-      still the old kind and the report would be wrong.
+      still the old kind and the report would be wrong. **B2 moved to 0.0.8, so
+      this moves with it** — it is listed here only because it belongs to
+      0185.
 - [x] **E3. Stage 6 — size the instance-resolution unification.** Answered by
       0186 stage 5; close the stage rather than run the spike. Its three
       questions:
@@ -275,7 +452,7 @@ what two of them cost.
         `structural_builtin_evidence`.
       - *Can the AST bytecode fallback be retired?* Not answered; still open,
         and still worth answering before C6.
-- [ ] **E4. Stage 7 — close 0183.** Documentation only. Mark R1–R5 shipped,
+- [ ] **E4. Stage 7 — close 0183.** *0.0.8, with E2.* Documentation only. Mark R1–R5 shipped,
       record R6 as delivered by E2 + B2, close its open questions as decided,
       and move it to `docs/proposals/implemented/`. Do this **after** E2, or the
       record is written before the thing it records.
@@ -288,30 +465,208 @@ what two of them cost.
 
 Runs alongside the others; none of it is optional for a release.
 
-- [ ] **F1. `CACHE_EPOCH`.** Currently 46. R1's fix changes lowering output, and
-      B2 changes inferred schemes — each needs a bump with a one-line reason, or
-      users get silently stale artifacts (D9 is what that looks like). One bump
-      per landing, not one at the end.
-- [ ] **F2. Amend KI-087.** Marked FIXED 2026-09-06; its fix introduced R1. The
-      entry needs the regression recorded and a "verified when" note that
-      covers the forward-reference shape, not just the mutual-recursion one.
+- [x] **F1. `CACHE_EPOCH` — at 53.** Bumped per landing rather than once at the
+      end, and every bump after 47 is for the same reason: the change alters
+      inferred types, and so what a cached interface records. 47 for R1's
+      dependency-order emission, 48 for KI-095's match propagation, 49 for
+      KI-096's recursive-group predeclaration, 50 for 0185 stage 5's projection
+      predicate, 51 for G5, 52 for KI-094's alias decomposition, **53** for the
+      projection predicate no longer being retained on a scheme — an epoch-52
+      `.flxi` records `__tuple` in `Flow.Array.update_many`'s context, and a
+      caller reading it is an `E490` this compiler accepts.
+
+      D9's fix (KI-079) deliberately took no bump — adding the compiler build to
+      the key changes every hash, so stale entries stop being *found* rather
+      than being read and mistaken for current; the reasoning is in the KI. That
+      is specific to the landing whose own mechanism invalidated everything: 48
+      through 53 all followed it and all bumped. B2 will need its own bump in
+      0.0.8.
+- [x] **F2. Amend KI-087.** Done 2026-09-09. The regression was already
+      recorded in the entry; what it lacked was a *verified when* note, now a
+      table naming what pins each shape — the parity fixture for the
+      mutual-recursion case, three `test_forward_reference_*` cases that run and
+      assert output for the forward-reference one, and the ordering unit tests
+      for emission order — with the warning that the parity fixture alone is
+      insufficient evidence, since it was green throughout the six sweeps the
+      regression survived. Also corrected a stale
+      `flux_generics::strongly_connected_components` path left by the crate
+      fold-back.
 - [ ] **F3. Mark the fixed issues.** *0.0.8.* KI-052, KI-061, KI-082, KI-083 are
       already marked FIXED individually; 0186 claims to have removed the *cause*
       they share. That claim is only true once C6 lands, so it is a 0.0.8 note —
       do not write it in the 0.0.7 release.
-- [ ] **F4. Move the proposals.** 0185 and 0187 can move at 0.0.7 once their
-      tables are all `done` or `withdrawn`. **0186 cannot** — its stage 5 is
-      Track C, which is 0.0.8. Its stage 0e is already marked withdrawn.
-- [ ] **F5. Update `roadmap_to_1_0_0.md`.** Its 0.0.7 entry lists tests, linter
-      and language identity with no generics work at all, and nothing there
-      matches 0.0.8 = type classes. Both entries need rewriting, and whatever
-      0.0.7 displaces has to land somewhere.
-- [ ] **F6. `CLAUDE.md` is untracked** and names paths this branch moved
-      (`src/generics_frontend/`, the extracted crates). Its architecture section
-      and its workspace description are both stale. Decide whether it is
-      tracked, then fix it.
-- [ ] **F7. Write the PR description.** `CHANGELOG.md` is assembled from merged
-      PRs at release time, so the PR description *is* the changelog entry.
+- [x] **F4. Move the proposals — none of them move at 0.0.7.** Checked
+      2026-09-09; the premise was wrong. **0185** has four stages still open,
+      not zero: stage 3 became Track B, stage 4 is blocked on B2, stage 5 is
+      blocked on [KI-095](../known_issues.md#ki-095) and stage 7 is documentation
+      that must follow stage 4. **0187** has not started — it is 0.0.8 in its
+      entirety. **0186** cannot move for the reason already recorded: its stage 5
+      is Track C. So all three stay in `docs/proposals/`, and the move is a
+      0.0.8 task for whichever of them the type-class work finishes.
+- [x] **F5. Update `roadmap_to_1_0_0.md`.** Done 2026-09-09. Both the release
+      table rows and both prose sections rewritten: 0.0.7 is generics
+      foundations, 0.0.8 is type classes. The displaced work is rehomed rather
+      than dropped — the architecture theme (`0044`, `0085`, `0086`) and the
+      tests/linter/identity theme (`0035`, `0010`, `0025`, `0043`) both move to
+      0.0.9, where the architecture work sits next to the Aether work it was
+      always meant to precede. Each entry says what it displaced.
+- [x] **F6. `CLAUDE.md` — decided: stays untracked.** It was tracked briefly on
+      this branch and that commit was removed on 2026-09-09 at the maintainer's
+      instruction, so the decision the item asked for is made. Its content was
+      corrected for the current tree while it was tracked (the crate fold-back,
+      the two false claims about the docs guard and a `deny` attribute that does
+      not exist), and that corrected copy is what remains on disk. Nothing about
+      the compiler depends on it, so an untracked file is a defensible answer —
+      but note the corollary: it is not reviewed, and it will drift again with
+      no gate to catch it.
+- [x] **F9. `examples/generics/` — the capability map.** Done 2026-09-11. 48
+      programs organised by what the compiler does with them: `working/accepts`
+      (compiles, runs, right answer), `working/rejects` (correctly rejected —
+      the diagnostic is the feature), `failing/compile` and `failing/runtime`.
+      Every file is pinned — the compile-only `examples_generics` snapshot, plus
+      a second VM-only run snapshot for the runtime bucket, because a gap that
+      compiles cleanly records as `ok` and pins nothing. Behaviour is asserted
+      separately in `tests/flux/generics.flx` (19 cases, VM and native), which
+      deliberately mirrors nothing from `failing/` so the native leg is safe by
+      construction rather than by an exclusion list.
+
+      **Every error code in it was measured, not copied from this file**, and
+      three things came back different from what was written down:
+
+      1. **KI-011, KI-069 and KI-070 no longer reproduce** against their own
+         filed repros. Each now has a file in `working/accepts/` so a
+         regression is a snapshot diff. They are candidates for F3's marking
+         pass. KI-070's repro is additionally unrunnable as filed —
+         `\y: a -> y` is a parse error, since lambda parameter annotations
+         need parentheses — which may be why it read as unfixed.
+      2. **A `let` bound to a lambda is generalized**, nested and top-level.
+         Assuming the monomorphism restriction covered it was wrong; it applies
+         to nullary bindings.
+      3. The guide's "Only `fn f<T>(x: T)` syntax triggers let-polymorphism"
+         (09_type_system_basics.md:181) was false after G5 and is corrected.
+
+      **A specialisation gate ships with it.** KI-098 is invisible to every
+      behavioural harness — a despecialised program compiles, runs and returns
+      the right answer, so parity and every snapshot pass it. `failing/degraded/`
+      holds a contrast pair, two programs differing only in one extra call site,
+      and `snapshot_ki_098_*_core_def` in `tests/aether/cli_snapshots.rs` pins
+      one extracted Core definition from each:
+
+      ```
+      baseline (one call site):   ::(h#N:Int, t#N:Box) →
+      two call sites:             ::(h#N,     t#N:Box) →
+      ```
+
+      The extraction matters: a full `--dump-core=debug` is ~2900 lines of
+      mostly stdlib, which would bury the signal and repaint on every unrelated
+      `lib/Flow` change. Binder ids and temporaries are normalized to `N` for
+      the same reason. **This is the baseline B2 will be measured against, and
+      it cannot be reconstructed after B2 lands** — which is why it is pinned
+      now rather than when that work starts.
+
+      **Three more entries came back different when the last gaps were
+      filed**, on top of the three above:
+
+      4. **KI-088 is fixed** (see D8) and is now a `working/accepts/` file
+         rather than a `failing/runtime/` one.
+      5. **KI-076's symptom has changed.** It is no longer `cannot compare Adt
+         with OpLessThanOrEqual` but `E1000: wrong number of arguments:
+         want=3, got=2` at the `x <= y` — `want=3` is `lte(dict, x, y)`, so
+         the operator now routes to the dictionary-passing method and arrives
+         without the dictionary. A later failure point than a missing
+         dispatch; the entry is corrected.
+      6. **KI-086 is hidden by `--no-cache`**, which follows from its own
+         stated cause (the body is lost when the class is rebuilt from a
+         cached `.flxi`) but was never written down as a reproduction
+         condition. This changed what got built: the runtime harness passes
+         that flag, so a snapshot there pins the bug *not* reproducing and
+         whoever fixes it sees no diff. KI-086's runtime half is therefore
+         deliberately unpinned, and what ships instead is its compile-time
+         `E004` half — a default body cannot call a sibling method inside a
+         `module` — which needs only one file, the error being raised inside
+         the module itself.
+
+      Three gaps remain mapped in the README with no runnable file, each for a
+      stated reason rather than for want of writing: KI-071 and KI-073 are
+      VM/native divergences that no VM-only harness can show (and on the VM,
+      KI-073's program is *correct*), and KI-086's runtime half is the
+      `--no-cache` case above. KI-073 is registered as a skipped parity fixture
+      so the runner reports it rather than dropping it; KI-071 is not, because
+      it needs a module pair and no `tests/parity/` fixture has ever imported a
+      local module.
+
+      `generics/working/accepts` is in the release parity sweep
+      (`scripts/release/release_check.sh`), 30/30 on vm,llvm. It cannot be
+      added as bare `generics` — `failing/` is fail-on-purpose, the same reason
+      `parser_errors` and `runtime_errors` are excluded there.
+- [x] **F8. Amend [0187](../proposals/0187_specialisation.md).** Done
+      2026-09-09. The 16 became 4, with the other 9 named as dictionary
+      plumbing and the conclusion drawn — specialisation is necessary but not
+      sufficient. Track C is now stage 0 of its table, and "where specialisation
+      runs" is answered in favour of after `dict_elaborate`, with the Stage 0.6
+      placement and the narrow first scope recorded there rather than only here.
+- [x] **F7. Rewrite the PR description.** Done 2026-09-11. The 2026-09-09 text
+      was stale; what follows is the record of what it was missing, kept because
+      the PR body is not a tracked file and this is the only place the reasoning
+      survives.
+      `CHANGELOG.md` is assembled from merged PRs at release time, so the PR
+      description *is* the changelog entry, and it is deliberately not a tracked
+      file — the PR body is where the release assembles it from. What was
+      written on 2026-09-09 (G5 and 0185 stage 5 as the features, the eight
+      fixes, the epoch 47 → 52 run, and a section on what the validation does
+      *not* establish — KI-062, and that a sweep sees outcomes rather than
+      precision) still holds as far as it goes, but it predates four things and
+      closes on a claim that is now false.
+
+      **Missing from it.** G4 ([KI-094](../known_issues.md#ki-094)) — no
+      transparent type alias resolved at all, and an effect alias left
+      undecomposed at two sites. B1 (`4f45fb70`) — specialisation at a single
+      concrete instantiation, and with it the finding that rewrote the entry:
+      G5 introduced a *second* kind of despecialisation this list had not
+      anticipated, one with no dictionary to clone on. The Aether baseline
+      update (`cd91f954`), which is the evidence for both.
+      [KI-097](../known_issues.md#ki-097) and
+      [KI-098](../known_issues.md#ki-098), filed rather than fixed. And the
+      2026-09-10 gate run's own findings: a determined field or tuple
+      projection predicate is no longer retained on a scheme
+      (`src/types/quantify.rs`) — retaining it made every caller of
+      `Flow.Array.update_many` an `E490`, because a `SchemeConstraint` cannot
+      carry `TupleProjection`'s index, and it takes the epoch to **53** — plus
+      `Flow.List.first` reached with an `Array` in
+      `examples/functions/immutability_valid.flx`, four baselines and two
+      fixture expectations that G5 and KI-094 had left stale, and a
+      Windows-only `-D warnings` failure in the native driver. The "eight
+      fixes" count no longer matches — it is **eleven** fixed (KI-079, KI-082,
+      KI-083, KI-087, KI-091, KI-092, KI-093, KI-094, KI-095, KI-096, and
+      KI-088 all but one row) plus three marked fixed by verification (KI-011,
+      KI-069, KI-070).
+
+      **The epoch run is 43 → 53, not 47 → 53** — this item said 47, which is
+      where the *per-landing* bumps start, not where the branch does. `main` is
+      at 43 and is the merge-base, so 43 → 53 is what the PR changes. F1's
+      "every bump after 47" narrative is right about the reasons and was never
+      a claim about the range.
+
+      **The claim to drop.** "0.0.7 has no open items" is false.
+      [KI-098](../known_issues.md#ki-098) is open and is *caused by this
+      branch's own* G5 and B1 — a definition used at two types is still left
+      despecialised, at seven sites recorded in the accepted baseline.
+      [KI-097](../known_issues.md#ki-097) is open. F3 is deferred to 0.0.8.
+      `ba239f68`'s subject line repeats the claim, and that commit is in the
+      history a reviewer reads, so the PR body has to state what is open
+      plainly rather than leave that subject standing as the summary.
+
+      **As written**, the body opens on "0.0.7 has open items — they are listed
+      below rather than left for a reader to find. One of them is caused by
+      this branch", and the Open section names KI-098 (with its cause in G5 and
+      B1 stated), KI-097 and F3's deferral. (It named KI-088's third row too;
+      that was fixed on 2026-09-11, after the body was written, so the body
+      needs that line dropped before it is posted — see D8.) It also
+      carries what the validation does *not* establish: that a sweep sees
+      outcomes rather than precision, KI-062 as the case in point, and the
+      three entries that turned out not to describe the compiler any more
+      (KI-076's changed symptom, KI-086's `--no-cache` condition, KI-088's
+      degraded symptom).
 
 ---
 
@@ -331,13 +686,117 @@ I use `cargo build` and `cargo test --no-run` for compile correctness only.
   while a three-line program miscompiled. Parity could not catch it for the
   reason in KI-062, and no unit test asserted `LetRec` nesting. Treat a green
   gate on this branch as necessary, not sufficient, until R5 lands.
+- **`aether_cli_snapshots` is the only thing that shows *precision*.** A
+  despecialised program compiles, runs, and gives the right answer, so neither
+  parity nor a compile-and-run corpus sweep can see it — a sweep reports
+  *outcomes*, and precision is not one. This suite captures `--dump-core` and
+  `--dump-aether`, where a lost `:Int` on a binder is visible as a lost `:Int`.
+  Run it after **any** change to inference, generalization or lowering.
+
+  It was not run during the 0.0.7 generics work, and three separate regressions
+  hid behind that: KI-095's snapshots were never updated (7 tests, red for
+  fourteen commits), G5 despecialised nine more, and the corpus sweep reported
+  a confident *zero regressions* for both because it is blind to this by
+  construction. Choosing test binaries by topic is what failed — a suite named
+  for Aether does not sound related to type inference, and it is the one that
+  matters most.
 - Diagnostics changes need `--no-cache` to verify: a warm cache masks them.
 
 ---
 
 # 0.0.8 — type classes
 
-Order: **C → D(High) → D(rest) → A2**. Nothing here blocks 0.0.7.
+Order: **C → B1 → B2 → B3 → B4 → D → A2**. C first: it is what the measurement
+above says B2 is actually waiting on, and three of Track D's High-severity bugs
+are the same class of defect it deletes at the root.
+
+## Full generic support — the work grouped by the proposal that owns it
+
+The track letters above say what to do; this says **which proposal each one is
+implementing**, which the letters hide. Assembled 2026-09-11 from
+[0182](../proposals/0182_typeclass_syntax_completeness.md)–[0187](../proposals/0187_specialisation.md)
+after checking every proposal's status.
+
+**Only two proposals get implemented: 0186, then 0187.** Everything else here is
+closure, a bug no proposal owns, or out of scope. Two proposals span more than
+one phase, which is what the track letters obscure.
+
+### Plan 0 — prerequisites *(no proposal owns these)*
+
+A measurement, and two defects found while planning that
+[0186](../proposals/0186_generics_foundations.md) stage 5 would otherwise
+inherit.
+
+| # | Item | Why first |
+|---|---|---|
+| 0a | Correct the proposal statuses | **done** 2026-09-11 |
+| 0b | Re-measure B2's cost: delete the `unconstrained` conjunct, run the suite, classify, revert | The 13/9/4 split predates B1, KI-094/095/096, 0185 s5 and the projection fix |
+| 0c | `EvidenceMap::args_for` returns a **short list** when the hole is at the tail: `harvest_evidence` leaves a gap, but `EvidenceMap` never records the raised count and `args_for` derives it from *present* keys | 0186 s5 reads this map; unfixed it inherits "a call with the wrong arity that type-checks" — the failure the design excludes |
+| 0d | `choose_candidate`'s `Ambiguous \| NoMatch => Some(first)` (`dict_elaborate.rs:1543`) | A silently wrong instance today; `NoMatch` answers with a dictionary known *not* to match. No test pins it. Do it alone so the fallout is attributable |
+
+### Plan 0186 — *Generics foundations*, stages 4 and 5 — **the spine**
+
+**Phase 1 — stage 5, the evidence translation** (**C5**, **C6**)
+
+| # | Item | Notes |
+|---|---|---|
+| 1 | Emit dictionary **arguments** at lowering | `evidence_to_arg`/`DictArg` exist, fully tested, **zero callers**; evidence is consumed nowhere in `src/` |
+| 2 | Create dictionary **parameters** at lowering | **The step no document names.** `DictArg::Param` cannot render until the def has dict params, which today only `rewrite_constrained_functions` adds |
+| 3 | Delete deletion-group 1 (~320 lines) and the Core `Int` default | Group 2 (~920 lines, AST path) waits for the fallback |
+
+**Phase 2 — stage 4's remainder** (**B4**), after 0187 stage 2 ·
+**Phase 3 — stage 5's exit criterion** (**C7**/**D5**, KI-090)
+
+### Plan 0187 — *Specialisation*, stages 1–3
+
+Depends wholly on 0186 stage 5 landing first: 9 of the 13 failures are
+dictionaries, and no amount of specialisation reaches them.
+
+**Phase 2 — the headline** (**B2**, **B3**)
+
+| # | Item | Notes |
+|---|---|---|
+| 4 | **Stage 2** — generalize a *constrained* definition by arity | Supersedes 0185 stage 3 and 0186 stage 6 — which is why those are not separate work. One conjunct; the work is making phase 1 carry it |
+| 5 | **Stage 1 remainder** — clone a definition used at *two* types (KI-098) | Budget **inside** step 4: B2 makes this the common case, not seven sites |
+| 6 | **Stage 3** — `CACHE_EPOCH` bump | Inferred types change ⇒ `.flxi` contents change |
+
+### Plan 0183 — *Terminal states*, closure
+
+**Phase 4**, after 0187 stage 2 (**E2**, **E4**, **F3**). `R6d` reports an
+inferred ambiguity — [0185](../proposals/0185_generalize_by_arity.md) stage 4 is
+the same work written twice. Then `R7`, then the documentation close.
+
+### No plan — field reports (**Track D**)
+
+Three of the five High bugs have no proposal: **KI-076** and **KI-071** came
+from the Flume conversion, **KI-086** was raised by 0186 but no stage covers it,
+**KI-073** is a regression against 0179. **This is why "three of Track D's
+High-severity bugs are the same class of defect Track C deletes at the root" is
+an assertion nobody has tested** — measure it after step 3 by re-running
+`examples_generics` and `generics_runtime` and reading the snapshot diff. The
+capability map was built for exactly this question.
+
+### Not being worked
+
+**0182** entirely, plus D11–D16 — **scheduled for 0.0.9**, the type-class
+surface and its Low defects · **0184 stage 2** (record-polymorphic
+access, whose evidence has *runtime* content) · retiring the AST bytecode
+fallback (**E3**, answered **no**) · D10 and D17 (not generics) · A2, A3.
+
+### Execution order
+
+```
+Phase 0   0a done  0b  0c  0d        no plan — prerequisites
+Phase 1   1   2   3                  0186 stage 5
+Phase 2   4   5   6                  0187 stages 2, 1-rem, 3
+          7                          0186 stage 4-rem
+Phase 3   8                          0186 stage 5 exit criterion
+          9   10                     no plan — Track D
+Phase 4   11  12  13                 0183 closure
+```
+
+**0187 stage 2 — the headline, `fn double(x) { x + x }` at two types — is one
+conjunct** once 0186 stage 5 can carry it.
 
 ---
 
@@ -396,6 +855,86 @@ hand, and the Core pass retired behind that.
 
 ---
 
+## Track B — 0187: specialisation, then generalize-by-arity
+
+`fn identity(x) { x }` usable at two types. **Moved here from 0.0.7**, because
+the measurement in *The split* shows 9 of the 13 tests it breaks are dictionary
+plumbing that only Track C fixes — B1 addresses 4. **C must land first**, which
+is the opposite of what 0187 assumes.
+
+- [x] **B1. Specialise a generalized definition at its single concrete
+      instantiation — DONE 2026-09-10.** `4f45fb70`.
+
+      **This entry previously described a different pass, and the difference is
+      the finding.** It said: a `core/` pass at Stage 0.6, cloning on a
+      known-global *dictionary argument*. That cannot fix what needed fixing.
+
+      G5 introduced a **second** kind of despecialisation this list did not
+      anticipate. The four optimisation tests it broke are class-free —
+      `fn copy_head(xs) { match xs { [h | t] -> [h | [h | t]], _ -> [] } }` has
+      no dictionary to clone on. Generalizing it replaces a concrete parameter
+      type with a variable, and a variable has no `FluxRep`, so `IntRep` is lost
+      and Aether must emit a `DropSpecialized` it had proved unnecessary. The
+      constrained kind (`IAdd` → dictionary call) is real too, but it is B2's,
+      and F8's "16 became 4" measured both at once because full
+      generalize-by-arity triggers both.
+
+      **And it cannot live at Stage 0.6.** A `core/` pass cannot see a call
+      site's instantiation: `CoreExpr` carries no `ExprId` and a `CoreBinder`
+      carries only a `FluxRep`. The type is in `hm_expr_types`, which is live
+      during AST → Core lowering and gone afterwards — the same constraint that
+      puts C5's emitter at lowering rather than inside `dict_elaborate`.
+
+      What landed: during lowering, a definition whose call sites all agree on
+      one fully concrete instantiation has its body lowered under that
+      substitution. **In place — no clone, no call-site rewriting, no arity
+      change**, so none of the `verify_aether_contract_stage` /
+      `core_lint_stage` risk a cloning pass carries.
+
+      Three things that had to be right:
+
+      - **Self-calls are not instantiations.** A recursive occurrence is at the
+        definition's own type by construction; counting it excludes every
+        recursive function, which is half the failing tests.
+      - **No `TypeEnv` dependency.** The first version read the function's
+        scheme, which works in the compiler and does nothing under
+        `lower_program_ast` (`type_env: None`) — the optimisation would have
+        silently not happened on any path without a scheme table. The generic
+        side is now recovered from parameter occurrences in the body.
+      - **Constrained functions are excluded.** Specialising one rewrites the
+        body types that several sites read to decide which instance a method
+        call means, while its dictionaries stay positional and fixed by its
+        signature. Verified failure: `result_directed_two_dictionaries.flx`
+        prints `7` for a `String`. That is a *sixth* instance of the
+        re-derivation family in `CLAUDE.md`, produced while fixing the fifth.
+
+      *Exit:* the 4 optimisation tests pass untouched, the generalization rule
+      unchanged. **Remainder: [KI-098](../known_issues.md#ki-098)** — a
+      definition used at *two* types is still despecialised. Cloning is owed to
+      B2, where it is the common case rather than seven sites.
+
+- [ ] **B2. Land generalize-by-arity** — `monomorphism_restriction` by arity in
+      `finalize_and_bind_function_scheme`. Two lines; written and reverted in
+      `60b3fa39`, so the diff already exists. Depends on B1.
+      Exit: the same 4 still pass **without being weakened**.
+- [ ] **B3. Bump `CACHE_EPOCH`.** Depends on B2.
+- [ ] **B4. 0186 stage 4's remainder — one quantification decision per
+      *group*.** Depends on B2, and only on B2. No failing case exists today:
+      mutually recursive polymorphic functions, constrained ones included,
+      already work. It becomes necessary once unannotated helpers are
+      constrained, because one member's `forall` must not mention a variable
+      another member left free.
+
+Why this order: B2 alone despecialises every unannotated helper — `IAdd`
+becomes a dictionary call, and `my_filter` goes from `FBIP: fip, FreshAllocs: 0`
+to `fbip(1), FreshAllocs: 1`. Landing it before B1 means dismantling the 4 tests
+that assert superinstruction fusion, `DropSpecialized` elimination and tail
+calls still fire.
+
+---
+
+---
+
 ## Track D — open type-class bugs
 
 Ranked by severity; complete as of this writing.
@@ -410,11 +949,24 @@ Ranked by severity; complete as of this writing.
       *Native backend; a VM/native divergence.*
 - [ ] **D3. [KI-076](../known_issues.md#ki-076)** — an operator on a
       class-constrained type parameter does not dispatch inside a `module`
-      block. *Dictionary passing.*
+      block. *Dictionary passing.* **Symptom re-measured 2026-09-11 and the
+      entry corrected**: not `cannot compare Adt with OpLessThanOrEqual` but
+      `E1000: wrong number of arguments: want=3, got=2` at the `x <= y`.
+      `want=3` is `lte(dict, x, y)`, so the operator does now reach the
+      dictionary-passing method — it arrives without the dictionary. Pinned by
+      `examples/generics/failing/runtime/ki_076_operator_in_module.flx`.
 - [ ] **D4. [KI-086](../known_issues.md#ki-086)** — a class declared inside a
       `module` loses its default method bodies. Two symptoms: a runtime
-      `E1001 panic: No instance of Greet.greet` cross-module, and a default body
-      cannot call a sibling method (`E004`). *Module interfaces.*
+      `E1009 panic: No instance of Greet.greet` cross-module (this item said
+      `E1001`; the entry always had it right, and `E1009` is what 2026-09-11
+      measured), and a default body cannot call a sibling method (`E004`).
+      *Module interfaces.*
+      **The runtime symptom is hidden by `--no-cache`**, which follows from the
+      cause — the body is lost when the class is rebuilt from a cached `.flxi`
+      — but had not been recorded as a reproduction condition. It is both a
+      workaround and the reason the runtime half cannot be pinned in F9's
+      corpus, whose runtime harness passes that flag; the `E004` half is pinned
+      instead, at `examples/generics/failing/compile/Ki086Greet.flx`.
 - [ ] **D5. [KI-090](../known_issues.md#ki-090)** — a constrained function
       passed as a value loses its dictionary. Tracked as **C7**; listed here so
       the High count is honest. Closure-conversion work, not generics work.
@@ -423,9 +975,14 @@ Ranked by severity; complete as of this writing.
 ### Medium
 
 
-- [ ] **D7. [KI-069](../known_issues.md#ki-069)** — a contextual instance cannot
-      compare a field of its own head type. *Dictionary elaboration; a C
-      candidate.*
+- [x] **D7. [KI-069](../known_issues.md#ki-069)** — a contextual instance cannot
+      compare a field of its own head type. **No longer reproduces, verified
+      2026-09-11** against the entry's own repro, which now compiles and
+      dispatches at `Tree<Int>`. The fixing change was not identified — this
+      came out of building the generics corpus (F9), not a deliberate fix — so
+      the entry is marked fixed-by-verification and pinned by
+      `examples/generics/working/accepts/data_contextual_instance_recursive_head.flx`.
+      Its "no workaround" line was the misleading part and is retracted.
 
 
 - [ ] **D10. [KI-053](../known_issues.md#ki-053)** — the whole-program dumps

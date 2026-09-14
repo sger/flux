@@ -303,7 +303,7 @@ impl ModuleInterface {
         Self {
             module_name: module_name.into(),
             source_hash: source_hash.into(),
-            compiler_version: env!("CARGO_PKG_VERSION").to_string(),
+            compiler_version: crate::shared::cache_paths::compiler_build_id().to_string(),
             cache_format_version: MODULE_INTERFACE_FORMAT_VERSION,
             semantic_config_hash: semantic_config_hash.into(),
             interface_fingerprint: String::new(),

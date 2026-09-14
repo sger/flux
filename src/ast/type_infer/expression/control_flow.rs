@@ -93,16 +93,20 @@ impl<'a> InferCtx<'a> {
         }
         let shared_family = self.shared_pattern_family(input.arms);
         let has_nonconstraining_arm = self.match_has_nonconstraining_arm(input.arms);
-        let isolate_arm_scrutinees = self.should_isolate_match_arm_scrutinees(
-            input.arms,
-            &scrutinee_ty,
-            shared_family.as_ref(),
-        );
         let propagated_scrutinee = self.propagate_match_scrutinee_constraint(
             &scrutinee_ty,
             &shared_family,
             has_nonconstraining_arm,
             &input,
+        );
+        // Decided against the scrutinee as it stands *after* propagation, not
+        // before: propagating is what makes an unknown scrutinee's family known,
+        // and isolating on the strength of the ignorance it just removed binds
+        // the arms against fresh variables for no reason.
+        let isolate_arm_scrutinees = self.should_isolate_match_arm_scrutinees(
+            input.arms,
+            &propagated_scrutinee,
+            shared_family.as_ref(),
         );
         let (first_ty, first_span) = self.infer_first_match_arm(
             input.arms,
@@ -211,7 +215,20 @@ impl<'a> InferCtx<'a> {
         has_nonconstraining_arm: bool,
         input: &MatchInferInput<'_>,
     ) -> InferType {
-        if has_nonconstraining_arm {
+        // A catch-all arm normally stops propagation: the other arms need not
+        // account for the whole type, so their shared family is not necessarily
+        // the scrutinee's. An *unresolved* scrutinee is the exception. Nothing
+        // is known to contradict, and the constraining arms all say the same
+        // thing about it — `[r | _]` can only match a list whatever the
+        // catch-all covers — so declining to record that leaves the arm's
+        // bindings attached to a variable no call site can reach
+        // (`docs/known_issues.md#ki-095`).
+        if has_nonconstraining_arm
+            && !matches!(
+                scrutinee_ty.apply_type_subst(&self.subst),
+                InferType::Var(_)
+            )
+        {
             return scrutinee_ty.clone();
         }
         shared_family

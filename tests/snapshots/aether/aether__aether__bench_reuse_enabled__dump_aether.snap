@@ -865,6 +865,29 @@ lam(size, init, pairs, f) ->
         _ ->
           a#325
   aether_call[owned, owned] accum_go#324(base#330, pairs#322)
+── fn filter ──
+  Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
+  FreshAllocs: 1
+  verifier: ok
+lam(xs, pred) ->
+  letrec filter_acc =
+    lam(ys, acc) ->
+      case ys#349 of
+        Cons(h, t) ->
+          let <sym:4001584> =
+            aether_call[owned] pred#347(dup h#351 in h#351)
+          case <sym:4001584>#1584 of
+            true ->
+              let <sym:4001585> =
+                Cons(h#351, acc#350)
+              aether_call[owned, owned] filter_acc#348(t#352, <sym:4001585>#1585)
+            _ ->
+              aether_call[owned, owned] filter_acc#348(t#352, acc#350)
+        _ ->
+          aether_call[owned] reverse#513(acc#350)
+  let <sym:4001586> =
+    Nil
+  aether_call[owned, owned] filter_acc#348(xs#346, <sym:4001586>#1586)
 ── fn foldr ──
   Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
@@ -2097,8 +2120,8 @@ lam() ->
         aether_call[owned] __resume_default#1344(<sym:4001919>#1919)
 
 ── Total ──
-  Dups: 48  Drops: 162  Reuses: 17  DropSpecs: 1  BorrowedCallGuards: 45  FBIP: fbip(25)  Yields: 11  Handles: 5  HandlerArms: 11
-  FreshAllocs: 25
+  Dups: 49  Drops: 162  Reuses: 17  DropSpecs: 1  BorrowedCallGuards: 45  FBIP: fbip(26)  Yields: 11  Handles: 5  HandlerArms: 11
+  FreshAllocs: 26
 
 [ 1 of 18] Compiling  Add
 [ 2 of 18] Compiling  Assert

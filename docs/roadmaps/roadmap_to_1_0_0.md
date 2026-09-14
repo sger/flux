@@ -39,9 +39,9 @@ It does **not** require:
 |---|---|---|---|
 | `0.0.5` ✅ | Static typing closure | `0127`, `0155`, `0156`, `0157`, `0158`, `0159`, `0160`, `0150`, `0116` | — |
 | `0.0.6` | Finish partials + named fields | `0152`, `0151`, `0126`, `0135`, `0015` | `0011` |
-| `0.0.7` | Effect system decomposition | `0161` (Flow.Effects + sealing + optimizer levels), `0040` Phase 1 | `0143` Phase 0 |
-| `0.0.8` | Stdlib and tooling | `0030` polish, `0035`, `0010`, `0083` | `0076` |
-| `0.0.9` | Compiler/runtime perf closure | `0109` Phase 1/3, `0112` Phase 2/3, `0162` Phase 1/2 (evidence passing + monomorphic State/Reader) | `0024` |
+| `0.0.7` | Generics foundations | `0186` stages 0–4 (binding groups, one quantification decision, evidence recorded) | — |
+| `0.0.8` | Type classes | `0186` stage 5 (one evidence-passing translation), `0187`, `0185` stages 3–4 | `0083` |
+| `0.0.9` | Tooling and language identity, and the type-class tail | `0010`, `0025`, `0182` + the Low type-class defects (D11–D16) | `0024` |
 | `0.1.0` | First coherent preview | Consolidate `0.0.5` to `0.0.9` | — |
 | `0.2.0` | Actor concurrency maturity | `0143` remaining phases | — |
 | `0.3.0` | Reuse and ownership hardening | `0068`, `0069` | `0077` |
@@ -97,14 +97,21 @@ Exit criteria:
 - `Base` and `Flow` become a coherent public standard library story
 - users can structure projects with a real module/package workflow
 
-### `0.0.7` — Tests, linter, language identity
+### `0.0.7` — Generics foundations
+
+Rebuilding generics on GHC's model, in the order GHC does it: dependency
+analysis, then one quantification decision, then evidence. Tracked in detail in
+[generics_tasks.md](generics_tasks.md).
+
+**What this displaces.** The tests/linter/identity theme this entry used to
+carry is mostly *already done*: `0035` (unit test framework) and `0043` (pure
+Flux checklist) are both in `proposals/implemented/`. What genuinely remains —
+`0010` (advanced linter) and `0025` (pure FP vision) — moves to `0.0.9`.
 
 Core blockers:
 
-- [0035_unit_test_framework.md](../proposals/0035_unit_test_framework.md)
-- [0010_advanced_linter.md](../proposals/0010_advanced_linter.md)
-- [0025_pure_fp_language_vision.md](../proposals/0025_pure_fp_language_vision.md)
-- [0043_pure_flux_checklist.md](../proposals/0043_pure_flux_checklist.md)
+- [0186_generics_foundations.md](../proposals/0186_generics_foundations.md) stages 0–4
+- [0184_field_access_constraints.md](../proposals/0184_field_access_constraints.md), whose field predicates stage 4's pinning depends on
 
 Optional:
 
@@ -112,17 +119,31 @@ Optional:
 
 Exit criteria:
 
-- Flux has a usable self-hosted testing workflow
-- linting starts enforcing the language’s intended style
-- the project’s identity is explicit: pure FP with effects
+- definitions are grouped by *reference* and emitted in *dependency* order, so a
+  forward reference between nested functions cannot lower to `Uninit`
+- `types/quantify.rs` is the only place that decides what a binding quantifies
+  over
+- the solver *records* what it decided, keyed by `ExprId` plus argument position
+  — consuming that record is 0.0.8
 
-### `0.0.8` — Compiler/runtime architecture base
+### `0.0.8` — Type classes
+
+The half of the rebuild that *deletes* something. Six places independently
+re-derive which instance a call site uses, kept in agreement by hand-written
+comments; that duplication has produced the same bug five times. 0186 stage 5
+replaces them with one evidence-passing translation.
+
+**What this displaces.** Nothing that is still work. The compiler/runtime
+architecture theme this entry used to carry has already landed: `0044` (phase
+pipeline refactor) and `0086` (backend-neutral Core IR) are implemented, and
+`0085` (PrimOp/Base/Flow boundary) is superseded. The entry was stale rather
+than full.
 
 Core blockers:
 
-- [0044_compiler_phase_pipeline_refactor.md](../proposals/0044_compiler_phase_pipeline_refactor.md)
-- [0085_primop_base_flow_boundary.md](../proposals/0085_primop_base_flow_boundary.md)
-- [0086_backend_neutral_core_ir.md](../proposals/0086_backend_neutral_core_ir.md)
+- [0186_generics_foundations.md](../proposals/0186_generics_foundations.md) stage 5
+- [0187_specialisation.md](../proposals/0187_specialisation.md) — the precondition for generalize-by-arity, not an optimisation for later
+- [0185_generalize_by_arity.md](../proposals/0185_generalize_by_arity.md) stages 3–5
 
 Optional:
 
@@ -130,23 +151,67 @@ Optional:
 
 Exit criteria:
 
-- compiler phases are more explicit
-- PrimOp/Base/Flow responsibilities are clearer
-- Flux has a real shared lowering story before actors and Aether become more complex
+- one resolver decides what a call site passes; the six re-derivations are gone
+- an unannotated function with parameters gets a scheme, and the optimisations
+  that assumed it would not still fire — via specialisation, not by weakening
+  the tests
+- the class-dispatch bugs of Track D close at the root rather than one pass at a
+  time
 
-### `0.0.9` — Aether foundation
+### `0.0.9` — Tooling and language identity
 
-Core blockers:
+Its former contents have shipped. All three of the Aether-foundation blockers
+this entry listed are gone from `docs/proposals/`:
+[0084](../proposals/implemented/0084_aether_memory_model.md) and
+[0070](../proposals/implemented/0070_perceus_gc_heap_replacement.md) are
+implemented, and
+[0067](../proposals/superseded/0067_gchandle_actor_boundary_error.md) is
+superseded. Aether is the runtime direction already.
 
-- [0084_aether_memory_model.md](../proposals/0084_aether_memory_model.md)
-- [0070_perceus_gc_heap_replacement.md](../proposals/0070_perceus_gc_heap_replacement.md)
-- [0067_gchandle_actor_boundary_error.md](../proposals/0067_gchandle_actor_boundary_error.md)
+What lands here instead is the part of the 0.0.7 theme that is still open, the
+generics rebuild having taken its slot:
+
+- [0010_advanced_linter.md](../proposals/0010_advanced_linter.md)
+- [0025_pure_fp_language_vision.md](../proposals/0025_pure_fp_language_vision.md)
+
+**Also here, added 2026-09-11: the type-class tail.** 0.0.8 closes the
+*semantics* — constrained generalization and every **High** type-class bug. What
+it does not close is the class **surface** and a handful of Low defects, and
+until now those belonged to no release at all. They land here because they are
+independent of the evidence translation 0.0.8 is built around: pulling them
+forward would add risk to the release already carrying the hard part.
+
+- [0182_typeclass_syntax_completeness.md](../proposals/0182_typeclass_syntax_completeness.md)
+  — parser only. More than one superclass
+  (`class (Eq<a>, Show<a>) => Ord<a>`), a superclass over a non-variable type,
+  and whether `where` becomes the single spelling for class contexts. Exactly
+  one superclass is supported today.
+- The Low type-class defects, none of them blocking:
+  [KI-054](../known_issues.md#ki-054) and [KI-055](../known_issues.md#ki-055)
+  (native: contextual-instance arity, unreferenced forwarding copies),
+  [KI-068](../known_issues.md#ki-068) and
+  [KI-084](../known_issues.md#ki-084) (a bare `Compiler` cannot supply instance
+  bodies or build a contextual dictionary),
+  [KI-074](../known_issues.md#ki-074) and
+  [KI-075](../known_issues.md#ki-075) (a lowercase class name in `where`;
+  `<a: C>` on a multi-parameter class) — roadmap items D11–D16.
+
+Two things deliberately **not** scheduled, here or anywhere:
+
+- **Functional dependencies.** No proposal exists. Flux reaches the same
+  determination for field access with a post-unification pass instead, which is
+  why its generalization rule needs a side condition GHC has no use for — see
+  [the GHC comparison](../internals/typeclass_vs_ghc.md) §4.
+- **[0184](../proposals/0184_field_access_constraints.md) stage 2**, genuinely
+  record-polymorphic field access. Its evidence carries a runtime accessor,
+  unlike stage 1's, so it is a different kind of work rather than a remainder.
 
 Exit criteria:
 
-- Aether is the official runtime direction
-- `GcHandle`-style architecture is no longer the long-term model
-- actor/message boundary safety is defined before actors ship
+- linting enforces the language's intended style rather than only checking it
+- the project's identity is explicit: pure FP with effects
+- the type-class **surface** is complete: more than one superclass is
+  declarable, and no open type-class defect is above Low
 
 ### `0.1.0` — First coherent preview
 

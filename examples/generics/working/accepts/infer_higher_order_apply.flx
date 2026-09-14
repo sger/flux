@@ -1,0 +1,24 @@
+// parity-expected-stdout-begin
+// 2
+// "SHOUT"
+// parity-expected-stdout-end
+
+// An unannotated higher-order function over an *unconstrained* callee — G5.
+//
+// `apply` generalizes over both the function and the argument, so one
+// definition serves `(Int) -> Int` and `(String) -> String`.
+//
+// The callee being unconstrained is what makes this work. Passing a
+// *constrained* function as a value is KI-090 and still fails at run time —
+// see ../../failing/runtime/ki_090_constrained_fn_as_value.flx.
+
+fn apply(f, x) { f(x) }
+
+fn succ(n: Int) -> Int { n + 1 }
+
+fn shout(s: String) -> String { upper(s) }
+
+fn main() with IO {
+    print(apply(succ, 1))
+    print(apply(shout, "shout"))
+}

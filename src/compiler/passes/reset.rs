@@ -38,6 +38,7 @@ impl Compiler {
         self.warnings.clear();
         self.file_scope_symbols.clear();
         self.imported_modules.clear();
+        self.unit_function_names.clear();
         self.import_aliases.clear();
         self.imported_module_exclusions.clear();
         self.current_module_prefix = None;

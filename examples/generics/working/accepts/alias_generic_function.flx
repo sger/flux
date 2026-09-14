@@ -1,0 +1,22 @@
+// parity-expected-stdout-begin
+// 42
+// "ABC"
+// parity-expected-stdout-end
+
+// A parameterized alias for a function type — roadmap G4.
+//
+// `Mapper<a, b>` takes type parameters and expands where it is used, so one
+// alias serves `(Int) -> Int` and `(String) -> String` below. The alias is
+// transparent, so `apply_mapper` could equally have been written with the
+// function type spelled out.
+
+alias Mapper<a, b> = (a) -> b
+
+fn apply_mapper<a, b>(f: Mapper<a, b>, x: a) -> b {
+    f(x)
+}
+
+fn main() with IO {
+    print(apply_mapper(\n -> n * 2, 21))
+    print(apply_mapper(\s -> upper(s), "abc"))
+}

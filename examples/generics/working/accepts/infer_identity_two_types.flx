@@ -1,0 +1,22 @@
+// parity-expected-stdout-begin
+// 1
+// "hi"
+// parity-expected-stdout-end
+
+// Generalize-by-arity, unconstrained half — roadmap G5, shipped in 0.0.7.
+//
+// `identity` carries no annotation at all. It takes a parameter and raises no
+// class constraint, so it is given a scheme and each call site instantiates it
+// fresh. Before G5 the first call pinned the parameter and the second was a
+// type error.
+//
+// The boundary is the constraint, not the annotation: `fn double(x) { x + x }`
+// raises `Num` and is still monomorphic. See
+// ../../failing/compile/b2_unannotated_constrained_double.flx.
+
+fn identity(x) { x }
+
+fn main() with IO {
+    print(identity(1))
+    print(identity("hi"))
+}

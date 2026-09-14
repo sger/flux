@@ -1,0 +1,31 @@
+// parity-expected-stdout-begin
+// "ok: 7"
+// "bad: nope"
+// parity-expected-stdout-end
+
+// Two type parameters, instantiated independently.
+//
+// `Outcome<a, e>` is declared here rather than imported: `Result` is not a
+// built-in type, it is an ordinary `data` in `Flow.Result` and would need
+// `import Flow.Result`. Declaring a local one keeps this file standalone and
+// makes the shape visible.
+//
+// Both parameters are fixed by one construction — `Outcome<Int, String>` —
+// and `match` recovers each arm's payload at its own type.
+
+data Outcome<a, e> {
+    Good(a),
+    Bad(e),
+}
+
+fn render(o: Outcome<Int, String>) -> String {
+    match o {
+        Good(v) -> "ok: " + to_string(v),
+        Bad(e) -> "bad: " + e,
+    }
+}
+
+fn main() with IO {
+    print(render(Good(7)))
+    print(render(Bad("nope")))
+}

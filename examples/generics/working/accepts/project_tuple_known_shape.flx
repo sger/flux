@@ -1,0 +1,29 @@
+// parity-expected-stdout-begin
+// 1
+// "x"
+// parity-expected-stdout-end
+
+// Tuple projection is a solver predicate — proposal 0185 stage 5.
+//
+// `fst` and `snd` are unannotated, so `p.0` cannot be resolved where it is
+// written. Instead the access raises a predicate saying "this receiver has an
+// element at index 0", carrying the index on the constraint's origin, and the
+// predicate is discharged after inference once a call site says what `p` is.
+//
+// Before stage 5 the receiver was unified with a *guessed* tuple of
+// `max(index + 1, 2)` fresh variables, so a projection made the receiver wider
+// rather than being checked against it — and `p.5` on a pair silently widened
+// the pair. Both failure modes are now diagnosed; see ../rejects/.
+//
+// The receiver is *pinned* rather than quantified, so one definition serves
+// one tuple shape. Reusing it at a second shape is a 0.0.8 gap — see
+// ../../failing/compile/b2_projection_reused_two_tuples.flx.
+
+fn fst(p) { p.0 }
+
+fn snd(p) { p.1 }
+
+fn main() with IO {
+    print(fst((1, "x")))
+    print(snd((1, "x")))
+}

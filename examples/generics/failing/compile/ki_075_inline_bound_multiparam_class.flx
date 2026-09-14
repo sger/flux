@@ -1,0 +1,39 @@
+// expect: compile_error
+// expect-error: E489
+// expect-error: E444
+
+// GAP — owner: KI-075, Low, 0.0.8 (item D16).
+// Measured 2026-09-11: error[E489] Could Not Deduce, then error[E444] No Type
+// Class Instance.
+//
+// `<a: Convert>` is the inline bound sugar, and it can only name one type
+// argument. `Convert<a, b>` has two, so the sugar cannot say what the second
+// one is and the obligation is left half-specified.
+//
+// The diagnostic then suggests writing `instance Convert<Int> { ... }` — an
+// instance of a two-parameter class with one argument, which is itself a parse
+// error. A hint that cannot be followed is worse than no hint.
+//
+// The `where` form expresses this correctly and is the fix:
+//
+//   fn via<a, b>(x: a) -> b where Convert<a, b> { convert(x) }
+//
+// See ../../working/accepts/constraint_where_single.flx for the spelling.
+// Note that `where Convert<a, b>` works on the VM but diverges natively —
+// KI-073, listed in ../../README.md.
+
+class Convert<a, b> {
+    fn convert(x: a) -> b
+}
+
+instance Convert<Int, String> {
+    fn convert(x) { to_string(x) }
+}
+
+fn via<a: Convert>(x: a) -> String {
+    convert(x)
+}
+
+fn main() with IO {
+    print(via(42))
+}

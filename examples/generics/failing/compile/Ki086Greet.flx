@@ -1,0 +1,40 @@
+// expect: error
+// expect-error: E004
+
+// GAP — owner: KI-086, High, 0.0.8.
+// Measured 2026-09-11: error[E004] Undefined Variable — I can't find a value
+// named `name`, at the `name(x)` in the default body below.
+//
+// A class default body cannot call a sibling method of its own class when the
+// class is declared inside a `module`. The identical class at the top level of
+// a script compiles and runs.
+//
+// This is one of KI-086's *two* failures, and the only one this corpus can
+// pin. The other is a run-time one: across a module boundary the default body
+// is silently dropped and dispatch panics with
+// `error[E1009]: panic: No instance of Greet.greet for the given type`.
+//
+// That second failure is deliberately not filed as a ../runtime/ file, because
+// no harness here can see it. It needs the `.flxi` interface round-trip — the
+// entry's cause is that a class rebuilt from a cached interface entry gets
+// `default_body: None`, so method *types* cross the boundary and method
+// *bodies* do not. The runtime harness passes `--no-cache`, and measured on
+// 2026-09-11 that flag makes the program print "hi, someone" and exit 0. A
+// snapshot taken there would pin the bug *not* reproducing, which is worse
+// than no snapshot: whoever fixes KI-086 would see no diff.
+//
+//   flux --no-strict            ki_086_repro.flx   ->  E1009 panic
+//   flux --no-cache --no-strict ki_086_repro.flx   ->  prints "hi, someone"
+//
+// That `--no-cache` hides it is a usable workaround and a sharper statement of
+// the cause than the entry carries; KI-086 should record it.
+//
+// A single file is enough here because the error is raised inside the module
+// itself, so no importing script is needed to provoke it.
+
+module Ki086Greet {
+    public class Greet<a> {
+        fn name(x: a) -> String
+        fn greet(x: a) -> String { "hi, " + name(x) }
+    }
+}

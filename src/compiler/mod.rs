@@ -733,11 +733,36 @@ fn collect_type_expr_named_symbols(ty: &TypeExpr, symbols: &mut HashSet<Identifi
                 collect_type_expr_named_symbols(elem, symbols);
             }
         }
-        TypeExpr::Function { params, ret, .. } => {
+        TypeExpr::Function {
+            params,
+            ret,
+            effects,
+            ..
+        } => {
             for param in params {
                 collect_type_expr_named_symbols(param, symbols);
             }
             collect_type_expr_named_symbols(ret, symbols);
+            // The effect row is part of the type. A parameter used only there —
+            // the `e` in `alias Handler<a, e> = (a) -> a with <Async | e>` — is
+            // used, and skipping the row reported it as phantom.
+            // See `docs/known_issues.md#ki-092`.
+            for effect in effects {
+                collect_effect_expr_named_symbols(effect, symbols);
+            }
+        }
+    }
+}
+
+/// The names an effect row mentions: effect atoms and open row variables.
+fn collect_effect_expr_named_symbols(effect: &EffectExpr, symbols: &mut HashSet<Identifier>) {
+    match effect {
+        EffectExpr::Named { name, .. } | EffectExpr::RowVar { name, .. } => {
+            symbols.insert(*name);
+        }
+        EffectExpr::Add { left, right, .. } | EffectExpr::Subtract { left, right, .. } => {
+            collect_effect_expr_named_symbols(left, symbols);
+            collect_effect_expr_named_symbols(right, symbols);
         }
     }
 }
@@ -1282,6 +1307,14 @@ pub struct Compiler {
     imported_files: HashSet<String>,
     pub(super) file_scope_symbols: HashSet<Symbol>,
     pub(super) imported_modules: HashSet<Symbol>,
+    /// Every function this compilation unit defines itself, at top level or in
+    /// a `module` block.
+    ///
+    /// A unit's own definition shadows an import of the same name, so this is
+    /// what stops an imported contract being applied to it — see
+    /// `lookup_unqualified_runtime_contract` and
+    /// `docs/known_issues.md#ki-091`.
+    pub(super) unit_function_names: HashSet<Symbol>,
     pub(super) import_aliases: HashMap<Symbol, Symbol>,
     pub(super) imported_module_exclusions: HashMap<Symbol, HashSet<Symbol>>,
     /// Maps unqualified member name → qualified "Module.member" symbol
@@ -1895,6 +1928,7 @@ impl Compiler {
             imported_files: HashSet::new(),
             file_scope_symbols: HashSet::new(),
             imported_modules: HashSet::new(),
+            unit_function_names: HashSet::new(),
             import_aliases: HashMap::new(),
             imported_module_exclusions: HashMap::new(),
             exposed_bindings: HashMap::new(),
@@ -3902,6 +3936,24 @@ impl Compiler {
                         .iter()
                         .map(|e| e.expand_aliases(&self.effect_row_aliases))
                         .collect();
+                    // The same reasoning covers a row nested inside an
+                    // annotation: `fn consume(s: () -> Int with Async)` keeps
+                    // `Async` as a single atom otherwise, while the argument's
+                    // own contract is decomposed, and the row solver reports
+                    // the two as disjoint (E422). See docs/known_issues.md#ki-094.
+                    let expand = |ty: &TypeExpr| {
+                        let mut ty = ty.clone();
+                        crate::ast::expand_effect_aliases::expand_type_effect_aliases(
+                            &mut ty,
+                            &self.effect_row_aliases,
+                        );
+                        ty
+                    };
+                    let expanded_params: Vec<Option<TypeExpr>> = parameter_types
+                        .iter()
+                        .map(|ty| ty.as_ref().map(&expand))
+                        .collect();
+                    let expanded_ret = return_type.as_ref().map(&expand);
                     self.module_contracts.insert(
                         ContractKey {
                             module_name,
@@ -3910,8 +3962,8 @@ impl Compiler {
                         },
                         FnContract {
                             type_params: Statement::function_type_param_names(type_params),
-                            params: parameter_types.clone(),
-                            ret: return_type.clone(),
+                            params: expanded_params,
+                            ret: expanded_ret,
                             effects: expanded_effects,
                         },
                     );
@@ -6223,6 +6275,12 @@ impl Compiler {
             // an application of a class's type-level declaration, and whether
             // it reduces is inference's business, not name resolution's.
             || self.class_env.associated_type_class(name).is_some()
+            // A transparent type alias is a real type name here. It is
+            // rewritten to its expansion in Phase 1d, but this validation runs
+            // during collection — before that — so without this the alias is
+            // reported unknown and the expansion never gets the chance.
+            // See `docs/known_issues.md#ki-094`.
+            || self.transparent_type_aliases.contains_key(&name)
     }
 
     /// Resolve a constructor name to its `ConstructorInfo` across both the
@@ -6368,6 +6426,14 @@ impl Compiler {
         function_name: Symbol,
         arity: usize,
     ) -> Option<&FnContract> {
+        // A local definition shadows a top-level one, so a top-level function's
+        // contract does not describe this call. Without this, `fn helper` inside
+        // a function is checked against the top-level `helper`'s signature — an
+        // `E300` whose two halves disagree, or an `E1000` at run time.
+        // See `docs/known_issues.md#ki-088`.
+        if self.symbol_table.is_bound_in_inner_scope(function_name) {
+            return None;
+        }
         if let Some(module_name) = self.current_module_prefix
             && let Some(contract) = self.lookup_contract(Some(module_name), function_name, arity)
         {
@@ -6390,6 +6456,13 @@ impl Compiler {
         &self,
         function_name: Symbol,
     ) -> Option<&FunctionContract> {
+        // A name this unit defines is not an imported one, whatever a module it
+        // imports happens to call its own function. Without this, `fn sum(a, b)`
+        // is checked against `Flow.List.sum`'s `List<Int> -> Int` contract and
+        // every call to it is an `E300` — see `docs/known_issues.md#ki-091`.
+        if self.unit_function_names.contains(&function_name) {
+            return None;
+        }
         if let Some(module_name) = self.current_module_prefix
             && let Some(contract) = self.lookup_runtime_contract(module_name, function_name)
         {
@@ -6466,6 +6539,13 @@ impl Compiler {
 
     pub(super) fn resolve_module_name_from_expr(&self, expr: &Expression) -> Option<Symbol> {
         if let Expression::Identifier { name, .. } = expr {
+            // A name the program binds is a value, not a module qualifier —
+            // `let Math = { .. }` then `Math.square(5)` means the binding, not
+            // `Flow.Math`. Modules are not entered in the symbol table, so a hit
+            // here is always a real binding. See `docs/known_issues.md#ki-093`.
+            if self.symbol_table.is_bound(*name) {
+                return None;
+            }
             if let Some(target) = self.import_aliases.get(name) {
                 return Some(*target);
             }
