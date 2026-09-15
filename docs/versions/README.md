@@ -2,6 +2,7 @@
 
 | Version | What's New |
 |---------|-----------|
+| [v0.0.7](whats_new_v0.0.7.md) | Associated types, superclasses and checked `deriving`; the standard class hierarchy in the prelude; Flume package manager (`flux.toml`, `flux.lock`, git/registry deps, workspaces, `publish`); generics without signatures; `Flow.Process`/`Env`/`Crypto`/`Result`/`Path`; Windows in CI |
 | [v0.0.6](whats_new_v0.0.6.md) | Language Server + VS Code extension, interactive REPL, typed holes, async runtime (work-stealing scheduler, cancellation, events/`select`), radix/underscore number literals |
 | [v0.0.5](whats_new_v0.0.5.md) | Effect-handler polish, type classes end-to-end, `--strict-types`, signature-directed checking, typed compiler pipeline, Flow/primops split, release automation |
 | [v0.0.4](whats_new_v0.0.4.md) | LLVM-native backend (`--native`), Aether ownership model, Core-first pipeline, tail-call optimization, `exposing` imports + module interfaces |
