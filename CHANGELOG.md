@@ -8,8 +8,90 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+#### Type classes (proposal 0179)
+
+- Associated types: declarations are parsed and collected, equations are validated against their class, reduction keeps stuck applications rather than guessing, and the resolved types travel across the module interface.
+- Superclass evidence is carried in dictionary slots, superclass obligations are checked against the whole program rather than per module, and superclass identities survive a `.flxi` round-trip.
+- `deriving` is checked before it runs: a clause no body can be generated for is rejected rather than failing at run time, derived instance evidence is pinned, and a parameterized derived instance gets a structural `Eq` body.
+- The standard class hierarchy moved into the Flux prelude: `Eq`, `Ord` (with `Eq` declared as its superclass), `Semigroup` and its container instances, `Monoid`, `Functor`, `Applicative`, `Monad`. `Eq` over built-in containers now has a real dictionary rather than a special case.
+- `+` has its own class, so `String` can instantiate it.
+- Dictionaries can be selected from the type a call's *result* must have, not only from its arguments — a multi-parameter class reaches the common case without functional dependencies.
+- Classes are identified by their owning module, so a locally declared class wins a same-named prelude class in a bound.
+- `where` clauses on class constraints, unified on `ClassConstraint`.
+- New diagnostics: `E454` overlapping instances (reported instead of failing at run time), `E442` an instance omitting a required method, `E449`/`E455` head-type rules, `E487`, and a report for a class parameter no call site determines.
+- A stale class interface is reported rather than silently dropping the class.
+
+#### Flume — the package manager (proposal 0177)
+
+- Build packages from `flux.toml`, with path dependencies and the `flux` package commands.
+- Registry dependencies resolved through `flux.lock`.
+- Git dependencies fetched from GitHub and GitLab, pinned by lockfile.
+- Store, workspace, metadata and publish support.
+- `dev` and `release` package build profiles.
+- The resolver is a pure core with effectful interpreters around it, so dependency graphs are planned without touching the filesystem.
+- New diagnostic `E471`.
+
+#### Generics (proposals 0185, 0186, 0187)
+
+- An unannotated definition that takes parameters and raises no class constraint is now generic (G5): `fn identity(x) { x }` is usable at `Int` and `String` with no signature.
+- Tuple projection is a solver predicate rather than a tuple shape guessed at the access site; out-of-range and undetermined receivers are reported (`E491`, `E492`).
+- Field access raises a constraint instead of a hole.
+- Binding groups are inferred and emitted in dependency order rather than source order.
+- The solver records its evidence against the site that raised it, dumpable with `FLUX_DBG_EVIDENCE`.
+- A generalized definition whose call sites all agree on one concrete instantiation is lowered under that substitution, restoring the representation Aether needs to prove in-place reuse (B1).
+- `examples/generics/` — 48 snapshot-pinned programs organised by what the compiler does with them.
+
+#### Standard library
+
+- `Flow.Process` — subprocess execution.
+- `Flow.Env` — process arguments and environment access.
+- `Flow.Crypto` — `sha256` and `sha256_file`.
+- `Flow.Fs` — `list_dir` and `metadata`, and the module is now async-aware (KI-005).
+- `Flow.Result`.
+- `Flow.Path`.
+
 ### Changed
-- (none yet)
+
+- The cache epoch runs 43 → 53. Every bump from 47 on is the same cause: the change alters inferred types, and so alters what a cached `.flxi` records.
+- Cached artifacts are keyed on the compiler build rather than its version, so a stale entry stops being found rather than being read and mistaken for current (KI-079).
+- The stdlib is located outside the source checkout, so an installed `flux` works away from the repo (KI-008).
+- Project root and module roots are computed without consulting the working directory.
+- The parity harness gained a `// requires:` directive, so a fixture making a claim about the host OS skips off-platform instead of failing.
+- CI runs lint and test on Windows alongside Linux and macOS.
+
+### Fixed
+
+- Windows: POSIX assumptions removed from the Flume boundary, the C runtime, and the tests.
+- A `let` binding shadowing a `fn` in an enclosing scope no longer reports a spurious `E001`; the duplicate check was calling a name resolver that captures as a side effect, and so manufactured the duplicate it reported (KI-088).
+- A match arm no longer consumes an outer `let` binding (KI-001).
+- Cons lists compare structurally instead of trapping.
+- Native tuple-list ownership corruption, and safe borrowed-call reuse restored with VM/native parity (KI-013).
+- Constructor patterns are checked against the scrutinee's type (KI-072).
+- A recursive group's predeclaration is unified, and the environment is read through the substitution (KI-096).
+- A match arm's field receiver is determined from its call site (KI-095).
+- An effect alias reachable only through an annotation or an alias body is decomposed (KI-094).
+- A bound name is a value, not a module qualifier (KI-093).
+- A unit's own function is never an imported one (KI-091).
+- Binding groups are grouped by reference rather than adjacency (KI-087).
+- A call to a constrained function is held to its parameter count (KI-082, KI-083).
+- Effect declarations are promoted between modules, so a shared effect module works (KI-028).
+- A deep stack trace elides its middle instead of printing every frame (KI-033).
+- Imported constructor applications are typed from module interfaces, and type aliases are expanded in exported constructor field types (KI-014, KI-016).
+- The wrong container type for a constrained imported function is rejected (KI-003).
+- Instance-context recursion is bounded instead of overflowing the stack.
+- Dictionary evidence is passed at every constrained call site, and a module-member call no longer has evidence re-inserted over what it already carries.
+- Contextual dictionary globals are initialised in the VM and stored before the first statement that runs.
+- Native builds: a module alias and its method no longer claim one symbol, constructor tags are assigned once per program rather than per module, and lazy top-level closures are scoped per block so the IR verifies.
+- The parity harness required a fixture declaring `expect: success` to actually succeed — which found 7 of 133 fixtures had never run (KI-062) — and stopped reporting allowed strict-mode rejections as backend divergence.
+- KI-011, KI-069 and KI-070 no longer reproduce and are marked fixed by verification, each pinned by a file in `examples/generics/working/accepts/`.
+
+### Docs
+
+- Proposals 0182–0187 given accurate status lines, with 0183's duplicated `R6b` name resolved and 0187's Stage 1 rewritten to match what shipped.
+- `docs/internals/typeclass_vs_ghc.md` re-verified against a GHC checkout.
+- `examples/generics/README.md` records what the capability map covers and, deliberately, what it does not.
 
 ---
 
