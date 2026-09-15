@@ -8,6 +8,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- (none yet)
+
+---
+
+## [v0.0.7] - 2026-09-15
+
+
 ### Added
 
 #### Type classes (proposal 0179)
@@ -1202,10 +1210,11 @@ Initial release.
 - **`--verbose` flag**: show cache hit/miss/store status
 - **Builtins**: `print`, `to_string`, `len`, `push`, `concat`, `reverse`, `contains`, `slice`, `sort`, `split`, `join`, `trim`, `upper`, `lower`, `abs`, `min`, `max`, `type_of`, `is_int`, `is_float`, `is_string`, `is_bool`, `is_array`, `is_hash`, `is_none`, `is_some`
 
-[Unreleased]: https://github.com/sger/flux/compare/v0.0.6...HEAD
+[Unreleased]: https://github.com/sger/flux/compare/v0.0.7...HEAD
 [v0.0.3]: https://github.com/sger/flux/compare/v0.0.2...v0.0.3
 [v0.0.2]: https://github.com/sger/flux/compare/v0.0.1...v0.0.2
 [v0.0.1]: https://github.com/sger/flux/releases/tag/v0.0.1
 [v0.0.4]: https://github.com/sger/flux/compare/v0.0.3...v0.0.4
 [v0.0.5]: https://github.com/sger/flux/compare/v0.0.4...v0.0.5
 [v0.0.6]: https://github.com/sger/flux/compare/v0.0.5...v0.0.6
+[v0.0.7]: https://github.com/sger/flux/compare/v0.0.6...v0.0.7
