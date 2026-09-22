@@ -4,9 +4,12 @@
  * All values are pointer-tagged i64.  See flux_rt.h for the encoding.
  */
 
-// Expose POSIX APIs (clock_gettime, etc.) on Linux/glibc.
+// Expose POSIX APIs (clock_gettime, lstat, etc.) on Linux/glibc. 200809L is
+// the floor, not 199309L: glibc guards `lstat` behind __USE_XOPEN2K8, and
+// `-std=c11` defines __STRICT_ANSI__, so a lower level leaves the filesystem
+// section below calling an undeclared function — an error on clang 16+.
 #if !defined(_POSIX_C_SOURCE) && !defined(__APPLE__)
-#define _POSIX_C_SOURCE 199309L
+#define _POSIX_C_SOURCE 200809L
 #endif
 
 #include "flux_rt.h"
@@ -397,6 +400,17 @@ int64_t flux_read_line(void) {
     return flux_string_new(buf, (uint32_t)len);
 }
 
+/* Is this open stream a directory?
+ *
+ * Asked of the descriptor rather than the path so there is no window between
+ * the check and the read. Windows `fopen` refuses a directory outright, so
+ * this only ever fires on POSIX. */
+static int flux_stream_is_dir(FILE *f) {
+    struct stat st;
+    int fd = fileno(f);
+    return fd >= 0 && fstat(fd, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
 int64_t flux_read_file(int64_t path) {
     const char *path_str = flux_string_data(path);
     uint32_t    path_len = flux_string_len(path);
@@ -430,6 +444,18 @@ int64_t flux_read_file(int64_t path) {
             cpath,
             strerror(saved_errno),
             saved_errno
+        );
+    }
+
+    /* Same directory trap as flux_try_read_file_sync below: without this the
+     * panic reads "out of memory" instead of "Is a directory". */
+    if (flux_stream_is_dir(f)) {
+        fclose(f);
+        FLUX_READ_FILE_PANIC(
+            "read_file failed for '%s': %s (os error %d)",
+            cpath,
+            strerror(EISDIR),
+            EISDIR
         );
     }
 
@@ -568,6 +594,18 @@ static int64_t flux_try_read_file_sync(FLUX_IO_TAGS_DECL, int64_t path) {
         int saved = errno;
         free(cpath);
         FLUX_TRY_READ_FAIL(saved);
+    }
+
+    /* A directory must be rejected here, before the size-then-slurp below.
+     * glibc opens one happily and then reports LONG_MAX from `ftell`, so the
+     * malloc further down fails and the caller is told ENOMEM -> `Other`.
+     * `read(2)` on a directory gives EISDIR, which is what Rust hands the VM
+     * as `IsADirectory`; say the same thing. Parity is the point here, not
+     * taste -- see tests/parity/fs_try_read_file.flx. */
+    if (flux_stream_is_dir(f)) {
+        fclose(f);
+        free(cpath);
+        FLUX_TRY_READ_FAIL(EISDIR);
     }
 
     if (fseek(f, 0, SEEK_END) != 0) {
