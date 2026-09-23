@@ -157,73 +157,82 @@ fn harvest_evidence(
     outcome: &crate::types::class_disposition::SolveOutcome,
 ) -> crate::types::evidence::EvidenceMap {
     use crate::types::class_disposition::Disposition;
-    use crate::types::evidence::{EvidenceMap, EvidenceSite};
+    use crate::types::evidence::EvidenceMap;
 
     let mut map = EvidenceMap::new();
-    let mut next_index: std::collections::HashMap<crate::syntax::expression::ExprId, u16> =
-        std::collections::HashMap::new();
     for entry in &outcome.dispositions {
         let Some(expr) = entry.wanted.expr else {
             continue;
         };
-        // Count every predicate the expression raised, not just the solved
+        // Raise every predicate the expression raised, not just the solved
         // ones. `EvidenceSite.index` is the argument position, so skipping an
         // unsolved predicate would slide every later dictionary one slot left.
-        // Leaving the gap is also what lets `EvidenceMap::args_for` refuse to
-        // build a partial argument list: a dense short list would be a call
-        // with the wrong arity that still type-checks.
-        let index = next_index.entry(expr).or_insert(0);
-        let position = *index;
-        *index += 1;
+        // The map also keeps the count, which is what lets
+        // `EvidenceMap::args_for` refuse a partial argument list even when the
+        // missing answer is the *last* one.
+        let site = map.raise(expr);
         let Disposition::Solved { evidence } = &entry.disposition else {
             continue;
         };
-        map.insert(EvidenceSite::new(expr, position), evidence.clone());
+        map.insert(site, evidence.clone());
     }
     map
 }
 
 impl crate::compiler::Compiler {
-    /// Dump the solver's evidence, one line per site, to stderr.
+    /// Dump the solver's evidence, one line per predicate, to stderr.
     ///
     /// Enabled by `FLUX_DBG_EVIDENCE`. This is the instrument for 0186 stage 5:
     /// the emitter reads exactly this map, so when a call site gets the wrong
     /// dictionary the first question is whether the solver recorded the wrong
     /// evidence or the emitter mistranslated right evidence, and these lines
     /// answer it directly.
+    ///
+    /// Sites print in `ExprId` order so two dumps can be diffed, and every
+    /// raised position prints — an unanswered one as `(unsolved)` — because a
+    /// hole is exactly what this dump exists to show.
     pub(in crate::compiler) fn dump_evidence_map(&self) {
-        use crate::types::class_disposition::Evidence;
+        use crate::types::evidence::EvidenceSite;
         eprintln!(
             "EVIDENCE for {}: {} entries",
             self.file_path,
             self.evidence_map.len()
         );
-        for (site, evidence) in self.evidence_map.entries() {
-            let kind = match evidence {
-                Evidence::FromInstance {
-                    instance, context, ..
-                } => format!(
-                    "FromInstance dict={:?} ctx={}",
-                    instance
-                        .dict_name(&self.interner)
-                        .map(|n| self.interner.resolve(n).to_string()),
-                    context.len()
-                ),
-                Evidence::FromGiven {
-                    given,
-                    superclass_path,
-                } => {
-                    format!(
-                        "FromGiven class={} path={:?}",
-                        self.interner.resolve(given.class_name),
-                        superclass_path
-                    )
-                }
-                Evidence::Structural { .. } => "Structural".to_string(),
-                Evidence::Marker => "Marker".to_string(),
-                Evidence::Unrecorded => "Unrecorded".to_string(),
-            };
-            eprintln!("  site expr={:?} idx={} -> {}", site.expr, site.index, kind);
+        for (expr, raised) in self.evidence_map.raised_sites() {
+            eprintln!("  site expr={expr:?} raised={raised}");
+            for index in 0..raised {
+                let kind = match self.evidence_map.get(&EvidenceSite::new(expr, index)) {
+                    Some(evidence) => self.describe_evidence(evidence),
+                    None => "(unsolved)".to_string(),
+                };
+                eprintln!("    idx={index} -> {kind}");
+            }
+        }
+    }
+
+    fn describe_evidence(&self, evidence: &crate::types::class_disposition::Evidence) -> String {
+        use crate::types::class_disposition::Evidence;
+        match evidence {
+            Evidence::FromInstance {
+                instance, context, ..
+            } => format!(
+                "FromInstance dict={:?} ctx={}",
+                instance
+                    .dict_name(&self.interner)
+                    .map(|n| self.interner.resolve(n).to_string()),
+                context.len()
+            ),
+            Evidence::FromGiven {
+                given,
+                superclass_path,
+            } => format!(
+                "FromGiven class={} path={:?}",
+                self.interner.resolve(given.class_name),
+                superclass_path
+            ),
+            Evidence::Structural { .. } => "Structural".to_string(),
+            Evidence::Marker => "Marker".to_string(),
+            Evidence::Unrecorded => "Unrecorded".to_string(),
         }
     }
 }
@@ -299,6 +308,18 @@ mod tests {
         let expr = ExprId::UNSET;
         let map = harvest_evidence(&outcome(vec![stuck(), solved()], expr));
 
+        assert!(map.args_for(expr).is_none());
+    }
+
+    #[test]
+    fn a_site_with_a_hole_at_the_tail_refuses_to_build_an_argument_list() {
+        // The answered predicates alone look like a site that raised one. Only
+        // the raised count shows the second is missing; deriving the count
+        // from present keys returned `Some([ev0])` here — a short list.
+        let expr = ExprId::UNSET;
+        let map = harvest_evidence(&outcome(vec![solved(), stuck()], expr));
+
+        assert_eq!(map.raised(expr), 2);
         assert!(map.args_for(expr).is_none());
     }
 

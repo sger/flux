@@ -41,9 +41,15 @@ impl EvidenceSite {
 }
 
 /// The evidence the solver produced, by site.
+///
+/// Records how many predicates each expression *raised*, not only which ones
+/// were answered. The answered ones alone cannot say whether the last predicate
+/// is missing: a site that raised two and had only the first solved looks, by
+/// its keys, exactly like a site that raised one.
 #[derive(Debug, Clone, Default)]
 pub struct EvidenceMap {
     by_site: HashMap<EvidenceSite, Evidence>,
+    raised: HashMap<ExprId, u16>,
 }
 
 impl EvidenceMap {
@@ -51,7 +57,23 @@ impl EvidenceMap {
         Self::default()
     }
 
+    /// Record that `expr` raised one more predicate, and return its site.
+    ///
+    /// Called for every predicate, answered or not, so that an unanswered one
+    /// leaves a hole at its position instead of sliding later ones down.
+    pub fn raise(&mut self, expr: ExprId) -> EvidenceSite {
+        let count = self.raised.entry(expr).or_insert(0);
+        let site = EvidenceSite::new(expr, *count);
+        *count += 1;
+        site
+    }
+
+    /// Record the answer for a site previously returned by [`Self::raise`].
     pub fn insert(&mut self, site: EvidenceSite, evidence: Evidence) {
+        debug_assert!(
+            site.index < self.raised(site.expr),
+            "evidence recorded for a predicate that was never raised: {site:?}"
+        );
         self.by_site.insert(site, evidence);
     }
 
@@ -59,19 +81,24 @@ impl EvidenceMap {
         self.by_site.get(site)
     }
 
+    /// How many predicates `expr` raised, answered or not.
+    pub fn raised(&self, expr: ExprId) -> u16 {
+        self.raised.get(&expr).copied().unwrap_or(0)
+    }
+
     /// Every predicate raised at `expr`, in the order a call site passes them.
     ///
-    /// Returns `None` when any index in `0..len` is missing, rather than a
-    /// short list: a caller building an argument list from this must not be
-    /// handed a partial one, because the result would be a call with the wrong
-    /// arity that type-checks.
+    /// Returns `None` when any of the `raised` positions has no answer —
+    /// including the last one — rather than a short list: a caller building an
+    /// argument list from this must not be handed a partial one, because the
+    /// result would be a call with the wrong arity that type-checks.
     pub fn args_for(&self, expr: ExprId) -> Option<Vec<&Evidence>> {
-        let count = self.by_site.keys().filter(|site| site.expr == expr).count();
+        let count = self.raised(expr);
         if count == 0 {
             return None;
         }
         (0..count)
-            .map(|index| self.get(&EvidenceSite::new(expr, index as u16)))
+            .map(|index| self.get(&EvidenceSite::new(expr, index)))
             .collect()
     }
 
@@ -113,6 +140,14 @@ impl EvidenceMap {
     /// Every recorded site and its evidence. Iteration order is unspecified.
     pub fn entries(&self) -> impl Iterator<Item = (&EvidenceSite, &Evidence)> {
         self.by_site.iter()
+    }
+
+    /// Every expression that raised a predicate, with its count, in `ExprId`
+    /// order. Deterministic, unlike [`Self::entries`].
+    pub fn raised_sites(&self) -> Vec<(ExprId, u16)> {
+        let mut sites: Vec<_> = self.raised.iter().map(|(e, n)| (*e, *n)).collect();
+        sites.sort_unstable();
+        sites
     }
 
     pub fn is_empty(&self) -> bool {
