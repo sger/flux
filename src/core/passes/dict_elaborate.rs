@@ -1457,9 +1457,11 @@ pub(crate) fn reachable_methods(
 /// reveals each class parameter, and `select_dictionary` matches what it finds
 /// against each candidate's constraint.
 ///
-/// An undecidable call has already been reported by inference (E485). A Core
-/// pass cannot report, so this recovers with the first candidate rather than
-/// failing — lowering stays total and the diagnostic is what the user sees.
+/// Returns `None` whenever the call does not determine one dictionary. A Core
+/// pass cannot report, so declining is how it refuses: the caller keeps the
+/// method's dispatch stub, whose body panics with the missing instance. It
+/// never guesses — a guess is a silently wrong dictionary, which is how
+/// `both(5, "hi")` once returned `14` instead of `12` (KI-057).
 fn choose_candidate<'a>(
     class_env: &ClassEnv,
     candidates: &'a [MethodCandidate],
@@ -1542,7 +1544,13 @@ fn choose_candidate<'a>(
         .collect();
     match select_dictionary(&indexed, &observed) {
         DictSelection::Unique(index) => candidates.get(index),
-        DictSelection::Ambiguous | DictSelection::NoMatch => Some(first),
+        // Neither is a choice. `NoMatch` means the observed types rule out
+        // every candidate, so answering with one is answering with a
+        // dictionary known to be wrong; `Ambiguous` means several fit and
+        // nothing here picks between them. Declining leaves the call on its
+        // dispatch stub, which fails loudly instead of running the wrong
+        // instance's method.
+        DictSelection::Ambiguous | DictSelection::NoMatch => None,
     }
 }
 
@@ -2149,6 +2157,134 @@ mod tests {
             chosen.map(|candidate| candidate.binder.id),
             Some(CoreBinderId(7))
         );
+    }
+
+    /// A class whose parameter is exactly the method's first argument, so the
+    /// argument's type is what selects the dictionary.
+    fn build_revealed_param_class_env(interner: &mut Interner) -> ClassEnv {
+        let class_sym = interner.intern("Shown");
+        let a_sym = interner.intern("a");
+        let method = interner.intern("tag");
+        let class_def = ClassDef {
+            name: class_sym,
+            module: crate::types::class_id::ModulePath::EMPTY,
+            is_public: false,
+            is_builtin: false,
+            type_params: vec![a_sym],
+            superclasses: vec![],
+            superclass_class_ids: vec![],
+            associated_types: vec![],
+            methods: vec![MethodSig {
+                name: method,
+                type_params: vec![],
+                param_names: vec![interner.intern("__x0")],
+                param_types: vec![TypeExpr::Named {
+                    name: a_sym,
+                    args: vec![],
+                    span: s(),
+                }],
+                return_type: TypeExpr::Named {
+                    name: interner.intern("Int"),
+                    args: vec![],
+                    span: s(),
+                },
+                arity: 1,
+                effects: vec![],
+                infer_type: None,
+            }],
+            default_methods: vec![],
+            span: s(),
+        };
+
+        let mut class_env = ClassEnv::new();
+        class_env.classes.insert(class_def.class_id(), class_def);
+        class_env
+    }
+
+    /// `Shown<Int>` held by binder 7 and `Shown<String>` by binder 8, as in
+    /// `fn f<a: Shown, b: Shown>` instantiated at `Int` and `String`.
+    fn shown_candidates(interner: &Interner) -> [MethodCandidate; 2] {
+        let class_sym = interner.lookup("Shown").expect("Shown interned");
+        let method = interner.lookup("tag").expect("tag interned");
+        let candidate = |id, ty| MethodCandidate {
+            declaring_class: crate::types::class_id::ClassId::from_local_name(class_sym),
+            type_args: vec![ty],
+            binder: mk_binder(id, method),
+            path: vec![0],
+        };
+        [candidate(7, CoreType::Int), candidate(8, CoreType::String)]
+    }
+
+    /// The argument is a `Float`, and neither dictionary is for `Float`. The
+    /// old rule answered with the first candidate — `Shown<Int>` — a
+    /// dictionary the observed type rules out.
+    #[test]
+    fn choose_candidate_declines_when_no_candidate_matches_the_argument() {
+        let mut interner = Interner::new();
+        let class_env = build_revealed_param_class_env(&mut interner);
+        let method = interner.lookup("tag").expect("tag interned");
+        let candidates = shown_candidates(&interner);
+        let arg = mk_binder(20, interner.intern("x"));
+        let binder_types = HashMap::from([(arg.id, CoreType::Float)]);
+
+        let chosen = choose_candidate(
+            &class_env,
+            &candidates,
+            method,
+            &[CoreExpr::bound_var(&arg, s())],
+            &binder_types,
+            None,
+        );
+
+        assert!(
+            chosen.is_none(),
+            "a dictionary known not to match is not an answer"
+        );
+    }
+
+    /// The argument's type is not observed — it is not a variable — so both
+    /// dictionaries fit. The old rule took the first; nothing at the call says
+    /// it is the right one.
+    #[test]
+    fn choose_candidate_declines_when_several_candidates_fit() {
+        let mut interner = Interner::new();
+        let class_env = build_revealed_param_class_env(&mut interner);
+        let method = interner.lookup("tag").expect("tag interned");
+        let candidates = shown_candidates(&interner);
+
+        let chosen = choose_candidate(
+            &class_env,
+            &candidates,
+            method,
+            &[CoreExpr::Lit(CoreLit::Int(5), s())],
+            &HashMap::new(),
+            None,
+        );
+
+        assert!(chosen.is_none(), "an ambiguous call is not a choice");
+    }
+
+    /// Control for the two above: an observed type that matches exactly one
+    /// candidate still selects it.
+    #[test]
+    fn choose_candidate_selects_the_candidate_the_argument_reveals() {
+        let mut interner = Interner::new();
+        let class_env = build_revealed_param_class_env(&mut interner);
+        let method = interner.lookup("tag").expect("tag interned");
+        let candidates = shown_candidates(&interner);
+        let arg = mk_binder(20, interner.intern("x"));
+        let binder_types = HashMap::from([(arg.id, CoreType::String)]);
+
+        let chosen = choose_candidate(
+            &class_env,
+            &candidates,
+            method,
+            &[CoreExpr::bound_var(&arg, s())],
+            &binder_types,
+            None,
+        );
+
+        assert_eq!(chosen.map(|c| c.binder.id), Some(CoreBinderId(8)));
     }
 
     fn eq_constraint(interner: &Interner, args: Vec<InferType>) -> SchemeConstraint {
