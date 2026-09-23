@@ -706,6 +706,10 @@ I use `cargo build` and `cargo test --no-run` for compile correctness only.
 
 # 0.0.8 — type classes
 
+> **Superseded by [0_0_8_plan.md](0_0_8_plan.md)** (2026-09-23), which restates
+> this section as phases with rules and examples. What follows is kept as the
+> record it was planned from.
+
 Order: **C → B1 → B2 → B3 → B4 → D → A2**. C first: it is what the measurement
 above says B2 is actually waiting on, and three of Track D's High-severity bugs
 are the same class of defect it deletes at the root.
