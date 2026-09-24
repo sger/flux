@@ -18,10 +18,69 @@
 //! no cached artifact carries it.
 //!
 //! See `docs/proposals/0186_generics_foundations.md`.
+//!
+//! # How a site is keyed
+//!
+//! Measured with `FLUX_DBG_EVIDENCE` (0.0.8 plan, step 1b):
+//!
+//! - **A call to a constrained function is keyed at the callee identifier**,
+//!   not at the call: `infer_identifier_expression` raises the scheme's
+//!   predicates while the identifier is the current expression. The emitter
+//!   therefore reads evidence where the *identifier* is lowered.
+//! - **The predicates are the scheme's *minimised* context**, in scheme order.
+//!   `fn f<a: Eq + Ord>` raises only `Ord`, because `Eq` is implied by it. The
+//!   definition's dictionary parameters must follow the same minimised list.
+//! - **A marker class takes an index but no dictionary.** Its evidence is
+//!   `Evidence::Marker`, so a dictionary's argument position is its index
+//!   among the *non-marker* predicates, not its raw index.
+//! - **An operator is keyed at the operator expression itself**, with origin
+//!   `InferredOperator`.
+//!
+//! Two gaps, both open:
+//!
+//! - **A predicate that *is* the enclosing definition's own context is never
+//!   recorded.** `lt(x, y)` inside `fn f<a: Ord>` raises `Ord a`, the solver
+//!   marks it `Generalized`, and `close_definition_scope` drops it rather than
+//!   keeping it as a wanted solved from the given. So the commonest method
+//!   call in a constrained body has no evidence. A method reached *through a
+//!   superclass* is recorded (`FromGiven` with a non-empty path).
+//! - **An unannotated self-recursive function raises everything twice.**
+//!   `refine_unannotated_self_recursive_return` infers the body a second time,
+//!   and the same `ExprId`s raise the same predicates again, so an operator in
+//!   such a body shows `raised=2` for one dictionary.
 
 use std::collections::HashMap;
 
-use crate::{syntax::expression::ExprId, types::class_disposition::Evidence};
+use crate::{
+    ast::type_infer::constraint::{WantedClassConstraint, WantedClassConstraintOrigin},
+    source::position::Span,
+    syntax::{Identifier, expression::ExprId},
+    types::{class_disposition::Evidence, class_id::ClassId},
+};
+
+/// What was raised at a site, answered or not.
+///
+/// Kept for every raised predicate so a consumer can tell a dictionary
+/// predicate from a marker one, and so an unanswered site can be reported
+/// with where it came from rather than as a bare expression id.
+#[derive(Debug, Clone)]
+pub struct RaisedPredicate {
+    pub class_name: Identifier,
+    pub class_id: ClassId,
+    pub origin: WantedClassConstraintOrigin,
+    pub span: Span,
+}
+
+impl From<&WantedClassConstraint> for RaisedPredicate {
+    fn from(wanted: &WantedClassConstraint) -> Self {
+        Self {
+            class_name: wanted.class_name,
+            class_id: wanted.class_id,
+            origin: wanted.origin,
+            span: wanted.span,
+        }
+    }
+}
 
 /// One predicate raised at one expression.
 ///
@@ -50,6 +109,7 @@ impl EvidenceSite {
 pub struct EvidenceMap {
     by_site: HashMap<EvidenceSite, Evidence>,
     raised: HashMap<ExprId, u16>,
+    predicates: HashMap<EvidenceSite, RaisedPredicate>,
 }
 
 impl EvidenceMap {
@@ -61,11 +121,18 @@ impl EvidenceMap {
     ///
     /// Called for every predicate, answered or not, so that an unanswered one
     /// leaves a hole at its position instead of sliding later ones down.
-    pub fn raise(&mut self, expr: ExprId) -> EvidenceSite {
+    pub fn raise(&mut self, expr: ExprId, predicate: RaisedPredicate) -> EvidenceSite {
         let count = self.raised.entry(expr).or_insert(0);
         let site = EvidenceSite::new(expr, *count);
         *count += 1;
+        self.predicates.insert(site, predicate);
         site
+    }
+
+    /// What was raised at `site` — present for every raised position,
+    /// including the unanswered ones.
+    pub fn predicate(&self, site: &EvidenceSite) -> Option<&RaisedPredicate> {
+        self.predicates.get(site)
     }
 
     /// Record the answer for a site previously returned by [`Self::raise`].
