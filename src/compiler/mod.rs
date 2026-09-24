@@ -2152,6 +2152,7 @@ impl Compiler {
                 None,
                 class_env_ref,
                 Some(&module_member_schemes),
+                Some(&self.evidence_map),
             );
 
         if elaborate_dictionaries {

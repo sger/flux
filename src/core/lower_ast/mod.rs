@@ -134,10 +134,16 @@ pub fn lower_program_ast_with_class_env(
         effect_op_sigs,
         class_env,
         module_member_schemes,
+        None,
     )
     .0
 }
 
+/// The complete entry point: everything above, plus the solver's evidence.
+///
+/// `evidence` is the whole-program [`EvidenceMap`](crate::types::evidence::EvidenceMap).
+/// Only the compiler has one; every other entry point passes `None`.
+#[allow(clippy::too_many_arguments)]
 pub fn lower_program_ast_with_class_env_and_def_schemes(
     program: &Program,
     hm_expr_types: &HashMap<ExprId, InferType>,
@@ -146,6 +152,7 @@ pub fn lower_program_ast_with_class_env_and_def_schemes(
     effect_op_sigs: Option<&EffectOpSigs>,
     class_env: Option<&crate::types::class_env::ClassEnv>,
     module_member_schemes: Option<&HashMap<(Identifier, Identifier), crate::types::scheme::Scheme>>,
+    evidence: Option<&crate::types::evidence::EvidenceMap>,
 ) -> (
     CoreProgram,
     HashMap<crate::core::CoreBinderId, crate::types::scheme::Scheme>,
@@ -159,6 +166,7 @@ pub fn lower_program_ast_with_class_env_and_def_schemes(
         class_env,
         module_member_schemes,
         module_aliases,
+        evidence,
     );
     lowerer.collect_ctor_field_names(program);
     lowerer.collect_local_function_names(program);
@@ -348,9 +356,20 @@ pub(super) struct AstLowerer<'a> {
     specializations: HashMap<Identifier, TypeSubst>,
     /// The substitution in force while lowering one specialised body.
     active_subst: Option<TypeSubst>,
+    /// The solver's evidence, by the site that raised each predicate
+    /// (0186 stage 5).
+    ///
+    /// Lowering is the last place an `ExprId` is in hand, so it is the only
+    /// place this map can be read: `CoreExpr` carries no id to look a site up
+    /// by. `None` on the paths that lower without a whole-program solve.
+    // Read by the evidence emitter (0.0.8 plan step 1c); the allowance goes
+    // with it.
+    #[allow(dead_code)]
+    pub(super) evidence: Option<&'a crate::types::evidence::EvidenceMap>,
 }
 
 impl<'a> AstLowerer<'a> {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         hm_expr_types: &'a HashMap<ExprId, InferType>,
         interner: Option<&'a crate::syntax::interner::Interner>,
@@ -361,6 +380,7 @@ impl<'a> AstLowerer<'a> {
             &'a HashMap<(Identifier, Identifier), crate::types::scheme::Scheme>,
         >,
         module_aliases: HashMap<Identifier, Identifier>,
+        evidence: Option<&'a crate::types::evidence::EvidenceMap>,
     ) -> Self {
         Self {
             hm_expr_types,
@@ -382,6 +402,7 @@ impl<'a> AstLowerer<'a> {
             adt_variants: std::collections::HashMap::new(),
             specializations: HashMap::new(),
             active_subst: None,
+            evidence,
         }
     }
 
