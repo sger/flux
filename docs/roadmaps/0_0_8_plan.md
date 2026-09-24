@@ -223,6 +223,39 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
     its superclass path. If it isn't, 1d cannot delete `choose_candidate` until
     that recording gap is closed.
   - Operator predicates are keyed at the operator's own id.
+
+  **Measured 2026-09-24.** The rules are written down in `src/types/evidence.rs`,
+  and the map now records each raised predicate's class, origin and span
+  (`RaisedPredicate`), so the dump names its source location and 1e's internal
+  error can name the site.
+  - Callee keying: **confirmed.** Marker slots: **confirmed** (`Sendable` takes
+    index 0 of 2).
+  - A call site raises the scheme's **minimised** context: `<a: Eq + Ord>`
+    raises only `Ord`. 1d's parameters must follow the same list.
+  - Operators are keyed at the operator: **confirmed.**
+  - Method calls in a constrained body: **only half recorded.** A method reached
+    through a superclass gets `FromGiven class=Ord path=[0]`. A method on the
+    definition's *own* context (`lt` inside `<a: Ord>`, or `x < y`) gets
+    nothing, because `close_definition_scope` drops `Generalized` predicates
+    instead of solving them from the givens. That is a **blocker for 1d**: see
+    1b′.
+  - The stdlib's repeated predicates (about 100 sites, all operators) come from
+    `refine_unannotated_self_recursive_return`. It infers an unannotated
+    self-recursive body twice, so each operator raises twice at one id. See 1b″.
+- [ ] **1b′. Record evidence for a predicate that is the definition's own
+  context.**
+  - Keep a `Generalized` predicate in the implication as a wanted, and let the
+    whole-program solve discharge it from the givens. That is GHC's
+    `d_wanted = d_param` (GHC analysis §2).
+  - It is then harvested as `FromGiven` with an empty path.
+  - Pin it: `lt(x, y)` inside `fn f<a: Ord>` must show evidence in the dump.
+  - This changes what the solver sees, so run the full gate.
+- [ ] **1b″. The refinement pass must not raise predicates a second time.**
+  - Discard the class constraints raised during
+    `refine_unannotated_self_recursive_return`. The first pass already raised
+    the same predicates at the same ids.
+  - Pin it: an operator in an unannotated recursive nested helper shows
+    `raised=1`.
 - [ ] **1c. Emit dictionary arguments in shadow mode (C5).**
   - The emitter lives where an **identifier** is lowered, not in the `Call` arm.
     It produces the identifier applied to its dictionaries, and `Call` lowering

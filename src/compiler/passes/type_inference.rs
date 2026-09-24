@@ -170,7 +170,7 @@ fn harvest_evidence(
         // The map also keeps the count, which is what lets
         // `EvidenceMap::args_for` refuse a partial argument list even when the
         // missing answer is the *last* one.
-        let site = map.raise(expr);
+        let site = map.raise(expr, (&entry.wanted).into());
         let Disposition::Solved { evidence } = &entry.disposition else {
             continue;
         };
@@ -201,11 +201,22 @@ impl crate::compiler::Compiler {
         for (expr, raised) in self.evidence_map.raised_sites() {
             eprintln!("  site expr={expr:?} raised={raised}");
             for index in 0..raised {
-                let kind = match self.evidence_map.get(&EvidenceSite::new(expr, index)) {
+                let site = EvidenceSite::new(expr, index);
+                let kind = match self.evidence_map.get(&site) {
                     Some(evidence) => self.describe_evidence(evidence),
                     None => "(unsolved)".to_string(),
                 };
-                eprintln!("    idx={index} -> {kind}");
+                let raised_as = match self.evidence_map.predicate(&site) {
+                    Some(p) => format!(
+                        "{} {:?} @{}:{}",
+                        self.interner.resolve(p.class_name),
+                        p.origin,
+                        p.span.start.line,
+                        p.span.start.column
+                    ),
+                    None => "?".to_string(),
+                };
+                eprintln!("    idx={index} {raised_as} -> {kind}");
             }
         }
     }
