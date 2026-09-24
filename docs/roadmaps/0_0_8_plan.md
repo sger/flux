@@ -95,7 +95,7 @@ instance Size<String> { fn size(x) { len(x) } }
 
 ### Steps
 
-- [ ] **0b. Re-measure B2's cost.**
+- [x] **0b. Re-measure B2's cost.**
   1. Temporarily make the `unconstrained` conjunct in `should_generalize_function`
      (`src/ast/type_infer/function.rs`) always `true`.
   2. Run nextest and `examples_generics`.
@@ -104,7 +104,48 @@ instance Size<String> { fn size(x) { len(x) } }
 
   Why re-measure: the old 13/9/4 split predates B1, KI-094/095/096 and the
   projection fix. Its rows also add up to 12, not 13.
-- [ ] **0c. `EvidenceMap::args_for` returns a short list when the tail is
+
+  **Measured 2026-09-24**, with the forwarder guard kept (B2's actual rule,
+  step 2b), on top of 0c and 0d. Nextest reported 3534 tests, **27 failed**:
+
+  | Class | Tests | What fails | Fixed by |
+  |---|---|---|---|
+  | Dictionary plumbing | 8 | 5 × `E004 __dict_…_Num_Int` / `_Ord_Int` undefined, 2 × `E1000 want=2, got=1`, 1 × `expected function constant` | Phase 1 |
+  | Lost specialisation | 16 | 11 Aether snapshots: `IAdd` becomes a dictionary call, `h:Int` loses its rep, FBIP and borrow counts shift. 4 bytecode-fusion tests (`OpAddLocals`, `OpSubLocals`, `OpCall2` ×2). 1 bytecode snapshot. | Phase 2 (2a) |
+  | Stale expectation | 2 | The two `b2_*` fixtures now compile, and `make_adder` now infers `Add<a> =>`. Both are the *intended* result. | Accept when B2 lands |
+  | User-visible regression | 1 | `indirect_call_wrong_arity` now reports `want=3` for a 2-argument function: the hidden dictionary is counted | **New: Phase 1** |
+  | **Silent miscompile** | 1 (parity) | `user_fn_name_no_collision.flx`: native prints `758397473435` for `sum(3, 4)`; the VM prints `7` | **New: Phase 2, before 2b** |
+
+  Parity reported 135 fixtures: 131 pass, 3 skipped (the known skips), **1
+  mismatch**, which is the miscompile row above. Its cause, confirmed with
+  `FLUX_DBG_SPEC`: B1 excludes a constrained function only when its bound is
+  *written* (`visitor_constrained`, `lower_ast/mod.rs`). An unannotated `sum`
+  that B2 makes constrained is not recognised, so B1 lowers its body at
+  `(Int, Int) -> Int` while it still receives a dictionary. The same program
+  with `fn sum<a: Num>` is left alone and is correct on both backends.
+
+  What this changes:
+  - **The four `core_regressions` DropSpecialized tests pass.** B1 fixed the
+    class-free despecialisation. What remains is the *constrained* kind, in
+    Flow helpers that become generic (`IAdd` becomes a dictionary call). So 2a
+    must clone constrained functions, not only class-free ones. That is already
+    planned; this confirms it is the whole remaining precision problem.
+  - **All 8 plumbing failures come from harnesses that build a bare
+    `Compiler::new_with_interner` with no standard library.** That is
+    KI-068/KI-084's family. Whether the real pipeline hits the same is what the
+    parity run with the temporary change must show.
+  - **New item:** an arity diagnostic must count only source parameters. Add
+    it to Phase 1, next to 1f.
+  - **New item, and a hard gate for 2b:** B1 must decide "constrained" from the
+    definition's *scheme* (or, after 2a, clone it properly), not from written
+    bounds. B2 must not land before this; otherwise every unannotated
+    arithmetic helper is miscompiled on native.
+  - The ordering holds: plumbing (Phase 1) before specialisation (Phase 2).
+    Specialisation is now the larger group by count, but 11 of its 16 are
+    snapshots of the same few Flow helpers.
+  - `fn double(x) { x + x }` already prints `42` and `2.5` on the VM under the
+    temporary rule.
+- [x] **0c. `EvidenceMap::args_for` returns a short list when the tail is
   missing.** It counts the answers that are present, not the predicates that
   were raised.
   - Add `raised: HashMap<ExprId, u16>` to `EvidenceMap`, filled from
@@ -115,7 +156,7 @@ instance Size<String> { fn size(x) { len(x) } }
     It must fail on the old code.
   - `FLUX_DBG_EVIDENCE` prints `raised=n` for each site, and sorts its output so
     the dump is deterministic.
-- [ ] **0d. `choose_candidate`'s `Ambiguous | NoMatch => Some(first)`**
+- [x] **0d. `choose_candidate`'s `Ambiguous | NoMatch => Some(first)`**
   (`src/core/passes/dict_elaborate.rs`) becomes `None`, and the caller reports
   the site.
   - First pin both arms with unit tests. Nothing pins them today.
@@ -300,6 +341,11 @@ and `b2_forwarding_over_constrained_callee.flx`.
 
   **Exit:** the `snapshot_ki_098_despecialised_core_def` snapshot converges on
   the baseline, `::(h#N:Int, t#N:Box)`.
+- [ ] **2a″. B1 recognises inferred constraints.** B1's in-place
+  specialisation skips a constrained function only when its bound is written
+  in the signature. Decide from the definition's scheme instead. Pin it with
+  `tests/parity/user_fn_name_no_collision.flx` under B2's rule: step 0b found
+  native printing `758397473435` for `sum(3, 4)`. **Gate for 2b.**
 - [ ] **2a′. Settle numeric defaulting before B2.**
   - `decide_quantification` defaults numeric type variables *during inference*
     (`build_numeric_default_subst`, `src/types/quantify.rs`). GHC defaults only
