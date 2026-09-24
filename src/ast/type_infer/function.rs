@@ -719,8 +719,16 @@ impl<'a> InferCtx<'a> {
             effect_row.apply_row_subst(&self.subst),
         );
         self.env.bind(name, Scheme::mono(self_fn_ty));
+        // This pass exists to refine a type, not to raise obligations: the first
+        // pass already raised every predicate in the body, at the same
+        // `ExprId`s. Keeping the second copy recorded each one twice, so an
+        // operator in an unannotated recursive helper showed `raised=2` for its
+        // one dictionary. Drop what this pass raises; the unifications it made
+        // stay.
+        let second_pass = self.class_constraints.open_window();
         let second_body_ty =
             self.with_ambient_effect_row(effect_row.clone(), |ctx| ctx.infer_block(body));
+        let _raised_again = self.class_constraints.close_window(second_pass);
         let refined_ret = self.unify_silent(&second_body_ty, &ret_slot);
         self.env.leave_scope();
         let refined_resolved = refined_ret.apply_type_subst(&self.subst);

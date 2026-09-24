@@ -417,7 +417,14 @@ impl<'a> InferCtx<'a> {
             if is_propagatable_call_arg(arg_expr) {
                 let expected_resolved = expected_param_ty.apply_type_subst(&self.subst);
                 if expected_resolved.is_concrete() {
+                    // The argument is inferred again just below, which raises
+                    // its predicates at the same `ExprId`s. This pass is for
+                    // its diagnostics and unifications; keeping its predicates
+                    // too recorded every one twice (an `if` argument's
+                    // comparison showed `raised=2` for one dictionary).
+                    let check_pass = self.class_constraints.open_window();
                     self.check_expression(arg_expr, &expected_resolved);
+                    let _raised_again = self.class_constraints.close_window(check_pass);
                 }
             }
             let arg_ty = self.infer_expression(arg_expr);

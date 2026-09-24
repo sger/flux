@@ -1427,3 +1427,72 @@ fn main() { apply(measure, 21) }
         "the checked argument's `Sized<Int>` must be recorded, got: {named:?}"
     );
 }
+
+/// Every site whose evidence records the same predicate — same class, same
+/// source position — more than once, as `(line, column, times)`.
+///
+/// One predicate is one dictionary. A site that raised it twice would be read
+/// by the emitter as two dictionaries for an operator that takes one.
+fn sites_raising_a_predicate_twice(
+    map: &flux::types::evidence::EvidenceMap,
+) -> Vec<(usize, usize, usize)> {
+    use flux::types::evidence::EvidenceSite;
+    let mut repeated = Vec::new();
+    for (expr, raised) in map.raised_sites() {
+        let mut seen: Vec<(flux::types::class_id::ClassId, usize, usize)> = Vec::new();
+        for index in 0..raised {
+            let Some(p) = map.predicate(&EvidenceSite::new(expr, index)) else {
+                continue;
+            };
+            let key = (p.class_id, p.span.start.line, p.span.start.column);
+            if seen.contains(&key) {
+                repeated.push((key.1, key.2, raised as usize));
+            }
+            seen.push(key);
+        }
+    }
+    repeated
+}
+
+/// An unannotated self-recursive helper is inferred twice — the second pass
+/// refines its return type — and must not raise its predicates twice.
+#[test]
+fn a_recursive_helpers_second_inference_pass_raises_nothing() {
+    let source = r#"
+fn outer(n: Int) -> Int {
+    fn go(k) { if k < 3 { go(k + 1) } else { k } }
+    go(n)
+}
+
+fn main() { outer(1) }
+"#;
+    let (program, mut compiler) = parse_source(source, "refine_pass_raises_once.flx");
+    compiler.compile(&program).expect("program type-checks");
+
+    let repeated = sites_raising_a_predicate_twice(compiler.evidence_map());
+    assert!(
+        repeated.is_empty(),
+        "each operator in `go` raises one predicate; repeated at (line, col, raised): {repeated:?}"
+    );
+}
+
+/// A propagatable argument is checked against the parameter type and then
+/// inferred; only one of those passes may raise its predicates.
+#[test]
+fn a_checked_then_inferred_argument_raises_its_predicates_once() {
+    let source = r#"
+fn id(x: Int) -> Int { x }
+
+fn pick(n: Int) -> Int { id(if n > 1 { 1 } else { 2 }) }
+
+fn main() { pick(3) }
+"#;
+    let (program, mut compiler) = parse_source(source, "checked_arg_raises_once.flx");
+    compiler.compile(&program).expect("program type-checks");
+
+    let repeated = sites_raising_a_predicate_twice(compiler.evidence_map());
+    assert!(
+        repeated.is_empty(),
+        "`n > 1` raises one `Ord`; repeated at (line, col, raised): {repeated:?}"
+    );
+}
