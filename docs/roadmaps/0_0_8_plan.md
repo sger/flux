@@ -250,12 +250,34 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
   - It is then harvested as `FromGiven` with an empty path.
   - Pin it: `lt(x, y)` inside `fn f<a: Ord>` must show evidence in the dump.
   - This changes what the solver sees, so run the full gate.
-- [ ] **1b″. The refinement pass must not raise predicates a second time.**
+- [x] **1b″. The refinement pass must not raise predicates a second time.**
   - Discard the class constraints raised during
     `refine_unannotated_self_recursive_return`. The first pass already raised
     the same predicates at the same ids.
   - Pin it: an operator in an unannotated recursive nested helper shows
     `raised=1`.
+
+  **Done 2026-09-24.** There were **two** sources, and each pass's predicates
+  are now dropped with `open_window` / `close_window`, keeping its
+  unifications:
+  1. `refine_unannotated_self_recursive_return` infers the body a second time.
+  2. `infer_call_fixed_arity_path` *checks* a propagatable argument (`if`,
+     `match`, a literal, a lambda) against its parameter type, then infers it
+     again. So `f(if n > 1 { … })` raised `Ord` twice.
+
+  Before, about 100 stdlib sites raised a predicate more than once. Now none
+  do, across the stdlib and `examples/guide`. Two tests in
+  `typeclass_baseline_tests.rs` pin it, and both fail without the fix.
+
+  **No `CACHE_EPOCH` bump.** The stdlib's `.flxi` files were compared with and
+  without the fix. Every field that differs also differs between two runs of
+  the *same* build.
+
+  That exposed a separate, pre-existing problem: **interface output is not
+  deterministic.** Effect-row order in `schemes`, `runtime_contracts`, the
+  symbol table (`Env`/`Process` swap order run to run) and the fingerprints
+  vary between identical compiles of `Flow.IO`, `Flow.List` and `Flow.Array`.
+  It is out of 0.0.8's scope; file it as a known issue.
 - [ ] **1c. Emit dictionary arguments in shadow mode (C5).**
   - The emitter lives where an **identifier** is lowered, not in the `Call` arm.
     It produces the identifier applied to its dictionaries, and `Call` lowering
