@@ -1454,6 +1454,49 @@ fn sites_raising_a_predicate_twice(
     repeated
 }
 
+/// A method call answered by the enclosing definition's *own* dictionary has
+/// evidence: `FromGiven` with an empty superclass path.
+///
+/// `rank(x)` inside `fn f<a: Rank>` raises `Rank<a>`, which is exactly `f`'s
+/// context. The solver used to mark it generalized and the scope dropped it, so
+/// the commonest method call in a constrained body recorded nothing and the
+/// emitter had no answer to read. GHC keeps it as a wanted solved from the
+/// given (`d_wanted = d_param`).
+#[test]
+fn a_method_on_the_definitions_own_dictionary_is_answered_from_it() {
+    let source = r#"
+class Rank<a> {
+    fn rank(x: a) -> Int
+}
+
+instance Rank<Int> {
+    fn rank(x) { x }
+}
+
+fn doubled<a: Rank>(x: a) -> Int { rank(x) + rank(x) }
+
+fn main() { doubled(21) }
+"#;
+    let (program, mut compiler) = parse_source(source, "own_dictionary_evidence.flx");
+    compiler.compile(&program).expect("program type-checks");
+
+    let answered_from_own: usize = compiler
+        .evidence_map()
+        .entries()
+        .filter(|(_, evidence)| {
+            matches!(
+                evidence,
+                flux::types::class_disposition::Evidence::FromGiven { superclass_path, .. }
+                    if superclass_path.is_empty()
+            )
+        })
+        .count();
+    assert_eq!(
+        answered_from_own, 2,
+        "both `rank(x)` calls in `doubled` are answered by `doubled`'s own `Rank<a>`"
+    );
+}
+
 /// An unannotated self-recursive helper is inferred twice — the second pass
 /// refines its return type — and must not raise its predicates twice.
 #[test]
