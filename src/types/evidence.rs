@@ -36,18 +36,20 @@
 //! - **An operator is keyed at the operator expression itself**, with origin
 //!   `InferredOperator`.
 //!
-//! Two gaps, both open:
+//! - **A method on the enclosing definition's own dictionary is answered from
+//!   it:** `lt(x, y)` inside `fn f<a: Ord>` records `FromGiven` with an empty
+//!   path; one reached through a superclass records the superclass path.
+//! - **Each predicate is raised once per site.** Passes that infer the same
+//!   expressions a second time — the recursive-return refinement, and checking
+//!   a propagatable argument before inferring it — discard what they raise.
 //!
-//! - **A predicate that *is* the enclosing definition's own context is never
-//!   recorded.** `lt(x, y)` inside `fn f<a: Ord>` raises `Ord a`, the solver
-//!   marks it `Generalized`, and `close_definition_scope` drops it rather than
-//!   keeping it as a wanted solved from the given. So the commonest method
-//!   call in a constrained body has no evidence. A method reached *through a
-//!   superclass* is recorded (`FromGiven` with a non-empty path).
-//! - **An unannotated self-recursive function raises everything twice.**
-//!   `refine_unannotated_self_recursive_return` infers the body a second time,
-//!   and the same `ExprId`s raise the same predicates again, so an operator in
-//!   such a body shows `raised=2` for one dictionary.
+//! One kind of site has no evidence by construction: a predicate the solver
+//! files as `UnresolvedAfterGeneralization`, raised in an unannotated helper
+//! that uses an operator on a type it does not fix and that today's rule does
+//! not generalize. Five such sites exist in `Flow.List`. Generalizing
+//! constrained definitions (0.0.8 plan, step 2b) gives them a context to be
+//! answered from; until then a consumer must not treat their absence as an
+//! internal error.
 
 use std::collections::HashMap;
 

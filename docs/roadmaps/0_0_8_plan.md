@@ -242,7 +242,7 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
   - The stdlib's repeated predicates (about 100 sites, all operators) come from
     `refine_unannotated_self_recursive_return`. It infers an unannotated
     self-recursive body twice, so each operator raises twice at one id. See 1b″.
-- [ ] **1b′. Record evidence for a predicate that is the definition's own
+- [x] **1b′. Record evidence for a predicate that is the definition's own
   context.**
   - Keep a `Generalized` predicate in the implication as a wanted, and let the
     whole-program solve discharge it from the givens. That is GHC's
@@ -250,6 +250,26 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
   - It is then harvested as `FromGiven` with an empty path.
   - Pin it: `lt(x, y)` inside `fn f<a: Ord>` must show evidence in the dump.
   - This changes what the solver sees, so run the full gate.
+
+  **Done 2026-09-24.** `close_definition_scope` no longer drops `Generalized`
+  predicates. `entailed_by_givens` runs first in `classify_constraint` and
+  answers each one with `FromGiven` and an empty path.
+  - Across the stdlib, `examples/guide` and `examples/type_classes`, this adds
+    **2,514** such answers.
+  - Every class-related suite passes, including the compile snapshot of every
+    example, so no diagnostic changed.
+  - Pinned by `a_method_on_the_definitions_own_dictionary_is_answered_from_it`:
+    0 answers without the change, 2 with it.
+  - No `CACHE_EPOCH` bump. The `.flxi` files are identical apart from the known
+    non-determinism in IO, List and Array.
+
+  **Found, and it constrains 1e:** five sites in `Flow.List` have *no*
+  evidence, before and after this change. They are `==` at 371, `contains` at
+  569, `<=` at 614, and `>` and `<` at 653 and 660. The solver files them as
+  `UnresolvedAfterGeneralization`: unannotated helpers such as `merge_by_key`
+  and `maximum_go` use an operator on a type they do not fix, and today's rule
+  does not generalize a constrained helper. Only B2 (Phase 2) gives them a
+  context to be answered from.
 - [x] **1b″. The refinement pass must not raise predicates a second time.**
   - Discard the class constraints raised during
     `refine_unannotated_self_recursive_return`. The first pass already raised
@@ -301,6 +321,14 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
 - [ ] **1e. Switch over (C5 lands).** Evidence becomes the only source of
   dictionary arguments. A site with no evidence is an internal error that names
   the site (rule 5).
+  - **Exception until Phase 2:** a site the solver filed as
+    `UnresolvedAfterGeneralization`, such as the five `Flow.List` sites above,
+    has no evidence by construction.
+  - Decide in 1c's shadow run how the old path serves them today, then either
+    keep that path for exactly those sites, marked for removal at 2b, or move
+    B2 ahead of 1e.
+  - Do not turn them into internal errors: that would break the standard
+    library.
 - [ ] **1f. Delete deletion group 1 (C6).**
   - `class_call_type_args`, both copies: `lower_ast/mod.rs` and
     `compiler/expression.rs`.

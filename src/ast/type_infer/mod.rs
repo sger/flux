@@ -553,30 +553,24 @@ impl<'a> InferCtx<'a> {
     /// one site for one class, which is what left the higher-kinded
     /// `ExplicitBound` predicates behind.
     ///
-    /// A predicate the solver generalized *is* the context, so it is not
-    /// repeated as an obligation inside the scope; the partition is positional
-    /// rather than keyed, because the solver guarantees one disposition per
-    /// supplied constraint.
+    /// A predicate the solver generalized *is* the context, and it stays in the
+    /// scope as a wanted: the whole-program solve discharges it from the
+    /// givens, which is what records the evidence its call site needs —
+    /// `lt(x, y)` inside `fn f<a: Ord>` is answered by `f`'s own dictionary.
+    /// GHC does the same (`d_wanted = d_param`). Dropping it, as this used to,
+    /// left the commonest method call in a constrained body with no evidence
+    /// at all (0.0.8 plan, step 1b′).
     fn close_definition_scope(
         &mut self,
         spec: &BindingSchemeSpec<'_>,
         finalized: &crate::types::quantify::Quantified,
     ) {
-        let mut scope = self.class_constraints.close_window(spec.window);
+        let scope = self.class_constraints.close_window(spec.window);
         debug_assert_eq!(
             scope.simple.len(),
             finalized.dispositions.len(),
             "every captured predicate must carry exactly one disposition"
         );
-        let mut generalized = finalized.dispositions.iter().map(|entry| {
-            matches!(
-                entry.disposition,
-                crate::types::class_disposition::Disposition::Generalized { .. }
-            )
-        });
-        scope
-            .simple
-            .retain(|_| !generalized.next().unwrap_or(false));
 
         // Use the decision, do not re-derive it. Recomputing
         // `free_vars() - env_free_vars` here reaches the same base set but
