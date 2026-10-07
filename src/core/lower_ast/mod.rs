@@ -2620,6 +2620,90 @@ f("flux")
         assert!(lowerer.shadow.call_spans.contains_key(&callee));
     }
 
+    #[test]
+    fn the_evidence_emitter_records_a_module_qualified_call_at_its_member_access() {
+        use crate::{
+            ast::type_infer::constraint::WantedClassConstraintOrigin,
+            syntax::{expression::Expression, statement::Statement},
+            types::{
+                class_disposition::{Evidence, InstanceKey},
+                class_id::ClassId,
+                evidence::{EvidenceMap, RaisedPredicate},
+                translate::DictArg,
+                type_constructor::TypeConstructor,
+            },
+        };
+
+        // Inference keys a qualified call's predicates at the member access,
+        // as it keys `f(1)`'s at the identifier `f`.
+        let src = "fn main() { M.f(1) }";
+        let (prog, types, mut interner) = parse_and_infer(src);
+
+        let Some(Statement::Function { body, .. }) = prog.statements.first() else {
+            panic!("expected `main`");
+        };
+        let Some(Statement::Expression {
+            expression: Expression::Call { function, .. },
+            ..
+        }) = body.statements.last()
+        else {
+            panic!("expected `M.f(1)`");
+        };
+        let Expression::MemberAccess {
+            id: member, span, ..
+        } = function.as_ref()
+        else {
+            panic!("expected the callee `M.f`");
+        };
+
+        let class = interner.intern("Eq");
+        let instance = InstanceKey {
+            class_id: ClassId::from_local_name(class),
+            head_type_args: vec![InferType::Con(TypeConstructor::Int)],
+            dict_type_key: "Int".to_string(),
+        };
+        let mut evidence = EvidenceMap::new();
+        let site = evidence.raise(
+            *member,
+            RaisedPredicate {
+                class_name: class,
+                class_id: ClassId::from_local_name(class),
+                origin: WantedClassConstraintOrigin::SchemeUse,
+                span: *span,
+            },
+        );
+        evidence.insert(
+            site,
+            Evidence::FromInstance {
+                instance: instance.clone(),
+                subst: HashMap::new(),
+                context: vec![],
+            },
+        );
+
+        let mut lowerer = AstLowerer::new(
+            &types,
+            Some(&interner),
+            None,
+            None,
+            None,
+            None,
+            HashMap::new(),
+            Some(&evidence),
+        );
+        let (mut defs, mut items) = (Vec::new(), Vec::new());
+        for stmt in &prog.statements {
+            lowerer.lower_top_level(stmt, &mut defs, &mut items);
+        }
+
+        assert_eq!(
+            lowerer.shadow.sites.get(member).map(|site| &site.args),
+            Some(&EmittedDictArgs::Built(vec![DictArg::Global { instance }]))
+        );
+        assert_eq!(lowerer.shadow.sites.len(), 1);
+        assert!(lowerer.shadow.call_spans.contains_key(member));
+    }
+
     fn count_binding_kinds(src: &str) -> (usize, usize) {
         let (program, types, _interner) = parse_and_infer(src);
         let core = lower_program_ast(&program, &types);
