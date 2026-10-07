@@ -425,16 +425,10 @@ fn superclass_evidence_expr(
     let dict_sym = interner.lookup(&crate::types::class_env::dictionary_name(
         superclass, type_name, interner,
     ))?;
-    let evidence = class_env.instances.iter().find(|candidate| {
-        candidate.class_id == superclass
-            && candidate
-                .type_args
-                .iter()
-                .map(|arg| arg.display_with(interner))
-                .collect::<Vec<_>>()
-                .join("_")
-                == type_name
-    })?;
+    let evidence = class_env
+        .instances
+        .iter()
+        .find(|candidate| candidate.class_id == superclass && candidate.type_key == type_name)?;
     evidence
         .context
         .is_empty()

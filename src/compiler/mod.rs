@@ -812,12 +812,7 @@ fn preload_imported_instance_schemes(
     class_def: &crate::types::class_env::ClassDef,
     interner: &mut Interner,
 ) {
-    let type_key = instance_def
-        .type_args
-        .iter()
-        .map(|arg| arg.display_with(interner))
-        .collect::<Vec<_>>()
-        .join("_");
+    let type_key = instance_def.type_key.clone();
     let module_qualifier = instance_def
         .instance_module
         .as_identifier()
@@ -1580,12 +1575,7 @@ impl Compiler {
             let Some(class_def) = self.class_env.lookup_class_by_id(instance.class_id) else {
                 continue;
             };
-            let type_key = instance
-                .type_args
-                .iter()
-                .map(|arg| arg.display_with(&self.interner))
-                .collect::<Vec<_>>()
-                .join("_");
+            let type_key = instance.type_key.clone();
             for method in &class_def.methods {
                 let method_name = self.interner.resolve(method.name);
                 let mangled = crate::types::class_env::mangled_method_name(

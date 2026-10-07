@@ -713,12 +713,7 @@ impl<'a> InferCtx<'a> {
             );
         }
 
-        let type_key = instance
-            .type_args
-            .iter()
-            .map(|arg| arg.display_with(self.interner))
-            .collect::<Vec<_>>()
-            .join("_");
+        let type_key = instance.type_key.clone();
         let method_str = self.interner.resolve(info.method_name);
         let mangled = crate::types::class_env::mangled_method_name(
             instance.class_id,

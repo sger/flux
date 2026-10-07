@@ -202,12 +202,7 @@ impl Compiler {
             else {
                 continue;
             };
-            let type_key = instance
-                .type_args
-                .iter()
-                .map(|arg| arg.display_with(&self.interner))
-                .collect::<Vec<_>>()
-                .join("_");
+            let type_key = instance.type_key.clone();
             let dict_str = crate::types::class_env::dictionary_name(
                 instance.class_id,
                 &type_key,

@@ -2903,12 +2903,7 @@ impl ClassEnv {
     ) -> Option<ResolvedDictionaryRef> {
         let (instance, subst) =
             self.resolve_instance_with_subst_by_id(class_id, actual_type_args, interner)?;
-        let type_name = instance
-            .type_args
-            .iter()
-            .map(|arg| arg.display_with(interner))
-            .collect::<Vec<_>>()
-            .join("_");
+        let type_name = instance.type_key.clone();
         let dict_name =
             interner.lookup(&dictionary_name(instance.class_id, &type_name, interner))?;
         let context_args = instance
@@ -2982,12 +2977,7 @@ impl ClassEnv {
     ) -> Option<Vec<Identifier>> {
         let dict_name_str = interner.resolve(dict_name);
         self.instances.iter().find_map(|instance| {
-            let type_name = instance
-                .type_args
-                .iter()
-                .map(|arg| arg.display_with(interner))
-                .collect::<Vec<_>>()
-                .join("_");
+            let type_name = instance.type_key.clone();
             let expected = dictionary_name(instance.class_id, &type_name, interner);
             if dict_name_str != expected {
                 return None;

@@ -832,12 +832,7 @@ impl<'a> AstLowerer<'a> {
         // Build the mangled name from the instance head exactly as dispatch
         // generation does, preserving higher-kinded heads such as
         // `Functor<List>`.
-        let type_key = instance
-            .type_args
-            .iter()
-            .map(|a| a.display_with(interner))
-            .collect::<Vec<_>>()
-            .join("_");
+        let type_key = instance.type_key.clone();
         let method_str = interner.resolve(name);
         let mangled = crate::types::class_env::mangled_method_name(
             instance.class_id,
@@ -955,12 +950,7 @@ impl<'a> AstLowerer<'a> {
         let known = self.class_call_type_args(class_id, name, arguments, call_id)?;
         let instance =
             class_env.unique_instance_for_known_args_by_id(class_id, &known, interner)?;
-        let type_key = instance
-            .type_args
-            .iter()
-            .map(|arg| arg.display_with(interner))
-            .collect::<Vec<_>>()
-            .join("_");
+        let type_key = instance.type_key.clone();
         let mangled = crate::types::class_env::mangled_method_name(
             instance.class_id,
             &type_key,
