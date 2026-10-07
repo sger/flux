@@ -727,6 +727,7 @@ impl Parser {
             effects,
             body,
             span,
+            id: self.next_expr_id(),
         })
     }
 
@@ -783,6 +784,7 @@ impl Parser {
             body,
             span,
             fip,
+            id: self.next_expr_id(),
         })
     }
 

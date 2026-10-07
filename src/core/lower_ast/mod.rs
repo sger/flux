@@ -1710,6 +1710,7 @@ impl<'a> AstLowerer<'a> {
                 span,
                 fip: _,
                 intrinsic: _,
+                id: _,
             } => Some(CoreTopLevelItem::Function {
                 is_public: *is_public,
                 name: *name,

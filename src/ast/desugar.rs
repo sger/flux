@@ -217,6 +217,7 @@ impl Folder for OperatorDesugarPass<'_> {
                 span,
                 fip,
                 intrinsic,
+                id,
             } => {
                 let prev_generated = self.in_generated_instance_method;
                 let prev_constraint_context = self.in_explicit_constraint_context;
@@ -242,6 +243,7 @@ impl Folder for OperatorDesugarPass<'_> {
                     span,
                     fip,
                     intrinsic,
+                    id,
                 }
             }
             other => fold::fold_stmt(self, other),
