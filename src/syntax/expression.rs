@@ -671,6 +671,43 @@ impl Expression {
         }
     }
 
+    /// Mutable access to [`Self::expr_id`], for passes that renumber a tree.
+    pub fn expr_id_mut(&mut self) -> &mut ExprId {
+        match self {
+            Expression::Identifier { id, .. }
+            | Expression::Integer { id, .. }
+            | Expression::Float { id, .. }
+            | Expression::String { id, .. }
+            | Expression::InterpolatedString { id, .. }
+            | Expression::Boolean { id, .. }
+            | Expression::Prefix { id, .. }
+            | Expression::Infix { id, .. }
+            | Expression::If { id, .. }
+            | Expression::DoBlock { id, .. }
+            | Expression::Function { id, .. }
+            | Expression::Call { id, .. }
+            | Expression::ListLiteral { id, .. }
+            | Expression::ArrayLiteral { id, .. }
+            | Expression::TupleLiteral { id, .. }
+            | Expression::EmptyList { id, .. }
+            | Expression::Index { id, .. }
+            | Expression::Hash { id, .. }
+            | Expression::MemberAccess { id, .. }
+            | Expression::TupleFieldAccess { id, .. }
+            | Expression::Match { id, .. }
+            | Expression::None { id, .. }
+            | Expression::Some { id, .. }
+            | Expression::Left { id, .. }
+            | Expression::Right { id, .. }
+            | Expression::Cons { id, .. }
+            | Expression::Perform { id, .. }
+            | Expression::Handle { id, .. }
+            | Expression::Sealing { id, .. }
+            | Expression::NamedConstructor { id, .. }
+            | Expression::Spread { id, .. } => id,
+        }
+    }
+
     pub fn span(&self) -> Span {
         match self {
             Expression::Identifier { span, .. }
