@@ -52,7 +52,7 @@ pub fn lower_program_to_ir_with_interner_and_warnings(
     hm_expr_types: &HashMap<ExprId, InferType>,
     interner: Option<&Interner>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    lower_program_to_ir_impl(program, hm_expr_types, interner, false, None, None)
+    lower_program_to_ir_impl(program, hm_expr_types, interner, false, None, None, None)
 }
 
 #[allow(clippy::result_large_err)]
@@ -62,10 +62,14 @@ pub fn lower_program_to_ir_with_optimize(
     interner: Option<&Interner>,
     optimize: bool,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    lower_program_to_ir_impl(program, hm_expr_types, interner, optimize, None, None)
+    lower_program_to_ir_impl(program, hm_expr_types, interner, optimize, None, None, None)
 }
 
 /// Lower with TypeEnv for typed parameter binders (Phase 7).
+///
+/// `evidence` is the unit's own evidence map. Lowering reads it in shadow mode
+/// only (0.0.8 plan, step 1c), to compare with the dictionaries elaboration
+/// chooses.
 #[allow(clippy::result_large_err)]
 pub fn lower_program_to_ir_typed(
     program: &Program,
@@ -74,6 +78,7 @@ pub fn lower_program_to_ir_typed(
     optimize: bool,
     type_env: Option<&crate::types::type_env::TypeEnv>,
     class_env: Option<&crate::types::class_env::ClassEnv>,
+    evidence: Option<crate::core::passes::evidence_diff::EvidenceSource<'_>>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
     lower_program_to_ir_impl(
         program,
@@ -82,6 +87,7 @@ pub fn lower_program_to_ir_typed(
         optimize,
         type_env,
         class_env,
+        evidence,
     )
 }
 
@@ -93,16 +99,19 @@ fn lower_program_to_ir_impl(
     optimize: bool,
     type_env: Option<&crate::types::type_env::TypeEnv>,
     class_env: Option<&crate::types::class_env::ClassEnv>,
+    evidence: Option<crate::core::passes::evidence_diff::EvidenceSource<'_>>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    let mut core = crate::core::lower_ast::lower_program_ast_with_class_env(
-        program,
-        hm_expr_types,
-        interner,
-        type_env,
-        None,
-        class_env,
-        None,
-    );
+    let (mut core, _, shadow) =
+        crate::core::lower_ast::lower_program_ast_with_class_env_and_def_schemes(
+            program,
+            hm_expr_types,
+            interner,
+            type_env,
+            None,
+            class_env,
+            None,
+            evidence.map(|source| source.map),
+        );
 
     // Dictionary elaboration (Proposal 0145, Step 5b):
     // If class_env and type_env are available, run dictionary elaboration
@@ -118,6 +127,9 @@ fn lower_program_to_ir_impl(
         // functions carried dictionaries; reachable as soon as more do.
         let mut next_id = crate::core::passes::next_fresh_binder_id(&core);
         crate::core::passes::elaborate_dictionaries(&mut core, ce, te, int, &mut next_id);
+        if let Some(source) = evidence {
+            source.report_if_enabled(&core, &shadow, int);
+        }
     }
 
     let mut warnings = if let Some(interner) = interner {

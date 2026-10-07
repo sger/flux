@@ -26,6 +26,10 @@ impl Compiler {
             self.type_optimize,
             Some(&self.type_env),
             class_env_ref,
+            Some(crate::core::passes::evidence_diff::EvidenceSource {
+                map: &self.evidence_map,
+                file_path: &self.file_path,
+            }),
         ) {
             Ok(program) => program,
             Err(diag) => {
