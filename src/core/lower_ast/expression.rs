@@ -325,8 +325,12 @@ impl<'a> super::AstLowerer<'a> {
                 object,
                 member,
                 span,
-                ..
+                id,
             } => {
+                // A module-qualified name is an occurrence too: a call to
+                // `Array.sort` raises its predicates here, as `sort` would at
+                // its identifier.
+                self.emit_dict_args(*id, *span, super::OccurrenceKind::Identifier(*member));
                 // Proposal 0152: dot access on a named-field ADT value
                 // desugars into a Case expression that extracts the
                 // declared positional field.
