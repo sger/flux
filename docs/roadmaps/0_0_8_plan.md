@@ -203,12 +203,12 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
 
 ### Steps
 
-- [ ] **1a. Thread evidence into lowering.** No behaviour change.
+- [x] **1a. Thread evidence into lowering.** No behaviour change.
   - Add `evidence: Option<&EvidenceMap>` to `AstLowerer`
     (`src/core/lower_ast/mod.rs`).
   - Pass it down from `Compiler::lower_core_from_program`.
   - The `src/cfg/` callers pass `None`.
-- [ ] **1b. Define how a site is keyed, then write it down.** Two rules, both
+- [x] **1b. Define how a site is keyed, then write it down.** Two rules, both
   documented in `evidence.rs`:
   - A scheme's predicates are keyed at the **callee identifier's** `ExprId`, not
     at the call's.
@@ -216,6 +216,7 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
     position is its index among the non-marker predicates.
 
   Then add a helper, `dict_args_at(callee_id, givens) -> Option<Vec<DictArg>>`.
+  **Moved to 1c**, where the emitter is its first caller.
 
   Verify two more things before 1c
   ([GHC analysis §2, §5](../internals/typeclass_ghc_analysis.md)):
@@ -302,6 +303,8 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
   - The emitter lives where an **identifier** is lowered, not in the `Call` arm.
     It produces the identifier applied to its dictionaries, and `Call` lowering
     flattens that into one call, `f(d…, x…)`.
+  - It reads the map through `dict_args_at(callee_id, givens)`, moved here from
+    1b.
   - One emitter then covers a call, a bare reference passed as a value
     (KI-090), and an operator (KI-076). This is GHC's model, where evidence
     wraps the occurrence ([§1](../internals/typeclass_ghc_analysis.md)).
