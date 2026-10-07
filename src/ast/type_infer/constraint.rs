@@ -159,6 +159,11 @@ pub struct Implication {
     pub span: Span,
     /// The bound name, used to say which definition an error belongs to.
     pub binder: Identifier,
+    /// The definition's id (`Statement::Function`'s). Each of `givens` is
+    /// named by it and its position, which is how evidence solved from a given
+    /// says which definition's dictionary parameter supplies it — GHC's
+    /// given *evidence variable*, rather than a name or a type to look up.
+    pub definition: ExprId,
 }
 
 /// Where one binding's capture window opened.
@@ -254,6 +259,7 @@ mod tests {
             wanted: wanted_set,
             span: Span::default(),
             binder,
+            definition: ExprId::UNSET,
         }
     }
 

@@ -70,6 +70,7 @@ impl<'a> InferCtx<'a> {
         self.finalize_and_bind_function_scheme(
             input.name,
             input.fn_span,
+            input.definition,
             input.type_params,
             &param_tys,
             &ret_ty,
@@ -504,6 +505,7 @@ impl<'a> InferCtx<'a> {
         &mut self,
         name: Identifier,
         fn_span: Span,
+        definition: crate::syntax::expression::ExprId,
         type_params: &[crate::syntax::statement::FunctionTypeParam],
         param_tys: &[InferType],
         ret_ty: &InferType,
@@ -542,6 +544,7 @@ impl<'a> InferCtx<'a> {
                     mode: MonoRestriction::Generalize,
                     binder: name,
                     span: fn_span,
+                    definition: Some(definition),
                 })
             } else {
                 Scheme::mono(fn_ty)

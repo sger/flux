@@ -94,6 +94,7 @@ pub fn evidence_to_arg(
         Evidence::FromGiven {
             given,
             superclass_path,
+            ..
         } => {
             let index = givens.iter().position(|candidate| {
                 candidate.class_id == given.class_id && candidate.type_args == given.type_args
@@ -238,6 +239,10 @@ mod tests {
         let arg = evidence_to_arg(
             &Evidence::FromGiven {
                 given: givens[1].clone(),
+                owner: crate::types::class_disposition::GivenRef {
+                    definition: crate::syntax::expression::ExprId::UNSET,
+                    index: 1,
+                },
                 superclass_path: vec![0],
             },
             &givens,

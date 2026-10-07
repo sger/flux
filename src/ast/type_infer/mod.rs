@@ -110,6 +110,9 @@ pub enum ReportContext {
 struct FnInferInput<'a> {
     name: Identifier,
     fn_span: Span,
+    /// The `Statement::Function` id; the implication this definition closes
+    /// is keyed by it, and so are its dictionary parameters.
+    definition: ExprId,
     type_params: &'a [FunctionTypeParam],
     parameters: &'a [Identifier],
     parameter_types: &'a [Option<TypeExpr>],
@@ -149,6 +152,9 @@ struct BindingSchemeSpec<'a> {
     mode: MonoRestriction,
     binder: Identifier,
     span: Span,
+    /// The function definition's id. `None` for a `let`, which never
+    /// generalizes a context and so never closes an implication.
+    definition: Option<ExprId>,
 }
 
 /// Immutable inputs required to infer a match expression.
@@ -596,6 +602,9 @@ impl<'a> InferCtx<'a> {
                 wanted: scope,
                 span: spec.span,
                 binder: spec.binder,
+                definition: spec
+                    .definition
+                    .expect("only a function definition closes an implication"),
             });
     }
 

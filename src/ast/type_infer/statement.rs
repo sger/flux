@@ -170,11 +170,13 @@ impl<'a> InferCtx<'a> {
                 effects,
                 body,
                 span,
+                id,
                 ..
             } => {
                 self.infer_function_declaration(FnInferInput {
                     name: *name,
                     fn_span: *span,
+                    definition: *id,
                     type_params,
                     parameters,
                     parameter_types,
@@ -226,6 +228,7 @@ impl<'a> InferCtx<'a> {
             mode: MonoRestriction::Restricted,
             binder: name,
             span: let_span,
+            definition: None,
         });
         self.binding_schemes_by_span
             .insert(binding_span_key(let_span), scheme.clone());

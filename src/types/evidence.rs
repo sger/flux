@@ -122,6 +122,22 @@ pub struct EvidenceMap {
     by_site: HashMap<EvidenceSite, Evidence>,
     raised: HashMap<ExprId, u16>,
     predicates: HashMap<EvidenceSite, RaisedPredicate>,
+    definitions: HashMap<ExprId, DefinitionParams>,
+}
+
+/// A generalized definition's dictionary parameters — GHC's `abs_ev_vars`.
+///
+/// Stored with the evidence so that lowering reads a definition's parameters
+/// from the same place its call sites' evidence comes from, by the
+/// definition's id, instead of finding its scheme by name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DefinitionParams {
+    /// The givens that become dictionary parameters, in the order the
+    /// definition receives them.
+    pub params: Vec<SchemeConstraint>,
+    /// For each given, by its position among the definition's givens, the
+    /// parameter it is — `None` for a given that gets none.
+    pub param_of_given: Vec<Option<u16>>,
 }
 
 impl EvidenceMap {
@@ -257,6 +273,72 @@ impl EvidenceMap {
         let mut sites: Vec<_> = self.raised.iter().map(|(e, n)| (*e, *n)).collect();
         sites.sort_unstable();
         sites
+    }
+
+    /// Record every generalized definition's dictionary parameters, read
+    /// from the implication each one closed.
+    ///
+    /// A given becomes a parameter when its type mentions only variables the
+    /// definition quantified — the rule `Quantified::into_scheme` keeps a
+    /// scheme constraint by — and its class carries a dictionary. Those are
+    /// the two filters `dictionary_constraints` applies to the scheme, in the
+    /// same order, so the list matches the parameters elaboration creates.
+    pub fn record_definitions(
+        &mut self,
+        wanted: &crate::ast::type_infer::constraint::WantedConstraints,
+        class_env: &crate::types::class_env::ClassEnv,
+    ) {
+        for implication in &wanted.implications {
+            let quantified: std::collections::HashSet<_> =
+                implication.quantified.iter().copied().collect();
+            let mut params = Vec::new();
+            let param_of_given = implication
+                .givens
+                .iter()
+                .map(|given| {
+                    let is_param = given
+                        .type_args
+                        .iter()
+                        .flat_map(crate::types::infer_type::InferType::free_vars)
+                        .all(|var| quantified.contains(&var))
+                        && class_env.constraint_needs_dictionary(given);
+                    is_param.then(|| {
+                        params.push(given.clone());
+                        u16::try_from(params.len() - 1)
+                            .expect("a definition holds under 2^16 parameters")
+                    })
+                })
+                .collect();
+            let recorded = DefinitionParams {
+                params,
+                param_of_given,
+            };
+            // A definition closes one implication. Should it ever close a
+            // second, the two must agree, or one of them is wrong.
+            let existing = self
+                .definitions
+                .entry(implication.definition)
+                .or_insert_with(|| recorded.clone());
+            debug_assert_eq!(
+                *existing, recorded,
+                "definition {:?} closed two implications with different parameters",
+                implication.definition
+            );
+            self.record_definitions(&implication.wanted, class_env);
+        }
+    }
+
+    /// The dictionary parameters of the definition with this id, if it
+    /// generalized a context.
+    pub fn definition(&self, id: ExprId) -> Option<&DefinitionParams> {
+        self.definitions.get(&id)
+    }
+
+    /// Every recorded definition, in id order.
+    pub fn definitions(&self) -> Vec<(ExprId, &DefinitionParams)> {
+        let mut definitions: Vec<_> = self.definitions.iter().map(|(id, d)| (*id, d)).collect();
+        definitions.sort_unstable_by_key(|(id, _)| *id);
+        definitions
     }
 
     pub fn is_empty(&self) -> bool {
