@@ -1324,11 +1324,7 @@ fn generate_from_statements(
                 let type_name = if type_args.is_empty() {
                     "Unknown".to_string()
                 } else {
-                    type_args
-                        .iter()
-                        .map(|a| a.display_with(interner))
-                        .collect::<Vec<_>>()
-                        .join("_")
+                    crate::types::class_env::instance_type_key(type_args, interner)
                 };
 
                 let explicit_methods: HashMap<Identifier, _> =

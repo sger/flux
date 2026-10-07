@@ -690,12 +690,7 @@ fn solve_instance_evidence(
             instance: InstanceKey {
                 class_id: instance.class_id,
                 head_type_args: type_args.to_vec(),
-                dict_type_key: instance
-                    .type_args
-                    .iter()
-                    .map(|arg| arg.display_with(interner))
-                    .collect::<Vec<_>>()
-                    .join("_"),
+                dict_type_key: instance.type_key.clone(),
             },
             subst,
             context,
@@ -1063,7 +1058,10 @@ mod tests {
                 class_id,
                 instance_module: ModulePath::EMPTY,
                 is_public: false,
-                type_key: String::new(),
+                type_key: crate::types::class_env::instance_type_key(
+                    std::slice::from_ref(head),
+                    interner,
+                ),
                 type_args: vec![head.clone()],
                 context: Vec::new(),
                 context_class_ids: Vec::new(),

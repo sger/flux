@@ -39,12 +39,7 @@ impl Compiler {
             .iter()
             .filter(|instance| demanded.contains(&instance.class_id))
             .map(|instance| {
-                let type_key = instance
-                    .type_args
-                    .iter()
-                    .map(|arg| arg.display_with(&self.interner))
-                    .collect::<Vec<_>>()
-                    .join("_");
+                let type_key = instance.type_key.clone();
                 crate::types::class_env::dictionary_name(
                     instance.class_id,
                     &type_key,
