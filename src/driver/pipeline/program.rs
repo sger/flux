@@ -345,6 +345,12 @@ fn dispatch_backend(ctx: &mut RunContext, request: RunProgramRequest<'_>) {
         return;
     }
 
+    // 0.0.8 plan step 1c: the evidence sweep compiles every example through
+    // the real VM path and reads the report; running `main` is not wanted.
+    // Goes with the report when evidence becomes the only source (1e).
+    if std::env::var("FLUX_DBG_EVIDENCE_DIFF").as_deref() == Ok("stop") {
+        return;
+    }
     let compile_ms = ctx.compile_start.elapsed().as_secs_f64() * 1000.0;
     run_vm(VmRunRequest {
         compiler: &mut ctx.compiler,

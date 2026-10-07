@@ -366,7 +366,7 @@ fn collect_old_answers(
         && let Some(answer) = old_answer(func, args, interner)
     {
         let func_span = match func.as_ref() {
-            CoreExpr::Var { span, .. } => Some(*span),
+            CoreExpr::Var { span, .. } | CoreExpr::MemberAccess { span, .. } => Some(*span),
             _ => None,
         };
         for k in [func_span, Some(*span)]
@@ -403,6 +403,8 @@ fn old_answer(func: &CoreExpr, args: &[CoreExpr], interner: &Interner) -> Option
             }
             Some(OldAnswer::Passed(passed()))
         }
+        // A module-qualified call: `Array.sort(d, xs)`.
+        CoreExpr::MemberAccess { .. } => Some(OldAnswer::Passed(passed())),
         CoreExpr::TupleField { object, .. } => {
             // The last slot is the method; the ones before it walk superclass
             // evidence, which is what a `DictArg::Param` path names.
