@@ -1186,6 +1186,63 @@ mod tests {
         );
     }
 
+    /// A site answered from a given passes that given's *parameter*: the
+    /// position its definition records for it, after an earlier given that
+    /// gets no parameter has closed the gap — not the given's own position.
+    #[test]
+    fn a_site_answered_from_a_given_passes_its_definitions_parameter() {
+        let mut interner = Interner::new();
+        let mut env = env_with_instances(&mut interner, &[]);
+        let sizeable = interner.intern("Sizeable");
+        let marker = interner.intern("Marker");
+        let marker_def = {
+            let mut def = env
+                .lookup_class_by_id(ClassId::from_local_name(sizeable))
+                .expect("Sizeable is declared")
+                .clone();
+            def.name = marker;
+            def.methods.clear();
+            def
+        };
+        env.classes
+            .insert(ClassId::from_local_name(marker), marker_def);
+        let site = crate::syntax::expression::ExprId(50);
+        let tree = WantedConstraints {
+            simple: vec![],
+            implications: vec![scope(
+                7,
+                vec![given_on(marker, 0), given_on(sizeable, 0)],
+                vec![0],
+                WantedConstraints {
+                    simple: vec![WantedClassConstraint {
+                        expr: Some(site),
+                        ..wanted(sizeable, vec![InferType::Var(0)])
+                    }],
+                    implications: vec![],
+                },
+            )],
+        };
+        let outcome = solve_wanted_tree(&tree, SolveScope::WholeProgram, &env, &interner);
+
+        let mut map = crate::types::evidence::EvidenceMap::new();
+        map.record_definitions(&tree, &env);
+        for entry in &outcome.dispositions {
+            let raised = map.raise(site, (&entry.wanted).into());
+            if let Disposition::Solved { evidence } = &entry.disposition {
+                map.insert(raised, evidence.clone());
+            }
+        }
+
+        assert_eq!(
+            map.dict_args_at(site),
+            Some(vec![crate::types::translate::DictArg::Param {
+                owner: crate::syntax::expression::ExprId(7),
+                index: 0,
+                path: vec![],
+            }])
+        );
+    }
+
     /// A definition's parameters are its givens over its own variables whose
     /// class carries a dictionary, in order. A filtered given has no
     /// parameter, and the ones after it close the gap.

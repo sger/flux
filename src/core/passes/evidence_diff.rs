@@ -21,7 +21,6 @@
 use std::collections::HashMap;
 
 use crate::{
-    ast::type_infer::constraint::SchemeConstraint,
     core::{
         CoreExpr, CoreProgram,
         lower_ast::{EmittedDictArgs, EmittedSite, EvidenceShadow, OccurrenceKind},
@@ -148,7 +147,7 @@ pub fn report_evidence_diff(
                 .and_then(|span| key(*span))
                 .and_then(|k| old.get(&k))
         });
-        let (verdict, detail) = compare(site, found, interner);
+        let (verdict, detail) = compare(site, found, evidence, interner);
         lines.push((site.span, verdict, detail));
     }
     for (id, raised) in evidence.raised_sites() {
@@ -207,6 +206,7 @@ pub fn report_evidence_diff(
 fn compare(
     site: &EmittedSite,
     found: Option<&OldAnswer>,
+    evidence: &EvidenceMap,
     interner: &Interner,
 ) -> (Verdict, String) {
     let what = match site.kind {
@@ -231,9 +231,9 @@ fn compare(
     };
     let rendered = args
         .iter()
-        .map(|arg| render_dict_arg(arg, &site.givens, interner))
+        .map(|arg| render_dict_arg(arg, evidence, interner))
         .collect::<Vec<_>>();
-    let evidence = format!("[{}]", rendered.join(", "));
+    let built = format!("[{}]", rendered.join(", "));
 
     let Some(found) = found else {
         let verdict = match (rendered.is_empty(), site.kind) {
@@ -241,7 +241,7 @@ fn compare(
             (false, OccurrenceKind::Operator) => Verdict::Operator,
             (false, OccurrenceKind::Identifier(_)) => Verdict::Reference,
         };
-        return (verdict, format!("{what}  evidence={evidence} old=none"));
+        return (verdict, format!("{what}  evidence={built} old=none"));
     };
 
     let agree = match found {
@@ -258,7 +258,7 @@ fn compare(
                 let context = match &args[0] {
                     DictArg::Applied { context, .. } => context
                         .iter()
-                        .map(|arg| render_dict_arg(arg, &site.givens, interner))
+                        .map(|arg| render_dict_arg(arg, evidence, interner))
                         .collect(),
                     _ => Vec::new(),
                 };
@@ -275,7 +275,7 @@ fn compare(
     };
     (
         verdict,
-        format!("{what}  evidence={evidence} old={}", describe_old(found)),
+        format!("{what}  evidence={built} old={}", describe_old(found)),
     )
 }
 
@@ -294,8 +294,8 @@ fn describe_old(answer: &OldAnswer) -> String {
 ///
 /// A parameter is named as dictionary elaboration names it: the class's
 /// dictionary prefix, with a suffix for the second and later dictionary of
-/// one class (`__dict_Enc`, `__dict_Enc_1`).
-fn render_dict_arg(arg: &DictArg, givens: &[SchemeConstraint], interner: &Interner) -> String {
+/// one class in *its owner's* parameters (`__dict_Enc`, `__dict_Enc_1`).
+fn render_dict_arg(arg: &DictArg, evidence: &EvidenceMap, interner: &Interner) -> String {
     match arg {
         DictArg::Global { instance } => {
             dictionary_name(instance.class_id, &instance.dict_type_key, interner)
@@ -305,15 +305,18 @@ fn render_dict_arg(arg: &DictArg, givens: &[SchemeConstraint], interner: &Intern
             dictionary_name(instance.class_id, &instance.dict_type_key, interner),
             context
                 .iter()
-                .map(|arg| render_dict_arg(arg, givens, interner))
+                .map(|arg| render_dict_arg(arg, evidence, interner))
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-        DictArg::Param { index, path } => {
-            let Some(given) = givens.get(*index) else {
-                return format!("<param {index} of {}>", givens.len());
+        DictArg::Param { owner, index, path } => {
+            let Some(params) = evidence.definition(*owner).map(|d| &d.params) else {
+                return format!("<param {owner:?}#{index}>");
             };
-            let occurrence = givens[..*index]
+            let Some(given) = params.get(*index) else {
+                return format!("<param {owner:?}#{index} of {}>", params.len());
+            };
+            let occurrence = params[..*index]
                 .iter()
                 .filter(|earlier| earlier.class_id == given.class_id)
                 .count();

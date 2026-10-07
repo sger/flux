@@ -16,7 +16,6 @@
 use std::collections::HashMap;
 
 use crate::{
-    ast::type_infer::constraint::SchemeConstraint,
     source::position::Span,
     syntax::{Identifier, expression::ExprId},
     types::{evidence::EvidenceSite, translate::DictArg},
@@ -61,9 +60,6 @@ pub struct EmittedSite {
     pub span: Span,
     pub kind: OccurrenceKind,
     pub args: EmittedDictArgs,
-    /// The enclosing definition's dictionary predicates, which a
-    /// [`DictArg::Param`] index is a position in.
-    pub givens: Vec<SchemeConstraint>,
 }
 
 /// Everything the emitter recorded while lowering one program.
@@ -92,7 +88,6 @@ impl AstLowerer<'_> {
         if evidence.raised(id) == 0 {
             return;
         }
-        let givens = self.current_dictionary_givens();
         let raised_at = evidence
             .predicate(&EvidenceSite::new(id, 0))
             .map(|predicate| predicate.span);
@@ -100,20 +95,14 @@ impl AstLowerer<'_> {
             Some(raised_at) if raised_at.start != span.start => {
                 EmittedDictArgs::Mismatched { raised_at }
             }
-            _ => match evidence.dict_args_at(id, &givens) {
+            _ => match evidence.dict_args_at(id) {
                 Some(args) => EmittedDictArgs::Built(args),
                 None => EmittedDictArgs::Unbuildable,
             },
         };
-        self.shadow.sites.insert(
-            id,
-            EmittedSite {
-                span,
-                kind,
-                args,
-                givens,
-            },
-        );
+        self.shadow
+            .sites
+            .insert(id, EmittedSite { span, kind, args });
     }
 
     /// Remember the span of the call `callee` is the function of.
@@ -121,32 +110,5 @@ impl AstLowerer<'_> {
         if self.evidence.is_some() {
             self.shadow.call_spans.insert(callee, span);
         }
-    }
-
-    /// The enclosing definition's predicates that carry a dictionary, in the
-    /// order it receives them.
-    ///
-    /// Markers are left out, because they get no parameter: a
-    /// [`DictArg::Param`] index counts dictionaries, not predicates. Empty
-    /// outside a function body.
-    ///
-    /// The scheme comes from the same lookup the existing paths use
-    /// (`scheme_for_current_function`), so a definition whose scheme is found
-    /// wrongly is wrong in both, and a comparison will not see it.
-    fn current_dictionary_givens(&self) -> Vec<SchemeConstraint> {
-        let Some(scheme) = self
-            .current_function_name
-            .and_then(|name| self.scheme_for_current_function(name))
-        else {
-            return Vec::new();
-        };
-        scheme
-            .constraints
-            .into_iter()
-            .filter(|constraint| {
-                self.class_env
-                    .is_none_or(|class_env| class_env.constraint_needs_dictionary(constraint))
-            })
-            .collect()
     }
 }
