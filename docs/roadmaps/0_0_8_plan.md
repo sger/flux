@@ -312,6 +312,45 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
   - Under `FLUX_DBG_EVIDENCE_DIFF`, report every place the two disagree.
   - Sweep `examples/`, `tests/` and `lib/`. Each divergence is a bug in one path
     or the other: record it and resolve it.
+
+  **Built 2026-10-07; the sweep has not run.** The emitter
+  (`src/core/lower_ast/evidence.rs`) records what it would pass at each
+  identifier and infix operator. The report
+  (`src/core/passes/evidence_diff.rs`) compares that with the final Core after
+  elaboration, matched by span, because the old answers sit in three Core
+  shapes: leading `__dict_*` arguments, a direct `__tc_*` call, and a method
+  projected out of a dictionary parameter. Each site gets one verdict: `agree`,
+  `differ`, `unbuildable`, `reference`, `operator` (expected: operators lower
+  to primitives), `unreached` or `mismatched`.
+
+  First run, on `examples/type_classes/contextual_dictionary.flx` and the
+  stdlib it loads:
+  - **`ExprId`s drift between inference and lowering. This blocks 1e.** In the
+    main file, inference records `my_eq` at 34:4 as `ExprId(18)`, and lowering
+    sees `ExprId(15)`. The ids agree early in the file and drift after the
+    instance declaration. In `Flow.Eq`, every method call inside a contextual
+    instance body is `unreached` for the same reason. Both phases are handed
+    the same `effective_program`, so the cause is still to be found.
+    - The emitter now refuses an id whose raised predicate starts elsewhere
+      (`mismatched`), so a drifted id cannot build another expression's
+      dictionaries.
+    - Until the drift is fixed, the sites past it have no usable evidence. Find
+      the cause before the sweep, or most of the sweep will be noise.
+  - **The evidence map leaked between units.** A unit that skipped the class
+    solve kept the previous module's map, and `ExprId`s restart per unit.
+    **Fixed**: the map is reset at the start of every unit's inference.
+  - **The old path answers `contains` (List.flx:569) with `__dict_Eq_Int`.**
+    That is one of the five `UnresolvedAfterGeneralization` sites, and it
+    answers 1e's question about how the old path serves them: it guesses `Int`.
+    The other four are operators, and the old path passes them nothing.
+  - **A sixth unbuildable site:** `pair.0 <= current.0` at `Flow.Array`
+    291:40, beyond the five known in `Flow.List`.
+  - **The VM lowers the main file through `cfg::lower_program_to_ir_typed`.**
+    It now receives the evidence map too, so 1e must switch that path over,
+    not only `lower_core_from_program`.
+  - **`--dump-core` cannot drive the sweep.** It lowers the stdlib and the
+    main file as one program, so ids from different files collide. Run the
+    sweep through a normal compile with `--no-cache`.
 - [ ] **1d. Create dictionary parameters at lowering.**
   - For a `Statement::Function` whose scheme has dictionary constraints, prepend
     one `__dict_*` `Lam` parameter per constraint, taken from the scheme's
