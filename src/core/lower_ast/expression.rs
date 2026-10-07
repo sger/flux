@@ -17,7 +17,10 @@ impl<'a> super::AstLowerer<'a> {
 
     pub(super) fn lower_expr(&mut self, expr: &Expression) -> CoreExpr {
         match expr {
-            Expression::Identifier { name, span, .. } => CoreExpr::external_var(*name, *span),
+            Expression::Identifier { name, span, id } => {
+                self.emit_dict_args(*id);
+                CoreExpr::external_var(*name, *span)
+            }
 
             Expression::Integer { value, span, .. } => CoreExpr::Lit(CoreLit::Int(*value), *span),
 
@@ -69,7 +72,10 @@ impl<'a> super::AstLowerer<'a> {
                 right,
                 span,
                 id,
-            } => self.lower_infix(left, operator, right, *span, *id),
+            } => {
+                self.emit_dict_args(*id);
+                self.lower_infix(left, operator, right, *span, *id)
+            }
 
             Expression::If {
                 condition,
