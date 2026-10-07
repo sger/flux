@@ -338,41 +338,67 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
     - The emitter also refuses an id whose raised predicate starts elsewhere
       (`mismatched`). Nothing has tripped it yet. It stays as the guard
       against a lowered program numbered differently from the inferred one.
-  - **The CFG path cannot find a module member's givens. This blocks 1d.**
-    Each stdlib unit is lowered twice, once per path, and the two reports
-    differ. `via cfg`, every `FromGiven` site inside `module Flow.X { … }` is
-    `unbuildable` (for example `Flow.Eq` 48:33, which agrees `via core`).
-    `cfg::lower_program_to_ir_typed` passes no `module_member_schemes`, so
-    `scheme_for_current_function` finds no scheme and the givens are empty.
-    The main file has no module wrapper and is unaffected. The old paths
-    differ between the two entry points too: `contains` at List.flx:569 gets
-    `[]` via cfg and `[__dict_Eq_Int]` via core.
-    - Passing the member schemes to the CFG path would also change what the
-      old paths resolve there, so it is not a shadow-only change.
-    - 1d needs a givens source that does not depend on the entry point. The
-      candidate is the definition's own implication: the solver already holds
-      its givens, in the order the scheme quantified them.
+  - **The CFG path could not find a module member's givens. Resolved.** Each
+    stdlib unit is lowered twice, once per path. `via cfg`, every `FromGiven`
+    site inside `module Flow.X { … }` was `unbuildable`. The emitter found the
+    enclosing definition's givens by looking its scheme up by name, and the
+    CFG entry point passes no `module_member_schemes`.
+    - The fix follows GHC, where a given is an evidence variable with an
+      identity and the definition stores its own parameter list
+      ([analysis §2](../internals/typeclass_ghc_analysis.md#how-a-given-is-identified)).
+    - `3ec726b8` gives every `Statement::Function` an id.
+    - `ff893fc5` makes `FromGiven` name its owner (`GivenRef { definition,
+      index }`) and records each definition's dictionary parameters in
+      `EvidenceMap`.
+    - `c0778b4a` makes lowering read a given's parameter through its owner.
+      `scheme_for_current_function` is no longer read by the emitter.
+    - `Flow.Eq` via cfg now reports `agree 5`, the same as via core. Every unit
+      gets the same emitter answer on both paths.
   - **The evidence map leaked between units.** A unit that skipped the class
     solve kept the previous module's map, and `ExprId`s restart per unit.
     **Fixed**: the map is reset at the start of every unit's inference.
   - **The old path answers `contains` (List.flx:569) with `__dict_Eq_Int`.**
     That is one of the five `UnresolvedAfterGeneralization` sites, and it
-    answers 1e's question about how the old path serves them: it guesses `Int`.
-    The other four are operators, and the old path passes them nothing.
-  - **A sixth unbuildable site:** `pair.0 <= current.0` at `Flow.Array`
-    291:40, beyond the five known in `Flow.List`.
+    answers 1e's question about how the old path serves them: via core it
+    guesses `Int`, and via cfg it passes nothing. The other four are
+    operators, and the old path passes them nothing.
+  - **A sixth unbuildable site,** `pair.0 <= current.0` at `Flow.Array`
+    291:40. **Resolved** by the same change: it came from the name lookup, not
+    the solver. Only the five known `Flow.List` sites remain unbuildable.
+  - **The old CFG path omits two dictionaries.** Inside `Flow.List`, it passes
+    nothing to `is_prefix` (413:8) or `contains` (526:9). The core path passes
+    `__dict_Eq`, and the emitter agrees with core.
+    - The CFG entry point's `elaborate_dictionaries` finds schemes by name in
+      `type_env`, which holds no module members. That is the flaw the emitter
+      just shed.
+    - It is a defect of the path 1e deletes, so no separate fix is planned.
+  - **`--dump-*` surfaces read other expressions' types.** `merge_programs`
+    concatenated separately parsed modules whose `ExprId`s overlapped, and the
+    merged program's type table is keyed by `ExprId`. **Fixed** in `2d1a7203`:
+    each module is shifted past the ids of the ones before it.
+    - Until then, `aether_cli_snapshots` (half of the precision gate, rule 7)
+      recorded collision-dependent types. Re-blessing showed miscompiles in
+      the old snapshots. `Flow.Array.contains<a: Eq>` called
+      `Eq<List<a>>`'s `eq` on plain elements, and `assert_lt<a: Ord>` used an
+      integer comparison and dropped its dictionary.
   - **The VM lowers the main file through `cfg::lower_program_to_ir_typed`.**
     It now receives the evidence map too, so 1e must switch that path over,
     not only `lower_core_from_program`.
-  - **`--dump-core` cannot drive the sweep.** It lowers the stdlib and the
-    main file as one program, so ids from different files collide. Run the
-    sweep through a normal compile with `--no-cache`.
+  - **The sweep runs per unit.** Dumps no longer collide (see above), but
+    only a per-unit compile carries that unit's own evidence map. Run it
+    through a normal compile with `--no-cache`, not `--dump-core`.
 - [ ] **1d. Create dictionary parameters at lowering.**
-  - For a `Statement::Function` whose scheme has dictionary constraints, prepend
-    one `__dict_*` `Lam` parameter per constraint, taken from the scheme's
-    givens.
-  - `DictArg::Param { index, path }` then renders as that variable followed by
-    `TupleField` projections.
+  - For a `Statement::Function` with recorded parameters, prepend one `__dict_*`
+    `Lam` parameter per entry of `EvidenceMap::definition(id).params`.
+  - Read them by the statement's `id`, not from the scheme. The list is the
+    one the solver discharged against, in that order: GHC's `abs_ev_vars`.
+  - `DictArg::Param { owner, index, path }` then renders as `owner`'s
+    `index`-th parameter variable, followed by `TupleField` projections along
+    `path`.
+    - `owner` may enclose the current definition. Its parameter is then in
+      scope lexically, as GHC's outer given variable is.
+    - Lowering keeps a map from `(owner, index)` to binder while it is inside
+      `owner`'s body.
   - Method calls in the body resolve through the same paths, not through
     `choose_candidate`.
   - This replaces the parameter-adding half of `rewrite_constrained_functions`.
@@ -380,11 +406,15 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
   dictionary arguments. A site with no evidence is an internal error that names
   the site (rule 5).
   - **Exception until Phase 2:** a site the solver filed as
-    `UnresolvedAfterGeneralization`, such as the five `Flow.List` sites above,
-    has no evidence by construction.
-  - Decide in 1c's shadow run how the old path serves them today, then either
-    keep that path for exactly those sites, marked for removal at 2b, or move
+    `UnresolvedAfterGeneralization` has no evidence by construction. There are
+    exactly five, all in `Flow.List`.
+  - The shadow run answered how the old path serves them. It guesses `Int` for
+    `contains` (569) and passes nothing to the four operators. Either keep
+    that path for exactly those five sites, marked for removal at 2b, or move
     B2 ahead of 1e.
+  - Switch **both** entry points: `lower_core_from_program` and
+    `cfg::lower_program_to_ir_typed`. The VM lowers the main file and every
+    stdlib unit through the second.
   - Do not turn them into internal errors: that would break the standard
     library.
 - [ ] **1f. Delete deletion group 1 (C6).**
@@ -394,6 +424,10 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
     `resolve_constraint_type_args` together with its **`Int` default**.
   - `insert_dict_args_at_call_sites`, `resolve_dict_arg`,
     `build_caller_dict_map`, `choose_candidate`.
+  - The dictionary uses of `scheme_for_current_function`:
+    `current_context_dictionary` and the `def_schemes` that
+    `record_def_scheme` collects for elaboration. The emitter stopped reading
+    the scheme by name in `c0778b4a`.
   - Keep `build_instance_dictionaries` and `build_contextual_dictionary_expr`.
     They build dictionary *values*; they don't choose instances.
   - Leave deletion group 2, the ~920 lines on the AST path, alone. It waits on
