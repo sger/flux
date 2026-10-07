@@ -1687,6 +1687,7 @@ impl Compiler {
                 span: *span,
             },
             span: *span,
+            id: id_gen.next_id(),
         })
     }
 

@@ -78,7 +78,9 @@ impl ExprIdGen {
     pub fn resuming_past_statements(statements: &[crate::syntax::statement::Statement]) -> Self {
         let mut scanner = MaxExprIdScanner { max: 0 };
         for stmt in statements {
-            crate::ast::visit::walk_stmt(&mut scanner, stmt);
+            // Through `visit_stmt`, not `walk_stmt`: a top-level definition's
+            // own id is read there, and walking past it would miss it.
+            crate::ast::visit::Visitor::visit_stmt(&mut scanner, stmt);
         }
         Self::from_counter(scanner.max.saturating_add(1))
     }
@@ -96,6 +98,16 @@ impl<'ast> crate::ast::visit::Visitor<'ast> for MaxExprIdScanner {
             self.max = n;
         }
         crate::ast::visit::walk_expr(self, expr);
+    }
+
+    // A definition's id comes from the same counter, so it must be counted too.
+    fn visit_stmt(&mut self, stmt: &'ast crate::syntax::statement::Statement) {
+        if let crate::syntax::statement::Statement::Function { id: ExprId(n), .. } = stmt
+            && *n > self.max
+        {
+            self.max = *n;
+        }
+        crate::ast::visit::walk_stmt(self, stmt);
     }
 }
 

@@ -819,6 +819,12 @@ mod tests {
 
         let mut ids = Ids(Vec::new());
         ids.visit_program(&merged);
+        // Definition ids share the counter, so they must not collide either.
+        for statement in &merged.statements {
+            if let Statement::Function { id, .. } = statement {
+                ids.0.push(*id);
+            }
+        }
         let distinct: std::collections::HashSet<_> = ids.0.iter().copied().collect();
         assert_eq!(
             distinct.len(),

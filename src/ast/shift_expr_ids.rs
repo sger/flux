@@ -96,6 +96,38 @@ impl Folder for ShiftExprIds {
                 span,
                 name_span,
             },
+            // A definition's id comes from the same counter, so it moves too.
+            Statement::Function {
+                is_public,
+                fip,
+                intrinsic,
+                name,
+                type_params,
+                parameters,
+                parameter_types,
+                return_type,
+                effects,
+                body,
+                span,
+                id,
+            } => Statement::Function {
+                is_public,
+                fip,
+                intrinsic,
+                name,
+                type_params,
+                parameters,
+                parameter_types,
+                return_type,
+                effects,
+                body,
+                span,
+                id: if id == ExprId::UNSET {
+                    id
+                } else {
+                    ExprId(id.0 + self.offset)
+                },
+            },
             other => other,
         }
     }
