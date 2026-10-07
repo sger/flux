@@ -40,6 +40,9 @@ use crate::{
 pub struct EvidenceSource<'a> {
     pub map: &'a EvidenceMap,
     pub file_path: &'a str,
+    /// Which lowering entry point is reporting. A unit can be lowered by more
+    /// than one, and they need not agree.
+    pub via: &'static str,
 }
 
 impl EvidenceSource<'_> {
@@ -51,14 +54,8 @@ impl EvidenceSource<'_> {
         interner: &Interner,
     ) {
         if let Ok(mode) = std::env::var("FLUX_DBG_EVIDENCE_DIFF") {
-            report_evidence_diff(
-                core,
-                shadow,
-                self.map,
-                interner,
-                self.file_path,
-                mode == "all",
-            );
+            let label = format!("{} via {}", self.file_path, self.via);
+            report_evidence_diff(core, shadow, self.map, interner, &label, mode == "all");
         }
     }
 }

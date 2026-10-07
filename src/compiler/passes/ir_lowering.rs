@@ -29,6 +29,7 @@ impl Compiler {
             Some(crate::core::passes::evidence_diff::EvidenceSource {
                 map: &self.evidence_map,
                 file_path: &self.file_path,
+                via: "cfg",
             }),
         ) {
             Ok(program) => program,
