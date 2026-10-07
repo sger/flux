@@ -250,16 +250,23 @@ impl crate::compiler::Compiler {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::harvest_evidence;
-    use crate::ast::type_infer::constraint::{WantedClassConstraint, WantedClassConstraintOrigin};
+    use crate::ast::type_infer::constraint::{
+        SchemeConstraint, WantedClassConstraint, WantedClassConstraintOrigin,
+    };
     use crate::diagnostics::position::Span;
     use crate::syntax::expression::ExprId;
     use crate::syntax::symbol::Symbol;
     use crate::types::class_disposition::{
-        Disposition, DispositionedConstraint, Evidence, SolveOutcome, StuckReason,
+        Disposition, DispositionedConstraint, Evidence, InstanceKey, SolveOutcome, StuckReason,
     };
     use crate::types::class_id::ClassId;
     use crate::types::evidence::EvidenceSite;
+    use crate::types::infer_type::InferType;
+    use crate::types::translate::DictArg;
+    use crate::types::type_constructor::TypeConstructor;
 
     /// Symbols are only ever compared here, never resolved, so a raw index is
     /// safe — see `Symbol::new`.
@@ -340,5 +347,104 @@ mod tests {
         let map = harvest_evidence(&outcome(vec![solved(), solved()], expr));
 
         assert_eq!(map.args_for(expr).map(|args| args.len()), Some(2));
+    }
+
+    fn solved_with(evidence: Evidence) -> Disposition {
+        Disposition::Solved { evidence }
+    }
+
+    fn int_instance() -> InstanceKey {
+        InstanceKey {
+            class_id: ClassId::from_local_name(Symbol::new(0)),
+            head_type_args: vec![InferType::Con(TypeConstructor::Int)],
+            dict_type_key: "Int".to_string(),
+        }
+    }
+
+    fn given(index: u32) -> SchemeConstraint {
+        let name = Symbol::new(index);
+        SchemeConstraint {
+            class_name: name,
+            class_id: ClassId::from_local_name(name),
+            type_args: vec![InferType::Var(0)],
+        }
+    }
+
+    #[test]
+    fn a_site_that_raised_nothing_passes_no_dictionaries() {
+        // Every identifier is asked. Raising nothing is "pass nothing", not
+        // "cannot build", which is what `args_for` answers here.
+        let expr = ExprId::UNSET;
+        let map = harvest_evidence(&outcome(vec![], expr));
+
+        assert_eq!(map.dict_args_at(expr, &[]), Some(vec![]));
+    }
+
+    #[test]
+    fn a_marker_takes_an_index_but_no_argument() {
+        // A dictionary's position is its index among the non-marker
+        // predicates, so the marker at index 0 leaves one argument, not two.
+        let expr = ExprId::UNSET;
+        let map = harvest_evidence(&outcome(
+            vec![
+                solved_with(Evidence::Marker),
+                solved_with(Evidence::FromInstance {
+                    instance: int_instance(),
+                    subst: HashMap::new(),
+                    context: vec![],
+                }),
+            ],
+            expr,
+        ));
+
+        assert_eq!(
+            map.dict_args_at(expr, &[]),
+            Some(vec![DictArg::Global {
+                instance: int_instance()
+            }])
+        );
+    }
+
+    #[test]
+    fn a_hole_anywhere_yields_no_argument_list() {
+        let expr = ExprId::UNSET;
+        let marker = || solved_with(Evidence::Marker);
+        let tail = harvest_evidence(&outcome(vec![marker(), stuck()], expr));
+        let head = harvest_evidence(&outcome(vec![stuck(), marker()], expr));
+
+        assert_eq!(tail.dict_args_at(expr, &[]), None);
+        assert_eq!(head.dict_args_at(expr, &[]), None);
+    }
+
+    #[test]
+    fn unbuildable_evidence_yields_no_argument_list() {
+        // Every position is answered, so `args_for` succeeds; the fold over
+        // the answer is what fails, and that must not become "pass nothing".
+        let expr = ExprId::UNSET;
+        let map = harvest_evidence(&outcome(vec![solved_with(Evidence::Unrecorded)], expr));
+
+        assert!(map.args_for(expr).is_some());
+        assert_eq!(map.dict_args_at(expr, &[]), None);
+    }
+
+    #[test]
+    fn a_given_resolves_to_its_parameter_position() {
+        let expr = ExprId::UNSET;
+        let givens = vec![given(0), given(1)];
+        let map = harvest_evidence(&outcome(
+            vec![solved_with(Evidence::FromGiven {
+                given: givens[1].clone(),
+                superclass_path: vec![],
+            })],
+            expr,
+        ));
+
+        assert_eq!(
+            map.dict_args_at(expr, &givens),
+            Some(vec![DictArg::Param {
+                index: 1,
+                path: vec![]
+            }])
+        );
     }
 }

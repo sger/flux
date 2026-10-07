@@ -54,10 +54,16 @@
 use std::collections::HashMap;
 
 use crate::{
-    ast::type_infer::constraint::{WantedClassConstraint, WantedClassConstraintOrigin},
+    ast::type_infer::constraint::{
+        SchemeConstraint, WantedClassConstraint, WantedClassConstraintOrigin,
+    },
     source::position::Span,
     syntax::{Identifier, expression::ExprId},
-    types::{class_disposition::Evidence, class_id::ClassId},
+    types::{
+        class_disposition::Evidence,
+        class_id::ClassId,
+        translate::{DictArg, evidence_to_arg},
+    },
 };
 
 /// What was raised at a site, answered or not.
@@ -169,6 +175,36 @@ impl EvidenceMap {
         (0..count)
             .map(|index| self.get(&EvidenceSite::new(expr, index)))
             .collect()
+    }
+
+    /// The dictionary arguments `expr` passes, in argument order.
+    ///
+    /// `expr` is the site the predicates were keyed at: the callee identifier
+    /// for a call, the operator itself for an operator. `givens` are the
+    /// enclosing definition's predicates, in the order it receives their
+    /// dictionaries (see [`evidence_to_arg`]).
+    ///
+    /// A marker predicate takes an index but no argument, so it is dropped: a
+    /// dictionary's position is its index among the non-marker predicates.
+    ///
+    /// `Some(vec![])` when `expr` raised nothing — unlike [`Self::args_for`],
+    /// because every identifier is asked, and raising nothing means passing
+    /// nothing. `None` when any raised predicate has no answer, or an answer
+    /// [`evidence_to_arg`] cannot build. Never a short list.
+    pub fn dict_args_at(&self, expr: ExprId, givens: &[SchemeConstraint]) -> Option<Vec<DictArg>> {
+        if self.raised(expr) == 0 {
+            return Some(Vec::new());
+        }
+        let args = self
+            .args_for(expr)?
+            .into_iter()
+            .map(|evidence| evidence_to_arg(evidence, givens))
+            .collect::<Option<Vec<_>>>()?;
+        Some(
+            args.into_iter()
+                .filter(|arg| *arg != DictArg::None)
+                .collect(),
+        )
     }
 
     /// Every instance named by the evidence recorded here.

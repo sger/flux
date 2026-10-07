@@ -29,6 +29,7 @@ use super::{
 };
 
 mod binder_resolution;
+mod evidence;
 mod expression;
 mod pattern;
 
@@ -362,10 +363,13 @@ pub(super) struct AstLowerer<'a> {
     /// Lowering is the last place an `ExprId` is in hand, so it is the only
     /// place this map can be read: `CoreExpr` carries no id to look a site up
     /// by. `None` on the paths that lower without a whole-program solve.
-    // Read by the evidence emitter (0.0.8 plan step 1c); the allowance goes
-    // with it.
-    #[allow(dead_code)]
     pub(super) evidence: Option<&'a crate::types::evidence::EvidenceMap>,
+    /// What the evidence emitter built, by the occurrence that raised the
+    /// predicates. Shadow mode: recorded, not yet emitted.
+    // Read by the evidence diff report (0.0.8 plan step 1c); the allowance
+    // goes with it.
+    #[allow(dead_code)]
+    emitted_dict_args: HashMap<ExprId, evidence::EmittedDictArgs>,
 }
 
 impl<'a> AstLowerer<'a> {
@@ -403,6 +407,7 @@ impl<'a> AstLowerer<'a> {
             specializations: HashMap::new(),
             active_subst: None,
             evidence,
+            emitted_dict_args: HashMap::new(),
         }
     }
 
@@ -2486,6 +2491,103 @@ f("flux")
 
     /// Count LetRecGroup nodes and individual LetRec nodes in the body
     /// of the main function's Core IR.
+    /// The emitter reads evidence where an occurrence is lowered: at the
+    /// callee identifier and at the operator. A site that raised nothing is
+    /// not recorded, and a hole is recorded as unbuildable, never as a short
+    /// list.
+    #[test]
+    fn the_evidence_emitter_records_each_site_that_raised_predicates() {
+        use crate::{
+            ast::type_infer::constraint::WantedClassConstraintOrigin,
+            syntax::{expression::Expression, statement::Statement},
+            types::{
+                class_disposition::{Evidence, InstanceKey},
+                class_id::ClassId,
+                evidence::{EvidenceMap, RaisedPredicate},
+                translate::DictArg,
+                type_constructor::TypeConstructor,
+            },
+        };
+
+        let src = "fn g(x) { x }\nfn main() { g(1) + 2 }";
+        let (prog, types, mut interner) = parse_and_infer(src);
+
+        let main = prog
+            .statements
+            .iter()
+            .find_map(|stmt| match stmt {
+                Statement::Function { name, body, .. }
+                    if interner.try_resolve(*name) == Some("main") =>
+                {
+                    Some(body)
+                }
+                _ => None,
+            })
+            .unwrap();
+        let Some(Statement::Expression {
+            expression: Expression::Infix { left, id: plus, .. },
+            ..
+        }) = main.statements.last()
+        else {
+            panic!("expected `g(1) + 2`");
+        };
+        let Expression::Call { function, .. } = left.as_ref() else {
+            panic!("expected `g(1)`");
+        };
+        let callee = function.expr_id();
+
+        let class = interner.intern("Num");
+        let predicate = RaisedPredicate {
+            class_name: class,
+            class_id: ClassId::from_local_name(class),
+            origin: WantedClassConstraintOrigin::SchemeUse,
+            span: Span::default(),
+        };
+        let instance = InstanceKey {
+            class_id: ClassId::from_local_name(class),
+            head_type_args: vec![InferType::Con(TypeConstructor::Int)],
+            dict_type_key: "Int".to_string(),
+        };
+        let mut evidence = EvidenceMap::new();
+        let site = evidence.raise(callee, predicate.clone());
+        evidence.insert(
+            site,
+            Evidence::FromInstance {
+                instance: instance.clone(),
+                subst: HashMap::new(),
+                context: vec![],
+            },
+        );
+        evidence.raise(*plus, predicate);
+
+        let mut lowerer = AstLowerer::new(
+            &types,
+            Some(&interner),
+            None,
+            None,
+            None,
+            None,
+            HashMap::new(),
+            Some(&evidence),
+        );
+        let (mut defs, mut items) = (Vec::new(), Vec::new());
+        for stmt in &prog.statements {
+            lowerer.lower_top_level(stmt, &mut defs, &mut items);
+        }
+
+        assert_eq!(
+            lowerer.emitted_dict_args.get(&callee),
+            Some(&evidence::EmittedDictArgs::Built(vec![DictArg::Global {
+                instance
+            }]))
+        );
+        assert_eq!(
+            lowerer.emitted_dict_args.get(plus),
+            Some(&evidence::EmittedDictArgs::Unbuildable)
+        );
+        assert_eq!(lowerer.emitted_dict_args.len(), 2);
+    }
+
     fn count_binding_kinds(src: &str) -> (usize, usize) {
         let (program, types, _interner) = parse_and_infer(src);
         let core = lower_program_ast(&program, &types);
