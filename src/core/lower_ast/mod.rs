@@ -30,6 +30,7 @@ use super::{
 
 mod binder_resolution;
 mod evidence;
+pub use evidence::{EmittedDictArgs, EmittedSite, EvidenceShadow, OccurrenceKind};
 mod expression;
 mod pattern;
 
@@ -143,7 +144,9 @@ pub fn lower_program_ast_with_class_env(
 /// The complete entry point: everything above, plus the solver's evidence.
 ///
 /// `evidence` is the whole-program [`EvidenceMap`](crate::types::evidence::EvidenceMap).
-/// Only the compiler has one; every other entry point passes `None`.
+/// Only the compiler has one; every other entry point passes `None`. What the
+/// evidence emitter built from it comes back as the [`EvidenceShadow`], empty
+/// when `evidence` is `None`.
 #[allow(clippy::too_many_arguments)]
 pub fn lower_program_ast_with_class_env_and_def_schemes(
     program: &Program,
@@ -157,6 +160,7 @@ pub fn lower_program_ast_with_class_env_and_def_schemes(
 ) -> (
     CoreProgram,
     HashMap<crate::core::CoreBinderId, crate::types::scheme::Scheme>,
+    EvidenceShadow,
 ) {
     let module_aliases = collect_module_aliases(&program.statements);
     let mut lowerer = AstLowerer::new(
@@ -204,7 +208,7 @@ pub fn lower_program_ast_with_class_env_and_def_schemes(
         validate_program_binders(&core),
         "Core binder resolution invariant failed after AST→Core lowering"
     );
-    (core, lowerer.def_schemes)
+    (core, lowerer.def_schemes, lowerer.shadow)
 }
 
 /// Call-site instantiations seen for one name.
@@ -365,11 +369,8 @@ pub(super) struct AstLowerer<'a> {
     /// by. `None` on the paths that lower without a whole-program solve.
     pub(super) evidence: Option<&'a crate::types::evidence::EvidenceMap>,
     /// What the evidence emitter built, by the occurrence that raised the
-    /// predicates. Shadow mode: recorded, not yet emitted.
-    // Read by the evidence diff report (0.0.8 plan step 1c); the allowance
-    // goes with it.
-    #[allow(dead_code)]
-    emitted_dict_args: HashMap<ExprId, evidence::EmittedDictArgs>,
+    /// predicates. Shadow mode: recorded and handed back, not emitted.
+    shadow: evidence::EvidenceShadow,
 }
 
 impl<'a> AstLowerer<'a> {
@@ -407,7 +408,7 @@ impl<'a> AstLowerer<'a> {
             specializations: HashMap::new(),
             active_subst: None,
             evidence,
-            emitted_dict_args: HashMap::new(),
+            shadow: evidence::EvidenceShadow::default(),
         }
     }
 
@@ -2493,8 +2494,9 @@ f("flux")
     /// of the main function's Core IR.
     /// The emitter reads evidence where an occurrence is lowered: at the
     /// callee identifier and at the operator. A site that raised nothing is
-    /// not recorded, and a hole is recorded as unbuildable, never as a short
-    /// list.
+    /// not recorded, a hole is recorded as unbuildable, never as a short
+    /// list, and an id whose predicates were raised somewhere else is not
+    /// built from at all.
     #[test]
     fn the_evidence_emitter_records_each_site_that_raised_predicates() {
         use crate::{
@@ -2525,7 +2527,13 @@ f("flux")
             })
             .unwrap();
         let Some(Statement::Expression {
-            expression: Expression::Infix { left, id: plus, .. },
+            expression:
+                Expression::Infix {
+                    left,
+                    id: plus,
+                    span: plus_span,
+                    ..
+                },
             ..
         }) = main.statements.last()
         else {
@@ -2535,13 +2543,30 @@ f("flux")
             panic!("expected `g(1)`");
         };
         let callee = function.expr_id();
+        let x = prog
+            .statements
+            .iter()
+            .find_map(|stmt| match stmt {
+                Statement::Function { name, body, .. }
+                    if interner.try_resolve(*name) == Some("g") =>
+                {
+                    match body.statements.last() {
+                        Some(Statement::Expression { expression, .. }) => {
+                            Some(expression.expr_id())
+                        }
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+            .unwrap();
 
         let class = interner.intern("Num");
-        let predicate = RaisedPredicate {
+        let raised_at = |span: Span| RaisedPredicate {
             class_name: class,
             class_id: ClassId::from_local_name(class),
             origin: WantedClassConstraintOrigin::SchemeUse,
-            span: Span::default(),
+            span,
         };
         let instance = InstanceKey {
             class_id: ClassId::from_local_name(class),
@@ -2549,7 +2574,7 @@ f("flux")
             dict_type_key: "Int".to_string(),
         };
         let mut evidence = EvidenceMap::new();
-        let site = evidence.raise(callee, predicate.clone());
+        let site = evidence.raise(callee, raised_at(function.span()));
         evidence.insert(
             site,
             Evidence::FromInstance {
@@ -2558,7 +2583,10 @@ f("flux")
                 context: vec![],
             },
         );
-        evidence.raise(*plus, predicate);
+        evidence.raise(*plus, raised_at(*plus_span));
+        // `x` is at 1:10; a predicate raised at the call's position is some
+        // other expression's, which is what a renumbered id looks like.
+        evidence.raise(x, raised_at(function.span()));
 
         let mut lowerer = AstLowerer::new(
             &types,
@@ -2576,16 +2604,19 @@ f("flux")
         }
 
         assert_eq!(
-            lowerer.emitted_dict_args.get(&callee),
-            Some(&evidence::EmittedDictArgs::Built(vec![DictArg::Global {
-                instance
-            }]))
+            lowerer.shadow.sites.get(&callee).map(|site| &site.args),
+            Some(&EmittedDictArgs::Built(vec![DictArg::Global { instance }]))
         );
         assert_eq!(
-            lowerer.emitted_dict_args.get(plus),
-            Some(&evidence::EmittedDictArgs::Unbuildable)
+            lowerer.shadow.sites.get(plus).map(|site| &site.args),
+            Some(&EmittedDictArgs::Unbuildable)
         );
-        assert_eq!(lowerer.emitted_dict_args.len(), 2);
+        assert!(matches!(
+            lowerer.shadow.sites.get(&x).map(|site| &site.args),
+            Some(EmittedDictArgs::Mismatched { .. })
+        ));
+        assert_eq!(lowerer.shadow.sites.len(), 3);
+        assert!(lowerer.shadow.call_spans.contains_key(&callee));
     }
 
     fn count_binding_kinds(src: &str) -> (usize, usize) {

@@ -18,7 +18,7 @@ impl<'a> super::AstLowerer<'a> {
     pub(super) fn lower_expr(&mut self, expr: &Expression) -> CoreExpr {
         match expr {
             Expression::Identifier { name, span, id } => {
-                self.emit_dict_args(*id);
+                self.emit_dict_args(*id, *span, super::OccurrenceKind::Identifier(*name));
                 CoreExpr::external_var(*name, *span)
             }
 
@@ -73,7 +73,7 @@ impl<'a> super::AstLowerer<'a> {
                 span,
                 id,
             } => {
-                self.emit_dict_args(*id);
+                self.emit_dict_args(*id, *span, super::OccurrenceKind::Operator);
                 self.lower_infix(left, operator, right, *span, *id)
             }
 
@@ -168,6 +168,7 @@ impl<'a> super::AstLowerer<'a> {
                 span,
                 id,
             } => {
+                self.record_call_span(function.expr_id(), *span);
                 // Phase 4 Step 5: compile-time class method dispatch.
                 // If the callee is a class method and the argument type is known,
                 // resolve directly to the mangled instance function.
@@ -206,6 +207,20 @@ impl<'a> super::AstLowerer<'a> {
                         _ => self.resolve_direct_class_call_dict_args(method_name, arguments, *id),
                     }
                 {
+                    // The callee is replaced, not lowered, so the identifier
+                    // arm never sees it: record its evidence here.
+                    if let Expression::Identifier {
+                        name,
+                        span: callee_span,
+                        id: callee,
+                    } = function.as_ref()
+                    {
+                        self.emit_dict_args(
+                            *callee,
+                            *callee_span,
+                            super::OccurrenceKind::Identifier(*name),
+                        );
+                    }
                     args.extend(arguments.iter().map(|a| self.lower_expr(a)));
                     return CoreExpr::App {
                         func: Box::new(CoreExpr::external_var(mangled, *span)),

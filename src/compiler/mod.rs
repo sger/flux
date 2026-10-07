@@ -2143,7 +2143,7 @@ impl Compiler {
                 module_member_schemes.insert((*module_name, *member_name), scheme.clone());
             }
         }
-        let (mut core, def_schemes) =
+        let (mut core, def_schemes, shadow) =
             crate::core::lower_ast::lower_program_ast_with_class_env_and_def_schemes(
                 program_to_lower,
                 &self.hm_expr_types,
@@ -2165,6 +2165,13 @@ impl Compiler {
                 &self.interner,
                 &mut next_id,
             );
+            // 0.0.8 plan step 1c: the evidence emitter against the paths it
+            // replaces, read from Core once both have run.
+            crate::core::passes::evidence_diff::EvidenceSource {
+                map: &self.evidence_map,
+                file_path: &self.file_path,
+            }
+            .report_if_enabled(&core, &shadow, &self.interner);
         }
 
         let preloaded_registry = self.build_preloaded_borrow_registry(program_to_lower);
@@ -6785,6 +6792,10 @@ impl Compiler {
             optimize,
             Some(&self.type_env),
             class_env_ref,
+            Some(crate::core::passes::evidence_diff::EvidenceSource {
+                map: &self.evidence_map,
+                file_path: &self.file_path,
+            }),
         )?;
         crate::cfg::run_ir_pass_pipeline(&mut ir_program, &crate::cfg::IrPassContext)?;
         Ok(ir_program.to_string())
