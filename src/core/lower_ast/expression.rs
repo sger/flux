@@ -177,6 +177,12 @@ impl<'a> super::AstLowerer<'a> {
                     Expression::MemberAccess { member, .. } => Some(*member),
                     _ => None,
                 };
+                // A class-method call raises its predicate at the call, once its
+                // arguments' types are known — not at the callee, which is where
+                // a constrained function's predicates are (`types/evidence.rs`).
+                if let Some(method_name) = method_name {
+                    self.emit_dict_args(*id, *span, super::OccurrenceKind::Identifier(method_name));
+                }
                 if let Some(mangled) = self.try_resolve_class_call_expr(function, arguments, *id)
                     && let Some(method_name) = method_name
                     && let Some(mut args) = match function.as_ref() {
@@ -207,20 +213,6 @@ impl<'a> super::AstLowerer<'a> {
                         _ => self.resolve_direct_class_call_dict_args(method_name, arguments, *id),
                     }
                 {
-                    // The callee is replaced, not lowered, so the identifier
-                    // arm never sees it: record its evidence here.
-                    if let Expression::Identifier {
-                        name,
-                        span: callee_span,
-                        id: callee,
-                    } = function.as_ref()
-                    {
-                        self.emit_dict_args(
-                            *callee,
-                            *callee_span,
-                            super::OccurrenceKind::Identifier(*name),
-                        );
-                    }
                     args.extend(arguments.iter().map(|a| self.lower_expr(a)));
                     return CoreExpr::App {
                         func: Box::new(CoreExpr::external_var(mangled, *span)),

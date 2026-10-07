@@ -2170,6 +2170,7 @@ impl Compiler {
             crate::core::passes::evidence_diff::EvidenceSource {
                 map: &self.evidence_map,
                 file_path: &self.file_path,
+                via: "core",
             }
             .report_if_enabled(&core, &shadow, &self.interner);
         }
@@ -6795,6 +6796,7 @@ impl Compiler {
             Some(crate::core::passes::evidence_diff::EvidenceSource {
                 map: &self.evidence_map,
                 file_path: &self.file_path,
+                via: "cfg",
             }),
         )?;
         crate::cfg::run_ir_pass_pipeline(&mut ir_program, &crate::cfg::IrPassContext)?;

@@ -33,6 +33,10 @@
 //! - **A marker class takes an index but no dictionary.** Its evidence is
 //!   `Evidence::Marker`, so a dictionary's argument position is its index
 //!   among the *non-marker* predicates, not its raw index.
+//! - **A class-method call is keyed at the call**, not the callee: its
+//!   predicate (origin `MethodCall`) is raised once the arguments' types are
+//!   known, while the call is the current expression. Ids are assigned in
+//!   post-order, so the call's id follows its callee's and arguments'.
 //! - **An operator is keyed at the operator expression itself**, with origin
 //!   `InferredOperator`.
 //!
