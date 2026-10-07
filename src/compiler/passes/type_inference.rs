@@ -75,6 +75,12 @@ impl Compiler {
         tag_diagnostics(&mut strict_diags, DiagnosticPhase::TypeInference);
         hm_diagnostics.extend(strict_diags);
 
+        // The map belongs to this unit. A unit that skips the solve below
+        // raised nothing to answer, and must not keep the previous module's
+        // evidence: `ExprId`s restart per unit, so a stale entry would answer a
+        // different expression here.
+        self.evidence_map = crate::types::evidence::EvidenceMap::new();
+
         // Type class constraint solving: verify that concrete-type constraints
         // have matching instances in the ClassEnv (Proposal 0145, Step 4).
         if !class_constraints.is_solved() && !self.class_env.classes.is_empty() {
