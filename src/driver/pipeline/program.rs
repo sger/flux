@@ -86,10 +86,18 @@ fn should_build_merged_program(flags: &DriverFlags, is_multimodule: bool) -> boo
 }
 
 /// Concatenates module programs in topological order for dump-only surfaces.
+///
+/// Each module is shifted past the ids of the ones before it. Modules are
+/// parsed separately and all number their expressions from one, and the merged
+/// program is inferred as a whole, so overlapping ids would share one entry in
+/// the type table.
 fn merge_programs<'a>(programs: impl IntoIterator<Item = &'a Program>) -> Program {
     let mut merged = Program::new();
     for program in programs {
-        merged.statements.extend(program.statements.clone());
+        let offset =
+            crate::syntax::expression::ExprIdGen::resuming_past_program(&merged).counter() - 1;
+        let shifted = crate::ast::shift_expr_ids::shift_expr_ids(program.clone(), offset);
+        merged.statements.extend(shifted.statements);
     }
     merged
 }
@@ -777,5 +785,46 @@ mod tests {
             Statement::Import { name, .. } => assert_eq!(*name, Symbol::new(7)),
             other => panic!("expected import statement, got {other:?}"),
         }
+    }
+
+    /// Each module is parsed on its own, so each numbers its expressions from
+    /// one. The merged program is re-inferred as a whole, and its type table is
+    /// keyed by `ExprId`: two expressions with one id get one type, whichever
+    /// is written last. That put `Flow.Array.contains`'s generic `v == x` on
+    /// the `Eq<List<a>>` instance in every `--dump-*` of a multi-module program.
+    #[test]
+    fn merged_modules_keep_every_expression_id_distinct() {
+        use crate::{
+            ast::visit::{Visitor, walk_expr},
+            syntax::{expression::Expression, lexer::Lexer, parser::Parser},
+        };
+
+        struct Ids(Vec<crate::syntax::expression::ExprId>);
+        impl<'ast> Visitor<'ast> for Ids {
+            fn visit_expr(&mut self, expr: &'ast Expression) {
+                self.0.push(expr.expr_id());
+                walk_expr(self, expr);
+            }
+        }
+        let parse = |source: &str| {
+            let mut parser = Parser::new(Lexer::new(source));
+            let program = parser.parse_program();
+            assert!(parser.errors.is_empty(), "{:?}", parser.errors);
+            program
+        };
+        let first = parse("class Size<a> { fn size(x: a) -> Int { 1 } }\nfn one(x) { x + 1 }");
+        let second = parse("instance Size<Int> { fn size(x) { x * 2 } }\nfn two(y) { y + 2 }");
+
+        let merged = merge_programs([&first, &second]);
+
+        let mut ids = Ids(Vec::new());
+        ids.visit_program(&merged);
+        let distinct: std::collections::HashSet<_> = ids.0.iter().copied().collect();
+        assert_eq!(
+            distinct.len(),
+            ids.0.len(),
+            "merged program reuses expression ids: {:?}",
+            ids.0
+        );
     }
 }
