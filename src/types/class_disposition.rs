@@ -73,6 +73,23 @@ impl InstanceKey {
     }
 }
 
+/// One given: the definition that holds it, and its position among that
+/// definition's givens.
+///
+/// GHC names a given by its evidence *variable*, created once per entry of
+/// the context when the definition is generalized and referred to by identity
+/// from then on (`Tc/Solver.hs`, `simplifyInfer`). This is Flux's equivalent:
+/// evidence says which parameter supplies it, instead of leaving a consumer to
+/// find the definition by name and the predicate by type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GivenRef {
+    /// The `Statement::Function` id of the definition that quantified it.
+    pub definition: crate::syntax::expression::ExprId,
+    /// Its position in that definition's givens, before markers and
+    /// non-quantified predicates are filtered out of the parameter list.
+    pub index: u16,
+}
+
 /// How a predicate was discharged.
 ///
 /// Corresponds to THIH's notion of evidence: `FromInstance` is `byInst`
@@ -106,6 +123,10 @@ pub enum Evidence {
     FromGiven {
         /// The scheme predicate that discharged it.
         given: SchemeConstraint,
+        /// Which definition's given it is, and its position among that
+        /// definition's givens. Possibly an *enclosing* definition: a nested
+        /// scope may be answered from its parent's context.
+        owner: GivenRef,
         /// Slot path from the given's dictionary to the wanted evidence, empty
         /// when the given *is* the wanted predicate.
         superclass_path: Vec<usize>,

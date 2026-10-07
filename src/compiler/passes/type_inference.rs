@@ -96,12 +96,16 @@ impl Compiler {
             );
             outcome.trace_stuck(&self.interner);
             self.evidence_map = harvest_evidence(&outcome);
-            if std::env::var("FLUX_DBG_EVIDENCE").is_ok() {
-                self.dump_evidence_map();
-            }
             let mut solver_diags: Vec<_> = outcome.into_diagnostics().collect();
             tag_diagnostics(&mut solver_diags, DiagnosticPhase::TypeInference);
             hm_diagnostics.extend(solver_diags);
+        }
+        // Outside the solve: a definition whose body raised nothing leaves the
+        // tree solved, and still has dictionary parameters.
+        self.evidence_map
+            .record_definitions(&class_constraints, &self.class_env);
+        if std::env::var("FLUX_DBG_EVIDENCE").is_ok() {
+            self.dump_evidence_map();
         }
 
         self.has_hm_diagnostics = hm_diagnostics
@@ -225,6 +229,18 @@ impl crate::compiler::Compiler {
                 eprintln!("    idx={index} {raised_as} -> {kind}");
             }
         }
+        for (id, definition) in self.evidence_map.definitions() {
+            let params = definition
+                .params
+                .iter()
+                .map(|param| self.interner.resolve(param.class_name).to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            eprintln!(
+                "  def {id:?}: [{params}] param_of_given={:?}",
+                definition.param_of_given
+            );
+        }
     }
 
     fn describe_evidence(&self, evidence: &crate::types::class_disposition::Evidence) -> String {
@@ -241,10 +257,13 @@ impl crate::compiler::Compiler {
             ),
             Evidence::FromGiven {
                 given,
+                owner,
                 superclass_path,
             } => format!(
-                "FromGiven class={} path={:?}",
+                "FromGiven class={} owner={:?}#{} path={:?}",
                 self.interner.resolve(given.class_name),
+                owner.definition,
+                owner.index,
                 superclass_path
             ),
             Evidence::Structural { .. } => "Structural".to_string(),
@@ -440,6 +459,10 @@ mod tests {
         let map = harvest_evidence(&outcome(
             vec![solved_with(Evidence::FromGiven {
                 given: givens[1].clone(),
+                owner: crate::types::class_disposition::GivenRef {
+                    definition: ExprId::UNSET,
+                    index: 1,
+                },
                 superclass_path: vec![],
             })],
             expr,

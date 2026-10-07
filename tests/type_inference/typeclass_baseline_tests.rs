@@ -1497,6 +1497,72 @@ fn main() { doubled(21) }
     );
 }
 
+/// Evidence answered from a definition's own context names that definition by
+/// its id, and the definition's parameters are recorded under the same id —
+/// so lowering needs no name lookup to find either.
+#[test]
+fn evidence_from_a_given_names_the_definition_whose_parameter_supplies_it() {
+    let source = r#"
+class Rank<a> {
+    fn rank(x: a) -> Int
+}
+
+instance Rank<Int> {
+    fn rank(x) { x }
+}
+
+fn doubled<a: Rank>(x: a) -> Int { rank(x) + rank(x) }
+
+fn main() { doubled(21) }
+"#;
+    let (program, mut compiler) = parse_source(source, "given_owner_evidence.flx");
+    compiler.compile(&program).expect("program type-checks");
+    let doubled = program
+        .statements
+        .iter()
+        .find_map(|statement| match statement {
+            flux::syntax::statement::Statement::Function { name, id, .. }
+                if compiler.interner.resolve(*name) == "doubled" =>
+            {
+                Some(*id)
+            }
+            _ => None,
+        })
+        .expect("`doubled` is declared");
+
+    let owners: Vec<_> = compiler
+        .evidence_map()
+        .entries()
+        .filter_map(|(_, evidence)| match evidence {
+            flux::types::class_disposition::Evidence::FromGiven { owner, .. } => Some(*owner),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        owners.len(),
+        2,
+        "both `rank(x)` calls are answered from a given"
+    );
+    assert!(
+        owners
+            .iter()
+            .all(|owner| owner.definition == doubled && owner.index == 0),
+        "each names `doubled`'s first given: {owners:?}"
+    );
+
+    let params = compiler
+        .evidence_map()
+        .definition(doubled)
+        .expect("`doubled`'s parameters are recorded under its id");
+    let classes: Vec<_> = params
+        .params
+        .iter()
+        .map(|param| compiler.interner.resolve(param.class_name).to_string())
+        .collect();
+    assert_eq!(classes, ["Rank"]);
+    assert_eq!(params.param_of_given, [Some(0)]);
+}
+
 /// An unannotated self-recursive helper is inferred twice — the second pass
 /// refines its return type — and must not raise its predicates twice.
 #[test]
