@@ -200,25 +200,35 @@ impl EvidenceMap {
     /// The dictionary arguments `expr` passes, in argument order.
     ///
     /// `expr` is the site the predicates were keyed at: the callee identifier
-    /// for a call, the operator itself for an operator. `givens` are the
-    /// enclosing definition's predicates, in the order it receives their
-    /// dictionaries (see [`evidence_to_arg`]).
+    /// for a call to a constrained function, the call itself for a class
+    /// method, the operator itself for an operator.
     ///
-    /// A marker predicate takes an index but no argument, so it is dropped: a
+    /// Evidence from a given becomes the parameter its definition records for
+    /// it ([`Self::definition`]); a given with no parameter, or whose
+    /// definition recorded none, leaves the site unbuildable. A marker
+    /// predicate takes an index but no argument, so it is dropped: a
     /// dictionary's position is its index among the non-marker predicates.
     ///
     /// `Some(vec![])` when `expr` raised nothing — unlike [`Self::args_for`],
     /// because every identifier is asked, and raising nothing means passing
     /// nothing. `None` when any raised predicate has no answer, or an answer
     /// [`evidence_to_arg`] cannot build. Never a short list.
-    pub fn dict_args_at(&self, expr: ExprId, givens: &[SchemeConstraint]) -> Option<Vec<DictArg>> {
+    pub fn dict_args_at(&self, expr: ExprId) -> Option<Vec<DictArg>> {
         if self.raised(expr) == 0 {
             return Some(Vec::new());
         }
+        let param_of = |given: crate::types::class_disposition::GivenRef| {
+            self.definition(given.definition)?
+                .param_of_given
+                .get(usize::from(given.index))
+                .copied()
+                .flatten()
+                .map(usize::from)
+        };
         let args = self
             .args_for(expr)?
             .into_iter()
-            .map(|evidence| evidence_to_arg(evidence, givens))
+            .map(|evidence| evidence_to_arg(evidence, &param_of))
             .collect::<Option<Vec<_>>>()?;
         Some(
             args.into_iter()

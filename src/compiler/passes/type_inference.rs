@@ -278,9 +278,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::harvest_evidence;
-    use crate::ast::type_infer::constraint::{
-        SchemeConstraint, WantedClassConstraint, WantedClassConstraintOrigin,
-    };
+    use crate::ast::type_infer::constraint::{WantedClassConstraint, WantedClassConstraintOrigin};
     use crate::diagnostics::position::Span;
     use crate::syntax::expression::ExprId;
     use crate::syntax::symbol::Symbol;
@@ -386,15 +384,6 @@ mod tests {
         }
     }
 
-    fn given(index: u32) -> SchemeConstraint {
-        let name = Symbol::new(index);
-        SchemeConstraint {
-            class_name: name,
-            class_id: ClassId::from_local_name(name),
-            type_args: vec![InferType::Var(0)],
-        }
-    }
-
     #[test]
     fn a_site_that_raised_nothing_passes_no_dictionaries() {
         // Every identifier is asked. Raising nothing is "pass nothing", not
@@ -402,7 +391,7 @@ mod tests {
         let expr = ExprId::UNSET;
         let map = harvest_evidence(&outcome(vec![], expr));
 
-        assert_eq!(map.dict_args_at(expr, &[]), Some(vec![]));
+        assert_eq!(map.dict_args_at(expr), Some(vec![]));
     }
 
     #[test]
@@ -423,7 +412,7 @@ mod tests {
         ));
 
         assert_eq!(
-            map.dict_args_at(expr, &[]),
+            map.dict_args_at(expr),
             Some(vec![DictArg::Global {
                 instance: int_instance()
             }])
@@ -437,8 +426,8 @@ mod tests {
         let tail = harvest_evidence(&outcome(vec![marker(), stuck()], expr));
         let head = harvest_evidence(&outcome(vec![stuck(), marker()], expr));
 
-        assert_eq!(tail.dict_args_at(expr, &[]), None);
-        assert_eq!(head.dict_args_at(expr, &[]), None);
+        assert_eq!(tail.dict_args_at(expr), None);
+        assert_eq!(head.dict_args_at(expr), None);
     }
 
     #[test]
@@ -449,31 +438,6 @@ mod tests {
         let map = harvest_evidence(&outcome(vec![solved_with(Evidence::Unrecorded)], expr));
 
         assert!(map.args_for(expr).is_some());
-        assert_eq!(map.dict_args_at(expr, &[]), None);
-    }
-
-    #[test]
-    fn a_given_resolves_to_its_parameter_position() {
-        let expr = ExprId::UNSET;
-        let givens = vec![given(0), given(1)];
-        let map = harvest_evidence(&outcome(
-            vec![solved_with(Evidence::FromGiven {
-                given: givens[1].clone(),
-                owner: crate::types::class_disposition::GivenRef {
-                    definition: ExprId::UNSET,
-                    index: 1,
-                },
-                superclass_path: vec![],
-            })],
-            expr,
-        ));
-
-        assert_eq!(
-            map.dict_args_at(expr, &givens),
-            Some(vec![DictArg::Param {
-                index: 1,
-                path: vec![]
-            }])
-        );
+        assert_eq!(map.dict_args_at(expr), None);
     }
 }

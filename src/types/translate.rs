@@ -22,9 +22,12 @@
 //!
 //! See `docs/proposals/0186_generics_foundations.md`.
 
-use crate::types::{
-    class_disposition::{Evidence, InstanceKey},
-    infer_type::InferType,
+use crate::{
+    syntax::expression::ExprId,
+    types::{
+        class_disposition::{Evidence, GivenRef, InstanceKey},
+        infer_type::InferType,
+    },
 };
 
 /// What a call site passes to discharge one predicate.
@@ -35,14 +38,18 @@ pub enum DictArg {
         /// The instance whose dictionary this is.
         instance: InstanceKey,
     },
-    /// A dictionary the enclosing definition received as a parameter, reached
-    /// by projecting `path` from it.
+    /// A dictionary a definition received as a parameter, reached by
+    /// projecting `path` from it.
     ///
     /// `path` is empty when the parameter *is* the wanted evidence, and names
     /// superclass slots outermost-first otherwise: `[0, 1]` is slot 1 of the
     /// superclass evidence held in slot 0.
     Param {
-        /// Which of the definition's predicates supplies it.
+        /// The definition whose parameter it is. Not necessarily the one the
+        /// site is in: a nested definition may be answered from an
+        /// enclosing one's context, whose parameter is in scope there.
+        owner: ExprId,
+        /// The parameter's position in `owner`'s dictionary parameters.
         index: usize,
         path: Vec<usize>,
     },
@@ -58,17 +65,18 @@ pub enum DictArg {
 
 /// Translate one piece of evidence into the argument that discharges it.
 ///
-/// `givens` are the predicates the enclosing definition quantified, in the
-/// order it receives their dictionaries, so a [`Evidence::FromGiven`] can name
-/// a parameter position rather than a type.
+/// `param_of` says which parameter of its definition a given is, or `None`
+/// when it gets none. A [`Evidence::FromGiven`] already names its given, so
+/// this is a lookup, not a search: nothing here matches predicates by type.
 ///
-/// Returns `None` only when the solver did not record enough to act on:
-/// [`Evidence::Unrecorded`], or a structural rule whose components have no
-/// dictionary representation yet. A caller must treat that as "cannot build
-/// this argument" and leave the site alone, never as "pass nothing".
+/// Returns `None` when the solver did not record enough to act on:
+/// [`Evidence::Unrecorded`], a structural rule whose components have no
+/// dictionary representation yet, or a given with no parameter. A caller must
+/// treat that as "cannot build this argument" and leave the site alone, never
+/// as "pass nothing".
 pub fn evidence_to_arg(
     evidence: &Evidence,
-    givens: &[crate::ast::type_infer::constraint::SchemeConstraint],
+    param_of: &dyn Fn(GivenRef) -> Option<usize>,
 ) -> Option<DictArg> {
     match evidence {
         Evidence::Marker => Some(DictArg::None),
@@ -83,7 +91,7 @@ pub fn evidence_to_arg(
             }
             let context = context
                 .iter()
-                .map(|inner| evidence_to_arg(inner, givens))
+                .map(|inner| evidence_to_arg(inner, param_of))
                 .collect::<Option<Vec<_>>>()?;
             Some(DictArg::Applied {
                 instance: instance.clone(),
@@ -92,18 +100,14 @@ pub fn evidence_to_arg(
         }
 
         Evidence::FromGiven {
-            given,
+            owner,
             superclass_path,
             ..
-        } => {
-            let index = givens.iter().position(|candidate| {
-                candidate.class_id == given.class_id && candidate.type_args == given.type_args
-            })?;
-            Some(DictArg::Param {
-                index,
-                path: superclass_path.clone(),
-            })
-        }
+        } => Some(DictArg::Param {
+            owner: owner.definition,
+            index: param_of(*owner)?,
+            path: superclass_path.clone(),
+        }),
 
         // A structural rule — `Eq<(a, b)>` from `Eq<a>` and `Eq<b>` — has no
         // `InstanceDef` and so no `__dict_*` global to name. Representing one
@@ -132,9 +136,9 @@ mod tests {
     use super::{DictArg, evidence_to_arg, instance_head_args};
     use crate::{
         ast::type_infer::constraint::SchemeConstraint,
-        syntax::interner::Interner,
+        syntax::{expression::ExprId, interner::Interner},
         types::{
-            class_disposition::{Evidence, InstanceKey},
+            class_disposition::{Evidence, GivenRef, InstanceKey},
             class_id::ClassId,
             infer_type::InferType,
             type_constructor::TypeConstructor,
@@ -165,7 +169,7 @@ mod tests {
                 subst: HashMap::new(),
                 context: Vec::new(),
             },
-            &[],
+            &|_| None,
         )
         .expect("a context-free instance is nameable");
 
@@ -203,7 +207,7 @@ mod tests {
                     context: Vec::new(),
                 }],
             },
-            &[],
+            &|_| None,
         )
         .expect("both halves are nameable");
 
@@ -216,46 +220,64 @@ mod tests {
         );
     }
 
-    /// A predicate the caller already holds names the parameter position it
-    /// arrives in — the whole reason `givens` is passed in order.
+    fn ord_given() -> SchemeConstraint {
+        let mut interner = Interner::new();
+        let ord = interner.intern("Ord");
+        SchemeConstraint {
+            class_name: ord,
+            class_id: ClassId::from_local_name(ord),
+            type_args: vec![InferType::Var(0)],
+        }
+    }
+
+    /// A given names its definition and its position among that definition's
+    /// givens; the parameter is whatever `param_of` says that given is. The
+    /// two positions differ when an earlier given gets no parameter.
     #[test]
     fn a_given_names_the_parameter_that_carries_it() {
-        let mut interner = Interner::new();
-        let show = interner.intern("Show");
-        let ord = interner.intern("Ord");
-        let givens = vec![
-            SchemeConstraint {
-                class_name: show,
-                class_id: ClassId::from_local_name(show),
-                type_args: vec![InferType::Var(0)],
-            },
-            SchemeConstraint {
-                class_name: ord,
-                class_id: ClassId::from_local_name(ord),
-                type_args: vec![InferType::Var(0)],
-            },
-        ];
+        let owner = GivenRef {
+            definition: ExprId(7),
+            index: 2,
+        };
+        let param_of = |given: GivenRef| (given == owner).then_some(1);
 
         let arg = evidence_to_arg(
             &Evidence::FromGiven {
-                given: givens[1].clone(),
-                owner: crate::types::class_disposition::GivenRef {
-                    definition: crate::syntax::expression::ExprId::UNSET,
-                    index: 1,
-                },
+                given: ord_given(),
+                owner,
                 superclass_path: vec![0],
             },
-            &givens,
+            &param_of,
         )
-        .expect("the given is in scope");
+        .expect("the given is a parameter");
 
         assert_eq!(
             arg,
             DictArg::Param {
+                owner: ExprId(7),
                 index: 1,
                 path: vec![0]
             }
         );
+    }
+
+    /// A given that is not one of its definition's parameters has nothing to
+    /// pass, and that is "cannot build", not "pass nothing".
+    #[test]
+    fn a_given_without_a_parameter_yields_no_argument() {
+        let arg = evidence_to_arg(
+            &Evidence::FromGiven {
+                given: ord_given(),
+                owner: GivenRef {
+                    definition: ExprId(7),
+                    index: 0,
+                },
+                superclass_path: vec![],
+            },
+            &|_| None,
+        );
+
+        assert_eq!(arg, None);
     }
 
     /// Evidence the solver did not record cannot be turned into an argument —
@@ -263,13 +285,13 @@ mod tests {
     /// the wrong arity.
     #[test]
     fn unrecorded_and_structural_evidence_yield_no_argument() {
-        assert_eq!(evidence_to_arg(&Evidence::Unrecorded, &[]), None);
+        assert_eq!(evidence_to_arg(&Evidence::Unrecorded, &|_| None), None);
         assert_eq!(
             evidence_to_arg(
                 &Evidence::Structural {
                     components: Vec::new()
                 },
-                &[]
+                &|_| None
             ),
             None
         );
@@ -277,7 +299,10 @@ mod tests {
 
     #[test]
     fn a_marker_class_passes_nothing() {
-        assert_eq!(evidence_to_arg(&Evidence::Marker, &[]), Some(DictArg::None));
+        assert_eq!(
+            evidence_to_arg(&Evidence::Marker, &|_| None),
+            Some(DictArg::None)
+        );
     }
 
     #[test]
