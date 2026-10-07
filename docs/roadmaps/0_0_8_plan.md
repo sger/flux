@@ -325,17 +325,33 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
 
   First run, on `examples/type_classes/contextual_dictionary.flx` and the
   stdlib it loads:
-  - **`ExprId`s drift between inference and lowering. This blocks 1e.** In the
-    main file, inference records `my_eq` at 34:4 as `ExprId(18)`, and lowering
-    sees `ExprId(15)`. The ids agree early in the file and drift after the
-    instance declaration. In `Flow.Eq`, every method call inside a contextual
-    instance body is `unreached` for the same reason. Both phases are handed
-    the same `effective_program`, so the cause is still to be found.
-    - The emitter now refuses an id whose raised predicate starts elsewhere
-      (`mismatched`), so a drifted id cannot build another expression's
-      dictionaries.
-    - Until the drift is fixed, the sites past it have no usable evidence. Find
-      the cause before the sweep, or most of the sweep will be noise.
+  - **A class-method call is keyed at the call, not the callee.** This first
+    looked like `ExprId` drift: inference recorded `my_eq(x, y)` at 34:4 as
+    `ExprId(18)`, and lowering saw `my_eq` as `ExprId(15)`. Ids are assigned
+    in post-order, so 15 is the callee and 18 is the call.
+    `emit_typed_class_method_constraint` raises the predicate once the
+    arguments are inferred, when the current expression is the call. A
+    constrained function's predicates are still raised at the callee, as 1b
+    found. **Fixed**: the emitter also reads the call's id when the callee
+    names a method. `contextual_dictionary.flx` now reports `agree 5,
+    operator 1`, and `Flow.Eq`'s method calls are reached.
+    - The emitter also refuses an id whose raised predicate starts elsewhere
+      (`mismatched`). Nothing has tripped it yet. It stays as the guard
+      against a lowered program numbered differently from the inferred one.
+  - **The CFG path cannot find a module member's givens. This blocks 1d.**
+    Each stdlib unit is lowered twice, once per path, and the two reports
+    differ. `via cfg`, every `FromGiven` site inside `module Flow.X { … }` is
+    `unbuildable` (for example `Flow.Eq` 48:33, which agrees `via core`).
+    `cfg::lower_program_to_ir_typed` passes no `module_member_schemes`, so
+    `scheme_for_current_function` finds no scheme and the givens are empty.
+    The main file has no module wrapper and is unaffected. The old paths
+    differ between the two entry points too: `contains` at List.flx:569 gets
+    `[]` via cfg and `[__dict_Eq_Int]` via core.
+    - Passing the member schemes to the CFG path would also change what the
+      old paths resolve there, so it is not a shadow-only change.
+    - 1d needs a givens source that does not depend on the entry point. The
+      candidate is the definition's own implication: the solver already holds
+      its givens, in the order the scheme quantified them.
   - **The evidence map leaked between units.** A unit that skipped the class
     solve kept the previous module's map, and `ExprId`s restart per unit.
     **Fixed**: the map is reset at the start of every unit's inference.
