@@ -187,7 +187,11 @@ use sha2::{Digest, Sha256};
 /// and statements after a block's own `return` are not its value. An
 /// unannotated function returning early (`fib`) is `Int -> Int` where an
 /// epoch-56 `.flxi` recorded `Int -> ?r`.
-pub const CACHE_EPOCH: u16 = 57;
+/// Epoch 58: numeric defaulting recognises `Flow.Num`. Since the class
+/// hierarchy became Flux source it matched only a module-less `Num`, so an
+/// ambiguous `Num<?a>` was never defaulted to `Int`; epoch-57 interfaces
+/// record the undefaulted variable.
+pub const CACHE_EPOCH: u16 = 58;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
