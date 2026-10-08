@@ -75,38 +75,7 @@ impl Compiler {
         tag_diagnostics(&mut strict_diags, DiagnosticPhase::TypeInference);
         hm_diagnostics.extend(strict_diags);
 
-        // The map belongs to this unit. A unit that skips the solve below
-        // raised nothing to answer, and must not keep the previous module's
-        // evidence: `ExprId`s restart per unit, so a stale entry would answer a
-        // different expression here.
-        self.evidence_map = crate::types::evidence::EvidenceMap::new();
-
-        // Type class constraint solving: verify that concrete-type constraints
-        // have matching instances in the ClassEnv (Proposal 0145, Step 4).
-        if !class_constraints.is_solved() && !self.class_env.classes.is_empty() {
-            // Whole-program scope: generalization has already had its chance,
-            // so nothing here is generalizable (Proposal 0179 Stage 3). Each
-            // definition's scope is solved with the context its signature
-            // promises, which is why the tree is passed rather than a list.
-            let outcome = solve_wanted_tree(
-                &class_constraints,
-                SolveScope::WholeProgram,
-                &self.class_env,
-                &self.interner,
-            );
-            outcome.trace_stuck(&self.interner);
-            self.evidence_map = harvest_evidence(&self.class_env, &outcome);
-            let mut solver_diags: Vec<_> = outcome.into_diagnostics().collect();
-            tag_diagnostics(&mut solver_diags, DiagnosticPhase::TypeInference);
-            hm_diagnostics.extend(solver_diags);
-        }
-        // Outside the solve: a definition whose body raised nothing leaves the
-        // tree solved, and still has dictionary parameters.
-        self.evidence_map
-            .record_definitions(&class_constraints, &self.class_env);
-        if std::env::var("FLUX_DBG_EVIDENCE").is_ok() {
-            self.dump_evidence_map();
-        }
+        hm_diagnostics.extend(self.solve_class_constraints(&class_constraints));
 
         self.has_hm_diagnostics = hm_diagnostics
             .iter()
@@ -151,6 +120,48 @@ impl Compiler {
             final_program,
             hm_diagnostics,
         }
+    }
+
+    /// Solve a program's class constraints, and make `evidence_map` the
+    /// evidence for that program. Returns the solver's diagnostics.
+    ///
+    /// The map belongs to the program just inferred. A program that skips the
+    /// solve raised nothing to answer, and must not keep another program's
+    /// evidence: `ExprId`s restart per unit and move when modules are merged,
+    /// so a stale entry would answer a different expression.
+    pub(in crate::compiler) fn solve_class_constraints(
+        &mut self,
+        class_constraints: &WantedConstraints,
+    ) -> Vec<crate::diagnostics::Diagnostic> {
+        self.evidence_map = crate::types::evidence::EvidenceMap::new();
+        let mut solver_diags = Vec::new();
+
+        // Type class constraint solving: verify that concrete-type constraints
+        // have matching instances in the ClassEnv (Proposal 0145, Step 4).
+        if !class_constraints.is_solved() && !self.class_env.classes.is_empty() {
+            // Whole-program scope: generalization has already had its chance,
+            // so nothing here is generalizable (Proposal 0179 Stage 3). Each
+            // definition's scope is solved with the context its signature
+            // promises, which is why the tree is passed rather than a list.
+            let outcome = solve_wanted_tree(
+                class_constraints,
+                SolveScope::WholeProgram,
+                &self.class_env,
+                &self.interner,
+            );
+            outcome.trace_stuck(&self.interner);
+            self.evidence_map = harvest_evidence(&self.class_env, &outcome);
+            solver_diags.extend(outcome.into_diagnostics());
+            tag_diagnostics(&mut solver_diags, DiagnosticPhase::TypeInference);
+        }
+        // Outside the solve: a definition whose body raised nothing leaves the
+        // tree solved, and still has dictionary parameters.
+        self.evidence_map
+            .record_definitions(class_constraints, &self.class_env);
+        if std::env::var("FLUX_DBG_EVIDENCE").is_ok() {
+            self.dump_evidence_map();
+        }
+        solver_diags
     }
 }
 
