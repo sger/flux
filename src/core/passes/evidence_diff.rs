@@ -95,9 +95,12 @@ enum Verdict {
     /// The evidence says to pass dictionaries; the existing paths built no
     /// call here. A constrained function passed as a value (KI-090).
     Reference,
-    /// The evidence says an operator takes a dictionary; the existing paths
-    /// lower it to a primitive. Expected today, so only counted.
+    /// An operator the existing paths lower to a primitive. Whatever the
+    /// evidence says, a `CorePrimOp` takes no dictionary, so only counted.
     Operator,
+    /// A site in generated code with no source span. Nothing in Core can be
+    /// paired with it, so it is listed rather than judged.
+    Generated,
     /// The solver raised predicates at an expression the emitter never
     /// lowered, so the keying in `types/evidence.rs` missed a case.
     Unreached,
@@ -113,6 +116,7 @@ impl Verdict {
             Verdict::Unbuildable => "unbuildable",
             Verdict::Reference => "reference",
             Verdict::Operator => "operator",
+            Verdict::Generated => "generated",
             Verdict::Unreached => "unreached",
             Verdict::Mismatched => "mismatched",
         }
@@ -140,13 +144,17 @@ pub fn report_evidence_diff(
 
     let mut lines: Vec<(Span, Verdict, String)> = Vec::new();
     for (id, site) in &shadow.sites {
-        let found = key(site.span).and_then(|k| old.get(&k)).or_else(|| {
-            shadow
-                .call_spans
-                .get(id)
-                .and_then(|span| key(*span))
-                .and_then(|k| old.get(&k))
-        });
+        let found = key(site.span)
+            .and_then(|k| old.get(&k))
+            .or_else(|| {
+                shadow
+                    .call_spans
+                    .get(id)
+                    .and_then(|span| key(*span))
+                    .and_then(|k| old.get(&k))
+            })
+            .map(Vec::as_slice)
+            .unwrap_or_default();
         let (verdict, detail) = compare(site, found, evidence, interner);
         lines.push((site.span, verdict, detail));
     }
@@ -180,6 +188,7 @@ pub fn report_evidence_diff(
         Verdict::Unbuildable,
         Verdict::Reference,
         Verdict::Operator,
+        Verdict::Generated,
         Verdict::Unreached,
         Verdict::Mismatched,
     ]
@@ -203,9 +212,14 @@ pub fn report_evidence_diff(
     }
 }
 
+/// Judge one emitted site against the old answers found at its span.
+///
+/// `found` holds every call at that span. More than one means one body was
+/// cloned — a class's default method, once per instance — and the site pairs
+/// with whichever clone agrees.
 fn compare(
     site: &EmittedSite,
-    found: Option<&OldAnswer>,
+    found: &[OldAnswer],
     evidence: &EvidenceMap,
     interner: &Interner,
 ) -> (Verdict, String) {
@@ -213,19 +227,38 @@ fn compare(
         OccurrenceKind::Identifier(name) => format!("`{}`", interner.resolve(name)),
         OccurrenceKind::Operator => "operator".to_string(),
     };
+    let describe_found = || {
+        found
+            .first()
+            .map(describe_old)
+            .unwrap_or_else(|| "none".into())
+    };
+    if let EmittedDictArgs::Mismatched { raised_at } = &site.args {
+        return (
+            Verdict::Mismatched,
+            format!(
+                "{what}  id's predicates were raised at {}:{}",
+                raised_at.start.line, raised_at.start.column
+            ),
+        );
+    }
+    // An operator no path turned into a call was lowered to a primitive, which
+    // takes no dictionary: what its evidence says does not matter.
+    if site.kind == OccurrenceKind::Operator && found.is_empty() {
+        return (Verdict::Operator, format!("{what}  old=primitive"));
+    }
+    if site.span == Span::default() {
+        return (
+            Verdict::Generated,
+            format!("{what}  old={}", describe_found()),
+        );
+    }
     let args = match &site.args {
         EmittedDictArgs::Built(args) => args,
-        EmittedDictArgs::Unbuildable => {
-            let old = found.map(describe_old).unwrap_or_else(|| "none".into());
-            return (Verdict::Unbuildable, format!("{what}  old={old}"));
-        }
-        EmittedDictArgs::Mismatched { raised_at } => {
+        EmittedDictArgs::Unbuildable | EmittedDictArgs::Mismatched { .. } => {
             return (
-                Verdict::Mismatched,
-                format!(
-                    "{what}  id's predicates were raised at {}:{}",
-                    raised_at.start.line, raised_at.start.column
-                ),
+                Verdict::Unbuildable,
+                format!("{what}  old={}", describe_found()),
             );
         }
     };
@@ -235,16 +268,16 @@ fn compare(
         .collect::<Vec<_>>();
     let built = format!("[{}]", rendered.join(", "));
 
-    let Some(found) = found else {
-        let verdict = match (rendered.is_empty(), site.kind) {
-            (true, _) => Verdict::Agree,
-            (false, OccurrenceKind::Operator) => Verdict::Operator,
-            (false, OccurrenceKind::Identifier(_)) => Verdict::Reference,
+    if found.is_empty() {
+        let verdict = if rendered.is_empty() {
+            Verdict::Agree
+        } else {
+            Verdict::Reference
         };
         return (verdict, format!("{what}  evidence={built} old=none"));
-    };
+    }
 
-    let agree = match found {
+    let agrees = |found: &OldAnswer| match found {
         OldAnswer::Passed(passed) => *passed == rendered,
         OldAnswer::Direct { method, passed } => match (args.as_slice(), site.kind) {
             ([DictArg::Global { instance }], OccurrenceKind::Identifier(name))
@@ -268,15 +301,16 @@ fn compare(
         },
         OldAnswer::Projected(dictionary) => rendered.as_slice() == [dictionary.clone()],
     };
-    let verdict = if agree {
-        Verdict::Agree
-    } else {
-        Verdict::Differ
-    };
-    (
-        verdict,
-        format!("{what}  evidence={built} old={}", describe_old(found)),
-    )
+    match found.iter().find(|answer| agrees(answer)) {
+        Some(answer) => (
+            Verdict::Agree,
+            format!("{what}  evidence={built} old={}", describe_old(answer)),
+        ),
+        None => (
+            Verdict::Differ,
+            format!("{what}  evidence={built} old={}", describe_found()),
+        ),
+    }
 }
 
 fn describe_old(answer: &OldAnswer) -> String {
@@ -356,11 +390,11 @@ fn render_old_dict(expr: &CoreExpr, interner: &Interner) -> Option<String> {
 }
 
 /// Record what every call in `expr` passes, keyed by the callee's span and by
-/// the call's.
+/// the call's. A span holds several answers when a body was cloned.
 fn collect_old_answers(
     expr: &CoreExpr,
     interner: &Interner,
-    out: &mut HashMap<SpanKey, OldAnswer>,
+    out: &mut HashMap<SpanKey, Vec<OldAnswer>>,
 ) {
     if let CoreExpr::App { func, args, span } = expr
         && let Some(answer) = old_answer(func, args, interner)
@@ -374,7 +408,7 @@ fn collect_old_answers(
             .flatten()
             .filter_map(key)
         {
-            out.entry(k).or_insert_with(|| answer.clone());
+            out.entry(k).or_default().push(answer.clone());
         }
     }
     for child in children(expr) {
@@ -458,5 +492,92 @@ fn children(expr: &CoreExpr) -> Vec<&CoreExpr> {
             out.extend(handlers.iter().map(|handler| &handler.body));
             out
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{OldAnswer, Verdict, compare};
+    use crate::{
+        core::lower_ast::{EmittedDictArgs, EmittedSite, OccurrenceKind},
+        source::position::{Position, Span},
+        syntax::interner::Interner,
+        types::{
+            class_disposition::InstanceKey, class_env::mangled_method_name, class_id::ClassId,
+            evidence::EvidenceMap, infer_type::InferType, translate::DictArg,
+            type_constructor::TypeConstructor,
+        },
+    };
+
+    fn at(line: usize) -> Span {
+        Span::new(Position::new(line, 4), Position::new(line, 12))
+    }
+
+    fn instance(class: ClassId, ty: TypeConstructor, key: &str) -> InstanceKey {
+        InstanceKey {
+            class_id: class,
+            head_type_args: vec![InferType::Con(ty)],
+            dict_type_key: key.to_string(),
+        }
+    }
+
+    /// An operator no path made a call of is a primitive, even where the
+    /// evidence has no answer: a derived body's `==`, or a tuple's.
+    #[test]
+    fn an_operator_lowered_to_a_primitive_is_counted_whatever_its_evidence() {
+        let interner = Interner::new();
+        let site = EmittedSite {
+            span: at(3),
+            kind: OccurrenceKind::Operator,
+            args: EmittedDictArgs::Unbuildable,
+        };
+        let (verdict, _) = compare(&site, &[], &EvidenceMap::new(), &interner);
+        assert_eq!(verdict, Verdict::Operator);
+    }
+
+    /// Generated code with no span cannot be paired with anything in Core;
+    /// it is listed apart instead of being called a reference.
+    #[test]
+    fn a_site_without_a_span_is_generated_not_a_reference() {
+        let mut interner = Interner::new();
+        let eq = interner.intern("Eq");
+        let class = ClassId::from_local_name(eq);
+        let site = EmittedSite {
+            span: Span::default(),
+            kind: OccurrenceKind::Identifier(interner.intern("eq")),
+            args: EmittedDictArgs::Built(vec![DictArg::Global {
+                instance: instance(class, TypeConstructor::Int, "Int"),
+            }]),
+        };
+        let (verdict, _) = compare(&site, &[], &EvidenceMap::new(), &interner);
+        assert_eq!(verdict, Verdict::Generated);
+    }
+
+    /// A default method's body is cloned into every instance, so one span
+    /// holds a call per clone. Each clone's site pairs with its own call.
+    #[test]
+    fn a_cloned_body_pairs_with_the_clone_that_matches() {
+        let mut interner = Interner::new();
+        let describe = interner.intern("Describe");
+        let code = interner.intern("code");
+        let class = ClassId::from_local_name(describe);
+        let direct = |key: &str| OldAnswer::Direct {
+            method: mangled_method_name(class, key, "code", &interner),
+            passed: Vec::new(),
+        };
+        let found = [direct("Int"), direct("Bool")];
+        let site = EmittedSite {
+            span: at(11),
+            kind: OccurrenceKind::Identifier(code),
+            args: EmittedDictArgs::Built(vec![DictArg::Global {
+                instance: instance(class, TypeConstructor::Bool, "Bool"),
+            }]),
+        };
+        let (verdict, detail) = compare(&site, &found, &EvidenceMap::new(), &interner);
+        assert_eq!(verdict, Verdict::Agree, "{detail}");
+
+        let lone = [direct("Int")];
+        let (verdict, _) = compare(&site, &lone, &EvidenceMap::new(), &interner);
+        assert_eq!(verdict, Verdict::Differ);
     }
 }
