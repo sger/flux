@@ -2119,6 +2119,11 @@ impl Compiler {
         self.type_env = hm_final.type_env.clone();
         self.hm_expr_types = hm_final.expr_types.clone();
         self.current_member_schemes = hm_final.module_member_schemes.clone();
+        // The program being lowered may not be the one the unit's inference
+        // solved (a merged program has its ids shifted), so its evidence is
+        // solved again with the types above. The diagnostics are dropped: each
+        // unit's compile already reported them for the same source.
+        let _ = self.solve_class_constraints(&hm_final.class_constraints);
     }
 
     #[allow(clippy::result_large_err)]

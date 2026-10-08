@@ -2087,3 +2087,63 @@ fn main() {
         "expected the `Convert<Int, String>` dictionary, got {args:?}"
     );
 }
+
+/// A dump or LLVM build lowers a program other than the one the unit's
+/// inference solved: a merged program, whose ids are shifted past the modules
+/// before it. Lowering re-infers that program, and the evidence it reads must
+/// be keyed by the re-inferred program's ids, not the unit's.
+#[test]
+fn lowering_a_reinferred_program_reads_its_own_evidence() {
+    use crate::syntax::{expression::Expression, statement::Statement};
+
+    let (program, interner) = parse_program(
+        r#"
+class Convert<a, b> {
+    fn convert(x: a) -> b
+}
+
+instance Convert<Int, String> {
+    fn convert(x) { "n" }
+}
+
+fn main() {
+    let s: String = convert(42)
+    s
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let shifted = crate::ast::shift_expr_ids::shift_expr_ids(program, 1000);
+    let call = shifted
+        .statements
+        .iter()
+        .find_map(|stmt| match stmt {
+            Statement::Function { body, .. } => match body.statements.first() {
+                Some(Statement::Let {
+                    value: call @ Expression::Call { .. },
+                    ..
+                }) => Some(call.expr_id()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("`let s: String = convert(42)`");
+    compiler
+        .dump_core_with_opts(
+            &shifted,
+            false,
+            crate::core::display::CoreDisplayMode::Readable,
+        )
+        .expect("the shifted program lowers");
+
+    let args = compiler.evidence_map().dict_args_at(call);
+    assert!(
+        matches!(
+            args.as_deref(),
+            Some([crate::types::translate::DictArg::Global { .. }])
+        ),
+        "expected the `Convert<Int, String>` dictionary at the shifted call, got {args:?}"
+    );
+}
