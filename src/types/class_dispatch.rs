@@ -1319,13 +1319,30 @@ fn generate_from_statements(
                 else {
                     continue;
                 };
-                // Determine the head type name(s) for mangling.
-                // Multi-param classes join all type args: __tc_Convert_Int_String_convert
-                let type_name = if type_args.is_empty() {
-                    "Unknown".to_string()
-                } else {
-                    crate::types::class_env::instance_type_key(type_args, interner)
-                };
+                // The key the collected instance was given, which knows the
+                // module defining each head type; this declaration alone does
+                // not. Multi-param classes join all type args:
+                // __tc_Convert_Int_String_convert
+                let type_name =
+                    if type_args.is_empty() {
+                        "Unknown".to_string()
+                    } else {
+                        class_env
+                            .instances
+                            .iter()
+                            .find(|instance| {
+                                instance.class_id == class_def.class_id()
+                                    && instance.instance_module == current_module
+                                    && instance.type_args.len() == type_args.len()
+                                    && instance.type_args.iter().zip(type_args).all(
+                                        |(collected, declared)| collected.structural_eq(declared),
+                                    )
+                            })
+                            .map(|instance| instance.type_key.clone())
+                            .unwrap_or_else(|| {
+                                crate::types::class_env::instance_type_key(type_args, &[], interner)
+                            })
+                    };
 
                 let explicit_methods: HashMap<Identifier, _> =
                     methods.iter().map(|m| (m.name, m)).collect();

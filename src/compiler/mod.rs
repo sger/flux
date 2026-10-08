@@ -453,6 +453,17 @@ fn imported_instance_def_from_entry(
         .iter()
         .map(|ty| remap_type_expr(ty, remap))
         .collect();
+    let head_modules: Vec<_> = entry
+        .head_modules
+        .iter()
+        .map(|module| {
+            if module.is_empty() {
+                crate::types::class_id::ModulePath::EMPTY
+            } else {
+                crate::types::class_id::ModulePath::from_identifier(interner.intern(module))
+            }
+        })
+        .collect();
     Some(crate::types::class_env::InstanceDef {
         origin: crate::types::class_env::InstanceOrigin::Declared,
         class_name,
@@ -466,7 +477,12 @@ fn imported_instance_def_from_entry(
             interner.intern(&entry.instance_module),
         ),
         is_public: true,
-        type_key: crate::types::class_env::instance_type_key(&remapped_type_args, interner),
+        type_key: crate::types::class_env::instance_type_key(
+            &remapped_type_args,
+            &head_modules,
+            interner,
+        ),
+        head_modules,
         type_args: remapped_type_args,
         context,
         context_class_ids,
@@ -530,6 +546,7 @@ fn remap_public_instance_entry(
             .map(|constraint| remap_class_constraint(constraint, remap))
             .collect(),
         context_class_modules: entry.context_class_modules.clone(),
+        head_modules: entry.head_modules.clone(),
         associated_types: entry
             .associated_types
             .iter()
@@ -933,12 +950,7 @@ fn merge_imported_public_instances(
     for imported in imported_instances {
         let duplicate = env.instances.iter().find(|existing| {
             existing.class_id == imported.class_id
-                && existing.type_args.len() == imported.type_args.len()
-                && existing
-                    .type_args
-                    .iter()
-                    .zip(imported.type_args.iter())
-                    .all(|(a, b)| a.structural_eq(b))
+                && existing.has_same_head(&imported.type_args, &imported.head_modules)
         });
         if let Some(existing) = duplicate {
             let display_class = interner.resolve(imported.class_name);
@@ -2856,10 +2868,14 @@ impl Compiler {
                             .type_args
                             .iter()
                             .zip(instance.type_args.iter())
-                            .all(|(left, right)| {
-                                left.structural_eq(right)
-                                    || left.display_with(&self.interner)
-                                        == right.display_with(&self.interner)
+                            .enumerate()
+                            .all(|(idx, (left, right))| {
+                                // A same-named head from another module is a
+                                // different type, so its instance is kept.
+                                existing.head_module(idx) == instance.head_module(idx)
+                                    && (left.structural_eq(right)
+                                        || left.display_with(&self.interner)
+                                            == right.display_with(&self.interner))
                             })
                 })
             {

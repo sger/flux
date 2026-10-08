@@ -111,6 +111,11 @@ pub struct PublicInstanceEntry {
     pub head_kinds: Vec<Kind>,
     #[serde(default)]
     pub type_args: Vec<TypeExpr>,
+    /// The module defining each head type, parallel to `type_args`; empty for
+    /// a built-in, structural or unplaced head. Part of the head's identity,
+    /// and of the `__dict_*` / `__tc_*` names derived from it.
+    #[serde(default)]
+    pub head_modules: Vec<String>,
     #[serde(default)]
     pub context: Vec<ClassConstraint>,
     /// Owning module for each contextual class, parallel to `context`.

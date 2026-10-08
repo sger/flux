@@ -1194,6 +1194,7 @@ import Example.StdLog as StdLog
         symbol_table: std::collections::HashMap::new(),
         public_classes: Vec::new(),
         public_instances: vec![PublicInstanceEntry {
+            head_modules: Vec::new(),
             associated_types: Vec::new(),
             class_module: "Example.Logger".to_string(),
             class_name: "Logger".to_string(),
@@ -1339,7 +1340,18 @@ module Local {
             ),
             logger_name,
         ),
-        "StdoutHandle",
+        // `StdoutHandle` is `Local`'s, so its key carries the module too.
+        &crate::types::class_env::instance_type_key(
+            &[TypeExpr::Named {
+                name: compiler.interner.intern("StdoutHandle"),
+                args: vec![],
+                span: Default::default(),
+            }],
+            &[crate::types::class_id::ModulePath::from_identifier(
+                compiler.interner.intern("Local"),
+            )],
+            &compiler.interner,
+        ),
         "log",
         &compiler.interner,
     );
@@ -1979,6 +1991,7 @@ fn an_imported_instance_missing_an_associated_type_equation_is_a_stale_interface
         instance_module: module,
         is_public: true,
         type_key: String::new(),
+        head_modules: Vec::new(),
         type_args: Vec::new(),
         context: Vec::new(),
         context_class_ids: Vec::new(),

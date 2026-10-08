@@ -552,6 +552,16 @@ fn collect_public_instance_entries(
                 head_type_repr: head_type_repr.join(", "),
                 head_kinds: instance_head_kinds(env, inst),
                 type_args: inst.type_args.clone(),
+                head_modules: inst
+                    .head_modules
+                    .iter()
+                    .map(|module| {
+                        module
+                            .as_identifier()
+                            .map(|id| interner.resolve(id).to_string())
+                            .unwrap_or_default()
+                    })
+                    .collect(),
                 associated_types: inst.associated_types.clone(),
                 context: inst.context.clone(),
                 context_class_modules: inst
@@ -1316,6 +1326,7 @@ mod tests {
             pinned_row_placeholder: None,
         });
         interface.public_instances.push(PublicInstanceEntry {
+            head_modules: Vec::new(),
             associated_types: Vec::new(),
             class_module: "Mod.A".to_string(),
             class_name: "MyShow".to_string(),
@@ -1397,6 +1408,7 @@ mod tests {
         let base = ModuleInterface::new("Mod.A", "src", "cfg");
         let mut with_inst = base.clone();
         with_inst.public_instances.push(PublicInstanceEntry {
+            head_modules: Vec::new(),
             associated_types: Vec::new(),
             class_module: "Mod.A".to_string(),
             class_name: "MyShow".to_string(),

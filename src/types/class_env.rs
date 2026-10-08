@@ -48,6 +48,58 @@ struct DataInfo {
     is_public: bool,
 }
 
+/// Every module that declares a `data` of a given name, across one statement
+/// set (a unit, or a dependency's AST).
+type AdtOwners = HashMap<Identifier, Vec<ModulePath>>;
+
+fn adt_owners(statements: &[Statement]) -> AdtOwners {
+    fn walk(statements: &[Statement], module: ModulePath, out: &mut AdtOwners) {
+        for stmt in statements {
+            match stmt {
+                Statement::Data { name, .. } => {
+                    let owners = out.entry(*name).or_default();
+                    if !owners.contains(&module) {
+                        owners.push(module);
+                    }
+                }
+                Statement::Module { name, body, .. } => {
+                    walk(&body.statements, ModulePath::from_identifier(*name), out);
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut out = AdtOwners::new();
+    walk(statements, ModulePath::EMPTY, &mut out);
+    out
+}
+
+/// The module defining each head of an instance declared in `current_module`.
+///
+/// A `data` in the instance's own module wins, as it would in the module's
+/// scope; otherwise the one module in this statement set that declares the
+/// name. A name declared nowhere here (an imported type) or in several other
+/// modules stays [`ModulePath::EMPTY`], which keeps today's unqualified key.
+fn resolve_head_modules(
+    type_args: &[TypeExpr],
+    current_module: ModulePath,
+    adt_owners: &AdtOwners,
+) -> Vec<ModulePath> {
+    type_args
+        .iter()
+        .map(|arg| {
+            let TypeExpr::Named { name, .. } = arg else {
+                return ModulePath::EMPTY;
+            };
+            match adt_owners.get(name).map(Vec::as_slice) {
+                Some(owners) if owners.contains(&current_module) => current_module,
+                Some([only]) => *only,
+                _ => ModulePath::EMPTY,
+            }
+        })
+        .collect()
+}
+
 /// A type class definition collected from a `class` declaration.
 #[derive(Debug, Clone)]
 pub struct ClassDef {
@@ -265,6 +317,19 @@ pub struct InstanceDef {
     ///
     /// [`type_args`]: InstanceDef::type_args
     pub type_key: String,
+    /// The module that defines each head type, by position in [`type_args`];
+    /// [`ModulePath::EMPTY`] for a built-in or structural head, a type
+    /// variable, a top-level `data`, or a name this instance's module could not
+    /// place. A shorter vector leaves the rest `EMPTY`.
+    ///
+    /// A type's identity is its name *and* its module: `Dq.Other.Item` and a
+    /// program's own `Item` are different types, and their instances must not
+    /// collide as duplicates or share a `__dict_*` name. [`type_key`] encodes
+    /// it, and the duplicate-instance gates compare it.
+    ///
+    /// [`type_args`]: InstanceDef::type_args
+    /// [`type_key`]: InstanceDef::type_key
+    pub head_modules: Vec<ModulePath>,
     pub context: Vec<ClassConstraint>,
     /// Resolved identities corresponding positionally to `context`.
     pub context_class_ids: Vec<ClassId>,
@@ -281,6 +346,34 @@ pub struct InstanceDef {
     pub span: Span,
     /// Whether this instance is a real one or a rejected-`deriving` placeholder.
     pub origin: InstanceOrigin,
+}
+
+impl InstanceDef {
+    /// The module defining head `idx`; `EMPTY` past the end of
+    /// [`head_modules`](InstanceDef::head_modules).
+    pub fn head_module(&self, idx: usize) -> ModulePath {
+        self.head_modules
+            .get(idx)
+            .copied()
+            .unwrap_or(ModulePath::EMPTY)
+    }
+
+    /// Whether this instance's head is `type_args`, with each head type from
+    /// the module `head_modules` names. Two same-named types from different
+    /// modules are different heads.
+    pub fn has_same_head(&self, type_args: &[TypeExpr], head_modules: &[ModulePath]) -> bool {
+        self.type_args.len() == type_args.len()
+            && self
+                .type_args
+                .iter()
+                .zip(type_args)
+                .enumerate()
+                .all(|(idx, (mine, theirs))| {
+                    mine.structural_eq(theirs)
+                        && self.head_module(idx)
+                            == head_modules.get(idx).copied().unwrap_or(ModulePath::EMPTY)
+                })
+    }
 }
 
 /// The class environment — registry of all declared classes and instances.
@@ -402,9 +495,11 @@ impl ClassEnv {
             interner,
         );
         self.resolve_superclass_ids();
+        let adt_owners = adt_owners(statements);
         Self::collect_instances(
             statements,
             ModulePath::EMPTY,
+            &adt_owners,
             self,
             &mut diagnostics,
             interner,
@@ -417,17 +512,17 @@ impl ClassEnv {
             interner,
         );
 
-        // Proposal 0151, Phase 2: orphan rule enforcement.
-        //
-        // Build a map of user-defined ADT name -> owning module by walking
-        // the program's `data` declarations, then check every collected
-        // instance against the relaxed orphan rule (instance is legal iff
-        // either the class or the head type is local to the instance's
-        // owning module). Legacy top-level instances (instance_module ==
-        // EMPTY) are grandfathered.
+        // Proposal 0151, Phase 2: orphan rule enforcement. Every collected
+        // instance is checked against the relaxed orphan rule (instance is
+        // legal iff either the class or the head type is local to the
+        // instance's owning module), reading the head's module from the
+        // instance. Legacy top-level instances (instance_module == EMPTY) are
+        // grandfathered.
+        self.enforce_orphan_rule(&mut diagnostics, interner);
+
+        // The visibility walkers still key ADTs by name alone.
         let mut data_info: HashMap<Identifier, DataInfo> = HashMap::new();
         Self::collect_data_info(statements, ModulePath::EMPTY, &mut data_info);
-        self.enforce_orphan_rule(&data_info, &mut diagnostics, interner);
 
         // Proposal 0151, Phase 2: visibility enforcement.
         //
@@ -639,23 +734,68 @@ impl ClassEnv {
     /// from "a layout with no slots".
     pub fn dictionary_slot_names(
         &self,
-        id: ClassId,
-        type_key: &str,
+        instance: &InstanceDef,
         interner: &Interner,
     ) -> Option<Vec<String>> {
+        let id = instance.class_id;
         Some(
             self.dictionary_layout(id)?
                 .into_iter()
                 .map(|slot| match slot {
-                    DictSlot::Superclass(superclass) => {
-                        dictionary_name(superclass, type_key, interner)
-                    }
-                    DictSlot::Method(method) => {
-                        mangled_method_name(id, type_key, interner.resolve(method), interner)
-                    }
+                    DictSlot::Superclass(superclass) => dictionary_name(
+                        superclass,
+                        &self.superclass_type_key(superclass, instance),
+                        interner,
+                    ),
+                    DictSlot::Method(method) => mangled_method_name(
+                        id,
+                        &instance.type_key,
+                        interner.resolve(method),
+                        interner,
+                    ),
                 })
                 .collect(),
         )
+    }
+
+    /// The instance of `superclass` for `instance`'s head.
+    ///
+    /// `class Eq<a> => Ord<a>` constrains the very type `Ord<Item>` is for, so
+    /// the evidence is `Eq<Item>` — but that instance may live in another
+    /// module, which placed `Item` where this one could not (an imported head
+    /// stays unplaced). Same head and modules first; otherwise the one
+    /// instance with the same head spelling.
+    pub fn superclass_instance(
+        &self,
+        superclass: ClassId,
+        instance: &InstanceDef,
+    ) -> Option<&InstanceDef> {
+        let candidates = || {
+            self.instances
+                .iter()
+                .filter(move |candidate| candidate.class_id == superclass)
+        };
+        candidates()
+            .find(|candidate| candidate.has_same_head(&instance.type_args, &instance.head_modules))
+            .or_else(|| {
+                let mut same_spelling = candidates().filter(|candidate| {
+                    candidate.type_args.len() == instance.type_args.len()
+                        && candidate
+                            .type_args
+                            .iter()
+                            .zip(&instance.type_args)
+                            .all(|(a, b)| a.structural_eq(b))
+                });
+                let only = same_spelling.next()?;
+                same_spelling.next().is_none().then_some(only)
+            })
+    }
+
+    /// The key `superclass`'s dictionary for `instance`'s head is named by:
+    /// that instance's own, or `instance`'s when there is none to ask.
+    pub fn superclass_type_key(&self, superclass: ClassId, instance: &InstanceDef) -> String {
+        self.superclass_instance(superclass, instance)
+            .map_or_else(|| instance.type_key.clone(), |found| found.type_key.clone())
     }
 
     /// The slot path from a dictionary for `from` to the evidence for `to`.
@@ -1559,7 +1699,8 @@ impl ClassEnv {
             // Phase 1 doesn't enforce this distinction since `Sendable` has
             // no methods.
             is_public: false,
-            type_key: instance_type_key(&head_args, interner),
+            type_key: instance_type_key(&head_args, &[instance_module], interner),
+            head_modules: vec![instance_module],
             type_args: head_args,
             context,
             context_class_ids: vec![ClassId::from_local_name(sendable_id); type_params.len()],
@@ -1611,12 +1752,7 @@ impl ClassEnv {
     /// grandfathered: they participate in the implicit prelude and predate
     /// module-scoped classes. Built-in placeholder instances (with empty
     /// `method_names` and a default span) are also skipped.
-    fn enforce_orphan_rule(
-        &self,
-        data_info: &HashMap<Identifier, DataInfo>,
-        diagnostics: &mut Vec<Diagnostic>,
-        interner: &Interner,
-    ) {
+    fn enforce_orphan_rule(&self, diagnostics: &mut Vec<Diagnostic>, interner: &Interner) {
         for inst in &self.instances {
             // Skip legacy / built-in placeholder instances.
             if inst.instance_module.is_empty() {
@@ -1627,13 +1763,11 @@ impl ClassEnv {
             }
 
             let class_module = inst.class_id.module;
-            let head_module = Self::head_type_owning_module(&inst.type_args, data_info);
-
+            // The module the instance's own scope placed the head in, not the
+            // first module found declaring a type of that name: two modules'
+            // `Item`s are different types, each local to its own module.
             let class_local = inst.instance_module == class_module;
-            let head_local = match head_module {
-                Some(m) => inst.instance_module == m,
-                None => false,
-            };
+            let head_local = inst.head_module(0) == inst.instance_module;
 
             if class_local || head_local {
                 continue;
@@ -1659,24 +1793,6 @@ impl ClassEnv {
                     )),
             );
         }
-    }
-
-    /// Compute the owning module of an instance's head type.
-    ///
-    /// Returns `Some(module)` when the head type is a user-defined ADT
-    /// recorded in `data_modules`, or `None` for built-in head types
-    /// (`Int`, `List`, `Option`, ...) and structural types (tuple,
-    /// function). A `None` result means "not owned by any user module",
-    /// so the instance is only legal if its class is local.
-    fn head_type_owning_module(
-        type_args: &[TypeExpr],
-        data_info: &HashMap<Identifier, DataInfo>,
-    ) -> Option<ModulePath> {
-        let head = type_args.first()?;
-        let TypeExpr::Named { name, .. } = head else {
-            return None;
-        };
-        data_info.get(name).map(|info| info.module)
     }
 
     /// Extract the head ADT identifier from `type_args[0]` if it's a
@@ -1834,6 +1950,7 @@ impl ClassEnv {
     fn collect_instances(
         statements: &[Statement],
         current_module: ModulePath,
+        adt_owners: &AdtOwners,
         env: &mut ClassEnv,
         diagnostics: &mut Vec<Diagnostic>,
         interner: &Interner,
@@ -1917,14 +2034,10 @@ impl ClassEnv {
                     // `Mod.B.Foo<Int>` are NO LONGER duplicates because
                     // they implement different classes.
                     let new_class_id = class_def.class_id();
+                    let head_modules = resolve_head_modules(type_args, current_module, adt_owners);
                     let duplicate_idx = env.instances.iter().position(|existing| {
                         existing.class_id == new_class_id
-                            && existing.type_args.len() == type_args.len()
-                            && existing
-                                .type_args
-                                .iter()
-                                .zip(type_args.iter())
-                                .all(|(a, b)| a.structural_eq(b))
+                            && existing.has_same_head(type_args, &head_modules)
                     });
                     if let Some(idx) = duplicate_idx {
                         let existing = &env.instances[idx];
@@ -2070,7 +2183,8 @@ impl ClassEnv {
                         class_id: class_def.class_id(),
                         instance_module: current_module,
                         is_public: *is_public,
-                        type_key: instance_type_key(type_args, interner),
+                        type_key: instance_type_key(type_args, &head_modules, interner),
+                        head_modules,
                         type_args: type_args.clone(),
                         context: context.clone(),
                         context_class_ids: context
@@ -2092,6 +2206,7 @@ impl ClassEnv {
                     Self::collect_instances(
                         &body.statements,
                         module_path,
+                        adt_owners,
                         env,
                         diagnostics,
                         interner,
@@ -2270,7 +2385,12 @@ impl ClassEnv {
                             class_id,
                             instance_module: current_module,
                             is_public: *is_public,
-                            type_key: instance_type_key(std::slice::from_ref(&type_arg), interner),
+                            type_key: instance_type_key(
+                                std::slice::from_ref(&type_arg),
+                                &[current_module],
+                                interner,
+                            ),
+                            head_modules: vec![current_module],
                             type_args: vec![type_arg],
                             context,
                             context_class_ids: type_params
@@ -2977,13 +3097,12 @@ impl ClassEnv {
     ) -> Option<Vec<Identifier>> {
         let dict_name_str = interner.resolve(dict_name);
         self.instances.iter().find_map(|instance| {
-            let type_name = instance.type_key.clone();
-            let expected = dictionary_name(instance.class_id, &type_name, interner);
+            let expected = dictionary_name(instance.class_id, &instance.type_key, interner);
             if dict_name_str != expected {
                 return None;
             }
 
-            self.dictionary_slot_names(instance.class_id, &type_name, interner)?
+            self.dictionary_slot_names(instance, interner)?
                 .iter()
                 .map(|name| interner.lookup(name))
                 .collect()
@@ -3171,7 +3290,8 @@ impl ClassEnv {
             // Built-ins are universally visible via the prelude; the flag
             // is irrelevant for them.
             is_public: false,
-            type_key: instance_type_key(&[builtin_type(type_name)], interner),
+            type_key: instance_type_key(&[builtin_type(type_name)], &[], interner),
+            head_modules: Vec::new(),
             type_args: vec![builtin_type(type_name)],
             context: vec![],
             context_class_ids: vec![],
@@ -3363,13 +3483,42 @@ pub fn mangled_method_name(
 /// The key an instance's dictionary and mangled method names are built from.
 ///
 /// One definition, so every generated symbol for an instance agrees. Multi-
-/// parameter classes join their arguments: `Int_String`.
-pub fn instance_type_key(type_args: &[TypeExpr], interner: &Interner) -> String {
+/// parameter classes join their arguments: `Int_String`. A head defined in a
+/// module carries that module, encoded as [`class_symbol_name`] encodes a
+/// class's, so two modules' `Item`s cannot share a `__dict_*` name; a built-in
+/// or top-level head keeps its historical spelling.
+pub fn instance_type_key(
+    type_args: &[TypeExpr],
+    head_modules: &[ModulePath],
+    interner: &Interner,
+) -> String {
     type_args
         .iter()
-        .map(|arg| arg.display_with(interner))
+        .enumerate()
+        .map(|(idx, arg)| {
+            let rendered = arg.display_with(interner);
+            match head_modules
+                .get(idx)
+                .and_then(|module| module.as_identifier())
+            {
+                Some(module) => module_qualified_symbol(interner.resolve(module), &rendered),
+                None => rendered,
+            }
+        })
         .collect::<Vec<_>>()
         .join("_")
+}
+
+/// `m{len}_{HEX(module)}_{name}`: an injective encoding of a module-owned
+/// name, so `A.Foo` and `B.Foo` cannot collapse after native symbol
+/// sanitization.
+fn module_qualified_symbol(module: &str, name: &str) -> String {
+    let encoded_module = module
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<String>();
+    format!("m{}_{encoded_module}_{name}", module.len())
 }
 
 /// Render the canonical dictionary global for a concrete instance head.
@@ -3422,13 +3571,7 @@ pub fn class_symbol_name(class_id: ClassId, interner: &Interner) -> String {
     let Some(module) = class_id.module.as_identifier() else {
         return class.to_string();
     };
-    let module = interner.resolve(module);
-    let encoded_module = module
-        .as_bytes()
-        .iter()
-        .map(|byte| format!("{byte:02X}"))
-        .collect::<String>();
-    format!("m{}_{encoded_module}_{class}", module.len())
+    module_qualified_symbol(interner.resolve(module), class)
 }
 
 /// The prefix [`mangled_method_name`] stamps on every name it builds.
@@ -3492,6 +3635,56 @@ mod tests {
 
     fn s() -> Span {
         Span::default()
+    }
+
+    /// A type is its name and its module. Two modules each declaring `Item`
+    /// with an instance of one class hold two instances, not a duplicate, and
+    /// their dictionaries are named apart.
+    #[test]
+    fn same_named_heads_from_two_modules_are_different_instances() {
+        use crate::syntax::{lexer::Lexer, parser::Parser};
+
+        let source = r#"
+class Named<a> {
+    fn name(x: a) -> String
+}
+
+module Ha {
+    public data Item { Item(Int) }
+    public instance Named<Item> {
+        fn name(x) { "ha" }
+    }
+}
+
+module Hb {
+    public data Item { Item(String) }
+    public instance Named<Item> {
+        fn name(x) { "hb" }
+    }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
+        let interner = parser.take_interner();
+
+        let (env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
+        assert!(diags.is_empty(), "collection errors: {:?}", diags);
+
+        let named = interner.lookup("Named").expect("class name is interned");
+        let mut keys: Vec<&str> = env
+            .instances
+            .iter()
+            .filter(|instance| instance.class_name == named)
+            .map(|instance| instance.type_key.as_str())
+            .collect();
+        keys.sort_unstable();
+        // `Ha` is 0x48 0x61, `Hb` is 0x48 0x62.
+        assert_eq!(keys, vec!["m2_4861_Item", "m2_4862_Item"]);
     }
 
     /// Proposal 0151, Phase 1b Step 1: a top-level (legacy) class declaration
@@ -4915,7 +5108,8 @@ module Mod.Class {
             class_id: crate::types::class_id::ClassId::from_local_name(class_sym),
             instance_module: ModulePath::EMPTY,
             is_public: false,
-            type_key: super::instance_type_key(&type_args, interner),
+            type_key: super::instance_type_key(&type_args, &[], interner),
+            head_modules: Vec::new(),
             type_args,
             context: vec![],
             context_class_ids: vec![],

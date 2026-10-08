@@ -349,6 +349,7 @@ fn imported_public_instance_method_is_emitted_and_called_directly_in_native_lowe
         member_is_value: std::collections::HashMap::new(),
         public_classes: Vec::new(),
         public_instances: vec![PublicInstanceEntry {
+            head_modules: Vec::new(),
             associated_types: Vec::new(),
             class_module: "Example.Logger".to_string(),
             class_name: "Logger".to_string(),
