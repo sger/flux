@@ -95,7 +95,7 @@ impl Compiler {
                 &self.interner,
             );
             outcome.trace_stuck(&self.interner);
-            self.evidence_map = harvest_evidence(&outcome);
+            self.evidence_map = harvest_evidence(&self.class_env, &outcome);
             let mut solver_diags: Vec<_> = outcome.into_diagnostics().collect();
             tag_diagnostics(&mut solver_diags, DiagnosticPhase::TypeInference);
             hm_diagnostics.extend(solver_diags);
@@ -163,10 +163,16 @@ impl Compiler {
 /// The index within a site is the emission order of that site's predicates,
 /// which is also the order its dictionaries are passed — so it doubles as the
 /// argument position.
+///
+/// A marker predicate is recorded as `Marker` whether or not it was solved. A
+/// marker class has no dictionary, so a site never passes one for it, and
+/// lowering needs no answer to know that. Whether the predicate *holds* is the
+/// solver's to report, and its diagnostics are not touched here.
 fn harvest_evidence(
+    class_env: &crate::types::class_env::ClassEnv,
     outcome: &crate::types::class_disposition::SolveOutcome,
 ) -> crate::types::evidence::EvidenceMap {
-    use crate::types::class_disposition::Disposition;
+    use crate::types::class_disposition::{Disposition, Evidence};
     use crate::types::evidence::EvidenceMap;
 
     let mut map = EvidenceMap::new();
@@ -174,6 +180,9 @@ fn harvest_evidence(
         let Some(expr) = entry.wanted.expr else {
             continue;
         };
+        let is_marker = class_env
+            .lookup_class_by_id(entry.wanted.class_id)
+            .is_some_and(|class| class.methods.is_empty());
         // Raise every predicate the expression raised, not just the solved
         // ones. `EvidenceSite.index` is the argument position, so skipping an
         // unsolved predicate would slide every later dictionary one slot left.
@@ -181,6 +190,10 @@ fn harvest_evidence(
         // `EvidenceMap::args_for` refuse a partial argument list even when the
         // missing answer is the *last* one.
         let site = map.raise(expr, (&entry.wanted).into());
+        if is_marker {
+            map.insert(site, Evidence::Marker);
+            continue;
+        }
         let Disposition::Solved { evidence } = &entry.disposition else {
             continue;
         };
@@ -285,6 +298,7 @@ mod tests {
     use crate::types::class_disposition::{
         Disposition, DispositionedConstraint, Evidence, InstanceKey, SolveOutcome, StuckReason,
     };
+    use crate::types::class_env::ClassEnv;
     use crate::types::class_id::ClassId;
     use crate::types::evidence::EvidenceSite;
     use crate::types::infer_type::InferType;
@@ -329,13 +343,44 @@ mod tests {
         }
     }
 
+    /// `Channel.make(5)` on a channel nothing is ever sent on leaves
+    /// `Sendable<?a>` unsolved. A marker takes no argument whether or not it
+    /// holds, so the site still knows what to pass: nothing.
+    #[test]
+    fn an_unsolved_marker_is_recorded_as_a_marker() {
+        let mut interner = crate::syntax::interner::Interner::new();
+        let mut class_env = ClassEnv::new();
+        class_env.register_builtins(&mut interner);
+        let sendable = interner.lookup("Sendable").expect("Sendable is built in");
+        let expr = ExprId(5);
+        let marker_wanted = WantedClassConstraint {
+            class_name: sendable,
+            class_id: ClassId::from_local_name(sendable),
+            ..wanted(expr)
+        };
+        let unsolved = SolveOutcome {
+            dispositions: vec![DispositionedConstraint {
+                wanted: marker_wanted,
+                disposition: stuck(),
+            }],
+        };
+
+        let map = harvest_evidence(&class_env, &unsolved);
+
+        assert_eq!(
+            map.get(&EvidenceSite::new(expr, 0)),
+            Some(&Evidence::Marker)
+        );
+        assert_eq!(map.dict_args_at(expr), Some(Vec::new()));
+    }
+
     #[test]
     fn an_unsolved_predicate_does_not_shift_the_ones_after_it() {
         // `index` is the argument position. Counting only solved predicates
         // would put this evidence at slot 0, which is the slot the *stuck*
         // predicate's dictionary occupies.
         let expr = ExprId::UNSET;
-        let map = harvest_evidence(&outcome(vec![stuck(), solved()], expr));
+        let map = harvest_evidence(&ClassEnv::new(), &outcome(vec![stuck(), solved()], expr));
 
         assert!(map.get(&EvidenceSite::new(expr, 0)).is_none());
         assert!(map.get(&EvidenceSite::new(expr, 1)).is_some());
@@ -347,7 +392,7 @@ mod tests {
         // emit a call with the wrong arity. Compacting the indices would defeat
         // that guard by making the list dense.
         let expr = ExprId::UNSET;
-        let map = harvest_evidence(&outcome(vec![stuck(), solved()], expr));
+        let map = harvest_evidence(&ClassEnv::new(), &outcome(vec![stuck(), solved()], expr));
 
         assert!(map.args_for(expr).is_none());
     }
@@ -358,7 +403,7 @@ mod tests {
         // the raised count shows the second is missing; deriving the count
         // from present keys returned `Some([ev0])` here — a short list.
         let expr = ExprId::UNSET;
-        let map = harvest_evidence(&outcome(vec![solved(), stuck()], expr));
+        let map = harvest_evidence(&ClassEnv::new(), &outcome(vec![solved(), stuck()], expr));
 
         assert_eq!(map.raised(expr), 2);
         assert!(map.args_for(expr).is_none());
@@ -367,7 +412,7 @@ mod tests {
     #[test]
     fn a_fully_solved_site_still_yields_every_argument_in_order() {
         let expr = ExprId::UNSET;
-        let map = harvest_evidence(&outcome(vec![solved(), solved()], expr));
+        let map = harvest_evidence(&ClassEnv::new(), &outcome(vec![solved(), solved()], expr));
 
         assert_eq!(map.args_for(expr).map(|args| args.len()), Some(2));
     }
@@ -389,7 +434,7 @@ mod tests {
         // Every identifier is asked. Raising nothing is "pass nothing", not
         // "cannot build", which is what `args_for` answers here.
         let expr = ExprId::UNSET;
-        let map = harvest_evidence(&outcome(vec![], expr));
+        let map = harvest_evidence(&ClassEnv::new(), &outcome(vec![], expr));
 
         assert_eq!(map.dict_args_at(expr), Some(vec![]));
     }
@@ -399,17 +444,20 @@ mod tests {
         // A dictionary's position is its index among the non-marker
         // predicates, so the marker at index 0 leaves one argument, not two.
         let expr = ExprId::UNSET;
-        let map = harvest_evidence(&outcome(
-            vec![
-                solved_with(Evidence::Marker),
-                solved_with(Evidence::FromInstance {
-                    instance: int_instance(),
-                    subst: HashMap::new(),
-                    context: vec![],
-                }),
-            ],
-            expr,
-        ));
+        let map = harvest_evidence(
+            &ClassEnv::new(),
+            &outcome(
+                vec![
+                    solved_with(Evidence::Marker),
+                    solved_with(Evidence::FromInstance {
+                        instance: int_instance(),
+                        subst: HashMap::new(),
+                        context: vec![],
+                    }),
+                ],
+                expr,
+            ),
+        );
 
         assert_eq!(
             map.dict_args_at(expr),
@@ -423,8 +471,8 @@ mod tests {
     fn a_hole_anywhere_yields_no_argument_list() {
         let expr = ExprId::UNSET;
         let marker = || solved_with(Evidence::Marker);
-        let tail = harvest_evidence(&outcome(vec![marker(), stuck()], expr));
-        let head = harvest_evidence(&outcome(vec![stuck(), marker()], expr));
+        let tail = harvest_evidence(&ClassEnv::new(), &outcome(vec![marker(), stuck()], expr));
+        let head = harvest_evidence(&ClassEnv::new(), &outcome(vec![stuck(), marker()], expr));
 
         assert_eq!(tail.dict_args_at(expr), None);
         assert_eq!(head.dict_args_at(expr), None);
@@ -435,7 +483,10 @@ mod tests {
         // Every position is answered, so `args_for` succeeds; the fold over
         // the answer is what fails, and that must not become "pass nothing".
         let expr = ExprId::UNSET;
-        let map = harvest_evidence(&outcome(vec![solved_with(Evidence::Unrecorded)], expr));
+        let map = harvest_evidence(
+            &ClassEnv::new(),
+            &outcome(vec![solved_with(Evidence::Unrecorded)], expr),
+        );
 
         assert!(map.args_for(expr).is_some());
         assert_eq!(map.dict_args_at(expr), None);

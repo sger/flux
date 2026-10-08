@@ -638,6 +638,9 @@ fn solve_instance_evidence(
     // The instance search is a closure so that its `?` and early `return`
     // leave *it* rather than this function — falling through to the structural
     // rule below, and still reaching the `seen.remove` at the end.
+    let is_marker = class_env
+        .lookup_class_by_id(class_id)
+        .is_some_and(|class| class.methods.is_empty());
     let from_instance = (|| {
         let (instance, subst) =
             class_env.resolve_instance_with_subst_by_id(class_id, type_args, interner)?;
@@ -679,10 +682,7 @@ fn solve_instance_evidence(
 
         // A class with no methods has no dictionary to pass, so naming the
         // instance would imply a runtime value that does not exist.
-        if class_env
-            .lookup_class_by_id(class_id)
-            .is_some_and(|class| class.methods.is_empty())
-        {
+        if is_marker {
             return Some(Evidence::Marker);
         }
 
@@ -696,9 +696,19 @@ fn solve_instance_evidence(
             context,
         })
     })();
+    // The structural rule decides whether a marker holds (`Sendable<(Int,
+    // List<Int>)>` from its components), but a marker still has no dictionary
+    // to build from those components: its evidence is `Marker` either way.
     let evidence = from_instance.or_else(|| {
-        structural_builtin_evidence(class_id, type_args, class_env, interner, search)
-            .map(|components| Evidence::Structural { components })
+        structural_builtin_evidence(class_id, type_args, class_env, interner, search).map(
+            |components| {
+                if is_marker {
+                    Evidence::Marker
+                } else {
+                    Evidence::Structural { components }
+                }
+            },
+        )
     });
 
     search.seen.remove(&key);
@@ -1333,6 +1343,45 @@ mod tests {
             }
             other => panic!("expected FromInstance evidence, got {other:?}"),
         }
+    }
+
+    /// A marker holds structurally — `Sendable<(Int, List<Int>)>` because each
+    /// component is `Sendable` — but has no dictionary to build from those
+    /// components, so its evidence is `Marker`, as an instance's would be.
+    #[test]
+    fn a_structurally_discharged_marker_is_a_marker() {
+        let mut interner = Interner::new();
+        let mut class_env = ClassEnv::new();
+        class_env.register_builtins(&mut interner);
+        let sendable = interner.intern("Sendable");
+        let pair = InferType::Tuple(vec![
+            InferType::Con(TypeConstructor::Int),
+            InferType::App(
+                TypeConstructor::List,
+                vec![InferType::Con(TypeConstructor::Int)],
+            ),
+        ]);
+
+        let outcome = solve_class_constraints_dispositioned(
+            &[wanted(sendable, vec![pair])],
+            SolveScope::WholeProgram,
+            &class_env,
+            &interner,
+        );
+
+        let [entry] = &outcome.dispositions[..] else {
+            panic!("expected exactly one disposition");
+        };
+        assert!(
+            matches!(
+                entry.disposition,
+                Disposition::Solved {
+                    evidence: Evidence::Marker
+                }
+            ),
+            "got {:?}",
+            entry.disposition
+        );
     }
 
     /// Overlap detection counts candidates, so it cannot depend on the order
