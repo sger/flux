@@ -996,6 +996,82 @@ fn main() -> Unit {
     );
 }
 
+/// The refinement pass binds the return type, so the first pass's return
+/// variable has to be bound with it. Otherwise everything the first pass typed
+/// with it keeps a variable: `fib(n - 1) + fib(n - 2)` stayed `?r`, and its
+/// `Add<?r>` was never solved although `fib` returns `Int`.
+#[test]
+fn self_recursive_refinement_resolves_what_the_first_pass_typed_with_the_return() {
+    let source = r#"
+fn fib(n) {
+    if (n <= 1) {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+"#;
+    let (result, program) = infer_program_from_source(source);
+    let Statement::Function { body, .. } = &program.statements[0] else {
+        panic!("expected `fib`");
+    };
+    let Some(Statement::Return {
+        value: Some(sum @ Expression::Infix { .. }),
+        ..
+    }) = body.statements.last()
+    else {
+        panic!(
+            "expected `return fib(n - 1) + fib(n - 2)`, got {:?}",
+            body.statements.last()
+        );
+    };
+    assert_eq!(
+        result.expr_types.get(&sum.expr_id()),
+        Some(&int()),
+        "the sum's type"
+    );
+}
+
+/// What follows a block's own `return` never runs, so it is not the block's
+/// value: `return 42; print("x");` returns `Int`, not `Unit`.
+#[test]
+fn statements_after_a_return_are_not_the_blocks_value() {
+    let source = r#"
+fn answer() {
+    return 42;
+    print("unreachable");
+}
+
+fn main() -> Unit {
+    let n: Int = answer()
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_code(&result, "E300"),
+        "expected no E300, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+/// An early `return` is checked against the annotation like the final value.
+#[test]
+fn an_early_return_must_match_the_return_annotation() {
+    let source = r#"
+fn pick(flag: Bool) -> Int {
+    if (flag) {
+        return "no";
+    }
+    return 1;
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for `return \"no\"`, got: {:#?}",
+        result.diagnostics
+    );
+}
+
 #[test]
 fn infer_non_recursive_function_does_not_trigger_second_pass_behavior() {
     let source = r#"

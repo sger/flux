@@ -244,6 +244,11 @@ struct InferCtx<'a> {
     /// `skolems` parameter. Unmarked when the declaring function's scope
     /// exits so downstream uses treat them as flexible.
     skolem_vars: HashSet<TypeVarId>,
+    /// The `return` values seen in each function or lambda body being
+    /// inferred, innermost last. A block's own type is its last value, so an
+    /// early `return` in a nested block typed only that block; the function's
+    /// return type is unified with each of these once its body is done.
+    return_frames: Vec<Vec<(InferType, Span)>>,
     /// Source-level name for each skolem (the type parameter identifier),
     /// used to render readable E305 diagnostics.
     skolem_names: HashMap<TypeVarId, Identifier>,
@@ -351,6 +356,7 @@ impl<'a> InferCtx<'a> {
             instantiated_expr_vars: HashSet::new(),
             current_expr: None,
             skolem_vars: HashSet::new(),
+            return_frames: Vec::new(),
             skolem_names: HashMap::new(),
             signature_type_params: Vec::new(),
             class_env: None,

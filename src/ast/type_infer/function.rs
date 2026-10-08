@@ -41,9 +41,7 @@ impl<'a> InferCtx<'a> {
         let (declared_effect_row, ambient_effect_row) =
             self.infer_declared_and_ambient_effect_rows(input.effects, &mut row_var_env);
 
-        let body_ty = self.with_ambient_effect_row(ambient_effect_row.clone(), |ctx| {
-            ctx.infer_block(input.body)
-        });
+        let (body_ty, returns) = self.infer_body(&ambient_effect_row, input.body);
         let mut ret_ty = self.infer_return_type_with_optional_annotation(
             &tp_map,
             &mut row_var_env,
@@ -52,6 +50,7 @@ impl<'a> InferCtx<'a> {
             Some(input.name),
             input.body,
         );
+        ret_ty = self.unify_early_returns(&ret_ty, &returns);
 
         if self.should_refine_self_recursive_return(input) {
             ret_ty = self.refine_unannotated_self_recursive_return(
@@ -379,6 +378,38 @@ impl<'a> InferCtx<'a> {
             }
             None => body_ty.apply_type_subst(&self.subst),
         }
+    }
+
+    /// Infer a function or lambda body, collecting the `return` values in it
+    /// for [`Self::unify_early_returns`].
+    pub(super) fn infer_body(
+        &mut self,
+        ambient_effect_row: &InferEffectRow,
+        body: &Block,
+    ) -> (InferType, Vec<(InferType, Span)>) {
+        self.return_frames.push(Vec::new());
+        let body_ty =
+            self.with_ambient_effect_row(ambient_effect_row.clone(), |ctx| ctx.infer_block(body));
+        let returns = self.return_frames.pop().unwrap_or_default();
+        (body_ty, returns)
+    }
+
+    /// Unify a body's early `return` values with its return type.
+    ///
+    /// The type of a block is its last value, so `if (n <= 1) { return n; }`
+    /// typed only its own block, and an unannotated `fib` returned `?r`: every
+    /// predicate over a recursive call's result (`fib(n - 1) + fib(n - 2)`
+    /// raises `Add<?r>`) was left unsolved, and an annotated function never
+    /// had its early returns checked against the annotation.
+    pub(super) fn unify_early_returns(
+        &mut self,
+        ret_ty: &InferType,
+        returns: &[(InferType, Span)],
+    ) -> InferType {
+        for (returned, span) in returns {
+            self.unify_reporting(ret_ty, returned, *span);
+        }
+        ret_ty.apply_type_subst(&self.subst)
     }
 
     /// Whether `ty` is settled enough to compare in a return-annotation
@@ -729,10 +760,13 @@ impl<'a> InferCtx<'a> {
         // one dictionary. Drop what this pass raises; the unifications it made
         // stay.
         let second_pass = self.class_constraints.open_window();
-        let second_body_ty =
-            self.with_ambient_effect_row(effect_row.clone(), |ctx| ctx.infer_block(body));
+        let (second_body_ty, second_returns) = self.infer_body(effect_row, body);
         let _raised_again = self.class_constraints.close_window(second_pass);
         let refined_ret = self.unify_silent(&second_body_ty, &ret_slot);
+        // The first pass already reported any `return` that disagrees.
+        for (returned, _) in &second_returns {
+            self.unify_silent(&ret_slot, returned);
+        }
         self.env.leave_scope();
         let refined_resolved = refined_ret.apply_type_subst(&self.subst);
         let current_resolved = current_ret.apply_type_subst(&self.subst);
