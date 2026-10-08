@@ -74,6 +74,25 @@ pub struct EvidenceShadow {
     /// to an instance method, or project out of a dictionary, carries the
     /// call's span instead.
     pub call_spans: HashMap<ExprId, Span>,
+    /// Each definition whose evidence parameters lowering did not create,
+    /// because elaboration would not have created the same ones (step 1d).
+    pub definitions: HashMap<ExprId, DefinitionDisagreement>,
+}
+
+/// Why lowering left a definition's evidence parameters to elaboration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DefinitionDisagreement {
+    /// The scheme elaboration reads asks for no dictionaries. On the CFG
+    /// path that is every module member, whose scheme it cannot find.
+    NoScheme,
+    /// The scheme asks for other classes, or the same ones in another order.
+    Classes,
+    /// Two dictionaries for one class, which elaboration pairs by position.
+    RepeatedClass,
+    /// Explicit `__dict_*` parameters, none of them named for this one.
+    ExplicitParams,
+    /// A canonical parameter name that was never interned.
+    UninternedName,
 }
 
 impl AstLowerer<'_> {

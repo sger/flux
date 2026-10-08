@@ -2158,3 +2158,49 @@ fn main() {
         "expected the `Convert<Int, String>` dictionary at the shifted call, got {args:?}"
     );
 }
+
+/// 0.0.8 plan step 1d: lowering creates a constrained definition's dictionary
+/// parameters from its recorded evidence, before dictionary elaboration runs.
+/// Elaboration then reuses them by their canonical names instead of adding
+/// its own.
+#[test]
+fn lowering_creates_a_constrained_definitions_dictionary_parameters() {
+    let (program, interner) = parse_program(
+        r#"
+class Sized<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sized<Int> {
+    fn size(x) { x }
+}
+
+fn measure<a: Sized>(x: a) -> Int {
+    size(x)
+}
+
+fn main() {
+    measure(3)
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let core = compiler
+        .lower_core_from_program(&program, false, false)
+        .expect("the program lowers");
+    let measure = core
+        .defs
+        .iter()
+        .find(|def| compiler.interner.resolve(def.name) == "measure")
+        .expect("`measure` is lowered");
+    let crate::core::CoreExpr::Lam { params, .. } = &measure.expr else {
+        panic!("`measure` lowers to a lambda, got {:?}", measure.expr);
+    };
+    let names: Vec<_> = params
+        .iter()
+        .map(|param| compiler.interner.resolve(param.name))
+        .collect();
+    assert_eq!(names, ["__dict_Sized", "x"]);
+}
