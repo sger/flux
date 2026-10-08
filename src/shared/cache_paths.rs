@@ -183,7 +183,11 @@ use sha2::{Digest, Sha256};
 /// inferred context constrains, so `let ch = Channel.make(5)` is
 /// `Channel<Int>`, not `forall a. Sendable<a> => Channel<a>`. Inferred types
 /// change, and with them what an epoch-55 `.flxi` records.
-pub const CACHE_EPOCH: u16 = 56;
+/// Epoch 57: an early `return` is unified with its function's return type,
+/// and statements after a block's own `return` are not its value. An
+/// unannotated function returning early (`fib`) is `Int -> Int` where an
+/// epoch-56 `.flxi` recorded `Int -> ?r`.
+pub const CACHE_EPOCH: u16 = 57;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

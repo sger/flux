@@ -470,17 +470,14 @@ impl<'a> InferCtx<'a> {
         value_span
     }
 
-    /// Infer the type of a block from its last value-producing statement.
+    /// Predeclare nested function names so forward references and mutual
+    /// recursion work inside function bodies (mirrors top-level Phase A).
     ///
-    /// Returns `Unit` when the block has no value expression.
-    pub(super) fn infer_block(&mut self, block: &Block) -> InferType {
-        // Predeclare nested function names so forward references and mutual
-        // recursion work inside function bodies (mirrors top-level Phase A).
-        //
-        // The guard asks whether *this* scope already declared the name, not
-        // whether the name is visible: a nested `fn` that shadows an outer one
-        // must still be predeclared here, or its siblings resolve their
-        // references to the outer definition instead of to it.
+    /// The guard asks whether *this* scope already declared the name, not
+    /// whether the name is visible: a nested `fn` that shadows an outer one
+    /// must still be predeclared here, or its siblings resolve their
+    /// references to the outer definition instead of to it.
+    fn predeclare_nested_functions(&mut self, block: &Block) {
         for stmt in &block.statements {
             if let Statement::Function { name, span, .. } = stmt
                 && !self.env.is_bound_in_current_scope(*name)
@@ -489,12 +486,26 @@ impl<'a> InferCtx<'a> {
                 self.env.bind_with_span(*name, Scheme::mono(v), Some(*span));
             }
         }
+    }
+
+    /// Infer the type of a block from its last value-producing statement.
+    ///
+    /// Returns `Unit` when the block has no value expression.
+    pub(super) fn infer_block(&mut self, block: &Block) -> InferType {
+        self.predeclare_nested_functions(block);
 
         let plan = self.plan_statements(&block.statements);
         let (group_at, covered) = crate::binding_groups::group_index(&plan);
 
         let mut last_ty = InferType::Con(TypeConstructor::Unit);
+        // Once this block itself returns, what follows is dead: it is still
+        // inferred, for its own errors, but it is not the block's value.
+        let mut returned = false;
         for (index, stmt) in block.statements.iter().enumerate() {
+            if returned {
+                self.infer_statement(stmt);
+                continue;
+            }
             // A mutually recursive group is inferred once, at its first
             // member. Members are function definitions, so a group can never
             // hold the block's value expression.
@@ -520,6 +531,10 @@ impl<'a> InferCtx<'a> {
                     value: Some(expr), ..
                 } => {
                     last_ty = self.infer_expression(expr);
+                    if let Some(frame) = self.return_frames.last_mut() {
+                        frame.push((last_ty.clone(), expr.span()));
+                    }
+                    returned = true;
                 }
                 _ => {
                     self.infer_statement(stmt);
