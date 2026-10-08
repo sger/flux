@@ -554,6 +554,87 @@ impl<'a> InferCtx<'a> {
         finalized.into_scheme()
     }
 
+    /// Proposal 0179 Stage 4's improvement: a multi-parameter predicate whose
+    /// known arguments match exactly one instance takes the unknown ones from
+    /// that instance's head.
+    ///
+    /// `let s = convert(42)` wants `Convert<Int, ?b>`. With `Convert<Int,
+    /// String>` the only instance compatible with `Int`, `?b` can only be
+    /// `String`, as a functional dependency would say — and nothing else will
+    /// ever fix it. This is the one place it can be fixed: the answer has to
+    /// reach the substitution before the binding is generalized or defaulted,
+    /// so that the predicate is then solved like any other. Lowering used to
+    /// make the same choice after inference (`unique_instance_for_known_args`),
+    /// too late for the type of `s`.
+    ///
+    /// A predicate with every argument unknown is the dictionary-passing case
+    /// and is left alone, as is one with two or more candidates (E459) or none
+    /// (E444).
+    ///
+    /// A signature's rigid variable counts as *known*: it is the caller's to
+    /// choose, so `via<a: Convert>`'s `Convert<a, String>` is never improved to
+    /// `Convert<Int, String>`. Callers therefore run this while the enclosing
+    /// signatures' variables are still marked rigid.
+    pub(super) fn improve_from_sole_candidates(&mut self, window: constraint::CaptureWindow) {
+        let Some(class_env) = self.class_env.as_ref() else {
+            return;
+        };
+        let mut improvements: Vec<(InferType, InferType)> = Vec::new();
+        for constraint in self.class_constraints.captured_since(window) {
+            if constraint.type_args.len() < 2 {
+                continue;
+            }
+            let args: Vec<InferType> = constraint
+                .type_args
+                .iter()
+                .map(|arg| arg.apply_type_subst(&self.subst))
+                .collect();
+            let known: Vec<Option<InferType>> = args
+                .iter()
+                .map(|arg| match arg {
+                    InferType::Var(var) if !self.skolem_vars.contains(var) => None,
+                    other => Some(other.clone()),
+                })
+                .collect();
+            if known.iter().all(Option::is_none) || known.iter().all(Option::is_some) {
+                continue;
+            }
+            let mut candidates = class_env.instances_matching_known_args_by_id(
+                constraint.class_id,
+                &known,
+                self.interner,
+            );
+            let (Some(instance), None) = (candidates.next(), candidates.next()) else {
+                continue;
+            };
+            // The instance's own variables become fresh ones, so a head like
+            // `Convert<Int, List<a>>` improves `?b` to `List<?c>`.
+            let mut head_vars = HashMap::new();
+            for head in &instance.type_args {
+                collect_head_type_variables(head, self.interner, &mut head_vars);
+            }
+            let head_vars: HashMap<Identifier, TypeVarId> = head_vars
+                .into_keys()
+                .map(|name| (name, self.env.alloc_type_var_id()))
+                .collect();
+            for ((arg, known), head) in args.iter().zip(&known).zip(&instance.type_args) {
+                if known.is_some() {
+                    continue;
+                }
+                if let Some(head_ty) = crate::types::type_env::TypeEnv::infer_type_from_type_expr(
+                    head,
+                    &head_vars,
+                    self.interner,
+                ) {
+                    improvements.push((arg.clone(), head_ty));
+                }
+            }
+        }
+        for (arg, head_ty) in improvements {
+            self.unify_silent(&arg, &head_ty);
+        }
+    }
+
     /// Move a definition's obligations out of the enclosing scope and into an
     /// implication carrying the context it quantified.
     ///
@@ -1271,3 +1352,40 @@ pub struct ClassDispatch {
 /// Stable identifier for one expression node within a single inference run.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ExprNodeId(pub u32);
+
+/// The type variables an instance head names: its lowercase identifiers, as
+/// instance-context instantiation reads them.
+fn collect_head_type_variables(
+    head: &crate::syntax::type_expr::TypeExpr,
+    interner: &Interner,
+    out: &mut HashMap<Identifier, ()>,
+) {
+    use crate::syntax::type_expr::TypeExpr;
+    match head {
+        TypeExpr::Named { name, args, .. } => {
+            if args.is_empty()
+                && interner
+                    .resolve(*name)
+                    .chars()
+                    .next()
+                    .is_some_and(char::is_lowercase)
+            {
+                out.insert(*name, ());
+            }
+            for arg in args {
+                collect_head_type_variables(arg, interner, out);
+            }
+        }
+        TypeExpr::Tuple { elements, .. } => {
+            for element in elements {
+                collect_head_type_variables(element, interner, out);
+            }
+        }
+        TypeExpr::Function { params, ret, .. } => {
+            for param in params {
+                collect_head_type_variables(param, interner, out);
+            }
+            collect_head_type_variables(ret, interner, out);
+        }
+    }
+}

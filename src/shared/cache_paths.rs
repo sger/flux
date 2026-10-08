@@ -191,7 +191,11 @@ use sha2::{Digest, Sha256};
 /// hierarchy became Flux source it matched only a module-less `Num`, so an
 /// ambiguous `Num<?a>` was never defaulted to `Int`; epoch-57 interfaces
 /// record the undefaulted variable.
-pub const CACHE_EPOCH: u16 = 58;
+/// Epoch 59: a multi-parameter predicate whose known arguments match exactly
+/// one instance takes the unknown ones from its head during inference
+/// (0179 Stage 4), so `let s = convert(42)` is `String` where an epoch-58
+/// `.flxi` recorded a variable.
+pub const CACHE_EPOCH: u16 = 59;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

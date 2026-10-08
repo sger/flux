@@ -220,6 +220,8 @@ impl<'a> InferCtx<'a> {
         // reaches the environment via a predeclared placeholder is not free to
         // quantify, and reading the schemes as stored misses it — see
         // `TypeEnv::free_vars_through` and `docs/known_issues.md#ki-096`.
+        self.improve_from_sole_candidates(window);
+        let final_ty = final_ty.apply_type_subst(&self.subst);
         let env_free = self.env.free_vars_through(&self.subst);
         let scheme = self.finalize_binding_scheme(BindingSchemeSpec {
             infer_type: &final_ty,
