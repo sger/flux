@@ -2034,3 +2034,56 @@ fn an_imported_instance_missing_an_associated_type_equation_is_a_stale_interface
         truncated[0].message()
     );
 }
+
+/// Proposal 0179 Stage 4: `Convert<Int, ?b>` with exactly one instance whose
+/// known arguments match takes the missing one from that instance's head, so
+/// `let s = convert(42)` is solved — and its call has a dictionary to pass —
+/// without an annotation.
+#[test]
+fn a_sole_candidate_instance_determines_a_multi_parameter_predicate() {
+    use crate::syntax::{expression::Expression, statement::Statement};
+
+    let (program, interner) = parse_program(
+        r#"
+class Convert<a, b> {
+    fn convert(x: a) -> b
+}
+
+instance Convert<Int, String> {
+    fn convert(x) { "n" }
+}
+
+fn main() {
+    let s = convert(42)
+    s
+}
+"#,
+    );
+    let call = program
+        .statements
+        .iter()
+        .find_map(|stmt| match stmt {
+            Statement::Function { body, .. } => match body.statements.first() {
+                Some(Statement::Let {
+                    value: call @ Expression::Call { .. },
+                    ..
+                }) => Some(call.expr_id()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("`let s = convert(42)`");
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile(&program)
+        .expect("`convert(42)` is determined by its only instance");
+
+    let args = compiler.evidence_map().dict_args_at(call);
+    assert!(
+        matches!(
+            args.as_deref(),
+            Some([crate::types::translate::DictArg::Global { .. }])
+        ),
+        "expected the `Convert<Int, String>` dictionary, got {args:?}"
+    );
+}

@@ -63,6 +63,7 @@ impl<'a> InferCtx<'a> {
             );
         }
 
+        let ret_ty = self.improved(constraint_start, &ret_ty);
         self.unmark_skolems(&skolem_ids);
         self.signature_type_params.pop();
 
@@ -378,6 +379,14 @@ impl<'a> InferCtx<'a> {
             }
             None => body_ty.apply_type_subst(&self.subst),
         }
+    }
+
+    /// `ty` after [`Self::improve_from_sole_candidates`] over `window`. Called
+    /// before a signature's variables stop being rigid, which the improvement
+    /// relies on.
+    fn improved(&mut self, window: constraint::CaptureWindow, ty: &InferType) -> InferType {
+        self.improve_from_sole_candidates(window);
+        ty.apply_type_subst(&self.subst)
     }
 
     /// Infer a function or lambda body, collecting the `return` values in it
