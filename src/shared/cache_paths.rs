@@ -179,7 +179,11 @@ use sha2::{Digest, Sha256};
 /// Epoch 55: a synthesized `Sendable` instance is as public as its ADT. An
 /// epoch-54 `.flxi` exports none, so an importer of `Flow.Channel` finds no
 /// `Sendable<Channel<a>>` and rejects a channel captured by `Task.spawn`.
-pub const CACHE_EPOCH: u16 = 55;
+/// Epoch 56: a restricted (`let`) binding no longer quantifies a variable its
+/// inferred context constrains, so `let ch = Channel.make(5)` is
+/// `Channel<Int>`, not `forall a. Sendable<a> => Channel<a>`. Inferred types
+/// change, and with them what an epoch-55 `.flxi` records.
+pub const CACHE_EPOCH: u16 = 56;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
