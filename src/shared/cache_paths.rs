@@ -176,7 +176,10 @@ use sha2::{Digest, Sha256};
 /// epoch-53 `.flxi` has no `head_modules`, so an importer would rebuild the old
 /// unqualified names and link against dictionaries the defining module no
 /// longer emits.
-pub const CACHE_EPOCH: u16 = 54;
+/// Epoch 55: a synthesized `Sendable` instance is as public as its ADT. An
+/// epoch-54 `.flxi` exports none, so an importer of `Flow.Channel` finds no
+/// `Sendable<Channel<a>>` and rejects a channel captured by `Task.spawn`.
+pub const CACHE_EPOCH: u16 = 55;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

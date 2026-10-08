@@ -1591,6 +1591,7 @@ impl ClassEnv {
         for stmt in statements {
             match stmt {
                 Statement::Data {
+                    is_public,
                     name,
                     type_params,
                     variants,
@@ -1605,6 +1606,7 @@ impl ClassEnv {
                         type_params,
                         variants,
                         current_module,
+                        *is_public,
                         *span,
                     );
                 }
@@ -1635,6 +1637,7 @@ impl ClassEnv {
         type_params: &[Identifier],
         variants: &[crate::syntax::data_variant::DataVariant],
         instance_module: ModulePath,
+        is_public: bool,
         span: Span,
     ) {
         if is_opaque_non_sendable_adt(instance_module, adt_name, interner) {
@@ -1694,11 +1697,11 @@ impl ClassEnv {
             associated_types: Vec::new(),
             class_id: ClassId::from_local_name(sendable_id),
             instance_module,
-            // Synthesized instances follow the same visibility rule as the
-            // owning ADT — they're effectively part of its public surface.
-            // Phase 1 doesn't enforce this distinction since `Sendable` has
-            // no methods.
-            is_public: false,
+            // A synthesized instance is as visible as the ADT it is for: it is
+            // part of that type's public surface. Private, it was dropped from
+            // every importer's environment, so `Channel<Int>` from
+            // `Flow.Channel` was not `Sendable` anywhere but in that module.
+            is_public,
             type_key: instance_type_key(&head_args, &[instance_module], interner),
             head_modules: vec![instance_module],
             type_args: head_args,
