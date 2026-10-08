@@ -520,6 +520,65 @@ The fixing change was not identified; this was found by re-testing while
 building `examples/generics/`. Pinned by
 `examples/generics/working/accepts/annot_lambda_names_rigid_param.flx`.
 
+### KI-099 — Two modules' same-named types are one type at a use site
+
+**Severity:** Medium · **Area:** Types, type classes · **Verified:** 2026-10-08 · **From:** 0.0.8 Phase 1c
+
+`Two/Label.flx` declares `public class Label<a> { fn label(x: a) -> String }`.
+`Two/Shop.flx` and `Two/Game.flx` each declare their own `Item`, and give it
+an instance:
+
+```flux
+import Two.Label
+
+module Two.Shop {
+    public data Item { Item(Int) }
+    public instance Label<Item> { fn label(x) { "shop" } }
+    public fn make() -> Item { Item(1) }
+}
+```
+
+```flux
+import Two.Label exposing (label)
+import Two.Shop as Shop
+import Two.Game as Game
+
+fn main() with IO {
+    print(label(Shop.make()))   // error[E454]: Multiple instances match `Label<Item>`
+    print(label(Game.make()))   // error[E454]
+}
+```
+
+Both instances compile. Since `8180dea2`, each instance head records the
+module that defines it, so the two instances have different keys and
+different dictionaries. A **type**, though, is still its bare name
+(`TypeConstructor::Adt(Symbol)`). At the use site, `Shop.Item` and
+`Game.Item` are the same type, so both instances match.
+
+The fix is to give `TypeConstructor::Adt` the defining module, as instance
+heads now have. Every place that builds or compares an ADT type changes, and
+so does the `.flxi` format. The workaround is to give the types different
+names.
+
+### KI-100 — `flux bytecode` compiles one file, without its imports or the prelude
+
+**Severity:** Low · **Area:** CLI · **Verified:** 2026-10-08
+
+```flux
+fn main() with IO {
+    print(sort([3, 1, 2]))
+}
+```
+
+`flux p.flx` prints `[1, 2, 3]`. `flux bytecode p.flx` stops with E004, "I
+can't find a value named `sort`". A file that imports one of its own modules
+gets E421 for every imported name.
+
+The subcommand compiles the file on its own: it builds no module graph, and it
+loads no prelude. So it only works on a file that uses nothing outside itself.
+Its output is therefore not the bytecode `flux` runs. Either build the module
+graph as `flux` does, or document it as a single-file tool.
+
 ### KI-098 — A generalized helper used at two types loses its representation
 
 **Severity:** Low · **Area:** Core lowering, specialisation · **Verified:** 2026-09-10 · **From:** G5 / 0187 B1

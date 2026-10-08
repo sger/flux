@@ -54,7 +54,7 @@ started on an earlier branch that no longer exists, so it is redone here.
 5. **Fail closed.** A missing dictionary is a compile-time internal error that
    names the site. It is never a short argument list, and never a silently
    wrong dictionary.
-6. **Bump `CACHE_EPOCH`** (`src/shared/cache_paths.rs`, currently 53) in the
+6. **Bump `CACHE_EPOCH`** (`src/shared/cache_paths.rs`, currently 60) in the
    same commit as any change to inferred types or to `.flxi` contents, and add
    the reason to the doc comment above it.
 7. **Run the precision gate** after any change to inference, generalization or
@@ -299,7 +299,7 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
   symbol table (`Env`/`Process` swap order run to run) and the fingerprints
   vary between identical compiles of `Flow.IO`, `Flow.List` and `Flow.Array`.
   It is out of 0.0.8's scope; file it as a known issue.
-- [ ] **1c. Emit dictionary arguments in shadow mode (C5).**
+- [x] **1c. Emit dictionary arguments in shadow mode (C5).**
   - The emitter lives where an **identifier** is lowered, not in the `Call` arm.
     It produces the identifier applied to its dictionaries, and `Call` lowering
     flattens that into one call, `f(d…, x…)`.
@@ -313,7 +313,7 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
   - Sweep `examples/`, `tests/` and `lib/`. Each divergence is a bug in one path
     or the other: record it and resolve it.
 
-  **Built 2026-10-07; the sweep has not run.** The emitter
+  **Built 2026-10-07.** The emitter
   (`src/core/lower_ast/evidence.rs`) records what it would pass at each
   identifier and infix operator. The report
   (`src/core/passes/evidence_diff.rs`) compares that with the final Core after
@@ -387,6 +387,68 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
   - **The sweep runs per unit.** Dumps no longer collide (see above), but
     only a per-unit compile carries that unit's own evidence map. Run it
     through a normal compile with `--no-cache`, not `--dump-core`.
+
+  **Swept 2026-10-08.**
+  - **How:** `FLUX_DBG_EVIDENCE_DIFF=stop flux --no-cache <file> --root <dir>
+    --root <tree> --root lib` on every `.flx` under `examples/`, `tests/` and
+    `lib/`, with the roots the test harness gives. Of 1411 files, 810 compile,
+    and 601 stop at the error they exist to show.
+  - **Totals over sites** (deduplicated):
+
+    | Verdict | First run | After the fixes |
+    |---|---|---|
+    | agree | 578 | 604 |
+    | differ | 178 | 182 |
+    | operator | 3254 | 3314 |
+    | generated | (counted as `reference`) | 14 |
+    | reference | 15 | 1 |
+    | unbuildable | 135 | 1 |
+    | unreached, mismatched | 0 | 0 |
+
+  - **Fixes.** Each one was pinned with a test first:
+
+    | Commit | Fix |
+    |---|---|
+    | `38b7cf71` | A module-qualified call's evidence is read at the member access, where inference keys it |
+    | `e0164d47`, `8180dea2` | An instance's dictionary key comes from its `type_key`, and an instance head carries the module that defines it (see 1g) |
+    | `92b77777` | A synthesized `Sendable` instance is as public as its ADT |
+    | `b515f918` | A binding under the monomorphism restriction no longer quantifies a constrained variable (GHC's rule). Unbuildable went from 135 to 73 |
+    | `0353f2d9` | Report fixes: operators lowered to primitives count as `operator`, cloned default-method bodies are paired apart, and default-span sites get `generated` |
+    | `3d063793` | A marker predicate's evidence is `Marker`, whether it holds structurally or stays unsolved |
+    | `cd33d470` | Early returns unify with the return type, and code after a block's own `return` is not its value |
+    | `404207d5` | Numeric defaulting recognises `Flow.Num` |
+    | `fe2ab5b7` | Sole-candidate improvement (0179 Stage 4): `Convert<Int, ?b>` takes `?b` from the one instance whose known arguments match |
+    | `657b79b5` | A call's predicate over a type nothing determines is E459, not a guessed `Int`. Eight tests gained annotations, and `generics/working/rejects/ambiguous_empty_literal.flx` pins it |
+
+  - **What is left, and who answers it:**
+
+    | Verdict | Sites | Example | Wrong path | Disposition |
+    |---|---|---|---|---|
+    | differ: the old path passes nothing | 124 | `Array.sort(..)` in `aoc/2024/Day06Solver.flx:69` | old (CFG) | Module-qualified calls. The CFG dump of `Array.contains([\|1, 2\|], 2)` passes two arguments and no dictionary. It answers correctly because every constrained site in `Flow.Array` is an operator, which lowers to a primitive. A callee that calls a method would break. 1e; C4's arity guard checks the callee side. |
+    | differ: the old path passes nothing (`via`, `render`) | 3 | `via(42)` in `type_classes/syntax_tour.flx:148` | old | Multi-parameter `where` bounds. 1e. |
+    | differ: direct `__tc_<C>_Int_*` where evidence says a parameter | 51 | `size(x)` in `type_classes/dictionary_call_arity.flx:14` | old | Wildcard dispatch to the only visible instance (`unique_instance_for_known_args_by_id`). Right only while one instance exists. 1d (B2), deleted in 1f. |
+    | differ: `Ord_Int` where evidence says a parameter | 4 | `assert_gt` in `lib/Flow/FTest.flx:29` | old | The `Int` default in `resolve_constraint_type_args`. 1e, deleted in 1f. |
+    | differ: the old path passes nothing inside `Flow.List` | 2 | `is_prefix` at `List.flx:413` | old (CFG) | As noted above. 1e. |
+    | differ: KI-076 | 2 | `lte`/`bigger` in `generics/failing/runtime/Ki076Ord.flx` | old | The evidence is right. Phase 3b checks KI-076 after 1e. |
+    | generated | 14 | `Eq<List<a>>.eq` forwarders in `lib/Flow/Eq.flx` | n/a | Forwarders built at default spans pass their dictionaries in their own body. 1d. |
+    | reference | 1 | `dbl` in `ki_090_constrained_fn_as_value.flx:40` | old | KI-090, Phase 3a. |
+    | unbuildable | 1 | `contains` at `List.flx:569` | n/a | One of the five `UnresolvedAfterGeneralization` sites (the other four are operators). 1e's exception, removed at 2b. |
+
+    Against the first run, the only file whose first error code changed is the
+    new `ambiguous_empty_literal.flx`.
+  - **Found for 1d.**
+    - **Generated instance functions carry explicit `__dict_*` parameters,**
+      one per entry of the instance context. 1d must map each
+      `definition(id).params[i]` to the explicit parameter for the same
+      predicate, never prepend a second set. The old pass reuses that prefix
+      by position, which binds `Ord` to `__dict_Eq` under the context
+      `(Eq<a>, Ord<a>)`.
+    - **Forwarders** (`generated_instance_method_alias`) already pass their
+      dictionaries, so the emitter must not add the bound's dictionary again.
+    - **The evidence map can go stale.** `prepare_program_for_lowering*`
+      re-infers through `apply_hm_final` and replaces `hm_expr_types`, but
+      keeps the old `evidence_map`. Solve, harvest and record definitions
+      there too.
 - [ ] **1d. Create dictionary parameters at lowering.**
   - For a `Statement::Function` with recorded parameters, prepend one `__dict_*`
     `Lam` parameter per entry of `EvidenceMap::definition(id).params`.
@@ -417,9 +479,15 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
     stdlib unit through the second.
   - Do not turn them into internal errors: that would break the standard
     library.
+  - **What switching over removes**, from the 1c sweep: the `Int` guess
+    (4 sites), wildcard dispatch to the only visible instance (51), and the
+    CFG path's missing dictionaries on module-qualified and multi-parameter
+    calls (129). The last group runs correctly today only because the stdlib
+    callees use operators, not methods.
 - [ ] **1f. Delete deletion group 1 (C6).**
-  - `class_call_type_args`, both copies: `lower_ast/mod.rs` and
-    `compiler/expression.rs`.
+  - `class_call_type_args` in `lower_ast/mod.rs`. The copy in
+    `compiler/expression.rs` serves the AST path and belongs to deletion
+    group 2.
   - `resolve_dict_args_for_call`, `resolve_dict_args_for_scheme`, and
     `resolve_constraint_type_args` together with its **`Int` default**.
   - `insert_dict_args_at_call_sites`, `resolve_dict_arg`,
@@ -432,13 +500,25 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
     They build dictionary *values*; they don't choose instances.
   - Leave deletion group 2, the ~920 lines on the AST path, alone. It waits on
     E3's open question: whether the AST bytecode fallback can be retired.
-- [ ] **1g. One name per instance.** Every `__dict_*` name is derived from
-  `InstanceDef.type_key`. Today these places re-render `type_args` instead:
+- [x] **1g. One name per instance.** Every `__dict_*` name is derived from
+  `InstanceDef.type_key`. Before this step, these places re-rendered
+  `type_args` instead:
   - `predeclaration.rs`
   - `codegen.rs`
   - `class_solver.rs`
   - `dict_elaborate.rs`
   - `lower_ast/mod.rs`
+
+  **Done in `e0164d47` and `8180dea2`.** Checked 2026-10-08 with
+  `rg 'dictionary_name\(|instance_type_key\(' src`: every non-test caller
+  passes an `InstanceDef.type_key`.
+  - One fallback is left. `class_dispatch.rs` re-renders a key for an
+    `instance` declaration that has no collected `InstanceDef`. No file in the
+    1c sweep reaches it, expected-error fixtures included. 1f makes it an
+    internal error.
+  - **Still open:** a type's identity is its bare name
+    (`TypeConstructor::Adt(Symbol)`), so two modules' same-named types meet
+    at a use site ([KI-099](../known_issues.md#ki-099)).
 
 **Tracker correction.** C6's list included "the ±dictionaries band in
 `check_known_call_arity`". That band was already removed with KI-082.
@@ -550,7 +630,7 @@ and `b2_forwarding_over_constrained_callee.flx`.
   fn is_even(n) { if n == 0 { true } else { is_odd(n - 1) } }
   fn is_odd(n)  { if n == 0 { false } else { is_even(n - 1) } }
   ```
-- [ ] **2d. B3 — `CACHE_EPOCH` → 54.**
+- [ ] **2d. B3 — bump `CACHE_EPOCH` to its next value.**
 
 ### Exit
 
