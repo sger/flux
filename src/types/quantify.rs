@@ -186,6 +186,26 @@ pub fn decide_quantification(spec: QuantifySpec<'_>) -> Quantified {
             }
         }
     }
+
+    // The monomorphism restriction (Haskell Report §4.5.5; GHC's
+    // `decideMonoTyVars`): a restricted binding does not quantify a variable
+    // its *inferred* context constrains. It cannot take a dictionary parameter,
+    // so quantifying the variable but not the predicate left the predicate
+    // over a variable no use would ever fix (`let add = \(x, y) -> x + y`),
+    // and quantifying both gave every use its own type (`let ch =
+    // Channel.make(5)`, whose `recv(ch)` never learnt what `send(ch, 4)` sent).
+    // Left monomorphic, `split` defers the predicate to the enclosing scope,
+    // where the uses determine it. A written bound still quantifies.
+    if spec.restriction == MonoRestriction::Restricted {
+        for constraint in &finalized_constraints {
+            if constraint.origin == WantedClassConstraintOrigin::ExplicitBound {
+                continue;
+            }
+            for var in constraint.type_args.iter().flat_map(InferType::free_vars) {
+                quantified.remove(&var);
+            }
+        }
+    }
     let quantified = quantified;
 
     let outcome = spec
@@ -371,15 +391,6 @@ fn collect_scheme_constraints(
             .flat_map(InferType::free_vars)
             .any(|var| quantified.contains(&var));
         if !mentions_quantified {
-            continue;
-        }
-
-        // A nested binding cannot receive a dictionary parameter, so an
-        // obligation that would need one is left for the enclosing scope to
-        // discharge rather than recorded on a scheme no caller can satisfy.
-        if mode == MonoRestriction::Restricted
-            && constraint.origin == WantedClassConstraintOrigin::InferredOperator
-        {
             continue;
         }
 
@@ -863,5 +874,46 @@ mod quantification_decision_tests {
         let scheme = decided.into_scheme();
         assert_eq!(scheme.forall, vec![1]);
         assert_eq!(scheme.infer_type, ty);
+    }
+    /// A restricted binding does not quantify a variable its inferred context
+    /// constrains (Haskell Report §4.5.5). `let ch = Channel.make(5)` wants
+    /// `Sendable<a>` over `Channel<a>`; quantifying `a` gave every use of `ch`
+    /// its own element type, so `recv(ch)` was never fixed by `send(ch, 4)`.
+    /// Left monomorphic, the predicate floats out and the uses determine it.
+    /// An unconstrained variable still generalizes.
+    #[test]
+    fn a_restricted_binding_leaves_its_constrained_variables_monomorphic() {
+        use crate::{
+            ast::type_infer::constraint::{WantedClassConstraint, WantedClassConstraintOrigin},
+            diagnostics::position::Span,
+            syntax::expression::ExprId,
+            types::class_id::ClassId,
+        };
+
+        let mut interner = Interner::new();
+        let sendable = interner.intern("Sendable");
+        // `(a, b)`, with `Sendable<a>` raised by a call.
+        let ty = InferType::Tuple(vec![InferType::Var(0), InferType::Var(1)]);
+        let wanted = WantedClassConstraint {
+            class_name: sendable,
+            class_id: ClassId::from_local_name(sendable),
+            type_args: vec![InferType::Var(0)],
+            span: Span::default(),
+            expr: Some(ExprId(7)),
+            origin: WantedClassConstraintOrigin::SchemeUse,
+        };
+
+        let decided = decide_quantification(QuantifySpec {
+            infer_type: &ty,
+            env_free_vars: &HashSet::new(),
+            constraints: std::slice::from_ref(&wanted),
+            current_subst: &TypeSubst::empty(),
+            class_env: None,
+            interner: &interner,
+            restriction: MonoRestriction::Restricted,
+        });
+
+        assert_eq!(decided.forall, vec![1]);
+        assert!(decided.scheme_constraints.is_empty());
     }
 }
