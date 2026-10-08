@@ -2094,6 +2094,17 @@ fn main() {
 /// be keyed by the re-inferred program's ids, not the unit's.
 #[test]
 fn lowering_a_reinferred_program_reads_its_own_evidence() {
+    assert_lowering_reads_the_shifted_programs_evidence(false);
+}
+
+/// The optimizing path folds and renames the program before lowering it, and
+/// must still lower it with that program's own types and evidence.
+#[test]
+fn optimized_lowering_reads_the_programs_own_evidence() {
+    assert_lowering_reads_the_shifted_programs_evidence(true);
+}
+
+fn assert_lowering_reads_the_shifted_programs_evidence(optimize: bool) {
     use crate::syntax::{expression::Expression, statement::Statement};
 
     let (program, interner) = parse_program(
@@ -2133,7 +2144,7 @@ fn main() {
     compiler
         .dump_core_with_opts(
             &shifted,
-            false,
+            optimize,
             crate::core::display::CoreDisplayMode::Readable,
         )
         .expect("the shifted program lowers");

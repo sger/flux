@@ -2214,20 +2214,27 @@ impl Compiler {
         optimize: bool,
         elaborate_dictionaries: bool,
     ) -> Result<crate::core::CoreProgram, Diagnostic> {
-        if optimize {
-            use crate::ast::{constant_fold_with_interner, desugar, rename};
-            let desugared = desugar(program.clone());
-            let optimized = constant_fold_with_interner(desugared, &self.interner);
-            let mut program_to_lower = rename(optimized, HashMap::new());
-            self.apply_named_field_desugar(&mut program_to_lower);
-            return self.lower_core_from_program(&program_to_lower, true, elaborate_dictionaries);
-        }
-
         let prepared = self.prepare_program_for_lowering(program);
         self.apply_hm_final(&prepared.hm_final);
-        let mut program_to_lower = prepared.effective_program.into_owned();
-        self.apply_named_field_desugar(&mut program_to_lower);
-        self.lower_core_from_program(&program_to_lower, false, elaborate_dictionaries)
+        let program_to_lower =
+            self.finish_program_for_lowering(prepared.effective_program.into_owned(), optimize);
+        self.lower_core_from_program(&program_to_lower, optimize, elaborate_dictionaries)
+    }
+
+    /// The rewrites that follow the final inference: with `optimize`, the
+    /// syntactic optimizations, then the named-field desugar. They run on the
+    /// program just inferred, so lowering reads that program's types and
+    /// evidence rather than whatever the last unit left behind.
+    fn finish_program_for_lowering(&self, program: Program, optimize: bool) -> Program {
+        let mut program = if optimize {
+            use crate::ast::{constant_fold_with_interner, desugar, rename};
+            let optimized = constant_fold_with_interner(desugar(program), &self.interner);
+            rename(optimized, HashMap::new())
+        } else {
+            program
+        };
+        self.apply_named_field_desugar(&mut program);
+        program
     }
 
     /// run the named-field AST desugar in place. No-op when
@@ -2250,42 +2257,16 @@ impl Compiler {
     }
 
     #[allow(clippy::result_large_err)]
-    fn prepare_backend_core_program(
-        &mut self,
-        program: &Program,
-        optimize: bool,
-    ) -> Result<crate::aether::AetherProgram, Diagnostic> {
-        if optimize {
-            use crate::ast::{constant_fold_with_interner, desugar, rename};
-            let desugared = desugar(program.clone());
-            let optimized = constant_fold_with_interner(desugared, &self.interner);
-            let mut program_to_lower = rename(optimized, HashMap::new());
-            self.apply_named_field_desugar(&mut program_to_lower);
-            return self.lower_aether_from_program(&program_to_lower, true, true);
-        }
-
-        let prepared = self.prepare_program_for_lowering(program);
-        self.apply_hm_final(&prepared.hm_final);
-        let mut program_to_lower = prepared.effective_program.into_owned();
-        self.apply_named_field_desugar(&mut program_to_lower);
-        self.lower_aether_from_program(&program_to_lower, false, true)
-    }
-
-    #[allow(clippy::result_large_err)]
     fn prepare_backend_core_program_with_preloaded(
         &mut self,
         program: &Program,
         optimize: bool,
     ) -> Result<crate::aether::AetherProgram, Diagnostic> {
-        if optimize {
-            return self.prepare_backend_core_program(program, true);
-        }
-
         let prepared = self.prepare_program_for_lowering_with_preloaded(program);
         self.apply_hm_final(&prepared.hm_final);
-        let mut program_to_lower = prepared.effective_program.into_owned();
-        self.apply_named_field_desugar(&mut program_to_lower);
-        self.lower_aether_from_program(&program_to_lower, false, true)
+        let program_to_lower =
+            self.finish_program_for_lowering(prepared.effective_program.into_owned(), optimize);
+        self.lower_aether_from_program(&program_to_lower, optimize, true)
     }
 
     fn prepare_program_for_lowering_internal<'a>(
