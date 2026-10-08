@@ -210,6 +210,31 @@ pub fn report_evidence_diff(
             );
         }
     }
+    report_definitions(shadow);
+}
+
+/// The definitions whose evidence parameters lowering left to elaboration
+/// (0.0.8 plan, step 1d). A module member on the CFG path has no scheme to
+/// elaborate with, so those are counted; anything else is listed.
+fn report_definitions(shadow: &EvidenceShadow) {
+    use crate::core::lower_ast::DefinitionDisagreement;
+    if shadow.definitions.is_empty() {
+        return;
+    }
+    let mut listed: Vec<_> = shadow
+        .definitions
+        .iter()
+        .filter(|(_, why)| **why != DefinitionDisagreement::NoScheme)
+        .collect();
+    listed.sort_by_key(|(id, _)| **id);
+    eprintln!(
+        "  definitions left to elaboration: {} ({} without a scheme)",
+        shadow.definitions.len(),
+        shadow.definitions.len() - listed.len()
+    );
+    for (id, why) in listed {
+        eprintln!("  definition  {id:?}  {why:?}");
+    }
 }
 
 /// Judge one emitted site against the old answers found at its span.

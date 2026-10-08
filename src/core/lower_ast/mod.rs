@@ -29,8 +29,11 @@ use super::{
 };
 
 mod binder_resolution;
+mod dict_params;
 mod evidence;
-pub use evidence::{EmittedDictArgs, EmittedSite, EvidenceShadow, OccurrenceKind};
+pub use evidence::{
+    DefinitionDisagreement, EmittedDictArgs, EmittedSite, EvidenceShadow, OccurrenceKind,
+};
 mod expression;
 mod pattern;
 
@@ -211,6 +214,29 @@ pub fn lower_program_ast_with_class_env_and_def_schemes(
     (core, lowerer.def_schemes, lowerer.shadow)
 }
 
+/// Put a definition's dictionary parameters ahead of its own, as
+/// elaboration's `prepend_lam_params` would. Parameter types stay empty when
+/// the definition had none, rather than becoming a list too short for the
+/// parameters.
+fn with_dict_params(
+    mut dict_params: Vec<CoreBinder>,
+    params: Vec<CoreBinder>,
+    param_types: Vec<Option<super::CoreType>>,
+) -> (Vec<CoreBinder>, Vec<Option<super::CoreType>>) {
+    if dict_params.is_empty() {
+        return (params, param_types);
+    }
+    let param_types = if param_types.is_empty() {
+        param_types
+    } else {
+        let mut padded = vec![None; dict_params.len()];
+        padded.extend(param_types);
+        padded
+    };
+    dict_params.extend(params);
+    (dict_params, param_types)
+}
+
 /// Call-site instantiations seen for one name.
 enum Seen {
     One(InferType),
@@ -371,6 +397,9 @@ pub(super) struct AstLowerer<'a> {
     /// What the evidence emitter built, by the occurrence that raised the
     /// predicates. Shadow mode: recorded and handed back, not emitted.
     shadow: evidence::EvidenceShadow,
+    /// The binder of each dictionary parameter, by its owner and its index
+    /// among the owner's evidence parameters (0.0.8 plan, step 1d).
+    dict_param_binders: HashMap<(ExprId, u16), CoreBinder>,
 }
 
 impl<'a> AstLowerer<'a> {
@@ -409,6 +438,7 @@ impl<'a> AstLowerer<'a> {
             active_subst: None,
             evidence,
             shadow: evidence::EvidenceShadow::default(),
+            dict_param_binders: HashMap::new(),
         }
     }
 
@@ -1491,6 +1521,7 @@ impl<'a> AstLowerer<'a> {
                 intrinsic,
                 span,
                 return_type,
+                id,
                 ..
             } => {
                 // 0187 B1: lower this body under its single instantiation, if
@@ -1511,6 +1542,8 @@ impl<'a> AstLowerer<'a> {
                 }
                 let body_expr =
                     self.lower_function_body_for_name(*name, *intrinsic, &params, body, *span);
+                let dict_params = self.evidence_dict_params(*id, *name, &params);
+                let (params, param_types) = with_dict_params(dict_params, params, param_types);
                 // Always wrap in Lam, even for parameterless functions — the
                 // Core→IR lowerer uses the Lam marker to distinguish function
                 // definitions from value bindings.  We construct Lam directly
@@ -1644,6 +1677,7 @@ impl<'a> AstLowerer<'a> {
                     body,
                     intrinsic,
                     span,
+                    id,
                     ..
                 } => {
                     let binder = self.bind_name(*name);
@@ -1655,6 +1689,8 @@ impl<'a> AstLowerer<'a> {
                     }
                     let body_expr =
                         self.lower_function_body_for_name(*name, *intrinsic, &params, body, *span);
+                    let dict_params = self.evidence_dict_params(*id, *name, &params);
+                    let (params, param_types) = with_dict_params(dict_params, params, param_types);
                     let expr = CoreExpr::Lam {
                         params,
                         param_types,
