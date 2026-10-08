@@ -255,6 +255,9 @@ impl<'a> InferCtx<'a> {
                     .with_primary_label(spec.input.span, "wrong resume arity in handler arm"),
                 );
             }
+            self.body_facts
+                .arity_mismatches
+                .push(self.class_constraints.open_window().simple);
             return spec.ret_ty.apply_type_subst(&self.subst);
         }
 

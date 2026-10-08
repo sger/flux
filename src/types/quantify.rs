@@ -20,7 +20,9 @@ use crate::{
         SchemeConstraint, WantedClassConstraint, WantedClassConstraintOrigin,
     },
     diagnostics::{
-        Diagnostic, DiagnosticBuilder, compiler_errors::AMBIGUOUS_TYPE_VARIABLE, diagnostic_for,
+        Diagnostic, DiagnosticBuilder,
+        compiler_errors::{AMBIGUOUS_TYPE_VARIABLE, UNDETERMINED_CLASS_PARAMETER},
+        diagnostic_for,
     },
     syntax::interner::Interner,
     types::{
@@ -599,6 +601,127 @@ fn reduce_one(
 /// same reason Stage 3 records those as `Stuck` rather than reporting them.
 /// GHC is candid that its own ambiguity check is a good-faith warning rather
 /// than a proof of uncallability, so under-reporting here is the safe error.
+/// The inferred predicates a definition leaves over a variable nothing can
+/// determine, as E459 diagnostics, each with the site it was raised at.
+///
+/// `sort([])` wants `Ord<?e>`. Once the body is inferred and numeric defaulting
+/// has run, `?e` is in neither the definition's type nor the environment: no
+/// caller can supply it and no later use can fix it, so no instance — and no
+/// dictionary — can be chosen. The old lowering guessed `Int`; this reports it
+/// instead (0.0.8 plan, rule 4; Haskell Report §4.3.4).
+///
+/// `constraints` and `binding_type` are taken as inferred; the substitution
+/// and the numeric defaulting `decide_quantification` would apply are applied
+/// here, so a definition bound at a monotype is judged the same way.
+/// `also_determined` holds variables some other binding owns: an unannotated
+/// helper bound at a monotype keeps its parameters' variables open for Phase
+/// 2 to generalize, which is not ambiguity in the definition around it.
+///
+/// Not judged:
+/// - a marker class, which needs no dictionary whatever the type;
+/// - an operator's predicate: an operator left infix lowers to a primitive,
+///   which takes no dictionary, so an undetermined type costs nothing there
+///   (`[] == []`; `acc + x` in a callback whose callee inference could not
+///   type);
+/// - a declared bound, which [`ambiguous_bound_diagnostics`] reports;
+/// - a field or tuple-projection predicate, which the whole-program solve
+///   determines from a use or reports itself — and which determines its
+///   result once its receiver is determined, as a functional dependency
+///   would;
+/// - an unknown class, already E441.
+pub(crate) fn ambiguous_uses(
+    constraints: &[WantedClassConstraint],
+    binding_type: &InferType,
+    env_free_vars: &HashSet<TypeVarId>,
+    also_determined: &HashSet<TypeVarId>,
+    current_subst: &TypeSubst,
+    class_env: Option<&ClassEnv>,
+    interner: &Interner,
+) -> Vec<(WantedClassConstraint, Diagnostic)> {
+    let Some(class_env) = class_env else {
+        return Vec::new();
+    };
+    let resolved_type = binding_type.apply_type_subst(current_subst);
+    let resolved = apply_wanted_constraints_subst(constraints, current_subst);
+    let public_vars: HashSet<TypeVarId> = resolved_type
+        .free_vars()
+        .difference(env_free_vars)
+        .copied()
+        .collect();
+    let default_subst =
+        build_numeric_default_subst(&resolved, &public_vars, Some(class_env), interner);
+    let constraints = apply_wanted_constraints_subst(&resolved, &default_subst);
+
+    let is_functional = |c: &WantedClassConstraint| {
+        matches!(
+            c.origin,
+            WantedClassConstraintOrigin::FieldAccess
+                | WantedClassConstraintOrigin::TupleProjection { .. }
+        )
+    };
+    let mut determined: HashSet<TypeVarId> = resolved_type.free_vars();
+    determined.extend(env_free_vars.iter().copied());
+    determined.extend(also_determined.iter().copied());
+    loop {
+        let before = determined.len();
+        for c in constraints.iter().filter(|c| is_functional(c)) {
+            let Some(receiver) = c.type_args.first() else {
+                continue;
+            };
+            if receiver
+                .free_vars()
+                .iter()
+                .all(|var| determined.contains(var))
+            {
+                determined.extend(c.type_args.iter().flat_map(InferType::free_vars));
+            }
+        }
+        if determined.len() == before {
+            break;
+        }
+    }
+
+    constraints
+        .into_iter()
+        .filter(|c| {
+            !matches!(
+                c.origin,
+                WantedClassConstraintOrigin::ExplicitBound
+                    | WantedClassConstraintOrigin::InferredOperator
+            ) && !is_functional(c)
+        })
+        .filter(|c| {
+            class_env
+                .lookup_class_by_id(c.class_id)
+                .is_some_and(|class| !class.methods.is_empty())
+        })
+        // A predicate the call fixed in part (`Convert<Int, ?b>`) is the
+        // solver's: improved from a sole candidate, or E459 with the
+        // candidates named, or E444. Only one with nothing fixed is judged.
+        .filter(|c| {
+            c.type_args
+                .iter()
+                .all(|arg| matches!(arg, InferType::Var(_)))
+        })
+        .filter(|c| {
+            c.type_args
+                .iter()
+                .flat_map(InferType::free_vars)
+                .any(|var| !determined.contains(&var))
+        })
+        .map(|constraint| {
+            let class = interner.resolve(constraint.class_name);
+            let diagnostic = diagnostic_for(&UNDETERMINED_CLASS_PARAMETER)
+                .with_span(constraint.span)
+                .with_message(format!(
+                    "Cannot determine which `{class}` instance this needs: nothing in \
+                     this definition fixes its type."
+                ));
+            (constraint, diagnostic)
+        })
+        .collect()
+}
+
 fn ambiguous_bound_diagnostics(
     constraints: &[WantedClassConstraint],
     quantified: &HashSet<TypeVarId>,

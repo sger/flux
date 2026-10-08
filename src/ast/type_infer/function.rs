@@ -396,10 +396,10 @@ impl<'a> InferCtx<'a> {
         ambient_effect_row: &InferEffectRow,
         body: &Block,
     ) -> (InferType, Vec<(InferType, Span)>) {
-        self.return_frames.push(Vec::new());
+        self.body_facts.return_frames.push(Vec::new());
         let body_ty =
             self.with_ambient_effect_row(ambient_effect_row.clone(), |ctx| ctx.infer_block(body));
-        let returns = self.return_frames.pop().unwrap_or_default();
+        let returns = self.body_facts.return_frames.pop().unwrap_or_default();
         (body_ty, returns)
     }
 
@@ -575,6 +575,7 @@ impl<'a> InferCtx<'a> {
         // unify step of the standard binding-group algorithm.
         self.unify_with_group_predeclaration(name, &fn_ty, fn_span);
 
+        self.report_ambiguous_uses(&fn_ty, constraint_start);
         let scheme =
             if self.should_generalize_function(type_params, param_tys, &fn_ty, constraint_start) {
                 self.finalize_binding_scheme(BindingSchemeSpec {
@@ -587,12 +588,58 @@ impl<'a> InferCtx<'a> {
                     definition: Some(definition),
                 })
             } else {
+                self.body_facts.mono_definition_types.push(fn_ty.clone());
                 Scheme::mono(fn_ty)
             };
 
         self.binding_schemes_by_span
             .insert(binding_span_key(fn_span), scheme.clone());
         self.env.bind_with_span(name, scheme, Some(fn_span));
+    }
+
+    /// Report the predicates a definition leaves over a variable nothing
+    /// determines (E459), once per site.
+    ///
+    /// Judged here rather than in `decide_quantification` because a definition
+    /// bound at a monotype never reaches that, and because it needs what only
+    /// this context knows: which variables other definitions own, and whether
+    /// the definition already failed — an arity error leaves its arguments
+    /// unconstrained, and calling that ambiguity would only repeat it.
+    fn report_ambiguous_uses(&mut self, fn_ty: &InferType, window: constraint::CaptureWindow) {
+        if self
+            .body_facts
+            .arity_mismatches
+            .iter()
+            .any(|&position| position >= window.simple)
+        {
+            return;
+        }
+        let also_determined: HashSet<TypeVarId> = self
+            .body_facts
+            .mono_definition_types
+            .iter()
+            .flat_map(|ty| ty.apply_type_subst(&self.subst).free_vars())
+            .collect();
+        let constraints = self.class_constraints.captured_since(window);
+        let ambiguous = crate::types::quantify::ambiguous_uses(
+            &constraints,
+            fn_ty,
+            &self.env.free_vars_through(&self.subst),
+            &also_determined,
+            &self.subst,
+            self.class_env.as_ref(),
+            self.interner,
+        );
+        for (constraint, diagnostic) in ambiguous {
+            let key = (
+                constraint.span.start.line,
+                constraint.span.start.column,
+                constraint.class_id,
+            );
+            if self.body_facts.reported_ambiguous.insert(key) {
+                self.errors.push(diagnostic);
+            }
+        }
     }
 
     /// Whether a definition's inferred type is generalized rather than bound at
