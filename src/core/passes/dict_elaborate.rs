@@ -245,9 +245,7 @@ fn build_instance_dictionaries(
         };
 
         let dict_expr = if instance.context.is_empty() {
-            let Some(slot_names) =
-                class_env.dictionary_slot_names(instance.class_id, &type_name, interner)
-            else {
+            let Some(slot_names) = class_env.dictionary_slot_names(instance, interner) else {
                 continue;
             };
             // All slots or none. Dropping the ones that happen to be
@@ -356,7 +354,6 @@ fn build_contextual_dictionary_expr(
                 class_env,
                 instance,
                 superclass,
-                &type_name,
                 &context_binders,
                 interner,
             ),
@@ -407,7 +404,6 @@ fn superclass_evidence_expr(
     class_env: &ClassEnv,
     instance: &crate::types::class_env::InstanceDef,
     superclass: crate::types::class_id::ClassId,
-    type_name: &str,
     context_binders: &[CoreBinder],
     interner: &Interner,
 ) -> Option<CoreExpr> {
@@ -422,13 +418,12 @@ fn superclass_evidence_expr(
         return Some(CoreExpr::bound_var(binder, span));
     }
 
+    let evidence = class_env.superclass_instance(superclass, instance)?;
     let dict_sym = interner.lookup(&crate::types::class_env::dictionary_name(
-        superclass, type_name, interner,
+        superclass,
+        &evidence.type_key,
+        interner,
     ))?;
-    let evidence = class_env
-        .instances
-        .iter()
-        .find(|candidate| candidate.class_id == superclass && candidate.type_key == type_name)?;
     evidence
         .context
         .is_empty()
@@ -2003,6 +1998,7 @@ mod tests {
             instance_module: crate::types::class_id::ModulePath::EMPTY,
             is_public: false,
             type_key: "Int".to_string(),
+            head_modules: Vec::new(),
             type_args: vec![TypeExpr::Named {
                 name: int_sym,
                 args: vec![],
@@ -2473,6 +2469,7 @@ mod tests {
             instance_module: crate::types::class_id::ModulePath::EMPTY,
             is_public: false,
             type_key: "Int".to_string(),
+            head_modules: Vec::new(),
             type_args: vec![TypeExpr::Named {
                 name: float_sym,
                 args: vec![],

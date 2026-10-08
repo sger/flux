@@ -1414,7 +1414,18 @@ module Local {
             flux::types::class_id::ModulePath::from_identifier(interner.intern("Example.Logger")),
             logger,
         ),
-        "StdoutHandle",
+        // `StdoutHandle` is `Local`'s, so its key carries the module too.
+        &flux::types::class_env::instance_type_key(
+            &[flux::syntax::type_expr::TypeExpr::Named {
+                name: interner.intern("StdoutHandle"),
+                args: Vec::new(),
+                span: Default::default(),
+            }],
+            &[flux::types::class_id::ModulePath::from_identifier(
+                interner.intern("Local"),
+            )],
+            &interner,
+        ),
         "log",
         &interner,
     );

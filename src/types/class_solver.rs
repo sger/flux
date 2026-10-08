@@ -1060,8 +1060,10 @@ mod tests {
                 is_public: false,
                 type_key: crate::types::class_env::instance_type_key(
                     std::slice::from_ref(head),
+                    &[],
                     interner,
                 ),
+                head_modules: Vec::new(),
                 type_args: vec![head.clone()],
                 context: Vec::new(),
                 context_class_ids: Vec::new(),

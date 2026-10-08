@@ -5662,7 +5662,7 @@ impl Compiler {
                 return None;
             }
             self.class_env
-                .dictionary_slot_names(instance.class_id, &type_name, &self.interner)
+                .dictionary_slot_names(instance, &self.interner)
         })
     }
 }

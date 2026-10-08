@@ -242,7 +242,7 @@ impl Compiler {
                     None => {
                         let evidence = crate::types::class_env::dictionary_name(
                             superclass,
-                            &type_key,
+                            &self.class_env.superclass_type_key(superclass, instance),
                             &self.interner,
                         );
                         match self.interner.lookup(&evidence) {

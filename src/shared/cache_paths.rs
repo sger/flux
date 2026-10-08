@@ -171,7 +171,12 @@ use sha2::{Digest, Sha256};
 /// the index that `TupleProjection` held, so the whole-program solve looks for
 /// a field literally named `__tuple`. A caller compiled against a cached
 /// epoch-52 interface is therefore an `E490` that a fresh compiler accepts.
-pub const CACHE_EPOCH: u16 = 53;
+/// Epoch 54: an instance records the module defining each head type, and a
+/// module-owned head is qualified in its `__dict_*` / `__tc_*` names. An
+/// epoch-53 `.flxi` has no `head_modules`, so an importer would rebuild the old
+/// unqualified names and link against dictionaries the defining module no
+/// longer emits.
+pub const CACHE_EPOCH: u16 = 54;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
