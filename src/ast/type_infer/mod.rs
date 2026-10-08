@@ -244,11 +244,8 @@ struct InferCtx<'a> {
     /// `skolems` parameter. Unmarked when the declaring function's scope
     /// exits so downstream uses treat them as flexible.
     skolem_vars: HashSet<TypeVarId>,
-    /// The `return` values seen in each function or lambda body being
-    /// inferred, innermost last. A block's own type is its last value, so an
-    /// early `return` in a nested block typed only that block; the function's
-    /// return type is unified with each of these once its body is done.
-    return_frames: Vec<Vec<(InferType, Span)>>,
+    /// What function bodies record for the checks run once they are inferred.
+    body_facts: BodyFacts,
     /// Source-level name for each skolem (the type parameter identifier),
     /// used to render readable E305 diagnostics.
     skolem_names: HashMap<TypeVarId, Identifier>,
@@ -356,7 +353,7 @@ impl<'a> InferCtx<'a> {
             instantiated_expr_vars: HashSet::new(),
             current_expr: None,
             skolem_vars: HashSet::new(),
-            return_frames: Vec::new(),
+            body_facts: BodyFacts::default(),
             skolem_names: HashMap::new(),
             signature_type_params: Vec::new(),
             class_env: None,
@@ -1388,4 +1385,30 @@ fn collect_head_type_variables(
             collect_head_type_variables(ret, interner, out);
         }
     }
+}
+
+/// What function bodies record during inference for the checks that run once
+/// a body is done: its early returns, and what the ambiguity check (E459)
+/// needs to know about the rest of the program.
+#[derive(Default)]
+pub(super) struct BodyFacts {
+    /// The `return` values seen in each function or lambda body being
+    /// inferred, innermost last. A block's own type is its last value, so an
+    /// early `return` in a nested block typed only that block; the function's
+    /// return type is unified with each of these once its body is done.
+    pub(super) return_frames: Vec<Vec<(InferType, Span)>>,
+    /// Sites already reported as ambiguous (E459). A definition bound at a
+    /// monotype leaves its predicates in the enclosing scope, so the
+    /// definition around it judges them again.
+    pub(super) reported_ambiguous: HashSet<(usize, usize, crate::types::class_id::ClassId)>,
+    /// The types of the definitions bound at a monotype so far. Their
+    /// variables are theirs, kept open for generalization (0.0.8 Phase 2), so
+    /// an enclosing definition does not judge them ambiguous.
+    pub(super) mono_definition_types: Vec<InferType>,
+    /// Where each call whose argument count does not match its callee sits in
+    /// the predicate list (`open_window().simple` at the call). Inference does
+    /// not unify such a call's arguments, and the compiler reports it later
+    /// (E056), so a definition whose window holds one is not also judged for
+    /// ambiguity.
+    pub(super) arity_mismatches: Vec<usize>,
 }

@@ -195,7 +195,10 @@ use sha2::{Digest, Sha256};
 /// one instance takes the unknown ones from its head during inference
 /// (0179 Stage 4), so `let s = convert(42)` is `String` where an epoch-58
 /// `.flxi` recorded a variable.
-pub const CACHE_EPOCH: u16 = 59;
+/// Epoch 60: a predicate a definition leaves over a variable nothing
+/// determines is E459, not a predicate the old lowering answered with `Int`.
+/// A program an epoch-59 cache accepted can now be rejected.
+pub const CACHE_EPOCH: u16 = 60;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

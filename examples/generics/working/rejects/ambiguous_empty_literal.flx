@@ -1,0 +1,15 @@
+// expect: compile_error
+// expect-error: E459
+
+// An empty list's element type is fixed by nothing here, so no `Ord`
+// instance — and no dictionary — can be chosen for `sort`. The old lowering
+// guessed `Int`; inference reports it instead (0.0.8 plan, step 1c).
+//
+// The fix is to name the type:
+//
+//   let no_ints: List<Int> = []
+//   print(sort(no_ints))
+
+fn main() with IO {
+    print(sort([]))
+}

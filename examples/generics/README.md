@@ -95,6 +95,7 @@ is only the syntax.
 | `project_index_out_of_range.flx` | `E492` | `p.2` on a pair is checked, not silently widened |
 | `project_undetermined_receiver.flx` | `E491` | a receiver nothing determines is reported at the access |
 | `constrained_call_wrong_arity.flx` | `E056` | arity is counted on the source signature, not the lowered one |
+| `ambiguous_empty_literal.flx` | `E459` | a predicate over a type nothing fixes is reported, not answered with `Int` |
 | `annot_instantiation_mismatch.flx` | `E300` | a scheme is instantiated, not coerced |
 
 ## Not supported

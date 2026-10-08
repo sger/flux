@@ -533,7 +533,7 @@ impl<'a> InferCtx<'a> {
                     value: Some(expr), ..
                 } => {
                     last_ty = self.infer_expression(expr);
-                    if let Some(frame) = self.return_frames.last_mut() {
+                    if let Some(frame) = self.body_facts.return_frames.last_mut() {
                         frame.push((last_ty.clone(), expr.span()));
                     }
                     returned = true;
