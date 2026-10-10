@@ -1616,3 +1616,49 @@ fn main() { pick(3) }
         "`n > 1` raises one `Ord`; repeated at (line, col, raised): {repeated:?}"
     );
 }
+
+/// Every class predicate the standard list library raises at a call is
+/// answered. 0.0.8 step 1e makes a call without evidence an internal error at
+/// lowering. `contains` in `unique_by_step` had none: an unannotated private
+/// helper cannot generalize a constraint until Phase 2, so it is annotated.
+///
+/// Operators are left out. The four unanswered ones (`h == x` in
+/// `delete_go_acc`, `<`/`>`/`<=` in the min/max and merge-sort helpers) lower
+/// to primitives, which take no dictionary. Annotating those helpers would
+/// turn them into class-method calls and lose the primitives, which is the
+/// generated code `aether_cli_snapshots` guards.
+#[test]
+fn every_flow_list_call_predicate_has_evidence() {
+    let scratch = parity::scratch::Scratch::new("typeclass-baseline-flow-list-evidence");
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(workspace_root())
+        .args([
+            fixture_path("contextual_dictionary.flx")
+                .to_str()
+                .expect("fixture path is UTF-8"),
+            "--no-cache",
+        ])
+        .args(scratch.cache_args())
+        .env("FLUX_DBG_EVIDENCE", "1")
+        .output()
+        .expect("run Flux fixture");
+    let stderr = normalize_output(&output.stderr);
+    let list_section: Vec<&str> = stderr
+        .lines()
+        .skip_while(|line| !(line.starts_with("EVIDENCE for ") && line.contains("Flow/List.flx")))
+        .skip(1)
+        .take_while(|line| !line.starts_with("EVIDENCE for "))
+        .collect();
+    assert!(
+        !list_section.is_empty(),
+        "expected an evidence dump for Flow.List:\n{stderr}"
+    );
+    let unsolved: Vec<_> = list_section
+        .iter()
+        .filter(|line| line.contains("(unsolved)") && !line.contains("InferredOperator"))
+        .collect();
+    assert!(
+        unsolved.is_empty(),
+        "Flow.List predicates without evidence:\n{unsolved:#?}"
+    );
+}

@@ -198,7 +198,10 @@ use sha2::{Digest, Sha256};
 /// Epoch 60: a predicate a definition leaves over a variable nothing
 /// determines is E459, not a predicate the old lowering answered with `Int`.
 /// A program an epoch-59 cache accepted can now be rejected.
-pub const CACHE_EPOCH: u16 = 60;
+/// Epoch 61: `Flow.List`'s private `unique_by_go` and `unique_by_step` are
+/// annotated with their `Eq` bound, so their schemes carry a constraint an
+/// epoch-60 `.flxi` did not record.
+pub const CACHE_EPOCH: u16 = 61;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
