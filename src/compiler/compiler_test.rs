@@ -2259,3 +2259,32 @@ fn main() {
     assert_eq!(compiler.interner.resolve(var.name), "__dict_Sized");
     assert_eq!(*index, 0);
 }
+
+/// The optimizing compile inlines a zero-argument pure function into its
+/// callers, so `staff()` inside a destructuring `let` becomes a named-field
+/// literal sitting in that statement. The named-field desugar never visited a
+/// destructuring `let` (nor `Assign` or a class's default bodies), and the
+/// literal reached the bytecode compiler, which panicked.
+#[test]
+fn optimizing_compile_desugars_named_fields_inlined_into_a_destructuring_let() {
+    let (program, interner) = parse_program(
+        r#"
+data Employee {
+    Employee { name: String, years: Int }
+}
+
+fn staff() -> Employee {
+    Employee { name: "ada", years: 9 }
+}
+
+fn main() {
+    let (first, n) = (staff(), 1)
+    first
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile_with_opts(&program, true, false)
+        .expect("the optimizing compile succeeds");
+}

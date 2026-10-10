@@ -40,7 +40,11 @@ pub fn desugar_named_fields_in_program(program: &mut Program, ctx: &mut NamedFie
 
 fn desugar_stmt(stmt: &mut Statement, ctx: &mut NamedFieldDesugarCtx<'_>) {
     match stmt {
-        Statement::Let { value, .. } => desugar_expr(value, ctx),
+        Statement::Let { value, .. } | Statement::Assign { value, .. } => desugar_expr(value, ctx),
+        Statement::LetDestructure { pattern, value, .. } => {
+            desugar_pattern(pattern, ctx);
+            desugar_expr(value, ctx);
+        }
         Statement::Expression { expression, .. } => desugar_expr(expression, ctx),
         Statement::Return { value: Some(e), .. } => desugar_expr(e, ctx),
         Statement::Return { value: None, .. } => {}
@@ -55,7 +59,19 @@ fn desugar_stmt(stmt: &mut Statement, ctx: &mut NamedFieldDesugarCtx<'_>) {
                 desugar_block(&mut m.body, ctx);
             }
         }
-        _ => {}
+        Statement::Class { methods, .. } => {
+            for body in methods.iter_mut().filter_map(|m| m.default_body.as_mut()) {
+                desugar_block(body, ctx);
+            }
+        }
+        // Declarations without expressions. Listed rather than `_` so a new
+        // statement kind that carries one is a compile error here, not a
+        // named-field node that reaches the bytecode compiler.
+        Statement::Import { .. }
+        | Statement::Data { .. }
+        | Statement::EffectDecl { .. }
+        | Statement::EffectAlias { .. }
+        | Statement::TypeAlias(_) => {}
     }
 }
 
