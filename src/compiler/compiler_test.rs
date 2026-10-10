@@ -2288,3 +2288,125 @@ fn main() {
         .compile_with_opts(&program, true, false)
         .expect("the optimizing compile succeeds");
 }
+
+/// The optimizer inlines a single-argument function into its callers. An
+/// unannotated one is typed only by those callers (`fst`'s receiver is pinned
+/// to `(Int, String)` by its one call), so inlining every call left the
+/// definition with nothing to type it, and the optimizing compile reported
+/// E491 on a program that compiles without it.
+#[test]
+fn optimizing_compile_keeps_an_unannotated_function_its_callers_type() {
+    let (program, interner) = parse_program(
+        r#"
+fn fst(p) { p.0 }
+
+fn main() {
+    fst((1, "x"))
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile_with_opts(&program, true, false)
+        .expect("the optimizing compile succeeds");
+}
+
+/// An inlined call keeps the function's annotations. `parse_int`'s `-> Int`
+/// is what chooses the `Parse<Int>` instance for `parse(s)`; substituting the
+/// body into the caller dropped it, and the optimizing compile reported E459.
+#[test]
+fn optimizing_compile_keeps_an_inlined_functions_annotations() {
+    let (program, interner) = parse_program(
+        r#"
+class Parse<a> {
+    fn parse(s: String) -> a
+}
+
+instance Parse<Int> {
+    fn parse(s) { 7 }
+}
+
+instance Parse<Bool> {
+    fn parse(s) { true }
+}
+
+fn parse_int(s: String) -> Int {
+    parse(s)
+}
+
+fn ignore<a>(x: a) -> Int { 0 }
+
+fn main() {
+    ignore(parse_int("z"))
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile_with_opts(&program, true, false)
+        .expect("the optimizing compile succeeds");
+}
+
+/// The optimizer matches a call to a function by name alone. Where a local
+/// shadows a top-level function, the call is the local's, and inlining the
+/// top-level body there put an `Int` function where a `String` one was.
+#[test]
+fn optimizing_compile_does_not_inline_a_name_a_local_shadows() {
+    let (program, interner) = parse_program(
+        r#"
+fn helper(x: Int) -> Int { x }
+
+fn shadowed() -> String {
+    let helper = \(s: String) -> s
+    helper("shadowed")
+}
+
+fn main() {
+    shadowed()
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile_with_opts(&program, true, false)
+        .expect("the optimizing compile succeeds");
+}
+
+/// An inlined call keeps the function's effects. `run_task` is polymorphic
+/// in its row, so the copy must say so too, or the effect its argument
+/// performs is one the copy does not allow. And `run`'s handler is not moved
+/// at all: inlined into a `with IO` caller, its `handle Logger { print(..) }`
+/// stopped discharging `Logger` (E400).
+#[test]
+fn optimizing_compile_keeps_an_inlined_functions_effects() {
+    let (program, interner) = parse_program(
+        r#"
+effect Logger {
+    print: String -> ()
+}
+
+fn run_task(f: (() -> Int with |e)) -> Int with |e {
+    f()
+}
+
+fn task() -> Int with Logger {
+    perform Logger.print("ok")
+    7
+}
+
+fn run() -> Int {
+    run_task(task) handle Logger {
+        print(resume, _msg) -> resume(())
+    }
+}
+
+fn main() with IO {
+    print(run())
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile_with_opts(&program, true, false)
+        .expect("the optimizing compile succeeds");
+}
