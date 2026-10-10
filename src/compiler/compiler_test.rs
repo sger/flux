@@ -2204,3 +2204,58 @@ fn main() {
         .collect();
     assert_eq!(names, ["__dict_Sized", "x"]);
 }
+
+/// 0.0.8 plan step 1d: a method call whose evidence is the definition's own
+/// dictionary parameter reads the method out of that parameter. Dispatching
+/// straight to `__tc_Sized_Int_size` because `Sized<Int>` is the only
+/// instance in sight is right only until another module adds one.
+#[test]
+fn a_method_call_answered_by_a_parameter_projects_from_it() {
+    let (program, interner) = parse_program(
+        r#"
+class Sized<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sized<Int> {
+    fn size(x) { x }
+}
+
+fn measure<a: Sized>(x: a) -> Int {
+    size(x)
+}
+
+fn main() {
+    measure(3)
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let core = compiler
+        .lower_core_from_program(&program, false, true)
+        .expect("the program lowers");
+    let measure = core
+        .defs
+        .iter()
+        .find(|def| compiler.interner.resolve(def.name) == "measure")
+        .expect("`measure` is lowered");
+    let crate::core::CoreExpr::Lam { body, .. } = &measure.expr else {
+        panic!("`measure` lowers to a lambda, got {:?}", measure.expr);
+    };
+    // Core passes may bind the projection before the call.
+    let func = match body.as_ref() {
+        crate::core::CoreExpr::App { func, .. } => func.as_ref(),
+        crate::core::CoreExpr::Let { rhs, .. } => rhs.as_ref(),
+        other => panic!("`size(x)` lowers to a call, got {other:?}"),
+    };
+    let crate::core::CoreExpr::TupleField { object, index, .. } = func else {
+        panic!("expected `size` read from the dictionary parameter, got {func:?}");
+    };
+    let crate::core::CoreExpr::Var { var, .. } = object.as_ref() else {
+        panic!("expected the dictionary parameter, got {object:?}");
+    };
+    assert_eq!(compiler.interner.resolve(var.name), "__dict_Sized");
+    assert_eq!(*index, 0);
+}
