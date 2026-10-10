@@ -477,6 +477,17 @@ fn superclass_evidence_is_supplied_without_an_explicit_context() {
     assert_eq!(output.stdout, "505");
 }
 
+/// A dictionary named only from another dictionary's superclass slot is
+/// defined as well. Elaboration kept just the dictionaries the program named
+/// itself, so reading `Measurable<Int>`'s `Sizeable` slot found an undefined
+/// global.
+#[test]
+fn a_dictionary_named_only_by_a_superclass_slot_is_defined() {
+    let fixture = "superclass_slot_dictionary.flx";
+    let output = run_fixture(fixture).expect("fixture should compile and run");
+    assert_eq!(output.stdout, "505\n21");
+}
+
 /// An instance context that grows its type argument at every step —
 /// `Foo<a>` needing `Foo<List<a>>` — has no finite evidence tree. The search
 /// never repeats a predicate, so the cycle check cannot see it; only the depth

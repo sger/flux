@@ -102,10 +102,11 @@ pub fn elaborate_dictionaries_with_def_schemes(
     // Phase 2: Build only the concrete dictionary CoreDefs this module
     // actually references. Constrained definitions that only thread incoming
     // dictionary parameters do not need local copies of every instance dict.
-    let dict_defs = build_instance_dictionaries(class_env, interner, next_id)
-        .into_iter()
-        .filter(|def| referenced_dicts.contains(&def.name))
-        .collect::<Vec<_>>();
+    let dict_defs = referenced_dictionary_defs(
+        build_instance_dictionaries(class_env, interner, next_id),
+        referenced_dicts,
+        interner,
+    );
     if dict_defs.is_empty() {
         return;
     }
@@ -114,6 +115,60 @@ pub fn elaborate_dictionaries_with_def_schemes(
     let mut new_defs = dict_defs;
     new_defs.append(&mut program.defs);
     program.defs = new_defs;
+}
+
+/// The dictionaries out of `all` that `referenced` names, and every
+/// dictionary those name in turn, each after the ones it names.
+///
+/// A dictionary's superclass slots name the superclass dictionaries for the
+/// same head (`__dict_Measurable_Int` holds `__dict_Sizeable_Int`), so a
+/// program that only names the subclass dictionary still reads the
+/// superclass one through it. And a dictionary is a tuple built where it is
+/// defined, so the ones it names must already be.
+fn referenced_dictionary_defs(
+    all: Vec<CoreDef>,
+    mut referenced: HashSet<Identifier>,
+    interner: &Interner,
+) -> Vec<CoreDef> {
+    let names_in = |def: &CoreDef| {
+        let mut names = HashSet::new();
+        collect_referenced_dictionary_names_expr(&def.expr, interner, &mut names);
+        names
+    };
+    loop {
+        let reached: HashSet<_> = all
+            .iter()
+            .filter(|def| referenced.contains(&def.name))
+            .flat_map(names_in)
+            .filter(|name| !referenced.contains(name))
+            .collect();
+        if reached.is_empty() {
+            break;
+        }
+        referenced.extend(reached);
+    }
+
+    let mut pending: Vec<CoreDef> = all
+        .into_iter()
+        .filter(|def| referenced.contains(&def.name))
+        .collect();
+    let mut ordered = Vec::with_capacity(pending.len());
+    while !pending.is_empty() {
+        let unplaced: HashSet<_> = pending.iter().map(|def| def.name).collect();
+        let (ready, waiting): (Vec<_>, Vec<_>) = pending.into_iter().partition(|def| {
+            names_in(def)
+                .iter()
+                .all(|name| *name == def.name || !unplaced.contains(name))
+        });
+        if ready.is_empty() {
+            // A cycle between dictionaries: keep the build order for the rest.
+            ordered.extend(waiting);
+            break;
+        }
+        ordered.extend(ready);
+        pending = waiting;
+    }
+    ordered
 }
 
 fn collect_referenced_dictionary_names(
