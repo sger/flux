@@ -1,15 +1,22 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
-    ast::{Folder, fold_expr},
+    ast::{
+        Folder, fold_expr,
+        shift_expr_ids::fresh_expr_ids,
+        visit::{Visitor, walk_expr, walk_pat, walk_stmt},
+    },
     diagnostics::position::Span,
     syntax::{
         block::Block,
-        expression::{ExprId, Expression},
+        effect_expr::EffectExpr,
+        expression::Pattern,
+        expression::{ExprId, ExprIdGen, Expression},
         interner::Interner,
         program::Program,
         statement::Statement,
         symbol::Symbol,
+        type_expr::TypeExpr,
     },
     types::{
         infer_effect_row::InferEffectRow, infer_type::InferType, type_constructor::TypeConstructor,
@@ -22,31 +29,34 @@ use crate::{
 /// Runs after Phase 1 HM inference, consuming the `TypeEnv` to guide
 /// transformations that require type information:
 ///
-/// - **T1**: Pure function inlining (zero-arg and single-arg)
+/// - **T1**: Pure function inlining (zero-arg and single-arg, fully annotated)
 /// - **T2**: Constant propagation for typed `let` bindings
 /// - **T3**: Dead branch elimination on statically-known boolean conditions
 struct TypeInformedFoldCtx<'a> {
     type_env: &'a TypeEnv,
-    #[allow(dead_code)]
-    interner: &'a Interner,
     /// Top-level function bodies eligible for inlining (zero-arg, pure, single-expression).
     fn_bodies: HashMap<Symbol, InlinebleBody>,
+    /// Ids for the copies inlining makes, past every id in the program.
+    ids: ExprIdGen,
     /// Typed literal bindings eligible for constant propagation.
     let_literals: HashMap<Symbol, Expression>,
 }
 
 #[derive(Clone)]
 struct InlinebleBody {
-    params: Vec<Symbol>,
+    /// Each parameter with its annotation.
+    params: Vec<(Symbol, TypeExpr)>,
+    return_type: TypeExpr,
+    effects: Vec<EffectExpr>,
     body_expr: Expression,
 }
 
 impl<'a> TypeInformedFoldCtx<'a> {
-    fn new(type_env: &'a TypeEnv, interner: &'a Interner) -> Self {
+    fn new(type_env: &'a TypeEnv, ids: ExprIdGen) -> Self {
         Self {
             type_env,
-            interner,
             fn_bodies: HashMap::new(),
+            ids,
             let_literals: HashMap::new(),
         }
     }
@@ -58,14 +68,41 @@ impl<'a> TypeInformedFoldCtx<'a> {
     /// 2. Its body is a single expression (no early returns, no do-blocks)
     /// 3. Its inferred effect row is closed-empty (pure)
     /// 4. It is not recursive (its body does not reference its own name)
+    /// 5. Every parameter and the result are annotated, and every parameter
+    ///    is used
+    ///
+    /// The annotations are kept on the inlined copy (see
+    /// [`Self::try_inline_call`]). Without them, inlining changed what the
+    /// program means to inference: an unannotated function typed only by its
+    /// callers (`fn fst(p) { p.0 }`) was left with no caller to type it, and
+    /// a result annotation that chose an instance (`-> Int` over
+    /// `parse(s)`) was dropped.
     fn collect_inlinable_functions(&mut self, program: &Program) {
+        // A call is matched to the function by name alone, with no scope in
+        // hand, so a name bound locally anywhere could be that local instead.
+        let local_names = local_binder_names(program);
         for stmt in &program.statements {
             let Statement::Function {
                 name,
                 parameters,
+                parameter_types,
+                return_type: Some(return_type),
+                effects,
                 body,
                 ..
             } = stmt
+            else {
+                continue;
+            };
+            if local_names.contains(name) {
+                continue;
+            }
+            let Some(params) = parameters
+                .iter()
+                .zip(parameter_types)
+                .map(|(name, ty)| ty.clone().map(|ty| (*name, ty)))
+                .collect::<Option<Vec<_>>>()
+                .filter(|params| params.len() == parameters.len())
             else {
                 continue;
             };
@@ -95,11 +132,27 @@ impl<'a> TypeInformedFoldCtx<'a> {
             if expr_references_name(body_expr, *name) {
                 continue;
             }
+            // A handler or a `perform` depends on the effects of where it
+            // runs, and a copy runs somewhere else: `run()`'s `handle Logger
+            // { print(..) }` moved into a `with IO` caller stopped discharging
+            // `Logger` there.
+            if handles_effects(body_expr) {
+                continue;
+            }
+            // An unused parameter would become an unused lambda parameter.
+            if !parameters
+                .iter()
+                .all(|param| expr_references_name(body_expr, *param))
+            {
+                continue;
+            }
 
             self.fn_bodies.insert(
                 *name,
                 InlinebleBody {
-                    params: parameters.clone(),
+                    params,
+                    return_type: return_type.clone(),
+                    effects: effects.clone(),
                     body_expr: body_expr.clone(),
                 },
             );
@@ -134,30 +187,66 @@ impl<'a> TypeInformedFoldCtx<'a> {
     }
 
     /// Try to inline a function call. Returns `Some(inlined_expr)` on success.
+    ///
+    /// `f(arg)` becomes `(fn(p: P) -> R { <body> })(arg)`: the argument is
+    /// evaluated once, under the parameter's annotation, and the result is
+    /// checked against the declared return type, so inference sees what it
+    /// saw at the call. A `do` block would not do: it is no scope of its own,
+    /// so its `let`s collide with the caller's names. Core's beta reduction
+    /// removes the redex.
+    ///
+    /// A zero-argument function whose body is a literal is replaced by the
+    /// literal itself, which is what lets dead-branch elimination (T3) see
+    /// it. The body is a copy, so it gets fresh ids.
     fn try_inline_call(
-        &self,
+        &mut self,
         function: &Expression,
         arguments: &[Expression],
+        span: Span,
     ) -> Option<Expression> {
         let Expression::Identifier { name, .. } = function else {
             return None;
         };
 
-        let body = self.fn_bodies.get(name)?;
+        let body = self.fn_bodies.get(name)?.clone();
 
         // Arity must match.
         if arguments.len() != body.params.len() {
             return None;
         }
 
-        let mut result = body.body_expr.clone();
-
-        // For single-arg: substitute the parameter with the argument via rename.
-        if body.params.len() == 1 {
-            result = substitute_identifier(result, body.params[0], &arguments[0]);
+        let mut copy = fresh_expr_ids(body.body_expr, &mut self.ids);
+        if body.params.is_empty() && is_simple_literal(&copy) {
+            set_expr_span(&mut copy, span);
+            return Some(copy);
         }
-
-        Some(result)
+        let (parameters, parameter_types) = body
+            .params
+            .into_iter()
+            .map(|(param, ty)| (param, Some(ty)))
+            .unzip();
+        let lambda = Expression::Function {
+            parameters,
+            parameter_types,
+            return_type: Some(body.return_type),
+            effects: body.effects,
+            body: Block {
+                statements: vec![Statement::Expression {
+                    expression: copy,
+                    has_semicolon: false,
+                    span,
+                }],
+                span,
+            },
+            span,
+            id: self.ids.next_id(),
+        };
+        Some(Expression::Call {
+            function: Box::new(lambda),
+            arguments: arguments.to_vec(),
+            span,
+            id: self.ids.next_id(),
+        })
     }
 }
 
@@ -210,8 +299,7 @@ impl Folder for TypeInformedFoldCtx<'_> {
                 span,
                 id,
             } => {
-                if let Some(mut inlined) = self.try_inline_call(function, arguments) {
-                    set_expr_span(&mut inlined, span);
+                if let Some(inlined) = self.try_inline_call(function, arguments, span) {
                     inlined
                 } else {
                     Expression::Call {
@@ -228,13 +316,88 @@ impl Folder for TypeInformedFoldCtx<'_> {
     }
 }
 
+/// Whether `expr` handles or performs an effect anywhere inside it.
+fn handles_effects(expr: &Expression) -> bool {
+    struct Finder {
+        found: bool,
+    }
+
+    impl<'ast> Visitor<'ast> for Finder {
+        fn visit_expr(&mut self, expr: &'ast Expression) {
+            if matches!(expr, Expression::Handle { .. } | Expression::Perform { .. }) {
+                self.found = true;
+                return;
+            }
+            walk_expr(self, expr);
+        }
+    }
+
+    let mut finder = Finder { found: false };
+    finder.visit_expr(expr);
+    finder.found
+}
+
+/// Every name the program binds below the top level: `let` names, pattern
+/// variables, function and lambda parameters, and nested function names.
+fn local_binder_names(program: &Program) -> HashSet<Symbol> {
+    struct Binders {
+        names: HashSet<Symbol>,
+        depth: usize,
+    }
+
+    impl<'ast> Visitor<'ast> for Binders {
+        fn visit_stmt(&mut self, stmt: &'ast Statement) {
+            match stmt {
+                Statement::Let { name, .. } if self.depth > 0 => {
+                    self.names.insert(*name);
+                }
+                Statement::Function {
+                    name, parameters, ..
+                } => {
+                    if self.depth > 0 {
+                        self.names.insert(*name);
+                    }
+                    self.names.extend(parameters.iter().copied());
+                    self.depth += 1;
+                    walk_stmt(self, stmt);
+                    self.depth -= 1;
+                    return;
+                }
+                _ => {}
+            }
+            walk_stmt(self, stmt);
+        }
+
+        fn visit_expr(&mut self, expr: &'ast Expression) {
+            if let Expression::Function { parameters, .. } = expr {
+                self.names.extend(parameters.iter().copied());
+            }
+            walk_expr(self, expr);
+        }
+
+        fn visit_pat(&mut self, pat: &'ast Pattern) {
+            if let Pattern::Identifier { name, .. } = pat {
+                self.names.insert(*name);
+            }
+            walk_pat(self, pat);
+        }
+    }
+
+    let mut binders = Binders {
+        names: HashSet::new(),
+        depth: 0,
+    };
+    binders.visit_program(program);
+    binders.names
+}
+
 /// Apply type-informed optimization to a program.
 ///
 /// Requires a `TypeEnv` from a prior Phase 1 inference run. The returned
 /// program must be re-inferred (Phase 2) before codegen because pointer-keyed
 /// expression IDs are invalidated by AST rewrites.
-pub fn type_informed_fold(program: &Program, type_env: &TypeEnv, interner: &Interner) -> Program {
-    let mut ctx = TypeInformedFoldCtx::new(type_env, interner);
+pub fn type_informed_fold(program: &Program, type_env: &TypeEnv, _interner: &Interner) -> Program {
+    let mut ctx = TypeInformedFoldCtx::new(type_env, ExprIdGen::resuming_past_program(program));
     ctx.collect_inlinable_functions(program);
     ctx.collect_let_literals(program);
     ctx.fold_program(program.clone())
@@ -376,31 +539,6 @@ fn stmt_reference_name(stmt: &Statement, target: Symbol) -> bool {
         Statement::Assign { value, .. } => expr_references_name(value, target),
         _ => false,
     }
-}
-
-/// Substitute all occurrences of `param` with `arg` in an expression.
-/// Simple capture-avoiding substitution for single-argument inlining.
-fn substitute_identifier(expr: Expression, param: Symbol, arg: &Expression) -> Expression {
-    struct SubstFolder<'a> {
-        param: Symbol,
-        arg: &'a Expression,
-    }
-
-    impl Folder for SubstFolder<'_> {
-        fn fold_expr(&mut self, expr: Expression) -> Expression {
-            match expr {
-                Expression::Identifier { name, .. } if name == self.param => self.arg.clone(),
-                // Don't substitute into nested functions that shadow the parameter.
-                Expression::Function { ref parameters, .. } if parameters.contains(&self.param) => {
-                    expr
-                }
-                other => fold_expr(self, other),
-            }
-        }
-    }
-
-    let mut folder = SubstFolder { param, arg };
-    folder.fold_expr(expr)
 }
 
 /// Convert a block to an expression. If the block has a single expression

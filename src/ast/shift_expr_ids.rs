@@ -10,7 +10,7 @@
 use crate::{
     ast::fold::{self, Folder},
     syntax::{
-        expression::{ExprId, Expression},
+        expression::{ExprId, ExprIdGen, Expression},
         program::Program,
         statement::Statement,
         type_class::{ClassMethod, InstanceMethod},
@@ -130,5 +130,38 @@ impl Folder for ShiftExprIds {
             },
             other => other,
         }
+    }
+}
+
+/// Give every expression in `expr`, and every definition inside it, a fresh
+/// id from `ids`.
+///
+/// For a copy of an expression placed somewhere else: the type table and the
+/// solver's evidence are keyed by id, so a copy that kept the original's ids
+/// would be one expression in two places, typed and answered once.
+pub fn fresh_expr_ids(expr: Expression, ids: &mut ExprIdGen) -> Expression {
+    FreshExprIds { ids }.fold_expr(expr)
+}
+
+struct FreshExprIds<'a> {
+    ids: &'a mut ExprIdGen,
+}
+
+impl Folder for FreshExprIds<'_> {
+    fn fold_expr(&mut self, expr: Expression) -> Expression {
+        let mut expr = fold::fold_expr(self, expr);
+        let id = expr.expr_id_mut();
+        if *id != ExprId::UNSET {
+            *id = self.ids.next_id();
+        }
+        expr
+    }
+
+    fn fold_stmt(&mut self, stmt: Statement) -> Statement {
+        let mut stmt = fold::fold_stmt(self, stmt);
+        if let Statement::Function { id, .. } = &mut stmt {
+            *id = self.ids.next_id();
+        }
+        stmt
     }
 }
