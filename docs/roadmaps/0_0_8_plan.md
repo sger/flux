@@ -449,7 +449,7 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
       re-infers through `apply_hm_final` and replaces `hm_expr_types`, but
       keeps the old `evidence_map`. Solve, harvest and record definitions
       there too.
-- [ ] **1d. Create dictionary parameters at lowering.**
+- [x] **1d. Create dictionary parameters at lowering.**
   - For a `Statement::Function` with recorded parameters, prepend one `__dict_*`
     `Lam` parameter per entry of `EvidenceMap::definition(id).params`.
   - Read them by the statement's `id`, not from the scheme. The list is the
@@ -464,6 +464,60 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
   - Method calls in the body resolve through the same paths, not through
     `choose_candidate`.
   - This replaces the parameter-adding half of `rewrite_constrained_functions`.
+
+  **Done 2026-10-10, narrowed to what the old path still agrees with.** The
+  old path supplies the dictionary *arguments* until 1e. So lowering may only
+  create a parameter that elaboration would create the same way, or old call
+  sites would pass dictionaries to the wrong parameters.
+
+  | Commit | What it does |
+  |---|---|
+  | `6b52e38d`, `9d39c28f` | The evidence map follows the program being lowered |
+  | `615effdc` | Lowering creates the dictionary parameters |
+  | `ea663af5` | A dictionary named only from a superclass slot is defined |
+  | `a8f21fc6` | A method call answered by a parameter reads it |
+
+  - **`6b52e38d`, `9d39c28f`: the evidence map follows the program being
+    lowered.** Dumps and whole-program LLVM re-infer a merged or regenerated
+    program. Its evidence is now solved again too (`solve_class_constraints`),
+    and the `--optimize` paths re-infer before folding. On the `--dump-core`
+    path, `mismatched` went from 2165 to 0 and `unreached` from 1679 to 0.
+  - **`615effdc`: lowering creates the parameters** from
+    `definition(id).params`, with the canonical names (`__dict_Eq`,
+    `__dict_Eq_1`). Elaboration finds them by name and adds none of its own.
+    - Only top-level and module definitions, the ones elaboration covers.
+    - Only where the scheme elaboration reads asks for the same classes in the
+      same order, with no class twice. Anything else is reported by the diff
+      report as a definition left to elaboration:
+      - CFG module members, which have no scheme there;
+      - definitions with two dictionaries of one class: the
+        `two_dictionaries_*` and `result_directed_two_dictionaries` fixtures,
+        and E485's.
+    - Generated instance functions keep their explicit `__dict_*` parameters.
+      Each evidence parameter is matched to the explicit one with its
+      canonical name, never by position.
+  - **`ea663af5`, found by the next step:** elaboration defined only the
+    dictionaries a program named itself. So `__dict_Sizeable_Int`, named only
+    from `__dict_Measurable_Int`'s superclass slot, was never defined, and
+    reading the slot failed with `Uninit`. Pinned by
+    `type_classes/superclass_slot_dictionary.flx`.
+  - **`a8f21fc6`: a method call whose evidence is a parameter reads it** from
+    that parameter's binder: superclass slots, then the method's slot.
+    - The old path's dispatch to "the only instance in sight" went from 51
+      sites to 1.
+    - The one left is `generics/failing/runtime/sole_instance_dispatch.flx`.
+      There a module's `measure<a: Sized>` sees only `Sized<Int>`, and the
+      main file's `Sized<String>` is never used. The Core path is now right.
+      The VM compiles module members through the CFG path, where they have no
+      scheme, so it waits for 1e.
+  - **Moved to 1e:**
+    - parameters for nested bounded functions, since their callers pass
+      nothing until then;
+    - with them, binder resolution keeping an evidence `Var`'s binder: it only
+      matters once an inner definition has a same-named parameter;
+    - marking forwarders so the emitter does not add the bound's dictionary
+      again (the `generated` verdict);
+    - definitions with two dictionaries of one class.
 - [ ] **1e. Switch over (C5 lands).** Evidence becomes the only source of
   dictionary arguments. A site with no evidence is an internal error that names
   the site (rule 5).
@@ -479,6 +533,23 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
     stdlib unit through the second.
   - Do not turn them into internal errors: that would break the standard
     library.
+  - **Found during 1d, to settle before lowering fails closed:**
+    - **Re-inferring a merged program solves less than the unit's own
+      compile.** In `type_classes/no_partial_resolution.flx` (`count`) and
+      both `either_instances.flx` (`fmap`, `pure` and `bind`), the merged
+      solve files `UnresolvedAfterGeneralization`. The suspected cause, not
+      verified: an unqualified method call shares its name with a merged
+      stdlib function.
+    - **`--optimize` lowering.** Constant folding deletes some sites, which
+      then count as `unreached`; most are `0 - 1` in `Flow.Numeric`. Inlining
+      copies a helper's body, ids and all, into its caller, giving 17
+      `mismatched` sites, e.g. `guide/using_constants.flx`. Fail-closed must
+      not take a folded-away site for a missing one, and must refuse a copied
+      one.
+    - **Separately, five files don't compile under `--optimize`**, before
+      and after 1d. `guide/stdlib_pipelines.flx` panics at
+      `compiler/expression.rs:1312` with a named-field expression that was
+      not desugared. Four others report E459, E490 or E491.
   - **What switching over removes**, from the 1c sweep: the `Int` guess
     (4 sites), wildcard dispatch to the only visible instance (51), and the
     CFG path's missing dictionaries on module-qualified and multi-parameter
