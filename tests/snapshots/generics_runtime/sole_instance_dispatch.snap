@@ -1,0 +1,52 @@
+---
+source: tests/error_fixtures/runtime_error_fixtures_snapshots.rs
+---
+Fixture: examples/generics/failing/runtime/sole_instance_dispatch.flx
+== vm ==
+status: 1
+stdout:
+7
+stderr:
+[ 1 of 19] Compiling  Add
+[ 2 of 19] Compiling  Assert
+[ 3 of 19] Compiling  Debug
+[ 4 of 19] Compiling  Array
+[ 5 of 19] Compiling  List
+[ 6 of 19] Compiling  Either
+[ 7 of 19] Compiling  Eq
+[ 8 of 19] Compiling  IO
+[ 9 of 19] Compiling  Math
+[10 of 19] Compiling  Num
+[11 of 19] Compiling  Numeric
+[12 of 19] Compiling  Option
+[13 of 19] Compiling  Ord
+[14 of 19] Compiling  Primops
+[15 of 19] Compiling  Semigroup
+[16 of 19] Compiling  Show
+[17 of 19] Compiling  String
+[18 of 19] Compiling  SoleInstance
+[19 of 19] Compiling  sole_instance_dispatch
+[cfg→vm] Running via CFG → bytecode VM backend...
+• 1 error • examples/generics/failing/runtime/SoleInstance.flx
+error[E1004]: Type Error
+
+I found a value with the wrong runtime type.
+
+  examples/generics/failing/runtime/SoleInstance.flx:16:9
+   |
+16 |         size(x)
+   |         ^^^^^^^
+   |         ------- this value has runtime type `String`
+
+Note:
+  expected type: Int
+  found type:    String
+  runtime value:  "abc"
+
+Help:
+  Check the value flowing into this operation or add a conversion before this point.
+
+Stack trace:
+  at SoleInstance.measure (examples/generics/failing/runtime/SoleInstance.flx:16:9)
+  at main (examples/generics/failing/runtime/sole_instance_dispatch.flx:27:5)
+  at <main>

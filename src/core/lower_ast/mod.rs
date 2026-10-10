@@ -1540,9 +1540,10 @@ impl<'a> AstLowerer<'a> {
                 if !param_types.is_empty() && param_types.len() != params.len() {
                     param_types = Vec::new();
                 }
+                // Before the body: its method calls read these binders.
+                let dict_params = self.evidence_dict_params(*id, *name, &params);
                 let body_expr =
                     self.lower_function_body_for_name(*name, *intrinsic, &params, body, *span);
-                let dict_params = self.evidence_dict_params(*id, *name, &params);
                 let (params, param_types) = with_dict_params(dict_params, params, param_types);
                 // Always wrap in Lam, even for parameterless functions — the
                 // Core→IR lowerer uses the Lam marker to distinguish function
@@ -1687,9 +1688,10 @@ impl<'a> AstLowerer<'a> {
                     if !param_types.is_empty() && param_types.len() != params.len() {
                         param_types = Vec::new();
                     }
+                    // Before the body: its method calls read these binders.
+                    let dict_params = self.evidence_dict_params(*id, *name, &params);
                     let body_expr =
                         self.lower_function_body_for_name(*name, *intrinsic, &params, body, *span);
-                    let dict_params = self.evidence_dict_params(*id, *name, &params);
                     let (params, param_types) = with_dict_params(dict_params, params, param_types);
                     let expr = CoreExpr::Lam {
                         params,

@@ -182,6 +182,14 @@ impl<'a> super::AstLowerer<'a> {
                 // a constrained function's predicates are (`types/evidence.rs`).
                 if let Some(method_name) = method_name {
                     self.emit_dict_args(*id, *span, super::OccurrenceKind::Identifier(method_name));
+                    if let Some(method) = self.param_method_call(*id, method_name, *span) {
+                        let args = arguments.iter().map(|a| self.lower_expr(a)).collect();
+                        return CoreExpr::App {
+                            func: Box::new(method),
+                            args,
+                            span: *span,
+                        };
+                    }
                 }
                 if let Some(mangled) = self.try_resolve_class_call_expr(function, arguments, *id)
                     && let Some(method_name) = method_name

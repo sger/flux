@@ -1,0 +1,18 @@
+// The module half of ./sole_instance_dispatch.flx. See that file for the gap.
+// This one compiles clean on its own: `Sized<Int>` is the only instance in
+// sight here, so dispatching `size` straight to it is right until another
+// module adds a second one.
+
+module SoleInstance {
+    public class Sized<a> {
+        fn size(x: a) -> Int
+    }
+
+    public instance Sized<Int> {
+        fn size(x) { x }
+    }
+
+    public fn measure<a: Sized>(x: a) -> Int {
+        size(x)
+    }
+}

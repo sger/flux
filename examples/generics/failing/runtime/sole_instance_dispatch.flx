@@ -1,0 +1,28 @@
+// expect: runtime_error
+// expect-error: E1004
+
+// GAP — owner: 0.0.8 plan, step 1e (C4).
+// Measured 2026-10-10 on the VM: `SoleInstance.measure(7)` prints 7, then
+// `SoleInstance.measure("abc")` fails with error[E1004], a value of runtime
+// type `String` at the `size(x)` in SoleInstance.measure.
+//
+// `measure<a: Sized>` should read `size` out of its `Sized` dictionary. The
+// old dispatch path saw that `Sized<Int>` was the only instance in its module
+// and called `__tc_Sized_Int_size` directly, so the `Sized<String>` instance
+// this file adds is never used.
+//
+// The solver's evidence says the dictionary parameter, and since step 1d the
+// Core path follows it (`--dump-core` shows `__dict_Sized.0`). The VM still
+// compiles a module member through the CFG path, which has no scheme for it,
+// so it keeps the direct call until 1e switches that path to evidence.
+
+import SoleInstance
+
+instance Sized<String> {
+    fn size(s) { 100 }
+}
+
+fn main() with IO {
+    print(SoleInstance.measure(7))
+    print(SoleInstance.measure("abc"))
+}

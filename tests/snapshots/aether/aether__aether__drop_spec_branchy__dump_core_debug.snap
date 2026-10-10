@@ -132,8 +132,8 @@ letrec assert_false =
     ()
 
 letrec assert_gt =
-λ__dict_m8_466C6F772E4F7264_Ord#80:Box, a#77, b#78.
-    let %t16 = (let %t17 = (let %t18 = __dict_m8_466C6F772E4F7264_Ord#80.4
+λ__dict_m8_466C6F772E4F7264_Ord#79:Box, a#77, b#78.
+    let %t16 = (let %t17 = (let %t18 = __dict_m8_466C6F772E4F7264_Ord#79.4
     #4001376[synthetic]#1376(a#77, b#78))
     case #4001377[synthetic]#1377 of
       true →
@@ -143,8 +143,8 @@ letrec assert_gt =
     ()
 
 letrec assert_lt =
-λ__dict_m8_466C6F772E4F7264_Ord#85:Box, a#82, b#83.
-    let %t19 = (let %t20 = (let %t21 = __dict_m8_466C6F772E4F7264_Ord#85.2
+λ__dict_m8_466C6F772E4F7264_Ord#84:Box, a#82, b#83.
+    let %t19 = (let %t20 = (let %t21 = __dict_m8_466C6F772E4F7264_Ord#84.2
     #4001378[synthetic]#1378(a#82, b#83))
     case #4001379[synthetic]#1379 of
       true →
@@ -154,8 +154,8 @@ letrec assert_lt =
     ()
 
 letrec assert_gte =
-λ__dict_m8_466C6F772E4F7264_Ord#90:Box, a#87, b#88.
-    let %t22 = (let %t23 = (let %t24 = __dict_m8_466C6F772E4F7264_Ord#90.5
+λ__dict_m8_466C6F772E4F7264_Ord#89:Box, a#87, b#88.
+    let %t22 = (let %t23 = (let %t24 = __dict_m8_466C6F772E4F7264_Ord#89.5
     #4001380[synthetic]#1380(a#87, b#88))
     case #4001381[synthetic]#1381 of
       true →
@@ -165,8 +165,8 @@ letrec assert_gte =
     ()
 
 letrec assert_lte =
-λ__dict_m8_466C6F772E4F7264_Ord#95:Box, a#92, b#93.
-    let %t25 = (let %t26 = (let %t27 = __dict_m8_466C6F772E4F7264_Ord#95.3
+λ__dict_m8_466C6F772E4F7264_Ord#94:Box, a#92, b#93.
+    let %t25 = (let %t26 = (let %t27 = __dict_m8_466C6F772E4F7264_Ord#94.3
     #4001382[synthetic]#1382(a#92, b#93))
     case #4001383[synthetic]#1383 of
       true →
@@ -483,10 +483,10 @@ letrec zip =
     zip_go#188(0, #4001468[synthetic]#1468)
 
 letrec contains =
-λ__dict_m7_466C6F772E4571_Eq#198:Box, arr#195:Box, x#196.
-    let %t119:Box = (λv#197.
-      let %t120 = __dict_m7_466C6F772E4571_Eq#198.0
-      #4001469[synthetic]#1469(v#197, x#196))
+λ__dict_m7_466C6F772E4571_Eq#197:Box, arr#195:Box, x#196.
+    let %t119:Box = (λv#198.
+      let %t120 = __dict_m7_466C6F772E4571_Eq#197.0
+      #4001469[synthetic]#1469(v#198, x#196))
     any#397(arr#195, #4001470[synthetic]#1470)
 
 letrec concat =
@@ -646,61 +646,61 @@ letrec range =
     range_go#251(start#249, #4001505[synthetic]#1505)
 
 letrec sort =
-λ__dict_m8_466C6F772E4F7264_Ord#257:Box, arr#255:Box.
-    let %t156:Box = (λv#256.
-      v#256)
-    sort_by#481(__dict_m8_466C6F772E4F7264_Ord#257, arr#255, #4001506[synthetic]#1506)
+λ__dict_m8_466C6F772E4F7264_Ord#256:Box, arr#255:Box.
+    let %t156:Box = (λv#257.
+      v#257)
+    sort_by#481(__dict_m8_466C6F772E4F7264_Ord#256, arr#255, #4001506[synthetic]#1506)
 
 letrec sort_by =
-λ__dict_m8_466C6F772E4F7264_Ord#273:Box, arr#259:Box, f#260.
-    letrec insert_tagged#266 = (λsorted#267, pair#268, idx#269.
-      let %t157:Bool = (let %t158 = Len(sorted#267)
-      ICmpGe(idx#269, #4001507[synthetic]#1507))
+λ__dict_m8_466C6F772E4F7264_Ord#261:Box, arr#259:Box, f#260.
+    letrec insert_tagged#267 = (λsorted#268, pair#269, idx#270.
+      let %t157:Bool = (let %t158 = Len(sorted#268)
+      ICmpGe(idx#270, #4001507[synthetic]#1507))
       case #4001508[synthetic]#1508 of
         true →
-          push#207(sorted#267, pair#268)
+          push#207(sorted#268, pair#269)
         _ →
-          let %t159 = Index(sorted#267, idx#269)
+          let %t159 = Index(sorted#268, idx#270)
           case #4001509[synthetic]#1509 of
-            Some(current#270:Box) →
-              let %t160:Bool = (let %t161 = pair#268.0
-              let %t162 = current#270.0
+            Some(current#271:Box) →
+              let %t160:Bool = (let %t161 = pair#269.0
+              let %t162 = current#271.0
               Le(#4001510[synthetic]#1510, #4001511[synthetic]#1511))
               case #4001512[synthetic]#1512 of
                 true →
-                  let left#272:Box = slice#213(sorted#267, 0, idx#269)
-                  let right#271:Box = (let %t163 = Len(sorted#267)
-                  slice#213(sorted#267, idx#269, #4001513[synthetic]#1513))
-                  let %t164 = (let %t165:Box = MakeArray(pair#268)
-                  concat#395(left#272, #4001514[synthetic]#1514))
-                  concat#395(#4001515[synthetic]#1515, right#271)
+                  let left#273:Box = slice#213(sorted#268, 0, idx#270)
+                  let right#272:Box = (let %t163 = Len(sorted#268)
+                  slice#213(sorted#268, idx#270, #4001513[synthetic]#1513))
+                  let %t164 = (let %t165:Box = MakeArray(pair#269)
+                  concat#395(left#273, #4001514[synthetic]#1514))
+                  concat#395(#4001515[synthetic]#1515, right#272)
                 _ →
-                  let %t166:Int = IAdd(idx#269, 1)
-                  insert_tagged#266(sorted#267, pair#268, #4001516[synthetic]#1516)
+                  let %t166:Int = IAdd(idx#270, 1)
+                  insert_tagged#267(sorted#268, pair#269, #4001516[synthetic]#1516)
             _ →
-              push#207(sorted#267, pair#268))
-    letrec sort_by_go#262 = (λidx#263, pairs#264.
+              push#207(sorted#268, pair#269))
+    letrec sort_by_go#263 = (λidx#264, pairs#265.
       let %t167:Bool = (let %t168 = Len(arr#259)
-      ICmpGe(idx#263, #4001517[synthetic]#1517))
+      ICmpGe(idx#264, #4001517[synthetic]#1517))
       case #4001518[synthetic]#1518 of
         true →
-          pairs#264
+          pairs#265
         _ →
-          let %t169 = Index(arr#259, idx#263)
+          let %t169 = Index(arr#259, idx#264)
           case #4001519[synthetic]#1519 of
-            Some(v#265) →
-              let %t170:Int = IAdd(idx#263, 1)
-              let %t171 = (let %t172:Box = (let %t173 = f#260(v#265)
-              MakeTuple(#4001521[synthetic]#1521, v#265))
-              insert_tagged#266(pairs#264, #4001522[synthetic]#1522, 0))
-              sort_by_go#262(#4001520[synthetic]#1520, #4001523[synthetic]#1523)
+            Some(v#266) →
+              let %t170:Int = IAdd(idx#264, 1)
+              let %t171 = (let %t172:Box = (let %t173 = f#260(v#266)
+              MakeTuple(#4001521[synthetic]#1521, v#266))
+              insert_tagged#267(pairs#265, #4001522[synthetic]#1522, 0))
+              sort_by_go#263(#4001520[synthetic]#1520, #4001523[synthetic]#1523)
             _ →
-              let %t174:Int = IAdd(idx#263, 1)
-              sort_by_go#262(#4001524[synthetic]#1524, pairs#264))
+              let %t174:Int = IAdd(idx#264, 1)
+              sort_by_go#263(#4001524[synthetic]#1524, pairs#265))
     let %t175 = (let %t176:Box = MakeArray()
-    sort_by_go#262(0, #4001525[synthetic]#1525))
-    let %t177:Box = (λp#261:Box.
-      p#261.1)
+    sort_by_go#263(0, #4001525[synthetic]#1525))
+    let %t177:Box = (λp#262:Box.
+      p#262.1)
     map#344(#4001526[synthetic]#1526, #4001527[synthetic]#1527)
 
 letrec take =
@@ -1160,9 +1160,9 @@ letrec scanr =
         result#475
 
 letrec sort =
-λ__dict_m8_466C6F772E4F7264_Ord#480:Box, xs#478:Box.
-    let %t278:Box = (λx#479.
-      x#479)
+λ__dict_m8_466C6F772E4F7264_Ord#479:Box, xs#478:Box.
+    let %t278:Box = (λx#480.
+      x#480)
     merge_sort_by#726(xs#478, #4001626[synthetic]#1626)
 
 letrec sort_by =
@@ -1287,24 +1287,24 @@ letrec enumerate =
     enumerate_go#668(xs#544, 0)
 
 letrec contains =
-λ__dict_m7_466C6F772E4571_Eq#550:Box, xs#546:Box, x#547.
+λ__dict_m7_466C6F772E4571_Eq#548:Box, xs#546:Box, x#547.
     case xs#546 of
-      ::(h#548, t#549:Box) →
-        let %t296 = (let %t297 = __dict_m7_466C6F772E4571_Eq#550.0
-        #4001644[synthetic]#1644(h#548, x#547))
+      ::(h#549, t#550:Box) →
+        let %t296 = (let %t297 = __dict_m7_466C6F772E4571_Eq#548.0
+        #4001644[synthetic]#1644(h#549, x#547))
         case #4001645[synthetic]#1645 of
           true →
             true
           _ →
-            contains#545(__dict_m7_466C6F772E4571_Eq#550, t#549, x#547)
+            contains#545(__dict_m7_466C6F772E4571_Eq#548, t#550, x#547)
       _ →
         false
 
 letrec nub =
-λ__dict_m7_466C6F772E4571_Eq#554:Box, xs#552:Box.
-    let %t298:Box = (λx#553.
-      x#553)
-    unique_by#620(__dict_m7_466C6F772E4571_Eq#554, xs#552, #4001646[synthetic]#1646)
+λ__dict_m7_466C6F772E4571_Eq#553:Box, xs#552:Box.
+    let %t298:Box = (λx#554.
+      x#554)
+    unique_by#620(__dict_m7_466C6F772E4571_Eq#553, xs#552, #4001646[synthetic]#1646)
 
 letrec partition =
 λxs#556:Box, pred#557.
@@ -1375,16 +1375,16 @@ letrec intercalate =
     concat#395(#4001660[synthetic]#1660)
 
 letrec is_prefix =
-λ__dict_m7_466C6F772E4571_Eq#594:Box, prefix#588:Box, xs#589:Box.
+λ__dict_m7_466C6F772E4571_Eq#590:Box, prefix#588:Box, xs#589:Box.
     case prefix#588 of
-      ::(p#590, pt#591:Box) →
+      ::(p#591, pt#592:Box) →
         case xs#589 of
-          ::(x#592, xt#593:Box) →
-            let %t313 = (let %t314 = __dict_m7_466C6F772E4571_Eq#594.0
-            #4001661[synthetic]#1661(p#590, x#592))
+          ::(x#593, xt#594:Box) →
+            let %t313 = (let %t314 = __dict_m7_466C6F772E4571_Eq#590.0
+            #4001661[synthetic]#1661(p#591, x#593))
             case #4001662[synthetic]#1662 of
               true →
-                is_prefix#587(__dict_m7_466C6F772E4571_Eq#594, pt#591, xt#593)
+                is_prefix#587(__dict_m7_466C6F772E4571_Eq#590, pt#592, xt#594)
               _ →
                 false
           _ →
@@ -1468,19 +1468,19 @@ letrec unique_by =
     reverse#522(#4001681[synthetic]#1681)
 
 letrec maximum =
-λ__dict_m8_466C6F772E4F7264_Ord#628:Box, xs#625:Box.
+λ__dict_m8_466C6F772E4F7264_Ord#626:Box, xs#625:Box.
     case xs#625 of
-      ::(h#626, t#627:Box) →
-        let %t334 = maximum_go#768(t#627, h#626)
+      ::(h#627, t#628:Box) →
+        let %t334 = maximum_go#768(t#628, h#627)
         Some(#4001682[synthetic]#1682)
       _ →
         None
 
 letrec minimum =
-λ__dict_m8_466C6F772E4F7264_Ord#633:Box, xs#630:Box.
+λ__dict_m8_466C6F772E4F7264_Ord#631:Box, xs#630:Box.
     case xs#630 of
-      ::(h#631, t#632:Box) →
-        let %t335 = minimum_go#773(t#632, h#631)
+      ::(h#632, t#633:Box) →
+        let %t335 = minimum_go#773(t#633, h#632)
         Some(#4001683[synthetic]#1683)
       _ →
         None
@@ -1524,16 +1524,16 @@ letrec break_at =
     span#460(xs#654, #4001688[synthetic]#1688)
 
 letrec lookup =
-λ__dict_m7_466C6F772E4571_Eq#663:Box, xs#658:Box, key#659.
+λ__dict_m7_466C6F772E4571_Eq#660:Box, xs#658:Box, key#659.
     case xs#658 of
-      ::((k#660, v#661), t#662:Box) →
-        let %t341 = (let %t342 = __dict_m7_466C6F772E4571_Eq#663.0
-        #4001689[synthetic]#1689(k#660, key#659))
+      ::((k#661, v#662), t#663:Box) →
+        let %t341 = (let %t342 = __dict_m7_466C6F772E4571_Eq#660.0
+        #4001689[synthetic]#1689(k#661, key#659))
         case #4001690[synthetic]#1690 of
           true →
-            Some(v#661)
+            Some(v#662)
           _ →
-            lookup#657(__dict_m7_466C6F772E4571_Eq#663, t#662, key#659)
+            lookup#657(__dict_m7_466C6F772E4571_Eq#660, t#663, key#659)
       _ →
         None
 

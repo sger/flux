@@ -29,7 +29,7 @@ time records as `ok` with no diagnostics and pins nothing — compare
 
 ### Files whose name starts with a capital
 
-`Ki076Ord.flx` and `Ki086Greet.flx` are **module halves**, not gaps in their own
+`Ki076Ord.flx`, `Ki086Greet.flx` and `SoleInstance.flx` are **module halves**, not gaps in their own
 right. A gap that only appears inside a `module` block cannot be shown in one
 file: the module name has to match the file stem, and a module file may not
 contain `main` (`E028`). So those gaps are a pair — a `Ki*.flx` module and a
@@ -114,6 +114,7 @@ Codes were measured on 2026-09-11, not copied from the roadmap.
 | `failing/compile/grammar_0182_multiple_superclasses.flx` | `E034` | more than one superclass | proposal 0182 |
 | `failing/runtime/ki_090_constrained_fn_as_value.flx` | `E1000` | a constrained function passed as a **value** loses its dictionary | KI-090, High, 0.0.8 |
 | `failing/runtime/ki_076_operator_in_module.flx` | `E1000` | an operator on a class-constrained parameter does not dispatch inside a `module` | KI-076, High, 0.0.8 |
+| `failing/runtime/sole_instance_dispatch.flx` | `E1004` | a method call inside a module's constrained function dispatches to the only instance that module sees, not the dictionary it was given | 0.0.8 plan, step 1e (C4) |
 | `failing/runtime/e2_ambiguous_instance_selection.flx` | `E1009` | an ambiguous instance choice panics at run time instead of being reported | **E2** (blocked on B2), 0.0.8 |
 | `failing/compile/Ki086Greet.flx` | `E004` | a class default body cannot call a sibling method inside a `module` | KI-086, High, 0.0.8 |
 | `failing/degraded/ki_098_despecialised_two_instantiations.flx` | none | a generalized helper used at **two** types loses its representation | KI-098, Low, 0.0.8 |
