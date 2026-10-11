@@ -2655,7 +2655,7 @@ fn collect_inner_and_projections<'a>(
     use crate::core::CoreExpr;
     match expr {
         CoreExpr::LetRec { var, rhs, body, .. } | CoreExpr::Let { var, rhs, body, .. } => {
-            if compiler.interner.resolve(var.name) == "inner" {
+            if compiler.interner.try_resolve(var.name) == Some("inner") {
                 *inner = Some(rhs);
                 collect_projections(rhs, projected);
             }
@@ -3198,5 +3198,78 @@ M.my_eq(1, 2);
         compiler.evidence_map.raised(call),
         1,
         "the call raises its `MyEq` predicate"
+    );
+}
+
+/// 1e, C2: the Core path lowers from evidence. A bounded function nested in
+/// a body gets its own dictionary parameter, which elaboration never gave
+/// it, and the program runs its passes with no internal error.
+#[test]
+fn core_path_gives_a_nested_bounded_function_its_parameter() {
+    let (program, interner) = parse_program(&format!(
+        r#"{SIZED_CLASS}
+fn outer<a: Sized>(x: a) -> Int {{
+    fn inner<b: Sized>(y: b) -> Int {{
+        size(y) + size(x)
+    }}
+    inner(x) + inner(4)
+}}
+
+fn main() {{
+    outer(3)
+}}
+"#
+    ));
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let core = compiler
+        .prepare_core_program(&program, false, true)
+        .expect("the program lowers");
+    let outer = core
+        .defs
+        .iter()
+        .find(|def| compiler.interner.try_resolve(def.name) == Some("outer"))
+        .expect("`outer` is lowered");
+    let crate::core::CoreExpr::Lam { body, .. } = &outer.expr else {
+        panic!("`outer` lowers to a lambda, got {:?}", outer.expr);
+    };
+    let mut inner = None;
+    let mut projected = Vec::new();
+    collect_inner_and_projections(&compiler, body, &mut inner, &mut projected);
+    let inner = inner.expect("`inner` is lowered as a local function");
+    let (names, _) = lambda_param_names(&compiler, inner);
+    assert_eq!(names, ["__dict_Sized", "y"]);
+}
+
+/// KI-101: a bounded function without a complete signature gets no declared
+/// scheme, so its recursive call raises no predicate. Lowering from evidence
+/// would pass it nothing; it is an internal error instead.
+#[test]
+fn core_path_reports_a_call_that_raised_no_predicate_for_its_dictionaries() {
+    let (program, interner) = parse_program(
+        r#"
+fn has<a: Eq>(xs: List<a>, x: a) {
+    match xs {
+        [h | t] -> if h == x { true } else { has(t, x) },
+        _ -> false
+    }
+}
+
+fn main() {
+    has([1, 2], 2)
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let error = compiler
+        .prepare_core_program(&program, false, true)
+        .expect_err("the recursive call has no evidence");
+    let message = error.message().unwrap_or_default();
+    assert!(
+        message.contains("`has`") && message.contains("KI-101"),
+        "the error names the callee: {message}"
     );
 }

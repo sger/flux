@@ -560,6 +560,32 @@ heads now have. Every place that builds or compares an ADT type changes, and
 so does the `.flxi` format. The workaround is to give the types different
 names.
 
+### KI-101 — A bounded function without a complete signature cannot call itself
+
+**Severity:** Low · **Area:** Type inference, dictionary passing · **Verified:** 2026-10-11 · **From:** 0.0.8 plan, step 1e
+
+```flux
+fn has<a: Eq>(xs: List<a>, x: a) {
+    match xs {
+        [h | t] -> if h == x { true } else { has(t, x) },
+        _ -> false
+    }
+}
+```
+
+A recursive call instantiates the function's declared signature, bounds
+included, so it raises them and passes the function's own dictionaries. Only a
+*complete* signature, every parameter and the result annotated, is declared
+before the body is inferred. Without the `-> Bool`, `has` is a monotype inside
+its own body, and the recursive call raises no `Eq`. Lowering from evidence
+then has no dictionary to pass. It reports an internal error naming the call,
+rather than building a call one argument short.
+
+No program in `lib/`, `examples/` or `tests/` has this shape. Annotating the
+result fixes it. A real fix declares a scheme from the bounds and whatever
+annotations there are, or passes a monomorphic recursive call the definition's
+own parameters, as GHC's `AbsBinds` do.
+
 ### KI-100 — `flux bytecode` compiles one file, without its imports or the prelude
 
 **Severity:** Low · **Area:** CLI · **Verified:** 2026-10-08

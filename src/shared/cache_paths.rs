@@ -231,7 +231,10 @@ use sha2::{Digest, Sha256};
 /// Epoch 71: a call qualified by the module that declares the class, in the
 /// same program (`M.my_eq(x, y)`), is typed from the class's signature and
 /// raises its predicate, where an epoch-70 compile left it untyped.
-pub const CACHE_EPOCH: u16 = 71;
+/// Epoch 72: the Core path takes dictionary parameters and arguments from
+/// evidence, so a per-module native object passes the dictionaries the
+/// solver chose where an epoch-71 one passed elaboration's.
+pub const CACHE_EPOCH: u16 = 72;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
