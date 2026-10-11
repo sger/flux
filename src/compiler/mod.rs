@@ -4374,6 +4374,7 @@ impl Compiler {
         // first refusal. When `Flow.Primops` has been preloaded, names covered
         // by that module are not supplied by the Rust fallback table.
         self.inject_primop_hm_schemes(&mut exposed_schemes, flow_primops_loaded);
+        self.inject_imported_class_method_schemes(&mut exposed_schemes);
 
         // Imported instance method schemes are hidden implementation details,
         // but HM needs them in scope so resolved class-call effect propagation
@@ -4410,6 +4411,40 @@ impl Compiler {
             preloaded_effect_op_signatures: self.effect_op_signatures.clone(),
             effect_row_aliases: self.effect_row_aliases.clone(),
             preloaded_adt_data: self.preloaded_adt_data_statements(),
+        }
+    }
+
+    /// Type the bare name of each imported class's method as that method.
+    ///
+    /// Lowering already dispatches a bare call to such a method, but unless
+    /// the name was exposed or is in the prelude, inference left it unbound:
+    /// the call took the untyped path and raised no predicate, so evidence
+    /// had nothing to dispatch it with. A name taken by anything else keeps
+    /// that binding, and a name two classes declare stays unbound, so a bare
+    /// call to it is still the ambiguity `E456` reports.
+    fn inject_imported_class_method_schemes(&self, schemes: &mut HashMap<Identifier, Scheme>) {
+        let mut classes: Vec<_> = self.imported_public_classes.values().collect();
+        classes.sort_by_key(|class| {
+            (
+                self.interner.resolve(class.name).to_string(),
+                class
+                    .module
+                    .as_identifier()
+                    .map(|module| self.interner.resolve(module).to_string()),
+            )
+        });
+        for class in classes {
+            for method in &class.methods {
+                let unique = self.class_env.resolve_method_class_id(
+                    crate::types::class_id::ModulePath::EMPTY,
+                    method.name,
+                ) == Some(class.class_id());
+                if unique {
+                    schemes.entry(method.name).or_insert_with(|| {
+                        build_public_class_method_scheme(class, method, &self.interner)
+                    });
+                }
+            }
         }
     }
 

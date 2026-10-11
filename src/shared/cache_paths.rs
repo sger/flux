@@ -217,7 +217,10 @@ use sha2::{Digest, Sha256};
 /// Epoch 66: a recursive call to a function with a declared signature raises
 /// the signature's bounds, so its evidence names the function's own
 /// dictionaries where an epoch-65 artifact recorded no predicate there.
-pub const CACHE_EPOCH: u16 = 66;
+/// Epoch 67: a bare call to an imported class's method is typed as that
+/// method, so it raises its predicate where an epoch-66 unit left the name
+/// unbound and the call untyped.
+pub const CACHE_EPOCH: u16 = 67;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

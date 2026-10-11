@@ -1662,3 +1662,38 @@ fn every_flow_list_call_predicate_has_evidence() {
         "Flow.List predicates without evidence:\n{unsolved:#?}"
     );
 }
+
+/// The `unraised` count the evidence diff reports for a fixture's own unit:
+/// its class-method calls that raised no predicate in the unit's compile.
+fn entry_unraised_count(name: &str) -> usize {
+    let scratch = parity::scratch::Scratch::new(&format!("typeclass-unraised-{name}"));
+    let fixture = fixture_path(name);
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(workspace_root())
+        .env("FLUX_DBG_EVIDENCE_DIFF", "1")
+        .args([
+            fixture.to_str().expect("fixture path is UTF-8"),
+            "--no-cache",
+        ])
+        .args(scratch.cache_args())
+        .output()
+        .expect("run Flux fixture");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let header = format!("{} via cfg:", fixture.display());
+    let line = stderr
+        .lines()
+        .find(|line| line.contains("EVIDENCE DIFF for") && line.contains(&header))
+        .unwrap_or_else(|| panic!("{name} reports its evidence:\n{stderr}"));
+    line.rsplit("unraised ")
+        .next()
+        .and_then(|count| count.trim().parse().ok())
+        .unwrap_or_else(|| panic!("an unraised count in `{line}`"))
+}
+
+/// E1: a unit that only imports `Flow.Monad` calls `fmap`, `pure` and `bind`
+/// bare. Their classes come from cached interfaces, and their names must be
+/// typed as the methods they are, so each call raises its predicate.
+#[test]
+fn imported_class_methods_raise_their_predicates_in_a_unit_compile() {
+    assert_eq!(entry_unraised_count("option_instances.flx"), 0);
+}
