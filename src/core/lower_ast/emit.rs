@@ -194,6 +194,26 @@ impl AstLowerer<'_> {
         let raised = self.evidence.map_or(0, |evidence| evidence.raised(callee));
         let func = self.lower_expr(function);
         if raised == 0 {
+            // A call to an enclosing definition that takes dictionaries: its
+            // own recursive call, with no declared signature to raise them.
+            if let Expression::Identifier {
+                name: callee_name, ..
+            } = function
+                && self.constrained_bodies.contains(callee_name)
+            {
+                let callee_name = *callee_name;
+                let callee_name = self
+                    .interner
+                    .and_then(|interner| interner.try_resolve(callee_name))
+                    .unwrap_or("<unnamed>");
+                self.site_error(
+                    callee_span,
+                    &format!(
+                        "it calls `{callee_name}`, which takes dictionaries, but raised no \
+                         predicate there (KI-101)"
+                    ),
+                );
+            }
             return (func, Vec::new());
         }
         let Some(dictionaries) = self.site_dict_args(callee, callee_span) else {

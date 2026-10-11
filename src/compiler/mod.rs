@@ -2126,7 +2126,10 @@ impl Compiler {
                 module_member_schemes.insert((*module_name, *member_name), scheme.clone());
             }
         }
-        let (mut core, def_schemes, shadow, errors) =
+        // 0.0.8 plan step 1e: dictionary parameters, arguments and method
+        // calls come from evidence, so elaboration only defines the
+        // dictionaries the program names.
+        let (mut core, _, _, errors) =
             crate::core::lower_ast::lower_program_ast_with_class_env_and_def_schemes(
                 program_to_lower,
                 &self.hm_expr_types,
@@ -2136,30 +2139,21 @@ impl Compiler {
                 class_env_ref,
                 Some(&module_member_schemes),
                 Some(&self.evidence_map),
-                crate::core::lower_ast::EvidenceMode::Shadow,
+                crate::core::lower_ast::EvidenceMode::Emit,
             );
-        if let Some(error) = errors.into_iter().next() {
+        if let Some(mut error) = errors.into_iter().next() {
+            error.set_file(self.file_path.clone());
             return Err(error);
         }
 
         if elaborate_dictionaries {
             let mut next_id = crate::core::passes::next_fresh_binder_id(&core);
-            crate::core::passes::elaborate_dictionaries_with_def_schemes(
+            crate::core::passes::build_referenced_dictionaries(
                 &mut core,
                 &self.class_env,
-                &self.type_env,
-                &def_schemes,
                 &self.interner,
                 &mut next_id,
             );
-            // 0.0.8 plan step 1c: the evidence emitter against the paths it
-            // replaces, read from Core once both have run.
-            crate::core::passes::evidence_diff::EvidenceSource {
-                map: &self.evidence_map,
-                file_path: &self.file_path,
-                via: "core",
-            }
-            .report_if_enabled(&core, &shadow, &self.interner);
         }
 
         let preloaded_registry = self.build_preloaded_borrow_registry(program_to_lower);

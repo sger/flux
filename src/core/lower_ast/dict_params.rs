@@ -60,6 +60,7 @@ impl AstLowerer<'_> {
             return Vec::new();
         };
         let emit = self.evidence_mode == EvidenceMode::Emit;
+        self.next_body_constrained = Some(name);
         let Some(names) = canonical_param_names(&definition.params, interner) else {
             if emit {
                 self.internal_error(name, span, "a dictionary parameter name was never interned");

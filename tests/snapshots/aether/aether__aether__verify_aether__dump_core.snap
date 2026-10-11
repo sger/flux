@@ -1,9 +1,6 @@
 ---
 source: tests/aether/cli_snapshots.rs
 ---
-def __dict_m7_466C6F772E4571_Eq_Int =
-MakeTuple(__tc_m7_466C6F772E4571_Eq_Int_eq, __tc_m7_466C6F772E4571_Eq_Int_neq)
-
 letrec eq =
 λ__x0, __x1.
     panic("No instance of Eq.eq for the given type")
@@ -1464,7 +1461,7 @@ letrec unique_by =
 λ__dict_m7_466C6F772E4571_Eq, xs, f.
     let %t331 = (let %t332 = []
     let %t333 = []
-    unique_by_go(xs, f, %t332, %t333))
+    unique_by_go(__dict_m7_466C6F772E4571_Eq, xs, f, %t332, %t333))
     reverse(%t331)
 
 letrec maximum =
@@ -1588,24 +1585,24 @@ letrec scanl_emit =
     ::(next, %t352)
 
 letrec unique_by_go =
-λxs, f, seen, acc.
+λ__dict_m7_466C6F772E4571_Eq, xs, f, seen, acc.
     case xs of
       ::(h, t) →
         let %t353 = f(h)
-        unique_by_step(t, h, %t353, f, seen, acc)
+        unique_by_step(__dict_m7_466C6F772E4571_Eq, t, h, %t353, f, seen, acc)
       _ →
         acc
 
 letrec unique_by_step =
-λxs, value, key, f, seen, acc.
-    let %t354 = contains(__dict_m7_466C6F772E4571_Eq_Int, seen, key)
+λ__dict_m7_466C6F772E4571_Eq, xs, value, key, f, seen, acc.
+    let %t354 = contains(__dict_m7_466C6F772E4571_Eq, seen, key)
     case %t354 of
       true →
-        unique_by_go(xs, f, seen, acc)
+        unique_by_go(__dict_m7_466C6F772E4571_Eq, xs, f, seen, acc)
       _ →
         let %t355 = ::(key, seen)
         let %t356 = ::(value, acc)
-        unique_by_go(xs, f, %t355, %t356)
+        unique_by_go(__dict_m7_466C6F772E4571_Eq, xs, f, %t355, %t356)
 
 letrec scanr_go =
 λxs, acc, f.

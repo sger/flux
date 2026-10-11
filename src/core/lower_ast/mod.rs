@@ -375,6 +375,14 @@ pub(super) struct AstLowerer<'a> {
     /// program itself defines from being rewritten into a class-method
     /// dispatch; see docs/known_issues.md#ki-085.
     pub(super) user_function_names: std::collections::HashSet<Identifier>,
+    /// The definitions with evidence parameters whose bodies are being
+    /// lowered, innermost last. A call to one of them that raised no
+    /// predicate passes it nothing, which in `Emit` mode is an internal error
+    /// (KI-101).
+    pub(super) constrained_bodies: Vec<Identifier>,
+    /// Set by [`Self::evidence_dict_params`] for the definition whose body
+    /// is lowered next.
+    pub(super) next_body_constrained: Option<Identifier>,
     pub(super) current_function_name: Option<Identifier>,
     current_module_name: Option<Identifier>,
     /// Proposal 0152: variant name → declared field names in declaration
@@ -445,6 +453,8 @@ impl<'a> AstLowerer<'a> {
             def_schemes: HashMap::new(),
             local_function_names: std::collections::HashSet::new(),
             user_function_names: std::collections::HashSet::new(),
+            constrained_bodies: Vec::new(),
+            next_body_constrained: None,
             current_function_name: None,
             current_module_name: None,
             ctor_field_names: std::collections::HashMap::new(),
@@ -487,7 +497,14 @@ impl<'a> AstLowerer<'a> {
         span: Span,
     ) -> CoreExpr {
         let previous = self.current_function_name.replace(name);
+        let constrained = self.next_body_constrained.take() == Some(name);
+        if constrained {
+            self.constrained_bodies.push(name);
+        }
         let body_expr = self.lower_function_body(intrinsic, params, body, span);
+        if constrained {
+            self.constrained_bodies.pop();
+        }
         self.current_function_name = previous;
         body_expr
     }
