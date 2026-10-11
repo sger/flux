@@ -14,16 +14,24 @@
 //! adds none of its own (`rewrite_constrained_functions`). Anywhere else the
 //! two would disagree, nothing is created, and the disagreement is recorded
 //! for the evidence diff report.
+//!
+//! In [`EvidenceMode::Emit`] (1e) elaboration no longer adds parameters, so
+//! every definition evidence records parameters for gets them here, nested
+//! functions included.
 
 use crate::{
     ast::type_infer::constraint::{SchemeConstraint, WantedClassConstraintOrigin},
     core::{CoreBinder, CoreBinderId, CoreExpr, FluxRep},
+    diagnostics::DiagnosticBuilder,
     source::position::Span,
     syntax::{Identifier, expression::ExprId, interner::Interner},
     types::{class_id::ClassId, evidence::EvidenceSite, translate::DictArg},
 };
 
-use super::{AstLowerer, evidence::DefinitionDisagreement};
+use super::{
+    AstLowerer,
+    evidence::{DefinitionDisagreement, EvidenceMode},
+};
 
 impl AstLowerer<'_> {
     /// The dictionary parameters to put ahead of `params` for the definition
@@ -33,11 +41,16 @@ impl AstLowerer<'_> {
     /// instance method with a context, or a forwarder) keeps them: each
     /// evidence parameter is matched to the explicit one with its canonical
     /// name, and nothing is prepended.
+    ///
+    /// In [`EvidenceMode::Emit`] the parameters are created from evidence
+    /// alone, wherever the definition is. A recorded parameter with no name,
+    /// or with no explicit parameter to match, is an internal error.
     pub(super) fn evidence_dict_params(
         &mut self,
         id: ExprId,
         name: Identifier,
         params: &[CoreBinder],
+        span: Span,
     ) -> Vec<CoreBinder> {
         let (Some(evidence), Some(class_env), Some(interner)) =
             (self.evidence, self.class_env, self.interner)
@@ -47,7 +60,11 @@ impl AstLowerer<'_> {
         let Some(definition) = evidence.definition(id).filter(|d| !d.params.is_empty()) else {
             return Vec::new();
         };
+        let emit = self.evidence_mode == EvidenceMode::Emit;
         let Some(names) = canonical_param_names(&definition.params, interner) else {
+            if emit {
+                self.internal_error(name, span, "a dictionary parameter name was never interned");
+            }
             self.disagree(id, DefinitionDisagreement::UninternedName);
             return Vec::new();
         };
@@ -66,9 +83,19 @@ impl AstLowerer<'_> {
                 .collect::<Option<Vec<_>>>();
             match matched {
                 Some(binders) => self.remember_dict_params(id, &binders),
+                None if emit => self.internal_error(
+                    name,
+                    span,
+                    "its explicit dictionary parameters are not the ones evidence records",
+                ),
                 None => self.disagree(id, DefinitionDisagreement::ExplicitParams),
             }
             return Vec::new();
+        }
+        if emit {
+            let binders = self.fresh_dict_binders(names);
+            self.remember_dict_params(id, &binders);
+            return binders;
         }
 
         let elaborated = self
@@ -100,16 +127,53 @@ impl AstLowerer<'_> {
             return Vec::new();
         }
 
-        let binders = names
+        let binders = self.fresh_dict_binders(names);
+        self.remember_dict_params(id, &binders);
+        binders
+    }
+
+    fn fresh_dict_binders(&mut self, names: Vec<Identifier>) -> Vec<CoreBinder> {
+        names
             .into_iter()
             .map(|name| {
                 let binder_id = CoreBinderId(self.next_binder_id);
                 self.next_binder_id += 1;
                 CoreBinder::with_rep(binder_id, name, FluxRep::BoxedRep)
             })
-            .collect::<Vec<_>>();
-        self.remember_dict_params(id, &binders);
-        binders
+            .collect()
+    }
+
+    /// Record that the definition `name` at `span` cannot be lowered from
+    /// its evidence.
+    fn internal_error(&mut self, name: Identifier, span: Span, problem: &str) {
+        let name = self
+            .interner
+            .and_then(|interner| interner.try_resolve(name))
+            .unwrap_or("<unnamed>");
+        let error = crate::ice!(format!(
+            "lowering `{name}` at {}:{} from its evidence: {problem}",
+            span.start.line, span.start.column
+        ))
+        .with_span(span);
+        self.errors.push(error);
+    }
+
+    /// [`Self::evidence_dict_params`] for a function nested in a body.
+    ///
+    /// Elaboration never adds parameters to a nested function, so in
+    /// [`EvidenceMode::Shadow`] none are created here either: the old paths
+    /// pass it no dictionaries.
+    pub(super) fn nested_evidence_dict_params(
+        &mut self,
+        id: ExprId,
+        name: Identifier,
+        params: &[CoreBinder],
+        span: Span,
+    ) -> Vec<CoreBinder> {
+        if self.evidence_mode != EvidenceMode::Emit {
+            return Vec::new();
+        }
+        self.evidence_dict_params(id, name, params, span)
     }
 
     /// `method`, read out of the dictionary parameter the call's evidence

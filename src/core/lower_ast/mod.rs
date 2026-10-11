@@ -1557,7 +1557,7 @@ impl<'a> AstLowerer<'a> {
                     param_types = Vec::new();
                 }
                 // Before the body: its method calls read these binders.
-                let dict_params = self.evidence_dict_params(*id, *name, &params);
+                let dict_params = self.evidence_dict_params(*id, *name, &params, *span);
                 let body_expr =
                     self.lower_function_body_for_name(*name, *intrinsic, &params, body, *span);
                 let (params, param_types) = with_dict_params(dict_params, params, param_types);
@@ -1705,7 +1705,7 @@ impl<'a> AstLowerer<'a> {
                         param_types = Vec::new();
                     }
                     // Before the body: its method calls read these binders.
-                    let dict_params = self.evidence_dict_params(*id, *name, &params);
+                    let dict_params = self.evidence_dict_params(*id, *name, &params, *span);
                     let body_expr =
                         self.lower_function_body_for_name(*name, *intrinsic, &params, body, *span);
                     let (params, param_types) = with_dict_params(dict_params, params, param_types);
@@ -1948,6 +1948,7 @@ impl<'a> AstLowerer<'a> {
                     body,
                     intrinsic,
                     span: s,
+                    id,
                     ..
                 } = stmt
                 else {
@@ -1958,8 +1959,10 @@ impl<'a> AstLowerer<'a> {
                 if !param_types.is_empty() && param_types.len() != params.len() {
                     param_types = Vec::new();
                 }
+                let dict_params = self.nested_evidence_dict_params(*id, *name, &params, *s);
                 let body_expr =
                     self.lower_function_body_for_name(*name, *intrinsic, &params, body, *s);
+                let (params, param_types) = with_dict_params(dict_params, params, param_types);
                 (
                     binder,
                     Box::new(CoreExpr::Lam {
@@ -2012,6 +2015,7 @@ impl<'a> AstLowerer<'a> {
                     body,
                     intrinsic,
                     span: s,
+                    id,
                     ..
                 } = stmt
                 else {
@@ -2023,8 +2027,10 @@ impl<'a> AstLowerer<'a> {
                 if !param_types.is_empty() && param_types.len() != params.len() {
                     param_types = Vec::new();
                 }
+                let dict_params = self.nested_evidence_dict_params(*id, *name, &params, *s);
                 let body_expr =
                     self.lower_function_body_for_name(*name, *intrinsic, &params, body, *s);
+                let (params, param_types) = with_dict_params(dict_params, params, param_types);
                 CoreExpr::LetRec {
                     var: binder,
                     rhs: Box::new(CoreExpr::Lam {
