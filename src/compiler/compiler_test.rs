@@ -2446,3 +2446,48 @@ fn main() {
         );
     }
 }
+
+/// Under `--optimize`, the lowering paths solve evidence for the program they
+/// lower. `0 - 1` folds to `-1`, so the folded program raises no `Num`
+/// predicate there. When folding ran after the final inference, the evidence
+/// still had the unfolded operator's predicate, at a site lowering never
+/// reaches.
+#[test]
+fn optimizing_dump_solves_evidence_for_the_folded_program() {
+    use crate::syntax::expression::Expression;
+    let (program, interner) = parse_program(
+        r#"
+fn main() {
+    let x = 0 - 1
+    x
+}
+"#,
+    );
+    let folded = program
+        .statements
+        .iter()
+        .find_map(|stmt| match stmt {
+            Statement::Function { body, .. } => match body.statements.first() {
+                Some(Statement::Let {
+                    value: infix @ Expression::Infix { .. },
+                    ..
+                }) => Some(infix.expr_id()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("`let x = 0 - 1`");
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile_with_opts(&program, true, false)
+        .expect("the optimizing compile succeeds");
+    compiler
+        .dump_core_with_opts(
+            &program,
+            true,
+            crate::core::display::CoreDisplayMode::Readable,
+        )
+        .expect("the optimizing dump succeeds");
+
+    assert_eq!(compiler.evidence_map().raised(folded), 0);
+}
