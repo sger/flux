@@ -220,7 +220,10 @@ use sha2::{Digest, Sha256};
 /// Epoch 67: a bare call to an imported class's method is typed as that
 /// method, so it raises its predicate where an epoch-66 unit left the name
 /// unbound and the call untyped.
-pub const CACHE_EPOCH: u16 = 67;
+/// Epoch 68: an instance context or superclass recovered from a dependency's
+/// AST names the real class even when it was preloaded after the dependency,
+/// where an epoch-67 compile left it naming a module-less class.
+pub const CACHE_EPOCH: u16 = 68;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
