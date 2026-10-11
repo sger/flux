@@ -1740,3 +1740,12 @@ fn test_twice() with IO {
     );
     assert!(output.status.success(), "the test file passes:\n{stderr}");
 }
+
+/// E2: a nullary method, `mempty()`, takes its class argument from the
+/// call's result. It raises its predicate at a concrete call, and inside a
+/// definition bounded by the class.
+#[test]
+fn nullary_class_methods_raise_their_predicates() {
+    assert_eq!(entry_unraised_count("mempty_result_dispatch.flx"), 0);
+    assert_eq!(entry_unraised_count("semigroup_monoid.flx"), 0);
+}

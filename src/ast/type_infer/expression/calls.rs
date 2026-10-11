@@ -18,7 +18,10 @@ struct ResolvedClassMethodCall {
     class_name: Identifier,
     class_id: crate::types::class_id::ClassId,
     method_name: Identifier,
-    first_arg_id: ExprId,
+    /// The first argument, which selects the instance whose effects the call
+    /// propagates. `None` for a nullary method such as `mempty()`, whose
+    /// class argument comes from the call's result.
+    first_arg_id: Option<ExprId>,
     /// `ExprId` of the **function-position** sub-expression of the call
     /// (`show` in `show(42)`, or `member` in `Foldable.fold(xs, ...)`'s
     /// `MemberAccess`). The LSP keys
@@ -555,7 +558,7 @@ impl<'a> InferCtx<'a> {
         arguments: &[Expression],
         span: Span,
     ) -> Option<ResolvedClassMethodCall> {
-        let first_arg_id = arguments.first()?.expr_id();
+        let first_arg_id = arguments.first().map(Expression::expr_id);
         match function {
             Expression::Identifier { name, .. } => {
                 if self
@@ -703,7 +706,7 @@ impl<'a> InferCtx<'a> {
         object: &Expression,
         member: Identifier,
         function: &Expression,
-        first_arg_id: ExprId,
+        first_arg_id: Option<ExprId>,
         span: Span,
     ) -> Option<ResolvedClassMethodCall> {
         let Expression::Identifier {
@@ -800,7 +803,7 @@ impl<'a> InferCtx<'a> {
     ) -> Option<Vec<InferType>> {
         let first_arg_ty = self
             .expr_types
-            .get(&info.first_arg_id)
+            .get(&info.first_arg_id?)
             .map(|ty| ty.apply_type_subst(&self.subst))?;
 
         let (resolved_type_args, scheme) =
