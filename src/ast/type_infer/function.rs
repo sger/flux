@@ -149,11 +149,59 @@ impl<'a> InferCtx<'a> {
         forall.extend(row_var_env.values().copied());
         forall.sort_unstable();
         forall.dedup();
+        let constraints = self.declared_scheme_constraints(type_params, &tp_map);
         Some(Scheme {
             forall,
-            constraints: Vec::new(),
+            constraints,
             infer_type: fn_ty,
         })
+    }
+
+    /// The declared bounds of `type_params`, as the constraints of the
+    /// signature's scheme.
+    ///
+    /// A reference to the function from inside its own binding group
+    /// instantiates this scheme, so it raises these predicates there, and the
+    /// solver answers them from the definition's givens. Without them a
+    /// recursive call raised nothing and passed no dictionaries.
+    fn declared_scheme_constraints(
+        &mut self,
+        type_params: &[crate::syntax::statement::FunctionTypeParam],
+        tp_map: &HashMap<Identifier, TypeVarId>,
+    ) -> Vec<constraint::SchemeConstraint> {
+        let mut constraints = Vec::new();
+        for type_param in type_params {
+            let Some(type_var) = tp_map.get(&type_param.name).copied() else {
+                continue;
+            };
+            for bound in &type_param.constraints {
+                let type_args: Vec<InferType> = if bound.type_args.is_empty() {
+                    vec![InferType::Var(type_var)]
+                } else {
+                    bound
+                        .type_args
+                        .iter()
+                        .map(|arg| {
+                            TypeEnv::infer_type_from_type_expr(arg, tp_map, self.interner)
+                                .unwrap_or_else(|| self.env.alloc_infer_type_var())
+                        })
+                        .collect()
+                };
+                let class_id = self
+                    .class_env
+                    .as_ref()
+                    .and_then(|env| env.resolve_class_id(self.current_module, bound.class_name))
+                    .unwrap_or_else(|| {
+                        crate::types::class_id::ClassId::from_local_name(bound.class_name)
+                    });
+                constraints.push(constraint::SchemeConstraint {
+                    class_name: bound.class_name,
+                    class_id,
+                    type_args,
+                });
+            }
+        }
+        constraints
     }
 
     /// Allocate fresh HM type variables for explicit generic type parameters.
