@@ -225,7 +225,10 @@ use sha2::{Digest, Sha256};
 /// where an epoch-67 compile left it naming a module-less class.
 /// Epoch 69: a call to a nullary class method such as `mempty()` raises its
 /// predicate, read from the call's result, where an epoch-68 unit raised none.
-pub const CACHE_EPOCH: u16 = 69;
+/// Epoch 70: a call to a class method qualified by the alias its module is
+/// imported under (`Comparable.same(x, y)`) is typed as the method in a unit
+/// compile, and raises its predicate, where an epoch-69 unit raised none.
+pub const CACHE_EPOCH: u16 = 70;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
