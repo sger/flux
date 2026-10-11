@@ -3954,9 +3954,9 @@ impl Compiler {
                     };
                     let expanded_params: Vec<Option<TypeExpr>> = parameter_types
                         .iter()
-                        .map(|ty| ty.as_ref().map(&expand))
+                        .map(|ty| ty.as_ref().map(expand))
                         .collect();
-                    let expanded_ret = return_type.as_ref().map(&expand);
+                    let expanded_ret = return_type.as_ref().map(expand);
                     self.module_contracts.insert(
                         ContractKey {
                             module_name,
