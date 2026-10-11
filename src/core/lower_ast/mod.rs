@@ -206,9 +206,14 @@ pub fn lower_program_ast_with_class_env_and_def_schemes(
         defs,
         top_level_items,
     };
-    resolve_program_binders(&mut core);
+    let is_dict = |name: Identifier| {
+        interner
+            .and_then(|interner| interner.try_resolve(name))
+            .is_some_and(crate::types::class_env::is_dictionary_name)
+    };
+    resolve_program_binders(&mut core, &is_dict);
     assert!(
-        validate_program_binders(&core),
+        validate_program_binders(&core, &is_dict),
         "Core binder resolution invariant failed after AST→Core lowering"
     );
     (core, lowerer.def_schemes, lowerer.shadow)
