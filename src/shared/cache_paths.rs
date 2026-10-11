@@ -201,7 +201,11 @@ use sha2::{Digest, Sha256};
 /// Epoch 61: `Flow.List`'s private `unique_by_go` and `unique_by_step` are
 /// annotated with their `Eq` bound, so their schemes carry a constraint an
 /// epoch-60 `.flxi` did not record.
-pub const CACHE_EPOCH: u16 = 61;
+/// Epoch 62: in a program of two or more modules, a module member no longer
+/// stops a class method's dispatch stub from being generated, so the bare
+/// method name takes the method's type where an epoch-61 artifact recorded
+/// the member's.
+pub const CACHE_EPOCH: u16 = 62;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
