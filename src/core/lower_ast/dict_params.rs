@@ -141,21 +141,63 @@ impl AstLowerer<'_> {
             return None;
         }
         let args = evidence.dict_args_at(call_id)?;
-        let [DictArg::Param { owner, index, path }] = args.as_slice() else {
+        let [dictionary @ DictArg::Param { .. }] = args.as_slice() else {
             return None;
         };
-        let binder = self
-            .dict_param_binders
-            .get(&(*owner, u16::try_from(*index).ok()?))?;
         let slot = class_env.method_slot(predicate.class_id, method)?;
-        Some(path.iter().chain(std::iter::once(&slot)).fold(
-            CoreExpr::bound_var(binder, span),
-            |object, &index| CoreExpr::TupleField {
-                object: Box::new(object),
-                index,
+        Some(CoreExpr::TupleField {
+            object: Box::new(self.render_dict_arg(dictionary, span)?),
+            index: slot,
+            span,
+        })
+    }
+
+    /// The Core for one dictionary argument evidence names.
+    ///
+    /// - `Global`: the instance's dictionary, a global.
+    /// - `Applied`: that global applied to the dictionaries its context
+    ///   needs, the shape of [`CoreExpr::dictionary_ref`].
+    /// - `Param`: the owner's parameter, then the superclass slots along
+    ///   `path`.
+    ///
+    /// `None` when the dictionary was never interned, or the parameter has no
+    /// binder: lowering did not create the owner's parameters. A `DictArg::None`
+    /// is a marker and passes nothing, so it is `None` too; `dict_args_at`
+    /// never returns one.
+    pub(super) fn render_dict_arg(&self, arg: &DictArg, span: Span) -> Option<CoreExpr> {
+        match arg {
+            DictArg::Global { instance } => Some(CoreExpr::external_var(
+                instance.dict_name(self.interner?)?,
                 span,
-            },
-        ))
+            )),
+            DictArg::Applied { instance, context } => Some(CoreExpr::App {
+                func: Box::new(CoreExpr::external_var(
+                    instance.dict_name(self.interner?)?,
+                    span,
+                )),
+                args: context
+                    .iter()
+                    .map(|arg| self.render_dict_arg(arg, span))
+                    .collect::<Option<_>>()?,
+                span,
+            }),
+            DictArg::Param { owner, index, path } => {
+                let binder = self
+                    .dict_param_binders
+                    .get(&(*owner, u16::try_from(*index).ok()?))?;
+                Some(
+                    path.iter()
+                        .fold(CoreExpr::bound_var(binder, span), |object, &index| {
+                            CoreExpr::TupleField {
+                                object: Box::new(object),
+                                index,
+                                span,
+                            }
+                        }),
+                )
+            }
+            DictArg::None => None,
+        }
     }
 
     fn remember_dict_params(&mut self, owner: ExprId, binders: &[CoreBinder]) {

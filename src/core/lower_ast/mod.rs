@@ -32,7 +32,8 @@ mod binder_resolution;
 mod dict_params;
 mod evidence;
 pub use evidence::{
-    DefinitionDisagreement, EmittedDictArgs, EmittedSite, EvidenceShadow, OccurrenceKind,
+    DefinitionDisagreement, EmittedDictArgs, EmittedSite, EvidenceMode, EvidenceShadow,
+    OccurrenceKind,
 };
 mod expression;
 mod pattern;
@@ -140,6 +141,7 @@ pub fn lower_program_ast_with_class_env(
         class_env,
         module_member_schemes,
         None,
+        EvidenceMode::Shadow,
     )
     .0
 }
@@ -160,10 +162,12 @@ pub fn lower_program_ast_with_class_env_and_def_schemes(
     class_env: Option<&crate::types::class_env::ClassEnv>,
     module_member_schemes: Option<&HashMap<(Identifier, Identifier), crate::types::scheme::Scheme>>,
     evidence: Option<&crate::types::evidence::EvidenceMap>,
+    evidence_mode: EvidenceMode,
 ) -> (
     CoreProgram,
     HashMap<crate::core::CoreBinderId, crate::types::scheme::Scheme>,
     EvidenceShadow,
+    Vec<crate::diagnostics::Diagnostic>,
 ) {
     let module_aliases = collect_module_aliases(&program.statements);
     let mut lowerer = AstLowerer::new(
@@ -176,6 +180,7 @@ pub fn lower_program_ast_with_class_env_and_def_schemes(
         module_aliases,
         evidence,
     );
+    lowerer.evidence_mode = evidence_mode;
     lowerer.collect_ctor_field_names(program);
     lowerer.collect_local_function_names(program);
     lowerer.collect_specializations(program);
@@ -216,7 +221,7 @@ pub fn lower_program_ast_with_class_env_and_def_schemes(
         validate_program_binders(&core, &is_dict),
         "Core binder resolution invariant failed after AST→Core lowering"
     );
-    (core, lowerer.def_schemes, lowerer.shadow)
+    (core, lowerer.def_schemes, lowerer.shadow, lowerer.errors)
 }
 
 /// Put a definition's dictionary parameters ahead of its own, as
@@ -405,6 +410,10 @@ pub(super) struct AstLowerer<'a> {
     /// The binder of each dictionary parameter, by its owner and its index
     /// among the owner's evidence parameters (0.0.8 plan, step 1d).
     dict_param_binders: HashMap<(ExprId, u16), CoreBinder>,
+    /// Whether dictionaries come from evidence or from the old paths.
+    evidence_mode: EvidenceMode,
+    /// Internal errors: sites `Emit` mode found no usable evidence for.
+    errors: Vec<crate::diagnostics::Diagnostic>,
 }
 
 impl<'a> AstLowerer<'a> {
@@ -444,6 +453,8 @@ impl<'a> AstLowerer<'a> {
             evidence,
             shadow: evidence::EvidenceShadow::default(),
             dict_param_binders: HashMap::new(),
+            evidence_mode: EvidenceMode::Shadow,
+            errors: Vec::new(),
         }
     }
 
@@ -2807,5 +2818,100 @@ f("flux")
         );
         assert_eq!(groups, 1, "f↔g should be 1 group");
         assert!(singles >= 1, "h should be a separate LetRec");
+    }
+
+    /// Each kind of evidence renders as the Core the old paths build for it:
+    /// a global, a global applied to its context, or a parameter's binder
+    /// followed through the superclass slots.
+    #[test]
+    fn render_dict_arg_builds_each_kind_of_dictionary() {
+        use crate::types::{
+            class_disposition::InstanceKey, class_id::ClassId, translate::DictArg,
+            type_constructor::TypeConstructor,
+        };
+
+        let mut interner = Interner::new();
+        let show = interner.intern("Show");
+        let eq = interner.intern("Eq");
+        let show_int = interner.intern("__dict_Show_Int");
+        let eq_list = interner.intern("__dict_Eq_List");
+        let eq_int = interner.intern("__dict_Eq_Int");
+        let param = interner.intern("__dict_Ord");
+        let key = |class, ty: &str| InstanceKey {
+            class_id: ClassId::from_local_name(class),
+            head_type_args: vec![InferType::Con(TypeConstructor::Int)],
+            dict_type_key: ty.to_string(),
+        };
+        let types = HashMap::new();
+        let mut lowerer = AstLowerer::new(
+            &types,
+            Some(&interner),
+            None,
+            None,
+            None,
+            None,
+            HashMap::new(),
+            None,
+        );
+        let owner = ExprId(7);
+        let binder = CoreBinder::new(crate::core::CoreBinderId(3), param);
+        lowerer.dict_param_binders.insert((owner, 0), binder);
+        let span = Span::default();
+        let var = |expr: &CoreExpr| match expr {
+            CoreExpr::Var { var, .. } => (var.name, var.binder),
+            other => panic!("expected a variable, got {other:?}"),
+        };
+
+        let global = lowerer
+            .render_dict_arg(
+                &DictArg::Global {
+                    instance: key(show, "Int"),
+                },
+                span,
+            )
+            .expect("a global");
+        assert_eq!(var(&global), (show_int, None));
+
+        let applied = lowerer
+            .render_dict_arg(
+                &DictArg::Applied {
+                    instance: key(eq, "List"),
+                    context: vec![DictArg::Global {
+                        instance: key(eq, "Int"),
+                    }],
+                },
+                span,
+            )
+            .expect("an applied dictionary");
+        let CoreExpr::App { func, args, .. } = &applied else {
+            panic!("expected an application, got {applied:?}");
+        };
+        assert_eq!(var(func), (eq_list, None));
+        assert_eq!(args.iter().map(var).collect::<Vec<_>>(), [(eq_int, None)]);
+
+        let projected = lowerer
+            .render_dict_arg(
+                &DictArg::Param {
+                    owner,
+                    index: 0,
+                    path: vec![0],
+                },
+                span,
+            )
+            .expect("a parameter's superclass");
+        let CoreExpr::TupleField {
+            object, index: 0, ..
+        } = &projected
+        else {
+            panic!("expected slot 0 of the parameter, got {projected:?}");
+        };
+        assert_eq!(var(object), (param, Some(binder.id)));
+
+        let unknown_owner = DictArg::Param {
+            owner: ExprId(8),
+            index: 0,
+            path: Vec::new(),
+        };
+        assert!(lowerer.render_dict_arg(&unknown_owner, span).is_none());
     }
 }

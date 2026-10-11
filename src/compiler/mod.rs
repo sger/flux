@@ -2151,7 +2151,7 @@ impl Compiler {
                 module_member_schemes.insert((*module_name, *member_name), scheme.clone());
             }
         }
-        let (mut core, def_schemes, shadow) =
+        let (mut core, def_schemes, shadow, errors) =
             crate::core::lower_ast::lower_program_ast_with_class_env_and_def_schemes(
                 program_to_lower,
                 &self.hm_expr_types,
@@ -2161,7 +2161,11 @@ impl Compiler {
                 class_env_ref,
                 Some(&module_member_schemes),
                 Some(&self.evidence_map),
+                crate::core::lower_ast::EvidenceMode::Shadow,
             );
+        if let Some(error) = errors.into_iter().next() {
+            return Err(error);
+        }
 
         if elaborate_dictionaries {
             let mut next_id = crate::core::passes::next_fresh_binder_id(&core);

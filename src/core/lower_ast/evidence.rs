@@ -23,6 +23,19 @@ use crate::{
 
 use super::AstLowerer;
 
+/// Whether lowering emits the dictionaries evidence names, or only records
+/// them beside what the old paths build (0.0.8 plan, step 1e).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EvidenceMode {
+    /// Record each site's dictionaries in the [`EvidenceShadow`] and lower
+    /// as before; elaboration then adds the parameters and arguments.
+    #[default]
+    Shadow,
+    /// Build parameters, arguments and method calls from evidence. A site
+    /// with no usable evidence is an internal error.
+    Emit,
+}
+
 /// What the emitter built at one site that raised predicates.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EmittedDictArgs {
