@@ -2874,6 +2874,47 @@ impl Compiler {
                 self.imported_public_instances.push(instance);
             }
         }
+        self.resolve_dangling_dependency_class_ids();
+    }
+
+    /// Re-resolve the class a preloaded instance context or superclass names,
+    /// where it was resolved before that class had been preloaded.
+    ///
+    /// A dependency's statements are collected against the classes preloaded
+    /// so far. One it reaches only through the class prelude, as `Flow.Monoid`
+    /// reaches `Semigroup`, may not be among them yet, and resolution then
+    /// falls back to a module-less `ClassId` that names no class: an instance
+    /// with that context can never be used. Once the class is known, and only
+    /// one class has the name, the reference is pointed at it. Every
+    /// dependency is preloaded before a unit compiles, so the result does not
+    /// depend on preload order.
+    fn resolve_dangling_dependency_class_ids(&mut self) {
+        let classes = &self.imported_public_classes;
+        let resolve = |id: &mut crate::types::class_id::ClassId| {
+            if !id.module.is_empty() || classes.contains_key(id) {
+                return;
+            }
+            let mut named = classes.keys().filter(|candidate| candidate.name == id.name);
+            if let (Some(found), None) = (named.next(), named.next()) {
+                *id = *found;
+            }
+        };
+        for instance in &mut self.imported_public_instances {
+            instance.context_class_ids.iter_mut().for_each(resolve);
+        }
+        let mut superclass_fixes = Vec::new();
+        for (class_id, class) in &self.imported_public_classes {
+            let mut ids = class.superclass_class_ids.clone();
+            ids.iter_mut().for_each(resolve);
+            if ids != class.superclass_class_ids {
+                superclass_fixes.push((*class_id, ids));
+            }
+        }
+        for (class_id, ids) in superclass_fixes {
+            if let Some(class) = self.imported_public_classes.get_mut(&class_id) {
+                class.superclass_class_ids = ids;
+            }
+        }
     }
 
     pub fn build_native_extern_symbols(

@@ -1697,3 +1697,46 @@ fn entry_unraised_count(name: &str) -> usize {
 fn imported_class_methods_raise_their_predicates_in_a_unit_compile() {
     assert_eq!(entry_unraised_count("option_instances.flx"), 0);
 }
+
+/// A dependency recovered from its AST (`flux --test`, which preloads
+/// dependencies without their interfaces) keeps its instance contexts
+/// resolved. `Flow.Monoid`'s instances are `Semigroup<T> => Monoid<T>`, and
+/// `Semigroup` reaches that module only through the class prelude. Resolved
+/// before the class was known, the context named a module-less `Semigroup`
+/// with no instances, so no `Monoid` instance could ever be used.
+#[test]
+fn an_ast_preloaded_instance_context_names_the_real_class() {
+    let scratch = parity::scratch::Scratch::new("typeclass-ast-preloaded-context");
+    let file = scratch.path().join("monoid_twice.flx");
+    std::fs::write(
+        &file,
+        r#"import Flow.Monoid
+
+fn twice<a: Monoid>(x: a) -> a {
+    append(x, x)
+}
+
+fn test_twice() with IO {
+    print(twice("ab"))
+}
+"#,
+    )
+    .expect("write the fixture");
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(workspace_root())
+        .args([
+            "--test",
+            file.to_str().expect("path is UTF-8"),
+            "--no-cache",
+        ])
+        .args(["--root", "lib"])
+        .args(scratch.cache_args())
+        .output()
+        .expect("run Flux tests");
+    let stderr = normalize_output(&output.stderr);
+    assert!(
+        !stderr.contains("No instance for `Monoid<String>`"),
+        "the `Monoid<String>` instance is usable:\n{stderr}"
+    );
+    assert!(output.status.success(), "the test file passes:\n{stderr}");
+}
