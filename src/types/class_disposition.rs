@@ -309,6 +309,28 @@ impl SolveOutcome {
                     entry.wanted.span.start.column,
                 );
             }
+            // A diagnosed predicate has no evidence either, and on a path
+            // that drops the solver's diagnostics nothing else says why.
+            for entry in &self.dispositions {
+                let Disposition::Diagnosed { diagnostic } = &entry.disposition else {
+                    continue;
+                };
+                let args = entry
+                    .wanted
+                    .type_args
+                    .iter()
+                    .map(|ty| crate::ast::type_infer::display_infer_type(ty, interner))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                eprintln!(
+                    "[stuck]   Diagnosed {} {}<{args}> at {}:{}: {}",
+                    diagnostic.code().unwrap_or("?"),
+                    interner.resolve(entry.wanted.class_name),
+                    entry.wanted.span.start.line,
+                    entry.wanted.span.start.column,
+                    diagnostic.message().unwrap_or(""),
+                );
+            }
         }
     }
 
