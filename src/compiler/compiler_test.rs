@@ -2925,3 +2925,118 @@ fn main() {{
         "the error names the predicate: {messages:?}"
     );
 }
+
+/// A recursive call to a function with a declared signature instantiates the
+/// signature, bounds included, so it raises their predicates and the solver
+/// answers them from the function's own parameters. Without the bounds the
+/// call raised nothing, and evidence had no dictionary for it to pass.
+#[test]
+fn a_recursive_call_raises_its_signatures_bounds() {
+    let (program, interner) = parse_program(
+        r#"
+fn has<a: Eq>(xs: List<a>, x: a) -> Bool {
+    match xs {
+        [h | t] -> if h == x { true } else { has(t, x) },
+        _ -> false
+    }
+}
+
+fn main() {
+    has([1, 2], 2)
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let (has_id, body) = program
+        .statements
+        .iter()
+        .find_map(|stmt| match stmt {
+            Statement::Function { name, id, body, .. }
+                if compiler.interner.resolve(*name) == "has" =>
+            {
+                Some((*id, body))
+            }
+            _ => None,
+        })
+        .expect("`has` is parsed");
+    let mut callees = Vec::new();
+    collect_callees_named(&compiler, body, "has", &mut callees);
+    let [recursive] = callees.as_slice() else {
+        panic!("one recursive call, got {callees:?}");
+    };
+
+    let evidence = &compiler.evidence_map;
+    assert_eq!(evidence.raised(*recursive), 1, "the call raises `Eq`");
+    assert_eq!(
+        evidence.dict_args_at(*recursive),
+        Some(vec![crate::types::translate::DictArg::Param {
+            owner: has_id,
+            index: 0,
+            path: Vec::new(),
+        }]),
+        "answered by `has`'s own dictionary"
+    );
+}
+
+/// The ids of the callee identifiers named `name` in `block`.
+fn collect_callees_named(
+    compiler: &Compiler,
+    block: &crate::syntax::block::Block,
+    name: &str,
+    out: &mut Vec<crate::syntax::expression::ExprId>,
+) {
+    use crate::syntax::expression::Expression;
+    fn walk(
+        compiler: &Compiler,
+        expr: &Expression,
+        name: &str,
+        out: &mut Vec<crate::syntax::expression::ExprId>,
+    ) {
+        match expr {
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                if let Expression::Identifier {
+                    name: callee, id, ..
+                } = function.as_ref()
+                    && compiler.interner.resolve(*callee) == name
+                {
+                    out.push(*id);
+                }
+                walk(compiler, function, name, out);
+                arguments
+                    .iter()
+                    .for_each(|arg| walk(compiler, arg, name, out));
+            }
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                walk(compiler, condition, name, out);
+                collect_callees_named(compiler, consequence, name, out);
+                if let Some(alternative) = alternative {
+                    collect_callees_named(compiler, alternative, name, out);
+                }
+            }
+            Expression::Match {
+                scrutinee, arms, ..
+            } => {
+                walk(compiler, scrutinee, name, out);
+                arms.iter()
+                    .for_each(|arm| walk(compiler, &arm.body, name, out));
+            }
+            _ => {}
+        }
+    }
+    for stmt in &block.statements {
+        if let Statement::Expression { expression, .. } = stmt {
+            walk(compiler, expression, name, out);
+        }
+    }
+}

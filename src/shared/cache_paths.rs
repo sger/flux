@@ -214,7 +214,10 @@ use sha2::{Digest, Sha256};
 /// Epoch 65: `--optimize` no longer propagates a top-level literal `let` into
 /// a scope that rebinds its name, so an epoch-64 artifact built with it may
 /// hold `fn f(x)` with the top-level `x` substituted for its parameter.
-pub const CACHE_EPOCH: u16 = 65;
+/// Epoch 66: a recursive call to a function with a declared signature raises
+/// the signature's bounds, so its evidence names the function's own
+/// dictionaries where an epoch-65 artifact recorded no predicate there.
+pub const CACHE_EPOCH: u16 = 66;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
