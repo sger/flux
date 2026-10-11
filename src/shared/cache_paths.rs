@@ -211,7 +211,10 @@ use sha2::{Digest, Sha256};
 /// Epoch 64: an optimizing lowering path folds before the final inference,
 /// so a per-module native object built with `--optimize` lowers the folded
 /// program's evidence where an epoch-63 one lowered the unfolded program's.
-pub const CACHE_EPOCH: u16 = 64;
+/// Epoch 65: `--optimize` no longer propagates a top-level literal `let` into
+/// a scope that rebinds its name, so an epoch-64 artifact built with it may
+/// hold `fn f(x)` with the top-level `x` substituted for its parameter.
+pub const CACHE_EPOCH: u16 = 65;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

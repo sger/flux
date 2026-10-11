@@ -160,11 +160,19 @@ impl<'a> TypeInformedFoldCtx<'a> {
     }
 
     /// Collect typed `let` bindings with literal values for constant propagation.
+    ///
+    /// A name some binder below the top level reuses is left out: the
+    /// substitution replaces every identifier of that name, and inside
+    /// `fn f(x)` the `x` is the parameter, not the top-level `let x`.
     fn collect_let_literals(&mut self, program: &Program) {
+        let shadowed = local_binder_names(program);
         for stmt in &program.statements {
             let Statement::Let { name, value, .. } = stmt else {
                 continue;
             };
+            if shadowed.contains(name) {
+                continue;
+            }
 
             // Only propagate simple literals.
             if !is_simple_literal(value) {
@@ -284,7 +292,7 @@ impl Folder for TypeInformedFoldCtx<'_> {
             // T2: Constant propagation replace known-literal identifiers.
             Expression::Identifier { name, span, id } => {
                 if let Some(literal) = self.let_literals.get(&name) {
-                    let mut replaced = literal.clone();
+                    let mut replaced = fresh_expr_ids(literal.clone(), &mut self.ids);
                     set_expr_span(&mut replaced, span);
                     replaced
                 } else {
