@@ -228,7 +228,10 @@ use sha2::{Digest, Sha256};
 /// Epoch 70: a call to a class method qualified by the alias its module is
 /// imported under (`Comparable.same(x, y)`) is typed as the method in a unit
 /// compile, and raises its predicate, where an epoch-69 unit raised none.
-pub const CACHE_EPOCH: u16 = 70;
+/// Epoch 71: a call qualified by the module that declares the class, in the
+/// same program (`M.my_eq(x, y)`), is typed from the class's signature and
+/// raises its predicate, where an epoch-70 compile left it untyped.
+pub const CACHE_EPOCH: u16 = 71;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
