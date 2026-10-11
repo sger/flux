@@ -231,23 +231,38 @@ pub fn generate_dispatch_functions(
     generated
 }
 
+/// The function names a generated function must not take: those in the scope
+/// it is placed in.
+///
+/// `inject_generated_dispatch_functions` places a bare-named function (a
+/// dispatch stub or a default method) inside the module when the program is a
+/// single module, and at the top level otherwise. So a module's members are
+/// counted only when it is the program's only module. In a merged program,
+/// `Flow.List.count` is not in scope where the `count` stub goes, and must
+/// not stand in for it.
 fn collect_existing_function_names(statements: &[Statement]) -> HashSet<Identifier> {
+    let only_module = {
+        let mut modules = statements
+            .iter()
+            .filter(|stmt| matches!(stmt, Statement::Module { .. }));
+        match (modules.next(), modules.next()) {
+            (Some(module), None) => Some(module),
+            _ => None,
+        }
+    };
     let mut names = HashSet::new();
     collect_existing_function_names_into(statements, &mut names);
+    if let Some(Statement::Module { body, .. }) = only_module {
+        collect_existing_function_names_into(&body.statements, &mut names);
+    }
     names
 }
 
 fn collect_existing_function_names_into(statements: &[Statement], names: &mut HashSet<Identifier>) {
     for stmt in statements {
-        match stmt {
-            Statement::Function { name, body, .. } => {
-                names.insert(*name);
-                collect_existing_function_names_into(&body.statements, names);
-            }
-            Statement::Module { body, .. } => {
-                collect_existing_function_names_into(&body.statements, names);
-            }
-            _ => {}
+        if let Statement::Function { name, body, .. } = stmt {
+            names.insert(*name);
+            collect_existing_function_names_into(&body.statements, names);
         }
     }
 }
@@ -2279,6 +2294,62 @@ fn other(n) { n }
             all.len(),
             "duplicate definition ids: {all:?}"
         );
+    }
+
+    /// A function of a method's name stands in for its dispatch stub only in
+    /// the scope the stub is placed in. In a merged program that is the top
+    /// level, where `Flow.List.count` is not in scope: the `count` stub must
+    /// still be generated, or the bare `count` takes `Flow.List.count`'s type.
+    #[test]
+    fn a_module_member_does_not_stand_in_for_a_methods_dispatch_stub() {
+        let stub_generated = |source: &str| {
+            let mut parser = Parser::new(Lexer::new(source));
+            let program = parser.parse_program();
+            assert!(
+                parser.errors.is_empty(),
+                "parser errors: {:?}",
+                parser.errors
+            );
+            let mut interner = parser.take_interner();
+            let (class_env, class_surface, diagnostics) =
+                ClassEnv::from_statements(&program.statements, &interner);
+            assert!(diagnostics.is_empty(), "class diagnostics: {diagnostics:?}");
+            generate_dispatch_functions(
+                &program.statements,
+                DispatchClasses {
+                    env: &class_env,
+                    surface: &class_surface,
+                },
+                &mut interner,
+                &HashSet::new(),
+                DispatchGenerationOptions {
+                    include_builtin_instances: false,
+                },
+            )
+            .iter()
+            .any(|statement| {
+                matches!(statement, Statement::Function { name, .. }
+                    if interner.resolve(*name) == "count")
+            })
+        };
+        let class = r#"
+class Counted<a> {
+    fn count(x: a) -> Int
+}
+
+instance Counted<Int> {
+    fn count(x) { 1 }
+}
+"#;
+        let seq = "module Lib.Seq {\n    public fn count(n: Int) -> Int { n }\n}\n";
+        let other = "module Lib.Other {\n    public fn other(n: Int) -> Int { n }\n}\n";
+        // Merged: the stub goes at the top level, where `Lib.Seq.count` is not.
+        assert!(stub_generated(&format!("{seq}{other}{class}")));
+        // A module compiled alone: the stub goes inside it, beside `count`.
+        assert!(!stub_generated(&format!("{seq}{class}")));
+        assert!(!stub_generated(&format!(
+            "fn count(n: Int) -> Int {{ n }}\n{class}"
+        )));
     }
 
     /// Stage 7 rejects a `deriving` clause exactly where no body can be
