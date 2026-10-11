@@ -223,7 +223,9 @@ use sha2::{Digest, Sha256};
 /// Epoch 68: an instance context or superclass recovered from a dependency's
 /// AST names the real class even when it was preloaded after the dependency,
 /// where an epoch-67 compile left it naming a module-less class.
-pub const CACHE_EPOCH: u16 = 68;
+/// Epoch 69: a call to a nullary class method such as `mempty()` raises its
+/// predicate, read from the call's result, where an epoch-68 unit raised none.
+pub const CACHE_EPOCH: u16 = 69;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

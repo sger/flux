@@ -811,7 +811,9 @@ let x = zero()   // before: runtime E1009 — after: a compile-time ambiguity er
 - [ ] **4a. E2 / 0183 R6d.** `Disposition` loses `Stuck`. A predicate that
   reaches whole-program scope over an unresolved variable is reported as
   ambiguous, with its origin. `e2_ambiguous_instance_selection.flx` moves to
-  `working/rejects/`.
+  `working/rejects/`. *(Moved in step 1e, E2a: the nullary call now raises its
+  predicate and is reported as `E459`. The message requirements below are
+  still open.)*
   - Lead with "ambiguous" only when the variable is still unknown, some instance
     could match, and no given applies. Otherwise report "no instance".
   - The message names the variable and the use that raised it, the constraint,

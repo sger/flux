@@ -96,6 +96,7 @@ is only the syntax.
 | `project_undetermined_receiver.flx` | `E491` | a receiver nothing determines is reported at the access |
 | `constrained_call_wrong_arity.flx` | `E056` | arity is counted on the source signature, not the lowered one |
 | `ambiguous_empty_literal.flx` | `E459` | a predicate over a type nothing fixes is reported, not answered with `Int` |
+| `e2_ambiguous_instance_selection.flx` | `E459` | a nullary method call two instances could answer is reported, not left to panic at run time |
 | `annot_instantiation_mismatch.flx` | `E300` | a scheme is instantiated, not coerced |
 
 ## Not supported
@@ -115,7 +116,6 @@ Codes were measured on 2026-09-11, not copied from the roadmap.
 | `failing/runtime/ki_090_constrained_fn_as_value.flx` | `E1000` | a constrained function passed as a **value** loses its dictionary | KI-090, High, 0.0.8 |
 | `failing/runtime/ki_076_operator_in_module.flx` | `E1000` | an operator on a class-constrained parameter does not dispatch inside a `module` | KI-076, High, 0.0.8 |
 | `failing/runtime/sole_instance_dispatch.flx` | `E1004` | a method call inside a module's constrained function dispatches to the only instance that module sees, not the dictionary it was given | 0.0.8 plan, step 1e (C4) |
-| `failing/runtime/e2_ambiguous_instance_selection.flx` | `E1009` | an ambiguous instance choice panics at run time instead of being reported | **E2** (blocked on B2), 0.0.8 |
 | `failing/compile/Ki086Greet.flx` | `E004` | a class default body cannot call a sibling method inside a `module` | KI-086, High, 0.0.8 |
 | `failing/degraded/ki_098_despecialised_two_instantiations.flx` | none | a generalized helper used at **two** types loses its representation | KI-098, Low, 0.0.8 |
 

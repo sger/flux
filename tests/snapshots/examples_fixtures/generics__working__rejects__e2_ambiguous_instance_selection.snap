@@ -1,0 +1,17 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/generics/working/rejects/e2_ambiguous_instance_selection.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E459]: Undetermined Class Parameter
+
+Cannot determine which `Def` instance this needs: nothing in this definition fixes its type.
+
+  examples/generics/working/rejects/e2_ambiguous_instance_selection.flx:32:13
+   |
+32 |     let x = zero()
+   |             ^^^^^^
+== stdout ==
+<not executed>
