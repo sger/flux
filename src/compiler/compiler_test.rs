@@ -2491,3 +2491,174 @@ fn main() {
 
     assert_eq!(compiler.evidence_map().raised(folded), 0);
 }
+
+/// Lower `program`, already compiled by `compiler`, with dictionaries taken
+/// from evidence and no elaboration (0.0.8 plan, step 1e).
+fn lower_emitting_evidence(
+    compiler: &Compiler,
+    program: &crate::syntax::program::Program,
+) -> crate::core::CoreProgram {
+    let (core, _, _, errors) =
+        crate::core::lower_ast::lower_program_ast_with_class_env_and_def_schemes(
+            program,
+            &compiler.hm_expr_types,
+            Some(&compiler.interner),
+            Some(&compiler.type_env),
+            None,
+            Some(&compiler.class_env),
+            None,
+            Some(&compiler.evidence_map),
+            crate::core::lower_ast::EvidenceMode::Emit,
+        );
+    assert!(errors.is_empty(), "lowering reports {errors:?}");
+    core
+}
+
+fn lambda_param_names<'a>(
+    compiler: &'a Compiler,
+    expr: &'a crate::core::CoreExpr,
+) -> (Vec<&'a str>, &'a [crate::core::CoreBinder]) {
+    let crate::core::CoreExpr::Lam { params, .. } = expr else {
+        panic!("expected a lambda, got {expr:?}");
+    };
+    let names = params
+        .iter()
+        .map(|param| compiler.interner.resolve(param.name))
+        .collect();
+    (names, params)
+}
+
+const SIZED_CLASS: &str = r#"
+class Sized<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sized<Int> {
+    fn size(x) { x }
+}
+"#;
+
+/// 1e: in `Emit` mode a definition takes one parameter per recorded
+/// evidence parameter, even where elaboration would pair them differently.
+/// Two dictionaries of one class are told apart by their recorded order.
+#[test]
+fn emitting_evidence_gives_a_definition_each_recorded_parameter() {
+    let (program, interner) = parse_program(&format!(
+        r#"{SIZED_CLASS}
+fn both<a: Sized, b: Sized>(x: a, y: b) -> Int {{
+    size(x) + size(y)
+}}
+
+fn main() {{
+    both(1, 2)
+}}
+"#
+    ));
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let core = lower_emitting_evidence(&compiler, &program);
+    let both = core
+        .defs
+        .iter()
+        .find(|def| compiler.interner.resolve(def.name) == "both")
+        .expect("`both` is lowered");
+    let (names, _) = lambda_param_names(&compiler, &both.expr);
+    assert_eq!(names, ["__dict_Sized", "__dict_Sized_1", "x", "y"]);
+}
+
+/// 1e: a bounded function nested in a body gets its own parameter, and a
+/// method call in it on the enclosing definition's dictionary reads the
+/// enclosing binder, though the two share a name.
+#[test]
+fn emitting_evidence_gives_a_nested_function_its_parameters() {
+    let (program, interner) = parse_program(&format!(
+        r#"{SIZED_CLASS}
+fn outer<a: Sized>(x: a) -> Int {{
+    fn inner<b: Sized>(y: b) -> Int {{
+        size(y) + size(x)
+    }}
+    inner(x) + inner(4)
+}}
+
+fn main() {{
+    outer(3)
+}}
+"#
+    ));
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let core = lower_emitting_evidence(&compiler, &program);
+    let outer = core
+        .defs
+        .iter()
+        .find(|def| compiler.interner.resolve(def.name) == "outer")
+        .expect("`outer` is lowered");
+    let (outer_names, outer_params) = lambda_param_names(&compiler, &outer.expr);
+    assert_eq!(outer_names, ["__dict_Sized", "x"]);
+    let crate::core::CoreExpr::Lam { body, .. } = &outer.expr else {
+        unreachable!()
+    };
+
+    let mut inner = None;
+    let mut projected = Vec::new();
+    collect_inner_and_projections(&compiler, body, &mut inner, &mut projected);
+    let inner = inner.expect("`inner` is lowered as a local function");
+    let (inner_names, inner_params) = lambda_param_names(&compiler, inner);
+    assert_eq!(inner_names, ["__dict_Sized", "y"]);
+    assert_ne!(inner_params[0].id, outer_params[0].id);
+    projected.sort_by_key(|id| id.0);
+    let mut expected = vec![outer_params[0].id, inner_params[0].id];
+    expected.sort_by_key(|id| id.0);
+    assert_eq!(
+        projected, expected,
+        "`size(y)` reads `inner`'s dictionary and `size(x)` reads `outer`'s"
+    );
+}
+
+/// The lambda bound to `inner`, and the binder of every dictionary a method
+/// is projected from inside it.
+fn collect_inner_and_projections<'a>(
+    compiler: &Compiler,
+    expr: &'a crate::core::CoreExpr,
+    inner: &mut Option<&'a crate::core::CoreExpr>,
+    projected: &mut Vec<crate::core::CoreBinderId>,
+) {
+    use crate::core::CoreExpr;
+    match expr {
+        CoreExpr::LetRec { var, rhs, body, .. } | CoreExpr::Let { var, rhs, body, .. } => {
+            if compiler.interner.resolve(var.name) == "inner" {
+                *inner = Some(rhs);
+                collect_projections(rhs, projected);
+            }
+            collect_inner_and_projections(compiler, body, inner, projected);
+        }
+        _ => {}
+    }
+}
+
+fn collect_projections(expr: &crate::core::CoreExpr, out: &mut Vec<crate::core::CoreBinderId>) {
+    use crate::core::CoreExpr;
+    match expr {
+        CoreExpr::TupleField { object, .. } => {
+            if let CoreExpr::Var { var, .. } = object.as_ref()
+                && let Some(binder) = var.binder
+            {
+                out.push(binder);
+            }
+            collect_projections(object, out);
+        }
+        CoreExpr::Lam { body, .. } => collect_projections(body, out),
+        CoreExpr::App { func, args, .. } => {
+            collect_projections(func, out);
+            args.iter().for_each(|arg| collect_projections(arg, out));
+        }
+        CoreExpr::PrimOp { args, .. } => args.iter().for_each(|arg| collect_projections(arg, out)),
+        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+            collect_projections(rhs, out);
+            collect_projections(body, out);
+        }
+        _ => {}
+    }
+}
