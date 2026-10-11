@@ -48,12 +48,59 @@ fn desugars_double_negation() {
     }
 }
 
+/// The operand of `!!e` when the expression is still a double negation.
+fn double_negated(expr: &Expression) -> Option<&Expression> {
+    match expr {
+        Expression::Prefix {
+            operator, right, ..
+        } if operator == "!" => match right.as_ref() {
+            Expression::Prefix {
+                operator, right, ..
+            } if operator == "!" => Some(right),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+// The pass runs before type inference, so `!!e` becomes `e` only when `e` is
+// a Bool by its syntax. `!!5` is `true`, not `5`.
+
 #[test]
-fn double_negation_on_identifier() {
-    // !!x → x
-    match parse_and_desugar("!!x;") {
-        Expression::Identifier { .. } => {}
-        other => panic!("expected Identifier, got {:?}", other),
+fn double_negation_on_identifier_is_kept() {
+    let result = parse_and_desugar("!!x;");
+    assert!(
+        matches!(double_negated(&result), Some(Expression::Identifier { .. })),
+        "expected !!x, got {:?}",
+        result
+    );
+}
+
+#[test]
+fn double_negation_on_non_bool_literal_is_kept() {
+    let result = parse_and_desugar("!!5;");
+    assert!(
+        matches!(double_negated(&result), Some(Expression::Integer { .. })),
+        "expected !!5, got {:?}",
+        result
+    );
+}
+
+#[test]
+fn double_negation_on_arithmetic_is_kept() {
+    let result = parse_and_desugar("!!(2 + 3);");
+    assert!(
+        matches!(double_negated(&result), Some(Expression::Infix { operator, .. }) if operator == "+"),
+        "expected !!(2 + 3), got {:?}",
+        result
+    );
+}
+
+#[test]
+fn double_negation_on_comparison_is_removed() {
+    match parse_and_desugar("!!(1 < 2);") {
+        Expression::Infix { operator, .. } => assert_eq!(operator, "<"),
+        other => panic!("expected 1 < 2, got {:?}", other),
     }
 }
 
@@ -266,27 +313,11 @@ fn desugars_nested_in_complex_expression() {
 }
 
 #[test]
-fn preserves_variables() {
-    let result = parse_and_desugar("!!x;");
-
-    // !!x should desugar to x
-    match result {
-        Expression::Identifier { .. } => {
-            // Success - it's an identifier
-        }
-        _ => panic!("Expected Identifier, got {:?}", result),
-    }
-}
-
-#[test]
-fn works_with_function_calls() {
+fn double_negation_on_function_call_is_kept() {
     let result = parse_and_desugar("!!(foo());");
-
-    // !!(foo()) should desugar to foo()
-    match result {
-        Expression::Call { .. } => {
-            // Success - it's a call expression
-        }
-        _ => panic!("Expected Call, got {:?}", result),
-    }
+    assert!(
+        matches!(double_negated(&result), Some(Expression::Call { .. })),
+        "expected !!foo(), got {:?}",
+        result
+    );
 }
