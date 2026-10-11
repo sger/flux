@@ -205,7 +205,10 @@ use sha2::{Digest, Sha256};
 /// stops a class method's dispatch stub from being generated, so the bare
 /// method name takes the method's type where an epoch-61 artifact recorded
 /// the member's.
-pub const CACHE_EPOCH: u16 = 62;
+/// Epoch 63: `f<a>` unifies with a constructor of more arguments, so a
+/// higher-kinded parameter can be a partially applied constructor such as
+/// `Either<String>`, where an epoch-62 artifact left it unbound.
+pub const CACHE_EPOCH: u16 = 63;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

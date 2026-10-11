@@ -2410,3 +2410,39 @@ fn main() with IO {
         .compile_with_opts(&program, true, false)
         .expect("the optimizing compile succeeds");
 }
+
+/// A class over a higher-kinded parameter, used at a partially applied
+/// constructor. The `remap` stub's `f<a>` must unify with
+/// `Either<String, Int>` as `f = Either<String>`; when it did not, `f` stayed
+/// unbound and the predicate was reported as E459.
+#[test]
+fn a_higher_kinded_method_resolves_at_a_partially_applied_constructor() {
+    let (program, interner) = parse_program(
+        r#"
+class Mappable<f> {
+    fn remap<a, b>(x: f<a>, g: (a) -> b) -> f<b>
+}
+
+instance Mappable<Either<l>> {
+    fn remap(x, g) {
+        match x {
+            Left(e) -> Left(e),
+            Right(v) -> Right(g(v)),
+        }
+    }
+}
+
+fn main() {
+    let r: Either<String, Int> = Right(2)
+    remap(r, fn(x) { x + 1 })
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    if let Err(diagnostics) = compiler.compile_with_opts(&program, false, false) {
+        panic!(
+            "the program compiles: {}",
+            render_diagnostics(&diagnostics, None, None)
+        );
+    }
+}
