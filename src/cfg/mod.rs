@@ -1133,7 +1133,7 @@ impl IrProgram {
     /// Like `dump_text` but resolves symbol IDs to human-readable names via `interner`.
     pub fn dump_text_with_interner(&self, interner: &crate::syntax::interner::Interner) -> String {
         let sym = |s: Identifier| interner.resolve(s).to_string();
-        let fmt_name = |n: Option<Identifier>| n.map(&sym).unwrap_or_else(|| "<anon>".to_string());
+        let fmt_name = |n: Option<Identifier>| n.map(sym).unwrap_or_else(|| "<anon>".to_string());
         let fmt_target = |t: &IrCallTarget| match t {
             IrCallTarget::Direct(fid) => format!("fn{}", fid.0),
             IrCallTarget::Named(name) => sym(*name),
