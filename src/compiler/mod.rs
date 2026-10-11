@@ -2214,27 +2214,27 @@ impl Compiler {
         optimize: bool,
         elaborate_dictionaries: bool,
     ) -> Result<crate::core::CoreProgram, Diagnostic> {
-        let prepared = self.prepare_program_for_lowering(program);
+        let optimized = self.optimize_for_lowering(program.clone(), optimize);
+        let prepared = self.prepare_program_for_lowering(&optimized);
         self.apply_hm_final(&prepared.hm_final);
-        let program_to_lower =
-            self.finish_program_for_lowering(prepared.effective_program.into_owned(), optimize);
+        let mut program_to_lower = prepared.effective_program.into_owned();
+        self.apply_named_field_desugar(&mut program_to_lower);
         self.lower_core_from_program(&program_to_lower, optimize, elaborate_dictionaries)
     }
 
-    /// The rewrites that follow the final inference: with `optimize`, the
-    /// syntactic optimizations, then the named-field desugar. They run on the
-    /// program just inferred, so lowering reads that program's types and
-    /// evidence rather than whatever the last unit left behind.
-    fn finish_program_for_lowering(&self, program: Program, optimize: bool) -> Program {
-        let mut program = if optimize {
-            use crate::ast::{constant_fold_with_interner, desugar, rename};
-            let optimized = constant_fold_with_interner(desugar(program), &self.interner);
-            rename(optimized, HashMap::new())
-        } else {
-            program
-        };
-        self.apply_named_field_desugar(&mut program);
-        program
+    /// With `optimize`, the syntactic optimizations a lowering path applies.
+    ///
+    /// They run *before* the final inference, as in `compile_with_opts`, so
+    /// the types and evidence lowering reads are those of the program it
+    /// lowers. Run after it, a folded expression kept its predicate at a site
+    /// lowering never reaches.
+    fn optimize_for_lowering(&self, program: Program, optimize: bool) -> Program {
+        if !optimize {
+            return program;
+        }
+        use crate::ast::{constant_fold_with_interner, desugar, rename};
+        let optimized = constant_fold_with_interner(desugar(program), &self.interner);
+        rename(optimized, HashMap::new())
     }
 
     /// run the named-field AST desugar in place. No-op when
@@ -2262,10 +2262,11 @@ impl Compiler {
         program: &Program,
         optimize: bool,
     ) -> Result<crate::aether::AetherProgram, Diagnostic> {
-        let prepared = self.prepare_program_for_lowering_with_preloaded(program);
+        let optimized = self.optimize_for_lowering(program.clone(), optimize);
+        let prepared = self.prepare_program_for_lowering_with_preloaded(&optimized);
         self.apply_hm_final(&prepared.hm_final);
-        let program_to_lower =
-            self.finish_program_for_lowering(prepared.effective_program.into_owned(), optimize);
+        let mut program_to_lower = prepared.effective_program.into_owned();
+        self.apply_named_field_desugar(&mut program_to_lower);
         self.lower_aether_from_program(&program_to_lower, optimize, true)
     }
 
@@ -6832,26 +6833,14 @@ impl Compiler {
         emit_entry_main: bool,
     ) -> Result<crate::llvm::LlvmModule, Diagnostic> {
         let _ = self.phase_collection(program);
-        let prepared = self.prepare_program_for_lowering_with_preloaded(program);
+        let optimized = self.optimize_for_lowering(program.clone(), optimize);
+        let prepared = self.prepare_program_for_lowering_with_preloaded(&optimized);
         self.apply_hm_final(&prepared.hm_final);
-        let effective_program = prepared.effective_program;
+        let mut effective_program = prepared.effective_program.into_owned();
+        self.apply_named_field_desugar(&mut effective_program);
+        let aether = self.lower_aether_from_program(&effective_program, optimize, true)?;
 
-        let (effective_program, aether) = if optimize {
-            use crate::ast::{constant_fold_with_interner, desugar, rename};
-            let desugared = desugar(effective_program.into_owned());
-            let optimized = constant_fold_with_interner(desugared, &self.interner);
-            let mut program_to_lower = rename(optimized, HashMap::new());
-            self.apply_named_field_desugar(&mut program_to_lower);
-            let aether = self.lower_aether_from_program(&program_to_lower, true, true)?;
-            (Cow::Owned(program_to_lower), aether)
-        } else {
-            let mut program_to_lower = effective_program.into_owned();
-            self.apply_named_field_desugar(&mut program_to_lower);
-            let aether = self.lower_aether_from_program(&program_to_lower, false, true)?;
-            (Cow::<Program>::Owned(program_to_lower), aether)
-        };
-
-        let extern_symbols = self.build_native_extern_symbols(effective_program.as_ref());
+        let extern_symbols = self.build_native_extern_symbols(&effective_program);
         let has_named_main = effective_program.statements.iter().any(|statement| {
             matches!(
                 statement,
