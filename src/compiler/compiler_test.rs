@@ -2495,9 +2495,37 @@ fn main() {
 /// Lower `program`, already compiled by `compiler`, with dictionaries taken
 /// from evidence and no elaboration (0.0.8 plan, step 1e).
 fn lower_emitting_evidence(
-    compiler: &Compiler,
+    compiler: &mut Compiler,
     program: &crate::syntax::program::Program,
 ) -> crate::core::CoreProgram {
+    let program = program_to_lower(compiler, program);
+    let (core, errors) = lower_emitting(compiler, &program, &compiler.evidence_map);
+    assert!(errors.is_empty(), "lowering reports {errors:?}");
+    core
+}
+
+/// The program the Core path lowers, its generated instance methods among
+/// it, with the final inference's types and evidence applied.
+fn program_to_lower(
+    compiler: &mut Compiler,
+    program: &crate::syntax::program::Program,
+) -> crate::syntax::program::Program {
+    let prepared = compiler.prepare_program_for_lowering(program);
+    compiler.apply_hm_final(&prepared.hm_final);
+    let mut program = prepared.effective_program.into_owned();
+    compiler.apply_named_field_desugar(&mut program);
+    program
+}
+
+/// Lower `program` from `evidence` in `Emit` mode, with the internal errors.
+fn lower_emitting(
+    compiler: &Compiler,
+    program: &crate::syntax::program::Program,
+    evidence: &crate::types::evidence::EvidenceMap,
+) -> (
+    crate::core::CoreProgram,
+    Vec<crate::diagnostics::Diagnostic>,
+) {
     let (core, _, _, errors) =
         crate::core::lower_ast::lower_program_ast_with_class_env_and_def_schemes(
             program,
@@ -2507,11 +2535,10 @@ fn lower_emitting_evidence(
             None,
             Some(&compiler.class_env),
             None,
-            Some(&compiler.evidence_map),
+            Some(evidence),
             crate::core::lower_ast::EvidenceMode::Emit,
         );
-    assert!(errors.is_empty(), "lowering reports {errors:?}");
-    core
+    (core, errors)
 }
 
 fn lambda_param_names<'a>(
@@ -2557,7 +2584,7 @@ fn main() {{
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler.compile(&program).expect("the program compiles");
 
-    let core = lower_emitting_evidence(&compiler, &program);
+    let core = lower_emitting_evidence(&mut compiler, &program);
     let both = core
         .defs
         .iter()
@@ -2589,7 +2616,7 @@ fn main() {{
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler.compile(&program).expect("the program compiles");
 
-    let core = lower_emitting_evidence(&compiler, &program);
+    let core = lower_emitting_evidence(&mut compiler, &program);
     let outer = core
         .defs
         .iter()
@@ -2659,6 +2686,242 @@ fn collect_projections(expr: &crate::core::CoreExpr, out: &mut Vec<crate::core::
             collect_projections(rhs, out);
             collect_projections(body, out);
         }
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            collect_projections(scrutinee, out);
+            alts.iter()
+                .for_each(|alt| collect_projections(&alt.rhs, out));
+        }
         _ => {}
     }
+}
+
+/// Every call to `name` in `expr`, as its arguments' shapes: a variable's
+/// name, an applied variable as `f(args)`, anything else `_`.
+fn collect_calls(
+    compiler: &Compiler,
+    expr: &crate::core::CoreExpr,
+    name: &str,
+    out: &mut Vec<Vec<String>>,
+) {
+    use crate::core::CoreExpr;
+    fn shape(compiler: &Compiler, expr: &CoreExpr) -> String {
+        match expr {
+            CoreExpr::Var { var, .. } => compiler.interner.resolve(var.name).to_string(),
+            CoreExpr::App { func, args, .. } => format!(
+                "{}({})",
+                shape(compiler, func),
+                args.iter()
+                    .map(|arg| shape(compiler, arg))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            _ => "_".to_string(),
+        }
+    }
+    match expr {
+        CoreExpr::App { func, args, .. } => {
+            if matches!(func.as_ref(), CoreExpr::Var { var, .. }
+                if compiler.interner.resolve(var.name) == name)
+            {
+                out.push(args.iter().map(|arg| shape(compiler, arg)).collect());
+            }
+            collect_calls(compiler, func, name, out);
+            args.iter()
+                .for_each(|arg| collect_calls(compiler, arg, name, out));
+        }
+        CoreExpr::Lam { body, .. } => collect_calls(compiler, body, name, out),
+        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+            collect_calls(compiler, rhs, name, out);
+            collect_calls(compiler, body, name, out);
+        }
+        CoreExpr::PrimOp { args, .. } => args
+            .iter()
+            .for_each(|arg| collect_calls(compiler, arg, name, out)),
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            collect_calls(compiler, scrutinee, name, out);
+            alts.iter()
+                .for_each(|alt| collect_calls(compiler, &alt.rhs, name, out));
+        }
+        _ => {}
+    }
+}
+
+/// The calls to `name` in the definition `def`, by [`collect_calls`].
+fn calls_in(
+    compiler: &Compiler,
+    core: &crate::core::CoreProgram,
+    def: &str,
+    name: &str,
+) -> Vec<Vec<String>> {
+    let def = core
+        .defs
+        .iter()
+        .find(|candidate| compiler.interner.resolve(candidate.name) == def)
+        .unwrap_or_else(|| panic!("`{def}` is lowered"));
+    let mut calls = Vec::new();
+    collect_calls(compiler, &def.expr, name, &mut calls);
+    calls
+}
+
+const CONTEXTUAL_SIZED: &str = r#"
+class Sized<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sized<Int> {
+    fn size(x) { x }
+}
+
+instance Sized<a> => Sized<List<a>> {
+    fn size(xs) {
+        match xs {
+            [h | t] -> size(h) + size(t),
+            _ -> 0
+        }
+    }
+}
+
+fn measure<a: Sized>(x: a) -> Int {
+    size(x)
+}
+"#;
+
+/// 1e: a call to a constrained function passes the dictionaries its
+/// callee's evidence names, ahead of its own arguments: an instance's
+/// global, or a contextual instance's applied to its context.
+#[test]
+fn emitting_evidence_passes_a_constrained_calls_dictionaries() {
+    let (program, interner) = parse_program(&format!(
+        r#"{CONTEXTUAL_SIZED}
+fn main() {{
+    measure(3) + measure([1, 2])
+}}
+"#
+    ));
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let core = lower_emitting_evidence(&mut compiler, &program);
+    assert_eq!(
+        calls_in(&compiler, &core, "main", "measure"),
+        [
+            vec!["__dict_Sized_Int", "_"],
+            vec!["__dict_Sized_List<a>(__dict_Sized_Int)", "_"],
+        ]
+    );
+}
+
+/// 1e: a method call on a type with an instance calls the instance's method
+/// directly, passing the dictionaries the instance's context needs. Inside
+/// the contextual instance, the call on the element reads the instance's own
+/// context parameter, and the call on the tail passes it on.
+#[test]
+fn emitting_evidence_calls_an_instances_method_directly() {
+    let (program, interner) = parse_program(&format!(
+        r#"{CONTEXTUAL_SIZED}
+fn main() {{
+    size(3) + size([4])
+}}
+"#
+    ));
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let core = lower_emitting_evidence(&mut compiler, &program);
+    assert_eq!(
+        calls_in(&compiler, &core, "main", "__tc_Sized_Int_size"),
+        [vec!["_"]]
+    );
+    assert_eq!(
+        calls_in(&compiler, &core, "main", "__tc_Sized_List<a>_size"),
+        [vec!["__dict_Sized_Int", "_"]]
+    );
+
+    let list_size = core
+        .defs
+        .iter()
+        .find(|def| compiler.interner.resolve(def.name) == "__tc_Sized_List<a>_size")
+        .expect("the list instance's method is lowered");
+    let (names, params) = lambda_param_names(&compiler, &list_size.expr);
+    assert_eq!(names[0], "__dict_Sized");
+    let mut projected = Vec::new();
+    collect_projections(&list_size.expr, &mut projected);
+    assert_eq!(
+        projected,
+        [params[0].id],
+        "`size(h)` reads the context's dictionary"
+    );
+    assert_eq!(
+        calls_in(
+            &compiler,
+            &core,
+            "__tc_Sized_List<a>_size",
+            "__tc_Sized_List<a>_size"
+        ),
+        [vec!["__dict_Sized", "t"]],
+        "`size(t)` calls the list instance again with the same context"
+    );
+}
+
+/// 1e: a site whose predicate has no answer is an internal error naming it,
+/// not a call missing its dictionary.
+#[test]
+fn emitting_evidence_reports_an_unanswered_site() {
+    let (program, interner) = parse_program(&format!(
+        r#"{SIZED_CLASS}
+fn measure<a: Sized>(x: a) -> Int {{
+    size(x)
+}}
+
+fn main() {{
+    measure(3)
+}}
+"#
+    ));
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let program = program_to_lower(&mut compiler, &program);
+    let main_body = program
+        .statements
+        .iter()
+        .find_map(|stmt| match stmt {
+            Statement::Function { name, body, .. }
+                if compiler.interner.resolve(*name) == "main" =>
+            {
+                Some(body)
+            }
+            _ => None,
+        })
+        .expect("`main` is parsed");
+    let Some(Statement::Expression {
+        expression: crate::syntax::expression::Expression::Call { function, .. },
+        ..
+    }) = main_body.statements.last()
+    else {
+        panic!("`main` ends in a call: {main_body:?}");
+    };
+    let callee = function.expr_id();
+    // A second `Sized` predicate at the callee, which nothing answered.
+    let mut evidence = compiler.evidence_map.clone();
+    let raised = evidence
+        .predicate(&crate::types::evidence::EvidenceSite::new(callee, 0))
+        .expect("`measure` raised `Sized`")
+        .clone();
+    evidence.raise(callee, raised);
+
+    let (_, errors) = lower_emitting(&compiler, &program, &evidence);
+    let messages: Vec<_> = errors
+        .iter()
+        .map(|error| error.message().unwrap_or_default().to_string())
+        .collect();
+    assert_eq!(messages.len(), 1, "one error, for the site: {messages:?}");
+    assert!(
+        messages[0].contains("Sized") && messages[0].contains("no answer"),
+        "the error names the predicate: {messages:?}"
+    );
 }
