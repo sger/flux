@@ -225,6 +225,9 @@ struct InferCtx<'a> {
     /// `build_infer_result`. The LSP reads this for goto-definition on
     /// class-method calls.
     class_method_dispatch: HashMap<ExprId, ClassDispatch>,
+    /// Every call inference classified as a call to a class method, whether
+    /// or not it could raise the method's predicate (0.0.8 plan, step 1e).
+    class_method_calls: HashSet<ExprId>,
     /// Type variables allocated as fallback after inference failures.
     /// These are "tainted" — if they appear in a binding's resolved type,
     /// the binding has unresolved inference even if the scheme is mono.
@@ -361,12 +364,11 @@ impl<'a> InferCtx<'a> {
             module_aliases: HashMap::new(),
             class_constraints: constraint::WantedConstraints::default(),
             class_method_dispatch: HashMap::new(),
+            class_method_calls: HashSet::new(),
             class_sym_eq: None,
             class_sym_ord: None,
             class_sym_num: None,
-            field_predicate_module: interner
-                .lookup(crate::types::class_id::FIELD_PREDICATE_MODULE)
-                .map(crate::types::class_id::ModulePath::from_identifier),
+            field_predicate_module: field_predicate_module(interner),
             tuple_predicate_name: interner.lookup(crate::types::class_id::TUPLE_PREDICATE_NAME),
             class_sym_add: None,
             class_sym_semigroup: None,
@@ -715,6 +717,13 @@ impl<'a> InferCtx<'a> {
         let class_env = self.class_env.as_ref()?;
         class_env.resolve_method_class_id(self.current_module, name)
     }
+}
+
+/// The module the built-in field predicates belong to, if it was interned.
+fn field_predicate_module(interner: &Interner) -> Option<crate::types::class_id::ModulePath> {
+    interner
+        .lookup(crate::types::class_id::FIELD_PREDICATE_MODULE)
+        .map(crate::types::class_id::ModulePath::from_identifier)
 }
 
 struct InferCtxConfig {
@@ -1099,6 +1108,7 @@ fn build_infer_result(mut ctx: InferCtx<'_>) -> InferProgramResult {
         resolved_binding_schemes,
         resolved_binding_schemes_by_span,
         class_method_dispatch: ctx.class_method_dispatch,
+        class_method_calls: ctx.class_method_calls,
     }
 }
 
@@ -1326,6 +1336,10 @@ pub struct InferProgramResult {
     /// can route F12 to the matching `InstanceMethod` arm. Empty when
     /// no class methods were called in the program.
     pub class_method_dispatch: HashMap<ExprId, ClassDispatch>,
+    /// The calls classified as calls to a class method, by the call's id.
+    /// Lowering from evidence needs the method's predicate at each of them;
+    /// one that raised none has nothing to dispatch with.
+    pub class_method_calls: HashSet<ExprId>,
 }
 
 /// Where a class-method call site dispatched to — enough to identify

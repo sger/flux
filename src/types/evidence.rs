@@ -123,6 +123,8 @@ pub struct EvidenceMap {
     raised: HashMap<ExprId, u16>,
     predicates: HashMap<EvidenceSite, RaisedPredicate>,
     definitions: HashMap<ExprId, DefinitionParams>,
+    /// The calls inference classified as calls to a class method.
+    method_calls: std::collections::HashSet<ExprId>,
 }
 
 /// A generalized definition's dictionary parameters — GHC's `abs_ev_vars`.
@@ -340,6 +342,18 @@ impl EvidenceMap {
 
     /// The dictionary parameters of the definition with this id, if it
     /// generalized a context.
+    /// Record the calls inference classified as calls to a class method.
+    pub fn record_method_calls(&mut self, calls: &std::collections::HashSet<ExprId>) {
+        self.method_calls.clone_from(calls);
+    }
+
+    /// Whether inference classified the call `call` as a call to a class
+    /// method. Such a call needs its method's predicate; one that raised none
+    /// has nothing to dispatch with.
+    pub fn is_method_call(&self, call: ExprId) -> bool {
+        self.method_calls.contains(&call)
+    }
+
     pub fn definition(&self, id: ExprId) -> Option<&DefinitionParams> {
         self.definitions.get(&id)
     }

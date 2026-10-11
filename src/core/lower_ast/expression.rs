@@ -176,6 +176,9 @@ impl<'a> super::AstLowerer<'a> {
                 if self.evidence_mode == super::EvidenceMode::Emit {
                     return self.lower_call_from_evidence(function, arguments, *id, *span);
                 }
+                if let Some(method) = self.unraised_method_call(function, *id) {
+                    self.shadow.unraised.insert(*id, (*span, method));
+                }
                 // Phase 4 Step 5: compile-time class method dispatch.
                 // If the callee is a class method and the argument type is known,
                 // resolve directly to the mangled instance function.
