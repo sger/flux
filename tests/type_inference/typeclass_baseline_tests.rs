@@ -1666,6 +1666,12 @@ fn every_flow_list_call_predicate_has_evidence() {
 /// The `unraised` count the evidence diff reports for a fixture's own unit:
 /// its class-method calls that raised no predicate in the unit's compile.
 fn entry_unraised_count(name: &str) -> usize {
+    unit_unraised_count(name, &fixture_path(name))
+}
+
+/// The `unraised` count for `unit`, one of the units compiling the fixture
+/// `name` builds.
+fn unit_unraised_count(name: &str, unit: &std::path::Path) -> usize {
     let scratch = parity::scratch::Scratch::new(&format!("typeclass-unraised-{name}"));
     let fixture = fixture_path(name);
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
@@ -1679,11 +1685,11 @@ fn entry_unraised_count(name: &str) -> usize {
         .output()
         .expect("run Flux fixture");
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let header = format!("{} via cfg:", fixture.display());
+    let header = format!("{} via cfg:", unit.display());
     let line = stderr
         .lines()
         .find(|line| line.contains("EVIDENCE DIFF for") && line.contains(&header))
-        .unwrap_or_else(|| panic!("{name} reports its evidence:\n{stderr}"));
+        .unwrap_or_else(|| panic!("{} reports its evidence:\n{stderr}", unit.display()));
     line.rsplit("unraised ")
         .next()
         .and_then(|count| count.trim().parse().ok())
@@ -1748,4 +1754,14 @@ fn test_twice() with IO {
 fn nullary_class_methods_raise_their_predicates() {
     assert_eq!(entry_unraised_count("mempty_result_dispatch.flx"), 0);
     assert_eq!(entry_unraised_count("semigroup_monoid.flx"), 0);
+}
+
+/// E3: a module calls a method of a class declared in another of the
+/// program's module files, qualified by the alias it imports it under
+/// (`Comparable.same(x, y)`). A unit compile keys the imported members by
+/// that alias, and the call must still be typed as the method.
+#[test]
+fn alias_qualified_class_method_calls_raise_their_predicates() {
+    let service = fixture_path("EqAuditLogExample/App/Service.flx");
+    assert_eq!(unit_unraised_count("eq_auditlog_example.flx", &service), 0);
 }

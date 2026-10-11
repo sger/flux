@@ -720,10 +720,7 @@ impl<'a> InferCtx<'a> {
             .get(module_name)
             .copied()
             .unwrap_or(*module_name);
-        if !self
-            .module_member_schemes
-            .contains_key(&(target_module, member))
-        {
+        if !self.knows_module_member(*module_name, member) {
             return None;
         }
         let class_id = self
