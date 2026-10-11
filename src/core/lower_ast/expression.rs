@@ -18,6 +18,8 @@ impl<'a> super::AstLowerer<'a> {
     pub(super) fn lower_expr(&mut self, expr: &Expression) -> CoreExpr {
         match expr {
             Expression::Identifier { name, span, id } => {
+                // Not called: in `Emit` mode a constrained function passed as
+                // a value still gets no dictionaries (KI-090, Phase 3a).
                 self.emit_dict_args(*id, *span, super::OccurrenceKind::Identifier(*name));
                 CoreExpr::external_var(*name, *span)
             }
@@ -73,6 +75,8 @@ impl<'a> super::AstLowerer<'a> {
                 span,
                 id,
             } => {
+                // Stays a `PrimOp` in `Emit` mode too: a constrained body's
+                // operators were desugared to method calls before inference.
                 self.emit_dict_args(*id, *span, super::OccurrenceKind::Operator);
                 self.lower_infix(left, operator, right, *span, *id)
             }
@@ -169,6 +173,9 @@ impl<'a> super::AstLowerer<'a> {
                 id,
             } => {
                 self.record_call_span(function.expr_id(), *span);
+                if self.evidence_mode == super::EvidenceMode::Emit {
+                    return self.lower_call_from_evidence(function, arguments, *id, *span);
+                }
                 // Phase 4 Step 5: compile-time class method dispatch.
                 // If the callee is a class method and the argument type is known,
                 // resolve directly to the mangled instance function.

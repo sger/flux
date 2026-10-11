@@ -22,7 +22,6 @@
 use crate::{
     ast::type_infer::constraint::{SchemeConstraint, WantedClassConstraintOrigin},
     core::{CoreBinder, CoreBinderId, CoreExpr, FluxRep},
-    diagnostics::DiagnosticBuilder,
     source::position::Span,
     syntax::{Identifier, expression::ExprId, interner::Interner},
     types::{class_id::ClassId, evidence::EvidenceSite, translate::DictArg},
@@ -150,12 +149,7 @@ impl AstLowerer<'_> {
             .interner
             .and_then(|interner| interner.try_resolve(name))
             .unwrap_or("<unnamed>");
-        let error = crate::ice!(format!(
-            "lowering `{name}` at {}:{} from its evidence: {problem}",
-            span.start.line, span.start.column
-        ))
-        .with_span(span);
-        self.errors.push(error);
+        self.site_error(span, &format!("the definition `{name}`: {problem}"));
     }
 
     /// [`Self::evidence_dict_params`] for a function nested in a body.

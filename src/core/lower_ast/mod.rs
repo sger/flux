@@ -30,6 +30,7 @@ use super::{
 
 mod binder_resolution;
 mod dict_params;
+mod emit;
 mod evidence;
 pub use evidence::{
     DefinitionDisagreement, EmittedDictArgs, EmittedSite, EvidenceMode, EvidenceShadow,
