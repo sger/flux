@@ -3158,3 +3158,45 @@ fn main() {{
         "`size(4)` calls the method"
     );
 }
+
+/// A call qualified by the module that declares the class, in the same
+/// program, is typed as the method and raises its predicate. The method's
+/// dispatch stub is not a public member of the module, so no member scheme
+/// types `M.my_eq`; the class env's signature does.
+#[test]
+fn a_call_qualified_by_the_declaring_module_raises_its_predicate() {
+    let (program, interner) = parse_program(
+        r#"
+module M {
+    public class MyEq<a> {
+        fn my_eq(x: a, y: a) -> Bool
+    }
+    public instance MyEq<Int> {
+        fn my_eq(x, y) { x == y }
+    }
+}
+
+M.my_eq(1, 2);
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let call = program
+        .statements
+        .iter()
+        .find_map(|stmt| match stmt {
+            Statement::Expression { expression, .. } => Some(expression.expr_id()),
+            _ => None,
+        })
+        .expect("the program ends in the call");
+    assert!(
+        compiler.evidence_map.is_method_call(call),
+        "inference classifies `M.my_eq(1, 2)` as a method call"
+    );
+    assert_eq!(
+        compiler.evidence_map.raised(call),
+        1,
+        "the call raises its `MyEq` predicate"
+    );
+}

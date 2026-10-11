@@ -570,29 +570,6 @@ fn remap_public_instance_entry(
     }
 }
 
-fn build_public_class_method_scheme(
-    class_def: &crate::types::class_env::ClassDef,
-    method: &crate::types::class_env::MethodSig,
-    interner: &Interner,
-) -> Scheme {
-    // The conversion happens once, when the class is collected, and is shared
-    // by every consumer; this is only the generalization step. The fallback
-    // re-converts for a `MethodSig` built without one — the synthetic
-    // placeholders in dictionary elaboration and in tests.
-    let fun = method.infer_type.clone().unwrap_or_else(|| {
-        crate::types::class_env::method_infer_type(
-            &class_def.type_params,
-            &method.type_params,
-            &method.param_types,
-            &method.return_type,
-            &method.effects,
-            interner,
-        )
-        .expect("public class method signature should convert")
-    });
-    crate::types::scheme::generalize(&fun, &HashSet::new())
-}
-
 fn collect_implicit_type_params(ty: &TypeExpr, interner: &Interner, out: &mut HashSet<Identifier>) {
     match ty {
         TypeExpr::Named { name, args, .. } => {
@@ -927,16 +904,13 @@ fn preload_imported_instance_schemes(
         };
         out.insert(
             mangled_sym,
-            build_public_class_method_scheme(
-                &crate::types::class_env::ClassDef {
-                    type_params: vec![],
-                    methods: vec![],
-                    default_methods: vec![],
-                    ..class_def.clone()
-                },
-                &specialized_method,
-                interner,
-            ),
+            crate::types::class_env::ClassDef {
+                type_params: vec![],
+                methods: vec![],
+                default_methods: vec![],
+                ..class_def.clone()
+            }
+            .method_scheme(&specialized_method, interner),
         );
     }
 }
@@ -2677,8 +2651,7 @@ impl Compiler {
                             self.symbol_table.define(qualified, Span::default());
                         }
                         self.preloaded_imported_globals.insert(qualified);
-                        let scheme =
-                            build_public_class_method_scheme(&class_def, method, &self.interner);
+                        let scheme = class_def.method_scheme(method, &self.interner);
                         self.cached_member_schemes
                             .insert((module_name, method.name), scheme);
                         self.module_function_visibility
@@ -4481,9 +4454,9 @@ impl Compiler {
                     method.name,
                 ) == Some(class.class_id());
                 if unique {
-                    schemes.entry(method.name).or_insert_with(|| {
-                        build_public_class_method_scheme(class, method, &self.interner)
-                    });
+                    schemes
+                        .entry(method.name)
+                        .or_insert_with(|| class.method_scheme(method, &self.interner));
                 }
             }
         }

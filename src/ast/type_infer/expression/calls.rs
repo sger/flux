@@ -720,17 +720,20 @@ impl<'a> InferCtx<'a> {
             .get(module_name)
             .copied()
             .unwrap_or(*module_name);
-        if !self.knows_module_member(*module_name, member) {
+        let declared = self.class_env.as_ref()?.resolve_qualified_method_class_id(
+            target_module,
+            member,
+            self.interner,
+        );
+        // A method of a class the module declares is one even when no member
+        // scheme names it; `declared_class_method_scheme` types it then.
+        if declared.is_none() && !self.knows_module_member(*module_name, member) {
             return None;
         }
-        let class_id = self
-            .class_env
-            .as_ref()?
-            .resolve_qualified_method_class_id(target_module, member, self.interner)
-            .or_else(|| {
-                let id = self.lookup_class_method(member)?;
-                (member == id.name || *module_name == id.name).then_some(id)
-            })?;
+        let class_id = declared.or_else(|| {
+            let id = self.lookup_class_method(member)?;
+            (member == id.name || *module_name == id.name).then_some(id)
+        })?;
         Some(ResolvedClassMethodCall {
             class_name: class_id.name,
             class_id,

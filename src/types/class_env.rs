@@ -21,6 +21,7 @@ use crate::{
         class_id::{ClassId, ModulePath},
         class_surface::ClassSurface,
         infer_type::InferType,
+        scheme::Scheme,
         type_constructor::TypeConstructor,
     },
 };
@@ -161,6 +162,29 @@ impl ClassDef {
     /// flip lands the `ClassEnv` will key on this directly.
     pub fn class_id(&self) -> ClassId {
         ClassId::new(self.module, self.name)
+    }
+
+    /// The scheme a name bound to this class's `method` has: the method's
+    /// signature over the class's and the method's own type parameters,
+    /// generalized. Its class predicate is not part of it; a call raises that
+    /// from the arguments.
+    pub fn method_scheme(&self, method: &MethodSig, interner: &Interner) -> Scheme {
+        // The conversion happens once, when the class is collected, and is
+        // shared by every consumer; this is only the generalization step. The
+        // fallback re-converts for a `MethodSig` built without one — the
+        // synthetic placeholders in dictionary elaboration and in tests.
+        let fun = method.infer_type.clone().unwrap_or_else(|| {
+            method_infer_type(
+                &self.type_params,
+                &method.type_params,
+                &method.param_types,
+                &method.return_type,
+                &method.effects,
+                interner,
+            )
+            .expect("class method signature should convert")
+        });
+        crate::types::scheme::generalize(&fun, &std::collections::HashSet::new())
     }
 }
 
