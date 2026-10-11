@@ -76,6 +76,8 @@ impl<'a> InferCtx<'a> {
             _ => (None, None),
         };
 
+        self.record_class_method_call(&input);
+
         // Check if callee is a class method (for post-inference constraint emission).
         let class_method_info =
             self.class_method_call_info(input.function, input.arguments, input.span);
@@ -583,6 +585,63 @@ impl<'a> InferCtx<'a> {
                 self.qualified_class_method_call(object, *member, function, first_arg_id, span)
             }
             _ => None,
+        }
+    }
+
+    /// Remember the call being inferred if it calls a class method, unless it
+    /// is generated code, which has no span to report.
+    fn record_class_method_call(&mut self, input: &CallInferInput<'_>) {
+        if input.span != Span::default()
+            && self.names_class_method(input.function)
+            && let Some(call_id) = self.current_expr
+        {
+            self.class_method_calls.insert(call_id);
+        }
+    }
+
+    /// Whether `function` names a class method rather than a value, whatever
+    /// the call's arguments.
+    ///
+    /// A bare name is a method when a class in scope declares it and the
+    /// name is unbound, bound to a generated dispatch stub (whose span is the
+    /// default one), or bound by the preloaded top-level environment. A
+    /// parameter or local binding of the same name is not: it is bound in an
+    /// inner scope with no span. A qualified name is a method when the module
+    /// it names declares a class with that method, or when it is qualified by
+    /// the class itself.
+    fn names_class_method(&self, function: &Expression) -> bool {
+        match function {
+            Expression::Identifier { name, .. } => {
+                let method_binding = match self.env.lookup_span(*name) {
+                    Some(span) => span == Span::default(),
+                    None => {
+                        self.env.lookup(*name).is_none()
+                            || self.env.visible_binding_level(*name) == Some(0)
+                    }
+                };
+                method_binding && self.lookup_class_method(*name).is_some()
+            }
+            Expression::MemberAccess { object, member, .. } => {
+                let Expression::Identifier {
+                    name: qualifier, ..
+                } = object.as_ref()
+                else {
+                    return false;
+                };
+                let target = self
+                    .module_aliases
+                    .get(qualifier)
+                    .copied()
+                    .unwrap_or(*qualifier);
+                self.class_env.as_ref().is_some_and(|class_env| {
+                    class_env
+                        .resolve_qualified_method_class_id(target, *member, self.interner)
+                        .is_some()
+                }) || self
+                    .lookup_class_method(*member)
+                    .is_some_and(|class_id| class_id.name == *qualifier)
+            }
+            _ => false,
         }
     }
 

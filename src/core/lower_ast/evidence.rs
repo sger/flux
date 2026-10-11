@@ -90,6 +90,10 @@ pub struct EvidenceShadow {
     /// Each definition whose evidence parameters lowering did not create,
     /// because elaboration would not have created the same ones (step 1d).
     pub definitions: HashMap<ExprId, DefinitionDisagreement>,
+    /// Each class-method call that raised no `MethodCall` predicate, with
+    /// its span and method. The existing paths still dispatch it, from the
+    /// argument types; evidence has nothing to dispatch it with.
+    pub unraised: HashMap<ExprId, (Span, Identifier)>,
 }
 
 /// Why lowering left a definition's evidence parameters to elaboration.

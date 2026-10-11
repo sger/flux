@@ -48,6 +48,16 @@ impl AstLowerer<'_> {
         let (func, mut args) = if self.raised_method_call(call_id) {
             self.method_call_from_evidence(function, call_id, span)
         } else {
+            if let Some(method) = self.unraised_method_call(function, call_id) {
+                let method = self
+                    .interner
+                    .and_then(|interner| interner.try_resolve(method))
+                    .unwrap_or("<unnamed>");
+                self.site_error(
+                    span,
+                    &format!("the call to the class method `{method}` raised no predicate"),
+                );
+            }
             self.constrained_call_from_evidence(function, arguments)
         };
         args.extend(arguments.iter().map(|argument| self.lower_expr(argument)));
@@ -58,8 +68,26 @@ impl AstLowerer<'_> {
         }
     }
 
+    /// The method a call inference classified as a class-method call names,
+    /// when the call raised no predicate for it.
+    pub(super) fn unraised_method_call(
+        &self,
+        function: &Expression,
+        call_id: ExprId,
+    ) -> Option<Identifier> {
+        let evidence = self.evidence?;
+        if !evidence.is_method_call(call_id) || self.raised_method_call(call_id) {
+            return None;
+        }
+        match function {
+            Expression::Identifier { name, .. } => Some(*name),
+            Expression::MemberAccess { member, .. } => Some(*member),
+            _ => None,
+        }
+    }
+
     /// Whether the call `call_id` raised its method's predicate.
-    fn raised_method_call(&self, call_id: ExprId) -> bool {
+    pub(super) fn raised_method_call(&self, call_id: ExprId) -> bool {
         self.evidence
             .and_then(|evidence| evidence.predicate(&EvidenceSite::new(call_id, 0)))
             .is_some_and(|predicate| predicate.origin == WantedClassConstraintOrigin::MethodCall)

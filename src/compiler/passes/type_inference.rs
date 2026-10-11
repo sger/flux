@@ -39,6 +39,7 @@ impl Compiler {
         self.cached_member_schemes
             .extend(module_member_schemes.clone());
         let class_constraints: WantedConstraints = hm_final.class_constraints;
+        let class_method_calls = hm_final.class_method_calls;
         let instantiated_expr_vars = hm_final.instantiated_expr_vars;
         let resolved_binding_schemes = hm_final.resolved_binding_schemes;
 
@@ -75,7 +76,8 @@ impl Compiler {
         tag_diagnostics(&mut strict_diags, DiagnosticPhase::TypeInference);
         hm_diagnostics.extend(strict_diags);
 
-        hm_diagnostics.extend(self.solve_class_constraints(&class_constraints));
+        hm_diagnostics
+            .extend(self.solve_class_constraints(&class_constraints, &class_method_calls));
 
         self.has_hm_diagnostics = hm_diagnostics
             .iter()
@@ -132,6 +134,7 @@ impl Compiler {
     pub(in crate::compiler) fn solve_class_constraints(
         &mut self,
         class_constraints: &WantedConstraints,
+        class_method_calls: &std::collections::HashSet<crate::syntax::expression::ExprId>,
     ) -> Vec<crate::diagnostics::Diagnostic> {
         self.evidence_map = crate::types::evidence::EvidenceMap::new();
         let mut solver_diags = Vec::new();
@@ -158,6 +161,7 @@ impl Compiler {
         // tree solved, and still has dictionary parameters.
         self.evidence_map
             .record_definitions(class_constraints, &self.class_env);
+        self.evidence_map.record_method_calls(class_method_calls);
         if std::env::var("FLUX_DBG_EVIDENCE").is_ok() {
             self.dump_evidence_map();
         }

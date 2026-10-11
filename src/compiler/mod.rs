@@ -2123,7 +2123,8 @@ impl Compiler {
         // solved (a merged program has its ids shifted), so its evidence is
         // solved again with the types above. The diagnostics are dropped: each
         // unit's compile already reported them for the same source.
-        let _ = self.solve_class_constraints(&hm_final.class_constraints);
+        let _ =
+            self.solve_class_constraints(&hm_final.class_constraints, &hm_final.class_method_calls);
     }
 
     #[allow(clippy::result_large_err)]

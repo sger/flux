@@ -106,6 +106,9 @@ enum Verdict {
     Unreached,
     /// The occurrence's id names a different expression in the evidence map.
     Mismatched,
+    /// A class-method call that raised no predicate: the existing paths
+    /// dispatch it from the argument types, and evidence has nothing for it.
+    Unraised,
 }
 
 impl Verdict {
@@ -119,6 +122,7 @@ impl Verdict {
             Verdict::Generated => "generated",
             Verdict::Unreached => "unreached",
             Verdict::Mismatched => "mismatched",
+            Verdict::Unraised => "unraised",
         }
     }
 
@@ -175,6 +179,14 @@ pub fn report_evidence_diff(
         lines.push((span, Verdict::Unreached, detail));
     }
 
+    for (span, method) in shadow.unraised.values() {
+        lines.push((
+            *span,
+            Verdict::Unraised,
+            format!("`{}`", interner.resolve(*method)),
+        ));
+    }
+
     lines.sort_by_key(|(span, verdict, detail)| {
         (span.start.line, span.start.column, *verdict, detail.clone())
     });
@@ -191,6 +203,7 @@ pub fn report_evidence_diff(
         Verdict::Generated,
         Verdict::Unreached,
         Verdict::Mismatched,
+        Verdict::Unraised,
     ]
     .iter()
     .map(|v| format!("{} {}", v.label(), counts.get(v).copied().unwrap_or(0)))

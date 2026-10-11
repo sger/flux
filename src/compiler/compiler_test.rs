@@ -3040,3 +3040,121 @@ fn collect_callees_named(
         }
     }
 }
+
+/// E0: a call inference classified as a class-method call, but which raised
+/// no predicate, is an internal error in `Emit` mode, not a call to the
+/// method's dispatch stub.
+#[test]
+fn emitting_evidence_reports_a_method_call_that_raised_no_predicate() {
+    let (program, interner) = parse_program(&format!(
+        r#"{SIZED_CLASS}
+fn main() {{
+    size(3)
+}}
+"#
+    ));
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+    let program = program_to_lower(&mut compiler, &program);
+
+    let size_call = program
+        .statements
+        .iter()
+        .find_map(|stmt| match stmt {
+            Statement::Function { name, body, .. }
+                if compiler.interner.resolve(*name) == "main" =>
+            {
+                match body.statements.last() {
+                    Some(Statement::Expression { expression, .. }) => Some(expression.expr_id()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .expect("`main` ends in the call");
+    assert!(
+        compiler.evidence_map.is_method_call(size_call),
+        "inference classifies `size(3)` as a method call"
+    );
+    // Classified, and raised nothing: what a unit compile records for a
+    // method its inference could not type.
+    let mut evidence = crate::types::evidence::EvidenceMap::new();
+    evidence.record_method_calls(&std::collections::HashSet::from([size_call]));
+    let (_, errors) = lower_emitting(&compiler, &program, &evidence);
+    let messages: Vec<_> = errors
+        .iter()
+        .map(|error| error.message().unwrap_or_default().to_string())
+        .collect();
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("class method `size` raised no predicate")),
+        "the call to `size` is reported: {messages:?}"
+    );
+}
+
+/// E0: a parameter named like a class method shadows the method. Calling it
+/// is a call to the parameter, so inference does not classify it as a
+/// class-method call, though the method's dispatch stub is bound further out.
+#[test]
+fn a_parameter_named_like_a_method_is_not_a_method_call() {
+    let (program, interner) = parse_program(&format!(
+        r#"{SIZED_CLASS}
+fn apply(size, x) {{
+    size(x)
+}}
+
+fn main() {{
+    apply(fn(n) {{ n + 1 }}, 3) + size(4)
+}}
+"#
+    ));
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let call_in = |function: &str| {
+        program
+            .statements
+            .iter()
+            .find_map(|stmt| match stmt {
+                Statement::Function { name, body, .. }
+                    if compiler.interner.resolve(*name) == function =>
+                {
+                    match body.statements.last() {
+                        Some(Statement::Expression { expression, .. }) => {
+                            Some(expression.expr_id())
+                        }
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+            .expect("the function ends in an expression")
+    };
+    assert!(
+        !compiler.evidence_map.is_method_call(call_in("apply")),
+        "`size(x)` calls the parameter"
+    );
+    let size_4 = program
+        .statements
+        .iter()
+        .find_map(|stmt| match stmt {
+            Statement::Function { name, body, .. }
+                if compiler.interner.resolve(*name) == "main" =>
+            {
+                match body.statements.last() {
+                    Some(Statement::Expression {
+                        expression: crate::syntax::expression::Expression::Infix { right, .. },
+                        ..
+                    }) => Some(right.expr_id()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .expect("`main` ends in a sum");
+    assert!(
+        compiler.evidence_map.is_method_call(size_4),
+        "`size(4)` calls the method"
+    );
+}
