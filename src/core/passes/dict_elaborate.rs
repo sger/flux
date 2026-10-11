@@ -94,6 +94,36 @@ pub fn elaborate_dictionaries_with_def_schemes(
     // Phase 4: Insert dictionary arguments at call sites.
     insert_dict_args_at_call_sites(program, class_env, type_env, def_schemes, interner);
 
+    define_referenced_dictionaries(program, class_env, interner, next_id);
+}
+
+/// Define the dictionaries a program lowered from evidence refers to.
+///
+/// Lowering in `EvidenceMode::Emit` has already given each constrained
+/// definition its parameters and each call its dictionaries, so neither
+/// `rewrite_constrained_functions` nor `insert_dict_args_at_call_sites` runs:
+/// what is left is defining the `__dict_*` globals the program names.
+pub fn build_referenced_dictionaries(
+    program: &mut CoreProgram,
+    class_env: &ClassEnv,
+    interner: &Interner,
+    next_id: &mut u32,
+) {
+    normalize_all_existing_dict_param_types(program, interner);
+    if class_env.classes.is_empty() {
+        return;
+    }
+    define_referenced_dictionaries(program, class_env, interner, next_id);
+}
+
+/// Prepend a definition for every dictionary the program refers to, and for
+/// every dictionary those refer to, each before its first user.
+fn define_referenced_dictionaries(
+    program: &mut CoreProgram,
+    class_env: &ClassEnv,
+    interner: &Interner,
+    next_id: &mut u32,
+) {
     let referenced_dicts = collect_referenced_dictionary_names(program, interner);
     if referenced_dicts.is_empty() {
         return;
@@ -2919,5 +2949,45 @@ mod tests {
             crate::types::type_constructor::TypeConstructor::Int,
         ));
         assert!(scheme.constraints.is_empty());
+    }
+
+    /// The evidence path's elaboration only defines the dictionaries the
+    /// program names: lowering already gave every body its parameters and
+    /// arguments, so nothing in a body is rewritten.
+    #[test]
+    fn build_referenced_dictionaries_defines_dictionaries_and_leaves_bodies_alone() {
+        let mut interner = Interner::new();
+        let class_env = build_eq_class_env(&mut interner);
+        let eq = interner.lookup("eq").expect("eq interned");
+        let dict = interner
+            .lookup("__dict_Eq_Int")
+            .expect("dictionary interned");
+        let x = mk_binder(1, interner.intern("x"));
+        let body = CoreExpr::lambda(
+            vec![x],
+            CoreExpr::App {
+                func: Box::new(CoreExpr::external_var(eq, s())),
+                args: vec![
+                    CoreExpr::external_var(dict, s()),
+                    CoreExpr::bound_var(&x, s()),
+                    CoreExpr::bound_var(&x, s()),
+                ],
+                span: s(),
+            },
+            s(),
+        );
+        let f = CoreDef::new(mk_binder(0, interner.intern("f")), body.clone(), false, s());
+        let mut program = CoreProgram {
+            defs: vec![f],
+            top_level_items: Vec::new(),
+        };
+        let mut next_id = 2;
+
+        build_referenced_dictionaries(&mut program, &class_env, &interner, &mut next_id);
+
+        let names: Vec<_> = program.defs.iter().map(|def| def.name).collect();
+        assert_eq!(names, [dict, interner.lookup("f").unwrap()]);
+        assert!(program.defs[0].is_dict_def);
+        assert_eq!(format!("{:?}", program.defs[1].expr), format!("{body:?}"));
     }
 }

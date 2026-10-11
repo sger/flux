@@ -101,7 +101,7 @@ fn lower_program_to_ir_impl(
     class_env: Option<&crate::types::class_env::ClassEnv>,
     evidence: Option<crate::core::passes::evidence_diff::EvidenceSource<'_>>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    let (mut core, _, shadow) =
+    let (mut core, _, shadow, errors) =
         crate::core::lower_ast::lower_program_ast_with_class_env_and_def_schemes(
             program,
             hm_expr_types,
@@ -111,7 +111,11 @@ fn lower_program_to_ir_impl(
             class_env,
             None,
             evidence.map(|source| source.map),
+            crate::core::lower_ast::EvidenceMode::Shadow,
         );
+    if let Some(error) = errors.into_iter().next() {
+        return Err(error);
+    }
 
     // Dictionary elaboration (Proposal 0145, Step 5b):
     // If class_env and type_env are available, run dictionary elaboration
