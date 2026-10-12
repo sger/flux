@@ -42,6 +42,7 @@ impl Compiler {
             let _ = self.leave_scope();
         }
         self.warnings.clear();
+        self.private_member_schemes.clear();
         self.file_scope_symbols.clear();
         self.imported_modules.clear();
         self.unit_function_names.clear();

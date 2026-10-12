@@ -36,6 +36,7 @@ impl Compiler {
         self.type_env = hm_final.type_env;
         self.hm_expr_types = hm_final.expr_types;
         let module_member_schemes = hm_final.module_member_schemes;
+        self.private_member_schemes = hm_final.private_member_schemes;
         self.cached_member_schemes
             .extend(module_member_schemes.clone());
         let class_constraints: WantedConstraints = hm_final.class_constraints;

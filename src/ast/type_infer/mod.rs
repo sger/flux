@@ -228,6 +228,9 @@ struct InferCtx<'a> {
     /// Every call inference classified as a call to a class method, whether
     /// or not it could raise the method's predicate (0.0.8 plan, step 1e).
     class_method_calls: HashSet<ExprId>,
+    /// Schemes of the unit's private module members, by (module, member).
+    /// Kept apart from `module_member_schemes`, which feeds interfaces.
+    private_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
     /// Type variables allocated as fallback after inference failures.
     /// These are "tainted" — if they appear in a binding's resolved type,
     /// the binding has unresolved inference even if the scheme is mono.
@@ -365,6 +368,7 @@ impl<'a> InferCtx<'a> {
             class_constraints: constraint::WantedConstraints::default(),
             class_method_dispatch: HashMap::new(),
             class_method_calls: HashSet::new(),
+            private_member_schemes: HashMap::new(),
             class_sym_eq: None,
             class_sym_ord: None,
             class_sym_num: None,
@@ -1109,6 +1113,10 @@ fn build_infer_result(mut ctx: InferCtx<'_>) -> InferProgramResult {
         resolved_binding_schemes_by_span,
         class_method_dispatch: ctx.class_method_dispatch,
         class_method_calls: ctx.class_method_calls,
+        private_member_schemes: resolve_module_member_schemes(
+            ctx.private_member_schemes,
+            &ctx.subst,
+        ),
     }
 }
 
@@ -1340,6 +1348,10 @@ pub struct InferProgramResult {
     /// Lowering from evidence needs the method's predicate at each of them;
     /// one that raised none has nothing to dispatch with.
     pub class_method_calls: HashSet<ExprId>,
+    /// Schemes of the unit's private module members, by (module, member).
+    /// The VM reads a member's dictionary layout from its scheme, and a
+    /// private member is in no interface.
+    pub private_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
 }
 
 /// Where a class-method call site dispatched to — enough to identify
