@@ -3273,3 +3273,26 @@ fn main() {
         "the error names the callee: {message}"
     );
 }
+
+/// A top-level statement is not a definition, but an undetermined class
+/// parameter it raises is just as ambiguous: nothing can fix `largest([])`'s
+/// element type, so no `Sized` instance can be chosen. It is E459, as inside
+/// a function, rather than the `Int` the old lowering guessed.
+#[test]
+fn an_undetermined_class_parameter_at_top_level_is_reported() {
+    let (program, interner) = parse_program(&format!(
+        r#"{SIZED_CLASS}
+fn largest<a: Sized>(xs: List<a>) -> Int {{
+    0
+}}
+
+let n = largest([]);
+"#
+    ));
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let errors = compiler
+        .compile(&program)
+        .expect_err("the `Sized` instance is undetermined");
+    let codes: Vec<_> = errors.iter().filter_map(|error| error.code()).collect();
+    assert!(codes.contains(&"E459"), "E459 is reported: {codes:?}");
+}

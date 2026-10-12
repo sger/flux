@@ -46,9 +46,33 @@ impl<'a> InferCtx<'a> {
             if let Some(members) = group_at.get(&index) {
                 self.infer_binding_group(members);
             } else if !covered.contains(&index) {
-                self.infer_statement(stmt);
+                self.infer_top_level_statement(stmt);
             }
         }
+    }
+
+    /// Infer a statement of a program or module body, and report the
+    /// predicates it leaves over a variable nothing determines (E459).
+    ///
+    /// A definition judges its own body. A `let` or an expression at this
+    /// level is not a definition, but `let n = largest([])` is ambiguous all
+    /// the same: nothing can fix the list's element type, so no instance can
+    /// be chosen. A `let`'s own type is determined, so a generalized binding
+    /// is not judged ambiguous. A destructuring `let` is left alone: its type
+    /// is spread over the names it binds.
+    fn infer_top_level_statement(&mut self, stmt: &Statement) {
+        let window = self.class_constraints.open_window();
+        self.infer_statement(stmt);
+        let binding_type = match stmt {
+            Statement::Let { name, .. } => self
+                .env
+                .lookup(*name)
+                .map(|scheme| scheme.infer_type.clone())
+                .unwrap_or_else(|| InferType::Tuple(Vec::new())),
+            Statement::Expression { .. } | Statement::Assign { .. } => InferType::Tuple(Vec::new()),
+            _ => return,
+        };
+        self.report_ambiguous_uses(&binding_type, window);
     }
 
     /// The statement list, planned into binding groups.
@@ -325,7 +349,7 @@ impl<'a> InferCtx<'a> {
                     self.capture_public_module_member_scheme(module_name, member);
                 }
             } else if !covered.contains(&index) {
-                self.infer_statement(stmt);
+                self.infer_top_level_statement(stmt);
                 self.capture_public_module_member_scheme(module_name, stmt);
             }
         }

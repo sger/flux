@@ -653,7 +653,11 @@ impl<'a> InferCtx<'a> {
     /// this context knows: which variables other definitions own, and whether
     /// the definition already failed — an arity error leaves its arguments
     /// unconstrained, and calling that ambiguity would only repeat it.
-    fn report_ambiguous_uses(&mut self, fn_ty: &InferType, window: constraint::CaptureWindow) {
+    pub(super) fn report_ambiguous_uses(
+        &mut self,
+        fn_ty: &InferType,
+        window: constraint::CaptureWindow,
+    ) {
         if self
             .body_facts
             .arity_mismatches
