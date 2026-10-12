@@ -237,7 +237,11 @@ use sha2::{Digest, Sha256};
 /// Epoch 73: an undetermined class parameter raised by a top-level or
 /// module-level `let` or expression is E459, where an epoch-72 unit compiled
 /// it with no instance chosen.
-pub const CACHE_EPOCH: u16 = 73;
+/// Epoch 74: the VM's CFG path takes dictionary parameters and arguments
+/// from evidence too, so a dispatch stub's bytecode takes no dictionary where
+/// an epoch-73 one took the unused one elaboration gave it. An unbound name a
+/// unit's class method claims is typed as that method.
+pub const CACHE_EPOCH: u16 = 74;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

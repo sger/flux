@@ -2052,6 +2052,30 @@ impl Compiler {
                     .collect()
             })
             .unwrap_or_default();
+        // 0.0.8 plan step 1e: the IR takes its dictionary parameters from
+        // evidence, while the layout above comes from the scheme. Both are the
+        // call ABI, so they must agree. A class method's dispatch stub is the
+        // exception: its scheme carries the method's predicate, but no call
+        // passes it a dictionary, since a method call that raised its
+        // predicate goes to an instance or a dictionary instead.
+        if let Some(ir_fn) = ir_function
+            && !matches!(ir_fn.origin, crate::cfg::IrFunctionOrigin::FunctionLiteral)
+            && !self.generated_dispatch_stub_names.contains(&name)
+        {
+            let expected = parameters.len() - existing_dict_count + required_dict_count;
+            if ir_fn.params.len() != expected {
+                self.current_function_name = previous_function_name;
+                return Err(Self::boxed(
+                    crate::ice!(format!(
+                        "`{}` takes {} parameters in its IR, from evidence, but its scheme \
+                         gives it {expected}",
+                        self.sym(name),
+                        ir_fn.params.len(),
+                    ))
+                    .with_span(function_span),
+                ));
+            }
+        }
         let dict_names = if ir_dict_names.len() >= required_dict_count {
             ir_dict_names[..required_dict_count].to_vec()
         } else {

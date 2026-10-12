@@ -3262,7 +3262,8 @@ fn main() {
 "#,
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    compiler.compile(&program).expect("the program compiles");
+    // The VM path reports it too (C3a); the Core path is checked on its own.
+    let _ = compiler.compile(&program);
 
     let error = compiler
         .prepare_core_program(&program, false, true)
@@ -3271,6 +3272,41 @@ fn main() {
     assert!(
         message.contains("`has`") && message.contains("KI-101"),
         "the error names the callee: {message}"
+    );
+}
+
+/// 1e, C3a: the VM's CFG path lowers from evidence too. A recursive call that
+/// raised no predicate (KI-101) is an internal error there, as on the Core
+/// path, rather than a call elaboration re-derives the dictionaries for.
+#[test]
+fn cfg_path_reports_a_call_that_raised_no_predicate_for_its_dictionaries() {
+    let (program, interner) = parse_program(
+        r#"
+fn has<a: Eq>(xs: List<a>, x: a) {
+    match xs {
+        [h | t] -> if h == x { true } else { has(t, x) },
+        _ -> false
+    }
+}
+
+fn main() {
+    has([1, 2], 2)
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let errors = compiler
+        .compile(&program)
+        .expect_err("the recursive call has no evidence");
+    let messages: Vec<_> = errors
+        .iter()
+        .map(|error| error.message().unwrap_or_default().to_string())
+        .collect();
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("`has`") && message.contains("KI-101")),
+        "the error names the callee: {messages:?}"
     );
 }
 
@@ -3295,4 +3331,53 @@ let n = largest([]);
         .expect_err("the `Sized` instance is undetermined");
     let codes: Vec<_> = errors.iter().filter_map(|error| error.code()).collect();
     assert!(codes.contains(&"E459"), "E459 is reported: {codes:?}");
+}
+
+/// A class's default method calls a sibling method bare (`!eq(x, y)`), while
+/// a preloaded dependency declares another class with a method of that name.
+/// The name has no binding then: the dependency's stub claims it, and two
+/// classes declare it, so the imported schemes skip it. The class the name
+/// resolves to is still the unit's own, so the call is typed as its method
+/// and raises its predicate.
+#[test]
+fn a_bare_method_call_shadowing_an_imported_method_raises_its_predicate() {
+    let (dependency, interner) = parse_program(
+        r#"
+module Flow.Eq {
+    public class Eq<a> {
+        fn eq(x: a, y: a) -> Bool
+    }
+    public instance Eq<Int> {
+        fn eq(x, y) { true }
+    }
+}
+"#,
+    );
+    let (program, interner) = parse_program_with_interner(
+        r#"
+class LocalEq<a> {
+    fn eq(x: a, y: a) -> Bool
+    fn neq(x: a, y: a) -> Bool { !eq(x, y) }
+}
+
+instance LocalEq<Int> {
+    fn eq(x, y) { x == y }
+}
+
+fn main() {
+    neq(1, 2)
+}
+"#,
+        interner,
+    );
+    // One compiler for both units, the dependency compiled first: what the
+    // driver and the fixture harness do.
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile(&dependency)
+        .expect("the dependency compiles");
+    compiler.preload_dependency_program(&dependency);
+    compiler
+        .compile(&program)
+        .expect("every method call raised its predicate");
 }

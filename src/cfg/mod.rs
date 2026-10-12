@@ -101,7 +101,15 @@ fn lower_program_to_ir_impl(
     class_env: Option<&crate::types::class_env::ClassEnv>,
     evidence: Option<crate::core::passes::evidence_diff::EvidenceSource<'_>>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    let (mut core, _, shadow, errors) =
+    // 0.0.8 plan step 1e: with the unit's evidence, dictionary parameters,
+    // arguments and method calls come from it, and elaboration only defines
+    // the dictionaries the program names.
+    let mode = if evidence.is_some() {
+        crate::core::lower_ast::EvidenceMode::Emit
+    } else {
+        crate::core::lower_ast::EvidenceMode::Shadow
+    };
+    let (mut core, _, _, errors) =
         crate::core::lower_ast::lower_program_ast_with_class_env_and_def_schemes(
             program,
             hm_expr_types,
@@ -111,9 +119,12 @@ fn lower_program_to_ir_impl(
             class_env,
             None,
             evidence.map(|source| source.map),
-            crate::core::lower_ast::EvidenceMode::Shadow,
+            mode,
         );
-    if let Some(error) = errors.into_iter().next() {
+    if let Some(mut error) = errors.into_iter().next() {
+        if let Some(source) = evidence {
+            error.set_file(source.file_path.to_string());
+        }
         return Err(error);
     }
 
@@ -130,9 +141,10 @@ fn lower_program_to_ir_impl(
         // `multiply` duplicate binder CoreBinderId(5) in Lam`. Latent while few
         // functions carried dictionaries; reachable as soon as more do.
         let mut next_id = crate::core::passes::next_fresh_binder_id(&core);
-        crate::core::passes::elaborate_dictionaries(&mut core, ce, te, int, &mut next_id);
-        if let Some(source) = evidence {
-            source.report_if_enabled(&core, &shadow, int);
+        if evidence.is_some() {
+            crate::core::passes::build_referenced_dictionaries(&mut core, ce, int, &mut next_id);
+        } else {
+            crate::core::passes::elaborate_dictionaries(&mut core, ce, te, int, &mut next_id);
         }
     }
 
