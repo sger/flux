@@ -3381,3 +3381,27 @@ fn main() {
         .compile(&program)
         .expect("every method call raised its predicate");
 }
+
+/// A compile that returns early from inside a function's scope must not leave
+/// that scope open for the next unit: the compiler is shared across modules,
+/// and the next file's first `import` would then be inside a function (E017).
+#[test]
+fn a_new_compile_starts_at_file_scope() {
+    let (program, interner) = parse_program("import Flow.Array as Array\nlet x = 1;\n");
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    // What an early return inside `compile_function_statement` leaves behind.
+    compiler.enter_scope();
+    let result = compiler.compile(&program);
+    let codes: Vec<_> = result
+        .err()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|error| error.code())
+        .map(str::to_string)
+        .collect();
+    assert!(
+        !codes.iter().any(|code| code == "E017"),
+        "the import is at file scope: {codes:?}"
+    );
+    assert_eq!(compiler.scope_index, 0);
+}
