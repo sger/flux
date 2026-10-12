@@ -2064,6 +2064,7 @@ impl Compiler {
         {
             let expected = parameters.len() - existing_dict_count + required_dict_count;
             if ir_fn.params.len() != expected {
+                let _ = self.leave_scope();
                 self.current_function_name = previous_function_name;
                 return Err(Self::boxed(
                     crate::ice!(format!(
