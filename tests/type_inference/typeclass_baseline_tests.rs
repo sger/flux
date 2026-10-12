@@ -1663,20 +1663,17 @@ fn every_flow_list_call_predicate_has_evidence() {
     );
 }
 
-/// The `unraised` count the evidence diff reports for a fixture's own unit:
-/// its class-method calls that raised no predicate in the unit's compile.
-fn entry_unraised_count(name: &str) -> usize {
-    unit_unraised_count(name, &fixture_path(name))
-}
-
-/// The `unraised` count for `unit`, one of the units compiling the fixture
-/// `name` builds.
-fn unit_unraised_count(name: &str, unit: &std::path::Path) -> usize {
-    let scratch = parity::scratch::Scratch::new(&format!("typeclass-unraised-{name}"));
+/// Run a fixture and require that it succeeds with no internal error.
+///
+/// Lowering takes its dictionaries from evidence and fails closed: a
+/// class-method call that raised no predicate is an internal error naming the
+/// method, in whichever unit it sits. A clean run is the proof each call
+/// raised its predicate.
+fn assert_lowers_from_evidence(name: &str) {
+    let scratch = parity::scratch::Scratch::new(&format!("typeclass-evidence-{name}"));
     let fixture = fixture_path(name);
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
-        .env("FLUX_DBG_EVIDENCE_DIFF", "1")
         .args([
             fixture.to_str().expect("fixture path is UTF-8"),
             "--no-cache",
@@ -1684,16 +1681,12 @@ fn unit_unraised_count(name: &str, unit: &std::path::Path) -> usize {
         .args(scratch.cache_args())
         .output()
         .expect("run Flux fixture");
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let header = format!("{} via cfg:", unit.display());
-    let line = stderr
-        .lines()
-        .find(|line| line.contains("EVIDENCE DIFF for") && line.contains(&header))
-        .unwrap_or_else(|| panic!("{} reports its evidence:\n{stderr}", unit.display()));
-    line.rsplit("unraised ")
-        .next()
-        .and_then(|count| count.trim().parse().ok())
-        .unwrap_or_else(|| panic!("an unraised count in `{line}`"))
+    let stderr = normalize_output(&output.stderr);
+    assert!(
+        !stderr.contains("Internal Compiler Error"),
+        "{name} lowers from evidence:\n{stderr}"
+    );
+    assert!(output.status.success(), "{name} runs:\n{stderr}");
 }
 
 /// E1: a unit that only imports `Flow.Monad` calls `fmap`, `pure` and `bind`
@@ -1701,7 +1694,7 @@ fn unit_unraised_count(name: &str, unit: &std::path::Path) -> usize {
 /// typed as the methods they are, so each call raises its predicate.
 #[test]
 fn imported_class_methods_raise_their_predicates_in_a_unit_compile() {
-    assert_eq!(entry_unraised_count("option_instances.flx"), 0);
+    assert_lowers_from_evidence("option_instances.flx");
 }
 
 /// A dependency recovered from its AST (`flux --test`, which preloads
@@ -1752,8 +1745,8 @@ fn test_twice() with IO {
 /// definition bounded by the class.
 #[test]
 fn nullary_class_methods_raise_their_predicates() {
-    assert_eq!(entry_unraised_count("mempty_result_dispatch.flx"), 0);
-    assert_eq!(entry_unraised_count("semigroup_monoid.flx"), 0);
+    assert_lowers_from_evidence("mempty_result_dispatch.flx");
+    assert_lowers_from_evidence("semigroup_monoid.flx");
 }
 
 /// E3: a module calls a method of a class declared in another of the
@@ -1762,6 +1755,5 @@ fn nullary_class_methods_raise_their_predicates() {
 /// that alias, and the call must still be typed as the method.
 #[test]
 fn alias_qualified_class_method_calls_raise_their_predicates() {
-    let service = fixture_path("EqAuditLogExample/App/Service.flx");
-    assert_eq!(unit_unraised_count("eq_auditlog_example.flx", &service), 0);
+    assert_lowers_from_evidence("eq_auditlog_example.flx");
 }

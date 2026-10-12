@@ -1396,6 +1396,10 @@ pub struct Compiler {
     /// True when HM type inference produced diagnostics. Used to block CFG path
     /// for functions in files with type errors (the Core IR may be degenerate).
     pub(super) has_hm_diagnostics: bool,
+    /// A unit's IR lowering error, held back until codegen has reported what
+    /// the unit's own errors are. Lowering from evidence fails on a site an
+    /// error left without an answer; that error is the one to report.
+    pub(super) deferred_lowering_error: Option<Diagnostic>,
     pub(super) ir_function_symbols: HashMap<FunctionId, Symbol>,
     pub(super) inferred_function_effects: HashMap<ContractKey, HashSet<Symbol>>,
     strict_mode: bool,
@@ -1959,6 +1963,7 @@ impl Compiler {
             cached_member_borrow_signatures: HashMap::new(),
             cached_member_runtime_contracts: HashMap::new(),
             has_hm_diagnostics: false,
+            deferred_lowering_error: None,
             ir_function_symbols: HashMap::new(),
             inferred_function_effects: HashMap::new(),
             strict_mode: false,
