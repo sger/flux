@@ -244,7 +244,10 @@ use sha2::{Digest, Sha256};
 /// Epoch 75: a private module member's scheme reaches the VM compiler, so a
 /// constrained one takes its dictionaries, and its sibling callers pass them,
 /// where an epoch-74 unit compiled both with none.
-pub const CACHE_EPOCH: u16 = 75;
+/// Epoch 76: the VM compiles a module's members from their IR, so they take
+/// dictionaries and dispatch from evidence, where an epoch-75 unit compiled
+/// every member on the AST path.
+pub const CACHE_EPOCH: u16 = 76;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
