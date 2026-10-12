@@ -1385,6 +1385,9 @@ pub struct Compiler {
     pub(super) evidence_map: crate::types::evidence::EvidenceMap,
     pub(super) contextual_function_contracts: HashMap<ExprId, FunctionContract>,
     pub(super) current_member_schemes: HashMap<(Symbol, Symbol), Scheme>,
+    /// The current unit's private module members' schemes, by (module,
+    /// member). Never exported: a private member is in no interface.
+    pub(super) private_member_schemes: HashMap<(Symbol, Symbol), Scheme>,
     /// Accumulated HM-inferred type schemes for public module members.
     ///
     /// Persists across `set_file_path()` calls so that downstream modules
@@ -1959,6 +1962,7 @@ impl Compiler {
             evidence_map: crate::types::evidence::EvidenceMap::new(),
             contextual_function_contracts: HashMap::new(),
             current_member_schemes: HashMap::new(),
+            private_member_schemes: HashMap::new(),
             cached_member_schemes: HashMap::new(),
             cached_member_borrow_signatures: HashMap::new(),
             cached_member_runtime_contracts: HashMap::new(),

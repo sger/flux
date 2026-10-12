@@ -2009,6 +2009,7 @@ impl Compiler {
             scheme_constraints = self
                 .cached_member_schemes
                 .iter()
+                .chain(&self.private_member_schemes)
                 .find_map(|((cached_module, cached_member), scheme)| {
                     (*cached_module == module_name
                         && self.interner.try_resolve(*cached_member) == Some(member_name))

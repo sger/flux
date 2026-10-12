@@ -241,7 +241,10 @@ use sha2::{Digest, Sha256};
 /// from evidence too, so a dispatch stub's bytecode takes no dictionary where
 /// an epoch-73 one took the unused one elaboration gave it. An unbound name a
 /// unit's class method claims is typed as that method.
-pub const CACHE_EPOCH: u16 = 74;
+/// Epoch 75: a private module member's scheme reaches the VM compiler, so a
+/// constrained one takes its dictionaries, and its sibling callers pass them,
+/// where an epoch-74 unit compiled both with none.
+pub const CACHE_EPOCH: u16 = 75;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

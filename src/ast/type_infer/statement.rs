@@ -441,11 +441,25 @@ impl<'a> InferCtx<'a> {
         }
     }
 
-    /// Export the inferred scheme for a public module member after inference.
+    /// Export the inferred scheme for a public module member after inference,
+    /// and keep a private member's apart.
     ///
-    /// Module consumers read these cached schemes for qualified lookups and
-    /// cross-module typechecking.
+    /// Module consumers read the public schemes for qualified lookups and
+    /// cross-module typechecking. A private member's scheme stays with the
+    /// unit: the VM compiler reads a member's dictionary layout from it.
     fn capture_public_module_member_scheme(&mut self, module_name: Identifier, stmt: &Statement) {
+        if let Statement::Function {
+            is_public: false,
+            name,
+            ..
+        } = stmt
+            && !crate::types::class_env::is_generated_instance_method(self.interner.resolve(*name))
+            && let Some(scheme) = self.env.lookup(*name).cloned()
+        {
+            self.private_member_schemes
+                .insert((module_name, *name), scheme);
+            return;
+        }
         let name = match stmt {
             Statement::Function {
                 is_public, name, ..

@@ -3405,3 +3405,40 @@ fn a_new_compile_starts_at_file_scope() {
     );
     assert_eq!(compiler.scope_index, 0);
 }
+
+/// C3b-2: a private module member's scheme reaches the VM compiler. Neither
+/// the qualified `type_env` lookup nor the interface schemes have it, so the
+/// compiler read no constraints for it, while its IR takes the dictionary its
+/// bound needs.
+#[test]
+fn a_private_module_member_keeps_its_scheme() {
+    let (program, interner) = parse_program(&format!(
+        r#"{SIZED_CLASS}
+module M {{
+    fn total<a: Sized>(x: a) -> Int {{
+        size(x)
+    }}
+
+    public fn run() -> Int {{
+        total(3)
+    }}
+}}
+"#
+    ));
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+    let module = compiler.interner.lookup("M").expect("`M` is interned");
+    let member = compiler
+        .interner
+        .lookup("total")
+        .expect("`total` is interned");
+    let scheme = compiler
+        .private_member_schemes
+        .get(&(module, member))
+        .expect("the private member's scheme is recorded");
+    assert_eq!(
+        scheme.constraints.len(),
+        1,
+        "`total` keeps its `Sized` bound"
+    );
+}

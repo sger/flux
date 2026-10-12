@@ -5105,6 +5105,7 @@ impl Compiler {
                 .type_env
                 .lookup(qualified)
                 .or_else(|| self.cached_member_schemes.get(&(prefix, name)))
+                .or_else(|| self.private_member_schemes.get(&(prefix, name)))
                 .cloned();
         }
         let qualified = *self.exposed_bindings.get(&name)?;
