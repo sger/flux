@@ -59,6 +59,38 @@ impl Compiler {
         })
     }
 
+    /// The IR function a member of `module` compiles from.
+    ///
+    /// Core and IR name a module's functions bare, inside the module's item,
+    /// while the VM binds them qualified (`SoleInstance.measure`), so
+    /// [`find_ir_function_by_symbol`](Self::find_ir_function_by_symbol)
+    /// never matches one. LLVM resolves them the same way
+    /// (`cfg::metadata::collect_module_functions`).
+    pub(super) fn find_ir_module_function(
+        ir_program: &IrProgram,
+        module: Symbol,
+        member: Symbol,
+    ) -> Option<&IrFunction> {
+        fn find(
+            items: &[crate::cfg::IrTopLevelItem],
+            module: Symbol,
+            member: Symbol,
+            inside: bool,
+        ) -> Option<crate::cfg::FunctionId> {
+            items.iter().find_map(|item| match item {
+                crate::cfg::IrTopLevelItem::Module { name, body, .. } => {
+                    find(body, module, member, *name == module)
+                }
+                crate::cfg::IrTopLevelItem::Function {
+                    name, function_id, ..
+                } if inside && *name == member => *function_id,
+                _ => None,
+            })
+        }
+        let id = find(ir_program.top_level_items(), module, member, false)?;
+        ir_program.function(id)
+    }
+
     /// Quick pre-codegen validation to detect semantic errors that the CFG
     /// path can't catch. Returns `true` if errors are present — caller should
     /// skip CFG and fall through to the AST path for proper error reporting.
@@ -2787,6 +2819,7 @@ impl Compiler {
                     *intrinsic,
                     ir_program.and_then(|program| {
                         self.find_ir_function_by_symbol(program, qualified_name)
+                            .or_else(|| Self::find_ir_module_function(program, name, *fn_name))
                     }),
                     *span,
                 ) {
