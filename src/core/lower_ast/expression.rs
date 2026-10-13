@@ -14,10 +14,16 @@ use crate::core::{
 
 impl<'a> super::AstLowerer<'a> {
     /// The name an occurrence of `name` refers to once clones exist (0.0.8
-    /// plan, step 2a): the clone its call site was pointed at, or, inside a
-    /// clone of `name`, that clone itself, so a self-call follows the clone it
-    /// sits in.
+    /// plan, step 2a): the clone its call site was pointed at in the body
+    /// being lowered, or everywhere, or, inside a clone of `name`, that clone
+    /// itself, so a self-call follows the clone it sits in.
     fn clone_target(&self, id: ExprId, name: Identifier) -> Identifier {
+        if let Some(target) = self
+            .current_def
+            .and_then(|def| self.context_call_targets.get(&(def, id)))
+        {
+            return *target;
+        }
         if let Some(target) = self.call_targets.get(&id) {
             return *target;
         }

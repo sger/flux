@@ -8,11 +8,14 @@
 //!
 //! - **In place** (B1): every call site agrees on one ground instantiation, so
 //!   the definition itself is lowered under it.
-//! - **Cloned** (2a): the call sites disagree. Each ground instantiation that
+//! - **Cloned** (2a): the call sites disagree. Each instantiation that
 //!   changes a representation gets its own clone, `f$<key>`, and its call
 //!   sites are pointed at it. The generic body stays, for the rest.
+//! - **Re-specialised** (2a-2): a clone's body, or an in-place one, is lowered
+//!   under its substitution, so the calls inside it are at known
+//!   instantiations too, and their callees are cloned in turn.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::{
     syntax::{Identifier, expression::ExprId, interner::Interner, program::Program},
@@ -33,6 +36,10 @@ pub(super) struct SpecPlan {
     pub(super) in_place: HashMap<Identifier, TypeSubst>,
     /// Functions cloned per instantiation, in a stable order.
     pub(super) clones: Vec<(Identifier, Vec<PlannedClone>)>,
+    /// Calls that call a clone only inside a specialised body: that body's
+    /// definition (a clone's name, or an in-place function's own), the
+    /// callee's `ExprId`, and the clone it calls there.
+    pub(super) context_targets: Vec<(String, ExprId, String)>,
     /// Instantiations over [`MAX_CLONES_PER_FUNCTION`], which stay generic.
     pub(super) missed: Vec<(Identifier, InferType)>,
 }
@@ -45,7 +52,9 @@ pub(super) struct PlannedClone {
     /// it changes. A boxed variable stays a variable: every boxed type has
     /// the same representation, so the clone is honest for all of them.
     pub(super) subst: TypeSubst,
-    /// The callee `ExprId` of every call site that uses this clone.
+    /// The callee `ExprId` of every call site that uses this clone wherever
+    /// it is lowered. A call that uses it only inside a specialised body is in
+    /// [`SpecPlan::context_targets`] instead.
     pub(super) sites: Vec<ExprId>,
     /// One instantiation that reaches this clone, for logging.
     pub(super) example: InferType,
@@ -118,6 +127,41 @@ fn clone_key(forall: &[TypeVarId], subst: &TypeSubst) -> Option<(String, TypeSub
     (!kept.is_empty()).then(|| (parts.join("_"), kept))
 }
 
+impl SpecPlan {
+    /// The clone `name` of `function`, planned now if it is not yet and the
+    /// cap allows: `None` past the cap, otherwise whether it is new.
+    fn ensure_clone(
+        &mut self,
+        function: Identifier,
+        name: String,
+        subst: TypeSubst,
+        example: &InferType,
+    ) -> Option<(bool, &mut PlannedClone)> {
+        let index = match self.clones.iter().position(|(f, _)| *f == function) {
+            Some(index) => index,
+            None => {
+                self.clones.push((function, Vec::new()));
+                self.clones.len() - 1
+            }
+        };
+        let clones = &mut self.clones[index].1;
+        if let Some(at) = clones.iter().position(|clone| clone.name == name) {
+            return Some((false, &mut clones[at]));
+        }
+        if clones.len() >= MAX_CLONES_PER_FUNCTION {
+            self.missed.push((function, example.clone()));
+            return None;
+        }
+        clones.push(PlannedClone {
+            name,
+            subst,
+            sites: Vec::new(),
+            example: example.clone(),
+        });
+        clones.last_mut().map(|clone| (true, clone))
+    }
+}
+
 impl AstLowerer<'_> {
     /// Decide, for every user-written function, whether it is specialised in
     /// place, cloned per instantiation, or left generic.
@@ -132,15 +176,16 @@ impl AstLowerer<'_> {
             user_fns: &self.user_function_names,
             enclosing: None,
             sites: HashMap::new(),
+            inner: HashMap::new(),
             params: HashMap::new(),
-            constrained: std::collections::HashSet::new(),
+            constrained: HashSet::new(),
             param_types: HashMap::new(),
         };
         crate::ast::visit::Visitor::visit_program(&mut visitor, program);
 
         // Only a top-level function is cloned for now: a module member's
         // clone needs a module-qualified name (step 2a-4).
-        let top_level: std::collections::HashSet<Identifier> = program
+        let top_level: HashSet<Identifier> = program
             .statements
             .iter()
             .filter_map(|stmt| match stmt {
@@ -171,11 +216,83 @@ impl AstLowerer<'_> {
                 }
                 continue;
             }
-            if top_level.contains(&name) {
-                self.plan_clones(name, sites, &mut plan);
+            for (site, call_ty) in sites {
+                let Some((clone_name, subst)) = self.instantiation(name, call_ty, &top_level)
+                else {
+                    continue;
+                };
+                if let Some((_, clone)) = plan.ensure_clone(name, clone_name, subst, call_ty) {
+                    clone.sites.push(*site);
+                }
             }
         }
+        self.respecialize(&visitor, &top_level, &mut plan);
         plan
+    }
+
+    /// 2a-2: plan the clones the calls inside each specialised body reach.
+    ///
+    /// Every clone, and every in-place definition, is a body lowered under a
+    /// substitution, so a call in it that was generic may be at a known
+    /// instantiation there. Each body is visited once, and a clone it creates
+    /// is visited in turn. That terminates because a function has at most
+    /// [`MAX_CLONES_PER_FUNCTION`] clones, and it covers a recursive group:
+    /// `f$Int` calling `g` reaches `g$Int`, whose call back to `f` reaches the
+    /// `f$Int` that exists.
+    fn respecialize(
+        &self,
+        visitor: &CallSiteInstantiations<'_>,
+        top_level: &HashSet<Identifier>,
+        plan: &mut SpecPlan,
+    ) {
+        let mut in_place: Vec<(&Identifier, &TypeSubst)> = plan.in_place.iter().collect();
+        in_place.sort_unstable_by_key(|(name, _)| name.as_u32());
+        let mut work: VecDeque<(Identifier, String, TypeSubst)> = VecDeque::new();
+        for (function, subst) in in_place {
+            if let Some(context) = self.interner.and_then(|i| i.try_resolve(*function)) {
+                work.push_back((*function, context.to_string(), subst.clone()));
+            }
+        }
+        for (function, clones) in &plan.clones {
+            for clone in clones {
+                work.push_back((*function, clone.name.clone(), clone.subst.clone()));
+            }
+        }
+        while let Some((function, context, subst)) = work.pop_front() {
+            let Some(calls) = visitor.inner.get(&function) else {
+                continue;
+            };
+            for (callee, site, call_ty) in calls {
+                if visitor.constrained.contains(callee) {
+                    continue;
+                }
+                let call_ty = call_ty.apply_type_subst(&subst);
+                let Some((clone_name, clone_subst)) =
+                    self.instantiation(*callee, &call_ty, top_level)
+                else {
+                    continue;
+                };
+                // An in-place definition is already this instantiation.
+                if plan
+                    .in_place
+                    .get(callee)
+                    .and_then(|subst| self.clone_name(*callee, subst))
+                    .is_some_and(|(in_place, _)| in_place == clone_name)
+                {
+                    continue;
+                }
+                let Some((new, clone)) =
+                    plan.ensure_clone(*callee, clone_name.clone(), clone_subst, &call_ty)
+                else {
+                    continue;
+                };
+                if new {
+                    work.push_back((*callee, clone_name.clone(), clone.subst.clone()));
+                }
+                plan.context_targets
+                    .push((context.clone(), *site, clone_name));
+            }
+        }
     }
 
     /// B1: the substitution that lowers `name` in place at its one
@@ -206,55 +323,40 @@ impl AstLowerer<'_> {
         (!subst.is_empty()).then_some(subst)
     }
 
-    /// 2a: one clone of `name` per ground instantiation whose key differs,
-    /// up to the cap.
+    /// The clone of `function` that its instantiation at `call_ty` calls, and
+    /// that clone's substitution: `None` when the generic body serves it, or
+    /// when `function` is not one this step clones.
     ///
-    /// A call site whose instantiation is not ground (it sits in another
-    /// generic body) keeps the generic definition.
-    fn plan_clones(&self, name: Identifier, sites: &[(ExprId, InferType)], plan: &mut SpecPlan) {
-        let (Some(interner), Some(scheme)) = (
-            self.interner,
-            self.type_env.and_then(|env| env.lookup(name)),
-        ) else {
-            return;
-        };
+    /// `call_ty` need not be ground. A variable it leaves is boxed in the key,
+    /// and every boxed type has one representation, so the clone is right for
+    /// whatever the variable becomes.
+    fn instantiation(
+        &self,
+        function: Identifier,
+        call_ty: &InferType,
+        top_level: &HashSet<Identifier>,
+    ) -> Option<(String, TypeSubst)> {
+        if !top_level.contains(&function) {
+            return None;
+        }
+        let scheme = self.type_env?.lookup(function)?;
+        let subst = crate::types::unify::unify(&scheme.infer_type, call_ty).ok()?;
+        self.clone_name(function, &subst)
+    }
+
+    /// The name of `function`'s clone for the instantiation `subst`, and
+    /// `subst` restricted to what that clone records.
+    fn clone_name(&self, function: Identifier, subst: &TypeSubst) -> Option<(String, TypeSubst)> {
+        let scheme = self.type_env?.lookup(function)?;
         // A scheme with constraints takes dictionaries, whether or not its
         // source writes the bound; cloning it means replacing those too
         // (step 2a-3).
         if scheme.forall.is_empty() || !scheme.constraints.is_empty() {
-            return;
+            return None;
         }
-        let Some(base) = interner.try_resolve(name) else {
-            return;
-        };
-        let mut clones: Vec<PlannedClone> = Vec::new();
-        for (site, call_ty) in sites {
-            if !call_ty.free_vars().is_empty() {
-                continue;
-            }
-            let Ok(subst) = crate::types::unify::unify(&scheme.infer_type, call_ty) else {
-                continue;
-            };
-            let Some((key, subst)) = clone_key(&scheme.forall, &subst) else {
-                continue;
-            };
-            let clone_name = format!("{base}${key}");
-            if let Some(clone) = clones.iter_mut().find(|clone| clone.name == clone_name) {
-                clone.sites.push(*site);
-            } else if clones.len() < MAX_CLONES_PER_FUNCTION {
-                clones.push(PlannedClone {
-                    name: clone_name,
-                    subst,
-                    sites: vec![*site],
-                    example: call_ty.clone(),
-                });
-            } else {
-                plan.missed.push((name, call_ty.clone()));
-            }
-        }
-        if !clones.is_empty() {
-            plan.clones.push((name, clones));
-        }
+        let base = self.interner?.try_resolve(function)?;
+        let (key, subst) = clone_key(&scheme.forall, subst)?;
+        Some((format!("{base}${key}"), subst))
     }
 }
 

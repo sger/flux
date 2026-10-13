@@ -221,6 +221,11 @@ struct CallSiteInstantiations<'a> {
     /// Each call site's callee `ExprId` and the type it instantiates the
     /// callee at, in source order.
     sites: HashMap<Identifier, Vec<(ExprId, InferType)>>,
+    /// The same call sites, by the function they sit in: each one's callee,
+    /// callee `ExprId` and type (0.0.8 plan step 2a-2). A clone's body is
+    /// lowered under the clone's substitution, so these are its calls'
+    /// instantiations once that is applied.
+    inner: HashMap<Identifier, Vec<(Identifier, ExprId, InferType)>>,
     /// Parameter names of each function, in declaration order.
     params: HashMap<Identifier, Vec<Identifier>>,
     /// Functions that declare a constrained type parameter, and so receive
@@ -272,6 +277,13 @@ impl<'ast> crate::ast::visit::Visitor<'ast> for CallSiteInstantiations<'_> {
                 .entry(*name)
                 .or_default()
                 .push((function.expr_id(), callee_ty.clone()));
+            if let Some(enclosing) = self.enclosing {
+                self.inner.entry(enclosing).or_default().push((
+                    *name,
+                    function.expr_id(),
+                    callee_ty.clone(),
+                ));
+            }
         }
         if let Expression::Identifier { name, .. } = expr
             && let Some(enclosing) = self.enclosing
@@ -372,6 +384,12 @@ pub(super) struct AstLowerer<'a> {
     /// While a clone's body is lowered, the function it clones and the
     /// clone's name, so its self-calls call the clone.
     active_clone: Option<(Identifier, Identifier)>,
+    /// The clone a call calls inside one specialised body, by that body's
+    /// definition name and the callee's `ExprId` (step 2a-2). Read before
+    /// [`Self::call_targets`].
+    context_call_targets: HashMap<(Identifier, ExprId), Identifier>,
+    /// The name of the definition whose body is being lowered.
+    current_def: Option<Identifier>,
     /// The substitution in force while lowering one specialised body.
     active_subst: Option<TypeSubst>,
     /// The solver's evidence, by the site that raised each predicate
@@ -419,6 +437,8 @@ impl<'a> AstLowerer<'a> {
             clones: HashMap::new(),
             call_targets: HashMap::new(),
             active_clone: None,
+            context_call_targets: HashMap::new(),
+            current_def: None,
             active_subst: None,
             evidence,
             dict_param_binders: HashMap::new(),
@@ -521,6 +541,15 @@ impl<'a> AstLowerer<'a> {
                     name: symbol,
                     subst: clone.subst,
                 });
+            }
+        }
+        // 2a-2: a call that calls a clone only inside a specialised body.
+        for (context, site, target) in plan.context_targets {
+            let lookup = |name: &str| self.interner.and_then(|i| i.lookup(name));
+            if let (Some(context), Some(target)) = (lookup(&context), lookup(&target)) {
+                self.context_call_targets.insert((context, site), target);
+            } else if debug {
+                eprintln!("SPEC-MISS: {target} in {context}: name not interned");
             }
         }
         self.specializations = plan.in_place;
@@ -870,6 +899,7 @@ impl<'a> AstLowerer<'a> {
         // Set before the parameters are bound — their reps are the whole
         // point.
         let restore_subst = std::mem::replace(&mut self.active_subst, subst);
+        let restore_def = self.current_def.replace(def_name);
         let binder = self.bind_name(def_name);
         let params = self.bind_fn_params(name, function.parameters);
         let (mut param_types, inferred_result_ty) = self.lambda_signature_from_function_name(name);
@@ -922,6 +952,7 @@ impl<'a> AstLowerer<'a> {
             def.result_ty = Some(annotated_ty);
         }
         self.active_subst = restore_subst;
+        self.current_def = restore_def;
         def
     }
 

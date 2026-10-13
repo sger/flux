@@ -3571,3 +3571,94 @@ fn main() {
         "the fourth instantiation calls the generic body: {main}"
     );
 }
+
+// ── 0.0.8 plan step 2a-2: re-specialise clones ─────────────────────────
+
+#[test]
+fn a_clone_calls_the_clone_its_instantiation_reaches() {
+    let defs = lowered_core_defs(&format!(
+        "{COPY_HEAD}\nfn twice_head(xs) {{ copy_head(xs) }}\n\nfn main() {{\n    twice_head([1, 2])\n    twice_head([\"a\"])\n}}\n"
+    ));
+    let clone = core_def(&defs, "twice_head$Int");
+    assert!(clone.contains("copy_head$Int#"), "{clone}");
+    let generic = core_def(&defs, "twice_head");
+    assert!(
+        generic.contains("copy_head#") && !generic.contains("copy_head$"),
+        "{generic}"
+    );
+    let reached = core_def(&defs, "copy_head$Int");
+    assert!(reached.contains(":Int,"), "{reached}");
+}
+
+#[test]
+fn an_in_place_body_calls_the_clone_its_instantiation_reaches() {
+    let defs = lowered_core_defs(&format!(
+        "{COPY_HEAD}\nfn twice_head(xs) {{ copy_head(xs) }}\n\nfn main() {{\n    twice_head([1, 2])\n    copy_head([\"a\"])\n}}\n"
+    ));
+    assert!(
+        !defs.iter().any(|(name, _)| name.starts_with("twice_head$")),
+        "one instantiation is specialised in place"
+    );
+    let in_place = core_def(&defs, "twice_head");
+    assert!(in_place.contains("copy_head$Int#"), "{in_place}");
+}
+
+/// The group is annotated: unannotated, each member is quantified on its
+/// own, `ping` comes out as `forall a, b. (List<a>, b) -> b`, and its call to
+/// `pong` names variables its clones do not bind. Step 2c quantifies a group
+/// once, and its test covers the unannotated group.
+#[test]
+fn a_recursive_group_reaches_its_own_clones() {
+    let defs = lowered_core_defs(
+        r#"
+fn ping<a>(xs: List<a>, d: a) -> a {
+    match xs {
+        [h | t] -> pong(t, h),
+        _ -> d,
+    }
+}
+
+fn pong<a>(xs: List<a>, d: a) -> a {
+    match xs {
+        [h | t] -> ping(t, h),
+        _ -> d,
+    }
+}
+
+fn main() {
+    ping([1, 2], 0)
+    ping([1.5], 0.0)
+}
+"#,
+    );
+    for (clone, calls) in [
+        ("ping$Int", "pong$Int#"),
+        ("pong$Int", "ping$Int#"),
+        ("ping$Float", "pong$Float#"),
+        ("pong$Float", "ping$Float#"),
+    ] {
+        let core = core_def(&defs, clone);
+        assert!(core.contains(calls), "{core}");
+    }
+}
+
+#[test]
+fn a_partly_known_instantiation_is_cloned() {
+    let defs = lowered_core_defs(
+        r#"
+fn pair(a, b) { (b, a) }
+
+fn tag(x) { pair(1, x) }
+
+fn main() {
+    tag("a")
+    tag([1])
+    pair("b", "c")
+}
+"#,
+    );
+    let tag = core_def(&defs, "tag");
+    assert!(tag.contains("pair$Int_Box#"), "{tag}");
+    let main = core_def(&defs, "main");
+    assert!(!main.contains("pair$"), "{main}");
+}
