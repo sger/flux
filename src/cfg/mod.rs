@@ -52,7 +52,16 @@ pub fn lower_program_to_ir_with_interner_and_warnings(
     hm_expr_types: &HashMap<ExprId, InferType>,
     interner: Option<&Interner>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    lower_program_to_ir_impl(program, hm_expr_types, interner, false, None, None, None)
+    lower_program_to_ir_impl(
+        program,
+        hm_expr_types,
+        interner,
+        false,
+        None,
+        None,
+        None,
+        None,
+    )
 }
 
 #[allow(clippy::result_large_err)]
@@ -62,14 +71,27 @@ pub fn lower_program_to_ir_with_optimize(
     interner: Option<&Interner>,
     optimize: bool,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    lower_program_to_ir_impl(program, hm_expr_types, interner, optimize, None, None, None)
+    lower_program_to_ir_impl(
+        program,
+        hm_expr_types,
+        interner,
+        optimize,
+        None,
+        None,
+        None,
+        None,
+    )
 }
 
 /// Lower with TypeEnv for typed parameter binders (Phase 7).
 ///
 /// `evidence` is the unit's own evidence map, and the source of every
 /// dictionary parameter and argument (0.0.8 plan, step 1e).
-#[allow(clippy::result_large_err)]
+///
+/// With `pre_pass_core`, the Core program as lowered, before any Core pass
+/// rewrites it, is stored there: the debug-info model describes the program
+/// the way the user wrote it (proposal 0188).
+#[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub fn lower_program_to_ir_typed(
     program: &Program,
     hm_expr_types: &HashMap<ExprId, InferType>,
@@ -78,6 +100,7 @@ pub fn lower_program_to_ir_typed(
     type_env: Option<&crate::types::type_env::TypeEnv>,
     class_env: Option<&crate::types::class_env::ClassEnv>,
     evidence: Option<&crate::types::evidence::EvidenceMap>,
+    pre_pass_core: Option<&mut Option<crate::core::CoreProgram>>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
     lower_program_to_ir_impl(
         program,
@@ -87,10 +110,11 @@ pub fn lower_program_to_ir_typed(
         type_env,
         class_env,
         evidence,
+        pre_pass_core,
     )
 }
 
-#[allow(clippy::result_large_err)]
+#[allow(clippy::result_large_err, clippy::too_many_arguments)]
 fn lower_program_to_ir_impl(
     program: &Program,
     hm_expr_types: &HashMap<ExprId, InferType>,
@@ -99,6 +123,7 @@ fn lower_program_to_ir_impl(
     type_env: Option<&crate::types::type_env::TypeEnv>,
     class_env: Option<&crate::types::class_env::ClassEnv>,
     evidence: Option<&crate::types::evidence::EvidenceMap>,
+    pre_pass_core: Option<&mut Option<crate::core::CoreProgram>>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
     // 0.0.8 plan step 1e: dictionary parameters, arguments and method calls
     // come from evidence, and elaboration only defines the dictionaries the
@@ -129,6 +154,9 @@ fn lower_program_to_ir_impl(
         // functions carried dictionaries; reachable as soon as more do.
         let mut next_id = crate::core::passes::next_fresh_binder_id(&core);
         crate::core::passes::build_referenced_dictionaries(&mut core, ce, int, &mut next_id);
+    }
+    if let Some(slot) = pre_pass_core {
+        *slot = Some(core.clone());
     }
 
     let mut warnings = if let Some(interner) = interner {

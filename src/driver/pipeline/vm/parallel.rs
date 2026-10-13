@@ -9,8 +9,8 @@ use crate::{
     bytecode::bytecode_cache::{hash_bytes, hash_cache_key, module_cache::ModuleBytecodeCache},
     compiler::{
         module_interface::{
-            build_interface, compute_semantic_config_hash, load_cached_interface,
-            load_valid_interface,
+            build_interface, compute_artifact_config_hash, compute_semantic_config_hash,
+            load_cached_interface, load_valid_interface,
         },
         module_linker::{LinkedVmProgram, VmAssemblyContext},
     },
@@ -88,7 +88,12 @@ fn compile_parallel_module(
         effective_module_strictness(node.kind, entry_module_kind, request.compile.strict_mode);
     let semantic_config_hash =
         compute_semantic_config_hash(strict_mode, request.compile.enable_optimize);
-    let cache_key = hash_cache_key(&source_hash, &semantic_config_hash);
+    let artifact_config_hash = compute_artifact_config_hash(
+        strict_mode,
+        request.compile.enable_optimize,
+        request.compile.debug_level,
+    );
+    let cache_key = hash_cache_key(&source_hash, &artifact_config_hash);
     let module_cache = ModuleBytecodeCache::new(request.cache.cache_layout.vm_dir());
     let store_deps = collect_dependency_fingerprints(&node.imports, loaded_interfaces)
         .into_iter()
@@ -97,7 +102,7 @@ fn compile_parallel_module(
     let unit_hash = artifact_store::unit_hash(
         &node.path,
         &module_source,
-        &semantic_config_hash,
+        &artifact_config_hash,
         crate::driver::backend::Backend::Vm,
         &store_deps,
     );
@@ -178,6 +183,7 @@ fn compile_parallel_module(
         request.compile.strict_mode,
         is_entry,
     );
+    compiler.set_debug_level(request.compile.debug_level);
     let compile_result = compiler.compile_with_opts(
         &node.program,
         request.compile.enable_optimize,

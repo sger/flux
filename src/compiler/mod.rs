@@ -1405,6 +1405,11 @@ pub struct Compiler {
     pub(super) ir_function_symbols: HashMap<FunctionId, Symbol>,
     pub(super) inferred_function_effects: HashMap<ContractKey, HashSet<Symbol>>,
     strict_mode: bool,
+    /// How much debug information to build (proposal 0188, `-g`).
+    debug_level: crate::debuginfo::DebugLevel,
+    /// One entry per module this compiler lowered while `debug_level` was
+    /// enabled, in lowering order.
+    debug_infos: Vec<crate::debuginfo::ProgramDebugInfo>,
     strict_require_main: bool,
     /// When true, run two-phase inference with type-informed optimization
     /// between Phase 1 and Phase 2 (proposal 0077).
@@ -1956,6 +1961,8 @@ impl Compiler {
             ir_function_symbols: HashMap::new(),
             inferred_function_effects: HashMap::new(),
             strict_mode: false,
+            debug_level: crate::debuginfo::DebugLevel::None,
+            debug_infos: Vec::new(),
             strict_require_main: true,
             type_optimize: false,
             profiling: false,
@@ -2101,6 +2108,25 @@ impl Compiler {
         optimize: bool,
         define_dictionaries: bool,
     ) -> Result<crate::core::CoreProgram, Diagnostic> {
+        self.lower_core_from_program_capturing(
+            program_to_lower,
+            optimize,
+            define_dictionaries,
+            None,
+        )
+    }
+
+    /// [`Self::lower_core_from_program`], also storing the Core program as
+    /// lowered, before any Core pass, in `pre_pass_core` when given: the
+    /// debug-info model describes the program as the user wrote it.
+    #[allow(clippy::result_large_err)]
+    fn lower_core_from_program_capturing(
+        &self,
+        program_to_lower: &Program,
+        optimize: bool,
+        define_dictionaries: bool,
+        pre_pass_core: Option<&mut Option<crate::core::CoreProgram>>,
+    ) -> Result<crate::core::CoreProgram, Diagnostic> {
         let class_env_ref = if self.class_env.classes.is_empty() {
             None
         } else {
@@ -2132,6 +2158,9 @@ impl Compiler {
                 &mut next_id,
             );
         }
+        if let Some(slot) = pre_pass_core {
+            *slot = Some(core.clone());
+        }
 
         let preloaded_registry = self.build_preloaded_borrow_registry(program_to_lower);
         let _ = preloaded_registry;
@@ -2145,8 +2174,14 @@ impl Compiler {
         program_to_lower: &Program,
         optimize: bool,
         define_dictionaries: bool,
+        pre_pass_core: Option<&mut Option<crate::core::CoreProgram>>,
     ) -> Result<crate::aether::AetherProgram, Diagnostic> {
-        let core = self.lower_core_from_program(program_to_lower, optimize, define_dictionaries)?;
+        let core = self.lower_core_from_program_capturing(
+            program_to_lower,
+            optimize,
+            define_dictionaries,
+            pre_pass_core,
+        )?;
         let preloaded_registry = self.build_preloaded_borrow_registry(program_to_lower);
         let (aether, _) = crate::aether::lower_core_to_aether_program(
             &core,
@@ -2216,7 +2251,7 @@ impl Compiler {
         self.apply_hm_final(&prepared.hm_final);
         let mut program_to_lower = prepared.effective_program.into_owned();
         self.apply_named_field_desugar(&mut program_to_lower);
-        self.lower_aether_from_program(&program_to_lower, optimize, true)
+        self.lower_aether_from_program(&program_to_lower, optimize, true, None)
     }
 
     fn prepare_program_for_lowering_internal<'a>(
@@ -2420,6 +2455,31 @@ impl Compiler {
 
     pub fn set_strict_mode(&mut self, strict_mode: bool) {
         self.strict_mode = strict_mode;
+    }
+
+    pub fn set_debug_level(&mut self, level: crate::debuginfo::DebugLevel) {
+        self.debug_level = level;
+    }
+
+    pub fn debug_level(&self) -> crate::debuginfo::DebugLevel {
+        self.debug_level
+    }
+
+    /// The debug information built for each module this compiler lowered,
+    /// in lowering order. Empty unless a debug level is set.
+    pub fn debug_infos(&self) -> &[crate::debuginfo::ProgramDebugInfo] {
+        &self.debug_infos
+    }
+
+    /// Builds and keeps the debug information for the module being compiled,
+    /// from the Core program a backend lowers. Does nothing without `-g`.
+    pub(crate) fn record_debug_info(&mut self, core: &crate::core::CoreProgram) {
+        if !self.debug_level.is_enabled() {
+            return;
+        }
+        let info =
+            crate::debuginfo::build_program_debug_info(core, &self.file_path, &self.interner);
+        self.debug_infos.push(info);
     }
 
     pub fn set_profiling(&mut self, enabled: bool) {
@@ -6812,6 +6872,7 @@ impl Compiler {
             Some(&self.type_env),
             class_env_ref,
             Some(&self.evidence_map),
+            None,
         )?;
         crate::cfg::run_ir_pass_pipeline(&mut ir_program, &crate::cfg::IrPassContext)?;
         Ok(ir_program.to_string())
@@ -6858,7 +6919,12 @@ impl Compiler {
         self.apply_hm_final(&prepared.hm_final);
         let mut effective_program = prepared.effective_program.into_owned();
         self.apply_named_field_desugar(&mut effective_program);
-        let aether = self.lower_aether_from_program(&effective_program, optimize, true)?;
+        let mut pre_pass_core = None;
+        let capture = self.debug_level.is_enabled().then_some(&mut pre_pass_core);
+        let aether = self.lower_aether_from_program(&effective_program, optimize, true, capture)?;
+        if let Some(core) = &pre_pass_core {
+            self.record_debug_info(core);
+        }
 
         let extern_symbols = self.build_native_extern_symbols(&effective_program);
         let has_named_main = effective_program.statements.iter().any(|statement| {

@@ -9,6 +9,7 @@ pub fn has_dump_requests(flags: &DriverFlags) -> bool {
         || flags.dumps.dump_cfg
         || flags.dumps.dump_lir
         || flags.dumps.dump_lir_llvm
+        || flags.dumps.dump_debug_info
         || flags.runtime.trace_aether
         || flags.dumps.dump_repr
 }
@@ -46,6 +47,7 @@ pub fn validate_flags(flags: &DriverFlags, is_test_mode: bool) -> Result<(), &'s
             || flags.dumps.dump_repr
             || flags.dumps.dump_cfg
             || flags.dumps.dump_aether != AetherDumpMode::None
+            || flags.dumps.dump_debug_info
             || is_test_mode)
     {
         return Err(
@@ -257,6 +259,10 @@ mod tests {
         flags.dumps.dump_lir = true;
         assert!(has_dump_requests(&flags));
         flags.dumps.dump_lir = false;
+
+        flags.dumps.dump_debug_info = true;
+        assert!(has_dump_requests(&flags));
+        flags.dumps.dump_debug_info = false;
 
         flags.dumps.dump_lir_llvm = true;
         assert!(has_dump_requests(&flags));

@@ -195,6 +195,7 @@ fn finish_run_context(request: RunProgramRequest<'_>, context: ProgramContext) -
     let compile_start = Instant::now();
     let mut compiler = Compiler::new_with_interner(request.path, graph_result.interner);
     compiler.set_strict_mode(request.session.strict_mode);
+    compiler.set_debug_level(request.session.debug_level);
     if request.flags.runtime.profiling {
         compiler.set_profiling(true);
     }
@@ -284,12 +285,45 @@ fn build_dump_program(ctx: &RunContext, flags: &DriverFlags) -> Program {
     }
 }
 
+/// Prints the debug information each user module recorded while it compiled.
+///
+/// Flow's standard library is left out: it is the same in every program and
+/// would bury the user's modules.
+fn print_debug_info_dump(ctx: &RunContext) {
+    let stdlib_paths: HashSet<String> = ctx
+        .graph
+        .topo_order()
+        .into_iter()
+        .filter(|node| node.kind == crate::syntax::module_graph::ModuleKind::FlowStdlib)
+        .map(|node| node.path.to_string_lossy().into_owned())
+        .collect();
+    let mut first = true;
+    for info in ctx.compiler.debug_infos() {
+        if info
+            .files
+            .first()
+            .is_some_and(|file| stdlib_paths.contains(&file.path))
+        {
+            continue;
+        }
+        if !first {
+            println!();
+        }
+        first = false;
+        print!("{}", crate::debuginfo::render_program_debug_info(info));
+    }
+}
+
 /// Executes dump requests and returns whether the pipeline should stop afterwards.
 fn handle_dump_requests(
     ctx: &mut RunContext,
     request: RunProgramRequest<'_>,
     merged_program: &Program,
 ) -> bool {
+    if request.flags.dumps.dump_debug_info {
+        print_debug_info_dump(ctx);
+        return true;
+    }
     handle_dumps(DumpRequest {
         compiler: &mut ctx.compiler,
         merged_program,
