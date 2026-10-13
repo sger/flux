@@ -1,6 +1,6 @@
 - Feature Name: Deterministic Effect Replay
 - Start Date: 2026-02-20
-- Status: Not Implemented
+- Status: Not Implemented — to be implemented by [0188](0188_flux_debugger.md) stage S1 (2026-10-13). 0188 §4 adds Env, Process, `Fs*`, async-completion and scheduler events to this proposal's event list and supplies the native backend; this document remains the reference for the CLI and mismatch diagnostics.
 - Proposal PR: 
 - Flux Issue: 
 

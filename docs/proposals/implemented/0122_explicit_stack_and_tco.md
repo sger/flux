@@ -1,6 +1,7 @@
 - Feature Name: Explicit Stack and Tail Call Optimization
 - Start Date: 2026-03-24
 - Status: Implemented (Phases 1-3 complete; Phase 4 deferred as optional)
+- Note (2026-10-13): describes the retired `core_to_llvm` backend (`src/core_to_llvm/` no longer exists). The current native path (Aether → LIR → LLVM) uses `fastcc` calls on the system stack with `uwtable`; see [0188](../0188_flux_debugger.md) §2.1.
 - Proposal PR:
 - Flux Issue:
 
