@@ -570,26 +570,67 @@ randomness must go through the tape. A test that greps for `RandomState` and
 
 #### 4.2 One implementation for both backends
 
-- `src/runtime/replay/` contains `TapeRuntime`, which implements 0038's
-  `EffectRuntime` with `ReplayMode::{Off, Record, Replay}`.
-- **VM:** primops call `TapeRuntime` directly.
-- **Native:** the Rust staticlib is already linked into every native binary
-  (`pipeline.rs:288-321`). Each C primop checks `flux_replay_mode`, one
-  predictable branch, and calls the `flux_tape_*` functions exported from Rust.
-- **Async:** `RecordingBackend<B: AsyncBackend>` and `ReplayBackend` wrap
-  `MioBackend` and `InMemoryBackend`, so async completions are recorded the
-  same way on both backends.
+Implemented for synchronous effects in S1a.
+
+- **The tape:** `src/runtime/replay/` holds the format, the record/replay
+  state and the errors. Its API is three functions:
+  - `effect(request, perform)` for inputs and outputs;
+  - `console(request)` for stdout and stderr text;
+  - `finish(failed, message)` at the end of the run.
+
+  The mode (`Off`, `Record`, `Replay`) is one atomic, so with no tape the cost
+  is one relaxed load per primop.
+- **VM:** `src/vm/primop.rs` sends primops through `src/vm/replay_hook.rs`
+  while a tape is active. `src/vm/replay_codec.rs` converts VM values to and
+  from tape data structurally (text, list, `Ok`/`Err(IoError)`, metadata,
+  process output, runtime failure).
+- **Native:** the Rust staticlib is linked into every native binary. Each
+  synchronous C primop has a wrapper that, while `flux_tape_mode` is set,
+  records its result or rebuilds the recorded one (`runtime/c/tape.c`), through
+  the `flux_tape_*` functions in `src/runtime/replay/native_abi.rs`. A tape
+  error ends the process with one `flux-tape-error: {json}` line on stderr,
+  which the driver renders as a diagnostic.
+- **Driver:** `src/driver/replay_session.rs` hashes the program's modules,
+  writes or checks the tape header, and hands a native program its tape
+  through `FLUX_TAPE_RECORD` / `FLUX_TAPE_REPLAY`.
+- **Async (S1b):** `RecordingBackend<B: AsyncBackend>` and `ReplayBackend`
+  will wrap `MioBackend` and `InMemoryBackend`, so async completions are
+  recorded the same way on both backends. Until then, `run_async`, tasks,
+  channels and network I/O stop a recording or replay with E1027.
 
 #### 4.3 Tape format
 
-- **Header:** magic `FLXTAPE`, format version, the program's semantic hash
-  (independent of backend), argv, and `debug_level`.
-- **Events:** `{seq, kind, logical_fiber_id, payload}`. Payloads use a
-  canonical data encoding, and closures never appear on the tape.
-- **Step annotation:** each event can optionally carry a `vm_step: u64`.
-- **Backend-neutral:** a tape recorded natively replays on the VM. This is why
-  fiber ids are *logical*, assigned deterministically in spawn order, rather
-  than scheduler-internal.
+A tape is JSON Lines (format version 1): one header line, then one event per
+line in the order the program performed them.
+
+```text
+{"magic":"FLXTAPE","version":1,"flux_version":"0.0.7","program_hash":"sha256:…","argv":["app.flx"],"backend":"vm"}
+{"seq":0,"kind":"read_file","path":"in.txt","result":{"text":"hello\n"}}
+{"seq":1,"kind":"stdout","text":"hello\n"}
+{"seq":2,"kind":"exit","failed":false}
+```
+
+- **Header:** magic, format version, the recording `flux` version (a
+  difference only warns), `program_hash` (SHA-256 over the program's own
+  modules; a tape replays only the program it was recorded from), argv, and
+  the backend that recorded it.
+- **Events:** `seq` (contiguous from 0), `kind`, the request's fields, and a
+  `result` for inputs and outputs. A reserved `fiber` field (omitted when 0)
+  will carry the logical fiber in S1b.
+- **Results** are host data, never runtime values: `unit`, `bool`, `int`,
+  `text`, `list`, `some`/`none`, `ok`, `err` (an IoError's kind, message and
+  path), `meta`, `proc`, and `fail` (a runtime error). Bytes that are not
+  UTF-8 are written as `{"hex": …}`.
+- **The last event** is `exit`, with whether the run failed. Replay compares
+  `failed`, not the message, since the backends word failures differently.
+- **Backend-neutral:** a tape recorded on either backend replays on either.
+  This is also why fiber ids will be *logical*, assigned deterministically in
+  spawn order, rather than scheduler-internal.
+- **Step annotation (S3):** each event can optionally carry a `vm_step: u64`.
+- **Known differences between the backends,** which a tape records as they
+  are: native `read_stdin` reads one line where the VM reads all of stdin;
+  the VM clock is wall-clock milliseconds, native's is monotonic; native
+  `time(f)` is a clock reading, so `time` events appear only in VM tapes.
 
 #### 4.4 Reverse execution (VM)
 
@@ -654,7 +695,8 @@ Native effects need special handling in two cases:
 | stage | change | exit |
 |---|---|---|
 | S0 | `src/debuginfo/` model (functions, lambdas, variables with types, ADT layouts, effects), built per module where Core is lowered and kept on `Compiler`; `--debug` / `-g` and `DebugLevel`; debug level in the cache keys; `--dump-debug-info` | Snapshot tests of `--dump-debug-info` for ~8 fixtures, including a two-module program with each module in its own file. A test that cache keys differ by debug level while the default key is unchanged. `-g` leaves the LLVM IR and bytecode unchanged in S0. |
-| S1 | Recording (implements 0038): `TapeRuntime`, `ReplayMode`, C→Rust hooks, `RecordingBackend`/`ReplayBackend`, scheduler and channel events, logical fiber ids, `--record`/`--replay`, VM step counter | For every effectful parity fixture: record on vm → replay on vm and llvm, and the reverse. Mismatch diagnostics tested. ≤1% overhead with `ReplayMode::Off`, measured with `benches/`. |
+| S1a | Recording of synchronous effects (implements 0038): the tape format and runtime, VM hook, native C/Rust ABI, `--record`/`--replay`, E1022–E1027; async refused | Tapes recorded on either backend replay on both with identical output; replay reads and changes nothing outside the program; edited tapes fail with E1022–E1026; async under a tape fails with E1027. Off-mode overhead measured with `benches/effect_tape_off_bench.rs`. |
+| S1b | Async recording: `RecordingBackend`/`ReplayBackend`, scheduler and channel events, logical fiber ids, VM step counter | For every effectful parity fixture, including async ones: record on vm → replay on vm and llvm, and the reverse. |
 | S2 | VM engine behind a `DebugEngine` trait: `OpBreakpoint` sites, debug dispatch loop, `VmObserver`, stepping, local-variable tables, caller location fix (`ip - width`), tail-call elision counter, hiding dictionaries, pipeline stages; `IrFunction.var_binders` side table; Core inlining off in the debug profile | Golden transcripts of scripted sessions (`tests/debug/vm/*.flxdbg`). A benchmark showing no change in non-debug runs. |
 | S3 | VM reverse execution: checkpoints, Step Back, Reverse Continue, run to event, recording ring buffer | Golden transcripts where the state after stepping back equals the state reached by replaying forward. A memory-bound test. |
 | S4 | `crates/flux-dap`, mirroring `crates/flux-lsp`; `editors/vscode` `debuggers` and `breakpoints` contributions; launch config with `backend`, `record`, `replay`; pure-only evaluate | DAP JSON transcript tests in `crates/flux-dap/tests`. A manual VS Code checklist in the crate README. |

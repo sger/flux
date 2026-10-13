@@ -414,6 +414,13 @@ pub(crate) fn run_file(request: RunProgramRequest<'_>) {
                 emit_compile_diagnostics_or_exit(&ctx, request);
             }
 
+            crate::driver::replay_session::prepare(
+                &ctx.graph,
+                &ctx.entry_path,
+                request.flags,
+                should_dispatch_native_backend(request.flags),
+            );
+
             // The fast path executes the program, so `build` / `check` must
             // not take it.
             if !request.flags.runtime.check_only && try_run_parallel_vm_fast_path(&mut ctx, request)

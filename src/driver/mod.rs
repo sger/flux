@@ -14,6 +14,7 @@ pub(crate) mod manifest_roots;
 pub mod mode;
 pub(crate) mod module_compile;
 pub mod pipeline;
+pub(crate) mod replay_session;
 pub(crate) mod reporting;
 pub(crate) mod run_program;
 pub(crate) mod run_tests;

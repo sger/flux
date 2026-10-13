@@ -432,12 +432,14 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
         }
 
         let link_start = Instant::now();
+        // A binary linked before the effect tape existed would ignore it, so a
+        // run with a tape always relinks.
         let binary_up_to_date = should_skip_native_relink(
             request.cache.no_cache,
             request.output.emit_binary,
             any_native_recompiled,
             out.exists(),
-        );
+        ) && crate::driver::replay_session::native_child_env().is_none();
 
         if binary_up_to_date {
             if request.runtime.verbose {
@@ -498,6 +500,9 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
         if let Some(val) = fiber_trace {
             native_cmd.env("FLUX_FIBER_TRACE", val);
         }
+        if let Some((key, tape)) = crate::driver::replay_session::native_child_env() {
+            native_cmd.env(key, tape);
+        }
         match native_cmd.spawn() {
             Ok(child) => {
                 let output = match child.wait_with_output() {
@@ -511,6 +516,21 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
                 let exit_code = output.status.code().unwrap_or(1);
                 let execute_ms = exec_start.elapsed().as_secs_f64() * 1000.0;
                 let child_stderr = String::from_utf8_lossy(&output.stderr);
+                crate::driver::replay_session::check_native_recording();
+                if exit_code != 0
+                    && let Some(tape_error) =
+                        flux::runtime::replay::TapeError::from_stderr(&child_stderr)
+                {
+                    // The tape stopped the program: everything else it wrote to
+                    // stderr first, then the tape's diagnostic.
+                    for line in child_stderr.lines() {
+                        if !line.starts_with(flux::runtime::replay::error::NATIVE_WIRE_PREFIX) {
+                            eprintln!("{line}");
+                        }
+                    }
+                    crate::driver::replay_session::report(&tape_error, request.program.path);
+                    std::process::exit(exit_code);
+                }
                 if exit_code != 0 {
                     if let Some(rendered) = if request.report.render_runtime_error {
                         render_native_runtime_error(request.program.path, &child_stderr)

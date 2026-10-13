@@ -104,6 +104,10 @@ name = "aoc_day1_bench"
 harness = false
 
 [[bench]]
+name = "effect_tape_off_bench"
+harness = false
+
+[[bench]]
 name = "aether_bench"
 harness = false
 
@@ -789,6 +793,10 @@ path = "tests/integration/cache_invalidation_tests.rs"
 [[test]]
 name = "debug_info_tests"
 path = "tests/debuginfo/debug_info_tests.rs"
+
+[[test]]
+name = "replay_cli_tests"
+path = "tests/replay/replay_cli_tests.rs"
 
 [[test]]
 name = "tuple_projection_predicate_tests"

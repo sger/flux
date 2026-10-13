@@ -361,9 +361,15 @@ fn discover_rust_staticlib() -> Option<PathBuf> {
         (exe_dir.to_path_buf(), exe_dir.join("deps"))
     };
 
-    // The archive must export the sentinel proving it was built with
-    // --features llvm (a feature-less build lacks flux_async_* symbols).
-    let has_sentinel = |path: &Path| archive_exports_symbol(path, "flux_async_run_root");
+    // The archive must export the sentinels proving it was built with
+    // --features llvm (a feature-less build lacks flux_async_* symbols) and
+    // is recent enough for the runtime it links with: the C runtime calls
+    // the effect tape's `flux_tape_*` (proposal 0188 S1), which an archive
+    // left from an older build lacks.
+    let has_sentinel = |path: &Path| {
+        archive_exports_symbol(path, "flux_async_run_root")
+            && archive_exports_symbol(path, "flux_tape_init")
+    };
 
     // Fast path: sidecar written by a previous successful link.
     // The archive filename embeds a cargo content hash — if native_abi.rs
@@ -731,6 +737,7 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
         "tcp.c",
         "json.c",
         "sha256.c",
+        "tape.c",
     ];
     let mut obj_files = Vec::new();
 

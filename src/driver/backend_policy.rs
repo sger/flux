@@ -55,6 +55,17 @@ pub fn validate_flags(flags: &DriverFlags, is_test_mode: bool) -> Result<(), &'s
         );
     }
 
+    // A tape records one run of a program's `main`; tests, dumps and
+    // emitted artifacts are not such a run.
+    if flags.runtime.tape.is_some()
+        && (is_test_mode
+            || flags.backend.emit_llvm
+            || flags.backend.emit_binary
+            || has_dump_requests(flags))
+    {
+        return Err("Error: --record and --replay apply only to running a program.");
+    }
+
     validate_dump_flags(flags)?;
     Ok(())
 }

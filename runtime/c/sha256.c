@@ -195,7 +195,7 @@ int64_t flux_sha256(int64_t data) {
     return flux_string_new(hex, 64);
 }
 
-int64_t flux_sha256_file(FLUX_IO_TAGS_DECL, int64_t path) {
+static int64_t flux_sha256_file_untaped(FLUX_IO_TAGS_DECL, int64_t path) {
     FluxIoTags tags = FLUX_IO_TAGS_INIT;
     char *cpath = flux_io_cstr(path);
     if (!cpath) return flux_io_fail(tags, ENOMEM, path);
@@ -243,4 +243,17 @@ int64_t flux_sha256_file(FLUX_IO_TAGS_DECL, int64_t path) {
 
     int64_t hex_val = flux_string_new(hex, 64);
     return flux_io_make_adt(tags.ok_tag, &hex_val, 1);
+}
+
+/* Recorded or replayed while an effect tape is active (proposal 0188 S1). */
+int64_t flux_sha256_file(FLUX_IO_TAGS_DECL, int64_t path) {
+    if (flux_tape_mode) {
+        FluxIoTags tape_tags = FLUX_IO_TAGS_INIT;
+        if (flux_tape_start(FLUX_TAPE_EV_SHA256_FILE, path, 0)) {
+            return flux_tape_replay_value(FLUX_TAPE_SH_RES_TEXT, &tape_tags, 0);
+        }
+        return flux_tape_record_value(flux_sha256_file_untaped(ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag, already_exists_tag, not_a_directory_tag, is_a_directory_tag, directory_not_empty_tag, interrupted_tag, other_tag, path),
+                                      FLUX_TAPE_SH_RES_TEXT, &tape_tags, 0);
+    }
+    return flux_sha256_file_untaped(ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag, already_exists_tag, not_a_directory_tag, is_a_directory_tag, directory_not_empty_tag, interrupted_tag, other_tag, path);
 }

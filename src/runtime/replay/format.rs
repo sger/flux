@@ -1,0 +1,557 @@
+//! The effect tape's file format (proposal 0188 §4.3, version 1).
+//!
+//! A tape is JSON Lines: one header line, then one line per effect in the
+//! order the program performed them.
+//!
+//! ```text
+//! {"magic":"FLXTAPE","version":1,"flux_version":"0.0.7","program_hash":"sha256:…","argv":["app.flx"],"backend":"vm"}
+//! {"seq":0,"kind":"read_file","path":"in.txt","result":{"ok":{"text":"hello\n"}}}
+//! {"seq":1,"kind":"stdout","text":"hello\n"}
+//! {"seq":2,"kind":"exit","failed":false}
+//! ```
+//!
+//! Every payload is host data (text, numbers, error kinds), never a runtime
+//! value, so a tape recorded by one backend replays on the other.
+
+use std::fmt;
+use std::io::{BufRead, BufReader};
+use std::path::Path;
+
+use serde::{Deserialize, Serialize};
+
+use super::error::TapeError;
+
+pub const TAPE_MAGIC: &str = "FLXTAPE";
+pub const TAPE_VERSION: u32 = 1;
+
+/// The first line of a tape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TapeHeader {
+    pub magic: String,
+    pub version: u32,
+    /// The `flux` that recorded the tape. A different version only warns.
+    pub flux_version: String,
+    /// `sha256:<hex>` over the program's own modules; a tape replays only the
+    /// program it was recorded from.
+    pub program_hash: String,
+    /// The program's arguments when it was recorded.
+    pub argv: Vec<String>,
+    /// `vm` or `native`: which backend recorded the tape.
+    pub backend: String,
+}
+
+impl TapeHeader {
+    pub fn new(program_hash: String, argv: Vec<String>, backend: &str) -> Self {
+        Self {
+            magic: TAPE_MAGIC.to_string(),
+            version: TAPE_VERSION,
+            flux_version: env!("CARGO_PKG_VERSION").to_string(),
+            program_hash,
+            argv,
+            backend: backend.to_string(),
+        }
+    }
+}
+
+/// One recorded effect.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TapeEvent {
+    pub seq: u64,
+    /// The logical fiber that performed the effect. Always 0 until async
+    /// effects are recorded (0188 S1b).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub fiber: u32,
+    #[serde(flatten)]
+    pub request: EffectRequest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<Outcome>,
+}
+
+fn is_zero(value: &u32) -> bool {
+    *value == 0
+}
+
+/// What the program asked for. Inputs return a recorded [`Outcome`]; outputs
+/// are checked and their recorded outcome returned without being re-applied;
+/// console text is checked and printed again; `exit` ends the tape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EffectRequest {
+    // ── Inputs ────────────────────────────────────────────────────────
+    ReadStdin,
+    ReadFile {
+        path: String,
+    },
+    ReadLines {
+        path: String,
+    },
+    TryReadFile {
+        path: String,
+    },
+    FsExists {
+        path: String,
+    },
+    FsIsDir {
+        path: String,
+    },
+    FsIsFile {
+        path: String,
+    },
+    FsListDir {
+        path: String,
+    },
+    FsMetadata {
+        path: String,
+    },
+    Sha256File {
+        path: String,
+    },
+    EnvVar {
+        name: String,
+    },
+    EnvArgs,
+    EnvCwd,
+    EnvHomeDir,
+    ProcRun {
+        cmd: String,
+        argv: Vec<String>,
+    },
+    ClockNow,
+    /// `time(f)` on the VM: the elapsed time around a callback whose own
+    /// effects are recorded before this event.
+    Time,
+    // ── Outputs ───────────────────────────────────────────────────────
+    WriteFile {
+        path: String,
+        contents: TapeBytes,
+    },
+    FsWriteFile {
+        path: String,
+        contents: TapeBytes,
+    },
+    FsCreateDirAll {
+        path: String,
+    },
+    FsRemoveFile {
+        path: String,
+    },
+    FsRemoveDirAll {
+        path: String,
+    },
+    FsRename {
+        from: String,
+        to: String,
+    },
+    // ── Console ───────────────────────────────────────────────────────
+    Stdout {
+        text: TapeBytes,
+    },
+    Stderr {
+        text: TapeBytes,
+    },
+    // ── End of run ────────────────────────────────────────────────────
+    Exit {
+        failed: bool,
+        /// Informational only: the two backends word failures differently,
+        /// so replay compares `failed`, not the message.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+    },
+}
+
+/// How an [`EffectRequest`] behaves under replay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EffectClass {
+    Input,
+    Output,
+    Console,
+    Terminal,
+}
+
+impl EffectRequest {
+    pub fn class(&self) -> EffectClass {
+        use EffectRequest::*;
+        match self {
+            ReadStdin
+            | ReadFile { .. }
+            | ReadLines { .. }
+            | TryReadFile { .. }
+            | FsExists { .. }
+            | FsIsDir { .. }
+            | FsIsFile { .. }
+            | FsListDir { .. }
+            | FsMetadata { .. }
+            | Sha256File { .. }
+            | EnvVar { .. }
+            | EnvArgs
+            | EnvCwd
+            | EnvHomeDir
+            | ProcRun { .. }
+            | ClockNow
+            | Time => EffectClass::Input,
+            WriteFile { .. }
+            | FsWriteFile { .. }
+            | FsCreateDirAll { .. }
+            | FsRemoveFile { .. }
+            | FsRemoveDirAll { .. }
+            | FsRename { .. } => EffectClass::Output,
+            Stdout { .. } | Stderr { .. } => EffectClass::Console,
+            Exit { .. } => EffectClass::Terminal,
+        }
+    }
+
+    /// The `kind` written to the tape.
+    pub fn kind_name(&self) -> &'static str {
+        use EffectRequest::*;
+        match self {
+            ReadStdin => "read_stdin",
+            ReadFile { .. } => "read_file",
+            ReadLines { .. } => "read_lines",
+            TryReadFile { .. } => "try_read_file",
+            FsExists { .. } => "fs_exists",
+            FsIsDir { .. } => "fs_is_dir",
+            FsIsFile { .. } => "fs_is_file",
+            FsListDir { .. } => "fs_list_dir",
+            FsMetadata { .. } => "fs_metadata",
+            Sha256File { .. } => "sha256_file",
+            EnvVar { .. } => "env_var",
+            EnvArgs => "env_args",
+            EnvCwd => "env_cwd",
+            EnvHomeDir => "env_home_dir",
+            ProcRun { .. } => "proc_run",
+            ClockNow => "clock_now",
+            Time => "time",
+            WriteFile { .. } => "write_file",
+            FsWriteFile { .. } => "fs_write_file",
+            FsCreateDirAll { .. } => "fs_create_dir_all",
+            FsRemoveFile { .. } => "fs_remove_file",
+            FsRemoveDirAll { .. } => "fs_remove_dir_all",
+            FsRename { .. } => "fs_rename",
+            Stdout { .. } => "stdout",
+            Stderr { .. } => "stderr",
+            Exit { .. } => "exit",
+        }
+    }
+
+    /// Whether a recorded event of this kind must carry a result.
+    fn expects_result(&self) -> bool {
+        matches!(self.class(), EffectClass::Input | EffectClass::Output)
+    }
+}
+
+impl fmt::Display for EffectRequest {
+    /// `read_file("in.txt")`, `stdout("hello")`: how a diagnostic names an
+    /// effect.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use EffectRequest::*;
+        let kind = self.kind_name();
+        match self {
+            ReadFile { path }
+            | ReadLines { path }
+            | TryReadFile { path }
+            | FsExists { path }
+            | FsIsDir { path }
+            | FsIsFile { path }
+            | FsListDir { path }
+            | FsMetadata { path }
+            | Sha256File { path }
+            | FsCreateDirAll { path }
+            | FsRemoveFile { path }
+            | FsRemoveDirAll { path } => write!(f, "{kind}({})", quoted(path)),
+            EnvVar { name } => write!(f, "{kind}({})", quoted(name)),
+            ProcRun { cmd, argv } => {
+                let args = argv.iter().map(|a| quoted(a)).collect::<Vec<_>>();
+                write!(f, "{kind}({}, [{}])", quoted(cmd), args.join(", "))
+            }
+            WriteFile { path, contents } | FsWriteFile { path, contents } => {
+                write!(f, "{kind}({}, {})", quoted(path), quoted(&contents.lossy()))
+            }
+            FsRename { from, to } => write!(f, "{kind}({}, {})", quoted(from), quoted(to)),
+            Stdout { text } | Stderr { text } => write!(f, "{kind}({})", quoted(&text.lossy())),
+            Exit { failed, .. } => {
+                write!(
+                    f,
+                    "{}",
+                    if *failed {
+                        "a failed exit"
+                    } else {
+                        "a normal exit"
+                    }
+                )
+            }
+            ReadStdin | EnvArgs | EnvCwd | EnvHomeDir | ClockNow | Time => write!(f, "{kind}()"),
+        }
+    }
+}
+
+/// A string for a diagnostic: quoted, escaped, and cut at 60 characters.
+fn quoted(text: &str) -> String {
+    const LIMIT: usize = 60;
+    let mut shown: String = text.chars().take(LIMIT).collect();
+    if text.chars().count() > LIMIT {
+        shown.push('…');
+    }
+    format!("{shown:?}")
+}
+
+/// What an effect produced, in backend-neutral form.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Outcome {
+    Unit,
+    Bool(bool),
+    Int(i64),
+    Text(TapeBytes),
+    /// A list of strings: `read_lines`, `list_dir`, `env_args`.
+    List(Vec<TapeBytes>),
+    /// `Some(text)` / `None`: `env_var`, `home_dir`.
+    Some(TapeBytes),
+    None,
+    /// `Ok(..)` of a `Result<_, IoError>`.
+    Ok(Box<Outcome>),
+    /// `Err(IoError)` of a `Result<_, IoError>`.
+    Err(TapeIoError),
+    Meta(FsMeta),
+    Proc(ProcOut),
+    /// The effect failed with a runtime error rather than a value (on the VM a
+    /// `read_file` error, on native a panic).
+    Fail(String),
+}
+
+impl fmt::Display for Outcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Outcome::Unit => write!(f, "()"),
+            Outcome::Bool(b) => write!(f, "{b}"),
+            Outcome::Int(i) => write!(f, "{i}"),
+            Outcome::Text(t) | Outcome::Some(t) => write!(f, "{}", quoted(&t.lossy())),
+            Outcome::List(items) => write!(f, "a list of {} strings", items.len()),
+            Outcome::None => write!(f, "None"),
+            Outcome::Ok(inner) => write!(f, "Ok({inner})"),
+            Outcome::Err(err) => write!(f, "Err({:?})", err.kind),
+            Outcome::Meta(_) => write!(f, "file metadata"),
+            Outcome::Proc(p) => write!(f, "process exit {}", p.status),
+            Outcome::Fail(msg) => write!(f, "error {}", quoted(msg)),
+        }
+    }
+}
+
+/// `IoError` as recorded: its kind, message and path.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TapeIoError {
+    pub kind: IoKind,
+    pub message: String,
+    pub path: String,
+}
+
+/// The constructors of `Flow.IoError`'s kind, in declaration order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IoKind {
+    NotFound,
+    PermissionDenied,
+    AlreadyExists,
+    NotADirectory,
+    IsADirectory,
+    DirectoryNotEmpty,
+    Interrupted,
+    Other,
+}
+
+impl IoKind {
+    pub const ALL: [IoKind; 8] = [
+        IoKind::NotFound,
+        IoKind::PermissionDenied,
+        IoKind::AlreadyExists,
+        IoKind::NotADirectory,
+        IoKind::IsADirectory,
+        IoKind::DirectoryNotEmpty,
+        IoKind::Interrupted,
+        IoKind::Other,
+    ];
+
+    /// The constructor name in `Flow.IoError`.
+    pub fn constructor(self) -> &'static str {
+        match self {
+            IoKind::NotFound => "NotFound",
+            IoKind::PermissionDenied => "PermissionDenied",
+            IoKind::AlreadyExists => "AlreadyExists",
+            IoKind::NotADirectory => "NotADirectory",
+            IoKind::IsADirectory => "IsADirectory",
+            IoKind::DirectoryNotEmpty => "DirectoryNotEmpty",
+            IoKind::Interrupted => "Interrupted",
+            IoKind::Other => "Other",
+        }
+    }
+
+    pub fn from_constructor(name: &str) -> IoKind {
+        IoKind::ALL
+            .into_iter()
+            .find(|kind| kind.constructor() == name)
+            .unwrap_or(IoKind::Other)
+    }
+}
+
+/// `Flow.Fs.FileMeta`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FsMeta {
+    pub size: i64,
+    pub modified: i64,
+    pub is_dir: bool,
+    pub is_file: bool,
+}
+
+/// `Flow.Process.ProcOutput`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcOut {
+    pub status: i64,
+    pub stdout: TapeBytes,
+    pub stderr: TapeBytes,
+}
+
+/// Bytes that are written as a JSON string when they are UTF-8, and as
+/// `{"hex": "…"}` when they are not, so nothing is lost either way.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct TapeBytes(pub Vec<u8>);
+
+impl TapeBytes {
+    pub fn lossy(&self) -> String {
+        String::from_utf8_lossy(&self.0).into_owned()
+    }
+}
+
+impl From<&str> for TapeBytes {
+    fn from(text: &str) -> Self {
+        TapeBytes(text.as_bytes().to_vec())
+    }
+}
+
+impl From<String> for TapeBytes {
+    fn from(text: String) -> Self {
+        TapeBytes(text.into_bytes())
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum BytesRepr {
+    Text(String),
+    Hex { hex: String },
+}
+
+impl Serialize for TapeBytes {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match std::str::from_utf8(&self.0) {
+            Ok(text) => BytesRepr::Text(text.to_string()).serialize(serializer),
+            Err(_) => BytesRepr::Hex {
+                hex: crate::shared::hex::encode(&self.0),
+            }
+            .serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for TapeBytes {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        match BytesRepr::deserialize(deserializer)? {
+            BytesRepr::Text(text) => Ok(TapeBytes(text.into_bytes())),
+            BytesRepr::Hex { hex } => decode_hex(&hex)
+                .map(TapeBytes)
+                .ok_or_else(|| serde::de::Error::custom("invalid hex in tape bytes")),
+        }
+    }
+}
+
+fn decode_hex(hex: &str) -> Option<Vec<u8>> {
+    if !hex.len().is_multiple_of(2) {
+        return None;
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok())
+        .collect()
+}
+
+/// A tape read from disk and checked, ready to replay.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoadedTape {
+    pub path: String,
+    pub header: TapeHeader,
+    pub events: Vec<TapeEvent>,
+}
+
+impl LoadedTape {
+    /// Reads and checks a whole tape: the header, that events are numbered
+    /// from 0 without gaps, and that each input or output carries a result.
+    /// A tape that fails any check is rejected before the program starts.
+    pub fn load(path: &Path) -> Result<LoadedTape, TapeError> {
+        let shown = path.display().to_string();
+        let bad = |reason: String| TapeError::BadTape {
+            path: shown.clone(),
+            reason,
+        };
+        let file =
+            std::fs::File::open(path).map_err(|err| bad(format!("cannot read it ({err})")))?;
+        let mut lines = BufReader::new(file).lines();
+
+        let header_line = lines
+            .next()
+            .ok_or_else(|| bad("it is empty".to_string()))?
+            .map_err(|err| bad(format!("cannot read it ({err})")))?;
+        let header: TapeHeader = serde_json::from_str(&header_line)
+            .map_err(|_| bad("it is not a Flux tape".to_string()))?;
+        if header.magic != TAPE_MAGIC {
+            return Err(bad("it is not a Flux tape".to_string()));
+        }
+        if header.version != TAPE_VERSION {
+            return Err(bad(format!(
+                "it uses tape format version {}, and this flux reads version {TAPE_VERSION}",
+                header.version
+            )));
+        }
+
+        let mut events = Vec::new();
+        for (index, line) in lines.enumerate() {
+            let line_number = index + 2;
+            let line = line.map_err(|err| bad(format!("cannot read it ({err})")))?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            let event: TapeEvent = serde_json::from_str(&line)
+                .map_err(|err| bad(format!("line {line_number} is malformed ({err})")))?;
+            if event.seq != events.len() as u64 {
+                return Err(bad(format!(
+                    "line {line_number} is event #{}, expected #{}",
+                    event.seq,
+                    events.len()
+                )));
+            }
+            if event.request.expects_result() != event.result.is_some() {
+                return Err(bad(format!(
+                    "line {line_number} ({}) {} a result",
+                    event.request.kind_name(),
+                    if event.result.is_some() {
+                        "should not have"
+                    } else {
+                        "is missing"
+                    }
+                )));
+            }
+            events.push(event);
+        }
+        Ok(LoadedTape {
+            path: shown,
+            header,
+            events,
+        })
+    }
+
+    /// True when the recorded run did not reach its end, for example because
+    /// it crashed; replaying it stops with "tape exhausted".
+    pub fn is_truncated(&self) -> bool {
+        !matches!(
+            self.events.last().map(|event| &event.request),
+            Some(EffectRequest::Exit { .. })
+        )
+    }
+}
