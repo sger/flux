@@ -2526,18 +2526,15 @@ fn lower_emitting(
     crate::core::CoreProgram,
     Vec<crate::diagnostics::Diagnostic>,
 ) {
-    let (core, _, errors) =
-        crate::core::lower_ast::lower_program_ast_with_class_env_and_def_schemes(
-            program,
-            &compiler.hm_expr_types,
-            Some(&compiler.interner),
-            Some(&compiler.type_env),
-            None,
-            Some(&compiler.class_env),
-            None,
-            Some(evidence),
-        );
-    (core, errors)
+    crate::core::lower_ast::lower_program_ast_with_evidence(
+        program,
+        &compiler.hm_expr_types,
+        Some(&compiler.interner),
+        Some(&compiler.type_env),
+        None,
+        Some(&compiler.class_env),
+        Some(evidence),
+    )
 }
 
 fn lambda_param_names<'a>(

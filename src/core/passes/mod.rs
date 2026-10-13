@@ -30,10 +30,8 @@ pub use case_of_case::case_of_case;
 pub use cokc::case_of_known_constructor;
 pub use const_fold::constant_fold;
 pub use dead_let::elim_dead_let;
+pub use dict_elaborate::build_referenced_dictionaries;
 pub(crate) use dict_elaborate::reachable_methods;
-pub use dict_elaborate::{
-    build_referenced_dictionaries, elaborate_dictionaries, elaborate_dictionaries_with_def_schemes,
-};
 pub use disciplined_inline::disciplined_inline;
 pub use evidence::evidence_pass;
 pub use inline::inline_trivial_lets;
@@ -47,7 +45,6 @@ use crate::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, ErrorType, diagnostic_for,
 };
 use crate::syntax::interner::Interner;
-use crate::types::{class_env::ClassEnv, type_env::TypeEnv};
 
 // ── Pass pipeline ─────────────────────────────────────────────────────────────
 
@@ -103,35 +100,6 @@ pub fn run_core_passes_with_interner_and_warnings(
     optimize: bool,
 ) -> Result<Vec<Diagnostic>, Diagnostic> {
     run_semantic_core_passes_with_optional_interner(program, Some(interner), optimize)
-}
-
-/// Run Core passes with dictionary elaboration for type classes.
-///
-/// This variant runs the dictionary elaboration pass (Stage 0.5) before
-/// the standard simplification loop. It needs `&mut Interner` because
-/// dictionary construction interns new names (`__dict_*`).
-#[allow(clippy::result_large_err)]
-pub fn run_core_passes_with_class_env(
-    program: &mut CoreProgram,
-    interner: &Interner,
-    optimize: bool,
-    class_env: &ClassEnv,
-    type_env: &TypeEnv,
-    preloaded_registry: crate::aether::borrow_infer::BorrowRegistry,
-) -> Result<Vec<Diagnostic>, Diagnostic> {
-    // Stage 0.5: Dictionary elaboration (before standard passes).
-    if !class_env.classes.is_empty() {
-        let mut next_id = next_fresh_binder_id(program);
-        elaborate_dictionaries(program, class_env, type_env, interner, &mut next_id);
-    }
-    // Run the standard semantic pipeline first, then explicit Aether passes.
-    let warnings =
-        run_semantic_core_passes_with_optional_interner(program, Some(interner), optimize)?;
-    let mut aether_warnings =
-        run_aether_passes_with_optional_interner(program, Some(interner), preloaded_registry)?;
-    let mut warnings = warnings;
-    warnings.append(&mut aether_warnings);
-    Ok(warnings)
 }
 
 /// Maximum number of simplification rounds when `-O` is enabled.

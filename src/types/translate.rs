@@ -16,8 +16,8 @@
 //! **If this module ever needs to consult the class environment to make a
 //! common case work, the design is wrong.** Once is a missing solver decision;
 //! twice means the solver is not in a position to decide, and the honest
-//! response is to find out why rather than add a fallback — that is how
-//! `choose_candidate`'s "recovers with the first candidate rather than failing"
+//! response is to find out why rather than add a fallback — that is how the
+//! old elaboration's "recovers with the first candidate rather than failing"
 //! came to sit in a correctness-critical path.
 //!
 //! See `docs/proposals/0186_generics_foundations.md`.

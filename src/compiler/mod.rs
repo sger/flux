@@ -1384,7 +1384,6 @@ pub struct Compiler {
     /// independent sites.
     pub(super) evidence_map: crate::types::evidence::EvidenceMap,
     pub(super) contextual_function_contracts: HashMap<ExprId, FunctionContract>,
-    pub(super) current_member_schemes: HashMap<(Symbol, Symbol), Scheme>,
     /// The current unit's private module members' schemes, by (module,
     /// member). Never exported: a private member is in no interface.
     pub(super) private_member_schemes: HashMap<(Symbol, Symbol), Scheme>,
@@ -1507,19 +1506,6 @@ enum LoweringPreparationMode {
 
 #[cfg(test)]
 mod compiler_test;
-
-fn collect_program_module_names(program: &Program, out: &mut HashSet<Identifier>) {
-    fn walk(statements: &[Statement], out: &mut HashSet<Identifier>) {
-        for statement in statements {
-            if let Statement::Module { name, body, .. } = statement {
-                out.insert(*name);
-                walk(&body.statements, out);
-            }
-        }
-    }
-
-    walk(&program.statements, out);
-}
 
 impl Compiler {
     /// The solver's evidence for every predicate a call site raised.
@@ -1961,7 +1947,6 @@ impl Compiler {
             hm_expr_types: HashMap::new(),
             evidence_map: crate::types::evidence::EvidenceMap::new(),
             contextual_function_contracts: HashMap::new(),
-            current_member_schemes: HashMap::new(),
             private_member_schemes: HashMap::new(),
             cached_member_schemes: HashMap::new(),
             cached_member_borrow_signatures: HashMap::new(),
@@ -2101,7 +2086,6 @@ impl Compiler {
     fn apply_hm_final(&mut self, hm_final: &InferProgramResult) {
         self.type_env = hm_final.type_env.clone();
         self.hm_expr_types = hm_final.expr_types.clone();
-        self.current_member_schemes = hm_final.module_member_schemes.clone();
         // The program being lowered may not be the one the unit's inference
         // solved (a merged program has its ids shifted), so its evidence is
         // solved again with the types above. The diagnostics are dropped: each
@@ -2115,46 +2099,31 @@ impl Compiler {
         &self,
         program_to_lower: &Program,
         optimize: bool,
-        elaborate_dictionaries: bool,
+        define_dictionaries: bool,
     ) -> Result<crate::core::CoreProgram, Diagnostic> {
         let class_env_ref = if self.class_env.classes.is_empty() {
             None
         } else {
             Some(&self.class_env)
         };
-        let mut module_member_schemes = self.build_preloaded_hm_member_schemes(program_to_lower);
-        let mut local_modules = HashSet::new();
-        collect_program_module_names(program_to_lower, &mut local_modules);
-        for ((module_name, member_name), scheme) in &self.current_member_schemes {
-            if local_modules.contains(module_name) {
-                module_member_schemes.insert((*module_name, *member_name), scheme.clone());
-            }
-        }
-        for ((module_name, member_name), scheme) in &self.cached_member_schemes {
-            if local_modules.contains(module_name) {
-                module_member_schemes.insert((*module_name, *member_name), scheme.clone());
-            }
-        }
         // 0.0.8 plan step 1e: dictionary parameters, arguments and method
         // calls come from evidence, so elaboration only defines the
         // dictionaries the program names.
-        let (mut core, _, errors) =
-            crate::core::lower_ast::lower_program_ast_with_class_env_and_def_schemes(
-                program_to_lower,
-                &self.hm_expr_types,
-                Some(&self.interner),
-                Some(&self.type_env),
-                None,
-                class_env_ref,
-                Some(&module_member_schemes),
-                Some(&self.evidence_map),
-            );
+        let (mut core, errors) = crate::core::lower_ast::lower_program_ast_with_evidence(
+            program_to_lower,
+            &self.hm_expr_types,
+            Some(&self.interner),
+            Some(&self.type_env),
+            None,
+            class_env_ref,
+            Some(&self.evidence_map),
+        );
         if let Some(mut error) = errors.into_iter().next() {
             error.set_file(self.file_path.clone());
             return Err(error);
         }
 
-        if elaborate_dictionaries {
+        if define_dictionaries {
             let mut next_id = crate::core::passes::next_fresh_binder_id(&core);
             crate::core::passes::build_referenced_dictionaries(
                 &mut core,
@@ -2175,10 +2144,9 @@ impl Compiler {
         &self,
         program_to_lower: &Program,
         optimize: bool,
-        elaborate_dictionaries: bool,
+        define_dictionaries: bool,
     ) -> Result<crate::aether::AetherProgram, Diagnostic> {
-        let core =
-            self.lower_core_from_program(program_to_lower, optimize, elaborate_dictionaries)?;
+        let core = self.lower_core_from_program(program_to_lower, optimize, define_dictionaries)?;
         let preloaded_registry = self.build_preloaded_borrow_registry(program_to_lower);
         let (aether, _) = crate::aether::lower_core_to_aether_program(
             &core,
@@ -2193,14 +2161,14 @@ impl Compiler {
         &mut self,
         program: &Program,
         optimize: bool,
-        elaborate_dictionaries: bool,
+        define_dictionaries: bool,
     ) -> Result<crate::core::CoreProgram, Diagnostic> {
         let optimized = self.optimize_for_lowering(program.clone(), optimize);
         let prepared = self.prepare_program_for_lowering(&optimized);
         self.apply_hm_final(&prepared.hm_final);
         let mut program_to_lower = prepared.effective_program.into_owned();
         self.apply_named_field_desugar(&mut program_to_lower);
-        self.lower_core_from_program(&program_to_lower, optimize, elaborate_dictionaries)
+        self.lower_core_from_program(&program_to_lower, optimize, define_dictionaries)
     }
 
     /// With `optimize`, the syntactic optimizations a lowering path applies.
