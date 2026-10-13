@@ -1,0 +1,21 @@
+// File changes are outputs: replay checks them against the tape and does not
+// make them again.
+import Flow.Fs as Fs
+import Flow.IoError as Io
+
+fn kind(label: String, r: Result<Unit, IoError>) -> Unit with IO {
+    match r {
+        Ok(_) -> println(label + " ok"),
+        Err(e) -> println(label + " " + Io.kind_name(Io.error_kind(e))),
+    }
+}
+
+fn main() with IO {
+    kind("mkdir", Fs.create_dir_all("out/a"))
+    kind("write", Fs.write_file("out/a/f.txt", "payload"))
+    write_file("out/a/legacy.txt", "legacy")
+    kind("rename", Fs.rename("out/a/f.txt", "out/a/g.txt"))
+    kind("rm_missing", Fs.remove_file("out/a/absent.txt"))
+    kind("rm", Fs.remove_file("out/a/legacy.txt"))
+    println(Fs.read_file_or("out/a/g.txt", "MISSING"))
+}

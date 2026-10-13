@@ -329,6 +329,7 @@ static void flush_waiters(FluxChannel *ch) {
 }
 
 int64_t flux_chan_make(int64_t capacity_val) {
+    if (flux_tape_mode) flux_tape_refuse("Channel.make");
     channels_init_once();
     int64_t capacity = flux_untag_int(capacity_val);
     if (capacity < 0) {

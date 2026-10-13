@@ -1,0 +1,11 @@
+// Async code cannot be recorded yet (0188 S1b).
+import Flow.Async exposing (..)
+
+fn body() -> Int with Async {
+    sleep(1)
+    99
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

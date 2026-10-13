@@ -1,6 +1,6 @@
 - Feature Name: Deterministic Effect Replay
 - Start Date: 2026-02-20
-- Status: Not Implemented — to be implemented by [0188](0188_flux_debugger.md) stage S1 (2026-10-13). 0188 §4 adds Env, Process, `Fs*`, async-completion and scheduler events to this proposal's event list and supplies the native backend; this document remains the reference for the CLI and mismatch diagnostics.
+- Status: Partially implemented by [0188](0188_flux_debugger.md) stage S1a (2026-10-13): `flux run --record <tape>` / `--replay <tape>` for synchronous effects (stdin, files, environment, processes, clock, console) on both backends, with a JSON Lines tape (0188 §4.3) and diagnostics E1022–E1027. Async effects follow in 0188 S1b. 0188 §4 supersedes this document's event list and format.
 - Proposal PR: 
 - Flux Issue: 
 

@@ -28,6 +28,8 @@ mod function_call;
 mod index_ops;
 mod primop;
 pub mod profiling;
+mod replay_codec;
+mod replay_hook;
 mod task;
 pub mod test_runner;
 mod trace;

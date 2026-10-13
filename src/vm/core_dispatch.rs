@@ -3203,18 +3203,8 @@ pub fn execute_core_primop(
         }
 
         // ── I/O ───────────────────────────────────────────────────────
-        Print => {
-            for (i, arg) in args.iter().enumerate() {
-                if i > 0 {
-                    print!(" ");
-                }
-                print!("{}", format_value(arg));
-            }
-            println!();
-            Ok(Value::None)
-        }
-        Println => {
-            println!("{}", format_value(&args[0]));
+        Print | Println => {
+            print!("{}", render_console(op, &args));
             Ok(Value::None)
         }
         DebugTrace => {
@@ -3223,7 +3213,7 @@ pub fn execute_core_primop(
             // Python's default logging behavior. The argument is expected to
             // be a pre-formatted string (the Flow.Debug wrappers call
             // `show()` on values before perform-ing the effect operation).
-            eprintln!("{}", format_value(&args[0]));
+            eprint!("{}", render_console(op, &args));
             Ok(Value::None)
         }
         ReadFile => {
@@ -4769,12 +4759,24 @@ fn vm_json_stringify(args: &[Value]) -> Result<Value, String> {
     ))
 }
 
+/// The text a console primop writes, newline included: `print`'s arguments
+/// separated by spaces, or `println` / `trace`'s one value. Shared with the
+/// effect tape, which records exactly what is written.
+pub(super) fn render_console(op: CorePrimOp, args: &[Value]) -> String {
+    let mut text = match op {
+        CorePrimOp::Print => args.iter().map(format_value).collect::<Vec<_>>().join(" "),
+        _ => args.first().map(format_value).unwrap_or_default(),
+    };
+    text.push('\n');
+    text
+}
+
 /// Wrap a value as `Flow.Result`'s `Ok`.
 ///
 /// Both outcomes come back as `Ok(Value::Adt(..))` — the Flux `Result` is the
 /// return value. Rust-level `Err` is reserved for real VM faults like a
 /// wrong-typed argument.
-fn vm_io_ok(value: Value) -> Value {
+pub(super) fn vm_io_ok(value: Value) -> Value {
     use crate::runtime::value::{AdtFields, AdtValue};
     Value::Adt(Rc::new(AdtValue {
         constructor: Rc::new("Ok".to_string()),
@@ -4855,7 +4857,7 @@ fn vm_fs_completion(completion: FsCompletion) -> Value {
     }
 }
 
-fn vm_fs_error(error: &FsError) -> Value {
+pub(super) fn vm_fs_error(error: &FsError) -> Value {
     use crate::runtime::value::{AdtFields, AdtValue};
     let kind_name = match error.kind {
         FsErrorKind::NotFound => "NotFound",

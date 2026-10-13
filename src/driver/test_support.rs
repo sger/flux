@@ -32,6 +32,7 @@ pub(crate) fn base_flags() -> DriverFlags {
             profiling: false,
             quiet: false,
             check_only: false,
+            tape: None,
         },
         dumps: DriverDumpFlags {
             dump_repr: false,

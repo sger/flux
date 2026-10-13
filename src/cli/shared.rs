@@ -14,7 +14,7 @@ use crate::{
         backend::Backend,
         flags::{
             DriverBackendFlags, DriverCacheFlags, DriverDiagnosticFlags, DriverDumpFlags,
-            DriverFlags, DriverInputFlags, DriverLanguageFlags, DriverRuntimeFlags,
+            DriverFlags, DriverInputFlags, DriverLanguageFlags, DriverRuntimeFlags, TapeRequest,
         },
         mode::DiagnosticOutputFormat,
     },
@@ -129,6 +129,7 @@ pub(crate) struct CliCommandValueOptions {
     pub(crate) dump_core: CoreDumpMode,
     pub(crate) test_filter: Option<String>,
     pub(crate) debug_level: DebugLevel,
+    pub(crate) tape: Option<TapeRequest>,
 }
 
 impl Default for CliDiagnosticOptions {
@@ -148,6 +149,7 @@ impl Default for CliCommandValueOptions {
             dump_core: CoreDumpMode::None,
             test_filter: None,
             debug_level: DebugLevel::None,
+            tape: None,
         }
     }
 }
@@ -277,6 +279,24 @@ pub(crate) fn extract_cli_value_options(args: &mut Vec<String>) -> Result<CliVal
             values.command.debug_level = level;
             continue;
         }
+        if let Some(path) = take_required_long_option(
+            args,
+            &mut i,
+            "--record",
+            "Usage: flux <file.flx> --record <tape>",
+        )? {
+            set_tape(&mut values, TapeRequest::Record(PathBuf::from(path)))?;
+            continue;
+        }
+        if let Some(path) = take_required_long_option(
+            args,
+            &mut i,
+            "--replay",
+            "Usage: flux <file.flx> --replay <tape>",
+        )? {
+            set_tape(&mut values, TapeRequest::Replay(PathBuf::from(path)))?;
+            continue;
+        }
         if let Some(format) = consume_named_value_option(
             args,
             &mut i,
@@ -352,6 +372,7 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
             profiling: parsed.runtime.profiling,
             quiet: parsed.runtime.quiet,
             check_only: false,
+            tape: values.command.tape,
         },
         dumps: DriverDumpFlags {
             dump_repr: parsed.dumps.dump_repr,
@@ -482,6 +503,15 @@ fn consume_dump_core_option(
     };
     args.remove(*index);
     Ok(Some(mode))
+}
+
+/// Records the one tape request a run may carry.
+fn set_tape(values: &mut CliValueOptions, request: TapeRequest) -> Result<(), String> {
+    if values.command.tape.is_some() {
+        return Err("Error: a run takes one of --record and --replay, once.".to_string());
+    }
+    values.command.tape = Some(request);
+    Ok(())
 }
 
 /// Consumes `-g`, `--debug` or `--debug=<lines|full>` and returns the requested debug level.

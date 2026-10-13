@@ -32,6 +32,7 @@ pub mod http;
 pub mod json;
 pub mod leak_detector;
 pub mod perform_descriptor;
+pub mod replay;
 pub mod runtime_type;
 pub mod value;
 pub mod yield_state;

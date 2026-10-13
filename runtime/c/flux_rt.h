@@ -532,6 +532,105 @@ typedef struct {
       already_exists_tag, not_a_directory_tag, is_a_directory_tag,             \
       directory_not_empty_tag, interrupted_tag, other_tag }
 
+/* ── Effect tape (proposal 0188 S1) ─────────────────────────────────────
+ *
+ * With --record / --replay, every synchronous effect is recorded to a tape or
+ * answered from one. The tape itself lives in Rust (src/runtime/replay); C
+ * describes each request and hands over, or rebuilds, its result through the
+ * flat FluxTapeOutcome. tape.c holds the C half.
+ */
+extern int32_t flux_tape_mode;   /* 0 off, 1 record, 2 replay */
+
+/* Request kinds: must match EventKind in src/runtime/replay/native_abi.rs. */
+#define FLUX_TAPE_EV_READ_STDIN        0
+#define FLUX_TAPE_EV_READ_FILE         1
+#define FLUX_TAPE_EV_READ_LINES        2
+#define FLUX_TAPE_EV_TRY_READ_FILE     3
+#define FLUX_TAPE_EV_FS_EXISTS         4
+#define FLUX_TAPE_EV_FS_IS_DIR         5
+#define FLUX_TAPE_EV_FS_IS_FILE        6
+#define FLUX_TAPE_EV_FS_LIST_DIR       7
+#define FLUX_TAPE_EV_FS_METADATA       8
+#define FLUX_TAPE_EV_SHA256_FILE       9
+#define FLUX_TAPE_EV_ENV_VAR           10
+#define FLUX_TAPE_EV_ENV_ARGS          11
+#define FLUX_TAPE_EV_ENV_CWD           12
+#define FLUX_TAPE_EV_ENV_HOME_DIR      13
+#define FLUX_TAPE_EV_PROC_RUN          14
+#define FLUX_TAPE_EV_CLOCK_NOW         15
+#define FLUX_TAPE_EV_WRITE_FILE        16
+#define FLUX_TAPE_EV_FS_WRITE_FILE     17
+#define FLUX_TAPE_EV_FS_CREATE_DIR_ALL 18
+#define FLUX_TAPE_EV_FS_REMOVE_FILE    19
+#define FLUX_TAPE_EV_FS_REMOVE_DIR_ALL 20
+#define FLUX_TAPE_EV_FS_RENAME         21
+
+/* Outcome tags: must match OUT_* in native_abi.rs. */
+#define FLUX_TAPE_OUT_UNIT 0
+#define FLUX_TAPE_OUT_BOOL 1
+#define FLUX_TAPE_OUT_INT  2
+#define FLUX_TAPE_OUT_TEXT 3
+#define FLUX_TAPE_OUT_LIST 4
+#define FLUX_TAPE_OUT_SOME 5
+#define FLUX_TAPE_OUT_NONE 6
+#define FLUX_TAPE_OUT_ERR  7
+#define FLUX_TAPE_OUT_META 8
+#define FLUX_TAPE_OUT_PROC 9
+#define FLUX_TAPE_OUT_FAIL 10
+
+/* Must match FluxTapeOutcome in native_abi.rs, field for field. */
+typedef struct {
+    int32_t        tag;
+    int32_t        ok;        /* 1: the outcome is wrapped in Ok(..) */
+    int32_t        err_kind;  /* IoError kind, in Flow.IoError declaration order */
+    int32_t        b0, b1;
+    int32_t        pad;
+    int64_t        i0, i1;
+    const uint8_t *s0;
+    size_t         n0;
+    const uint8_t *s1;
+    size_t         n1;
+    size_t         list_len;
+} FluxTapeOutcome;
+
+/* Rust (native_abi.rs). */
+int32_t        flux_tape_init(void);
+void           flux_tape_begin(uint32_t kind);
+void           flux_tape_arg(const uint8_t *ptr, size_t len);
+void           flux_tape_list_push(const uint8_t *ptr, size_t len);
+void           flux_tape_record(const FluxTapeOutcome *outcome);
+void           flux_tape_replay(FluxTapeOutcome *out);
+const uint8_t *flux_tape_list_item(size_t index, size_t *len);
+void           flux_tape_console(int32_t stream, const uint8_t *ptr, size_t len);
+void           flux_tape_finish(int32_t failed, const uint8_t *ptr, size_t len);
+void           flux_tape_refuse(const char *what);
+
+/* How a primop's native result is shaped, so tape.c can take it apart and
+ * rebuild it. RES_* are Result<_, IoError>; WRITE is the legacy write_file,
+ * which answers a Bool. */
+#define FLUX_TAPE_SH_TEXT      0
+#define FLUX_TAPE_SH_BOOL      1
+#define FLUX_TAPE_SH_INT       2
+#define FLUX_TAPE_SH_OPT_TEXT  3
+#define FLUX_TAPE_SH_LIST_TEXT 4
+#define FLUX_TAPE_SH_RES_TEXT  5
+#define FLUX_TAPE_SH_RES_UNIT  6
+#define FLUX_TAPE_SH_RES_LIST  7
+#define FLUX_TAPE_SH_RES_META  8
+#define FLUX_TAPE_SH_RES_PROC  9
+#define FLUX_TAPE_SH_WRITE     10
+
+/* tape.c. Each effect primop, while flux_tape_mode is set, calls
+ * flux_tape_start with its string arguments (0 for none); when that returns
+ * 1 it is replaying and returns flux_tape_replay_value, otherwise it runs and
+ * returns flux_tape_record_value of its real result. */
+void    flux_tape_c_init(void);
+int     flux_tape_start(uint32_t kind, int64_t arg0, int64_t arg1);
+int     flux_tape_start_proc(int64_t cmd, int64_t argv);
+int64_t flux_tape_record_value(int64_t value, int shape, const FluxIoTags *tags,
+                               int32_t extra_tag);
+int64_t flux_tape_replay_value(int shape, const FluxIoTags *tags, int32_t extra_tag);
+
 /* Shared by every fallible operation, including those in other .c files. */
 int64_t flux_io_make_adt(int32_t ctor_tag, const int64_t *fields, int32_t count);
 int64_t flux_io_fail(FluxIoTags tags, int errnum, int64_t path);

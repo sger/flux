@@ -25,6 +25,13 @@ pub struct DriverInputFlags {
     pub test_filter: Option<String>,
 }
 
+/// `--record <tape>` or `--replay <tape>` (proposal 0188 S1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TapeRequest {
+    Record(PathBuf),
+    Replay(PathBuf),
+}
+
 /// Runtime-only execution controls that do not affect frontend semantics.
 #[derive(Debug, Clone)]
 pub struct DriverRuntimeFlags {
@@ -42,6 +49,8 @@ pub struct DriverRuntimeFlags {
     /// Backs `flux build` and `flux check`: both need every compile-time error
     /// surfaced without running `main`.
     pub check_only: bool,
+    /// Record the run's effects to a tape, or replay them from one.
+    pub tape: Option<TapeRequest>,
 }
 
 /// Dump and inspection surfaces emitted by the driver.

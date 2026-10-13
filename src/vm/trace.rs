@@ -145,7 +145,7 @@ impl VM {
         (name, location)
     }
 
-    fn render_runtime_diagnostic(&self, diag: &Diagnostic, file: &str) -> String {
+    pub(super) fn render_runtime_diagnostic(&self, diag: &Diagnostic, file: &str) -> String {
         let source = std::fs::read_to_string(file).ok();
         let stack_frames = self.frames[..=self.frame_index]
             .iter()

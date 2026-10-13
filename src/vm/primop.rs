@@ -43,7 +43,13 @@ impl VM {
 
         args.reverse();
 
-        let result = execute_core_primop(self, op, args)?;
+        // The effect tape (proposal 0188 S1) sees every primop while it
+        // records or replays; otherwise this is one relaxed load.
+        let result = if crate::runtime::replay::is_active() {
+            self.execute_taped_primop(op, args)?
+        } else {
+            execute_core_primop(self, op, args)?
+        };
         self.push(result)?;
         self.last_popped = slot::to_slot(Value::None);
         Ok(())
