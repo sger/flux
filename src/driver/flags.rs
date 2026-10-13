@@ -60,6 +60,9 @@ pub struct DriverRuntimeFlags {
 pub struct DebuggerRequest {
     /// Read commands from this file instead of stdin.
     pub script: Option<PathBuf>,
+    /// Serve a debug adapter (`flux-dap`) at this address instead of
+    /// reading commands (0188 S4).
+    pub engine: Option<String>,
 }
 
 /// Dump and inspection surfaces emitted by the driver.

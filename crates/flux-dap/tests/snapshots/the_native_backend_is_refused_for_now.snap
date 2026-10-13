@@ -1,0 +1,9 @@
+---
+source: crates/flux-dap/tests/dap_tests.rs
+---
+-> initialize {"adapterID":"flux"}
+<- {"body":{"supportsConfigurationDoneRequest":true,"supportsEvaluateForHovers":true,"supportsLoadedSourcesRequest":false,"supportsSetVariable":false,"supportsStepBack":true,"supportsTerminateRequest":true},"command":"initialize","success":true}
+-> launch {"backend":"native","fluxArgs":["--no-cache"],"fluxCommand":["<flux>"],"program":"<dir>/calls.flx"}
+<- {"command":"launch","message":"the `native` backend cannot be debugged yet: native debugging comes in proposal 0188 S6; use \"backend\": \"vm\"","success":false}
+-> disconnect {}
+<- {"body":{},"command":"disconnect","success":true}

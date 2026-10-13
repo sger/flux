@@ -331,6 +331,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "flux-dap"
+version = "0.0.1"
+dependencies = [
+ "flux",
+ "insta",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "flux-lsp"
 version = "0.0.1"
 dependencies = [

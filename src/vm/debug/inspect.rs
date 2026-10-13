@@ -145,9 +145,42 @@ fn location_at(function: &CompiledFunction, ip: usize) -> Option<(String, usize,
 /// Whether `file` (as the bytecode names it) is the file the user wrote
 /// (`app.flx`, `src/app.flx` or an absolute path).
 fn same_file(file: &str, wanted: &str) -> bool {
-    let file = std::path::Path::new(file);
-    let wanted = std::path::Path::new(wanted);
-    file == wanted || file.ends_with(wanted) || wanted.ends_with(file)
+    FileMatcher::new(wanted).matches(file)
+}
+
+/// Matches the files the bytecode names against one the user wrote. Two
+/// absolute paths can name one file through a symlink (`/var` is
+/// `/private/var` on macOS), so those are compared resolved.
+struct FileMatcher<'a> {
+    wanted: &'a std::path::Path,
+    resolved: Option<std::path::PathBuf>,
+    seen: std::collections::HashMap<String, bool>,
+}
+
+impl<'a> FileMatcher<'a> {
+    fn new(wanted: &'a str) -> Self {
+        let wanted = std::path::Path::new(wanted);
+        Self {
+            wanted,
+            resolved: std::fs::canonicalize(wanted).ok(),
+            seen: std::collections::HashMap::new(),
+        }
+    }
+
+    fn matches(&mut self, file: &str) -> bool {
+        if let Some(known) = self.seen.get(file) {
+            return *known;
+        }
+        let path = std::path::Path::new(file);
+        let matched = path == self.wanted
+            || path.ends_with(self.wanted)
+            || self.wanted.ends_with(path)
+            || self.resolved.as_ref().is_some_and(|resolved| {
+                std::fs::canonicalize(path).ok().as_ref() == Some(resolved)
+            });
+        self.seen.insert(file.to_string(), matched);
+        matched
+    }
 }
 
 impl<'a> Inspector<'a> {
@@ -280,6 +313,7 @@ impl<'a> Inspector<'a> {
     /// has code. Returns the line it was set on.
     pub fn set_breakpoint(&mut self, file: &str, line: usize) -> Result<usize, String> {
         let mut best: Option<(String, usize)> = None;
+        let mut matcher = FileMatcher::new(file);
         for function in self.vm.all_functions() {
             let Some(info) = function.debug_info.as_ref() else {
                 continue;
@@ -292,7 +326,7 @@ impl<'a> Inspector<'a> {
                     continue;
                 };
                 let site_line = location.span.start.line;
-                if site_line < line || !same_file(site_file, file) {
+                if site_line < line || !matcher.matches(site_file) {
                     continue;
                 }
                 if best
@@ -322,7 +356,6 @@ impl<'a> Inspector<'a> {
         self.control.breakpoints.len() != before
     }
 
-    /// Shows or hides compiler-made frames and variables.
     /// Sites the program has run so far: where it is in its run.
     pub fn position(&self) -> u64 {
         self.control.position
@@ -338,6 +371,7 @@ impl<'a> Inspector<'a> {
         self.control.checkpoints.len()
     }
 
+    /// Shows or hides compiler-made frames and variables.
     pub fn set_show_internals(&mut self, show: bool) {
         self.control.show_internals = show;
     }
@@ -410,5 +444,31 @@ mod tests {
         assert!(!is_artificial(Some("__tc_Show_Int_show")));
         assert!(!is_artificial(Some("<handler Console.print>")));
         assert!(!is_artificial(Some("main")));
+    }
+
+    #[test]
+    fn breakpoint_files_match_by_name_or_through_a_symlink() {
+        use super::same_file;
+        assert!(same_file("/work/app/src/main.flx", "main.flx"));
+        assert!(same_file("/work/app/src/main.flx", "src/main.flx"));
+        assert!(same_file("src/main.flx", "/work/app/src/main.flx"));
+        assert!(!same_file("/work/app/src/main.flx", "other.flx"));
+
+        // An editor and the compiler can name one file by two absolute
+        // paths, as `/var` and `/private/var` on macOS.
+        #[cfg(unix)]
+        {
+            let dir = std::env::temp_dir().join(format!("flux-same-file-{}", std::process::id()));
+            let real = dir.join("real");
+            std::fs::create_dir_all(&real).unwrap();
+            std::fs::write(real.join("app.flx"), "fn main() {}\n").unwrap();
+            let link = dir.join("link");
+            let _ = std::fs::remove_file(&link);
+            std::os::unix::fs::symlink(&real, &link).unwrap();
+            let compiled = real.join("app.flx").display().to_string();
+            let edited = link.join("app.flx").display().to_string();
+            assert!(same_file(&compiled, &edited));
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 }
