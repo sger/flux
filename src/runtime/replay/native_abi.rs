@@ -46,10 +46,11 @@ pub enum EventKind {
     FsRemoveFile = 19,
     FsRemoveDirAll = 20,
     FsRename = 21,
+    EventClock = 22,
 }
 
 impl EventKind {
-    pub const ALL: [EventKind; 22] = [
+    pub const ALL: [EventKind; 23] = [
         EventKind::ReadStdin,
         EventKind::ReadFile,
         EventKind::ReadLines,
@@ -72,6 +73,7 @@ impl EventKind {
         EventKind::FsRemoveFile,
         EventKind::FsRemoveDirAll,
         EventKind::FsRename,
+        EventKind::EventClock,
     ];
 
     fn from_raw(raw: u32) -> Option<EventKind> {
@@ -121,6 +123,7 @@ impl EventKind {
                 from: text(0),
                 to: text(1),
             },
+            EventKind::EventClock => EffectRequest::EventClock,
         }
     }
 }
@@ -203,6 +206,9 @@ unsafe fn slice<'a>(ptr: *const u8, len: usize) -> &'a [u8] {
 /// which the driver sets. Returns the mode: 0 off, 1 record, 2 replay.
 #[unsafe(no_mangle)]
 pub extern "C" fn flux_tape_init() -> i32 {
+    // Errors found inside the async scheduler reach the driver the same way
+    // as the rest: one wire line on stderr.
+    super::async_tape::set_fatal_handler(Box::new(|err| eprintln!("{}", err.to_wire())));
     if let Some(path) = std::env::var_os("FLUX_TAPE_RECORD") {
         if let Err(err) = super::start_record_append(Path::new(&path)) {
             fatal(err);
@@ -492,6 +498,12 @@ fn encode(outcome: &Outcome, out: &mut FluxTapeOutcome, pending: &mut Pending) {
         Outcome::Fail(message) => {
             out.tag = OUT_FAIL;
             pending.s0 = message.clone().into_bytes();
+        }
+        // Async completions go straight to the scheduler, never through C.
+        Outcome::Bytes(_) | Outcome::Addrs(_) => {
+            out.tag = OUT_FAIL;
+            pending.s0 =
+                format!("the tape has {outcome} where a synchronous effect returns").into_bytes();
         }
     }
     out.s0 = pending.s0.as_ptr();

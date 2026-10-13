@@ -1,6 +1,6 @@
 - Feature Name: Deterministic Effect Replay
 - Start Date: 2026-02-20
-- Status: Partially implemented by [0188](0188_flux_debugger.md) stage S1a (2026-10-13): `flux run --record <tape>` / `--replay <tape>` for synchronous effects (stdin, files, environment, processes, clock, console) on both backends, with a JSON Lines tape (0188 §4.3) and diagnostics E1022–E1027. Async effects follow in 0188 S1b. 0188 §4 supersedes this document's event list and format.
+- Status: Implemented by [0188](0188_flux_debugger.md) stages S1a and S1b (2026-10-13): `flux run --record <tape>` / `--replay <tape>` for synchronous effects (stdin, files, environment, processes, clock, console) and async code (fibers, timers, channels, events, TCP) on both backends, with a JSON Lines tape (0188 §4.3) and diagnostics E1022–E1027. Not yet covered: `Task.spawn` (0188 S8) and replaying an async tape on the other backend (0188 S9). 0188 §4 supersedes this document's event list and format.
 - Proposal PR: 
 - Flux Issue: 
 

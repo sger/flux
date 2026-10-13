@@ -243,8 +243,8 @@ pub const REPLAY_UNSUPPORTED_EFFECT: ErrorCode = ErrorCode {
     error_type: ErrorType::Runtime,
     message: "`{}` cannot be recorded or replayed yet.",
     hint: Some(
-        "Async code, tasks, channels and network I/O cannot be recorded yet. \
-         Run without --record or --replay.",
+        "Tasks (`Task.spawn`) run on threads of their own and cannot be recorded \
+         yet. Run without --record or --replay, or use fibers (`both`, `fork`).",
     ),
 };
 

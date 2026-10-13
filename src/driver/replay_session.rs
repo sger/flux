@@ -65,6 +65,25 @@ pub(crate) fn prepare(graph: &ModuleGraph, entry_path: &Path, flags: &DriverFlag
                     path,
                 );
             }
+            let backend = if native { "native" } else { "vm" };
+            if tape.has_async() && tape.header.backend != backend {
+                fail(
+                    &TapeError::BadTape {
+                        path: path.display().to_string(),
+                        reason: format!(
+                            "it records async code run on {recorded}, which replays only on \
+                             {recorded}; replay it with {flag}",
+                            recorded = backend_name(&tape.header.backend),
+                            flag = if tape.header.backend == "native" {
+                                "--native"
+                            } else {
+                                "the VM (without --native)"
+                            },
+                        ),
+                    },
+                    path,
+                );
+            }
             if tape.header.flux_version != env!("CARGO_PKG_VERSION") {
                 eprintln!(
                     "warning: tape `{}` was recorded by flux {}; this is flux {}.",
@@ -86,7 +105,17 @@ pub(crate) fn prepare(graph: &ModuleGraph, entry_path: &Path, flags: &DriverFlag
 }
 
 /// Starts recording or replaying in this process, for a run on the VM.
-pub(crate) fn activate_in_process() {
+pub(crate) fn activate_in_process(program_path: &str) {
+    if SESSION.get().is_some() {
+        // A tape error inside the async scheduler cannot be returned to the
+        // program; report it like any other tape error and stop.
+        let program_path = program_path.to_string();
+        replay::async_tape::set_fatal_handler(Box::new(move |err| {
+            let _ = replay::finish(true, Some(err.message()));
+            let _ = std::io::Write::flush(&mut std::io::stdout());
+            report(err, &program_path);
+        }));
+    }
     match SESSION.get() {
         None => {}
         Some(Session::Record { path, header }) => {
@@ -149,6 +178,14 @@ pub(crate) fn report(err: &TapeError, program_path: &str) {
         "{}",
         render_runtime_diagnostic(&diagnostic, program_path, None, &[])
     );
+}
+
+fn backend_name(backend: &str) -> &str {
+    match backend {
+        "native" => "the native backend",
+        "vm" => "the VM",
+        other => other,
+    }
 }
 
 fn fail(err: &TapeError, path: &Path) -> ! {

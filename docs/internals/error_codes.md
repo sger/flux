@@ -247,7 +247,7 @@ These indicate a bug in the compiler, not user code:
 | <a id="e1024"></a>`E1024` | `REPLAY_TAPE_EXHAUSTED` | Replay: the program performed more effects than the tape holds |
 | <a id="e1025"></a>`E1025` | `REPLAY_LEFTOVER_EVENTS` | Replay: the program finished before the tape did |
 | <a id="e1026"></a>`E1026` | `REPLAY_BAD_TAPE` | The tape cannot be read, written, or belongs to another program |
-| <a id="e1027"></a>`E1027` | `REPLAY_UNSUPPORTED_EFFECT` | An effect that cannot be recorded yet (async, until 0188 S1b) |
+| <a id="e1027"></a>`E1027` | `REPLAY_UNSUPPORTED_EFFECT` | An effect that cannot be recorded yet (`Task.spawn`, until 0188 S8) |
 
 ---
 

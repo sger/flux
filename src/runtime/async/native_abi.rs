@@ -774,11 +774,13 @@ impl NativeRun {
     }
 
     fn cancel_scope(&mut self, scope: u64) {
-        let children: Vec<u64> = self
+        let mut children: Vec<u64> = self
             .scopes
             .remove(&scope)
             .map(|children| children.into_iter().collect())
             .unwrap_or_default();
+        // Fiber order, not hash order, so a recorded run replays.
+        children.sort_unstable();
         self.cancel_fibers(&children);
         // Also cancel any tasks registered under this scope via spawn_scoped.
         // flux_task_cancel is idempotent — no-op for already-completed tasks.
@@ -1093,7 +1095,7 @@ fn current_worker() -> usize {
 }
 
 fn backend() -> &'static MioBackend {
-    BACKEND.get_or_init(MioBackend::new)
+    BACKEND.get_or_init(|| MioBackend::new().use_effect_tape())
 }
 
 fn ready_timers() -> &'static Mutex<HashSet<u64>> {
@@ -1379,6 +1381,17 @@ pub extern "C" fn flux_async_timer_start(ms: i64) -> u64 {
     req
 }
 
+/// Starts a timer that completes the event wait `request_id` after `ms`
+/// milliseconds. Event waits use it while an effect tape is active, in place
+/// of a sleeping thread, so the timer's firing is on the tape.
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_event_timer(request_id: u64, ms: i64) {
+    if request_id == 0 || flux_async_runtime_init() != 0 {
+        return;
+    }
+    backend().timer_start(RequestId(request_id), ms.max(0) as u64);
+}
+
 fn socket_addr_from_raw(
     host: *const u8,
     host_len: usize,
@@ -1502,6 +1515,12 @@ pub extern "C" fn flux_async_run_root(root_closure: i64) -> i64 {
 }
 
 fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64 {
+    let worker_count = crate::runtime::replay::worker_count(worker_count);
+    if crate::runtime::replay::is_active() {
+        crate::runtime::replay::async_tape::set_fiber_source(|| {
+            Some(CURRENT_FIBER.with(|c| c.get())).filter(|id| *id != 0)
+        });
+    }
     let Some(cb) = callbacks().copied() else {
         return FLUX_NONE;
     };
@@ -1638,7 +1657,9 @@ fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64
             .state
             .lock()
             .expect("native async state poisoned");
-        state.root_tasks.drain().collect()
+        let mut leaked: Vec<i64> = state.root_tasks.drain().collect();
+        leaked.sort_unstable();
+        leaked
     };
     for task_id in leaked {
         unsafe { (cb.task_cancel)(task_id) };

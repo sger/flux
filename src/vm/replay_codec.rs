@@ -229,6 +229,12 @@ fn unrecordable(value: &Value) -> Outcome {
 pub(super) fn to_value(outcome: Outcome) -> Result<Value, String> {
     Ok(match outcome {
         Outcome::Fail(message) => return Err(message),
+        // Async completions go straight to the scheduler, never through here.
+        outcome @ (Outcome::Bytes(_) | Outcome::Addrs(_)) => {
+            return Err(format!(
+                "the tape has {outcome} where a synchronous effect returns"
+            ));
+        }
         Outcome::Unit | Outcome::None => Value::None,
         Outcome::Bool(b) => Value::Boolean(b),
         Outcome::Int(i) => Value::Integer(i),

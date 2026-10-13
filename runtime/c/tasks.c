@@ -828,7 +828,6 @@ static void flux_async_register_callbacks(void) {
 }
 
 int64_t flux_fiber_run_async(int64_t closure) {
-    if (flux_tape_mode) flux_tape_refuse("run_async");
     flux_async_register_callbacks();
     int64_t result = flux_async_run_root(closure);
     if (flux_async_last_run_failed() != 0) {
@@ -1073,7 +1072,6 @@ int64_t flux_fiber_current_worker_count(void) {
 /* Phase 2 slice 2-vii: run an async action with explicit RuntimeConfig.
  * The Flux ints are NaN-boxed; untag before forwarding to Rust. */
 int64_t flux_fiber_run_async_with(int64_t worker_count, int64_t fs_pool_size, int64_t dns_pool_size, int64_t closure) {
-    if (flux_tape_mode) flux_tape_refuse("run_async");
     flux_async_register_callbacks();
     int64_t workers = flux_untag_int(worker_count);
     int64_t fs = flux_untag_int(fs_pool_size);

@@ -2,7 +2,8 @@
 //!
 //! `execute_primop_opcode` sends every primop here while a tape is active.
 //! Deterministic primops run as usual; effects are recorded or answered from
-//! the tape; async primops, which this stage cannot record, stop the run.
+//! the tape; async primops run as usual, the async backend recording what
+//! they wait on; tasks, which this stage cannot record, stop the run.
 
 use std::io::Write;
 
@@ -26,7 +27,7 @@ impl VM {
         args: Vec<Value>,
     ) -> Result<Value, String> {
         match replay::tape_class(op) {
-            TapeClass::Untaped => execute_core_primop(self, op, args),
+            TapeClass::Untaped | TapeClass::Scheduled => execute_core_primop(self, op, args),
             TapeClass::Refused => self.tape_fail(replay::unsupported(replay_codec::op_name(op))),
             TapeClass::Console => {
                 let text = render_console(op, &args);

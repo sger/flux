@@ -44,6 +44,10 @@ use super::super::backend::{
     FsOperation, IoHandle, RequestId,
 };
 use super::super::blocking_pool::BlockingPool;
+use crate::runtime::replay::{
+    self,
+    async_tape::{self, Submission},
+};
 use mio::net::TcpStream as MioTcpStream;
 use mio::{Events, Interest, Poll, Token, Waker};
 use std::cmp::Ordering as CmpOrdering;
@@ -192,6 +196,10 @@ pub struct MioBackend {
     inner: Mutex<Option<Inner>>,
     dns_pool_size: usize,
     fs_pool_size: usize,
+    /// Whether this is the backend a program's async code runs on, which
+    /// goes through the effect tape while one is active. Backends made for
+    /// tests never do.
+    taped: AtomicBool,
 }
 
 #[derive(Debug)]
@@ -220,7 +228,39 @@ impl MioBackend {
             inner: Mutex::new(None),
             dns_pool_size,
             fs_pool_size,
+            taped: AtomicBool::new(false),
         }
+    }
+
+    /// Marks this as the backend a program's async code runs on: while an
+    /// effect tape is active, what it is asked to do and what it completes
+    /// go through the tape (proposal 0188 S1b).
+    pub fn use_effect_tape(self) -> Self {
+        self.taped.store(true, Ordering::Relaxed);
+        self
+    }
+
+    /// True when this backend's work goes through the active effect tape.
+    #[inline]
+    fn on_tape(&self) -> bool {
+        replay::is_active() && self.taped.load(Ordering::Relaxed)
+    }
+
+    /// Records or checks a submission on the tape. True when the backend
+    /// should perform it.
+    fn performs(&self, req: Option<RequestId>, submission: Submission) -> bool {
+        !self.on_tape() || async_tape::submit(req, submission)
+    }
+
+    fn pop_completion(&self) -> Option<Completion> {
+        self.with_shared(|shared| {
+            shared
+                .completions
+                .lock()
+                .expect("completions poisoned")
+                .pop_front()
+        })
+        .flatten()
     }
 
     fn start_inner(&self) -> io::Result<()> {
@@ -319,6 +359,10 @@ impl AsyncBackend for MioBackend {
         //      clears any pending read/write that targets `req` so it stops
         //      doing I/O work on a cancelled caller's behalf (D3).
         // Then wake so the reactor processes (3) and prunes (1) promptly.
+        // A replay started no real work, so there is nothing to cancel.
+        if self.on_tape() && !async_tape::cancels_real_work() {
+            return;
+        }
         if let Some(()) = self.with_shared(|shared| {
             shared
                 .cancelled
@@ -342,6 +386,9 @@ impl AsyncBackend for MioBackend {
     }
 
     fn timer_start(&self, req: RequestId, ms: u64) {
+        if !self.performs(Some(req), Submission::Timer { ms }) {
+            return;
+        }
         let deadline = Instant::now() + Duration::from_millis(ms);
         if let Some(()) = self.with_shared(|shared| {
             shared
@@ -361,14 +408,10 @@ impl AsyncBackend for MioBackend {
     }
 
     fn next_completion(&self) -> Option<Completion> {
-        self.with_shared(|shared| {
-            shared
-                .completions
-                .lock()
-                .expect("completions poisoned")
-                .pop_front()
-        })
-        .flatten()
+        if self.on_tape() {
+            return async_tape::deliver(|| self.pop_completion());
+        }
+        self.pop_completion()
     }
 
     fn fs_request(&self, req: RequestId, operation: FsOperation) {
@@ -391,6 +434,15 @@ impl AsyncBackend for MioBackend {
     }
 
     fn dns_resolve(&self, req: RequestId, host: String, port: u16) {
+        if !self.performs(
+            Some(req),
+            Submission::Dns {
+                host: host.clone(),
+                port,
+            },
+        ) {
+            return;
+        }
         let _ = self.with_shared(|shared| {
             let shared = Arc::clone(shared);
             let job_shared = Arc::clone(&shared);
@@ -417,6 +469,9 @@ impl AsyncBackend for MioBackend {
     }
 
     fn tcp_connect(&self, req: RequestId, addr: SocketAddr) {
+        if !self.performs(Some(req), Submission::Connect { addr }) {
+            return;
+        }
         let _ = self.with_shared(|shared| {
             let handle = IoHandle(shared.next_handle.fetch_add(1, Ordering::Relaxed));
             shared
@@ -429,6 +484,9 @@ impl AsyncBackend for MioBackend {
     }
 
     fn tcp_read(&self, req: RequestId, handle: IoHandle, max: usize) {
+        if !self.performs(Some(req), Submission::Read { handle, max }) {
+            return;
+        }
         let _ = self.with_shared(|shared| {
             shared
                 .tcp_commands
@@ -440,6 +498,17 @@ impl AsyncBackend for MioBackend {
     }
 
     fn tcp_write(&self, req: RequestId, handle: IoHandle, bytes: Vec<u8>) {
+        if self.on_tape()
+            && !async_tape::submit(
+                Some(req),
+                Submission::Write {
+                    handle,
+                    bytes: bytes.clone(),
+                },
+            )
+        {
+            return;
+        }
         let _ = self.with_shared(|shared| {
             shared
                 .tcp_commands
@@ -451,6 +520,9 @@ impl AsyncBackend for MioBackend {
     }
 
     fn tcp_close(&self, handle: IoHandle) {
+        if !self.performs(None, Submission::Close { handle }) {
+            return;
+        }
         let _ = self.with_shared(|shared| {
             shared
                 .tcp_commands
@@ -462,6 +534,9 @@ impl AsyncBackend for MioBackend {
     }
 
     fn tcp_listen(&self, req: RequestId, addr: SocketAddr) {
+        if !self.performs(Some(req), Submission::Listen { addr }) {
+            return;
+        }
         let _ = self.with_shared(|shared| {
             let handle = IoHandle(shared.next_handle.fetch_add(1, Ordering::Relaxed));
             shared
@@ -474,6 +549,9 @@ impl AsyncBackend for MioBackend {
     }
 
     fn tcp_accept(&self, req: RequestId, handle: IoHandle) {
+        if !self.performs(Some(req), Submission::Accept { handle }) {
+            return;
+        }
         let _ = self.with_shared(|shared| {
             shared
                 .tcp_commands

@@ -1,4 +1,4 @@
-//! `flux run --record` / `--replay` end to end (proposal 0188 S1).
+//! `flux run --record` / `--replay` end to end (proposal 0188 S1a and S1b).
 //!
 //! Each test copies a fixture from `tests/replay/fixtures/` into a scratch
 //! directory and runs it there, so the files a fixture reads and writes are
@@ -38,7 +38,10 @@ impl Case {
         let source = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/replay/fixtures")
             .join(format!("{fixture}.flx"));
-        let program = scratch.write("app.flx", &std::fs::read_to_string(source).unwrap());
+        let text = std::fs::read_to_string(source)
+            .unwrap()
+            .replace("PORT", &free_port().to_string());
+        let program = scratch.write("app.flx", &text);
         Case { scratch, program }
     }
 
@@ -88,6 +91,15 @@ impl Case {
     fn replay(&self, backend: Backend, tape: &Path, env: &[(&str, &str)]) -> Run {
         self.run(backend, &["--replay", tape.to_str().unwrap()], "", env)
     }
+}
+
+/// A local port nothing listens on right now.
+fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
 }
 
 /// The fixtures whose inputs a test sets up before recording.
@@ -333,12 +345,184 @@ fn an_edited_tape_stops_the_replay_where_it_diverges() {
     );
 }
 
+/// Async code: fibers, sleeps, channels, events, sockets and file system
+/// calls inside `run_async`. A tape of async code replays on the backend that
+/// recorded it.
+const ASYNC_FIXTURES: &[&str] = &[
+    "async_sleep",
+    "async_channels",
+    "async_events",
+    "async_scopes",
+    "async_fs",
+    "async_tcp",
+];
+
 #[test]
-fn async_code_cannot_be_recorded_yet() {
-    let case = Case::new("async_refused");
+fn each_async_fixture_replays_on_the_vm() {
+    for fixture in ASYNC_FIXTURES {
+        assert_replays(fixture, Backend::Vm, Backend::Vm);
+    }
+}
+
+/// Replays a tape of `async_long_sleep` and returns how long the recording
+/// and the replay took.
+fn time_long_sleep(backend: Backend) -> (std::time::Duration, std::time::Duration) {
+    let case = Case::new("async_long_sleep");
+    let tape = case.tape("run.jsonl");
+    let started = std::time::Instant::now();
+    let recorded = case.record(backend, &tape, "", &[]);
+    let recording = started.elapsed();
+    assert_eq!(recorded.code, 0, "{}", recorded.stderr);
+    let started = std::time::Instant::now();
+    let replayed = case.replay(backend, &tape, &[]);
+    let replaying = started.elapsed();
+    assert_eq!(replayed.stdout, recorded.stdout, "{}", replayed.stderr);
+    (recording, replaying)
+}
+
+#[test]
+fn async_replay_does_not_wait_for_timers() {
+    let (recording, replaying) = time_long_sleep(Backend::Vm);
+    assert!(
+        recording >= std::time::Duration::from_millis(2500),
+        "the recorded run sleeps 2.5 s, took {recording:?}"
+    );
+    assert!(
+        replaying + std::time::Duration::from_millis(1500) < recording,
+        "replay took {replaying:?}, recording {recording:?}: it waited for the timer"
+    );
+}
+
+/// Records `async_tcp`, then replays it while its port is taken: a replay
+/// that opened a socket would fail to listen.
+fn assert_tcp_replays_without_sockets(backend: Backend) {
+    let case = Case::new("async_tcp");
+    let tape = case.tape("run.jsonl");
+    let recorded = case.record(backend, &tape, "", &[]);
+    assert_eq!(recorded.code, 0, "{}", recorded.stderr);
+    let source = std::fs::read_to_string(&case.program).unwrap();
+    let port = source
+        .split("\"127.0.0.1\", ")
+        .nth(1)
+        .and_then(|rest| rest.split(')').next())
+        .unwrap();
+    let _taken = std::net::TcpListener::bind(format!("127.0.0.1:{port}")).unwrap();
+    let replayed = case.replay(backend, &tape, &[]);
+    assert_eq!(replayed.stdout, recorded.stdout, "{}", replayed.stderr);
+    assert!(
+        recorded.stdout.contains("client got echo hello"),
+        "{}",
+        recorded.stdout
+    );
+}
+
+#[test]
+fn async_replay_opens_no_sockets() {
+    assert_tcp_replays_without_sockets(Backend::Vm);
+}
+
+#[test]
+fn async_replay_writes_no_files() {
+    let case = Case::new("async_fs");
+    prepare_inputs(&case);
+    let tape = case.tape("run.jsonl");
+    let recorded = case.record(Backend::Vm, &tape, "", &[]);
+    assert!(case.scratch.join("out-async.txt").exists());
+    std::fs::remove_file(case.scratch.join("out-async.txt")).unwrap();
+    std::fs::remove_dir_all(case.scratch.join("data")).unwrap();
+    let replayed = case.replay(Backend::Vm, &tape, &[]);
+    assert_eq!(replayed.stdout, recorded.stdout, "{}", replayed.stderr);
+    assert!(!case.scratch.join("out-async.txt").exists());
+}
+
+/// Records `fixture` with several workers requested, then replays the tape.
+fn assert_replays_with_workers(fixture: &str, backend: Backend) {
+    for attempt in 0..5 {
+        let case = Case::new(fixture);
+        let tape = case.tape("run.jsonl");
+        let recorded = case.record(backend, &tape, "", &[("FLUX_WORKERS", "4")]);
+        assert_eq!(recorded.code, 0, "{}", recorded.stderr);
+        // A native program's stderr is shown only when it fails, so only the
+        // VM's note is visible here.
+        assert!(
+            !matches!(backend, Backend::Vm) || recorded.stderr.contains("on one worker"),
+            "the run should say it uses one worker:\n{}",
+            recorded.stderr
+        );
+        let replayed = case.replay(backend, &tape, &[("FLUX_WORKERS", "4")]);
+        assert_eq!(
+            replayed.stdout, recorded.stdout,
+            "attempt {attempt}: {}",
+            replayed.stderr
+        );
+    }
+}
+
+#[test]
+fn async_runs_on_one_worker_under_a_tape() {
+    assert_replays_with_workers("async_sleep", Backend::Vm);
+}
+
+/// Rewrites the `seq` numbers of a tape's events after one was removed.
+fn renumber(lines: &[String]) -> Vec<String> {
+    let mut out = vec![lines[0].clone()];
+    for (seq, line) in lines[1..].iter().enumerate() {
+        let rest = line.split_once(',').unwrap().1;
+        out.push(format!("{{\"seq\":{seq},{rest}"));
+    }
+    out
+}
+
+fn assert_async_tape_divergence(backend: Backend) {
+    let case = Case::new("async_sleep");
+    let tape = case.tape("run.jsonl");
+    let recorded = case.record(backend, &tape, "", &[]);
+    assert_eq!(recorded.code, 0, "{}", recorded.stderr);
+    let lines: Vec<String> = std::fs::read_to_string(&tape)
+        .unwrap()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    let edited = case.tape("edited.jsonl");
+
+    // A timer of another length.
+    let timer = lines
+        .iter()
+        .position(|line| line.contains("\"timer_start\""))
+        .unwrap();
+    let mut changed = lines.clone();
+    changed[timer] = changed[timer].replace("\"ms\":60", "\"ms\":61");
+    assert_ne!(changed[timer], lines[timer], "{}", lines[timer]);
+    write_lines(&edited, &changed);
+    assert_tape_error(&case.replay(backend, &edited, &[]), "E1023", "timer_start");
+
+    // A completion that never arrives: the program waits for it while the
+    // tape goes on with something else.
+    let completion = lines
+        .iter()
+        .position(|line| line.contains("\"async_complete\""))
+        .unwrap();
+    let mut changed = lines.clone();
+    changed.remove(completion);
+    write_lines(&edited, &renumber(&changed));
+    assert_tape_error(
+        &case.replay(backend, &edited, &[]),
+        "E1022",
+        "waiting for an async completion",
+    );
+}
+
+#[test]
+fn an_edited_async_tape_stops_the_replay() {
+    assert_async_tape_divergence(Backend::Vm);
+}
+
+#[test]
+fn tasks_cannot_be_recorded_yet() {
+    let case = Case::new("task_refused");
     let tape = case.tape("run.jsonl");
     let run = case.record(Backend::Vm, &tape, "", &[]);
-    assert_tape_error(&run, "E1027", "`run_async` cannot be recorded");
+    assert_tape_error(&run, "E1027", "cannot be recorded");
 }
 
 #[test]
@@ -414,10 +598,55 @@ mod native {
     }
 
     #[test]
-    fn native_async_code_cannot_be_recorded_yet() {
-        let case = Case::new("async_refused");
+    fn each_async_fixture_replays_on_native() {
+        for fixture in ASYNC_FIXTURES {
+            assert_replays(fixture, Backend::Native, Backend::Native);
+        }
+    }
+
+    #[test]
+    fn native_async_replay_does_not_wait_for_timers() {
+        let (recording, replaying) = time_long_sleep(Backend::Native);
+        assert!(
+            replaying + std::time::Duration::from_millis(1500) < recording,
+            "replay took {replaying:?}, recording {recording:?}: it waited for the timer"
+        );
+    }
+
+    #[test]
+    fn native_async_replay_opens_no_sockets() {
+        assert_tcp_replays_without_sockets(Backend::Native);
+    }
+
+    #[test]
+    fn native_async_runs_on_one_worker_under_a_tape() {
+        assert_replays_with_workers("async_sleep", Backend::Native);
+    }
+
+    #[test]
+    fn an_edited_async_tape_stops_the_native_replay() {
+        assert_async_tape_divergence(Backend::Native);
+    }
+
+    #[test]
+    fn an_async_tape_replays_only_on_the_backend_that_recorded_it() {
+        for (from, to, flag) in [
+            (Backend::Vm, Backend::Native, "the VM (without --native)"),
+            (Backend::Native, Backend::Vm, "--native"),
+        ] {
+            let case = Case::new("async_sleep");
+            let tape = case.tape("run.jsonl");
+            let recorded = case.record(from, &tape, "", &[]);
+            assert_eq!(recorded.code, 0, "{}", recorded.stderr);
+            assert_tape_error(&case.replay(to, &tape, &[]), "E1026", flag);
+        }
+    }
+
+    #[test]
+    fn native_tasks_cannot_be_recorded_yet() {
+        let case = Case::new("task_refused");
         let tape = case.tape("run.jsonl");
         let run = case.record(Backend::Native, &tape, "", &[]);
-        assert_tape_error(&run, "E1027", "`run_async` cannot be recorded");
+        assert_tape_error(&run, "E1027", "`Task.spawn` cannot be recorded");
     }
 }

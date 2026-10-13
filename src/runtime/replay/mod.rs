@@ -11,8 +11,12 @@
 //!
 //! Both backends use this module: the VM calls it from its primop dispatch,
 //! and a native program through the `flux_tape_*` exports in `native_abi`.
+//! Async code goes on the tape through [`async_tape`]: what each run hands to
+//! the async backend, and the completions it gets back.
+//!
 //! When no tape is active, the only cost is the [`is_active`] check.
 
+pub mod async_tape;
 pub mod error;
 pub mod format;
 #[cfg(feature = "llvm")]
@@ -109,6 +113,7 @@ pub fn start_record_append(path: &Path) -> Result<(), TapeError> {
 }
 
 fn install_record(writer: BufWriter<File>, path: &Path) -> Result<(), TapeError> {
+    async_tape::reset_ids();
     *lock() = Some(TapeState::Record {
         writer,
         path: path.display().to_string(),
@@ -121,6 +126,7 @@ fn install_record(writer: BufWriter<File>, path: &Path) -> Result<(), TapeError>
 
 /// Starts replaying `tape`.
 pub fn start_replay(tape: LoadedTape) {
+    async_tape::reset_ids();
     *lock() = Some(TapeState::Replay {
         tape,
         cursor: 0,
@@ -133,6 +139,7 @@ pub fn start_replay(tape: LoadedTape) {
 pub fn reset() {
     MODE.store(ReplayMode::Off as u8, Ordering::Relaxed);
     *lock() = None;
+    async_tape::reset_ids();
 }
 
 fn cannot_write(path: &Path, err: &std::io::Error) -> TapeError {
@@ -296,7 +303,17 @@ pub fn unsupported(what: &str) -> TapeError {
     }
 }
 
+/// The logical fiber an event belongs to. A completion is received by the
+/// scheduler, not by a fiber.
+fn event_fiber(request: &EffectRequest) -> u32 {
+    match request {
+        EffectRequest::AsyncComplete { .. } | EffectRequest::Exit { .. } => 0,
+        _ => async_tape::current_fiber(),
+    }
+}
+
 fn append(request: EffectRequest, result: Option<Outcome>) -> Result<(), TapeError> {
+    let fiber = event_fiber(&request);
     let mut guard = lock();
     let Some(TapeState::Record {
         writer,
@@ -309,7 +326,7 @@ fn append(request: EffectRequest, result: Option<Outcome>) -> Result<(), TapeErr
     };
     let event = TapeEvent {
         seq: *next_seq,
-        fiber: 0,
+        fiber,
         request,
         result,
     };
@@ -328,6 +345,7 @@ fn write_event(
 
 /// Takes the next recorded event, which must be `request`.
 fn take_matching(request: &EffectRequest) -> Result<TapeEvent, TapeError> {
+    let fiber = event_fiber(request);
     let mut guard = lock();
     let Some(TapeState::Replay { tape, cursor, .. }) = guard.as_mut() else {
         unreachable!("replay mode without a replay tape");
@@ -354,8 +372,27 @@ fn take_matching(request: &EffectRequest) -> Result<TapeEvent, TapeError> {
             program: program_shown,
         });
     }
+    if event.fiber != fiber {
+        return Err(TapeError::PayloadMismatch {
+            index: event.seq,
+            what: format!("which fiber performed {request}"),
+            tape: describe_fiber(event.fiber),
+            program: describe_fiber(fiber),
+        });
+    }
     *cursor += 1;
-    Ok(event.clone())
+    let event = event.clone();
+    drop(guard);
+    async_tape::progressed();
+    Ok(event)
+}
+
+fn describe_fiber(fiber: u32) -> String {
+    if fiber == 0 {
+        "the main program".to_string()
+    } else {
+        format!("fiber {fiber}")
+    }
 }
 
 /// Names what differs between two requests of the same kind.
@@ -406,6 +443,22 @@ fn truncate(line: &str) -> String {
     cut
 }
 
+/// The number of workers an async run gets: `requested`, or one while a tape
+/// is active, since one worker makes the schedule a function of the order
+/// completions arrive in, which the tape records.
+pub fn worker_count(requested: usize) -> usize {
+    if !is_active() {
+        return requested;
+    }
+    if requested > 1 {
+        static NOTED: std::sync::Once = std::sync::Once::new();
+        NOTED.call_once(|| {
+            eprintln!("note: --record and --replay run async code on one worker");
+        });
+    }
+    1
+}
+
 /// The arguments the recorded run was given, when replaying.
 pub fn replay_argv() -> Option<Vec<String>> {
     match lock().as_ref() {
@@ -427,7 +480,11 @@ pub enum TapeClass {
     Console,
     /// Changes the outside world; replay checks it and does not re-apply it.
     Output,
-    /// Async, tasks, channels and network I/O: refused until 0188 S1b.
+    /// Fibers, channels, events and sockets: they run as usual, and the
+    /// async backend puts what they wait on on the tape (`async_tape`).
+    Scheduled,
+    /// Tasks: they run on threads of their own, which this stage cannot
+    /// record (0188 S8).
     Refused,
 }
 
@@ -444,12 +501,14 @@ pub fn tape_class(op: CorePrimOp) -> TapeClass {
             TapeClass::Output
         }
         TaskSpawn | TaskSpawnMove | TaskSpawnScoped | TaskSpawnScopedMove | TaskAwait
-        | TaskBlockingJoin | TaskCancel | FiberRunAsync | FiberRunAsyncWith | FiberSleep
-        | FiberTimeout | FiberYieldNow | FiberFork | FiberForkScoped | FiberBoth | FiberRace
-        | FiberFirstOf | TcpConnect | TcpRead | TcpWriteAll | TcpClose | TcpListen | TcpAccept
-        | ChanMake | ChanSend | ChanRecv | ChanTrySend | ChanTryRecv | ChanSendMove
-        | ChanTrySendMove | EventRecv | EventSend | EventSendMove | EventAfter | EventSync
-        | EventPoll | EventWait => TapeClass::Refused,
+        | TaskBlockingJoin | TaskCancel => TapeClass::Refused,
+        FiberRunAsync | FiberRunAsyncWith | FiberSleep | FiberTimeout | FiberYieldNow
+        | FiberFork | FiberForkScoped | FiberBoth | FiberRace | FiberFirstOf | TcpConnect
+        | TcpRead | TcpWriteAll | TcpClose | TcpListen | TcpAccept | ChanMake | ChanSend
+        | ChanRecv | ChanTrySend | ChanTryRecv | ChanSendMove | ChanTrySendMove | EventRecv
+        | EventSend | EventSendMove | EventAfter | EventSync | EventPoll | EventWait => {
+            TapeClass::Scheduled
+        }
         _ => TapeClass::Untaped,
     }
 }

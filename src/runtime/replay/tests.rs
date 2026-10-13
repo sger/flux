@@ -93,6 +93,34 @@ fn every_request_and_outcome_round_trips_through_json() {
             failed: true,
             message: Some("panic: boom".into()),
         },
+        EffectRequest::EventClock,
+        EffectRequest::TimerStart { req: 1, ms: 30 },
+        EffectRequest::DnsResolve {
+            req: 2,
+            host: "example.com".into(),
+            port: 80,
+        },
+        EffectRequest::TcpConnect {
+            req: 3,
+            addr: "127.0.0.1:8080".into(),
+        },
+        EffectRequest::TcpListen {
+            req: 4,
+            addr: "127.0.0.1:0".into(),
+        },
+        EffectRequest::TcpAccept { req: 5, handle: 1 },
+        EffectRequest::TcpRead {
+            req: 6,
+            handle: 2,
+            max: 64,
+        },
+        EffectRequest::TcpWrite {
+            req: 7,
+            handle: 2,
+            bytes: TapeBytes(vec![0xff]),
+        },
+        EffectRequest::TcpClose { handle: 2 },
+        EffectRequest::AsyncComplete { req: 7 },
     ];
     let outcomes = vec![
         Outcome::Unit,
@@ -120,6 +148,8 @@ fn every_request_and_outcome_round_trips_through_json() {
             stderr: TapeBytes(vec![0xfe]),
         }),
         Outcome::Fail("read_file failed".into()),
+        Outcome::Bytes(TapeBytes(vec![0x68, 0x69])),
+        Outcome::Addrs(vec!["127.0.0.1:80".into(), "[::1]:80".into()]),
     ];
     for request in requests {
         let event = TapeEvent {
@@ -362,4 +392,117 @@ fn every_primop_with_an_outside_effect_is_on_the_tape_or_refused() {
             "{op:?} has the `{label}` effect but the tape does not handle it"
         );
     }
+}
+
+#[test]
+fn async_events_are_written_with_logical_numbers() {
+    let event = TapeEvent {
+        seq: 4,
+        fiber: 2,
+        request: EffectRequest::TimerStart { req: 1, ms: 30 },
+        result: None,
+    };
+    assert_eq!(
+        serde_json::to_string(&event).unwrap(),
+        r#"{"seq":4,"fiber":2,"kind":"timer_start","req":1,"ms":30}"#
+    );
+    let event = TapeEvent {
+        seq: 5,
+        fiber: 0,
+        request: EffectRequest::AsyncComplete { req: 1 },
+        result: Some(Outcome::Bytes("hello".into())),
+    };
+    assert_eq!(
+        serde_json::to_string(&event).unwrap(),
+        r#"{"seq":5,"kind":"async_complete","req":1,"result":{"bytes":"hello"}}"#
+    );
+}
+
+#[test]
+fn every_completion_payload_survives_the_tape() {
+    use crate::runtime::r#async::backend::{CompletionPayload, IoHandle};
+    for payload in [
+        CompletionPayload::Unit,
+        CompletionPayload::Bytes(vec![0, 159, 146, 150]),
+        CompletionPayload::Error("connection refused".into()),
+        CompletionPayload::TcpHandle(IoHandle(9)),
+        CompletionPayload::AddressList(vec![
+            "127.0.0.1:80".parse().unwrap(),
+            "[::1]:443".parse().unwrap(),
+        ]),
+    ] {
+        assert_eq!(
+            async_tape::payload_round_trip(&payload),
+            Some(payload.clone()),
+            "{payload:?}"
+        );
+    }
+}
+
+#[test]
+fn async_replay_answers_from_the_tape_without_the_backend() {
+    use crate::runtime::r#async::backend::{Completion, CompletionPayload, RequestId};
+    use async_tape::{Submission, deliver, submit};
+    let _guard = serial();
+    // Real request ids differ between runs; the tape numbers them itself.
+    let tape = record("async.jsonl", || {
+        assert!(submit(Some(RequestId(100)), Submission::Timer { ms: 5 }));
+        let completion = deliver(|| {
+            Some(Completion {
+                request_id: RequestId(100),
+                payload: CompletionPayload::Unit,
+            })
+        });
+        assert!(completion.is_some());
+        // Nothing arrived: nothing is written.
+        assert_eq!(deliver(|| None), None);
+        console(stdout("woke\n")).unwrap();
+        finish(false, None).unwrap();
+    });
+    assert!(tape.has_async());
+    assert_eq!(
+        tape.events[0].request,
+        EffectRequest::TimerStart { req: 1, ms: 5 }
+    );
+
+    start_replay(tape);
+    // A replay submits nothing to the backend...
+    assert!(!submit(Some(RequestId(200)), Submission::Timer { ms: 5 }));
+    // ...and gets the recorded completion back under this run's id.
+    let completion = deliver(|| panic!("replay must not poll the backend"));
+    assert_eq!(
+        completion,
+        Some(Completion {
+            request_id: RequestId(200),
+            payload: CompletionPayload::Unit,
+        })
+    );
+    // The tape's next event is console text, not a completion: none yet.
+    assert_eq!(deliver(|| panic!("replay must not poll the backend")), None);
+    console(stdout("woke\n")).unwrap();
+    assert_eq!(finish(false, None), Ok(()));
+    reset();
+}
+
+#[test]
+fn a_tape_without_async_events_replays_on_either_backend() {
+    let _guard = serial();
+    let tape = record("sync.jsonl", || {
+        effect(EffectRequest::ClockNow, || Outcome::Int(5)).unwrap();
+        finish(false, None).unwrap();
+    });
+    assert!(!tape.has_async());
+}
+
+#[test]
+fn a_tape_forces_one_worker() {
+    let _guard = serial();
+    assert_eq!(worker_count(4), 4);
+    start_replay(LoadedTape {
+        path: "t".into(),
+        header: header(),
+        events: Vec::new(),
+    });
+    assert_eq!(worker_count(4), 1);
+    reset();
 }

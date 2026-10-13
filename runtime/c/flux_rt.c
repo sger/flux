@@ -1049,7 +1049,7 @@ static FluxFsTags flux_fs_tags_from_args(FLUX_IO_TAGS_DECL) {
 }
 
 static int64_t flux_try_read_file_untaped(FLUX_IO_TAGS_DECL, int64_t path) {
-    if (flux_async_is_active()) {
+    if (!flux_tape_mode && flux_async_is_active()) {
         FluxFsTags tags = flux_fs_tags_from_args(
             ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
             already_exists_tag, not_a_directory_tag, is_a_directory_tag,
@@ -1079,7 +1079,7 @@ int64_t flux_try_read_file(FLUX_IO_TAGS_DECL, int64_t path) {
 }
 
 static int64_t flux_fs_exists_untaped(int64_t path) {
-    if (flux_async_is_active()) {
+    if (!flux_tape_mode && flux_async_is_active()) {
         uint64_t req = flux_async_fs_request(
             1, (const uint8_t *)flux_string_data(path), flux_string_len(path),
             NULL, 0, NULL
@@ -1099,7 +1099,7 @@ int64_t flux_fs_exists(int64_t path) {
 }
 
 static int64_t flux_fs_is_dir_untaped(int64_t path) {
-    if (flux_async_is_active()) {
+    if (!flux_tape_mode && flux_async_is_active()) {
         uint64_t req = flux_async_fs_request(
             2, (const uint8_t *)flux_string_data(path), flux_string_len(path),
             NULL, 0, NULL
@@ -1119,7 +1119,7 @@ int64_t flux_fs_is_dir(int64_t path) {
 }
 
 static int64_t flux_fs_is_file_untaped(int64_t path) {
-    if (flux_async_is_active()) {
+    if (!flux_tape_mode && flux_async_is_active()) {
         uint64_t req = flux_async_fs_request(
             3, (const uint8_t *)flux_string_data(path), flux_string_len(path),
             NULL, 0, NULL
@@ -1139,7 +1139,7 @@ int64_t flux_fs_is_file(int64_t path) {
 }
 
 static int64_t flux_fs_write_file_untaped(FLUX_IO_TAGS_DECL, int64_t path, int64_t contents) {
-    if (flux_async_is_active()) {
+    if (!flux_tape_mode && flux_async_is_active()) {
         FluxFsTags tags = flux_fs_tags_from_args(
             ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
             already_exists_tag, not_a_directory_tag, is_a_directory_tag,
@@ -1169,7 +1169,7 @@ int64_t flux_fs_write_file(FLUX_IO_TAGS_DECL, int64_t path, int64_t contents) {
 }
 
 static int64_t flux_fs_create_dir_all_untaped(FLUX_IO_TAGS_DECL, int64_t path) {
-    if (flux_async_is_active()) {
+    if (!flux_tape_mode && flux_async_is_active()) {
         FluxFsTags tags = flux_fs_tags_from_args(
             ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
             already_exists_tag, not_a_directory_tag, is_a_directory_tag,
@@ -1199,7 +1199,7 @@ int64_t flux_fs_create_dir_all(FLUX_IO_TAGS_DECL, int64_t path) {
 }
 
 static int64_t flux_fs_remove_file_untaped(FLUX_IO_TAGS_DECL, int64_t path) {
-    if (flux_async_is_active()) {
+    if (!flux_tape_mode && flux_async_is_active()) {
         FluxFsTags tags = flux_fs_tags_from_args(
             ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
             already_exists_tag, not_a_directory_tag, is_a_directory_tag,
@@ -1229,7 +1229,7 @@ int64_t flux_fs_remove_file(FLUX_IO_TAGS_DECL, int64_t path) {
 }
 
 static int64_t flux_fs_remove_dir_all_untaped(FLUX_IO_TAGS_DECL, int64_t path) {
-    if (flux_async_is_active()) {
+    if (!flux_tape_mode && flux_async_is_active()) {
         FluxFsTags tags = flux_fs_tags_from_args(
             ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
             already_exists_tag, not_a_directory_tag, is_a_directory_tag,
@@ -1259,7 +1259,7 @@ int64_t flux_fs_remove_dir_all(FLUX_IO_TAGS_DECL, int64_t path) {
 }
 
 static int64_t flux_fs_rename_untaped(FLUX_IO_TAGS_DECL, int64_t from, int64_t to) {
-    if (flux_async_is_active()) {
+    if (!flux_tape_mode && flux_async_is_active()) {
         FluxFsTags tags = flux_fs_tags_from_args(
             ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
             already_exists_tag, not_a_directory_tag, is_a_directory_tag,
@@ -1289,7 +1289,7 @@ int64_t flux_fs_rename(FLUX_IO_TAGS_DECL, int64_t from, int64_t to) {
 }
 
 static int64_t flux_fs_list_dir_untaped(FLUX_IO_TAGS_DECL, int64_t path) {
-    if (flux_async_is_active()) {
+    if (!flux_tape_mode && flux_async_is_active()) {
         FluxFsTags tags = flux_fs_tags_from_args(
             ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
             already_exists_tag, not_a_directory_tag, is_a_directory_tag,
@@ -1319,7 +1319,7 @@ int64_t flux_fs_list_dir(FLUX_IO_TAGS_DECL, int64_t path) {
 }
 
 static int64_t flux_fs_metadata_untaped(FLUX_IO_TAGS_DECL, int32_t file_meta_tag, int64_t path) {
-    if (flux_async_is_active()) {
+    if (!flux_tape_mode && flux_async_is_active()) {
         FluxFsTags tags = flux_fs_tags_from_args(
             ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
             already_exists_tag, not_a_directory_tag, is_a_directory_tag,
