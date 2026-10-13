@@ -11,7 +11,9 @@
 //! ```
 //!
 //! Every payload is host data (text, numbers, error kinds), never a runtime
-//! value, so a tape recorded by one backend replays on the other.
+//! value, so a tape of synchronous effects recorded by one backend replays on
+//! the other. A tape with async events replays on the backend that recorded
+//! it, whose scheduler it follows.
 
 use std::fmt;
 use std::io::{BufRead, BufReader};
@@ -57,8 +59,9 @@ impl TapeHeader {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TapeEvent {
     pub seq: u64,
-    /// The logical fiber that performed the effect. Always 0 until async
-    /// effects are recorded (0188 S1b).
+    /// The logical fiber that performed the effect: 0 outside `run_async`,
+    /// otherwise fibers numbered from 1 in the order they first appear on
+    /// the tape.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub fiber: u32,
     #[serde(flatten)]
@@ -120,6 +123,9 @@ pub enum EffectRequest {
     /// `time(f)` on the VM: the elapsed time around a callback whose own
     /// effects are recorded before this event.
     Time,
+    /// The monotonic clock `Flow.Event` reads for `after` deadlines, in
+    /// milliseconds.
+    EventClock,
     // ── Outputs ───────────────────────────────────────────────────────
     WriteFile {
         path: String,
@@ -141,6 +147,50 @@ pub enum EffectRequest {
     FsRename {
         from: String,
         to: String,
+    },
+    // ── Async submissions ─────────────────────────────────────────────
+    // Work handed to the async backend. `req` numbers requests from 1 in
+    // the order they are first submitted. Replay checks each submission
+    // and does not perform it; the result arrives later as
+    // `async_complete`.
+    TimerStart {
+        req: u64,
+        ms: u64,
+    },
+    DnsResolve {
+        req: u64,
+        host: String,
+        port: u16,
+    },
+    TcpConnect {
+        req: u64,
+        addr: String,
+    },
+    TcpListen {
+        req: u64,
+        addr: String,
+    },
+    TcpAccept {
+        req: u64,
+        handle: u64,
+    },
+    TcpRead {
+        req: u64,
+        handle: u64,
+        max: u64,
+    },
+    TcpWrite {
+        req: u64,
+        handle: u64,
+        bytes: TapeBytes,
+    },
+    TcpClose {
+        handle: u64,
+    },
+    /// The async backend finished request `req`. Where it sits on the tape
+    /// is when the scheduler received it.
+    AsyncComplete {
+        req: u64,
     },
     // ── Console ───────────────────────────────────────────────────────
     Stdout {
@@ -166,6 +216,10 @@ pub enum EffectClass {
     Output,
     Console,
     Terminal,
+    /// Work handed to the async backend: checked, never performed.
+    Submit,
+    /// An async completion: replay delivers its recorded result.
+    Completion,
 }
 
 impl EffectRequest {
@@ -188,7 +242,8 @@ impl EffectRequest {
             | EnvHomeDir
             | ProcRun { .. }
             | ClockNow
-            | Time => EffectClass::Input,
+            | Time
+            | EventClock => EffectClass::Input,
             WriteFile { .. }
             | FsWriteFile { .. }
             | FsCreateDirAll { .. }
@@ -197,6 +252,15 @@ impl EffectRequest {
             | FsRename { .. } => EffectClass::Output,
             Stdout { .. } | Stderr { .. } => EffectClass::Console,
             Exit { .. } => EffectClass::Terminal,
+            TimerStart { .. }
+            | DnsResolve { .. }
+            | TcpConnect { .. }
+            | TcpListen { .. }
+            | TcpAccept { .. }
+            | TcpRead { .. }
+            | TcpWrite { .. }
+            | TcpClose { .. } => EffectClass::Submit,
+            AsyncComplete { .. } => EffectClass::Completion,
         }
     }
 
@@ -221,6 +285,7 @@ impl EffectRequest {
             ProcRun { .. } => "proc_run",
             ClockNow => "clock_now",
             Time => "time",
+            EventClock => "event_clock",
             WriteFile { .. } => "write_file",
             FsWriteFile { .. } => "fs_write_file",
             FsCreateDirAll { .. } => "fs_create_dir_all",
@@ -230,12 +295,30 @@ impl EffectRequest {
             Stdout { .. } => "stdout",
             Stderr { .. } => "stderr",
             Exit { .. } => "exit",
+            TimerStart { .. } => "timer_start",
+            DnsResolve { .. } => "dns_resolve",
+            TcpConnect { .. } => "tcp_connect",
+            TcpListen { .. } => "tcp_listen",
+            TcpAccept { .. } => "tcp_accept",
+            TcpRead { .. } => "tcp_read",
+            TcpWrite { .. } => "tcp_write",
+            TcpClose { .. } => "tcp_close",
+            AsyncComplete { .. } => "async_complete",
         }
     }
 
     /// Whether a recorded event of this kind must carry a result.
     fn expects_result(&self) -> bool {
-        matches!(self.class(), EffectClass::Input | EffectClass::Output)
+        matches!(
+            self.class(),
+            EffectClass::Input | EffectClass::Output | EffectClass::Completion
+        )
+    }
+
+    /// Whether this event belongs to async code, which replays only on the
+    /// backend that recorded it.
+    pub fn is_async(&self) -> bool {
+        matches!(self.class(), EffectClass::Submit | EffectClass::Completion)
     }
 }
 
@@ -279,7 +362,25 @@ impl fmt::Display for EffectRequest {
                     }
                 )
             }
-            ReadStdin | EnvArgs | EnvCwd | EnvHomeDir | ClockNow | Time => write!(f, "{kind}()"),
+            ReadStdin | EnvArgs | EnvCwd | EnvHomeDir | ClockNow | Time | EventClock => {
+                write!(f, "{kind}()")
+            }
+            TimerStart { req, ms } => write!(f, "{kind}(#{req}, {ms} ms)"),
+            DnsResolve { req, host, port } => write!(f, "{kind}(#{req}, {}, {port})", quoted(host)),
+            TcpConnect { req, addr } | TcpListen { req, addr } => {
+                write!(f, "{kind}(#{req}, {})", quoted(addr))
+            }
+            TcpAccept { req, handle } => write!(f, "{kind}(#{req}, handle {handle})"),
+            TcpRead { req, handle, max } => {
+                write!(f, "{kind}(#{req}, handle {handle}, max {max})")
+            }
+            TcpWrite { req, handle, bytes } => write!(
+                f,
+                "{kind}(#{req}, handle {handle}, {})",
+                quoted(&bytes.lossy())
+            ),
+            TcpClose { handle } => write!(f, "{kind}(handle {handle})"),
+            AsyncComplete { req } => write!(f, "the completion of async request #{req}"),
         }
     }
 }
@@ -316,6 +417,10 @@ pub enum Outcome {
     /// The effect failed with a runtime error rather than a value (on the VM a
     /// `read_file` error, on native a panic).
     Fail(String),
+    /// Bytes read from a socket.
+    Bytes(TapeBytes),
+    /// Addresses a DNS lookup returned.
+    Addrs(Vec<String>),
 }
 
 impl fmt::Display for Outcome {
@@ -332,6 +437,8 @@ impl fmt::Display for Outcome {
             Outcome::Meta(_) => write!(f, "file metadata"),
             Outcome::Proc(p) => write!(f, "process exit {}", p.status),
             Outcome::Fail(msg) => write!(f, "error {}", quoted(msg)),
+            Outcome::Bytes(bytes) => write!(f, "{} bytes", bytes.0.len()),
+            Outcome::Addrs(addrs) => write!(f, "{} addresses", addrs.len()),
         }
     }
 }
@@ -544,6 +651,12 @@ impl LoadedTape {
             header,
             events,
         })
+    }
+
+    /// True when the tape records async code, which replays only on the
+    /// backend that recorded it.
+    pub fn has_async(&self) -> bool {
+        self.events.iter().any(|event| event.request.is_async())
     }
 
     /// True when the recorded run did not reach its end, for example because

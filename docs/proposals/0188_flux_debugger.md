@@ -570,7 +570,7 @@ randomness must go through the tape. A test that greps for `RandomState` and
 
 #### 4.2 One implementation for both backends
 
-Implemented for synchronous effects in S1a.
+Implemented in S1a (synchronous effects) and S1b (async code).
 
 - **The tape:** `src/runtime/replay/` holds the format, the record/replay
   state and the errors. Its API is three functions:
@@ -593,10 +593,31 @@ Implemented for synchronous effects in S1a.
 - **Driver:** `src/driver/replay_session.rs` hashes the program's modules,
   writes or checks the tape header, and hands a native program its tape
   through `FLUX_TAPE_RECORD` / `FLUX_TAPE_REPLAY`.
-- **Async (S1b):** `RecordingBackend<B: AsyncBackend>` and `ReplayBackend`
-  will wrap `MioBackend` and `InMemoryBackend`, so async completions are
-  recorded the same way on both backends. Until then, `run_async`, tasks,
-  channels and network I/O stop a recording or replay with E1027.
+- **Async (S1b):** both backends run async code on the same `MioBackend`,
+  and the program's instance sends everything through
+  `src/runtime/replay/async_tape.rs`:
+  - `submit` for each timer, DNS lookup and socket operation. Recording
+    writes it; replaying checks it and does not perform it.
+  - `deliver` for each completion the scheduler takes. Recording writes
+    it where it arrived; replaying hands back the recorded one at the same
+    point.
+
+  This works because, under a tape:
+  - **One worker.** The scheduler runs on one worker, printing a note if
+    more were requested. Ready fibers then run in a fixed FIFO order, and
+    the schedule depends only on the order of completions.
+  - **Synchronous fs.** File system calls run synchronously even inside
+    `run_async`, so they are recorded as ordinary effects.
+  - **Event deadlines.** `Flow.Event` reads its deadline clock as an
+    `event_clock` input, and waits on `after` through a backend timer
+    instead of a sleeping thread.
+  - **Fixed cancellation order.** Scopes, losers and leaked tasks are
+    cancelled in id order rather than hash order. This also holds without
+    a tape.
+
+  Channels need nothing: they complete on the running fiber's thread.
+  Tasks (`Task.spawn`) run on threads of their own; they stop a recording
+  or replay with E1027 until S8.
 
 #### 4.3 Tape format
 
@@ -615,17 +636,35 @@ line in the order the program performed them.
   modules; a tape replays only the program it was recorded from), argv, and
   the backend that recorded it.
 - **Events:** `seq` (contiguous from 0), `kind`, the request's fields, and a
-  `result` for inputs and outputs. A reserved `fiber` field (omitted when 0)
-  will carry the logical fiber in S1b.
+  `result` for inputs, outputs and completions. `fiber` (omitted when 0)
+  is the logical fiber that performed the event: 0 outside `run_async`,
+  otherwise fibers numbered from 1 in the order they first appear.
+- **Async events (S1b):**
+  - Submissions: `timer_start`, `dns_resolve`, `tcp_connect`,
+    `tcp_listen`, `tcp_accept`, `tcp_read`, `tcp_write` and `tcp_close`.
+    Each carries a logical `req`, numbered from 1 in the order requests
+    are first submitted.
+  - `async_complete{req}`, with the result, placed where the scheduler
+    received it.
+  - `event_clock`, which records each reading of the clock that
+    `Flow.Event` deadlines use.
+
+  ```text
+  {"seq":4,"fiber":2,"kind":"timer_start","req":1,"ms":30}
+  {"seq":5,"kind":"async_complete","req":1,"result":"unit"}
+  ```
 - **Results** are host data, never runtime values: `unit`, `bool`, `int`,
   `text`, `list`, `some`/`none`, `ok`, `err` (an IoError's kind, message and
-  path), `meta`, `proc`, and `fail` (a runtime error). Bytes that are not
-  UTF-8 are written as `{"hex": …}`.
+  path), `meta`, `proc`, `fail` (a runtime error), `bytes` (read from a
+  socket) and `addrs` (a DNS answer). Bytes that are not UTF-8 are written
+  as `{"hex": …}`.
 - **The last event** is `exit`, with whether the run failed. Replay compares
   `failed`, not the message, since the backends word failures differently.
-- **Backend-neutral:** a tape recorded on either backend replays on either.
-  This is also why fiber ids will be *logical*, assigned deterministically in
-  spawn order, rather than scheduler-internal.
+- **Backend-neutral for synchronous effects:** a tape without async events
+  replays on either backend. A tape with async events replays only on the
+  backend that recorded it, since the two schedulers order fibers
+  differently; replaying it on the other backend gives E1026.
+  Cross-backend async replay is S9.
 - **Step annotation (S3):** each event can optionally carry a `vm_step: u64`.
 - **Known differences between the backends,** which a tape records as they
   are: native `read_stdin` reads one line where the VM reads all of stdin;
@@ -696,7 +735,7 @@ Native effects need special handling in two cases:
 |---|---|---|
 | S0 | `src/debuginfo/` model (functions, lambdas, variables with types, ADT layouts, effects), built per module where Core is lowered and kept on `Compiler`; `--debug` / `-g` and `DebugLevel`; debug level in the cache keys; `--dump-debug-info` | Snapshot tests of `--dump-debug-info` for ~8 fixtures, including a two-module program with each module in its own file. A test that cache keys differ by debug level while the default key is unchanged. `-g` leaves the LLVM IR and bytecode unchanged in S0. |
 | S1a | Recording of synchronous effects (implements 0038): the tape format and runtime, VM hook, native C/Rust ABI, `--record`/`--replay`, E1022–E1027; async refused | Tapes recorded on either backend replay on both with identical output; replay reads and changes nothing outside the program; edited tapes fail with E1022–E1026; async under a tape fails with E1027. Off-mode overhead measured with `benches/effect_tape_off_bench.rs`. |
-| S1b | Async recording: `RecordingBackend`/`ReplayBackend`, scheduler and channel events, logical fiber ids, VM step counter | For every effectful parity fixture, including async ones: record on vm → replay on vm and llvm, and the reverse. |
+| S1b | Async recording: submissions and completions through the shared async backend, one worker and synchronous fs under a tape, the taped event clock, logical request and fiber ids; `Task.spawn` refused until S8 | Every async fixture (sleep, channels, events, scopes, fs, TCP) and every async example replays on the backend that recorded it, without waiting on timers or opening sockets; edited async tapes fail with E1022/E1023; an async tape on the other backend fails with E1026. |
 | S2 | VM engine behind a `DebugEngine` trait: `OpBreakpoint` sites, debug dispatch loop, `VmObserver`, stepping, local-variable tables, caller location fix (`ip - width`), tail-call elision counter, hiding dictionaries, pipeline stages; `IrFunction.var_binders` side table; Core inlining off in the debug profile | Golden transcripts of scripted sessions (`tests/debug/vm/*.flxdbg`). A benchmark showing no change in non-debug runs. |
 | S3 | VM reverse execution: checkpoints, Step Back, Reverse Continue, run to event, recording ring buffer | Golden transcripts where the state after stepping back equals the state reached by replaying forward. A memory-bound test. |
 | S4 | `crates/flux-dap`, mirroring `crates/flux-lsp`; `editors/vscode` `debuggers` and `breakpoints` contributions; launch config with `backend`, `record`, `replay`; pure-only evaluate | DAP JSON transcript tests in `crates/flux-dap/tests`. A manual VS Code checklist in the crate README. |

@@ -269,7 +269,7 @@ impl FiberScheduler {
         let id_set: std::collections::HashSet<u64> = ids.iter().map(|f| f.0).collect();
         let mut ready_was_empty = self.total_ready_count() == 0;
         for (worker_idx, worker) in self.workers.iter_mut().enumerate() {
-            let to_cancel: Vec<u64> = worker
+            let mut to_cancel: Vec<u64> = worker
                 .suspended
                 .keys()
                 .filter(|&&req| {
@@ -281,6 +281,9 @@ impl FiberScheduler {
                 })
                 .copied()
                 .collect();
+            // Requeue in request order, not hash order, so cleanup runs the
+            // same way every run (and a recorded run replays).
+            to_cancel.sort_unstable();
             for req in to_cancel {
                 if let Some(mut fiber) = worker.suspended.remove(&req) {
                     let fid = fiber.id.0;
@@ -437,11 +440,13 @@ impl FiberScheduler {
     /// Return all request IDs currently in the suspended map for a worker.
     /// Used by `exit_run_async` to cancel outstanding backend requests on teardown.
     pub fn all_suspended_reqs(&self, worker: WorkerId) -> Vec<u64> {
-        self.workers[worker.0 as usize]
+        let mut reqs: Vec<u64> = self.workers[worker.0 as usize]
             .suspended
             .keys()
             .copied()
-            .collect()
+            .collect();
+        reqs.sort_unstable();
+        reqs
     }
 
     fn drain_pending_drop(&mut self, worker_idx: usize) {

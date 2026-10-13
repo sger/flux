@@ -275,7 +275,7 @@ mod vm_http {
 // OS-thread call stack *is* the continuation; this module deliberately
 // does NOT involve the FiberScheduler or capture continuations — that's
 // 1b-vi-b/c work.
-mod vm_async {
+pub(super) mod vm_async {
     use std::sync::OnceLock;
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -291,7 +291,7 @@ mod vm_async {
         if let Some(b) = BACKEND.get() {
             return Ok(*b);
         }
-        let owned = Box::leak(Box::new(MioBackend::new()));
+        let owned = Box::leak(Box::new(MioBackend::new().use_effect_tape()));
         owned
             .start()
             .map_err(|e| format!("MioBackend::start failed: {e}"))?;
@@ -517,6 +517,10 @@ mod vm_fibers {
     ///   4. Hardcoded fallback of 2 logical workers when parallelism cannot
     ///      be determined (matches the Phase 1b-vi-c default).
     fn resolved_worker_count() -> usize {
+        crate::runtime::replay::worker_count(resolved_untaped_worker_count())
+    }
+
+    fn resolved_untaped_worker_count() -> usize {
         if let Some(cfg) = PENDING_RUN_CONFIG.with(|c| c.get())
             && cfg.worker_count > 0
         {
@@ -549,6 +553,11 @@ mod vm_fibers {
     /// outermost entry, spawn the root fiber, and make it current. Returns
     /// the root fiber id so the caller can pair this with `exit_run_async`.
     pub fn enter_run_async() -> FiberId {
+        if crate::runtime::replay::is_active() {
+            crate::runtime::replay::async_tape::set_fiber_source(|| {
+                CURRENT.with(|c| c.get()).map(|id| id.0)
+            });
+        }
         let depth = DEPTH.with(|d| {
             let n = d.get();
             d.set(n + 1);
@@ -659,7 +668,11 @@ mod vm_fibers {
         RUN_ROOT_TASKS.with(|r| {
             r.borrow_mut()
                 .as_mut()
-                .map(|set| set.drain().collect())
+                .map(|set| {
+                    let mut ids: Vec<i64> = set.drain().collect();
+                    ids.sort_unstable();
+                    ids
+                })
                 .unwrap_or_default()
         })
     }
@@ -4785,7 +4798,9 @@ pub(super) fn vm_io_ok(value: Value) -> Value {
 }
 
 fn dispatch_fs(ctx: &mut dyn RuntimeContext, operation: FsOperation) -> Result<Value, String> {
-    if vm_fibers::boundary().is_none() {
+    // Under a tape, fs runs synchronously even inside `run_async`: the tape
+    // records it like any other synchronous effect.
+    if vm_fibers::boundary().is_none() || crate::runtime::replay::is_active() {
         return Ok(execute_fs_sync(&operation));
     }
 

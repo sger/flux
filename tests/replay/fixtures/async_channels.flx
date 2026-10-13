@@ -1,0 +1,33 @@
+// A producer and a consumer fiber through a one-slot channel, with sleeps in
+// between so the two interleave (0188 S1b).
+import Flow.Async exposing (..)
+import Flow.Channel as Channel
+
+fn body() -> Int with Async {
+    let ch = Channel.make(1)
+
+    fn produce(n) -> Int with Async {
+        if n > 3 {
+            Channel.close(ch)
+            0
+        } else {
+            Channel.send(ch, n * 10)
+            sleep(5)
+            produce(n + 1)
+        }
+    }
+
+    fn consume(total) -> Int with Async {
+        match Channel.recv(ch) {
+            Some(v) -> consume(total + v),
+            None -> total
+        }
+    }
+
+    let pair = both(fn() { produce(1) }, fn() { consume(0) })
+    pair.1
+}
+
+fn main() with IO {
+    print("total = " + to_string(run_async(body)))
+}

@@ -362,6 +362,7 @@ int32_t  flux_async_runtime_init(void);
 int64_t  flux_async_run_root(int64_t root_closure);
 int32_t  flux_async_last_run_failed(void);
 uint64_t flux_async_timer_start(int64_t ms);
+void     flux_async_event_timer(uint64_t request_id, int64_t ms);
 int64_t  flux_async_suspend(int64_t request_id, int64_t resume_value);
 int64_t  flux_async_suspend_request(uint64_t request_id);
 uint64_t flux_async_task_await_request(void);
@@ -564,6 +565,7 @@ extern int32_t flux_tape_mode;   /* 0 off, 1 record, 2 replay */
 #define FLUX_TAPE_EV_FS_REMOVE_FILE    19
 #define FLUX_TAPE_EV_FS_REMOVE_DIR_ALL 20
 #define FLUX_TAPE_EV_FS_RENAME         21
+#define FLUX_TAPE_EV_EVENT_CLOCK       22
 
 /* Outcome tags: must match OUT_* in native_abi.rs. */
 #define FLUX_TAPE_OUT_UNIT 0

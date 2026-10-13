@@ -144,7 +144,7 @@ pub(crate) fn try_run_parallel_vm(request: ParallelVmRunRequest<'_>) -> bool {
     eprintln!("{}", vm_run_banner());
     let mut vm = VM::new(bytecode);
     vm.set_trace(request.runtime.trace);
-    crate::driver::replay_session::activate_in_process();
+    crate::driver::replay_session::activate_in_process(request.path);
     let exec_start = Instant::now();
     let result = vm.run();
     crate::driver::replay_session::finish_vm_run(
@@ -209,7 +209,7 @@ pub(crate) fn run_vm(mut request: VmRunRequest<'_>) {
     if request.runtime.profiling {
         vm.set_profiling(true, request.compiler.cost_centre_infos.clone());
     }
-    crate::driver::replay_session::activate_in_process();
+    crate::driver::replay_session::activate_in_process(request.path);
     let exec_start = Instant::now();
     let result = vm.run();
     crate::driver::replay_session::finish_vm_run(
