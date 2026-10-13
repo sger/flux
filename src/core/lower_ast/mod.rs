@@ -93,7 +93,6 @@ pub fn lower_program_ast_complete(
         type_env,
         effect_op_sigs,
         None,
-        None,
     )
 }
 
@@ -107,16 +106,14 @@ pub fn lower_program_ast_with_class_env(
     type_env: Option<&crate::types::type_env::TypeEnv>,
     effect_op_sigs: Option<&EffectOpSigs>,
     class_env: Option<&crate::types::class_env::ClassEnv>,
-    module_member_schemes: Option<&HashMap<(Identifier, Identifier), crate::types::scheme::Scheme>>,
 ) -> CoreProgram {
-    lower_program_ast_with_class_env_and_def_schemes(
+    lower_program_ast_with_evidence(
         program,
         hm_expr_types,
         interner,
         type_env,
         effect_op_sigs,
         class_env,
-        module_member_schemes,
         None,
     )
     .0
@@ -129,28 +126,21 @@ pub fn lower_program_ast_with_class_env(
 /// no dictionaries are passed at all. Dictionary parameters, arguments and
 /// method calls come from it alone (0.0.8 plan, step 1e), and a site it gives
 /// no usable answer for is one of the returned internal errors.
-#[allow(clippy::too_many_arguments)]
-pub fn lower_program_ast_with_class_env_and_def_schemes(
+pub fn lower_program_ast_with_evidence(
     program: &Program,
     hm_expr_types: &HashMap<ExprId, InferType>,
     interner: Option<&crate::syntax::interner::Interner>,
     type_env: Option<&crate::types::type_env::TypeEnv>,
     effect_op_sigs: Option<&EffectOpSigs>,
     class_env: Option<&crate::types::class_env::ClassEnv>,
-    module_member_schemes: Option<&HashMap<(Identifier, Identifier), crate::types::scheme::Scheme>>,
     evidence: Option<&crate::types::evidence::EvidenceMap>,
-) -> (
-    CoreProgram,
-    HashMap<crate::core::CoreBinderId, crate::types::scheme::Scheme>,
-    Vec<crate::diagnostics::Diagnostic>,
-) {
+) -> (CoreProgram, Vec<crate::diagnostics::Diagnostic>) {
     let mut lowerer = AstLowerer::new(
         hm_expr_types,
         interner,
         type_env,
         effect_op_sigs,
         class_env,
-        module_member_schemes,
         evidence,
     );
     lowerer.collect_ctor_field_names(program);
@@ -193,7 +183,7 @@ pub fn lower_program_ast_with_class_env_and_def_schemes(
         validate_program_binders(&core, &is_dict),
         "Core binder resolution invariant failed after AST→Core lowering"
     );
-    (core, lowerer.def_schemes, lowerer.errors)
+    (core, lowerer.errors)
 }
 
 /// Put a definition's dictionary parameters ahead of its own, as
@@ -329,10 +319,6 @@ pub(super) struct AstLowerer<'a> {
     pub(super) effect_op_sigs: Option<&'a EffectOpSigs>,
     /// Optional ClassEnv for compile-time class method dispatch (Phase 4 Step 5).
     pub(super) class_env: Option<&'a crate::types::class_env::ClassEnv>,
-    /// Imported module-member schemes keyed by the source qualifier binding.
-    pub(super) module_member_schemes:
-        Option<&'a HashMap<(Identifier, Identifier), crate::types::scheme::Scheme>>,
-    pub(super) def_schemes: HashMap<crate::core::CoreBinderId, crate::types::scheme::Scheme>,
     pub(super) local_function_names: std::collections::HashSet<Identifier>,
     /// The names this unit binds to a *user-written* top-level or module-level
     /// function.
@@ -397,9 +383,6 @@ impl<'a> AstLowerer<'a> {
         type_env: Option<&'a crate::types::type_env::TypeEnv>,
         effect_op_sigs: Option<&'a EffectOpSigs>,
         class_env: Option<&'a crate::types::class_env::ClassEnv>,
-        module_member_schemes: Option<
-            &'a HashMap<(Identifier, Identifier), crate::types::scheme::Scheme>,
-        >,
         evidence: Option<&'a crate::types::evidence::EvidenceMap>,
     ) -> Self {
         Self {
@@ -411,8 +394,6 @@ impl<'a> AstLowerer<'a> {
             type_env,
             effect_op_sigs,
             class_env,
-            module_member_schemes,
-            def_schemes: HashMap::new(),
             local_function_names: std::collections::HashSet::new(),
             user_function_names: std::collections::HashSet::new(),
             constrained_bodies: Vec::new(),
@@ -448,42 +429,6 @@ impl<'a> AstLowerer<'a> {
         }
         self.current_function_name = previous;
         body_expr
-    }
-
-    fn scheme_for_current_function(
-        &self,
-        name: Identifier,
-    ) -> Option<crate::types::scheme::Scheme> {
-        if let Some(module_name) = self.current_module_name
-            && let Some(scheme) = self
-                .module_member_schemes
-                .and_then(|schemes| schemes.get(&(module_name, name)))
-        {
-            return Some(scheme.clone());
-        }
-
-        if let Some(schemes) = self.module_member_schemes {
-            let mut candidates = schemes
-                .iter()
-                .filter_map(|((_, member_name), scheme)| {
-                    (*member_name == name).then_some(scheme.clone())
-                })
-                .take(2)
-                .collect::<Vec<_>>();
-            if candidates.len() == 1 {
-                return candidates.pop();
-            }
-        }
-
-        self.type_env
-            .and_then(|type_env| type_env.lookup(name))
-            .cloned()
-    }
-
-    fn record_def_scheme(&mut self, def: &CoreDef) {
-        if let Some(scheme) = self.scheme_for_current_function(def.name) {
-            self.def_schemes.insert(def.binder.id, scheme);
-        }
     }
 
     fn collect_local_function_names(&mut self, program: &Program) {
@@ -1002,7 +947,6 @@ impl<'a> AstLowerer<'a> {
                 {
                     def.result_ty = Some(annotated_ty);
                 }
-                self.record_def_scheme(&def);
                 out.push(def);
                 self.active_subst = restore_subst;
             }
@@ -1127,7 +1071,6 @@ impl<'a> AstLowerer<'a> {
                         span: *span,
                     };
                     let def = CoreDef::new(binder, expr, true, *span);
-                    self.record_def_scheme(&def);
                     out.push(def);
                 }
                 Statement::Module { name, body, .. } => {
@@ -2048,7 +1991,7 @@ f("flux")
             dict_type_key: ty.to_string(),
         };
         let types = HashMap::new();
-        let mut lowerer = AstLowerer::new(&types, Some(&interner), None, None, None, None, None);
+        let mut lowerer = AstLowerer::new(&types, Some(&interner), None, None, None, None);
         let owner = ExprId(7);
         let binder = CoreBinder::new(crate::core::CoreBinderId(3), param);
         lowerer.dict_param_binders.insert((owner, 0), binder);

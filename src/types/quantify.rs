@@ -288,8 +288,8 @@ fn mark_generalized(
 
 /// Whether a binding's obligations can be passed as dictionary parameters.
 ///
-/// Dictionary elaboration rewrites top-level definitions and their call sites
-/// (`insert_dict_args_at_call_sites`). A `let`-bound lambda inside a function
+/// Dictionary parameters belong to definitions (`fn` statements), and their
+/// callers pass them from evidence. A `let`-bound lambda inside a function
 /// body is a `CoreExpr::Let`, not a definition, so a dictionary parameter
 /// added to its scheme would never be supplied by its callers and the call
 /// would fail with an arity mismatch at runtime.

@@ -3,9 +3,9 @@
 //!
 //! For each instance method, generates a mangled function (`__tc_Class_Type_method`)
 //! that compiles through the normal pipeline. Polymorphic stubs provide name
-//! resolution for HM inference. Monomorphic calls are resolved at compile time
-//! via `try_resolve_class_call`; polymorphic calls go through dictionary
-//! elaboration (Core-to-Core pass).
+//! resolution for HM inference. Lowering dispatches each method call from the
+//! solver's evidence: to an instance's mangled function, or out of a
+//! dictionary parameter.
 
 use std::collections::{HashMap, HashSet};
 

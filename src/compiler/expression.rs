@@ -4824,9 +4824,8 @@ impl Compiler {
 
         // Resolve from the predicate the class declaration describes: every
         // class parameter is read from the position it actually occupies in
-        // the method signature, arguments and result alike. This mirrors
-        // `LowerCtx::try_resolve_class_call` exactly — the two must stay in
-        // lockstep or the VM and native backends dispatch differently.
+        // the method signature, arguments and result alike, as the solver does
+        // for the evidence the IR is lowered from.
         //
         // It subsumes dispatch on an argument other than the first, and
         // result-directed dispatch, which used to be a hardcoded special case

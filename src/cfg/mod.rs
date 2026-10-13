@@ -103,25 +103,22 @@ fn lower_program_to_ir_impl(
     // 0.0.8 plan step 1e: dictionary parameters, arguments and method calls
     // come from evidence, and elaboration only defines the dictionaries the
     // program names.
-    let (mut core, _, errors) =
-        crate::core::lower_ast::lower_program_ast_with_class_env_and_def_schemes(
-            program,
-            hm_expr_types,
-            interner,
-            type_env,
-            None,
-            class_env,
-            None,
-            evidence,
-        );
+    let (mut core, errors) = crate::core::lower_ast::lower_program_ast_with_evidence(
+        program,
+        hm_expr_types,
+        interner,
+        type_env,
+        None,
+        class_env,
+        evidence,
+    );
     if let Some(error) = errors.into_iter().next() {
         return Err(error);
     }
 
-    // Dictionary elaboration (Proposal 0145, Step 5b):
-    // If class_env and type_env are available, run dictionary elaboration
-    // before standard Core passes.
-    if let (Some(ce), Some(te), Some(int)) = (class_env, type_env, interner)
+    // Define the `__dict_*` globals the program refers to (Proposal 0145,
+    // Step 5b); lowering has already placed every parameter and argument.
+    if let (Some(ce), Some(int)) = (class_env, interner)
         && !ce.classes.is_empty()
     {
         // Seeded from every binder in the program, bodies included. Scanning
@@ -131,11 +128,7 @@ fn lower_program_to_ir_impl(
         // `multiply` duplicate binder CoreBinderId(5) in Lam`. Latent while few
         // functions carried dictionaries; reachable as soon as more do.
         let mut next_id = crate::core::passes::next_fresh_binder_id(&core);
-        if evidence.is_some() {
-            crate::core::passes::build_referenced_dictionaries(&mut core, ce, int, &mut next_id);
-        } else {
-            crate::core::passes::elaborate_dictionaries(&mut core, ce, te, int, &mut next_id);
-        }
+        crate::core::passes::build_referenced_dictionaries(&mut core, ce, int, &mut next_id);
     }
 
     let mut warnings = if let Some(interner) = interner {
