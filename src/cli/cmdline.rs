@@ -469,12 +469,11 @@ fn parse_debug_subcommand(
         return Err("Error: flux debug runs the program on the VM; drop --native.".to_string());
     }
     let mut flags = flags.clone();
-    let script = flags
-        .runtime
-        .debugger
-        .take()
-        .and_then(|request| request.script);
-    flags.runtime.debugger = Some(crate::driver::flags::DebuggerRequest { script });
+    let request = flags.runtime.debugger.take();
+    flags.runtime.debugger = Some(crate::driver::flags::DebuggerRequest {
+        script: request.as_ref().and_then(|request| request.script.clone()),
+        engine: request.and_then(|request| request.engine),
+    });
     if !flags.language.debug_level.is_enabled() {
         flags.language.debug_level = crate::debuginfo::DebugLevel::Full;
     }

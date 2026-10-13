@@ -107,7 +107,7 @@ follows:
 ### Running under the debugger
 
 ```text
-flux run --debug app.flx              # VM, waits for a DAP client
+flux debug app.flx                    # VM, a command-line debugger (S2)
 flux build --native --debug app.flx   # native binary + app.dSYM (macOS)
 flux run --record trace.flxtape app.flx
 flux run --replay trace.flxtape app.flx --native
@@ -130,16 +130,17 @@ in `.flx` files:
   "type": "flux",
   "request": "launch",
   "program": "${workspaceFolder}/src/main.flx",
-  "backend": "vm",
-  "record": true
+  "backend": "vm"
 }
 ```
 
-- `"backend": "native"` builds with `--debug` and starts `lldb-dap` underneath
-  `flux-dap`. You see the same Flux views, and VS Code configuration is
-  identical.
-- `"replay": "trace.flxtape"` replays a recording. With `"backend": "vm"`, the
-  Step Back and Reverse Continue buttons are enabled.
+- With `"backend": "vm"` (S4), every session keeps its effects in memory, so
+  the Step Back and Reverse Continue buttons work.
+  `"record": "trace.flxtape"` also writes them to a tape.
+- `"replay": "trace.flxtape"` replays a recording.
+- `"backend": "native"` (S6) builds with `--debug` and starts `lldb-dap`
+  underneath `flux-dap`. You see the same Flux views, and VS Code
+  configuration is identical.
 
 ### Xcode
 
@@ -539,13 +540,21 @@ against its frame, with the last four callers it replaced. The stack shows
   point; the parts of tuples, lists, arrays, options and data constructors
   load on demand (`print tree.2.1`).
 
-**Front end until S4.** `flux debug app.flx [--script file]` runs the
-program on the VM, built with `-g`, under a command-line debugger
+**Front ends.** `flux debug app.flx [--script file]` runs the program on
+the VM, built with `-g`, under a command-line debugger
 (`src/driver/debug_session.rs`): `break`, `delete`, `continue`, `step`,
-`next`, `finish`, `bt`, `locals`, `print`, `internals on|off`, `quit`.
-It reads commands from a terminal as typed, or from a script or pipe. It
-works with `--record` and `--replay`. Golden transcripts are in
-`tests/debug/vm/` (`tests/debug/vm_debug_tests.rs`).
+`next`, `finish`, `bt`, `locals`, `print`, `internals on|off`, `quit`, and
+the S3 reverse commands. It reads commands from a terminal as typed, or from
+a script or pipe. It works with `--record` and `--replay`. Golden
+transcripts are in `tests/debug/vm/` (`tests/debug/vm_debug_tests.rs`).
+
+`flux debug app.flx --engine <address>` serves the same engine to a debug
+adapter over a localhost socket (`src/driver/debug_engine.rs`), one JSON
+object per line (`src/debug_protocol.rs`). `crates/flux-dap` (S4) is that
+adapter: it speaks DAP to the editor over stdio, starts the program as that
+child process, and passes on its stdout and stderr as `output` events. A
+running program reads requests at its next stop site, so breakpoint changes
+apply and a pause stops there.
 
 #### 3.4 Stacks that follow continuations
 
@@ -804,7 +813,7 @@ Implemented in S3 (`src/vm/debug/`), for programs without async code.
 | Handler stack view (VM `handler_stack`; native evidence vector and markers) | ✓ | ✓ | S7 |
 | Fibers, tasks and channels shown as threads with what they are blocked on (native: `flux_debug_fibers()` called through lldb) | ✓ | ✓ | S8 |
 | Effect timeline: tape events, click one to travel there | ✓ | run-to-event | S3 / S9 |
-| Watch expressions, allowed only when the inferred effect row is empty, so evaluating them can't cause side effects | ✓ | formatter-level only | S4 |
+| Watch expressions and hovers: a variable or a part of it (`pair.0`) in S4; any expression later, allowed only when its inferred effect row is empty, so evaluating it can't cause side effects | ✓ | formatter-level only | S4 / later |
 | Aether view: reference counts, "unique, so reuse is possible", and a debug-heap runtime (`libflux_rt_debug.a`) that poisons freed memory and records allocation sites | ✓ | ✓ | S10 |
 | Panic backtraces without a debugger (VM today; native: unwind plus symbolize through `gimli` in the staticlib, then delete the unused `flux_trace_push`) | ✓ | ✓ | S10 |
 
@@ -825,7 +834,7 @@ Native effects need special handling in two cases:
 | S1b | Async recording: submissions and completions through the shared async backend, one worker and synchronous fs under a tape, the taped event clock, logical request and fiber ids; `Task.spawn` refused until S8 | Every async fixture (sleep, channels, events, scopes, fs, TCP) and every async example replays on the backend that recorded it, without waiting on timers or opening sockets; edited async tapes fail with E1022/E1023; an async tape on the other backend fails with E1026. |
 | S2 | VM engine: `OpBreakpoint` sites (entry, statement, match arm, `|>` stage, perform) from the AST compiler under `-g`, `VmObserver` and `Inspector` (`src/vm/debug/`), step in/over/out, local-variable tables, caller-location fix (also in runtime stack traces), tail-call elision counter, compiler-made code hidden, `flux debug` front end | Golden transcripts of scripted sessions (`tests/debug/vm/*.flxdbg`). Every example runs the same with and without `-g`, apart from timing and one unused failing binding. No slowdown in non-debug runs. |
 | S3 | VM reverse execution for programs without async code: positions (site counts), checkpoints at top-level sites in a bounded ring, reverse step/next/finish/continue by restoring a checkpoint and replaying forward, `goto`, run to event, every `flux debug` session recording in memory, console output printed once | Golden transcripts where coming back to a stop shows the stack and values seen going forward, the same wherever checkpoints fall. A memory-bound test (900,000 sites, at most 256 checkpoints). Going back performs no effect twice. |
-| S4 | `crates/flux-dap`, mirroring `crates/flux-lsp`; `editors/vscode` `debuggers` and `breakpoints` contributions; launch config with `backend`, `record`, `replay`; pure-only evaluate | DAP JSON transcript tests in `crates/flux-dap/tests`. A manual VS Code checklist in the crate README. |
+| S4 | `crates/flux-dap`, mirroring `crates/flux-lsp`: DAP over stdio, the program in a `flux debug --engine` child driven over a JSON-lines socket protocol; breakpoints, stack (tail-call labels), scopes and variables, stepping, Step Back and Reverse Continue, pause; watch, hover and Debug Console evaluate of variable paths, plus console commands for positions and effects; `editors/vscode` `debuggers` and `breakpoints` contributions; launch config with `backend`, `record`, `replay`. Evaluating any pure expression moves to a later stage. | DAP JSON transcript tests in `crates/flux-dap/tests`. A manual VS Code checklist in the crate README. |
 | S5 | Native line tables: IR metadata model, compile units, files, subprograms, locations, LIR location stamping, `Span::default()` audit, Og profile, `dsymutil`, real `source_filename` | `llvm-dwarfdump --verify` clean on all native fixtures. `lldb -b` scripts (break at file:line, `bt`, step) in `tests/native_llvm/debug_*.rs`. 10⁶-deep tail recursion passes in the debug profile. A manual Xcode checklist. |
 | S6 | Native variables and types: untagging expression, ADT `variant_part`, `flux_lldb.py` embedded in the dSYM, `.fluxdbg` sidecar, the native engine in `flux-dap` (proxying `lldb-dap`), `LirFunction.var_binders` side table | **Debug parity harness:** `Way::VmDebug` / `Way::LlvmDebug` in `src/parity/mod.rs:73`, and fixture directives `// dbg: break app.flx:12`, `// dbg: step`, `// dbg-expect: …` in `src/parity/fixture.rs`. Normalized transcripts must match: top frame and locals exactly, the full stack modulo tail-call elision. |
 | S7 | Effects: stacks that follow continuations (both backends), handler view, exception breakpoints, step into `resume` | Parity fixtures for multi-shot, nested handlers, and tail-resumptive vs yielding operations. |

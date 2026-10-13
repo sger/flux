@@ -41,6 +41,8 @@ pub enum StopReason {
     Step,
     /// Going back found nothing earlier: this is the first stop.
     StartOfRecording,
+    /// The front end asked the running program to stop.
+    Pause,
 }
 
 impl StopReason {
@@ -49,6 +51,7 @@ impl StopReason {
             StopReason::Breakpoint => "breakpoint",
             StopReason::Step => "step",
             StopReason::StartOfRecording => "start of the recording",
+            StopReason::Pause => "pause",
         }
     }
 }
@@ -102,6 +105,20 @@ pub trait VmObserver {
     fn on_stop(&mut self, reason: StopReason, inspector: &mut Inspector<'_>) -> Resume;
     /// Called when the program has finished.
     fn on_exit(&mut self) {}
+    /// Called at a stop site after [`request_interrupt`], while the program
+    /// runs forward: the front end has something to say, such as new
+    /// breakpoints. Returns true to stop here.
+    fn on_interrupt(&mut self, _inspector: &mut Inspector<'_>) -> bool {
+        false
+    }
+}
+
+static INTERRUPT: AtomicBool = AtomicBool::new(false);
+
+/// Asks the running program to call [`VmObserver::on_interrupt`] at its next
+/// stop site. Safe to call from any thread.
+pub fn request_interrupt() {
+    INTERRUPT.store(true, Ordering::Release);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -392,6 +409,22 @@ impl VM {
             return Ok(());
         };
         let position = control.position;
+
+        // The front end has something to say. Not while going back: the
+        // run is passing places it already stopped at.
+        if INTERRUPT.load(Ordering::Relaxed)
+            && !matches!(control.mode, StepMode::Scan(_) | StepMode::RunTo { .. })
+        {
+            INTERRUPT.store(false, Ordering::Relaxed);
+            let pause = {
+                let mut inspector = Inspector::new(self, &mut state.control);
+                state.observer.on_interrupt(&mut inspector)
+            };
+            if pause {
+                return self.stop(state, StopReason::Pause);
+            }
+        }
+        let control = &mut state.control;
 
         let reason = match &mut control.mode {
             StepMode::Continue => {

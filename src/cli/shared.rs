@@ -132,6 +132,8 @@ pub(crate) struct CliCommandValueOptions {
     pub(crate) tape: Option<TapeRequest>,
     /// `flux debug --script <file>`.
     pub(crate) debug_script: Option<PathBuf>,
+    /// `flux debug --engine <address>`.
+    pub(crate) debug_engine: Option<String>,
 }
 
 impl Default for CliDiagnosticOptions {
@@ -153,6 +155,7 @@ impl Default for CliCommandValueOptions {
             debug_level: DebugLevel::None,
             tape: None,
             debug_script: None,
+            debug_engine: None,
         }
     }
 }
@@ -300,6 +303,15 @@ pub(crate) fn extract_cli_value_options(args: &mut Vec<String>) -> Result<CliVal
             values.command.debug_script = Some(PathBuf::from(path));
             continue;
         }
+        if let Some(address) = take_required_long_option(
+            args,
+            &mut i,
+            "--engine",
+            "Usage: flux debug <file.flx> --engine <host:port>",
+        )? {
+            values.command.debug_engine = Some(address);
+            continue;
+        }
         if let Some(path) = take_required_long_option(
             args,
             &mut i,
@@ -385,12 +397,13 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
             quiet: parsed.runtime.quiet,
             check_only: false,
             tape: values.command.tape,
-            // `flux debug` turns the debugger on; `--script` only says where
-            // its commands come from.
-            debugger: values.command.debug_script.map(|script| {
-                crate::driver::flags::DebuggerRequest {
-                    script: Some(script),
-                }
+            // `flux debug` turns the debugger on; `--script` and `--engine`
+            // only say where its commands come from.
+            debugger: (values.command.debug_script.is_some()
+                || values.command.debug_engine.is_some())
+            .then_some(crate::driver::flags::DebuggerRequest {
+                script: values.command.debug_script,
+                engine: values.command.debug_engine,
             }),
         },
         dumps: DriverDumpFlags {

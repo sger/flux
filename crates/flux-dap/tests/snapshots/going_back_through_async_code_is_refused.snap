@@ -1,0 +1,21 @@
+---
+source: crates/flux-dap/tests/dap_tests.rs
+---
+-> initialize {"adapterID":"flux"}
+<- {"body":{"supportsConfigurationDoneRequest":true,"supportsEvaluateForHovers":true,"supportsLoadedSourcesRequest":false,"supportsSetVariable":false,"supportsStepBack":true,"supportsTerminateRequest":true},"command":"initialize","success":true}
+-> launch {"fluxArgs":["--no-cache"],"fluxCommand":["<flux>"],"program":"<dir>/nap.flx"}
+<- {"body":{},"command":"launch","success":true}
+<- event {"body":{},"event":"initialized"}
+-> setBreakpoints {"breakpoints":[{"line":10}],"source":{"path":"<dir>/nap.flx"}}
+<- {"body":{"breakpoints":[{"line":10,"verified":true}]},"command":"setBreakpoints","success":true}
+-> configurationDone null
+<- {"body":{},"command":"configurationDone","success":true}
+<- event {"body":{"allThreadsStopped":true,"description":"position 13","reason":"breakpoint","threadId":1},"event":"stopped"}
+-> stepBack {"threadId":1}
+<- {"command":"stepBack","message":"cannot go back: the program has run async code, which going back does not cover yet (0188 S8)","success":false}
+-> continue {"threadId":1}
+<- {"body":{"allThreadsContinued":true},"command":"continue","success":true}
+<- event {"body":{"exitCode":0},"event":"exited"}
+<- event {"body":{},"event":"terminated"}
+--- program output ---
+7

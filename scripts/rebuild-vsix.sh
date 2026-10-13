@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rebuild flux-lsp, repackage the VS Code extension, and reinstall it.
+# Rebuild flux-lsp and flux-dap, repackage the VS Code extension, and reinstall it.
 #
 # Usage:
 #   ./scripts/rebuild-vsix.sh              # build + package + install
@@ -27,14 +27,16 @@ for arg in "$@"; do
   esac
 done
 
-# ── step 1: build the server binary ───────────────────────────────────────────
-echo "==> Building flux-lsp (release)..."
-cargo build --release -p flux-lsp --manifest-path "$REPO_ROOT/Cargo.toml"
+# ── step 1: build the server binaries ─────────────────────────────────────────
+echo "==> Building flux-lsp and flux-dap (release)..."
+cargo build --release -p flux-lsp -p flux-dap --manifest-path "$REPO_ROOT/Cargo.toml"
 
-# ── step 2: stage the binary ──────────────────────────────────────────────────
-echo "==> Staging binary..."
+# ── step 2: stage the binaries ────────────────────────────────────────────────
+echo "==> Staging binaries..."
 mkdir -p "$VSCODE_DIR/server"
-cp "$REPO_ROOT/target/release/flux-lsp$EXE_SUFFIX" "$VSCODE_DIR/server/flux-lsp$EXE_SUFFIX"
+for bin in flux-lsp flux-dap; do
+  cp "$REPO_ROOT/target/release/$bin$EXE_SUFFIX" "$VSCODE_DIR/server/$bin$EXE_SUFFIX"
+done
 
 # ── step 3: install JS deps (no-op if already up to date) ────────────────────
 echo "==> Installing JS dependencies..."

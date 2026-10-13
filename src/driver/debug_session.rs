@@ -44,8 +44,8 @@ pub(crate) fn configure(flags: &crate::driver::flags::DriverFlags) {
     }
 }
 
-/// Attaches the command-line debugger to `vm` when this run is under
-/// `flux debug`.
+/// Attaches the debugger to `vm` when this run is under `flux debug`: the
+/// command reader, or a debug adapter's engine with `--engine`.
 pub(crate) fn attach(vm: &mut crate::vm::VM, program_path: &str) {
     let Some(request) = REQUEST.get() else {
         return;
@@ -56,6 +56,16 @@ pub(crate) fn attach(vm: &mut crate::vm::VM, program_path: &str) {
         replay::keep_events();
     } else {
         replay::start_memory_record();
+    }
+    if let Some(address) = &request.engine {
+        match super::debug_engine::EngineObserver::connect(address) {
+            Ok(observer) => vm.attach_debugger(Box::new(observer)),
+            Err(message) => {
+                eprintln!("{message}");
+                std::process::exit(1);
+            }
+        }
+        return;
     }
     match CommandObserver::new(request.script.as_deref(), Path::new(program_path)) {
         Ok(observer) => vm.attach_debugger(Box::new(observer)),
