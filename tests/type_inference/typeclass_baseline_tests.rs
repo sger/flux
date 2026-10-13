@@ -1645,7 +1645,11 @@ fn every_flow_list_call_predicate_has_evidence() {
     let stderr = normalize_output(&output.stderr);
     let list_section: Vec<&str> = stderr
         .lines()
-        .skip_while(|line| !(line.starts_with("EVIDENCE for ") && line.contains("Flow/List.flx")))
+        // The header prints the file's path, which has `\` separators on Windows.
+        .skip_while(|line| {
+            !(line.starts_with("EVIDENCE for ")
+                && line.replace('\\', "/").contains("Flow/List.flx"))
+        })
         .skip(1)
         .take_while(|line| !line.starts_with("EVIDENCE for "))
         .collect();
