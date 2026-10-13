@@ -46,9 +46,33 @@ impl<'a> InferCtx<'a> {
             if let Some(members) = group_at.get(&index) {
                 self.infer_binding_group(members);
             } else if !covered.contains(&index) {
-                self.infer_statement(stmt);
+                self.infer_top_level_statement(stmt);
             }
         }
+    }
+
+    /// Infer a statement of a program or module body, and report the
+    /// predicates it leaves over a variable nothing determines (E459).
+    ///
+    /// A definition judges its own body. A `let` or an expression at this
+    /// level is not a definition, but `let n = largest([])` is ambiguous all
+    /// the same: nothing can fix the list's element type, so no instance can
+    /// be chosen. A `let`'s own type is determined, so a generalized binding
+    /// is not judged ambiguous. A destructuring `let` is left alone: its type
+    /// is spread over the names it binds.
+    fn infer_top_level_statement(&mut self, stmt: &Statement) {
+        let window = self.class_constraints.open_window();
+        self.infer_statement(stmt);
+        let binding_type = match stmt {
+            Statement::Let { name, .. } => self
+                .env
+                .lookup(*name)
+                .map(|scheme| scheme.infer_type.clone())
+                .unwrap_or_else(|| InferType::Tuple(Vec::new())),
+            Statement::Expression { .. } | Statement::Assign { .. } => InferType::Tuple(Vec::new()),
+            _ => return,
+        };
+        self.report_ambiguous_uses(&binding_type, window);
     }
 
     /// The statement list, planned into binding groups.
@@ -170,11 +194,13 @@ impl<'a> InferCtx<'a> {
                 effects,
                 body,
                 span,
+                id,
                 ..
             } => {
                 self.infer_function_declaration(FnInferInput {
                     name: *name,
                     fn_span: *span,
+                    definition: *id,
                     type_params,
                     parameters,
                     parameter_types,
@@ -218,6 +244,8 @@ impl<'a> InferCtx<'a> {
         // reaches the environment via a predeclared placeholder is not free to
         // quantify, and reading the schemes as stored misses it — see
         // `TypeEnv::free_vars_through` and `docs/known_issues.md#ki-096`.
+        self.improve_from_sole_candidates(window);
+        let final_ty = final_ty.apply_type_subst(&self.subst);
         let env_free = self.env.free_vars_through(&self.subst);
         let scheme = self.finalize_binding_scheme(BindingSchemeSpec {
             infer_type: &final_ty,
@@ -226,6 +254,7 @@ impl<'a> InferCtx<'a> {
             mode: MonoRestriction::Restricted,
             binder: name,
             span: let_span,
+            definition: None,
         });
         self.binding_schemes_by_span
             .insert(binding_span_key(let_span), scheme.clone());
@@ -320,7 +349,7 @@ impl<'a> InferCtx<'a> {
                     self.capture_public_module_member_scheme(module_name, member);
                 }
             } else if !covered.contains(&index) {
-                self.infer_statement(stmt);
+                self.infer_top_level_statement(stmt);
                 self.capture_public_module_member_scheme(module_name, stmt);
             }
         }
@@ -412,11 +441,25 @@ impl<'a> InferCtx<'a> {
         }
     }
 
-    /// Export the inferred scheme for a public module member after inference.
+    /// Export the inferred scheme for a public module member after inference,
+    /// and keep a private member's apart.
     ///
-    /// Module consumers read these cached schemes for qualified lookups and
-    /// cross-module typechecking.
+    /// Module consumers read the public schemes for qualified lookups and
+    /// cross-module typechecking. A private member's scheme stays with the
+    /// unit: the VM compiler reads a member's dictionary layout from it.
     fn capture_public_module_member_scheme(&mut self, module_name: Identifier, stmt: &Statement) {
+        if let Statement::Function {
+            is_public: false,
+            name,
+            ..
+        } = stmt
+            && !crate::types::class_env::is_generated_instance_method(self.interner.resolve(*name))
+            && let Some(scheme) = self.env.lookup(*name).cloned()
+        {
+            self.private_member_schemes
+                .insert((module_name, *name), scheme);
+            return;
+        }
         let name = match stmt {
             Statement::Function {
                 is_public, name, ..
@@ -467,17 +510,14 @@ impl<'a> InferCtx<'a> {
         value_span
     }
 
-    /// Infer the type of a block from its last value-producing statement.
+    /// Predeclare nested function names so forward references and mutual
+    /// recursion work inside function bodies (mirrors top-level Phase A).
     ///
-    /// Returns `Unit` when the block has no value expression.
-    pub(super) fn infer_block(&mut self, block: &Block) -> InferType {
-        // Predeclare nested function names so forward references and mutual
-        // recursion work inside function bodies (mirrors top-level Phase A).
-        //
-        // The guard asks whether *this* scope already declared the name, not
-        // whether the name is visible: a nested `fn` that shadows an outer one
-        // must still be predeclared here, or its siblings resolve their
-        // references to the outer definition instead of to it.
+    /// The guard asks whether *this* scope already declared the name, not
+    /// whether the name is visible: a nested `fn` that shadows an outer one
+    /// must still be predeclared here, or its siblings resolve their
+    /// references to the outer definition instead of to it.
+    fn predeclare_nested_functions(&mut self, block: &Block) {
         for stmt in &block.statements {
             if let Statement::Function { name, span, .. } = stmt
                 && !self.env.is_bound_in_current_scope(*name)
@@ -486,12 +526,26 @@ impl<'a> InferCtx<'a> {
                 self.env.bind_with_span(*name, Scheme::mono(v), Some(*span));
             }
         }
+    }
+
+    /// Infer the type of a block from its last value-producing statement.
+    ///
+    /// Returns `Unit` when the block has no value expression.
+    pub(super) fn infer_block(&mut self, block: &Block) -> InferType {
+        self.predeclare_nested_functions(block);
 
         let plan = self.plan_statements(&block.statements);
         let (group_at, covered) = crate::binding_groups::group_index(&plan);
 
         let mut last_ty = InferType::Con(TypeConstructor::Unit);
+        // Once this block itself returns, what follows is dead: it is still
+        // inferred, for its own errors, but it is not the block's value.
+        let mut returned = false;
         for (index, stmt) in block.statements.iter().enumerate() {
+            if returned {
+                self.infer_statement(stmt);
+                continue;
+            }
             // A mutually recursive group is inferred once, at its first
             // member. Members are function definitions, so a group can never
             // hold the block's value expression.
@@ -517,6 +571,10 @@ impl<'a> InferCtx<'a> {
                     value: Some(expr), ..
                 } => {
                     last_ty = self.infer_expression(expr);
+                    if let Some(frame) = self.body_facts.return_frames.last_mut() {
+                        frame.push((last_ty.clone(), expr.span()));
+                    }
+                    returned = true;
                 }
                 _ => {
                     self.infer_statement(stmt);

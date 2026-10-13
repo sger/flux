@@ -1,0 +1,28 @@
+// parity-expected-stdout-begin
+// 7
+// 100
+// parity-expected-stdout-end
+
+// A constrained function inside a module, called from outside it with an
+// instance the module cannot see.
+//
+// `SoleInstance.measure<a: Sized>` reads `size` out of the `Sized`
+// dictionary it is given. `Sized<Int>` is the only instance in its module, and
+// this file adds `Sized<String>`; the second call must use it.
+//
+// History: the old dispatch path saw the sole instance and called
+// `__tc_Sized_Int_size` directly, so the second call failed with E1004 (a
+// `String` at the `size(x)`). Fixed in 0.0.8 plan step 1e: lowering takes the
+// dictionary from the solver's evidence (LLVM from C2), and the VM compiles
+// module members from that lowering (C3b).
+
+import SoleInstance
+
+instance Sized<String> {
+    fn size(s) { 100 }
+}
+
+fn main() with IO {
+    print(SoleInstance.measure(7))
+    print(SoleInstance.measure("abc"))
+}

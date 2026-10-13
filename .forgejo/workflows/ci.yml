@@ -1,0 +1,120 @@
+name: CI
+
+# Forgejo Actions mirror of .github/workflows/ci.yml, trimmed to a single
+# self-hosted Linux runner. GitHub ignores `.forgejo/`, so this only runs on
+# the Forgejo instance — no duplicate runs.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # rustup/cargo live at fixed paths so the cache step can save/restore them.
+  CARGO_HOME: /opt/cargo
+  RUSTUP_HOME: /opt/rustup
+  # Faster, cache-friendlier builds: no incremental artifacts (useless in CI and
+  # they bloat the cache), no debuginfo (a large slice of compile time and disk),
+  # and resilient crate downloads.
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  CARGO_NET_RETRY: "10"
+
+jobs:
+  ci:
+    # Must equal a label your runner advertises. The synology-runner registers
+    # only the `docker` label, so target that. `container:` then pins the exact
+    # image the job runs in (Debian + Node, for apt and actions/checkout),
+    # independent of whatever image the bare `docker` label defaults to.
+    runs-on: docker
+    container:
+      image: node:20-bookworm
+    timeout-minutes: 60
+
+    steps:
+      # The `llvm` feature (pulled in by --all-features) shells out to
+      # clang/opt/llc/llvm-config, and the frontend needs a C toolchain +
+      # linker. The runner image runs as root, so no sudo.
+      #
+      # Debian bookworm's distro LLVM is 14, whose `opt` rejects the opaque
+      # `ptr` IR the backend emits (opaque pointers are default only in LLVM
+      # 15+). Install LLVM 18 from apt.llvm.org — the same major version the
+      # Ubuntu 24.04 GitHub runners use — so the native/LLVM tests pass.
+      - name: Install system toolchain
+        env:
+          LLVM_VERSION: "18"
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential binutils curl ca-certificates git pkg-config \
+            wget gnupg
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | gpg --dearmor -o /usr/share/keyrings/llvm.gpg
+          echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] http://apt.llvm.org/bookworm/ llvm-toolchain-bookworm-${LLVM_VERSION} main" \
+            > /etc/apt/sources.list.d/llvm.list
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            "clang-${LLVM_VERSION}" "llvm-${LLVM_VERSION}" "lld-${LLVM_VERSION}"
+          # Expose the unversioned opt/llc/clang/llvm-config from this toolchain
+          # (they live under /usr/lib/llvm-<v>/bin, not /usr/bin).
+          echo "/usr/lib/llvm-${LLVM_VERSION}/bin" >> "$GITHUB_PATH"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Restore the Rust toolchain, crate registry, and build outputs from the
+      # previous run. `target/` is the big win — only crates whose inputs changed
+      # recompile.
+      #
+      # A cache entry is immutable once saved, so a key fixed by Cargo.lock alone
+      # would keep restoring the first run's `target/` forever. The commit sha
+      # makes each run save a fresh entry; `restore-keys` picks the newest one
+      # for the same Cargo.lock, then any at all.
+      - name: Cache Rust toolchain + build
+        uses: actions/cache@v4
+        with:
+          path: |
+            /opt/cargo/bin
+            /opt/cargo/registry/index
+            /opt/cargo/registry/cache
+            /opt/cargo/git/db
+            /opt/rustup/toolchains
+            target
+          key: forgejo-rust-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            forgejo-rust-${{ hashFiles('**/Cargo.lock') }}-
+            forgejo-rust-
+
+      - name: Install Rust 1.93.0
+        run: |
+          # No-op fast path when the toolchain came back from cache.
+          if ! /opt/cargo/bin/cargo --version 2>/dev/null | grep -q .; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --default-toolchain 1.93.0 --profile minimal \
+                  --component rustfmt --component clippy
+          fi
+          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Versions
+        run: |
+          rustc --version
+          cargo --version
+          clang --version | head -1
+          llvm-config --version
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      # Built as its own step, as on GitHub, so a compile failure is reported as
+      # a compile failure and the run step's duration reflects only the tests.
+      - name: Build tests
+        run: cargo test --all --all-features --no-run
+
+      - name: Tests
+        run: cargo test --all --all-features

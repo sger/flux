@@ -209,19 +209,27 @@ pub fn unify_core(
             Ok(result)
         }
 
-        // HktApp(Var(f), args) vs App(tc, args2): bind f → Con(tc), unify args
+        // HktApp(Var(f), args) vs App(tc, args2): bind f → Con(tc), unify args.
+        // When the constructor carries more arguments than the pattern
+        // applies — `f<a>` against `Either<String, Int>` — the head is the
+        // partially applied `Either<String>` and the args are the trailing
+        // ones, as the class-predicate matcher reads the same shape.
         (InferType::HktApp(head, args1), InferType::App(tc, args2))
         | (InferType::App(tc, args2), InferType::HktApp(head, args1))
-            if args1.len() == args2.len() =>
+            if args1.len() <= args2.len() =>
         {
-            let head_subst = unify_core(
-                head,
-                &InferType::Con(tc.clone()),
-                ctx_subst,
-                span,
-                fresh_row_var,
-                skolems,
-            )?;
+            let leading = args2.len() - args1.len();
+            let applied_head = if leading == 0 {
+                InferType::Con(tc.clone())
+            } else {
+                InferType::HktApp(
+                    Box::new(InferType::Con(tc.clone())),
+                    args2[..leading].to_vec(),
+                )
+            };
+            let args2 = &args2[leading..];
+            let head_subst =
+                unify_core(head, &applied_head, ctx_subst, span, fresh_row_var, skolems)?;
             let combined = ctx_subst.clone().compose(&head_subst);
             let mut result = head_subst;
             let applied_args1: Vec<InferType> = args1
@@ -827,5 +835,30 @@ mod tests {
         let bound = subst.get_row(10).expect("row var 10 should be bound");
         assert!(bound.concrete().contains(&sym(2)));
         assert_eq!(bound.tail(), None);
+    }
+
+    /// `f<a>` against `Either<String, Int>`: the constructor carries one
+    /// argument more than the pattern applies, so `f` is the partially applied
+    /// `Either<String>` and `a` is the trailing `Int`. Once `f` is bound, a
+    /// second `f<b>` against `Either<String, Bool>` must agree with it.
+    #[test]
+    fn unify_hkt_app_with_a_constructor_of_more_arguments() {
+        let string = InferType::Con(TypeConstructor::String);
+        let either = |args: Vec<InferType>| InferType::App(TypeConstructor::Either, args);
+        let partial = InferType::HktApp(
+            Box::new(InferType::Con(TypeConstructor::Either)),
+            vec![string.clone()],
+        );
+
+        let pattern = InferType::HktApp(Box::new(infer_var(0)), vec![infer_var(1)]);
+        let subst = unify(&pattern, &either(vec![string.clone(), int()]))
+            .expect("f<a> unifies with Either<String, Int>");
+        assert_eq!(subst.get(0), Some(&partial));
+        assert_eq!(subst.get(1), Some(&int()));
+
+        let second = InferType::HktApp(Box::new(partial), vec![infer_var(2)]);
+        let subst = unify(&second, &either(vec![string, bool_t()]))
+            .expect("Either<String><b> unifies with Either<String, Bool>");
+        assert_eq!(subst.get(2), Some(&bool_t()));
     }
 }

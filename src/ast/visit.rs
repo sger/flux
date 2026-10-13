@@ -109,6 +109,7 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
             span: _,
             fip: _,
             intrinsic: _,
+            id: _,
         } => {
             visitor.visit_identifier(name);
             for param in parameters {

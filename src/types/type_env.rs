@@ -162,6 +162,15 @@ impl TypeEnv {
         None
     }
 
+    /// The scope level of the binding `name` resolves to: the innermost scope
+    /// that binds it.
+    pub fn visible_binding_level(&self, name: Identifier) -> Option<u32> {
+        self.scope_markers
+            .iter()
+            .rposition(|names| names.contains(&name))
+            .map(|level| level as u32)
+    }
+
     /// Push a new empty scope and bump the level.
     pub fn enter_scope(&mut self) {
         self.level += 1;

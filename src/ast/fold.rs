@@ -128,6 +128,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             span,
             fip,
             intrinsic,
+            id,
         } => Statement::Function {
             is_public,
             name: folder.fold_identifier(name),
@@ -143,6 +144,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             span,
             fip,
             intrinsic,
+            id,
         },
         Statement::Assign { name, value, span } => Statement::Assign {
             name: folder.fold_identifier(name),

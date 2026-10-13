@@ -477,6 +477,17 @@ fn superclass_evidence_is_supplied_without_an_explicit_context() {
     assert_eq!(output.stdout, "505");
 }
 
+/// A dictionary named only from another dictionary's superclass slot is
+/// defined as well. Elaboration kept just the dictionaries the program named
+/// itself, so reading `Measurable<Int>`'s `Sizeable` slot found an undefined
+/// global.
+#[test]
+fn a_dictionary_named_only_by_a_superclass_slot_is_defined() {
+    let fixture = "superclass_slot_dictionary.flx";
+    let output = run_fixture(fixture).expect("fixture should compile and run");
+    assert_eq!(output.stdout, "505\n21");
+}
+
 /// An instance context that grows its type argument at every step —
 /// `Foo<a>` needing `Foo<List<a>>` — has no finite evidence tree. The search
 /// never repeats a predicate, so the cycle check cannot see it; only the depth
@@ -1426,4 +1437,327 @@ fn main() { apply(measure, 21) }
         named.iter().any(|key| key == "Int"),
         "the checked argument's `Sized<Int>` must be recorded, got: {named:?}"
     );
+}
+
+/// Every site whose evidence records the same predicate — same class, same
+/// source position — more than once, as `(line, column, times)`.
+///
+/// One predicate is one dictionary. A site that raised it twice would be read
+/// by the emitter as two dictionaries for an operator that takes one.
+fn sites_raising_a_predicate_twice(
+    map: &flux::types::evidence::EvidenceMap,
+) -> Vec<(usize, usize, usize)> {
+    use flux::types::evidence::EvidenceSite;
+    let mut repeated = Vec::new();
+    for (expr, raised) in map.raised_sites() {
+        let mut seen: Vec<(flux::types::class_id::ClassId, usize, usize)> = Vec::new();
+        for index in 0..raised {
+            let Some(p) = map.predicate(&EvidenceSite::new(expr, index)) else {
+                continue;
+            };
+            let key = (p.class_id, p.span.start.line, p.span.start.column);
+            if seen.contains(&key) {
+                repeated.push((key.1, key.2, raised as usize));
+            }
+            seen.push(key);
+        }
+    }
+    repeated
+}
+
+/// A method call answered by the enclosing definition's *own* dictionary has
+/// evidence: `FromGiven` with an empty superclass path.
+///
+/// `rank(x)` inside `fn f<a: Rank>` raises `Rank<a>`, which is exactly `f`'s
+/// context. The solver used to mark it generalized and the scope dropped it, so
+/// the commonest method call in a constrained body recorded nothing and the
+/// emitter had no answer to read. GHC keeps it as a wanted solved from the
+/// given (`d_wanted = d_param`).
+#[test]
+fn a_method_on_the_definitions_own_dictionary_is_answered_from_it() {
+    let source = r#"
+class Rank<a> {
+    fn rank(x: a) -> Int
+}
+
+instance Rank<Int> {
+    fn rank(x) { x }
+}
+
+fn doubled<a: Rank>(x: a) -> Int { rank(x) + rank(x) }
+
+fn main() { doubled(21) }
+"#;
+    let (program, mut compiler) = parse_source(source, "own_dictionary_evidence.flx");
+    compiler.compile(&program).expect("program type-checks");
+
+    let answered_from_own: usize = compiler
+        .evidence_map()
+        .entries()
+        .filter(|(_, evidence)| {
+            matches!(
+                evidence,
+                flux::types::class_disposition::Evidence::FromGiven { superclass_path, .. }
+                    if superclass_path.is_empty()
+            )
+        })
+        .count();
+    assert_eq!(
+        answered_from_own, 2,
+        "both `rank(x)` calls in `doubled` are answered by `doubled`'s own `Rank<a>`"
+    );
+}
+
+/// Evidence answered from a definition's own context names that definition by
+/// its id, and the definition's parameters are recorded under the same id —
+/// so lowering needs no name lookup to find either.
+#[test]
+fn evidence_from_a_given_names_the_definition_whose_parameter_supplies_it() {
+    let source = r#"
+class Rank<a> {
+    fn rank(x: a) -> Int
+}
+
+instance Rank<Int> {
+    fn rank(x) { x }
+}
+
+fn doubled<a: Rank>(x: a) -> Int { rank(x) + rank(x) }
+
+fn main() { doubled(21) }
+"#;
+    let (program, mut compiler) = parse_source(source, "given_owner_evidence.flx");
+    compiler.compile(&program).expect("program type-checks");
+    let doubled = program
+        .statements
+        .iter()
+        .find_map(|statement| match statement {
+            flux::syntax::statement::Statement::Function { name, id, .. }
+                if compiler.interner.resolve(*name) == "doubled" =>
+            {
+                Some(*id)
+            }
+            _ => None,
+        })
+        .expect("`doubled` is declared");
+
+    let owners: Vec<_> = compiler
+        .evidence_map()
+        .entries()
+        .filter_map(|(_, evidence)| match evidence {
+            flux::types::class_disposition::Evidence::FromGiven { owner, .. } => Some(*owner),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        owners.len(),
+        2,
+        "both `rank(x)` calls are answered from a given"
+    );
+    assert!(
+        owners
+            .iter()
+            .all(|owner| owner.definition == doubled && owner.index == 0),
+        "each names `doubled`'s first given: {owners:?}"
+    );
+
+    let params = compiler
+        .evidence_map()
+        .definition(doubled)
+        .expect("`doubled`'s parameters are recorded under its id");
+    let classes: Vec<_> = params
+        .params
+        .iter()
+        .map(|param| compiler.interner.resolve(param.class_name).to_string())
+        .collect();
+    assert_eq!(classes, ["Rank"]);
+    assert_eq!(params.param_of_given, [Some(0)]);
+}
+
+/// An unannotated self-recursive helper is inferred twice — the second pass
+/// refines its return type — and must not raise its predicates twice.
+#[test]
+fn a_recursive_helpers_second_inference_pass_raises_nothing() {
+    let source = r#"
+fn outer(n: Int) -> Int {
+    fn go(k) { if k < 3 { go(k + 1) } else { k } }
+    go(n)
+}
+
+fn main() { outer(1) }
+"#;
+    let (program, mut compiler) = parse_source(source, "refine_pass_raises_once.flx");
+    compiler.compile(&program).expect("program type-checks");
+
+    let repeated = sites_raising_a_predicate_twice(compiler.evidence_map());
+    assert!(
+        repeated.is_empty(),
+        "each operator in `go` raises one predicate; repeated at (line, col, raised): {repeated:?}"
+    );
+}
+
+/// A propagatable argument is checked against the parameter type and then
+/// inferred; only one of those passes may raise its predicates.
+#[test]
+fn a_checked_then_inferred_argument_raises_its_predicates_once() {
+    let source = r#"
+fn id(x: Int) -> Int { x }
+
+fn pick(n: Int) -> Int { id(if n > 1 { 1 } else { 2 }) }
+
+fn main() { pick(3) }
+"#;
+    let (program, mut compiler) = parse_source(source, "checked_arg_raises_once.flx");
+    compiler.compile(&program).expect("program type-checks");
+
+    let repeated = sites_raising_a_predicate_twice(compiler.evidence_map());
+    assert!(
+        repeated.is_empty(),
+        "`n > 1` raises one `Ord`; repeated at (line, col, raised): {repeated:?}"
+    );
+}
+
+/// Every class predicate the standard list library raises at a call is
+/// answered. 0.0.8 step 1e makes a call without evidence an internal error at
+/// lowering. `contains` in `unique_by_step` had none: an unannotated private
+/// helper cannot generalize a constraint until Phase 2, so it is annotated.
+///
+/// Operators are left out. The four unanswered ones (`h == x` in
+/// `delete_go_acc`, `<`/`>`/`<=` in the min/max and merge-sort helpers) lower
+/// to primitives, which take no dictionary. Annotating those helpers would
+/// turn them into class-method calls and lose the primitives, which is the
+/// generated code `aether_cli_snapshots` guards.
+#[test]
+fn every_flow_list_call_predicate_has_evidence() {
+    let scratch = parity::scratch::Scratch::new("typeclass-baseline-flow-list-evidence");
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(workspace_root())
+        .args([
+            fixture_path("contextual_dictionary.flx")
+                .to_str()
+                .expect("fixture path is UTF-8"),
+            "--no-cache",
+        ])
+        .args(scratch.cache_args())
+        .env("FLUX_DBG_EVIDENCE", "1")
+        .output()
+        .expect("run Flux fixture");
+    let stderr = normalize_output(&output.stderr);
+    let list_section: Vec<&str> = stderr
+        .lines()
+        // The header prints the file's path, which has `\` separators on Windows.
+        .skip_while(|line| {
+            !(line.starts_with("EVIDENCE for ")
+                && line.replace('\\', "/").contains("Flow/List.flx"))
+        })
+        .skip(1)
+        .take_while(|line| !line.starts_with("EVIDENCE for "))
+        .collect();
+    assert!(
+        !list_section.is_empty(),
+        "expected an evidence dump for Flow.List:\n{stderr}"
+    );
+    let unsolved: Vec<_> = list_section
+        .iter()
+        .filter(|line| line.contains("(unsolved)") && !line.contains("InferredOperator"))
+        .collect();
+    assert!(
+        unsolved.is_empty(),
+        "Flow.List predicates without evidence:\n{unsolved:#?}"
+    );
+}
+
+/// Run a fixture and require that it succeeds with no internal error.
+///
+/// Lowering takes its dictionaries from evidence and fails closed: a
+/// class-method call that raised no predicate is an internal error naming the
+/// method, in whichever unit it sits. A clean run is the proof each call
+/// raised its predicate.
+fn assert_lowers_from_evidence(name: &str) {
+    let scratch = parity::scratch::Scratch::new(&format!("typeclass-evidence-{name}"));
+    let fixture = fixture_path(name);
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(workspace_root())
+        .args([
+            fixture.to_str().expect("fixture path is UTF-8"),
+            "--no-cache",
+        ])
+        .args(scratch.cache_args())
+        .output()
+        .expect("run Flux fixture");
+    let stderr = normalize_output(&output.stderr);
+    assert!(
+        !stderr.contains("Internal Compiler Error"),
+        "{name} lowers from evidence:\n{stderr}"
+    );
+    assert!(output.status.success(), "{name} runs:\n{stderr}");
+}
+
+/// E1: a unit that only imports `Flow.Monad` calls `fmap`, `pure` and `bind`
+/// bare. Their classes come from cached interfaces, and their names must be
+/// typed as the methods they are, so each call raises its predicate.
+#[test]
+fn imported_class_methods_raise_their_predicates_in_a_unit_compile() {
+    assert_lowers_from_evidence("option_instances.flx");
+}
+
+/// A dependency recovered from its AST (`flux --test`, which preloads
+/// dependencies without their interfaces) keeps its instance contexts
+/// resolved. `Flow.Monoid`'s instances are `Semigroup<T> => Monoid<T>`, and
+/// `Semigroup` reaches that module only through the class prelude. Resolved
+/// before the class was known, the context named a module-less `Semigroup`
+/// with no instances, so no `Monoid` instance could ever be used.
+#[test]
+fn an_ast_preloaded_instance_context_names_the_real_class() {
+    let scratch = parity::scratch::Scratch::new("typeclass-ast-preloaded-context");
+    let file = scratch.path().join("monoid_twice.flx");
+    std::fs::write(
+        &file,
+        r#"import Flow.Monoid
+
+fn twice<a: Monoid>(x: a) -> a {
+    append(x, x)
+}
+
+fn test_twice() with IO {
+    print(twice("ab"))
+}
+"#,
+    )
+    .expect("write the fixture");
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(workspace_root())
+        .args([
+            "--test",
+            file.to_str().expect("path is UTF-8"),
+            "--no-cache",
+        ])
+        .args(["--root", "lib"])
+        .args(scratch.cache_args())
+        .output()
+        .expect("run Flux tests");
+    let stderr = normalize_output(&output.stderr);
+    assert!(
+        !stderr.contains("No instance for `Monoid<String>`"),
+        "the `Monoid<String>` instance is usable:\n{stderr}"
+    );
+    assert!(output.status.success(), "the test file passes:\n{stderr}");
+}
+
+/// E2: a nullary method, `mempty()`, takes its class argument from the
+/// call's result. It raises its predicate at a concrete call, and inside a
+/// definition bounded by the class.
+#[test]
+fn nullary_class_methods_raise_their_predicates() {
+    assert_lowers_from_evidence("mempty_result_dispatch.flx");
+    assert_lowers_from_evidence("semigroup_monoid.flx");
+}
+
+/// E3: a module calls a method of a class declared in another of the
+/// program's module files, qualified by the alias it imports it under
+/// (`Comparable.same(x, y)`). A unit compile keys the imported members by
+/// that alias, and the call must still be typed as the method.
+#[test]
+fn alias_qualified_class_method_calls_raise_their_predicates() {
+    assert_lowers_from_evidence("eq_auditlog_example.flx");
 }

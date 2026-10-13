@@ -76,6 +76,31 @@ impl<'a> InferCtx<'a> {
             })
     }
 
+    /// The scheme of `module.member` when the module declares a class with
+    /// that method, for a method no member scheme types: a class declared in
+    /// a module of the program being inferred, whose dispatch stub is not a
+    /// public member of it. `module` must not be a value in scope.
+    pub(super) fn declared_class_method_scheme(
+        &self,
+        module_name: Identifier,
+        member: Identifier,
+    ) -> Option<crate::types::scheme::Scheme> {
+        if self.env.lookup(module_name).is_some() {
+            return None;
+        }
+        let target = self
+            .module_aliases
+            .get(&module_name)
+            .copied()
+            .unwrap_or(module_name);
+        let class_env = self.class_env.as_ref()?;
+        let class_id =
+            class_env.resolve_qualified_method_class_id(target, member, self.interner)?;
+        let class = class_env.lookup_class_by_id(class_id)?;
+        let method = class.methods.iter().find(|method| method.name == member)?;
+        Some(class.method_scheme(method, self.interner))
+    }
+
     /// Whether `module.member` resolves to a known member under either spelling.
     pub(super) fn knows_module_member(&self, module_name: Identifier, member: Identifier) -> bool {
         self.module_member_scheme(module_name, member).is_some()
@@ -99,7 +124,10 @@ impl<'a> InferCtx<'a> {
             // consulting the written name drops every preloaded entry and the
             // member degrades to a fallback variable, which surfaces as E430
             // at the call site rather than here.
-            && let Some(scheme) = self.module_member_scheme(*module_name, member).cloned()
+            && let Some(scheme) = self
+                .module_member_scheme(*module_name, member)
+                .cloned()
+                .or_else(|| self.declared_class_method_scheme(*module_name, member))
         {
             let (ty, mapping, constraints) = scheme.instantiate(&mut self.env.counter);
             let fresh_vars = mapping.values().copied().collect::<Vec<_>>();

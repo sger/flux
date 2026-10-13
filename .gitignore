@@ -42,6 +42,11 @@ runtime/c/*.lib
 runtime/c/smoke_test
 runtime/c/.flux_rt.lock
 
+# Debug symbols — they embed the build machine's absolute paths
+*.pdb
+*.ilk
+*.dSYM/
+
 # Benchmark artifacts
 /baseline_criterion/
 

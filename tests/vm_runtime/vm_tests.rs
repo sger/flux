@@ -1726,8 +1726,14 @@ fn test_list_utilities_and_sorting() {
         run("to_string(minimum([3, 9, 4]));"),
         make_string("Some(3)")
     );
-    assert_eq!(run("to_string(maximum([]));"), make_string("None"));
-    assert_eq!(run("to_string(minimum([]));"), make_string("None"));
+    assert_eq!(
+        run("let none: List<Int> = []; to_string(maximum(none));"),
+        make_string("None")
+    );
+    assert_eq!(
+        run("let none: List<Int> = []; to_string(minimum(none));"),
+        make_string("None")
+    );
     assert_eq!(
         run("to_string(sort([3, 1, 4, 1, 2]));"),
         make_string("[1, 1, 2, 3, 4]")

@@ -162,6 +162,62 @@ fallback (Phase 0d) exists because the search can fail.
     does not, that is a gap in the recording, and 1d cannot delete
     `choose_candidate` until it is closed.
 
+### How a given is identified
+
+Re-verified 2026-10-07 against the GHC checkout, after the 1c shadow run found
+that Flux's lookup failed on one compiler entry point.
+
+**GHC.** A given is a fresh evidence *variable*, and it is referred to by
+identity from then on.
+- **Inferred bindings.** `simplifyInfer` makes one variable per entry of the
+  minimised context, in that order: `mapM TcM.newEvVar bound_theta`
+  (`Tc/Solver.hs:1013`).
+- **Bindings with a signature.** `topSkolemise` does the same from the
+  signature's context (`Tc/Utils/Instantiate.hs:217-221`).
+- **The definition stores its list.** It is `AbsBinds.abs_ev_vars` for an
+  inferred binding (`Tc/Gen/Bind.hs:742-765`), or the `WpEvLam` chain in the
+  binding's wrapper for a checked one.
+- **The desugarer reads the list as it is.** It turns those variables into
+  lambdas (`HsToCore/Binds.hs:292-295`) and never rebuilds the list from the
+  type.
+- **Evidence names the variable.** A wanted solved from a given is bound to
+  that given's term, `ctEvTerm ev_i` (`Tc/Solver/Dict.hs:848`). It is not
+  re-found by position, name or type.
+- **Nested scopes inherit outer givens lexically.** An inner implication
+  starts from the outer inert givens (`Tc/Solver/Monad.hs:1294-1305`). Its
+  evidence can name the outer function's variable, which is in scope because
+  the inner bindings sit inside the outer lambda.
+
+**Flux, after `3ec726b8`, `ff893fc5` and `c0778b4a`.**
+
+| GHC | Flux |
+|---|---|
+| the binding's unique `Id` | `Statement::Function.id` (`src/syntax/statement.rs`), from the expression counter |
+| a given evidence variable | `GivenRef { definition, index }` (`src/types/class_disposition.rs`): the definition, and the given's position among its givens |
+| `EvExpr (Var d)` | `Evidence::FromGiven { owner, .. }`, set by `entailed_by_givens` (`src/types/class_solver.rs`) |
+| `abs_ev_vars` | `EvidenceMap::definition(id)`: `DefinitionParams { params, param_of_given }` (`src/types/evidence.rs`), recorded from each definition's implication |
+| the lambda the desugarer emits | `DictArg::Param { owner, index, path }` (`src/types/translate.rs`); lowering creates the variable in 1d |
+
+`record_definitions` keeps a given as a parameter by the same two rules, in the
+same order, that `dictionary_constraints` applies to the scheme. So the list is
+the one elaboration produces today:
+1. its type mentions only variables the definition quantified;
+2. its class carries a dictionary.
+
+**Why a lookup by name was wrong.** Until `c0778b4a`, lowering found the
+enclosing definition's givens by looking its scheme up by name
+(`scheme_for_current_function`). That failed in three ways:
+- **It depended on the entry point.** The CFG path passes no module member
+  schemes, so every function in `module Flow.X { … }` had no givens there.
+- **Names collide** across modules and between nested functions.
+- **Position in the current definition** cannot name an outer given at all.
+
+**Where Flux differs.** A given is a (definition, position) pair, not a
+variable, because the solver runs before lowering creates any binders. The pair
+is as stable as a variable for this purpose: positions are fixed when the
+definition generalizes, and `param_of_given` maps them to parameter positions
+once.
+
 ### Not now
 
 GHC routes recursive calls inside an `AbsBinds` through the **monomorphic** id,

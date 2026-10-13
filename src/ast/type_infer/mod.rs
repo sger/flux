@@ -110,6 +110,9 @@ pub enum ReportContext {
 struct FnInferInput<'a> {
     name: Identifier,
     fn_span: Span,
+    /// The `Statement::Function` id; the implication this definition closes
+    /// is keyed by it, and so are its dictionary parameters.
+    definition: ExprId,
     type_params: &'a [FunctionTypeParam],
     parameters: &'a [Identifier],
     parameter_types: &'a [Option<TypeExpr>],
@@ -149,6 +152,9 @@ struct BindingSchemeSpec<'a> {
     mode: MonoRestriction,
     binder: Identifier,
     span: Span,
+    /// The function definition's id. `None` for a `let`, which never
+    /// generalizes a context and so never closes an implication.
+    definition: Option<ExprId>,
 }
 
 /// Immutable inputs required to infer a match expression.
@@ -219,6 +225,12 @@ struct InferCtx<'a> {
     /// `build_infer_result`. The LSP reads this for goto-definition on
     /// class-method calls.
     class_method_dispatch: HashMap<ExprId, ClassDispatch>,
+    /// Every call inference classified as a call to a class method, whether
+    /// or not it could raise the method's predicate (0.0.8 plan, step 1e).
+    class_method_calls: HashSet<ExprId>,
+    /// Schemes of the unit's private module members, by (module, member).
+    /// Kept apart from `module_member_schemes`, which feeds interfaces.
+    private_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
     /// Type variables allocated as fallback after inference failures.
     /// These are "tainted" — if they appear in a binding's resolved type,
     /// the binding has unresolved inference even if the scheme is mono.
@@ -238,6 +250,8 @@ struct InferCtx<'a> {
     /// `skolems` parameter. Unmarked when the declaring function's scope
     /// exits so downstream uses treat them as flexible.
     skolem_vars: HashSet<TypeVarId>,
+    /// What function bodies record for the checks run once they are inferred.
+    body_facts: BodyFacts,
     /// Source-level name for each skolem (the type parameter identifier),
     /// used to render readable E305 diagnostics.
     skolem_names: HashMap<TypeVarId, Identifier>,
@@ -345,6 +359,7 @@ impl<'a> InferCtx<'a> {
             instantiated_expr_vars: HashSet::new(),
             current_expr: None,
             skolem_vars: HashSet::new(),
+            body_facts: BodyFacts::default(),
             skolem_names: HashMap::new(),
             signature_type_params: Vec::new(),
             class_env: None,
@@ -352,12 +367,12 @@ impl<'a> InferCtx<'a> {
             module_aliases: HashMap::new(),
             class_constraints: constraint::WantedConstraints::default(),
             class_method_dispatch: HashMap::new(),
+            class_method_calls: HashSet::new(),
+            private_member_schemes: HashMap::new(),
             class_sym_eq: None,
             class_sym_ord: None,
             class_sym_num: None,
-            field_predicate_module: interner
-                .lookup(crate::types::class_id::FIELD_PREDICATE_MODULE)
-                .map(crate::types::class_id::ModulePath::from_identifier),
+            field_predicate_module: field_predicate_module(interner),
             tuple_predicate_name: interner.lookup(crate::types::class_id::TUPLE_PREDICATE_NAME),
             class_sym_add: None,
             class_sym_semigroup: None,
@@ -542,6 +557,87 @@ impl<'a> InferCtx<'a> {
         finalized.into_scheme()
     }
 
+    /// Proposal 0179 Stage 4's improvement: a multi-parameter predicate whose
+    /// known arguments match exactly one instance takes the unknown ones from
+    /// that instance's head.
+    ///
+    /// `let s = convert(42)` wants `Convert<Int, ?b>`. With `Convert<Int,
+    /// String>` the only instance compatible with `Int`, `?b` can only be
+    /// `String`, as a functional dependency would say — and nothing else will
+    /// ever fix it. This is the one place it can be fixed: the answer has to
+    /// reach the substitution before the binding is generalized or defaulted,
+    /// so that the predicate is then solved like any other. Lowering used to
+    /// make the same choice after inference (`unique_instance_for_known_args`),
+    /// too late for the type of `s`.
+    ///
+    /// A predicate with every argument unknown is the dictionary-passing case
+    /// and is left alone, as is one with two or more candidates (E459) or none
+    /// (E444).
+    ///
+    /// A signature's rigid variable counts as *known*: it is the caller's to
+    /// choose, so `via<a: Convert>`'s `Convert<a, String>` is never improved to
+    /// `Convert<Int, String>`. Callers therefore run this while the enclosing
+    /// signatures' variables are still marked rigid.
+    pub(super) fn improve_from_sole_candidates(&mut self, window: constraint::CaptureWindow) {
+        let Some(class_env) = self.class_env.as_ref() else {
+            return;
+        };
+        let mut improvements: Vec<(InferType, InferType)> = Vec::new();
+        for constraint in self.class_constraints.captured_since(window) {
+            if constraint.type_args.len() < 2 {
+                continue;
+            }
+            let args: Vec<InferType> = constraint
+                .type_args
+                .iter()
+                .map(|arg| arg.apply_type_subst(&self.subst))
+                .collect();
+            let known: Vec<Option<InferType>> = args
+                .iter()
+                .map(|arg| match arg {
+                    InferType::Var(var) if !self.skolem_vars.contains(var) => None,
+                    other => Some(other.clone()),
+                })
+                .collect();
+            if known.iter().all(Option::is_none) || known.iter().all(Option::is_some) {
+                continue;
+            }
+            let mut candidates = class_env.instances_matching_known_args_by_id(
+                constraint.class_id,
+                &known,
+                self.interner,
+            );
+            let (Some(instance), None) = (candidates.next(), candidates.next()) else {
+                continue;
+            };
+            // The instance's own variables become fresh ones, so a head like
+            // `Convert<Int, List<a>>` improves `?b` to `List<?c>`.
+            let mut head_vars = HashMap::new();
+            for head in &instance.type_args {
+                collect_head_type_variables(head, self.interner, &mut head_vars);
+            }
+            let head_vars: HashMap<Identifier, TypeVarId> = head_vars
+                .into_keys()
+                .map(|name| (name, self.env.alloc_type_var_id()))
+                .collect();
+            for ((arg, known), head) in args.iter().zip(&known).zip(&instance.type_args) {
+                if known.is_some() {
+                    continue;
+                }
+                if let Some(head_ty) = crate::types::type_env::TypeEnv::infer_type_from_type_expr(
+                    head,
+                    &head_vars,
+                    self.interner,
+                ) {
+                    improvements.push((arg.clone(), head_ty));
+                }
+            }
+        }
+        for (arg, head_ty) in improvements {
+            self.unify_silent(&arg, &head_ty);
+        }
+    }
+
     /// Move a definition's obligations out of the enclosing scope and into an
     /// implication carrying the context it quantified.
     ///
@@ -553,30 +649,24 @@ impl<'a> InferCtx<'a> {
     /// one site for one class, which is what left the higher-kinded
     /// `ExplicitBound` predicates behind.
     ///
-    /// A predicate the solver generalized *is* the context, so it is not
-    /// repeated as an obligation inside the scope; the partition is positional
-    /// rather than keyed, because the solver guarantees one disposition per
-    /// supplied constraint.
+    /// A predicate the solver generalized *is* the context, and it stays in the
+    /// scope as a wanted: the whole-program solve discharges it from the
+    /// givens, which is what records the evidence its call site needs —
+    /// `lt(x, y)` inside `fn f<a: Ord>` is answered by `f`'s own dictionary.
+    /// GHC does the same (`d_wanted = d_param`). Dropping it, as this used to,
+    /// left the commonest method call in a constrained body with no evidence
+    /// at all (0.0.8 plan, step 1b′).
     fn close_definition_scope(
         &mut self,
         spec: &BindingSchemeSpec<'_>,
         finalized: &crate::types::quantify::Quantified,
     ) {
-        let mut scope = self.class_constraints.close_window(spec.window);
+        let scope = self.class_constraints.close_window(spec.window);
         debug_assert_eq!(
             scope.simple.len(),
             finalized.dispositions.len(),
             "every captured predicate must carry exactly one disposition"
         );
-        let mut generalized = finalized.dispositions.iter().map(|entry| {
-            matches!(
-                entry.disposition,
-                crate::types::class_disposition::Disposition::Generalized { .. }
-            )
-        });
-        scope
-            .simple
-            .retain(|_| !generalized.next().unwrap_or(false));
 
         // Use the decision, do not re-derive it. Recomputing
         // `free_vars() - env_free_vars` here reaches the same base set but
@@ -602,6 +692,9 @@ impl<'a> InferCtx<'a> {
                 wanted: scope,
                 span: spec.span,
                 binder: spec.binder,
+                definition: spec
+                    .definition
+                    .expect("only a function definition closes an implication"),
             });
     }
 
@@ -628,6 +721,13 @@ impl<'a> InferCtx<'a> {
         let class_env = self.class_env.as_ref()?;
         class_env.resolve_method_class_id(self.current_module, name)
     }
+}
+
+/// The module the built-in field predicates belong to, if it was interned.
+fn field_predicate_module(interner: &Interner) -> Option<crate::types::class_id::ModulePath> {
+    interner
+        .lookup(crate::types::class_id::FIELD_PREDICATE_MODULE)
+        .map(crate::types::class_id::ModulePath::from_identifier)
 }
 
 struct InferCtxConfig {
@@ -1012,6 +1112,11 @@ fn build_infer_result(mut ctx: InferCtx<'_>) -> InferProgramResult {
         resolved_binding_schemes,
         resolved_binding_schemes_by_span,
         class_method_dispatch: ctx.class_method_dispatch,
+        class_method_calls: ctx.class_method_calls,
+        private_member_schemes: resolve_module_member_schemes(
+            ctx.private_member_schemes,
+            &ctx.subst,
+        ),
     }
 }
 
@@ -1239,6 +1344,14 @@ pub struct InferProgramResult {
     /// can route F12 to the matching `InstanceMethod` arm. Empty when
     /// no class methods were called in the program.
     pub class_method_dispatch: HashMap<ExprId, ClassDispatch>,
+    /// The calls classified as calls to a class method, by the call's id.
+    /// Lowering from evidence needs the method's predicate at each of them;
+    /// one that raised none has nothing to dispatch with.
+    pub class_method_calls: HashSet<ExprId>,
+    /// Schemes of the unit's private module members, by (module, member).
+    /// The VM reads a member's dictionary layout from its scheme, and a
+    /// private member is in no interface.
+    pub private_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
 }
 
 /// Where a class-method call site dispatched to — enough to identify
@@ -1262,3 +1375,66 @@ pub struct ClassDispatch {
 /// Stable identifier for one expression node within a single inference run.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ExprNodeId(pub u32);
+
+/// The type variables an instance head names: its lowercase identifiers, as
+/// instance-context instantiation reads them.
+fn collect_head_type_variables(
+    head: &crate::syntax::type_expr::TypeExpr,
+    interner: &Interner,
+    out: &mut HashMap<Identifier, ()>,
+) {
+    use crate::syntax::type_expr::TypeExpr;
+    match head {
+        TypeExpr::Named { name, args, .. } => {
+            if args.is_empty()
+                && interner
+                    .resolve(*name)
+                    .chars()
+                    .next()
+                    .is_some_and(char::is_lowercase)
+            {
+                out.insert(*name, ());
+            }
+            for arg in args {
+                collect_head_type_variables(arg, interner, out);
+            }
+        }
+        TypeExpr::Tuple { elements, .. } => {
+            for element in elements {
+                collect_head_type_variables(element, interner, out);
+            }
+        }
+        TypeExpr::Function { params, ret, .. } => {
+            for param in params {
+                collect_head_type_variables(param, interner, out);
+            }
+            collect_head_type_variables(ret, interner, out);
+        }
+    }
+}
+
+/// What function bodies record during inference for the checks that run once
+/// a body is done: its early returns, and what the ambiguity check (E459)
+/// needs to know about the rest of the program.
+#[derive(Default)]
+pub(super) struct BodyFacts {
+    /// The `return` values seen in each function or lambda body being
+    /// inferred, innermost last. A block's own type is its last value, so an
+    /// early `return` in a nested block typed only that block; the function's
+    /// return type is unified with each of these once its body is done.
+    pub(super) return_frames: Vec<Vec<(InferType, Span)>>,
+    /// Sites already reported as ambiguous (E459). A definition bound at a
+    /// monotype leaves its predicates in the enclosing scope, so the
+    /// definition around it judges them again.
+    pub(super) reported_ambiguous: HashSet<(usize, usize, crate::types::class_id::ClassId)>,
+    /// The types of the definitions bound at a monotype so far. Their
+    /// variables are theirs, kept open for generalization (0.0.8 Phase 2), so
+    /// an enclosing definition does not judge them ambiguous.
+    pub(super) mono_definition_types: Vec<InferType>,
+    /// Where each call whose argument count does not match its callee sits in
+    /// the predicate list (`open_window().simple` at the call). Inference does
+    /// not unify such a call's arguments, and the compiler reports it later
+    /// (E056), so a definition whose window holds one is not also judged for
+    /// ambiguity.
+    pub(super) arity_mismatches: Vec<usize>,
+}
