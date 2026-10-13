@@ -1403,6 +1403,11 @@ pub struct Compiler {
     /// error left without an answer; that error is the one to report.
     pub(super) deferred_lowering_error: Option<Diagnostic>,
     pub(super) ir_function_symbols: HashMap<FunctionId, Symbol>,
+    /// The clones lowering emits for each function used at several
+    /// instantiations (0.0.8 plan, step 2a), interned by
+    /// [`Self::pre_intern_specialization_names`]. Codegen compiles each next
+    /// to the function it clones.
+    pub(super) specialization_clones: HashMap<Symbol, Vec<Symbol>>,
     pub(super) inferred_function_effects: HashMap<ContractKey, HashSet<Symbol>>,
     strict_mode: bool,
     strict_require_main: bool,
@@ -1954,6 +1959,7 @@ impl Compiler {
             has_hm_diagnostics: false,
             deferred_lowering_error: None,
             ir_function_symbols: HashMap::new(),
+            specialization_clones: HashMap::new(),
             inferred_function_effects: HashMap::new(),
             strict_mode: false,
             strict_require_main: true,
@@ -2094,6 +2100,26 @@ impl Compiler {
             self.solve_class_constraints(&hm_final.class_constraints, &hm_final.class_method_calls);
     }
 
+    /// Intern the names of the clones lowering will emit for `program`, which
+    /// it can only look up (0.0.8 plan, step 2a). Call it with the program
+    /// about to be lowered, after `apply_hm_final`.
+    pub(super) fn pre_intern_specialization_names(&mut self, program: &Program) {
+        self.specialization_clones.clear();
+        let clones = crate::core::lower_ast::specialization_clone_names(
+            program,
+            &self.hm_expr_types,
+            &self.interner,
+            &self.type_env,
+        );
+        for (function, clone) in clones {
+            let clone = self.interner.intern(&clone);
+            self.specialization_clones
+                .entry(function)
+                .or_default()
+                .push(clone);
+        }
+    }
+
     #[allow(clippy::result_large_err)]
     fn lower_core_from_program(
         &self,
@@ -2168,6 +2194,7 @@ impl Compiler {
         self.apply_hm_final(&prepared.hm_final);
         let mut program_to_lower = prepared.effective_program.into_owned();
         self.apply_named_field_desugar(&mut program_to_lower);
+        self.pre_intern_specialization_names(&program_to_lower);
         self.lower_core_from_program(&program_to_lower, optimize, define_dictionaries)
     }
 
@@ -2216,6 +2243,7 @@ impl Compiler {
         self.apply_hm_final(&prepared.hm_final);
         let mut program_to_lower = prepared.effective_program.into_owned();
         self.apply_named_field_desugar(&mut program_to_lower);
+        self.pre_intern_specialization_names(&program_to_lower);
         self.lower_aether_from_program(&program_to_lower, optimize, true)
     }
 
@@ -6799,6 +6827,7 @@ impl Compiler {
     pub fn dump_cfg(&mut self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
         let prepared = self.prepare_program_for_lowering(program);
         self.apply_hm_final(&prepared.hm_final);
+        self.pre_intern_specialization_names(prepared.effective_program.as_ref());
         let class_env_ref = if self.class_env.classes.is_empty() {
             None
         } else {
@@ -6858,6 +6887,7 @@ impl Compiler {
         self.apply_hm_final(&prepared.hm_final);
         let mut effective_program = prepared.effective_program.into_owned();
         self.apply_named_field_desugar(&mut effective_program);
+        self.pre_intern_specialization_names(&effective_program);
         let aether = self.lower_aether_from_program(&effective_program, optimize, true)?;
 
         let extern_symbols = self.build_native_extern_symbols(&effective_program);

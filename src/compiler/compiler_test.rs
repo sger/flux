@@ -3438,3 +3438,136 @@ module M {{
         "`total` keeps its `Sized` bound"
     );
 }
+
+// ── 0.0.8 plan step 2a: clone per instantiation ────────────────────────
+
+/// Lower `source` on the Core path, clone names pre-interned, and return each
+/// definition's name with its Core, as `--dump-core=debug` prints it.
+fn lowered_core_defs(source: &str) -> Vec<(String, String)> {
+    let (program, interner) = parse_program(source);
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+    let core = compiler
+        .prepare_core_program(&program, false, true)
+        .expect("the program lowers");
+    core.defs
+        .iter()
+        .map(|def| {
+            let one = crate::core::CoreProgram {
+                defs: vec![def.clone()],
+                top_level_items: Vec::new(),
+            };
+            (
+                compiler.interner.resolve(def.name).to_string(),
+                crate::core::display::display_program_debug(&one, &compiler.interner),
+            )
+        })
+        .collect()
+}
+
+fn core_def<'a>(defs: &'a [(String, String)], name: &str) -> &'a str {
+    defs.iter()
+        .find(|(def, _)| def == name)
+        .map(|(_, core)| core.as_str())
+        .unwrap_or_else(|| {
+            panic!(
+                "no `{name}` among {:?}",
+                defs.iter().map(|d| &d.0).collect::<Vec<_>>()
+            )
+        })
+}
+
+const COPY_HEAD: &str = r#"
+fn copy_head(xs) {
+    match xs {
+        [h | t] -> [h | [h | t]],
+        _ -> [],
+    }
+}
+"#;
+
+#[test]
+fn a_function_used_at_an_unboxed_and_a_boxed_type_gets_one_clone() {
+    let defs = lowered_core_defs(&format!(
+        "{COPY_HEAD}\nfn main() {{\n    copy_head([1, 2])\n    copy_head([\"a\"])\n}}\n"
+    ));
+    let clone = core_def(&defs, "copy_head$Int");
+    assert!(clone.contains("h#") && clone.contains(":Int,"), "{clone}");
+    let generic = core_def(&defs, "copy_head");
+    assert!(
+        !generic.contains(":Int,"),
+        "the generic body stays generic: {generic}"
+    );
+    let main = core_def(&defs, "main");
+    assert!(
+        main.contains("copy_head$Int#"),
+        "the Int call calls the clone: {main}"
+    );
+    assert!(
+        main.contains("copy_head#"),
+        "the String call calls the generic body: {main}"
+    );
+}
+
+#[test]
+fn boxed_instantiations_share_the_generic_body() {
+    let defs = lowered_core_defs(&format!(
+        "{COPY_HEAD}\nfn main() {{\n    copy_head([\"a\"])\n    copy_head([[1]])\n}}\n"
+    ));
+    assert!(
+        !defs.iter().any(|(name, _)| name.starts_with("copy_head$")),
+        "String and List<Int> have one representation, so nothing is cloned"
+    );
+}
+
+#[test]
+fn a_clone_calls_itself() {
+    let defs = lowered_core_defs(
+        r#"
+fn last_or(xs, d) {
+    match xs {
+        [h | t] -> last_or(t, h),
+        _ -> d,
+    }
+}
+
+fn main() {
+    last_or([1, 2], 0)
+    last_or([1.5], 0.0)
+}
+"#,
+    );
+    for clone in ["last_or$Int", "last_or$Float"] {
+        let core = core_def(&defs, clone);
+        assert!(core.contains(&format!("{clone}#")), "{core}");
+    }
+    let generic = core_def(&defs, "last_or");
+    assert!(!generic.contains("last_or$"), "{generic}");
+}
+
+#[test]
+fn a_function_gets_at_most_three_clones() {
+    let defs = lowered_core_defs(
+        r#"
+fn pair(a, b) { (b, a) }
+
+fn main() {
+    pair(1, 2)
+    pair(1, 2.5)
+    pair(1.5, 2)
+    pair(1.5, 2.5)
+}
+"#,
+    );
+    let clones: Vec<&str> = defs
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .filter(|name| name.starts_with("pair$"))
+        .collect();
+    assert_eq!(clones, ["pair$Int_Int", "pair$Int_Float", "pair$Float_Int"]);
+    let main = core_def(&defs, "main");
+    assert!(
+        main.contains("pair#"),
+        "the fourth instantiation calls the generic body: {main}"
+    );
+}

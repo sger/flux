@@ -13,6 +13,20 @@ use crate::core::{
 };
 
 impl<'a> super::AstLowerer<'a> {
+    /// The name an occurrence of `name` refers to once clones exist (0.0.8
+    /// plan, step 2a): the clone its call site was pointed at, or, inside a
+    /// clone of `name`, that clone itself, so a self-call follows the clone it
+    /// sits in.
+    fn clone_target(&self, id: ExprId, name: Identifier) -> Identifier {
+        if let Some(target) = self.call_targets.get(&id) {
+            return *target;
+        }
+        match self.active_clone {
+            Some((function, clone)) if function == name => clone,
+            _ => name,
+        }
+    }
+
     // ── Expression lowering ──────────────────────────────────────────────────
 
     pub(super) fn lower_expr(&mut self, expr: &Expression) -> CoreExpr {
@@ -20,7 +34,7 @@ impl<'a> super::AstLowerer<'a> {
             Expression::Identifier { name, span, .. } => {
                 // Not called: a constrained function passed as a value gets no
                 // dictionaries (KI-090, Phase 3a).
-                CoreExpr::external_var(*name, *span)
+                CoreExpr::external_var(self.clone_target(expr.expr_id(), *name), *span)
             }
 
             Expression::Integer { value, span, .. } => CoreExpr::Lit(CoreLit::Int(*value), *span),

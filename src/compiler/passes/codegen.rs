@@ -86,20 +86,35 @@ impl Compiler {
                         } else {
                             effects.clone()
                         };
-                    let ir_function = self.find_ir_function_by_symbol(ir_program, *name);
-                    let result = self.compile_function_statement(
-                        *name,
-                        parameters,
-                        parameter_types,
-                        return_type,
-                        &effective_effects,
-                        body,
-                        *intrinsic,
-                        ir_function,
-                        *span,
-                    );
-                    if self.scope_index == 0 {
-                        self.file_scope_symbols.insert(*name);
+                    // 0.0.8 plan step 2a: each clone is the same function
+                    // under another name, compiled from its own IR. Without
+                    // IR it compiles from the AST, which is the generic body:
+                    // slower, never wrong.
+                    let clones = self
+                        .specialization_clones
+                        .get(name)
+                        .cloned()
+                        .unwrap_or_default();
+                    let mut result = Ok(());
+                    for function in std::iter::once(*name).chain(clones) {
+                        let ir_function = self.find_ir_function_by_symbol(ir_program, function);
+                        result = self.compile_function_statement(
+                            function,
+                            parameters,
+                            parameter_types,
+                            return_type,
+                            &effective_effects,
+                            body,
+                            *intrinsic,
+                            ir_function,
+                            *span,
+                        );
+                        if self.scope_index == 0 {
+                            self.file_scope_symbols.insert(function);
+                        }
+                        if result.is_err() {
+                            break;
+                        }
                     }
                     result
                 }

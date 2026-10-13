@@ -651,11 +651,12 @@ fn dump_aether_and_native_trace_aether_share_report_content() {
 // `copy_head` is unannotated, so G5 generalizes it and its parameter type
 // becomes a variable, which carries no `FluxRep`. B1 restores the
 // representation where every call site agrees on one concrete instantiation.
-// One call: `::(h#N:Int, t#N:Box)`. Two calls: `::(h#N, t#N:Box)`.
+// One call: `::(h#N:Int, t#N:Box)`. Two calls, before cloning: `::(h#N, t#N:Box)`.
 //
-// When B2 lands and specialises per instantiation, the despecialised snapshot
-// should converge on the baseline's. That diff is what says the work paid off,
-// and it cannot be reconstructed after the fact.
+// Step 2a of the 0.0.8 plan clones `copy_head` per instantiation, so the
+// second program's `List<Int>` call goes to `copy_head$Int`, and that clone is
+// what the despecialised snapshot pins. It has converged on the baseline: the
+// two snapshots differ only in the definition's name.
 
 #[test]
 fn snapshot_ki_098_baseline_core_def() {
@@ -670,7 +671,7 @@ fn snapshot_ki_098_baseline_core_def() {
 fn snapshot_ki_098_despecialised_core_def() {
     assert_core_def_snapshot(
         "generics/failing/degraded/ki_098_despecialised_two_instantiations.flx",
-        "copy_head",
+        "copy_head$Int",
         "dump_core_def",
     );
 }

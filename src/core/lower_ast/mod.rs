@@ -33,8 +33,10 @@ mod dict_params;
 mod emit;
 mod expression;
 mod pattern;
+mod specialize;
 
 use binder_resolution::{resolve_program_binders, validate_program_binders};
+pub use specialize::specialization_clone_names;
 
 /// Pre-resolved effect operation signatures: `(effect, operation) → (param_types, return_type)`.
 /// Used by the lowerer to assign `FluxRep` to handler arm binders.
@@ -209,12 +211,6 @@ fn with_dict_params(
     (dict_params, param_types)
 }
 
-/// Call-site instantiations seen for one name.
-enum Seen {
-    One(InferType),
-    Conflicting,
-}
-
 /// Collects, for each user-written function, the instantiated type its call
 /// sites give it — ignoring self-calls, which are at the definition's own type
 /// by construction and so are never a second instantiation.
@@ -222,7 +218,9 @@ struct CallSiteInstantiations<'a> {
     hm_expr_types: &'a HashMap<ExprId, InferType>,
     user_fns: &'a std::collections::HashSet<Identifier>,
     enclosing: Option<Identifier>,
-    seen: HashMap<Identifier, Seen>,
+    /// Each call site's callee `ExprId` and the type it instantiates the
+    /// callee at, in source order.
+    sites: HashMap<Identifier, Vec<(ExprId, InferType)>>,
     /// Parameter names of each function, in declaration order.
     params: HashMap<Identifier, Vec<Identifier>>,
     /// Functions that declare a constrained type parameter, and so receive
@@ -270,15 +268,10 @@ impl<'ast> crate::ast::visit::Visitor<'ast> for CallSiteInstantiations<'_> {
             && Some(*name) != self.enclosing
             && let Some(callee_ty) = self.hm_expr_types.get(&function.expr_id())
         {
-            match self.seen.get(name) {
-                None => {
-                    self.seen.insert(*name, Seen::One(callee_ty.clone()));
-                }
-                Some(Seen::One(first)) if first != callee_ty => {
-                    self.seen.insert(*name, Seen::Conflicting);
-                }
-                _ => {}
-            }
+            self.sites
+                .entry(*name)
+                .or_default()
+                .push((function.expr_id(), callee_ty.clone()));
         }
         if let Expression::Identifier { name, .. } = expr
             && let Some(enclosing) = self.enclosing
@@ -294,6 +287,18 @@ impl<'ast> crate::ast::visit::Visitor<'ast> for CallSiteInstantiations<'_> {
         }
         crate::ast::visit::walk_expr(self, expr);
     }
+}
+
+/// The parts of a `Statement::Function` that lowering a definition reads.
+struct FunctionStmt<'s> {
+    name: Identifier,
+    parameters: &'s [Identifier],
+    body: &'s Block,
+    fip: Option<crate::syntax::statement::FipAnnotation>,
+    intrinsic: Option<CorePrimOp>,
+    span: Span,
+    return_type: Option<&'s crate::syntax::type_expr::TypeExpr>,
+    id: ExprId,
 }
 
 // ── Lowerer ───────────────────────────────────────────────────────────────────
@@ -359,6 +364,14 @@ pub(super) struct AstLowerer<'a> {
     /// which is why this is computed here and not in a `core/` pass, where
     /// `CoreExpr` carries no `ExprId` to look one up by.
     specializations: HashMap<Identifier, TypeSubst>,
+    /// 0.0.8 plan step 2a: the clones of each function used at several
+    /// instantiations, emitted next to its generic definition.
+    clones: HashMap<Identifier, Vec<specialize::SpecClone>>,
+    /// The clone each call site calls, by the callee's `ExprId`.
+    call_targets: HashMap<ExprId, Identifier>,
+    /// While a clone's body is lowered, the function it clones and the
+    /// clone's name, so its self-calls call the clone.
+    active_clone: Option<(Identifier, Identifier)>,
     /// The substitution in force while lowering one specialised body.
     active_subst: Option<TypeSubst>,
     /// The solver's evidence, by the site that raised each predicate
@@ -403,6 +416,9 @@ impl<'a> AstLowerer<'a> {
             ctor_field_names: std::collections::HashMap::new(),
             adt_variants: std::collections::HashMap::new(),
             specializations: HashMap::new(),
+            clones: HashMap::new(),
+            call_targets: HashMap::new(),
+            active_clone: None,
             active_subst: None,
             evidence,
             dict_param_binders: HashMap::new(),
@@ -461,89 +477,54 @@ impl<'a> AstLowerer<'a> {
         );
     }
 
-    /// 0187 B1: find every generalized function whose call sites all agree on
-    /// one concrete instantiation, and record the substitution that reaches it.
+    /// 0187 B1 and 0.0.8 plan step 2a: decide which functions are
+    /// specialised, in place or by cloning (see [`specialize`]).
     ///
-    /// A generalized definition loses the concrete parameter type its single
-    /// instantiation gave it, and with it the `FluxRep` that lets Aether prove
-    /// a `DropSpecialized` unnecessary. The type has not gone anywhere — HM
-    /// recorded it at the call site — so this reads it back and hands it to the
-    /// body.
-    ///
-    /// Deliberately narrow, per 0187: one instantiation only. A function used
-    /// at two types is left generalized, because specialising it means cloning
-    /// the definition and rewriting call sites, and nothing yet needs that.
-    ///
-    /// **Self-calls do not count.** A recursive occurrence is at the definition's
-    /// own type by construction, so it is never a second instantiation — and
-    /// counting it would exclude every recursive function, which is most of
-    /// what this exists to fix.
+    /// A clone whose name was not interned before lowering is left out, and
+    /// its call sites keep the generic definition.
     pub(super) fn collect_specializations(&mut self, program: &Program) {
-        let mut visitor = CallSiteInstantiations {
-            hm_expr_types: self.hm_expr_types,
-            user_fns: &self.user_function_names,
-            enclosing: None,
-            seen: HashMap::new(),
-            params: HashMap::new(),
-            constrained: std::collections::HashSet::new(),
-            param_types: HashMap::new(),
+        let plan = self.plan_specializations(program);
+        let debug = std::env::var("FLUX_DBG_SPEC").is_ok();
+        let shown = |name: Identifier| {
+            self.interner
+                .map(|i| i.resolve(name).to_string())
+                .unwrap_or_else(|| format!("{name:?}"))
         };
-        crate::ast::visit::Visitor::visit_program(&mut visitor, program);
-
-        let visitor_constrained = std::mem::take(&mut visitor.constrained);
-        let visitor_params = std::mem::take(&mut visitor.params);
-        let visitor_param_types = std::mem::take(&mut visitor.param_types);
-        for (name, entry) in visitor.seen {
-            let Seen::One(call_ty) = entry else { continue };
-            // A function that receives dictionaries is never specialised here.
-            //
-            // Its body's types are what several sites consult to decide which
-            // instance a class-method call means, while the dictionaries it is
-            // handed are positional and fixed by its signature. Rewriting the
-            // former without the latter makes the two disagree — verified: it
-            // sends `result_directed_two_dictionaries.flx` to the wrong
-            // instance and it prints `7` for a `String`.
-            //
-            // Nothing is lost by the exclusion. This exists to undo what
-            // generalizing an *unconstrained* definition costs, and a
-            // constrained one is not generalized yet (that is B2, behind the
-            // evidence translation).
-            if visitor_constrained.contains(&name) {
-                continue;
+        if debug {
+            for (name, subst) in &plan.in_place {
+                eprintln!("SPEC: {} specialised in place by {subst:?}", shown(*name));
             }
-            // Only a fully concrete instantiation is worth anything: a
-            // substitution mapping one variable to another buys no rep.
-            if !call_ty.free_vars().is_empty() {
-                continue;
-            }
-            let generic = self
-                .type_env
-                .and_then(|env| env.lookup(name))
-                .map(|scheme| scheme.infer_type.clone());
-            let subst = match generic {
-                // A definition with nothing to quantify is already specialised.
-                Some(generic) if generic.free_vars().is_empty() => continue,
-                Some(generic) => crate::types::unify::unify(&generic, &call_ty).ok(),
-                None => Self::subst_from_parameters(
-                    name,
-                    &call_ty,
-                    &visitor_params,
-                    &visitor_param_types,
-                ),
-            };
-            if let Some(subst) = subst
-                && !subst.is_empty()
-            {
-                if std::env::var("FLUX_DBG_SPEC").is_ok() {
-                    let shown = self
-                        .interner
-                        .map(|i| i.resolve(name).to_string())
-                        .unwrap_or_else(|| format!("{name:?}"));
-                    eprintln!("SPEC: {shown} specialised at {call_ty}");
-                }
-                self.specializations.insert(name, subst);
+            for (name, call_ty) in &plan.missed {
+                eprintln!(
+                    "SPEC-MISS: {} at {call_ty}: over the cap of {} clones",
+                    shown(*name),
+                    specialize::MAX_CLONES_PER_FUNCTION
+                );
             }
         }
+        let mut clones: HashMap<Identifier, Vec<specialize::SpecClone>> = HashMap::new();
+        for (name, planned) in plan.clones {
+            for clone in planned {
+                let Some(symbol) = self.interner.and_then(|i| i.lookup(&clone.name)) else {
+                    if debug {
+                        eprintln!("SPEC-MISS: {}: name not interned", clone.name);
+                    }
+                    continue;
+                };
+                if debug {
+                    eprintln!("SPEC: {} cloned at {}", clone.name, clone.example);
+                }
+                for site in clone.sites {
+                    self.call_targets.insert(site, symbol);
+                }
+                clones.entry(name).or_default().push(specialize::SpecClone {
+                    name: symbol,
+                    subst: clone.subst,
+                });
+            }
+        }
+        self.specializations = plan.in_place;
+        self.clones = clones;
     }
 
     /// Derive a specialisation substitution by matching each parameter's
@@ -873,6 +854,77 @@ impl<'a> AstLowerer<'a> {
         }
     }
 
+    /// Lower a named function to the definition `def_name`, under `subst`.
+    ///
+    /// `def_name` is the function's own name, or one of its clones' (step
+    /// 2a); everything read from the type environment is read under the
+    /// function's own name.
+    fn lower_function_def(
+        &mut self,
+        function: &FunctionStmt<'_>,
+        def_name: Identifier,
+        subst: Option<TypeSubst>,
+    ) -> CoreDef {
+        let name = function.name;
+        let span = function.span;
+        // Set before the parameters are bound — their reps are the whole
+        // point.
+        let restore_subst = std::mem::replace(&mut self.active_subst, subst);
+        let binder = self.bind_name(def_name);
+        let params = self.bind_fn_params(name, function.parameters);
+        let (mut param_types, inferred_result_ty) = self.lambda_signature_from_function_name(name);
+        // Guard: param_types must match params length. If the scheme's
+        // Fun type has a different arity (e.g., from cross-function
+        // inlining or module-scoped name shadowing), discard param_types
+        // to prevent LamParamTypeMismatch.
+        if !param_types.is_empty() && param_types.len() != params.len() {
+            param_types = Vec::new();
+        }
+        // Before the body: its method calls read these binders.
+        let dict_params = self.evidence_dict_params(function.id, name, &params, span);
+        let body_expr = self.lower_function_body_for_name(
+            name,
+            function.intrinsic,
+            &params,
+            function.body,
+            span,
+        );
+        let (params, param_types) = with_dict_params(dict_params, params, param_types);
+        // Always wrap in Lam, even for parameterless functions — the
+        // Core→IR lowerer uses the Lam marker to distinguish function
+        // definitions from value bindings.  We construct Lam directly
+        // instead of using CoreExpr::lambda() which elides empty params.
+        let expr = CoreExpr::Lam {
+            params,
+            param_types,
+            result_ty: inferred_result_ty.clone(),
+            body: Box::new(body_expr),
+            span,
+        };
+        // For functions, build a Function CoreType from body's last expression type.
+        // The function itself doesn't have a single ExprId, but the body block does.
+        let mut def = CoreDef::new(binder, expr, true, span);
+        def.fip = function.fip;
+        // Preserve the full inferred function type for semantic/debug
+        // Core dumps. Downstream lowering can peel `forall` wrappers
+        // when it needs concrete parameter/return metadata.
+        def.result_ty = self
+            .full_function_core_type_from_name(name)
+            .or_else(|| inferred_result_ty.clone());
+        // If HM didn't resolve the result type, fall back to the
+        // source return-type annotation.  This is critical for
+        // recursive functions where HM may leave the return type as
+        // an unresolved variable.
+        if def.result_ty.is_none()
+            && let Some(rt) = function.return_type
+            && let Some(annotated_ty) = self.core_type_from_type_expr(rt)
+        {
+            def.result_ty = Some(annotated_ty);
+        }
+        self.active_subst = restore_subst;
+        def
+    }
+
     fn lower_top_level(
         &mut self,
         stmt: &Statement,
@@ -895,60 +947,26 @@ impl<'a> AstLowerer<'a> {
                 id,
                 ..
             } => {
-                // 0187 B1: lower this body under its single instantiation, if
-                // it has one. Set before the parameters are bound — their reps
-                // are the whole point.
-                let restore_subst = self.active_subst.take();
-                self.active_subst = self.specializations.get(name).cloned();
-                let binder = self.bind_name(*name);
-                let params = self.bind_fn_params(*name, parameters);
-                let (mut param_types, inferred_result_ty) =
-                    self.lambda_signature_from_function_name(*name);
-                // Guard: param_types must match params length. If the scheme's
-                // Fun type has a different arity (e.g., from cross-function
-                // inlining or module-scoped name shadowing), discard param_types
-                // to prevent LamParamTypeMismatch.
-                if !param_types.is_empty() && param_types.len() != params.len() {
-                    param_types = Vec::new();
-                }
-                // Before the body: its method calls read these binders.
-                let dict_params = self.evidence_dict_params(*id, *name, &params, *span);
-                let body_expr =
-                    self.lower_function_body_for_name(*name, *intrinsic, &params, body, *span);
-                let (params, param_types) = with_dict_params(dict_params, params, param_types);
-                // Always wrap in Lam, even for parameterless functions — the
-                // Core→IR lowerer uses the Lam marker to distinguish function
-                // definitions from value bindings.  We construct Lam directly
-                // instead of using CoreExpr::lambda() which elides empty params.
-                let expr = CoreExpr::Lam {
-                    params,
-                    param_types,
-                    result_ty: inferred_result_ty.clone(),
-                    body: Box::new(body_expr),
+                let function = FunctionStmt {
+                    name: *name,
+                    parameters,
+                    body,
+                    fip: *fip,
+                    intrinsic: *intrinsic,
                     span: *span,
+                    return_type: return_type.as_ref(),
+                    id: *id,
                 };
-                // For functions, build a Function CoreType from body's last expression type.
-                // The function itself doesn't have a single ExprId, but the body block does.
-                let mut def = CoreDef::new(binder, expr, true, *span);
-                def.fip = *fip;
-                // Preserve the full inferred function type for semantic/debug
-                // Core dumps. Downstream lowering can peel `forall` wrappers
-                // when it needs concrete parameter/return metadata.
-                def.result_ty = self
-                    .full_function_core_type_from_name(*name)
-                    .or_else(|| inferred_result_ty.clone());
-                // If HM didn't resolve the result type, fall back to the
-                // source return-type annotation.  This is critical for
-                // recursive functions where HM may leave the return type as
-                // an unresolved variable.
-                if def.result_ty.is_none()
-                    && let Some(rt) = return_type
-                    && let Some(annotated_ty) = self.core_type_from_type_expr(rt)
-                {
-                    def.result_ty = Some(annotated_ty);
+                // 0187 B1: lower this body under its single instantiation, if
+                // it has one.
+                let subst = self.specializations.get(name).cloned();
+                out.push(self.lower_function_def(&function, *name, subst));
+                // 2a: and once more per clone, under the clone's instantiation.
+                for clone in self.clones.get(name).cloned().unwrap_or_default() {
+                    let outer = self.active_clone.replace((*name, clone.name));
+                    out.push(self.lower_function_def(&function, clone.name, Some(clone.subst)));
+                    self.active_clone = outer;
                 }
-                out.push(def);
-                self.active_subst = restore_subst;
             }
 
             // Value binding → CoreDef for the RHS expression.

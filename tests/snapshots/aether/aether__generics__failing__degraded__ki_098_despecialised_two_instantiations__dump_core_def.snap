@@ -1,10 +1,10 @@
 ---
 source: tests/aether/cli_snapshots.rs
 ---
-letrec copy_head : forall a. (List<a>) -> List<a> =
+letrec copy_head$Int : forall a. (List<a>) -> List<a> =
 λxs#N:Box.
     case xs#N of
-      ::(h#N, t#N:Box) →
+      ::(h#N:Int, t#N:Box) →
         let %tN:Box = ::(h#N, t#N)
         ::(h#N, #N[synthetic]#N)
       _ →
