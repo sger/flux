@@ -510,6 +510,8 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
       main file's `Sized<String>` is never used. The Core path is now right.
       The VM compiles module members through the CFG path, where they have no
       scheme, so it waits for 1e.
+    - **Fixed in 1e (`7911d863`):** the VM compiles a module's members from
+      their IR, and the fixture moved to `generics/working/accepts/`.
   - **Moved to 1e:**
     - parameters for nested bounded functions, since their callers pass
       nothing until then;
@@ -518,7 +520,7 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
     - marking forwarders so the emitter does not add the bound's dictionary
       again (the `generated` verdict);
     - definitions with two dictionaries of one class.
-- [ ] **1e. Switch over (C5 lands).** Evidence becomes the only source of
+- [x] **1e. Switch over (C5 lands).** Evidence becomes the only source of
   dictionary arguments. A site with no evidence is an internal error that names
   the site (rule 5).
   - **Exception until Phase 2:** a site the solver filed as
@@ -555,7 +557,49 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
     CFG path's missing dictionaries on module-qualified and multi-parameter
     calls (129). The last group runs correctly today only because the stdlib
     callees use operators, not methods.
-- [ ] **1f. Delete deletion group 1 (C6).**
+
+  **Done 2026-10-13.** Both paths lower dictionary parameters, arguments and
+  method calls from evidence only. A site with no usable evidence is an
+  internal error naming the site. Each commit was checked with
+  `scripts/verify-step.sh`: the suite, a compile sweep of every `.flx` file
+  under `examples/`, `tests/` and `lib/`, the same sweep under `--dump-core`
+  and `--optimize --dump-core`, and parity on vm, vm_cached, vm_strict and
+  llvm.
+  - **No exception was needed.** The five `Flow.List` helpers were annotated
+    with their bounds (`53fe6bc1`), so they have evidence.
+  - **`--optimize`** (`659886cf`, `38f346c8`, `72370d3e`, `31c88bb5`,
+    `8a72e3e9`): the five files compile, and each lowering path now folds the
+    program before its final inference, so its evidence is solved for the
+    program it lowers. `unreached` went from 1100 to 0 and `mismatched` to 0.
+  - **The merged re-inference** was not a merging problem. `count` lost to a
+    module member that stopped its dispatch stub being generated
+    (`5c4d8e69`). `fmap`, `pure` and `bind` on `Either` were a unifier gap
+    KI-064 left: `f<a>` did not unify with `Either<String, Int>` as
+    `f = Either<String>` (`9ccf1214`).
+  - **Calls that raised no predicate.** Before lowering could fail closed, a
+    unit compile left some class-method calls without evidence, so LLVM
+    called the dispatch stub. The causes: the bare name of an imported class's
+    method was unbound (`2889dbed`); nullary methods (`mempty()`, `77a989f1`);
+    and calls qualified by a module alias or by the class's own module
+    (`0c75c2e0`, `32a9673e`). `bfa6d220` counts such a call as `unraised`
+    and makes it an internal error, and the count went to 0.
+  - **Emit machinery:** `142d1425` (binder resolution keeps a dictionary
+    binder lowering set), then `2d029422`, `ccd4e374` and `c312b6fa`, all
+    behind a shadow mode.
+  - **The Core path** (dumps and per-module LLVM) switched in `f24b88a8`.
+    `syntax_tour` and `where_constraint_multi_param` now pass on LLVM.
+  - **The CFG path** (the VM) switched in `617146c6`, with a guard that each
+    function's dictionary count matches its scheme. A top-level ambiguous
+    predicate is E459 (`d3cd8484`) instead of an internal error. A lowering
+    error is reported only when the unit has no error of its own, so lowering
+    no longer pre-empts a real diagnostic.
+  - **Module members on the VM** had never been compiled from IR. Linking
+    them (`7911d863`) needed a scope fix (`a824abdf`) and private members'
+    schemes (`0af5c3f7`). `sole_instance_dispatch` now runs on the VM.
+  - **Shadow mode went** in `3d393681`: `EvidenceMode`, the evidence diff
+    report and `FLUX_DBG_EVIDENCE_DIFF`, and lowering's old call-site
+    dispatch.
+- [x] **1f. Delete deletion group 1 (C6).**
   - `class_call_type_args` in `lower_ast/mod.rs`. The copy in
     `compiler/expression.rs` serves the AST path and belongs to deletion
     group 2.
@@ -571,6 +615,25 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
     They build dictionary *values*; they don't choose instances.
   - Leave deletion group 2, the ~920 lines on the AST path, alone. It waits on
     E3's open question: whether the AST bytecode fallback can be retired.
+
+  **Done 2026-10-13**, about 4,100 lines:
+  - `3d393681` deleted lowering's half: the `try_resolve_class_call*` and
+    `resolve_direct_class_call_dict_args*` family,
+    `resolve_dict_args_for_call`, `resolve_dict_args_for_module_member_call`
+    and `param_method_call`, with the shadow machinery.
+  - `4839b53a` deleted elaboration's half: `rewrite_constrained_functions`,
+    `insert_dict_args_at_call_sites`, `resolve_dict_arg`,
+    `build_caller_dict_map`, `choose_candidate`, `def_schemes`,
+    `record_def_scheme` and `scheme_for_current_function`.
+    `dict_elaborate.rs` now only defines the dictionaries a program names.
+  - `6f742a78` removed 1g's last fallback. It is not an internal error, as
+    planned: it only ran for an instance declaration that collection had
+    already rejected with its own diagnostic (E447, for example). Such a
+    declaration now generates no instance methods. Its dispatch stubs stay,
+    so a call reports E444 rather than an undefined name.
+  - `rg 'choose_candidate|class_call_type_args|resolve_constraint_type_args' src/core`
+    finds nothing. The AST path's copies in `compiler/expression.rs` are
+    deletion group 2.
 - [x] **1g. One name per instance.** Every `__dict_*` name is derived from
   `InstanceDef.type_key`. Before this step, these places re-rendered
   `type_args` instead:
@@ -602,6 +665,21 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
 - `examples_generics` and `generics_runtime` are re-run and the snapshot diff is
   read. This tests the claim that Track C fixes KI-076, KI-071 and KI-073 at the
   root. Record which ones moved.
+
+**Which ones moved** (re-run 2026-10-13, at `6f742a78`):
+
+| KI | VM | LLVM | Moved |
+|---|---|---|---|
+| [KI-073](../known_issues.md#ki-073) | `"42"` | `"42"` | **Fixed** by `f24b88a8`. `syntax_tour` passes parity. |
+| [KI-071](../known_issues.md#ki-071) | `true` | `true` | **Does not reproduce.** No crash, and both backends agree. |
+| [KI-076](../known_issues.md#ki-076) | E1000 | `9` | **LLVM only.** The VM still fails; see the KI. |
+
+KI-076's evidence is right on the VM too: the `<=` in `bigger` is a
+`MethodCall` answered from `bigger`'s own `Ord` parameter. The VM calls the
+projected `lte` with two arguments and reports `want=3`, which is the arity of
+`Ord<V>`'s instance method with its `Eq<V>` context dictionary first. That
+points at how the VM builds or applies a contextual instance's dictionary
+rather than at evidence, though it is not yet confirmed. Phase 3b takes it up.
 
 ---
 
@@ -852,4 +930,4 @@ let x = zero()   // before: runtime E1009 — after: a compile-time ambiguity er
   per-file error codes before and after. The diff is the evidence, not the
   absolute count.
 - **Phase 1c:** no unexplained `FLUX_DBG_EVIDENCE_DIFF` divergence before 1e
-  switches over.
+  switches over. (The report was deleted with shadow mode in 1e.)
