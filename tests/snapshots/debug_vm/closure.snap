@@ -4,7 +4,7 @@ source: tests/debug/vm_debug_tests.rs
 > break 5
 breakpoint at closure.flx:5
 > continue
-stopped: breakpoint at closure.flx:5:5 in main
+stopped: breakpoint at closure.flx:5:5 in main (position 5)
      5 |     let f = fn(x) { x * scale + offset }
 > bt
 #0 main at closure.flx:5:5
@@ -13,7 +13,7 @@ stopped: breakpoint at closure.flx:5:5 in main
 scale = 3
 offset = 10
 > continue
-stopped: breakpoint at closure.flx:5:13 in <lambda closure.flx:5:13>
+stopped: breakpoint at closure.flx:5:13 in <lambda closure.flx:5:13> (position 7)
      5 |     let f = fn(x) { x * scale + offset }
 > bt
 #0 <lambda closure.flx:5:13> at closure.flx:5:13

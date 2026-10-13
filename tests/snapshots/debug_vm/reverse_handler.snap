@@ -1,0 +1,47 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 10
+breakpoint at reverse_handler.flx:10
+> continue
+stopped: breakpoint at reverse_handler.flx:10:5 in work (position 14)
+    10 |     doubled + 1
+> locals
+doubled = 40
+> reverse-step
+stopped: step at reverse_handler.flx:15:33 in <handler Log.log> (position 13)
+    15 |         log(resume, message) -> resume(())
+> bt
+#0 <handler Log.log> at reverse_handler.flx:15:33
+#1 work at reverse_handler.flx:9:5
+#2 main at reverse_handler.flx:14:18
+#3 <entry>
+> reverse-step
+stopped: step at reverse_handler.flx:14:18 in <handler Log.log> (position 12)
+    14 |     let result = work(20) handle Log {
+> bt
+#0 <handler Log.log> at reverse_handler.flx:14:18
+#1 work at reverse_handler.flx:9:5
+#2 main at reverse_handler.flx:14:18
+#3 <entry>
+> locals
+resume = <closure>
+message = "doubled"
+> reverse-step
+stopped: step at reverse_handler.flx:9:5 in work (position 10)
+     9 |     perform Log.log("doubled")
+> reverse-step
+stopped: step at reverse_handler.flx:8:5 in work (position 9)
+     8 |     let doubled = n * 2
+> bt
+#0 work at reverse_handler.flx:8:5
+#1 main at reverse_handler.flx:14:18
+#2 <entry>
+> locals
+n = 20
+> continue
+stopped: breakpoint at reverse_handler.flx:10:5 in work (position 14)
+    10 |     doubled + 1
+program finished
+--- program output ---
+41

@@ -323,6 +323,21 @@ impl<'a> Inspector<'a> {
     }
 
     /// Shows or hides compiler-made frames and variables.
+    /// Sites the program has run so far: where it is in its run.
+    pub fn position(&self) -> u64 {
+        self.control.position
+    }
+
+    /// Why the debugger cannot go back now, if it cannot.
+    pub fn reverse_unavailable(&self) -> Option<String> {
+        super::reverse_unavailable()
+    }
+
+    /// How many checkpoints the session holds.
+    pub fn checkpoint_count(&self) -> usize {
+        self.control.checkpoints.len()
+    }
+
     pub fn set_show_internals(&mut self, show: bool) {
         self.control.show_internals = show;
     }

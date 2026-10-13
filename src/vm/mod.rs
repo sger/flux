@@ -123,6 +123,10 @@ pub struct VM {
     /// caller's frame has already moved past the call by the time anyone
     /// reads its `ip`, so stack traces name the call from here.
     call_ips: Vec<usize>,
+    /// How many dispatch loops are running inside instructions of the
+    /// top-level loop: callbacks run by `List.map`, resumed continuations.
+    /// The debugger checkpoints only when there are none (0188 S3).
+    nested_runs: u32,
 }
 
 impl VM {
@@ -155,6 +159,7 @@ impl VM {
             cc_stack: Vec::new(),
             debugger: None,
             call_ips: Vec::new(),
+            nested_runs: 0,
         }
     }
 
@@ -289,7 +294,12 @@ impl VM {
     }
 
     pub fn run(&mut self) -> Result<(), String> {
-        match self.run_inner() {
+        let result = if self.debugger.is_some() {
+            self.run_debugged()
+        } else {
+            self.run_inner()
+        };
+        match result {
             Ok(()) => Ok(()),
             Err(err) => {
                 let normalized = trace::strip_ansi(&err);

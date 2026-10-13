@@ -553,6 +553,7 @@ mod vm_fibers {
     /// outermost entry, spawn the root fiber, and make it current. Returns
     /// the root fiber id so the caller can pair this with `exit_run_async`.
     pub fn enter_run_async() -> FiberId {
+        crate::vm::debug::note_async_start();
         if crate::runtime::replay::is_active() {
             crate::runtime::replay::async_tape::set_fiber_source(|| {
                 CURRENT.with(|c| c.get()).map(|id| id.0)

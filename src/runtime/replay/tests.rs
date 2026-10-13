@@ -506,3 +506,83 @@ fn a_tape_forces_one_worker() {
     assert_eq!(worker_count(4), 1);
     reset();
 }
+
+// ── Going back in a debug session (0188 S3) ─────────────────────────────
+
+#[test]
+fn a_kept_recording_answers_its_past_and_then_records_again() {
+    let _guard = serial();
+    start_memory_record();
+    assert_eq!(mode(), ReplayMode::Record);
+    let start = mark().expect("a kept recording can be marked");
+    assert_eq!(effect(read_file("a"), || text("first")), Ok(text("first")));
+    assert_eq!(console_shown(stdout("one\n")), Ok(true));
+
+    // Back to the start: the past is answered from memory, not performed,
+    // and its output is not printed again.
+    rewind_to(start);
+    assert_eq!(mode(), ReplayMode::Replay);
+    let again = effect(read_file("a"), || {
+        panic!("going back must not perform effects")
+    });
+    assert_eq!(again, Ok(text("first")));
+    assert_eq!(console_shown(stdout("one\n")), Ok(false));
+
+    // Past the end of what was kept, the run records again.
+    assert_eq!(mode(), ReplayMode::Record);
+    assert_eq!(
+        effect(read_file("b"), || text("second")),
+        Ok(text("second"))
+    );
+    assert_eq!(console_shown(stdout("two\n")), Ok(true));
+    assert_eq!(event_list().len(), 4);
+    reset();
+}
+
+#[test]
+fn a_kept_recording_reports_a_run_that_goes_another_way() {
+    let _guard = serial();
+    start_memory_record();
+    let start = mark().unwrap();
+    effect(read_file("a"), || text("first")).unwrap();
+    rewind_to(start);
+    let err = effect(read_file("elsewhere"), || text("other")).unwrap_err();
+    assert!(matches!(err, TapeError::PayloadMismatch { .. }), "{err:?}");
+    reset();
+}
+
+#[test]
+fn a_replay_goes_back_without_printing_twice() {
+    let _guard = serial();
+    let tape = record("rewind.jsonl", || {
+        effect(read_file("in.txt"), || text("recorded")).unwrap();
+        console(stdout("once\n")).unwrap();
+        finish(false, None).unwrap();
+    });
+    start_replay(tape);
+    let start = mark().unwrap();
+    effect(read_file("in.txt"), || unreachable!()).unwrap();
+    assert_eq!(console_shown(stdout("once\n")), Ok(true));
+    rewind_to(start);
+    effect(read_file("in.txt"), || unreachable!()).unwrap();
+    assert_eq!(console_shown(stdout("once\n")), Ok(false));
+    assert_eq!(finish(false, None), Ok(()));
+    reset();
+}
+
+#[test]
+fn a_debug_sessions_own_recording_can_be_dropped() {
+    let _guard = serial();
+    start_memory_record();
+    assert!(is_implicit());
+    stop_implicit();
+    assert!(!is_active());
+    assert_eq!(mark(), None);
+
+    // A recording asked for is never dropped this way.
+    let path = scratch_tape("asked.jsonl");
+    start_record(&path, &header()).unwrap();
+    stop_implicit();
+    assert!(is_active());
+    reset();
+}

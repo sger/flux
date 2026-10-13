@@ -1,0 +1,89 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 10
+breakpoint at reverse_steps.flx:10
+> continue
+stopped: breakpoint at reverse_steps.flx:10:5 in sum_squares (position 16)
+    10 |     let sb = square(b)
+> where
+position 16
+> bt
+#0 sum_squares at reverse_steps.flx:10:5
+#1 main at reverse_steps.flx:16:17
+#2 <entry>
+> locals
+b = 4
+sa = 9
+> next
+stopped: step at reverse_steps.flx:11:5 in sum_squares (position 20)
+    11 |     sa + sb
+> next
+stopped: step at reverse_steps.flx:17:5 in main (position 21)
+    17 |     println(total)
+> locals
+total = 25
+> reverse-step
+stopped: step at reverse_steps.flx:11:5 in sum_squares (position 20)
+    11 |     sa + sb
+> locals
+sa = 9
+sb = 16
+> reverse-step
+stopped: step at reverse_steps.flx:5:5 in square (position 19)
+     5 |     y
+> reverse-step
+stopped: step at reverse_steps.flx:4:5 in square (position 18)
+     4 |     let y = x * x
+> bt
+#0 square at reverse_steps.flx:4:5
+#1 sum_squares at reverse_steps.flx:10:14
+#2 main at reverse_steps.flx:16:17
+#3 <entry>
+> reverse-next
+stopped: step at reverse_steps.flx:3:1 in square (position 17)
+     3 | fn square(x) {
+> reverse-next
+stopped: step at reverse_steps.flx:10:5 in sum_squares (position 16)
+    10 |     let sb = square(b)
+> where
+position 16
+> bt
+#0 sum_squares at reverse_steps.flx:10:5
+#1 main at reverse_steps.flx:16:17
+#2 <entry>
+> locals
+b = 4
+sa = 9
+> reverse-finish
+stopped: step at reverse_steps.flx:16:5 in main (position 10)
+    16 |     let total = sum_squares(3, 4)
+> bt
+#0 main at reverse_steps.flx:16:5
+#1 <entry>
+> goto 40
+stopped: step at reverse_steps.flx:19:5 in main (position 40)
+    19 |     println(again)
+> bt
+#0 main at reverse_steps.flx:19:5
+#1 <entry>
+> goto 18
+stopped: step at reverse_steps.flx:4:5 in square (position 18)
+     4 |     let y = x * x
+> where
+position 18
+> bt
+#0 square at reverse_steps.flx:4:5
+#1 sum_squares at reverse_steps.flx:10:14
+#2 main at reverse_steps.flx:16:17
+#3 <entry>
+> locals
+x = 4
+> delete 10
+deleted breakpoint at reverse_steps.flx:10
+> continue
+program finished
+--- program output ---
+"start"
+25
+5

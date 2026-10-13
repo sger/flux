@@ -29,7 +29,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 
 use crate::core::CorePrimOp;
 
@@ -52,17 +52,43 @@ static MODE: AtomicU8 = AtomicU8::new(ReplayMode::Off as u8);
 static STATE: Mutex<Option<TapeState>> = Mutex::new(None);
 
 enum TapeState {
-    Record {
-        writer: BufWriter<File>,
-        path: String,
-        next_seq: u64,
-        finished: bool,
-    },
+    Record(Recording),
     Replay {
         tape: LoadedTape,
         cursor: usize,
         finished: bool,
+        /// Console events before this index have been printed: a debugger
+        /// that goes back and runs them again does not print them twice.
+        shown: usize,
     },
+    /// A debug session running part of its own recording again (0188 S3):
+    /// effects are answered from the kept events until the cursor reaches
+    /// their end, and recording goes on from there.
+    Rerun {
+        recording: Recording,
+        cursor: usize,
+    },
+}
+
+struct Recording {
+    /// None for a debug session's recording kept only in memory.
+    writer: Option<BufWriter<File>>,
+    path: String,
+    next_seq: u64,
+    finished: bool,
+    /// Every event so far, kept while a debugger may go back.
+    kept: Option<Vec<TapeEvent>>,
+}
+
+/// Whether the recording was started by `flux debug` rather than asked for
+/// with `--record`: it can be dropped when the program does something it
+/// cannot record.
+static IMPLICIT: AtomicBool = AtomicBool::new(false);
+
+/// A place in the tape a debugger can come back to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TapeMark {
+    cursor: usize,
 }
 
 /// The current mode: one relaxed load.
@@ -113,33 +139,128 @@ pub fn start_record_append(path: &Path) -> Result<(), TapeError> {
 }
 
 fn install_record(writer: BufWriter<File>, path: &Path) -> Result<(), TapeError> {
-    async_tape::reset_ids();
-    *lock() = Some(TapeState::Record {
-        writer,
+    install_recording(Recording {
+        writer: Some(writer),
         path: path.display().to_string(),
         next_seq: 0,
         finished: false,
+        kept: None,
     });
-    MODE.store(ReplayMode::Record as u8, Ordering::Relaxed);
     Ok(())
+}
+
+fn install_recording(recording: Recording) {
+    async_tape::reset_ids();
+    IMPLICIT.store(false, Ordering::Relaxed);
+    *lock() = Some(TapeState::Record(recording));
+    MODE.store(ReplayMode::Record as u8, Ordering::Relaxed);
 }
 
 /// Starts replaying `tape`.
 pub fn start_replay(tape: LoadedTape) {
     async_tape::reset_ids();
+    IMPLICIT.store(false, Ordering::Relaxed);
     *lock() = Some(TapeState::Replay {
         tape,
         cursor: 0,
         finished: false,
+        shown: 0,
     });
     MODE.store(ReplayMode::Replay as u8, Ordering::Relaxed);
+}
+
+/// Starts a recording kept only in memory, for a debug session given no
+/// tape: going back runs the program's past from it (0188 S3).
+pub fn start_memory_record() {
+    install_recording(Recording {
+        writer: None,
+        path: "<debug session>".to_string(),
+        next_seq: 0,
+        finished: false,
+        kept: Some(Vec::new()),
+    });
+    IMPLICIT.store(true, Ordering::Relaxed);
+}
+
+/// Keeps the events of the recording in progress in memory as well, so a
+/// debug session recording to a file can go back.
+pub fn keep_events() {
+    if let Some(TapeState::Record(recording)) = lock().as_mut() {
+        recording.kept.get_or_insert_with(Vec::new);
+    }
+}
+
+/// Whether the tape is a debug session's own recording, not one asked for.
+pub fn is_implicit() -> bool {
+    IMPLICIT.load(Ordering::Relaxed) && is_active()
+}
+
+/// Drops a debug session's own recording: the program is about to do
+/// something it cannot record, and goes on without a tape.
+pub fn stop_implicit() {
+    if !is_implicit() {
+        return;
+    }
+    MODE.store(ReplayMode::Off as u8, Ordering::Relaxed);
+    *lock() = None;
+    IMPLICIT.store(false, Ordering::Relaxed);
+}
+
+/// Where the tape is now, if a debugger can come back here: a replay, or a
+/// recording that keeps its events.
+pub fn mark() -> Option<TapeMark> {
+    match lock().as_ref()? {
+        TapeState::Record(Recording {
+            kept: Some(kept), ..
+        }) => Some(TapeMark { cursor: kept.len() }),
+        TapeState::Record(_) => None,
+        TapeState::Replay { cursor, .. } | TapeState::Rerun { cursor, .. } => {
+            Some(TapeMark { cursor: *cursor })
+        }
+    }
+}
+
+/// Puts the tape back at `mark`. A recording then answers effects from its
+/// kept events until it reaches its end again.
+pub fn rewind_to(mark: TapeMark) {
+    let mut guard = lock();
+    let Some(state) = guard.take() else {
+        return;
+    };
+    let state = match state {
+        TapeState::Replay { tape, shown, .. } => TapeState::Replay {
+            tape,
+            cursor: mark.cursor,
+            finished: false,
+            shown,
+        },
+        TapeState::Record(recording) | TapeState::Rerun { recording, .. } => {
+            rerun_or_record(recording, mark.cursor)
+        }
+    };
+    *guard = Some(state);
+}
+
+/// A recording at `cursor`: re-running its kept events, or recording when
+/// the cursor is at their end.
+fn rerun_or_record(recording: Recording, cursor: usize) -> TapeState {
+    let kept = recording.kept.as_ref().map_or(0, Vec::len);
+    if cursor < kept {
+        MODE.store(ReplayMode::Replay as u8, Ordering::Relaxed);
+        TapeState::Rerun { recording, cursor }
+    } else {
+        MODE.store(ReplayMode::Record as u8, Ordering::Relaxed);
+        TapeState::Record(recording)
+    }
 }
 
 /// Turns the tape off and forgets it, without finishing it. For tests.
 pub fn reset() {
     MODE.store(ReplayMode::Off as u8, Ordering::Relaxed);
     *lock() = None;
+    IMPLICIT.store(false, Ordering::Relaxed);
     async_tape::reset_ids();
+    positions().clear();
 }
 
 fn cannot_write(path: &Path, err: &std::io::Error) -> TapeError {
@@ -181,11 +302,28 @@ pub fn effect(
 /// Records or checks console text. The caller prints it in every mode, so a
 /// replay shows the same output as the recorded run.
 pub fn console(request: EffectRequest) -> Result<(), TapeError> {
+    console_shown(request).map(|_| ())
+}
+
+/// As [`console`], and says whether to print the text: not when a debugger
+/// has gone back and the run reaches text it has already printed.
+pub fn console_shown(request: EffectRequest) -> Result<bool, TapeError> {
     debug_assert_eq!(request.class(), EffectClass::Console);
     match mode() {
-        ReplayMode::Off => Ok(()),
-        ReplayMode::Record => append(request, None),
-        ReplayMode::Replay => take_matching(&request).map(|_| ()),
+        ReplayMode::Off => Ok(true),
+        ReplayMode::Record => append(request, None).map(|_| true),
+        ReplayMode::Replay => {
+            let index = take_matching(&request)?.seq as usize;
+            Ok(match lock().as_mut() {
+                Some(TapeState::Replay { shown, .. }) => {
+                    let first_time = index >= *shown;
+                    *shown = (*shown).max(index + 1);
+                    first_time
+                }
+                // Re-running a recording: it printed all of it already.
+                _ => false,
+            })
+        }
     }
 }
 
@@ -194,36 +332,39 @@ pub fn console(request: EffectRequest) -> Result<(), TapeError> {
 /// nothing.
 pub fn finish(failed: bool, message: Option<String>) -> Result<(), TapeError> {
     let mut guard = lock();
+    // A run ends where its recording ends; should it end while re-running
+    // kept events, it records from there.
+    if let Some(TapeState::Rerun { .. }) = guard.as_ref()
+        && let Some(TapeState::Rerun { recording, .. }) = guard.take()
+    {
+        MODE.store(ReplayMode::Record as u8, Ordering::Relaxed);
+        *guard = Some(TapeState::Record(recording));
+    }
     let Some(state) = guard.as_mut() else {
         return Ok(());
     };
     match state {
-        TapeState::Record {
-            writer,
-            path,
-            next_seq,
-            finished,
-        } => {
-            if *finished {
+        TapeState::Record(recording) => {
+            if recording.finished {
                 return Ok(());
             }
-            *finished = true;
+            recording.finished = true;
             let event = TapeEvent {
-                seq: *next_seq,
+                seq: recording.next_seq,
                 fiber: 0,
                 request: EffectRequest::Exit { failed, message },
                 result: None,
             };
-            *next_seq += 1;
-            write_event(writer, path, &event)?;
-            writer
-                .flush()
-                .map_err(|err| cannot_write(Path::new(path), &err))
+            recording.next_seq += 1;
+            recording.store(event)?;
+            recording.flush()
         }
+        TapeState::Rerun { .. } => unreachable!("a re-run became a recording above"),
         TapeState::Replay {
             tape,
             cursor,
             finished,
+            ..
         } => {
             if *finished {
                 return Ok(());
@@ -285,11 +426,9 @@ fn describe_ending(failed: bool) -> String {
 /// is stopping on a tape error, and nothing after it should report another.
 pub fn abandon() {
     match lock().as_mut() {
-        Some(TapeState::Record {
-            writer, finished, ..
-        }) => {
-            *finished = true;
-            let _ = writer.flush();
+        Some(TapeState::Record(recording) | TapeState::Rerun { recording, .. }) => {
+            recording.finished = true;
+            let _ = recording.flush();
         }
         Some(TapeState::Replay { finished, .. }) => *finished = true,
         None => {}
@@ -315,44 +454,59 @@ fn event_fiber(request: &EffectRequest) -> u32 {
 fn append(request: EffectRequest, result: Option<Outcome>) -> Result<(), TapeError> {
     let fiber = event_fiber(&request);
     let mut guard = lock();
-    let Some(TapeState::Record {
-        writer,
-        path,
-        next_seq,
-        finished: false,
-    }) = guard.as_mut()
-    else {
+    let Some(TapeState::Record(recording)) = guard.as_mut() else {
         return Ok(());
     };
+    if recording.finished {
+        return Ok(());
+    }
     let event = TapeEvent {
-        seq: *next_seq,
+        seq: recording.next_seq,
         fiber,
         request,
         result,
     };
-    *next_seq += 1;
-    write_event(writer, path, &event)
+    recording.next_seq += 1;
+    note_event_position(event.seq as usize);
+    recording.store(event)
 }
 
-fn write_event(
-    writer: &mut BufWriter<File>,
-    path: &str,
-    event: &TapeEvent,
-) -> Result<(), TapeError> {
-    let line = serde_json::to_string(event).expect("tape events serialize");
-    writeln!(writer, "{line}").map_err(|err| cannot_write(Path::new(path), &err))
+impl Recording {
+    fn store(&mut self, event: TapeEvent) -> Result<(), TapeError> {
+        if let Some(writer) = self.writer.as_mut() {
+            let line = serde_json::to_string(&event).expect("tape events serialize");
+            writeln!(writer, "{line}").map_err(|err| cannot_write(Path::new(&self.path), &err))?;
+        }
+        if let Some(kept) = self.kept.as_mut() {
+            kept.push(event);
+        }
+        Ok(())
+    }
+
+    fn flush(&mut self) -> Result<(), TapeError> {
+        match self.writer.as_mut() {
+            Some(writer) => writer
+                .flush()
+                .map_err(|err| cannot_write(Path::new(&self.path), &err)),
+            None => Ok(()),
+        }
+    }
 }
 
 /// Takes the next recorded event, which must be `request`.
 fn take_matching(request: &EffectRequest) -> Result<TapeEvent, TapeError> {
     let fiber = event_fiber(request);
     let mut guard = lock();
-    let Some(TapeState::Replay { tape, cursor, .. }) = guard.as_mut() else {
-        unreachable!("replay mode without a replay tape");
+    let (events, cursor): (&[TapeEvent], &mut usize) = match guard.as_mut() {
+        Some(TapeState::Replay { tape, cursor, .. }) => (&tape.events, cursor),
+        Some(TapeState::Rerun { recording, cursor }) => {
+            (recording.kept.as_deref().unwrap_or_default(), cursor)
+        }
+        _ => unreachable!("replay mode without a replay tape"),
     };
-    let Some(event) = tape.events.get(*cursor) else {
+    let Some(event) = events.get(*cursor) else {
         return Err(TapeError::Exhausted {
-            count: tape.events.len() as u64,
+            count: events.len() as u64,
             actual: request.to_string(),
         });
     };
@@ -382,9 +536,85 @@ fn take_matching(request: &EffectRequest) -> Result<TapeEvent, TapeError> {
     }
     *cursor += 1;
     let event = event.clone();
+    note_event_position(event.seq as usize);
+    // A re-run that reaches the end of its kept events records again.
+    if let Some(TapeState::Rerun { recording, cursor }) = guard.as_ref()
+        && *cursor >= recording.kept.as_ref().map_or(0, Vec::len)
+        && let Some(TapeState::Rerun { recording, cursor }) = guard.take()
+    {
+        *guard = Some(rerun_or_record(recording, cursor));
+    }
     drop(guard);
     async_tape::progressed();
     Ok(event)
+}
+
+// ── Where each event happened, for a debugger (0188 S3) ─────────────────
+
+/// The debugger's position in the run, set at each stop site while one is
+/// attached.
+static POSITION: AtomicU64 = AtomicU64::new(0);
+static POSITIONS: Mutex<Vec<u64>> = Mutex::new(Vec::new());
+
+fn positions() -> std::sync::MutexGuard<'static, Vec<u64>> {
+    POSITIONS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Tells the tape where the debugged program is now.
+#[inline]
+pub fn set_position(position: u64) {
+    POSITION.store(position, Ordering::Relaxed);
+}
+
+fn note_event_position(index: usize) {
+    let mut positions = positions();
+    if index == positions.len() {
+        positions.push(POSITION.load(Ordering::Relaxed));
+    }
+}
+
+/// How many events the run has reached so far.
+pub fn events_reached() -> usize {
+    positions().len()
+}
+
+/// The debugger position at which event `index` happened, once reached.
+pub fn event_position(index: usize) -> Option<u64> {
+    positions().get(index).copied()
+}
+
+/// The tape's events, each with where it happened if the run has reached
+/// it: the kept events of a recording, or a replayed tape's.
+pub fn event_list() -> Vec<(u64, String, Option<u64>)> {
+    let events: Vec<(u64, String)> = match lock().as_ref() {
+        Some(TapeState::Replay { tape, .. }) => tape
+            .events
+            .iter()
+            .map(|event| (event.seq, event.request.to_string()))
+            .collect(),
+        Some(
+            TapeState::Record(Recording {
+                kept: Some(kept), ..
+            })
+            | TapeState::Rerun {
+                recording: Recording {
+                    kept: Some(kept), ..
+                },
+                ..
+            },
+        ) => kept
+            .iter()
+            .map(|event| (event.seq, event.request.to_string()))
+            .collect(),
+        _ => Vec::new(),
+    };
+    let positions = positions();
+    events
+        .into_iter()
+        .map(|(seq, text)| (seq, text, positions.get(seq as usize).copied()))
+        .collect()
 }
 
 fn describe_fiber(fiber: u32) -> String {

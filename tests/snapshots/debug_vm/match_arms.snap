@@ -4,10 +4,10 @@ source: tests/debug/vm_debug_tests.rs
 > break 8
 breakpoint at match_arms.flx:8
 > continue
-stopped: breakpoint at match_arms.flx:8:5 in area
+stopped: breakpoint at match_arms.flx:8:5 in area (position 5)
      8 |     match s {
 > step
-stopped: step at match_arms.flx:10:23 in area
+stopped: step at match_arms.flx:10:23 in area (position 6)
     10 |         Rect(w, h) -> w * h,
 > locals
 h = 5

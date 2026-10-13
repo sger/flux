@@ -9,6 +9,7 @@ use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 
 use crate::driver::flags::DebuggerRequest;
+use crate::runtime::replay;
 use crate::vm::debug::{Inspector, Resume, StopReason, ValueView, VmObserver};
 
 const HELP: &str = "\
@@ -19,6 +20,14 @@ commands:
   step                                 stop at the next site, entering calls (s)
   next                                 stop at the next site in this function (n)
   finish                               run until this function returns (f)
+  reverse-step                         go back to the previous place a step stops (rs)
+  reverse-next                         go back to the previous line of this call (rn)
+  reverse-finish                       go back to where this function was called (rf)
+  reverse-continue                     go back to the previous breakpoint hit (rc)
+  where                                show the position: how many stop sites have run
+  goto <position>                      go to a position, earlier or later
+  events                               list the effects the program has performed
+  event <n>                            go to the last stop before effect <n>
   bt                                   show the call stack
   locals                               show this frame's variables
   print <name>[.<n>...]                show a value, or one of its parts (p)
@@ -41,6 +50,13 @@ pub(crate) fn attach(vm: &mut crate::vm::VM, program_path: &str) {
     let Some(request) = REQUEST.get() else {
         return;
     };
+    // Keep the run's effects, so going back answers them from the recording
+    // instead of performing them again (0188 S3).
+    if replay::is_active() {
+        replay::keep_events();
+    } else {
+        replay::start_memory_record();
+    }
     match CommandObserver::new(request.script.as_deref(), Path::new(program_path)) {
         Ok(observer) => vm.attach_debugger(Box::new(observer)),
         Err(message) => {
@@ -127,13 +143,25 @@ impl CommandObserver {
                     // first site.
                     return Resume::StepIn;
                 }
+                "rs" | "reverse-step" | "rn" | "reverse-next" | "rf" | "reverse-finish" | "rc"
+                | "reverse-continue" | "where" | "goto" | "event"
+                    if !paused =>
+                {
+                    say(NOT_STARTED)
+                }
+                "rs" | "reverse-step" | "rn" | "reverse-next" | "rf" | "reverse-finish" | "rc"
+                | "reverse-continue" | "goto" | "event" => {
+                    if let Some(resume) = self.go_back(inspector, command, rest) {
+                        return resume;
+                    }
+                }
+                "where" => say(&format!("position {}", inspector.position())),
+                "events" => events(),
+                "checkpoints" => say(&format!("{} checkpoints", inspector.checkpoint_count())),
                 "q" | "quit" => return Resume::Quit,
                 "b" | "break" => self.set_breakpoint(inspector, rest),
                 "delete" => self.clear_breakpoint(inspector, rest),
-                "bt" | "backtrace" | "locals" | "p" | "print" if !paused => say(
-                    "the program has not started yet; `continue` to run to a breakpoint, \
-                     or `step` to stop at its first line",
-                ),
+                "bt" | "backtrace" | "locals" | "p" | "print" if !paused => say(NOT_STARTED),
                 "bt" | "backtrace" => backtrace(inspector),
                 "locals" => locals(inspector),
                 "p" | "print" => print(inspector, rest),
@@ -147,6 +175,41 @@ impl CommandObserver {
             }
         }
         Resume::Continue
+    }
+
+    /// The answer to a command that goes back or jumps, if it can be done.
+    fn go_back(&self, inspector: &Inspector<'_>, command: &str, rest: &str) -> Option<Resume> {
+        if let Some(reason) = inspector.reverse_unavailable() {
+            say(&format!("cannot go back: {reason}"));
+            return None;
+        }
+        Some(match command {
+            "rs" | "reverse-step" => Resume::ReverseStep,
+            "rn" | "reverse-next" => Resume::ReverseNext,
+            "rf" | "reverse-finish" => Resume::ReverseFinish,
+            "rc" | "reverse-continue" => Resume::ReverseContinue,
+            "goto" => match rest.parse::<u64>() {
+                Ok(position) if position > 0 => Resume::GoTo(position),
+                _ => {
+                    say("usage: goto <position>, a number from 1; `where` shows the current one");
+                    return None;
+                }
+            },
+            _ => {
+                let count = replay::event_list().len() as u64;
+                match rest.parse::<u64>() {
+                    Ok(event) if event < count => Resume::ToEvent(event),
+                    Ok(event) => {
+                        say(&format!("no event #{event}; `events` lists them"));
+                        return None;
+                    }
+                    Err(_) => {
+                        say("usage: event <n>");
+                        return None;
+                    }
+                }
+            }
+        })
     }
 
     /// `file:line`, or a bare line in the program's own file.
@@ -211,9 +274,10 @@ impl VmObserver for CommandObserver {
                     None => "an unknown place".to_string(),
                 };
                 say(&format!(
-                    "stopped: {} at {place} in {}",
+                    "stopped: {} at {place} in {} (position {})",
                     reason.as_str(),
-                    frame.name
+                    frame.name,
+                    inspector.position()
                 ));
                 if let Some(text) = frame
                     .file
@@ -230,6 +294,24 @@ impl VmObserver for CommandObserver {
 
     fn on_exit(&mut self) {
         say("program finished");
+    }
+}
+
+const NOT_STARTED: &str = "the program has not started yet; `continue` to run to a breakpoint, \
+                           or `step` to stop at its first line";
+
+/// Lists the effects on the tape, with where each happened.
+fn events() {
+    let events = replay::event_list();
+    if events.is_empty() {
+        say("no effects yet");
+        return;
+    }
+    for (seq, text, position) in events {
+        match position {
+            Some(position) => say(&format!("#{seq} {text} (position {position})")),
+            None => say(&format!("#{seq} {text} (not reached)")),
+        }
     }
 }
 

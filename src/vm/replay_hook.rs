@@ -28,6 +28,15 @@ impl VM {
     ) -> Result<Value, String> {
         match replay::tape_class(op) {
             TapeClass::Untaped | TapeClass::Scheduled => execute_core_primop(self, op, args),
+            TapeClass::Refused if replay::is_implicit() => {
+                // A debug session's own recording: drop it rather than the run.
+                replay::stop_implicit();
+                super::debug::turn_off_reverse(format!(
+                    "the program used `{}`, which cannot be recorded yet (0188 S8)",
+                    replay_codec::op_name(op)
+                ));
+                execute_core_primop(self, op, args)
+            }
             TapeClass::Refused => self.tape_fail(replay::unsupported(replay_codec::op_name(op))),
             TapeClass::Console => {
                 let text = render_console(op, &args);
@@ -41,13 +50,15 @@ impl VM {
                         text: TapeBytes::from(text.as_str()),
                     }
                 };
-                if let Err(err) = replay::console(request) {
-                    self.tape_fail(err);
-                }
-                // Printed in every mode: a replay shows the recorded output.
-                if to_stderr {
+                let shown = match replay::console_shown(request) {
+                    Ok(shown) => shown,
+                    Err(err) => self.tape_fail(err),
+                };
+                // Printed in every mode, so a replay shows the recorded
+                // output, but only once when a debugger runs it again.
+                if shown && to_stderr {
                     eprint!("{text}");
-                } else {
+                } else if shown {
                     print!("{text}");
                 }
                 Ok(Value::None)
