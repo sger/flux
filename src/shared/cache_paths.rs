@@ -171,7 +171,83 @@ use sha2::{Digest, Sha256};
 /// the index that `TupleProjection` held, so the whole-program solve looks for
 /// a field literally named `__tuple`. A caller compiled against a cached
 /// epoch-52 interface is therefore an `E490` that a fresh compiler accepts.
-pub const CACHE_EPOCH: u16 = 53;
+/// Epoch 54: an instance records the module defining each head type, and a
+/// module-owned head is qualified in its `__dict_*` / `__tc_*` names. An
+/// epoch-53 `.flxi` has no `head_modules`, so an importer would rebuild the old
+/// unqualified names and link against dictionaries the defining module no
+/// longer emits.
+/// Epoch 55: a synthesized `Sendable` instance is as public as its ADT. An
+/// epoch-54 `.flxi` exports none, so an importer of `Flow.Channel` finds no
+/// `Sendable<Channel<a>>` and rejects a channel captured by `Task.spawn`.
+/// Epoch 56: a restricted (`let`) binding no longer quantifies a variable its
+/// inferred context constrains, so `let ch = Channel.make(5)` is
+/// `Channel<Int>`, not `forall a. Sendable<a> => Channel<a>`. Inferred types
+/// change, and with them what an epoch-55 `.flxi` records.
+/// Epoch 57: an early `return` is unified with its function's return type,
+/// and statements after a block's own `return` are not its value. An
+/// unannotated function returning early (`fib`) is `Int -> Int` where an
+/// epoch-56 `.flxi` recorded `Int -> ?r`.
+/// Epoch 58: numeric defaulting recognises `Flow.Num`. Since the class
+/// hierarchy became Flux source it matched only a module-less `Num`, so an
+/// ambiguous `Num<?a>` was never defaulted to `Int`; epoch-57 interfaces
+/// record the undefaulted variable.
+/// Epoch 59: a multi-parameter predicate whose known arguments match exactly
+/// one instance takes the unknown ones from its head during inference
+/// (0179 Stage 4), so `let s = convert(42)` is `String` where an epoch-58
+/// `.flxi` recorded a variable.
+/// Epoch 60: a predicate a definition leaves over a variable nothing
+/// determines is E459, not a predicate the old lowering answered with `Int`.
+/// A program an epoch-59 cache accepted can now be rejected.
+/// Epoch 61: `Flow.List`'s private `unique_by_go` and `unique_by_step` are
+/// annotated with their `Eq` bound, so their schemes carry a constraint an
+/// epoch-60 `.flxi` did not record.
+/// Epoch 62: in a program of two or more modules, a module member no longer
+/// stops a class method's dispatch stub from being generated, so the bare
+/// method name takes the method's type where an epoch-61 artifact recorded
+/// the member's.
+/// Epoch 63: `f<a>` unifies with a constructor of more arguments, so a
+/// higher-kinded parameter can be a partially applied constructor such as
+/// `Either<String>`, where an epoch-62 artifact left it unbound.
+/// Epoch 64: an optimizing lowering path folds before the final inference,
+/// so a per-module native object built with `--optimize` lowers the folded
+/// program's evidence where an epoch-63 one lowered the unfolded program's.
+/// Epoch 65: `--optimize` no longer propagates a top-level literal `let` into
+/// a scope that rebinds its name, so an epoch-64 artifact built with it may
+/// hold `fn f(x)` with the top-level `x` substituted for its parameter.
+/// Epoch 66: a recursive call to a function with a declared signature raises
+/// the signature's bounds, so its evidence names the function's own
+/// dictionaries where an epoch-65 artifact recorded no predicate there.
+/// Epoch 67: a bare call to an imported class's method is typed as that
+/// method, so it raises its predicate where an epoch-66 unit left the name
+/// unbound and the call untyped.
+/// Epoch 68: an instance context or superclass recovered from a dependency's
+/// AST names the real class even when it was preloaded after the dependency,
+/// where an epoch-67 compile left it naming a module-less class.
+/// Epoch 69: a call to a nullary class method such as `mempty()` raises its
+/// predicate, read from the call's result, where an epoch-68 unit raised none.
+/// Epoch 70: a call to a class method qualified by the alias its module is
+/// imported under (`Comparable.same(x, y)`) is typed as the method in a unit
+/// compile, and raises its predicate, where an epoch-69 unit raised none.
+/// Epoch 71: a call qualified by the module that declares the class, in the
+/// same program (`M.my_eq(x, y)`), is typed from the class's signature and
+/// raises its predicate, where an epoch-70 compile left it untyped.
+/// Epoch 72: the Core path takes dictionary parameters and arguments from
+/// evidence, so a per-module native object passes the dictionaries the
+/// solver chose where an epoch-71 one passed elaboration's.
+/// Epoch 73: an undetermined class parameter raised by a top-level or
+/// module-level `let` or expression is E459, where an epoch-72 unit compiled
+/// it with no instance chosen.
+/// Epoch 74: the VM's CFG path takes dictionary parameters and arguments
+/// from evidence too, so a dispatch stub's bytecode takes no dictionary where
+/// an epoch-73 one took the unused one elaboration gave it. An unbound name a
+/// unit's class method claims is typed as that method.
+/// Epoch 75: a private module member's scheme reaches the VM compiler, so a
+/// constrained one takes its dictionaries, and its sibling callers pass them,
+/// where an epoch-74 unit compiled both with none.
+/// Epoch 76: the VM compiles a module's members from their IR, so they take
+/// dictionaries and dispatch from evidence, where an epoch-75 unit compiled
+/// every member on the AST path.
+pub const CACHE_EPOCH: u16 = 76;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

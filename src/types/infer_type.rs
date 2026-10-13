@@ -257,9 +257,16 @@ impl InferType {
                     .map(|a| a.apply_type_subst_with_seen(type_subst, seen_vars))
                     .collect();
                 // Beta-reduction: if head resolved to a concrete constructor,
-                // collapse HktApp(Con(tc), args) → App(tc, args).
+                // collapse HktApp(Con(tc), args) → App(tc, args). A head bound
+                // to a partially applied constructor, `Either<String>`, has
+                // itself collapsed to `App(Either, [String])`, and takes the
+                // arguments after its own.
                 match resolved_head {
                     InferType::Con(tc) => InferType::App(tc, resolved_args),
+                    InferType::App(tc, mut applied) => {
+                        applied.extend(resolved_args);
+                        InferType::App(tc, applied)
+                    }
                     other => InferType::HktApp(Box::new(other), resolved_args),
                 }
             }
@@ -644,6 +651,34 @@ mod tests {
 
         let applied = infer_type.apply_type_subst(&type_subst);
         assert!(matches!(applied, InferType::Var(0) | InferType::Var(1)));
+    }
+
+    /// A higher-kinded variable bound to a partially applied constructor
+    /// collapses, once applied, to the constructor with all its arguments:
+    /// `f<Bool>` with `f = Either<String>` is `Either<String, Bool>`.
+    #[test]
+    fn apply_type_subst_collapses_a_partially_applied_head() {
+        let string = InferType::Con(TypeConstructor::String);
+        let mut type_subst = TypeSubst::empty();
+        type_subst.insert(
+            0,
+            InferType::HktApp(
+                Box::new(InferType::Con(TypeConstructor::Either)),
+                vec![string.clone()],
+            ),
+        );
+        let applied = InferType::HktApp(
+            Box::new(infer_var(0)),
+            vec![InferType::Con(TypeConstructor::Bool)],
+        )
+        .apply_type_subst(&type_subst);
+        assert_eq!(
+            applied,
+            InferType::App(
+                TypeConstructor::Either,
+                vec![string, InferType::Con(TypeConstructor::Bool)]
+            )
+        );
     }
 
     #[test]

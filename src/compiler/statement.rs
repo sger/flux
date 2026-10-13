@@ -59,6 +59,38 @@ impl Compiler {
         })
     }
 
+    /// The IR function a member of `module` compiles from.
+    ///
+    /// Core and IR name a module's functions bare, inside the module's item,
+    /// while the VM binds them qualified (`SoleInstance.measure`), so
+    /// [`find_ir_function_by_symbol`](Self::find_ir_function_by_symbol)
+    /// never matches one. LLVM resolves them the same way
+    /// (`cfg::metadata::collect_module_functions`).
+    pub(super) fn find_ir_module_function(
+        ir_program: &IrProgram,
+        module: Symbol,
+        member: Symbol,
+    ) -> Option<&IrFunction> {
+        fn find(
+            items: &[crate::cfg::IrTopLevelItem],
+            module: Symbol,
+            member: Symbol,
+            inside: bool,
+        ) -> Option<crate::cfg::FunctionId> {
+            items.iter().find_map(|item| match item {
+                crate::cfg::IrTopLevelItem::Module { name, body, .. } => {
+                    find(body, module, member, *name == module)
+                }
+                crate::cfg::IrTopLevelItem::Function {
+                    name, function_id, ..
+                } if inside && *name == member => *function_id,
+                _ => None,
+            })
+        }
+        let id = find(ir_program.top_level_items(), module, member, false)?;
+        ir_program.function(id)
+    }
+
     /// Quick pre-codegen validation to detect semantic errors that the CFG
     /// path can't catch. Returns `true` if errors are present — caller should
     /// skip CFG and fall through to the AST path for proper error reporting.
@@ -1862,7 +1894,7 @@ impl Compiler {
             // Nothing in argument position names the instance. This used to
             // defer to result-directed selection whenever the class parameter
             // still appeared in the return type, but no backend performs it:
-            // Core's `choose_candidate` declines once the candidates disagree
+            // the old Core elaboration declined once the candidates disagreed,
             // and the AST path projects out of the unsuffixed `__dict_*`. With two
             // dictionaries in scope that silently returns the wrong instance's
             // value — a `String` from a function declared to return `Int`
@@ -2009,6 +2041,7 @@ impl Compiler {
             scheme_constraints = self
                 .cached_member_schemes
                 .iter()
+                .chain(&self.private_member_schemes)
                 .find_map(|((cached_module, cached_member), scheme)| {
                     (*cached_module == module_name
                         && self.interner.try_resolve(*cached_member) == Some(member_name))
@@ -2052,6 +2085,31 @@ impl Compiler {
                     .collect()
             })
             .unwrap_or_default();
+        // 0.0.8 plan step 1e: the IR takes its dictionary parameters from
+        // evidence, while the layout above comes from the scheme. Both are the
+        // call ABI, so they must agree. A class method's dispatch stub is the
+        // exception: its scheme carries the method's predicate, but no call
+        // passes it a dictionary, since a method call that raised its
+        // predicate goes to an instance or a dictionary instead.
+        if let Some(ir_fn) = ir_function
+            && !matches!(ir_fn.origin, crate::cfg::IrFunctionOrigin::FunctionLiteral)
+            && !self.generated_dispatch_stub_names.contains(&name)
+        {
+            let expected = parameters.len() - existing_dict_count + required_dict_count;
+            if ir_fn.params.len() != expected {
+                let _ = self.leave_scope();
+                self.current_function_name = previous_function_name;
+                return Err(Self::boxed(
+                    crate::ice!(format!(
+                        "`{}` takes {} parameters in its IR, from evidence, but its scheme \
+                         gives it {expected}",
+                        self.sym(name),
+                        ir_fn.params.len(),
+                    ))
+                    .with_span(function_span),
+                ));
+            }
+        }
         let dict_names = if ir_dict_names.len() >= required_dict_count {
             ir_dict_names[..required_dict_count].to_vec()
         } else {
@@ -2761,6 +2819,7 @@ impl Compiler {
                     *intrinsic,
                     ir_program.and_then(|program| {
                         self.find_ir_function_by_symbol(program, qualified_name)
+                            .or_else(|| Self::find_ir_module_function(program, name, *fn_name))
                     }),
                     *span,
                 ) {

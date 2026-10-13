@@ -1,11 +1,11 @@
 // Desugaring demonstration
 // Shows syntactic sugar elimination with --optimize flag
 
-// Rule 1: Double negation elimination
+// Rule 1: Double negation elimination, only when the operand is a Bool
 fn main() with IO, Time {
     let a = !!true;           // Desugars to: true
     let b = !!!false;         // Desugars to: !false
-    let c = !!!!5;            // Desugars to: 5
+    let c = !!!!5;            // Kept: !!5 is true, not 5
 
     // Rule 2: Negated equality becomes inequality
     let x = 10;
@@ -16,8 +16,8 @@ fn main() with IO, Time {
     let e = !(x != y);        // Desugars to: x == y
 
     // Complex example: desugaring + constant folding
-    let f = !!(2 + 3);        // Desugars to: (2 + 3)
-    // Then folds to: 5
+    let f = !!(2 + 3);        // Kept: (2 + 3) is not a Bool
+    // Then folds to: true
 
     // Nested example
     let g = !(!(5 == 5));     // Desugars to: 5 == 5

@@ -956,8 +956,15 @@ impl Compiler {
                 Ok(())
             }
             IrExpr::LoadName(name) => {
-                // Try to resolve as a known symbol (global or ADT constructor)
-                if let Some(binding) = self.symbol_table.resolve(*name) {
+                // IR names a module's members bare, and the VM binds them
+                // qualified. Inside a module a sibling member is the name's
+                // referent, ahead of a global of the same name (a dispatch
+                // stub), as on the AST path.
+                if let Some(binding) = self.current_module_member(*name) {
+                    self.load_symbol(&binding);
+                    Ok(())
+                } else if let Some(binding) = self.symbol_table.resolve(*name) {
+                    // Try to resolve as a known symbol (global or ADT constructor)
                     self.load_symbol(&binding);
                     Ok(())
                 } else {

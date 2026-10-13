@@ -1,0 +1,48 @@
+// A dictionary's superclass slot names another dictionary, and that one has to
+// be defined too.
+//
+// `instance Measurable<Int>` declares no context, so its dictionary is a plain
+// tuple whose first slot is the `Sizeable<Int>` dictionary. `describe` reaches
+// `size` through that slot. Elaboration defined only the dictionaries the
+// program named itself, and nothing here names `Sizeable<Int>`'s, so the slot
+// read an undefined global: `tuple field access expected Tuple, got Uninit`.
+//
+// Two instances of each class keep the call from being dispatched straight to
+// the only one in sight, which is what used to hide this.
+//
+// Expected output:
+// 505
+// 21
+
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+class Sizeable<a> => Measurable<a> {
+    fn weight(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+instance Sizeable<String> {
+    fn size(s) { 1 }
+}
+
+instance Measurable<Int> {
+    fn weight(x) { x * 100 }
+}
+
+instance Measurable<String> {
+    fn weight(s) { 20 }
+}
+
+fn describe<a: Measurable>(x: a) -> Int {
+    size(x) + weight(x)
+}
+
+fn main() with IO {
+    print(describe(5))
+    print(describe("s"))
+}

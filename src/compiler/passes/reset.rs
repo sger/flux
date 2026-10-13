@@ -35,7 +35,14 @@ impl Compiler {
 
     /// Phase 0: Clear per-file tracking state for each compile pass.
     pub(in crate::compiler) fn phase_reset(&mut self) {
+        // A compile that stopped inside a function leaves its scope open; the
+        // compiler is shared across modules, so the next unit would start
+        // there, and its imports would be inside a function (E017).
+        while self.scope_index > 0 {
+            let _ = self.leave_scope();
+        }
         self.warnings.clear();
+        self.private_member_schemes.clear();
         self.file_scope_symbols.clear();
         self.imported_modules.clear();
         self.unit_function_names.clear();

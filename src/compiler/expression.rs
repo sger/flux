@@ -4824,9 +4824,8 @@ impl Compiler {
 
         // Resolve from the predicate the class declaration describes: every
         // class parameter is read from the position it actually occupies in
-        // the method signature, arguments and result alike. This mirrors
-        // `LowerCtx::try_resolve_class_call` exactly — the two must stay in
-        // lockstep or the VM and native backends dispatch differently.
+        // the method signature, arguments and result alike, as the solver does
+        // for the evidence the IR is lowered from.
         //
         // It subsumes dispatch on an argument other than the first, and
         // result-directed dispatch, which used to be a hardcoded special case
@@ -4838,12 +4837,7 @@ impl Compiler {
             &self.interner,
         )?;
 
-        let type_key = instance
-            .type_args
-            .iter()
-            .map(|a| a.display_with(&self.interner))
-            .collect::<Vec<_>>()
-            .join("_");
+        let type_key = instance.type_key.clone();
         let method_str = self.interner.resolve(name);
         let mangled = crate::types::class_env::mangled_method_name(
             instance.class_id,
@@ -4873,12 +4867,7 @@ impl Compiler {
             &known,
             &self.interner,
         )?;
-        let type_key = instance
-            .type_args
-            .iter()
-            .map(|arg| arg.display_with(&self.interner))
-            .collect::<Vec<_>>()
-            .join("_");
+        let type_key = instance.type_key.clone();
         let mangled = crate::types::class_env::mangled_method_name(
             instance.class_id,
             &type_key,
@@ -5115,6 +5104,7 @@ impl Compiler {
                 .type_env
                 .lookup(qualified)
                 .or_else(|| self.cached_member_schemes.get(&(prefix, name)))
+                .or_else(|| self.private_member_schemes.get(&(prefix, name)))
                 .cloned();
         }
         let qualified = *self.exposed_bindings.get(&name)?;
@@ -5661,12 +5651,7 @@ impl Compiler {
     ) -> Option<Vec<String>> {
         let dict_name_str = self.interner.resolve(dict_name);
         self.class_env.instances.iter().find_map(|instance| {
-            let type_name = instance
-                .type_args
-                .iter()
-                .map(|arg| arg.display_with(&self.interner))
-                .collect::<Vec<_>>()
-                .join("_");
+            let type_name = instance.type_key.clone();
             if dict_name_str
                 != crate::types::class_env::dictionary_name(
                     instance.class_id,
@@ -5677,7 +5662,7 @@ impl Compiler {
                 return None;
             }
             self.class_env
-                .dictionary_slot_names(instance.class_id, &type_name, &self.interner)
+                .dictionary_slot_names(instance, &self.interner)
         })
     }
 }

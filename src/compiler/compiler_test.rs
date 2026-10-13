@@ -1194,6 +1194,7 @@ import Example.StdLog as StdLog
         symbol_table: std::collections::HashMap::new(),
         public_classes: Vec::new(),
         public_instances: vec![PublicInstanceEntry {
+            head_modules: Vec::new(),
             associated_types: Vec::new(),
             class_module: "Example.Logger".to_string(),
             class_name: "Logger".to_string(),
@@ -1339,7 +1340,18 @@ module Local {
             ),
             logger_name,
         ),
-        "StdoutHandle",
+        // `StdoutHandle` is `Local`'s, so its key carries the module too.
+        &crate::types::class_env::instance_type_key(
+            &[TypeExpr::Named {
+                name: compiler.interner.intern("StdoutHandle"),
+                args: vec![],
+                span: Default::default(),
+            }],
+            &[crate::types::class_id::ModulePath::from_identifier(
+                compiler.interner.intern("Local"),
+            )],
+            &compiler.interner,
+        ),
         "log",
         &compiler.interner,
     );
@@ -1979,6 +1991,7 @@ fn an_imported_instance_missing_an_associated_type_equation_is_a_stale_interface
         instance_module: module,
         is_public: true,
         type_key: String::new(),
+        head_modules: Vec::new(),
         type_args: Vec::new(),
         context: Vec::new(),
         context_class_ids: Vec::new(),
@@ -2019,5 +2032,1409 @@ fn an_imported_instance_missing_an_associated_type_equation_is_a_stale_interface
             .is_some_and(|message| message.contains("declares 1 associated type(s) but 0")),
         "unexpected message: {:?}",
         truncated[0].message()
+    );
+}
+
+/// Proposal 0179 Stage 4: `Convert<Int, ?b>` with exactly one instance whose
+/// known arguments match takes the missing one from that instance's head, so
+/// `let s = convert(42)` is solved — and its call has a dictionary to pass —
+/// without an annotation.
+#[test]
+fn a_sole_candidate_instance_determines_a_multi_parameter_predicate() {
+    use crate::syntax::{expression::Expression, statement::Statement};
+
+    let (program, interner) = parse_program(
+        r#"
+class Convert<a, b> {
+    fn convert(x: a) -> b
+}
+
+instance Convert<Int, String> {
+    fn convert(x) { "n" }
+}
+
+fn main() {
+    let s = convert(42)
+    s
+}
+"#,
+    );
+    let call = program
+        .statements
+        .iter()
+        .find_map(|stmt| match stmt {
+            Statement::Function { body, .. } => match body.statements.first() {
+                Some(Statement::Let {
+                    value: call @ Expression::Call { .. },
+                    ..
+                }) => Some(call.expr_id()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("`let s = convert(42)`");
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile(&program)
+        .expect("`convert(42)` is determined by its only instance");
+
+    let args = compiler.evidence_map().dict_args_at(call);
+    assert!(
+        matches!(
+            args.as_deref(),
+            Some([crate::types::translate::DictArg::Global { .. }])
+        ),
+        "expected the `Convert<Int, String>` dictionary, got {args:?}"
+    );
+}
+
+/// A dump or LLVM build lowers a program other than the one the unit's
+/// inference solved: a merged program, whose ids are shifted past the modules
+/// before it. Lowering re-infers that program, and the evidence it reads must
+/// be keyed by the re-inferred program's ids, not the unit's.
+#[test]
+fn lowering_a_reinferred_program_reads_its_own_evidence() {
+    assert_lowering_reads_the_shifted_programs_evidence(false);
+}
+
+/// The optimizing path folds and renames the program before lowering it, and
+/// must still lower it with that program's own types and evidence.
+#[test]
+fn optimized_lowering_reads_the_programs_own_evidence() {
+    assert_lowering_reads_the_shifted_programs_evidence(true);
+}
+
+fn assert_lowering_reads_the_shifted_programs_evidence(optimize: bool) {
+    use crate::syntax::{expression::Expression, statement::Statement};
+
+    let (program, interner) = parse_program(
+        r#"
+class Convert<a, b> {
+    fn convert(x: a) -> b
+}
+
+instance Convert<Int, String> {
+    fn convert(x) { "n" }
+}
+
+fn main() {
+    let s: String = convert(42)
+    s
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let shifted = crate::ast::shift_expr_ids::shift_expr_ids(program, 1000);
+    let call = shifted
+        .statements
+        .iter()
+        .find_map(|stmt| match stmt {
+            Statement::Function { body, .. } => match body.statements.first() {
+                Some(Statement::Let {
+                    value: call @ Expression::Call { .. },
+                    ..
+                }) => Some(call.expr_id()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("`let s: String = convert(42)`");
+    compiler
+        .dump_core_with_opts(
+            &shifted,
+            optimize,
+            crate::core::display::CoreDisplayMode::Readable,
+        )
+        .expect("the shifted program lowers");
+
+    let args = compiler.evidence_map().dict_args_at(call);
+    assert!(
+        matches!(
+            args.as_deref(),
+            Some([crate::types::translate::DictArg::Global { .. }])
+        ),
+        "expected the `Convert<Int, String>` dictionary at the shifted call, got {args:?}"
+    );
+}
+
+/// 0.0.8 plan step 1d: lowering creates a constrained definition's dictionary
+/// parameters from its recorded evidence, before dictionary elaboration runs.
+/// Elaboration then reuses them by their canonical names instead of adding
+/// its own.
+#[test]
+fn lowering_creates_a_constrained_definitions_dictionary_parameters() {
+    let (program, interner) = parse_program(
+        r#"
+class Sized<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sized<Int> {
+    fn size(x) { x }
+}
+
+fn measure<a: Sized>(x: a) -> Int {
+    size(x)
+}
+
+fn main() {
+    measure(3)
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let core = compiler
+        .lower_core_from_program(&program, false, false)
+        .expect("the program lowers");
+    let measure = core
+        .defs
+        .iter()
+        .find(|def| compiler.interner.resolve(def.name) == "measure")
+        .expect("`measure` is lowered");
+    let crate::core::CoreExpr::Lam { params, .. } = &measure.expr else {
+        panic!("`measure` lowers to a lambda, got {:?}", measure.expr);
+    };
+    let names: Vec<_> = params
+        .iter()
+        .map(|param| compiler.interner.resolve(param.name))
+        .collect();
+    assert_eq!(names, ["__dict_Sized", "x"]);
+}
+
+/// 0.0.8 plan step 1d: a method call whose evidence is the definition's own
+/// dictionary parameter reads the method out of that parameter. Dispatching
+/// straight to `__tc_Sized_Int_size` because `Sized<Int>` is the only
+/// instance in sight is right only until another module adds one.
+#[test]
+fn a_method_call_answered_by_a_parameter_projects_from_it() {
+    let (program, interner) = parse_program(
+        r#"
+class Sized<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sized<Int> {
+    fn size(x) { x }
+}
+
+fn measure<a: Sized>(x: a) -> Int {
+    size(x)
+}
+
+fn main() {
+    measure(3)
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let core = compiler
+        .lower_core_from_program(&program, false, true)
+        .expect("the program lowers");
+    let measure = core
+        .defs
+        .iter()
+        .find(|def| compiler.interner.resolve(def.name) == "measure")
+        .expect("`measure` is lowered");
+    let crate::core::CoreExpr::Lam { body, .. } = &measure.expr else {
+        panic!("`measure` lowers to a lambda, got {:?}", measure.expr);
+    };
+    // Core passes may bind the projection before the call.
+    let func = match body.as_ref() {
+        crate::core::CoreExpr::App { func, .. } => func.as_ref(),
+        crate::core::CoreExpr::Let { rhs, .. } => rhs.as_ref(),
+        other => panic!("`size(x)` lowers to a call, got {other:?}"),
+    };
+    let crate::core::CoreExpr::TupleField { object, index, .. } = func else {
+        panic!("expected `size` read from the dictionary parameter, got {func:?}");
+    };
+    let crate::core::CoreExpr::Var { var, .. } = object.as_ref() else {
+        panic!("expected the dictionary parameter, got {object:?}");
+    };
+    assert_eq!(compiler.interner.resolve(var.name), "__dict_Sized");
+    assert_eq!(*index, 0);
+}
+
+/// The optimizing compile inlines a zero-argument pure function into its
+/// callers, so `staff()` inside a destructuring `let` becomes a named-field
+/// literal sitting in that statement. The named-field desugar never visited a
+/// destructuring `let` (nor `Assign` or a class's default bodies), and the
+/// literal reached the bytecode compiler, which panicked.
+#[test]
+fn optimizing_compile_desugars_named_fields_inlined_into_a_destructuring_let() {
+    let (program, interner) = parse_program(
+        r#"
+data Employee {
+    Employee { name: String, years: Int }
+}
+
+fn staff() -> Employee {
+    Employee { name: "ada", years: 9 }
+}
+
+fn main() {
+    let (first, n) = (staff(), 1)
+    first
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile_with_opts(&program, true, false)
+        .expect("the optimizing compile succeeds");
+}
+
+/// The optimizer inlines a single-argument function into its callers. An
+/// unannotated one is typed only by those callers (`fst`'s receiver is pinned
+/// to `(Int, String)` by its one call), so inlining every call left the
+/// definition with nothing to type it, and the optimizing compile reported
+/// E491 on a program that compiles without it.
+#[test]
+fn optimizing_compile_keeps_an_unannotated_function_its_callers_type() {
+    let (program, interner) = parse_program(
+        r#"
+fn fst(p) { p.0 }
+
+fn main() {
+    fst((1, "x"))
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile_with_opts(&program, true, false)
+        .expect("the optimizing compile succeeds");
+}
+
+/// An inlined call keeps the function's annotations. `parse_int`'s `-> Int`
+/// is what chooses the `Parse<Int>` instance for `parse(s)`; substituting the
+/// body into the caller dropped it, and the optimizing compile reported E459.
+#[test]
+fn optimizing_compile_keeps_an_inlined_functions_annotations() {
+    let (program, interner) = parse_program(
+        r#"
+class Parse<a> {
+    fn parse(s: String) -> a
+}
+
+instance Parse<Int> {
+    fn parse(s) { 7 }
+}
+
+instance Parse<Bool> {
+    fn parse(s) { true }
+}
+
+fn parse_int(s: String) -> Int {
+    parse(s)
+}
+
+fn ignore<a>(x: a) -> Int { 0 }
+
+fn main() {
+    ignore(parse_int("z"))
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile_with_opts(&program, true, false)
+        .expect("the optimizing compile succeeds");
+}
+
+/// The optimizer matches a call to a function by name alone. Where a local
+/// shadows a top-level function, the call is the local's, and inlining the
+/// top-level body there put an `Int` function where a `String` one was.
+#[test]
+fn optimizing_compile_does_not_inline_a_name_a_local_shadows() {
+    let (program, interner) = parse_program(
+        r#"
+fn helper(x: Int) -> Int { x }
+
+fn shadowed() -> String {
+    let helper = \(s: String) -> s
+    helper("shadowed")
+}
+
+fn main() {
+    shadowed()
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile_with_opts(&program, true, false)
+        .expect("the optimizing compile succeeds");
+}
+
+/// An inlined call keeps the function's effects. `run_task` is polymorphic
+/// in its row, so the copy must say so too, or the effect its argument
+/// performs is one the copy does not allow. And `run`'s handler is not moved
+/// at all: inlined into a `with IO` caller, its `handle Logger { print(..) }`
+/// stopped discharging `Logger` (E400).
+#[test]
+fn optimizing_compile_keeps_an_inlined_functions_effects() {
+    let (program, interner) = parse_program(
+        r#"
+effect Logger {
+    print: String -> ()
+}
+
+fn run_task(f: (() -> Int with |e)) -> Int with |e {
+    f()
+}
+
+fn task() -> Int with Logger {
+    perform Logger.print("ok")
+    7
+}
+
+fn run() -> Int {
+    run_task(task) handle Logger {
+        print(resume, _msg) -> resume(())
+    }
+}
+
+fn main() with IO {
+    print(run())
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile_with_opts(&program, true, false)
+        .expect("the optimizing compile succeeds");
+}
+
+/// A class over a higher-kinded parameter, used at a partially applied
+/// constructor. The `remap` stub's `f<a>` must unify with
+/// `Either<String, Int>` as `f = Either<String>`; when it did not, `f` stayed
+/// unbound and the predicate was reported as E459.
+#[test]
+fn a_higher_kinded_method_resolves_at_a_partially_applied_constructor() {
+    let (program, interner) = parse_program(
+        r#"
+class Mappable<f> {
+    fn remap<a, b>(x: f<a>, g: (a) -> b) -> f<b>
+}
+
+instance Mappable<Either<l>> {
+    fn remap(x, g) {
+        match x {
+            Left(e) -> Left(e),
+            Right(v) -> Right(g(v)),
+        }
+    }
+}
+
+fn main() {
+    let r: Either<String, Int> = Right(2)
+    remap(r, fn(x) { x + 1 })
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    if let Err(diagnostics) = compiler.compile_with_opts(&program, false, false) {
+        panic!(
+            "the program compiles: {}",
+            render_diagnostics(&diagnostics, None, None)
+        );
+    }
+}
+
+/// Under `--optimize`, the lowering paths solve evidence for the program they
+/// lower. `0 - 1` folds to `-1`, so the folded program raises no `Num`
+/// predicate there. When folding ran after the final inference, the evidence
+/// still had the unfolded operator's predicate, at a site lowering never
+/// reaches.
+#[test]
+fn optimizing_dump_solves_evidence_for_the_folded_program() {
+    use crate::syntax::expression::Expression;
+    let (program, interner) = parse_program(
+        r#"
+fn main() {
+    let x = 0 - 1
+    x
+}
+"#,
+    );
+    let folded = program
+        .statements
+        .iter()
+        .find_map(|stmt| match stmt {
+            Statement::Function { body, .. } => match body.statements.first() {
+                Some(Statement::Let {
+                    value: infix @ Expression::Infix { .. },
+                    ..
+                }) => Some(infix.expr_id()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("`let x = 0 - 1`");
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile_with_opts(&program, true, false)
+        .expect("the optimizing compile succeeds");
+    compiler
+        .dump_core_with_opts(
+            &program,
+            true,
+            crate::core::display::CoreDisplayMode::Readable,
+        )
+        .expect("the optimizing dump succeeds");
+
+    assert_eq!(compiler.evidence_map().raised(folded), 0);
+}
+
+/// Lower `program`, already compiled by `compiler`, with dictionaries taken
+/// from evidence and no elaboration (0.0.8 plan, step 1e).
+fn lower_emitting_evidence(
+    compiler: &mut Compiler,
+    program: &crate::syntax::program::Program,
+) -> crate::core::CoreProgram {
+    let program = program_to_lower(compiler, program);
+    let (core, errors) = lower_emitting(compiler, &program, &compiler.evidence_map);
+    assert!(errors.is_empty(), "lowering reports {errors:?}");
+    core
+}
+
+/// The program the Core path lowers, its generated instance methods among
+/// it, with the final inference's types and evidence applied.
+fn program_to_lower(
+    compiler: &mut Compiler,
+    program: &crate::syntax::program::Program,
+) -> crate::syntax::program::Program {
+    let prepared = compiler.prepare_program_for_lowering(program);
+    compiler.apply_hm_final(&prepared.hm_final);
+    let mut program = prepared.effective_program.into_owned();
+    compiler.apply_named_field_desugar(&mut program);
+    program
+}
+
+/// Lower `program` from `evidence` in `Emit` mode, with the internal errors.
+fn lower_emitting(
+    compiler: &Compiler,
+    program: &crate::syntax::program::Program,
+    evidence: &crate::types::evidence::EvidenceMap,
+) -> (
+    crate::core::CoreProgram,
+    Vec<crate::diagnostics::Diagnostic>,
+) {
+    crate::core::lower_ast::lower_program_ast_with_evidence(
+        program,
+        &compiler.hm_expr_types,
+        Some(&compiler.interner),
+        Some(&compiler.type_env),
+        None,
+        Some(&compiler.class_env),
+        Some(evidence),
+    )
+}
+
+fn lambda_param_names<'a>(
+    compiler: &'a Compiler,
+    expr: &'a crate::core::CoreExpr,
+) -> (Vec<&'a str>, &'a [crate::core::CoreBinder]) {
+    let crate::core::CoreExpr::Lam { params, .. } = expr else {
+        panic!("expected a lambda, got {expr:?}");
+    };
+    let names = params
+        .iter()
+        .map(|param| compiler.interner.resolve(param.name))
+        .collect();
+    (names, params)
+}
+
+const SIZED_CLASS: &str = r#"
+class Sized<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sized<Int> {
+    fn size(x) { x }
+}
+"#;
+
+/// 1e: in `Emit` mode a definition takes one parameter per recorded
+/// evidence parameter, even where elaboration would pair them differently.
+/// Two dictionaries of one class are told apart by their recorded order.
+#[test]
+fn emitting_evidence_gives_a_definition_each_recorded_parameter() {
+    let (program, interner) = parse_program(&format!(
+        r#"{SIZED_CLASS}
+fn both<a: Sized, b: Sized>(x: a, y: b) -> Int {{
+    size(x) + size(y)
+}}
+
+fn main() {{
+    both(1, 2)
+}}
+"#
+    ));
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let core = lower_emitting_evidence(&mut compiler, &program);
+    let both = core
+        .defs
+        .iter()
+        .find(|def| compiler.interner.resolve(def.name) == "both")
+        .expect("`both` is lowered");
+    let (names, _) = lambda_param_names(&compiler, &both.expr);
+    assert_eq!(names, ["__dict_Sized", "__dict_Sized_1", "x", "y"]);
+}
+
+/// 1e: a bounded function nested in a body gets its own parameter, and a
+/// method call in it on the enclosing definition's dictionary reads the
+/// enclosing binder, though the two share a name.
+#[test]
+fn emitting_evidence_gives_a_nested_function_its_parameters() {
+    let (program, interner) = parse_program(&format!(
+        r#"{SIZED_CLASS}
+fn outer<a: Sized>(x: a) -> Int {{
+    fn inner<b: Sized>(y: b) -> Int {{
+        size(y) + size(x)
+    }}
+    inner(x) + inner(4)
+}}
+
+fn main() {{
+    outer(3)
+}}
+"#
+    ));
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let core = lower_emitting_evidence(&mut compiler, &program);
+    let outer = core
+        .defs
+        .iter()
+        .find(|def| compiler.interner.resolve(def.name) == "outer")
+        .expect("`outer` is lowered");
+    let (outer_names, outer_params) = lambda_param_names(&compiler, &outer.expr);
+    assert_eq!(outer_names, ["__dict_Sized", "x"]);
+    let crate::core::CoreExpr::Lam { body, .. } = &outer.expr else {
+        unreachable!()
+    };
+
+    let mut inner = None;
+    let mut projected = Vec::new();
+    collect_inner_and_projections(&compiler, body, &mut inner, &mut projected);
+    let inner = inner.expect("`inner` is lowered as a local function");
+    let (inner_names, inner_params) = lambda_param_names(&compiler, inner);
+    assert_eq!(inner_names, ["__dict_Sized", "y"]);
+    assert_ne!(inner_params[0].id, outer_params[0].id);
+    projected.sort_by_key(|id| id.0);
+    let mut expected = vec![outer_params[0].id, inner_params[0].id];
+    expected.sort_by_key(|id| id.0);
+    assert_eq!(
+        projected, expected,
+        "`size(y)` reads `inner`'s dictionary and `size(x)` reads `outer`'s"
+    );
+}
+
+/// The lambda bound to `inner`, and the binder of every dictionary a method
+/// is projected from inside it.
+fn collect_inner_and_projections<'a>(
+    compiler: &Compiler,
+    expr: &'a crate::core::CoreExpr,
+    inner: &mut Option<&'a crate::core::CoreExpr>,
+    projected: &mut Vec<crate::core::CoreBinderId>,
+) {
+    use crate::core::CoreExpr;
+    match expr {
+        CoreExpr::LetRec { var, rhs, body, .. } | CoreExpr::Let { var, rhs, body, .. } => {
+            if compiler.interner.try_resolve(var.name) == Some("inner") {
+                *inner = Some(rhs);
+                collect_projections(rhs, projected);
+            }
+            collect_inner_and_projections(compiler, body, inner, projected);
+        }
+        _ => {}
+    }
+}
+
+fn collect_projections(expr: &crate::core::CoreExpr, out: &mut Vec<crate::core::CoreBinderId>) {
+    use crate::core::CoreExpr;
+    match expr {
+        CoreExpr::TupleField { object, .. } => {
+            if let CoreExpr::Var { var, .. } = object.as_ref()
+                && let Some(binder) = var.binder
+            {
+                out.push(binder);
+            }
+            collect_projections(object, out);
+        }
+        CoreExpr::Lam { body, .. } => collect_projections(body, out),
+        CoreExpr::App { func, args, .. } => {
+            collect_projections(func, out);
+            args.iter().for_each(|arg| collect_projections(arg, out));
+        }
+        CoreExpr::PrimOp { args, .. } => args.iter().for_each(|arg| collect_projections(arg, out)),
+        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+            collect_projections(rhs, out);
+            collect_projections(body, out);
+        }
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            collect_projections(scrutinee, out);
+            alts.iter()
+                .for_each(|alt| collect_projections(&alt.rhs, out));
+        }
+        _ => {}
+    }
+}
+
+/// Every call to `name` in `expr`, as its arguments' shapes: a variable's
+/// name, an applied variable as `f(args)`, anything else `_`.
+fn collect_calls(
+    compiler: &Compiler,
+    expr: &crate::core::CoreExpr,
+    name: &str,
+    out: &mut Vec<Vec<String>>,
+) {
+    use crate::core::CoreExpr;
+    fn shape(compiler: &Compiler, expr: &CoreExpr) -> String {
+        match expr {
+            CoreExpr::Var { var, .. } => compiler.interner.resolve(var.name).to_string(),
+            CoreExpr::App { func, args, .. } => format!(
+                "{}({})",
+                shape(compiler, func),
+                args.iter()
+                    .map(|arg| shape(compiler, arg))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            _ => "_".to_string(),
+        }
+    }
+    match expr {
+        CoreExpr::App { func, args, .. } => {
+            if matches!(func.as_ref(), CoreExpr::Var { var, .. }
+                if compiler.interner.resolve(var.name) == name)
+            {
+                out.push(args.iter().map(|arg| shape(compiler, arg)).collect());
+            }
+            collect_calls(compiler, func, name, out);
+            args.iter()
+                .for_each(|arg| collect_calls(compiler, arg, name, out));
+        }
+        CoreExpr::Lam { body, .. } => collect_calls(compiler, body, name, out),
+        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
+            collect_calls(compiler, rhs, name, out);
+            collect_calls(compiler, body, name, out);
+        }
+        CoreExpr::PrimOp { args, .. } => args
+            .iter()
+            .for_each(|arg| collect_calls(compiler, arg, name, out)),
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            collect_calls(compiler, scrutinee, name, out);
+            alts.iter()
+                .for_each(|alt| collect_calls(compiler, &alt.rhs, name, out));
+        }
+        _ => {}
+    }
+}
+
+/// The calls to `name` in the definition `def`, by [`collect_calls`].
+fn calls_in(
+    compiler: &Compiler,
+    core: &crate::core::CoreProgram,
+    def: &str,
+    name: &str,
+) -> Vec<Vec<String>> {
+    let def = core
+        .defs
+        .iter()
+        .find(|candidate| compiler.interner.resolve(candidate.name) == def)
+        .unwrap_or_else(|| panic!("`{def}` is lowered"));
+    let mut calls = Vec::new();
+    collect_calls(compiler, &def.expr, name, &mut calls);
+    calls
+}
+
+const CONTEXTUAL_SIZED: &str = r#"
+class Sized<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sized<Int> {
+    fn size(x) { x }
+}
+
+instance Sized<a> => Sized<List<a>> {
+    fn size(xs) {
+        match xs {
+            [h | t] -> size(h) + size(t),
+            _ -> 0
+        }
+    }
+}
+
+fn measure<a: Sized>(x: a) -> Int {
+    size(x)
+}
+"#;
+
+/// 1e: a call to a constrained function passes the dictionaries its
+/// callee's evidence names, ahead of its own arguments: an instance's
+/// global, or a contextual instance's applied to its context.
+#[test]
+fn emitting_evidence_passes_a_constrained_calls_dictionaries() {
+    let (program, interner) = parse_program(&format!(
+        r#"{CONTEXTUAL_SIZED}
+fn main() {{
+    measure(3) + measure([1, 2])
+}}
+"#
+    ));
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let core = lower_emitting_evidence(&mut compiler, &program);
+    assert_eq!(
+        calls_in(&compiler, &core, "main", "measure"),
+        [
+            vec!["__dict_Sized_Int", "_"],
+            vec!["__dict_Sized_List<a>(__dict_Sized_Int)", "_"],
+        ]
+    );
+}
+
+/// 1e: a method call on a type with an instance calls the instance's method
+/// directly, passing the dictionaries the instance's context needs. Inside
+/// the contextual instance, the call on the element reads the instance's own
+/// context parameter, and the call on the tail passes it on.
+#[test]
+fn emitting_evidence_calls_an_instances_method_directly() {
+    let (program, interner) = parse_program(&format!(
+        r#"{CONTEXTUAL_SIZED}
+fn main() {{
+    size(3) + size([4])
+}}
+"#
+    ));
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let core = lower_emitting_evidence(&mut compiler, &program);
+    assert_eq!(
+        calls_in(&compiler, &core, "main", "__tc_Sized_Int_size"),
+        [vec!["_"]]
+    );
+    assert_eq!(
+        calls_in(&compiler, &core, "main", "__tc_Sized_List<a>_size"),
+        [vec!["__dict_Sized_Int", "_"]]
+    );
+
+    let list_size = core
+        .defs
+        .iter()
+        .find(|def| compiler.interner.resolve(def.name) == "__tc_Sized_List<a>_size")
+        .expect("the list instance's method is lowered");
+    let (names, params) = lambda_param_names(&compiler, &list_size.expr);
+    assert_eq!(names[0], "__dict_Sized");
+    let mut projected = Vec::new();
+    collect_projections(&list_size.expr, &mut projected);
+    assert_eq!(
+        projected,
+        [params[0].id],
+        "`size(h)` reads the context's dictionary"
+    );
+    assert_eq!(
+        calls_in(
+            &compiler,
+            &core,
+            "__tc_Sized_List<a>_size",
+            "__tc_Sized_List<a>_size"
+        ),
+        [vec!["__dict_Sized", "t"]],
+        "`size(t)` calls the list instance again with the same context"
+    );
+}
+
+/// 1e: a site whose predicate has no answer is an internal error naming it,
+/// not a call missing its dictionary.
+#[test]
+fn emitting_evidence_reports_an_unanswered_site() {
+    let (program, interner) = parse_program(&format!(
+        r#"{SIZED_CLASS}
+fn measure<a: Sized>(x: a) -> Int {{
+    size(x)
+}}
+
+fn main() {{
+    measure(3)
+}}
+"#
+    ));
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let program = program_to_lower(&mut compiler, &program);
+    let main_body = program
+        .statements
+        .iter()
+        .find_map(|stmt| match stmt {
+            Statement::Function { name, body, .. }
+                if compiler.interner.resolve(*name) == "main" =>
+            {
+                Some(body)
+            }
+            _ => None,
+        })
+        .expect("`main` is parsed");
+    let Some(Statement::Expression {
+        expression: crate::syntax::expression::Expression::Call { function, .. },
+        ..
+    }) = main_body.statements.last()
+    else {
+        panic!("`main` ends in a call: {main_body:?}");
+    };
+    let callee = function.expr_id();
+    // A second `Sized` predicate at the callee, which nothing answered.
+    let mut evidence = compiler.evidence_map.clone();
+    let raised = evidence
+        .predicate(&crate::types::evidence::EvidenceSite::new(callee, 0))
+        .expect("`measure` raised `Sized`")
+        .clone();
+    evidence.raise(callee, raised);
+
+    let (_, errors) = lower_emitting(&compiler, &program, &evidence);
+    let messages: Vec<_> = errors
+        .iter()
+        .map(|error| error.message().unwrap_or_default().to_string())
+        .collect();
+    assert_eq!(messages.len(), 1, "one error, for the site: {messages:?}");
+    assert!(
+        messages[0].contains("Sized") && messages[0].contains("no answer"),
+        "the error names the predicate: {messages:?}"
+    );
+}
+
+/// A recursive call to a function with a declared signature instantiates the
+/// signature, bounds included, so it raises their predicates and the solver
+/// answers them from the function's own parameters. Without the bounds the
+/// call raised nothing, and evidence had no dictionary for it to pass.
+#[test]
+fn a_recursive_call_raises_its_signatures_bounds() {
+    let (program, interner) = parse_program(
+        r#"
+fn has<a: Eq>(xs: List<a>, x: a) -> Bool {
+    match xs {
+        [h | t] -> if h == x { true } else { has(t, x) },
+        _ -> false
+    }
+}
+
+fn main() {
+    has([1, 2], 2)
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let (has_id, body) = program
+        .statements
+        .iter()
+        .find_map(|stmt| match stmt {
+            Statement::Function { name, id, body, .. }
+                if compiler.interner.resolve(*name) == "has" =>
+            {
+                Some((*id, body))
+            }
+            _ => None,
+        })
+        .expect("`has` is parsed");
+    let mut callees = Vec::new();
+    collect_callees_named(&compiler, body, "has", &mut callees);
+    let [recursive] = callees.as_slice() else {
+        panic!("one recursive call, got {callees:?}");
+    };
+
+    let evidence = &compiler.evidence_map;
+    assert_eq!(evidence.raised(*recursive), 1, "the call raises `Eq`");
+    assert_eq!(
+        evidence.dict_args_at(*recursive),
+        Some(vec![crate::types::translate::DictArg::Param {
+            owner: has_id,
+            index: 0,
+            path: Vec::new(),
+        }]),
+        "answered by `has`'s own dictionary"
+    );
+}
+
+/// The ids of the callee identifiers named `name` in `block`.
+fn collect_callees_named(
+    compiler: &Compiler,
+    block: &crate::syntax::block::Block,
+    name: &str,
+    out: &mut Vec<crate::syntax::expression::ExprId>,
+) {
+    use crate::syntax::expression::Expression;
+    fn walk(
+        compiler: &Compiler,
+        expr: &Expression,
+        name: &str,
+        out: &mut Vec<crate::syntax::expression::ExprId>,
+    ) {
+        match expr {
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                if let Expression::Identifier {
+                    name: callee, id, ..
+                } = function.as_ref()
+                    && compiler.interner.resolve(*callee) == name
+                {
+                    out.push(*id);
+                }
+                walk(compiler, function, name, out);
+                arguments
+                    .iter()
+                    .for_each(|arg| walk(compiler, arg, name, out));
+            }
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                walk(compiler, condition, name, out);
+                collect_callees_named(compiler, consequence, name, out);
+                if let Some(alternative) = alternative {
+                    collect_callees_named(compiler, alternative, name, out);
+                }
+            }
+            Expression::Match {
+                scrutinee, arms, ..
+            } => {
+                walk(compiler, scrutinee, name, out);
+                arms.iter()
+                    .for_each(|arm| walk(compiler, &arm.body, name, out));
+            }
+            _ => {}
+        }
+    }
+    for stmt in &block.statements {
+        if let Statement::Expression { expression, .. } = stmt {
+            walk(compiler, expression, name, out);
+        }
+    }
+}
+
+/// E0: a call inference classified as a class-method call, but which raised
+/// no predicate, is an internal error in `Emit` mode, not a call to the
+/// method's dispatch stub.
+#[test]
+fn emitting_evidence_reports_a_method_call_that_raised_no_predicate() {
+    let (program, interner) = parse_program(&format!(
+        r#"{SIZED_CLASS}
+fn main() {{
+    size(3)
+}}
+"#
+    ));
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+    let program = program_to_lower(&mut compiler, &program);
+
+    let size_call = program
+        .statements
+        .iter()
+        .find_map(|stmt| match stmt {
+            Statement::Function { name, body, .. }
+                if compiler.interner.resolve(*name) == "main" =>
+            {
+                match body.statements.last() {
+                    Some(Statement::Expression { expression, .. }) => Some(expression.expr_id()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .expect("`main` ends in the call");
+    assert!(
+        compiler.evidence_map.is_method_call(size_call),
+        "inference classifies `size(3)` as a method call"
+    );
+    // Classified, and raised nothing: what a unit compile records for a
+    // method its inference could not type.
+    let mut evidence = crate::types::evidence::EvidenceMap::new();
+    evidence.record_method_calls(&std::collections::HashSet::from([size_call]));
+    let (_, errors) = lower_emitting(&compiler, &program, &evidence);
+    let messages: Vec<_> = errors
+        .iter()
+        .map(|error| error.message().unwrap_or_default().to_string())
+        .collect();
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("class method `size` raised no predicate")),
+        "the call to `size` is reported: {messages:?}"
+    );
+}
+
+/// E0: a parameter named like a class method shadows the method. Calling it
+/// is a call to the parameter, so inference does not classify it as a
+/// class-method call, though the method's dispatch stub is bound further out.
+#[test]
+fn a_parameter_named_like_a_method_is_not_a_method_call() {
+    let (program, interner) = parse_program(&format!(
+        r#"{SIZED_CLASS}
+fn apply(size, x) {{
+    size(x)
+}}
+
+fn main() {{
+    apply(fn(n) {{ n + 1 }}, 3) + size(4)
+}}
+"#
+    ));
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let call_in = |function: &str| {
+        program
+            .statements
+            .iter()
+            .find_map(|stmt| match stmt {
+                Statement::Function { name, body, .. }
+                    if compiler.interner.resolve(*name) == function =>
+                {
+                    match body.statements.last() {
+                        Some(Statement::Expression { expression, .. }) => {
+                            Some(expression.expr_id())
+                        }
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+            .expect("the function ends in an expression")
+    };
+    assert!(
+        !compiler.evidence_map.is_method_call(call_in("apply")),
+        "`size(x)` calls the parameter"
+    );
+    let size_4 = program
+        .statements
+        .iter()
+        .find_map(|stmt| match stmt {
+            Statement::Function { name, body, .. }
+                if compiler.interner.resolve(*name) == "main" =>
+            {
+                match body.statements.last() {
+                    Some(Statement::Expression {
+                        expression: crate::syntax::expression::Expression::Infix { right, .. },
+                        ..
+                    }) => Some(right.expr_id()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .expect("`main` ends in a sum");
+    assert!(
+        compiler.evidence_map.is_method_call(size_4),
+        "`size(4)` calls the method"
+    );
+}
+
+/// A call qualified by the module that declares the class, in the same
+/// program, is typed as the method and raises its predicate. The method's
+/// dispatch stub is not a public member of the module, so no member scheme
+/// types `M.my_eq`; the class env's signature does.
+#[test]
+fn a_call_qualified_by_the_declaring_module_raises_its_predicate() {
+    let (program, interner) = parse_program(
+        r#"
+module M {
+    public class MyEq<a> {
+        fn my_eq(x: a, y: a) -> Bool
+    }
+    public instance MyEq<Int> {
+        fn my_eq(x, y) { x == y }
+    }
+}
+
+M.my_eq(1, 2);
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let call = program
+        .statements
+        .iter()
+        .find_map(|stmt| match stmt {
+            Statement::Expression { expression, .. } => Some(expression.expr_id()),
+            _ => None,
+        })
+        .expect("the program ends in the call");
+    assert!(
+        compiler.evidence_map.is_method_call(call),
+        "inference classifies `M.my_eq(1, 2)` as a method call"
+    );
+    assert_eq!(
+        compiler.evidence_map.raised(call),
+        1,
+        "the call raises its `MyEq` predicate"
+    );
+}
+
+/// 1e, C2: the Core path lowers from evidence. A bounded function nested in
+/// a body gets its own dictionary parameter, which elaboration never gave
+/// it, and the program runs its passes with no internal error.
+#[test]
+fn core_path_gives_a_nested_bounded_function_its_parameter() {
+    let (program, interner) = parse_program(&format!(
+        r#"{SIZED_CLASS}
+fn outer<a: Sized>(x: a) -> Int {{
+    fn inner<b: Sized>(y: b) -> Int {{
+        size(y) + size(x)
+    }}
+    inner(x) + inner(4)
+}}
+
+fn main() {{
+    outer(3)
+}}
+"#
+    ));
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+
+    let core = compiler
+        .prepare_core_program(&program, false, true)
+        .expect("the program lowers");
+    let outer = core
+        .defs
+        .iter()
+        .find(|def| compiler.interner.try_resolve(def.name) == Some("outer"))
+        .expect("`outer` is lowered");
+    let crate::core::CoreExpr::Lam { body, .. } = &outer.expr else {
+        panic!("`outer` lowers to a lambda, got {:?}", outer.expr);
+    };
+    let mut inner = None;
+    let mut projected = Vec::new();
+    collect_inner_and_projections(&compiler, body, &mut inner, &mut projected);
+    let inner = inner.expect("`inner` is lowered as a local function");
+    let (names, _) = lambda_param_names(&compiler, inner);
+    assert_eq!(names, ["__dict_Sized", "y"]);
+}
+
+/// KI-101: a bounded function without a complete signature gets no declared
+/// scheme, so its recursive call raises no predicate. Lowering from evidence
+/// would pass it nothing; it is an internal error instead.
+#[test]
+fn core_path_reports_a_call_that_raised_no_predicate_for_its_dictionaries() {
+    let (program, interner) = parse_program(
+        r#"
+fn has<a: Eq>(xs: List<a>, x: a) {
+    match xs {
+        [h | t] -> if h == x { true } else { has(t, x) },
+        _ -> false
+    }
+}
+
+fn main() {
+    has([1, 2], 2)
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    // The VM path reports it too (C3a); the Core path is checked on its own.
+    let _ = compiler.compile(&program);
+
+    let error = compiler
+        .prepare_core_program(&program, false, true)
+        .expect_err("the recursive call has no evidence");
+    let message = error.message().unwrap_or_default();
+    assert!(
+        message.contains("`has`") && message.contains("KI-101"),
+        "the error names the callee: {message}"
+    );
+}
+
+/// 1e, C3a: the VM's CFG path lowers from evidence too. A recursive call that
+/// raised no predicate (KI-101) is an internal error there, as on the Core
+/// path, rather than a call elaboration re-derives the dictionaries for.
+#[test]
+fn cfg_path_reports_a_call_that_raised_no_predicate_for_its_dictionaries() {
+    let (program, interner) = parse_program(
+        r#"
+fn has<a: Eq>(xs: List<a>, x: a) {
+    match xs {
+        [h | t] -> if h == x { true } else { has(t, x) },
+        _ -> false
+    }
+}
+
+fn main() {
+    has([1, 2], 2)
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let errors = compiler
+        .compile(&program)
+        .expect_err("the recursive call has no evidence");
+    let messages: Vec<_> = errors
+        .iter()
+        .map(|error| error.message().unwrap_or_default().to_string())
+        .collect();
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("`has`") && message.contains("KI-101")),
+        "the error names the callee: {messages:?}"
+    );
+}
+
+/// A top-level statement is not a definition, but an undetermined class
+/// parameter it raises is just as ambiguous: nothing can fix `largest([])`'s
+/// element type, so no `Sized` instance can be chosen. It is E459, as inside
+/// a function, rather than the `Int` the old lowering guessed.
+#[test]
+fn an_undetermined_class_parameter_at_top_level_is_reported() {
+    let (program, interner) = parse_program(&format!(
+        r#"{SIZED_CLASS}
+fn largest<a: Sized>(xs: List<a>) -> Int {{
+    0
+}}
+
+let n = largest([]);
+"#
+    ));
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let errors = compiler
+        .compile(&program)
+        .expect_err("the `Sized` instance is undetermined");
+    let codes: Vec<_> = errors.iter().filter_map(|error| error.code()).collect();
+    assert!(codes.contains(&"E459"), "E459 is reported: {codes:?}");
+}
+
+/// A class's default method calls a sibling method bare (`!eq(x, y)`), while
+/// a preloaded dependency declares another class with a method of that name.
+/// The name has no binding then: the dependency's stub claims it, and two
+/// classes declare it, so the imported schemes skip it. The class the name
+/// resolves to is still the unit's own, so the call is typed as its method
+/// and raises its predicate.
+#[test]
+fn a_bare_method_call_shadowing_an_imported_method_raises_its_predicate() {
+    let (dependency, interner) = parse_program(
+        r#"
+module Flow.Eq {
+    public class Eq<a> {
+        fn eq(x: a, y: a) -> Bool
+    }
+    public instance Eq<Int> {
+        fn eq(x, y) { true }
+    }
+}
+"#,
+    );
+    let (program, interner) = parse_program_with_interner(
+        r#"
+class LocalEq<a> {
+    fn eq(x: a, y: a) -> Bool
+    fn neq(x: a, y: a) -> Bool { !eq(x, y) }
+}
+
+instance LocalEq<Int> {
+    fn eq(x, y) { x == y }
+}
+
+fn main() {
+    neq(1, 2)
+}
+"#,
+        interner,
+    );
+    // One compiler for both units, the dependency compiled first: what the
+    // driver and the fixture harness do.
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler
+        .compile(&dependency)
+        .expect("the dependency compiles");
+    compiler.preload_dependency_program(&dependency);
+    compiler
+        .compile(&program)
+        .expect("every method call raised its predicate");
+}
+
+/// A compile that returns early from inside a function's scope must not leave
+/// that scope open for the next unit: the compiler is shared across modules,
+/// and the next file's first `import` would then be inside a function (E017).
+#[test]
+fn a_new_compile_starts_at_file_scope() {
+    let (program, interner) = parse_program("import Flow.Array as Array\nlet x = 1;\n");
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    // What an early return inside `compile_function_statement` leaves behind.
+    compiler.enter_scope();
+    let result = compiler.compile(&program);
+    let codes: Vec<_> = result
+        .err()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|error| error.code())
+        .map(str::to_string)
+        .collect();
+    assert!(
+        !codes.iter().any(|code| code == "E017"),
+        "the import is at file scope: {codes:?}"
+    );
+    assert_eq!(compiler.scope_index, 0);
+}
+
+/// C3b-2: a private module member's scheme reaches the VM compiler. Neither
+/// the qualified `type_env` lookup nor the interface schemes have it, so the
+/// compiler read no constraints for it, while its IR takes the dictionary its
+/// bound needs.
+#[test]
+fn a_private_module_member_keeps_its_scheme() {
+    let (program, interner) = parse_program(&format!(
+        r#"{SIZED_CLASS}
+module M {{
+    fn total<a: Sized>(x: a) -> Int {{
+        size(x)
+    }}
+
+    public fn run() -> Int {{
+        total(3)
+    }}
+}}
+"#
+    ));
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+    let module = compiler.interner.lookup("M").expect("`M` is interned");
+    let member = compiler
+        .interner
+        .lookup("total")
+        .expect("`total` is interned");
+    let scheme = compiler
+        .private_member_schemes
+        .get(&(module, member))
+        .expect("the private member's scheme is recorded");
+    assert_eq!(
+        scheme.constraints.len(),
+        1,
+        "`total` keeps its `Sized` bound"
     );
 }

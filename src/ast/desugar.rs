@@ -9,7 +9,9 @@ use std::collections::HashMap;
 ///
 /// Rewrites syntactic sugar into simpler core constructs. Current rules:
 ///
-/// 1. **Double negation elimination:** `!!x` → `x`
+/// 1. **Double negation elimination:** `!!x` → `x`, only when `x` is
+///    syntactically a Bool (see [`is_syntactically_bool`]). The pass runs
+///    before type inference, and `!!5` is `true`, not `5`.
 /// 2. **Negated comparison:** `!(a == b)` → `a != b`, `!(a != b)` → `a == b`
 ///
 /// This module is designed to be extended as new syntax sugar is added
@@ -39,9 +41,14 @@ impl Folder for DesugarPass {
             // Rule 1: !!x → x
             Expression::Prefix {
                 ref operator,
-                right: inner,
+                right: ref inner,
                 ..
-            } if operator == "!" => *inner,
+            } if operator == "!" && is_syntactically_bool(inner) => {
+                let Expression::Prefix { right: inner, .. } = *right else {
+                    unreachable!()
+                };
+                *inner
+            }
 
             // Rule 2: !(a == b) → a != b, !(a != b) → a == b
             Expression::Infix {
@@ -69,6 +76,20 @@ impl Folder for DesugarPass {
                 id,
             },
         }
+    }
+}
+
+/// Whether `expr` is a Bool whatever its operands' types are: a Bool literal,
+/// a negation, or a comparison or logical operator.
+fn is_syntactically_bool(expr: &Expression) -> bool {
+    match expr {
+        Expression::Boolean { .. } => true,
+        Expression::Prefix { operator, .. } => operator == "!",
+        Expression::Infix { operator, .. } => matches!(
+            operator.as_str(),
+            "==" | "!=" | "<" | "<=" | ">" | ">=" | "&&" | "||"
+        ),
+        _ => false,
     }
 }
 
@@ -217,6 +238,7 @@ impl Folder for OperatorDesugarPass<'_> {
                 span,
                 fip,
                 intrinsic,
+                id,
             } => {
                 let prev_generated = self.in_generated_instance_method;
                 let prev_constraint_context = self.in_explicit_constraint_context;
@@ -242,6 +264,7 @@ impl Folder for OperatorDesugarPass<'_> {
                     span,
                     fip,
                     intrinsic,
+                    id,
                 }
             }
             other => fold::fold_stmt(self, other),

@@ -9,8 +9,11 @@ and item 4), `R6` (generalize unannotated definitions — *half shipped* as G5 i
 0.0.7; the constrained half is [0187](0187_specialisation.md) stage 2), and
 `R7`. The proposal's central claim — every wanted constraint has a terminal
 outcome — is **not yet true**: `Disposition::Stuck` still exists, and a stuck
-predicate reaches run time as an `E1009` panic naming the wrong cause. Pinned by
-`examples/generics/failing/runtime/e2_ambiguous_instance_selection.flx`.
+predicate reaches run time as an `E1009` panic naming the wrong cause. The
+fixture that pinned it,
+`examples/generics/working/rejects/e2_ambiguous_instance_selection.flx`, has
+been reported as `E459` since the 0.0.8 plan's step 1e, because the nullary
+call it makes now raises its predicate; `Stuck` itself remains.
 
 ## Summary
 [summary]: #summary
@@ -45,7 +48,7 @@ checkout at commit `2ca87972f6`.
 | R6a | `+` becomes `Flow.Add`, a class `String` instantiates | shipped | `f8d8f585` | no diagnostic change in 1,305 programs |
 | R6b | a match arm keeps the scrutinee's type (KI-080) | shipped | `fd4b5338` | stdlib residue 15 → 11; no diagnostic change |
 | R6c | a class-method call stops emitting an unbindable instance context (KI-081) | shipped | — | stdlib residue 11 → 9; no diagnostic change |
-| R6d | `Disposition` loses `Stuck`; an inferred ambiguity is reported with its origin (Example A). **Was called `R6b` until 2026-09-11** — see item 4 below | not started; tracked as [0185](0185_generalize_by_arity.md) Stage 4 and roadmap **E2**, blocked on generalize-by-arity's constrained half | — | pinned today by `examples/generics/failing/runtime/e2_ambiguous_instance_selection.flx`, which panics at run time instead |
+| R6d | `Disposition` loses `Stuck`; an inferred ambiguity is reported with its origin (Example A). **Was called `R6b` until 2026-09-11** — see item 4 below | not started; tracked as [0185](0185_generalize_by_arity.md) Stage 4 and roadmap **E2**, blocked on generalize-by-arity's constrained half | — | pinned by `examples/generics/working/rejects/e2_ambiguous_instance_selection.flx`, which reports `E459` at compile time since the 0.0.8 plan's step 1e; the message requirements remain |
 | — | [0184](0184_field_access_constraints.md) Stage 1: field access emits a predicate | shipped | — | new `E490`; no diagnostic change in 1,305 programs |
 | R6 | generalize unannotated definitions, then report what survives (M6) | unblocked ([KI-083](../known_issues.md#ki-083) and [KI-082](../known_issues.md#ki-082) fixed); tracked as [0185](0185_generalize_by_arity.md) Stage 3 | — | stdlib residue 9 → **0**; 2 of 1,305 programs break |
 | R7 | clear the fallout across `lib/Flow`, `examples`, `tests` | not started | — | 2 programs, both covered by KI-082/083 |

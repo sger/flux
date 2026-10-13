@@ -120,7 +120,19 @@ fn solve_scope(
     }
     for implication in &wanted.implications {
         let mut givens = enclosing.givens.to_vec();
-        givens.extend(implication.givens.iter().cloned());
+        givens.extend(
+            implication
+                .givens
+                .iter()
+                .enumerate()
+                .map(|(index, constraint)| Given {
+                    constraint: constraint.clone(),
+                    owner: crate::types::class_disposition::GivenRef {
+                        definition: implication.definition,
+                        index: u16::try_from(index).expect("a definition holds under 2^16 givens"),
+                    },
+                }),
+        );
         let nested = Enclosing {
             givens: &givens,
             quantified: &implication.quantified,
@@ -144,7 +156,7 @@ fn solve_scope(
 #[derive(Debug, Clone, Copy, Default)]
 struct Enclosing<'a> {
     /// Context available for discharge, accumulated outward-in.
-    givens: &'a [SchemeConstraint],
+    givens: &'a [Given],
     /// Type variables the enclosing binding quantified.
     quantified: &'a [crate::types::TypeVarId],
 }
@@ -231,9 +243,13 @@ fn could_not_deduce(
         enclosing
             .givens
             .iter()
-            .map(|given| {
-                display_predicate_named(given.class_name, &given.type_args, &names, interner)
-            })
+            .map(
+                |Given {
+                     constraint: given, ..
+                 }| {
+                    display_predicate_named(given.class_name, &given.type_args, &names, interner)
+                },
+            )
             .collect::<Vec<_>>()
             .join(", ")
     };
@@ -265,23 +281,40 @@ fn could_not_deduce(
 fn entailed_by_givens(
     class_id: crate::types::class_id::ClassId,
     type_args: &[InferType],
-    givens: &[SchemeConstraint],
+    givens: &[Given],
     class_env: &ClassEnv,
 ) -> Option<Evidence> {
     givens
         .iter()
-        .filter(|given| given.type_args == type_args)
-        .find_map(|given| {
-            let path = if given.class_id == class_id {
-                Vec::new()
-            } else {
-                class_env.superclass_path(given.class_id, class_id)?
-            };
-            Some(Evidence::FromGiven {
-                given: given.clone(),
-                superclass_path: path,
-            })
-        })
+        .filter(|given| given.constraint.type_args == type_args)
+        .find_map(
+            |Given {
+                 constraint: given,
+                 owner,
+             }| {
+                let path = if given.class_id == class_id {
+                    Vec::new()
+                } else {
+                    class_env.superclass_path(given.class_id, class_id)?
+                };
+                Some(Evidence::FromGiven {
+                    given: given.clone(),
+                    owner: *owner,
+                    superclass_path: path,
+                })
+            },
+        )
+}
+
+/// A predicate in scope as a given, and which definition's given it is.
+///
+/// The owner travels with the predicate so that evidence solved from it can
+/// name the parameter that supplies it — including an *enclosing*
+/// definition's, which a nested scope inherits.
+#[derive(Debug, Clone)]
+struct Given {
+    constraint: SchemeConstraint,
+    owner: crate::types::class_disposition::GivenRef,
 }
 
 /// Solve class constraints, assigning every predicate a [`Disposition`].
@@ -536,7 +569,7 @@ fn classify_constraint(
 #[derive(Debug, Default)]
 struct InstanceSearch<'a> {
     /// The context every subgoal may be discharged against.
-    givens: &'a [SchemeConstraint],
+    givens: &'a [Given],
     /// Predicates on the current path, for cycle detection.
     seen: HashSet<String>,
     /// Set when the budget cut a branch short, so the caller can say the
@@ -605,6 +638,9 @@ fn solve_instance_evidence(
     // The instance search is a closure so that its `?` and early `return`
     // leave *it* rather than this function — falling through to the structural
     // rule below, and still reaching the `seen.remove` at the end.
+    let is_marker = class_env
+        .lookup_class_by_id(class_id)
+        .is_some_and(|class| class.methods.is_empty());
     let from_instance = (|| {
         let (instance, subst) =
             class_env.resolve_instance_with_subst_by_id(class_id, type_args, interner)?;
@@ -646,10 +682,7 @@ fn solve_instance_evidence(
 
         // A class with no methods has no dictionary to pass, so naming the
         // instance would imply a runtime value that does not exist.
-        if class_env
-            .lookup_class_by_id(class_id)
-            .is_some_and(|class| class.methods.is_empty())
-        {
+        if is_marker {
             return Some(Evidence::Marker);
         }
 
@@ -657,20 +690,25 @@ fn solve_instance_evidence(
             instance: InstanceKey {
                 class_id: instance.class_id,
                 head_type_args: type_args.to_vec(),
-                dict_type_key: instance
-                    .type_args
-                    .iter()
-                    .map(|arg| arg.display_with(interner))
-                    .collect::<Vec<_>>()
-                    .join("_"),
+                dict_type_key: instance.type_key.clone(),
             },
             subst,
             context,
         })
     })();
+    // The structural rule decides whether a marker holds (`Sendable<(Int,
+    // List<Int>)>` from its components), but a marker still has no dictionary
+    // to build from those components: its evidence is `Marker` either way.
     let evidence = from_instance.or_else(|| {
-        structural_builtin_evidence(class_id, type_args, class_env, interner, search)
-            .map(|components| Evidence::Structural { components })
+        structural_builtin_evidence(class_id, type_args, class_env, interner, search).map(
+            |components| {
+                if is_marker {
+                    Evidence::Marker
+                } else {
+                    Evidence::Structural { components }
+                }
+            },
+        )
     });
 
     search.seen.remove(&key);
@@ -1030,7 +1068,12 @@ mod tests {
                 class_id,
                 instance_module: ModulePath::EMPTY,
                 is_public: false,
-                type_key: String::new(),
+                type_key: crate::types::class_env::instance_type_key(
+                    std::slice::from_ref(head),
+                    &[],
+                    interner,
+                ),
+                head_modules: Vec::new(),
                 type_args: vec![head.clone()],
                 context: Vec::new(),
                 context_class_ids: Vec::new(),
@@ -1041,6 +1084,217 @@ mod tests {
             });
         }
         env
+    }
+
+    fn given_on(class_name: Identifier, var: crate::types::TypeVarId) -> SchemeConstraint {
+        SchemeConstraint {
+            class_name,
+            class_id: ClassId::from_local_name(class_name),
+            type_args: vec![InferType::Var(var)],
+        }
+    }
+
+    fn scope(
+        definition: u32,
+        givens: Vec<SchemeConstraint>,
+        quantified: Vec<crate::types::TypeVarId>,
+        wanted: WantedConstraints,
+    ) -> crate::ast::type_infer::constraint::Implication {
+        crate::ast::type_infer::constraint::Implication {
+            givens,
+            quantified,
+            wanted,
+            span: Span::default(),
+            binder: Identifier::new(0),
+            definition: crate::syntax::expression::ExprId(definition),
+        }
+    }
+
+    fn owner_of(outcome: &SolveOutcome) -> crate::types::class_disposition::GivenRef {
+        match &outcome.dispositions[..] {
+            [
+                DispositionedConstraint {
+                    disposition:
+                        Disposition::Solved {
+                            evidence: Evidence::FromGiven { owner, .. },
+                        },
+                    ..
+                },
+            ] => *owner,
+            other => panic!("expected one predicate solved from a given, got {other:?}"),
+        }
+    }
+
+    /// Evidence from a given names the definition holding it and the given's
+    /// position, so lowering can find the parameter without a name lookup.
+    #[test]
+    fn evidence_from_a_given_names_its_definition_and_position() {
+        let mut interner = Interner::new();
+        let env = env_with_instances(&mut interner, &[]);
+        let sizeable = interner.intern("Sizeable");
+        let tree = WantedConstraints {
+            simple: vec![],
+            implications: vec![scope(
+                7,
+                vec![given_on(sizeable, 1), given_on(sizeable, 0)],
+                vec![0, 1],
+                WantedConstraints {
+                    simple: vec![wanted(sizeable, vec![InferType::Var(0)])],
+                    implications: vec![],
+                },
+            )],
+        };
+
+        let outcome = solve_wanted_tree(&tree, SolveScope::WholeProgram, &env, &interner);
+
+        assert_eq!(
+            owner_of(&outcome),
+            crate::types::class_disposition::GivenRef {
+                definition: crate::syntax::expression::ExprId(7),
+                index: 1,
+            }
+        );
+    }
+
+    /// A nested definition inherits its parent's givens. Evidence from one of
+    /// them names the *parent*: the nested definition has no parameter for it.
+    #[test]
+    fn evidence_from_an_enclosing_given_names_the_enclosing_definition() {
+        let mut interner = Interner::new();
+        let env = env_with_instances(&mut interner, &[]);
+        let sizeable = interner.intern("Sizeable");
+        let inner = scope(
+            9,
+            vec![],
+            vec![2],
+            WantedConstraints {
+                simple: vec![wanted(sizeable, vec![InferType::Var(0)])],
+                implications: vec![],
+            },
+        );
+        let tree = WantedConstraints {
+            simple: vec![],
+            implications: vec![scope(
+                7,
+                vec![given_on(sizeable, 0)],
+                vec![0],
+                WantedConstraints {
+                    simple: vec![],
+                    implications: vec![inner],
+                },
+            )],
+        };
+
+        let outcome = solve_wanted_tree(&tree, SolveScope::WholeProgram, &env, &interner);
+
+        assert_eq!(
+            owner_of(&outcome),
+            crate::types::class_disposition::GivenRef {
+                definition: crate::syntax::expression::ExprId(7),
+                index: 0,
+            }
+        );
+    }
+
+    /// A site answered from a given passes that given's *parameter*: the
+    /// position its definition records for it, after an earlier given that
+    /// gets no parameter has closed the gap — not the given's own position.
+    #[test]
+    fn a_site_answered_from_a_given_passes_its_definitions_parameter() {
+        let mut interner = Interner::new();
+        let mut env = env_with_instances(&mut interner, &[]);
+        let sizeable = interner.intern("Sizeable");
+        let marker = interner.intern("Marker");
+        let marker_def = {
+            let mut def = env
+                .lookup_class_by_id(ClassId::from_local_name(sizeable))
+                .expect("Sizeable is declared")
+                .clone();
+            def.name = marker;
+            def.methods.clear();
+            def
+        };
+        env.classes
+            .insert(ClassId::from_local_name(marker), marker_def);
+        let site = crate::syntax::expression::ExprId(50);
+        let tree = WantedConstraints {
+            simple: vec![],
+            implications: vec![scope(
+                7,
+                vec![given_on(marker, 0), given_on(sizeable, 0)],
+                vec![0],
+                WantedConstraints {
+                    simple: vec![WantedClassConstraint {
+                        expr: Some(site),
+                        ..wanted(sizeable, vec![InferType::Var(0)])
+                    }],
+                    implications: vec![],
+                },
+            )],
+        };
+        let outcome = solve_wanted_tree(&tree, SolveScope::WholeProgram, &env, &interner);
+
+        let mut map = crate::types::evidence::EvidenceMap::new();
+        map.record_definitions(&tree, &env);
+        for entry in &outcome.dispositions {
+            let raised = map.raise(site, (&entry.wanted).into());
+            if let Disposition::Solved { evidence } = &entry.disposition {
+                map.insert(raised, evidence.clone());
+            }
+        }
+
+        assert_eq!(
+            map.dict_args_at(site),
+            Some(vec![crate::types::translate::DictArg::Param {
+                owner: crate::syntax::expression::ExprId(7),
+                index: 0,
+                path: vec![],
+            }])
+        );
+    }
+
+    /// A definition's parameters are its givens over its own variables whose
+    /// class carries a dictionary, in order. A filtered given has no
+    /// parameter, and the ones after it close the gap.
+    #[test]
+    fn a_definitions_parameters_skip_markers_and_foreign_variables() {
+        let mut interner = Interner::new();
+        let mut env = env_with_instances(&mut interner, &[]);
+        let sizeable = interner.intern("Sizeable");
+        let marker = interner.intern("Marker");
+        let marker_def = {
+            let mut def = env
+                .lookup_class_by_id(ClassId::from_local_name(sizeable))
+                .expect("Sizeable is declared")
+                .clone();
+            def.name = marker;
+            def.methods.clear();
+            def
+        };
+        env.classes
+            .insert(ClassId::from_local_name(marker), marker_def);
+        let tree = WantedConstraints {
+            simple: vec![],
+            implications: vec![scope(
+                7,
+                vec![
+                    given_on(marker, 0),   // a marker: no dictionary
+                    given_on(sizeable, 5), // not quantified here
+                    given_on(sizeable, 0), // the one parameter
+                ],
+                vec![0],
+                WantedConstraints::default(),
+            )],
+        };
+
+        let mut map = crate::types::evidence::EvidenceMap::new();
+        map.record_definitions(&tree, &env);
+
+        let definition = map
+            .definition(crate::syntax::expression::ExprId(7))
+            .expect("the definition is recorded although its body raised nothing");
+        assert_eq!(definition.params, vec![given_on(sizeable, 0)]);
+        assert_eq!(definition.param_of_given, vec![None, None, Some(0)]);
     }
 
     fn wanted(class_name: Identifier, type_args: Vec<InferType>) -> WantedClassConstraint {
@@ -1089,6 +1343,45 @@ mod tests {
             }
             other => panic!("expected FromInstance evidence, got {other:?}"),
         }
+    }
+
+    /// A marker holds structurally — `Sendable<(Int, List<Int>)>` because each
+    /// component is `Sendable` — but has no dictionary to build from those
+    /// components, so its evidence is `Marker`, as an instance's would be.
+    #[test]
+    fn a_structurally_discharged_marker_is_a_marker() {
+        let mut interner = Interner::new();
+        let mut class_env = ClassEnv::new();
+        class_env.register_builtins(&mut interner);
+        let sendable = interner.intern("Sendable");
+        let pair = InferType::Tuple(vec![
+            InferType::Con(TypeConstructor::Int),
+            InferType::App(
+                TypeConstructor::List,
+                vec![InferType::Con(TypeConstructor::Int)],
+            ),
+        ]);
+
+        let outcome = solve_class_constraints_dispositioned(
+            &[wanted(sendable, vec![pair])],
+            SolveScope::WholeProgram,
+            &class_env,
+            &interner,
+        );
+
+        let [entry] = &outcome.dispositions[..] else {
+            panic!("expected exactly one disposition");
+        };
+        assert!(
+            matches!(
+                entry.disposition,
+                Disposition::Solved {
+                    evidence: Evidence::Marker
+                }
+            ),
+            "got {:?}",
+            entry.disposition
+        );
     }
 
     /// Overlap detection counts candidates, so it cannot depend on the order

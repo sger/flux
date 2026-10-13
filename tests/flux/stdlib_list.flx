@@ -288,7 +288,9 @@ fn test_enumerate_pairs_each_element_with_its_index() {
 
 fn test_sort_orders_ascending() {
     assert_eq(List.sort([3, 1, 2]), [1, 2, 3])
-    assert_eq(List.sort([]), [])
+    // An empty list's element type is not inferable; `sort` needs one (E459).
+    let no_ints: List<Int> = []
+    assert_eq(List.sort(no_ints), [])
     assert_eq(List.sort([1]), [1])
 }
 
@@ -309,8 +311,9 @@ fn test_maximum_and_minimum_return_options() {
 }
 
 fn test_maximum_and_minimum_of_the_empty_list_are_none() {
-    assert_eq(List.maximum([]), None)
-    assert_eq(List.minimum([]), None)
+    let no_ints: List<Int> = []
+    assert_eq(List.maximum(no_ints), None)
+    assert_eq(List.minimum(no_ints), None)
 }
 
 // ── aggregation ────────────────────────────────────────────────
@@ -330,7 +333,8 @@ fn test_sum_and_product_of_the_empty_list_are_the_identities() {
 
 fn test_nub_keeps_the_first_occurrence_of_each_value() {
     assert_eq(List.nub([1, 2, 1, 3, 2]), [1, 2, 3])
-    assert_eq(List.nub([]), [])
+    let no_ints: List<Int> = []
+    assert_eq(List.nub(no_ints), [])
 }
 
 fn test_unique_by_deduplicates_on_a_derived_key() {

@@ -34,6 +34,14 @@ impl Compiler {
         // surface first in the error list.
         self.errors.extend(hm_diagnostics);
 
+        // Lowering's error stands only when the unit has no error of its own
+        // that explains it.
+        if let Some(lowering_error) = self.deferred_lowering_error.take()
+            && !self.errors.iter().any(|d| d.severity() == Severity::Error)
+        {
+            self.errors.push(lowering_error);
+        }
+
         // Only hard errors flip compilation to `Err`. Warnings and
         // notes are collected and surfaced via `take_warnings`, so
         // pushing them into `self.errors` must not cascade-skip

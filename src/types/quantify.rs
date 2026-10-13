@@ -20,7 +20,9 @@ use crate::{
         SchemeConstraint, WantedClassConstraint, WantedClassConstraintOrigin,
     },
     diagnostics::{
-        Diagnostic, DiagnosticBuilder, compiler_errors::AMBIGUOUS_TYPE_VARIABLE, diagnostic_for,
+        Diagnostic, DiagnosticBuilder,
+        compiler_errors::{AMBIGUOUS_TYPE_VARIABLE, UNDETERMINED_CLASS_PARAMETER},
+        diagnostic_for,
     },
     syntax::interner::Interner,
     types::{
@@ -186,6 +188,26 @@ pub fn decide_quantification(spec: QuantifySpec<'_>) -> Quantified {
             }
         }
     }
+
+    // The monomorphism restriction (Haskell Report §4.5.5; GHC's
+    // `decideMonoTyVars`): a restricted binding does not quantify a variable
+    // its *inferred* context constrains. It cannot take a dictionary parameter,
+    // so quantifying the variable but not the predicate left the predicate
+    // over a variable no use would ever fix (`let add = \(x, y) -> x + y`),
+    // and quantifying both gave every use its own type (`let ch =
+    // Channel.make(5)`, whose `recv(ch)` never learnt what `send(ch, 4)` sent).
+    // Left monomorphic, `split` defers the predicate to the enclosing scope,
+    // where the uses determine it. A written bound still quantifies.
+    if spec.restriction == MonoRestriction::Restricted {
+        for constraint in &finalized_constraints {
+            if constraint.origin == WantedClassConstraintOrigin::ExplicitBound {
+                continue;
+            }
+            for var in constraint.type_args.iter().flat_map(InferType::free_vars) {
+                quantified.remove(&var);
+            }
+        }
+    }
     let quantified = quantified;
 
     let outcome = spec
@@ -266,8 +288,8 @@ fn mark_generalized(
 
 /// Whether a binding's obligations can be passed as dictionary parameters.
 ///
-/// Dictionary elaboration rewrites top-level definitions and their call sites
-/// (`insert_dict_args_at_call_sites`). A `let`-bound lambda inside a function
+/// Dictionary parameters belong to definitions (`fn` statements), and their
+/// callers pass them from evidence. A `let`-bound lambda inside a function
 /// body is a `CoreExpr::Let`, not a definition, so a dictionary parameter
 /// added to its scheme would never be supplied by its callers and the call
 /// would fail with an arity mismatch at runtime.
@@ -371,15 +393,6 @@ fn collect_scheme_constraints(
             .flat_map(InferType::free_vars)
             .any(|var| quantified.contains(&var));
         if !mentions_quantified {
-            continue;
-        }
-
-        // A nested binding cannot receive a dictionary parameter, so an
-        // obligation that would need one is left for the enclosing scope to
-        // discharge rather than recorded on a scheme no caller can satisfy.
-        if mode == MonoRestriction::Restricted
-            && constraint.origin == WantedClassConstraintOrigin::InferredOperator
-        {
             continue;
         }
 
@@ -588,6 +601,127 @@ fn reduce_one(
 /// same reason Stage 3 records those as `Stuck` rather than reporting them.
 /// GHC is candid that its own ambiguity check is a good-faith warning rather
 /// than a proof of uncallability, so under-reporting here is the safe error.
+/// The inferred predicates a definition leaves over a variable nothing can
+/// determine, as E459 diagnostics, each with the site it was raised at.
+///
+/// `sort([])` wants `Ord<?e>`. Once the body is inferred and numeric defaulting
+/// has run, `?e` is in neither the definition's type nor the environment: no
+/// caller can supply it and no later use can fix it, so no instance — and no
+/// dictionary — can be chosen. The old lowering guessed `Int`; this reports it
+/// instead (0.0.8 plan, rule 4; Haskell Report §4.3.4).
+///
+/// `constraints` and `binding_type` are taken as inferred; the substitution
+/// and the numeric defaulting `decide_quantification` would apply are applied
+/// here, so a definition bound at a monotype is judged the same way.
+/// `also_determined` holds variables some other binding owns: an unannotated
+/// helper bound at a monotype keeps its parameters' variables open for Phase
+/// 2 to generalize, which is not ambiguity in the definition around it.
+///
+/// Not judged:
+/// - a marker class, which needs no dictionary whatever the type;
+/// - an operator's predicate: an operator left infix lowers to a primitive,
+///   which takes no dictionary, so an undetermined type costs nothing there
+///   (`[] == []`; `acc + x` in a callback whose callee inference could not
+///   type);
+/// - a declared bound, which [`ambiguous_bound_diagnostics`] reports;
+/// - a field or tuple-projection predicate, which the whole-program solve
+///   determines from a use or reports itself — and which determines its
+///   result once its receiver is determined, as a functional dependency
+///   would;
+/// - an unknown class, already E441.
+pub(crate) fn ambiguous_uses(
+    constraints: &[WantedClassConstraint],
+    binding_type: &InferType,
+    env_free_vars: &HashSet<TypeVarId>,
+    also_determined: &HashSet<TypeVarId>,
+    current_subst: &TypeSubst,
+    class_env: Option<&ClassEnv>,
+    interner: &Interner,
+) -> Vec<(WantedClassConstraint, Diagnostic)> {
+    let Some(class_env) = class_env else {
+        return Vec::new();
+    };
+    let resolved_type = binding_type.apply_type_subst(current_subst);
+    let resolved = apply_wanted_constraints_subst(constraints, current_subst);
+    let public_vars: HashSet<TypeVarId> = resolved_type
+        .free_vars()
+        .difference(env_free_vars)
+        .copied()
+        .collect();
+    let default_subst =
+        build_numeric_default_subst(&resolved, &public_vars, Some(class_env), interner);
+    let constraints = apply_wanted_constraints_subst(&resolved, &default_subst);
+
+    let is_functional = |c: &WantedClassConstraint| {
+        matches!(
+            c.origin,
+            WantedClassConstraintOrigin::FieldAccess
+                | WantedClassConstraintOrigin::TupleProjection { .. }
+        )
+    };
+    let mut determined: HashSet<TypeVarId> = resolved_type.free_vars();
+    determined.extend(env_free_vars.iter().copied());
+    determined.extend(also_determined.iter().copied());
+    loop {
+        let before = determined.len();
+        for c in constraints.iter().filter(|c| is_functional(c)) {
+            let Some(receiver) = c.type_args.first() else {
+                continue;
+            };
+            if receiver
+                .free_vars()
+                .iter()
+                .all(|var| determined.contains(var))
+            {
+                determined.extend(c.type_args.iter().flat_map(InferType::free_vars));
+            }
+        }
+        if determined.len() == before {
+            break;
+        }
+    }
+
+    constraints
+        .into_iter()
+        .filter(|c| {
+            !matches!(
+                c.origin,
+                WantedClassConstraintOrigin::ExplicitBound
+                    | WantedClassConstraintOrigin::InferredOperator
+            ) && !is_functional(c)
+        })
+        .filter(|c| {
+            class_env
+                .lookup_class_by_id(c.class_id)
+                .is_some_and(|class| !class.methods.is_empty())
+        })
+        // A predicate the call fixed in part (`Convert<Int, ?b>`) is the
+        // solver's: improved from a sole candidate, or E459 with the
+        // candidates named, or E444. Only one with nothing fixed is judged.
+        .filter(|c| {
+            c.type_args
+                .iter()
+                .all(|arg| matches!(arg, InferType::Var(_)))
+        })
+        .filter(|c| {
+            c.type_args
+                .iter()
+                .flat_map(InferType::free_vars)
+                .any(|var| !determined.contains(&var))
+        })
+        .map(|constraint| {
+            let class = interner.resolve(constraint.class_name);
+            let diagnostic = diagnostic_for(&UNDETERMINED_CLASS_PARAMETER)
+                .with_span(constraint.span)
+                .with_message(format!(
+                    "Cannot determine which `{class}` instance this needs: nothing in \
+                     this definition fixes its type."
+                ));
+            (constraint, diagnostic)
+        })
+        .collect()
+}
+
 fn ambiguous_bound_diagnostics(
     constraints: &[WantedClassConstraint],
     quantified: &HashSet<TypeVarId>,
@@ -863,5 +997,46 @@ mod quantification_decision_tests {
         let scheme = decided.into_scheme();
         assert_eq!(scheme.forall, vec![1]);
         assert_eq!(scheme.infer_type, ty);
+    }
+    /// A restricted binding does not quantify a variable its inferred context
+    /// constrains (Haskell Report §4.5.5). `let ch = Channel.make(5)` wants
+    /// `Sendable<a>` over `Channel<a>`; quantifying `a` gave every use of `ch`
+    /// its own element type, so `recv(ch)` was never fixed by `send(ch, 4)`.
+    /// Left monomorphic, the predicate floats out and the uses determine it.
+    /// An unconstrained variable still generalizes.
+    #[test]
+    fn a_restricted_binding_leaves_its_constrained_variables_monomorphic() {
+        use crate::{
+            ast::type_infer::constraint::{WantedClassConstraint, WantedClassConstraintOrigin},
+            diagnostics::position::Span,
+            syntax::expression::ExprId,
+            types::class_id::ClassId,
+        };
+
+        let mut interner = Interner::new();
+        let sendable = interner.intern("Sendable");
+        // `(a, b)`, with `Sendable<a>` raised by a call.
+        let ty = InferType::Tuple(vec![InferType::Var(0), InferType::Var(1)]);
+        let wanted = WantedClassConstraint {
+            class_name: sendable,
+            class_id: ClassId::from_local_name(sendable),
+            type_args: vec![InferType::Var(0)],
+            span: Span::default(),
+            expr: Some(ExprId(7)),
+            origin: WantedClassConstraintOrigin::SchemeUse,
+        };
+
+        let decided = decide_quantification(QuantifySpec {
+            infer_type: &ty,
+            env_free_vars: &HashSet::new(),
+            constraints: std::slice::from_ref(&wanted),
+            current_subst: &TypeSubst::empty(),
+            class_env: None,
+            interner: &interner,
+            restriction: MonoRestriction::Restricted,
+        });
+
+        assert_eq!(decided.forall, vec![1]);
+        assert!(decided.scheme_constraints.is_empty());
     }
 }
