@@ -27,17 +27,16 @@ impl Compiler {
             self.type_optimize,
             Some(&self.type_env),
             class_env_ref,
-            Some(crate::core::passes::evidence_diff::EvidenceSource {
-                map: &self.evidence_map,
-                file_path: &self.file_path,
-                via: "cfg",
-            }),
+            Some(&self.evidence_map),
         ) {
             Ok(program) => program,
             // Codegen compiles every function on the AST path without IR,
             // which reports the unit's own errors. Finalization reports this
             // one only if there are none, so the unit still never runs.
-            Err(diag) => {
+            Err(mut diag) => {
+                if diag.file().is_none() {
+                    diag.set_file(self.file_path.clone());
+                }
                 self.deferred_lowering_error = Some(diag);
                 return Ok(IrProgram {
                     top_level_items: Vec::new(),

@@ -76,14 +76,12 @@ sweep_with_progress "$OUT/dump_${TAG}__dump_core" "$DUMP_FILES" \
   sh -c '"$1" "$2" "$3" "$4" "$5" > "$6" 2>&1' _ \
   "$PARKED/dsweep/sweep.sh" "$REPO_ROOT" "$OUT/dump_${TAG}__dump_core" "$OUT/files2.txt" \
   "--dump-core" "$OUT/dump_${TAG}_a.log"
-tail -1 "$OUT/dump_${TAG}_a.log"
 
 echo "== dump sweep (--optimize --dump-core)"
 sweep_with_progress "$OUT/dump_${TAG}__optimize___dump_core" "$DUMP_FILES" \
   sh -c '"$1" "$2" "$3" "$4" "$5" > "$6" 2>&1' _ \
   "$PARKED/dsweep/sweep.sh" "$REPO_ROOT" "$OUT/dump_${TAG}__optimize___dump_core" \
   "$OUT/files2.txt" "--optimize --dump-core" "$OUT/dump_${TAG}_b.log"
-tail -1 "$OUT/dump_${TAG}_b.log"
 
 echo "== internal errors"
 for dir in "sweep_$TAG" "dump_${TAG}__dump_core" "dump_${TAG}__optimize___dump_core"; do
