@@ -520,6 +520,91 @@ The fixing change was not identified; this was found by re-testing while
 building `examples/generics/`. Pinned by
 `examples/generics/working/accepts/annot_lambda_names_rigid_param.flx`.
 
+### KI-099 — Two modules' same-named types are one type at a use site
+
+**Severity:** Medium · **Area:** Types, type classes · **Verified:** 2026-10-08 · **From:** 0.0.8 Phase 1c
+
+`Two/Label.flx` declares `public class Label<a> { fn label(x: a) -> String }`.
+`Two/Shop.flx` and `Two/Game.flx` each declare their own `Item`, and give it
+an instance:
+
+```flux
+import Two.Label
+
+module Two.Shop {
+    public data Item { Item(Int) }
+    public instance Label<Item> { fn label(x) { "shop" } }
+    public fn make() -> Item { Item(1) }
+}
+```
+
+```flux
+import Two.Label exposing (label)
+import Two.Shop as Shop
+import Two.Game as Game
+
+fn main() with IO {
+    print(label(Shop.make()))   // error[E454]: Multiple instances match `Label<Item>`
+    print(label(Game.make()))   // error[E454]
+}
+```
+
+Both instances compile. Since `8180dea2`, each instance head records the
+module that defines it, so the two instances have different keys and
+different dictionaries. A **type**, though, is still its bare name
+(`TypeConstructor::Adt(Symbol)`). At the use site, `Shop.Item` and
+`Game.Item` are the same type, so both instances match.
+
+The fix is to give `TypeConstructor::Adt` the defining module, as instance
+heads now have. Every place that builds or compares an ADT type changes, and
+so does the `.flxi` format. The workaround is to give the types different
+names.
+
+### KI-101 — A bounded function without a complete signature cannot call itself
+
+**Severity:** Low · **Area:** Type inference, dictionary passing · **Verified:** 2026-10-11 · **From:** 0.0.8 plan, step 1e
+
+```flux
+fn has<a: Eq>(xs: List<a>, x: a) {
+    match xs {
+        [h | t] -> if h == x { true } else { has(t, x) },
+        _ -> false
+    }
+}
+```
+
+A recursive call instantiates the function's declared signature, bounds
+included, so it raises them and passes the function's own dictionaries. Only a
+*complete* signature, every parameter and the result annotated, is declared
+before the body is inferred. Without the `-> Bool`, `has` is a monotype inside
+its own body, and the recursive call raises no `Eq`. Lowering from evidence
+then has no dictionary to pass. It reports an internal error naming the call,
+rather than building a call one argument short.
+
+No program in `lib/`, `examples/` or `tests/` has this shape. Annotating the
+result fixes it. A real fix declares a scheme from the bounds and whatever
+annotations there are, or passes a monomorphic recursive call the definition's
+own parameters, as GHC's `AbsBinds` do.
+
+### KI-100 — `flux bytecode` compiles one file, without its imports or the prelude
+
+**Severity:** Low · **Area:** CLI · **Verified:** 2026-10-08
+
+```flux
+fn main() with IO {
+    print(sort([3, 1, 2]))
+}
+```
+
+`flux p.flx` prints `[1, 2, 3]`. `flux bytecode p.flx` stops with E004, "I
+can't find a value named `sort`". A file that imports one of its own modules
+gets E421 for every imported name.
+
+The subcommand compiles the file on its own: it builds no module graph, and it
+loads no prelude. So it only works on a file that uses nothing outside itself.
+Its output is therefore not the bytecode `flux` runs. Either build the module
+graph as `flux` does, or document it as a single-file tool.
+
 ### KI-098 — A generalized helper used at two types loses its representation
 
 **Severity:** Low · **Area:** Core lowering, specialisation · **Verified:** 2026-09-10 · **From:** G5 / 0187 B1
@@ -2500,6 +2585,13 @@ Regression coverage:
 `tests/integration/module_scoped_classes_tests.rs` asserts the parse directly,
 and `tests/parity/either_instances.flx` runs the whole chain five ways.
 
+**A third gap, found 2026-10-11** (`9ccf1214`). The matcher fix covered
+instance resolution, not unification. `unify` still could not solve `f<a>`
+against `Either<String, Int>`. A unit compile resolved the calls by matching,
+but re-inferring a merged program (for `--dump-core`) left `fmap`, `pure` and
+`bind` on `Either` unsolved. `unify` now binds `f` to the partially applied
+head, `Either<String>`, as the matcher does.
+
 ### KI-065 — A module's own function was shadowed by a class-method dispatch stub — **fixed 2026-09-02**
 
 **Severity:** High · **Area:** type classes, name resolution · **Verified:** 2026-09-02
@@ -2762,6 +2854,14 @@ binder.
 
 **Severity:** High · **Area:** Type classes / name resolution · **Verified:** 2026-09-03 · **From:** Flume typeclass conversion
 
+> **Re-measured 2026-10-13: does not reproduce.** The program above, with
+> `Ver` wrapping an `Int` and `Ord<Ver>`'s `compare` returning `Int`, prints
+> `true` on the VM and on native, with no crash (checked at `6f742a78`).
+> Which change stopped it was not bisected. The likely one is 0.0.8's step 1e:
+> lowering now builds a class-method call only where inference raised a
+> `MethodCall` predicate, and inference resolves the bare `compare` to the
+> module's own function. It stays open until Phase 3 pins it with a fixture.
+
 Declaring an instance inside a module silently rebinds every *unqualified* call
 to a module-level function whose name matches one of the instance's methods.
 
@@ -2808,6 +2908,13 @@ of its 60 tests red.
 ### KI-073 — Result-directed selection is lost on native when routed through a constrained function
 
 **Severity:** High · **Area:** Type classes / native backend · **Verified:** 2026-09-03 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+> **Re-measured 2026-10-13: fixed on native.** `via(42)` prints `"42"` on
+> both backends, and `syntax_tour.flx` passes VM↔LLVM parity. The Core path
+> that per-module LLVM uses lowers its dictionaries from evidence since
+> `f24b88a8` (0.0.8 step 1e), so the `where` bound's dictionary reaches
+> `convert`. Phase 3 mirrors the fixture into `tests/parity/` and marks this
+> fixed.
 
 ```flux
 class Convert<a, b> { fn convert(x: a) -> b }
@@ -2896,6 +3003,15 @@ sugar reaches only one — rather than suggesting an impossible declaration.
 > Reproduced by
 > [`examples/generics/failing/runtime/ki_076_operator_in_module.flx`](../examples/generics/failing/runtime/ki_076_operator_in_module.flx),
 > which is snapshot-pinned, so the next change of symptom shows up as a diff.
+>
+> **Re-measured 2026-10-13: native now runs; the VM does not.** Since 0.0.8's
+> step 1e, native prints `9`, as the top-level control does. The VM still fails with
+> `want=3, got=2` at the `x <= y`. Evidence is right on both: the `<=` in
+> `bigger` is a `MethodCall` answered from `bigger`'s own `Ord` parameter,
+> and the merged program's Core projects `lte` out of it. `want=3` is the arity of
+> `Ord<V>`'s instance method with its `Eq<V>` context dictionary first, which
+> points at how the VM builds or applies a contextual instance's dictionary
+> rather than at the operator. Not yet confirmed.
 
 At top level, a constrained function's operator dispatches through the
 dictionary and works on a user type:

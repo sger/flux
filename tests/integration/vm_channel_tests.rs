@@ -191,6 +191,30 @@ fn main() with IO {
     );
 }
 
+/// `Sendable<Channel<a>>` is synthesized in `Flow.Channel`; an importer has to
+/// see it. Typed as a parameter, `ch` is `Channel<Int>` whatever a `let` would
+/// infer, so this does not depend on how the binding generalizes.
+#[test]
+fn imported_channel_type_is_sendable_into_task_closure() {
+    assert_flux(
+        r#"
+import Flow.Channel as Channel
+import Flow.Task as Task
+
+fn go(ch: Channel<Int>) -> Bool {
+    let t = Task.spawn(fn() { Channel.try_send(ch, 31) })
+    Task.blocking_join(t)
+}
+
+fn main() with IO {
+    print(go(Channel.make(1)))
+}
+"#,
+        "imported-sendable",
+        &["true"],
+    );
+}
+
 #[test]
 fn channel_len_and_cap_report_buffer_state() {
     assert_flux(

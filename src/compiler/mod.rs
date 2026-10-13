@@ -453,6 +453,17 @@ fn imported_instance_def_from_entry(
         .iter()
         .map(|ty| remap_type_expr(ty, remap))
         .collect();
+    let head_modules: Vec<_> = entry
+        .head_modules
+        .iter()
+        .map(|module| {
+            if module.is_empty() {
+                crate::types::class_id::ModulePath::EMPTY
+            } else {
+                crate::types::class_id::ModulePath::from_identifier(interner.intern(module))
+            }
+        })
+        .collect();
     Some(crate::types::class_env::InstanceDef {
         origin: crate::types::class_env::InstanceOrigin::Declared,
         class_name,
@@ -466,7 +477,12 @@ fn imported_instance_def_from_entry(
             interner.intern(&entry.instance_module),
         ),
         is_public: true,
-        type_key: crate::types::class_env::instance_type_key(&remapped_type_args, interner),
+        type_key: crate::types::class_env::instance_type_key(
+            &remapped_type_args,
+            &head_modules,
+            interner,
+        ),
+        head_modules,
         type_args: remapped_type_args,
         context,
         context_class_ids,
@@ -530,6 +546,7 @@ fn remap_public_instance_entry(
             .map(|constraint| remap_class_constraint(constraint, remap))
             .collect(),
         context_class_modules: entry.context_class_modules.clone(),
+        head_modules: entry.head_modules.clone(),
         associated_types: entry
             .associated_types
             .iter()
@@ -551,29 +568,6 @@ fn remap_public_instance_entry(
             .collect(),
         pinned_row_placeholder: entry.pinned_row_placeholder.clone(),
     }
-}
-
-fn build_public_class_method_scheme(
-    class_def: &crate::types::class_env::ClassDef,
-    method: &crate::types::class_env::MethodSig,
-    interner: &Interner,
-) -> Scheme {
-    // The conversion happens once, when the class is collected, and is shared
-    // by every consumer; this is only the generalization step. The fallback
-    // re-converts for a `MethodSig` built without one — the synthetic
-    // placeholders in dictionary elaboration and in tests.
-    let fun = method.infer_type.clone().unwrap_or_else(|| {
-        crate::types::class_env::method_infer_type(
-            &class_def.type_params,
-            &method.type_params,
-            &method.param_types,
-            &method.return_type,
-            &method.effects,
-            interner,
-        )
-        .expect("public class method signature should convert")
-    });
-    crate::types::scheme::generalize(&fun, &HashSet::new())
 }
 
 fn collect_implicit_type_params(ty: &TypeExpr, interner: &Interner, out: &mut HashSet<Identifier>) {
@@ -812,12 +806,7 @@ fn preload_imported_instance_schemes(
     class_def: &crate::types::class_env::ClassDef,
     interner: &mut Interner,
 ) {
-    let type_key = instance_def
-        .type_args
-        .iter()
-        .map(|arg| arg.display_with(interner))
-        .collect::<Vec<_>>()
-        .join("_");
+    let type_key = instance_def.type_key.clone();
     let module_qualifier = instance_def
         .instance_module
         .as_identifier()
@@ -915,16 +904,13 @@ fn preload_imported_instance_schemes(
         };
         out.insert(
             mangled_sym,
-            build_public_class_method_scheme(
-                &crate::types::class_env::ClassDef {
-                    type_params: vec![],
-                    methods: vec![],
-                    default_methods: vec![],
-                    ..class_def.clone()
-                },
-                &specialized_method,
-                interner,
-            ),
+            crate::types::class_env::ClassDef {
+                type_params: vec![],
+                methods: vec![],
+                default_methods: vec![],
+                ..class_def.clone()
+            }
+            .method_scheme(&specialized_method, interner),
         );
     }
 }
@@ -938,12 +924,7 @@ fn merge_imported_public_instances(
     for imported in imported_instances {
         let duplicate = env.instances.iter().find(|existing| {
             existing.class_id == imported.class_id
-                && existing.type_args.len() == imported.type_args.len()
-                && existing
-                    .type_args
-                    .iter()
-                    .zip(imported.type_args.iter())
-                    .all(|(a, b)| a.structural_eq(b))
+                && existing.has_same_head(&imported.type_args, &imported.head_modules)
         });
         if let Some(existing) = duplicate {
             let display_class = interner.resolve(imported.class_name);
@@ -1403,7 +1384,9 @@ pub struct Compiler {
     /// independent sites.
     pub(super) evidence_map: crate::types::evidence::EvidenceMap,
     pub(super) contextual_function_contracts: HashMap<ExprId, FunctionContract>,
-    pub(super) current_member_schemes: HashMap<(Symbol, Symbol), Scheme>,
+    /// The current unit's private module members' schemes, by (module,
+    /// member). Never exported: a private member is in no interface.
+    pub(super) private_member_schemes: HashMap<(Symbol, Symbol), Scheme>,
     /// Accumulated HM-inferred type schemes for public module members.
     ///
     /// Persists across `set_file_path()` calls so that downstream modules
@@ -1415,6 +1398,10 @@ pub struct Compiler {
     /// True when HM type inference produced diagnostics. Used to block CFG path
     /// for functions in files with type errors (the Core IR may be degenerate).
     pub(super) has_hm_diagnostics: bool,
+    /// A unit's IR lowering error, held back until codegen has reported what
+    /// the unit's own errors are. Lowering from evidence fails on a site an
+    /// error left without an answer; that error is the one to report.
+    pub(super) deferred_lowering_error: Option<Diagnostic>,
     pub(super) ir_function_symbols: HashMap<FunctionId, Symbol>,
     pub(super) inferred_function_effects: HashMap<ContractKey, HashSet<Symbol>>,
     strict_mode: bool,
@@ -1520,19 +1507,6 @@ enum LoweringPreparationMode {
 #[cfg(test)]
 mod compiler_test;
 
-fn collect_program_module_names(program: &Program, out: &mut HashSet<Identifier>) {
-    fn walk(statements: &[Statement], out: &mut HashSet<Identifier>) {
-        for statement in statements {
-            if let Statement::Module { name, body, .. } = statement {
-                out.insert(*name);
-                walk(&body.statements, out);
-            }
-        }
-    }
-
-    walk(&program.statements, out);
-}
-
 impl Compiler {
     /// The solver's evidence for every predicate a call site raised.
     ///
@@ -1580,12 +1554,7 @@ impl Compiler {
             let Some(class_def) = self.class_env.lookup_class_by_id(instance.class_id) else {
                 continue;
             };
-            let type_key = instance
-                .type_args
-                .iter()
-                .map(|arg| arg.display_with(&self.interner))
-                .collect::<Vec<_>>()
-                .join("_");
+            let type_key = instance.type_key.clone();
             for method in &class_def.methods {
                 let method_name = self.interner.resolve(method.name);
                 let mangled = crate::types::class_env::mangled_method_name(
@@ -1687,6 +1656,7 @@ impl Compiler {
                 span: *span,
             },
             span: *span,
+            id: id_gen.next_id(),
         })
     }
 
@@ -1977,11 +1947,12 @@ impl Compiler {
             hm_expr_types: HashMap::new(),
             evidence_map: crate::types::evidence::EvidenceMap::new(),
             contextual_function_contracts: HashMap::new(),
-            current_member_schemes: HashMap::new(),
+            private_member_schemes: HashMap::new(),
             cached_member_schemes: HashMap::new(),
             cached_member_borrow_signatures: HashMap::new(),
             cached_member_runtime_contracts: HashMap::new(),
             has_hm_diagnostics: false,
+            deferred_lowering_error: None,
             ir_function_symbols: HashMap::new(),
             inferred_function_effects: HashMap::new(),
             strict_mode: false,
@@ -2115,7 +2086,12 @@ impl Compiler {
     fn apply_hm_final(&mut self, hm_final: &InferProgramResult) {
         self.type_env = hm_final.type_env.clone();
         self.hm_expr_types = hm_final.expr_types.clone();
-        self.current_member_schemes = hm_final.module_member_schemes.clone();
+        // The program being lowered may not be the one the unit's inference
+        // solved (a merged program has its ids shifted), so its evidence is
+        // solved again with the types above. The diagnostics are dropped: each
+        // unit's compile already reported them for the same source.
+        let _ =
+            self.solve_class_constraints(&hm_final.class_constraints, &hm_final.class_method_calls);
     }
 
     #[allow(clippy::result_large_err)]
@@ -2123,44 +2099,35 @@ impl Compiler {
         &self,
         program_to_lower: &Program,
         optimize: bool,
-        elaborate_dictionaries: bool,
+        define_dictionaries: bool,
     ) -> Result<crate::core::CoreProgram, Diagnostic> {
         let class_env_ref = if self.class_env.classes.is_empty() {
             None
         } else {
             Some(&self.class_env)
         };
-        let mut module_member_schemes = self.build_preloaded_hm_member_schemes(program_to_lower);
-        let mut local_modules = HashSet::new();
-        collect_program_module_names(program_to_lower, &mut local_modules);
-        for ((module_name, member_name), scheme) in &self.current_member_schemes {
-            if local_modules.contains(module_name) {
-                module_member_schemes.insert((*module_name, *member_name), scheme.clone());
-            }
+        // 0.0.8 plan step 1e: dictionary parameters, arguments and method
+        // calls come from evidence, so elaboration only defines the
+        // dictionaries the program names.
+        let (mut core, errors) = crate::core::lower_ast::lower_program_ast_with_evidence(
+            program_to_lower,
+            &self.hm_expr_types,
+            Some(&self.interner),
+            Some(&self.type_env),
+            None,
+            class_env_ref,
+            Some(&self.evidence_map),
+        );
+        if let Some(mut error) = errors.into_iter().next() {
+            error.set_file(self.file_path.clone());
+            return Err(error);
         }
-        for ((module_name, member_name), scheme) in &self.cached_member_schemes {
-            if local_modules.contains(module_name) {
-                module_member_schemes.insert((*module_name, *member_name), scheme.clone());
-            }
-        }
-        let (mut core, def_schemes) =
-            crate::core::lower_ast::lower_program_ast_with_class_env_and_def_schemes(
-                program_to_lower,
-                &self.hm_expr_types,
-                Some(&self.interner),
-                Some(&self.type_env),
-                None,
-                class_env_ref,
-                Some(&module_member_schemes),
-            );
 
-        if elaborate_dictionaries {
+        if define_dictionaries {
             let mut next_id = crate::core::passes::next_fresh_binder_id(&core);
-            crate::core::passes::elaborate_dictionaries_with_def_schemes(
+            crate::core::passes::build_referenced_dictionaries(
                 &mut core,
                 &self.class_env,
-                &self.type_env,
-                &def_schemes,
                 &self.interner,
                 &mut next_id,
             );
@@ -2177,10 +2144,9 @@ impl Compiler {
         &self,
         program_to_lower: &Program,
         optimize: bool,
-        elaborate_dictionaries: bool,
+        define_dictionaries: bool,
     ) -> Result<crate::aether::AetherProgram, Diagnostic> {
-        let core =
-            self.lower_core_from_program(program_to_lower, optimize, elaborate_dictionaries)?;
+        let core = self.lower_core_from_program(program_to_lower, optimize, define_dictionaries)?;
         let preloaded_registry = self.build_preloaded_borrow_registry(program_to_lower);
         let (aether, _) = crate::aether::lower_core_to_aether_program(
             &core,
@@ -2195,22 +2161,29 @@ impl Compiler {
         &mut self,
         program: &Program,
         optimize: bool,
-        elaborate_dictionaries: bool,
+        define_dictionaries: bool,
     ) -> Result<crate::core::CoreProgram, Diagnostic> {
-        if optimize {
-            use crate::ast::{constant_fold_with_interner, desugar, rename};
-            let desugared = desugar(program.clone());
-            let optimized = constant_fold_with_interner(desugared, &self.interner);
-            let mut program_to_lower = rename(optimized, HashMap::new());
-            self.apply_named_field_desugar(&mut program_to_lower);
-            return self.lower_core_from_program(&program_to_lower, true, elaborate_dictionaries);
-        }
-
-        let prepared = self.prepare_program_for_lowering(program);
+        let optimized = self.optimize_for_lowering(program.clone(), optimize);
+        let prepared = self.prepare_program_for_lowering(&optimized);
         self.apply_hm_final(&prepared.hm_final);
         let mut program_to_lower = prepared.effective_program.into_owned();
         self.apply_named_field_desugar(&mut program_to_lower);
-        self.lower_core_from_program(&program_to_lower, false, elaborate_dictionaries)
+        self.lower_core_from_program(&program_to_lower, optimize, define_dictionaries)
+    }
+
+    /// With `optimize`, the syntactic optimizations a lowering path applies.
+    ///
+    /// They run *before* the final inference, as in `compile_with_opts`, so
+    /// the types and evidence lowering reads are those of the program it
+    /// lowers. Run after it, a folded expression kept its predicate at a site
+    /// lowering never reaches.
+    fn optimize_for_lowering(&self, program: Program, optimize: bool) -> Program {
+        if !optimize {
+            return program;
+        }
+        use crate::ast::{constant_fold_with_interner, desugar, rename};
+        let optimized = constant_fold_with_interner(desugar(program), &self.interner);
+        rename(optimized, HashMap::new())
     }
 
     /// run the named-field AST desugar in place. No-op when
@@ -2233,42 +2206,17 @@ impl Compiler {
     }
 
     #[allow(clippy::result_large_err)]
-    fn prepare_backend_core_program(
-        &mut self,
-        program: &Program,
-        optimize: bool,
-    ) -> Result<crate::aether::AetherProgram, Diagnostic> {
-        if optimize {
-            use crate::ast::{constant_fold_with_interner, desugar, rename};
-            let desugared = desugar(program.clone());
-            let optimized = constant_fold_with_interner(desugared, &self.interner);
-            let mut program_to_lower = rename(optimized, HashMap::new());
-            self.apply_named_field_desugar(&mut program_to_lower);
-            return self.lower_aether_from_program(&program_to_lower, true, true);
-        }
-
-        let prepared = self.prepare_program_for_lowering(program);
-        self.apply_hm_final(&prepared.hm_final);
-        let mut program_to_lower = prepared.effective_program.into_owned();
-        self.apply_named_field_desugar(&mut program_to_lower);
-        self.lower_aether_from_program(&program_to_lower, false, true)
-    }
-
-    #[allow(clippy::result_large_err)]
     fn prepare_backend_core_program_with_preloaded(
         &mut self,
         program: &Program,
         optimize: bool,
     ) -> Result<crate::aether::AetherProgram, Diagnostic> {
-        if optimize {
-            return self.prepare_backend_core_program(program, true);
-        }
-
-        let prepared = self.prepare_program_for_lowering_with_preloaded(program);
+        let optimized = self.optimize_for_lowering(program.clone(), optimize);
+        let prepared = self.prepare_program_for_lowering_with_preloaded(&optimized);
         self.apply_hm_final(&prepared.hm_final);
         let mut program_to_lower = prepared.effective_program.into_owned();
         self.apply_named_field_desugar(&mut program_to_lower);
-        self.lower_aether_from_program(&program_to_lower, false, true)
+        self.lower_aether_from_program(&program_to_lower, optimize, true)
     }
 
     fn prepare_program_for_lowering_internal<'a>(
@@ -2673,8 +2621,7 @@ impl Compiler {
                             self.symbol_table.define(qualified, Span::default());
                         }
                         self.preloaded_imported_globals.insert(qualified);
-                        let scheme =
-                            build_public_class_method_scheme(&class_def, method, &self.interner);
+                        let scheme = class_def.method_scheme(method, &self.interner);
                         self.cached_member_schemes
                             .insert((module_name, method.name), scheme);
                         self.module_function_visibility
@@ -2856,14 +2803,59 @@ impl Compiler {
                             .type_args
                             .iter()
                             .zip(instance.type_args.iter())
-                            .all(|(left, right)| {
-                                left.structural_eq(right)
-                                    || left.display_with(&self.interner)
-                                        == right.display_with(&self.interner)
+                            .enumerate()
+                            .all(|(idx, (left, right))| {
+                                // A same-named head from another module is a
+                                // different type, so its instance is kept.
+                                existing.head_module(idx) == instance.head_module(idx)
+                                    && (left.structural_eq(right)
+                                        || left.display_with(&self.interner)
+                                            == right.display_with(&self.interner))
                             })
                 })
             {
                 self.imported_public_instances.push(instance);
+            }
+        }
+        self.resolve_dangling_dependency_class_ids();
+    }
+
+    /// Re-resolve the class a preloaded instance context or superclass names,
+    /// where it was resolved before that class had been preloaded.
+    ///
+    /// A dependency's statements are collected against the classes preloaded
+    /// so far. One it reaches only through the class prelude, as `Flow.Monoid`
+    /// reaches `Semigroup`, may not be among them yet, and resolution then
+    /// falls back to a module-less `ClassId` that names no class: an instance
+    /// with that context can never be used. Once the class is known, and only
+    /// one class has the name, the reference is pointed at it. Every
+    /// dependency is preloaded before a unit compiles, so the result does not
+    /// depend on preload order.
+    fn resolve_dangling_dependency_class_ids(&mut self) {
+        let classes = &self.imported_public_classes;
+        let resolve = |id: &mut crate::types::class_id::ClassId| {
+            if !id.module.is_empty() || classes.contains_key(id) {
+                return;
+            }
+            let mut named = classes.keys().filter(|candidate| candidate.name == id.name);
+            if let (Some(found), None) = (named.next(), named.next()) {
+                *id = *found;
+            }
+        };
+        for instance in &mut self.imported_public_instances {
+            instance.context_class_ids.iter_mut().for_each(resolve);
+        }
+        let mut superclass_fixes = Vec::new();
+        for (class_id, class) in &self.imported_public_classes {
+            let mut ids = class.superclass_class_ids.clone();
+            ids.iter_mut().for_each(resolve);
+            if ids != class.superclass_class_ids {
+                superclass_fixes.push((*class_id, ids));
+            }
+        }
+        for (class_id, ids) in superclass_fixes {
+            if let Some(class) = self.imported_public_classes.get_mut(&class_id) {
+                class.superclass_class_ids = ids;
             }
         }
     }
@@ -3951,9 +3943,9 @@ impl Compiler {
                     };
                     let expanded_params: Vec<Option<TypeExpr>> = parameter_types
                         .iter()
-                        .map(|ty| ty.as_ref().map(&expand))
+                        .map(|ty| ty.as_ref().map(expand))
                         .collect();
-                    let expanded_ret = return_type.as_ref().map(&expand);
+                    let expanded_ret = return_type.as_ref().map(expand);
                     self.module_contracts.insert(
                         ContractKey {
                             module_name,
@@ -4366,6 +4358,7 @@ impl Compiler {
         // first refusal. When `Flow.Primops` has been preloaded, names covered
         // by that module are not supplied by the Rust fallback table.
         self.inject_primop_hm_schemes(&mut exposed_schemes, flow_primops_loaded);
+        self.inject_imported_class_method_schemes(&mut exposed_schemes);
 
         // Imported instance method schemes are hidden implementation details,
         // but HM needs them in scope so resolved class-call effect propagation
@@ -4402,6 +4395,40 @@ impl Compiler {
             preloaded_effect_op_signatures: self.effect_op_signatures.clone(),
             effect_row_aliases: self.effect_row_aliases.clone(),
             preloaded_adt_data: self.preloaded_adt_data_statements(),
+        }
+    }
+
+    /// Type the bare name of each imported class's method as that method.
+    ///
+    /// Lowering already dispatches a bare call to such a method, but unless
+    /// the name was exposed or is in the prelude, inference left it unbound:
+    /// the call took the untyped path and raised no predicate, so evidence
+    /// had nothing to dispatch it with. A name taken by anything else keeps
+    /// that binding, and a name two classes declare stays unbound, so a bare
+    /// call to it is still the ambiguity `E456` reports.
+    fn inject_imported_class_method_schemes(&self, schemes: &mut HashMap<Identifier, Scheme>) {
+        let mut classes: Vec<_> = self.imported_public_classes.values().collect();
+        classes.sort_by_key(|class| {
+            (
+                self.interner.resolve(class.name).to_string(),
+                class
+                    .module
+                    .as_identifier()
+                    .map(|module| self.interner.resolve(module).to_string()),
+            )
+        });
+        for class in classes {
+            for method in &class.methods {
+                let unique = self.class_env.resolve_method_class_id(
+                    crate::types::class_id::ModulePath::EMPTY,
+                    method.name,
+                ) == Some(class.class_id());
+                if unique {
+                    schemes
+                        .entry(method.name)
+                        .or_insert_with(|| class.method_scheme(method, &self.interner));
+                }
+            }
         }
     }
 
@@ -6784,6 +6811,7 @@ impl Compiler {
             optimize,
             Some(&self.type_env),
             class_env_ref,
+            Some(&self.evidence_map),
         )?;
         crate::cfg::run_ir_pass_pipeline(&mut ir_program, &crate::cfg::IrPassContext)?;
         Ok(ir_program.to_string())
@@ -6825,26 +6853,14 @@ impl Compiler {
         emit_entry_main: bool,
     ) -> Result<crate::llvm::LlvmModule, Diagnostic> {
         let _ = self.phase_collection(program);
-        let prepared = self.prepare_program_for_lowering_with_preloaded(program);
+        let optimized = self.optimize_for_lowering(program.clone(), optimize);
+        let prepared = self.prepare_program_for_lowering_with_preloaded(&optimized);
         self.apply_hm_final(&prepared.hm_final);
-        let effective_program = prepared.effective_program;
+        let mut effective_program = prepared.effective_program.into_owned();
+        self.apply_named_field_desugar(&mut effective_program);
+        let aether = self.lower_aether_from_program(&effective_program, optimize, true)?;
 
-        let (effective_program, aether) = if optimize {
-            use crate::ast::{constant_fold_with_interner, desugar, rename};
-            let desugared = desugar(effective_program.into_owned());
-            let optimized = constant_fold_with_interner(desugared, &self.interner);
-            let mut program_to_lower = rename(optimized, HashMap::new());
-            self.apply_named_field_desugar(&mut program_to_lower);
-            let aether = self.lower_aether_from_program(&program_to_lower, true, true)?;
-            (Cow::Owned(program_to_lower), aether)
-        } else {
-            let mut program_to_lower = effective_program.into_owned();
-            self.apply_named_field_desugar(&mut program_to_lower);
-            let aether = self.lower_aether_from_program(&program_to_lower, false, true)?;
-            (Cow::<Program>::Owned(program_to_lower), aether)
-        };
-
-        let extern_symbols = self.build_native_extern_symbols(effective_program.as_ref());
+        let extern_symbols = self.build_native_extern_symbols(&effective_program);
         let has_named_main = effective_program.statements.iter().any(|statement| {
             matches!(
                 statement,

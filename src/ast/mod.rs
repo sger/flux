@@ -8,6 +8,7 @@ pub mod fold;
 pub mod free_vars;
 pub mod rename;
 pub mod route_effectful_primops;
+pub mod shift_expr_ids;
 pub mod tail_position;
 pub mod type_infer;
 pub mod type_informed_fold;

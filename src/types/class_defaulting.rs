@@ -96,10 +96,17 @@ pub(crate) fn build_numeric_default_subst(
     // session no `Num` obligation exists and no group passes step 2. This is
     // also the extension point for further defaultable classes (`Fractional`,
     // `Integral`), each of which would bring its own candidate list.
+    // `Num` is `Flow.Num`'s since Proposal 0179 Stage 8 made the hierarchy
+    // Flux source. Matching only a module-less `Num` meant no predicate was
+    // ever defaultable once the prelude was loaded; the legacy spelling is
+    // still accepted for a class environment built without it.
     let num_id = interner.lookup("Num");
+    let flow_num = interner.lookup("Flow.Num");
     let is_num = |constraint: &WantedClassConstraint| {
         num_id.is_some_and(|id| {
-            constraint.class_id.module.is_empty() && constraint.class_id.name == id
+            constraint.class_id.name == id
+                && (constraint.class_id.module.is_empty()
+                    || constraint.class_id.module.as_identifier() == flow_num)
         })
     };
 
@@ -176,4 +183,45 @@ pub(crate) fn build_numeric_default_subst(
     }
 
     subst
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::build_numeric_default_subst;
+    use crate::{
+        ast::type_infer::constraint::{WantedClassConstraint, WantedClassConstraintOrigin},
+        diagnostics::position::Span,
+        syntax::interner::Interner,
+        types::{
+            class_id::{ClassId, ModulePath},
+            infer_type::InferType,
+            type_constructor::TypeConstructor,
+        },
+    };
+
+    /// `Num` is `Flow.Num`'s. A predicate over it is defaultable, as the
+    /// module-less spelling was before the hierarchy became Flux source.
+    #[test]
+    fn a_flow_num_predicate_defaults_to_int() {
+        let mut interner = Interner::new();
+        let num = interner.intern("Num");
+        let flow_num = interner.intern("Flow.Num");
+        let wanted = WantedClassConstraint {
+            class_name: num,
+            class_id: ClassId::new(ModulePath::from_identifier(flow_num), num),
+            type_args: vec![InferType::Var(0)],
+            span: Span::default(),
+            expr: None,
+            origin: WantedClassConstraintOrigin::InferredOperator,
+        };
+
+        let subst = build_numeric_default_subst(&[wanted], &HashSet::new(), None, &interner);
+
+        assert_eq!(
+            InferType::Var(0).apply_type_subst(&subst),
+            InferType::Con(TypeConstructor::Int)
+        );
+    }
 }

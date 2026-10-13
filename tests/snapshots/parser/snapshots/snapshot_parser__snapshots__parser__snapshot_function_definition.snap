@@ -116,6 +116,9 @@ Program {
                     column: 12,
                 },
             },
+            id: ExprId(
+                4,
+            ),
         },
     ],
     span: Span {

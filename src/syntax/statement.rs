@@ -9,7 +9,7 @@ use crate::{
         data_variant::DataVariant,
         effect_expr::EffectExpr,
         effect_ops::EffectOp,
-        expression::{Expression, Pattern},
+        expression::{ExprId, Expression, Pattern},
         interner::Interner,
         type_class::{
             AssociatedTypeDecl, AssociatedTypeEquation, ClassConstraint, ClassMethod,
@@ -109,6 +109,14 @@ pub enum Statement {
         effects: Vec<EffectExpr>,
         body: Block,
         span: Span,
+        /// The definition's identity, drawn from the same counter as
+        /// [`ExprId`]s so one allocator keeps both unique.
+        ///
+        /// Inference keys the definition's givens by it and lowering reads
+        /// them back by it (0.0.8 plan, step 1c). A name cannot do this: it
+        /// collides across modules and between nested functions, and every
+        /// generated instance method has the same, default, span.
+        id: ExprId,
     },
     Assign {
         name: Identifier,

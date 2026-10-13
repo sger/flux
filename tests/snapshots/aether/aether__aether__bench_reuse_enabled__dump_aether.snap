@@ -13,7 +13,7 @@ Note: Reuses and FBIP describe the Aether planner. BorrowedCallGuards are native
 lam(__x0, __x1) ->
     drop __x1#2 in
   drop __x0#1 in
-      aether_call[borrowed] panic#1189("No instance of Eq.eq for the given type")
+      aether_call[borrowed] panic#1210("No instance of Eq.eq for the given type")
 ── fn neq ──
   Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
@@ -21,7 +21,7 @@ lam(__x0, __x1) ->
 lam(__x0, __x1) ->
     drop __x1#5 in
   drop __x0#4 in
-      aether_call[borrowed] panic#1189("No instance of Eq.neq for the given type")
+      aether_call[borrowed] panic#1210("No instance of Eq.neq for the given type")
 ── fn compare ──
   Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
@@ -29,7 +29,7 @@ lam(__x0, __x1) ->
 lam(__x0, __x1) ->
     drop __x1#8 in
   drop __x0#7 in
-      aether_call[borrowed] panic#1189("No instance of Ord.compare for the given type")
+      aether_call[borrowed] panic#1210("No instance of Ord.compare for the given type")
 ── fn lt ──
   Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
@@ -37,7 +37,7 @@ lam(__x0, __x1) ->
 lam(__x0, __x1) ->
     drop __x1#11 in
   drop __x0#10 in
-      aether_call[borrowed] panic#1189("No instance of Ord.lt for the given type")
+      aether_call[borrowed] panic#1210("No instance of Ord.lt for the given type")
 ── fn lte ──
   Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
@@ -45,7 +45,7 @@ lam(__x0, __x1) ->
 lam(__x0, __x1) ->
     drop __x1#14 in
   drop __x0#13 in
-      aether_call[borrowed] panic#1189("No instance of Ord.lte for the given type")
+      aether_call[borrowed] panic#1210("No instance of Ord.lte for the given type")
 ── fn gt ──
   Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
@@ -53,7 +53,7 @@ lam(__x0, __x1) ->
 lam(__x0, __x1) ->
     drop __x1#17 in
   drop __x0#16 in
-      aether_call[borrowed] panic#1189("No instance of Ord.gt for the given type")
+      aether_call[borrowed] panic#1210("No instance of Ord.gt for the given type")
 ── fn gte ──
   Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
@@ -61,7 +61,7 @@ lam(__x0, __x1) ->
 lam(__x0, __x1) ->
     drop __x1#20 in
   drop __x0#19 in
-      aether_call[borrowed] panic#1189("No instance of Ord.gte for the given type")
+      aether_call[borrowed] panic#1210("No instance of Ord.gte for the given type")
 ── fn add ──
   Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
@@ -69,7 +69,7 @@ lam(__x0, __x1) ->
 lam(__x0, __x1) ->
     drop __x1#23 in
   drop __x0#22 in
-      aether_call[borrowed] panic#1189("No instance of Add.add for the given type")
+      aether_call[borrowed] panic#1210("No instance of Add.add for the given type")
 ── fn sub ──
   Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
@@ -77,7 +77,7 @@ lam(__x0, __x1) ->
 lam(__x0, __x1) ->
     drop __x1#26 in
   drop __x0#25 in
-      aether_call[borrowed] panic#1189("No instance of Num.sub for the given type")
+      aether_call[borrowed] panic#1210("No instance of Num.sub for the given type")
 ── fn mul ──
   Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
@@ -85,7 +85,7 @@ lam(__x0, __x1) ->
 lam(__x0, __x1) ->
     drop __x1#29 in
   drop __x0#28 in
-      aether_call[borrowed] panic#1189("No instance of Num.mul for the given type")
+      aether_call[borrowed] panic#1210("No instance of Num.mul for the given type")
 ── fn div ──
   Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
@@ -93,14 +93,14 @@ lam(__x0, __x1) ->
 lam(__x0, __x1) ->
     drop __x1#32 in
   drop __x0#31 in
-      aether_call[borrowed] panic#1189("No instance of Num.div for the given type")
+      aether_call[borrowed] panic#1210("No instance of Num.div for the given type")
 ── fn show ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
   verifier: ok
 lam(__x0) ->
   drop __x0#34 in
-    aether_call[borrowed] panic#1189("No instance of Show.show for the given type")
+    aether_call[borrowed] panic#1210("No instance of Show.show for the given type")
 ── fn append ──
   Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
@@ -108,24 +108,24 @@ lam(__x0) ->
 lam(__x0, __x1) ->
     drop __x1#37 in
   drop __x0#36 in
-      aether_call[borrowed] panic#1189("No instance of Semigroup.append for the given type")
+      aether_call[borrowed] panic#1210("No instance of Semigroup.append for the given type")
 ── fn assert_failed [yield×1] ──
   Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 1  Handles: 0  HandlerArms: 0
   FreshAllocs: 0
   verifier: ok
 lam(name) ->
-  let <sym:4001378> =
+  let <sym:4001369> =
     Add("ASSERTION FAILED: ", name#57)
-  perform /*yield_to*/ Console.println(<sym:4001378>#1378)
+  perform /*yield_to*/ Console.println(<sym:4001369>#1369)
 ── fn assert_eq [yield×2] ──
   Dups: 0  Drops: 6  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 2  Yields: 2  Handles: 0  HandlerArms: 0
   FreshAllocs: 0
   verifier: ok
 lam(a, b) ->
   let <sym:2000000> =
-    let <sym:4001379> =
+    let <sym:4001370> =
       CmpEq(a#59, b#60)
-    case <sym:4001379>#1379 of
+    case <sym:4001370>#1370 of
       true ->
           drop b#60 in
         drop a#59 in
@@ -140,7 +140,7 @@ lam(a, b) ->
             let <sym:2000001> =
               perform /*yield_to*/ Console.println(b#60)
             drop <sym:2000001>#62 in
-              aether_call[borrowed] panic#1189("assert_eq failed")
+              aether_call[borrowed] panic#1210("assert_eq failed")
   drop <sym:2000000>#61 in
     ()
 ── fn assert_neq ──
@@ -149,16 +149,16 @@ lam(a, b) ->
   verifier: ok
 lam(a, b) ->
   let <sym:2000004> =
-    let <sym:4001380> =
+    let <sym:4001371> =
       CmpNe(a#66, b#67)
-    case <sym:4001380>#1380 of
+    case <sym:4001371>#1371 of
       true ->
         MakeTuple()
       _ ->
         let <sym:2000005> =
           aether_call[borrowed] assert_failed#56("assert_neq")
         drop <sym:2000005>#69 in
-          aether_call[borrowed] panic#1189("assert_neq failed")
+          aether_call[borrowed] panic#1210("assert_neq failed")
   drop <sym:2000004>#68 in
     ()
 ── fn assert_true ──
@@ -171,7 +171,7 @@ lam(x) ->
       true ->
         MakeTuple()
       _ ->
-        aether_call[borrowed] panic#1189("assert_true failed")
+        aether_call[borrowed] panic#1210("assert_true failed")
   drop <sym:2000006>#72 in
     ()
 ── fn assert_false ──
@@ -180,95 +180,99 @@ lam(x) ->
   verifier: ok
 lam(x) ->
   let <sym:2000007> =
-    let <sym:4001381> =
+    let <sym:4001372> =
       Not(x#74)
-    case <sym:4001381>#1381 of
+    case <sym:4001372>#1372 of
       true ->
         MakeTuple()
       _ ->
-        aether_call[borrowed] panic#1189("assert_false failed")
+        aether_call[borrowed] panic#1210("assert_false failed")
   drop <sym:2000007>#75 in
     ()
 ── fn assert_gt ──
-  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m8_466C6F772E4F7264_Ord, a, b) ->
-  drop __dict_m8_466C6F772E4F7264_Ord#1345 in
-    let <sym:2000008> =
-      let <sym:4001382> =
-        Gt(a#77, b#78)
-      case <sym:4001382>#1382 of
-        true ->
-          MakeTuple()
-        _ ->
-          aether_call[borrowed] panic#1189("assert_gt failed")
-    drop <sym:2000008>#79 in
-      ()
+  let <sym:2000008> =
+    let <sym:4001374> =
+      let <sym:4001373> =
+        __dict_m8_466C6F772E4F7264_Ord#79.4
+      aether_call[owned, owned] <sym:4001373>#1373(a#77, b#78)
+    case <sym:4001374>#1374 of
+      true ->
+        MakeTuple()
+      _ ->
+        aether_call[borrowed] panic#1210("assert_gt failed")
+  drop <sym:2000008>#80 in
+    ()
 ── fn assert_lt ──
-  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m8_466C6F772E4F7264_Ord, a, b) ->
-  drop __dict_m8_466C6F772E4F7264_Ord#1346 in
-    let <sym:2000009> =
-      let <sym:4001383> =
-        Lt(a#81, b#82)
-      case <sym:4001383>#1383 of
-        true ->
-          MakeTuple()
-        _ ->
-          aether_call[borrowed] panic#1189("assert_lt failed")
-    drop <sym:2000009>#83 in
-      ()
+  let <sym:2000009> =
+    let <sym:4001376> =
+      let <sym:4001375> =
+        __dict_m8_466C6F772E4F7264_Ord#84.2
+      aether_call[owned, owned] <sym:4001375>#1375(a#82, b#83)
+    case <sym:4001376>#1376 of
+      true ->
+        MakeTuple()
+      _ ->
+        aether_call[borrowed] panic#1210("assert_lt failed")
+  drop <sym:2000009>#85 in
+    ()
 ── fn assert_gte ──
-  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m8_466C6F772E4F7264_Ord, a, b) ->
-  drop __dict_m8_466C6F772E4F7264_Ord#1347 in
-    let <sym:2000010> =
-      let <sym:4001384> =
-        Ge(a#85, b#86)
-      case <sym:4001384>#1384 of
-        true ->
-          MakeTuple()
-        _ ->
-          aether_call[borrowed] panic#1189("assert_gte failed")
-    drop <sym:2000010>#87 in
-      ()
+  let <sym:2000010> =
+    let <sym:4001378> =
+      let <sym:4001377> =
+        __dict_m8_466C6F772E4F7264_Ord#89.5
+      aether_call[owned, owned] <sym:4001377>#1377(a#87, b#88)
+    case <sym:4001378>#1378 of
+      true ->
+        MakeTuple()
+      _ ->
+        aether_call[borrowed] panic#1210("assert_gte failed")
+  drop <sym:2000010>#90 in
+    ()
 ── fn assert_lte ──
-  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m8_466C6F772E4F7264_Ord, a, b) ->
-  drop __dict_m8_466C6F772E4F7264_Ord#1348 in
-    let <sym:2000011> =
-      let <sym:4001385> =
-        Le(a#89, b#90)
-      case <sym:4001385>#1385 of
-        true ->
-          MakeTuple()
-        _ ->
-          aether_call[borrowed] panic#1189("assert_lte failed")
-    drop <sym:2000011>#91 in
-      ()
+  let <sym:2000011> =
+    let <sym:4001380> =
+      let <sym:4001379> =
+        __dict_m8_466C6F772E4F7264_Ord#94.3
+      aether_call[owned, owned] <sym:4001379>#1379(a#92, b#93)
+    case <sym:4001380>#1380 of
+      true ->
+        MakeTuple()
+      _ ->
+        aether_call[borrowed] panic#1210("assert_lte failed")
+  drop <sym:2000011>#95 in
+    ()
 ── fn assert_len ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
   verifier: ok
 lam(collection, expected) ->
   let actual =
-    Len(collection#93)
+    Len(collection#97)
   let <sym:2000012> =
-    let <sym:4001386> =
-      Eq(actual#96, expected#94)
-    case <sym:4001386>#1386 of
+    let <sym:4001381> =
+      ICmpEq(actual#100, expected#98)
+    case <sym:4001381>#1381 of
       true ->
         MakeTuple()
       _ ->
-        aether_call[borrowed] panic#1189("assert_len failed")
-  drop <sym:2000012>#95 in
+        aether_call[borrowed] panic#1210("assert_len failed")
+  drop <sym:2000012>#99 in
     ()
 ── fn assert_msg ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
@@ -276,12 +280,12 @@ lam(collection, expected) ->
   verifier: ok
 lam(condition, message) ->
   let <sym:2000013> =
-    case condition#98 of
+    case condition#102 of
       true ->
         MakeTuple()
       _ ->
-        aether_call[borrowed] panic#1189(message#99)
-  drop <sym:2000013>#100 in
+        aether_call[borrowed] panic#1210(message#103)
+  drop <sym:2000013>#104 in
     ()
 ── fn debug [yield×1] ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 1  Handles: 0  HandlerArms: 0
@@ -289,37 +293,37 @@ lam(condition, message) ->
   verifier: ok
 lam(x) ->
   let <sym:2000014> =
-    let <sym:4001387> =
-      ToString(x#104)
-    perform /*yield_to*/ Debug.trace(<sym:4001387>#1387)
-  drop <sym:2000014>#105 in
-    x#104
+    let <sym:4001382> =
+      ToString(x#108)
+    perform /*yield_to*/ Debug.trace(<sym:4001382>#1382)
+  drop <sym:2000014>#109 in
+    x#108
 ── fn debug_labeled [yield×1] ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 1  Handles: 0  HandlerArms: 0
   FreshAllocs: 0
   verifier: ok
 lam(label, x) ->
   let <sym:2000015> =
-    let <sym:4001390> =
-      let <sym:4001388> =
-        IAdd(label#107, " = ")
-      let <sym:4001389> =
-        ToString(x#108)
-      Add(<sym:4001388>#1388, <sym:4001389>#1389)
-    perform /*yield_to*/ Debug.trace(<sym:4001390>#1390)
-  drop <sym:2000015>#109 in
-    x#108
+    let <sym:4001385> =
+      let <sym:4001383> =
+        Add(label#111, " = ")
+      let <sym:4001384> =
+        ToString(x#112)
+      Add(<sym:4001383>#1383, <sym:4001384>#1384)
+    perform /*yield_to*/ Debug.trace(<sym:4001385>#1385)
+  drop <sym:2000015>#113 in
+    x#112
 ── fn debug_with [yield×1] ──
   Dups: 1  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 1  Handles: 0  HandlerArms: 0
   FreshAllocs: 0
   verifier: ok
 lam(f, x) ->
   let <sym:2000016> =
-    let <sym:4001391> =
-      aether_call[owned] f#111(dup x#112 in x#112)
-    perform /*yield_to*/ Debug.trace(<sym:4001391>#1391)
-  drop <sym:2000016>#113 in
-    x#112
+    let <sym:4001386> =
+      aether_call[owned] f#115(dup x#116 in x#116)
+    perform /*yield_to*/ Debug.trace(<sym:4001386>#1386)
+  drop <sym:2000016>#117 in
+    x#116
 ── fn filter ──
   Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
@@ -327,38 +331,38 @@ lam(f, x) ->
 lam(arr, pred) ->
   letrec filter_go =
     lam(idx, acc) ->
-      let <sym:4001401> =
-        let <sym:4001400> =
-          Len(arr#122)
-        Ge(idx#125, <sym:4001400>#1400)
-      case <sym:4001401>#1401 of
+      let <sym:4001396> =
+        let <sym:4001395> =
+          Len(arr#126)
+        ICmpGe(idx#129, <sym:4001395>#1395)
+      case <sym:4001396>#1396 of
         true ->
-          acc#126
+          acc#130
         _ ->
-          let <sym:4001402> =
-            Index(arr#122, idx#125)
-          case <sym:4001402>#1402 of
+          let <sym:4001397> =
+            Index(arr#126, idx#129)
+          case <sym:4001397>#1397 of
             Some(v) ->
-              let <sym:4001403> =
-                aether_call[owned] pred#123(dup v#127 in v#127)
-              case <sym:4001403>#1403 of
+              let <sym:4001398> =
+                aether_call[owned] pred#127(dup v#131 in v#131)
+              case <sym:4001398>#1398 of
                 true ->
-                  let <sym:4001404> =
-                    Add(idx#125, 1)
-                  let <sym:4001405> =
-                    aether_call[borrowed, borrowed] push#202(acc#126, v#127)
-                  aether_call[owned, owned] filter_go#124(<sym:4001404>#1404, <sym:4001405>#1405)
+                  let <sym:4001399> =
+                    IAdd(idx#129, 1)
+                  let <sym:4001400> =
+                    aether_call[borrowed, borrowed] push#207(acc#130, v#131)
+                  aether_call[owned, owned] filter_go#128(<sym:4001399>#1399, <sym:4001400>#1400)
                 _ ->
-                  let <sym:4001406> =
-                    Add(idx#125, 1)
-                  aether_call[owned, owned] filter_go#124(<sym:4001406>#1406, acc#126)
+                  let <sym:4001401> =
+                    IAdd(idx#129, 1)
+                  aether_call[owned, owned] filter_go#128(<sym:4001401>#1401, acc#130)
             _ ->
-              let <sym:4001407> =
-                Add(idx#125, 1)
-              aether_call[owned, owned] filter_go#124(<sym:4001407>#1407, acc#126)
-  let <sym:4001408> =
+              let <sym:4001402> =
+                IAdd(idx#129, 1)
+              aether_call[owned, owned] filter_go#128(<sym:4001402>#1402, acc#130)
+  let <sym:4001403> =
     MakeArray()
-  aether_call[owned, owned] filter_go#124(0, <sym:4001408>#1408)
+  aether_call[owned, owned] filter_go#128(0, <sym:4001403>#1403)
 ── fn each ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
@@ -366,29 +370,29 @@ lam(arr, pred) ->
 lam(arr, f) ->
   letrec each_go =
     lam(idx) ->
-      let <sym:4001416> =
-        let <sym:4001415> =
-          Len(arr#137)
-        Ge(idx#140, <sym:4001415>#1415)
-      case <sym:4001416>#1416 of
+      let <sym:4001411> =
+        let <sym:4001410> =
+          Len(arr#141)
+        ICmpGe(idx#144, <sym:4001410>#1410)
+      case <sym:4001411>#1411 of
         true ->
           MakeTuple()
         _ ->
-          let <sym:4001417> =
-            Index(arr#137, idx#140)
-          case <sym:4001417>#1417 of
+          let <sym:4001412> =
+            Index(arr#141, idx#144)
+          case <sym:4001412>#1412 of
             Some(v) ->
               let <sym:2000017> =
-                aether_call[owned] f#138(v#141)
-              drop <sym:2000017>#142 in
-                let <sym:4001418> =
-                  Add(idx#140, 1)
-                aether_call[owned] each_go#139(<sym:4001418>#1418)
+                aether_call[owned] f#142(v#145)
+              drop <sym:2000017>#146 in
+                let <sym:4001413> =
+                  IAdd(idx#144, 1)
+                aether_call[owned] each_go#143(<sym:4001413>#1413)
             _ ->
-              let <sym:4001419> =
-                Add(idx#140, 1)
-              aether_call[owned] each_go#139(<sym:4001419>#1419)
-  aether_call[owned] each_go#139(0)
+              let <sym:4001414> =
+                IAdd(idx#144, 1)
+              aether_call[owned] each_go#143(<sym:4001414>#1414)
+  aether_call[owned] each_go#143(0)
 ── fn find ──
   Dups: 1  Drops: 0  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
@@ -396,118 +400,118 @@ lam(arr, f) ->
 lam(arr, pred) ->
   letrec find_go =
     lam(idx) ->
-      let <sym:4001433> =
-        let <sym:4001432> =
-          Len(arr#156)
-        Ge(idx#159, <sym:4001432>#1432)
-      case <sym:4001433>#1433 of
+      let <sym:4001428> =
+        let <sym:4001427> =
+          Len(arr#160)
+        ICmpGe(idx#163, <sym:4001427>#1427)
+      case <sym:4001428>#1428 of
         true ->
           None
         _ ->
-          let <sym:4001434> =
-            Index(arr#156, idx#159)
-          case <sym:4001434>#1434 of
+          let <sym:4001429> =
+            Index(arr#160, idx#163)
+          case <sym:4001429>#1429 of
             Some(v) ->
-              drop_specialized <sym:4001434>#1434 {
+              drop_specialized <sym:4001429>#1429 {
                 unique ->
-                  let <sym:4001435> =
-                    aether_call[owned] pred#157(v#160)
-                  case <sym:4001435>#1435 of
+                  let <sym:4001430> =
+                    aether_call[owned] pred#161(v#164)
+                  case <sym:4001430>#1430 of
                     true ->
-                      reuse <sym:4001434>#1434 as Some mask=0x0(v#160)
+                      reuse <sym:4001429>#1429 as Some mask=0x0(v#164)
                     _ ->
-                      let <sym:4001436> =
-                        Add(idx#159, 1)
-                      aether_call[owned] find_go#158(<sym:4001436>#1436)
+                      let <sym:4001431> =
+                        IAdd(idx#163, 1)
+                      aether_call[owned] find_go#162(<sym:4001431>#1431)
                 shared ->
-                  let <sym:4001435> =
-                    aether_call[owned] pred#157(dup v#160 in v#160)
-                  case <sym:4001435>#1435 of
+                  let <sym:4001430> =
+                    aether_call[owned] pred#161(dup v#164 in v#164)
+                  case <sym:4001430>#1430 of
                     true ->
-                      Some(v#160)
+                      Some(v#164)
                     _ ->
-                      let <sym:4001436> =
-                        Add(idx#159, 1)
-                      aether_call[owned] find_go#158(<sym:4001436>#1436)
+                      let <sym:4001431> =
+                        IAdd(idx#163, 1)
+                      aether_call[owned] find_go#162(<sym:4001431>#1431)
               }
             _ ->
-              let <sym:4001437> =
-                Add(idx#159, 1)
-              aether_call[owned] find_go#158(<sym:4001437>#1437)
-  aether_call[owned] find_go#158(0)
+              let <sym:4001432> =
+                IAdd(idx#163, 1)
+              aether_call[owned] find_go#162(<sym:4001432>#1432)
+  aether_call[owned] find_go#162(0)
 ── fn zip ──
   Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
   verifier: ok
 lam(a_arr, b_arr) ->
   let min_len =
-    let <sym:4001463> =
-      let <sym:4001461> =
-        Len(a_arr#182)
-      let <sym:4001462> =
-        Len(b_arr#183)
-      Lt(<sym:4001461>#1461, <sym:4001462>#1462)
-    case <sym:4001463>#1463 of
+    let <sym:4001458> =
+      let <sym:4001456> =
+        Len(a_arr#186)
+      let <sym:4001457> =
+        Len(b_arr#187)
+      ICmpLt(<sym:4001456>#1456, <sym:4001457>#1457)
+    case <sym:4001458>#1458 of
       true ->
-        Len(a_arr#182)
+        Len(a_arr#186)
       _ ->
-        Len(b_arr#183)
+        Len(b_arr#187)
   letrec zip_go =
     lam(idx, acc) ->
-      let <sym:4001464> =
-        Ge(idx#185, min_len#189)
-      case <sym:4001464>#1464 of
+      let <sym:4001459> =
+        ICmpGe(idx#189, min_len#193)
+      case <sym:4001459>#1459 of
         true ->
-          acc#186
+          acc#190
         _ ->
-          let <sym:4001465> =
-            Index(a_arr#182, idx#185)
-          case <sym:4001465>#1465 of
+          let <sym:4001460> =
+            Index(a_arr#186, idx#189)
+          case <sym:4001460>#1460 of
             Some(va) ->
-              let <sym:4001466> =
-                Index(b_arr#183, idx#185)
-              case <sym:4001466>#1466 of
+              let <sym:4001461> =
+                Index(b_arr#187, idx#189)
+              case <sym:4001461>#1461 of
                 Some(vb) ->
-                  let <sym:4001467> =
-                    Add(idx#185, 1)
-                  let <sym:4001469> =
-                    let <sym:4001468> =
-                      MakeTuple(va#187, vb#188)
-                    aether_call[borrowed, borrowed] push#202(acc#186, <sym:4001468>#1468)
-                  aether_call[borrowed, borrowed] zip_go#184(<sym:4001467>#1467, <sym:4001469>#1469)
+                  let <sym:4001462> =
+                    IAdd(idx#189, 1)
+                  let <sym:4001464> =
+                    let <sym:4001463> =
+                      MakeTuple(va#191, vb#192)
+                    aether_call[borrowed, borrowed] push#207(acc#190, <sym:4001463>#1463)
+                  aether_call[borrowed, borrowed] zip_go#188(<sym:4001462>#1462, <sym:4001464>#1464)
                 _ ->
-                  acc#186
+                  acc#190
             _ ->
-              acc#186
-  let <sym:4001470> =
+              acc#190
+  let <sym:4001465> =
     MakeArray()
-  aether_call[borrowed, borrowed] zip_go#184(0, <sym:4001470>#1470)
+  aether_call[borrowed, borrowed] zip_go#188(0, <sym:4001465>#1465)
 ── fn reverse ──
   Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
   verifier: ok
 lam(arr) ->
-  let <sym:4001473> =
-    let <sym:4001472> =
-      Len(arr#206)
-    Eq(<sym:4001472>#1472, 0)
-  case <sym:4001473>#1473 of
+  let <sym:4001469> =
+    let <sym:4001468> =
+      Len(arr#211)
+    ICmpEq(<sym:4001468>#1468, 0)
+  case <sym:4001469>#1469 of
     true ->
       MakeArray()
     _ ->
-      let <sym:4001474> =
-        Index(arr#206, 0)
-      case <sym:4001474>#1474 of
+      let <sym:4001470> =
+        Index(arr#211, 0)
+      case <sym:4001470>#1470 of
         Some(v) ->
-          let <sym:4001477> =
-            let <sym:4001476> =
-              let <sym:4001475> =
-                Len(arr#206)
-              aether_call[borrowed, borrowed, borrowed] slice#208(arr#206, 1, <sym:4001475>#1475)
-            aether_call[owned] reverse#513(<sym:4001476>#1476)
-          let <sym:4001478> =
-            MakeArray(v#207)
-          aether_call[owned, owned] concat#388(<sym:4001477>#1477, <sym:4001478>#1478)
+          let <sym:4001473> =
+            let <sym:4001472> =
+              let <sym:4001471> =
+                Len(arr#211)
+              aether_call[borrowed, borrowed, borrowed] slice#213(arr#211, 1, <sym:4001471>#1471)
+            aether_call[owned] reverse#522(<sym:4001472>#1472)
+          let <sym:4001474> =
+            MakeArray(v#212)
+          aether_call[owned, owned] concat#395(<sym:4001473>#1473, <sym:4001474>#1474)
         _ ->
           MakeArray()
 ── fn maximum ──
@@ -517,47 +521,47 @@ lam(arr) ->
 lam(arr) ->
   letrec maximum_go =
     lam(i, best) ->
-      let <sym:4001482> =
-        let <sym:4001481> =
-          Len(arr#225)
-        Ge(i#228, <sym:4001481>#1481)
-      case <sym:4001482>#1482 of
+      let <sym:4001478> =
+        let <sym:4001477> =
+          Len(arr#230)
+        ICmpGe(i#233, <sym:4001477>#1477)
+      case <sym:4001478>#1478 of
         true ->
-          best#229
+          best#234
         _ ->
-          let <sym:4001483> =
-            Index(arr#225, i#228)
-          case <sym:4001483>#1483 of
+          let <sym:4001479> =
+            Index(arr#230, i#233)
+          case <sym:4001479>#1479 of
             Some(v) ->
-              let <sym:4001484> =
-                Add(i#228, 1)
-              let <sym:4001486> =
-                let <sym:4001485> =
-                  Gt(v#230, best#229)
-                case <sym:4001485>#1485 of
+              let <sym:4001480> =
+                IAdd(i#233, 1)
+              let <sym:4001482> =
+                let <sym:4001481> =
+                  ICmpGt(v#235, best#234)
+                case <sym:4001481>#1481 of
                   true ->
-                    drop best#229 in
-                      v#230
+                    drop best#234 in
+                      v#235
                   _ ->
-                    best#229
-              aether_call[borrowed, owned] maximum_go#227(<sym:4001484>#1484, <sym:4001486>#1486)
+                    best#234
+              aether_call[borrowed, owned] maximum_go#232(<sym:4001480>#1480, <sym:4001482>#1482)
             _ ->
-              let <sym:4001487> =
-                Add(i#228, 1)
-              aether_call[borrowed, owned] maximum_go#227(<sym:4001487>#1487, best#229)
-  let <sym:4001489> =
-    let <sym:4001488> =
-      Len(arr#225)
-    Eq(<sym:4001488>#1488, 0)
-  case <sym:4001489>#1489 of
+              let <sym:4001483> =
+                IAdd(i#233, 1)
+              aether_call[borrowed, owned] maximum_go#232(<sym:4001483>#1483, best#234)
+  let <sym:4001485> =
+    let <sym:4001484> =
+      Len(arr#230)
+    ICmpEq(<sym:4001484>#1484, 0)
+  case <sym:4001485>#1485 of
     true ->
       0
     _ ->
-      let <sym:4001490> =
-        Index(arr#225, 0)
-      case <sym:4001490>#1490 of
+      let <sym:4001486> =
+        Index(arr#230, 0)
+      case <sym:4001486>#1486 of
         Some(first) ->
-          aether_call[borrowed, owned] maximum_go#227(1, first#226)
+          aether_call[borrowed, owned] maximum_go#232(1, first#231)
         _ ->
           0
 ── fn minimum ──
@@ -567,47 +571,47 @@ lam(arr) ->
 lam(arr) ->
   letrec minimum_go =
     lam(i, best) ->
-      let <sym:4001492> =
-        let <sym:4001491> =
-          Len(arr#232)
-        Ge(i#235, <sym:4001491>#1491)
-      case <sym:4001492>#1492 of
+      let <sym:4001488> =
+        let <sym:4001487> =
+          Len(arr#237)
+        ICmpGe(i#240, <sym:4001487>#1487)
+      case <sym:4001488>#1488 of
         true ->
-          best#236
+          best#241
         _ ->
-          let <sym:4001493> =
-            Index(arr#232, i#235)
-          case <sym:4001493>#1493 of
+          let <sym:4001489> =
+            Index(arr#237, i#240)
+          case <sym:4001489>#1489 of
             Some(v) ->
-              let <sym:4001494> =
-                Add(i#235, 1)
-              let <sym:4001496> =
-                let <sym:4001495> =
-                  Lt(v#237, best#236)
-                case <sym:4001495>#1495 of
+              let <sym:4001490> =
+                IAdd(i#240, 1)
+              let <sym:4001492> =
+                let <sym:4001491> =
+                  ICmpLt(v#242, best#241)
+                case <sym:4001491>#1491 of
                   true ->
-                    drop best#236 in
-                      v#237
+                    drop best#241 in
+                      v#242
                   _ ->
-                    best#236
-              aether_call[borrowed, owned] minimum_go#234(<sym:4001494>#1494, <sym:4001496>#1496)
+                    best#241
+              aether_call[borrowed, owned] minimum_go#239(<sym:4001490>#1490, <sym:4001492>#1492)
             _ ->
-              let <sym:4001497> =
-                Add(i#235, 1)
-              aether_call[borrowed, owned] minimum_go#234(<sym:4001497>#1497, best#236)
-  let <sym:4001499> =
-    let <sym:4001498> =
-      Len(arr#232)
-    Eq(<sym:4001498>#1498, 0)
-  case <sym:4001499>#1499 of
+              let <sym:4001493> =
+                IAdd(i#240, 1)
+              aether_call[borrowed, owned] minimum_go#239(<sym:4001493>#1493, best#241)
+  let <sym:4001495> =
+    let <sym:4001494> =
+      Len(arr#237)
+    ICmpEq(<sym:4001494>#1494, 0)
+  case <sym:4001495>#1495 of
     true ->
       0
     _ ->
-      let <sym:4001500> =
-        Index(arr#232, 0)
-      case <sym:4001500>#1500 of
+      let <sym:4001496> =
+        Index(arr#237, 0)
+      case <sym:4001496>#1496 of
         Some(first) ->
-          aether_call[borrowed, owned] minimum_go#234(1, first#233)
+          aether_call[borrowed, owned] minimum_go#239(1, first#238)
         _ ->
           0
 ── fn sort_by ──
@@ -615,97 +619,97 @@ lam(arr) ->
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m8_466C6F772E4F7264_Ord, arr, f) ->
-  drop __dict_m8_466C6F772E4F7264_Ord#1351 in
+  drop __dict_m8_466C6F772E4F7264_Ord#261 in
     letrec insert_tagged =
       lam(sorted, pair, idx) ->
-        let <sym:4001509> =
-          let <sym:4001508> =
-            Len(sorted#261)
-          Ge(idx#263, <sym:4001508>#1508)
-        case <sym:4001509>#1509 of
+        let <sym:4001505> =
+          let <sym:4001504> =
+            Len(sorted#268)
+          ICmpGe(idx#270, <sym:4001504>#1504)
+        case <sym:4001505>#1505 of
           true ->
-            aether_call[borrowed, borrowed] push#202(sorted#261, pair#262)
+            aether_call[borrowed, borrowed] push#207(sorted#268, pair#269)
           _ ->
-            let <sym:4001510> =
-              Index(sorted#261, idx#263)
-            case <sym:4001510>#1510 of
+            let <sym:4001506> =
+              Index(sorted#268, idx#270)
+            case <sym:4001506>#1506 of
               Some(current) ->
-                let <sym:4001513> =
-                  let <sym:4001511> =
-                    pair#262.0
-                  let <sym:4001512> =
-                    current#264.0
-                  Le(<sym:4001511>#1511, <sym:4001512>#1512)
-                case <sym:4001513>#1513 of
+                let <sym:4001509> =
+                  let <sym:4001507> =
+                    pair#269.0
+                  let <sym:4001508> =
+                    current#271.0
+                  Le(<sym:4001507>#1507, <sym:4001508>#1508)
+                case <sym:4001509>#1509 of
                   true ->
                     let left =
-                      aether_call[borrowed, borrowed, borrowed] slice#208(sorted#261, 0, idx#263)
+                      aether_call[borrowed, borrowed, borrowed] slice#213(sorted#268, 0, idx#270)
                     let right =
-                      let <sym:4001514> =
-                        Len(sorted#261)
-                      aether_call[borrowed, borrowed, borrowed] slice#208(sorted#261, idx#263, <sym:4001514>#1514)
-                    let <sym:4001516> =
-                      let <sym:4001515> =
-                        MakeArray(pair#262)
-                      aether_call[owned, owned] concat#388(left#266, <sym:4001515>#1515)
-                    aether_call[owned, owned] concat#388(<sym:4001516>#1516, right#265)
+                      let <sym:4001510> =
+                        Len(sorted#268)
+                      aether_call[borrowed, borrowed, borrowed] slice#213(sorted#268, idx#270, <sym:4001510>#1510)
+                    let <sym:4001512> =
+                      let <sym:4001511> =
+                        MakeArray(pair#269)
+                      aether_call[owned, owned] concat#395(left#273, <sym:4001511>#1511)
+                    aether_call[owned, owned] concat#395(<sym:4001512>#1512, right#272)
                   _ ->
-                    let <sym:4001517> =
-                      Add(idx#263, 1)
-                    aether_call[owned, owned, owned] insert_tagged#260(sorted#261, pair#262, <sym:4001517>#1517)
+                    let <sym:4001513> =
+                      IAdd(idx#270, 1)
+                    aether_call[owned, owned, owned] insert_tagged#267(sorted#268, pair#269, <sym:4001513>#1513)
               _ ->
-                aether_call[borrowed, borrowed] push#202(sorted#261, pair#262)
+                aether_call[borrowed, borrowed] push#207(sorted#268, pair#269)
     letrec sort_by_go =
       lam(idx, pairs) ->
-        let <sym:4001519> =
-          let <sym:4001518> =
-            Len(arr#253)
-          Ge(idx#257, <sym:4001518>#1518)
-        case <sym:4001519>#1519 of
+        let <sym:4001515> =
+          let <sym:4001514> =
+            Len(arr#259)
+          ICmpGe(idx#264, <sym:4001514>#1514)
+        case <sym:4001515>#1515 of
           true ->
-            pairs#258
+            pairs#265
           _ ->
-            let <sym:4001520> =
-              Index(arr#253, idx#257)
-            case <sym:4001520>#1520 of
+            let <sym:4001516> =
+              Index(arr#259, idx#264)
+            case <sym:4001516>#1516 of
               Some(v) ->
-                let <sym:4001521> =
-                  Add(idx#257, 1)
-                let <sym:4001524> =
-                  let <sym:4001523> =
-                    let <sym:4001522> =
-                      aether_call[owned] f#254(dup v#259 in v#259)
-                    MakeTuple(<sym:4001522>#1522, v#259)
-                  aether_call[owned, owned, owned] insert_tagged#260(pairs#258, <sym:4001523>#1523, 0)
-                aether_call[owned, owned] sort_by_go#256(<sym:4001521>#1521, <sym:4001524>#1524)
+                let <sym:4001517> =
+                  IAdd(idx#264, 1)
+                let <sym:4001520> =
+                  let <sym:4001519> =
+                    let <sym:4001518> =
+                      aether_call[owned] f#260(dup v#266 in v#266)
+                    MakeTuple(<sym:4001518>#1518, v#266)
+                  aether_call[owned, owned, owned] insert_tagged#267(pairs#265, <sym:4001519>#1519, 0)
+                aether_call[owned, owned] sort_by_go#263(<sym:4001517>#1517, <sym:4001520>#1520)
               _ ->
-                let <sym:4001525> =
-                  Add(idx#257, 1)
-                aether_call[owned, owned] sort_by_go#256(<sym:4001525>#1525, pairs#258)
-    let <sym:4001527> =
-      let <sym:4001526> =
+                let <sym:4001521> =
+                  IAdd(idx#264, 1)
+                aether_call[owned, owned] sort_by_go#263(<sym:4001521>#1521, pairs#265)
+    let <sym:4001523> =
+      let <sym:4001522> =
         MakeArray()
-      aether_call[owned, owned] sort_by_go#256(0, <sym:4001526>#1526)
-    let <sym:4001528> =
+      aether_call[owned, owned] sort_by_go#263(0, <sym:4001522>#1522)
+    let <sym:4001524> =
       lam(p) ->
-        p#255.1
-    aether_call[owned, borrowed] map#337(<sym:4001527>#1527, <sym:4001528>#1528)
+        p#262.1
+    aether_call[owned, borrowed] map#344(<sym:4001523>#1523, <sym:4001524>#1524)
 ── fn take ──
   Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
   verifier: ok
 lam(arr, n) ->
-  let <sym:4001531> =
-    let <sym:4001530> =
-      let <sym:4001529> =
-        Len(arr#268)
-      Gt(n#269, <sym:4001529>#1529)
-    case <sym:4001530>#1530 of
+  let <sym:4001527> =
+    let <sym:4001526> =
+      let <sym:4001525> =
+        Len(arr#275)
+      ICmpGt(n#276, <sym:4001525>#1525)
+    case <sym:4001526>#1526 of
       true ->
-        Len(arr#268)
+        Len(arr#275)
       _ ->
-        n#269
-  aether_call[borrowed, borrowed, borrowed] slice#208(arr#268, 0, <sym:4001531>#1531)
+        n#276
+  aether_call[borrowed, borrowed, borrowed] slice#213(arr#275, 0, <sym:4001527>#1527)
 ── fn enumerate ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
@@ -713,33 +717,33 @@ lam(arr, n) ->
 lam(arr) ->
   letrec enumerate_go =
     lam(idx, acc) ->
-      let <sym:4001540> =
-        let <sym:4001539> =
-          Len(arr#280)
-        Ge(idx#282, <sym:4001539>#1539)
-      case <sym:4001540>#1540 of
+      let <sym:4001536> =
+        let <sym:4001535> =
+          Len(arr#287)
+        ICmpGe(idx#289, <sym:4001535>#1535)
+      case <sym:4001536>#1536 of
         true ->
-          drop idx#282 in
-            acc#283
+          drop idx#289 in
+            acc#290
         _ ->
-          let <sym:4001541> =
-            Index(arr#280, idx#282)
-          case <sym:4001541>#1541 of
+          let <sym:4001537> =
+            Index(arr#287, idx#289)
+          case <sym:4001537>#1537 of
             Some(v) ->
-              let <sym:4001542> =
-                Add(idx#282, 1)
-              let <sym:4001544> =
-                let <sym:4001543> =
-                  MakeTuple(idx#282, v#284)
-                aether_call[borrowed, borrowed] push#202(acc#283, <sym:4001543>#1543)
-              aether_call[borrowed, borrowed] enumerate_go#281(<sym:4001542>#1542, <sym:4001544>#1544)
+              let <sym:4001538> =
+                IAdd(idx#289, 1)
+              let <sym:4001540> =
+                let <sym:4001539> =
+                  MakeTuple(idx#289, v#291)
+                aether_call[borrowed, borrowed] push#207(acc#290, <sym:4001539>#1539)
+              aether_call[borrowed, borrowed] enumerate_go#288(<sym:4001538>#1538, <sym:4001540>#1540)
             _ ->
-              let <sym:4001545> =
-                IAdd(idx#282, 1)
-              aether_call[borrowed, borrowed] enumerate_go#281(<sym:4001545>#1545, acc#283)
-  let <sym:4001546> =
+              let <sym:4001541> =
+                IAdd(idx#289, 1)
+              aether_call[borrowed, borrowed] enumerate_go#288(<sym:4001541>#1541, acc#290)
+  let <sym:4001542> =
     MakeArray()
-  aether_call[borrowed, borrowed] enumerate_go#281(0, <sym:4001546>#1546)
+  aether_call[borrowed, borrowed] enumerate_go#288(0, <sym:4001542>#1542)
 ── fn tabulate ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
@@ -747,23 +751,23 @@ lam(arr) ->
 lam(n, f) ->
   letrec tabulate_go =
     lam(i, acc) ->
-      let <sym:4001547> =
-        Ge(i#289, n#286)
-      case <sym:4001547>#1547 of
+      let <sym:4001543> =
+        ICmpGe(i#296, n#293)
+      case <sym:4001543>#1543 of
         true ->
-          drop i#289 in
-            acc#290
+          drop i#296 in
+            acc#297
         _ ->
-          let <sym:4001548> =
-            Add(i#289, 1)
-          let <sym:4001550> =
-            let <sym:4001549> =
-              aether_call[owned] f#287(i#289)
-            aether_call[borrowed, borrowed] push#202(acc#290, <sym:4001549>#1549)
-          aether_call[owned, owned] tabulate_go#288(<sym:4001548>#1548, <sym:4001550>#1550)
-  let <sym:4001551> =
+          let <sym:4001544> =
+            IAdd(i#296, 1)
+          let <sym:4001546> =
+            let <sym:4001545> =
+              aether_call[owned] f#294(i#296)
+            aether_call[borrowed, borrowed] push#207(acc#297, <sym:4001545>#1545)
+          aether_call[owned, owned] tabulate_go#295(<sym:4001544>#1544, <sym:4001546>#1546)
+  let <sym:4001547> =
     MakeArray()
-  aether_call[owned, owned] tabulate_go#288(0, <sym:4001551>#1551)
+  aether_call[owned, owned] tabulate_go#295(0, <sym:4001547>#1547)
 ── fn find_index ──
   Dups: 0  Drops: 2  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
@@ -771,34 +775,34 @@ lam(n, f) ->
 lam(arr, pred) ->
   letrec find_index_go =
     lam(idx) ->
-      let <sym:4001555> =
-        let <sym:4001554> =
-          Len(arr#299)
-        Ge(idx#302, <sym:4001554>#1554)
-      case <sym:4001555>#1555 of
+      let <sym:4001551> =
+        let <sym:4001550> =
+          Len(arr#306)
+        ICmpGe(idx#309, <sym:4001550>#1550)
+      case <sym:4001551>#1551 of
         true ->
-          drop idx#302 in
+          drop idx#309 in
             None
         _ ->
-          let <sym:4001556> =
-            Index(arr#299, idx#302)
-          case <sym:4001556>#1556 of
+          let <sym:4001552> =
+            Index(arr#306, idx#309)
+          case <sym:4001552>#1552 of
             Some(v) ->
-              let <sym:4001557> =
-                aether_call[owned] pred#300(v#303)
-              case <sym:4001557>#1557 of
+              let <sym:4001553> =
+                aether_call[owned] pred#307(v#310)
+              case <sym:4001553>#1553 of
                 true ->
-                  reuse <sym:4001556>#1556 as Some(idx#302)
+                  reuse <sym:4001552>#1552 as Some(idx#309)
                 _ ->
-                  drop <sym:4001556>#1556 in
-                    let <sym:4001558> =
-                      Add(idx#302, 1)
-                    aether_call[owned] find_index_go#301(<sym:4001558>#1558)
+                  drop <sym:4001552>#1552 in
+                    let <sym:4001554> =
+                      IAdd(idx#309, 1)
+                    aether_call[owned] find_index_go#308(<sym:4001554>#1554)
             _ ->
-              let <sym:4001559> =
-                Add(idx#302, 1)
-              aether_call[owned] find_index_go#301(<sym:4001559>#1559)
-  aether_call[owned] find_index_go#301(0)
+              let <sym:4001555> =
+                IAdd(idx#309, 1)
+              aether_call[owned] find_index_go#308(<sym:4001555>#1555)
+  aether_call[owned] find_index_go#308(0)
 ── fn each_indexed ──
   Dups: 1  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
@@ -806,65 +810,65 @@ lam(arr, pred) ->
 lam(arr, f) ->
   letrec each_indexed_go =
     lam(idx) ->
-      let <sym:4001561> =
-        let <sym:4001560> =
-          Len(arr#305)
-        Ge(idx#308, <sym:4001560>#1560)
-      case <sym:4001561>#1561 of
+      let <sym:4001557> =
+        let <sym:4001556> =
+          Len(arr#312)
+        ICmpGe(idx#315, <sym:4001556>#1556)
+      case <sym:4001557>#1557 of
         true ->
-          drop idx#308 in
+          drop idx#315 in
             MakeTuple()
         _ ->
-          let <sym:4001562> =
-            Index(arr#305, idx#308)
-          case <sym:4001562>#1562 of
+          let <sym:4001558> =
+            Index(arr#312, idx#315)
+          case <sym:4001558>#1558 of
             Some(v) ->
               let <sym:2000018> =
-                aether_call[owned, owned] f#306(dup idx#308 in idx#308, v#309)
-              drop <sym:2000018>#310 in
-                let <sym:4001563> =
-                  Add(idx#308, 1)
-                aether_call[owned] each_indexed_go#307(<sym:4001563>#1563)
+                aether_call[owned, owned] f#313(dup idx#315 in idx#315, v#316)
+              drop <sym:2000018>#317 in
+                let <sym:4001559> =
+                  IAdd(idx#315, 1)
+                aether_call[owned] each_indexed_go#314(<sym:4001559>#1559)
             _ ->
-              let <sym:4001564> =
-                Add(idx#308, 1)
-              aether_call[owned] each_indexed_go#307(<sym:4001564>#1564)
-  aether_call[owned] each_indexed_go#307(0)
+              let <sym:4001560> =
+                IAdd(idx#315, 1)
+              aether_call[owned] each_indexed_go#314(<sym:4001560>#1560)
+  aether_call[owned] each_indexed_go#314(0)
 ── fn accum ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(size, init, pairs, f) ->
   let base =
-    let <sym:4001568> =
+    let <sym:4001564> =
       lam(_) ->
-        drop _#331 in
-          init#321
-    aether_call[borrowed, borrowed] tabulate#285(size#320, <sym:4001568>#1568)
+        drop _#338 in
+          init#328
+    aether_call[borrowed, borrowed] tabulate#292(size#327, <sym:4001564>#1564)
   letrec accum_go =
     lam(a, ps) ->
-      case ps#326 of
+      case ps#333 of
         Cons(p, rest) ->
-          let <sym:4001570> =
-            let <sym:4001569> =
-              p#327.0
-            Index(a#325, <sym:4001569>#1569)
-          case <sym:4001570>#1570 of
+          let <sym:4001566> =
+            let <sym:4001565> =
+              p#334.0
+            Index(a#332, <sym:4001565>#1565)
+          case <sym:4001566>#1566 of
             Some(cur) ->
-              let <sym:4001574> =
-                let <sym:4001571> =
-                  p#327.0
-                let <sym:4001573> =
-                  let <sym:4001572> =
-                    p#327.1
-                  aether_call[owned, owned] f#323(cur#329, <sym:4001572>#1572)
-                aether_call[borrowed, borrowed, borrowed] update#212(a#325, <sym:4001571>#1571, <sym:4001573>#1573)
-              aether_call[owned, owned] accum_go#324(<sym:4001574>#1574, rest#328)
+              let <sym:4001570> =
+                let <sym:4001567> =
+                  p#334.0
+                let <sym:4001569> =
+                  let <sym:4001568> =
+                    p#334.1
+                  aether_call[owned, owned] f#330(cur#336, <sym:4001568>#1568)
+                aether_call[borrowed, borrowed, borrowed] update#217(a#332, <sym:4001567>#1567, <sym:4001569>#1569)
+              aether_call[owned, owned] accum_go#331(<sym:4001570>#1570, rest#335)
             _ ->
-              aether_call[owned, owned] accum_go#324(a#325, rest#328)
+              aether_call[owned, owned] accum_go#331(a#332, rest#335)
         _ ->
-          a#325
-  aether_call[owned, owned] accum_go#324(base#330, pairs#322)
+          a#332
+  aether_call[owned, owned] accum_go#331(base#337, pairs#329)
 ── fn filter ──
   Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
@@ -872,58 +876,58 @@ lam(size, init, pairs, f) ->
 lam(xs, pred) ->
   letrec filter_acc =
     lam(ys, acc) ->
-      case ys#349 of
+      case ys#356 of
         Cons(h, t) ->
-          let <sym:4001584> =
-            aether_call[owned] pred#347(dup h#351 in h#351)
-          case <sym:4001584>#1584 of
+          let <sym:4001580> =
+            aether_call[owned] pred#354(dup h#358 in h#358)
+          case <sym:4001580>#1580 of
             true ->
-              let <sym:4001585> =
-                Cons(h#351, acc#350)
-              aether_call[owned, owned] filter_acc#348(t#352, <sym:4001585>#1585)
+              let <sym:4001581> =
+                Cons(h#358, acc#357)
+              aether_call[owned, owned] filter_acc#355(t#359, <sym:4001581>#1581)
             _ ->
-              aether_call[owned, owned] filter_acc#348(t#352, acc#350)
+              aether_call[owned, owned] filter_acc#355(t#359, acc#357)
         _ ->
-          aether_call[owned] reverse#513(acc#350)
-  let <sym:4001586> =
+          aether_call[owned] reverse#522(acc#357)
+  let <sym:4001582> =
     Nil
-  aether_call[owned, owned] filter_acc#348(xs#346, <sym:4001586>#1586)
+  aether_call[owned, owned] filter_acc#355(xs#353, <sym:4001582>#1582)
 ── fn foldr ──
   Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
   verifier: ok
 lam(xs, acc, f) ->
-  case xs#363 of
+  case xs#370 of
     Cons(h, t) ->
-      let <sym:4001588> =
-        aether_call[borrowed, owned, borrowed] foldr#362(t#367, acc#364, f#365)
-      aether_call[owned, owned] f#365(h#366, <sym:4001588>#1588)
+      let <sym:4001584> =
+        aether_call[borrowed, owned, borrowed] foldr#369(t#374, acc#371, f#372)
+      aether_call[owned, owned] f#372(h#373, <sym:4001584>#1584)
     _ ->
-      acc#364
+      acc#371
 ── fn fold1 ──
   Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
   verifier: ok
 lam(xs, f) ->
-  case xs#369 of
+  case xs#376 of
     Cons(h, t) ->
-      aether_call[owned, owned, borrowed] fold#353(t#372, h#371, f#370)
+      aether_call[owned, owned, borrowed] fold#360(t#379, h#378, f#377)
     _ ->
-      aether_call[borrowed] panic#1189("fold1 called on empty list")
+      aether_call[borrowed] panic#1210("fold1 called on empty list")
 ── fn find ──
   Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(xs, pred) ->
-  case xs#401 of
+  case xs#408 of
     Cons(h, t) ->
-      let <sym:4001598> =
-        aether_call[owned] pred#402(dup h#403 in h#403)
-      case <sym:4001598>#1598 of
+      let <sym:4001594> =
+        aether_call[owned] pred#409(dup h#410 in h#410)
+      case <sym:4001594>#1594 of
         true ->
-          Some(h#403)
+          Some(h#410)
         _ ->
-          aether_call[borrowed, borrowed] find#400(t#404, pred#402)
+          aether_call[borrowed, borrowed] find#407(t#411, pred#409)
     _ ->
       None
 ── fn each ──
@@ -931,16 +935,16 @@ lam(xs, pred) ->
   FreshAllocs: 0
   verifier: ok
 lam(xs, f) ->
-  case xs#414 of
+  case xs#421 of
     Cons(h, t) ->
       let <sym:2000019> =
-        aether_call[owned] f#415(h#416)
-      drop <sym:2000019>#418 in
-        let <sym:4001601> =
+        aether_call[owned] f#422(h#423)
+      drop <sym:2000019>#425 in
+        let <sym:4001597> =
           Flow.List.each
-        aether_call[owned, owned] <sym:4001601>#1601(t#417, f#415)
+        aether_call[owned, owned] <sym:4001597>#1597(t#424, f#422)
     _ ->
-      drop f#415 in
+      drop f#422 in
         MakeTuple()
 ── fn take_while ──
   Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
@@ -949,151 +953,151 @@ lam(xs, f) ->
 lam(xs, pred) ->
   letrec take_while_acc =
     lam(ys, acc) ->
-      case ys#437 of
+      case ys#444 of
         Cons(h, t) ->
-          let <sym:4001608> =
-            aether_call[owned] pred#435(dup h#439 in h#439)
-          case <sym:4001608>#1608 of
+          let <sym:4001604> =
+            aether_call[owned] pred#442(dup h#446 in h#446)
+          case <sym:4001604>#1604 of
             true ->
-              let <sym:4001609> =
-                Cons(h#439, acc#438)
-              aether_call[owned, owned] take_while_acc#436(t#440, <sym:4001609>#1609)
+              let <sym:4001605> =
+                Cons(h#446, acc#445)
+              aether_call[owned, owned] take_while_acc#443(t#447, <sym:4001605>#1605)
             _ ->
-              aether_call[owned] reverse#513(acc#438)
+              aether_call[owned] reverse#522(acc#445)
         _ ->
-          aether_call[owned] reverse#513(acc#438)
-  let <sym:4001610> =
+          aether_call[owned] reverse#522(acc#445)
+  let <sym:4001606> =
     Nil
-  aether_call[owned, owned] take_while_acc#436(xs#434, <sym:4001610>#1610)
+  aether_call[owned, owned] take_while_acc#443(xs#441, <sym:4001606>#1606)
 ── fn drop_while ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(xs, pred) ->
-  case xs#442 of
+  case xs#449 of
     Cons(h, t) ->
-      let <sym:4001611> =
-        aether_call[owned] pred#443(h#444)
-      case <sym:4001611>#1611 of
+      let <sym:4001607> =
+        aether_call[owned] pred#450(h#451)
+      case <sym:4001607>#1607 of
         true ->
-          aether_call[owned, borrowed] drop_while#441(t#445, pred#443)
+          aether_call[owned, borrowed] drop_while#448(t#452, pred#450)
         _ ->
-          xs#442
+          xs#449
     _ ->
-      drop xs#442 in
+      drop xs#449 in
         Nil
 ── fn split_at ──
   Dups: 2  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(xs, n) ->
-  let <sym:4001612> =
-    ICmpLe(n#448, 0)
-  case <sym:4001612>#1612 of
+  let <sym:4001608> =
+    ICmpLe(n#455, 0)
+  case <sym:4001608>#1608 of
     true ->
-      let <sym:4001613> =
+      let <sym:4001609> =
         Nil
-      MakeTuple(<sym:4001613>#1613, xs#447)
+      MakeTuple(<sym:4001609>#1609, xs#454)
     _ ->
-      case xs#447 of
+      case xs#454 of
         Cons(h, t) ->
-          let <sym:4001615> =
-            let <sym:4001614> =
-              ISub(n#448, 1)
-            aether_call[borrowed, borrowed] split_at#446(t#450, <sym:4001614>#1614)
-          case <sym:4001615>#1615 of
+          let <sym:4001611> =
+            let <sym:4001610> =
+              ISub(n#455, 1)
+            aether_call[borrowed, borrowed] split_at#453(t#457, <sym:4001610>#1610)
+          case <sym:4001611>#1611 of
             (left, right) ->
-              let <sym:4001616> =
-                Cons(h#449, dup left#451 in left#451)
-              MakeTuple(<sym:4001616>#1616, dup right#452 in right#452)
+              let <sym:4001612> =
+                Cons(h#456, dup left#458 in left#458)
+              MakeTuple(<sym:4001612>#1612, dup right#459 in right#459)
         _ ->
-          let <sym:4001617> =
+          let <sym:4001613> =
             Nil
-          let <sym:4001618> =
+          let <sym:4001614> =
             Nil
-          MakeTuple(<sym:4001617>#1617, <sym:4001618>#1618)
+          MakeTuple(<sym:4001613>#1613, <sym:4001614>#1614)
 ── fn span ──
   Dups: 3  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(xs, pred) ->
-  case xs#454 of
+  case xs#461 of
     Cons(h, t) ->
-      let <sym:4001619> =
-        aether_call[owned] pred#455(dup h#456 in h#456)
-      case <sym:4001619>#1619 of
+      let <sym:4001615> =
+        aether_call[owned] pred#462(dup h#463 in h#463)
+      case <sym:4001615>#1615 of
         true ->
-          let <sym:4001620> =
-            aether_call[borrowed, borrowed] span#453(t#457, pred#455)
-          case <sym:4001620>#1620 of
+          let <sym:4001616> =
+            aether_call[borrowed, borrowed] span#460(t#464, pred#462)
+          case <sym:4001616>#1616 of
             (left, right) ->
-              let <sym:4001621> =
-                Cons(h#456, dup left#458 in left#458)
-              MakeTuple(<sym:4001621>#1621, dup right#459 in right#459)
+              let <sym:4001617> =
+                Cons(h#463, dup left#465 in left#465)
+              MakeTuple(<sym:4001617>#1617, dup right#466 in right#466)
         _ ->
-          let <sym:4001622> =
+          let <sym:4001618> =
             Nil
-          MakeTuple(<sym:4001622>#1622, xs#454)
+          MakeTuple(<sym:4001618>#1618, xs#461)
     _ ->
-      drop xs#454 in
-        let <sym:4001623> =
+      drop xs#461 in
+        let <sym:4001619> =
           Nil
-        let <sym:4001624> =
+        let <sym:4001620> =
           Nil
-        MakeTuple(<sym:4001623>#1623, <sym:4001624>#1624)
+        MakeTuple(<sym:4001619>#1619, <sym:4001620>#1620)
 ── fn scanl ──
   Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(xs, acc, f) ->
-  let <sym:4001625> =
-    aether_call[borrowed, owned, borrowed] scanl_rest#664(xs#461, dup acc#462 in acc#462, f#463)
-  Cons(acc#462, <sym:4001625>#1625)
+  let <sym:4001621> =
+    aether_call[borrowed, owned, borrowed] scanl_rest#683(xs#468, dup acc#469 in acc#469, f#470)
+  Cons(acc#469, <sym:4001621>#1621)
 ── fn scanr ──
   Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(xs, acc, f) ->
-  let <sym:4001626> =
-    aether_call[borrowed, borrowed, borrowed] scanr_go#688(xs#465, acc#466, f#467)
-  case <sym:4001626>#1626 of
+  let <sym:4001622> =
+    aether_call[borrowed, borrowed, borrowed] scanr_go#709(xs#472, acc#473, f#474)
+  case <sym:4001622>#1622 of
     (result, last_acc) ->
-      dup result#468 in
-        result#468
+      dup result#475 in
+        result#475
 ── fn sort ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m8_466C6F772E4F7264_Ord, xs) ->
-  drop __dict_m8_466C6F772E4F7264_Ord#1352 in
-    let <sym:4001627> =
+  drop __dict_m8_466C6F772E4F7264_Ord#479 in
+    let <sym:4001623> =
       lam(x) ->
-        x#472
-    aether_call[owned, borrowed] merge_sort_by#707(xs#471, <sym:4001627>#1627)
+        x#480
+    aether_call[owned, borrowed] merge_sort_by#728(xs#478, <sym:4001623>#1623)
 ── fn sort_by ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m8_466C6F772E4F7264_Ord, xs, f) ->
-  drop __dict_m8_466C6F772E4F7264_Ord#1353 in
-    aether_call[owned, borrowed] merge_sort_by#707(xs#474, f#475)
+  drop __dict_m8_466C6F772E4F7264_Ord#484 in
+    aether_call[owned, borrowed] merge_sort_by#728(xs#482, f#483)
 ── fn init ──
   Dups: 0  Drops: 1  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 1  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 lam(xs) ->
-  case xs#498 of
+  case xs#507 of
     Cons(h, t) ->
-      case t#500 of
+      case t#509 of
         Cons(h2, t2) ->
-          let <sym:4001629> =
-            aether_call[borrowed] init#497(t#500)
-          reuse xs#498 as Cons mask=0x2(h#499, <sym:4001629>#1629)
+          let <sym:4001625> =
+            aether_call[borrowed] init#506(t#509)
+          reuse xs#507 as Cons mask=0x2(h#508, <sym:4001625>#1625)
         _ ->
-          drop xs#498 in
+          drop xs#507 in
             Nil
     _ ->
-      aether_call[borrowed] panic#1189("init called on empty list")
+      aether_call[borrowed] panic#1210("init called on empty list")
 ── fn range ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
@@ -1101,116 +1105,116 @@ lam(xs) ->
 lam(start, stop) ->
   letrec range_go =
     lam(current, acc) ->
-      let <sym:4001630> =
-        ICmpGe(current#511, stop#509)
-      case <sym:4001630>#1630 of
+      let <sym:4001626> =
+        ICmpGe(current#520, stop#518)
+      case <sym:4001626>#1626 of
         true ->
-          drop current#511 in
-            aether_call[owned] reverse#513(acc#512)
+          drop current#520 in
+            aether_call[owned] reverse#522(acc#521)
         _ ->
-          let <sym:4001631> =
-            IAdd(current#511, 1)
-          let <sym:4001632> =
-            Cons(current#511, acc#512)
-          aether_call[owned, owned] range_go#510(<sym:4001631>#1631, <sym:4001632>#1632)
-  let <sym:4001633> =
+          let <sym:4001627> =
+            IAdd(current#520, 1)
+          let <sym:4001628> =
+            Cons(current#520, acc#521)
+          aether_call[owned, owned] range_go#519(<sym:4001627>#1627, <sym:4001628>#1628)
+  let <sym:4001629> =
     Nil
-  aether_call[owned, owned] range_go#510(start#508, <sym:4001633>#1633)
+  aether_call[owned, owned] range_go#519(start#517, <sym:4001629>#1629)
 ── fn unzip ──
   Dups: 4  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(2)
   FreshAllocs: 2
   verifier: ok
 lam(xs) ->
-  case xs#528 of
+  case xs#537 of
     Cons((a, b), t) ->
-      let <sym:4001640> =
-        aether_call[borrowed] unzip#527(t#531)
-      case <sym:4001640>#1640 of
+      let <sym:4001636> =
+        aether_call[borrowed] unzip#536(t#540)
+      case <sym:4001636>#1636 of
         (left, right) ->
-          let <sym:4001641> =
-            Cons(dup a#529 in a#529, dup left#532 in left#532)
-          let <sym:4001642> =
-            Cons(dup b#530 in b#530, dup right#533 in right#533)
-          MakeTuple(<sym:4001641>#1641, <sym:4001642>#1642)
+          let <sym:4001637> =
+            Cons(dup a#538 in a#538, dup left#541 in left#541)
+          let <sym:4001638> =
+            Cons(dup b#539 in b#539, dup right#542 in right#542)
+          MakeTuple(<sym:4001637>#1637, <sym:4001638>#1638)
     _ ->
-      let <sym:4001643> =
+      let <sym:4001639> =
         Nil
-      let <sym:4001644> =
+      let <sym:4001640> =
         Nil
-      MakeTuple(<sym:4001643>#1643, <sym:4001644>#1644)
+      MakeTuple(<sym:4001639>#1639, <sym:4001640>#1640)
 ── fn enumerate ──
   Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
   verifier: ok
 lam(xs) ->
-  aether_call[borrowed, borrowed] enumerate_go#649(xs#535, 0)
+  aether_call[borrowed, borrowed] enumerate_go#668(xs#544, 0)
 ── fn contains ──
   Dups: 1  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, xs, x) ->
-  case xs#537 of
+  case xs#546 of
     Cons(h, t) ->
-      let <sym:4001646> =
-        let <sym:4001645> =
-          __dict_m7_466C6F772E4571_Eq#1354.0
-        aether_call[owned, owned] <sym:4001645>#1645(h#539, dup x#538 in x#538)
-      case <sym:4001646>#1646 of
+      let <sym:4001642> =
+        let <sym:4001641> =
+          __dict_m7_466C6F772E4571_Eq#548.0
+        aether_call[owned, owned] <sym:4001641>#1641(h#549, dup x#547 in x#547)
+      case <sym:4001642>#1642 of
         true ->
-            drop x#538 in
-          drop __dict_m7_466C6F772E4571_Eq#1354 in
+            drop x#547 in
+          drop __dict_m7_466C6F772E4571_Eq#548 in
               true
         _ ->
-          aether_call[owned, borrowed, owned] contains#536(__dict_m7_466C6F772E4571_Eq#1354, t#540, x#538)
+          aether_call[owned, borrowed, owned] contains#545(__dict_m7_466C6F772E4571_Eq#548, t#550, x#547)
     _ ->
-        drop x#538 in
-      drop __dict_m7_466C6F772E4571_Eq#1354 in
+        drop x#547 in
+      drop __dict_m7_466C6F772E4571_Eq#548 in
           false
 ── fn partition ──
   Dups: 5  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1  FBIP: fbip(2)
   FreshAllocs: 2
   verifier: ok
 lam(xs, pred) ->
-  case xs#545 of
+  case xs#556 of
     Cons(h, t) ->
-      let <sym:4001648> =
-        aether_call[borrowed, borrowed] partition#544(t#548, pred#546)
-      case <sym:4001648>#1648 of
+      let <sym:4001644> =
+        aether_call[borrowed, borrowed] partition#555(t#559, pred#557)
+      case <sym:4001644>#1644 of
         (yes, no) ->
-          let <sym:4001649> =
-            aether_call[owned] pred#546(dup h#547 in h#547)
-          case <sym:4001649>#1649 of
+          let <sym:4001645> =
+            aether_call[owned] pred#557(dup h#558 in h#558)
+          case <sym:4001645>#1645 of
             true ->
-              let <sym:4001650> =
-                Cons(h#547, dup yes#549 in yes#549)
-              MakeTuple(<sym:4001650>#1650, dup no#550 in no#550)
+              let <sym:4001646> =
+                Cons(h#558, dup yes#560 in yes#560)
+              MakeTuple(<sym:4001646>#1646, dup no#561 in no#561)
             _ ->
-              let <sym:4001651> =
-                Cons(h#547, dup no#550 in no#550)
-              MakeTuple(dup yes#549 in yes#549, <sym:4001651>#1651)
+              let <sym:4001647> =
+                Cons(h#558, dup no#561 in no#561)
+              MakeTuple(dup yes#560 in yes#560, <sym:4001647>#1647)
     _ ->
-      let <sym:4001652> =
+      let <sym:4001648> =
         Nil
-      let <sym:4001653> =
+      let <sym:4001649> =
         Nil
-      MakeTuple(<sym:4001652>#1652, <sym:4001653>#1653)
+      MakeTuple(<sym:4001648>#1648, <sym:4001649>#1649)
 ── fn delete ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, xs, x) ->
-  drop __dict_m7_466C6F772E4571_Eq#1356 in
-    aether_call[borrowed, borrowed] delete_go#554(xs#552, x#553)
+  drop __dict_m7_466C6F772E4571_Eq#565 in
+    aether_call[borrowed, borrowed] delete_go#566(xs#563, x#564)
 ── fn clone_list ──
   Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 lam(xs) ->
-  case xs#564 of
+  case xs#576 of
     Cons(h, t) ->
-      let <sym:4001659> =
-        aether_call[borrowed] clone_list#563(t#566)
-      reuse xs#564 as Cons mask=0x2(h#565, <sym:4001659>#1659)
+      let <sym:4001655> =
+        aether_call[borrowed] clone_list#575(t#578)
+      reuse xs#576 as Cons mask=0x2(h#577, <sym:4001655>#1655)
     _ ->
       Nil
 ── fn intersperse ──
@@ -1218,191 +1222,178 @@ lam(xs) ->
   FreshAllocs: 0
   verifier: ok
 lam(xs, sep) ->
-  case xs#568 of
+  case xs#580 of
     Cons(h, t) ->
-      let <sym:4001660> =
-        aether_call[borrowed, owned] intersperse_rest#654(t#571, sep#569)
-      reuse xs#568 as Cons mask=0x2(h#570, <sym:4001660>#1660)
+      let <sym:4001656> =
+        aether_call[borrowed, owned] intersperse_rest#673(t#583, sep#581)
+      reuse xs#580 as Cons mask=0x2(h#582, <sym:4001656>#1656)
     _ ->
-      drop sep#569 in
+      drop sep#581 in
         Nil
 ── fn is_prefix ──
   Dups: 0  Drops: 3  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, prefix, xs) ->
-  case prefix#576 of
+  case prefix#588 of
     Cons(p, pt) ->
-      case xs#577 of
+      case xs#589 of
         Cons(x, xt) ->
-          let <sym:4001663> =
-            let <sym:4001662> =
-              __dict_m7_466C6F772E4571_Eq#1357.0
-            aether_call[owned, owned] <sym:4001662>#1662(p#578, x#580)
-          case <sym:4001663>#1663 of
+          let <sym:4001659> =
+            let <sym:4001658> =
+              __dict_m7_466C6F772E4571_Eq#590.0
+            aether_call[owned, owned] <sym:4001658>#1658(p#591, x#593)
+          case <sym:4001659>#1659 of
             true ->
-              aether_call[owned, borrowed, borrowed] is_prefix#575(__dict_m7_466C6F772E4571_Eq#1357, pt#579, xt#581)
+              aether_call[owned, borrowed, borrowed] is_prefix#587(__dict_m7_466C6F772E4571_Eq#590, pt#592, xt#594)
             _ ->
-              drop __dict_m7_466C6F772E4571_Eq#1357 in
+              drop __dict_m7_466C6F772E4571_Eq#590 in
                 false
         _ ->
-          drop __dict_m7_466C6F772E4571_Eq#1357 in
+          drop __dict_m7_466C6F772E4571_Eq#590 in
             false
     _ ->
-      drop __dict_m7_466C6F772E4571_Eq#1357 in
+      drop __dict_m7_466C6F772E4571_Eq#590 in
         true
 ── fn replicate ──
   Dups: 1  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(n, x) ->
-  let <sym:4001669> =
-    ICmpLe(n#591, 0)
-  case <sym:4001669>#1669 of
+  let <sym:4001665> =
+    ICmpLe(n#605, 0)
+  case <sym:4001665>#1665 of
     true ->
-      drop x#592 in
+      drop x#606 in
         Nil
     _ ->
-      let <sym:4001671> =
-        let <sym:4001670> =
-          ISub(n#591, 1)
-        aether_call[borrowed, owned] replicate#590(<sym:4001670>#1670, dup x#592 in x#592)
-      Cons(x#592, <sym:4001671>#1671)
+      let <sym:4001667> =
+        let <sym:4001666> =
+          ISub(n#605, 1)
+        aether_call[borrowed, owned] replicate#604(<sym:4001666>#1666, dup x#606 in x#606)
+      Cons(x#606, <sym:4001667>#1667)
 ── fn iterate ──
   Dups: 1  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(x, f, n) ->
-  let <sym:4001672> =
-    ICmpLe(n#596, 0)
-  case <sym:4001672>#1672 of
+  let <sym:4001668> =
+    ICmpLe(n#610, 0)
+  case <sym:4001668>#1668 of
     true ->
-      drop x#594 in
+      drop x#608 in
         Nil
     _ ->
-      let <sym:4001675> =
-        let <sym:4001673> =
-          aether_call[owned] f#595(dup x#594 in x#594)
-        let <sym:4001674> =
-          ISub(n#596, 1)
-        aether_call[owned, borrowed, borrowed] iterate#593(<sym:4001673>#1673, f#595, <sym:4001674>#1674)
-      Cons(x#594, <sym:4001675>#1675)
-── fn unique_by ──
-  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
-  FreshAllocs: 0
-  verifier: ok
-lam(__dict_m7_466C6F772E4571_Eq, xs, f) ->
-  drop __dict_m7_466C6F772E4571_Eq#1359 in
-    let <sym:4001682> =
-      let <sym:4001680> =
-        Nil
-      let <sym:4001681> =
-        Nil
-      aether_call[borrowed, borrowed, owned, owned] unique_by_go#674(xs#607, f#608, <sym:4001680>#1680, <sym:4001681>#1681)
-    aether_call[owned] reverse#513(<sym:4001682>#1682)
+      let <sym:4001671> =
+        let <sym:4001669> =
+          aether_call[owned] f#609(dup x#608 in x#608)
+        let <sym:4001670> =
+          ISub(n#610, 1)
+        aether_call[owned, borrowed, borrowed] iterate#607(<sym:4001669>#1669, f#609, <sym:4001670>#1670)
+      Cons(x#608, <sym:4001671>#1671)
 ── fn maximum ──
   Dups: 0  Drops: 1  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m8_466C6F772E4F7264_Ord, xs) ->
-  case xs#610 of
+  case xs#625 of
     Cons(h, t) ->
-      let <sym:4001683> =
-        aether_call[borrowed, owned] maximum_go#749(t#612, h#611)
-      reuse __dict_m8_466C6F772E4F7264_Ord#1360 as Some(<sym:4001683>#1683)
+      let <sym:4001679> =
+        aether_call[borrowed, owned] maximum_go#770(t#628, h#627)
+      reuse __dict_m8_466C6F772E4F7264_Ord#626 as Some(<sym:4001679>#1679)
     _ ->
-      drop __dict_m8_466C6F772E4F7264_Ord#1360 in
+      drop __dict_m8_466C6F772E4F7264_Ord#626 in
         None
 ── fn minimum ──
   Dups: 0  Drops: 1  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m8_466C6F772E4F7264_Ord, xs) ->
-  case xs#614 of
+  case xs#630 of
     Cons(h, t) ->
-      let <sym:4001684> =
-        aether_call[borrowed, owned] minimum_go#754(t#616, h#615)
-      reuse __dict_m8_466C6F772E4F7264_Ord#1361 as Some(<sym:4001684>#1684)
+      let <sym:4001680> =
+        aether_call[borrowed, owned] minimum_go#775(t#633, h#632)
+      reuse __dict_m8_466C6F772E4F7264_Ord#631 as Some(<sym:4001680>#1680)
     _ ->
-      drop __dict_m8_466C6F772E4F7264_Ord#1361 in
+      drop __dict_m8_466C6F772E4F7264_Ord#631 in
         None
 ── fn concat_lists ──
   Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 lam(xs, ys) ->
-  case xs#632 of
+  case xs#649 of
     Cons(h, t) ->
-      let <sym:4001687> =
-        aether_call[borrowed, owned] concat_lists#631(t#635, ys#633)
-      reuse xs#632 as Cons mask=0x2(h#634, <sym:4001687>#1687)
+      let <sym:4001683> =
+        aether_call[borrowed, owned] concat_lists#648(t#652, ys#650)
+      reuse xs#649 as Cons mask=0x2(h#651, <sym:4001683>#1683)
     _ ->
-      ys#633
+      ys#650
 ── fn lookup ──
   Dups: 3  Drops: 3  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, xs, key) ->
-  case xs#641 of
+  case xs#658 of
     Cons((k, v), t) ->
-      let <sym:4001691> =
-        let <sym:4001690> =
-          __dict_m7_466C6F772E4571_Eq#1362.0
-        aether_call[owned, owned] <sym:4001690>#1690(dup k#643 in k#643, dup key#642 in key#642)
-      case <sym:4001691>#1691 of
+      let <sym:4001687> =
+        let <sym:4001686> =
+          __dict_m7_466C6F772E4571_Eq#660.0
+        aether_call[owned, owned] <sym:4001686>#1686(dup k#661 in k#661, dup key#659 in key#659)
+      case <sym:4001687>#1687 of
         true ->
-          drop key#642 in
-            reuse __dict_m7_466C6F772E4571_Eq#1362 as Some(dup v#644 in v#644)
+          drop key#659 in
+            reuse __dict_m7_466C6F772E4571_Eq#660 as Some(dup v#662 in v#662)
         _ ->
-          aether_call[owned, borrowed, owned] lookup#640(__dict_m7_466C6F772E4571_Eq#1362, t#645, key#642)
+          aether_call[owned, borrowed, owned] lookup#657(__dict_m7_466C6F772E4571_Eq#660, t#663, key#659)
     _ ->
-        drop key#642 in
-      drop __dict_m7_466C6F772E4571_Eq#1362 in
+        drop key#659 in
+      drop __dict_m7_466C6F772E4571_Eq#660 in
           None
 ── fn enumerate_go ──
   Dups: 1  Drops: 1  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 lam(xs, i) ->
-  case xs#650 of
+  case xs#669 of
     Cons(h, t) ->
-      let <sym:4001693> =
-        MakeTuple(dup i#651 in i#651, h#652)
-      let <sym:4001695> =
-        let <sym:4001694> =
-          IAdd(i#651, 1)
-        aether_call[borrowed, borrowed] enumerate_go#649(t#653, <sym:4001694>#1694)
-      reuse xs#650 as Cons(<sym:4001693>#1693, <sym:4001695>#1695)
+      let <sym:4001689> =
+        MakeTuple(dup i#670 in i#670, h#671)
+      let <sym:4001691> =
+        let <sym:4001690> =
+          IAdd(i#670, 1)
+        aether_call[borrowed, borrowed] enumerate_go#668(t#672, <sym:4001690>#1690)
+      reuse xs#669 as Cons(<sym:4001689>#1689, <sym:4001691>#1691)
     _ ->
-      drop i#651 in
+      drop i#670 in
         Nil
 ── fn intersperse_rest ──
   Dups: 1  Drops: 1  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(xs, sep) ->
-  case xs#655 of
+  case xs#674 of
     Cons(h, t) ->
-      let <sym:4001697> =
-        let <sym:4001696> =
-          aether_call[borrowed, owned] intersperse_rest#654(t#658, dup sep#656 in sep#656)
-        Cons(h#657, <sym:4001696>#1696)
-      reuse xs#655 as Cons(sep#656, <sym:4001697>#1697)
+      let <sym:4001693> =
+        let <sym:4001692> =
+          aether_call[borrowed, owned] intersperse_rest#673(t#677, dup sep#675 in sep#675)
+        Cons(h#676, <sym:4001692>#1692)
+      reuse xs#674 as Cons(sep#675, <sym:4001693>#1693)
     _ ->
-      drop sep#656 in
+      drop sep#675 in
         Nil
 ── fn intercalate_rest ──
   Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
   verifier: ok
 lam(xss, sep) ->
-  case xss#660 of
+  case xss#679 of
     Cons(h, t) ->
-      let <sym:4001699> =
-        let <sym:4001698> =
-          aether_call[borrowed, borrowed] intercalate_rest#659(t#663, sep#661)
-        aether_call[borrowed, owned] concat_lists#631(h#662, <sym:4001698>#1698)
-      aether_call[borrowed, owned] concat_lists#631(sep#661, <sym:4001699>#1699)
+      let <sym:4001695> =
+        let <sym:4001694> =
+          aether_call[borrowed, borrowed] intercalate_rest#678(t#682, sep#680)
+        aether_call[borrowed, owned] concat_lists#648(h#681, <sym:4001694>#1694)
+      aether_call[borrowed, owned] concat_lists#648(sep#680, <sym:4001695>#1695)
     _ ->
       Nil
 ── fn scanl_rest ──
@@ -1410,190 +1401,191 @@ lam(xss, sep) ->
   FreshAllocs: 0
   verifier: ok
 lam(xs, acc, f) ->
-  case xs#665 of
+  case xs#684 of
     Cons(h, t) ->
-      let <sym:4001700> =
-        aether_call[owned, owned] f#667(acc#666, h#668)
-      aether_call[borrowed, owned, borrowed] scanl_emit#670(t#669, <sym:4001700>#1700, f#667)
+      let <sym:4001696> =
+        aether_call[owned, owned] f#686(acc#685, h#687)
+      aether_call[borrowed, owned, borrowed] scanl_emit#689(t#688, <sym:4001696>#1696, f#686)
     _ ->
-      drop acc#666 in
+      drop acc#685 in
         Nil
 ── fn scanl_emit ──
   Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(xs, next, f) ->
-  let <sym:4001701> =
-    aether_call[borrowed, owned, borrowed] scanl_rest#664(xs#671, dup next#672 in next#672, f#673)
-  Cons(next#672, <sym:4001701>#1701)
+  let <sym:4001697> =
+    aether_call[borrowed, owned, borrowed] scanl_rest#683(xs#690, dup next#691 in next#691, f#692)
+  Cons(next#691, <sym:4001697>#1697)
 ── fn unique_by_go ──
-  Dups: 1  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 1  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
-lam(xs, f, seen, acc) ->
-  case xs#675 of
+lam(__dict_m7_466C6F772E4571_Eq, xs, f, seen, acc) ->
+  case xs#694 of
     Cons(h, t) ->
-      let <sym:4001702> =
-        aether_call[owned] f#676(dup h#679 in h#679)
-      aether_call[borrowed, owned, owned, borrowed, owned, owned] unique_by_step#681(t#680, h#679, <sym:4001702>#1702, f#676, seen#677, acc#678)
+      let <sym:4001698> =
+        aether_call[owned] f#695(dup h#699 in h#699)
+      aether_call[owned, borrowed, owned, owned, borrowed, owned, owned] unique_by_step#701(__dict_m7_466C6F772E4571_Eq#698, t#700, h#699, <sym:4001698>#1698, f#695, seen#696, acc#697)
     _ ->
-      drop seen#677 in
-        acc#678
+        drop seen#696 in
+      drop __dict_m7_466C6F772E4571_Eq#698 in
+          acc#697
 ── fn unique_by_step ──
-  Dups: 1  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1  FBIP: fbip(2)
+  Dups: 2  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1  FBIP: fbip(2)
   FreshAllocs: 2
   verifier: ok
-lam(xs, value, key, f, seen, acc) ->
-  let <sym:4001703> =
-    aether_call[owned, borrowed, owned] contains#536(__dict_m7_466C6F772E4571_Eq_Int, seen#686, dup key#684 in key#684)
-  case <sym:4001703>#1703 of
+lam(__dict_m7_466C6F772E4571_Eq, xs, value, key, f, seen, acc) ->
+  let <sym:4001699> =
+    aether_call[owned, borrowed, owned] contains#545(dup __dict_m7_466C6F772E4571_Eq#708 in __dict_m7_466C6F772E4571_Eq#708, seen#706, dup key#704 in key#704)
+  case <sym:4001699>#1699 of
     true ->
-        drop value#683 in
-      drop key#684 in
-          aether_call[borrowed, borrowed, owned, owned] unique_by_go#674(xs#682, f#685, seen#686, acc#687)
+        drop value#703 in
+      drop key#704 in
+          aether_call[owned, borrowed, borrowed, owned, owned] unique_by_go#693(__dict_m7_466C6F772E4571_Eq#708, xs#702, f#705, seen#706, acc#707)
     _ ->
-      let <sym:4001704> =
-        Cons(key#684, seen#686)
-      let <sym:4001705> =
-        Cons(value#683, acc#687)
-      aether_call[borrowed, borrowed, owned, owned] unique_by_go#674(xs#682, f#685, <sym:4001704>#1704, <sym:4001705>#1705)
+      let <sym:4001700> =
+        Cons(key#704, seen#706)
+      let <sym:4001701> =
+        Cons(value#703, acc#707)
+      aether_call[owned, borrowed, borrowed, owned, owned] unique_by_go#693(__dict_m7_466C6F772E4571_Eq#708, xs#702, f#705, <sym:4001700>#1700, <sym:4001701>#1701)
 ── fn scanr_go ──
   Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 2
   FreshAllocs: 0
   verifier: ok
 lam(xs, acc, f) ->
-  case xs#689 of
+  case xs#710 of
     Cons(h, t) ->
-      let <sym:4001706> =
-        aether_call[borrowed, borrowed, borrowed] scanr_go#688(t#693, acc#690, f#691)
-      aether_call[owned, borrowed, borrowed, borrowed] scanr_step#694(h#692, <sym:4001706>#1706, acc#690, f#691)
+      let <sym:4001702> =
+        aether_call[borrowed, borrowed, borrowed] scanr_go#709(t#714, acc#711, f#712)
+      aether_call[owned, borrowed, borrowed, borrowed] scanr_step#715(h#713, <sym:4001702>#1702, acc#711, f#712)
     _ ->
-      let <sym:4001707> =
-        MakeList(dup acc#690 in acc#690)
-      MakeTuple(<sym:4001707>#1707, acc#690)
+      let <sym:4001703> =
+        MakeList(dup acc#711 in acc#711)
+      MakeTuple(<sym:4001703>#1703, acc#711)
 ── fn scanr_step ──
   Dups: 2  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(h, state, acc, f) ->
-  drop acc#697 in
-    case state#696 of
+  drop acc#718 in
+    case state#717 of
       (rest, next_acc) ->
-        drop acc#697 in
-          aether_call[owned, owned, owned, borrowed] scanr_finish#701(dup rest#699 in rest#699, dup next_acc#700 in next_acc#700, h#695, f#698)
+        drop acc#718 in
+          aether_call[owned, owned, owned, borrowed] scanr_finish#722(dup rest#720 in rest#720, dup next_acc#721 in next_acc#721, h#716, f#719)
 ── fn scanr_finish ──
   Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(rest, next_acc, h, f) ->
   let current =
-    aether_call[owned, owned] f#705(h#704, next_acc#703)
-  let <sym:4001708> =
-    Cons(dup current#706 in current#706, rest#702)
-  MakeTuple(<sym:4001708>#1708, current#706)
+    aether_call[owned, owned] f#726(h#725, next_acc#724)
+  let <sym:4001704> =
+    Cons(dup current#727 in current#727, rest#723)
+  MakeTuple(<sym:4001704>#1704, current#727)
 ── fn merge_sort_do ──
   Dups: 3  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 2
   FreshAllocs: 0
   verifier: ok
 lam(xs, key_fn) ->
   let mid =
-    let <sym:4001709> =
-      aether_call[owned] length#490(dup xs#712 in xs#712)
-    IDiv(<sym:4001709>#1709, 2)
-  let <sym:4001710> =
-    aether_call[borrowed, borrowed] split_at#446(xs#712, mid#716)
-  case <sym:4001710>#1710 of
+    let <sym:4001705> =
+      aether_call[owned] length#499(dup xs#733 in xs#733)
+    IDiv(<sym:4001705>#1705, 2)
+  let <sym:4001706> =
+    aether_call[borrowed, borrowed] split_at#453(xs#733, mid#737)
+  case <sym:4001706>#1706 of
     (left, right) ->
-      let <sym:4001711> =
-        aether_call[owned, borrowed] merge_sort_by#707(dup left#714 in left#714, key_fn#713)
-      let <sym:4001712> =
-        aether_call[owned, borrowed] merge_sort_by#707(dup right#715 in right#715, key_fn#713)
-      aether_call[owned, owned, borrowed] merge_by_key#717(<sym:4001711>#1711, <sym:4001712>#1712, key_fn#713)
+      let <sym:4001707> =
+        aether_call[owned, borrowed] merge_sort_by#728(dup left#735 in left#735, key_fn#734)
+      let <sym:4001708> =
+        aether_call[owned, borrowed] merge_sort_by#728(dup right#736 in right#736, key_fn#734)
+      aether_call[owned, owned, borrowed] merge_by_key#738(<sym:4001707>#1707, <sym:4001708>#1708, key_fn#734)
 ── fn merge_by_key ──
   Dups: 2  Drops: 2  Reuses: 2  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 lam(left, right, key_fn) ->
-  case left#718 of
+  case left#739 of
     Cons(a, at) ->
-      case right#719 of
+      case right#740 of
         Cons(b, bt) ->
-          let <sym:4001715> =
-            let <sym:4001713> =
-              aether_call[owned] key_fn#720(dup a#721 in a#721)
-            let <sym:4001714> =
-              aether_call[owned] key_fn#720(dup b#723 in b#723)
-            Le(<sym:4001713>#1713, <sym:4001714>#1714)
-          case <sym:4001715>#1715 of
+          let <sym:4001711> =
+            let <sym:4001709> =
+              aether_call[owned] key_fn#741(dup a#742 in a#742)
+            let <sym:4001710> =
+              aether_call[owned] key_fn#741(dup b#744 in b#744)
+            Le(<sym:4001709>#1709, <sym:4001710>#1710)
+          case <sym:4001711>#1711 of
             true ->
-              let <sym:4001716> =
-                aether_call[owned, owned, borrowed] merge_by_key#717(at#722, right#719, key_fn#720)
-              reuse left#718 as Cons mask=0x2(a#721, <sym:4001716>#1716)
+              let <sym:4001712> =
+                aether_call[owned, owned, borrowed] merge_by_key#738(at#743, right#740, key_fn#741)
+              reuse left#739 as Cons mask=0x2(a#742, <sym:4001712>#1712)
             _ ->
-              let <sym:4001717> =
-                aether_call[owned, owned, borrowed] merge_by_key#717(left#718, bt#724, key_fn#720)
-              reuse right#719 as Cons mask=0x2(b#723, <sym:4001717>#1717)
+              let <sym:4001713> =
+                aether_call[owned, owned, borrowed] merge_by_key#738(left#739, bt#745, key_fn#741)
+              reuse right#740 as Cons mask=0x2(b#744, <sym:4001713>#1713)
         _ ->
-          drop right#719 in
-            left#718
+          drop right#740 in
+            left#739
     _ ->
-      drop left#718 in
-        right#719
+      drop left#739 in
+        right#740
 ── fn group_by_head ──
   Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(2)
   FreshAllocs: 2
   verifier: ok
 lam(h, t, eq) ->
-  let <sym:4001723> =
-    let <sym:4001722> =
+  let <sym:4001719> =
+    let <sym:4001718> =
       lam(x) ->
-        aether_call[borrowed, borrowed] eq#745(h#743, x#746)
-    aether_call[borrowed, borrowed] span#453(t#744, <sym:4001722>#1722)
-  case <sym:4001723>#1723 of
+        aether_call[borrowed, borrowed] eq#766(h#764, x#767)
+    aether_call[borrowed, borrowed] span#460(t#765, <sym:4001718>#1718)
+  case <sym:4001719>#1719 of
     (prefix, rest) ->
-      let <sym:4001724> =
-        Cons(h#743, dup prefix#747 in prefix#747)
-      let <sym:4001725> =
-        aether_call[borrowed, borrowed] group_by#601(rest#748, eq#745)
-      Cons(<sym:4001724>#1724, <sym:4001725>#1725)
+      let <sym:4001720> =
+        Cons(h#764, dup prefix#768 in prefix#768)
+      let <sym:4001721> =
+        aether_call[borrowed, borrowed] group_by#615(rest#769, eq#766)
+      Cons(<sym:4001720>#1720, <sym:4001721>#1721)
 ── fn maximum_go ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(xs, best) ->
-  case xs#750 of
+  case xs#771 of
     Cons(h, t) ->
-      let <sym:4001727> =
-        let <sym:4001726> =
-          Gt(h#752, best#751)
-        case <sym:4001726>#1726 of
+      let <sym:4001723> =
+        let <sym:4001722> =
+          Gt(h#773, best#772)
+        case <sym:4001722>#1722 of
           true ->
-            drop best#751 in
-              h#752
+            drop best#772 in
+              h#773
           _ ->
-            best#751
-      aether_call[borrowed, owned] maximum_go#749(t#753, <sym:4001727>#1727)
+            best#772
+      aether_call[borrowed, owned] maximum_go#770(t#774, <sym:4001723>#1723)
     _ ->
-      best#751
+      best#772
 ── fn minimum_go ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(xs, best) ->
-  case xs#755 of
+  case xs#776 of
     Cons(h, t) ->
-      let <sym:4001729> =
-        let <sym:4001728> =
-          Lt(h#757, best#756)
-        case <sym:4001728>#1728 of
+      let <sym:4001725> =
+        let <sym:4001724> =
+          Lt(h#778, best#777)
+        case <sym:4001724>#1724 of
           true ->
-            drop best#756 in
-              h#757
+            drop best#777 in
+              h#778
           _ ->
-            best#756
-      aether_call[borrowed, owned] minimum_go#754(t#758, <sym:4001729>#1729)
+            best#777
+      aether_call[borrowed, owned] minimum_go#775(t#779, <sym:4001725>#1725)
     _ ->
-      best#756
+      best#777
 ── fn lefts ──
   Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
@@ -1601,20 +1593,20 @@ lam(xs, best) ->
 lam(xs) ->
   letrec lefts_acc =
     lam(ys, acc) ->
-      case ys#775 of
+      case ys#796 of
         Cons(Left(x), t) ->
-          let <sym:4001733> =
-            Cons(dup x#777 in x#777, acc#776)
-          aether_call[owned, owned] lefts_acc#774(t#778, <sym:4001733>#1733)
+          let <sym:4001729> =
+            Cons(dup x#798 in x#798, acc#797)
+          aether_call[owned, owned] lefts_acc#795(t#799, <sym:4001729>#1729)
         Cons(Right(_), t) ->
-          aether_call[owned, owned] lefts_acc#774(t#779, acc#776)
+          aether_call[owned, owned] lefts_acc#795(t#800, acc#797)
         _ ->
-          let <sym:4001734> =
+          let <sym:4001730> =
             List.reverse
-          aether_call[owned] <sym:4001734>#1734(acc#776)
-  let <sym:4001735> =
+          aether_call[owned] <sym:4001730>#1730(acc#797)
+  let <sym:4001731> =
     Nil
-  aether_call[owned, owned] lefts_acc#774(xs#773, <sym:4001735>#1735)
+  aether_call[owned, owned] lefts_acc#795(xs#794, <sym:4001731>#1731)
 ── fn rights ──
   Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
@@ -1622,20 +1614,20 @@ lam(xs) ->
 lam(xs) ->
   letrec rights_acc =
     lam(ys, acc) ->
-      case ys#783 of
+      case ys#804 of
         Cons(Right(y), t) ->
-          let <sym:4001736> =
-            Cons(dup y#785 in y#785, acc#784)
-          aether_call[owned, owned] rights_acc#782(t#786, <sym:4001736>#1736)
+          let <sym:4001732> =
+            Cons(dup y#806 in y#806, acc#805)
+          aether_call[owned, owned] rights_acc#803(t#807, <sym:4001732>#1732)
         Cons(Left(_), t) ->
-          aether_call[owned, owned] rights_acc#782(t#787, acc#784)
+          aether_call[owned, owned] rights_acc#803(t#808, acc#805)
         _ ->
-          let <sym:4001737> =
+          let <sym:4001733> =
             List.reverse
-          aether_call[owned] <sym:4001737>#1737(acc#784)
-  let <sym:4001738> =
+          aether_call[owned] <sym:4001733>#1733(acc#805)
+  let <sym:4001734> =
     Nil
-  aether_call[owned, owned] rights_acc#782(xs#781, <sym:4001738>#1738)
+  aether_call[owned, owned] rights_acc#803(xs#802, <sym:4001734>#1734)
 ── fn partition_eithers ──
   Dups: 2  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(2)
   FreshAllocs: 2
@@ -1643,57 +1635,57 @@ lam(xs) ->
 lam(xs) ->
   letrec partition_acc =
     lam(ys, ls, rs) ->
-      case ys#791 of
+      case ys#812 of
         Cons(Left(x), t) ->
-          let <sym:4001739> =
-            Cons(dup x#794 in x#794, ls#792)
-          aether_call[owned, owned, owned] partition_acc#790(t#795, <sym:4001739>#1739, rs#793)
+          let <sym:4001735> =
+            Cons(dup x#815 in x#815, ls#813)
+          aether_call[owned, owned, owned] partition_acc#811(t#816, <sym:4001735>#1735, rs#814)
         Cons(Right(y), t) ->
-          let <sym:4001740> =
-            Cons(dup y#796 in y#796, rs#793)
-          aether_call[owned, owned, owned] partition_acc#790(t#797, ls#792, <sym:4001740>#1740)
+          let <sym:4001736> =
+            Cons(dup y#817 in y#817, rs#814)
+          aether_call[owned, owned, owned] partition_acc#811(t#818, ls#813, <sym:4001736>#1736)
         _ ->
-          let <sym:4001742> =
-            let <sym:4001741> =
+          let <sym:4001738> =
+            let <sym:4001737> =
               List.reverse
-            aether_call[owned] <sym:4001741>#1741(ls#792)
-          let <sym:4001744> =
-            let <sym:4001743> =
+            aether_call[owned] <sym:4001737>#1737(ls#813)
+          let <sym:4001740> =
+            let <sym:4001739> =
               List.reverse
-            aether_call[owned] <sym:4001743>#1743(rs#793)
-          MakeTuple(<sym:4001742>#1742, <sym:4001744>#1744)
-  let <sym:4001745> =
+            aether_call[owned] <sym:4001739>#1739(rs#814)
+          MakeTuple(<sym:4001738>#1738, <sym:4001740>#1740)
+  let <sym:4001741> =
     Nil
-  let <sym:4001746> =
+  let <sym:4001742> =
     Nil
-  aether_call[owned, owned, owned] partition_acc#790(xs#789, <sym:4001745>#1745, <sym:4001746>#1746)
+  aether_call[owned, owned, owned] partition_acc#811(xs#810, <sym:4001741>#1741, <sym:4001742>#1742)
 ── fn __tc_m7_466C6F772E4571_Eq_List<a>_eq ──
   Dups: 0  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, xs, ys) ->
-  case xs#824 of
+  case xs#845 of
     Cons(h1, t1) ->
-      case ys#825 of
+      case ys#846 of
         Cons(h2, t2) ->
-          let <sym:4001748> =
-            let <sym:4001747> =
-              __dict_m7_466C6F772E4571_Eq#823.0
-            aether_call[owned, owned] <sym:4001747>#1747(h1#826, h2#828)
-          let <sym:4001749> =
-            aether_call[owned, owned, owned] __tc_m7_466C6F772E4571_Eq_List<a>_eq#871(__dict_m7_466C6F772E4571_Eq#823, t1#827, t2#829)
-          And(<sym:4001748>#1748, <sym:4001749>#1749)
+          let <sym:4001744> =
+            let <sym:4001743> =
+              __dict_m7_466C6F772E4571_Eq#844.0
+            aether_call[owned, owned] <sym:4001743>#1743(h1#847, h2#849)
+          let <sym:4001745> =
+            aether_call[owned, owned, owned] __tc_m7_466C6F772E4571_Eq_List<a>_eq#892(__dict_m7_466C6F772E4571_Eq#844, t1#848, t2#850)
+          And(<sym:4001744>#1744, <sym:4001745>#1745)
         _ ->
-          drop __dict_m7_466C6F772E4571_Eq#823 in
+          drop __dict_m7_466C6F772E4571_Eq#844 in
             false
     _ ->
-      drop __dict_m7_466C6F772E4571_Eq#823 in
-        case ys#825 of
+      drop __dict_m7_466C6F772E4571_Eq#844 in
+        case ys#846 of
           Cons(h, t) ->
-            drop __dict_m7_466C6F772E4571_Eq#823 in
+            drop __dict_m7_466C6F772E4571_Eq#844 in
               false
           _ ->
-            drop __dict_m7_466C6F772E4571_Eq#823 in
+            drop __dict_m7_466C6F772E4571_Eq#844 in
               true
 ── fn print_all [yield×2] ──
   Dups: 0  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 2  Handles: 0  HandlerArms: 0
@@ -1702,31 +1694,31 @@ lam(__dict_m7_466C6F772E4571_Eq, xs, ys) ->
 lam(arr) ->
   letrec pa_go =
     lam(i) ->
-      let <sym:4001766> =
-        let <sym:4001765> =
-          Len(arr#888)
-        Lt(i#891, <sym:4001765>#1765)
-      case <sym:4001766>#1766 of
+      let <sym:4001762> =
+        let <sym:4001761> =
+          Len(arr#909)
+        ICmpLt(i#912, <sym:4001761>#1761)
+      case <sym:4001762>#1762 of
         true ->
           let <sym:2000021> =
-            let <sym:4001767> =
-              Index(arr#888, i#891)
-            case <sym:4001767>#1767 of
+            let <sym:4001763> =
+              Index(arr#909, i#912)
+            case <sym:4001763>#1763 of
               Some(v) ->
-                perform /*yield_to*/ Console.print(v#893)
+                perform /*yield_to*/ Console.print(v#914)
               _ ->
                 perform /*yield_to*/ Console.print("")
-          drop <sym:2000021>#892 in
-            let <sym:4001768> =
-              Add(i#891, 1)
-            aether_call[owned] pa_go#890(<sym:4001768>#1768)
+          drop <sym:2000021>#913 in
+            let <sym:4001764> =
+              IAdd(i#912, 1)
+            aether_call[owned] pa_go#911(<sym:4001764>#1764)
         _ ->
-            drop pa_go#890 in
-          drop i#891 in
+            drop pa_go#911 in
+          drop i#912 in
               MakeTuple()
   let <sym:2000020> =
-    aether_call[owned] pa_go#890(0)
-  drop <sym:2000020>#889 in
+    aether_call[owned] pa_go#911(0)
+  drop <sym:2000020>#910 in
     ()
 ── fn println_all [yield×2] ──
   Dups: 0  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 2  Handles: 0  HandlerArms: 0
@@ -1735,31 +1727,31 @@ lam(arr) ->
 lam(arr) ->
   letrec pla_go =
     lam(i) ->
-      let <sym:4001770> =
-        let <sym:4001769> =
-          Len(arr#895)
-        Lt(i#898, <sym:4001769>#1769)
-      case <sym:4001770>#1770 of
+      let <sym:4001766> =
+        let <sym:4001765> =
+          Len(arr#916)
+        ICmpLt(i#919, <sym:4001765>#1765)
+      case <sym:4001766>#1766 of
         true ->
           let <sym:2000023> =
-            let <sym:4001771> =
-              Index(arr#895, i#898)
-            case <sym:4001771>#1771 of
+            let <sym:4001767> =
+              Index(arr#916, i#919)
+            case <sym:4001767>#1767 of
               Some(v) ->
-                perform /*yield_to*/ Console.println(v#900)
+                perform /*yield_to*/ Console.println(v#921)
               _ ->
                 perform /*yield_to*/ Console.println("")
-          drop <sym:2000023>#899 in
-            let <sym:4001772> =
-              Add(i#898, 1)
-            aether_call[owned] pla_go#897(<sym:4001772>#1772)
+          drop <sym:2000023>#920 in
+            let <sym:4001768> =
+              IAdd(i#919, 1)
+            aether_call[owned] pla_go#918(<sym:4001768>#1768)
         _ ->
-            drop pla_go#897 in
-          drop i#898 in
+            drop pla_go#918 in
+          drop i#919 in
               MakeTuple()
   let <sym:2000022> =
-    aether_call[owned] pla_go#897(0)
-  drop <sym:2000022>#896 in
+    aether_call[owned] pla_go#918(0)
+  drop <sym:2000022>#917 in
     ()
 ── fn read_lines [yield×1] ──
   Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 1  Handles: 0  HandlerArms: 0
@@ -1767,115 +1759,115 @@ lam(arr) ->
   verifier: ok
 lam(path) ->
   let content =
-    perform /*yield_to*/ FileSystem.read_file(path#902)
-  Split(content#903, "\n")
+    perform /*yield_to*/ FileSystem.read_file(path#923)
+  Split(content#924, "\n")
 ── fn __tc_m8_466C6F772E4E756D_Num_Int_sub ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m8_466C6F772E416464_Add, x, y) ->
-  drop __dict_m8_466C6F772E416464_Add#948 in
-    ISub(x#949, y#950)
+  drop __dict_m8_466C6F772E416464_Add#969 in
+    ISub(x#970, y#971)
 ── fn __tc_m8_466C6F772E4E756D_Num_Int_mul ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m8_466C6F772E416464_Add, x, y) ->
-  drop __dict_m8_466C6F772E416464_Add#952 in
-    IMul(x#953, y#954)
+  drop __dict_m8_466C6F772E416464_Add#973 in
+    IMul(x#974, y#975)
 ── fn __tc_m8_466C6F772E4E756D_Num_Int_div ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m8_466C6F772E416464_Add, x, y) ->
-  drop __dict_m8_466C6F772E416464_Add#956 in
-    IDiv(x#957, y#958)
+  drop __dict_m8_466C6F772E416464_Add#977 in
+    IDiv(x#978, y#979)
 ── fn __tc_m8_466C6F772E4E756D_Num_Float_sub ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m8_466C6F772E416464_Add, x, y) ->
-  drop __dict_m8_466C6F772E416464_Add#960 in
-    FSub(x#961, y#962)
+  drop __dict_m8_466C6F772E416464_Add#981 in
+    FSub(x#982, y#983)
 ── fn __tc_m8_466C6F772E4E756D_Num_Float_mul ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m8_466C6F772E416464_Add, x, y) ->
-  drop __dict_m8_466C6F772E416464_Add#964 in
-    FMul(x#965, y#966)
+  drop __dict_m8_466C6F772E416464_Add#985 in
+    FMul(x#986, y#987)
 ── fn __tc_m8_466C6F772E4E756D_Num_Float_div ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m8_466C6F772E416464_Add, x, y) ->
-  drop __dict_m8_466C6F772E416464_Add#968 in
-    FDiv(x#969, y#970)
+  drop __dict_m8_466C6F772E416464_Add#989 in
+    FDiv(x#990, y#991)
 ── fn gcd ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(a, b) ->
   let aa =
-    let <sym:4001790> =
-      Lt(a#1000, 0)
-    case <sym:4001790>#1790 of
+    let <sym:4001786> =
+      ICmpLt(a#1021, 0)
+    case <sym:4001786>#1786 of
       true ->
-        Sub(0, a#1000)
+        ISub(0, a#1021)
       _ ->
-        a#1000
+        a#1021
   let bb =
-    let <sym:4001791> =
-      Lt(b#1001, 0)
-    case <sym:4001791>#1791 of
+    let <sym:4001787> =
+      ICmpLt(b#1022, 0)
+    case <sym:4001787>#1787 of
       true ->
-        Sub(0, b#1001)
+        ISub(0, b#1022)
       _ ->
-        b#1001
+        b#1022
   letrec gcd_go =
     lam(x, y) ->
-      let <sym:4001792> =
-        Eq(y#1004, 0)
-      case <sym:4001792>#1792 of
+      let <sym:4001788> =
+        ICmpEq(y#1025, 0)
+      case <sym:4001788>#1788 of
         true ->
-          drop y#1004 in
-            x#1003
+          drop y#1025 in
+            x#1024
         _ ->
-          let <sym:4001793> =
-            Mod(x#1003, y#1004)
-          aether_call[owned, owned] gcd_go#1002(y#1004, <sym:4001793>#1793)
-  aether_call[owned, owned] gcd_go#1002(aa#1006, bb#1005)
+          let <sym:4001789> =
+            IMod(x#1024, y#1025)
+          aether_call[owned, owned] gcd_go#1023(y#1025, <sym:4001789>#1789)
+  aether_call[owned, owned] gcd_go#1023(aa#1027, bb#1026)
 ── fn unwrap ──
   Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
   verifier: ok
 lam(opt) ->
-  case opt#1025 of
+  case opt#1046 of
     Some(v) ->
-      v#1026
+      v#1047
     _ ->
-      aether_call[borrowed] panic#1189("unwrap called on None")
+      aether_call[borrowed] panic#1210("unwrap called on None")
 ── fn unwrap_or ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(opt, default) ->
-  case opt#1028 of
+  case opt#1049 of
     Some(v) ->
-      drop default#1029 in
-        v#1030
+      drop default#1050 in
+        v#1051
     _ ->
-      default#1029
+      default#1050
 ── fn map_option ──
   Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 lam(opt, f) ->
-  case opt#1032 of
+  case opt#1053 of
     Some(v) ->
-      let <sym:4001809> =
-        aether_call[owned] f#1033(v#1034)
-      reuse opt#1032 as Some(<sym:4001809>#1809)
+      let <sym:4001807> =
+        aether_call[owned] f#1054(v#1055)
+      reuse opt#1053 as Some(<sym:4001807>#1807)
     _ ->
       None
 ── fn __tc_m8_466C6F772E4F7264_Ord_Int_compare ──
@@ -1883,186 +1875,186 @@ lam(opt, f) ->
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
-  drop __dict_m7_466C6F772E4571_Eq#1044 in
-    let <sym:4001810> =
-      ICmpLt(x#1045, y#1046)
-    case <sym:4001810>#1810 of
+  drop __dict_m7_466C6F772E4571_Eq#1065 in
+    let <sym:4001808> =
+      ICmpLt(x#1066, y#1067)
+    case <sym:4001808>#1808 of
       true ->
-        drop __dict_m7_466C6F772E4571_Eq#1044 in
+        drop __dict_m7_466C6F772E4571_Eq#1065 in
           Neg(1)
       _ ->
-        drop __dict_m7_466C6F772E4571_Eq#1044 in
-          let <sym:4001811> =
-            ICmpGt(x#1045, y#1046)
-          case <sym:4001811>#1811 of
+        drop __dict_m7_466C6F772E4571_Eq#1065 in
+          let <sym:4001809> =
+            ICmpGt(x#1066, y#1067)
+          case <sym:4001809>#1809 of
             true ->
-              drop __dict_m7_466C6F772E4571_Eq#1044 in
+              drop __dict_m7_466C6F772E4571_Eq#1065 in
                 1
             _ ->
-              drop __dict_m7_466C6F772E4571_Eq#1044 in
+              drop __dict_m7_466C6F772E4571_Eq#1065 in
                 0
 ── fn __tc_m8_466C6F772E4F7264_Ord_Int_lt ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
-  drop __dict_m7_466C6F772E4571_Eq#1048 in
-    ICmpLt(x#1049, y#1050)
+  drop __dict_m7_466C6F772E4571_Eq#1069 in
+    ICmpLt(x#1070, y#1071)
 ── fn __tc_m8_466C6F772E4F7264_Ord_Int_lte ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
-  drop __dict_m7_466C6F772E4571_Eq#1052 in
-    ICmpLe(x#1053, y#1054)
+  drop __dict_m7_466C6F772E4571_Eq#1073 in
+    ICmpLe(x#1074, y#1075)
 ── fn __tc_m8_466C6F772E4F7264_Ord_Int_gt ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
-  drop __dict_m7_466C6F772E4571_Eq#1056 in
-    ICmpGt(x#1057, y#1058)
+  drop __dict_m7_466C6F772E4571_Eq#1077 in
+    ICmpGt(x#1078, y#1079)
 ── fn __tc_m8_466C6F772E4F7264_Ord_Int_gte ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
-  drop __dict_m7_466C6F772E4571_Eq#1060 in
-    ICmpGe(x#1061, y#1062)
+  drop __dict_m7_466C6F772E4571_Eq#1081 in
+    ICmpGe(x#1082, y#1083)
 ── fn __tc_m8_466C6F772E4F7264_Ord_Float_compare ──
   Dups: 0  Drops: 5  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
-  drop __dict_m7_466C6F772E4571_Eq#1064 in
-    let <sym:4001812> =
-      FCmpLt(x#1065, y#1066)
-    case <sym:4001812>#1812 of
+  drop __dict_m7_466C6F772E4571_Eq#1085 in
+    let <sym:4001810> =
+      FCmpLt(x#1086, y#1087)
+    case <sym:4001810>#1810 of
       true ->
-        drop __dict_m7_466C6F772E4571_Eq#1064 in
+        drop __dict_m7_466C6F772E4571_Eq#1085 in
           Neg(1)
       _ ->
-        drop __dict_m7_466C6F772E4571_Eq#1064 in
-          let <sym:4001813> =
-            FCmpGt(x#1065, y#1066)
-          case <sym:4001813>#1813 of
+        drop __dict_m7_466C6F772E4571_Eq#1085 in
+          let <sym:4001811> =
+            FCmpGt(x#1086, y#1087)
+          case <sym:4001811>#1811 of
             true ->
-              drop __dict_m7_466C6F772E4571_Eq#1064 in
+              drop __dict_m7_466C6F772E4571_Eq#1085 in
                 1
             _ ->
-              drop __dict_m7_466C6F772E4571_Eq#1064 in
+              drop __dict_m7_466C6F772E4571_Eq#1085 in
                 0
 ── fn __tc_m8_466C6F772E4F7264_Ord_Float_lt ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
-  drop __dict_m7_466C6F772E4571_Eq#1068 in
-    FCmpLt(x#1069, y#1070)
+  drop __dict_m7_466C6F772E4571_Eq#1089 in
+    FCmpLt(x#1090, y#1091)
 ── fn __tc_m8_466C6F772E4F7264_Ord_Float_lte ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
-  drop __dict_m7_466C6F772E4571_Eq#1072 in
-    FCmpLe(x#1073, y#1074)
+  drop __dict_m7_466C6F772E4571_Eq#1093 in
+    FCmpLe(x#1094, y#1095)
 ── fn __tc_m8_466C6F772E4F7264_Ord_Float_gt ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
-  drop __dict_m7_466C6F772E4571_Eq#1076 in
-    FCmpGt(x#1077, y#1078)
+  drop __dict_m7_466C6F772E4571_Eq#1097 in
+    FCmpGt(x#1098, y#1099)
 ── fn __tc_m8_466C6F772E4F7264_Ord_Float_gte ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
-  drop __dict_m7_466C6F772E4571_Eq#1080 in
-    FCmpGe(x#1081, y#1082)
+  drop __dict_m7_466C6F772E4571_Eq#1101 in
+    FCmpGe(x#1102, y#1103)
 ── fn __tc_m8_466C6F772E4F7264_Ord_String_compare ──
   Dups: 0  Drops: 5  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
-  drop __dict_m7_466C6F772E4571_Eq#1084 in
-    let <sym:4001814> =
-      Lt(x#1085, y#1086)
-    case <sym:4001814>#1814 of
+  drop __dict_m7_466C6F772E4571_Eq#1105 in
+    let <sym:4001812> =
+      Lt(x#1106, y#1107)
+    case <sym:4001812>#1812 of
       true ->
-        drop __dict_m7_466C6F772E4571_Eq#1084 in
+        drop __dict_m7_466C6F772E4571_Eq#1105 in
           Neg(1)
       _ ->
-        drop __dict_m7_466C6F772E4571_Eq#1084 in
-          let <sym:4001815> =
-            Gt(x#1085, y#1086)
-          case <sym:4001815>#1815 of
+        drop __dict_m7_466C6F772E4571_Eq#1105 in
+          let <sym:4001813> =
+            Gt(x#1106, y#1107)
+          case <sym:4001813>#1813 of
             true ->
-              drop __dict_m7_466C6F772E4571_Eq#1084 in
+              drop __dict_m7_466C6F772E4571_Eq#1105 in
                 1
             _ ->
-              drop __dict_m7_466C6F772E4571_Eq#1084 in
+              drop __dict_m7_466C6F772E4571_Eq#1105 in
                 0
 ── fn __tc_m8_466C6F772E4F7264_Ord_String_lt ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
-  drop __dict_m7_466C6F772E4571_Eq#1088 in
-    Lt(x#1089, y#1090)
+  drop __dict_m7_466C6F772E4571_Eq#1109 in
+    Lt(x#1110, y#1111)
 ── fn __tc_m8_466C6F772E4F7264_Ord_String_lte ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
-  drop __dict_m7_466C6F772E4571_Eq#1092 in
-    Le(x#1093, y#1094)
+  drop __dict_m7_466C6F772E4571_Eq#1113 in
+    Le(x#1114, y#1115)
 ── fn __tc_m8_466C6F772E4F7264_Ord_String_gt ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
-  drop __dict_m7_466C6F772E4571_Eq#1096 in
-    Gt(x#1097, y#1098)
+  drop __dict_m7_466C6F772E4571_Eq#1117 in
+    Gt(x#1118, y#1119)
 ── fn __tc_m8_466C6F772E4F7264_Ord_String_gte ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
-  drop __dict_m7_466C6F772E4571_Eq#1100 in
-    Ge(x#1101, y#1102)
+  drop __dict_m7_466C6F772E4571_Eq#1121 in
+    Ge(x#1122, y#1123)
 ── fn __tc_m14_466C6F772E53656D6967726F7570_Semigroup_Option<a>_append ──
   Dups: 0  Drops: 2  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m14_466C6F772E53656D6967726F7570_Semigroup, x, y) ->
-  case x#1218 of
+  case x#1239 of
     Some(u) ->
-      case y#1219 of
+      case y#1240 of
         Some(v) ->
-          drop x#1218 in
-            let <sym:4001832> =
-              let <sym:4001831> =
-                __dict_m14_466C6F772E53656D6967726F7570_Semigroup#1217.0
-              aether_call[owned, owned] <sym:4001831>#1831(u#1220, v#1221)
-            reuse y#1219 as Some(<sym:4001832>#1832)
+          drop x#1239 in
+            let <sym:4001830> =
+              let <sym:4001829> =
+                __dict_m14_466C6F772E53656D6967726F7570_Semigroup#1238.0
+              aether_call[owned, owned] <sym:4001829>#1829(u#1241, v#1242)
+            reuse y#1240 as Some(<sym:4001830>#1830)
         _ ->
-          x#1218
+          x#1239
     _ ->
-      drop x#1218 in
-        y#1219
+      drop x#1239 in
+        y#1240
 ── fn append_lists ──
   Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 lam(xs, ys) ->
-  case xs#1229 of
+  case xs#1250 of
     Cons(h, t) ->
-      let <sym:4001833> =
-        aether_call[borrowed, owned] append_lists#1228(t#1232, ys#1230)
-      reuse xs#1229 as Cons mask=0x2(h#1231, <sym:4001833>#1833)
+      let <sym:4001831> =
+        aether_call[borrowed, owned] append_lists#1249(t#1253, ys#1251)
+      reuse xs#1250 as Cons mask=0x2(h#1252, <sym:4001831>#1831)
     _ ->
-      ys#1230
+      ys#1251
 ── fn build_list ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
@@ -2070,21 +2062,21 @@ lam(xs, ys) ->
 lam(n) ->
   letrec build_go =
     lam(i, acc) ->
-      let <sym:4001873> =
-        ICmpLe(i#1303, 0)
-      case <sym:4001873>#1873 of
+      let <sym:4001871> =
+        ICmpLe(i#1324, 0)
+      case <sym:4001871>#1871 of
         true ->
-          drop i#1303 in
-            acc#1304
+          drop i#1324 in
+            acc#1325
         _ ->
-          let <sym:4001874> =
-            ISub(i#1303, 1)
-          let <sym:4001875> =
-            Cons(i#1303, acc#1304)
-          aether_call[owned, owned] build_go#1302(<sym:4001874>#1874, <sym:4001875>#1875)
-  let <sym:4001876> =
+          let <sym:4001872> =
+            ISub(i#1324, 1)
+          let <sym:4001873> =
+            Cons(i#1324, acc#1325)
+          aether_call[owned, owned] build_go#1323(<sym:4001872>#1872, <sym:4001873>#1873)
+  let <sym:4001874> =
     Nil
-  aether_call[owned, owned] build_go#1302(n#1301, <sym:4001876>#1876)
+  aether_call[owned, owned] build_go#1323(n#1322, <sym:4001874>#1874)
 ── fn map_enabled @fip ──
   Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
@@ -2093,13 +2085,13 @@ lam(n) ->
     - calls indirect or opaque callee `f` whose FBIP behavior is unknown
     - control-flow join loses a precise allocation bound across paths
 lam(xs, f) ->
-  case xs#1306 of
+  case xs#1327 of
     Cons(h, t) ->
-      let <sym:4001877> =
-        aether_call[owned] f#1307(h#1308)
-      let <sym:4001878> =
-        aether_call[borrowed, borrowed] map_enabled#1305(t#1309, f#1307)
-      reuse xs#1306 as Cons(<sym:4001877>#1877, <sym:4001878>#1878)
+      let <sym:4001875> =
+        aether_call[owned] f#1328(h#1329)
+      let <sym:4001876> =
+        aether_call[borrowed, borrowed] map_enabled#1326(t#1330, f#1328)
+      reuse xs#1327 as Cons(<sym:4001875>#1875, <sym:4001876>#1876)
     _ ->
       Nil
 ── fn main [handle×5] ──
@@ -2107,20 +2099,20 @@ lam(xs, f) ->
   FreshAllocs: 0
   verifier: ok
 lam() ->
-  let <sym:6001883> =
+  let <sym:6001881> =
     lam(__resume_default, __arg0, __arg1) ->
-      let <sym:4001895> =
-        ProcRun(__arg0#1342, __arg1#1343)
-      aether_call[owned] __resume_default#1344(<sym:4001895>#1895)
-  drop <sym:6001883>#1883 in
-    handle /*evv_insert+yield_prompt*/ let <sym:6001884> = lam(__resume_default, __arg0) -> let <sym:4001896> = EnvVar(__arg0#1337) aether_call[owned] __resume_default#1338(<sym:4001896>#1896) drop <sym:6001884>#1884 in let <sym:6001885> = lam(__resume_default) -> let <sym:4001897> = EnvArgs() aether_call[owned] __resume_default#1339(<sym:4001897>#1897) drop <sym:6001885>#1885 in let <sym:6001886> = lam(__resume_default) -> let <sym:4001898> = EnvCwd() aether_call[owned] __resume_default#1340(<sym:4001898>#1898) drop <sym:6001886>#1886 in let <sym:6001887> = lam(__resume_default) -> let <sym:4001899> = EnvHomeDir() aether_call[owned] __resume_default#1341(<sym:4001899>#1899) drop <sym:6001887>#1887 in handle /*evv_insert+yield_prompt*/ let <sym:6001888> = lam(__resume_default) -> let <sym:4001900> = aether_call[] __primop_read_stdin#1202() aether_call[owned] __resume_default#1336(<sym:4001900>#1900) drop <sym:6001888>#1888 in handle /*evv_insert+yield_prompt*/ let <sym:6001889> = lam(__resume_default, __arg0) -> let <sym:4001901> = aether_call[borrowed] __primop_read_file#1195(__arg0#1328) aether_call[owned] __resume_default#1329(<sym:4001901>#1901) drop <sym:6001889>#1889 in let <sym:6001890> = lam(__resume_default, __arg0) -> let <sym:4001902> = aether_call[borrowed] __primop_read_lines#1197(__arg0#1330) aether_call[owned] __resume_default#1331(<sym:4001902>#1902) drop <sym:6001890>#1890 in let <sym:6001891> = lam(__resume_default, __arg0, __arg1) -> let <sym:2000026> = aether_call[borrowed, borrowed] __primop_write_file#1199(__arg0#1332, __arg1#1333) drop <sym:2000026>#1335 in let <sym:4001903> = MakeTuple() aether_call[owned] __resume_default#1334(<sym:4001903>#1903) drop <sym:6001891>#1891 in handle /*evv_insert+yield_prompt*/ let <sym:6001892> = lam(__resume_default, __arg0) -> let <sym:2000024> = aether_call[borrowed] __primop_print#1191(__arg0#1322) drop <sym:2000024>#1324 in let <sym:4001904> = MakeTuple() aether_call[owned] __resume_default#1323(<sym:4001904>#1904) let <sym:6001893> = lam(__resume_default, __arg0) -> let <sym:2000025> = aether_call[borrowed] __primop_println#1193(__arg0#1325) drop <sym:2000025>#1327 in let <sym:4001905> = MakeTuple() aether_call[owned] __resume_default#1326(<sym:4001905>#1905) drop <sym:6001893>#1893 in handle /*evv_insert+yield_prompt*/ let xs = aether_call[owned] build_list#1300(5000) let mapped = aether_call[owned, owned] bench_map#1310(xs#1319, 100) let <sym:4001906> = lam(<sym:6001894>) -> <sym:6001894>#1894 let <sym:4001908> = let <sym:4001907> = aether_call[borrowed] first#476(mapped#1318) Interpolate("enabled: result head = ", <sym:4001907>#1907) aether_call[owned, owned] <sym:6001892>#1892(<sym:4001906>#1906, <sym:4001908>#1908) with Console print(__resume_default, __arg0) -> let <sym:2000024> = aether_call[borrowed] __primop_print#1191(__arg0#1322) drop <sym:2000024>#1324 in let <sym:4001909> = MakeTuple() aether_call[owned] __resume_default#1323(<sym:4001909>#1909) println(__resume_default, __arg0) -> let <sym:2000025> = aether_call[borrowed] __primop_println#1193(__arg0#1325) drop <sym:2000025>#1327 in let <sym:4001910> = MakeTuple() aether_call[owned] __resume_default#1326(<sym:4001910>#1910) with FileSystem read_file(__resume_default, __arg0) -> let <sym:4001911> = aether_call[borrowed] __primop_read_file#1195(__arg0#1328) aether_call[owned] __resume_default#1329(<sym:4001911>#1911) read_lines(__resume_default, __arg0) -> let <sym:4001912> = aether_call[borrowed] __primop_read_lines#1197(__arg0#1330) aether_call[owned] __resume_default#1331(<sym:4001912>#1912) write_file(__resume_default, __arg0, __arg1) -> let <sym:2000026> = aether_call[borrowed, borrowed] __primop_write_file#1199(__arg0#1332, __arg1#1333) drop <sym:2000026>#1335 in let <sym:4001913> = MakeTuple() aether_call[owned] __resume_default#1334(<sym:4001913>#1913) with Stdin read_stdin(__resume_default) -> let <sym:4001914> = aether_call[] __primop_read_stdin#1202() aether_call[owned] __resume_default#1336(<sym:4001914>#1914) with Env env_var(__resume_default, __arg0) -> let <sym:4001915> = EnvVar(__arg0#1337) aether_call[owned] __resume_default#1338(<sym:4001915>#1915) env_args(__resume_default) -> let <sym:4001916> = EnvArgs() aether_call[owned] __resume_default#1339(<sym:4001916>#1916) env_cwd(__resume_default) -> let <sym:4001917> = EnvCwd() aether_call[owned] __resume_default#1340(<sym:4001917>#1917) env_home_dir(__resume_default) -> let <sym:4001918> = EnvHomeDir() aether_call[owned] __resume_default#1341(<sym:4001918>#1918) with Process
+      let <sym:4001893> =
+        ProcRun(__arg0#1363, __arg1#1364)
+      aether_call[owned] __resume_default#1365(<sym:4001893>#1893)
+  drop <sym:6001881>#1881 in
+    handle /*evv_insert+yield_prompt*/ let <sym:6001882> = lam(__resume_default, __arg0) -> let <sym:4001894> = EnvVar(__arg0#1358) aether_call[owned] __resume_default#1359(<sym:4001894>#1894) drop <sym:6001882>#1882 in let <sym:6001883> = lam(__resume_default) -> let <sym:4001895> = EnvArgs() aether_call[owned] __resume_default#1360(<sym:4001895>#1895) drop <sym:6001883>#1883 in let <sym:6001884> = lam(__resume_default) -> let <sym:4001896> = EnvCwd() aether_call[owned] __resume_default#1361(<sym:4001896>#1896) drop <sym:6001884>#1884 in let <sym:6001885> = lam(__resume_default) -> let <sym:4001897> = EnvHomeDir() aether_call[owned] __resume_default#1362(<sym:4001897>#1897) drop <sym:6001885>#1885 in handle /*evv_insert+yield_prompt*/ let <sym:6001886> = lam(__resume_default) -> let <sym:4001898> = aether_call[] __primop_read_stdin#1223() aether_call[owned] __resume_default#1357(<sym:4001898>#1898) drop <sym:6001886>#1886 in handle /*evv_insert+yield_prompt*/ let <sym:6001887> = lam(__resume_default, __arg0) -> let <sym:4001899> = aether_call[borrowed] __primop_read_file#1216(__arg0#1349) aether_call[owned] __resume_default#1350(<sym:4001899>#1899) drop <sym:6001887>#1887 in let <sym:6001888> = lam(__resume_default, __arg0) -> let <sym:4001900> = aether_call[borrowed] __primop_read_lines#1218(__arg0#1351) aether_call[owned] __resume_default#1352(<sym:4001900>#1900) drop <sym:6001888>#1888 in let <sym:6001889> = lam(__resume_default, __arg0, __arg1) -> let <sym:2000026> = aether_call[borrowed, borrowed] __primop_write_file#1220(__arg0#1353, __arg1#1354) drop <sym:2000026>#1356 in let <sym:4001901> = MakeTuple() aether_call[owned] __resume_default#1355(<sym:4001901>#1901) drop <sym:6001889>#1889 in handle /*evv_insert+yield_prompt*/ let <sym:6001890> = lam(__resume_default, __arg0) -> let <sym:2000024> = aether_call[borrowed] __primop_print#1212(__arg0#1343) drop <sym:2000024>#1345 in let <sym:4001902> = MakeTuple() aether_call[owned] __resume_default#1344(<sym:4001902>#1902) let <sym:6001891> = lam(__resume_default, __arg0) -> let <sym:2000025> = aether_call[borrowed] __primop_println#1214(__arg0#1346) drop <sym:2000025>#1348 in let <sym:4001903> = MakeTuple() aether_call[owned] __resume_default#1347(<sym:4001903>#1903) drop <sym:6001891>#1891 in handle /*evv_insert+yield_prompt*/ let xs = aether_call[owned] build_list#1321(5000) let mapped = aether_call[owned, owned] bench_map#1331(xs#1340, 100) let <sym:4001904> = lam(<sym:6001892>) -> <sym:6001892>#1892 let <sym:4001906> = let <sym:4001905> = aether_call[borrowed] first#485(mapped#1339) Interpolate("enabled: result head = ", <sym:4001905>#1905) aether_call[owned, owned] <sym:6001890>#1890(<sym:4001904>#1904, <sym:4001906>#1906) with Console print(__resume_default, __arg0) -> let <sym:2000024> = aether_call[borrowed] __primop_print#1212(__arg0#1343) drop <sym:2000024>#1345 in let <sym:4001907> = MakeTuple() aether_call[owned] __resume_default#1344(<sym:4001907>#1907) println(__resume_default, __arg0) -> let <sym:2000025> = aether_call[borrowed] __primop_println#1214(__arg0#1346) drop <sym:2000025>#1348 in let <sym:4001908> = MakeTuple() aether_call[owned] __resume_default#1347(<sym:4001908>#1908) with FileSystem read_file(__resume_default, __arg0) -> let <sym:4001909> = aether_call[borrowed] __primop_read_file#1216(__arg0#1349) aether_call[owned] __resume_default#1350(<sym:4001909>#1909) read_lines(__resume_default, __arg0) -> let <sym:4001910> = aether_call[borrowed] __primop_read_lines#1218(__arg0#1351) aether_call[owned] __resume_default#1352(<sym:4001910>#1910) write_file(__resume_default, __arg0, __arg1) -> let <sym:2000026> = aether_call[borrowed, borrowed] __primop_write_file#1220(__arg0#1353, __arg1#1354) drop <sym:2000026>#1356 in let <sym:4001911> = MakeTuple() aether_call[owned] __resume_default#1355(<sym:4001911>#1911) with Stdin read_stdin(__resume_default) -> let <sym:4001912> = aether_call[] __primop_read_stdin#1223() aether_call[owned] __resume_default#1357(<sym:4001912>#1912) with Env env_var(__resume_default, __arg0) -> let <sym:4001913> = EnvVar(__arg0#1358) aether_call[owned] __resume_default#1359(<sym:4001913>#1913) env_args(__resume_default) -> let <sym:4001914> = EnvArgs() aether_call[owned] __resume_default#1360(<sym:4001914>#1914) env_cwd(__resume_default) -> let <sym:4001915> = EnvCwd() aether_call[owned] __resume_default#1361(<sym:4001915>#1915) env_home_dir(__resume_default) -> let <sym:4001916> = EnvHomeDir() aether_call[owned] __resume_default#1362(<sym:4001916>#1916) with Process
       proc_run(__resume_default, __arg0, __arg1) ->
-        let <sym:4001919> =
-          ProcRun(__arg0#1342, __arg1#1343)
-        aether_call[owned] __resume_default#1344(<sym:4001919>#1919)
+        let <sym:4001917> =
+          ProcRun(__arg0#1363, __arg1#1364)
+        aether_call[owned] __resume_default#1365(<sym:4001917>#1917)
 
 ── Total ──
-  Dups: 49  Drops: 162  Reuses: 17  DropSpecs: 1  BorrowedCallGuards: 45  FBIP: fbip(26)  Yields: 11  Handles: 5  HandlerArms: 11
+  Dups: 50  Drops: 158  Reuses: 17  DropSpecs: 1  BorrowedCallGuards: 45  FBIP: fbip(26)  Yields: 11  Handles: 5  HandlerArms: 11
   FreshAllocs: 26
 
 [ 1 of 18] Compiling  Add

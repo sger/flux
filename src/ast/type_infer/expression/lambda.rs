@@ -24,8 +24,7 @@ impl<'a> InferCtx<'a> {
         };
 
         let declared_effect_row = ambient_effect_row.clone();
-        let body_ty =
-            self.with_ambient_effect_row(ambient_effect_row, |ctx| ctx.infer_block(input.body));
+        let (body_ty, returns) = self.infer_body(&ambient_effect_row, input.body);
         let ret_ty = self.infer_return_type_with_optional_annotation(
             &type_params,
             &mut row_var_env,
@@ -34,6 +33,7 @@ impl<'a> InferCtx<'a> {
             None,
             input.body,
         );
+        let ret_ty = self.unify_early_returns(&ret_ty, &returns);
 
         let final_param_tys: Vec<InferType> = param_tys
             .iter()

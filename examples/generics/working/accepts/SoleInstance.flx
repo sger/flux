@@ -1,0 +1,17 @@
+// The module half of ./sole_instance_dispatch.flx. `Sized<Int>` is the only
+// instance in sight here; `measure` must still dispatch through the dictionary
+// its caller passes, which may be for an instance this module never sees.
+
+module SoleInstance {
+    public class Sized<a> {
+        fn size(x: a) -> Int
+    }
+
+    public instance Sized<Int> {
+        fn size(x) { x }
+    }
+
+    public fn measure<a: Sized>(x: a) -> Int {
+        size(x)
+    }
+}
