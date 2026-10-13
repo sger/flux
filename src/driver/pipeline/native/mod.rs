@@ -133,6 +133,7 @@ pub(crate) struct NativeParallelCompileRequest<'a> {
     pub(crate) strict_mode: bool,
     pub(crate) enable_optimize: bool,
     pub(crate) enable_analyze: bool,
+    pub(crate) debug_level: crate::debuginfo::DebugLevel,
     pub(crate) verbose: bool,
     pub(crate) base_interner: &'a Interner,
 }

@@ -6,6 +6,7 @@ pub mod cfg;
 pub mod cli;
 pub mod compiler;
 pub mod core;
+pub mod debuginfo;
 pub mod diagnostics;
 pub mod driver;
 pub mod lir;

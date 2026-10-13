@@ -53,6 +53,8 @@ pub struct DriverDumpFlags {
     pub dump_aether: AetherDumpMode,
     pub dump_lir: bool,
     pub dump_lir_llvm: bool,
+    /// Print each module's debug information (proposal 0188) and stop.
+    pub dump_debug_info: bool,
 }
 
 /// Diagnostic rendering and reporting options shared across driver modes.
@@ -87,6 +89,8 @@ pub struct DriverLanguageFlags {
     pub enable_optimize: bool,
     pub enable_analyze: bool,
     pub strict_mode: bool,
+    /// How much debug information to produce (`-g` / `--debug`).
+    pub debug_level: crate::debuginfo::DebugLevel,
 }
 
 /// The selected package build profile and the parse-time overrides that must

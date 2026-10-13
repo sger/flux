@@ -1,0 +1,55 @@
+---
+source: tests/debuginfo/debug_info_tests.rs
+---
+debug info: <root>/examples/patterns/list_patterns.flx
+main [fn] @3:1
+  let xs: List<Int> @17:5
+  let __tmp_2000005: ? @20:5 (artificial)
+  pattern h: ? @21:9
+  pattern t: ? @21:9
+  let __tmp_2000004: ? @26:5 (artificial)
+  pattern h: ? @27:9
+  pattern t: ? @27:9
+  let nums: List<Int> @35:5
+  let __tmp_2000003: ? @36:5 (artificial)
+  let list_length: ? @39:5
+  let __tmp_2000002: ? @46:5 (artificial)
+  let dataset: List<Int> @52:5
+  let __tmp_2000001: ? @54:5 (artificial)
+  pattern rest: ? @55:9
+  pattern h: ? @55:46
+  pattern t: ? @55:46
+  let rev: ? @64:5
+  let reversed: List<Int> @71:5
+  let __tmp_2000000: ? @72:5 (artificial)
+  handler __arg0: ? @3:1 (artificial)
+  handler __resume_default: ? @3:1 (artificial)
+  let __tmp_2000006: ? @3:1 (artificial)
+  handler __arg0: ? @3:1 (artificial)
+  handler __resume_default: ? @3:1 (artificial)
+  let __tmp_2000007: ? @3:1 (artificial)
+  handler __arg0: ? @3:1 (artificial)
+  handler __resume_default: ? @3:1 (artificial)
+  handler __arg0: ? @3:1 (artificial)
+  handler __resume_default: ? @3:1 (artificial)
+  handler __arg0: ? @3:1 (artificial)
+  handler __arg1: ? @3:1 (artificial)
+  handler __resume_default: ? @3:1 (artificial)
+  let __tmp_2000008: ? @3:1 (artificial)
+  handler __resume_default: ? @3:1 (artificial)
+  handler __arg0: ? @3:1 (artificial)
+  handler __resume_default: ? @3:1 (artificial)
+  handler __resume_default: ? @3:1 (artificial)
+  handler __resume_default: ? @3:1 (artificial)
+  handler __resume_default: ? @3:1 (artificial)
+  handler __arg0: ? @3:1 (artificial)
+  handler __arg1: ? @3:1 (artificial)
+  handler __resume_default: ? @3:1 (artificial)
+<lambda list_patterns.flx:39:5> [lambda in main] @39:5
+  param lst: ? @39:5
+  pattern t: ? @41:13
+<lambda list_patterns.flx:64:5> [lambda in main] @64:5
+  param lst: ? @64:5
+  param acc: ? @64:5
+  pattern h: ? @66:13
+  pattern t: ? @66:13

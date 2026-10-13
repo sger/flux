@@ -68,11 +68,14 @@ Flags:
   --stats            Print execution analytics (parse/compile/execute times, module info)
   --prof             Print per-function profiling report (call counts, time, allocations)
   --strict           Enable strict type/effect boundary checks
+  --debug, -g        Build debug information (locations, variables and types)
+  --debug=lines      Build locations only
   --all-errors       Show diagnostics from all phases (disable stage-aware filtering)
   --dump-repr        Print the backend representation contract summary and exit
   --dump-cfg         Lower to Flux CFG IR, print a readable dump, and exit
   --dump-core        Lower to Flux Core IR, print a readable dump, and exit
   --dump-core=debug  Lower to Flux Core IR, print a raw debug dump, and exit
+  --dump-debug-info  Print each module's debug information and exit (implies -g)
   --dump-aether      Show Aether memory model report (per-function reuse/drop stats)
   --dump-aether=debug
                     Show detailed Aether debug report (borrow signatures, call modes, dup/drop, reuse)

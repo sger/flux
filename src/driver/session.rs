@@ -11,6 +11,7 @@ pub struct DriverSession {
     pub roots: Vec<PathBuf>,
     pub cache_dir: Option<PathBuf>,
     pub strict_mode: bool,
+    pub debug_level: crate::debuginfo::DebugLevel,
     pub diagnostics_format: DiagnosticOutputFormat,
     pub all_errors: bool,
 }
@@ -25,6 +26,7 @@ impl From<&DriverFlags> for DriverSession {
             roots: value.input.roots.clone(),
             cache_dir: value.cache.cache_dir.clone(),
             strict_mode: value.language.strict_mode,
+            debug_level: value.language.debug_level,
             diagnostics_format: value.diagnostics.diagnostics_format,
             all_errors: value.diagnostics.all_errors,
         }
@@ -90,6 +92,7 @@ mod tests {
             roots: Vec::new(),
             cache_dir: Some(PathBuf::from("target/flux-cache")),
             strict_mode: false,
+            debug_level: crate::debuginfo::DebugLevel::None,
             diagnostics_format: DiagnosticOutputFormat::Text,
             all_errors: false,
         };

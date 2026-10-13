@@ -716,7 +716,43 @@ fn collect_symbols_from_effect_expr(
     }
 }
 
+/// Hashes the compile settings that change a module's interface.
+///
+/// Each setting adds a line only when it differs from its default, so the
+/// default configuration hashes the empty marker and keeps its cache keys as
+/// new settings are added.
 pub fn compute_semantic_config_hash(strict_mode: bool, optimize_mode: bool) -> [u8; 32] {
+    hash_bytes(
+        config_marker(
+            strict_mode,
+            optimize_mode,
+            crate::debuginfo::DebugLevel::None,
+        )
+        .as_bytes(),
+    )
+}
+
+/// Hashes the compile settings that change a module's compiled artifacts
+/// (bytecode, native objects, store units): the semantic settings plus the
+/// debug level (proposal 0188).
+///
+/// The debug level stays out of [`compute_semantic_config_hash`] because it
+/// does not change an interface: alternating `-g` and plain builds then reuses
+/// each module's interface and recompiles only the artifacts. Without `-g`
+/// the two hashes are equal, so existing cache keys are unchanged.
+pub fn compute_artifact_config_hash(
+    strict_mode: bool,
+    optimize_mode: bool,
+    debug_level: crate::debuginfo::DebugLevel,
+) -> [u8; 32] {
+    hash_bytes(config_marker(strict_mode, optimize_mode, debug_level).as_bytes())
+}
+
+fn config_marker(
+    strict_mode: bool,
+    optimize_mode: bool,
+    debug_level: crate::debuginfo::DebugLevel,
+) -> String {
     let mut marker = String::new();
     if optimize_mode {
         marker.push_str("optimize: 1\n");
@@ -724,7 +760,12 @@ pub fn compute_semantic_config_hash(strict_mode: bool, optimize_mode: bool) -> [
     if strict_mode {
         marker.push_str("strict: 1\n");
     }
-    hash_bytes(marker.as_bytes())
+    if debug_level.is_enabled() {
+        marker.push_str("debug: ");
+        marker.push_str(debug_level.as_str());
+        marker.push('\n');
+    }
+    marker
 }
 
 pub fn compute_interface_fingerprint(interface: &ModuleInterface) -> String {

@@ -183,14 +183,23 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
         let module_strict_mode =
             effective_module_strictness(node.kind, entry_module_kind, request.compile.strict_mode);
         request.compiler.set_strict_mode(module_strict_mode);
+        request
+            .compiler
+            .set_debug_level(request.compile.debug_level);
         let module_semantic_config_hash =
             flux::compiler::module_interface::compute_semantic_config_hash(
                 module_strict_mode,
                 request.compile.enable_optimize,
             );
+        let module_artifact_config_hash =
+            flux::compiler::module_interface::compute_artifact_config_hash(
+                module_strict_mode,
+                request.compile.enable_optimize,
+                request.compile.debug_level,
+            );
         let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
         let module_source_hash = hash_bytes(module_source.as_bytes());
-        let module_cache_key = hash_cache_key(&module_source_hash, &module_semantic_config_hash);
+        let module_cache_key = hash_cache_key(&module_source_hash, &module_artifact_config_hash);
         let module_store_deps: Vec<(String, String)> = node
             .imports
             .iter()
@@ -206,7 +215,7 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
         let unit_hash = artifact_store::unit_hash(
             &node.path,
             &module_source,
-            &module_semantic_config_hash,
+            &module_artifact_config_hash,
             request.backend,
             &module_store_deps,
         );

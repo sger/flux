@@ -1,0 +1,16 @@
+---
+source: tests/debuginfo/debug_info_tests.rs
+---
+debug info: <root>/examples/effects/07_custom_effect_handler.flx
+audited_value [fn] @7:1
+main [fn] @11:1
+  let value: Int @12:5
+  handler message: ? @13:9
+  handler resume: ? @13:9
+  handler __arg0: ? @11:1 (artificial)
+  handler __resume_default: ? @11:1 (artificial)
+  let __tmp_2000000: ? @11:1 (artificial)
+  handler __arg0: ? @11:1 (artificial)
+  handler __resume_default: ? @11:1 (artificial)
+  let __tmp_2000001: ? @11:1 (artificial)
+effect Audit @3:1: log
