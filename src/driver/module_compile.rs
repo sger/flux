@@ -156,6 +156,9 @@ pub(crate) struct ModuleReplayRequest<'a> {
     pub(crate) strict_mode: bool,
     pub(crate) enable_optimize: bool,
     pub(crate) enable_analyze: bool,
+    /// The run's debug level: under `-g` the VM compiles on another path,
+    /// which can report errors the default path does not.
+    pub(crate) debug_level: crate::debuginfo::DebugLevel,
 }
 
 /// Replays module compilation to reconstruct diagnostics after parallel work.
@@ -169,6 +172,7 @@ pub(crate) fn replay_module_diagnostics(request: ModuleReplayRequest<'_>) -> Vec
         request.strict_mode,
         false,
     );
+    compiler.set_debug_level(request.debug_level);
     let compile_result = compiler.compile_with_opts(
         &request.node.program,
         request.enable_optimize,

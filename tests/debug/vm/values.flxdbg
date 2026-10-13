@@ -1,0 +1,12 @@
+break 13
+continue
+locals
+print numbers
+print pair
+print tree
+print tree.2
+print tree.2.1
+print maybe.0
+print missing
+print tree.9
+continue

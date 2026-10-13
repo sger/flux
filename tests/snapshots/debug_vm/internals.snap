@@ -1,0 +1,34 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 19
+breakpoint at internals.flx:19
+> continue
+stopped: breakpoint at internals.flx:19:5 in main
+    19 |     print(twice(5))
+> internals on
+> step
+stopped: step at internals.flx:13:1 in twice
+    13 | fn twice<a: Describe>(x: a) -> String {
+> step
+stopped: step at internals.flx:9:9 in Describe<Int>.describe
+     9 |         "int " + to_string(x)
+> step
+stopped: step at internals.flx:18:1 in __default_handler Console.print
+    18 | fn main() {
+> step
+stopped: step at Primops.flx:35:22 in Flow.Primops.__primop_print
+    35 |     public intrinsic fn __primop_print<a>(x: a) -> Unit = primop Print
+> bt
+#0 Flow.Primops.__primop_print at Primops.flx:35:22
+#1 __default_handler Console.print at internals.flx:18:1
+#2 main at internals.flx:19:5
+#3 <entry>
+> internals off
+> bt
+#0 main at internals.flx:19:5
+#1 <entry>
+> continue
+program finished
+--- program output ---
+"int 5, int 5"

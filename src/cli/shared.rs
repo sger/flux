@@ -130,6 +130,8 @@ pub(crate) struct CliCommandValueOptions {
     pub(crate) test_filter: Option<String>,
     pub(crate) debug_level: DebugLevel,
     pub(crate) tape: Option<TapeRequest>,
+    /// `flux debug --script <file>`.
+    pub(crate) debug_script: Option<PathBuf>,
 }
 
 impl Default for CliDiagnosticOptions {
@@ -150,6 +152,7 @@ impl Default for CliCommandValueOptions {
             test_filter: None,
             debug_level: DebugLevel::None,
             tape: None,
+            debug_script: None,
         }
     }
 }
@@ -291,6 +294,15 @@ pub(crate) fn extract_cli_value_options(args: &mut Vec<String>) -> Result<CliVal
         if let Some(path) = take_required_long_option(
             args,
             &mut i,
+            "--script",
+            "Usage: flux debug <file.flx> --script <commands>",
+        )? {
+            values.command.debug_script = Some(PathBuf::from(path));
+            continue;
+        }
+        if let Some(path) = take_required_long_option(
+            args,
+            &mut i,
             "--replay",
             "Usage: flux <file.flx> --replay <tape>",
         )? {
@@ -373,6 +385,13 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
             quiet: parsed.runtime.quiet,
             check_only: false,
             tape: values.command.tape,
+            // `flux debug` turns the debugger on; `--script` only says where
+            // its commands come from.
+            debugger: values.command.debug_script.map(|script| {
+                crate::driver::flags::DebuggerRequest {
+                    script: Some(script),
+                }
+            }),
         },
         dumps: DriverDumpFlags {
             dump_repr: parsed.dumps.dump_repr,

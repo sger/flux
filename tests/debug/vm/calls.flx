@@ -1,0 +1,17 @@
+// Breakpoints, the call stack with each caller's line, and step / next /
+// finish through nested calls.
+fn square(x) {
+    let y = x * x
+    y
+}
+
+fn sum_squares(a, b) {
+    let sa = square(a)
+    let sb = square(b)
+    sa + sb
+}
+
+fn main() {
+    let total = sum_squares(3, 4)
+    print(total)
+}

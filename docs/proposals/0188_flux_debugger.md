@@ -445,64 +445,107 @@ changes.
 
 #### 3.1 Breakpoint sites (takes over 0129 Phase 3)
 
-Under `--debug`, the bytecode compiler emits `OpBreakpoint(site_idx)` at every
-**site**:
-- `FnEntry` and `Return`
-- `Stmt`, one per statement / `let`
-- `PipeStage`, one per `|>` stage
-- `MatchArm`
-- `Perform`, `HandlerArm` and `Resume`
+Implemented in S2.
 
-`FunctionDebugInfo` gains:
-- `fn_id`
-- `sites: Vec<BreakSite { kind, span, ip }>`
-- `locals: Vec<LocalVarEntry { slot, var, ip_range }>`
-- an `is_stmt` flag on each location
+**One compiler under `-g`.** Every function that can be compiled by the AST
+bytecode compiler is compiled by it under `-g`
+(`use_ast_path`, `src/compiler/statement.rs`). That compiler knows each
+local's name and where statements start, which the CFG path loses. Most code
+already took it: the CFG path rejects any backward jump (every `if` and
+`match`) and closures. Functions that take dictionaries from evidence still
+need the CFG path; under `-g` they get an entry site but no statement sites
+or locals. Two consequences:
+- Core passes do not shape `-g` VM code, so `IrFunction.var_binders` and
+  "Core inlining off" leave the VM line. They are native work (S5/S6).
+- `-g` can differ from a plain run where the two compilers already differ.
+  The one case found across `examples/` (1,111 programs, compared with and
+  without `-g`) is an unused binding whose value fails: `let ignored = 100 / x`
+  raises under `-g` and is optimized away in a plain run.
 
-All of these are serialized in the bytecode cache
-(`bytecode_cache/cache_serialization.rs:289,339`, `module_cache.rs:182,234`),
-with a format version bump.
+**Sites.** Under `-g` the compiler emits `OpBreakpoint(site)` (opcode 63,
+`src/compiler/debug_sites.rs`) at:
 
-Design points:
-- **Fusion:** superinstruction fusion keeps only the first location of a fused
-  run (`src/compiler/mod.rs:7800`), so it must not fuse across a site.
-- **Toggling breakpoints:** the enabled bitset lives in `DebugState`, not in
-  the bytecode. Setting or clearing a breakpoint never recompiles.
-- **Zero overhead:** the loop becomes `run_inner::<const DEBUG: bool>`
-  (`src/vm/mod.rs:309`). Without a debugger attached, `OpBreakpoint` costs one
-  predictable branch, and non-debug builds never contain it. This is the same
-  model as GHCi: ticks are planned at desugaring and become `BRK_FUN`
-  (`ghc/rts/Interpreter.c:748`).
-- **Observer:** `VmObserver` (the shape 0024 described) is called at sites,
-  calls, returns, `perform` and `resume`. It returns
-  `ObserverAction::{Continue, Pause}`.
+| Site | Where |
+|---|---|
+| `FnEntry` | the start of each function, lambda and handler arm |
+| `Stmt` | each statement in a function body |
+| `MatchArm` | the start of each arm's body |
+| `PipeStage` | each `|>` stage, right before its call, so a pipeline stops stage by stage in source order |
+| `Perform` | each effect operation, after its arguments |
+
+The parser records which calls came from `|>` (`Program::pipe_calls`).
+`FunctionDebugInfo` gains `sites`, `locals` (slot, name, live instruction
+range, an artificial flag) and `free_names`. They are serialized in both
+bytecode caches (cache epoch 77). A site with no source line (compiler-made
+code) is not emitted.
+
+**No cost without `-g`.** A plain build contains no `OpBreakpoint`, and its
+bytecode is unchanged. With `-g` and no debugger attached, the opcode does
+nothing. A `const DEBUG` dispatch loop was not needed. The VM's hot paths
+gain one well-predicted branch on `VM.debugger` per call and tail call, and a
+store of the caller's position per call (below). With
+`CARGO_PROFILE_BENCH_CODEGEN_UNITS=1`, `effect_tape_off_bench` measures the
+same as S1b or faster.
+
+**Observer.** `src/vm/debug/`: `VmObserver::on_stop(reason, &mut Inspector)`
+returns a `Resume` (continue, step in, over or out, quit). The `Inspector`
+reads the paused VM: the stack, each frame's locals and captured values,
+values with their parts, and line breakpoints, resolved against every
+function's sites (a line without code moves to the next line that has some).
+Breakpoints live in debugger state; setting one never recompiles.
+
+**Interfaces under `-g`.** The AST compiler exports different globals from
+the CFG compiler, so VM module interfaces are keyed by the debug level too
+(`compute_artifact_config_hash`). The diagnostic replay of a module that
+failed in the parallel pipeline compiles with the run's debug level; before,
+it compiled without `-g`, found no error, and the run went on without the
+module.
 
 #### 3.2 Stepping
 
 - **Step in:** stop at the next site in any frame.
-- **Step over:** stop at the next site whose frame token is the current frame's
-  or older. A token, not a frame index, is required because
-  `tail_call_closure` (`src/vm/function_call.rs:281`) reuses the frame in
-  place.
-- **Step out:** stop when the frame returns.
-- **Instruction step:** reuses `execute_current_instruction` (`mod.rs:355`).
+- **Step over:** stop at the next site at this frame index or below.
+- **Step out:** stop at the next site below this frame index.
+- **One stop per line:** a line stops at its first site; the other sites on
+  it (an arm, a stage, a perform) do not stop again until another line runs
+  in that frame, or the frame starts a new call or tail call.
+- **Tail calls** keep the frame index, so stepping over a tail call stops in
+  the function it calls, as GDB does with tail-call optimization.
+- **Compiler-made code** (dictionaries, default handlers around `main`,
+  intrinsic wrappers: `__` names) is stepped through, not into, unless the
+  debugger shows internals. Instance methods are user code and are shown as
+  `Class<Type>.method`.
 
-**Caller locations.** When a call pushes a frame, `apply_ip_delta` (`mod.rs:375`)
-has already moved the caller's `ip` past the call instruction. Caller frames
-must therefore resolve at the recorded call site (`ip - width`), not at `ip`.
-The same off-by-one affects today's runtime stack traces (`trace.rs:117`), and
-it is fixed there too.
+**Caller locations.** When a call pushes a frame, `apply_ip_delta` then moves
+the caller's `ip` past the call instruction. `push_frame` now records each
+caller's position before that happens (`VM.call_ips`), and caller frames
+resolve there, both in the debugger and in runtime stack traces
+(`src/vm/trace.rs`). The traces now name the call that was running, where
+they used to name the call around it: `at main (app.flx:36:11)` for
+`print(Ki076Ord.demo())` rather than column 5.
+
+**Tail-call elision.** While a debugger is attached, each tail call counts
+against its frame, with the last four callers it replaced. The stack shows
+`… N calls elided by tail calls (last: f at L:C)`.
 
 #### 3.3 Locals
 
-- **Slot tables:** on the CFG path, from the `IrVar → Binding` map
-  (`src/compiler/cfg_bytecode.rs:189`). On the AST fallback path, from
-  `SymbolTable` (`src/compiler/symbol_table.rs:8`) before each scope closes.
-- **Captured values:** from `Closure.free`, named through the lambda's
-  `DebugVar`s.
-- **Rendering:** `format_value` (`src/runtime/value.rs:542`), with the size
-  limit of the REPL's `value_as_literal` (`src/repl/engine.rs:864`). Children
-  load lazily through DAP `variablesReference`.
+- **Slot tables:** the symbol table logs each local it defines under `-g`,
+  and the compiler enters it with the instruction it starts at; leaving a
+  block scope ends it. Parameters hold their values from the function's first
+  instruction. A name bound twice shows its innermost binding.
+- **Captured values:** `Closure.free`, named by `free_names`.
+- **Rendering:** one bounded line per value, floats with their decimal
+  point; the parts of tuples, lists, arrays, options and data constructors
+  load on demand (`print tree.2.1`).
+
+**Front end until S4.** `flux debug app.flx [--script file]` runs the
+program on the VM, built with `-g`, under a command-line debugger
+(`src/driver/debug_session.rs`): `break`, `delete`, `continue`, `step`,
+`next`, `finish`, `bt`, `locals`, `print`, `internals on|off`, `quit`.
+It reads commands from a terminal as typed, or from a script or pipe. It
+works with `--record` and `--replay`. Golden transcripts are in
+`tests/debug/vm/` (`tests/debug/vm_debug_tests.rs`).
 
 #### 3.4 Stacks that follow continuations
 
@@ -736,7 +779,7 @@ Native effects need special handling in two cases:
 | S0 | `src/debuginfo/` model (functions, lambdas, variables with types, ADT layouts, effects), built per module where Core is lowered and kept on `Compiler`; `--debug` / `-g` and `DebugLevel`; debug level in the cache keys; `--dump-debug-info` | Snapshot tests of `--dump-debug-info` for ~8 fixtures, including a two-module program with each module in its own file. A test that cache keys differ by debug level while the default key is unchanged. `-g` leaves the LLVM IR and bytecode unchanged in S0. |
 | S1a | Recording of synchronous effects (implements 0038): the tape format and runtime, VM hook, native C/Rust ABI, `--record`/`--replay`, E1022–E1027; async refused | Tapes recorded on either backend replay on both with identical output; replay reads and changes nothing outside the program; edited tapes fail with E1022–E1026; async under a tape fails with E1027. Off-mode overhead measured with `benches/effect_tape_off_bench.rs`. |
 | S1b | Async recording: submissions and completions through the shared async backend, one worker and synchronous fs under a tape, the taped event clock, logical request and fiber ids; `Task.spawn` refused until S8 | Every async fixture (sleep, channels, events, scopes, fs, TCP) and every async example replays on the backend that recorded it, without waiting on timers or opening sockets; edited async tapes fail with E1022/E1023; an async tape on the other backend fails with E1026. |
-| S2 | VM engine behind a `DebugEngine` trait: `OpBreakpoint` sites, debug dispatch loop, `VmObserver`, stepping, local-variable tables, caller location fix (`ip - width`), tail-call elision counter, hiding dictionaries, pipeline stages; `IrFunction.var_binders` side table; Core inlining off in the debug profile | Golden transcripts of scripted sessions (`tests/debug/vm/*.flxdbg`). A benchmark showing no change in non-debug runs. |
+| S2 | VM engine: `OpBreakpoint` sites (entry, statement, match arm, `|>` stage, perform) from the AST compiler under `-g`, `VmObserver` and `Inspector` (`src/vm/debug/`), step in/over/out, local-variable tables, caller-location fix (also in runtime stack traces), tail-call elision counter, compiler-made code hidden, `flux debug` front end | Golden transcripts of scripted sessions (`tests/debug/vm/*.flxdbg`). Every example runs the same with and without `-g`, apart from timing and one unused failing binding. No slowdown in non-debug runs. |
 | S3 | VM reverse execution: checkpoints, Step Back, Reverse Continue, run to event, recording ring buffer | Golden transcripts where the state after stepping back equals the state reached by replaying forward. A memory-bound test. |
 | S4 | `crates/flux-dap`, mirroring `crates/flux-lsp`; `editors/vscode` `debuggers` and `breakpoints` contributions; launch config with `backend`, `record`, `replay`; pure-only evaluate | DAP JSON transcript tests in `crates/flux-dap/tests`. A manual VS Code checklist in the crate README. |
 | S5 | Native line tables: IR metadata model, compile units, files, subprograms, locations, LIR location stamping, `Span::default()` audit, Og profile, `dsymutil`, real `source_filename` | `llvm-dwarfdump --verify` clean on all native fixtures. `lldb -b` scripts (break at file:line, `bt`, step) in `tests/native_llvm/debug_*.rs`. 10⁶-deep tail recursion passes in the debug profile. A manual Xcode checklist. |

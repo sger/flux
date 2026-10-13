@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use crate::{
@@ -18,6 +18,10 @@ pub struct Program {
     /// AST — it is intentionally excluded from `Debug` (see the impl below) so
     /// AST snapshots stay stable.
     pub doc_comments: HashMap<usize, String>,
+    /// The calls the parser built from `|>` stages, so a debug build can stop
+    /// at each stage (proposal 0188 S2). A derived index like
+    /// `doc_comments`, excluded from `Debug`.
+    pub pipe_calls: HashSet<crate::syntax::expression::ExprId>,
 }
 
 impl Program {
@@ -26,6 +30,7 @@ impl Program {
             statements: Vec::new(),
             span: Span::default(),
             doc_comments: HashMap::new(),
+            pipe_calls: HashSet::new(),
         }
     }
 

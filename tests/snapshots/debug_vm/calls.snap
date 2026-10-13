@@ -1,0 +1,47 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 4
+breakpoint at calls.flx:4
+> continue
+stopped: breakpoint at calls.flx:4:5 in square
+     4 |     let y = x * x
+> bt
+#0 square at calls.flx:4:5
+#1 sum_squares at calls.flx:9:14
+#2 main at calls.flx:15:17
+#3 <entry>
+> locals
+x = 3
+> finish
+stopped: step at calls.flx:10:5 in sum_squares
+    10 |     let sb = square(b)
+> locals
+b = 4
+sa = 9
+> step
+stopped: step at calls.flx:3:1 in square
+     3 | fn square(x) {
+> step
+stopped: breakpoint at calls.flx:4:5 in square
+     4 |     let y = x * x
+> bt
+#0 square at calls.flx:4:5
+#1 sum_squares at calls.flx:10:14
+#2 main at calls.flx:15:17
+#3 <entry>
+> next
+stopped: step at calls.flx:5:5 in square
+     5 |     y
+> next
+stopped: step at calls.flx:11:5 in sum_squares
+    11 |     sa + sb
+> locals
+sa = 9
+sb = 16
+> delete 4
+deleted breakpoint at calls.flx:4
+> continue
+program finished
+--- program output ---
+25

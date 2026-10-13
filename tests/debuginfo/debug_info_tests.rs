@@ -170,16 +170,46 @@ fn debug_level_records_one_module_with_its_functions() {
     );
 }
 
+/// The functions in a compiled program's constant pool.
+fn functions(
+    bytecode: &flux::bytecode::bytecode::Bytecode,
+) -> Vec<std::sync::Arc<flux::runtime::compiled_function::CompiledFunction>> {
+    bytecode
+        .constants
+        .iter()
+        .filter_map(|constant| match constant {
+            flux::runtime::value::Value::Function(function) => Some(function.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn run(bytecode: flux::bytecode::bytecode::Bytecode) -> String {
+    let mut vm = flux::vm::VM::new(bytecode);
+    vm.run().expect("runs");
+    format!("{:?}", vm.last_popped_stack_elem())
+}
+
 #[test]
-fn debug_level_leaves_the_bytecode_unchanged() {
+fn without_a_debug_level_the_bytecode_has_no_debugger_tables() {
+    // Proposal 0188 S2: only `-g` adds stop sites and variable tables.
+    let plain = compile_at(DebugLevel::None).bytecode();
+    for function in functions(&plain) {
+        let info = function.debug_info.as_ref().expect("debug info");
+        assert!(info.sites.is_empty(), "{:?}", info.name);
+        assert!(info.locals.is_empty(), "{:?}", info.name);
+    }
+}
+
+#[test]
+fn debug_level_adds_stop_sites_and_runs_the_same() {
     let plain = compile_at(DebugLevel::None).bytecode();
     let debug = compile_at(DebugLevel::Full).bytecode();
-    assert_eq!(
-        format!("{:?}", plain.instructions),
-        format!("{:?}", debug.instructions)
-    );
-    assert_eq!(
-        format!("{:?}", plain.constants),
-        format!("{:?}", debug.constants)
-    );
+    let sites: usize = functions(&debug)
+        .iter()
+        .filter_map(|function| function.debug_info.as_ref())
+        .map(|info| info.sites.len())
+        .sum();
+    assert!(sites > 0, "a -g build has stop sites");
+    assert_eq!(run(plain), run(debug));
 }

@@ -17,8 +17,10 @@ use crate::runtime::replay::{self, LoadedTape, TapeError, TapeHeader};
 use crate::syntax::module_graph::{ModuleGraph, ModuleKind};
 
 /// The environment variable a native program records into.
+#[cfg(feature = "llvm")]
 pub(crate) const RECORD_ENV: &str = "FLUX_TAPE_RECORD";
 /// The environment variable a native program replays from.
+#[cfg(feature = "llvm")]
 pub(crate) const REPLAY_ENV: &str = "FLUX_TAPE_REPLAY";
 
 enum Session {
@@ -126,6 +128,7 @@ pub(crate) fn activate_in_process(program_path: &str) {
 }
 
 /// The environment variable that hands the tape to a native program.
+#[cfg(feature = "llvm")]
 pub(crate) fn native_child_env() -> Option<(&'static str, PathBuf)> {
     match SESSION.get()? {
         Session::Record { path, .. } => Some((RECORD_ENV, absolute(path))),
@@ -135,6 +138,7 @@ pub(crate) fn native_child_env() -> Option<(&'static str, PathBuf)> {
 
 /// Warns when a native program's recording did not reach its end, for
 /// example because the process was killed: replaying it stops early.
+#[cfg(feature = "llvm")]
 pub(crate) fn check_native_recording() {
     let Some(Session::Record { path, .. }) = SESSION.get() else {
         return;
@@ -219,6 +223,7 @@ fn program_hash(graph: &ModuleGraph, entry_path: &Path) -> String {
     format!("sha256:{}", crate::shared::hex::encode(&hasher.finalize()))
 }
 
+#[cfg(feature = "llvm")]
 fn absolute(path: &Path) -> PathBuf {
     std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
 }

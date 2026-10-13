@@ -1,0 +1,14 @@
+// Locals and values: lists, tuples, data constructors and options, with
+// their parts.
+data Tree {
+    Leaf,
+    Node(Tree, Int, Tree),
+}
+
+fn main() {
+    let numbers = [1, 2, 3]
+    let pair = (1.5, "two")
+    let tree = Node(Leaf, 7, Node(Leaf, 9, Leaf))
+    let maybe = Some(42)
+    print(len(numbers))
+}

@@ -74,6 +74,10 @@ pub enum OpCode {
     /// Generic primop dispatch: operands are `[primop_id: u8, arity: u8]`.
     /// Consumes `arity` arguments from the stack and pushes one result.
     OpPrimOp = 62,
+    /// A debugger stop site (proposal 0188 S2), emitted only under `-g`.
+    /// Operand: u16 index into the function's `FunctionDebugInfo::sites`.
+    /// Without an attached debugger it does nothing.
+    OpBreakpoint = 63,
     // OpCallBase = 63 was removed (deprecated). Slot intentionally left empty
     // to preserve bytecode compatibility with cached .fxc/.fxm files.
     /// Construct a user-defined ADT value.
@@ -280,7 +284,7 @@ impl From<u8> for OpCode {
             60 => OpCode::OpTupleIndex,
             61 => OpCode::OpIsTuple,
             62 => OpCode::OpPrimOp,
-            // 63 was OpCallBase (removed)
+            63 => OpCode::OpBreakpoint,
             64 => OpCode::OpMakeAdt,
             65 => OpCode::OpIsAdt,
             66 => OpCode::OpAdtField,
@@ -393,7 +397,8 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         OpCode::OpReuseSome | OpCode::OpReuseLeft | OpCode::OpReuseRight => vec![],
         OpCode::OpIsUnique => vec![],
         OpCode::OpCall0 | OpCode::OpCall1 | OpCode::OpCall2 | OpCode::OpTailCall1 => vec![],
-        OpCode::OpEnterCC => vec![2], // cc_index: u16
+        OpCode::OpEnterCC => vec![2],    // cc_index: u16
+        OpCode::OpBreakpoint => vec![2], // site index: u16
         OpCode::OpReturnCheck => vec![],
         _ => vec![],
     }

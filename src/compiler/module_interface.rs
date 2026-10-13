@@ -737,9 +737,12 @@ pub fn compute_semantic_config_hash(strict_mode: bool, optimize_mode: bool) -> [
 /// debug level (proposal 0188).
 ///
 /// The debug level stays out of [`compute_semantic_config_hash`] because it
-/// does not change an interface: alternating `-g` and plain builds then reuses
-/// each module's interface and recompiles only the artifacts. Without `-g`
-/// the two hashes are equal, so existing cache keys are unchanged.
+/// does not change a native interface: alternating `-g` and plain native
+/// builds then reuses each module's interface and recompiles only the
+/// artifacts. The VM keys its interfaces with this hash instead, since under
+/// `-g` it compiles every function it can on the AST path (0188 S2), which
+/// exports different globals. Without `-g` the two hashes are equal, so
+/// existing cache keys are unchanged.
 pub fn compute_artifact_config_hash(
     strict_mode: bool,
     optimize_mode: bool,
