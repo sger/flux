@@ -1338,26 +1338,41 @@ fn generate_from_statements(
                 // module defining each head type; this declaration alone does
                 // not. Multi-param classes join all type args:
                 // __tc_Convert_Int_String_convert
-                let type_name =
-                    if type_args.is_empty() {
-                        "Unknown".to_string()
-                    } else {
-                        class_env
-                            .instances
-                            .iter()
-                            .find(|instance| {
-                                instance.class_id == class_def.class_id()
-                                    && instance.instance_module == current_module
-                                    && instance.type_args.len() == type_args.len()
-                                    && instance.type_args.iter().zip(type_args).all(
-                                        |(collected, declared)| collected.structural_eq(declared),
-                                    )
-                            })
-                            .map(|instance| instance.type_key.clone())
-                            .unwrap_or_else(|| {
-                                crate::types::class_env::instance_type_key(type_args, &[], interner)
-                            })
-                    };
+                //
+                // A declaration collection rejected has no collected instance,
+                // and collection has already reported why. It generates no
+                // methods: a key re-rendered from the declaration would name a
+                // dictionary no instance defines. Its methods still get their
+                // dispatch stubs, so a call to one reports the missing
+                // instance rather than an undefined name.
+                let Some(type_name) = class_env
+                    .instances
+                    .iter()
+                    .find(|instance| {
+                        instance.class_id == class_def.class_id()
+                            && instance.instance_module == current_module
+                            && instance.type_args.len() == type_args.len()
+                            && instance
+                                .type_args
+                                .iter()
+                                .zip(type_args)
+                                .all(|(collected, declared)| collected.structural_eq(declared))
+                    })
+                    .map(|instance| instance.type_key.clone())
+                else {
+                    let declared: HashSet<Identifier> = methods.iter().map(|m| m.name).collect();
+                    for method_sig in &class_def.methods {
+                        if declared.contains(&method_sig.name)
+                            || classes
+                                .surface
+                                .default_body(class_def.class_id(), method_sig.name)
+                                .is_some()
+                        {
+                            dispatch_table.insert((class_def.class_id(), method_sig.name));
+                        }
+                    }
+                    continue;
+                };
 
                 let explicit_methods: HashMap<Identifier, _> =
                     methods.iter().map(|m| (m.name, m)).collect();
@@ -2350,6 +2365,62 @@ instance Counted<Int> {
         assert!(!stub_generated(&format!(
             "fn count(n: Int) -> Int {{ n }}\n{class}"
         )));
+    }
+
+    /// An instance declaration that collection rejected (E447 here) has no
+    /// `InstanceDef`, so it has no key to name its methods by. It generates no
+    /// methods: its error is already reported, and re-rendering a key from the
+    /// declaration would name a dictionary no collected instance defines.
+    #[test]
+    fn a_rejected_instance_declaration_generates_no_methods() {
+        let source = r#"
+class Shape<a> {
+    fn area(x: a) -> Int
+}
+
+instance Shape<Int, Int> {
+    fn area(x) { 1 }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
+        let mut interner = parser.take_interner();
+        let (class_env, class_surface, diagnostics) =
+            ClassEnv::from_statements(&program.statements, &interner);
+        assert_eq!(diagnostics.len(), 1, "class diagnostics: {diagnostics:?}");
+        assert!(class_env.instances.is_empty());
+
+        let generated = generate_dispatch_functions(
+            &program.statements,
+            DispatchClasses {
+                env: &class_env,
+                surface: &class_surface,
+            },
+            &mut interner,
+            &HashSet::new(),
+            DispatchGenerationOptions {
+                include_builtin_instances: false,
+            },
+        );
+        let names: Vec<_> = generated
+            .iter()
+            .filter_map(|statement| match statement {
+                Statement::Function { name, .. } => Some(interner.resolve(*name).to_string()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            !names.iter().any(|name| name.starts_with("__tc_")),
+            "generated methods for a rejected instance: {names:?}"
+        );
+        // The stub stays, so a call to `area` reports the missing instance
+        // (E444) rather than an undefined name.
+        assert!(names.iter().any(|name| name == "area"), "{names:?}");
     }
 
     /// Stage 7 rejects a `deriving` clause exactly where no body can be
