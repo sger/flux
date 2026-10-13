@@ -9,7 +9,10 @@
 use flux::{
     ast::type_infer::constraint::SchemeConstraint,
     compiler::Compiler,
-    syntax::{effect_expr::EffectExpr, lexer::Lexer, parser::Parser, type_expr::TypeExpr},
+    syntax::{
+        effect_expr::EffectExpr, interner::Interner, lexer::Lexer, parser::Parser,
+        type_expr::TypeExpr,
+    },
     types::module_interface::{
         ModuleInterface, PublicClassEntry, PublicClassMethodEntry, PublicInstanceEntry,
         PublicInstanceMethodEntry,
@@ -42,9 +45,12 @@ fn compile_per_module_llvm_ir_with_classes(src: &str) -> String {
     flux::llvm::render_module(&llvm)
 }
 
+/// `build_interfaces` interns the interfaces' names in the parser's interner,
+/// the one the compiler uses: a symbol from any other interner names something
+/// else there.
 fn compile_per_module_llvm_ir_with_preloaded_interfaces(
     src: &str,
-    interfaces: &[ModuleInterface],
+    build_interfaces: impl FnOnce(&mut Interner) -> Vec<ModuleInterface>,
 ) -> String {
     let mut parser = Parser::new(Lexer::new(src));
     let program = parser.parse_program();
@@ -53,10 +59,11 @@ fn compile_per_module_llvm_ir_with_preloaded_interfaces(
         "parser errors: {:?}",
         parser.errors
     );
-    let interner = parser.take_interner();
+    let mut interner = parser.take_interner();
+    let interfaces = build_interfaces(&mut interner);
     let mut compiler = Compiler::new_with_interner("<test>", interner);
 
-    for interface in interfaces {
+    for interface in &interfaces {
         compiler.preload_module_interface(interface);
     }
 
@@ -251,132 +258,6 @@ fn main() {
 
 #[test]
 fn imported_public_instance_method_is_emitted_and_called_directly_in_native_lowering() {
-    let mut interner = flux::syntax::interner::Interner::new();
-    let logger_h = interner.intern("h");
-    let log_name = interner.intern("log");
-    let string_name = interner.intern("String");
-    let unit_name = interner.intern("Unit");
-    let int_name = interner.intern("Int");
-    let console_name = interner.intern("Console");
-
-    let class_interface = ModuleInterface {
-        module_name: "Example.Logger".to_string(),
-        source_hash: "hash".to_string(),
-        compiler_version: flux::shared::cache_paths::compiler_build_id().to_string(),
-        cache_format_version: flux::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
-        semantic_config_hash: "cfg".to_string(),
-        interface_fingerprint: "abi".to_string(),
-        schemes: std::collections::HashMap::from([(
-            "log".to_string(),
-            Scheme {
-                forall: vec![0],
-                constraints: vec![SchemeConstraint {
-                    class_name: interner.intern("Logger"),
-                    class_id: flux::types::class_id::ClassId::from_local_name(
-                        interner.intern("Logger"),
-                    ),
-                    type_args: vec![InferType::Var(0)],
-                }],
-                infer_type: InferType::Fun(
-                    vec![
-                        InferType::Var(0),
-                        InferType::Con(flux::types::type_constructor::TypeConstructor::String),
-                    ],
-                    Box::new(InferType::Con(
-                        flux::types::type_constructor::TypeConstructor::Unit,
-                    )),
-                    InferEffectRow::closed_empty(),
-                ),
-            },
-        )]),
-        borrow_signatures: std::collections::HashMap::new(),
-        runtime_contracts: std::collections::HashMap::new(),
-        dependency_fingerprints: Vec::new(),
-        symbol_table: std::collections::HashMap::new(),
-        member_is_value: std::collections::HashMap::from([("log".to_string(), false)]),
-        public_classes: vec![PublicClassEntry {
-            associated_types: Vec::new(),
-            class_module: "Example.Logger".to_string(),
-            name: "Logger".to_string(),
-            type_param_arity: 1,
-            parameter_kinds: vec![flux::types::kind::Kind::Type],
-            type_params: vec![logger_h],
-            superclasses: vec![],
-            superclass_class_modules: vec![],
-            methods: vec![PublicClassMethodEntry {
-                name: log_name,
-                type_params: vec![],
-                param_types: vec![
-                    TypeExpr::Named {
-                        name: logger_h,
-                        args: vec![],
-                        span: Default::default(),
-                    },
-                    TypeExpr::Named {
-                        name: string_name,
-                        args: vec![],
-                        span: Default::default(),
-                    },
-                ],
-                return_type: TypeExpr::Named {
-                    name: unit_name,
-                    args: vec![],
-                    span: Default::default(),
-                },
-                effects: vec![],
-            }],
-            default_methods: vec![],
-            method_names: vec!["log".to_string()],
-            pinned_row_placeholder: None,
-        }],
-        public_instances: Vec::new(),
-        ctor_field_names: Default::default(),
-        public_ctor_types: Default::default(),
-        public_type_aliases: Default::default(),
-    };
-    let instance_interface = ModuleInterface {
-        module_name: "Example.StdLog".to_string(),
-        source_hash: "hash".to_string(),
-        compiler_version: flux::shared::cache_paths::compiler_build_id().to_string(),
-        cache_format_version: flux::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
-        semantic_config_hash: "cfg".to_string(),
-        interface_fingerprint: "abi".to_string(),
-        schemes: std::collections::HashMap::new(),
-        borrow_signatures: std::collections::HashMap::new(),
-        runtime_contracts: std::collections::HashMap::new(),
-        dependency_fingerprints: Vec::new(),
-        symbol_table: std::collections::HashMap::new(),
-        member_is_value: std::collections::HashMap::new(),
-        public_classes: Vec::new(),
-        public_instances: vec![PublicInstanceEntry {
-            head_modules: Vec::new(),
-            associated_types: Vec::new(),
-            class_module: "Example.Logger".to_string(),
-            class_name: "Logger".to_string(),
-            instance_module: "Example.StdLog".to_string(),
-            head_type_repr: "Int".to_string(),
-            head_kinds: vec![flux::types::kind::Kind::Type],
-            type_args: vec![TypeExpr::Named {
-                name: int_name,
-                args: vec![],
-                span: Default::default(),
-            }],
-            context: vec![],
-            context_class_modules: vec![],
-            methods: vec![PublicInstanceMethodEntry {
-                name: log_name,
-                effects: vec![EffectExpr::Named {
-                    name: console_name,
-                    span: Default::default(),
-                }],
-            }],
-            pinned_row_placeholder: None,
-        }],
-        ctor_field_names: Default::default(),
-        public_ctor_types: Default::default(),
-        public_type_aliases: Default::default(),
-    };
-
     let rendered = compile_per_module_llvm_ir_with_preloaded_interfaces(
         r#"
 import Example.Logger exposing (log)
@@ -390,7 +271,137 @@ fn main() with Console {
     log(1, "x")
 }
 "#,
-        &[class_interface, instance_interface],
+        |interner| {
+            let logger_h = interner.intern("h");
+            let log_name = interner.intern("log");
+            let string_name = interner.intern("String");
+            let unit_name = interner.intern("Unit");
+            let int_name = interner.intern("Int");
+            let console_name = interner.intern("Console");
+
+            let class_interface = ModuleInterface {
+                module_name: "Example.Logger".to_string(),
+                source_hash: "hash".to_string(),
+                compiler_version: flux::shared::cache_paths::compiler_build_id().to_string(),
+                cache_format_version:
+                    flux::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
+                semantic_config_hash: "cfg".to_string(),
+                interface_fingerprint: "abi".to_string(),
+                schemes: std::collections::HashMap::from([(
+                    "log".to_string(),
+                    Scheme {
+                        forall: vec![0],
+                        constraints: vec![SchemeConstraint {
+                            class_name: interner.intern("Logger"),
+                            class_id: flux::types::class_id::ClassId::from_local_name(
+                                interner.intern("Logger"),
+                            ),
+                            type_args: vec![InferType::Var(0)],
+                        }],
+                        infer_type: InferType::Fun(
+                            vec![
+                                InferType::Var(0),
+                                InferType::Con(
+                                    flux::types::type_constructor::TypeConstructor::String,
+                                ),
+                            ],
+                            Box::new(InferType::Con(
+                                flux::types::type_constructor::TypeConstructor::Unit,
+                            )),
+                            InferEffectRow::closed_empty(),
+                        ),
+                    },
+                )]),
+                borrow_signatures: std::collections::HashMap::new(),
+                runtime_contracts: std::collections::HashMap::new(),
+                dependency_fingerprints: Vec::new(),
+                symbol_table: std::collections::HashMap::new(),
+                member_is_value: std::collections::HashMap::from([("log".to_string(), false)]),
+                public_classes: vec![PublicClassEntry {
+                    associated_types: Vec::new(),
+                    class_module: "Example.Logger".to_string(),
+                    name: "Logger".to_string(),
+                    type_param_arity: 1,
+                    parameter_kinds: vec![flux::types::kind::Kind::Type],
+                    type_params: vec![logger_h],
+                    superclasses: vec![],
+                    superclass_class_modules: vec![],
+                    methods: vec![PublicClassMethodEntry {
+                        name: log_name,
+                        type_params: vec![],
+                        param_types: vec![
+                            TypeExpr::Named {
+                                name: logger_h,
+                                args: vec![],
+                                span: Default::default(),
+                            },
+                            TypeExpr::Named {
+                                name: string_name,
+                                args: vec![],
+                                span: Default::default(),
+                            },
+                        ],
+                        return_type: TypeExpr::Named {
+                            name: unit_name,
+                            args: vec![],
+                            span: Default::default(),
+                        },
+                        effects: vec![],
+                    }],
+                    default_methods: vec![],
+                    method_names: vec!["log".to_string()],
+                    pinned_row_placeholder: None,
+                }],
+                public_instances: Vec::new(),
+                ctor_field_names: Default::default(),
+                public_ctor_types: Default::default(),
+                public_type_aliases: Default::default(),
+            };
+            let instance_interface = ModuleInterface {
+                module_name: "Example.StdLog".to_string(),
+                source_hash: "hash".to_string(),
+                compiler_version: flux::shared::cache_paths::compiler_build_id().to_string(),
+                cache_format_version:
+                    flux::types::module_interface::MODULE_INTERFACE_FORMAT_VERSION,
+                semantic_config_hash: "cfg".to_string(),
+                interface_fingerprint: "abi".to_string(),
+                schemes: std::collections::HashMap::new(),
+                borrow_signatures: std::collections::HashMap::new(),
+                runtime_contracts: std::collections::HashMap::new(),
+                dependency_fingerprints: Vec::new(),
+                symbol_table: std::collections::HashMap::new(),
+                member_is_value: std::collections::HashMap::new(),
+                public_classes: Vec::new(),
+                public_instances: vec![PublicInstanceEntry {
+                    head_modules: Vec::new(),
+                    associated_types: Vec::new(),
+                    class_module: "Example.Logger".to_string(),
+                    class_name: "Logger".to_string(),
+                    instance_module: "Example.StdLog".to_string(),
+                    head_type_repr: "Int".to_string(),
+                    head_kinds: vec![flux::types::kind::Kind::Type],
+                    type_args: vec![TypeExpr::Named {
+                        name: int_name,
+                        args: vec![],
+                        span: Default::default(),
+                    }],
+                    context: vec![],
+                    context_class_modules: vec![],
+                    methods: vec![PublicInstanceMethodEntry {
+                        name: log_name,
+                        effects: vec![EffectExpr::Named {
+                            name: console_name,
+                            span: Default::default(),
+                        }],
+                    }],
+                    pinned_row_placeholder: None,
+                }],
+                ctor_field_names: Default::default(),
+                public_ctor_types: Default::default(),
+                public_type_aliases: Default::default(),
+            };
+            vec![class_interface, instance_interface]
+        },
     );
 
     assert!(
