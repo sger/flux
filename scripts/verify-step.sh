@@ -52,12 +52,13 @@ sweep_with_progress() {
   printf '\n'
 }
 
+# Lint and test with the flags CI uses, so the llvm-feature tests run too.
 echo "== fmt, clippy"
-cargo fmt --check || echo "FMT: run cargo fmt"
-cargo clippy --all-targets -- -D warnings 2>&1 | grep -E "^(warning|error)" -A6 | head -20
+cargo fmt --all -- --check || echo "FMT: run cargo fmt"
+cargo clippy --workspace --all-targets --all-features -- -D warnings 2>&1 | grep -E "^(warning|error)" -A6 | head -20
 
 echo "== suite"
-INSTA_FORCE_PASS=1 cargo test --no-fail-fast 2>&1 | tee "$OUT/test_$TAG.txt" \
+INSTA_FORCE_PASS=1 cargo test --all --all-features --no-fail-fast 2>&1 | tee "$OUT/test_$TAG.txt" \
   | grep --line-buffered -E "^\s+Running |^test result"
 echo "tests exit ${PIPESTATUS[0]}"
 grep -E "^test result: FAILED" "$OUT/test_$TAG.txt"
