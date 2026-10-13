@@ -13,7 +13,6 @@ mod dead_let;
 pub mod dict_elaborate;
 mod disciplined_inline;
 mod evidence;
-pub mod evidence_diff;
 mod helpers;
 mod inline;
 mod inliner;

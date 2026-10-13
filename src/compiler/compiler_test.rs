@@ -2526,7 +2526,7 @@ fn lower_emitting(
     crate::core::CoreProgram,
     Vec<crate::diagnostics::Diagnostic>,
 ) {
-    let (core, _, _, errors) =
+    let (core, _, errors) =
         crate::core::lower_ast::lower_program_ast_with_class_env_and_def_schemes(
             program,
             &compiler.hm_expr_types,
@@ -2536,7 +2536,6 @@ fn lower_emitting(
             Some(&compiler.class_env),
             None,
             Some(evidence),
-            crate::core::lower_ast::EvidenceMode::Emit,
         );
     (core, errors)
 }

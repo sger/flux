@@ -67,9 +67,8 @@ pub fn lower_program_to_ir_with_optimize(
 
 /// Lower with TypeEnv for typed parameter binders (Phase 7).
 ///
-/// `evidence` is the unit's own evidence map. Lowering reads it in shadow mode
-/// only (0.0.8 plan, step 1c), to compare with the dictionaries elaboration
-/// chooses.
+/// `evidence` is the unit's own evidence map, and the source of every
+/// dictionary parameter and argument (0.0.8 plan, step 1e).
 #[allow(clippy::result_large_err)]
 pub fn lower_program_to_ir_typed(
     program: &Program,
@@ -78,7 +77,7 @@ pub fn lower_program_to_ir_typed(
     optimize: bool,
     type_env: Option<&crate::types::type_env::TypeEnv>,
     class_env: Option<&crate::types::class_env::ClassEnv>,
-    evidence: Option<crate::core::passes::evidence_diff::EvidenceSource<'_>>,
+    evidence: Option<&crate::types::evidence::EvidenceMap>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
     lower_program_to_ir_impl(
         program,
@@ -99,17 +98,12 @@ fn lower_program_to_ir_impl(
     optimize: bool,
     type_env: Option<&crate::types::type_env::TypeEnv>,
     class_env: Option<&crate::types::class_env::ClassEnv>,
-    evidence: Option<crate::core::passes::evidence_diff::EvidenceSource<'_>>,
+    evidence: Option<&crate::types::evidence::EvidenceMap>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    // 0.0.8 plan step 1e: with the unit's evidence, dictionary parameters,
-    // arguments and method calls come from it, and elaboration only defines
-    // the dictionaries the program names.
-    let mode = if evidence.is_some() {
-        crate::core::lower_ast::EvidenceMode::Emit
-    } else {
-        crate::core::lower_ast::EvidenceMode::Shadow
-    };
-    let (mut core, _, _, errors) =
+    // 0.0.8 plan step 1e: dictionary parameters, arguments and method calls
+    // come from evidence, and elaboration only defines the dictionaries the
+    // program names.
+    let (mut core, _, errors) =
         crate::core::lower_ast::lower_program_ast_with_class_env_and_def_schemes(
             program,
             hm_expr_types,
@@ -118,13 +112,9 @@ fn lower_program_to_ir_impl(
             None,
             class_env,
             None,
-            evidence.map(|source| source.map),
-            mode,
+            evidence,
         );
-    if let Some(mut error) = errors.into_iter().next() {
-        if let Some(source) = evidence {
-            error.set_file(source.file_path.to_string());
-        }
+    if let Some(error) = errors.into_iter().next() {
         return Err(error);
     }
 

@@ -2138,7 +2138,7 @@ impl Compiler {
         // 0.0.8 plan step 1e: dictionary parameters, arguments and method
         // calls come from evidence, so elaboration only defines the
         // dictionaries the program names.
-        let (mut core, _, _, errors) =
+        let (mut core, _, errors) =
             crate::core::lower_ast::lower_program_ast_with_class_env_and_def_schemes(
                 program_to_lower,
                 &self.hm_expr_types,
@@ -2148,7 +2148,6 @@ impl Compiler {
                 class_env_ref,
                 Some(&module_member_schemes),
                 Some(&self.evidence_map),
-                crate::core::lower_ast::EvidenceMode::Emit,
             );
         if let Some(mut error) = errors.into_iter().next() {
             error.set_file(self.file_path.clone());
@@ -6844,11 +6843,7 @@ impl Compiler {
             optimize,
             Some(&self.type_env),
             class_env_ref,
-            Some(crate::core::passes::evidence_diff::EvidenceSource {
-                map: &self.evidence_map,
-                file_path: &self.file_path,
-                via: "cfg",
-            }),
+            Some(&self.evidence_map),
         )?;
         crate::cfg::run_ir_pass_pipeline(&mut ir_program, &crate::cfg::IrPassContext)?;
         Ok(ir_program.to_string())

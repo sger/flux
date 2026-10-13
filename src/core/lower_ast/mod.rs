@@ -31,34 +31,10 @@ use super::{
 mod binder_resolution;
 mod dict_params;
 mod emit;
-mod evidence;
-pub use evidence::{
-    DefinitionDisagreement, EmittedDictArgs, EmittedSite, EvidenceMode, EvidenceShadow,
-    OccurrenceKind,
-};
 mod expression;
 mod pattern;
 
-use crate::types::class_predicate::class_param_bindings;
 use binder_resolution::{resolve_program_binders, validate_program_binders};
-
-fn collect_module_aliases(statements: &[Statement]) -> HashMap<Identifier, Identifier> {
-    fn visit(statements: &[Statement], aliases: &mut HashMap<Identifier, Identifier>) {
-        for statement in statements {
-            match statement {
-                Statement::Import { name, alias, .. } => {
-                    aliases.insert(alias.unwrap_or(*name), *name);
-                }
-                Statement::Module { body, .. } => visit(&body.statements, aliases),
-                _ => {}
-            }
-        }
-    }
-
-    let mut aliases = HashMap::new();
-    visit(statements, &mut aliases);
-    aliases
-}
 
 /// Pre-resolved effect operation signatures: `(effect, operation) → (param_types, return_type)`.
 /// Used by the lowerer to assign `FluxRep` to handler arm binders.
@@ -142,7 +118,6 @@ pub fn lower_program_ast_with_class_env(
         class_env,
         module_member_schemes,
         None,
-        EvidenceMode::Shadow,
     )
     .0
 }
@@ -150,9 +125,10 @@ pub fn lower_program_ast_with_class_env(
 /// The complete entry point: everything above, plus the solver's evidence.
 ///
 /// `evidence` is the whole-program [`EvidenceMap`](crate::types::evidence::EvidenceMap).
-/// Only the compiler has one; every other entry point passes `None`. What the
-/// evidence emitter built from it comes back as the [`EvidenceShadow`], empty
-/// when `evidence` is `None`.
+/// Only the compiler has one; every other entry point passes `None`, and then
+/// no dictionaries are passed at all. Dictionary parameters, arguments and
+/// method calls come from it alone (0.0.8 plan, step 1e), and a site it gives
+/// no usable answer for is one of the returned internal errors.
 #[allow(clippy::too_many_arguments)]
 pub fn lower_program_ast_with_class_env_and_def_schemes(
     program: &Program,
@@ -163,14 +139,11 @@ pub fn lower_program_ast_with_class_env_and_def_schemes(
     class_env: Option<&crate::types::class_env::ClassEnv>,
     module_member_schemes: Option<&HashMap<(Identifier, Identifier), crate::types::scheme::Scheme>>,
     evidence: Option<&crate::types::evidence::EvidenceMap>,
-    evidence_mode: EvidenceMode,
 ) -> (
     CoreProgram,
     HashMap<crate::core::CoreBinderId, crate::types::scheme::Scheme>,
-    EvidenceShadow,
     Vec<crate::diagnostics::Diagnostic>,
 ) {
-    let module_aliases = collect_module_aliases(&program.statements);
     let mut lowerer = AstLowerer::new(
         hm_expr_types,
         interner,
@@ -178,10 +151,8 @@ pub fn lower_program_ast_with_class_env_and_def_schemes(
         effect_op_sigs,
         class_env,
         module_member_schemes,
-        module_aliases,
         evidence,
     );
-    lowerer.evidence_mode = evidence_mode;
     lowerer.collect_ctor_field_names(program);
     lowerer.collect_local_function_names(program);
     lowerer.collect_specializations(program);
@@ -222,7 +193,7 @@ pub fn lower_program_ast_with_class_env_and_def_schemes(
         validate_program_binders(&core, &is_dict),
         "Core binder resolution invariant failed after AST→Core lowering"
     );
-    (core, lowerer.def_schemes, lowerer.shadow, lowerer.errors)
+    (core, lowerer.def_schemes, lowerer.errors)
 }
 
 /// Put a definition's dictionary parameters ahead of its own, as
@@ -361,8 +332,6 @@ pub(super) struct AstLowerer<'a> {
     /// Imported module-member schemes keyed by the source qualifier binding.
     pub(super) module_member_schemes:
         Option<&'a HashMap<(Identifier, Identifier), crate::types::scheme::Scheme>>,
-    /// Source import aliases used to resolve qualified class methods.
-    module_aliases: HashMap<Identifier, Identifier>,
     pub(super) def_schemes: HashMap<crate::core::CoreBinderId, crate::types::scheme::Scheme>,
     pub(super) local_function_names: std::collections::HashSet<Identifier>,
     /// The names this unit binds to a *user-written* top-level or module-level
@@ -413,15 +382,10 @@ pub(super) struct AstLowerer<'a> {
     /// place this map can be read: `CoreExpr` carries no id to look a site up
     /// by. `None` on the paths that lower without a whole-program solve.
     pub(super) evidence: Option<&'a crate::types::evidence::EvidenceMap>,
-    /// What the evidence emitter built, by the occurrence that raised the
-    /// predicates. Shadow mode: recorded and handed back, not emitted.
-    shadow: evidence::EvidenceShadow,
     /// The binder of each dictionary parameter, by its owner and its index
     /// among the owner's evidence parameters (0.0.8 plan, step 1d).
     dict_param_binders: HashMap<(ExprId, u16), CoreBinder>,
-    /// Whether dictionaries come from evidence or from the old paths.
-    evidence_mode: EvidenceMode,
-    /// Internal errors: sites `Emit` mode found no usable evidence for.
+    /// Internal errors: sites lowering found no usable evidence for.
     errors: Vec<crate::diagnostics::Diagnostic>,
 }
 
@@ -436,7 +400,6 @@ impl<'a> AstLowerer<'a> {
         module_member_schemes: Option<
             &'a HashMap<(Identifier, Identifier), crate::types::scheme::Scheme>,
         >,
-        module_aliases: HashMap<Identifier, Identifier>,
         evidence: Option<&'a crate::types::evidence::EvidenceMap>,
     ) -> Self {
         Self {
@@ -449,7 +412,6 @@ impl<'a> AstLowerer<'a> {
             effect_op_sigs,
             class_env,
             module_member_schemes,
-            module_aliases,
             def_schemes: HashMap::new(),
             local_function_names: std::collections::HashSet::new(),
             user_function_names: std::collections::HashSet::new(),
@@ -462,30 +424,9 @@ impl<'a> AstLowerer<'a> {
             specializations: HashMap::new(),
             active_subst: None,
             evidence,
-            shadow: evidence::EvidenceShadow::default(),
             dict_param_binders: HashMap::new(),
-            evidence_mode: EvidenceMode::Shadow,
             errors: Vec::new(),
         }
-    }
-
-    fn qualified_module_target(&self, qualifier: Identifier) -> Identifier {
-        self.module_aliases
-            .get(&qualifier)
-            .copied()
-            .unwrap_or(qualifier)
-    }
-
-    pub(super) fn should_insert_source_dict_args_for_identifier(&self, name: Identifier) -> bool {
-        if !self.local_function_names.contains(&name) {
-            return true;
-        }
-        let Some(current) = self.current_function_name else {
-            return true;
-        };
-        self.type_env
-            .and_then(|type_env| type_env.lookup(current))
-            .is_none_or(|scheme| scheme.constraints.is_empty())
     }
 
     fn lower_function_body_for_name(
@@ -855,555 +796,6 @@ impl<'a> AstLowerer<'a> {
     #[allow(dead_code)]
     pub(super) fn expr_type(&self, id: ExprId) -> Option<&InferType> {
         self.hm_expr_types.get(&id)
-    }
-
-    /// Try to resolve a class method call to a mangled instance function.
-    ///
-    /// If `name` is a known class method, and the first argument's type is
-    /// known (concrete, not a type variable), resolves to `__tc_{Class}_{Type}_{method}`.
-    /// Returns `None` if resolution fails (unknown type, no instance, no ClassEnv).
-    pub(super) fn try_resolve_class_call(
-        &self,
-        name: Identifier,
-        arguments: &[crate::syntax::expression::Expression],
-        call_id: ExprId,
-    ) -> Option<Identifier> {
-        let class_env = self.class_env?;
-        let interner = self.interner?;
-
-        // Check if this name is a class method.
-        let class_id = class_env.resolve_method_class_id(
-            self.current_module_name
-                .map(crate::types::class_id::ModulePath::from_identifier)
-                .unwrap_or(crate::types::class_id::ModulePath::EMPTY),
-            name,
-        )?;
-
-        // Resolve from the predicate the class declaration describes: every
-        // class parameter is read from the position it actually occupies in
-        // the method signature, arguments and result alike. This is the same
-        // derivation type inference uses (`class_param_bindings`), so lowering
-        // and the solver cannot disagree about which instance a call selects.
-        //
-        // It subsumes two things the previous code did separately: dispatch on
-        // an argument other than the first, and result-directed dispatch, which
-        // used to be a hardcoded special case for `Decode.decode` matched by
-        // string comparison on the class and method names.
-        let known = self.class_call_type_args(class_id, name, arguments, call_id)?;
-        let instance =
-            class_env.unique_instance_for_known_args_by_id(class_id, &known, interner)?;
-
-        // Build the mangled name from the instance head exactly as dispatch
-        // generation does, preserving higher-kinded heads such as
-        // `Functor<List>`.
-        let type_key = instance.type_key.clone();
-        let method_str = interner.resolve(name);
-        let mangled = crate::types::class_env::mangled_method_name(
-            instance.class_id,
-            &type_key,
-            method_str,
-            interner,
-        );
-        if let Some(sym) = interner.lookup(&mangled) {
-            return Some(sym);
-        }
-
-        // No compile-time resolution possible — return None.
-        // Dictionary elaboration handles polymorphic calls via dict params.
-        None
-    }
-
-    /// The full predicate type arguments for a class-method call.
-    ///
-    /// Shared by dispatch resolution and dictionary-argument construction so
-    /// the two cannot disagree about which instance a call selects.
-    pub(super) fn class_call_type_args(
-        &self,
-        class_id: crate::types::class_id::ClassId,
-        method_name: Identifier,
-        arguments: &[crate::syntax::expression::Expression],
-        call_id: ExprId,
-    ) -> Option<Vec<Option<InferType>>> {
-        let class_env = self.class_env?;
-        let interner = self.interner?;
-        let class_def = class_env.lookup_class_by_id(class_id)?;
-        let method = class_def.methods.iter().find(|m| m.name == method_name)?;
-
-        let actual_args: Vec<InferType> = arguments
-            .iter()
-            .filter_map(|arg| self.hm_expr_types.get(&arg.expr_id()).cloned())
-            .collect();
-        let actual_result = self.hm_expr_types.get(&call_id).cloned()?;
-
-        // Lowering runs after inference, so a slot that is still a variable
-        // here will stay one. It is reported as unknown rather than guessed;
-        // a unique instance head can still supply it (see
-        // `unique_instance_for_known_args`).
-        let bindings = class_param_bindings(
-            &class_def.clone(),
-            &method.clone(),
-            &actual_args,
-            &actual_result,
-            interner,
-            || InferType::Var(u32::MAX),
-        );
-        Some(
-            bindings
-                .iter()
-                .map(|b| match b.type_arg() {
-                    Some(InferType::Var(_)) | None => None,
-                    Some(ty) => Some(ty.clone()),
-                })
-                .collect(),
-        )
-    }
-
-    pub(super) fn try_resolve_class_call_expr(
-        &self,
-        function: &crate::syntax::expression::Expression,
-        arguments: &[crate::syntax::expression::Expression],
-        call_id: ExprId,
-    ) -> Option<Identifier> {
-        match function {
-            crate::syntax::expression::Expression::Identifier { name, .. } => {
-                // A bare name this unit binds to its own function is that
-                // function, not a class method that happens to share the name.
-                // Inference already declines here (`class_method_call_info`
-                // returns `None` once the name has a real binding), so without
-                // this the two disagree and lowering silently rewrites the call
-                // to `__tc_<Class>_<Type>_<name>`. A *qualified* call still
-                // dispatches: it names the class outright.
-                if self.user_function_names.contains(name) {
-                    return None;
-                }
-                self.try_resolve_class_call(*name, arguments, call_id)
-            }
-            crate::syntax::expression::Expression::MemberAccess { object, member, .. } => {
-                let crate::syntax::expression::Expression::Identifier { .. } = object.as_ref()
-                else {
-                    return None;
-                };
-                if let crate::syntax::expression::Expression::Identifier {
-                    name: qualifier, ..
-                } = object.as_ref()
-                    && let (Some(class_env), Some(interner)) = (self.class_env, self.interner)
-                    && let Some(class_id) = class_env.resolve_qualified_method_class_id(
-                        self.qualified_module_target(*qualifier),
-                        *member,
-                        interner,
-                    )
-                {
-                    return self
-                        .try_resolve_class_call_for_id(class_id, *member, arguments, call_id);
-                }
-                self.try_resolve_class_call(*member, arguments, call_id)
-            }
-            _ => None,
-        }
-    }
-
-    fn try_resolve_class_call_for_id(
-        &self,
-        class_id: crate::types::class_id::ClassId,
-        name: Identifier,
-        arguments: &[crate::syntax::expression::Expression],
-        call_id: ExprId,
-    ) -> Option<Identifier> {
-        let class_env = self.class_env?;
-        let interner = self.interner?;
-        let known = self.class_call_type_args(class_id, name, arguments, call_id)?;
-        let instance =
-            class_env.unique_instance_for_known_args_by_id(class_id, &known, interner)?;
-        let type_key = instance.type_key.clone();
-        let mangled = crate::types::class_env::mangled_method_name(
-            instance.class_id,
-            &type_key,
-            interner.resolve(name),
-            interner,
-        );
-        interner.lookup(&mangled)
-    }
-
-    pub(super) fn resolve_direct_class_call_dict_args(
-        &self,
-        method_name: Identifier,
-        arguments: &[crate::syntax::expression::Expression],
-        call_id: ExprId,
-    ) -> Option<Vec<CoreExpr>> {
-        let class_env = self.class_env?;
-        let class_id = class_env.resolve_method_class_id(
-            self.current_module_name
-                .map(crate::types::class_id::ModulePath::from_identifier)
-                .unwrap_or(crate::types::class_id::ModulePath::EMPTY),
-            method_name,
-        )?;
-        self.resolve_direct_class_call_dict_args_for_id(class_id, method_name, arguments, call_id)
-    }
-
-    pub(super) fn resolve_direct_class_call_dict_args_for_id(
-        &self,
-        class_id: crate::types::class_id::ClassId,
-        method_name: Identifier,
-        arguments: &[crate::syntax::expression::Expression],
-        call_id: ExprId,
-    ) -> Option<Vec<CoreExpr>> {
-        let (class_env, interner) = match (self.class_env, self.interner) {
-            (Some(class_env), Some(interner)) => (class_env, interner),
-            _ => return None,
-        };
-
-        // Derive the full predicate the same way dispatch does, so the
-        // dictionaries passed to a call match the instance it resolves to.
-        // Using only the first argument produced an arity-1 predicate that
-        // could never match a multi-parameter head, so those calls silently
-        // received no dictionaries at all.
-        let known = self.class_call_type_args(class_id, method_name, arguments, call_id)?;
-        let instance =
-            class_env.unique_instance_for_known_args_by_id(class_id, &known, interner)?;
-        // Use the selected head so an undetermined slot still contributes the
-        // type the instance fixes it to.
-        let actual_type_args = class_env.instantiate_instance_head(instance, &known, interner)?;
-
-        // No instance head matched on the first argument alone. The caller
-        // already matched one positionally (multi-parameter classes such as
-        // `Convert<Int, String>` resolve that way), so keep the direct call
-        // and pass no dictionaries rather than abandoning it.
-        let Some(requests) = class_env.resolve_instance_context_dictionary_requests_by_id(
-            class_id,
-            &actual_type_args,
-            interner,
-        ) else {
-            return Some(Vec::new());
-        };
-        let mut dicts = Vec::with_capacity(requests.len());
-        for request in requests {
-            let dictionary = match request.dictionary {
-                Some(dictionary) => Self::lower_dictionary_ref(&dictionary),
-                None => self.current_context_dictionary(request.class_id, &request.type_args)?,
-            };
-            dicts.push(dictionary);
-        }
-        Some(dicts)
-    }
-
-    /// Find the hidden dictionary parameter whose contextual constraint has
-    /// the same class and type shape as `wanted`.  Type variables are treated
-    /// as shape-compatible, but concrete constructors must agree; this keeps
-    /// repeated constraints on one class associated with the right binder.
-    fn current_context_dictionary(
-        &self,
-        class_id: crate::types::class_id::ClassId,
-        wanted: &[InferType],
-    ) -> Option<CoreExpr> {
-        let current = self.current_function_name?;
-        let scheme = self.scheme_for_current_function(current)?;
-        let interner = self.interner?;
-        let mut occurrence = 0usize;
-        for constraint in scheme.constraints {
-            if constraint.class_id != class_id {
-                continue;
-            }
-            let matches = constraint.type_args.len() == wanted.len()
-                && constraint
-                    .type_args
-                    .iter()
-                    .zip(wanted)
-                    .all(|(a, b)| a.same_shape(b));
-            if matches {
-                let suffix = (occurrence > 0).then(|| format!("_{occurrence}"));
-                let name = format!(
-                    "{}{}",
-                    crate::types::class_env::dictionary_prefix(class_id, interner),
-                    suffix.unwrap_or_default()
-                );
-                let name = interner.lookup(&name)?;
-                return Some(CoreExpr::external_var(name, Span::default()));
-            }
-            occurrence += 1;
-        }
-        None
-    }
-
-    /// Resolve concrete dictionary arguments for a call to a constrained function.
-    ///
-    /// Looks up the callee's `Scheme` in the type environment. If it has class
-    /// constraints, determines which concrete dictionaries to pass by examining
-    /// the HM-inferred types at the call site.
-    ///
-    /// Returns a (possibly empty) vector of `CoreExpr::Var(__dict_{Class}_{Type})`
-    /// for each constraint that could be resolved to a concrete dictionary.
-    pub(super) fn resolve_dict_args_for_call(
-        &self,
-        callee_name: Identifier,
-        call_id: ExprId,
-        arguments: &[crate::syntax::expression::Expression],
-    ) -> Vec<CoreExpr> {
-        let type_env = match self.type_env {
-            Some(te) => te,
-            _ => return Vec::new(),
-        };
-
-        let scheme = match type_env.lookup(callee_name) {
-            Some(s) if !s.constraints.is_empty() => s,
-            _ => return Vec::new(),
-        };
-
-        self.resolve_dict_args_for_scheme(scheme, call_id, arguments)
-    }
-
-    pub(super) fn resolve_dict_args_for_module_member_call(
-        &self,
-        function: &crate::syntax::expression::Expression,
-        member: Identifier,
-        call_id: ExprId,
-        arguments: &[crate::syntax::expression::Expression],
-    ) -> Vec<CoreExpr> {
-        let Some(member_schemes) = self.module_member_schemes else {
-            return Vec::new();
-        };
-        let Some(qualifier) = self.module_qualifier_symbol(function) else {
-            return Vec::new();
-        };
-        let Some(scheme) = member_schemes.get(&(qualifier, member)) else {
-            return Vec::new();
-        };
-        if scheme.constraints.is_empty() {
-            return Vec::new();
-        }
-        // Do not prepend evidence the call already carries. The bare alias
-        // generated for a module-owned instance method forwards every one of
-        // its parameters, dictionaries included, so its call is complete
-        // before this runs. Inserting again resolved the constraint from
-        // arguments that were already shifted by one, froze a *concrete*
-        // dictionary into a generic forwarder, and — because the alias shares
-        // the method's bare name — shadowed the real definition with one that
-        // sent every recursion through the wrong instance. The
-        // identifier path, the AST compiler and the Core elaboration pass all
-        // carry this guard already; this site was the one that did not.
-        let dictionary_constraints = match self.class_env {
-            Some(class_env) => scheme
-                .constraints
-                .iter()
-                .filter(|constraint| class_env.constraint_needs_dictionary(constraint))
-                .count(),
-            None => scheme.constraints.len(),
-        };
-        if dictionary_constraints > 0
-            && arguments.len() >= dictionary_constraints
-            && arguments
-                .iter()
-                .take(dictionary_constraints)
-                .all(|argument| self.is_dictionary_argument(argument))
-        {
-            return Vec::new();
-        }
-        self.resolve_dict_args_for_scheme(scheme, call_id, arguments)
-    }
-
-    /// Whether an argument is already dictionary evidence rather than a value.
-    ///
-    /// Mirrors `Compiler::looks_like_dictionary_argument_ast`: a dictionary is
-    /// a `__dict_*` binding, the application of a dictionary *constructor* for
-    /// a contextual instance, or a literal tuple of generated instance methods.
-    fn is_dictionary_argument(&self, expression: &crate::syntax::expression::Expression) -> bool {
-        use crate::syntax::expression::Expression;
-        let Some(interner) = self.interner else {
-            return false;
-        };
-        match expression {
-            Expression::Identifier { name, .. } => interner.resolve(*name).starts_with("__dict_"),
-            Expression::Call { function, .. } => matches!(
-                function.as_ref(),
-                Expression::Identifier { name, .. }
-                    if interner.resolve(*name).starts_with("__dict_")
-            ),
-            Expression::TupleLiteral { elements, .. } => {
-                !elements.is_empty()
-                    && elements.iter().all(|element| {
-                        matches!(element, Expression::Identifier { name, .. }
-                        if crate::types::class_env::is_generated_instance_method(
-                            interner.resolve(*name),
-                        ))
-                    })
-            }
-            _ => false,
-        }
-    }
-
-    fn module_qualifier_symbol(
-        &self,
-        expr: &crate::syntax::expression::Expression,
-    ) -> Option<Identifier> {
-        match expr {
-            crate::syntax::expression::Expression::Identifier { name, .. } => Some(*name),
-            crate::syntax::expression::Expression::MemberAccess { object, member, .. } => {
-                let interner = self.interner?;
-                let object = self.module_qualifier_symbol(object)?;
-                let qualified =
-                    format!("{}.{}", interner.resolve(object), interner.resolve(*member));
-                interner.lookup(&qualified)
-            }
-            _ => None,
-        }
-    }
-
-    fn resolve_dict_args_for_scheme(
-        &self,
-        scheme: &crate::types::scheme::Scheme,
-        call_id: ExprId,
-        arguments: &[crate::syntax::expression::Expression],
-    ) -> Vec<CoreExpr> {
-        let (class_env, interner) = match (self.class_env, self.interner) {
-            (Some(ce), Some(int)) => (ce, int),
-            _ => return Vec::new(),
-        };
-
-        // For each constraint on the callee, try to determine the concrete type
-        // by looking at the argument types at this call site.
-        //
-        // Marker classes are skipped so this count matches the parameter count
-        // dictionary elaboration gives the callee (Proposal 0179 Stage 2).
-        let mut dict_args = Vec::new();
-        for constraint in scheme
-            .constraints
-            .iter()
-            .filter(|constraint| class_env.constraint_needs_dictionary(constraint))
-        {
-            if let Some(actual_type_args) =
-                self.resolve_constraint_type_args(constraint, scheme, call_id, arguments)
-                && let Some(dict_ref) = class_env.resolve_dictionary_ref_by_id(
-                    constraint.class_id,
-                    &actual_type_args,
-                    interner,
-                )
-            {
-                dict_args.push(Self::lower_dictionary_ref(&dict_ref));
-                continue;
-            }
-
-            // Could not resolve — don't partially apply dictionaries.
-            return Vec::new();
-        }
-
-        dict_args
-    }
-
-    /// Try to determine the concrete type for a constraint's type variable
-    /// by examining the argument types at a call site.
-    ///
-    /// For `fn contains<a: Eq>(xs: List<a>, elem: a)` called with `([1,2,3], 2)`,
-    /// the constraint `Eq<a>` has `type_var` matching `a`. We look at the arguments'
-    /// HM types and find `a = Int`.
-    fn resolve_constraint_type_args(
-        &self,
-        constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
-        scheme: &crate::types::scheme::Scheme,
-        call_id: ExprId,
-        arguments: &[crate::syntax::expression::Expression],
-    ) -> Option<Vec<InferType>> {
-        if let InferType::Fun(param_tys, ret_ty, _) = &scheme.infer_type {
-            let param_offset = param_tys.len().saturating_sub(arguments.len());
-            let call_result_ty = self.hm_expr_types.get(&call_id);
-            let type_vars = constraint
-                .type_args
-                .iter()
-                .flat_map(InferType::free_vars)
-                .collect::<Vec<_>>();
-            let mut substitution = TypeSubst::empty();
-            for type_var in type_vars {
-                let mut found = None;
-                for (i, param_ty) in param_tys.iter().enumerate().skip(param_offset) {
-                    let Some(arg) = arguments.get(i - param_offset) else {
-                        continue;
-                    };
-                    let actual_from_type =
-                        self.hm_expr_types.get(&arg.expr_id()).and_then(|arg_ty| {
-                            crate::types::class_dispatch::match_constraint_type_var(
-                                param_ty, arg_ty, type_var,
-                            )
-                        });
-                    if let Some(actual) = actual_from_type.or_else(|| {
-                        self.match_constraint_type_var_from_literal(param_ty, arg, type_var)
-                    }) && !matches!(actual, InferType::Var(_))
-                    {
-                        found = Some(actual);
-                        break;
-                    }
-                }
-                if found.is_none()
-                    && let Some(actual_ret_ty) = call_result_ty
-                    && let Some(actual) = crate::types::class_dispatch::match_constraint_type_var(
-                        ret_ty,
-                        actual_ret_ty,
-                        type_var,
-                    )
-                    && !matches!(actual, InferType::Var(_))
-                {
-                    found = Some(actual);
-                }
-                // NOTE (Proposal 0179): defaulting an undetermined variable to
-                // `Int` can dispatch to the wrong dictionary. It cannot simply
-                // decline here — callers read an empty result as "no dictionary
-                // needed" and emit the call without it, which regresses the
-                // async/channel paths to an E1000 arity error. Removing this
-                // fallback belongs with Stage 2's strict dictionary arity
-                // contract, which gives callers a way to report the failure.
-                substitution.insert(
-                    type_var,
-                    found.unwrap_or_else(|| {
-                        InferType::Con(crate::types::type_constructor::TypeConstructor::Int)
-                    }),
-                );
-            }
-            return Some(
-                constraint
-                    .type_args
-                    .iter()
-                    .map(|type_arg| type_arg.apply_type_subst(&substitution))
-                    .collect(),
-            );
-        }
-
-        None
-    }
-
-    fn match_constraint_type_var_from_literal(
-        &self,
-        pattern: &InferType,
-        actual_expr: &crate::syntax::expression::Expression,
-        target: crate::types::TypeVarId,
-    ) -> Option<InferType> {
-        let InferType::App(pattern_ctor, pattern_args) = pattern else {
-            return None;
-        };
-        let [InferType::Var(var)] = pattern_args.as_slice() else {
-            return None;
-        };
-        if *var != target {
-            return None;
-        }
-        match (pattern_ctor, actual_expr) {
-            (
-                crate::types::type_constructor::TypeConstructor::Array,
-                crate::syntax::expression::Expression::ArrayLiteral { elements, .. },
-            )
-            | (
-                crate::types::type_constructor::TypeConstructor::List,
-                crate::syntax::expression::Expression::ListLiteral { elements, .. },
-            ) => elements
-                .first()
-                .and_then(|element| self.hm_expr_types.get(&element.expr_id()).cloned())
-                .or_else(|| {
-                    Some(InferType::Con(
-                        crate::types::type_constructor::TypeConstructor::Int,
-                    ))
-                }),
-            _ => None,
-        }
-    }
-
-    fn lower_dictionary_ref(dict_ref: &crate::types::class_env::ResolvedDictionaryRef) -> CoreExpr {
-        CoreExpr::dictionary_ref(dict_ref, crate::diagnostics::position::Span::default())
     }
 
     /// Convert an HM-inferred expression type to a `CoreType`, if available.
@@ -1977,7 +1369,7 @@ impl<'a> AstLowerer<'a> {
                 if !param_types.is_empty() && param_types.len() != params.len() {
                     param_types = Vec::new();
                 }
-                let dict_params = self.nested_evidence_dict_params(*id, *name, &params, *s);
+                let dict_params = self.evidence_dict_params(*id, *name, &params, *s);
                 let body_expr =
                     self.lower_function_body_for_name(*name, *intrinsic, &params, body, *s);
                 let (params, param_types) = with_dict_params(dict_params, params, param_types);
@@ -2045,7 +1437,7 @@ impl<'a> AstLowerer<'a> {
                 if !param_types.is_empty() && param_types.len() != params.len() {
                     param_types = Vec::new();
                 }
-                let dict_params = self.nested_evidence_dict_params(*id, *name, &params, *s);
+                let dict_params = self.evidence_dict_params(*id, *name, &params, *s);
                 let body_expr =
                     self.lower_function_body_for_name(*name, *intrinsic, &params, body, *s);
                 let (params, param_types) = with_dict_params(dict_params, params, param_types);
@@ -2561,217 +1953,6 @@ f("flux")
 
     /// Count LetRecGroup nodes and individual LetRec nodes in the body
     /// of the main function's Core IR.
-    /// The emitter reads evidence where an occurrence is lowered: at the
-    /// callee identifier and at the operator. A site that raised nothing is
-    /// not recorded, a hole is recorded as unbuildable, never as a short
-    /// list, and an id whose predicates were raised somewhere else is not
-    /// built from at all.
-    #[test]
-    fn the_evidence_emitter_records_each_site_that_raised_predicates() {
-        use crate::{
-            ast::type_infer::constraint::WantedClassConstraintOrigin,
-            syntax::{expression::Expression, statement::Statement},
-            types::{
-                class_disposition::{Evidence, InstanceKey},
-                class_id::ClassId,
-                evidence::{EvidenceMap, RaisedPredicate},
-                translate::DictArg,
-                type_constructor::TypeConstructor,
-            },
-        };
-
-        let src = "fn g(x) { x }\nfn main() { g(1) + 2 }";
-        let (prog, types, mut interner) = parse_and_infer(src);
-
-        let main = prog
-            .statements
-            .iter()
-            .find_map(|stmt| match stmt {
-                Statement::Function { name, body, .. }
-                    if interner.try_resolve(*name) == Some("main") =>
-                {
-                    Some(body)
-                }
-                _ => None,
-            })
-            .unwrap();
-        let Some(Statement::Expression {
-            expression:
-                Expression::Infix {
-                    left,
-                    id: plus,
-                    span: plus_span,
-                    ..
-                },
-            ..
-        }) = main.statements.last()
-        else {
-            panic!("expected `g(1) + 2`");
-        };
-        let Expression::Call { function, .. } = left.as_ref() else {
-            panic!("expected `g(1)`");
-        };
-        let callee = function.expr_id();
-        let x = prog
-            .statements
-            .iter()
-            .find_map(|stmt| match stmt {
-                Statement::Function { name, body, .. }
-                    if interner.try_resolve(*name) == Some("g") =>
-                {
-                    match body.statements.last() {
-                        Some(Statement::Expression { expression, .. }) => {
-                            Some(expression.expr_id())
-                        }
-                        _ => None,
-                    }
-                }
-                _ => None,
-            })
-            .unwrap();
-
-        let class = interner.intern("Num");
-        let raised_at = |span: Span| RaisedPredicate {
-            class_name: class,
-            class_id: ClassId::from_local_name(class),
-            origin: WantedClassConstraintOrigin::SchemeUse,
-            span,
-        };
-        let instance = InstanceKey {
-            class_id: ClassId::from_local_name(class),
-            head_type_args: vec![InferType::Con(TypeConstructor::Int)],
-            dict_type_key: "Int".to_string(),
-        };
-        let mut evidence = EvidenceMap::new();
-        let site = evidence.raise(callee, raised_at(function.span()));
-        evidence.insert(
-            site,
-            Evidence::FromInstance {
-                instance: instance.clone(),
-                subst: HashMap::new(),
-                context: vec![],
-            },
-        );
-        evidence.raise(*plus, raised_at(*plus_span));
-        // `x` is at 1:10; a predicate raised at the call's position is some
-        // other expression's, which is what a renumbered id looks like.
-        evidence.raise(x, raised_at(function.span()));
-
-        let mut lowerer = AstLowerer::new(
-            &types,
-            Some(&interner),
-            None,
-            None,
-            None,
-            None,
-            HashMap::new(),
-            Some(&evidence),
-        );
-        let (mut defs, mut items) = (Vec::new(), Vec::new());
-        for stmt in &prog.statements {
-            lowerer.lower_top_level(stmt, &mut defs, &mut items);
-        }
-
-        assert_eq!(
-            lowerer.shadow.sites.get(&callee).map(|site| &site.args),
-            Some(&EmittedDictArgs::Built(vec![DictArg::Global { instance }]))
-        );
-        assert_eq!(
-            lowerer.shadow.sites.get(plus).map(|site| &site.args),
-            Some(&EmittedDictArgs::Unbuildable)
-        );
-        assert!(matches!(
-            lowerer.shadow.sites.get(&x).map(|site| &site.args),
-            Some(EmittedDictArgs::Mismatched { .. })
-        ));
-        assert_eq!(lowerer.shadow.sites.len(), 3);
-        assert!(lowerer.shadow.call_spans.contains_key(&callee));
-    }
-
-    #[test]
-    fn the_evidence_emitter_records_a_module_qualified_call_at_its_member_access() {
-        use crate::{
-            ast::type_infer::constraint::WantedClassConstraintOrigin,
-            syntax::{expression::Expression, statement::Statement},
-            types::{
-                class_disposition::{Evidence, InstanceKey},
-                class_id::ClassId,
-                evidence::{EvidenceMap, RaisedPredicate},
-                translate::DictArg,
-                type_constructor::TypeConstructor,
-            },
-        };
-
-        // Inference keys a qualified call's predicates at the member access,
-        // as it keys `f(1)`'s at the identifier `f`.
-        let src = "fn main() { M.f(1) }";
-        let (prog, types, mut interner) = parse_and_infer(src);
-
-        let Some(Statement::Function { body, .. }) = prog.statements.first() else {
-            panic!("expected `main`");
-        };
-        let Some(Statement::Expression {
-            expression: Expression::Call { function, .. },
-            ..
-        }) = body.statements.last()
-        else {
-            panic!("expected `M.f(1)`");
-        };
-        let Expression::MemberAccess {
-            id: member, span, ..
-        } = function.as_ref()
-        else {
-            panic!("expected the callee `M.f`");
-        };
-
-        let class = interner.intern("Eq");
-        let instance = InstanceKey {
-            class_id: ClassId::from_local_name(class),
-            head_type_args: vec![InferType::Con(TypeConstructor::Int)],
-            dict_type_key: "Int".to_string(),
-        };
-        let mut evidence = EvidenceMap::new();
-        let site = evidence.raise(
-            *member,
-            RaisedPredicate {
-                class_name: class,
-                class_id: ClassId::from_local_name(class),
-                origin: WantedClassConstraintOrigin::SchemeUse,
-                span: *span,
-            },
-        );
-        evidence.insert(
-            site,
-            Evidence::FromInstance {
-                instance: instance.clone(),
-                subst: HashMap::new(),
-                context: vec![],
-            },
-        );
-
-        let mut lowerer = AstLowerer::new(
-            &types,
-            Some(&interner),
-            None,
-            None,
-            None,
-            None,
-            HashMap::new(),
-            Some(&evidence),
-        );
-        let (mut defs, mut items) = (Vec::new(), Vec::new());
-        for stmt in &prog.statements {
-            lowerer.lower_top_level(stmt, &mut defs, &mut items);
-        }
-
-        assert_eq!(
-            lowerer.shadow.sites.get(member).map(|site| &site.args),
-            Some(&EmittedDictArgs::Built(vec![DictArg::Global { instance }]))
-        );
-        assert_eq!(lowerer.shadow.sites.len(), 1);
-        assert!(lowerer.shadow.call_spans.contains_key(member));
-    }
-
     fn count_binding_kinds(src: &str) -> (usize, usize) {
         let (program, types, _interner) = parse_and_infer(src);
         let core = lower_program_ast(&program, &types);
@@ -2867,16 +2048,7 @@ f("flux")
             dict_type_key: ty.to_string(),
         };
         let types = HashMap::new();
-        let mut lowerer = AstLowerer::new(
-            &types,
-            Some(&interner),
-            None,
-            None,
-            None,
-            None,
-            HashMap::new(),
-            None,
-        );
+        let mut lowerer = AstLowerer::new(&types, Some(&interner), None, None, None, None, None);
         let owner = ExprId(7);
         let binder = CoreBinder::new(crate::core::CoreBinderId(3), param);
         lowerer.dict_param_binders.insert((owner, 0), binder);

@@ -1,7 +1,7 @@
 //! Dictionary arguments at call sites, from evidence (0.0.8 plan, step 1e).
 //!
-//! In [`EvidenceMode::Emit`] a call takes its dictionaries from the solver's
-//! answer at the occurrence that raised them, and nothing else:
+//! A call takes its dictionaries from the solver's answer at the occurrence
+//! that raised them, and nothing else:
 //!
 //! - a class-method call raised its predicate at the call. A dictionary
 //!   parameter is projected for the method's slot; an instance's dictionary
@@ -18,8 +18,6 @@
 //!   than called, passes no dictionaries (KI-090, Phase 3a);
 //! - infix operators stay `PrimOp`s. `desugar_operators` runs before
 //!   inference, so a constrained body's operators are already method calls.
-//!
-//! [`EvidenceMode::Emit`]: super::EvidenceMode::Emit
 
 use crate::{
     ast::type_infer::constraint::WantedClassConstraintOrigin,

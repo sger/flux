@@ -99,7 +99,7 @@ pub fn elaborate_dictionaries_with_def_schemes(
 
 /// Define the dictionaries a program lowered from evidence refers to.
 ///
-/// Lowering in `EvidenceMode::Emit` has already given each constrained
+/// Lowering from evidence has already given each constrained
 /// definition its parameters and each call its dictionaries, so neither
 /// `rewrite_constrained_functions` nor `insert_dict_args_at_call_sites` runs:
 /// what is left is defining the `__dict_*` globals the program names.
