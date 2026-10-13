@@ -2715,6 +2715,8 @@ pub(crate) fn ir_top_level_item_to_statement(
             body: body.clone(),
             span: *span,
             fip: None,
+            // The IR keeps no definition id, and nothing infers this result.
+            id: crate::syntax::expression::ExprId::UNSET,
         },
         IrTopLevelItem::Assign { name, value, span } => Statement::Assign {
             name: *name,

@@ -41,9 +41,7 @@ impl<'a> InferCtx<'a> {
         let (declared_effect_row, ambient_effect_row) =
             self.infer_declared_and_ambient_effect_rows(input.effects, &mut row_var_env);
 
-        let body_ty = self.with_ambient_effect_row(ambient_effect_row.clone(), |ctx| {
-            ctx.infer_block(input.body)
-        });
+        let (body_ty, returns) = self.infer_body(&ambient_effect_row, input.body);
         let mut ret_ty = self.infer_return_type_with_optional_annotation(
             &tp_map,
             &mut row_var_env,
@@ -52,6 +50,7 @@ impl<'a> InferCtx<'a> {
             Some(input.name),
             input.body,
         );
+        ret_ty = self.unify_early_returns(&ret_ty, &returns);
 
         if self.should_refine_self_recursive_return(input) {
             ret_ty = self.refine_unannotated_self_recursive_return(
@@ -64,12 +63,14 @@ impl<'a> InferCtx<'a> {
             );
         }
 
+        let ret_ty = self.improved(constraint_start, &ret_ty);
         self.unmark_skolems(&skolem_ids);
         self.signature_type_params.pop();
 
         self.finalize_and_bind_function_scheme(
             input.name,
             input.fn_span,
+            input.definition,
             input.type_params,
             &param_tys,
             &ret_ty,
@@ -148,11 +149,59 @@ impl<'a> InferCtx<'a> {
         forall.extend(row_var_env.values().copied());
         forall.sort_unstable();
         forall.dedup();
+        let constraints = self.declared_scheme_constraints(type_params, &tp_map);
         Some(Scheme {
             forall,
-            constraints: Vec::new(),
+            constraints,
             infer_type: fn_ty,
         })
+    }
+
+    /// The declared bounds of `type_params`, as the constraints of the
+    /// signature's scheme.
+    ///
+    /// A reference to the function from inside its own binding group
+    /// instantiates this scheme, so it raises these predicates there, and the
+    /// solver answers them from the definition's givens. Without them a
+    /// recursive call raised nothing and passed no dictionaries.
+    fn declared_scheme_constraints(
+        &mut self,
+        type_params: &[crate::syntax::statement::FunctionTypeParam],
+        tp_map: &HashMap<Identifier, TypeVarId>,
+    ) -> Vec<constraint::SchemeConstraint> {
+        let mut constraints = Vec::new();
+        for type_param in type_params {
+            let Some(type_var) = tp_map.get(&type_param.name).copied() else {
+                continue;
+            };
+            for bound in &type_param.constraints {
+                let type_args: Vec<InferType> = if bound.type_args.is_empty() {
+                    vec![InferType::Var(type_var)]
+                } else {
+                    bound
+                        .type_args
+                        .iter()
+                        .map(|arg| {
+                            TypeEnv::infer_type_from_type_expr(arg, tp_map, self.interner)
+                                .unwrap_or_else(|| self.env.alloc_infer_type_var())
+                        })
+                        .collect()
+                };
+                let class_id = self
+                    .class_env
+                    .as_ref()
+                    .and_then(|env| env.resolve_class_id(self.current_module, bound.class_name))
+                    .unwrap_or_else(|| {
+                        crate::types::class_id::ClassId::from_local_name(bound.class_name)
+                    });
+                constraints.push(constraint::SchemeConstraint {
+                    class_name: bound.class_name,
+                    class_id,
+                    type_args,
+                });
+            }
+        }
+        constraints
     }
 
     /// Allocate fresh HM type variables for explicit generic type parameters.
@@ -380,6 +429,46 @@ impl<'a> InferCtx<'a> {
         }
     }
 
+    /// `ty` after [`Self::improve_from_sole_candidates`] over `window`. Called
+    /// before a signature's variables stop being rigid, which the improvement
+    /// relies on.
+    fn improved(&mut self, window: constraint::CaptureWindow, ty: &InferType) -> InferType {
+        self.improve_from_sole_candidates(window);
+        ty.apply_type_subst(&self.subst)
+    }
+
+    /// Infer a function or lambda body, collecting the `return` values in it
+    /// for [`Self::unify_early_returns`].
+    pub(super) fn infer_body(
+        &mut self,
+        ambient_effect_row: &InferEffectRow,
+        body: &Block,
+    ) -> (InferType, Vec<(InferType, Span)>) {
+        self.body_facts.return_frames.push(Vec::new());
+        let body_ty =
+            self.with_ambient_effect_row(ambient_effect_row.clone(), |ctx| ctx.infer_block(body));
+        let returns = self.body_facts.return_frames.pop().unwrap_or_default();
+        (body_ty, returns)
+    }
+
+    /// Unify a body's early `return` values with its return type.
+    ///
+    /// The type of a block is its last value, so `if (n <= 1) { return n; }`
+    /// typed only its own block, and an unannotated `fib` returned `?r`: every
+    /// predicate over a recursive call's result (`fib(n - 1) + fib(n - 2)`
+    /// raises `Add<?r>`) was left unsolved, and an annotated function never
+    /// had its early returns checked against the annotation.
+    pub(super) fn unify_early_returns(
+        &mut self,
+        ret_ty: &InferType,
+        returns: &[(InferType, Span)],
+    ) -> InferType {
+        for (returned, span) in returns {
+            self.unify_reporting(ret_ty, returned, *span);
+        }
+        ret_ty.apply_type_subst(&self.subst)
+    }
+
     /// Whether `ty` is settled enough to compare in a return-annotation
     /// mismatch.
     ///
@@ -504,6 +593,7 @@ impl<'a> InferCtx<'a> {
         &mut self,
         name: Identifier,
         fn_span: Span,
+        definition: crate::syntax::expression::ExprId,
         type_params: &[crate::syntax::statement::FunctionTypeParam],
         param_tys: &[InferType],
         ret_ty: &InferType,
@@ -533,6 +623,7 @@ impl<'a> InferCtx<'a> {
         // unify step of the standard binding-group algorithm.
         self.unify_with_group_predeclaration(name, &fn_ty, fn_span);
 
+        self.report_ambiguous_uses(&fn_ty, constraint_start);
         let scheme =
             if self.should_generalize_function(type_params, param_tys, &fn_ty, constraint_start) {
                 self.finalize_binding_scheme(BindingSchemeSpec {
@@ -542,14 +633,65 @@ impl<'a> InferCtx<'a> {
                     mode: MonoRestriction::Generalize,
                     binder: name,
                     span: fn_span,
+                    definition: Some(definition),
                 })
             } else {
+                self.body_facts.mono_definition_types.push(fn_ty.clone());
                 Scheme::mono(fn_ty)
             };
 
         self.binding_schemes_by_span
             .insert(binding_span_key(fn_span), scheme.clone());
         self.env.bind_with_span(name, scheme, Some(fn_span));
+    }
+
+    /// Report the predicates a definition leaves over a variable nothing
+    /// determines (E459), once per site.
+    ///
+    /// Judged here rather than in `decide_quantification` because a definition
+    /// bound at a monotype never reaches that, and because it needs what only
+    /// this context knows: which variables other definitions own, and whether
+    /// the definition already failed — an arity error leaves its arguments
+    /// unconstrained, and calling that ambiguity would only repeat it.
+    pub(super) fn report_ambiguous_uses(
+        &mut self,
+        fn_ty: &InferType,
+        window: constraint::CaptureWindow,
+    ) {
+        if self
+            .body_facts
+            .arity_mismatches
+            .iter()
+            .any(|&position| position >= window.simple)
+        {
+            return;
+        }
+        let also_determined: HashSet<TypeVarId> = self
+            .body_facts
+            .mono_definition_types
+            .iter()
+            .flat_map(|ty| ty.apply_type_subst(&self.subst).free_vars())
+            .collect();
+        let constraints = self.class_constraints.captured_since(window);
+        let ambiguous = crate::types::quantify::ambiguous_uses(
+            &constraints,
+            fn_ty,
+            &self.env.free_vars_through(&self.subst),
+            &also_determined,
+            &self.subst,
+            self.class_env.as_ref(),
+            self.interner,
+        );
+        for (constraint, diagnostic) in ambiguous {
+            let key = (
+                constraint.span.start.line,
+                constraint.span.start.column,
+                constraint.class_id,
+            );
+            if self.body_facts.reported_ambiguous.insert(key) {
+                self.errors.push(diagnostic);
+            }
+        }
     }
 
     /// Whether a definition's inferred type is generalized rather than bound at
@@ -719,9 +861,20 @@ impl<'a> InferCtx<'a> {
             effect_row.apply_row_subst(&self.subst),
         );
         self.env.bind(name, Scheme::mono(self_fn_ty));
-        let second_body_ty =
-            self.with_ambient_effect_row(effect_row.clone(), |ctx| ctx.infer_block(body));
+        // This pass exists to refine a type, not to raise obligations: the first
+        // pass already raised every predicate in the body, at the same
+        // `ExprId`s. Keeping the second copy recorded each one twice, so an
+        // operator in an unannotated recursive helper showed `raised=2` for its
+        // one dictionary. Drop what this pass raises; the unifications it made
+        // stay.
+        let second_pass = self.class_constraints.open_window();
+        let (second_body_ty, second_returns) = self.infer_body(effect_row, body);
+        let _raised_again = self.class_constraints.close_window(second_pass);
         let refined_ret = self.unify_silent(&second_body_ty, &ret_slot);
+        // The first pass already reported any `return` that disagrees.
+        for (returned, _) in &second_returns {
+            self.unify_silent(&ret_slot, returned);
+        }
         self.env.leave_scope();
         let refined_resolved = refined_ret.apply_type_subst(&self.subst);
         let current_resolved = current_ret.apply_type_subst(&self.subst);

@@ -52,7 +52,7 @@ pub fn lower_program_to_ir_with_interner_and_warnings(
     hm_expr_types: &HashMap<ExprId, InferType>,
     interner: Option<&Interner>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    lower_program_to_ir_impl(program, hm_expr_types, interner, false, None, None)
+    lower_program_to_ir_impl(program, hm_expr_types, interner, false, None, None, None)
 }
 
 #[allow(clippy::result_large_err)]
@@ -62,10 +62,13 @@ pub fn lower_program_to_ir_with_optimize(
     interner: Option<&Interner>,
     optimize: bool,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    lower_program_to_ir_impl(program, hm_expr_types, interner, optimize, None, None)
+    lower_program_to_ir_impl(program, hm_expr_types, interner, optimize, None, None, None)
 }
 
 /// Lower with TypeEnv for typed parameter binders (Phase 7).
+///
+/// `evidence` is the unit's own evidence map, and the source of every
+/// dictionary parameter and argument (0.0.8 plan, step 1e).
 #[allow(clippy::result_large_err)]
 pub fn lower_program_to_ir_typed(
     program: &Program,
@@ -74,6 +77,7 @@ pub fn lower_program_to_ir_typed(
     optimize: bool,
     type_env: Option<&crate::types::type_env::TypeEnv>,
     class_env: Option<&crate::types::class_env::ClassEnv>,
+    evidence: Option<&crate::types::evidence::EvidenceMap>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
     lower_program_to_ir_impl(
         program,
@@ -82,6 +86,7 @@ pub fn lower_program_to_ir_typed(
         optimize,
         type_env,
         class_env,
+        evidence,
     )
 }
 
@@ -93,21 +98,27 @@ fn lower_program_to_ir_impl(
     optimize: bool,
     type_env: Option<&crate::types::type_env::TypeEnv>,
     class_env: Option<&crate::types::class_env::ClassEnv>,
+    evidence: Option<&crate::types::evidence::EvidenceMap>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    let mut core = crate::core::lower_ast::lower_program_ast_with_class_env(
+    // 0.0.8 plan step 1e: dictionary parameters, arguments and method calls
+    // come from evidence, and elaboration only defines the dictionaries the
+    // program names.
+    let (mut core, errors) = crate::core::lower_ast::lower_program_ast_with_evidence(
         program,
         hm_expr_types,
         interner,
         type_env,
         None,
         class_env,
-        None,
+        evidence,
     );
+    if let Some(error) = errors.into_iter().next() {
+        return Err(error);
+    }
 
-    // Dictionary elaboration (Proposal 0145, Step 5b):
-    // If class_env and type_env are available, run dictionary elaboration
-    // before standard Core passes.
-    if let (Some(ce), Some(te), Some(int)) = (class_env, type_env, interner)
+    // Define the `__dict_*` globals the program refers to (Proposal 0145,
+    // Step 5b); lowering has already placed every parameter and argument.
+    if let (Some(ce), Some(int)) = (class_env, interner)
         && !ce.classes.is_empty()
     {
         // Seeded from every binder in the program, bodies included. Scanning
@@ -117,7 +128,7 @@ fn lower_program_to_ir_impl(
         // `multiply` duplicate binder CoreBinderId(5) in Lam`. Latent while few
         // functions carried dictionaries; reachable as soon as more do.
         let mut next_id = crate::core::passes::next_fresh_binder_id(&core);
-        crate::core::passes::elaborate_dictionaries(&mut core, ce, te, int, &mut next_id);
+        crate::core::passes::build_referenced_dictionaries(&mut core, ce, int, &mut next_id);
     }
 
     let mut warnings = if let Some(interner) = interner {
@@ -1121,7 +1132,7 @@ impl IrProgram {
     /// Like `dump_text` but resolves symbol IDs to human-readable names via `interner`.
     pub fn dump_text_with_interner(&self, interner: &crate::syntax::interner::Interner) -> String {
         let sym = |s: Identifier| interner.resolve(s).to_string();
-        let fmt_name = |n: Option<Identifier>| n.map(&sym).unwrap_or_else(|| "<anon>".to_string());
+        let fmt_name = |n: Option<Identifier>| n.map(sym).unwrap_or_else(|| "<anon>".to_string());
         let fmt_target = |t: &IrCallTarget| match t {
             IrCallTarget::Direct(fid) => format!("fn{}", fid.0),
             IrCallTarget::Named(name) => sym(*name),

@@ -14,7 +14,12 @@ mod patterns;
 impl<'a> InferCtx<'a> {
     /// Infer an identifier use, instantiating its scheme or reporting a strict-mode hole.
     fn infer_identifier_expression(&mut self, expr: &Expression, name: Identifier) -> InferType {
-        if let Some(scheme) = self.env.lookup(name).cloned() {
+        if let Some(scheme) = self
+            .env
+            .lookup(name)
+            .cloned()
+            .or_else(|| self.unbound_class_method_scheme(name))
+        {
             let (ty, mapping, constraints) = scheme.instantiate(&mut self.env.counter);
             let fresh_vars = mapping.values().copied().collect::<Vec<_>>();
             for &fresh in &fresh_vars {
@@ -36,6 +41,20 @@ impl<'a> InferCtx<'a> {
             self.emit_missing_flow_hm_signature(name, expr.span());
         }
         self.alloc_fallback_var()
+    }
+
+    /// The scheme of a class method the name `name` resolves to, when nothing
+    /// binds the name.
+    ///
+    /// A method's dispatch stub normally binds it. When another class's stub
+    /// already claims the name (a class of the unit sharing a method name with
+    /// a preloaded one, `LocalEq.eq` beside `Eq.eq`), the unit's class still
+    /// owns the bare name, and a call to it is a call to that method.
+    fn unbound_class_method_scheme(&self, name: Identifier) -> Option<Scheme> {
+        let class_env = self.class_env.as_ref()?;
+        let class = class_env.lookup_class_by_id(self.lookup_class_method(name)?)?;
+        let method = class.methods.iter().find(|method| method.name == name)?;
+        Some(class.method_scheme(method, self.interner))
     }
 
     /// Handle future or unsupported expression variants.

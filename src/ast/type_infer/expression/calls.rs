@@ -18,7 +18,10 @@ struct ResolvedClassMethodCall {
     class_name: Identifier,
     class_id: crate::types::class_id::ClassId,
     method_name: Identifier,
-    first_arg_id: ExprId,
+    /// The first argument, which selects the instance whose effects the call
+    /// propagates. `None` for a nullary method such as `mempty()`, whose
+    /// class argument comes from the call's result.
+    first_arg_id: Option<ExprId>,
     /// `ExprId` of the **function-position** sub-expression of the call
     /// (`show` in `show(42)`, or `member` in `Foldable.fold(xs, ...)`'s
     /// `MemberAccess`). The LSP keys
@@ -75,6 +78,8 @@ impl<'a> InferCtx<'a> {
             }
             _ => (None, None),
         };
+
+        self.record_class_method_call(&input);
 
         // Check if callee is a class method (for post-inference constraint emission).
         let class_method_info =
@@ -255,6 +260,9 @@ impl<'a> InferCtx<'a> {
                     .with_primary_label(spec.input.span, "wrong resume arity in handler arm"),
                 );
             }
+            self.body_facts
+                .arity_mismatches
+                .push(self.class_constraints.open_window().simple);
             return spec.ret_ty.apply_type_subst(&self.subst);
         }
 
@@ -417,7 +425,14 @@ impl<'a> InferCtx<'a> {
             if is_propagatable_call_arg(arg_expr) {
                 let expected_resolved = expected_param_ty.apply_type_subst(&self.subst);
                 if expected_resolved.is_concrete() {
+                    // The argument is inferred again just below, which raises
+                    // its predicates at the same `ExprId`s. This pass is for
+                    // its diagnostics and unifications; keeping its predicates
+                    // too recorded every one twice (an `if` argument's
+                    // comparison showed `raised=2` for one dictionary).
+                    let check_pass = self.class_constraints.open_window();
                     self.check_expression(arg_expr, &expected_resolved);
+                    let _raised_again = self.class_constraints.close_window(check_pass);
                 }
             }
             let arg_ty = self.infer_expression(arg_expr);
@@ -543,7 +558,7 @@ impl<'a> InferCtx<'a> {
         arguments: &[Expression],
         span: Span,
     ) -> Option<ResolvedClassMethodCall> {
-        let first_arg_id = arguments.first()?.expr_id();
+        let first_arg_id = arguments.first().map(Expression::expr_id);
         match function {
             Expression::Identifier { name, .. } => {
                 if self
@@ -573,6 +588,63 @@ impl<'a> InferCtx<'a> {
                 self.qualified_class_method_call(object, *member, function, first_arg_id, span)
             }
             _ => None,
+        }
+    }
+
+    /// Remember the call being inferred if it calls a class method, unless it
+    /// is generated code, which has no span to report.
+    fn record_class_method_call(&mut self, input: &CallInferInput<'_>) {
+        if input.span != Span::default()
+            && self.names_class_method(input.function)
+            && let Some(call_id) = self.current_expr
+        {
+            self.class_method_calls.insert(call_id);
+        }
+    }
+
+    /// Whether `function` names a class method rather than a value, whatever
+    /// the call's arguments.
+    ///
+    /// A bare name is a method when a class in scope declares it and the
+    /// name is unbound, bound to a generated dispatch stub (whose span is the
+    /// default one), or bound by the preloaded top-level environment. A
+    /// parameter or local binding of the same name is not: it is bound in an
+    /// inner scope with no span. A qualified name is a method when the module
+    /// it names declares a class with that method, or when it is qualified by
+    /// the class itself.
+    fn names_class_method(&self, function: &Expression) -> bool {
+        match function {
+            Expression::Identifier { name, .. } => {
+                let method_binding = match self.env.lookup_span(*name) {
+                    Some(span) => span == Span::default(),
+                    None => {
+                        self.env.lookup(*name).is_none()
+                            || self.env.visible_binding_level(*name) == Some(0)
+                    }
+                };
+                method_binding && self.lookup_class_method(*name).is_some()
+            }
+            Expression::MemberAccess { object, member, .. } => {
+                let Expression::Identifier {
+                    name: qualifier, ..
+                } = object.as_ref()
+                else {
+                    return false;
+                };
+                let target = self
+                    .module_aliases
+                    .get(qualifier)
+                    .copied()
+                    .unwrap_or(*qualifier);
+                self.class_env.as_ref().is_some_and(|class_env| {
+                    class_env
+                        .resolve_qualified_method_class_id(target, *member, self.interner)
+                        .is_some()
+                }) || self
+                    .lookup_class_method(*member)
+                    .is_some_and(|class_id| class_id.name == *qualifier)
+            }
+            _ => false,
         }
     }
 
@@ -634,7 +706,7 @@ impl<'a> InferCtx<'a> {
         object: &Expression,
         member: Identifier,
         function: &Expression,
-        first_arg_id: ExprId,
+        first_arg_id: Option<ExprId>,
         span: Span,
     ) -> Option<ResolvedClassMethodCall> {
         let Expression::Identifier {
@@ -648,20 +720,20 @@ impl<'a> InferCtx<'a> {
             .get(module_name)
             .copied()
             .unwrap_or(*module_name);
-        if !self
-            .module_member_schemes
-            .contains_key(&(target_module, member))
-        {
+        let declared = self.class_env.as_ref()?.resolve_qualified_method_class_id(
+            target_module,
+            member,
+            self.interner,
+        );
+        // A method of a class the module declares is one even when no member
+        // scheme names it; `declared_class_method_scheme` types it then.
+        if declared.is_none() && !self.knows_module_member(*module_name, member) {
             return None;
         }
-        let class_id = self
-            .class_env
-            .as_ref()?
-            .resolve_qualified_method_class_id(target_module, member, self.interner)
-            .or_else(|| {
-                let id = self.lookup_class_method(member)?;
-                (member == id.name || *module_name == id.name).then_some(id)
-            })?;
+        let class_id = declared.or_else(|| {
+            let id = self.lookup_class_method(member)?;
+            (member == id.name || *module_name == id.name).then_some(id)
+        })?;
         Some(ResolvedClassMethodCall {
             class_name: class_id.name,
             class_id,
@@ -706,12 +778,7 @@ impl<'a> InferCtx<'a> {
             );
         }
 
-        let type_key = instance
-            .type_args
-            .iter()
-            .map(|arg| arg.display_with(self.interner))
-            .collect::<Vec<_>>()
-            .join("_");
+        let type_key = instance.type_key.clone();
         let method_str = self.interner.resolve(info.method_name);
         let mangled = crate::types::class_env::mangled_method_name(
             instance.class_id,
@@ -736,7 +803,7 @@ impl<'a> InferCtx<'a> {
     ) -> Option<Vec<InferType>> {
         let first_arg_ty = self
             .expr_types
-            .get(&info.first_arg_id)
+            .get(&info.first_arg_id?)
             .map(|ty| ty.apply_type_subst(&self.subst))?;
 
         let (resolved_type_args, scheme) =

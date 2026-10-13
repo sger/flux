@@ -558,14 +558,21 @@ module Flow.List {
         [next | scanl_rest(xs, next, f)]
     }
 
-    fn unique_by_go(xs, f, seen, acc) {
+    fn unique_by_go<a, b: Eq>(xs: List<a>, f: (a) -> b, seen: List<b>, acc: List<a>) -> List<a> {
         match xs {
             [h | t] -> unique_by_step(t, h, f(h), f, seen, acc),
             _ -> acc
         }
     }
 
-    fn unique_by_step(xs, value, key, f, seen, acc) {
+    fn unique_by_step<a, b: Eq>(
+        xs: List<a>,
+        value: a,
+        key: b,
+        f: (a) -> b,
+        seen: List<b>,
+        acc: List<a>,
+    ) -> List<a> {
         if contains(seen, key) {
             unique_by_go(xs, f, seen, acc)
         } else {

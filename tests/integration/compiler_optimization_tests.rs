@@ -190,3 +190,51 @@ fn constant_folding_preserves_semantics() {
     // semantic result (27) is implicitly preserved.
     assert_eq!(program.statements.len(), folded.statements.len());
 }
+
+// ---------------------------------------------------------------------------
+// --optimize end to end: the optimized program computes what the plain one does
+// ---------------------------------------------------------------------------
+
+#[path = "../support/scratch.rs"]
+mod scratch;
+
+fn run_flux(name: &str, source: &str, extra: &[&str]) -> String {
+    let scratch = scratch::Scratch::new(name.trim_end_matches(".flx"));
+    let file = scratch.write(name, source);
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .args(["run", file.to_str().unwrap(), "--no-cache"])
+        .args(extra)
+        .args(scratch.cache_args())
+        .output()
+        .unwrap_or_else(|e| panic!("failed to run flux on {name}: {e}"));
+    assert!(
+        output.status.success(),
+        "flux {extra:?} failed on {name}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n")
+}
+
+/// Constant propagation replaces a name bound to a top-level literal. A
+/// parameter of the same name is another variable: `f(1)` is `2`, and
+/// propagating `x = 10` into `f`'s body made it `11`.
+#[test]
+fn optimize_does_not_propagate_a_literal_into_a_parameter_that_shadows_it() {
+    let source = r#"
+let x = 10
+
+fn f(x) { x + 1 }
+
+fn main() with IO {
+    print(f(1))
+    print(x)
+}
+"#;
+    let plain = run_flux("shadowed_literal.flx", source, &[]);
+    assert!(plain.ends_with("2\n10\n"), "plain run: {plain:?}");
+    assert_eq!(
+        run_flux("shadowed_literal_opt.flx", source, &["--optimize"]),
+        plain
+    );
+}

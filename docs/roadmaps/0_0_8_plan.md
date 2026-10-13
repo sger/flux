@@ -54,7 +54,7 @@ started on an earlier branch that no longer exists, so it is redone here.
 5. **Fail closed.** A missing dictionary is a compile-time internal error that
    names the site. It is never a short argument list, and never a silently
    wrong dictionary.
-6. **Bump `CACHE_EPOCH`** (`src/shared/cache_paths.rs`, currently 53) in the
+6. **Bump `CACHE_EPOCH`** (`src/shared/cache_paths.rs`, currently 60) in the
    same commit as any change to inferred types or to `.flxi` contents, and add
    the reason to the doc comment above it.
 7. **Run the precision gate** after any change to inference, generalization or
@@ -95,7 +95,7 @@ instance Size<String> { fn size(x) { len(x) } }
 
 ### Steps
 
-- [ ] **0b. Re-measure B2's cost.**
+- [x] **0b. Re-measure B2's cost.**
   1. Temporarily make the `unconstrained` conjunct in `should_generalize_function`
      (`src/ast/type_infer/function.rs`) always `true`.
   2. Run nextest and `examples_generics`.
@@ -104,7 +104,48 @@ instance Size<String> { fn size(x) { len(x) } }
 
   Why re-measure: the old 13/9/4 split predates B1, KI-094/095/096 and the
   projection fix. Its rows also add up to 12, not 13.
-- [ ] **0c. `EvidenceMap::args_for` returns a short list when the tail is
+
+  **Measured 2026-09-24**, with the forwarder guard kept (B2's actual rule,
+  step 2b), on top of 0c and 0d. Nextest reported 3534 tests, **27 failed**:
+
+  | Class | Tests | What fails | Fixed by |
+  |---|---|---|---|
+  | Dictionary plumbing | 8 | 5 × `E004 __dict_…_Num_Int` / `_Ord_Int` undefined, 2 × `E1000 want=2, got=1`, 1 × `expected function constant` | Phase 1 |
+  | Lost specialisation | 16 | 11 Aether snapshots: `IAdd` becomes a dictionary call, `h:Int` loses its rep, FBIP and borrow counts shift. 4 bytecode-fusion tests (`OpAddLocals`, `OpSubLocals`, `OpCall2` ×2). 1 bytecode snapshot. | Phase 2 (2a) |
+  | Stale expectation | 2 | The two `b2_*` fixtures now compile, and `make_adder` now infers `Add<a> =>`. Both are the *intended* result. | Accept when B2 lands |
+  | User-visible regression | 1 | `indirect_call_wrong_arity` now reports `want=3` for a 2-argument function: the hidden dictionary is counted | **New: Phase 1** |
+  | **Silent miscompile** | 1 (parity) | `user_fn_name_no_collision.flx`: native prints `758397473435` for `sum(3, 4)`; the VM prints `7` | **New: Phase 2, before 2b** |
+
+  Parity reported 135 fixtures: 131 pass, 3 skipped (the known skips), **1
+  mismatch**, which is the miscompile row above. Its cause, confirmed with
+  `FLUX_DBG_SPEC`: B1 excludes a constrained function only when its bound is
+  *written* (`visitor_constrained`, `lower_ast/mod.rs`). An unannotated `sum`
+  that B2 makes constrained is not recognised, so B1 lowers its body at
+  `(Int, Int) -> Int` while it still receives a dictionary. The same program
+  with `fn sum<a: Num>` is left alone and is correct on both backends.
+
+  What this changes:
+  - **The four `core_regressions` DropSpecialized tests pass.** B1 fixed the
+    class-free despecialisation. What remains is the *constrained* kind, in
+    Flow helpers that become generic (`IAdd` becomes a dictionary call). So 2a
+    must clone constrained functions, not only class-free ones. That is already
+    planned; this confirms it is the whole remaining precision problem.
+  - **All 8 plumbing failures come from harnesses that build a bare
+    `Compiler::new_with_interner` with no standard library.** That is
+    KI-068/KI-084's family. Whether the real pipeline hits the same is what the
+    parity run with the temporary change must show.
+  - **New item:** an arity diagnostic must count only source parameters. Add
+    it to Phase 1, next to 1f.
+  - **New item, and a hard gate for 2b:** B1 must decide "constrained" from the
+    definition's *scheme* (or, after 2a, clone it properly), not from written
+    bounds. B2 must not land before this; otherwise every unannotated
+    arithmetic helper is miscompiled on native.
+  - The ordering holds: plumbing (Phase 1) before specialisation (Phase 2).
+    Specialisation is now the larger group by count, but 11 of its 16 are
+    snapshots of the same few Flow helpers.
+  - `fn double(x) { x + x }` already prints `42` and `2.5` on the VM under the
+    temporary rule.
+- [x] **0c. `EvidenceMap::args_for` returns a short list when the tail is
   missing.** It counts the answers that are present, not the predicates that
   were raised.
   - Add `raised: HashMap<ExprId, u16>` to `EvidenceMap`, filled from
@@ -115,7 +156,7 @@ instance Size<String> { fn size(x) { len(x) } }
     It must fail on the old code.
   - `FLUX_DBG_EVIDENCE` prints `raised=n` for each site, and sorts its output so
     the dump is deterministic.
-- [ ] **0d. `choose_candidate`'s `Ambiguous | NoMatch => Some(first)`**
+- [x] **0d. `choose_candidate`'s `Ambiguous | NoMatch => Some(first)`**
   (`src/core/passes/dict_elaborate.rs`) becomes `None`, and the caller reports
   the site.
   - First pin both arms with unit tests. Nothing pins them today.
@@ -162,12 +203,12 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
 
 ### Steps
 
-- [ ] **1a. Thread evidence into lowering.** No behaviour change.
+- [x] **1a. Thread evidence into lowering.** No behaviour change.
   - Add `evidence: Option<&EvidenceMap>` to `AstLowerer`
     (`src/core/lower_ast/mod.rs`).
   - Pass it down from `Compiler::lower_core_from_program`.
   - The `src/cfg/` callers pass `None`.
-- [ ] **1b. Define how a site is keyed, then write it down.** Two rules, both
+- [x] **1b. Define how a site is keyed, then write it down.** Two rules, both
   documented in `evidence.rs`:
   - A scheme's predicates are keyed at the **callee identifier's** `ExprId`, not
     at the call's.
@@ -175,6 +216,7 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
     position is its index among the non-marker predicates.
 
   Then add a helper, `dict_args_at(callee_id, givens) -> Option<Vec<DictArg>>`.
+  **Moved to 1c**, where the emitter is its first caller.
 
   Verify two more things before 1c
   ([GHC analysis §2, §5](../internals/typeclass_ghc_analysis.md)):
@@ -182,10 +224,87 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
     its superclass path. If it isn't, 1d cannot delete `choose_candidate` until
     that recording gap is closed.
   - Operator predicates are keyed at the operator's own id.
-- [ ] **1c. Emit dictionary arguments in shadow mode (C5).**
+
+  **Measured 2026-09-24.** The rules are written down in `src/types/evidence.rs`,
+  and the map now records each raised predicate's class, origin and span
+  (`RaisedPredicate`), so the dump names its source location and 1e's internal
+  error can name the site.
+  - Callee keying: **confirmed.** Marker slots: **confirmed** (`Sendable` takes
+    index 0 of 2).
+  - A call site raises the scheme's **minimised** context: `<a: Eq + Ord>`
+    raises only `Ord`. 1d's parameters must follow the same list.
+  - Operators are keyed at the operator: **confirmed.**
+  - Method calls in a constrained body: **only half recorded.** A method reached
+    through a superclass gets `FromGiven class=Ord path=[0]`. A method on the
+    definition's *own* context (`lt` inside `<a: Ord>`, or `x < y`) gets
+    nothing, because `close_definition_scope` drops `Generalized` predicates
+    instead of solving them from the givens. That is a **blocker for 1d**: see
+    1b′.
+  - The stdlib's repeated predicates (about 100 sites, all operators) come from
+    `refine_unannotated_self_recursive_return`. It infers an unannotated
+    self-recursive body twice, so each operator raises twice at one id. See 1b″.
+- [x] **1b′. Record evidence for a predicate that is the definition's own
+  context.**
+  - Keep a `Generalized` predicate in the implication as a wanted, and let the
+    whole-program solve discharge it from the givens. That is GHC's
+    `d_wanted = d_param` (GHC analysis §2).
+  - It is then harvested as `FromGiven` with an empty path.
+  - Pin it: `lt(x, y)` inside `fn f<a: Ord>` must show evidence in the dump.
+  - This changes what the solver sees, so run the full gate.
+
+  **Done 2026-09-24.** `close_definition_scope` no longer drops `Generalized`
+  predicates. `entailed_by_givens` runs first in `classify_constraint` and
+  answers each one with `FromGiven` and an empty path.
+  - Across the stdlib, `examples/guide` and `examples/type_classes`, this adds
+    **2,514** such answers.
+  - Every class-related suite passes, including the compile snapshot of every
+    example, so no diagnostic changed.
+  - Pinned by `a_method_on_the_definitions_own_dictionary_is_answered_from_it`:
+    0 answers without the change, 2 with it.
+  - No `CACHE_EPOCH` bump. The `.flxi` files are identical apart from the known
+    non-determinism in IO, List and Array.
+
+  **Found, and it constrains 1e:** five sites in `Flow.List` have *no*
+  evidence, before and after this change. They are `==` at 371, `contains` at
+  569, `<=` at 614, and `>` and `<` at 653 and 660. The solver files them as
+  `UnresolvedAfterGeneralization`: unannotated helpers such as `merge_by_key`
+  and `maximum_go` use an operator on a type they do not fix, and today's rule
+  does not generalize a constrained helper. Only B2 (Phase 2) gives them a
+  context to be answered from.
+- [x] **1b″. The refinement pass must not raise predicates a second time.**
+  - Discard the class constraints raised during
+    `refine_unannotated_self_recursive_return`. The first pass already raised
+    the same predicates at the same ids.
+  - Pin it: an operator in an unannotated recursive nested helper shows
+    `raised=1`.
+
+  **Done 2026-09-24.** There were **two** sources, and each pass's predicates
+  are now dropped with `open_window` / `close_window`, keeping its
+  unifications:
+  1. `refine_unannotated_self_recursive_return` infers the body a second time.
+  2. `infer_call_fixed_arity_path` *checks* a propagatable argument (`if`,
+     `match`, a literal, a lambda) against its parameter type, then infers it
+     again. So `f(if n > 1 { … })` raised `Ord` twice.
+
+  Before, about 100 stdlib sites raised a predicate more than once. Now none
+  do, across the stdlib and `examples/guide`. Two tests in
+  `typeclass_baseline_tests.rs` pin it, and both fail without the fix.
+
+  **No `CACHE_EPOCH` bump.** The stdlib's `.flxi` files were compared with and
+  without the fix. Every field that differs also differs between two runs of
+  the *same* build.
+
+  That exposed a separate, pre-existing problem: **interface output is not
+  deterministic.** Effect-row order in `schemes`, `runtime_contracts`, the
+  symbol table (`Env`/`Process` swap order run to run) and the fingerprints
+  vary between identical compiles of `Flow.IO`, `Flow.List` and `Flow.Array`.
+  It is out of 0.0.8's scope; file it as a known issue.
+- [x] **1c. Emit dictionary arguments in shadow mode (C5).**
   - The emitter lives where an **identifier** is lowered, not in the `Call` arm.
     It produces the identifier applied to its dictionaries, and `Call` lowering
     flattens that into one call, `f(d…, x…)`.
+  - It reads the map through `dict_args_at(callee_id, givens)`, moved here from
+    1b.
   - One emitter then covers a call, a bare reference passed as a value
     (KI-090), and an operator (KI-076). This is GHC's model, where evidence
     wraps the occurrence ([§1](../internals/typeclass_ghc_analysis.md)).
@@ -193,36 +312,347 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
   - Under `FLUX_DBG_EVIDENCE_DIFF`, report every place the two disagree.
   - Sweep `examples/`, `tests/` and `lib/`. Each divergence is a bug in one path
     or the other: record it and resolve it.
-- [ ] **1d. Create dictionary parameters at lowering.**
-  - For a `Statement::Function` whose scheme has dictionary constraints, prepend
-    one `__dict_*` `Lam` parameter per constraint, taken from the scheme's
-    givens.
-  - `DictArg::Param { index, path }` then renders as that variable followed by
-    `TupleField` projections.
+
+  **Built 2026-10-07.** The emitter
+  (`src/core/lower_ast/evidence.rs`) records what it would pass at each
+  identifier and infix operator. The report
+  (`src/core/passes/evidence_diff.rs`) compares that with the final Core after
+  elaboration, matched by span, because the old answers sit in three Core
+  shapes: leading `__dict_*` arguments, a direct `__tc_*` call, and a method
+  projected out of a dictionary parameter. Each site gets one verdict: `agree`,
+  `differ`, `unbuildable`, `reference`, `operator` (expected: operators lower
+  to primitives), `unreached` or `mismatched`.
+
+  First run, on `examples/type_classes/contextual_dictionary.flx` and the
+  stdlib it loads:
+  - **A class-method call is keyed at the call, not the callee.** This first
+    looked like `ExprId` drift: inference recorded `my_eq(x, y)` at 34:4 as
+    `ExprId(18)`, and lowering saw `my_eq` as `ExprId(15)`. Ids are assigned
+    in post-order, so 15 is the callee and 18 is the call.
+    `emit_typed_class_method_constraint` raises the predicate once the
+    arguments are inferred, when the current expression is the call. A
+    constrained function's predicates are still raised at the callee, as 1b
+    found. **Fixed**: the emitter also reads the call's id when the callee
+    names a method. `contextual_dictionary.flx` now reports `agree 5,
+    operator 1`, and `Flow.Eq`'s method calls are reached.
+    - The emitter also refuses an id whose raised predicate starts elsewhere
+      (`mismatched`). Nothing has tripped it yet. It stays as the guard
+      against a lowered program numbered differently from the inferred one.
+  - **The CFG path could not find a module member's givens. Resolved.** Each
+    stdlib unit is lowered twice, once per path. `via cfg`, every `FromGiven`
+    site inside `module Flow.X { … }` was `unbuildable`. The emitter found the
+    enclosing definition's givens by looking its scheme up by name, and the
+    CFG entry point passes no `module_member_schemes`.
+    - The fix follows GHC, where a given is an evidence variable with an
+      identity and the definition stores its own parameter list
+      ([analysis §2](../internals/typeclass_ghc_analysis.md#how-a-given-is-identified)).
+    - `3ec726b8` gives every `Statement::Function` an id.
+    - `ff893fc5` makes `FromGiven` name its owner (`GivenRef { definition,
+      index }`) and records each definition's dictionary parameters in
+      `EvidenceMap`.
+    - `c0778b4a` makes lowering read a given's parameter through its owner.
+      `scheme_for_current_function` is no longer read by the emitter.
+    - `Flow.Eq` via cfg now reports `agree 5`, the same as via core. Every unit
+      gets the same emitter answer on both paths.
+  - **The evidence map leaked between units.** A unit that skipped the class
+    solve kept the previous module's map, and `ExprId`s restart per unit.
+    **Fixed**: the map is reset at the start of every unit's inference.
+  - **The old path answers `contains` (List.flx:569) with `__dict_Eq_Int`.**
+    That is one of the five `UnresolvedAfterGeneralization` sites, and it
+    answers 1e's question about how the old path serves them: via core it
+    guesses `Int`, and via cfg it passes nothing. The other four are
+    operators, and the old path passes them nothing.
+  - **A sixth unbuildable site,** `pair.0 <= current.0` at `Flow.Array`
+    291:40. **Resolved** by the same change: it came from the name lookup, not
+    the solver. Only the five known `Flow.List` sites remain unbuildable.
+  - **The old CFG path omits two dictionaries.** Inside `Flow.List`, it passes
+    nothing to `is_prefix` (413:8) or `contains` (526:9). The core path passes
+    `__dict_Eq`, and the emitter agrees with core.
+    - The CFG entry point's `elaborate_dictionaries` finds schemes by name in
+      `type_env`, which holds no module members. That is the flaw the emitter
+      just shed.
+    - It is a defect of the path 1e deletes, so no separate fix is planned.
+  - **`--dump-*` surfaces read other expressions' types.** `merge_programs`
+    concatenated separately parsed modules whose `ExprId`s overlapped, and the
+    merged program's type table is keyed by `ExprId`. **Fixed** in `2d1a7203`:
+    each module is shifted past the ids of the ones before it.
+    - Until then, `aether_cli_snapshots` (half of the precision gate, rule 7)
+      recorded collision-dependent types. Re-blessing showed miscompiles in
+      the old snapshots. `Flow.Array.contains<a: Eq>` called
+      `Eq<List<a>>`'s `eq` on plain elements, and `assert_lt<a: Ord>` used an
+      integer comparison and dropped its dictionary.
+  - **The VM lowers the main file through `cfg::lower_program_to_ir_typed`.**
+    It now receives the evidence map too, so 1e must switch that path over,
+    not only `lower_core_from_program`.
+  - **The sweep runs per unit.** Dumps no longer collide (see above), but
+    only a per-unit compile carries that unit's own evidence map. Run it
+    through a normal compile with `--no-cache`, not `--dump-core`.
+
+  **Swept 2026-10-08.**
+  - **How:** `FLUX_DBG_EVIDENCE_DIFF=stop flux --no-cache <file> --root <dir>
+    --root <tree> --root lib` on every `.flx` under `examples/`, `tests/` and
+    `lib/`, with the roots the test harness gives. Of 1411 files, 810 compile,
+    and 601 stop at the error they exist to show.
+  - **Totals over sites** (deduplicated):
+
+    | Verdict | First run | After the fixes |
+    |---|---|---|
+    | agree | 578 | 604 |
+    | differ | 178 | 182 |
+    | operator | 3254 | 3314 |
+    | generated | (counted as `reference`) | 14 |
+    | reference | 15 | 1 |
+    | unbuildable | 135 | 1 |
+    | unreached, mismatched | 0 | 0 |
+
+  - **Fixes.** Each one was pinned with a test first:
+
+    | Commit | Fix |
+    |---|---|
+    | `38b7cf71` | A module-qualified call's evidence is read at the member access, where inference keys it |
+    | `e0164d47`, `8180dea2` | An instance's dictionary key comes from its `type_key`, and an instance head carries the module that defines it (see 1g) |
+    | `92b77777` | A synthesized `Sendable` instance is as public as its ADT |
+    | `b515f918` | A binding under the monomorphism restriction no longer quantifies a constrained variable (GHC's rule). Unbuildable went from 135 to 73 |
+    | `0353f2d9` | Report fixes: operators lowered to primitives count as `operator`, cloned default-method bodies are paired apart, and default-span sites get `generated` |
+    | `3d063793` | A marker predicate's evidence is `Marker`, whether it holds structurally or stays unsolved |
+    | `cd33d470` | Early returns unify with the return type, and code after a block's own `return` is not its value |
+    | `404207d5` | Numeric defaulting recognises `Flow.Num` |
+    | `fe2ab5b7` | Sole-candidate improvement (0179 Stage 4): `Convert<Int, ?b>` takes `?b` from the one instance whose known arguments match |
+    | `657b79b5` | A call's predicate over a type nothing determines is E459, not a guessed `Int`. Eight tests gained annotations, and `generics/working/rejects/ambiguous_empty_literal.flx` pins it |
+
+  - **What is left, and who answers it:**
+
+    | Verdict | Sites | Example | Wrong path | Disposition |
+    |---|---|---|---|---|
+    | differ: the old path passes nothing | 124 | `Array.sort(..)` in `aoc/2024/Day06Solver.flx:69` | old (CFG) | Module-qualified calls. The CFG dump of `Array.contains([\|1, 2\|], 2)` passes two arguments and no dictionary. It answers correctly because every constrained site in `Flow.Array` is an operator, which lowers to a primitive. A callee that calls a method would break. 1e; C4's arity guard checks the callee side. |
+    | differ: the old path passes nothing (`via`, `render`) | 3 | `via(42)` in `type_classes/syntax_tour.flx:148` | old | Multi-parameter `where` bounds. 1e. |
+    | differ: direct `__tc_<C>_Int_*` where evidence says a parameter | 51 | `size(x)` in `type_classes/dictionary_call_arity.flx:14` | old | Wildcard dispatch to the only visible instance (`unique_instance_for_known_args_by_id`). Right only while one instance exists. 1d (B2), deleted in 1f. |
+    | differ: `Ord_Int` where evidence says a parameter | 4 | `assert_gt` in `lib/Flow/FTest.flx:29` | old | The `Int` default in `resolve_constraint_type_args`. 1e, deleted in 1f. |
+    | differ: the old path passes nothing inside `Flow.List` | 2 | `is_prefix` at `List.flx:413` | old (CFG) | As noted above. 1e. |
+    | differ: KI-076 | 2 | `lte`/`bigger` in `generics/failing/runtime/Ki076Ord.flx` | old | The evidence is right. Phase 3b checks KI-076 after 1e. |
+    | generated | 14 | `Eq<List<a>>.eq` forwarders in `lib/Flow/Eq.flx` | n/a | Forwarders built at default spans pass their dictionaries in their own body. 1d. |
+    | reference | 1 | `dbl` in `ki_090_constrained_fn_as_value.flx:40` | old | KI-090, Phase 3a. |
+    | unbuildable | 1 | `contains` at `List.flx:569` | n/a | One of the five `UnresolvedAfterGeneralization` sites (the other four are operators). 1e's exception, removed at 2b. |
+
+    Against the first run, the only file whose first error code changed is the
+    new `ambiguous_empty_literal.flx`.
+  - **Found for 1d.**
+    - **Generated instance functions carry explicit `__dict_*` parameters,**
+      one per entry of the instance context. 1d must map each
+      `definition(id).params[i]` to the explicit parameter for the same
+      predicate, never prepend a second set. The old pass reuses that prefix
+      by position, which binds `Ord` to `__dict_Eq` under the context
+      `(Eq<a>, Ord<a>)`.
+    - **Forwarders** (`generated_instance_method_alias`) already pass their
+      dictionaries, so the emitter must not add the bound's dictionary again.
+    - **The evidence map can go stale.** `prepare_program_for_lowering*`
+      re-infers through `apply_hm_final` and replaces `hm_expr_types`, but
+      keeps the old `evidence_map`. Solve, harvest and record definitions
+      there too.
+- [x] **1d. Create dictionary parameters at lowering.**
+  - For a `Statement::Function` with recorded parameters, prepend one `__dict_*`
+    `Lam` parameter per entry of `EvidenceMap::definition(id).params`.
+  - Read them by the statement's `id`, not from the scheme. The list is the
+    one the solver discharged against, in that order: GHC's `abs_ev_vars`.
+  - `DictArg::Param { owner, index, path }` then renders as `owner`'s
+    `index`-th parameter variable, followed by `TupleField` projections along
+    `path`.
+    - `owner` may enclose the current definition. Its parameter is then in
+      scope lexically, as GHC's outer given variable is.
+    - Lowering keeps a map from `(owner, index)` to binder while it is inside
+      `owner`'s body.
   - Method calls in the body resolve through the same paths, not through
     `choose_candidate`.
   - This replaces the parameter-adding half of `rewrite_constrained_functions`.
-- [ ] **1e. Switch over (C5 lands).** Evidence becomes the only source of
+
+  **Done 2026-10-10, narrowed to what the old path still agrees with.** The
+  old path supplies the dictionary *arguments* until 1e. So lowering may only
+  create a parameter that elaboration would create the same way, or old call
+  sites would pass dictionaries to the wrong parameters.
+
+  | Commit | What it does |
+  |---|---|
+  | `6b52e38d`, `9d39c28f` | The evidence map follows the program being lowered |
+  | `615effdc` | Lowering creates the dictionary parameters |
+  | `ea663af5` | A dictionary named only from a superclass slot is defined |
+  | `a8f21fc6` | A method call answered by a parameter reads it |
+
+  - **`6b52e38d`, `9d39c28f`: the evidence map follows the program being
+    lowered.** Dumps and whole-program LLVM re-infer a merged or regenerated
+    program. Its evidence is now solved again too (`solve_class_constraints`),
+    and the `--optimize` paths re-infer before folding. On the `--dump-core`
+    path, `mismatched` went from 2165 to 0 and `unreached` from 1679 to 0.
+  - **`615effdc`: lowering creates the parameters** from
+    `definition(id).params`, with the canonical names (`__dict_Eq`,
+    `__dict_Eq_1`). Elaboration finds them by name and adds none of its own.
+    - Only top-level and module definitions, the ones elaboration covers.
+    - Only where the scheme elaboration reads asks for the same classes in the
+      same order, with no class twice. Anything else is reported by the diff
+      report as a definition left to elaboration:
+      - CFG module members, which have no scheme there;
+      - definitions with two dictionaries of one class: the
+        `two_dictionaries_*` and `result_directed_two_dictionaries` fixtures,
+        and E485's.
+    - Generated instance functions keep their explicit `__dict_*` parameters.
+      Each evidence parameter is matched to the explicit one with its
+      canonical name, never by position.
+  - **`ea663af5`, found by the next step:** elaboration defined only the
+    dictionaries a program named itself. So `__dict_Sizeable_Int`, named only
+    from `__dict_Measurable_Int`'s superclass slot, was never defined, and
+    reading the slot failed with `Uninit`. Pinned by
+    `type_classes/superclass_slot_dictionary.flx`.
+  - **`a8f21fc6`: a method call whose evidence is a parameter reads it** from
+    that parameter's binder: superclass slots, then the method's slot.
+    - The old path's dispatch to "the only instance in sight" went from 51
+      sites to 1.
+    - The one left is `generics/failing/runtime/sole_instance_dispatch.flx`.
+      There a module's `measure<a: Sized>` sees only `Sized<Int>`, and the
+      main file's `Sized<String>` is never used. The Core path is now right.
+      The VM compiles module members through the CFG path, where they have no
+      scheme, so it waits for 1e.
+    - **Fixed in 1e (`7911d863`):** the VM compiles a module's members from
+      their IR, and the fixture moved to `generics/working/accepts/`.
+  - **Moved to 1e:**
+    - parameters for nested bounded functions, since their callers pass
+      nothing until then;
+    - with them, binder resolution keeping an evidence `Var`'s binder: it only
+      matters once an inner definition has a same-named parameter;
+    - marking forwarders so the emitter does not add the bound's dictionary
+      again (the `generated` verdict);
+    - definitions with two dictionaries of one class.
+- [x] **1e. Switch over (C5 lands).** Evidence becomes the only source of
   dictionary arguments. A site with no evidence is an internal error that names
   the site (rule 5).
-- [ ] **1f. Delete deletion group 1 (C6).**
-  - `class_call_type_args`, both copies: `lower_ast/mod.rs` and
-    `compiler/expression.rs`.
+  - **Exception until Phase 2:** a site the solver filed as
+    `UnresolvedAfterGeneralization` has no evidence by construction. There are
+    exactly five, all in `Flow.List`.
+  - The shadow run answered how the old path serves them. It guesses `Int` for
+    `contains` (569) and passes nothing to the four operators. Either keep
+    that path for exactly those five sites, marked for removal at 2b, or move
+    B2 ahead of 1e.
+  - Switch **both** entry points: `lower_core_from_program` and
+    `cfg::lower_program_to_ir_typed`. The VM lowers the main file and every
+    stdlib unit through the second.
+  - Do not turn them into internal errors: that would break the standard
+    library.
+  - **Found during 1d, to settle before lowering fails closed:**
+    - **Re-inferring a merged program solves less than the unit's own
+      compile.** In `type_classes/no_partial_resolution.flx` (`count`) and
+      both `either_instances.flx` (`fmap`, `pure` and `bind`), the merged
+      solve files `UnresolvedAfterGeneralization`. The suspected cause, not
+      verified: an unqualified method call shares its name with a merged
+      stdlib function.
+    - **`--optimize` lowering.** Constant folding deletes some sites, which
+      then count as `unreached`; most are `0 - 1` in `Flow.Numeric`. Inlining
+      copies a helper's body, ids and all, into its caller, giving 17
+      `mismatched` sites, e.g. `guide/using_constants.flx`. Fail-closed must
+      not take a folded-away site for a missing one, and must refuse a copied
+      one.
+    - **Separately, five files don't compile under `--optimize`**, before
+      and after 1d. `guide/stdlib_pipelines.flx` panics at
+      `compiler/expression.rs:1312` with a named-field expression that was
+      not desugared. Four others report E459, E490 or E491.
+  - **What switching over removes**, from the 1c sweep: the `Int` guess
+    (4 sites), wildcard dispatch to the only visible instance (51), and the
+    CFG path's missing dictionaries on module-qualified and multi-parameter
+    calls (129). The last group runs correctly today only because the stdlib
+    callees use operators, not methods.
+
+  **Done 2026-10-13.** Both paths lower dictionary parameters, arguments and
+  method calls from evidence only. A site with no usable evidence is an
+  internal error naming the site. Each commit was checked with
+  `scripts/verify-step.sh`: the suite, a compile sweep of every `.flx` file
+  under `examples/`, `tests/` and `lib/`, the same sweep under `--dump-core`
+  and `--optimize --dump-core`, and parity on vm, vm_cached, vm_strict and
+  llvm.
+  - **No exception was needed.** The five `Flow.List` helpers were annotated
+    with their bounds (`53fe6bc1`), so they have evidence.
+  - **`--optimize`** (`659886cf`, `38f346c8`, `72370d3e`, `31c88bb5`,
+    `8a72e3e9`): the five files compile, and each lowering path now folds the
+    program before its final inference, so its evidence is solved for the
+    program it lowers. `unreached` went from 1100 to 0 and `mismatched` to 0.
+  - **The merged re-inference** was not a merging problem. `count` lost to a
+    module member that stopped its dispatch stub being generated
+    (`5c4d8e69`). `fmap`, `pure` and `bind` on `Either` were a unifier gap
+    KI-064 left: `f<a>` did not unify with `Either<String, Int>` as
+    `f = Either<String>` (`9ccf1214`).
+  - **Calls that raised no predicate.** Before lowering could fail closed, a
+    unit compile left some class-method calls without evidence, so LLVM
+    called the dispatch stub. The causes: the bare name of an imported class's
+    method was unbound (`2889dbed`); nullary methods (`mempty()`, `77a989f1`);
+    and calls qualified by a module alias or by the class's own module
+    (`0c75c2e0`, `32a9673e`). `bfa6d220` counts such a call as `unraised`
+    and makes it an internal error, and the count went to 0.
+  - **Emit machinery:** `142d1425` (binder resolution keeps a dictionary
+    binder lowering set), then `2d029422`, `ccd4e374` and `c312b6fa`, all
+    behind a shadow mode.
+  - **The Core path** (dumps and per-module LLVM) switched in `f24b88a8`.
+    `syntax_tour` and `where_constraint_multi_param` now pass on LLVM.
+  - **The CFG path** (the VM) switched in `617146c6`, with a guard that each
+    function's dictionary count matches its scheme. A top-level ambiguous
+    predicate is E459 (`d3cd8484`) instead of an internal error. A lowering
+    error is reported only when the unit has no error of its own, so lowering
+    no longer pre-empts a real diagnostic.
+  - **Module members on the VM** had never been compiled from IR. Linking
+    them (`7911d863`) needed a scope fix (`a824abdf`) and private members'
+    schemes (`0af5c3f7`). `sole_instance_dispatch` now runs on the VM.
+  - **Shadow mode went** in `3d393681`: `EvidenceMode`, the evidence diff
+    report and `FLUX_DBG_EVIDENCE_DIFF`, and lowering's old call-site
+    dispatch.
+- [x] **1f. Delete deletion group 1 (C6).**
+  - `class_call_type_args` in `lower_ast/mod.rs`. The copy in
+    `compiler/expression.rs` serves the AST path and belongs to deletion
+    group 2.
   - `resolve_dict_args_for_call`, `resolve_dict_args_for_scheme`, and
     `resolve_constraint_type_args` together with its **`Int` default**.
   - `insert_dict_args_at_call_sites`, `resolve_dict_arg`,
     `build_caller_dict_map`, `choose_candidate`.
+  - The dictionary uses of `scheme_for_current_function`:
+    `current_context_dictionary` and the `def_schemes` that
+    `record_def_scheme` collects for elaboration. The emitter stopped reading
+    the scheme by name in `c0778b4a`.
   - Keep `build_instance_dictionaries` and `build_contextual_dictionary_expr`.
     They build dictionary *values*; they don't choose instances.
   - Leave deletion group 2, the ~920 lines on the AST path, alone. It waits on
     E3's open question: whether the AST bytecode fallback can be retired.
-- [ ] **1g. One name per instance.** Every `__dict_*` name is derived from
-  `InstanceDef.type_key`. Today these places re-render `type_args` instead:
+
+  **Done 2026-10-13**, about 4,100 lines:
+  - `3d393681` deleted lowering's half: the `try_resolve_class_call*` and
+    `resolve_direct_class_call_dict_args*` family,
+    `resolve_dict_args_for_call`, `resolve_dict_args_for_module_member_call`
+    and `param_method_call`, with the shadow machinery.
+  - `4839b53a` deleted elaboration's half: `rewrite_constrained_functions`,
+    `insert_dict_args_at_call_sites`, `resolve_dict_arg`,
+    `build_caller_dict_map`, `choose_candidate`, `def_schemes`,
+    `record_def_scheme` and `scheme_for_current_function`.
+    `dict_elaborate.rs` now only defines the dictionaries a program names.
+  - `6f742a78` removed 1g's last fallback. It is not an internal error, as
+    planned: it only ran for an instance declaration that collection had
+    already rejected with its own diagnostic (E447, for example). Such a
+    declaration now generates no instance methods. Its dispatch stubs stay,
+    so a call reports E444 rather than an undefined name.
+  - `rg 'choose_candidate|class_call_type_args|resolve_constraint_type_args' src/core`
+    finds nothing. The AST path's copies in `compiler/expression.rs` are
+    deletion group 2.
+- [x] **1g. One name per instance.** Every `__dict_*` name is derived from
+  `InstanceDef.type_key`. Before this step, these places re-rendered
+  `type_args` instead:
   - `predeclaration.rs`
   - `codegen.rs`
   - `class_solver.rs`
   - `dict_elaborate.rs`
   - `lower_ast/mod.rs`
+
+  **Done in `e0164d47` and `8180dea2`.** Checked 2026-10-08 with
+  `rg 'dictionary_name\(|instance_type_key\(' src`: every non-test caller
+  passes an `InstanceDef.type_key`.
+  - One fallback is left. `class_dispatch.rs` re-renders a key for an
+    `instance` declaration that has no collected `InstanceDef`. No file in the
+    1c sweep reaches it, expected-error fixtures included. 1f makes it an
+    internal error.
+  - **Still open:** a type's identity is its bare name
+    (`TypeConstructor::Adt(Symbol)`), so two modules' same-named types meet
+    at a use site ([KI-099](../known_issues.md#ki-099)).
 
 **Tracker correction.** C6's list included "the ±dictionaries band in
 `check_known_call_arity`". That band was already removed with KI-082.
@@ -235,6 +665,21 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
 - `examples_generics` and `generics_runtime` are re-run and the snapshot diff is
   read. This tests the claim that Track C fixes KI-076, KI-071 and KI-073 at the
   root. Record which ones moved.
+
+**Which ones moved** (re-run 2026-10-13, at `6f742a78`):
+
+| KI | VM | LLVM | Moved |
+|---|---|---|---|
+| [KI-073](../known_issues.md#ki-073) | `"42"` | `"42"` | **Fixed** by `f24b88a8`. `syntax_tour` passes parity. |
+| [KI-071](../known_issues.md#ki-071) | `true` | `true` | **Does not reproduce.** No crash, and both backends agree. |
+| [KI-076](../known_issues.md#ki-076) | E1000 | `9` | **LLVM only.** The VM still fails; see the KI. |
+
+KI-076's evidence is right on the VM too: the `<=` in `bigger` is a
+`MethodCall` answered from `bigger`'s own `Ord` parameter. The VM calls the
+projected `lte` with two arguments and reports `want=3`, which is the arity of
+`Ord<V>`'s instance method with its `Eq<V>` context dictionary first. That
+points at how the VM builds or applies a contextual instance's dictionary
+rather than at evidence, though it is not yet confirmed. Phase 3b takes it up.
 
 ---
 
@@ -300,6 +745,11 @@ and `b2_forwarding_over_constrained_callee.flx`.
 
   **Exit:** the `snapshot_ki_098_despecialised_core_def` snapshot converges on
   the baseline, `::(h#N:Int, t#N:Box)`.
+- [ ] **2a″. B1 recognises inferred constraints.** B1's in-place
+  specialisation skips a constrained function only when its bound is written
+  in the signature. Decide from the definition's scheme instead. Pin it with
+  `tests/parity/user_fn_name_no_collision.flx` under B2's rule: step 0b found
+  native printing `758397473435` for `sum(3, 4)`. **Gate for 2b.**
 - [ ] **2a′. Settle numeric defaulting before B2.**
   - `decide_quantification` defaults numeric type variables *during inference*
     (`build_numeric_default_subst`, `src/types/quantify.rs`). GHC defaults only
@@ -329,7 +779,7 @@ and `b2_forwarding_over_constrained_callee.flx`.
   fn is_even(n) { if n == 0 { true } else { is_odd(n - 1) } }
   fn is_odd(n)  { if n == 0 { false } else { is_even(n - 1) } }
   ```
-- [ ] **2d. B3 — `CACHE_EPOCH` → 54.**
+- [ ] **2d. B3 — bump `CACHE_EPOCH` to its next value.**
 
 ### Exit
 
@@ -439,7 +889,9 @@ let x = zero()   // before: runtime E1009 — after: a compile-time ambiguity er
 - [ ] **4a. E2 / 0183 R6d.** `Disposition` loses `Stuck`. A predicate that
   reaches whole-program scope over an unresolved variable is reported as
   ambiguous, with its origin. `e2_ambiguous_instance_selection.flx` moves to
-  `working/rejects/`.
+  `working/rejects/`. *(Moved in step 1e, E2a: the nullary call now raises its
+  predicate and is reported as `E459`. The message requirements below are
+  still open.)*
   - Lead with "ambiguous" only when the variable is still unknown, some instance
     could match, and no given applies. Otherwise report "no instance".
   - The message names the variable and the use that raised it, the constraint,
@@ -478,4 +930,4 @@ let x = zero()   // before: runtime E1009 — after: a compile-time ambiguity er
   per-file error codes before and after. The diff is the evidence, not the
   absolute count.
 - **Phase 1c:** no unexplained `FLUX_DBG_EVIDENCE_DIFF` divergence before 1e
-  switches over.
+  switches over. (The report was deleted with shadow mode in 1e.)

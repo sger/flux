@@ -12,6 +12,7 @@ impl Compiler {
         &mut self,
         program: &Program,
     ) -> Result<IrProgram, Vec<Diagnostic>> {
+        self.deferred_lowering_error = None;
         let mut program = program.clone();
         self.apply_named_field_desugar(&mut program);
         let class_env_ref = if self.class_env.classes.is_empty() {
@@ -26,11 +27,26 @@ impl Compiler {
             self.type_optimize,
             Some(&self.type_env),
             class_env_ref,
+            Some(&self.evidence_map),
         ) {
             Ok(program) => program,
-            Err(diag) => {
-                self.errors.push(diag);
-                return Err(std::mem::take(&mut self.errors));
+            // Codegen compiles every function on the AST path without IR,
+            // which reports the unit's own errors. Finalization reports this
+            // one only if there are none, so the unit still never runs.
+            Err(mut diag) => {
+                if diag.file().is_none() {
+                    diag.set_file(self.file_path.clone());
+                }
+                self.deferred_lowering_error = Some(diag);
+                return Ok(IrProgram {
+                    top_level_items: Vec::new(),
+                    functions: Vec::new(),
+                    entry: crate::cfg::FunctionId(0),
+                    globals: Vec::new(),
+                    global_bindings: Vec::new(),
+                    hm_expr_types: std::collections::HashMap::new(),
+                    core: None,
+                });
             }
         };
         self.warnings.extend(fbip_warnings);

@@ -3,9 +3,9 @@
 //!
 //! For each instance method, generates a mangled function (`__tc_Class_Type_method`)
 //! that compiles through the normal pipeline. Polymorphic stubs provide name
-//! resolution for HM inference. Monomorphic calls are resolved at compile time
-//! via `try_resolve_class_call`; polymorphic calls go through dictionary
-//! elaboration (Core-to-Core pass).
+//! resolution for HM inference. Lowering dispatches each method call from the
+//! solver's evidence: to an instance's mangled function, or out of a
+//! dictionary parameter.
 
 use std::collections::{HashMap, HashSet};
 
@@ -221,6 +221,7 @@ pub fn generate_dispatch_functions(
         &dispatch_table,
         &mut generated,
         &mut reserved_names,
+        &mut synth_expr_ids,
     );
 
     // Pre-intern dictionary names (__dict_{Class}_{Type}) for later use
@@ -230,23 +231,38 @@ pub fn generate_dispatch_functions(
     generated
 }
 
+/// The function names a generated function must not take: those in the scope
+/// it is placed in.
+///
+/// `inject_generated_dispatch_functions` places a bare-named function (a
+/// dispatch stub or a default method) inside the module when the program is a
+/// single module, and at the top level otherwise. So a module's members are
+/// counted only when it is the program's only module. In a merged program,
+/// `Flow.List.count` is not in scope where the `count` stub goes, and must
+/// not stand in for it.
 fn collect_existing_function_names(statements: &[Statement]) -> HashSet<Identifier> {
+    let only_module = {
+        let mut modules = statements
+            .iter()
+            .filter(|stmt| matches!(stmt, Statement::Module { .. }));
+        match (modules.next(), modules.next()) {
+            (Some(module), None) => Some(module),
+            _ => None,
+        }
+    };
     let mut names = HashSet::new();
     collect_existing_function_names_into(statements, &mut names);
+    if let Some(Statement::Module { body, .. }) = only_module {
+        collect_existing_function_names_into(&body.statements, &mut names);
+    }
     names
 }
 
 fn collect_existing_function_names_into(statements: &[Statement], names: &mut HashSet<Identifier>) {
     for stmt in statements {
-        match stmt {
-            Statement::Function { name, body, .. } => {
-                names.insert(*name);
-                collect_existing_function_names_into(&body.statements, names);
-            }
-            Statement::Module { body, .. } => {
-                collect_existing_function_names_into(&body.statements, names);
-            }
-            _ => {}
+        if let Statement::Function { name, body, .. } = stmt {
+            names.insert(*name);
+            collect_existing_function_names_into(&body.statements, names);
         }
     }
 }
@@ -405,6 +421,7 @@ fn generate_builtin_instance_functions(
                 effects: method_sig.effects.clone(),
                 body,
                 span: Span::default(),
+                id: builtin_expr_ids.next_id(),
             });
             dispatch_table.insert((instance.class_id, method_sig.name));
         }
@@ -595,6 +612,35 @@ fn refresh_stmt_expr_ids(stmt: Statement, id_gen: &mut ExprIdGen) -> Statement {
             expression: refresh_expr_ids(expression, id_gen),
             has_semicolon,
             span,
+        },
+        // A nested definition is renumbered too: every copy of a cloned body
+        // must be a distinct definition, or their givens share one key.
+        Statement::Function {
+            is_public,
+            fip,
+            intrinsic,
+            name,
+            type_params,
+            parameters,
+            parameter_types,
+            return_type,
+            effects,
+            body,
+            span,
+            id: _,
+        } => Statement::Function {
+            is_public,
+            fip,
+            intrinsic,
+            name,
+            type_params,
+            parameters,
+            parameter_types,
+            return_type,
+            effects,
+            body: refresh_block_expr_ids(body, id_gen),
+            span,
+            id: id_gen.next_id(),
         },
         other => other,
     }
@@ -1173,6 +1219,7 @@ fn generate_default_method_functions(
     dispatch_table: &HashSet<(crate::types::class_id::ClassId, Identifier)>,
     generated: &mut Vec<Statement>,
     reserved_names: &mut HashSet<Identifier>,
+    id_gen: &mut ExprIdGen,
 ) {
     for stmt in statements {
         match stmt {
@@ -1207,6 +1254,7 @@ fn generate_default_method_functions(
                                 effects: method.effects.clone(),
                                 body: default_body.clone(),
                                 span: *span,
+                                id: id_gen.next_id(),
                             });
                         }
                     }
@@ -1219,6 +1267,7 @@ fn generate_default_method_functions(
                     dispatch_table,
                     generated,
                     reserved_names,
+                    id_gen,
                 );
             }
             _ => {}
@@ -1285,16 +1334,44 @@ fn generate_from_statements(
                 else {
                     continue;
                 };
-                // Determine the head type name(s) for mangling.
-                // Multi-param classes join all type args: __tc_Convert_Int_String_convert
-                let type_name = if type_args.is_empty() {
-                    "Unknown".to_string()
-                } else {
-                    type_args
-                        .iter()
-                        .map(|a| a.display_with(interner))
-                        .collect::<Vec<_>>()
-                        .join("_")
+                // The key the collected instance was given, which knows the
+                // module defining each head type; this declaration alone does
+                // not. Multi-param classes join all type args:
+                // __tc_Convert_Int_String_convert
+                //
+                // A declaration collection rejected has no collected instance,
+                // and collection has already reported why. It generates no
+                // methods: a key re-rendered from the declaration would name a
+                // dictionary no instance defines. Its methods still get their
+                // dispatch stubs, so a call to one reports the missing
+                // instance rather than an undefined name.
+                let Some(type_name) = class_env
+                    .instances
+                    .iter()
+                    .find(|instance| {
+                        instance.class_id == class_def.class_id()
+                            && instance.instance_module == current_module
+                            && instance.type_args.len() == type_args.len()
+                            && instance
+                                .type_args
+                                .iter()
+                                .zip(type_args)
+                                .all(|(collected, declared)| collected.structural_eq(declared))
+                    })
+                    .map(|instance| instance.type_key.clone())
+                else {
+                    let declared: HashSet<Identifier> = methods.iter().map(|m| m.name).collect();
+                    for method_sig in &class_def.methods {
+                        if declared.contains(&method_sig.name)
+                            || classes
+                                .surface
+                                .default_body(class_def.class_id(), method_sig.name)
+                                .is_some()
+                        {
+                            dispatch_table.insert((class_def.class_id(), method_sig.name));
+                        }
+                    }
+                    continue;
                 };
 
                 let explicit_methods: HashMap<Identifier, _> =
@@ -1402,6 +1479,7 @@ fn generate_from_statements(
                         effects: inferred_effects,
                         body,
                         span: Span::default(),
+                        id: id_gen.next_id(),
                     };
                     generated.push(fn_stmt);
 
@@ -2046,6 +2124,7 @@ fn generate_polymorphic_stub(
             span,
         },
         span,
+        id: synth_expr_ids.next_id(),
     }
 }
 
@@ -2056,7 +2135,7 @@ mod tests {
     use super::*;
     use crate::{
         ast::{Visitor, walk_expr},
-        syntax::{lexer::Lexer, parser::Parser},
+        syntax::{expression::ExprId, lexer::Lexer, parser::Parser},
     };
 
     fn expr_ids(block: &Block) -> HashSet<crate::syntax::expression::ExprId> {
@@ -2147,6 +2226,201 @@ instance Renderable<Int> {
             source_ids.is_disjoint(&generated_ids),
             "generated explicit instance body reused source ExprIds: source={source_ids:?}, generated={generated_ids:?}"
         );
+    }
+
+    /// Every definition, parsed or generated, has its own id, and a generated
+    /// one is allocated past everything the parser produced. The evidence map
+    /// keys a definition's givens by this id, so two definitions sharing one
+    /// would hand one of them the other's dictionary parameters.
+    #[test]
+    fn every_definition_parsed_or_generated_has_a_distinct_id() {
+        let source = r#"
+class Renderable<a> {
+    fn render(x: a) -> Int
+    fn twice(x: a) -> Int { render(x) + render(x) }
+}
+
+instance Renderable<Int> {
+    fn render(x) { x + 1 }
+}
+
+fn outer(n) {
+    fn inner(m) { m + 1 }
+    inner(n)
+}
+
+fn other(n) { n }
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
+        let mut interner = parser.take_interner();
+        let (class_env, class_surface, diagnostics) =
+            ClassEnv::from_statements(&program.statements, &interner);
+        assert!(diagnostics.is_empty(), "class diagnostics: {diagnostics:?}");
+
+        fn definition_ids(statements: &[Statement], out: &mut Vec<ExprId>) {
+            for statement in statements {
+                match statement {
+                    Statement::Function { id, body, .. } => {
+                        out.push(*id);
+                        definition_ids(&body.statements, out);
+                    }
+                    Statement::Module { body, .. } => definition_ids(&body.statements, out),
+                    _ => {}
+                }
+            }
+        }
+        let mut parsed = Vec::new();
+        definition_ids(&program.statements, &mut parsed);
+        assert_eq!(parsed.len(), 3, "outer, inner and other");
+        assert!(!parsed.contains(&ExprId::UNSET));
+
+        let past_parser = ExprIdGen::resuming_past_program(&program).counter();
+        let generated = generate_dispatch_functions(
+            &program.statements,
+            DispatchClasses {
+                env: &class_env,
+                surface: &class_surface,
+            },
+            &mut interner,
+            &HashSet::new(),
+            DispatchGenerationOptions {
+                include_builtin_instances: false,
+            },
+        );
+        let mut synthesized = Vec::new();
+        definition_ids(&generated, &mut synthesized);
+        assert!(!synthesized.is_empty());
+        assert!(
+            synthesized.iter().all(|ExprId(n)| *n >= past_parser),
+            "a generated definition reused a parser id: {synthesized:?}, parser ended at {past_parser}"
+        );
+
+        let mut all = parsed;
+        all.extend(synthesized);
+        let distinct: HashSet<_> = all.iter().copied().collect();
+        assert_eq!(
+            distinct.len(),
+            all.len(),
+            "duplicate definition ids: {all:?}"
+        );
+    }
+
+    /// A function of a method's name stands in for its dispatch stub only in
+    /// the scope the stub is placed in. In a merged program that is the top
+    /// level, where `Flow.List.count` is not in scope: the `count` stub must
+    /// still be generated, or the bare `count` takes `Flow.List.count`'s type.
+    #[test]
+    fn a_module_member_does_not_stand_in_for_a_methods_dispatch_stub() {
+        let stub_generated = |source: &str| {
+            let mut parser = Parser::new(Lexer::new(source));
+            let program = parser.parse_program();
+            assert!(
+                parser.errors.is_empty(),
+                "parser errors: {:?}",
+                parser.errors
+            );
+            let mut interner = parser.take_interner();
+            let (class_env, class_surface, diagnostics) =
+                ClassEnv::from_statements(&program.statements, &interner);
+            assert!(diagnostics.is_empty(), "class diagnostics: {diagnostics:?}");
+            generate_dispatch_functions(
+                &program.statements,
+                DispatchClasses {
+                    env: &class_env,
+                    surface: &class_surface,
+                },
+                &mut interner,
+                &HashSet::new(),
+                DispatchGenerationOptions {
+                    include_builtin_instances: false,
+                },
+            )
+            .iter()
+            .any(|statement| {
+                matches!(statement, Statement::Function { name, .. }
+                    if interner.resolve(*name) == "count")
+            })
+        };
+        let class = r#"
+class Counted<a> {
+    fn count(x: a) -> Int
+}
+
+instance Counted<Int> {
+    fn count(x) { 1 }
+}
+"#;
+        let seq = "module Lib.Seq {\n    public fn count(n: Int) -> Int { n }\n}\n";
+        let other = "module Lib.Other {\n    public fn other(n: Int) -> Int { n }\n}\n";
+        // Merged: the stub goes at the top level, where `Lib.Seq.count` is not.
+        assert!(stub_generated(&format!("{seq}{other}{class}")));
+        // A module compiled alone: the stub goes inside it, beside `count`.
+        assert!(!stub_generated(&format!("{seq}{class}")));
+        assert!(!stub_generated(&format!(
+            "fn count(n: Int) -> Int {{ n }}\n{class}"
+        )));
+    }
+
+    /// An instance declaration that collection rejected (E447 here) has no
+    /// `InstanceDef`, so it has no key to name its methods by. It generates no
+    /// methods: its error is already reported, and re-rendering a key from the
+    /// declaration would name a dictionary no collected instance defines.
+    #[test]
+    fn a_rejected_instance_declaration_generates_no_methods() {
+        let source = r#"
+class Shape<a> {
+    fn area(x: a) -> Int
+}
+
+instance Shape<Int, Int> {
+    fn area(x) { 1 }
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(source));
+        let program = parser.parse_program();
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
+        let mut interner = parser.take_interner();
+        let (class_env, class_surface, diagnostics) =
+            ClassEnv::from_statements(&program.statements, &interner);
+        assert_eq!(diagnostics.len(), 1, "class diagnostics: {diagnostics:?}");
+        assert!(class_env.instances.is_empty());
+
+        let generated = generate_dispatch_functions(
+            &program.statements,
+            DispatchClasses {
+                env: &class_env,
+                surface: &class_surface,
+            },
+            &mut interner,
+            &HashSet::new(),
+            DispatchGenerationOptions {
+                include_builtin_instances: false,
+            },
+        );
+        let names: Vec<_> = generated
+            .iter()
+            .filter_map(|statement| match statement {
+                Statement::Function { name, .. } => Some(interner.resolve(*name).to_string()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            !names.iter().any(|name| name.starts_with("__tc_")),
+            "generated methods for a rejected instance: {names:?}"
+        );
+        // The stub stays, so a call to `area` reports the missing instance
+        // (E444) rather than an undefined name.
+        assert!(names.iter().any(|name| name == "area"), "{names:?}");
     }
 
     /// Stage 7 rejects a `deriving` clause exactly where no body can be

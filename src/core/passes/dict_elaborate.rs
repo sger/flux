@@ -1,99 +1,48 @@
-/// Dictionary elaboration pass for type classes (Proposal 0145, Step 5b).
+/// Dictionary definitions for type classes (Proposal 0145, Step 5b).
 ///
-/// Transforms type class dispatch from runtime `type_of()` checks to
-/// compile-time dictionary passing.
+/// For each class instance a program refers to, emits a top-level `CoreDef`
+/// named `__dict_{Class}_{Type}`: a tuple of references to the mangled
+/// instance functions, built from its context's dictionaries for a contextual
+/// instance.
 ///
-/// ## What this pass does
-///
-/// 1. **Dictionary construction**: For each concrete instance in `ClassEnv`,
-///    emits a top-level `CoreDef` named `__dict_{Class}_{Type}` containing
-///    a tuple of references to mangled instance functions.
-///
-/// 2. **Dictionary parameter insertion**: For polymorphic functions whose
-///    `Scheme` has class constraints, prepends dictionary parameters to
-///    the function's `Lam` and rewrites class method calls in the body
-///    to extract methods from the dictionary via `TupleField`.
-///
-/// 3. **Dictionary passing at call sites**: When calling a constrained
-///    function, inserts the appropriate dictionary as an argument.
-///
-/// Monomorphic call sites (already resolved to `__tc_*` mangled names by
-/// `try_resolve_class_call` during AST-to-Core lowering) are left unchanged.
+/// Dictionary parameters, the dictionaries each call passes, and method calls
+/// on a dictionary are all placed by lowering, from the solver's evidence
+/// (0.0.8 plan, step 1e); this pass only defines the dictionaries they name.
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    core::{
-        CoreBinder, CoreBinderId, CoreDef, CoreExpr, CorePrimOp, CoreProgram, CoreType, FluxRep,
-    },
+    core::{CoreBinder, CoreBinderId, CoreDef, CoreExpr, CorePrimOp, CoreProgram, FluxRep},
     diagnostics::position::Span,
     syntax::{Identifier, interner::Interner},
-    types::{
-        class_env::{ClassEnv, DictSelection, DictSlot, select_dictionary},
-        infer_type::InferType,
-        scheme::Scheme,
-        type_env::TypeEnv,
-    },
+    types::class_env::{ClassEnv, DictSlot},
 };
 
-/// Entry point for dictionary elaboration.
+/// Define the dictionaries a program lowered from evidence refers to.
 ///
-/// 1. Emits `__dict_{Class}_{Type}` CoreDefs for each concrete instance.
-/// 2. For constrained functions (scheme has class constraints), prepends
-///    dictionary parameters and rewrites class method calls to extract
-///    from the dictionary.
-/// 3. At call sites to constrained functions, inserts dictionary arguments.
-pub fn elaborate_dictionaries(
+/// Lowering from evidence has already given each constrained definition its
+/// parameters and each call its dictionaries: what is left is defining the
+/// `__dict_*` globals the program names.
+pub fn build_referenced_dictionaries(
     program: &mut CoreProgram,
     class_env: &ClassEnv,
-    type_env: &TypeEnv,
-    interner: &Interner,
-    next_id: &mut u32,
-) {
-    let def_schemes = program
-        .defs
-        .iter()
-        .filter_map(|def| {
-            type_env
-                .lookup(def.name)
-                .cloned()
-                .map(|scheme| (def.binder.id, scheme))
-        })
-        .collect::<HashMap<_, _>>();
-    elaborate_dictionaries_with_def_schemes(
-        program,
-        class_env,
-        type_env,
-        &def_schemes,
-        interner,
-        next_id,
-    );
-}
-
-pub fn elaborate_dictionaries_with_def_schemes(
-    program: &mut CoreProgram,
-    class_env: &ClassEnv,
-    type_env: &TypeEnv,
-    def_schemes: &HashMap<CoreBinderId, Scheme>,
     interner: &Interner,
     next_id: &mut u32,
 ) {
     normalize_all_existing_dict_param_types(program, interner);
-
     if class_env.classes.is_empty() {
         return;
     }
+    define_referenced_dictionaries(program, class_env, interner, next_id);
+}
 
-    // Rewrite constrained function bodies when present, then resolve concrete
-    // dictionary references introduced by typed class-call lowering. The
-    // latter is needed even in an otherwise monomorphic caller: a call such
-    // as `encode(Some(42))` is lowered directly to a mangled instance method
-    // but still needs its `Encode<Int>` dictionary materialised.
-    // Phase 3: Rewrite constrained function bodies.
-    rewrite_constrained_functions(program, class_env, def_schemes, interner, next_id);
-
-    // Phase 4: Insert dictionary arguments at call sites.
-    insert_dict_args_at_call_sites(program, class_env, type_env, def_schemes, interner);
-
+/// Prepend a definition for every dictionary the program refers to, and for
+/// every dictionary those refer to, each before its first user.
+fn define_referenced_dictionaries(
+    program: &mut CoreProgram,
+    class_env: &ClassEnv,
+    interner: &Interner,
+    next_id: &mut u32,
+) {
     let referenced_dicts = collect_referenced_dictionary_names(program, interner);
     if referenced_dicts.is_empty() {
         return;
@@ -102,10 +51,11 @@ pub fn elaborate_dictionaries_with_def_schemes(
     // Phase 2: Build only the concrete dictionary CoreDefs this module
     // actually references. Constrained definitions that only thread incoming
     // dictionary parameters do not need local copies of every instance dict.
-    let dict_defs = build_instance_dictionaries(class_env, interner, next_id)
-        .into_iter()
-        .filter(|def| referenced_dicts.contains(&def.name))
-        .collect::<Vec<_>>();
+    let dict_defs = referenced_dictionary_defs(
+        build_instance_dictionaries(class_env, interner, next_id),
+        referenced_dicts,
+        interner,
+    );
     if dict_defs.is_empty() {
         return;
     }
@@ -114,6 +64,60 @@ pub fn elaborate_dictionaries_with_def_schemes(
     let mut new_defs = dict_defs;
     new_defs.append(&mut program.defs);
     program.defs = new_defs;
+}
+
+/// The dictionaries out of `all` that `referenced` names, and every
+/// dictionary those name in turn, each after the ones it names.
+///
+/// A dictionary's superclass slots name the superclass dictionaries for the
+/// same head (`__dict_Measurable_Int` holds `__dict_Sizeable_Int`), so a
+/// program that only names the subclass dictionary still reads the
+/// superclass one through it. And a dictionary is a tuple built where it is
+/// defined, so the ones it names must already be.
+fn referenced_dictionary_defs(
+    all: Vec<CoreDef>,
+    mut referenced: HashSet<Identifier>,
+    interner: &Interner,
+) -> Vec<CoreDef> {
+    let names_in = |def: &CoreDef| {
+        let mut names = HashSet::new();
+        collect_referenced_dictionary_names_expr(&def.expr, interner, &mut names);
+        names
+    };
+    loop {
+        let reached: HashSet<_> = all
+            .iter()
+            .filter(|def| referenced.contains(&def.name))
+            .flat_map(names_in)
+            .filter(|name| !referenced.contains(name))
+            .collect();
+        if reached.is_empty() {
+            break;
+        }
+        referenced.extend(reached);
+    }
+
+    let mut pending: Vec<CoreDef> = all
+        .into_iter()
+        .filter(|def| referenced.contains(&def.name))
+        .collect();
+    let mut ordered = Vec::with_capacity(pending.len());
+    while !pending.is_empty() {
+        let unplaced: HashSet<_> = pending.iter().map(|def| def.name).collect();
+        let (ready, waiting): (Vec<_>, Vec<_>) = pending.into_iter().partition(|def| {
+            names_in(def)
+                .iter()
+                .all(|name| *name == def.name || !unplaced.contains(name))
+        });
+        if ready.is_empty() {
+            // A cycle between dictionaries: keep the build order for the rest.
+            ordered.extend(waiting);
+            break;
+        }
+        ordered.extend(ready);
+        pending = waiting;
+    }
+    ordered
 }
 
 fn collect_referenced_dictionary_names(
@@ -245,9 +249,7 @@ fn build_instance_dictionaries(
         };
 
         let dict_expr = if instance.context.is_empty() {
-            let Some(slot_names) =
-                class_env.dictionary_slot_names(instance.class_id, &type_name, interner)
-            else {
+            let Some(slot_names) = class_env.dictionary_slot_names(instance, interner) else {
                 continue;
             };
             // All slots or none. Dropping the ones that happen to be
@@ -356,7 +358,6 @@ fn build_contextual_dictionary_expr(
                 class_env,
                 instance,
                 superclass,
-                &type_name,
                 &context_binders,
                 interner,
             ),
@@ -407,7 +408,6 @@ fn superclass_evidence_expr(
     class_env: &ClassEnv,
     instance: &crate::types::class_env::InstanceDef,
     superclass: crate::types::class_id::ClassId,
-    type_name: &str,
     context_binders: &[CoreBinder],
     interner: &Interner,
 ) -> Option<CoreExpr> {
@@ -422,19 +422,12 @@ fn superclass_evidence_expr(
         return Some(CoreExpr::bound_var(binder, span));
     }
 
+    let evidence = class_env.superclass_instance(superclass, instance)?;
     let dict_sym = interner.lookup(&crate::types::class_env::dictionary_name(
-        superclass, type_name, interner,
+        superclass,
+        &evidence.type_key,
+        interner,
     ))?;
-    let evidence = class_env.instances.iter().find(|candidate| {
-        candidate.class_id == superclass
-            && candidate
-                .type_args
-                .iter()
-                .map(|arg| arg.display_with(interner))
-                .collect::<Vec<_>>()
-                .join("_")
-                == type_name
-    })?;
     evidence
         .context
         .is_empty()
@@ -480,782 +473,6 @@ fn build_contextual_dictionary_method_closure(
         }),
         span,
     }
-}
-
-/// Rewrite constrained functions to accept dictionary parameters and
-/// extract methods from them instead of calling polymorphic stubs.
-/// The constraints of `scheme` that carry a runtime dictionary.
-///
-/// Marker classes (no methods) have no dictionary tuple, so they contribute
-/// neither a parameter nor an argument. Filtering here — once, where the
-/// constraint list is read — keeps callee arity and call-site arity derived
-/// from the same predicate (Proposal 0179 Stage 2).
-fn dictionary_constraints(
-    scheme: &Scheme,
-    class_env: &ClassEnv,
-) -> Vec<crate::ast::type_infer::constraint::SchemeConstraint> {
-    scheme
-        .constraints
-        .iter()
-        .filter(|constraint| class_env.constraint_needs_dictionary(constraint))
-        .cloned()
-        .collect()
-}
-
-fn rewrite_constrained_functions(
-    program: &mut CoreProgram,
-    class_env: &ClassEnv,
-    def_schemes: &HashMap<CoreBinderId, Scheme>,
-    interner: &Interner,
-    next_id: &mut u32,
-) {
-    for def in &mut program.defs {
-        let scheme = match def_schemes.get(&def.binder.id) {
-            Some(s) => s,
-            None => continue,
-        };
-
-        let constraints = dictionary_constraints(scheme, class_env);
-        if constraints.is_empty() {
-            continue;
-        }
-
-        let existing_dict_params = match &def.expr {
-            CoreExpr::Lam { params, .. }
-                if params.len() >= constraints.len()
-                    && params[..constraints.len()]
-                        .iter()
-                        .all(|binder| interner.resolve(binder.name).starts_with("__dict_")) =>
-            {
-                params[..constraints.len()].to_vec()
-            }
-            _ => Vec::new(),
-        };
-
-        // Build dictionary parameters and method map for this function.
-        let mut dict_params: Vec<CoreBinder> = Vec::new();
-        let mut method_map: MethodPaths = HashMap::new();
-        // A function can hold several dictionaries for one class, so the
-        // parameter names carry a per-class occurrence suffix. The lookups that
-        // consume them — `current_context_dictionary` and its AST twin — have
-        // always computed `__dict_Enc_1` for a second occurrence; naming every
-        // parameter `__dict_Enc` meant the second shadowed the first and every
-        // reference resolved to the wrong dictionary (KI-052).
-        let mut class_occurrences: HashMap<crate::types::class_id::ClassId, usize> = HashMap::new();
-
-        for (index, constraint) in constraints.iter().enumerate() {
-            if class_env.lookup_class_by_id(constraint.class_id).is_none() {
-                continue;
-            }
-
-            let dict_binder = if let Some(existing) = existing_dict_params.get(index).cloned() {
-                existing
-            } else {
-                let class_str =
-                    crate::types::class_env::dictionary_prefix(constraint.class_id, interner);
-                let occurrence = class_occurrences.entry(constraint.class_id).or_insert(0);
-                let suffix = if *occurrence == 0 {
-                    String::new()
-                } else {
-                    format!("_{occurrence}")
-                };
-                *occurrence += 1;
-                let param_name_str = format!("{class_str}{suffix}");
-                let param_name = interner
-                    .lookup(&param_name_str)
-                    .unwrap_or(constraint.class_name);
-                let binder_id = *next_id;
-                *next_id += 1;
-                let binder =
-                    CoreBinder::with_rep(CoreBinderId(binder_id), param_name, FluxRep::BoxedRep);
-                dict_params.push(binder);
-                binder
-            };
-
-            // Record every method reachable through this dictionary with the
-            // slot path that reaches it. The class's own methods are one
-            // projection; a superclass method is that superclass's slot
-            // followed by the method's slot inside it, which is what lets a
-            // `fn f<a: Ord>` call `eq`.
-            //
-            // Appended rather than inserted: a second constraint on the same
-            // class reaches the same methods through a *different* dictionary,
-            // and both have to survive for the call site to choose between
-            // them.
-            let type_args: Vec<CoreType> = constraint
-                .type_args
-                .iter()
-                .map(CoreType::try_from_infer)
-                .collect::<Option<Vec<_>>>()
-                .unwrap_or_default();
-            for (method, declaring_class, path) in reachable_methods(class_env, constraint.class_id)
-            {
-                method_map.entry(method).or_default().push(MethodCandidate {
-                    declaring_class,
-                    type_args: type_args.clone(),
-                    binder: dict_binder,
-                    path,
-                });
-            }
-        }
-
-        // Rewrite the function body to extract methods from dictionaries.
-        let old_expr = std::mem::replace(
-            &mut def.expr,
-            CoreExpr::Lit(crate::core::CoreLit::Unit, Span::default()),
-        );
-        // Class-method calls in generated instance methods are resolved by the
-        // typed AST-to-Core lowering.  In particular, a same-class contextual
-        // instance must distinguish a container call (direct self dispatch)
-        // from an element call (dictionary extraction).  Dictionary
-        // elaboration only performs the latter rewrite here.
-        let rewritten = rewrite_body_with_dicts_and_binder_types(
-            old_expr,
-            &method_map,
-            class_env,
-            &def.binder_types,
-        );
-
-        if dict_params.is_empty() {
-            def.expr = normalize_existing_dict_param_types(rewritten, existing_dict_params.len());
-        } else {
-            // Prepend dictionary params to the function's Lam.
-            def.expr = prepend_lam_params(rewritten, dict_params);
-        }
-    }
-}
-
-/// Insert dictionary arguments at call sites to constrained functions.
-///
-/// For each `App(Var(f), args)` where `f` has class constraints in its scheme,
-/// prepend the appropriate dictionary arguments. Two cases:
-///
-/// 1. **Monomorphic site**: The constraint's type is concrete → pass
-///    `Var(__dict_{Class}_{Type})`.
-/// 2. **Polymorphic forwarding**: The caller also has a dictionary param
-///    for that class → pass the caller's dictionary through.
-fn insert_dict_args_at_call_sites(
-    program: &mut CoreProgram,
-    class_env: &ClassEnv,
-    type_env: &TypeEnv,
-    def_schemes: &HashMap<CoreBinderId, Scheme>,
-    interner: &Interner,
-) {
-    // Build a set of function names that have constraints.
-    let constrained_fns_by_binder: HashMap<
-        CoreBinderId,
-        Vec<crate::ast::type_infer::constraint::SchemeConstraint>,
-    > = program
-        .defs
-        .iter()
-        .filter_map(|def| {
-            let scheme = def_schemes.get(&def.binder.id)?;
-            let constraints = dictionary_constraints(scheme, class_env);
-            (!constraints.is_empty()).then_some((def.binder.id, constraints))
-        })
-        .collect();
-    let constrained_fns_by_name: HashMap<
-        Identifier,
-        Vec<crate::ast::type_infer::constraint::SchemeConstraint>,
-    > = program
-        .defs
-        .iter()
-        .filter_map(|def| {
-            let scheme = def_schemes
-                .get(&def.binder.id)
-                .or_else(|| type_env.lookup(def.name))?;
-            let constraints = dictionary_constraints(scheme, class_env);
-            (!constraints.is_empty()).then_some((def.name, constraints))
-        })
-        .collect();
-
-    if constrained_fns_by_binder.is_empty() && constrained_fns_by_name.is_empty() {
-        return;
-    }
-
-    // For each def, build its own dict_param map (for polymorphic forwarding),
-    // then walk its body to insert dict args at call sites.
-    for def in &mut program.defs {
-        // Build the caller's own dict_param map (if it's a constrained function).
-        let caller_dicts: CallerDicts = if let Some(scheme) = def_schemes
-            .get(&def.binder.id)
-            .or_else(|| type_env.lookup(def.name))
-        {
-            build_caller_dict_map(&def.expr, &dictionary_constraints(scheme, class_env))
-        } else {
-            CallerDicts::new()
-        };
-
-        let old_expr = std::mem::replace(
-            &mut def.expr,
-            CoreExpr::Lit(crate::core::CoreLit::Unit, Span::default()),
-        );
-        def.expr = insert_dict_args_expr(
-            old_expr,
-            &constrained_fns_by_binder,
-            &constrained_fns_by_name,
-            &caller_dicts,
-            class_env,
-            interner,
-        );
-    }
-}
-
-/// Extract dictionary parameter binders from a function's outermost Lam.
-///
-/// If the function has constraints, its Lam starts with `__dict_*` params
-/// (prepended by Phase 3). This maps each class name to the corresponding
-/// binder so we can forward them to callee functions.
-/// The dictionary parameters a constrained function received, paired with the
-/// predicate each one discharges.
-///
-/// Keyed by the *whole* predicate rather than the class name. A function can
-/// hold several dictionaries for one class — `fn show_all<a: Enc>(xs: List<a>)`
-/// takes both `Enc<a>` and `Enc<List<a>>` — and collapsing them to the class
-/// name kept only the last, so a call inside the body was handed a dictionary
-/// for the wrong type (KI-052). The list is a handful of entries per function,
-/// so a linear search costs less than hashing `InferType`s.
-type CallerDicts = Vec<(
-    crate::ast::type_infer::constraint::SchemeConstraint,
-    CoreBinder,
-)>;
-
-fn build_caller_dict_map(
-    expr: &CoreExpr,
-    constraints: &[crate::ast::type_infer::constraint::SchemeConstraint],
-) -> CallerDicts {
-    let mut map = CallerDicts::new();
-    if constraints.is_empty() {
-        return map;
-    }
-    if let CoreExpr::Lam { params, .. } = expr {
-        // The first N params are dictionary params (one per constraint).
-        for (i, constraint) in constraints.iter().enumerate() {
-            if let Some(binder) = params.get(i) {
-                map.push((constraint.clone(), *binder));
-            }
-        }
-    }
-    map
-}
-
-/// Whether `arg` is already a dictionary being passed to a constrained call.
-///
-/// Two shapes count. A context-free instance passes its dictionary global
-/// directly, as a `Var`. A *contextual* one — `Num Int`, whose dictionary is a
-/// lambda over `Add Int` — passes that global applied to its context, so the
-/// argument is an `App` whose head is the dictionary. `CoreExpr::dictionary_ref`
-/// builds both, and this recognises both.
-///
-/// Missing the applied shape means a site that already has its dictionaries
-/// gets a second set prepended, which is a call with the wrong arity that still
-/// type-checks. That matters now that 0186 stage 5 fills some sites during
-/// AST → Core lowering, before this pass runs.
-fn is_dictionary_argument(arg: &CoreExpr, interner: &Interner) -> bool {
-    match arg {
-        CoreExpr::Var { var, .. } => interner.resolve(var.name).starts_with("__dict_"),
-        CoreExpr::App { func, .. } => is_dictionary_argument(func, interner),
-        _ => false,
-    }
-}
-
-fn insert_dict_args_expr(
-    expr: CoreExpr,
-    constrained_fns_by_binder: &HashMap<
-        CoreBinderId,
-        Vec<crate::ast::type_infer::constraint::SchemeConstraint>,
-    >,
-    constrained_fns_by_name: &HashMap<
-        Identifier,
-        Vec<crate::ast::type_infer::constraint::SchemeConstraint>,
-    >,
-    caller_dicts: &CallerDicts,
-    class_env: &ClassEnv,
-    interner: &Interner,
-) -> CoreExpr {
-    match expr {
-        CoreExpr::App { func, args, span } => {
-            // Check if the callee is a constrained function.
-            if let CoreExpr::Var { ref var, .. } = *func
-                && let Some(callee_constraints) = var
-                    .binder
-                    .and_then(|binder| constrained_fns_by_binder.get(&binder))
-                    .or_else(|| constrained_fns_by_name.get(&var.name))
-            {
-                let already_has_dict_args = args.len() >= callee_constraints.len()
-                    && args
-                        .iter()
-                        .take(callee_constraints.len())
-                        .all(|arg| is_dictionary_argument(arg, interner));
-                if already_has_dict_args {
-                    return CoreExpr::App {
-                        func,
-                        args: args
-                            .into_iter()
-                            .map(|a| {
-                                insert_dict_args_expr(
-                                    a,
-                                    constrained_fns_by_binder,
-                                    constrained_fns_by_name,
-                                    caller_dicts,
-                                    class_env,
-                                    interner,
-                                )
-                            })
-                            .collect(),
-                        span,
-                    };
-                }
-                // Build dictionary arguments for the callee.
-                let mut dict_args = Vec::new();
-                for constraint in callee_constraints {
-                    if let Some(dict_arg) =
-                        resolve_dict_arg(constraint, caller_dicts, class_env, interner, span)
-                    {
-                        dict_args.push(dict_arg);
-                    }
-                }
-
-                if !dict_args.is_empty() {
-                    // Prepend dict args before the original args.
-                    let mut all_args = dict_args;
-                    all_args.extend(args.into_iter().map(|a| {
-                        insert_dict_args_expr(
-                            a,
-                            constrained_fns_by_binder,
-                            constrained_fns_by_name,
-                            caller_dicts,
-                            class_env,
-                            interner,
-                        )
-                    }));
-                    return CoreExpr::App {
-                        func,
-                        args: all_args,
-                        span,
-                    };
-                }
-            }
-            // Not a constrained call — recurse normally.
-            CoreExpr::App {
-                func: Box::new(insert_dict_args_expr(
-                    *func,
-                    constrained_fns_by_binder,
-                    constrained_fns_by_name,
-                    caller_dicts,
-                    class_env,
-                    interner,
-                )),
-                args: args
-                    .into_iter()
-                    .map(|a| {
-                        insert_dict_args_expr(
-                            a,
-                            constrained_fns_by_binder,
-                            constrained_fns_by_name,
-                            caller_dicts,
-                            class_env,
-                            interner,
-                        )
-                    })
-                    .collect(),
-                span,
-            }
-        }
-
-        // Recursive cases — same structure as rewrite_expr but threading
-        // different context.
-        // A dictionary reference the AST lowerer emitted by name, before the
-        // parameter holding it existed. Bind it to that parameter now.
-        //
-        // `current_context_dictionary` names the dictionary a call needs
-        // (`__dict_Enc`, `__dict_Enc_1`) and emits an *unresolved* variable,
-        // because at AST-lowering time the enclosing function has no dictionary
-        // parameters yet — this pass adds them. Left unresolved, the name
-        // escapes to global scope, where no such definition exists, and the
-        // call receives `None` (KI-052).
-        CoreExpr::Var { ref var, span }
-            if var.binder.is_none()
-                && caller_dicts.iter().any(|(_, held)| held.name == var.name) =>
-        {
-            let binder = caller_dicts
-                .iter()
-                .find(|(_, held)| held.name == var.name)
-                .map(|(_, held)| *held)
-                .expect("guard just matched this name");
-            CoreExpr::bound_var(&binder, span)
-        }
-
-        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => expr,
-
-        CoreExpr::Lam {
-            params,
-            param_types,
-            result_ty,
-            body,
-            span,
-        } => CoreExpr::Lam {
-            params,
-            param_types,
-            result_ty,
-            body: Box::new(insert_dict_args_expr(
-                *body,
-                constrained_fns_by_binder,
-                constrained_fns_by_name,
-                caller_dicts,
-                class_env,
-                interner,
-            )),
-            span,
-        },
-
-        CoreExpr::Let {
-            var,
-            rhs,
-            body,
-            span,
-        } => CoreExpr::Let {
-            var,
-            rhs: Box::new(insert_dict_args_expr(
-                *rhs,
-                constrained_fns_by_binder,
-                constrained_fns_by_name,
-                caller_dicts,
-                class_env,
-                interner,
-            )),
-            body: Box::new(insert_dict_args_expr(
-                *body,
-                constrained_fns_by_binder,
-                constrained_fns_by_name,
-                caller_dicts,
-                class_env,
-                interner,
-            )),
-            span,
-        },
-
-        CoreExpr::LetRec {
-            var,
-            rhs,
-            body,
-            span,
-        } => CoreExpr::LetRec {
-            var,
-            rhs: Box::new(insert_dict_args_expr(
-                *rhs,
-                constrained_fns_by_binder,
-                constrained_fns_by_name,
-                caller_dicts,
-                class_env,
-                interner,
-            )),
-            body: Box::new(insert_dict_args_expr(
-                *body,
-                constrained_fns_by_binder,
-                constrained_fns_by_name,
-                caller_dicts,
-                class_env,
-                interner,
-            )),
-            span,
-        },
-
-        CoreExpr::LetRecGroup {
-            bindings,
-            body,
-            span,
-        } => CoreExpr::LetRecGroup {
-            bindings: bindings
-                .into_iter()
-                .map(|(b, rhs)| {
-                    (
-                        b,
-                        Box::new(insert_dict_args_expr(
-                            *rhs,
-                            constrained_fns_by_binder,
-                            constrained_fns_by_name,
-                            caller_dicts,
-                            class_env,
-                            interner,
-                        )),
-                    )
-                })
-                .collect(),
-            body: Box::new(insert_dict_args_expr(
-                *body,
-                constrained_fns_by_binder,
-                constrained_fns_by_name,
-                caller_dicts,
-                class_env,
-                interner,
-            )),
-            span,
-        },
-
-        CoreExpr::Case {
-            scrutinee,
-            alts,
-            join_ty,
-            span,
-        } => CoreExpr::Case {
-            scrutinee: Box::new(insert_dict_args_expr(
-                *scrutinee,
-                constrained_fns_by_binder,
-                constrained_fns_by_name,
-                caller_dicts,
-                class_env,
-                interner,
-            )),
-            alts: alts
-                .into_iter()
-                .map(|mut alt| {
-                    alt.rhs = insert_dict_args_expr(
-                        alt.rhs,
-                        constrained_fns_by_binder,
-                        constrained_fns_by_name,
-                        caller_dicts,
-                        class_env,
-                        interner,
-                    );
-                    alt.guard = alt.guard.map(|g| {
-                        insert_dict_args_expr(
-                            g,
-                            constrained_fns_by_binder,
-                            constrained_fns_by_name,
-                            caller_dicts,
-                            class_env,
-                            interner,
-                        )
-                    });
-                    alt
-                })
-                .collect(),
-            join_ty,
-            span,
-        },
-
-        CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
-            tag,
-            fields: fields
-                .into_iter()
-                .map(|f| {
-                    insert_dict_args_expr(
-                        f,
-                        constrained_fns_by_binder,
-                        constrained_fns_by_name,
-                        caller_dicts,
-                        class_env,
-                        interner,
-                    )
-                })
-                .collect(),
-            span,
-        },
-
-        CoreExpr::PrimOp { op, args, span } => CoreExpr::PrimOp {
-            op,
-            args: args
-                .into_iter()
-                .map(|a| {
-                    insert_dict_args_expr(
-                        a,
-                        constrained_fns_by_binder,
-                        constrained_fns_by_name,
-                        caller_dicts,
-                        class_env,
-                        interner,
-                    )
-                })
-                .collect(),
-            span,
-        },
-
-        CoreExpr::Return { value, span } => CoreExpr::Return {
-            value: Box::new(insert_dict_args_expr(
-                *value,
-                constrained_fns_by_binder,
-                constrained_fns_by_name,
-                caller_dicts,
-                class_env,
-                interner,
-            )),
-            span,
-        },
-
-        CoreExpr::Perform {
-            effect,
-            operation,
-            args,
-            span,
-        } => CoreExpr::Perform {
-            effect,
-            operation,
-            args: args
-                .into_iter()
-                .map(|a| {
-                    insert_dict_args_expr(
-                        a,
-                        constrained_fns_by_binder,
-                        constrained_fns_by_name,
-                        caller_dicts,
-                        class_env,
-                        interner,
-                    )
-                })
-                .collect(),
-            span,
-        },
-
-        CoreExpr::Handle {
-            body,
-            effect,
-            parameter,
-            handlers,
-            span,
-        } => CoreExpr::Handle {
-            body: Box::new(insert_dict_args_expr(
-                *body,
-                constrained_fns_by_binder,
-                constrained_fns_by_name,
-                caller_dicts,
-                class_env,
-                interner,
-            )),
-            effect,
-            parameter: parameter.map(|p| {
-                Box::new(insert_dict_args_expr(
-                    *p,
-                    constrained_fns_by_binder,
-                    constrained_fns_by_name,
-                    caller_dicts,
-                    class_env,
-                    interner,
-                ))
-            }),
-            handlers: handlers
-                .into_iter()
-                .map(|mut h| {
-                    h.body = insert_dict_args_expr(
-                        h.body,
-                        constrained_fns_by_binder,
-                        constrained_fns_by_name,
-                        caller_dicts,
-                        class_env,
-                        interner,
-                    );
-                    h
-                })
-                .collect(),
-            span,
-        },
-
-        CoreExpr::MemberAccess {
-            object,
-            member,
-            span,
-        } => CoreExpr::MemberAccess {
-            object: Box::new(insert_dict_args_expr(
-                *object,
-                constrained_fns_by_binder,
-                constrained_fns_by_name,
-                caller_dicts,
-                class_env,
-                interner,
-            )),
-            member,
-            span,
-        },
-
-        CoreExpr::TupleField {
-            object,
-            index,
-            span,
-        } => CoreExpr::TupleField {
-            object: Box::new(insert_dict_args_expr(
-                *object,
-                constrained_fns_by_binder,
-                constrained_fns_by_name,
-                caller_dicts,
-                class_env,
-                interner,
-            )),
-            index,
-            span,
-        },
-    }
-}
-
-/// Resolve a dictionary argument for a callee's constraint.
-///
-/// 1. The caller holds a dictionary for exactly this predicate — forward it.
-/// 2. The predicate is concrete — name the instance's dictionary directly.
-///
-/// There is deliberately no third case. Forwarding whichever dictionary the
-/// caller happens to hold for the same *class*, ignoring its type arguments,
-/// is a guess: it is right only when the caller's predicate and the callee's
-/// coincide, which is case 1. Guessing wrong substitutes one instance's
-/// methods for another's, which is what KI-052 was.
-fn resolve_dict_arg(
-    constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
-    caller_dicts: &CallerDicts,
-    class_env: &ClassEnv,
-    interner: &Interner,
-    span: Span,
-) -> Option<CoreExpr> {
-    // Case 1: the caller already holds a dictionary for exactly this
-    // predicate — forward it.
-    if let Some((_, binder)) = caller_dicts.iter().find(|(held, _)| held == constraint) {
-        return Some(CoreExpr::bound_var(binder, span));
-    }
-
-    // Case 2: a predicate with no type variables left names one instance, so
-    // its evidence is that instance's dictionary. Nothing the caller holds is
-    // relevant to it — this is precisely the case the old class-only match
-    // used to answer with a caller dictionary for some other type.
-    if constraint
-        .type_args
-        .iter()
-        .all(|arg| arg.free_vars().is_empty())
-    {
-        let dict_ref = class_env.resolve_dictionary_ref_by_id(
-            constraint.class_id,
-            &constraint.type_args,
-            interner,
-        )?;
-        return Some(CoreExpr::dictionary_ref(&dict_ref, span));
-    }
-
-    // Case 3: the caller's predicate and the callee's are the same predicate
-    // written with different variables. `fn outer<a: C>` calling `fn inner<b: C>`
-    // instantiates two schemes, so the two `C` predicates carry different
-    // `TypeVarId`s and case 1 misses them; the dictionary the caller holds is
-    // still the right one.
-    //
-    // Both sides must be variables at every position. A caller holding `C<a>`
-    // is *not* evidence for `C<Int>`, which is what the class-only match this
-    // replaced would have concluded, and a second dictionary for the same
-    // class means the choice is not this pass's to make (KI-052).
-    let mut alpha_equivalent =
-        caller_dicts.iter().filter(|(held, _)| {
-            held.class_id == constraint.class_id
-                && held.type_args.len() == constraint.type_args.len()
-                && held.type_args.iter().zip(constraint.type_args.iter()).all(
-                    |(held_arg, wanted)| {
-                        held_arg == wanted
-                            || matches!((held_arg, wanted), (InferType::Var(_), InferType::Var(_)))
-                    },
-                )
-        });
-    if let Some((_, binder)) = alpha_equivalent.next()
-        && alpha_equivalent.next().is_none()
-    {
-        return Some(CoreExpr::bound_var(binder, span));
-    }
-
-    // Anything else is undetermined here. Returning `None` leaves the call
-    // without this dictionary, which the arity contract reports.
-    None
 }
 
 /// Prepend extra parameters to the outermost `Lam` of an expression.
@@ -1357,52 +574,6 @@ fn normalize_all_existing_dict_param_types(program: &mut CoreProgram, interner: 
     }
 }
 
-/// Look up the dictionary name for a concrete class+type combination.
-///
-/// Returns the interned symbol `__dict_{Class}_{Type}` if it exists.
-pub fn dict_name_for(
-    class_name: Identifier,
-    type_name: &str,
-    interner: &Interner,
-) -> Option<Identifier> {
-    let class_str = interner.resolve(class_name);
-    let dict_str = format!("__dict_{class_str}_{type_name}");
-    interner.lookup(&dict_str)
-}
-
-/// Rewrite a polymorphic function body to extract class methods from
-/// dictionary parameters instead of calling the polymorphic stub.
-///
-/// `method_map` maps class method names to `(dict_param_binder, slot_path)`.
-/// One dictionary a class method can be reached through, and how.
-///
-/// `path` is a slot path applied outermost-first: `[2]` is the dictionary's own
-/// slot 2, and `[0, 1]` is slot 1 of the superclass evidence held in slot 0.
-/// Superclass entailment is exactly what makes a path longer than one element
-/// possible.
-#[derive(Debug, Clone)]
-pub struct MethodCandidate {
-    /// The class that declares the method — the constraint's own class for a
-    /// direct method, a superclass for an inherited one. Selection asks *this*
-    /// class which argument reveals its type parameter.
-    declaring_class: crate::types::class_id::ClassId,
-    /// Type arguments of the constraint this candidate was reached through.
-    ///
-    /// Empty when they could not be expressed as `CoreType`, which simply
-    /// fails to match and so never wins a selection.
-    type_args: Vec<CoreType>,
-    binder: CoreBinder,
-    path: Vec<usize>,
-}
-
-/// Every dictionary each class method can be reached through, in constraint
-/// order.
-///
-/// A list rather than a single entry: a function constrained twice on one class
-/// holds two dictionaries that both reach the same method, and collapsing them
-/// to one is KI-057 — every call then dispatched through whichever won.
-type MethodPaths = HashMap<Identifier, Vec<MethodCandidate>>;
-
 /// Methods reachable *through* a dictionary for `class_id`, each with the class
 /// that declares it and the slot path that reaches it, relative to that
 /// dictionary.
@@ -1449,460 +620,12 @@ pub(crate) fn reachable_methods(
     found
 }
 
-/// Choose which of `method`'s candidate dictionaries this call means.
-///
-/// One candidate needs no choosing, which is both the common case and what
-/// keeps a method dispatched on its result type working unchanged. With two or
-/// more, the argument types decide: `dispatch_positions` says which argument
-/// reveals each class parameter, and `select_dictionary` matches what it finds
-/// against each candidate's constraint.
-///
-/// An undecidable call has already been reported by inference (E485). A Core
-/// pass cannot report, so this recovers with the first candidate rather than
-/// failing — lowering stays total and the diagnostic is what the user sees.
-fn choose_candidate<'a>(
-    class_env: &ClassEnv,
-    candidates: &'a [MethodCandidate],
-    method: Identifier,
-    args: &[CoreExpr],
-    binder_types: &HashMap<CoreBinderId, CoreType>,
-    expected: Option<&CoreType>,
-) -> Option<&'a MethodCandidate> {
-    let [_, _, ..] = candidates else {
-        return candidates.first();
-    };
-    let first = &candidates[0];
-    let Some(positions) = class_env.dispatch_positions(first.declaring_class, method) else {
-        return Some(first);
-    };
-    // A class parameter naming the method's return type is revealed by the
-    // type this call's result is required to have, not by any argument —
-    // `decode`, `make`, `pure`. `expected` carries that down from the binder
-    // or return position the call sits in (Proposal 0179 Stage 4).
-    let results = class_env
-        .result_positions(first.declaring_class, method)
-        .unwrap_or_default();
-    if positions.iter().all(Option::is_none) && (expected.is_none() || !results.iter().any(|r| *r))
-    {
-        // Nothing reveals the class parameter at this call: no argument
-        // carries it and no expected type fixes it. With several candidates
-        // there is nothing to choose between them, and choosing anyway is a
-        // guess — the previous rule returned the last constraint to record the
-        // method, which is an artefact of how the name-keyed map was built and
-        // not a fact about the call.
-        //
-        // Candidates that all name the same type arguments are not a choice at
-        // all. Coherence gives a type at most one instance per class, so the
-        // method's own class has one dictionary here however it is reached —
-        // `fmap` under `Monad f, Functor f, Applicative f` is the `Functor f`
-        // dictionary whether it arrives directly or through two superclass
-        // edges. Take the shortest path to it, which is the direct binder when
-        // one is in scope. Otherwise decline: the call keeps its dispatch-stub
-        // reference, which reports the unresolved instance rather than
-        // silently using one.
-        // Empty type arguments mean the constraint could not be expressed as
-        // `CoreType` at all, so equality between them says nothing; those fall
-        // back to the same-binder-and-same-path test.
-        let first = candidates.first()?;
-        let agree = if first.type_args.is_empty() {
-            candidates.iter().all(|candidate| {
-                candidate.binder.id == first.binder.id && candidate.path == first.path
-            })
-        } else {
-            candidates
-                .iter()
-                .all(|candidate| candidate.type_args == first.type_args)
-        };
-        return agree
-            .then(|| {
-                candidates
-                    .iter()
-                    .min_by_key(|candidate| candidate.path.len())
-            })
-            .flatten();
-    }
-    let observed: Vec<Option<CoreType>> = positions
-        .iter()
-        .enumerate()
-        .map(|(slot, position)| match position {
-            Some(index) => match args.get(*index)? {
-                CoreExpr::Var { var, .. } => {
-                    var.binder.and_then(|id| binder_types.get(&id).cloned())
-                }
-                _ => None,
-            },
-            None if results.get(slot).copied().unwrap_or(false) => expected.cloned(),
-            None => None,
-        })
-        .collect();
-    let indexed: Vec<(usize, Vec<CoreType>)> = candidates
-        .iter()
-        .enumerate()
-        .map(|(index, candidate)| (index, candidate.type_args.clone()))
-        .collect();
-    match select_dictionary(&indexed, &observed) {
-        DictSelection::Unique(index) => candidates.get(index),
-        DictSelection::Ambiguous | DictSelection::NoMatch => Some(first),
-    }
-}
-
-pub fn rewrite_body_with_dicts(
-    expr: CoreExpr,
-    method_map: &MethodPaths,
-    class_env: &ClassEnv,
-) -> CoreExpr {
-    rewrite_body_with_dicts_and_binder_types(expr, method_map, class_env, &HashMap::new())
-}
-
-/// As [`rewrite_body_with_dicts`], seeded with the definition's own binder
-/// types.
-///
-/// A `let`'s type is recorded at lowering and cannot be recovered from Core,
-/// which has no type annotation node; without it a call on the right-hand side
-/// has nothing to select on (Proposal 0179 Stage 4).
-pub fn rewrite_body_with_dicts_and_binder_types(
-    expr: CoreExpr,
-    method_map: &MethodPaths,
-    class_env: &ClassEnv,
-    seed: &HashMap<CoreBinderId, CoreType>,
-) -> CoreExpr {
-    let mut binder_types = seed.clone();
-    rewrite_expr(expr, method_map, class_env, &mut binder_types, None)
-}
-
-/// Rewrite `expr`, projecting class-method references out of the dictionary
-/// each call means.
-///
-/// `expected` is the type this expression's value is required to have, when
-/// the surrounding syntax fixes it — a function's declared result at a tail
-/// position, a `let` binder's recorded type at its right-hand side. It is the
-/// only thing that can pick between two dictionaries for a method whose class
-/// parameter appears solely in its return type, and is `None` wherever the
-/// context does not say.
-fn rewrite_expr(
-    expr: CoreExpr,
-    method_map: &MethodPaths,
-    class_env: &ClassEnv,
-    binder_types: &mut HashMap<CoreBinderId, CoreType>,
-    expected: Option<&CoreType>,
-) -> CoreExpr {
-    match expr {
-        // Key case: App where the function is a class method reference.
-        // Rewrite: App(Var(eq), args) → App(TupleField(Var(dict), idx), args)
-        CoreExpr::App { func, args, span } => {
-            if let CoreExpr::Var { ref var, .. } = *func
-                && let Some(candidates) = method_map.get(&var.name)
-                && let Some(MethodCandidate {
-                    binder: dict_binder,
-                    path,
-                    ..
-                }) = choose_candidate(
-                    class_env,
-                    candidates,
-                    var.name,
-                    &args,
-                    binder_types,
-                    expected,
-                )
-            {
-                // Class method reference — project it out of the dictionary.
-                // A path longer than one slot walks through superclass
-                // evidence on the way (`__dict_Ord.0.0` is `Ord`'s `Eq`
-                // dictionary, then `Eq`'s `eq`).
-                let method_extract =
-                    path.iter()
-                        .fold(CoreExpr::bound_var(dict_binder, span), |object, &index| {
-                            CoreExpr::TupleField {
-                                object: Box::new(object),
-                                index,
-                                span,
-                            }
-                        });
-                let rewritten_args = args
-                    .into_iter()
-                    .map(|a| rewrite_expr(a, method_map, class_env, binder_types, None))
-                    .collect();
-                return CoreExpr::App {
-                    func: Box::new(method_extract),
-                    args: rewritten_args,
-                    span,
-                };
-            }
-            // Not a class method — recurse normally.
-            CoreExpr::App {
-                func: Box::new(rewrite_expr(
-                    *func,
-                    method_map,
-                    class_env,
-                    binder_types,
-                    None,
-                )),
-                args: args
-                    .into_iter()
-                    .map(|a| rewrite_expr(a, method_map, class_env, binder_types, None))
-                    .collect(),
-                span,
-            }
-        }
-
-        // Recursive cases for all other expression forms.
-        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => expr,
-
-        CoreExpr::Lam {
-            params,
-            param_types,
-            result_ty,
-            body,
-            span,
-        } => {
-            // Record parameter types on the way down: selection reads them at
-            // the call sites below. Binder ids are unique within a function, so
-            // entries never need removing on the way back up.
-            for (binder, ty) in params.iter().zip(param_types.iter()) {
-                if let Some(ty) = ty {
-                    binder_types.insert(binder.id, ty.clone());
-                }
-            }
-            // The body's value is the function's result, so its declared type
-            // is the expected type at every tail position within it.
-            let result_expected = result_ty.clone();
-            CoreExpr::Lam {
-                params,
-                param_types,
-                result_ty,
-                body: Box::new(rewrite_expr(
-                    *body,
-                    method_map,
-                    class_env,
-                    binder_types,
-                    result_expected.as_ref(),
-                )),
-                span,
-            }
-        }
-
-        CoreExpr::Let {
-            var,
-            rhs,
-            body,
-            span,
-        } => {
-            // The binding's own type is the expected type of its right-hand
-            // side, and the only thing that can tell `__dict_C` from
-            // `__dict_C_1` for a call dispatched on its result.
-            let bound = binder_types.get(&var.id).cloned();
-            CoreExpr::Let {
-                var,
-                rhs: Box::new(rewrite_expr(
-                    *rhs,
-                    method_map,
-                    class_env,
-                    binder_types,
-                    bound.as_ref(),
-                )),
-                body: Box::new(rewrite_expr(
-                    *body,
-                    method_map,
-                    class_env,
-                    binder_types,
-                    expected,
-                )),
-                span,
-            }
-        }
-
-        CoreExpr::LetRec {
-            var,
-            rhs,
-            body,
-            span,
-        } => CoreExpr::LetRec {
-            var,
-            rhs: Box::new(rewrite_expr(
-                *rhs,
-                method_map,
-                class_env,
-                binder_types,
-                None,
-            )),
-            body: Box::new(rewrite_expr(
-                *body,
-                method_map,
-                class_env,
-                binder_types,
-                expected,
-            )),
-            span,
-        },
-
-        CoreExpr::LetRecGroup {
-            bindings,
-            body,
-            span,
-        } => CoreExpr::LetRecGroup {
-            bindings: bindings
-                .into_iter()
-                .map(|(b, rhs)| {
-                    (
-                        b,
-                        Box::new(rewrite_expr(
-                            *rhs,
-                            method_map,
-                            class_env,
-                            binder_types,
-                            None,
-                        )),
-                    )
-                })
-                .collect(),
-            body: Box::new(rewrite_expr(
-                *body,
-                method_map,
-                class_env,
-                binder_types,
-                expected,
-            )),
-            span,
-        },
-
-        CoreExpr::Case {
-            scrutinee,
-            alts,
-            join_ty,
-            span,
-        } => CoreExpr::Case {
-            scrutinee: Box::new(rewrite_expr(
-                *scrutinee,
-                method_map,
-                class_env,
-                binder_types,
-                None,
-            )),
-            alts: alts
-                .into_iter()
-                .map(|mut alt| {
-                    alt.rhs = rewrite_expr(alt.rhs, method_map, class_env, binder_types, expected);
-                    alt.guard = alt
-                        .guard
-                        .map(|g| rewrite_expr(g, method_map, class_env, binder_types, None));
-                    alt
-                })
-                .collect(),
-            join_ty,
-            span,
-        },
-
-        CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
-            tag,
-            fields: fields
-                .into_iter()
-                .map(|f| rewrite_expr(f, method_map, class_env, binder_types, None))
-                .collect(),
-            span,
-        },
-
-        CoreExpr::PrimOp { op, args, span } => CoreExpr::PrimOp {
-            op,
-            args: args
-                .into_iter()
-                .map(|a| rewrite_expr(a, method_map, class_env, binder_types, None))
-                .collect(),
-            span,
-        },
-
-        CoreExpr::Return { value, span } => CoreExpr::Return {
-            value: Box::new(rewrite_expr(
-                *value,
-                method_map,
-                class_env,
-                binder_types,
-                None,
-            )),
-            span,
-        },
-
-        CoreExpr::Perform {
-            effect,
-            operation,
-            args,
-            span,
-        } => CoreExpr::Perform {
-            effect,
-            operation,
-            args: args
-                .into_iter()
-                .map(|a| rewrite_expr(a, method_map, class_env, binder_types, None))
-                .collect(),
-            span,
-        },
-
-        CoreExpr::Handle {
-            body,
-            effect,
-            parameter,
-            handlers,
-            span,
-        } => CoreExpr::Handle {
-            body: Box::new(rewrite_expr(
-                *body,
-                method_map,
-                class_env,
-                binder_types,
-                expected,
-            )),
-            effect,
-            parameter: parameter
-                .map(|p| Box::new(rewrite_expr(*p, method_map, class_env, binder_types, None))),
-            handlers: handlers
-                .into_iter()
-                .map(|mut h| {
-                    h.body = rewrite_expr(h.body, method_map, class_env, binder_types, None);
-                    h
-                })
-                .collect(),
-            span,
-        },
-
-        CoreExpr::MemberAccess {
-            object,
-            member,
-            span,
-        } => CoreExpr::MemberAccess {
-            object: Box::new(rewrite_expr(
-                *object,
-                method_map,
-                class_env,
-                binder_types,
-                None,
-            )),
-            member,
-            span,
-        },
-
-        CoreExpr::TupleField {
-            object,
-            index,
-            span,
-        } => CoreExpr::TupleField {
-            object: Box::new(rewrite_expr(
-                *object,
-                method_map,
-                class_env,
-                binder_types,
-                None,
-            )),
-            index,
-            span,
-        },
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
         ast::type_infer::constraint::SchemeConstraint,
-        core::{CoreLit, CoreVarRef, FluxRep},
+        core::{CoreLit, FluxRep},
         syntax::type_expr::TypeExpr,
         types::{
             class_env::{ClassDef, InstanceDef, MethodSig},
@@ -1913,21 +636,6 @@ mod tests {
 
     fn s() -> Span {
         Span::default()
-    }
-
-    /// The only candidate for a method, which is what every rewriter test
-    /// exercises: with one dictionary in scope there is nothing to choose, so
-    /// the class environment is never consulted.
-    fn single_candidate(binder: CoreBinder, path: Vec<usize>) -> MethodCandidate {
-        MethodCandidate {
-            declaring_class: crate::types::class_id::ClassId::new(
-                crate::types::class_id::ModulePath::EMPTY,
-                crate::syntax::symbol::Symbol::new(0),
-            ),
-            type_args: Vec::new(),
-            binder,
-            path,
-        }
     }
 
     fn mk_binder(id: u32, name: Identifier) -> CoreBinder {
@@ -2001,6 +709,7 @@ mod tests {
             instance_module: crate::types::class_id::ModulePath::EMPTY,
             is_public: false,
             type_key: "Int".to_string(),
+            head_modules: Vec::new(),
             type_args: vec![TypeExpr::Named {
                 name: int_sym,
                 args: vec![],
@@ -2024,217 +733,6 @@ mod tests {
     }
 
     // ── build_instance_dictionaries ──────────────────────────────────────
-
-    /// A class whose parameter appears in no method signature, so no argument
-    /// and no expected type can reveal which instance a call means.
-    fn build_hidden_param_class_env(interner: &mut Interner) -> ClassEnv {
-        let class_sym = interner.intern("Hidden");
-        let a_sym = interner.intern("a");
-        let method = interner.intern("flag");
-        let int_type = TypeExpr::Named {
-            name: interner.intern("Int"),
-            args: vec![],
-            span: s(),
-        };
-
-        let class_def = ClassDef {
-            name: class_sym,
-            module: crate::types::class_id::ModulePath::EMPTY,
-            is_public: false,
-            is_builtin: false,
-            type_params: vec![a_sym],
-            superclasses: vec![],
-            superclass_class_ids: vec![],
-            associated_types: vec![],
-            methods: vec![MethodSig {
-                name: method,
-                type_params: vec![],
-                param_names: vec![interner.intern("__x0")],
-                param_types: vec![int_type.clone()],
-                return_type: int_type,
-                arity: 1,
-                effects: vec![],
-                infer_type: None,
-            }],
-            default_methods: vec![],
-            span: s(),
-        };
-
-        let mut class_env = ClassEnv::new();
-        class_env.classes.insert(class_def.class_id(), class_def);
-        class_env
-    }
-
-    fn hidden_candidate(interner: &Interner, binder: CoreBinder) -> MethodCandidate {
-        let class_sym = interner.lookup("Hidden").expect("Hidden interned");
-        MethodCandidate {
-            declaring_class: crate::types::class_id::ClassId::from_local_name(class_sym),
-            type_args: Vec::new(),
-            binder,
-            path: vec![0],
-        }
-    }
-
-    /// Two dictionaries reach `flag`, and the call reveals nothing about which
-    /// instance it means. The old rule returned the last candidate — an
-    /// artefact of the order the method map was built in. Declining leaves the
-    /// stub reference, which reports the unresolved instance.
-    #[test]
-    fn choose_candidate_declines_when_nothing_reveals_the_parameter() {
-        let mut interner = Interner::new();
-        let class_env = build_hidden_param_class_env(&mut interner);
-        let method = interner.lookup("flag").expect("flag interned");
-        let candidates = [
-            hidden_candidate(&interner, mk_binder(7, method)),
-            hidden_candidate(&interner, mk_binder(8, method)),
-        ];
-
-        let chosen = choose_candidate(&class_env, &candidates, method, &[], &HashMap::new(), None);
-
-        assert!(chosen.is_none(), "an unrevealed parameter is not a choice");
-    }
-
-    /// `chain<f: Monad>` holds three dictionaries — `Monad f`, `Functor f`,
-    /// `Applicative f` — and all three reach `fmap`. Nothing at the call
-    /// reveals `f`, but coherence gives `f` one `Functor` instance, so every
-    /// candidate names the same dictionary and there is nothing to choose.
-    /// Take the shortest path to it: the direct binder, not two superclass
-    /// edges. Declining here left the call on its dispatch stub, which the VM
-    /// resolved at run time and the native backend panicked on (`E1009`).
-    #[test]
-    fn choose_candidate_takes_the_shortest_path_when_candidates_name_one_dictionary() {
-        let mut interner = Interner::new();
-        let class_env = build_hidden_param_class_env(&mut interner);
-        let method = interner.lookup("flag").expect("flag interned");
-        let same_type_args = vec![CoreType::Var(0)];
-        let via_superclass = MethodCandidate {
-            type_args: same_type_args.clone(),
-            binder: mk_binder(7, method),
-            path: vec![0, 0],
-            ..hidden_candidate(&interner, mk_binder(7, method))
-        };
-        let direct = MethodCandidate {
-            type_args: same_type_args,
-            binder: mk_binder(8, method),
-            path: vec![0],
-            ..hidden_candidate(&interner, mk_binder(8, method))
-        };
-        let candidates = [via_superclass, direct];
-
-        let chosen = choose_candidate(&class_env, &candidates, method, &[], &HashMap::new(), None);
-
-        assert_eq!(
-            chosen.map(|candidate| candidate.binder.id),
-            Some(CoreBinderId(8)),
-            "one dictionary reached two ways resolves through the direct binder",
-        );
-    }
-
-    /// Two candidates that reach the same dictionary by the same path are not
-    /// a choice, so this still resolves.
-    #[test]
-    fn choose_candidate_accepts_candidates_that_agree() {
-        let mut interner = Interner::new();
-        let class_env = build_hidden_param_class_env(&mut interner);
-        let method = interner.lookup("flag").expect("flag interned");
-        let binder = mk_binder(7, method);
-        let candidates = [
-            hidden_candidate(&interner, binder),
-            hidden_candidate(&interner, binder),
-        ];
-
-        let chosen = choose_candidate(&class_env, &candidates, method, &[], &HashMap::new(), None);
-
-        assert_eq!(
-            chosen.map(|candidate| candidate.binder.id),
-            Some(CoreBinderId(7))
-        );
-    }
-
-    fn eq_constraint(interner: &Interner, args: Vec<InferType>) -> SchemeConstraint {
-        let eq_sym = interner.lookup("Eq").expect("Eq interned");
-        SchemeConstraint {
-            class_name: eq_sym,
-            class_id: crate::types::class_id::ClassId::new(
-                crate::types::class_id::ModulePath::EMPTY,
-                eq_sym,
-            ),
-            type_args: args,
-        }
-    }
-
-    fn dict_binder(interner: &mut Interner, id: u32) -> CoreBinder {
-        mk_binder(id, interner.intern(&format!("__dict_Eq_{id}")))
-    }
-
-    /// The predicate the caller holds and the one the callee wants are the
-    /// same predicate under different unification variables — two schemes
-    /// instantiated separately. The caller's dictionary is the right evidence.
-    #[test]
-    fn resolve_dict_arg_forwards_an_alpha_equivalent_predicate() {
-        let mut interner = Interner::new();
-        let class_env = build_eq_class_env(&mut interner);
-        let binder = dict_binder(&mut interner, 7);
-        let caller = vec![(eq_constraint(&interner, vec![InferType::Var(1)]), binder)];
-        let wanted = eq_constraint(&interner, vec![InferType::Var(2)]);
-
-        let resolved = resolve_dict_arg(&wanted, &caller, &class_env, &interner, s())
-            .expect("a caller dictionary over a type variable discharges the callee's");
-        match resolved {
-            CoreExpr::Var { var, .. } => assert_eq!(var.binder, Some(CoreBinderId(7))),
-            other => panic!("expected the caller's dictionary binder, got {other:?}"),
-        }
-    }
-
-    /// A dictionary over a type *variable* is not evidence for a concrete
-    /// predicate. Matching on the class alone used to conclude that it was,
-    /// substituting one instance's methods for another's.
-    #[test]
-    fn resolve_dict_arg_does_not_forward_a_variable_dictionary_for_a_concrete_predicate() {
-        let mut interner = Interner::new();
-        let class_env = build_eq_class_env(&mut interner);
-        let caller = vec![(
-            eq_constraint(&interner, vec![InferType::Var(1)]),
-            dict_binder(&mut interner, 7),
-        )];
-        let wanted = eq_constraint(
-            &interner,
-            vec![InferType::Con(
-                crate::types::type_constructor::TypeConstructor::Int,
-            )],
-        );
-
-        let resolved = resolve_dict_arg(&wanted, &caller, &class_env, &interner, s())
-            .expect("a concrete predicate names its own instance");
-        match resolved {
-            CoreExpr::Var { var, .. } => assert_eq!(interner.resolve(var.name), "__dict_Eq_Int"),
-            other => panic!("expected the concrete instance dictionary, got {other:?}"),
-        }
-    }
-
-    /// Two dictionaries for one class, and nothing here says which the callee
-    /// means. Picking either is the guess KI-052 was.
-    #[test]
-    fn resolve_dict_arg_declines_when_two_dictionaries_could_match() {
-        let mut interner = Interner::new();
-        let class_env = build_eq_class_env(&mut interner);
-        let caller = vec![
-            (
-                eq_constraint(&interner, vec![InferType::Var(1)]),
-                dict_binder(&mut interner, 7),
-            ),
-            (
-                eq_constraint(&interner, vec![InferType::Var(2)]),
-                dict_binder(&mut interner, 8),
-            ),
-        ];
-        let wanted = eq_constraint(&interner, vec![InferType::Var(3)]);
-
-        assert!(
-            resolve_dict_arg(&wanted, &caller, &class_env, &interner, s()).is_none(),
-            "an ambiguous choice must not be made here"
-        );
-    }
 
     #[test]
     fn build_dict_emits_one_def_per_instance() {
@@ -2343,6 +841,7 @@ mod tests {
             instance_module: crate::types::class_id::ModulePath::EMPTY,
             is_public: false,
             type_key: "Int".to_string(),
+            head_modules: Vec::new(),
             type_args: vec![TypeExpr::Named {
                 name: float_sym,
                 args: vec![],
@@ -2395,131 +894,6 @@ mod tests {
         assert_eq!(class_env.method_index(eq_sym, bogus), None);
     }
 
-    // ── rewrite_body_with_dicts ──────────────────────────────────────────
-
-    #[test]
-    fn rewrite_replaces_class_method_call_with_tuple_field() {
-        let mut interner = Interner::new();
-        let eq_method = interner.intern("eq");
-        let x_name = interner.intern("x");
-        let y_name = interner.intern("y");
-
-        let dict_binder = mk_binder(50, interner.intern("__dict_Eq"));
-        let x_binder = mk_binder(1, x_name);
-        let y_binder = mk_binder(2, y_name);
-
-        let mut method_map = HashMap::new();
-        method_map.insert(
-            eq_method,
-            vec![single_candidate(dict_binder, vec![0_usize])],
-        );
-
-        // Build: App(Var(eq), [Var(x), Var(y)])
-        let expr = CoreExpr::App {
-            func: Box::new(CoreExpr::Var {
-                var: CoreVarRef::unresolved(eq_method),
-                span: s(),
-            }),
-            args: vec![
-                CoreExpr::bound_var(&x_binder, s()),
-                CoreExpr::bound_var(&y_binder, s()),
-            ],
-            span: s(),
-        };
-
-        let rewritten = rewrite_body_with_dicts(expr, &method_map, &ClassEnv::new());
-
-        // Expected: App(TupleField(Var(dict), 0), [Var(x), Var(y)])
-        match rewritten {
-            CoreExpr::App { func, args, .. } => {
-                match *func {
-                    CoreExpr::TupleField { object, index, .. } => {
-                        assert_eq!(index, 0);
-                        match *object {
-                            CoreExpr::Var { var, .. } => {
-                                assert_eq!(var.binder, Some(CoreBinderId(50)));
-                            }
-                            other => panic!("expected Var(dict), got {other:?}"),
-                        }
-                    }
-                    other => panic!("expected TupleField, got {other:?}"),
-                }
-                assert_eq!(args.len(), 2);
-            }
-            other => panic!("expected App, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn rewrite_leaves_non_class_calls_unchanged() {
-        let mut interner = Interner::new();
-        let println_name = interner.intern("println");
-        let x_binder = mk_binder(1, interner.intern("x"));
-
-        let method_map = HashMap::new(); // No class methods.
-
-        let expr = CoreExpr::App {
-            func: Box::new(CoreExpr::Var {
-                var: CoreVarRef::unresolved(println_name),
-                span: s(),
-            }),
-            args: vec![CoreExpr::bound_var(&x_binder, s())],
-            span: s(),
-        };
-
-        let rewritten = rewrite_body_with_dicts(expr, &method_map, &ClassEnv::new());
-
-        // Should remain App(Var(println), [Var(x)]) — unchanged.
-        match rewritten {
-            CoreExpr::App { func, .. } => match *func {
-                CoreExpr::Var { var, .. } => {
-                    assert_eq!(interner.resolve(var.name), "println");
-                }
-                other => panic!("expected Var(println), got {other:?}"),
-            },
-            other => panic!("expected App, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn rewrite_replaces_bound_vars_matching_method_name() {
-        // Class method references in constrained function bodies are always
-        // rewritten to dict extraction, regardless of binder status.
-        // resolve_program_binders may have set the binder to the polymorphic
-        // stub, but dict elaboration overrides it with TupleField extraction.
-        let mut interner = Interner::new();
-        let eq_method = interner.intern("eq");
-
-        let dict_binder = mk_binder(50, interner.intern("__dict_Eq"));
-        let local_eq = mk_binder(99, eq_method);
-
-        let mut method_map = HashMap::new();
-        method_map.insert(
-            eq_method,
-            vec![single_candidate(dict_binder, vec![0_usize])],
-        );
-
-        // App(Var(eq, binder=99), [Lit(1)]) — bound var with class method name.
-        let expr = CoreExpr::App {
-            func: Box::new(CoreExpr::bound_var(&local_eq, s())),
-            args: vec![CoreExpr::Lit(CoreLit::Int(1), s())],
-            span: s(),
-        };
-
-        let rewritten = rewrite_body_with_dicts(expr, &method_map, &ClassEnv::new());
-
-        // SHOULD be rewritten — dict elaboration rewrites by name match.
-        match rewritten {
-            CoreExpr::App { func, .. } => match *func {
-                CoreExpr::TupleField { index, .. } => {
-                    assert_eq!(index, 0);
-                }
-                other => panic!("expected TupleField, got {other:?}"),
-            },
-            other => panic!("expected App, got {other:?}"),
-        }
-    }
-
     // ── prepend_lam_params ───────────────────────────────────────────────
 
     #[test]
@@ -2565,146 +939,6 @@ mod tests {
         }
     }
 
-    // ── elaborate_dictionaries (integration) ─────────────────────────────
-
-    #[test]
-    fn elaborate_skips_when_no_constrained_functions() {
-        let mut interner = Interner::new();
-        let class_env = build_eq_class_env(&mut interner);
-        let type_env = TypeEnv::new();
-
-        let main_name = interner.intern("main");
-        let main_binder = mk_binder(0, main_name);
-        let mut program = CoreProgram {
-            defs: vec![CoreDef {
-                binder_types: Default::default(),
-                name: main_name,
-                binder: main_binder,
-                expr: CoreExpr::Lit(CoreLit::Int(0), s()),
-                is_dict_def: false,
-                borrow_signature: None,
-                result_ty: None,
-                is_anonymous: false,
-                is_recursive: false,
-                fip: None,
-                span: s(),
-            }],
-            top_level_items: vec![],
-        };
-
-        let original_len = program.defs.len();
-        let mut next_id = 10;
-        elaborate_dictionaries(&mut program, &class_env, &type_env, &interner, &mut next_id);
-
-        // No constrained functions → no dict defs added.
-        assert_eq!(program.defs.len(), original_len);
-    }
-
-    #[test]
-    fn elaborate_adds_dict_defs_when_constrained_function_exists() {
-        let mut interner = Interner::new();
-        let class_env = build_eq_class_env(&mut interner);
-        let eq_sym = interner.lookup("Eq").unwrap();
-
-        // Set up a TypeEnv with a constrained scheme for `contains`.
-        let mut type_env = TypeEnv::new();
-        let contains_name = interner.intern("contains");
-        let contains_scheme = Scheme {
-            forall: vec![0],
-            constraints: vec![SchemeConstraint {
-                class_name: eq_sym,
-                class_id: crate::types::class_id::ClassId::from_local_name(eq_sym),
-                type_args: vec![InferType::Var(0)],
-            }],
-            infer_type: crate::types::infer_type::InferType::Var(0),
-        };
-        type_env.bind(contains_name, contains_scheme);
-
-        // Build a minimal program with `contains` calling `eq`.
-        let contains_binder = mk_binder(0, contains_name);
-        let eq_method = interner.lookup("eq").unwrap();
-        let x_binder = mk_binder(1, interner.intern("x"));
-        let y_binder = mk_binder(2, interner.intern("y"));
-
-        let mut program = CoreProgram {
-            defs: vec![CoreDef {
-                binder_types: Default::default(),
-                name: contains_name,
-                binder: contains_binder,
-                expr: CoreExpr::Lam {
-                    params: vec![x_binder, y_binder],
-                    param_types: vec![],
-                    result_ty: None,
-                    body: Box::new(CoreExpr::App {
-                        func: Box::new(CoreExpr::Var {
-                            var: CoreVarRef::unresolved(eq_method),
-                            span: s(),
-                        }),
-                        args: vec![
-                            CoreExpr::bound_var(&x_binder, s()),
-                            CoreExpr::bound_var(&y_binder, s()),
-                        ],
-                        span: s(),
-                    }),
-                    span: s(),
-                },
-                is_dict_def: false,
-                borrow_signature: None,
-                result_ty: None,
-                is_anonymous: false,
-                is_recursive: false,
-                fip: None,
-                span: s(),
-            }],
-            top_level_items: vec![],
-        };
-
-        let mut next_id = 100;
-        elaborate_dictionaries(&mut program, &class_env, &type_env, &interner, &mut next_id);
-
-        // No concrete dictionary is referenced at a call site, so the pass
-        // only threads the incoming dictionary parameter through `contains`.
-        assert_eq!(program.defs.len(), 1);
-
-        let contains_def = &program.defs[0];
-        assert_eq!(interner.resolve(contains_def.name), "contains");
-        match &contains_def.expr {
-            CoreExpr::Lam { params, body, .. } => {
-                assert_eq!(params.len(), 3, "should have dict + x + y params");
-                // Body should use TupleField for the eq call.
-                match body.as_ref() {
-                    CoreExpr::App { func, .. } => {
-                        assert!(
-                            matches!(func.as_ref(), CoreExpr::TupleField { index: 0, .. }),
-                            "eq call should be rewritten to TupleField(dict, 0)"
-                        );
-                    }
-                    other => panic!("expected App in body, got {other:?}"),
-                }
-            }
-            other => panic!("expected Lam for contains, got {other:?}"),
-        }
-    }
-
-    // ── dict_name_for ────────────────────────────────────────────────────
-
-    #[test]
-    fn dict_name_for_finds_interned_name() {
-        let mut interner = Interner::new();
-        let eq_sym = interner.intern("Eq");
-        interner.intern("__dict_Eq_Int");
-
-        assert!(dict_name_for(eq_sym, "Int", &interner).is_some());
-    }
-
-    #[test]
-    fn dict_name_for_returns_none_when_missing() {
-        let mut interner = Interner::new();
-        let eq_sym = interner.intern("Eq");
-
-        assert!(dict_name_for(eq_sym, "Float", &interner).is_none());
-    }
-
     // ── SchemeConstraint in Scheme ────────────────────────────────────────
 
     #[test]
@@ -2737,5 +971,45 @@ mod tests {
             crate::types::type_constructor::TypeConstructor::Int,
         ));
         assert!(scheme.constraints.is_empty());
+    }
+
+    /// The evidence path's elaboration only defines the dictionaries the
+    /// program names: lowering already gave every body its parameters and
+    /// arguments, so nothing in a body is rewritten.
+    #[test]
+    fn build_referenced_dictionaries_defines_dictionaries_and_leaves_bodies_alone() {
+        let mut interner = Interner::new();
+        let class_env = build_eq_class_env(&mut interner);
+        let eq = interner.lookup("eq").expect("eq interned");
+        let dict = interner
+            .lookup("__dict_Eq_Int")
+            .expect("dictionary interned");
+        let x = mk_binder(1, interner.intern("x"));
+        let body = CoreExpr::lambda(
+            vec![x],
+            CoreExpr::App {
+                func: Box::new(CoreExpr::external_var(eq, s())),
+                args: vec![
+                    CoreExpr::external_var(dict, s()),
+                    CoreExpr::bound_var(&x, s()),
+                    CoreExpr::bound_var(&x, s()),
+                ],
+                span: s(),
+            },
+            s(),
+        );
+        let f = CoreDef::new(mk_binder(0, interner.intern("f")), body.clone(), false, s());
+        let mut program = CoreProgram {
+            defs: vec![f],
+            top_level_items: Vec::new(),
+        };
+        let mut next_id = 2;
+
+        build_referenced_dictionaries(&mut program, &class_env, &interner, &mut next_id);
+
+        let names: Vec<_> = program.defs.iter().map(|def| def.name).collect();
+        assert_eq!(names, [dict, interner.lookup("f").unwrap()]);
+        assert!(program.defs[0].is_dict_def);
+        assert_eq!(format!("{:?}", program.defs[1].expr), format!("{body:?}"));
     }
 }
