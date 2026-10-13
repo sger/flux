@@ -1,0 +1,20 @@
+// Going back: step, next and finish in reverse, and coming back to a stop
+// shows the same stack and values as when the program first got there.
+fn square(x) {
+    let y = x * x
+    y
+}
+
+fn sum_squares(a, b) {
+    let sa = square(a)
+    let sb = square(b)
+    sa + sb
+}
+
+fn main() {
+    println("start")
+    let total = sum_squares(3, 4)
+    println(total)
+    let again = sum_squares(1, 2)
+    println(again)
+}

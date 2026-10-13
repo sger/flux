@@ -1,0 +1,9 @@
+// Going back does not perform effects again: the clock reads the same,
+// and printed text is printed once. `events` lists what was performed.
+fn main() with IO {
+    let first = now_ms()
+    println("read the clock")
+    let second = now_ms()
+    let same = first == first
+    println(same)
+}

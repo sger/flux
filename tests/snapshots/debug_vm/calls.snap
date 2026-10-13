@@ -4,7 +4,7 @@ source: tests/debug/vm_debug_tests.rs
 > break 4
 breakpoint at calls.flx:4
 > continue
-stopped: breakpoint at calls.flx:4:5 in square
+stopped: breakpoint at calls.flx:4:5 in square (position 7)
      4 |     let y = x * x
 > bt
 #0 square at calls.flx:4:5
@@ -14,16 +14,16 @@ stopped: breakpoint at calls.flx:4:5 in square
 > locals
 x = 3
 > finish
-stopped: step at calls.flx:10:5 in sum_squares
+stopped: step at calls.flx:10:5 in sum_squares (position 9)
     10 |     let sb = square(b)
 > locals
 b = 4
 sa = 9
 > step
-stopped: step at calls.flx:3:1 in square
+stopped: step at calls.flx:3:1 in square (position 10)
      3 | fn square(x) {
 > step
-stopped: breakpoint at calls.flx:4:5 in square
+stopped: breakpoint at calls.flx:4:5 in square (position 11)
      4 |     let y = x * x
 > bt
 #0 square at calls.flx:4:5
@@ -31,10 +31,10 @@ stopped: breakpoint at calls.flx:4:5 in square
 #2 main at calls.flx:15:17
 #3 <entry>
 > next
-stopped: step at calls.flx:5:5 in square
+stopped: step at calls.flx:5:5 in square (position 12)
      5 |     y
 > next
-stopped: step at calls.flx:11:5 in sum_squares
+stopped: step at calls.flx:11:5 in sum_squares (position 13)
     11 |     sa + sb
 > locals
 sa = 9

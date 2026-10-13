@@ -1,0 +1,10 @@
+// A long run: checkpoints thin out so their number stays bounded, and the
+// debugger still goes back from the end.
+fn spin(n, acc) {
+    if n == 0 { acc } else { spin(n - 1, acc + 1) }
+}
+
+fn main() {
+    let total = spin(300000, 0)
+    print(total)
+}

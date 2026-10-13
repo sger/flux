@@ -1,4 +1,4 @@
-//! `flux debug` end to end (proposal 0188 S2).
+//! `flux debug` end to end (proposal 0188 S2, S3).
 //!
 //! Each fixture in `tests/debug/vm/` is a program and a `.flxdbg` script of
 //! debugger commands. The test runs the script against the program and
@@ -79,7 +79,10 @@ fn debug_session(name: &str, extra: &[&str], env: &[(&str, &str)]) -> String {
 }
 
 fn assert_session(name: &str) {
-    let transcript = debug_session(name, &[], &[]);
+    snapshot(name, &debug_session(name, &[], &[]));
+}
+
+fn snapshot(name: &str, transcript: &str) {
     insta::with_settings!({
         snapshot_path => "../snapshots/debug_vm",
         prepend_module_to_snapshot => false,
@@ -87,6 +90,11 @@ fn assert_session(name: &str) {
     }, {
         insta::assert_snapshot!(name, transcript);
     });
+}
+
+/// Sites between checkpoints, fixed for a session.
+fn checkpoint_every(every: &str) -> [(&'static str, &str); 1] {
+    [("FLUX_DEBUG_CHECKPOINT_EVERY", every)]
 }
 
 #[test]
@@ -172,6 +180,134 @@ fn debugging_a_replay_shows_the_recorded_values() {
     }, {
         insta::assert_snapshot!("replayed", transcript);
     });
+}
+
+// ── Going back (0188 S3) ─────────────────────────────────────────────────
+
+#[test]
+fn going_back_by_step_next_and_finish() {
+    assert_session("reverse_steps");
+}
+
+#[test]
+fn going_back_to_earlier_breakpoint_hits() {
+    assert_session("reverse_continue");
+}
+
+#[test]
+fn going_back_into_a_callback_a_library_runs() {
+    assert_session("reverse_callback");
+}
+
+#[test]
+fn going_back_across_effect_handlers() {
+    assert_session("reverse_handler");
+}
+
+#[test]
+fn going_back_performs_no_effect_twice() {
+    let transcript = debug_session("reverse_clock", &[], &[]);
+    // The clock is read once: the value after going back and forward again
+    // is the one first read.
+    let readings: Vec<&str> = transcript
+        .lines()
+        .filter(|line| line.starts_with("first = "))
+        .collect();
+    assert_eq!(readings.len(), 2, "{transcript}");
+    assert_eq!(readings[0], readings[1], "{transcript}");
+    let transcript: Vec<String> = transcript
+        .lines()
+        .map(|line| {
+            if line.starts_with("first = ") {
+                "first = [the clock]".to_string()
+            } else {
+                line.to_string()
+            }
+        })
+        .collect();
+    snapshot("reverse_clock", &transcript.join("\n"));
+}
+
+#[test]
+fn going_back_is_off_once_async_code_runs() {
+    assert_session("reverse_async");
+}
+
+#[test]
+fn going_back_is_off_once_a_task_starts() {
+    assert_session("reverse_task");
+}
+
+#[test]
+fn going_back_in_a_replay() {
+    let scratch = prepare("reverse_replayed");
+    let recorded = flux(
+        &scratch,
+        &["reverse_replayed.flx", "--record", "run.jsonl"],
+        &[("DEBUG_FIXTURE_NAME", "recorded")],
+    );
+    assert!(
+        recorded.status.success(),
+        "{}",
+        String::from_utf8_lossy(&recorded.stderr)
+    );
+    let output = flux(
+        &scratch,
+        &[
+            "debug",
+            "reverse_replayed.flx",
+            "--script",
+            "reverse_replayed.flxdbg",
+            "--replay",
+            "run.jsonl",
+        ],
+        &[("DEBUG_FIXTURE_NAME", "changed since")],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    snapshot("reverse_replayed", &transcript(&output));
+}
+
+#[test]
+fn where_checkpoints_fall_does_not_change_where_going_back_lands() {
+    // A checkpoint at every site, and only the one before the program ran:
+    // the same transcript either way.
+    let every_site = debug_session("reverse_steps", &[], &checkpoint_every("1"));
+    let only_the_first = debug_session("reverse_steps", &[], &checkpoint_every("1000000000"));
+    assert_eq!(every_site, only_the_first);
+    assert_eq!(every_site, debug_session("reverse_steps", &[], &[]));
+}
+
+/// The transcript, with the checkpoint count it reports taken out.
+fn without_checkpoint_count(transcript: &str) -> (String, Option<usize>) {
+    let mut count = None;
+    let lines: Vec<&str> = transcript
+        .lines()
+        .map(|line| match line.strip_suffix(" checkpoints") {
+            Some(number) => {
+                count = number.parse().ok();
+                "[n] checkpoints"
+            }
+            None => line,
+        })
+        .collect();
+    (lines.join("\n"), count)
+}
+
+#[test]
+fn checkpoints_stay_bounded_on_a_long_run() {
+    // 900,000 sites with a checkpoint due at every one: thinning keeps the
+    // count within its bound, and going back from the end still works.
+    let (bounded, count) =
+        without_checkpoint_count(&debug_session("reverse_far", &[], &checkpoint_every("1")));
+    let count = count.expect("the session reports its checkpoints");
+    assert!(count <= 256, "{count} checkpoints");
+    let (adaptive, _) = without_checkpoint_count(&debug_session("reverse_far", &[], &[]));
+    assert_eq!(bounded, adaptive);
+    snapshot("reverse_far", &adaptive);
 }
 
 #[test]

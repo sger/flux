@@ -1,0 +1,16 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 9
+breakpoint at reverse_task.flx:9
+> continue
+stopped: breakpoint at reverse_task.flx:9:5 in main (position 7)
+     9 |     let answer = blocking_join(t)
+> reverse-step
+cannot go back: the program used `Task.spawn`, which cannot be recorded yet (0188 S8)
+> locals
+t = Task(1)
+> continue
+program finished
+--- program output ---
+42

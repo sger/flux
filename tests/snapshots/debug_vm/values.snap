@@ -4,7 +4,7 @@ source: tests/debug/vm_debug_tests.rs
 > break 13
 breakpoint at values.flx:13
 > continue
-stopped: breakpoint at values.flx:13:5 in main
+stopped: breakpoint at values.flx:13:5 in main (position 7)
     13 |     print(len(numbers))
 > locals
 numbers = [1, 2, 3]

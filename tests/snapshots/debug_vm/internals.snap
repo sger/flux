@@ -4,20 +4,20 @@ source: tests/debug/vm_debug_tests.rs
 > break 19
 breakpoint at internals.flx:19
 > continue
-stopped: breakpoint at internals.flx:19:5 in main
+stopped: breakpoint at internals.flx:19:5 in main (position 3)
     19 |     print(twice(5))
 > internals on
 > step
-stopped: step at internals.flx:13:1 in twice
+stopped: step at internals.flx:13:1 in twice (position 4)
     13 | fn twice<a: Describe>(x: a) -> String {
 > step
-stopped: step at internals.flx:9:9 in Describe<Int>.describe
+stopped: step at internals.flx:9:9 in Describe<Int>.describe (position 5)
      9 |         "int " + to_string(x)
 > step
-stopped: step at internals.flx:18:1 in __default_handler Console.print
+stopped: step at internals.flx:18:1 in __default_handler Console.print (position 7)
     18 | fn main() {
 > step
-stopped: step at Primops.flx:35:22 in Flow.Primops.__primop_print
+stopped: step at Primops.flx:35:22 in Flow.Primops.__primop_print (position 10)
     35 |     public intrinsic fn __primop_print<a>(x: a) -> Unit = primop Print
 > bt
 #0 Flow.Primops.__primop_print at Primops.flx:35:22

@@ -1,0 +1,14 @@
+// Going back stops being possible once the program runs async code: the
+// scheduler's state is outside what checkpoints copy (0188 S8).
+import Flow.Async exposing (..)
+
+fn nap() -> Int with Async {
+    sleep(1)
+    7
+}
+
+fn main() with IO {
+    let before = 1
+    let after = run_async(nap)
+    print(before + after)
+}

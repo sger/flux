@@ -708,7 +708,9 @@ line in the order the program performed them.
   backend that recorded it, since the two schedulers order fibers
   differently; replaying it on the other backend gives E1026.
   Cross-backend async replay is S9.
-- **Step annotation (S3):** each event can optionally carry a `vm_step: u64`.
+- **Step annotation (S9):** each event can optionally carry a `vm_step: u64`,
+  for opening a native tape in the VM. S3 keeps each event's position in
+  memory only.
 - **Known differences between the backends,** which a tape records as they
   are: native `read_stdin` reads one line where the VM reads all of stdin;
   the VM clock is wall-clock milliseconds, native's is monotonic; native
@@ -716,25 +718,67 @@ line in the order the program performed them.
 
 #### 4.4 Reverse execution (VM)
 
-- **Step counter:** a global `step: u64`, incremented per instruction, in the
-  debug dispatch loop only.
-- **Checkpoints:** every K steps (adaptive, about every 50 ms of execution),
-  snapshot the roots: stack slots, frames, `handler_stack`, `EffectContext`,
-  globals, scheduler queues and the tape cursor.
-  - Values are immutable and reference-counted, so a snapshot copies the roots
-    and increments counts rather than copying deeply.
-  - **Caveat:** a live snapshot holds extra references, so `Rc::get_mut` reuse
-    (`dispatch.rs:1586-1673`) can't happen while it exists. This changes
-    performance, not results. The reference-count view (S10) subtracts the
-    debugger's own references.
-- **Step Back / Reverse Continue:** restore the nearest earlier checkpoint,
-  then replay forward from the tape to the target step. Reverse Continue
-  replays twice: the first pass finds the last breakpoint hit before the
-  current step, the second stops there.
-- **Default recording:** debug sessions record by default. A ring buffer of
-  checkpoints keeps memory bounded.
-- **OS-thread tasks:** v1 records and replays them but disables reverse
-  execution while they exist, with an explanation in the UI.
+Implemented in S3 (`src/vm/debug/`), for programs without async code.
+
+- **Position:** the count of stop sites (`OpBreakpoint`) run so far, kept
+  only while a debugger is attached. Counting sites, not instructions, keeps
+  every non-debug run free of it, and a replay makes it deterministic.
+  `flux debug` shows it on each stop (`(position 37)`), `where` prints it,
+  and `goto <position>` jumps to it.
+- **Checkpoints** copy the roots: the live stack, frames, caller call sites,
+  `handler_stack`, `EffectContext`, the globals in use, the debugger's
+  per-frame state (line dedupe, tail-call counts, call serials) and the tape
+  cursor.
+  - Values are immutable and reference-counted, so a checkpoint copies the
+    roots and increments counts rather than copying deeply.
+  - **Caveat:** a live checkpoint holds extra references, so `Rc::get_mut`
+    reuse (`dispatch.rs:1586-1673`) can't happen while it exists. This
+    changes performance, not results. The reference-count view (S10)
+    subtracts the debugger's own references.
+  - **Only at top-level sites.** Higher-order primops (`List.map`, `time`)
+    and resumed continuations run nested dispatch loops on the Rust stack,
+    which a checkpoint cannot bring back. Sites inside them are reached by
+    running forward from a checkpoint taken before.
+  - **Bounded:** the first checkpoint is taken before the program runs, then
+    one every K sites, with K adapting so they are about 50 ms of execution
+    apart. At 256 checkpoints, or 256 MB of copied roots, every other one
+    after the first is dropped and K doubles, so coverage thins towards the
+    start and memory stays bounded. Any position stays reachable through the
+    first checkpoint. `FLUX_DEBUG_CHECKPOINT_EVERY=<sites>` fixes K for tests.
+- **Going back** restores a checkpoint and runs forward silently to a
+  position. A rewind unwinds the run with an error, out of any nested loops,
+  to `VM::run`, which restores the checkpoint and starts the loop again.
+  Finding the position takes a first silent pass over the stretch before the
+  stop, noting the last site that matches; if none does, the stretch before
+  it is scanned, back to the first checkpoint:
+
+  | Command | Goes back to the last site that |
+  |---|---|
+  | `reverse-step` | a forward step would stop at |
+  | `reverse-next` | is in this call or a caller (each call has a serial, so a sibling call's lines don't count) |
+  | `reverse-finish` | is in a caller: the line that made the call |
+  | `reverse-continue` | is a breakpoint hit |
+
+  With no match before the stop, the debugger stops at the first stop of the
+  run, "the start of the recording". At the target, the site must be the one
+  the first pass saw; if not, the run is not deterministic and the debugger
+  reports it.
+- **Run to event:** `events` lists the tape's effects with the position each
+  happened at. `event N` goes to the last place a step would stop before
+  effect N, backwards or forwards.
+- **Recording by default:** every `flux debug` session keeps its effects in
+  memory (`--record` also writes them to the file, `--replay` keeps its
+  tape). After going back, effects are answered from what was kept until the
+  run reaches the end of it, then recorded again, so going back never
+  performs an effect twice. Console text is printed only the first time the
+  run reaches it.
+- **Async code:** once the program enters `run_async`, going back is off for
+  the rest of the session, with the reason shown, and the session's own
+  recording stops. The scheduler's state lives in thread-locals and global
+  tables that checkpoints do not copy yet. S8 adds it.
+- **OS-thread tasks:** a session's own recording stops when the program
+  starts a task, and going back is off from there. A `--record` or
+  `--replay` run still refuses tasks (E1027) until S8.
 
 #### 4.5 What native supports
 
@@ -780,7 +824,7 @@ Native effects need special handling in two cases:
 | S1a | Recording of synchronous effects (implements 0038): the tape format and runtime, VM hook, native C/Rust ABI, `--record`/`--replay`, E1022–E1027; async refused | Tapes recorded on either backend replay on both with identical output; replay reads and changes nothing outside the program; edited tapes fail with E1022–E1026; async under a tape fails with E1027. Off-mode overhead measured with `benches/effect_tape_off_bench.rs`. |
 | S1b | Async recording: submissions and completions through the shared async backend, one worker and synchronous fs under a tape, the taped event clock, logical request and fiber ids; `Task.spawn` refused until S8 | Every async fixture (sleep, channels, events, scopes, fs, TCP) and every async example replays on the backend that recorded it, without waiting on timers or opening sockets; edited async tapes fail with E1022/E1023; an async tape on the other backend fails with E1026. |
 | S2 | VM engine: `OpBreakpoint` sites (entry, statement, match arm, `|>` stage, perform) from the AST compiler under `-g`, `VmObserver` and `Inspector` (`src/vm/debug/`), step in/over/out, local-variable tables, caller-location fix (also in runtime stack traces), tail-call elision counter, compiler-made code hidden, `flux debug` front end | Golden transcripts of scripted sessions (`tests/debug/vm/*.flxdbg`). Every example runs the same with and without `-g`, apart from timing and one unused failing binding. No slowdown in non-debug runs. |
-| S3 | VM reverse execution: checkpoints, Step Back, Reverse Continue, run to event, recording ring buffer | Golden transcripts where the state after stepping back equals the state reached by replaying forward. A memory-bound test. |
+| S3 | VM reverse execution for programs without async code: positions (site counts), checkpoints at top-level sites in a bounded ring, reverse step/next/finish/continue by restoring a checkpoint and replaying forward, `goto`, run to event, every `flux debug` session recording in memory, console output printed once | Golden transcripts where coming back to a stop shows the stack and values seen going forward, the same wherever checkpoints fall. A memory-bound test (900,000 sites, at most 256 checkpoints). Going back performs no effect twice. |
 | S4 | `crates/flux-dap`, mirroring `crates/flux-lsp`; `editors/vscode` `debuggers` and `breakpoints` contributions; launch config with `backend`, `record`, `replay`; pure-only evaluate | DAP JSON transcript tests in `crates/flux-dap/tests`. A manual VS Code checklist in the crate README. |
 | S5 | Native line tables: IR metadata model, compile units, files, subprograms, locations, LIR location stamping, `Span::default()` audit, Og profile, `dsymutil`, real `source_filename` | `llvm-dwarfdump --verify` clean on all native fixtures. `lldb -b` scripts (break at file:line, `bt`, step) in `tests/native_llvm/debug_*.rs`. 10⁶-deep tail recursion passes in the debug profile. A manual Xcode checklist. |
 | S6 | Native variables and types: untagging expression, ADT `variant_part`, `flux_lldb.py` embedded in the dSYM, `.fluxdbg` sidecar, the native engine in `flux-dap` (proxying `lldb-dap`), `LirFunction.var_binders` side table | **Debug parity harness:** `Way::VmDebug` / `Way::LlvmDebug` in `src/parity/mod.rs:73`, and fixture directives `// dbg: break app.flx:12`, `// dbg: step`, `// dbg-expect: …` in `src/parity/fixture.rs`. Normalized transcripts must match: top frame and locals exactly, the full stack modulo tail-call elision. |

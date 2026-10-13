@@ -1,0 +1,16 @@
+break 7
+continue
+print first
+events
+reverse-step
+reverse-step
+reverse-step
+where
+goto 20
+print first
+event 1
+where
+event 0
+where
+delete 7
+continue

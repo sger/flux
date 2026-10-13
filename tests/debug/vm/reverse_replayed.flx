@@ -1,0 +1,12 @@
+// Going back while debugging a replay: the tape answers the effects again.
+import Flow.Env as Env
+
+fn greeting(name) {
+    let text = "hello " + name
+    text
+}
+
+fn main() with IO {
+    let name = Env.var_or("DEBUG_FIXTURE_NAME", "nobody")
+    print(greeting(name))
+}

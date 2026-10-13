@@ -1746,7 +1746,7 @@ impl VM {
             OpCode::OpBreakpoint => {
                 if self.debugger.is_some() {
                     let site = Self::read_u16_fast(instructions, ip + 1);
-                    self.debug_site(site);
+                    self.debug_site(site)?;
                 }
                 Ok(3)
             }

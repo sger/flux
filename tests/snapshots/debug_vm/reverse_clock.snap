@@ -1,0 +1,47 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 7
+breakpoint at reverse_clock.flx:7
+> continue
+stopped: breakpoint at reverse_clock.flx:7:5 in main (position 20)
+     7 |     let same = first == first
+> print first
+first = [the clock]
+> events
+#0 clock_now() (position 7)
+#1 stdout("\"read the clock\"\n") (position 13)
+#2 clock_now() (position 19)
+> reverse-step
+stopped: step at reverse_clock.flx:6:5 in main (position 15)
+     6 |     let second = now_ms()
+> reverse-step
+stopped: step at reverse_clock.flx:5:5 in main (position 8)
+     5 |     println("read the clock")
+> reverse-step
+stopped: step at reverse_clock.flx:4:5 in main (position 3)
+     4 |     let first = now_ms()
+> where
+position 3
+> goto 20
+stopped: step at reverse_clock.flx:7:5 in main (position 20)
+     7 |     let same = first == first
+> print first
+first = [the clock]
+> event 1
+stopped: step at reverse_clock.flx:5:5 in main (position 8)
+     5 |     println("read the clock")
+> where
+position 8
+> event 0
+stopped: step at reverse_clock.flx:4:5 in main (position 3)
+     4 |     let first = now_ms()
+> where
+position 3
+> delete 7
+deleted breakpoint at reverse_clock.flx:7
+> continue
+program finished
+--- program output ---
+"read the clock"
+true

@@ -1,0 +1,27 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 5
+breakpoint at reverse_replayed.flx:5
+> continue
+stopped: breakpoint at reverse_replayed.flx:5:5 in greeting (position 12)
+     5 |     let text = "hello " + name
+> locals
+name = "recorded"
+> reverse-step
+stopped: step at reverse_replayed.flx:4:1 in greeting (position 11)
+     4 | fn greeting(name) {
+> reverse-step
+stopped: step at reverse_replayed.flx:11:5 in main (position 10)
+    11 |     print(greeting(name))
+> where
+position 10
+> continue
+stopped: breakpoint at reverse_replayed.flx:5:5 in greeting (position 12)
+     5 |     let text = "hello " + name
+> locals
+name = "recorded"
+> continue
+program finished
+--- program output ---
+"hello recorded"

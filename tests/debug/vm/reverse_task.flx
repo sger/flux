@@ -1,0 +1,11 @@
+// A task cannot be recorded yet, so the session stops recording when the
+// program starts one, and going back is off from there.
+import Flow.Task exposing (..)
+
+fn work() -> Int { 41 + 1 }
+
+fn main() with IO {
+    let t = spawn(work)
+    let answer = blocking_join(t)
+    print(answer)
+}
