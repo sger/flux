@@ -51,6 +51,15 @@ pub struct DriverRuntimeFlags {
     pub check_only: bool,
     /// Record the run's effects to a tape, or replay them from one.
     pub tape: Option<TapeRequest>,
+    /// Run under the debugger (`flux debug`, proposal 0188 S2).
+    pub debugger: Option<DebuggerRequest>,
+}
+
+/// How `flux debug` takes its commands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DebuggerRequest {
+    /// Read commands from this file instead of stdin.
+    pub script: Option<PathBuf>,
 }
 
 /// Dump and inspection surfaces emitted by the driver.

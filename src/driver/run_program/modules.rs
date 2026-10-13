@@ -123,9 +123,12 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
                     entry_module_kind,
                     request.compile.strict_mode,
                 );
-                flux::compiler::module_interface::compute_semantic_config_hash(
+                // A `-g` VM build compiles on the AST path, whose interface
+                // differs, so the VM keys interfaces by the debug level too.
+                flux::compiler::module_interface::compute_artifact_config_hash(
                     strict_mode,
                     request.compile.enable_optimize,
+                    request.compile.debug_level,
                 )
             };
             match flux::compiler::module_interface::load_valid_interface(
@@ -187,9 +190,10 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
             .compiler
             .set_debug_level(request.compile.debug_level);
         let module_semantic_config_hash =
-            flux::compiler::module_interface::compute_semantic_config_hash(
+            flux::compiler::module_interface::compute_artifact_config_hash(
                 module_strict_mode,
                 request.compile.enable_optimize,
+                request.compile.debug_level,
             );
         let module_artifact_config_hash =
             flux::compiler::module_interface::compute_artifact_config_hash(

@@ -1,0 +1,28 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 3
+breakpoint at tail_calls.flx:3
+> continue
+stopped: breakpoint at tail_calls.flx:3:5 in count
+     3 |     if n == 0 { acc } else { count(n - 1, acc + 1) }
+> continue
+stopped: breakpoint at tail_calls.flx:3:5 in count
+     3 |     if n == 0 { acc } else { count(n - 1, acc + 1) }
+> continue
+stopped: breakpoint at tail_calls.flx:3:5 in count
+     3 |     if n == 0 { acc } else { count(n - 1, acc + 1) }
+> bt
+#0 count at tail_calls.flx:3:5
+   … 2 calls elided by tail calls (last: count at tail_calls.flx:3:30)
+#1 main at tail_calls.flx:7:11
+#2 <entry>
+> locals
+n = 2
+acc = 2
+> delete 3
+deleted breakpoint at tail_calls.flx:3
+> continue
+program finished
+--- program output ---
+4

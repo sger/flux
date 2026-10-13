@@ -18,6 +18,7 @@ mod binary_ops;
 mod channel;
 mod comparison_ops;
 mod core_dispatch;
+pub mod debug;
 
 /// Install the running program's arguments, read back by the `EnvArgs`
 /// primop. Called once by the driver; see `Flow.Env.args`.
@@ -116,6 +117,12 @@ pub struct VM {
     pub(crate) profiling: bool,
     pub(crate) cost_centres: Vec<profiling::CostCentre>,
     pub(crate) cc_stack: Vec<profiling::CostCentreStackEntry>,
+    /// The debugger attached to this VM, if any (proposal 0188 S2).
+    debugger: Option<Box<debug::DebugState>>,
+    /// For each frame index, where its caller was when it called: the
+    /// caller's frame has already moved past the call by the time anyone
+    /// reads its `ip`, so stack traces name the call from here.
+    call_ips: Vec<usize>,
 }
 
 impl VM {
@@ -146,6 +153,8 @@ impl VM {
             profiling: false,
             cost_centres: Vec::new(),
             cc_stack: Vec::new(),
+            debugger: None,
+            call_ips: Vec::new(),
         }
     }
 
@@ -553,11 +562,21 @@ impl VM {
     }
 
     fn push_frame(&mut self, frame: Frame) {
+        // The caller is still at its call instruction here: the dispatch loop
+        // moves it past the call only after this returns.
+        let call_ip = self.frames[self.frame_index].ip;
         self.frame_index += 1;
         if self.frame_index >= self.frames.len() {
             self.frames.push(frame);
         } else {
             self.frames[self.frame_index] = frame;
+        }
+        if self.frame_index >= self.call_ips.len() {
+            self.call_ips.resize(self.frame_index + 1, 0);
+        }
+        self.call_ips[self.frame_index] = call_ip;
+        if self.debugger.is_some() {
+            self.debug_note_push();
         }
     }
 

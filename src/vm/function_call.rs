@@ -286,6 +286,9 @@ impl VM {
             ));
         }
         self.check_closure_contract_stack_args(&closure, num_args)?;
+        if self.debugger.is_some() {
+            self.debug_note_tail_call();
+        }
 
         let base_pointer = self.current_frame().base_pointer;
 

@@ -381,6 +381,7 @@ struct NativeResultContext<'a> {
     strict_mode: bool,
     enable_optimize: bool,
     enable_analyze: bool,
+    debug_level: crate::debuginfo::DebugLevel,
     all_diagnostics: &'a mut Vec<Diagnostic>,
 }
 
@@ -399,6 +400,7 @@ fn handle_native_result(
         strict_mode,
         enable_optimize,
         enable_analyze,
+        debug_level,
         all_diagnostics,
     } = context;
     if result.compile_failed {
@@ -412,6 +414,7 @@ fn handle_native_result(
                 strict_mode,
                 enable_optimize,
                 enable_analyze,
+                debug_level,
             }));
         }
         return Err(result.error_message.unwrap_or_else(|| {
@@ -434,6 +437,7 @@ fn handle_native_result(
             strict_mode,
             enable_optimize,
             enable_analyze,
+            debug_level,
         });
         all_diagnostics.extend(filter_non_error_diagnostics(replayed));
     }
@@ -555,6 +559,7 @@ pub(crate) fn compile_native_modules_parallel(
                         strict_mode,
                         enable_optimize,
                         enable_analyze,
+                        debug_level,
                         all_diagnostics,
                     },
                 )?;

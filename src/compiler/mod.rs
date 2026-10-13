@@ -64,6 +64,7 @@ mod cfg_bytecode;
 pub mod compilation_scope;
 mod constructor_info;
 mod contracts;
+mod debug_sites;
 mod effect_rows;
 mod errors;
 mod expression;
@@ -1410,6 +1411,12 @@ pub struct Compiler {
     /// One entry per module this compiler lowered while `debug_level` was
     /// enabled, in lowering order.
     debug_infos: Vec<crate::debuginfo::ProgramDebugInfo>,
+    /// The debugger tables of the scope `leave_scope` last closed, for the
+    /// function being finished to take (`-g` only).
+    left_debug_tables: Option<debug_sites::DebugTables>,
+    /// The program's `|>` calls and the stage sites waiting for their call
+    /// instruction (`-g` only).
+    pipe_sites: debug_sites::PipeSites,
     strict_require_main: bool,
     /// When true, run two-phase inference with type-informed optimization
     /// between Phase 1 and Phase 2 (proposal 0077).
@@ -1774,6 +1781,7 @@ impl Compiler {
                 statements,
                 span: program.span,
                 doc_comments: program.doc_comments.clone(),
+                pipe_calls: program.pipe_calls.clone(),
             };
         }
 
@@ -1855,6 +1863,7 @@ impl Compiler {
                 statements,
                 span: program.span,
                 doc_comments: program.doc_comments.clone(),
+                pipe_calls: program.pipe_calls.clone(),
             }
         } else {
             let first_non_import = program
@@ -1876,6 +1885,7 @@ impl Compiler {
                 statements,
                 span: program.span,
                 doc_comments: program.doc_comments.clone(),
+                pipe_calls: program.pipe_calls.clone(),
             }
         }
     }
@@ -1963,6 +1973,8 @@ impl Compiler {
             strict_mode: false,
             debug_level: crate::debuginfo::DebugLevel::None,
             debug_infos: Vec::new(),
+            left_debug_tables: None,
+            pipe_sites: debug_sites::PipeSites::default(),
             strict_require_main: true,
             type_optimize: false,
             profiling: false,
@@ -7207,6 +7219,9 @@ impl Compiler {
     }
 
     pub fn compile(&mut self, program: &Program) -> Result<(), Vec<Diagnostic>> {
+        if self.debug_tables_enabled() {
+            self.pipe_sites.calls = program.pipe_calls.clone();
+        }
         self.run_pipeline(program)
     }
 
@@ -7374,9 +7389,14 @@ impl Compiler {
     }
 
     pub(super) fn enter_scope(&mut self) {
+        self.drain_def_log();
         self.scopes.push(CompilationScope::new());
         self.scope_index += 1;
         self.symbol_table = SymbolTable::new_enclosed(self.symbol_table.clone());
+        self.start_def_log();
+        if let Some(span) = self.current_span {
+            self.emit_site(crate::bytecode::debug_info::SiteKind::FnEntry, span);
+        }
         self.static_type_scopes.push(HashMap::new());
         self.effect_alias_scopes.push(HashMap::new());
     }
@@ -7389,6 +7409,7 @@ impl Compiler {
         Vec<String>,
         EffectSummary,
     ) {
+        self.finish_scope_debug_tables();
         let scope = self.scopes.pop().unwrap();
         self.scope_index -= 1;
         if let Some(outer) = self.symbol_table.outer.take() {
@@ -7406,14 +7427,22 @@ impl Compiler {
     }
 
     pub(super) fn enter_block_scope(&mut self) {
+        self.drain_def_log();
+        let mark = self.scopes[self.scope_index].locals.len();
+        self.scopes[self.scope_index].block_marks.push(mark);
         let mut block_table = SymbolTable::new_block(self.symbol_table.clone());
         block_table.num_definitions = self.symbol_table.num_definitions;
         self.symbol_table = block_table;
+        self.start_def_log();
         self.static_type_scopes.push(HashMap::new());
         self.effect_alias_scopes.push(HashMap::new());
     }
 
     pub(super) fn leave_block_scope(&mut self) {
+        self.drain_def_log();
+        if let Some(mark) = self.scopes[self.scope_index].block_marks.pop() {
+            self.close_locals_from(mark);
+        }
         let num_definitions = self.symbol_table.num_definitions;
         if let Some(outer) = self.symbol_table.outer.take() {
             let mut outer = *outer;

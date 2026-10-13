@@ -8,6 +8,7 @@ Flux CLI
 Usage:
   flux <file.flx>
   flux run <file.flx>
+  flux debug <file.flx> [--script <commands>]
 
 Packages (in a directory holding a flux.toml):
   flux new <name> [--lib]     Create a package in a new directory

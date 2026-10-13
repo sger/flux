@@ -414,6 +414,7 @@ pub(crate) fn run_file(request: RunProgramRequest<'_>) {
                 emit_compile_diagnostics_or_exit(&ctx, request);
             }
 
+            crate::driver::debug_session::configure(request.flags);
             crate::driver::replay_session::prepare(
                 &ctx.graph,
                 &ctx.entry_path,

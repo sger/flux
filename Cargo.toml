@@ -795,6 +795,10 @@ name = "debug_info_tests"
 path = "tests/debuginfo/debug_info_tests.rs"
 
 [[test]]
+name = "vm_debug_tests"
+path = "tests/debug/vm_debug_tests.rs"
+
+[[test]]
 name = "replay_cli_tests"
 path = "tests/replay/replay_cli_tests.rs"
 

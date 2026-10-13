@@ -8,6 +8,7 @@ pub(crate) mod artifact_store;
 pub mod backend;
 pub mod backend_policy;
 pub mod command;
+pub(crate) mod debug_session;
 pub mod flags;
 pub(crate) mod frontend;
 pub(crate) mod manifest_roots;
