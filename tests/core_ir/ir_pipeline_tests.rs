@@ -526,13 +526,31 @@ fn main() {
 "#,
     );
 
-    // The dictionaries are module-qualified: `Eq`, `Ord` and `Num` are owned by
-    // `Flow.Eq` / `Flow.Ord` / `Flow.Num`, whose paths are hashed into the name.
-    for suffix in ["_Ord_Int =", "_Eq_Int =", "_Num_Int ="] {
+    // `main`'s dictionaries are all known, so it calls a clone of `choose`
+    // that takes none. `Ord<Int>` is contextual, so its key carries `Eq_Int`.
+    let clone = "choose$Int$Ord_Int_Eq_Int$Num_Int_Add_Int";
+    assert!(
+        core.contains(&format!("{clone}(8, 2)")),
+        "expected `main` to call the dictionary clone `{clone}`, got:\n{core}"
+    );
+    let clone_body = core
+        .split_once(&format!("letrec {clone} ="))
+        .expect("Core dump should define the clone")
+        .1
+        .split("\n\n")
+        .next()
+        .expect("the clone should have a body");
+    assert!(
+        clone_body.starts_with("\nλx, y."),
+        "expected the clone to take no dictionary parameters, got:\n{clone_body}"
+    );
+    // The instance methods are module-qualified: `Eq`, `Ord` and `Num` are
+    // owned by `Flow.Eq` / `Flow.Ord` / `Flow.Num`, whose paths are hashed
+    // into the name. The clone calls them directly, without projecting.
+    for method in ["_Eq_Int_neq(", "_Ord_Int_gt(", "_Num_Int_div("] {
         assert!(
-            core.lines()
-                .any(|line| line.starts_with("def __dict_m") && line.ends_with(suffix)),
-            "expected Core dump to define a dictionary ending in `{suffix}`, got:\n{core}"
+            clone_body.contains(method),
+            "expected the clone to call `{method}` directly, got:\n{clone_body}"
         );
     }
 

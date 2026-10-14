@@ -744,8 +744,18 @@ fn multiple_obligations_are_present_in_lowered_dictionary_contract() {
             flux::core::display::CoreDisplayMode::Readable,
         )
         .expect("obligations fixture should lower");
-    assert!(core.contains("__dict_Equal_Int"));
-    assert!(core.contains("__dict_Render_Int"));
+    // The generic body takes one dictionary per obligation; the concrete call
+    // reaches a clone keyed by both, which calls each instance directly.
+    assert!(
+        core.contains("letrec describe =\nλ__dict_Equal, __dict_Render, x, y."),
+        "{core}"
+    );
+    assert!(
+        core.contains("describe$Int$Equal_Int$Render_Int(7, 7)"),
+        "{core}"
+    );
+    assert!(core.contains("__tc_Equal_Int_equal(x, y)"), "{core}");
+    assert!(core.contains("__tc_Render_Int_render(x)"), "{core}");
 }
 
 /// Proposal 0179 Stage 3: `where Eq<a>` and `<a: Eq>` are two spellings of one

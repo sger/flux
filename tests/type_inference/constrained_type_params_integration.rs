@@ -47,12 +47,18 @@ fn main() {
         .expect("core dump should succeed");
 
     assert!(
-        dumped.contains("__dict_Eq_Int"),
-        "expected explicit bounds to elaborate concrete dictionaries, got:\n{dumped}"
+        dumped.contains("letrec same =\nλ__dict_Eq, x, y."),
+        "expected constrained function to receive a dictionary parameter, got:\n{dumped}"
+    );
+    // The call's dictionary is known, so it calls a clone that takes none and
+    // calls the instance method directly.
+    assert!(
+        dumped.contains("letrec same$Int$Eq_Int =\nλx, y.\n    __tc_Eq_Int_eq(x, y)"),
+        "expected a dictionary clone of `same` at Eq<Int>, got:\n{dumped}"
     );
     assert!(
-        dumped.contains("__dict_Eq"),
-        "expected constrained function to receive a dictionary parameter, got:\n{dumped}"
+        dumped.contains("same$Int$Eq_Int(1, 2)"),
+        "expected `main` to call the dictionary clone, got:\n{dumped}"
     );
 }
 
@@ -337,12 +343,19 @@ fn main() {
         .expect("core dump should succeed");
 
     assert!(
-        dumped.contains("__dict_Functor_List"),
-        "expected concrete Functor<List> dictionary at the HKT call site, got:\n{dumped}"
+        dumped.contains("letrec double_all =\nλ__dict_Functor, container, d."),
+        "expected `double_all` to take its Functor dictionary, got:\n{dumped}"
+    );
+    // At the call site the dictionary is the concrete Functor<List>, so the
+    // call reaches a clone that calls List's `fmap` directly.
+    assert!(
+        dumped.contains(
+            "letrec double_all$Box_Int$Functor_List =\nλcontainer, d.\n    __tc_Functor_List_fmap(container, d)"
+        ),
+        "expected a dictionary clone of `double_all` at Functor<List>, got:\n{dumped}"
     );
     assert!(
-        dumped.contains("double_all(__dict_Functor_List"),
-        "expected `double_all` call to receive the concrete dictionary as its \
-         first argument, got:\n{dumped}"
+        dumped.contains("double_all$Box_Int$Functor_List(%t"),
+        "expected `main` to call the dictionary clone, got:\n{dumped}"
     );
 }
