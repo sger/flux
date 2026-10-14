@@ -191,6 +191,12 @@ impl AstLowerer<'_> {
         let callee_span = function.span();
         let raised = self.evidence.map_or(0, |evidence| evidence.raised(callee));
         let func = self.lower_expr(function);
+        // A dictionary clone stands for the dictionaries this call would pass.
+        if let CoreExpr::Var { var, .. } = &func
+            && self.dictless_clones.contains(&var.name)
+        {
+            return (func, Vec::new());
+        }
         if raised == 0 {
             // A call to an enclosing definition that takes dictionaries: its
             // own recursive call, with no declared signature to raise them.
@@ -285,7 +291,24 @@ impl AstLowerer<'_> {
             );
             return None;
         }
-        let args = evidence.dict_args_at(id);
+        let mut args = evidence.dict_args_at(id);
+        // Inside a dictionary clone, the function's own parameters are the
+        // known dictionaries the clone stands for (step 2a-3b).
+        if let (Some(found), Some((owner, dicts))) = (args.as_mut(), self.clone_dicts.as_ref()) {
+            for arg in found.iter_mut() {
+                *arg = super::specialize::resolve_dict_arg(arg, *owner, dicts, self.class_env);
+            }
+            if found
+                .iter()
+                .any(|arg| super::specialize::names_param_of(arg, *owner))
+            {
+                self.site_error(
+                    span,
+                    "a dictionary clone reads a dictionary its known ones do not resolve",
+                );
+                return None;
+            }
+        }
         if args.is_none() {
             let classes = (0..evidence.raised(id))
                 .filter_map(|index| evidence.predicate(&EvidenceSite::new(id, index)))

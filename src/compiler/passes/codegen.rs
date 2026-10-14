@@ -87,9 +87,12 @@ impl Compiler {
                             effects.clone()
                         };
                     // 0.0.8 plan step 2a: each clone is the same function
-                    // under another name, compiled from its own IR. Without
-                    // IR it compiles from the AST, which is the generic body:
-                    // slower, never wrong.
+                    // under another name, compiled from its own IR. A clone
+                    // has IR whenever the program does, and without IR nothing
+                    // calls it: every call compiles from the AST, by the
+                    // function's own name. It is skipped then, since the AST
+                    // body of a dictionary clone would need the dictionaries
+                    // the clone does without.
                     let clones = self
                         .specialization_clones
                         .get(name)
@@ -98,6 +101,9 @@ impl Compiler {
                     let mut result = Ok(());
                     for function in std::iter::once(*name).chain(clones) {
                         let ir_function = self.find_ir_function_by_symbol(ir_program, function);
+                        if function != *name && ir_function.is_none() {
+                            continue;
+                        }
                         result = self.compile_function_statement(
                             function,
                             parameters,

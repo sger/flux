@@ -822,6 +822,49 @@ impl ClassEnv {
             .map_or_else(|| instance.type_key.clone(), |found| found.type_key.clone())
     }
 
+    /// The dictionary in superclass slot `slot` of the known dictionary `arg`,
+    /// when it is known too (0.0.8 plan, step 2a-3b).
+    ///
+    /// The static twin of how dictionary elaboration fills that slot
+    /// (`superclass_evidence_expr`), so a specialised body reads the
+    /// dictionary the slot holds: the instance's own context first, when it
+    /// supplies the superclass, then the superclass's plain instance for the
+    /// same head. `None` for anything else, a parameter included.
+    pub fn superclass_dict_arg(
+        &self,
+        arg: &crate::types::translate::DictArg,
+        slot: usize,
+    ) -> Option<crate::types::translate::DictArg> {
+        use crate::types::{class_disposition::InstanceKey, translate::DictArg};
+        let (instance, context) = match arg {
+            DictArg::Global { instance } => (instance, &[][..]),
+            DictArg::Applied { instance, context } => (instance, context.as_slice()),
+            DictArg::Param { .. } | DictArg::None => return None,
+        };
+        let superclass = *self
+            .lookup_class_by_id(instance.class_id)?
+            .superclass_class_ids
+            .get(slot)?;
+        let def = self.instances.iter().find(|def| {
+            def.class_id == instance.class_id && def.type_key == instance.dict_type_key
+        })?;
+        if let Some(index) = def
+            .context_class_ids
+            .iter()
+            .position(|&class_id| class_id == superclass)
+        {
+            return context.get(index).cloned();
+        }
+        let found = self.superclass_instance(superclass, def)?;
+        found.context.is_empty().then(|| DictArg::Global {
+            instance: InstanceKey {
+                class_id: superclass,
+                head_type_args: instance.head_type_args.clone(),
+                dict_type_key: found.type_key.clone(),
+            },
+        })
+    }
+
     /// The slot path from a dictionary for `from` to the evidence for `to`.
     ///
     /// Empty is not a valid answer — `from == to` needs no projection — so

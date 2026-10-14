@@ -111,6 +111,8 @@ fn lower_program_to_ir_impl(
         None,
         class_env,
         evidence,
+        // Not yet on the VM path: step 2a-3c.
+        false,
     );
     if let Some(error) = errors.into_iter().next() {
         return Err(error);

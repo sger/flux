@@ -14,12 +14,19 @@
 //! - **Re-specialised** (2a-2): a clone's body, or an in-place one, is lowered
 //!   under its substitution, so the calls inside it are at known
 //!   instantiations too, and their callees are cloned in turn.
+//! - **Dictionary clones** (2a-3b): a function that takes dictionaries is
+//!   cloned where every dictionary a call passes it is known. The clone takes
+//!   none: its method calls go straight to the instance's methods, and the
+//!   dictionaries it would have passed on are the known ones.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::{
     syntax::{Identifier, expression::ExprId, interner::Interner, program::Program},
-    types::{TypeVarId, infer_type::InferType, type_env::TypeEnv, type_subst::TypeSubst},
+    types::{
+        TypeVarId, class_env::ClassEnv, evidence::EvidenceMap, infer_type::InferType,
+        translate::DictArg, type_env::TypeEnv, type_subst::TypeSubst,
+    },
 };
 
 use super::{AstLowerer, CallSiteInstantiations};
@@ -52,6 +59,9 @@ pub(super) struct PlannedClone {
     /// it changes. A boxed variable stays a variable: every boxed type has
     /// the same representation, so the clone is honest for all of them.
     pub(super) subst: TypeSubst,
+    /// The dictionaries the clone stands for, one per dictionary parameter
+    /// of the function, all known. Empty for a function that takes none.
+    pub(super) dicts: Vec<DictArg>,
     /// The callee `ExprId` of every call site that uses this clone wherever
     /// it is lowered. A call that uses it only inside a specialised body is in
     /// [`SpecPlan::context_targets`] instead.
@@ -60,11 +70,23 @@ pub(super) struct PlannedClone {
     pub(super) example: InferType,
 }
 
-/// A clone lowering emits: its interned name and its substitution.
+/// A clone lowering emits: its interned name, its substitution, and the
+/// dictionaries it stands for.
 #[derive(Clone)]
 pub(super) struct SpecClone {
     pub(super) name: Identifier,
     pub(super) subst: TypeSubst,
+    pub(super) dicts: Vec<DictArg>,
+}
+
+/// A body lowered under a substitution: the function, the name of the
+/// definition lowered (a clone's, or the function's own when in place), the
+/// substitution and the dictionaries the body is handed.
+struct SpecContext {
+    function: Identifier,
+    name: String,
+    subst: TypeSubst,
+    dicts: Vec<DictArg>,
 }
 
 /// The clones lowering will emit for `program`: each cloned function and the
@@ -79,15 +101,19 @@ pub fn specialization_clone_names(
     hm_expr_types: &HashMap<ExprId, InferType>,
     interner: &Interner,
     type_env: &TypeEnv,
+    class_env: Option<&ClassEnv>,
+    evidence: Option<&EvidenceMap>,
+    dictionary_clones: bool,
 ) -> Vec<(Identifier, String)> {
     let mut lowerer = AstLowerer::new(
         hm_expr_types,
         Some(interner),
         Some(type_env),
         None,
-        None,
-        None,
+        class_env,
+        evidence,
     );
+    lowerer.dictionary_clones = dictionary_clones;
     lowerer.collect_local_function_names(program);
     lowerer
         .plan_specializations(program)
@@ -97,15 +123,14 @@ pub fn specialization_clone_names(
         .collect()
 }
 
-/// The key of a clone for the instantiation `subst` of the variables
-/// `forall`, and that instantiation restricted to what the key records.
+/// The key spelling each variable's representation, for the instantiation
+/// `subst` of the variables `forall`, and that instantiation restricted to
+/// what the key records.
 ///
-/// The key spells each variable's representation: `Int`, `Float` and `Bool`
-/// are unboxed and each its own, and everything else is `Box`. `String` and
-/// `List<Int>` therefore share a key, and `Int` and either of them do not.
-/// `None` when every variable is boxed, which is what the generic body
-/// already is.
-fn clone_key(forall: &[TypeVarId], subst: &TypeSubst) -> Option<(String, TypeSubst)> {
+/// `Int`, `Float` and `Bool` are unboxed and each its own, and everything
+/// else is `Box`. `String` and `List<Int>` therefore share a key, and `Int`
+/// and either of them do not.
+fn rep_key(forall: &[TypeVarId], subst: &TypeSubst) -> (String, TypeSubst) {
     let mut parts = Vec::with_capacity(forall.len());
     let mut kept = TypeSubst::empty();
     for var in forall {
@@ -124,7 +149,102 @@ fn clone_key(forall: &[TypeVarId], subst: &TypeSubst) -> Option<(String, TypeSub
             kept.insert(*var, ty.clone());
         }
     }
-    (!kept.is_empty()).then(|| (parts.join("_"), kept))
+    (parts.join("_"), kept)
+}
+
+/// [`rep_key`], or `None` when every variable is boxed, which is what the
+/// generic body already is.
+fn clone_key(forall: &[TypeVarId], subst: &TypeSubst) -> Option<(String, TypeSubst)> {
+    let (key, kept) = rep_key(forall, subst);
+    (!kept.is_empty()).then_some((key, kept))
+}
+
+/// The dictionary `arg` names inside a body of `owner` that was handed
+/// `dicts`: `owner`'s parameter becomes the dictionary passed for it,
+/// projected along any superclass path. Anything that does not resolve is
+/// returned as it was.
+pub(super) fn resolve_dict_arg(
+    arg: &DictArg,
+    owner: ExprId,
+    dicts: &[DictArg],
+    class_env: Option<&ClassEnv>,
+) -> DictArg {
+    match arg {
+        DictArg::Param {
+            owner: param_owner,
+            index,
+            path,
+        } if *param_owner == owner => {
+            let Some(mut resolved) = dicts.get(*index).cloned() else {
+                return arg.clone();
+            };
+            for slot in path {
+                match class_env.and_then(|env| env.superclass_dict_arg(&resolved, *slot)) {
+                    Some(next) => resolved = next,
+                    None => return arg.clone(),
+                }
+            }
+            resolved
+        }
+        DictArg::Applied { instance, context } => DictArg::Applied {
+            instance: instance.clone(),
+            context: context
+                .iter()
+                .map(|arg| resolve_dict_arg(arg, owner, dicts, class_env))
+                .collect(),
+        },
+        other => other.clone(),
+    }
+}
+
+/// Whether `arg` is a dictionary known without any parameter.
+fn is_known(arg: &DictArg) -> bool {
+    match arg {
+        DictArg::Global { .. } => true,
+        DictArg::Applied { context, .. } => context.iter().all(is_known),
+        DictArg::Param { .. } | DictArg::None => false,
+    }
+}
+
+/// Whether `arg` still names a parameter of `owner`.
+pub(super) fn names_param_of(arg: &DictArg, owner: ExprId) -> bool {
+    match arg {
+        DictArg::Param {
+            owner: param_owner, ..
+        } => *param_owner == owner,
+        DictArg::Applied { context, .. } => context.iter().any(|arg| names_param_of(arg, owner)),
+        DictArg::Global { .. } | DictArg::None => false,
+    }
+}
+
+/// The part of a clone's name that spells the dictionary `arg`: its class and
+/// instance key, then each context dictionary's.
+///
+/// The class is named bare, without its module. A clone's dictionaries are
+/// positional, so two clones of one function differ only in the instances
+/// at each position, never in the class there.
+fn dict_key(arg: &DictArg, interner: &Interner) -> Option<String> {
+    match arg {
+        DictArg::Global { instance } => Some(format!(
+            "{}_{}",
+            interner.try_resolve(instance.class_id.name)?,
+            instance.dict_type_key
+        )),
+        DictArg::Applied { instance, context } => {
+            let mut key = dict_key(
+                &DictArg::Global {
+                    instance: instance.clone(),
+                },
+                interner,
+            )?;
+            for arg in context {
+                key.push('_');
+                key.push_str(&dict_key(arg, interner)?);
+            }
+            Some(key)
+        }
+        DictArg::Param { .. } | DictArg::None => None,
+    }
 }
 
 impl SpecPlan {
@@ -135,6 +255,7 @@ impl SpecPlan {
         function: Identifier,
         name: String,
         subst: TypeSubst,
+        dicts: Vec<DictArg>,
         example: &InferType,
     ) -> Option<(bool, &mut PlannedClone)> {
         let index = match self.clones.iter().position(|(f, _)| *f == function) {
@@ -155,6 +276,7 @@ impl SpecPlan {
         clones.push(PlannedClone {
             name,
             subst,
+            dicts,
             sites: Vec::new(),
             example: example.clone(),
         });
@@ -177,13 +299,20 @@ impl AstLowerer<'_> {
     /// Such a function is never specialised in place, since its self-call
     /// would reach a body specialised for the wrong type; it is cloned, and
     /// the self-call keeps the clone or the generic body its own type reaches.
+    ///
+    /// A function that takes dictionaries is never specialised in place
+    /// either: its dictionaries are positional and fixed by its scheme, so it
+    /// is cloned where they are known, and the generic body stays.
     pub(super) fn plan_specializations(&self, program: &Program) -> SpecPlan {
         let mut visitor = CallSiteInstantiations {
             hm_expr_types: self.hm_expr_types,
             user_fns: &self.user_function_names,
             enclosing: None,
+            outermost: None,
             sites: HashMap::new(),
             inner: HashMap::new(),
+            def_ids: HashMap::new(),
+            evidence_sites: HashMap::new(),
             params: HashMap::new(),
             constrained: HashSet::new(),
             param_types: HashMap::new(),
@@ -205,19 +334,15 @@ impl AstLowerer<'_> {
         names.sort_unstable_by_key(|name| name.as_u32());
         for name in names {
             let sites = &visitor.sites[&name];
-            // A function that receives dictionaries is never specialised here.
-            //
-            // Its body's types are what several sites consult to decide which
-            // instance a class-method call means, while the dictionaries it is
-            // handed are positional and fixed by its signature. Rewriting the
-            // former without the latter makes the two disagree — verified: it
-            // sends `result_directed_two_dictionaries.flx` to the wrong
-            // instance and it prints `7` for a `String`.
-            if visitor.constrained.contains(&name) {
+            let takes_dicts = self.dict_param_count(name, &visitor) > 0;
+            // A written bound with no evidence to say which dictionaries it
+            // takes: the paths that lower without a solve. Never specialised.
+            if !takes_dicts && visitor.constrained.contains(&name) {
                 continue;
             }
             let first = &sites[0].1;
-            if sites.iter().all(|(_, ty)| ty == first)
+            if !takes_dicts
+                && sites.iter().all(|(_, ty)| ty == first)
                 && !self.recurses_polymorphically(name, &visitor)
             {
                 if let Some(subst) = self.in_place_subst(name, first, &visitor) {
@@ -226,11 +351,14 @@ impl AstLowerer<'_> {
                 continue;
             }
             for (site, call_ty) in sites {
-                let Some((clone_name, subst)) = self.instantiation(name, call_ty, &top_level)
+                let dicts = self.site_dicts(*site, None);
+                let Some((clone_name, subst, dicts)) =
+                    self.instantiation(name, call_ty, dicts, &top_level, &visitor)
                 else {
                     continue;
                 };
-                if let Some((_, clone)) = plan.ensure_clone(name, clone_name, subst, call_ty) {
+                if let Some((_, clone)) = plan.ensure_clone(name, clone_name, subst, dicts, call_ty)
+                {
                     clone.sites.push(*site);
                 }
             }
@@ -242,9 +370,10 @@ impl AstLowerer<'_> {
     /// 2a-2: plan the clones the calls inside each specialised body reach.
     ///
     /// Every clone, and every in-place definition, is a body lowered under a
-    /// substitution, so a call in it that was generic may be at a known
-    /// instantiation there. Each body is visited once, and a clone it creates
-    /// is visited in turn. That terminates because a function has at most
+    /// substitution (and, for a dictionary clone, handed known dictionaries),
+    /// so a call in it that was generic may be at a known instantiation there.
+    /// Each body is visited once, and a clone it creates is visited in turn.
+    /// That terminates because a function has at most
     /// [`MAX_CLONES_PER_FUNCTION`] clones, and it covers a recursive group:
     /// `f$Int` calling `g` reaches `g$Int`, whose call back to `f` reaches the
     /// `f$Int` that exists.
@@ -256,42 +385,59 @@ impl AstLowerer<'_> {
     ) {
         let mut in_place: Vec<(&Identifier, &TypeSubst)> = plan.in_place.iter().collect();
         in_place.sort_unstable_by_key(|(name, _)| name.as_u32());
-        let mut work: VecDeque<(Identifier, String, TypeSubst)> = VecDeque::new();
+        let mut work: VecDeque<SpecContext> = VecDeque::new();
         for (function, subst) in in_place {
-            if let Some(context) = self.interner.and_then(|i| i.try_resolve(*function)) {
-                work.push_back((*function, context.to_string(), subst.clone()));
+            if let Some(name) = self.interner.and_then(|i| i.try_resolve(*function)) {
+                work.push_back(SpecContext {
+                    function: *function,
+                    name: name.to_string(),
+                    subst: subst.clone(),
+                    dicts: Vec::new(),
+                });
             }
         }
         for (function, clones) in &plan.clones {
             for clone in clones {
-                work.push_back((*function, clone.name.clone(), clone.subst.clone()));
+                work.push_back(SpecContext {
+                    function: *function,
+                    name: clone.name.clone(),
+                    subst: clone.subst.clone(),
+                    dicts: clone.dicts.clone(),
+                });
             }
         }
-        while let Some((function, context, subst)) = work.pop_front() {
-            let Some(calls) = visitor.inner.get(&function) else {
+        while let Some(context) = work.pop_front() {
+            let Some(calls) = visitor.inner.get(&context.function) else {
                 continue;
             };
+            let owner = visitor.def_ids.get(&context.function).copied();
             for (callee, site, call_ty) in calls {
-                if visitor.constrained.contains(callee) {
-                    continue;
-                }
+                let dicts =
+                    self.site_dicts(*site, owner.map(|owner| (owner, context.dicts.as_slice())));
                 // Ordinary recursion: the body calls itself, a clone its own
                 // clone. Its variables are fresh, so the substitution would
-                // not reach them.
-                if *callee == function && self.is_own_type(function, call_ty) {
+                // not reach them; its dictionaries are the body's own, or
+                // none when the call raised none.
+                if *callee == context.function
+                    && self.is_own_type(context.function, call_ty)
+                    && (dicts.is_empty() || dicts == context.dicts)
+                {
                     if self
                         .interner
-                        .and_then(|i| i.try_resolve(function))
-                        .is_some_and(|own| own != context)
+                        .and_then(|i| i.try_resolve(context.function))
+                        .is_some_and(|own| own != context.name)
                     {
-                        plan.context_targets
-                            .push((context.clone(), *site, context.clone()));
+                        plan.context_targets.push((
+                            context.name.clone(),
+                            *site,
+                            context.name.clone(),
+                        ));
                     }
                     continue;
                 }
-                let call_ty = call_ty.apply_type_subst(&subst);
-                let Some((clone_name, clone_subst)) =
-                    self.instantiation(*callee, &call_ty, top_level)
+                let call_ty = call_ty.apply_type_subst(&context.subst);
+                let Some((clone_name, clone_subst, clone_dicts)) =
+                    self.instantiation(*callee, &call_ty, dicts, top_level, visitor)
                 else {
                     continue;
                 };
@@ -299,23 +445,92 @@ impl AstLowerer<'_> {
                 if plan
                     .in_place
                     .get(callee)
-                    .and_then(|subst| self.clone_name(*callee, subst))
+                    .and_then(|subst| self.clone_name(*callee, subst, &[]))
                     .is_some_and(|(in_place, _)| in_place == clone_name)
                 {
                     continue;
                 }
-                let Some((new, clone)) =
-                    plan.ensure_clone(*callee, clone_name.clone(), clone_subst, &call_ty)
-                else {
+                let Some((new, clone)) = plan.ensure_clone(
+                    *callee,
+                    clone_name.clone(),
+                    clone_subst,
+                    clone_dicts,
+                    &call_ty,
+                ) else {
                     continue;
                 };
                 if new {
-                    work.push_back((*callee, clone_name.clone(), clone.subst.clone()));
+                    work.push_back(SpecContext {
+                        function: *callee,
+                        name: clone_name.clone(),
+                        subst: clone.subst.clone(),
+                        dicts: clone.dicts.clone(),
+                    });
                 }
                 plan.context_targets
-                    .push((context.clone(), *site, clone_name));
+                    .push((context.name.clone(), *site, clone_name));
             }
         }
+    }
+
+    /// How many dictionary parameters `function` takes, by its evidence.
+    fn dict_param_count(
+        &self,
+        function: Identifier,
+        visitor: &CallSiteInstantiations<'_>,
+    ) -> usize {
+        visitor
+            .def_ids
+            .get(&function)
+            .and_then(|id| self.evidence?.definition(*id))
+            .map_or(0, |definition| definition.params.len())
+    }
+
+    /// The dictionaries the call whose callee is `site` passes, each resolved
+    /// through the body it sits in: `(owner, dicts)` when that body is handed
+    /// known dictionaries. A call with no answer passes `DictArg::None`, which
+    /// no clone accepts.
+    fn site_dicts(&self, site: ExprId, body: Option<(ExprId, &[DictArg])>) -> Vec<DictArg> {
+        let Some(evidence) = self.evidence else {
+            return Vec::new();
+        };
+        let Some(args) = evidence.dict_args_at(site) else {
+            return vec![DictArg::None];
+        };
+        match body {
+            Some((owner, dicts)) if !dicts.is_empty() => args
+                .iter()
+                .map(|arg| resolve_dict_arg(arg, owner, dicts, self.class_env))
+                .collect(),
+            _ => args,
+        }
+    }
+
+    /// Whether every dictionary the body of `function` reads resolves when
+    /// it is handed `dicts`: a superclass the class environment cannot find
+    /// statically would leave the clone reading a parameter it does not have.
+    fn resolves_in_body(
+        &self,
+        function: Identifier,
+        dicts: &[DictArg],
+        visitor: &CallSiteInstantiations<'_>,
+    ) -> bool {
+        let (Some(evidence), Some(owner)) = (self.evidence, visitor.def_ids.get(&function)) else {
+            return false;
+        };
+        visitor
+            .evidence_sites
+            .get(&function)
+            .into_iter()
+            .flatten()
+            .filter_map(|site| evidence.dict_args_at(*site))
+            .flatten()
+            .all(|arg| {
+                !names_param_of(
+                    &resolve_dict_arg(&arg, *owner, dicts, self.class_env),
+                    *owner,
+                )
+            })
     }
 
     /// Whether `name` calls itself at a type other than its own.
@@ -383,40 +598,69 @@ impl AstLowerer<'_> {
         (!subst.is_empty()).then_some(subst)
     }
 
-    /// The clone of `function` that its instantiation at `call_ty` calls, and
-    /// that clone's substitution: `None` when the generic body serves it, or
-    /// when `function` is not one this step clones.
+    /// The clone of `function` that a call at `call_ty` passing `dicts`
+    /// calls: its name, substitution and dictionaries. `None` when the
+    /// generic body serves it, or when `function` is not one this step clones.
     ///
     /// `call_ty` need not be ground. A variable it leaves is boxed in the key,
     /// and every boxed type has one representation, so the clone is right for
-    /// whatever the variable becomes.
+    /// whatever the variable becomes. `dicts` must be known, one per
+    /// dictionary parameter, and resolve everything the body reads.
     fn instantiation(
         &self,
         function: Identifier,
         call_ty: &InferType,
+        dicts: Vec<DictArg>,
         top_level: &HashSet<Identifier>,
-    ) -> Option<(String, TypeSubst)> {
+        visitor: &CallSiteInstantiations<'_>,
+    ) -> Option<(String, TypeSubst, Vec<DictArg>)> {
         if !top_level.contains(&function) {
+            return None;
+        }
+        if dicts.len() != self.dict_param_count(function, visitor)
+            || (!dicts.is_empty() && !self.dictionary_clones)
+            || !dicts.iter().all(is_known)
+            || (!dicts.is_empty() && !self.resolves_in_body(function, &dicts, visitor))
+        {
             return None;
         }
         let scheme = self.type_env?.lookup(function)?;
         let subst = crate::types::unify::unify(&scheme.infer_type, call_ty).ok()?;
-        self.clone_name(function, &subst)
+        let (name, subst) = self.clone_name(function, &subst, &dicts)?;
+        Some((name, subst, dicts))
     }
 
-    /// The name of `function`'s clone for the instantiation `subst`, and
-    /// `subst` restricted to what that clone records.
-    fn clone_name(&self, function: Identifier, subst: &TypeSubst) -> Option<(String, TypeSubst)> {
+    /// The name of `function`'s clone for the instantiation `subst` and the
+    /// dictionaries `dicts`, and `subst` restricted to what that clone
+    /// records.
+    fn clone_name(
+        &self,
+        function: Identifier,
+        subst: &TypeSubst,
+        dicts: &[DictArg],
+    ) -> Option<(String, TypeSubst)> {
         let scheme = self.type_env?.lookup(function)?;
-        // A scheme with constraints takes dictionaries, whether or not its
-        // source writes the bound; cloning it means replacing those too
-        // (step 2a-3).
-        if scheme.forall.is_empty() || !scheme.constraints.is_empty() {
+        if scheme.forall.is_empty() {
             return None;
         }
-        let base = self.interner?.try_resolve(function)?;
-        let (key, subst) = clone_key(&scheme.forall, subst)?;
-        Some((format!("{base}${key}"), subst))
+        let interner = self.interner?;
+        let base = interner.try_resolve(function)?;
+        if dicts.is_empty() {
+            // A scheme with constraints takes dictionaries; with none known
+            // here, it is not cloned.
+            if !scheme.constraints.is_empty() {
+                return None;
+            }
+            let (key, subst) = clone_key(&scheme.forall, subst)?;
+            return Some((format!("{base}${key}"), subst));
+        }
+        let (key, subst) = rep_key(&scheme.forall, subst);
+        let mut name = format!("{base}${key}");
+        for arg in dicts {
+            name.push('$');
+            name.push_str(&dict_key(arg, interner)?);
+        }
+        Some((name, subst))
     }
 }
 

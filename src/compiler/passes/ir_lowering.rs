@@ -15,7 +15,7 @@ impl Compiler {
         self.deferred_lowering_error = None;
         let mut program = program.clone();
         self.apply_named_field_desugar(&mut program);
-        self.pre_intern_specialization_names(&program);
+        self.pre_intern_specialization_names(&program, false);
         let class_env_ref = if self.class_env.classes.is_empty() {
             None
         } else {

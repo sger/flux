@@ -2534,6 +2534,7 @@ fn lower_emitting(
         None,
         Some(&compiler.class_env),
         Some(evidence),
+        true,
     )
 }
 
@@ -3731,4 +3732,176 @@ fn main() {
         "{in_place}"
     );
     assert!(in_place.contains("last_or#"), "{in_place}");
+}
+
+// ── 0.0.8 plan step 2a-3b: dictionary clones ───────────────────────────
+
+/// Test-local classes, so the dictionaries are this unit's own: `Twice` has
+/// `Plus` as its superclass, as the prelude's `Num` has `Add`, and `Same`
+/// has a contextual instance for lists, as `Eq` does.
+const CLONE_CLASSES: &str = r#"
+class Plus<a> {
+    fn plus(x: a, y: a) -> a
+}
+
+class Plus<a> => Twice<a> {
+    fn twice_of(x: a) -> a
+}
+
+instance Plus<Int> {
+    fn plus(x, y) { x + y }
+}
+
+instance Plus<Float> {
+    fn plus(x, y) { x + y }
+}
+
+instance Twice<Int> {
+    fn twice_of(x) { x }
+}
+
+instance Twice<Float> {
+    fn twice_of(x) { x }
+}
+
+class Same<a> {
+    fn same(x: a, y: a) -> Bool
+}
+
+instance Same<Int> {
+    fn same(x, y) { x == y }
+}
+
+instance Same<a> => Same<List<a>> {
+    fn same(x, y) { true }
+}
+
+fn dbl<a: Twice>(x: a) -> a { plus(x, x) }
+
+fn quad<a: Twice>(x: a) -> a { dbl(dbl(x)) }
+"#;
+
+fn clone_of<'a>(defs: &'a [(String, String)], prefix: &str) -> (&'a str, &'a str) {
+    defs.iter()
+        .find(|(name, _)| name.starts_with(prefix))
+        .map(|(name, core)| (name.as_str(), core.as_str()))
+        .unwrap_or_else(|| {
+            panic!(
+                "no `{prefix}...` among {:?}",
+                defs.iter().map(|d| &d.0).collect::<Vec<_>>()
+            )
+        })
+}
+
+#[test]
+fn a_constrained_function_is_cloned_where_its_dictionaries_are_known() {
+    let defs = lowered_core_defs(&format!(
+        "{CLONE_CLASSES}
+fn main() {{
+    dbl(21)
+    dbl(1.5)
+}}
+"
+    ));
+    let (_, clone) = clone_of(&defs, "dbl$Int$");
+    let lambda = clone
+        .lines()
+        .find(|line| line.starts_with('λ'))
+        .unwrap_or("");
+    assert!(
+        !lambda.contains("__dict_"),
+        "the clone takes no dictionary: {clone}"
+    );
+    assert!(lambda.contains(":Int"), "its parameter is unboxed: {clone}");
+    assert!(
+        clone.contains("Plus_Int_plus"),
+        "`plus` reaches Plus<Int> through Twice's superclass slot: {clone}"
+    );
+    clone_of(&defs, "dbl$Float$");
+    let generic = core_def(&defs, "dbl");
+    assert!(
+        generic.contains("__dict_"),
+        "the generic body keeps its dictionary: {generic}"
+    );
+    let main = core_def(&defs, "main");
+    assert!(
+        main.contains("dbl$Int$") && main.contains("dbl$Float$"),
+        "{main}"
+    );
+    assert!(
+        !main.contains("__dict_"),
+        "main passes no dictionary: {main}"
+    );
+}
+
+#[test]
+fn a_dictionary_clone_calls_the_clones_its_dictionaries_reach() {
+    let defs = lowered_core_defs(&format!(
+        "{CLONE_CLASSES}
+fn main() {{
+    quad(5)
+}}
+"
+    ));
+    let (_, quad) = clone_of(&defs, "quad$Int$");
+    assert!(quad.contains("dbl$Int$"), "{quad}");
+    assert!(!quad.contains("__dict_"), "{quad}");
+}
+
+#[test]
+fn a_dictionary_clone_follows_its_own_recursion_only_at_its_own_dictionaries() {
+    let defs = lowered_core_defs(&format!(
+        r#"{CLONE_CLASSES}
+fn sum_to<a: Twice>(x: a, n: Int) -> a {{
+    if n == 0 {{ x }} else {{ sum_to(plus(x, x), n - 1) }}
+}}
+
+fn same_deep<a: Same>(x: a, n: Int) -> Bool {{
+    if n == 0 {{ same(x, x) }} else {{ same_deep([x], n - 1) }}
+}}
+
+fn main() {{
+    sum_to(1, 3)
+    same_deep(1, 2)
+}}
+"#
+    ));
+    let (sum_name, sum) = clone_of(&defs, "sum_to$Int$");
+    assert!(
+        sum.contains(&format!("{sum_name}#")),
+        "ordinary recursion: {sum}"
+    );
+    let (deep_name, deep) = clone_of(&defs, "same_deep$Int$");
+    assert!(
+        !deep.contains(&format!("{deep_name}#")),
+        "polymorphic recursion is at Same<List<Int>>, not the clone's own: {deep}"
+    );
+}
+
+#[test]
+fn the_vm_path_makes_no_dictionary_clones_yet() {
+    let (program, interner) = parse_program(&format!(
+        "{CLONE_CLASSES}
+fn main() {{
+    dbl(21)
+    dbl(1.5)
+}}
+"
+    ));
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile(&program).expect("the program compiles");
+    let program = program_to_lower(&mut compiler, &program);
+    let names = |dictionary_clones| {
+        crate::core::lower_ast::specialization_clone_names(
+            &program,
+            &compiler.hm_expr_types,
+            &compiler.interner,
+            &compiler.type_env,
+            Some(&compiler.class_env),
+            Some(&compiler.evidence_map),
+            dictionary_clones,
+        )
+    };
+    assert!(names(false).is_empty(), "{:?}", names(false));
+    assert_eq!(names(true).len(), 2, "{:?}", names(true));
 }

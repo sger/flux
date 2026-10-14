@@ -1,0 +1,59 @@
+// parity-expected-stdout-begin
+// 42
+// 3
+// ""s""
+// "7"
+// 9
+// "pear"
+// 20
+// true
+// true
+// 8
+// 6
+// parity-expected-stdout-end
+
+// Dictionary clones (0.0.8 plan, step 2a-3b).
+//
+// Each constrained function here is called where every dictionary it takes
+// is known, so the Core path clones it per instantiation: `dbl$Int$...`
+// takes no dictionary, binds `x:Int`, and calls `Add<Int>`'s `add` directly,
+// reached through `Num`'s superclass slot. The generic bodies stay, taking
+// their dictionaries, for every other caller.
+//
+// - `quad`'s clone calls `dbl`'s clone: its dictionaries are its caller's.
+// - `sum_to` recurses at its own type, so its clone calls itself.
+// - `same_deep` recurses at `List<a>`, so its clone calls the clone for
+//   `Eq<List<Int>>`, or the generic body once the cap of three is reached;
+//   never itself.
+//
+// The VM path lowers without dictionary clones until step 2a-3c.
+
+fn dbl<a: Num>(x: a) -> a { x + x }
+
+fn show_it<a: Show>(x: a) -> String { show(x) }
+
+fn bigger<a: Ord>(x: a, y: a) -> a { if x < y { y } else { x } }
+
+fn quad<a: Num>(x: a) -> a { dbl(dbl(x)) }
+
+fn same_deep<a: Eq>(x: a, n: Int) -> Bool {
+    if n == 0 { x == x } else { same_deep([x], n - 1) }
+}
+
+fn sum_to<a: Num>(x: a, n: Int) -> a {
+    if n == 0 { x } else { sum_to(x + x, n - 1) }
+}
+
+fn main() with IO {
+    print(dbl(21))
+    print(dbl(1.5))
+    print(show_it("s"))
+    print(show_it(7))
+    print(bigger(3, 9))
+    print(bigger("pear", "apple"))
+    print(quad(5))
+    print(same_deep(1, 2))
+    print(same_deep("s", 1))
+    print(sum_to(1, 3))
+    print(sum_to(1.5, 2))
+}

@@ -117,6 +117,7 @@ pub fn lower_program_ast_with_class_env(
         effect_op_sigs,
         class_env,
         None,
+        false,
     )
     .0
 }
@@ -128,6 +129,7 @@ pub fn lower_program_ast_with_class_env(
 /// no dictionaries are passed at all. Dictionary parameters, arguments and
 /// method calls come from it alone (0.0.8 plan, step 1e), and a site it gives
 /// no usable answer for is one of the returned internal errors.
+#[allow(clippy::too_many_arguments)]
 pub fn lower_program_ast_with_evidence(
     program: &Program,
     hm_expr_types: &HashMap<ExprId, InferType>,
@@ -136,6 +138,7 @@ pub fn lower_program_ast_with_evidence(
     effect_op_sigs: Option<&EffectOpSigs>,
     class_env: Option<&crate::types::class_env::ClassEnv>,
     evidence: Option<&crate::types::evidence::EvidenceMap>,
+    dictionary_clones: bool,
 ) -> (CoreProgram, Vec<crate::diagnostics::Diagnostic>) {
     let mut lowerer = AstLowerer::new(
         hm_expr_types,
@@ -145,6 +148,7 @@ pub fn lower_program_ast_with_evidence(
         class_env,
         evidence,
     );
+    lowerer.dictionary_clones = dictionary_clones;
     lowerer.collect_ctor_field_names(program);
     lowerer.collect_local_function_names(program);
     lowerer.collect_specializations(program);
@@ -218,6 +222,9 @@ struct CallSiteInstantiations<'a> {
     hm_expr_types: &'a HashMap<ExprId, InferType>,
     user_fns: &'a std::collections::HashSet<Identifier>,
     enclosing: Option<Identifier>,
+    /// The top-level (or module-level) function being visited, around any
+    /// nested one.
+    outermost: Option<Identifier>,
     /// Each call site's callee `ExprId` and the type it instantiates the
     /// callee at, in source order.
     sites: HashMap<Identifier, Vec<(ExprId, InferType)>>,
@@ -226,6 +233,13 @@ struct CallSiteInstantiations<'a> {
     /// body is lowered under the clone's substitution, so these are its calls'
     /// instantiations once that is applied.
     inner: HashMap<Identifier, Vec<(Identifier, ExprId, InferType)>>,
+    /// Each top-level or module-level function's definition id: the owner
+    /// its dictionary parameters are named by in evidence.
+    def_ids: HashMap<Identifier, ExprId>,
+    /// Every call id and callee id in each top-level function, nested
+    /// functions included: the sites its body reads dictionaries at (step
+    /// 2a-3b).
+    evidence_sites: HashMap<Identifier, Vec<ExprId>>,
     /// Parameter names of each function, in declaration order.
     params: HashMap<Identifier, Vec<Identifier>>,
     /// Functions that declare a constrained type parameter, and so receive
@@ -247,9 +261,13 @@ impl<'ast> crate::ast::visit::Visitor<'ast> for CallSiteInstantiations<'_> {
             name,
             parameters,
             type_params,
+            id,
             ..
         } = stmt
         {
+            if self.enclosing.is_none() {
+                self.def_ids.insert(*name, *id);
+            }
             self.params.insert(*name, parameters.clone());
             if type_params
                 .iter()
@@ -258,8 +276,13 @@ impl<'ast> crate::ast::visit::Visitor<'ast> for CallSiteInstantiations<'_> {
                 self.constrained.insert(*name);
             }
             let outer = self.enclosing.replace(*name);
+            let outermost = self.outermost;
+            if outermost.is_none() {
+                self.outermost = Some(*name);
+            }
             crate::ast::visit::walk_stmt(self, stmt);
             self.enclosing = outer;
+            self.outermost = outermost;
             return;
         }
         crate::ast::visit::walk_stmt(self, stmt);
@@ -267,6 +290,14 @@ impl<'ast> crate::ast::visit::Visitor<'ast> for CallSiteInstantiations<'_> {
 
     fn visit_expr(&mut self, expr: &'ast crate::syntax::expression::Expression) {
         use crate::syntax::expression::Expression;
+        if let Expression::Call { function, id, .. } = expr
+            && let Some(outermost) = self.outermost
+        {
+            self.evidence_sites
+                .entry(outermost)
+                .or_default()
+                .extend([*id, function.expr_id()]);
+        }
         if let Expression::Call { function, .. } = expr
             && let Expression::Identifier { name, .. } = function.as_ref()
             && self.user_fns.contains(name)
@@ -390,6 +421,17 @@ pub(super) struct AstLowerer<'a> {
     context_call_targets: HashMap<(Identifier, ExprId), Identifier>,
     /// The name of the definition whose body is being lowered.
     current_def: Option<Identifier>,
+    /// Whether a function that takes dictionaries may be cloned where they
+    /// are known (step 2a-3b). Off on the VM path until its CFG compiler can
+    /// take every clone without the AST fallback (step 2a-3c).
+    pub(super) dictionary_clones: bool,
+    /// The clones that take no dictionaries though their function does
+    /// (step 2a-3b): a call to one passes none.
+    dictless_clones: std::collections::HashSet<Identifier>,
+    /// While a dictionary clone's body is lowered, its function's definition
+    /// id and the dictionaries the clone stands for. Evidence naming the
+    /// function's parameters is read through them.
+    pub(super) clone_dicts: Option<(ExprId, Vec<crate::types::translate::DictArg>)>,
     /// The substitution in force while lowering one specialised body.
     active_subst: Option<TypeSubst>,
     /// The solver's evidence, by the site that raised each predicate
@@ -438,6 +480,9 @@ impl<'a> AstLowerer<'a> {
             call_targets: HashMap::new(),
             context_call_targets: HashMap::new(),
             current_def: None,
+            dictionary_clones: false,
+            dictless_clones: std::collections::HashSet::new(),
+            clone_dicts: None,
             active_subst: None,
             evidence,
             dict_param_binders: HashMap::new(),
@@ -536,9 +581,13 @@ impl<'a> AstLowerer<'a> {
                 for site in clone.sites {
                     self.call_targets.insert(site, symbol);
                 }
+                if !clone.dicts.is_empty() {
+                    self.dictless_clones.insert(symbol);
+                }
                 clones.entry(name).or_default().push(specialize::SpecClone {
                     name: symbol,
                     subst: clone.subst,
+                    dicts: clone.dicts,
                 });
             }
         }
@@ -892,6 +941,7 @@ impl<'a> AstLowerer<'a> {
         function: &FunctionStmt<'_>,
         def_name: Identifier,
         subst: Option<TypeSubst>,
+        dicts: Option<(ExprId, Vec<crate::types::translate::DictArg>)>,
     ) -> CoreDef {
         let name = function.name;
         let span = function.span;
@@ -899,6 +949,7 @@ impl<'a> AstLowerer<'a> {
         // point.
         let restore_subst = std::mem::replace(&mut self.active_subst, subst);
         let restore_def = self.current_def.replace(def_name);
+        let restore_dicts = std::mem::replace(&mut self.clone_dicts, dicts);
         let binder = self.bind_name(def_name);
         let params = self.bind_fn_params(name, function.parameters);
         let (mut param_types, inferred_result_ty) = self.lambda_signature_from_function_name(name);
@@ -910,7 +961,13 @@ impl<'a> AstLowerer<'a> {
             param_types = Vec::new();
         }
         // Before the body: its method calls read these binders.
-        let dict_params = self.evidence_dict_params(function.id, name, &params, span);
+        // A dictionary clone takes no dictionaries: its body reads the known
+        // ones in `clone_dicts` instead.
+        let dict_params = if self.clone_dicts.is_some() {
+            Vec::new()
+        } else {
+            self.evidence_dict_params(function.id, name, &params, span)
+        };
         let body_expr = self.lower_function_body_for_name(
             name,
             function.intrinsic,
@@ -952,6 +1009,7 @@ impl<'a> AstLowerer<'a> {
         }
         self.active_subst = restore_subst;
         self.current_def = restore_def;
+        self.clone_dicts = restore_dicts;
         def
     }
 
@@ -990,10 +1048,16 @@ impl<'a> AstLowerer<'a> {
                 // 0187 B1: lower this body under its single instantiation, if
                 // it has one.
                 let subst = self.specializations.get(name).cloned();
-                out.push(self.lower_function_def(&function, *name, subst));
+                out.push(self.lower_function_def(&function, *name, subst, None));
                 // 2a: and once more per clone, under the clone's instantiation.
                 for clone in self.clones.get(name).cloned().unwrap_or_default() {
-                    out.push(self.lower_function_def(&function, clone.name, Some(clone.subst)));
+                    let dicts = (!clone.dicts.is_empty()).then_some((*id, clone.dicts));
+                    out.push(self.lower_function_def(
+                        &function,
+                        clone.name,
+                        Some(clone.subst),
+                        dicts,
+                    ));
                 }
             }
 
