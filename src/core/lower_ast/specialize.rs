@@ -169,7 +169,14 @@ impl AstLowerer<'_> {
     /// **Self-calls do not count.** A recursive occurrence is at the
     /// definition's own type by construction, so it is never a second
     /// instantiation, and counting it would exclude every recursive function.
-    /// A clone's self-calls follow the clone instead.
+    /// Each specialised body's self-calls are planned with the rest of its
+    /// calls, in [`Self::respecialize`].
+    ///
+    /// The exception is polymorphic recursion, which a signature allows: a
+    /// self-call at another type, `depth([x], n)` inside `depth<a>(x: a, n)`.
+    /// Such a function is never specialised in place, since its self-call
+    /// would reach a body specialised for the wrong type; it is cloned, and
+    /// the self-call keeps the clone or the generic body its own type reaches.
     pub(super) fn plan_specializations(&self, program: &Program) -> SpecPlan {
         let mut visitor = CallSiteInstantiations {
             hm_expr_types: self.hm_expr_types,
@@ -210,7 +217,9 @@ impl AstLowerer<'_> {
                 continue;
             }
             let first = &sites[0].1;
-            if sites.iter().all(|(_, ty)| ty == first) {
+            if sites.iter().all(|(_, ty)| ty == first)
+                && !self.recurses_polymorphically(name, &visitor)
+            {
                 if let Some(subst) = self.in_place_subst(name, first, &visitor) {
                     plan.in_place.insert(name, subst);
                 }
@@ -266,6 +275,20 @@ impl AstLowerer<'_> {
                 if visitor.constrained.contains(callee) {
                     continue;
                 }
+                // Ordinary recursion: the body calls itself, a clone its own
+                // clone. Its variables are fresh, so the substitution would
+                // not reach them.
+                if *callee == function && self.is_own_type(function, call_ty) {
+                    if self
+                        .interner
+                        .and_then(|i| i.try_resolve(function))
+                        .is_some_and(|own| own != context)
+                    {
+                        plan.context_targets
+                            .push((context.clone(), *site, context.clone()));
+                    }
+                    continue;
+                }
                 let call_ty = call_ty.apply_type_subst(&subst);
                 let Some((clone_name, clone_subst)) =
                     self.instantiation(*callee, &call_ty, top_level)
@@ -293,6 +316,43 @@ impl AstLowerer<'_> {
                     .push((context.clone(), *site, clone_name));
             }
         }
+    }
+
+    /// Whether `name` calls itself at a type other than its own.
+    fn recurses_polymorphically(
+        &self,
+        name: Identifier,
+        visitor: &CallSiteInstantiations<'_>,
+    ) -> bool {
+        visitor.inner.get(&name).is_some_and(|calls| {
+            calls
+                .iter()
+                .any(|(callee, _, ty)| *callee == name && !self.is_own_type(name, ty))
+        })
+    }
+
+    /// Whether `ty`, a self-call's type, is `function`'s own type up to the
+    /// names of its variables.
+    ///
+    /// A self-call is recorded with fresh variables even in ordinary
+    /// recursion, so it is compared up to renaming: each quantified variable
+    /// must map to a distinct variable. Polymorphic recursion maps one to a
+    /// type, `a` to `List<a>`. Without a scheme there is nothing to compare
+    /// with, and nothing is cloned either, so the answer is `true`: B1 as
+    /// before.
+    fn is_own_type(&self, function: Identifier, ty: &InferType) -> bool {
+        let Some(scheme) = self.type_env.and_then(|env| env.lookup(function)) else {
+            return true;
+        };
+        let Ok(subst) = crate::types::unify::unify(&scheme.infer_type, ty) else {
+            return false;
+        };
+        let mut seen = HashSet::new();
+        scheme.forall.iter().all(|var| match subst.get(*var) {
+            None => true,
+            Some(InferType::Var(target)) => seen.insert(*target),
+            Some(_) => false,
+        })
     }
 
     /// B1: the substitution that lowers `name` in place at its one

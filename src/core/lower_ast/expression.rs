@@ -15,8 +15,11 @@ use crate::core::{
 impl<'a> super::AstLowerer<'a> {
     /// The name an occurrence of `name` refers to once clones exist (0.0.8
     /// plan, step 2a): the clone its call site was pointed at in the body
-    /// being lowered, or everywhere, or, inside a clone of `name`, that clone
-    /// itself, so a self-call follows the clone it sits in.
+    /// being lowered, or everywhere.
+    ///
+    /// A clone's self-call is planned like any other call in it, so it calls
+    /// the clone its own instantiation reaches: the clone itself in ordinary
+    /// recursion, another clone or the generic body in polymorphic recursion.
     fn clone_target(&self, id: ExprId, name: Identifier) -> Identifier {
         if let Some(target) = self
             .current_def
@@ -24,13 +27,7 @@ impl<'a> super::AstLowerer<'a> {
         {
             return *target;
         }
-        if let Some(target) = self.call_targets.get(&id) {
-            return *target;
-        }
-        match self.active_clone {
-            Some((function, clone)) if function == name => clone,
-            _ => name,
-        }
+        self.call_targets.get(&id).copied().unwrap_or(name)
     }
 
     // ── Expression lowering ──────────────────────────────────────────────────

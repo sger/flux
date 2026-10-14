@@ -221,9 +221,9 @@ struct CallSiteInstantiations<'a> {
     /// Each call site's callee `ExprId` and the type it instantiates the
     /// callee at, in source order.
     sites: HashMap<Identifier, Vec<(ExprId, InferType)>>,
-    /// The same call sites, by the function they sit in: each one's callee,
-    /// callee `ExprId` and type (0.0.8 plan step 2a-2). A clone's body is
-    /// lowered under the clone's substitution, so these are its calls'
+    /// The call sites by the function they sit in, self-calls included: each
+    /// one's callee, callee `ExprId` and type (0.0.8 plan step 2a-2). A clone's
+    /// body is lowered under the clone's substitution, so these are its calls'
     /// instantiations once that is applied.
     inner: HashMap<Identifier, Vec<(Identifier, ExprId, InferType)>>,
     /// Parameter names of each function, in declaration order.
@@ -270,13 +270,16 @@ impl<'ast> crate::ast::visit::Visitor<'ast> for CallSiteInstantiations<'_> {
         if let Expression::Call { function, .. } = expr
             && let Expression::Identifier { name, .. } = function.as_ref()
             && self.user_fns.contains(name)
-            && Some(*name) != self.enclosing
             && let Some(callee_ty) = self.hm_expr_types.get(&function.expr_id())
         {
-            self.sites
-                .entry(*name)
-                .or_default()
-                .push((function.expr_id(), callee_ty.clone()));
+            // A self-call is not a second instantiation, so it stays out of
+            // `sites`; it is planned with the body it sits in.
+            if Some(*name) != self.enclosing {
+                self.sites
+                    .entry(*name)
+                    .or_default()
+                    .push((function.expr_id(), callee_ty.clone()));
+            }
             if let Some(enclosing) = self.enclosing {
                 self.inner.entry(enclosing).or_default().push((
                     *name,
@@ -381,9 +384,6 @@ pub(super) struct AstLowerer<'a> {
     clones: HashMap<Identifier, Vec<specialize::SpecClone>>,
     /// The clone each call site calls, by the callee's `ExprId`.
     call_targets: HashMap<ExprId, Identifier>,
-    /// While a clone's body is lowered, the function it clones and the
-    /// clone's name, so its self-calls call the clone.
-    active_clone: Option<(Identifier, Identifier)>,
     /// The clone a call calls inside one specialised body, by that body's
     /// definition name and the callee's `ExprId` (step 2a-2). Read before
     /// [`Self::call_targets`].
@@ -436,7 +436,6 @@ impl<'a> AstLowerer<'a> {
             specializations: HashMap::new(),
             clones: HashMap::new(),
             call_targets: HashMap::new(),
-            active_clone: None,
             context_call_targets: HashMap::new(),
             current_def: None,
             active_subst: None,
@@ -994,9 +993,7 @@ impl<'a> AstLowerer<'a> {
                 out.push(self.lower_function_def(&function, *name, subst));
                 // 2a: and once more per clone, under the clone's instantiation.
                 for clone in self.clones.get(name).cloned().unwrap_or_default() {
-                    let outer = self.active_clone.replace((*name, clone.name));
                     out.push(self.lower_function_def(&function, clone.name, Some(clone.subst)));
-                    self.active_clone = outer;
                 }
             }
 

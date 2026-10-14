@@ -1,0 +1,24 @@
+// parity-expected-stdout-begin
+// 3
+// 2
+// parity-expected-stdout-end
+
+// Polymorphic recursion meets specialisation (0.0.8 plan, step 2a-3a).
+//
+// `depth` is called at `Int` and at `String`, so it is cloned: `depth$Int`
+// binds `x` unboxed. Its self-call is at `List<Int>`, not `Int`, so it must
+// not call `depth$Int`, which would hand a boxed list to a parameter it reads
+// as a raw integer. It calls the generic `depth`, which every boxed type
+// shares.
+//
+// Its pair is annot_polymorphic_recursion.flx, which recurses the same way
+// at one boxed type and so is never cloned.
+
+fn depth<a>(x: a, n: Int) -> Int {
+    if n == 0 { 0 } else { depth([x], n - 1) + 1 }
+}
+
+fn main() with IO {
+    print(depth(1, 3))
+    print(depth("s", 2))
+}

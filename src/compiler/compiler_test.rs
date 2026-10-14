@@ -3662,3 +3662,73 @@ fn main() {
     let main = core_def(&defs, "main");
     assert!(!main.contains("pair$"), "{main}");
 }
+
+// ── 0.0.8 plan step 2a-3a: self-calls are planned ──────────────────────
+
+const DEPTH: &str = r#"
+fn depth<a>(x: a, n: Int) -> Int {
+    if n == 0 { 0 } else { depth([x], n - 1) + 1 }
+}
+"#;
+
+#[test]
+fn a_polymorphically_recursive_clone_calls_the_body_its_self_call_reaches() {
+    let defs = lowered_core_defs(&format!(
+        "{DEPTH}\nfn main() {{\n    depth(1, 3)\n    depth(\"s\", 2)\n}}\n"
+    ));
+    let clone = core_def(&defs, "depth$Int");
+    assert!(clone.contains("x#") && clone.contains(":Int,"), "{clone}");
+    assert!(
+        clone.contains("depth#") && !clone.contains("depth$Int#"),
+        "the self-call at List<Int> calls the generic body: {clone}"
+    );
+}
+
+#[test]
+fn a_polymorphically_recursive_function_is_not_specialised_in_place() {
+    let defs = lowered_core_defs(&format!("{DEPTH}\nfn main() {{\n    depth(1, 3)\n}}\n"));
+    let generic = core_def(&defs, "depth");
+    let x = generic
+        .lines()
+        .find(|line| line.starts_with('λ'))
+        .and_then(|params| params.split(',').next())
+        .expect("`depth` lowers to a lambda");
+    assert!(
+        !x.contains(":Int"),
+        "the generic body's `x` stays boxed: {generic}"
+    );
+    let clone = core_def(&defs, "depth$Int");
+    assert!(clone.contains("depth#"), "{clone}");
+}
+
+/// A self-call is recorded with fresh variables even in ordinary recursion,
+/// so it must be compared with the scheme up to renaming: compared exactly,
+/// every recursive function looks polymorphically recursive and B1 stops
+/// specialising it in place.
+#[test]
+fn an_ordinarily_recursive_function_is_still_specialised_in_place() {
+    let defs = lowered_core_defs(
+        r#"
+fn last_or(xs, d) {
+    match xs {
+        [h | t] -> last_or(t, h),
+        _ -> d,
+    }
+}
+
+fn main() {
+    last_or([1, 2], 0)
+}
+"#,
+    );
+    assert!(
+        !defs.iter().any(|(name, _)| name.starts_with("last_or$")),
+        "one instantiation is specialised in place, not cloned"
+    );
+    let in_place = core_def(&defs, "last_or");
+    assert!(
+        in_place.contains("h#") && in_place.contains(":Int,"),
+        "{in_place}"
+    );
+    assert!(in_place.contains("last_or#"), "{in_place}");
+}
