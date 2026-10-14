@@ -12,11 +12,13 @@ use std::net::TcpStream;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 
 use crate::debug_protocol::{
-    EngineMessage, Event, Frame, Reply, Request, RequestMessage, ResumeKind, Scope, StopKind,
-    TapeEvent, Variable,
+    EngineMessage, Event, ExceptionInfo, Frame, FrameKind, Reply, Request, RequestMessage,
+    ResumeKind, Scope, StopKind, TapeEvent, Variable,
 };
 use crate::runtime::replay;
-use crate::vm::debug::{Inspector, Resume, StopReason, ValueView, VmObserver, request_interrupt};
+use crate::vm::debug::{
+    self, ExceptionKind, Inspector, Resume, StopReason, ValueView, VmObserver, request_interrupt,
+};
 
 /// The most parts of one value listed at once.
 const CHILDREN: usize = 1000;
@@ -173,6 +175,12 @@ impl EngineObserver {
                         column: frame.column,
                         artificial: frame.artificial,
                         elided: frame.elided,
+                        kind: match frame.kind {
+                            debug::FrameKind::Live => FrameKind::Live,
+                            debug::FrameKind::Suspended { resumable: true } => FrameKind::Suspended,
+                            debug::FrameKind::Suspended { resumable: false } => FrameKind::Dropped,
+                            debug::FrameKind::Label => FrameKind::Label,
+                        },
                     })
                     .collect();
                 self.reply(id, Ok(Reply::Stack { frames }));
@@ -193,6 +201,22 @@ impl EngineObserver {
             Request::SetInternals { show } => {
                 inspector.set_show_internals(show);
                 self.reply(id, Ok(Reply::Ok));
+            }
+            Request::SetExceptionFilters { filters } => {
+                let kinds: Result<Vec<ExceptionKind>, String> = filters
+                    .iter()
+                    .map(|filter| {
+                        ExceptionKind::from_id(filter)
+                            .ok_or_else(|| format!("no exception filter `{filter}`"))
+                    })
+                    .collect();
+                match kinds {
+                    Ok(kinds) => {
+                        inspector.set_caught(&kinds);
+                        self.reply(id, Ok(Reply::Ok));
+                    }
+                    Err(message) => self.reply(id, Err(message)),
+                }
             }
             Request::Events => {
                 let events = replay::event_list()
@@ -227,7 +251,16 @@ impl VmObserver for EngineObserver {
     }
 
     fn on_stop(&mut self, reason: StopReason, inspector: &mut Inspector<'_>) -> Resume {
+        let mut exception = None;
         let (reason, description) = match reason {
+            StopReason::Exception(_) => {
+                self.entry = false;
+                exception = inspector.exception().map(|(kind, message)| ExceptionInfo {
+                    kind: kind.id().to_string(),
+                    message,
+                });
+                (StopKind::Exception, None)
+            }
             _ if std::mem::take(&mut self.entry) => (StopKind::Entry, None),
             StopReason::Breakpoint => (StopKind::Breakpoint, None),
             StopReason::Step => (StopKind::Step, None),
@@ -243,6 +276,7 @@ impl VmObserver for EngineObserver {
                 reason,
                 position,
                 description,
+                exception,
             },
         });
         self.serve(inspector, true)
@@ -314,10 +348,13 @@ fn variables(
     scope: Scope,
     path: &[String],
 ) -> Result<Vec<Variable>, String> {
+    if scope == Scope::Handlers {
+        return handler_variables(inspector, path);
+    }
     let in_scope = match scope {
         Scope::Locals => inspector.locals(frame),
         Scope::Captured => inspector.captured(frame),
-        Scope::Any => Vec::new(),
+        Scope::Any | Scope::Handlers => Vec::new(),
     };
     let Some((name, parts)) = path.split_first() else {
         return Ok(in_scope
@@ -334,6 +371,50 @@ fn variables(
     }
     .ok_or_else(|| format!("no variable `{name}` here"))?;
     let value = descend(found, name, parts)?;
+    Ok(value
+        .children(CHILDREN)
+        .into_iter()
+        .map(|(label, child)| variable(label, &child, false))
+        .collect())
+}
+
+/// The active handlers, as variables named by their effect, or the parts
+/// of one's state.
+fn handler_variables(inspector: &Inspector<'_>, path: &[String]) -> Result<Vec<Variable>, String> {
+    let handlers = inspector.handlers();
+    let Some((name, parts)) = path.split_first() else {
+        return Ok(handlers
+            .into_iter()
+            .map(|handler| {
+                let site = handler
+                    .handled_in
+                    .map(|name| format!("handled in {name}"))
+                    .unwrap_or_default();
+                match &handler.state {
+                    Some(state) => {
+                        let mut var = variable(handler.effect, state, handler.internal);
+                        if !site.is_empty() {
+                            var.value = format!("{} ({site})", var.value);
+                        }
+                        var
+                    }
+                    None => Variable {
+                        name: handler.effect,
+                        value: site,
+                        type_name: "handler".to_string(),
+                        has_children: false,
+                        artificial: handler.internal,
+                    },
+                }
+            })
+            .collect());
+    };
+    let state = handlers
+        .into_iter()
+        .find(|handler| &handler.effect == name)
+        .and_then(|handler| handler.state)
+        .ok_or_else(|| format!("no handler state `{name}` here"))?;
+    let value = descend(state, name, parts)?;
     Ok(value
         .children(CHILDREN)
         .into_iter()

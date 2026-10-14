@@ -357,7 +357,11 @@ impl VM {
             // frame_index unchanged numerically but swaps in a different frame
             // triggers an instruction-pointer refresh.
             let closure_ptr_before = Rc::as_ptr(&closure);
-            let ip_delta = self.dispatch_instruction(instructions, ip, op)?;
+            let ip_delta = match self.dispatch_instruction(instructions, ip, op) {
+                Ok(delta) => delta,
+                Err(error) if self.debugger.is_some() => return Err(self.debug_on_error(error)),
+                Err(error) => return Err(error),
+            };
             self.apply_ip_delta(frame_before, ip_delta, None);
 
             let closure_changed =
@@ -387,7 +391,11 @@ impl VM {
         }
 
         let frame_before = self.frame_index;
-        let ip_delta = self.dispatch_instruction(instructions, ip, op)?;
+        let ip_delta = match self.dispatch_instruction(instructions, ip, op) {
+            Ok(delta) => delta,
+            Err(error) if self.debugger.is_some() => return Err(self.debug_on_error(error)),
+            Err(error) => return Err(error),
+        };
         self.apply_ip_delta(frame_before, ip_delta, invoke_target_frame);
         Ok(())
     }

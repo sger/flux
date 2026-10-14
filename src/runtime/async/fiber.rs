@@ -523,6 +523,7 @@ mod tests {
             entry_frame_index: 0,
             inner_handlers: vec![],
             state_marker: Some(7),
+            debug_serials: Vec::new(),
         };
         let mut f = Fiber::new(WorkerId(2));
         f.state = FiberState::Suspended { request_id: 42 };

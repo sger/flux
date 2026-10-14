@@ -82,6 +82,25 @@ fn assert_session(name: &str) {
     snapshot(name, &debug_session(name, &[], &[]));
 }
 
+/// A session whose program ends with a runtime error, after the debugger
+/// stopped at it.
+fn assert_failing_session(name: &str) {
+    let scratch = prepare(name);
+    let program = format!("{name}.flx");
+    let script = format!("{name}.flxdbg");
+    let output = flux(
+        &scratch,
+        &["debug", program.as_str(), "--script", script.as_str()],
+        &[],
+    );
+    assert!(
+        !output.status.success(),
+        "{name} was to end with an error:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    snapshot(name, &transcript(&output));
+}
+
 fn snapshot(name: &str, transcript: &str) {
     insta::with_settings!({
         snapshot_path => "../snapshots/debug_vm",
@@ -135,6 +154,43 @@ fn a_breakpoint_in_a_callback_a_library_runs() {
 #[test]
 fn a_breakpoint_on_a_line_without_code_moves_down() {
     assert_session("no_code_line");
+}
+
+// ── Effects and runtime errors (0188 S7) ─────────────────────────────────
+
+#[test]
+fn a_handler_shows_the_frames_it_suspended_and_resume_runs_them_again() {
+    assert_session("effect_yield");
+}
+
+#[test]
+fn stepping_over_perform_and_resume() {
+    assert_session("effect_steps");
+}
+
+#[test]
+fn nested_handlers_and_handler_state() {
+    assert_session("effect_handlers");
+}
+
+#[test]
+fn a_handler_that_never_resumes() {
+    assert_session("effect_discard");
+}
+
+#[test]
+fn a_panic_stops_where_it_happens() {
+    assert_failing_session("exception_panic");
+}
+
+#[test]
+fn division_by_zero_stops_at_the_division() {
+    assert_failing_session("exception_division");
+}
+
+#[test]
+fn catch_none_lets_errors_end_the_program() {
+    assert_failing_session("exception_off");
 }
 
 #[test]

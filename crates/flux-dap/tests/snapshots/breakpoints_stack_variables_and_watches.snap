@@ -2,7 +2,7 @@
 source: crates/flux-dap/tests/dap_tests.rs
 ---
 -> initialize {"adapterID":"flux"}
-<- {"body":{"supportsConfigurationDoneRequest":true,"supportsEvaluateForHovers":true,"supportsLoadedSourcesRequest":false,"supportsSetVariable":false,"supportsStepBack":true,"supportsTerminateRequest":true},"command":"initialize","success":true}
+<- {"body":{"exceptionBreakpointFilters":[{"default":true,"filter":"panic","label":"Panics"},{"default":true,"filter":"division_by_zero","label":"Division by zero"},{"default":true,"filter":"unhandled_effect","label":"Unhandled effects"},{"default":false,"filter":"runtime_error","label":"Other runtime errors"}],"supportsConfigurationDoneRequest":true,"supportsEvaluateForHovers":true,"supportsExceptionInfoRequest":true,"supportsLoadedSourcesRequest":false,"supportsSetVariable":false,"supportsStepBack":true,"supportsTerminateRequest":true},"command":"initialize","success":true}
 -> launch {"fluxArgs":["--no-cache"],"fluxCommand":["<flux>"],"program":"<dir>/calls.flx"}
 <- {"body":{},"command":"launch","success":true}
 <- event {"body":{},"event":"initialized"}

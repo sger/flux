@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 
 use crate::driver::flags::DebuggerRequest;
 use crate::runtime::replay;
-use crate::vm::debug::{Inspector, Resume, StopReason, ValueView, VmObserver};
+use crate::vm::debug::{
+    ExceptionKind, FrameKind, Inspector, Resume, StopReason, ValueView, VmObserver,
+};
 
 const HELP: &str = "\
 commands:
@@ -31,6 +33,9 @@ commands:
   bt                                   show the call stack
   locals                               show this frame's variables
   print <name>[.<n>...]                show a value, or one of its parts (p)
+  handlers                             show the active effect handlers, innermost first
+  catch [panic|division|unhandled|errors|all|none]...
+                                       choose the runtime errors to stop at; alone, list them
   internals on|off                     show or hide compiler-made frames and variables
   quit                                 stop the program (q)";
 
@@ -171,9 +176,13 @@ impl CommandObserver {
                 "q" | "quit" => return Resume::Quit,
                 "b" | "break" => self.set_breakpoint(inspector, rest),
                 "delete" => self.clear_breakpoint(inspector, rest),
-                "bt" | "backtrace" | "locals" | "p" | "print" if !paused => say(NOT_STARTED),
+                "bt" | "backtrace" | "locals" | "p" | "print" | "handlers" if !paused => {
+                    say(NOT_STARTED)
+                }
                 "bt" | "backtrace" => backtrace(inspector),
                 "locals" => locals(inspector),
+                "handlers" => handlers(inspector),
+                "catch" => catch(inspector, rest),
                 "p" | "print" => print(inspector, rest),
                 "internals" => match rest {
                     "on" => inspector.set_show_internals(true),
@@ -283,9 +292,19 @@ impl VmObserver for CommandObserver {
                     Some(file) => format!("{}:{}:{}", short(file), frame.line, frame.column),
                     None => "an unknown place".to_string(),
                 };
+                let why = match (reason, inspector.exception()) {
+                    (StopReason::Exception(_), Some((kind, message)))
+                        if message == kind.label() =>
+                    {
+                        format!("exception ({message})")
+                    }
+                    (StopReason::Exception(_), Some((kind, message))) => {
+                        format!("exception ({}: {message})", kind.label())
+                    }
+                    _ => reason.as_str().to_string(),
+                };
                 say(&format!(
-                    "stopped: {} at {place} in {} (position {})",
-                    reason.as_str(),
+                    "stopped: {why} at {place} in {} (position {})",
                     frame.name,
                     inspector.position()
                 ));
@@ -360,23 +379,86 @@ fn source_line(file: &str, line: usize) -> Option<String> {
 }
 
 fn backtrace(inspector: &Inspector<'_>) {
-    for (number, frame) in inspector.stack().iter().enumerate() {
+    let mut number = 0;
+    for frame in inspector.stack() {
+        let note = match frame.kind {
+            FrameKind::Label => {
+                say(&format!("   ⟂ {}", frame.name));
+                continue;
+            }
+            FrameKind::Suspended { resumable: true } => "   (suspended)",
+            FrameKind::Suspended { resumable: false } => "   (suspended, not resumable)",
+            FrameKind::Live => "",
+        };
         match &frame.file {
             Some(file) => say(&format!(
-                "#{number} {} at {}:{}:{}",
+                "#{number} {} at {}:{}:{}{note}",
                 frame.name,
                 short(file),
                 frame.line,
                 frame.column
             )),
-            None => say(&format!("#{number} {}", frame.name)),
+            None => say(&format!("#{number} {}{note}", frame.name)),
         }
+        number += 1;
         if let Some((count, last)) = &frame.elided {
             let calls = if *count == 1 { "call" } else { "calls" };
             say(&format!(
                 "   … {count} {calls} elided by tail calls (last: {last})"
             ));
         }
+    }
+}
+
+/// `catch`: lists the runtime errors the debugger stops at, or sets them.
+fn catch(inspector: &mut Inspector<'_>, rest: &str) {
+    if !rest.is_empty() {
+        let mut kinds = Vec::new();
+        for word in rest.split_whitespace() {
+            match word {
+                "all" => kinds.extend(ExceptionKind::ALL),
+                "none" => {}
+                other => match ExceptionKind::from_id(other) {
+                    Some(kind) => kinds.push(kind),
+                    None => {
+                        say(&format!(
+                            "unknown error kind `{other}`; use panic, division, unhandled, \
+                             errors, all or none"
+                        ));
+                        return;
+                    }
+                },
+            }
+        }
+        inspector.set_caught(&kinds);
+    }
+    let caught = inspector.caught();
+    if caught.is_empty() {
+        say("stopping at no runtime errors");
+    } else {
+        let names: Vec<&str> = caught.iter().map(|kind| kind.label()).collect();
+        say(&format!("stopping at: {}", names.join(", ")));
+    }
+}
+
+fn handlers(inspector: &Inspector<'_>) {
+    let handlers = inspector.handlers();
+    if handlers.is_empty() {
+        say("no handlers");
+        return;
+    }
+    for (number, handler) in handlers.iter().enumerate() {
+        let state = handler
+            .state
+            .as_ref()
+            .map(|state| format!(" state = {}", state.render()))
+            .unwrap_or_default();
+        let site = handler
+            .handled_in
+            .as_ref()
+            .map(|site| format!(" — handled in {site}"))
+            .unwrap_or_default();
+        say(&format!("#{number} {}{state}{site}", handler.effect));
     }
 }
 

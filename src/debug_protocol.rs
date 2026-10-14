@@ -50,6 +50,9 @@ pub enum Request {
     Evaluate { frame: usize, expression: String },
     /// Show or hide compiler-made frames and variables.
     SetInternals { show: bool },
+    /// The runtime errors to stop at, by [`ExceptionInfo::kind`] id:
+    /// `panic`, `division_by_zero`, `unhandled_effect`, `runtime_error`.
+    SetExceptionFilters { filters: Vec<String> },
     /// The effects the program has performed. Answered with
     /// [`Reply::Events`].
     Events,
@@ -83,6 +86,9 @@ pub enum Scope {
     Captured,
     /// A local, else a captured value: how an expression names a variable.
     Any,
+    /// The active effect handlers, innermost first, each named by its
+    /// effect, with a parameterized handler's state as its value.
+    Handlers,
 }
 
 /// What the engine sends.
@@ -131,6 +137,9 @@ pub enum Event {
         /// More to say, such as "start of the recording".
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
+        /// The runtime error an `exception` stop is at.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exception: Option<ExceptionInfo>,
     },
 }
 
@@ -141,12 +150,45 @@ pub enum StopKind {
     Breakpoint,
     Step,
     Pause,
+    Exception,
+}
+
+/// A runtime error the program stopped at.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExceptionInfo {
+    /// `panic`, `division_by_zero`, `unhandled_effect` or `runtime_error`.
+    pub kind: String,
+    pub message: String,
+}
+
+/// What a line of the stack is (0188 S7).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FrameKind {
+    /// A frame running, or waiting for a call to return.
+    #[default]
+    Live,
+    /// A frame a perform took off the stack, waiting for `resume`.
+    Suspended,
+    /// A frame a perform took off the stack for a handler that never
+    /// resumes.
+    Dropped,
+    /// Not a frame: `handling Effect.op — performed at file:line:col`, as
+    /// its name.
+    Label,
+}
+
+impl FrameKind {
+    fn is_live(&self) -> bool {
+        *self == FrameKind::Live
+    }
 }
 
 /// One frame of the call stack.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Frame {
-    /// The VM frame index, which [`Request::Variables`] takes.
+    /// The frame's place on the stack, counted from the bottom, which
+    /// [`Request::Variables`] takes.
     pub index: usize,
     pub name: String,
     pub file: Option<String>,
@@ -158,6 +200,8 @@ pub struct Frame {
     /// and the latest of them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub elided: Option<(u64, String)>,
+    #[serde(default, skip_serializing_if = "FrameKind::is_live")]
+    pub kind: FrameKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -206,6 +250,7 @@ mod tests {
                 reason: StopKind::Breakpoint,
                 position: 7,
                 description: None,
+                exception: None,
             },
         };
         let line = serde_json::to_string(&stopped).unwrap();
@@ -217,6 +262,60 @@ mod tests {
             serde_json::from_str::<EngineMessage>(&line).unwrap(),
             stopped
         );
+
+        let exception = EngineMessage::Event {
+            event: Event::Stopped {
+                reason: StopKind::Exception,
+                position: 9,
+                description: None,
+                exception: Some(ExceptionInfo {
+                    kind: "panic".to_string(),
+                    message: "boom".to_string(),
+                }),
+            },
+        };
+        let line = serde_json::to_string(&exception).unwrap();
+        assert_eq!(
+            line,
+            r#"{"type":"event","event":{"kind":"stopped","reason":"exception","position":9,"exception":{"kind":"panic","message":"boom"}}}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<EngineMessage>(&line).unwrap(),
+            exception
+        );
+
+        let frames = Reply::Stack {
+            frames: vec![
+                Frame {
+                    index: 2,
+                    name: "handling Flip.flip — performed at app.flx:6:13".to_string(),
+                    file: None,
+                    line: 0,
+                    column: 0,
+                    artificial: false,
+                    elided: None,
+                    kind: FrameKind::Label,
+                },
+                Frame {
+                    index: 1,
+                    name: "decide".to_string(),
+                    file: Some("app.flx".to_string()),
+                    line: 6,
+                    column: 13,
+                    artificial: false,
+                    elided: None,
+                    kind: FrameKind::Live,
+                },
+            ],
+        };
+        let line = serde_json::to_string(&frames).unwrap();
+        assert!(line.contains(r#""kind":"label""#), "{line}");
+        assert_eq!(
+            line.matches(r#""kind":"#).count(),
+            2,
+            "live is the default: {line}"
+        );
+        assert_eq!(serde_json::from_str::<Reply>(&line).unwrap(), frames);
 
         let reply = EngineMessage::Reply {
             id: 1,

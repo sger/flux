@@ -441,6 +441,95 @@ fn a_program_that_does_not_compile() {
     snapshot("a_program_that_does_not_compile", session);
 }
 
+const FLIP: &str = "\
+effect Flip {
+    flip : () -> Bool
+}
+
+fn decide() -> Int with Flip {
+    let b = perform Flip.flip()
+    if b { 1 } else { 2 }
+}
+
+fn main() with IO {
+    let result = decide() handle Flip(0) {
+        flip(resume, n) -> resume(true, n + 1) + resume(false, n + 1)
+    }
+    print(to_string(result))
+}
+";
+
+#[test]
+fn a_handler_shows_the_frames_it_suspended_and_its_state() {
+    let scratch = Scratch::new("effects");
+    let program = scratch.write("flip.flx", FLIP);
+    let mut editor = Editor::start(&scratch);
+    editor.launch(&program, json!({}), &[12]);
+    editor.event("stopped");
+    let stack = editor.request("stackTrace", json!({ "threadId": 1 }));
+    let top = stack["body"]["stackFrames"][0]["id"].clone();
+    let scopes = editor.request("scopes", json!({ "frameId": top }));
+    let handlers = scopes["body"]["scopes"]
+        .as_array()
+        .and_then(|scopes| scopes.iter().find(|scope| scope["name"] == "Handlers"))
+        .map(|scope| scope["variablesReference"].clone())
+        .expect("a Handlers scope");
+    editor.request("variables", json!({ "variablesReference": handlers }));
+    // A suspended frame's variables, read from the continuation.
+    let suspended = stack["body"]["stackFrames"]
+        .as_array()
+        .and_then(|frames| {
+            frames.iter().find(|frame| {
+                frame["name"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("suspended")
+            })
+        })
+        .map(|frame| frame["id"].clone())
+        .expect("a suspended frame");
+    editor.request("scopes", json!({ "frameId": suspended }));
+    editor.request(
+        "evaluate",
+        json!({ "expression": ".handlers", "context": "repl" }),
+    );
+    editor.request("continue", json!({ "threadId": 1 }));
+    snapshot(
+        "a_handler_shows_the_frames_it_suspended_and_its_state",
+        &editor.finish(),
+    );
+}
+
+#[test]
+fn a_panic_stops_as_an_exception() {
+    let scratch = Scratch::new("panic");
+    let program = scratch.write(
+        "boom.flx",
+        "fn check(n: Int) -> Int {\n    if n > 2 {\n        panic(\"too big\")\n    } else {\n        n\n    }\n}\n\nfn main() with IO {\n    let n = check(3)\n    print(to_string(n))\n}\n",
+    );
+    let mut editor = Editor::start(&scratch);
+    let initialized = editor.request("initialize", json!({ "adapterID": "flux" }));
+    let filters: Vec<Value> = initialized["body"]["exceptionBreakpointFilters"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(filters.len(), 4, "{initialized}");
+    assert_eq!(initialized["body"]["supportsExceptionInfoRequest"], true);
+    let args = editor.launch_args(&program, json!({}));
+    editor.request("launch", args);
+    editor.event("initialized");
+    editor.request("setExceptionBreakpoints", json!({ "filters": ["panic"] }));
+    editor.request("configurationDone", Value::Null);
+    let stopped = editor.event("stopped");
+    assert_eq!(stopped["body"]["reason"], "exception");
+    editor.request("exceptionInfo", json!({ "threadId": 1 }));
+    editor.request("stackTrace", json!({ "threadId": 1 }));
+    editor.request("continue", json!({ "threadId": 1 }));
+    let transcript = editor.finish();
+    let (session, _) = transcript.split_once("\n--- program output ---").unwrap();
+    snapshot("a_panic_stops_as_an_exception", session);
+}
+
 /// The adapter's own `lldb-dap`, or `None` (with a note) on a machine
 /// without one, or with no native backend in `flux`.
 fn native_debugging() -> bool {

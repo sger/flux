@@ -11,7 +11,8 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender};
 
 use flux::debug_protocol::{
-    EngineMessage, Event, Frame, Reply, Request, ResumeKind, Scope, StopKind, Variable,
+    EngineMessage, Event, ExceptionInfo, Frame, FrameKind, Reply, Request, ResumeKind, Scope,
+    StopKind, Variable,
 };
 use serde_json::{Value, json};
 
@@ -76,6 +77,8 @@ pub struct Session<W: FnMut(Value)> {
     reverse: HashMap<i64, Value>,
     show_internals: bool,
     source_paths: native::SourcePaths,
+    /// The runtime error the program is stopped at, for `exceptionInfo`.
+    exception: Option<ExceptionInfo>,
 }
 
 impl<W: FnMut(Value)> Session<W> {
@@ -99,6 +102,7 @@ impl<W: FnMut(Value)> Session<W> {
             reverse: HashMap::new(),
             show_internals: false,
             source_paths: native::SourcePaths::default(),
+            exception: None,
         }
     }
 
@@ -144,6 +148,7 @@ impl<W: FnMut(Value)> Session<W> {
                         reason,
                         position,
                         description,
+                        exception,
                     },
             }) => {
                 self.refs.clear();
@@ -152,20 +157,26 @@ impl<W: FnMut(Value)> Session<W> {
                     StopKind::Breakpoint => "breakpoint",
                     StopKind::Step => "step",
                     StopKind::Pause => "pause",
+                    StopKind::Exception => "exception",
                 };
-                let description = match description {
-                    Some(text) => format!("position {position}: {text}"),
-                    None => format!("position {position}"),
+                let description = match (&exception, description) {
+                    (Some(exception), _) => {
+                        format!("Paused on {}", exception_label(&exception.kind))
+                    }
+                    (None, Some(text)) => format!("position {position}: {text}"),
+                    (None, None) => format!("position {position}"),
                 };
-                self.event(
-                    "stopped",
-                    json!({
-                        "reason": reason,
-                        "threadId": THREAD,
-                        "allThreadsStopped": true,
-                        "description": description,
-                    }),
-                );
+                let mut body = json!({
+                    "reason": reason,
+                    "threadId": THREAD,
+                    "allThreadsStopped": true,
+                    "description": description,
+                });
+                if let Some(exception) = &exception {
+                    body["text"] = json!(exception.message);
+                }
+                self.exception = exception;
+                self.event("stopped", body);
             }
             Input::Engine(_) => {}
             Input::Output { category, text } => self.output(category, &text),
@@ -196,9 +207,14 @@ impl<W: FnMut(Value)> Session<W> {
             }
             "launch" => self.launch(args),
             "setBreakpoints" => self.set_breakpoints(args),
-            "setExceptionBreakpoints" | "setFunctionBreakpoints" => {
-                Ok(json!({ "breakpoints": [] }))
+            "setExceptionBreakpoints" => {
+                let filters = strings(&args["filters"]);
+                let count = filters.len();
+                self.call(Request::SetExceptionFilters { filters })
+                    .map(|_| json!({ "breakpoints": vec![json!({ "verified": true }); count] }))
             }
+            "exceptionInfo" => self.exception_info(),
+            "setFunctionBreakpoints" => Ok(json!({ "breakpoints": [] })),
             "configurationDone" => {
                 let stop_on_entry = self.stop_on_entry;
                 self.call(Request::Start { stop_on_entry })
@@ -606,16 +622,31 @@ impl<W: FnMut(Value)> Session<W> {
     fn stack_trace(&mut self, args: &Value) -> Result<Value, String> {
         let mut frames = Vec::new();
         for frame in self.frames()? {
+            if frame.kind == FrameKind::Label {
+                frames.push(json!({
+                    "id": LABEL_FRAMES + frame.index as i64,
+                    "name": format!("⟂ {}", frame.name),
+                    "line": 0,
+                    "column": 0,
+                    "presentationHint": "label",
+                }));
+                continue;
+            }
+            let name = match frame.kind {
+                FrameKind::Suspended => format!("{} (suspended)", frame.name),
+                FrameKind::Dropped => format!("{} (suspended, not resumable)", frame.name),
+                _ => frame.name,
+            };
             let mut shown = json!({
                 "id": frame.index as i64 + 1,
-                "name": frame.name,
+                "name": name,
                 "line": frame.line,
                 "column": frame.column,
             });
             if let Some(file) = &frame.file {
                 shown["source"] = source(file);
             }
-            if frame.artificial {
+            if frame.artificial || frame.kind != FrameKind::Live {
                 shown["presentationHint"] = json!("subtle");
             }
             frames.push(shown);
@@ -668,7 +699,42 @@ impl<W: FnMut(Value)> Session<W> {
                 "expensive": false,
             }));
         }
+        if !self.handlers()?.is_empty() {
+            scopes.push(json!({
+                "name": "Handlers",
+                "variablesReference": self.reference(frame, Scope::Handlers, Vec::new()),
+                "expensive": false,
+            }));
+        }
         Ok(json!({ "scopes": scopes }))
+    }
+
+    /// The active effect handlers, innermost first.
+    fn handlers(&mut self) -> Result<Vec<Variable>, String> {
+        match self.call(Request::Variables {
+            frame: 0,
+            scope: Scope::Handlers,
+            path: Vec::new(),
+        })? {
+            Reply::Variables { variables } => Ok(variables),
+            _ => Err("unexpected reply to handlers".to_string()),
+        }
+    }
+
+    fn exception_info(&mut self) -> Result<Value, String> {
+        let exception = self
+            .exception
+            .as_ref()
+            .ok_or_else(|| "the program is not stopped at an exception".to_string())?;
+        Ok(json!({
+            "exceptionId": exception.kind,
+            "description": exception.message,
+            "breakMode": "always",
+            "details": {
+                "message": exception.message,
+                "typeName": exception_label(&exception.kind),
+            },
+        }))
     }
 
     fn variables(&mut self, args: &Value) -> Result<Value, String> {
@@ -782,6 +848,24 @@ impl<W: FnMut(Value)> Session<W> {
         };
         match name {
             "help" => Ok(CONSOLE_HELP.to_string()),
+            "handlers" => {
+                let handlers = self.handlers()?;
+                if handlers.is_empty() {
+                    return Ok("no handlers".to_string());
+                }
+                Ok(handlers
+                    .into_iter()
+                    .enumerate()
+                    .map(|(number, handler)| match handler.type_name.as_str() {
+                        "handler" if handler.value.is_empty() => {
+                            format!("#{number} {}", handler.name)
+                        }
+                        "handler" => format!("#{number} {} — {}", handler.name, handler.value),
+                        _ => format!("#{number} {} state = {}", handler.name, handler.value),
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"))
+            }
             "where" => match self.call(Request::Where)? {
                 Reply::Position { position } => Ok(format!("position {position}")),
                 _ => Err("unexpected reply to .where".to_string()),
@@ -851,6 +935,7 @@ A variable or a part of one (`pair.0`) shows its value. Commands:
   .events          the effects the program has performed
   .event <n>       go to the last stop before effect <n>
   .rs .rn .rf .rc  reverse step, next, finish, continue
+  .handlers        the active effect handlers, innermost first
   .internals on|off  show or hide compiler-made frames and variables";
 
 /// How to run the program, from the editor's launch arguments.
@@ -903,9 +988,40 @@ fn source(file: &str) -> Value {
     json!({ "name": name, "path": file })
 }
 
+/// The exception breakpoint filters, which the engine's exception kinds
+/// name.
+const EXCEPTION_FILTERS: [(&str, &str, bool); 4] = [
+    ("panic", "Panics", true),
+    ("division_by_zero", "Division by zero", true),
+    ("unhandled_effect", "Unhandled effects", true),
+    ("runtime_error", "Other runtime errors", false),
+];
+
+fn exception_filters() -> Value {
+    EXCEPTION_FILTERS
+        .iter()
+        .map(|(filter, label, default)| {
+            json!({ "filter": filter, "label": label, "default": default })
+        })
+        .collect()
+}
+
+/// What a stop at an exception of this kind says it is.
+fn exception_label(kind: &str) -> &str {
+    match kind {
+        "panic" => "panic",
+        "division_by_zero" => "division by zero",
+        "unhandled_effect" => "unhandled effect",
+        "runtime_error" => "runtime error",
+        other => other,
+    }
+}
+
 fn capabilities() -> Value {
     json!({
         "supportsConfigurationDoneRequest": true,
+        "exceptionBreakpointFilters": exception_filters(),
+        "supportsExceptionInfoRequest": true,
         "supportsStepBack": true,
         "supportsEvaluateForHovers": true,
         "supportsTerminateRequest": true,

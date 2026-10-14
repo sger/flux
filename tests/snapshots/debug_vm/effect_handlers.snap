@@ -1,0 +1,38 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 21
+breakpoint at effect_handlers.flx:21
+> break 24
+breakpoint at effect_handlers.flx:24
+> continue
+stopped: breakpoint at effect_handlers.flx:24:32 in <handler Counter.next> (position 9)
+    24 |         next(resume, state) -> resume(state, state + 1)
+> bt
+#0 <handler Counter.next> at effect_handlers.flx:24:32
+   ⟂ handling Counter.next — performed at effect_handlers.flx:12:13
+#1 count_twice at effect_handlers.flx:12:13   (suspended)
+#2 main at effect_handlers.flx:20:9
+#3 <entry>
+> handlers
+#0 Counter state = 0 — handled in main
+> continue
+stopped: breakpoint at effect_handlers.flx:21:33 in <handler Log.log> (position 13)
+    21 |             log(resume, msg) -> resume(len(msg))
+> bt
+#0 <handler Log.log> at effect_handlers.flx:21:33
+#1 count_twice at effect_handlers.flx:13:13
+#2 main at effect_handlers.flx:20:9
+#3 <entry>
+> handlers
+#0 Log — handled in main
+#1 Counter state = 1 — handled in main
+> continue
+stopped: breakpoint at effect_handlers.flx:24:32 in <handler Counter.next> (position 17)
+    24 |         next(resume, state) -> resume(state, state + 1)
+> handlers
+#0 Counter state = 1 — handled in main
+> continue
+program finished
+--- program output ---
+"1"

@@ -1,0 +1,21 @@
+---
+source: crates/flux-dap/tests/dap_tests.rs
+---
+-> initialize {"adapterID":"flux"}
+<- {"body":{"exceptionBreakpointFilters":[{"default":true,"filter":"panic","label":"Panics"},{"default":true,"filter":"division_by_zero","label":"Division by zero"},{"default":true,"filter":"unhandled_effect","label":"Unhandled effects"},{"default":false,"filter":"runtime_error","label":"Other runtime errors"}],"supportsConfigurationDoneRequest":true,"supportsEvaluateForHovers":true,"supportsExceptionInfoRequest":true,"supportsLoadedSourcesRequest":false,"supportsSetVariable":false,"supportsStepBack":true,"supportsTerminateRequest":true},"command":"initialize","success":true}
+-> launch {"fluxArgs":["--no-cache"],"fluxCommand":["<flux>"],"program":"<dir>/boom.flx"}
+<- {"body":{},"command":"launch","success":true}
+<- event {"body":{},"event":"initialized"}
+-> setExceptionBreakpoints {"filters":["panic"]}
+<- {"body":{"breakpoints":[{"verified":true}]},"command":"setExceptionBreakpoints","success":true}
+-> configurationDone null
+<- {"body":{},"command":"configurationDone","success":true}
+<- event {"body":{"allThreadsStopped":true,"description":"Paused on panic","reason":"exception","text":"too big","threadId":1},"event":"stopped"}
+-> exceptionInfo {"threadId":1}
+<- {"body":{"breakMode":"always","description":"too big","details":{"message":"too big","typeName":"panic"},"exceptionId":"panic"},"command":"exceptionInfo","success":true}
+-> stackTrace {"threadId":1}
+<- {"body":{"stackFrames":[{"column":9,"id":3,"line":3,"name":"check","source":{"name":"boom.flx","path":"<dir>/boom.flx"}},{"column":13,"id":2,"line":10,"name":"main","source":{"name":"boom.flx","path":"<dir>/boom.flx"}}],"totalFrames":2},"command":"stackTrace","success":true}
+-> continue {"threadId":1}
+<- {"body":{"allThreadsContinued":true},"command":"continue","success":true}
+<- event {"body":{"exitCode":1},"event":"exited"}
+<- event {"body":{},"event":"terminated"}

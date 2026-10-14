@@ -1,0 +1,27 @@
+// Nested handlers, one of them with state, and a tail-resumptive operation
+// whose performing frames stay on the stack.
+effect Counter {
+    next : () -> Int
+}
+
+effect Log {
+    log : (String) -> Int
+}
+
+fn count_twice() -> Int with Counter, Log {
+    let x = perform Counter.next()
+    let _ = perform Log.log("one")
+    let y = perform Counter.next()
+    x + y
+}
+
+fn main() with IO {
+    let result = do {
+        count_twice() handle Log {
+            log(resume, msg) -> resume(len(msg))
+        }
+    } handle Counter(0) {
+        next(resume, state) -> resume(state, state + 1)
+    }
+    print(to_string(result))
+}
