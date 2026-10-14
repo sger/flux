@@ -1,0 +1,19 @@
+// A type class: its dictionaries are compiler-made.
+class Describe<a> {
+    fn describe(x: a) -> String
+}
+
+instance Describe<Int> {
+    fn describe(x) {
+        "int " + to_string(x)
+    }
+}
+
+fn twice<a: Describe>(x: a) -> String {
+    let once = describe(x)
+    once + ", " + once
+}
+
+fn main() {
+    print(twice(5))
+}

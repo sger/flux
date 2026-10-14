@@ -18,6 +18,8 @@ pub struct LlvmModule {
     pub globals: Vec<LlvmGlobal>,
     pub declarations: Vec<LlvmDecl>,
     pub functions: Vec<LlvmFunction>,
+    /// Debug metadata, for a build with `-g` (proposal 0188 S5).
+    pub debug: Option<ModuleDebug>,
 }
 
 impl LlvmModule {
@@ -30,7 +32,61 @@ impl LlvmModule {
             globals: Vec::new(),
             declarations: Vec::new(),
             functions: Vec::new(),
+            debug: None,
         }
+    }
+}
+
+/// A module's debug metadata, kept beside the functions it describes so the
+/// code that builds functions needs no change.
+///
+/// Node `i` prints as `!i = <text>`; the text is whatever LLVM metadata the
+/// emitter built (`!DISubprogram(...)` and the like).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ModuleDebug {
+    pub nodes: Vec<String>,
+    /// Named metadata such as `!llvm.dbg.cu = !{!0}`.
+    pub named: Vec<(String, Vec<u32>)>,
+    /// Per function, by its name.
+    pub functions: std::collections::HashMap<String, FunctionDebug>,
+}
+
+impl ModuleDebug {
+    /// Adds a node and returns its number.
+    pub fn node(&mut self, text: String) -> u32 {
+        self.nodes.push(text);
+        (self.nodes.len() - 1) as u32
+    }
+}
+
+/// A function's subprogram and the location of each instruction.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct FunctionDebug {
+    pub subprogram: u32,
+    /// The location of any instruction no mark covers: line 0 in this
+    /// function. LLVM requires a location on every call in a function with
+    /// a subprogram.
+    pub line_zero: u32,
+    /// Per block, by its position in the function.
+    pub blocks: Vec<BlockDebug>,
+}
+
+/// Where a block's instructions came from: from instruction `index` on, the
+/// location is node `loc`, until the next mark.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct BlockDebug {
+    pub marks: Vec<(usize, u32)>,
+    pub term: Option<u32>,
+}
+
+impl BlockDebug {
+    /// The location node of instruction `index`, if a mark covers it.
+    pub fn loc_of(&self, index: usize) -> Option<u32> {
+        self.marks
+            .iter()
+            .take_while(|(from, _)| *from <= index)
+            .last()
+            .map(|(_, loc)| *loc)
     }
 }
 

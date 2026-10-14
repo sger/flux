@@ -173,8 +173,15 @@ fn outline_instr_site(
     let dummy_func = func.fresh_var();
     let cont_id = BlockId(func.blocks.len() as u32);
 
-    let (dst, args, after_instrs, old_terminator) = {
+    let (dst, args, after_instrs, after_locs, old_terminator, old_term_loc) = {
         let block = &mut func.blocks[block_idx];
+        let outlined_loc = block.loc(instr_idx);
+        let after_locs = if block.locs.len() > instr_idx + 1 {
+            block.locs.split_off(instr_idx + 1)
+        } else {
+            Vec::new()
+        };
+        block.locs.truncate(instr_idx);
         let after_instrs = block.instrs.split_off(instr_idx + 1);
         let outlined = block
             .instrs
@@ -205,10 +212,20 @@ fn outline_instr_site(
                 yield_cont: None,
             },
         );
-        (dst, args, after_instrs, old_terminator)
+        let old_term_loc = std::mem::replace(&mut block.term_loc, outlined_loc);
+        (
+            dst,
+            args,
+            after_instrs,
+            after_locs,
+            old_terminator,
+            old_term_loc,
+        )
     };
 
     func.blocks.push(LirBlock {
+        locs: after_locs,
+        term_loc: old_term_loc,
         id: cont_id,
         params: vec![dst],
         instrs: after_instrs,
@@ -286,12 +303,15 @@ fn make_primcall_helper(id: LirFuncId, qualified_name: String, arity: usize) -> 
     let result = LirVar(arity as u32);
 
     LirFunction {
+        debug: None,
         name: qualified_name.clone(),
         id,
         qualified_name,
         is_dict_def: false,
         params: params.clone(),
         blocks: vec![LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
             id: BlockId(0),
             params: Vec::new(),
             instrs: vec![LirInstr::PrimCall {
@@ -318,12 +338,15 @@ fn make_direct_call_helper(
     let dummy_func = LirVar(arity as u32);
 
     LirFunction {
+        debug: None,
         name: qualified_name.clone(),
         id,
         qualified_name,
         is_dict_def: false,
         params: params.clone(),
         blocks: vec![LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
             id: BlockId(0),
             params: Vec::new(),
             instrs: vec![LirInstr::Const {
@@ -369,12 +392,15 @@ mod tests {
 
     fn empty_function(id: u32, name: &str) -> LirFunction {
         LirFunction {
+            debug: None,
             name: name.to_string(),
             id: LirFuncId(id),
             qualified_name: name.to_string(),
             is_dict_def: false,
             params: Vec::new(),
             blocks: vec![LirBlock {
+                locs: Vec::new(),
+                term_loc: Default::default(),
                 id: BlockId(0),
                 params: Vec::new(),
                 instrs: Vec::new(),
@@ -411,12 +437,15 @@ mod tests {
             instrs.push(run_async_call(idx));
         }
         program.push_function(LirFunction {
+            debug: None,
             name: "main".to_string(),
             id: LirFuncId(1),
             qualified_name: "main".to_string(),
             is_dict_def: false,
             params: Vec::new(),
             blocks: vec![LirBlock {
+                locs: Vec::new(),
+                term_loc: Default::default(),
                 id: BlockId(0),
                 params: Vec::new(),
                 instrs,
@@ -470,6 +499,8 @@ mod tests {
         main.blocks.clear();
         for idx in 0..9 {
             main.blocks.push(LirBlock {
+                locs: Vec::new(),
+                term_loc: Default::default(),
                 id: BlockId(idx),
                 params: if idx == 0 {
                     Vec::new()
@@ -508,6 +539,8 @@ mod tests {
             });
         }
         main.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
             id: BlockId(9),
             params: vec![LirVar(108)],
             instrs: Vec::new(),

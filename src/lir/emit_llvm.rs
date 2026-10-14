@@ -132,6 +132,25 @@ pub fn emit_llvm_module_with_yield_options(
     export_user_ctor_name_helper: bool,
     force_yield_checks: bool,
 ) -> LlvmModule {
+    emit_llvm_module_with_debug(
+        program,
+        export_runtime_trampoline,
+        export_user_ctor_name_helper,
+        force_yield_checks,
+        None,
+    )
+}
+
+/// As [`emit_llvm_module_with_yield_options`], with DWARF line tables when
+/// `debug` is given (proposal 0188 S5).
+pub fn emit_llvm_module_with_debug(
+    program: &LirProgram,
+    export_runtime_trampoline: bool,
+    export_user_ctor_name_helper: bool,
+    force_yield_checks: bool,
+    debug: Option<&super::emit_debug::NativeDebug>,
+) -> LlvmModule {
+    let mut debug_builder = debug.map(super::emit_debug::DebugBuilder::new);
     // Work around an LLVM optimizer hang triggered by many
     // flux_fiber_run_async_with call sites in one generated function.
     // Run before continuation splitting so subsequent native emission sees an
@@ -167,6 +186,7 @@ pub fn emit_llvm_module_with_yield_options(
         program
     };
     let mut module = LlvmModule {
+        debug: None,
         source_filename: Some("flux_lir".to_string()),
         target_triple: None,
         data_layout: None,
@@ -224,9 +244,19 @@ pub fn emit_llvm_module_with_yield_options(
             direct_capture_mode: false,
             worker_eligible: &worker_eligible,
             emit_yield_checks,
+            track_locs: debug_builder.is_some(),
+            lir_marks: Vec::new(),
+            block_locs: Vec::new(),
         };
         let llvm_func = emitter.emit_function();
-        module.functions.push(llvm_func);
+        let block_locs = std::mem::take(&mut emitter.block_locs);
+        push_function(
+            &mut module,
+            debug_builder.as_mut(),
+            llvm_func,
+            func,
+            &block_locs,
+        );
     }
 
     // Phase 10: Emit worker functions for eligible all-int functions.
@@ -248,9 +278,19 @@ pub fn emit_llvm_module_with_yield_options(
                 direct_capture_mode: false,
                 worker_eligible: &worker_eligible,
                 emit_yield_checks,
+                track_locs: debug_builder.is_some(),
+                lir_marks: Vec::new(),
+                block_locs: Vec::new(),
             };
             let worker_func = emitter.emit_function();
-            module.functions.push(worker_func);
+            let block_locs = std::mem::take(&mut emitter.block_locs);
+            push_function(
+                &mut module,
+                debug_builder.as_mut(),
+                worker_func,
+                func,
+                &block_locs,
+            );
         }
     }
 
@@ -272,9 +312,19 @@ pub fn emit_llvm_module_with_yield_options(
                 direct_capture_mode: true,
                 worker_eligible: &worker_eligible,
                 emit_yield_checks,
+                track_locs: debug_builder.is_some(),
+                lir_marks: Vec::new(),
+                block_locs: Vec::new(),
             };
             let direct_capture_func = emitter.emit_function();
-            module.functions.push(direct_capture_func);
+            let block_locs = std::mem::take(&mut emitter.block_locs);
+            push_function(
+                &mut module,
+                debug_builder.as_mut(),
+                direct_capture_func,
+                func,
+                &block_locs,
+            );
         }
     }
 
@@ -409,6 +459,9 @@ pub fn emit_llvm_module_with_yield_options(
         }
     }
 
+    if let Some(debug) = debug_builder {
+        module.debug = Some(debug.finish());
+    }
     module
 }
 
@@ -689,6 +742,31 @@ struct FnEmitter<'a> {
     /// Controlled by the `FLUX_YIELD_CHECKS=1` environment variable. Off by
     /// default so existing output is byte-identical.
     emit_yield_checks: bool,
+    /// Note where each instruction came from, for a debug build.
+    track_locs: bool,
+    /// For the LLVM block being built: (first instruction, LIR location).
+    lir_marks: Vec<(usize, LirLoc)>,
+    /// For each LLVM block emitted, in order: its marks and the
+    /// terminator's location.
+    block_locs: Vec<super::emit_debug::BlockLocs>,
+}
+
+/// Adds `function` to `module`, with its debug information in a debug build.
+fn push_function(
+    module: &mut LlvmModule,
+    debug: Option<&mut super::emit_debug::DebugBuilder>,
+    mut function: LlvmFunction,
+    func: &LirFunction,
+    block_locs: &[super::emit_debug::BlockLocs],
+) {
+    if let Some(debug) = debug
+        && func.debug.is_some()
+    {
+        // Debuggers and profilers walk frames by their frame pointers.
+        function.attrs.push("\"frame-pointer\"=\"all\"".to_string());
+        debug.add_function(&function, func, block_locs);
+    }
+    module.functions.push(function);
 }
 
 impl<'a> FnEmitter<'a> {
@@ -727,6 +805,14 @@ impl<'a> FnEmitter<'a> {
 
     fn emit(&mut self, instr: LlvmInstr) {
         self.current_instrs.push(instr);
+    }
+
+    /// The instructions emitted from here on come from `loc`.
+    fn mark_loc(&mut self, loc: LirLoc) {
+        if !self.track_locs || self.lir_marks.last().is_some_and(|(_, last)| *last == loc) {
+            return;
+        }
+        self.lir_marks.push((self.current_instrs.len(), loc));
     }
 
     fn i64_const(&self, value: i64) -> LlvmOperand {
@@ -940,6 +1026,7 @@ impl<'a> FnEmitter<'a> {
             }
 
             self.current_instrs.clear();
+            self.lir_marks.clear();
 
             // Emit phi nodes for block parameters.
             for param in &block.params {
@@ -956,16 +1043,19 @@ impl<'a> FnEmitter<'a> {
             }
 
             // Emit instructions (skip Copy to block params — handled by phi).
-            for instr in &block.instrs {
+            for (index, instr) in block.instrs.iter().enumerate() {
                 if let LirInstr::Copy { dst, .. } = instr
                     && block_param_vars.contains(&dst.0)
                 {
                     continue; // Skip — this is a phi-bridge Copy.
                 }
+                self.mark_loc(block.loc(index));
                 self.emit_instr(instr);
             }
 
-            // Emit terminator.
+            // Emit terminator. A call terminator's call instruction is the
+            // terminator's, not the last instruction's.
+            self.mark_loc(block.term_loc);
             let term = self.emit_terminator(&block.terminator);
 
             blocks.push(LlvmBlock {
@@ -973,6 +1063,14 @@ impl<'a> FnEmitter<'a> {
                 instrs: std::mem::take(&mut self.current_instrs),
                 term,
             });
+            if self.track_locs {
+                self.block_locs
+                    .push((std::mem::take(&mut self.lir_marks), block.term_loc));
+                // Blocks the emitter adds itself are its own glue: line 0.
+                for _ in &self.extra_blocks {
+                    self.block_locs.push((Vec::new(), LirLoc::NONE));
+                }
+            }
             // Append any extra blocks emitted by MatchCtor.
             blocks.append(&mut self.extra_blocks);
         }
@@ -1148,7 +1246,14 @@ impl<'a> FnEmitter<'a> {
                 });
             }
 
-            // Prepend entry instructions to the first block.
+            // Prepend entry instructions to the first block. They unpack the
+            // closure, so they are at line 0: the first block's marks move
+            // down past them.
+            if let Some((marks, _)) = self.block_locs.first_mut() {
+                for (from, _) in marks.iter_mut() {
+                    *from += entry_instrs.len();
+                }
+            }
             if !blocks.is_empty() {
                 let first = &mut blocks[0];
                 let mut merged = entry_instrs;

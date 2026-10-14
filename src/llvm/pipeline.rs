@@ -427,6 +427,31 @@ fn archive_exports_symbol(path: &Path, symbol: &str) -> bool {
     false
 }
 
+/// Writes the debug information of a linked binary next to it, where a
+/// debugger finds it after the objects it came from are gone. On macOS the
+/// linker leaves DWARF in the object files and `dsymutil` collects it into
+/// `<binary>.dSYM`; elsewhere it is in the binary already.
+pub fn write_debug_symbols(binary: &Path) {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let status = Command::new("dsymutil")
+        .arg(binary)
+        .stdout(std::process::Stdio::null())
+        .status();
+    match status {
+        Ok(status) if status.success() => {}
+        Ok(status) => eprintln!(
+            "warning: dsymutil failed ({status}); debug information for {} stays in its object files",
+            binary.display()
+        ),
+        Err(err) => eprintln!(
+            "warning: cannot run dsymutil ({err}); debug information for {} stays in its object files",
+            binary.display()
+        ),
+    }
+}
+
 pub fn link_objects(
     object_paths: &[PathBuf],
     output_path: &Path,

@@ -6968,12 +6968,23 @@ impl Compiler {
             emit_main,
             entry_qualifier.as_deref(),
         );
-        Ok(crate::lir::emit_llvm::emit_llvm_module_with_yield_options(
+        // `-g`: DWARF line tables. MSVC targets need CodeView, which
+        // comes with 0188 S11; until then they get no debug information.
+        let debug = (self.debug_level.is_enabled() && !cfg!(target_env = "msvc")).then(|| {
+            crate::lir::emit_debug::NativeDebug {
+                file: self.file_path.clone(),
+            }
+        });
+        let mut module = crate::lir::emit_llvm::emit_llvm_module_with_debug(
             &lir,
             false,
             export_user_ctor_name_helper,
             false,
-        ))
+            debug.as_ref(),
+        );
+        // Name the module after its source, which the object file records.
+        module.source_filename = Some(self.file_path.clone());
+        Ok(module)
     }
 
     /// Dump LIR as LLVM IR text (Proposal 0132 Phase 7).

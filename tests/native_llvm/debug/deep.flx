@@ -1,0 +1,8 @@
+// A million tail calls must not grow the stack in a debug build.
+fn spin(n, acc) {
+    if n == 0 { acc } else { spin(n - 1, acc + 1) }
+}
+
+fn main() {
+    print(spin(1000000, 0))
+}

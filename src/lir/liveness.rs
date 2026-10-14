@@ -372,6 +372,7 @@ mod tests {
 
     fn empty_function() -> LirFunction {
         LirFunction {
+            debug: None,
             name: "test".to_string(),
             id: LirFuncId(0),
             qualified_name: "test".to_string(),
@@ -390,6 +391,8 @@ mod tests {
         let mut f = empty_function();
         let v0 = LirVar(0);
         f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
             id: BlockId(0),
             params: Vec::new(),
             instrs: Vec::new(),
@@ -409,6 +412,8 @@ mod tests {
         let mut f = empty_function();
         let v0 = LirVar(0);
         f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
             id: BlockId(0),
             params: Vec::new(),
             instrs: vec![LirInstr::Const {
@@ -438,6 +443,8 @@ mod tests {
         let func = LirVar(2);
         f.params = vec![v0, func];
         f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
             id: BlockId(0),
             params: Vec::new(),
             instrs: Vec::new(),
@@ -454,6 +461,8 @@ mod tests {
             },
         });
         f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
             id: BlockId(1),
             params: vec![v1],
             instrs: Vec::new(),
@@ -479,12 +488,16 @@ mod tests {
         let v0 = LirVar(0);
         f.params = vec![v0];
         f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
             id: BlockId(0),
             params: Vec::new(),
             instrs: Vec::new(),
             terminator: LirTerminator::Jump(BlockId(1)),
         });
         f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
             id: BlockId(1),
             params: Vec::new(),
             instrs: Vec::new(),

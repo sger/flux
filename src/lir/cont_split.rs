@@ -26,7 +26,8 @@ use std::collections::HashSet;
 use crate::core::FluxRep;
 use crate::lir::liveness::{self, FunctionLiveness};
 use crate::lir::{
-    BlockId, CtorArm, LirBlock, LirFuncId, LirFunction, LirProgram, LirTerminator, LirVar,
+    BlockId, CtorArm, LirBlock, LirFnDebug, LirFnKind, LirFuncId, LirFunction, LirLoc, LirProgram,
+    LirTerminator, LirVar,
 };
 
 /// Run the continuation-splitting pass, producing a new program with
@@ -239,6 +240,8 @@ fn synthesize_continuation(
 
     // Trivial entry block (id=0) that jumps to the remapped cont.
     let entry_block = LirBlock {
+        locs: Vec::new(),
+        term_loc: Default::default(),
         id: BlockId(0),
         params: Vec::new(),
         instrs: Vec::new(),
@@ -262,7 +265,29 @@ fn synthesize_continuation(
     let next_var = parent.next_var;
 
     let qualified_name = format!("{}$cont${}", parent.qualified_name, site.block_id.0);
+    // To a debugger this is still the parent, resumed after the call.
+    let debug = parent.debug.as_ref().map(|debug| {
+        let parent_name = match &debug.kind {
+            LirFnKind::Named(name) => name.clone(),
+            LirFnKind::Lambda => parent.qualified_name.clone(),
+            LirFnKind::Resumed { parent, .. } => parent.clone(),
+        };
+        let after = parent
+            .blocks
+            .iter()
+            .find(|block| block.id == site.block_id)
+            .map_or(LirLoc::NONE, |block| block.term_loc);
+        LirFnDebug {
+            kind: LirFnKind::Resumed {
+                parent: parent_name,
+                after,
+            },
+            loc: debug.loc,
+            artificial: debug.artificial,
+        }
+    });
     let synthesized = LirFunction {
+        debug,
         name: qualified_name.clone(),
         id: site.synth_id, // caller replaces with a real id after synthesis
         qualified_name,
@@ -370,6 +395,7 @@ mod tests {
 
     fn empty_function(id: u32, name: &str) -> LirFunction {
         LirFunction {
+            debug: None,
             name: name.to_string(),
             id: LirFuncId(id),
             qualified_name: name.to_string(),
@@ -394,6 +420,8 @@ mod tests {
         let v_dst = LirVar(1);
         f.params = vec![v_func];
         f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
             id: BlockId(0),
             params: Vec::new(),
             instrs: Vec::new(),
@@ -410,6 +438,8 @@ mod tests {
             },
         });
         f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
             id: BlockId(1),
             params: Vec::new(),
             instrs: Vec::new(),
@@ -455,6 +485,8 @@ mod tests {
         let mut program = LirProgram::new();
         let mut f = empty_function(0, "f");
         f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
             id: BlockId(0),
             params: Vec::new(),
             instrs: Vec::new(),
@@ -483,6 +515,8 @@ mod tests {
         let v_dst = LirVar(2);
         f.params = vec![v_func, v_arg];
         f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
             id: BlockId(0),
             params: Vec::new(),
             instrs: Vec::new(),
@@ -500,6 +534,8 @@ mod tests {
         });
         // bb1: uses v_arg (keeping it live through the call) + v_dst.
         f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
             id: BlockId(1),
             params: Vec::new(),
             instrs: vec![LirInstr::IAdd {
@@ -541,6 +577,8 @@ mod tests {
         let v_dst = LirVar(1);
         f.params = vec![v_func];
         f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
             id: BlockId(0),
             params: Vec::new(),
             instrs: Vec::new(),
@@ -557,6 +595,8 @@ mod tests {
             },
         });
         f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
             id: BlockId(1),
             params: vec![v_dst],
             instrs: Vec::new(),
@@ -573,6 +613,8 @@ mod tests {
         let v_dst = LirVar(1);
         f.params = vec![v_func];
         f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
             id: BlockId(0),
             params: Vec::new(),
             instrs: Vec::new(),
@@ -589,6 +631,8 @@ mod tests {
             },
         });
         f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
             id: BlockId(1),
             params: vec![v_dst],
             instrs: Vec::new(),
