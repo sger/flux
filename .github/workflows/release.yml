@@ -46,6 +46,9 @@ jobs:
       - name: Parity check (examples/guide, extended)
         run: cargo run -- parity-check examples/guide --ways vm,llvm,vm_cached,vm_strict,llvm_strict
 
+      - name: Debug parity (VM debugger vs lldb)
+        run: cargo run -- parity-check tests/parity_debug --ways vm_debug,llvm_debug
+
   linux:
     name: Build + Upload (linux x86_64)
     runs-on: ubuntu-latest

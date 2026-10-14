@@ -106,6 +106,28 @@ What you see:
   passes over it. So does the C runtime: `main(argc, argv)` in `flux_rt.c`
   is the frame below the Flux `main`.
 
+## VS Code
+
+Set `"backend": "native"` in the launch configuration:
+
+```json
+{
+  "type": "flux",
+  "request": "launch",
+  "name": "Debug main (native)",
+  "program": "${workspaceFolder}/main.flx",
+  "backend": "native"
+}
+```
+
+The adapter builds the program with `--native -g`, runs it under `lldb-dap`
+(Xcode's on macOS, `lldb-dap-18` or later on Linux, or the
+`flux.lldbDapPath` setting), and shows the same Flux views as a VM session:
+Flux frames, variables as Flux values, stepping through Flux lines. Step
+Back needs the VM. In this repository, set `flux.runCommand` to
+`cargo run --features llvm --`, since native builds need the `llvm`
+feature. See `crates/flux-dap/README.md`.
+
 ## Xcode
 
 Xcode cannot build Flux itself, but it can debug a Flux binary through an

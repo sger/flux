@@ -1,4 +1,4 @@
-//! DAP sessions end to end (proposal 0188 S4).
+//! DAP sessions end to end (proposal 0188 S4, and S6 for native ones).
 //!
 //! Each test runs the adapter in-process and plays the editor: it sends DAP
 //! requests and waits for the responses and events an editor would. The
@@ -149,6 +149,39 @@ impl Editor {
                 return message;
             }
             if message["type"] == "event" && message["event"] != "output" {
+                self.pending.push_back(message);
+            }
+        }
+    }
+
+    /// Sends a request without waiting: its response comes with
+    /// [`Editor::response`].
+    fn send(&mut self, command: &str, arguments: Value) -> i64 {
+        self.seq += 1;
+        let seq = self.seq;
+        let message =
+            json!({ "seq": seq, "type": "request", "command": command, "arguments": arguments });
+        self.record(&format!("-> {command}"), &arguments);
+        self.to_adapter.send(Input::Client(message)).unwrap();
+        seq
+    }
+
+    /// Waits for the response to request `seq`, keeping events for later.
+    fn response(&mut self, seq: i64) -> Value {
+        if let Some(index) = self
+            .pending
+            .iter()
+            .position(|m| m["type"] == "response" && m["request_seq"] == seq)
+        {
+            return self.pending.remove(index).unwrap();
+        }
+        loop {
+            let message = self.receive();
+            if message["type"] == "response" && message["request_seq"] == seq {
+                self.record("<-", &message);
+                return message;
+            }
+            if message["type"] != "event" || message["event"] != "output" {
                 self.pending.push_back(message);
             }
         }
@@ -408,19 +441,204 @@ fn a_program_that_does_not_compile() {
     snapshot("a_program_that_does_not_compile", session);
 }
 
+/// The adapter's own `lldb-dap`, or `None` (with a note) on a machine
+/// without one, or with no native backend in `flux`.
+fn native_debugging() -> bool {
+    if cfg!(windows) {
+        return false;
+    }
+    if flux_dap::native::find_lldb_dap(None).is_err() {
+        eprintln!("note: lldb-dap not found; skipping (set FLUX_LLDB_DAP)");
+        return false;
+    }
+    true
+}
+
+/// Launches `program` natively and runs to the first stop at
+/// `breakpoints`. `None` when this `flux` has no native backend.
+fn launch_native(editor: &mut Editor, program: &Path, breakpoints: &[usize]) -> Option<Value> {
+    let init = editor.request("initialize", json!({ "adapterID": "flux" }));
+    assert_eq!(init["success"], true, "{init}");
+    let args = editor.launch_args(program, json!({ "backend": "native" }));
+    let launch = editor.send("launch", args);
+    // lldb-dap may answer `launch` only after `configurationDone`: wait for
+    // whichever comes first, its `initialized` or a failed launch.
+    loop {
+        let message = editor.receive();
+        if message["type"] == "response"
+            && message["request_seq"] == launch
+            && message["success"] == true
+        {
+            // lldb-dap answered before its `initialized`, as older ones do.
+            editor.pending.push_back(message);
+            continue;
+        }
+        if message["type"] == "response" && message["request_seq"] == launch {
+            assert!(
+                editor.output.contains("require") && editor.output.contains("llvm"),
+                "the native build failed:\n{message}\n{}",
+                editor.output
+            );
+            eprintln!("note: this flux has no native backend; skipping");
+            return None;
+        }
+        if message["type"] == "event" && message["event"] == "initialized" {
+            break;
+        }
+        if message["type"] == "event" && message["event"] != "output" {
+            editor.pending.push_back(message);
+        }
+    }
+    let lines: Vec<Value> = breakpoints
+        .iter()
+        .map(|line| json!({ "line": line }))
+        .collect();
+    let set = editor.request(
+        "setBreakpoints",
+        json!({ "source": { "path": program }, "breakpoints": lines }),
+    );
+    assert_eq!(set["success"], true, "{set}");
+    editor.request("configurationDone", json!({}));
+    let launched = editor.response(launch);
+    assert_eq!(launched["success"], true, "{launched}");
+    Some(editor.event("stopped"))
+}
+
+fn frame_names(editor: &mut Editor, thread: &Value) -> Vec<(String, Value)> {
+    let stack = editor.request("stackTrace", json!({ "threadId": thread }));
+    stack["body"]["stackFrames"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|frame| {
+            (
+                frame["name"].as_str().unwrap_or_default().to_string(),
+                frame.clone(),
+            )
+        })
+        .collect()
+}
+
+fn values(editor: &mut Editor, reference: &Value) -> Vec<(String, String)> {
+    let variables = editor.request("variables", json!({ "variablesReference": reference }));
+    variables["body"]["variables"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|variable| {
+            (
+                variable["name"].as_str().unwrap_or_default().to_string(),
+                variable["value"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect()
+}
+
 #[test]
-fn the_native_backend_is_refused_for_now() {
+fn native_breakpoints_stack_and_variables() {
+    if !native_debugging() {
+        return;
+    }
     let scratch = Scratch::new("native");
     let program = scratch.write("calls.flx", CALLS);
     let mut editor = Editor::start(&scratch);
+    let Some(stopped) = launch_native(&mut editor, &program, &[9]) else {
+        return;
+    };
+    assert_eq!(stopped["body"]["reason"], "breakpoint", "{stopped}");
+    // No Step Back: a native program does not record its run.
+    let capabilities = editor
+        .pending
+        .iter()
+        .find(|message| message["event"] == "capabilities")
+        .cloned()
+        .expect("a capabilities event");
+    assert_eq!(
+        capabilities["body"]["capabilities"]["supportsStepBack"], false,
+        "{capabilities}"
+    );
+    let thread = stopped["body"]["threadId"].clone();
+
+    // Only Flux frames, by their Flux names.
+    let frames = frame_names(&mut editor, &thread);
+    let names: Vec<&str> = frames.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(names, ["sum_squares", "main"], "{frames:?}");
+    assert_eq!(frames[0].1["line"], 9);
+    assert!(
+        frames[0].1["source"]["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("calls.flx")),
+        "{frames:?}"
+    );
+
+    // The frame's variables, as Flux values, without those not bound yet.
+    let scopes = editor.request("scopes", json!({ "frameId": frames[0].1["id"] }));
+    let scopes = scopes["body"]["scopes"].as_array().unwrap().clone();
+    assert_eq!(scopes.len(), 1, "{scopes:?}");
+    let locals = values(&mut editor, &scopes[0]["variablesReference"]);
+    let shown = |name: &str| {
+        locals
+            .iter()
+            .find(|(shown, _)| shown == name)
+            .map(|(_, value)| value.clone())
+    };
+    assert_eq!(shown("a").as_deref(), Some("3"), "{locals:?}");
+    assert_eq!(shown("sa").as_deref(), Some("9"), "{locals:?}");
+    // Native code frees `pair` after its last use, which was its binding.
+    assert!(
+        matches!(shown("pair").as_deref(), Some("(9, [3, 4])" | "<dropped>")),
+        "{locals:?}"
+    );
+    assert_eq!(shown("sb"), None, "`sb` is not bound yet: {locals:?}");
+
+    // The Debug Console's commands reach flux_lldb.py.
+    let console = editor.request(
+        "evaluate",
+        json!({ "expression": ".locals", "context": "repl", "frameId": frames[0].1["id"] }),
+    );
+    let text = console["body"]["result"].as_str().unwrap_or_default();
+    assert!(text.contains("sa = 9"), "{console}");
+    let back = editor.request("stepBack", json!({ "threadId": thread }));
+    assert_eq!(back["success"], false, "{back}");
+    let reverse = editor.request(
+        "evaluate",
+        json!({ "expression": ".rs", "context": "repl" }),
+    );
+    assert_eq!(reverse["success"], false, "{reverse}");
+
+    // Stepping moves through Flux lines.
+    editor.request("next", json!({ "threadId": thread }));
+    editor.event("stopped");
+    let frames = frame_names(&mut editor, &thread);
+    assert_eq!(frames[0].0, "sum_squares", "{frames:?}");
+    assert_eq!(frames[0].1["line"], 10, "{frames:?}");
+
+    editor.request("continue", json!({ "threadId": thread }));
+    let transcript = editor.finish();
+    assert!(transcript.contains("start"), "{transcript}");
+    assert!(transcript.contains("25"), "{transcript}");
+}
+
+#[test]
+fn a_native_program_that_does_not_build() {
+    if !native_debugging() {
+        return;
+    }
+    let scratch = Scratch::new("native-broken");
+    let program = scratch.write("broken.flx", "fn main() {\n    print(nope)\n}\n");
+    let mut editor = Editor::start(&scratch);
     editor.request("initialize", json!({ "adapterID": "flux" }));
     let args = editor.launch_args(&program, json!({ "backend": "native" }));
-    editor.request("launch", args);
-    editor.request("disconnect", json!({}));
-    snapshot(
-        "the_native_backend_is_refused_for_now",
-        &editor.transcript.join("\n"),
+    let launched = editor.request("launch", args);
+    assert_eq!(launched["success"], false, "{launched}");
+    assert!(
+        launched["message"]
+            .as_str()
+            .is_some_and(|text| text.contains("did not build")),
+        "{launched}"
     );
+    assert!(editor.output.contains("nope"), "{}", editor.output);
+    editor.request("disconnect", json!({}));
 }
 
 #[test]

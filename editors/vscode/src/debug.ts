@@ -1,6 +1,7 @@
-// The Flux debugger (proposal 0188 S4): VS Code starts `flux-dap`, which
+// The Flux debugger (proposal 0188 S4, S6): VS Code starts `flux-dap`, which
 // speaks the Debug Adapter Protocol and runs the program under
-// `flux debug --engine`.
+// `flux debug --engine`, or, with `"backend": "native"`, builds it with `-g`
+// and runs it under `lldb-dap`.
 
 import * as fs from "fs";
 import * as path from "path";
@@ -58,6 +59,15 @@ class FluxConfigurations implements vscode.DebugConfigurationProvider {
         "The Flux launch configuration needs a `program`.",
       );
       return undefined;
+    }
+    if (config.backend === "native" && !config.lldbDap) {
+      const lldbDap = vscode.workspace
+        .getConfiguration("flux")
+        .get<string>("lldbDapPath", "")
+        .trim();
+      if (lldbDap.length > 0) {
+        config.lldbDap = lldbDap;
+      }
     }
     if (!config.fluxCommand) {
       const runCommand = vscode.workspace

@@ -98,4 +98,10 @@ for dir in examples/type_classes examples/generics tests/flux tests/parity; do
 done 2>&1 | tee "$OUT/parity_$TAG.txt" | strip_ansi \
   | grep --line-buffered -E "^===|^PASS|^MISMATCH|^EXPECTED|^SKIP|^Total|^Pass|^Mismatch"
 
+echo "== debug parity"
+./target/debug/flux parity-check tests/parity_debug --ways vm_debug,llvm_debug 2>&1 \
+  | grep --line-buffered -vE "^\s+Compiling|^\s+Finished" \
+  | tee "$OUT/parity_debug_$TAG.txt" | strip_ansi \
+  | grep --line-buffered -E "^PASS|^MISMATCH|^EXPECTED|^SKIP|^Total|^Pass|^Mismatch"
+
 echo "all-done: $TAG"

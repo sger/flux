@@ -18,6 +18,8 @@ This script prints them as Flux values, the way `flux debug` does, and adds a
     flux locals           the current frame's variables
     flux print <name>[.<part>...]
                           a variable, or a part of it, and its parts
+    flux forget-steps     drop steps a breakpoint interrupted, so that
+                          continuing does not finish them
 
 Load it with `command script import flux_lldb.py`. On macOS, a `-g` build's
 dSYM carries it, and lldb loads it from there once
@@ -589,8 +591,30 @@ def _command_print(debugger, args, result):
         result.AppendMessage("  .%s = %s" % (label, child.render()))
 
 
-COMMANDS = {"bt": _command_bt, "locals": _command_locals, "print": _command_print, "p": _command_print}
-USAGE = "usage: flux bt | flux locals | flux print <name>[.<part>...]"
+def drop_interrupted_steps(debugger):
+    """Forgets the steps a breakpoint interrupted, so that continuing runs
+    to the next breakpoint, as on the VM. lldb would otherwise finish such a
+    step on the next continue and stop where it ends."""
+    interpreter = debugger.GetCommandInterpreter()
+    for _ in range(64):
+        result = lldb.SBCommandReturnObject()
+        interpreter.HandleCommand("thread plan discard 1", result)
+        if not result.Succeeded():
+            break
+
+
+def _command_forget_steps(debugger, args, result):
+    drop_interrupted_steps(debugger)
+
+
+COMMANDS = {
+    "bt": _command_bt,
+    "locals": _command_locals,
+    "print": _command_print,
+    "p": _command_print,
+    "forget-steps": _command_forget_steps,
+}
+USAGE = "usage: flux bt | flux locals | flux print <name>[.<part>...] | flux forget-steps"
 
 
 def flux_command(debugger, command, result, internal_dict):

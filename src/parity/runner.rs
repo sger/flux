@@ -108,6 +108,9 @@ pub fn run_way(
     if way.is_cached() {
         return run_cached_way(vm_binary, llvm_binary, file, way, extra_args, timeout);
     }
+    if way.is_debug() {
+        return super::debug::run_debug_way(vm_binary, llvm_binary, file, way, extra_args, timeout);
+    }
 
     let cache_dir = parity_cache_dir(file, way.base_way());
     let (binary, mut args) = build_way_args(vm_binary, llvm_binary, way);
@@ -202,8 +205,8 @@ fn build_way_args<'a>(
     way: Way,
 ) -> (&'a Path, Vec<String>) {
     let (binary, mut args) = match way {
-        Way::Vm | Way::VmCached | Way::VmStrict => (vm_binary, vec![]),
-        Way::Llvm | Way::LlvmCached | Way::LlvmStrict => {
+        Way::Vm | Way::VmCached | Way::VmStrict | Way::VmDebug => (vm_binary, vec![]),
+        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug => {
             (llvm_binary, vec!["--native".to_string()])
         }
     };
@@ -347,8 +350,8 @@ fn parity_cache_dir(file: &Path, way: Way) -> PathBuf {
     let project_root = cache_paths::find_project_root(file)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     let backend = match way {
-        Way::Vm | Way::VmCached | Way::VmStrict => "vm",
-        Way::Llvm | Way::LlvmCached | Way::LlvmStrict => "llvm",
+        Way::Vm | Way::VmCached | Way::VmStrict | Way::VmDebug => "vm",
+        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug => "llvm",
     };
     project_root
         .join("target")
@@ -422,10 +425,16 @@ fn classify_cache_observation(path: &Path) -> Option<CacheFileKind> {
 
 /// Check if native compilation was unsupported (should be treated as skip).
 pub fn is_native_skip(result: &RunResult) -> Option<String> {
-    if !matches!(result.way, Way::Llvm | Way::LlvmCached | Way::LlvmStrict) {
+    if !matches!(
+        result.way,
+        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug
+    ) {
         return None;
     }
     for line in result.stderr.lines() {
+        if line.contains(super::debug::NO_LLDB) {
+            return Some(line.to_string());
+        }
         if line.contains("llvm compilation failed") || line.contains("unsupported CoreToLlvm") {
             let reason = line
                 .rsplit_once(": ")
@@ -451,8 +460,8 @@ pub fn capture_dump_core(
     timeout: Duration,
 ) -> DebugArtifacts {
     let binary = match way {
-        Way::Vm | Way::VmCached | Way::VmStrict => vm_binary,
-        Way::Llvm | Way::LlvmCached | Way::LlvmStrict => llvm_binary,
+        Way::Vm | Way::VmCached | Way::VmStrict | Way::VmDebug => vm_binary,
+        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug => llvm_binary,
     };
 
     if !binary.exists() {
@@ -493,8 +502,8 @@ pub fn capture_dump_aether(
     timeout: Duration,
 ) -> DebugArtifacts {
     let binary = match way {
-        Way::Vm | Way::VmCached | Way::VmStrict => vm_binary,
-        Way::Llvm | Way::LlvmCached | Way::LlvmStrict => llvm_binary,
+        Way::Vm | Way::VmCached | Way::VmStrict | Way::VmDebug => vm_binary,
+        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug => llvm_binary,
     };
 
     if !binary.exists() {
@@ -536,8 +545,8 @@ pub fn capture_dump_repr(
     timeout: Duration,
 ) -> DebugArtifacts {
     let binary = match way {
-        Way::Vm | Way::VmCached | Way::VmStrict => vm_binary,
-        Way::Llvm | Way::LlvmCached | Way::LlvmStrict => llvm_binary,
+        Way::Vm | Way::VmCached | Way::VmStrict | Way::VmDebug => vm_binary,
+        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug => llvm_binary,
     };
 
     if !binary.exists() {
@@ -549,7 +558,10 @@ pub fn capture_dump_repr(
         "--no-cache".to_string(),
         file.to_string_lossy().into_owned(),
     ];
-    if matches!(way, Way::Llvm | Way::LlvmCached | Way::LlvmStrict) {
+    if matches!(
+        way,
+        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug
+    ) {
         args.push("--native".to_string());
     }
     if way.is_strict() {

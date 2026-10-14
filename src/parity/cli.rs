@@ -703,8 +703,9 @@ fn collect_mismatch_details(
                 continue;
             }
 
+            let stdout_differs = !super::debug::outputs_match(base, other);
             let runtime_diverged = base.exit_kind != other.exit_kind
-                || base.normalized_stdout != other.normalized_stdout
+                || stdout_differs
                 || ((base.exit_kind != ExitKind::Success || other.exit_kind != ExitKind::Success)
                     && base.normalized_stderr != other.normalized_stderr);
             if runtime_diverged && !has_shared_mismatch {
@@ -734,7 +735,7 @@ fn collect_mismatch_details(
                 });
             }
 
-            if base.normalized_stdout != other.normalized_stdout {
+            if stdout_differs {
                 details.push(MismatchDetail::Stdout {
                     left_way: base.way,
                     left: base.normalized_stdout.clone(),
@@ -1055,6 +1056,8 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
             Way::LlvmCached => 3,
             Way::VmStrict => 4,
             Way::LlvmStrict => 5,
+            Way::VmDebug => 6,
+            Way::LlvmDebug => 7,
         });
         compile_ways.dedup();
         let mut expected_failure_stderr: Vec<(Way, String)> = Vec::new();

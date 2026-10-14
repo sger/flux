@@ -119,6 +119,11 @@
           "type": "string",
           "default": "",
           "description": "Override path to the flux-dap binary that runs debug sessions. Leave empty to use the binary bundled with this extension, or `flux-dap` on PATH."
+        },
+        "flux.lldbDapPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to `lldb-dap`, which native debug sessions (`\"backend\": \"native\"`) run on. Leave empty to use `lldb-dap` (or `lldb-dap-18` and later) on PATH, or Xcode's on macOS."
         }
       }
     },
@@ -246,8 +251,12 @@
                   "vm",
                   "native"
                 ],
-                "description": "Which backend runs the program. Only `vm` can be debugged for now; `native` comes in a later release.",
+                "markdownDescription": "Which backend runs the program. `vm` can also step back and replay. `native` builds the program with `--native -g` and runs it under `lldb-dap`; its `flux` command must have the native backend (built with `--features llvm`).",
                 "default": "vm"
+              },
+              "lldbDap": {
+                "type": "string",
+                "description": "For the native backend: the lldb-dap to run. Defaults to the `flux.lldbDapPath` setting."
               },
               "record": {
                 "type": "string",
@@ -292,6 +301,17 @@
               "request": "launch",
               "name": "Debug ${1:program}",
               "program": "^\"\\${workspaceFolder}/${1:main.flx}\""
+            }
+          },
+          {
+            "label": "Flux: Debug a native build",
+            "description": "Build the program with --native -g and debug it under lldb-dap.",
+            "body": {
+              "type": "flux",
+              "request": "launch",
+              "name": "Debug ${1:program} (native)",
+              "program": "^\"\\${workspaceFolder}/${1:main.flx}\"",
+              "backend": "native"
             }
           },
           {
