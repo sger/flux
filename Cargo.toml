@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/flux-lsp", "crates/flux-dap"]
+members = [".", "crates/flux-lsp", "crates/flux-dap", "xtask"]
 exclude = ["vendor/clipboard-win-stub"]
 resolver = "2"
 
