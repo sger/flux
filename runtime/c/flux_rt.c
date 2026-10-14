@@ -198,9 +198,15 @@ static const char *flux_lookup_user_ctor_name(int32_t ctor_tag) {
 /* Value printing writes through these. With no effect tape they go straight
  * to stdout; with one, a line is collected so the tape sees it whole, and
  * flux_print writes it once the tape has recorded or checked it. */
-static char  *flux_out_line = NULL;
-static size_t flux_out_len  = 0;
-static size_t flux_out_cap  = 0;
+/* One line per thread: tasks print on threads of their own (0188 S8c). */
+#if defined(_MSC_VER)
+#  define FLUX_OUT_TLS __declspec(thread)
+#else
+#  define FLUX_OUT_TLS _Thread_local
+#endif
+static FLUX_OUT_TLS char  *flux_out_line = NULL;
+static FLUX_OUT_TLS size_t flux_out_len  = 0;
+static FLUX_OUT_TLS size_t flux_out_cap  = 0;
 
 static void flux_out_append(const char *data, size_t len) {
     if (flux_out_len + len > flux_out_cap) {
@@ -418,22 +424,27 @@ static void flux_print_value(int64_t val) {
     flux_out_printf("<unknown val=%lld>", (long long)val);
 }
 
-void flux_print(int64_t val) {
+int64_t flux_print(int64_t val) {
     flux_print_value(val);
     if (flux_tape_mode) {
         flux_out_append("\n", 1);
-        flux_tape_console(0, (const uint8_t *)flux_out_line, flux_out_len);
-        fwrite(flux_out_line, 1, flux_out_len, stdout);
+        /* Printed at its turn on the tape, so threads print in the
+         * recorded order. */
+        if (flux_tape_console(0, (const uint8_t *)flux_out_line, flux_out_len)) {
+            fwrite(flux_out_line, 1, flux_out_len, stdout);
+            fflush(stdout);
+        }
+        flux_tape_console_done();
         flux_out_len = 0;
-        fflush(stdout);
-        return;
+        return FLUX_NONE;
     }
     putchar('\n');
     fflush(stdout);
+    return FLUX_NONE;
 }
 
-void flux_println(int64_t val) {
-    flux_print(val);
+int64_t flux_println(int64_t val) {
+    return flux_print(val);
 }
 
 /* Debug-trace output. Routed to stderr so it does not corrupt stdout
@@ -443,15 +454,20 @@ void flux_println(int64_t val) {
  * `show()` / `to_string()` / a caller-supplied formatter), so the fast
  * path just writes the string's bytes directly to stderr. Non-string
  * fallback is provided for direct tests and primop-level callers. */
-void flux_debug_trace(int64_t val) {
+int64_t flux_debug_trace(int64_t val) {
     if (flux_tape_mode && flux_is_ptr(val) && flux_obj_tag(flux_untag_ptr(val)) == FLUX_OBJ_STRING) {
         uint32_t len = flux_string_len(val);
         char *line = (char *)malloc((size_t)len + 1);
         if (line) {
             memcpy(line, flux_string_data(val), len);
             line[len] = '\n';
-            flux_tape_console(1, (const uint8_t *)line, (size_t)len + 1);
+            if (flux_tape_console(1, (const uint8_t *)line, (size_t)len + 1)) {
+                fwrite(line, 1, (size_t)len + 1, stderr);
+                fflush(stderr);
+            }
+            flux_tape_console_done();
             free(line);
+            return FLUX_NONE;
         }
     }
     if (flux_is_ptr(val) && flux_obj_tag(flux_untag_ptr(val)) == FLUX_OBJ_STRING) {
@@ -465,6 +481,7 @@ void flux_debug_trace(int64_t val) {
         fprintf(stderr, "<debug non-string value=%lld>\n", (long long)val);
     }
     fflush(stderr);
+    return FLUX_NONE;
 }
 /* Print value without newline, followed by a space — used for multi-arg print. */
 void flux_print_space(int64_t val) {

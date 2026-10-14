@@ -13,7 +13,13 @@
 //! Requests and fibers are written with logical numbers, from 1 in the order
 //! they first appear, so the tape does not depend on the runtime's global id
 //! counters.
+//!
+//! With tasks (0188 S8c), each thread knows which task it runs
+//! ([`enter_task`]); tasks and channels get logical numbers too; and a
+//! completion another thread hands to the scheduler goes through
+//! [`deliver_cross`], which puts it on the tape where the scheduler took it.
 
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Mutex, RwLock};
@@ -37,6 +43,10 @@ pub(super) struct Ids {
     req_real: HashMap<u64, u64>,
     fibers: HashMap<u64, u32>,
     stalled_since: Option<Instant>,
+    /// Tasks spawned so far, for numbering the next.
+    tasks: u32,
+    /// Real channel ids by logical number, and back.
+    chan_logical: HashMap<u64, u64>,
 }
 
 static IDS: Mutex<Option<Ids>> = Mutex::new(None);
@@ -66,6 +76,104 @@ fn logical_req(req: u64) -> u64 {
 fn real_req(logical: u64) -> Option<u64> {
     with_ids(|ids| ids.req_real.get(&logical).copied())
 }
+
+/// Gives request `req` its logical number now, when the scheduler makes it
+/// rather than when it is first submitted: a request another thread
+/// completes (a task's result, a channel hand-over) is never submitted, and
+/// must still be numbered in an order replay repeats.
+pub fn note_request(req: u64) {
+    if super::is_active() {
+        logical_req(req);
+    }
+}
+
+// ── Tasks and channels (0188 S8c) ───────────────────────────────────────
+
+thread_local! {
+    /// The logical task this thread runs: 0 on the main program's thread.
+    static CURRENT_TASK: Cell<u32> = const { Cell::new(0) };
+}
+
+/// This thread runs task `task` from now on (0 when it stops).
+pub fn enter_task(task: u32) {
+    let _ = CURRENT_TASK.try_with(|current| current.set(task));
+}
+
+/// The logical task running on this thread: 0 for the main program.
+pub fn current_task() -> u32 {
+    // At process exit this thread's locals may be gone: the main program.
+    CURRENT_TASK.try_with(|current| current.get()).unwrap_or(0)
+}
+
+/// The logical number for the next task spawned. Spawns are ordered on the
+/// tape, so a replay numbers them alike.
+pub fn next_task() -> u32 {
+    with_ids(|ids| {
+        ids.tasks += 1;
+        ids.tasks
+    })
+}
+
+/// Whether the program has spawned a task under this tape: from then on,
+/// channel operations are ordered, since another thread may use the channel.
+pub fn has_tasks() -> bool {
+    super::is_active() && with_ids(|ids| ids.tasks > 0)
+}
+
+/// The logical number of real channel `chan`, assigned on first sight.
+pub fn logical_channel(chan: u64) -> u64 {
+    with_ids(|ids| {
+        let next = ids.chan_logical.len() as u64 + 1;
+        *ids.chan_logical.entry(chan).or_insert(next)
+    })
+}
+
+/// Takes the next completion another thread handed to the scheduler: a
+/// task's result, or a value a channel or event passed on.
+///
+/// `take(None)` takes whichever completion is ready, without waiting;
+/// `take(Some(req))` takes request `req`'s, waiting for it. Each returns
+/// the real request id with the completion.
+///
+/// Off: the next one ready. Recording: the same, written to the tape as
+/// `wake` where the scheduler took it. Replaying: only when the tape's next
+/// event is this thread's `wake`, and then that request's, which the
+/// thread handing it over has done by then, since it came first on the tape.
+pub fn deliver_cross<T>(mut take: impl FnMut(Option<u64>) -> Option<(u64, T)>) -> Option<T> {
+    match mode() {
+        ReplayMode::Off => take(None).map(|(_, value)| value),
+        ReplayMode::Record => {
+            let _order = super::order_lock();
+            let (req, value) = take(None)?;
+            let req = logical_req(req);
+            if let Err(err) = append(EffectRequest::Wake { req }, None) {
+                fail(err);
+            }
+            Some(value)
+        }
+        ReplayMode::Replay => {
+            let event = super::peek_own(|request| matches!(request, EffectRequest::Wake { .. }))?;
+            let EffectRequest::Wake { req } = event.request else {
+                unreachable!("peek_own matched a wake");
+            };
+            let Some(real) = real_req(req) else {
+                fail(TapeError::PayloadMismatch {
+                    index: event.seq,
+                    what: "which request was handed over".to_string(),
+                    tape: format!("request #{req}"),
+                    program: "no such request made yet".to_string(),
+                });
+            };
+            let (_, value) = take(Some(real))?;
+            super::advance(&event);
+            Some(value)
+        }
+    }
+}
+
+/// How long the scheduler waits for a completion the tape says another
+/// thread has handed over before the replay is taken to have diverged.
+pub const HAND_OVER_LIMIT: Duration = Duration::from_secs(30);
 
 pub(super) fn progressed() {
     with_ids(|ids| ids.stalled_since = None);
@@ -238,6 +346,16 @@ fn replay_next() -> Option<Completion> {
             return None;
         };
         match tape.events.get(*cursor) {
+            // Another thread's event, or a completion handed over from one:
+            // not the backend's to deliver, and not a stall.
+            Some(event)
+                if event.task != current_task()
+                    || matches!(event.request, EffectRequest::Wake { .. }) =>
+            {
+                drop(guard);
+                progressed();
+                return None;
+            }
             Some(TapeEvent {
                 request: EffectRequest::AsyncComplete { req },
                 result: Some(outcome),

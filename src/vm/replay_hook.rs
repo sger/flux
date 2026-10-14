@@ -3,7 +3,8 @@
 //! `execute_primop_opcode` sends every primop here while a tape is active.
 //! Deterministic primops run as usual; effects are recorded or answered from
 //! the tape; async primops run as usual, the async backend recording what
-//! they wait on; tasks, which this stage cannot record, stop the run.
+//! they wait on; tasks run as usual too, putting what crosses threads on the
+//! tape in order (0188 S8c, `vm::task`).
 
 use std::io::Write;
 
@@ -28,16 +29,17 @@ impl VM {
     ) -> Result<Value, String> {
         match replay::tape_class(op) {
             TapeClass::Untaped | TapeClass::Scheduled => execute_core_primop(self, op, args),
-            TapeClass::Refused if replay::is_implicit() => {
-                // A debug session's own recording: drop it rather than the run.
+            TapeClass::Task if replay::is_implicit() => {
+                // A debug session's own recording: going back across tasks
+                // comes in S9, so drop it rather than the run.
                 replay::stop_implicit();
                 super::debug::turn_off_reverse(format!(
-                    "the program used `{}`, which cannot be recorded yet (0188 S8)",
+                    "the program used `{}`; going back across tasks comes in 0188 S9",
                     replay_codec::op_name(op)
                 ));
                 execute_core_primop(self, op, args)
             }
-            TapeClass::Refused => self.tape_fail(replay::unsupported(replay_codec::op_name(op))),
+            TapeClass::Task => execute_core_primop(self, op, args),
             TapeClass::Console => {
                 let text = render_console(op, &args);
                 let to_stderr = op == CorePrimOp::DebugTrace;
@@ -50,16 +52,19 @@ impl VM {
                         text: TapeBytes::from(text.as_str()),
                     }
                 };
-                let shown = match replay::console_shown(request) {
-                    Ok(shown) => shown,
-                    Err(err) => self.tape_fail(err),
-                };
                 // Printed in every mode, so a replay shows the recorded
-                // output, but only once when a debugger runs it again.
-                if shown && to_stderr {
-                    eprint!("{text}");
-                } else if shown {
-                    print!("{text}");
+                // output, but only once when a debugger runs it again; and
+                // at its turn, so threads print in the recorded order.
+                let printed = replay::console_in_turn(request, || {
+                    if to_stderr {
+                        eprint!("{text}");
+                    } else {
+                        print!("{text}");
+                        let _ = std::io::stdout().flush();
+                    }
+                });
+                if let Err(err) = printed {
+                    self.tape_fail(err);
                 }
                 Ok(Value::None)
             }

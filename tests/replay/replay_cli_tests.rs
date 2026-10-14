@@ -517,12 +517,86 @@ fn an_edited_async_tape_stops_the_replay() {
     assert_async_tape_divergence(Backend::Vm);
 }
 
+/// Tasks (0188 S8c): each runs on a thread of its own, and what crosses
+/// threads (spawns, starts and ends, cancels, joins, hand-overs to fibers,
+/// channel operations) is ordered on the tape, so a replay runs the threads
+/// in the recorded order.
+const TASK_FIXTURES: &[&str] = &["task_join", "task_await", "task_cancel", "task_channel"];
+
 #[test]
-fn tasks_cannot_be_recorded_yet() {
-    let case = Case::new("task_refused");
+fn each_task_fixture_replays_on_the_vm() {
+    for fixture in TASK_FIXTURES {
+        assert_replays(fixture, Backend::Vm, Backend::Vm);
+    }
+}
+
+/// Records `fixture` once, with several workers asked for, then replays the
+/// tape `times` times: every replay prints exactly what the recording did.
+fn assert_replays_identically(fixture: &str, backend: Backend, times: usize) {
+    let workers = [("FLUX_WORKERS", "4")];
+    let case = Case::new(fixture);
+    let tape = case.tape("run.jsonl");
+    let recorded = case.record(backend, &tape, "", &workers);
+    assert_eq!(recorded.code, 0, "{fixture}: {}", recorded.stderr);
+    for run in 0..times {
+        let replayed = case.replay(backend, &tape, &workers);
+        assert_eq!(
+            replayed.stdout, recorded.stdout,
+            "{fixture}: replay {run} printed something else:\n{}",
+            replayed.stderr
+        );
+        assert_eq!(
+            replayed.code, 0,
+            "{fixture}: replay {run}: {}",
+            replayed.stderr
+        );
+    }
+}
+
+#[test]
+fn a_replay_with_tasks_is_identical_a_hundred_times() {
+    for fixture in ["task_cancel", "task_channel"] {
+        assert_replays_identically(fixture, Backend::Vm, 100);
+    }
+}
+
+/// A tape whose task starts before it is spawned: the replay stops at the
+/// first event no thread can perform.
+fn assert_task_tape_divergence(backend: Backend) {
+    let case = Case::new("task_join");
+    let tape = case.tape("run.jsonl");
+    let recorded = case.record(backend, &tape, "", &[]);
+    assert_eq!(recorded.code, 0, "{}", recorded.stderr);
+    let mut lines: Vec<String> = std::fs::read_to_string(&tape)
+        .unwrap()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    let spawn = lines
+        .iter()
+        .position(|line| line.contains("\"task_spawn\""))
+        .unwrap();
+    let start = lines
+        .iter()
+        .position(|line| line.contains("\"task_start\""))
+        .unwrap();
+    lines.swap(spawn, start);
+    let edited = case.tape("edited.jsonl");
+    write_lines(&edited, &renumber(&lines));
+    assert_tape_error(&case.replay(backend, &edited, &[]), "E1022", "task_start");
+}
+
+#[test]
+fn an_edited_task_tape_stops_the_replay() {
+    assert_task_tape_divergence(Backend::Vm);
+}
+
+#[test]
+fn run_async_inside_a_task_cannot_be_recorded_yet() {
+    let case = Case::new("task_nested_async");
     let tape = case.tape("run.jsonl");
     let run = case.record(Backend::Vm, &tape, "", &[]);
-    assert_tape_error(&run, "E1027", "cannot be recorded");
+    assert_tape_error(&run, "E1027", "run_async inside a task");
 }
 
 #[test]
@@ -643,10 +717,29 @@ mod native {
     }
 
     #[test]
-    fn native_tasks_cannot_be_recorded_yet() {
-        let case = Case::new("task_refused");
+    fn each_task_fixture_replays_on_native() {
+        for fixture in TASK_FIXTURES {
+            assert_replays(fixture, Backend::Native, Backend::Native);
+        }
+    }
+
+    #[test]
+    fn a_native_replay_with_tasks_is_identical_a_hundred_times() {
+        for fixture in ["task_cancel", "task_channel"] {
+            assert_replays_identically(fixture, Backend::Native, 100);
+        }
+    }
+
+    #[test]
+    fn an_edited_task_tape_stops_the_native_replay() {
+        assert_task_tape_divergence(Backend::Native);
+    }
+
+    #[test]
+    fn native_run_async_inside_a_task_cannot_be_recorded_yet() {
+        let case = Case::new("task_nested_async");
         let tape = case.tape("run.jsonl");
         let run = case.record(Backend::Native, &tape, "", &[]);
-        assert_tape_error(&run, "E1027", "`Task.spawn` cannot be recorded");
+        assert_tape_error(&run, "E1027", "run_async inside a task");
     }
 }

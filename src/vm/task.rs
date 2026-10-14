@@ -10,6 +10,7 @@ use crate::runtime::r#async::context::EffectContext;
 use crate::runtime::r#async::fiber_trace::{self, FiberEvent};
 use crate::runtime::r#async::task_scheduler::{TaskHandle, TaskJoinError, TaskScheduler};
 use crate::runtime::frame::Frame;
+use crate::runtime::replay::{self, EffectRequest, Outcome};
 use crate::runtime::{
     closure::Closure,
     compiled_function::CompiledFunction,
@@ -84,6 +85,8 @@ pub(super) struct WorkerSharedState {
 
 struct VmTaskEntry {
     handle: Option<TaskHandle<TaskResult>>,
+    /// The task's logical number on the effect tape; 0 with no tape.
+    logical: u32,
 }
 
 struct CompletionQueue {
@@ -153,16 +156,28 @@ impl VM {
         name_from: Option<Value>,
     ) -> Result<i64, String> {
         let id = NEXT_TASK_ID.fetch_add(1, Ordering::Relaxed);
-        let handle = scheduler().spawn(move || run_task_payload(payload));
-        if let Some(action) = &name_from {
-            super::fiber_debug::note_task(id, action, handle.finished_check());
+        let start = |logical: u32| {
+            let handle = if replay::is_active() {
+                scheduler().spawn(move || run_taped_task(id, logical, payload))
+            } else {
+                scheduler().spawn(move || run_task_payload(payload))
+            };
+            if let Some(action) = &name_from {
+                super::fiber_debug::note_task(id, action, handle.finished_check());
+            }
+            tasks().lock().expect("VM task table poisoned").insert(
+                id,
+                VmTaskEntry {
+                    handle: Some(handle),
+                    logical,
+                },
+            );
+        };
+        if replay::is_active() {
+            replay::spawn_task(start).unwrap_or_else(|err| replay::async_tape::fail(err));
+        } else {
+            start(0);
         }
-        tasks().lock().expect("VM task table poisoned").insert(
-            id,
-            VmTaskEntry {
-                handle: Some(handle),
-            },
-        );
         Ok(id)
     }
 
@@ -317,6 +332,21 @@ impl VM {
 }
 
 pub(super) fn blocking_join(id: i64) -> Result<Value, String> {
+    if replay::is_active() {
+        // Recorded once the join returns: it waits for the task, whose own
+        // turns come first (0188 S8c).
+        let logical = logical_of(id);
+        let mut result = None;
+        replay::ordered_after(EffectRequest::TaskJoin { id: logical }, || {
+            result = Some(join_now(id));
+        })
+        .unwrap_or_else(|err| replay::async_tape::fail(err));
+        return result.expect("ordered_after runs the join");
+    }
+    join_now(id)
+}
+
+fn join_now(id: i64) -> Result<Value, String> {
     if cancelled()
         .lock()
         .expect("VM task cancel set poisoned")
@@ -332,6 +362,21 @@ pub(super) fn blocking_join(id: i64) -> Result<Value, String> {
 }
 
 pub(super) fn cancel(id: i64) -> Result<(), String> {
+    if replay::is_active() {
+        // The task looks at the cancel set itself, at its turn, rather
+        // than the pool looking at the handle whenever a worker is free
+        // (0188 S8c).
+        let logical = logical_of(id);
+        replay::ordered(EffectRequest::TaskCancel { id: logical }, || {
+            cancelled()
+                .lock()
+                .expect("VM task cancel set poisoned")
+                .insert(id);
+            None
+        })
+        .unwrap_or_else(|err| replay::async_tape::fail(err));
+        return Ok(());
+    }
     cancelled()
         .lock()
         .expect("VM task cancel set poisoned")
@@ -381,6 +426,15 @@ pub(super) fn try_recv_completion() -> Option<(u64, Result<Value, String>)> {
         Ok((request_id, result)) => Some((request_id, result.and_then(|v| v.into_value()))),
         Err(mpsc::TryRecvError::Empty) | Err(mpsc::TryRecvError::Disconnected) => None,
     }
+}
+
+/// Task `id`'s logical number on the tape.
+fn logical_of(id: i64) -> u32 {
+    tasks()
+        .lock()
+        .expect("VM task table poisoned")
+        .get(&id)
+        .map_or(0, |entry| entry.logical)
 }
 
 enum JoinTarget {
@@ -451,6 +505,41 @@ fn run_task_payload(payload: VmTaskPayload) -> TaskResult {
     TASK_WORKER_VM.with(|pool| {
         *pool.borrow_mut() = Some(vm);
     });
+    result
+}
+
+/// Runs task `id`, logical task `logical` on the tape, on its worker
+/// thread: its start and its end are ordered there, and what it does in
+/// between is recorded as its own (0188 S8c).
+fn run_taped_task(id: i64, logical: u32, payload: VmTaskPayload) -> TaskResult {
+    replay::async_tape::enter_task(logical);
+    let taped = |request, op: &mut dyn FnMut() -> Option<Outcome>| {
+        if let Err(err) = replay::ordered(request, op) {
+            replay::async_tape::fail(err);
+        }
+    };
+    let mut ran = false;
+    taped(EffectRequest::TaskStart { id: logical }, &mut || {
+        ran = !cancelled()
+            .lock()
+            .expect("VM task cancel set poisoned")
+            .contains(&id);
+        Some(Outcome::Bool(ran))
+    });
+    let result = if ran {
+        run_task_payload(payload)
+    } else {
+        Err("TaskCancelled".to_string())
+    };
+    let failed = result.is_err();
+    taped(
+        EffectRequest::TaskEnd {
+            id: logical,
+            failed,
+        },
+        &mut || None,
+    );
+    replay::async_tape::enter_task(0);
     result
 }
 

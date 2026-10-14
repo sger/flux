@@ -365,11 +365,11 @@ int64_t flux_chan_make(int64_t capacity_val) {
     return flux_tag_int(id);
 }
 
-int64_t flux_chan_try_send(int64_t id_val, int64_t value) {
+static int64_t chan_try_send_untaped(int64_t id_val, int64_t value) {
     return flux_chan_try_send_owned(id_val, retain_value(value), "flux_chan_try_send");
 }
 
-int64_t flux_chan_try_send_move(int64_t id_val, int64_t value) {
+static int64_t chan_try_send_move_untaped(int64_t id_val, int64_t value) {
     return flux_chan_try_send_owned(id_val, transfer_value(value), "flux_chan_try_send_move");
 }
 
@@ -404,7 +404,7 @@ static int64_t flux_chan_try_send_owned(int64_t id_val, int64_t value, const cha
     return FLUX_FALSE;
 }
 
-int64_t flux_chan_try_recv(int64_t id_val) {
+static int64_t chan_try_recv_untaped(int64_t id_val) {
     int64_t id = flux_untag_int(id_val);
     FluxChannel *ch = lookup_channel(id);
     if (!ch) abort_unknown("flux_chan_try_recv", id);
@@ -430,11 +430,11 @@ int64_t flux_chan_try_recv(int64_t id_val) {
     return FLUX_NONE;
 }
 
-int64_t flux_chan_send(int64_t id_val, int64_t value) {
+static int64_t chan_send_untaped(int64_t id_val, int64_t value) {
     return flux_chan_send_owned(id_val, retain_value(value), "flux_chan_send");
 }
 
-int64_t flux_chan_send_move(int64_t id_val, int64_t value) {
+static int64_t chan_send_move_untaped(int64_t id_val, int64_t value) {
     return flux_chan_send_owned(id_val, transfer_value(value), "flux_chan_send_move");
 }
 
@@ -511,7 +511,7 @@ static int64_t flux_chan_send_owned(int64_t id_val, int64_t value, const char *w
     return flux_async_suspend_request(request_id);
 }
 
-int64_t flux_chan_recv(int64_t id_val) {
+static int64_t chan_recv_untaped(int64_t id_val) {
     int64_t id = flux_untag_int(id_val);
     FluxChannel *ch = lookup_channel(id);
     if (!ch) abort_unknown("flux_chan_recv", id);
@@ -558,7 +558,7 @@ int64_t flux_chan_recv(int64_t id_val) {
             FLUX_COND_WAIT(&ch->ready, &ch->mutex);
         }
         FLUX_MUTEX_UNLOCK(&ch->mutex);
-        return flux_chan_recv(id_val);
+        return chan_recv_untaped(id_val);
     }
     if (!recv_push(ch, request_id)) {
         FLUX_MUTEX_UNLOCK(&ch->mutex);
@@ -570,7 +570,7 @@ int64_t flux_chan_recv(int64_t id_val) {
     return flux_async_suspend_request(request_id);
 }
 
-int64_t flux_chan_close(int64_t id_val) {
+static int64_t chan_close_untaped(int64_t id_val) {
     int64_t id = flux_untag_int(id_val);
     FluxChannel *ch = lookup_channel(id);
     if (!ch) abort_unknown("flux_chan_close", id);
@@ -598,7 +598,7 @@ int64_t flux_chan_close(int64_t id_val) {
     return FLUX_NONE;
 }
 
-int64_t flux_chan_len(int64_t id_val) {
+static int64_t chan_len_untaped(int64_t id_val) {
     int64_t id = flux_untag_int(id_val);
     FluxChannel *ch = lookup_channel(id);
     if (!ch) abort_unknown("flux_chan_len", id);
@@ -615,7 +615,7 @@ int64_t flux_chan_cap(int64_t id_val) {
     return flux_tag_int(ch->capacity);
 }
 
-int64_t flux_chan_is_closed(int64_t id_val) {
+static int64_t chan_is_closed_untaped(int64_t id_val) {
     int64_t id = flux_untag_int(id_val);
     FluxChannel *ch = lookup_channel(id);
     if (!ch) abort_unknown("flux_chan_is_closed", id);
@@ -667,4 +667,91 @@ void flux_chan_event_watch_send(int64_t id, uint64_t request_id) {
     }
     event_watch_push(&ch->event_send_watchers, request_id);
     FLUX_MUTEX_UNLOCK(&ch->mutex);
+}
+
+/* ── Under an effect tape (0188 S8c) ──────────────────────────────────
+ * Once the program has spawned a task, another thread may use a channel,
+ * and what an operation finds depends on which thread got there first.
+ * Each operation is then ordered on the tape with what other threads do,
+ * and a replay does them in the recorded order. Even a send or receive
+ * that parks returns at once (a suspend marker), so the turn ends here. */
+
+static int chan_taped(void) {
+    return flux_tape_mode && flux_tape_has_tasks();
+}
+
+static void chan_turn(int64_t id_val, int op) {
+    flux_tape_ordered_begin(FLUX_TAPE_CHANNEL, (uint64_t)flux_untag_int(id_val), (uint64_t)op);
+}
+
+int64_t flux_chan_try_send(int64_t id_val, int64_t value) {
+    if (!chan_taped()) return chan_try_send_untaped(id_val, value);
+    chan_turn(id_val, FLUX_TAPE_CHAN_TRY_SEND);
+    int64_t sent = chan_try_send_untaped(id_val, value);
+    flux_tape_ordered_end(FLUX_TAPE_BOOL, sent == FLUX_TRUE);
+    return sent;
+}
+
+int64_t flux_chan_try_send_move(int64_t id_val, int64_t value) {
+    if (!chan_taped()) return chan_try_send_move_untaped(id_val, value);
+    chan_turn(id_val, FLUX_TAPE_CHAN_TRY_SEND);
+    int64_t sent = chan_try_send_move_untaped(id_val, value);
+    flux_tape_ordered_end(FLUX_TAPE_BOOL, sent == FLUX_TRUE);
+    return sent;
+}
+
+int64_t flux_chan_try_recv(int64_t id_val) {
+    if (!chan_taped()) return chan_try_recv_untaped(id_val);
+    chan_turn(id_val, FLUX_TAPE_CHAN_TRY_RECV);
+    int64_t got = chan_try_recv_untaped(id_val);
+    flux_tape_ordered_end(FLUX_TAPE_BOOL, got != FLUX_NONE);
+    return got;
+}
+
+int64_t flux_chan_send(int64_t id_val, int64_t value) {
+    if (!chan_taped()) return chan_send_untaped(id_val, value);
+    chan_turn(id_val, FLUX_TAPE_CHAN_SEND);
+    int64_t done = chan_send_untaped(id_val, value);
+    flux_tape_ordered_end(FLUX_TAPE_BOOL, 1);
+    return done;
+}
+
+int64_t flux_chan_send_move(int64_t id_val, int64_t value) {
+    if (!chan_taped()) return chan_send_move_untaped(id_val, value);
+    chan_turn(id_val, FLUX_TAPE_CHAN_SEND);
+    int64_t done = chan_send_move_untaped(id_val, value);
+    flux_tape_ordered_end(FLUX_TAPE_BOOL, 1);
+    return done;
+}
+
+int64_t flux_chan_recv(int64_t id_val) {
+    if (!chan_taped()) return chan_recv_untaped(id_val);
+    chan_turn(id_val, FLUX_TAPE_CHAN_RECV);
+    int64_t got = chan_recv_untaped(id_val);
+    flux_tape_ordered_end(FLUX_TAPE_BOOL, 1);
+    return got;
+}
+
+int64_t flux_chan_close(int64_t id_val) {
+    if (!chan_taped()) return chan_close_untaped(id_val);
+    chan_turn(id_val, FLUX_TAPE_CHAN_CLOSE);
+    int64_t done = chan_close_untaped(id_val);
+    flux_tape_ordered_end(FLUX_TAPE_BOOL, 1);
+    return done;
+}
+
+int64_t flux_chan_len(int64_t id_val) {
+    if (!chan_taped()) return chan_len_untaped(id_val);
+    chan_turn(id_val, FLUX_TAPE_CHAN_LEN);
+    int64_t len = chan_len_untaped(id_val);
+    flux_tape_ordered_end(FLUX_TAPE_INT, flux_untag_int(len));
+    return len;
+}
+
+int64_t flux_chan_is_closed(int64_t id_val) {
+    if (!chan_taped()) return chan_is_closed_untaped(id_val);
+    chan_turn(id_val, FLUX_TAPE_CHAN_IS_CLOSED);
+    int64_t closed = chan_is_closed_untaped(id_val);
+    flux_tape_ordered_end(FLUX_TAPE_BOOL, closed == FLUX_TRUE);
+    return closed;
 }

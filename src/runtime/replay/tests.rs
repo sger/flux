@@ -7,9 +7,11 @@ use super::*;
 static SERIAL: Mutex<()> = Mutex::new(());
 
 fn serial() -> std::sync::MutexGuard<'static, ()> {
-    SERIAL
+    let guard = SERIAL
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    enlist_in_test_tape();
+    guard
 }
 
 fn scratch_tape(name: &str) -> PathBuf {
@@ -38,6 +40,7 @@ fn text(value: &str) -> Outcome {
 
 /// Records `run`'s effects to a tape and loads it back.
 fn record(name: &str, run: impl FnOnce()) -> LoadedTape {
+    enlist_in_test_tape();
     let path = scratch_tape(name);
     start_record(&path, &header()).unwrap();
     run();
@@ -121,6 +124,20 @@ fn every_request_and_outcome_round_trips_through_json() {
         },
         EffectRequest::TcpClose { handle: 2 },
         EffectRequest::AsyncComplete { req: 7 },
+        EffectRequest::TaskSpawn { id: 1 },
+        EffectRequest::TaskStart { id: 1 },
+        EffectRequest::TaskEnd {
+            id: 1,
+            failed: true,
+        },
+        EffectRequest::TaskCancel { id: 2 },
+        EffectRequest::TaskJoin { id: 2 },
+        EffectRequest::TaskAwait { id: 2 },
+        EffectRequest::Wake { req: 3 },
+        EffectRequest::Channel {
+            chan: 1,
+            op: "try_recv".into(),
+        },
     ];
     let outcomes = vec![
         Outcome::Unit,
@@ -155,6 +172,7 @@ fn every_request_and_outcome_round_trips_through_json() {
         let event = TapeEvent {
             seq: 3,
             fiber: 0,
+            task: 0,
             request,
             result: None,
         };
@@ -180,6 +198,7 @@ fn events_are_written_as_flat_json_lines() {
     let event = TapeEvent {
         seq: 0,
         fiber: 0,
+        task: 0,
         request: read_file("in.txt"),
         result: Some(Outcome::Ok(Box::new(text("hello\n")))),
     };
@@ -348,8 +367,11 @@ fn loading_rejects_tapes_that_cannot_be_replayed() {
     };
 
     assert!(reason(&write("not_tape.jsonl", "hello\n")).contains("not a Flux tape"));
-    let future = header_line.replace("\"version\":1", "\"version\":99");
+    let future = header_line.replace("\"version\":2", "\"version\":99");
     assert!(reason(&write("future.jsonl", &format!("{future}\n"))).contains("version 99"));
+    // Version 1 tapes have no task field and no hand-overs (0188 S8c).
+    let older = header_line.replace("\"version\":2", "\"version\":1");
+    assert!(reason(&write("older.jsonl", &format!("{older}\n"))).contains("version 1"));
     let gap = format!(
         "{header_line}\n{}\n",
         r#"{"seq":1,"kind":"clock_now","result":{"int":1}}"#
@@ -399,6 +421,7 @@ fn async_events_are_written_with_logical_numbers() {
     let event = TapeEvent {
         seq: 4,
         fiber: 2,
+        task: 0,
         request: EffectRequest::TimerStart { req: 1, ms: 30 },
         result: None,
     };
@@ -409,6 +432,7 @@ fn async_events_are_written_with_logical_numbers() {
     let event = TapeEvent {
         seq: 5,
         fiber: 0,
+        task: 0,
         request: EffectRequest::AsyncComplete { req: 1 },
         result: Some(Outcome::Bytes("hello".into())),
     };
@@ -584,5 +608,145 @@ fn a_debug_sessions_own_recording_can_be_dropped() {
     start_record(&path, &header()).unwrap();
     stop_implicit();
     assert!(is_active());
+    reset();
+}
+
+// ── Tasks (0188 S8c) ────────────────────────────────────────────────────
+
+#[test]
+fn an_event_names_its_task_only_off_the_main_program() {
+    let event = |task| TapeEvent {
+        seq: 2,
+        fiber: 0,
+        task,
+        request: EffectRequest::ClockNow,
+        result: Some(Outcome::Int(5)),
+    };
+    let main = serde_json::to_string(&event(0)).unwrap();
+    assert!(!main.contains("task"), "{main}");
+    let in_task = serde_json::to_string(&event(3)).unwrap();
+    assert!(in_task.contains(r#""task":3"#), "{in_task}");
+    assert_eq!(
+        serde_json::from_str::<TapeEvent>(&in_task).unwrap(),
+        event(3)
+    );
+}
+
+/// Records, on two threads, the main program spawning task 1 and each
+/// printing; returns the tape.
+fn record_two_threads(name: &str) -> LoadedTape {
+    record(name, || {
+        ordered(EffectRequest::TaskSpawn { id: 1 }, || None).unwrap();
+        console(stdout("main\n")).unwrap();
+        std::thread::spawn(|| {
+            enlist_in_test_tape();
+            async_tape::enter_task(1);
+            ordered(EffectRequest::TaskStart { id: 1 }, || {
+                Some(Outcome::Bool(true))
+            })
+            .unwrap();
+            console(stdout("task\n")).unwrap();
+            ordered(
+                EffectRequest::TaskEnd {
+                    id: 1,
+                    failed: false,
+                },
+                || None,
+            )
+            .unwrap();
+        })
+        .join()
+        .unwrap();
+        console(stdout("after\n")).unwrap();
+        finish(false, None).unwrap();
+    })
+}
+
+#[test]
+fn a_replay_runs_threads_in_the_recorded_order() {
+    let _serial = serial();
+    let tape = record_two_threads("two_threads.jsonl");
+    let tasks: Vec<u32> = tape.events.iter().map(|event| event.task).collect();
+    assert_eq!(tasks, [0, 0, 1, 1, 1, 0, 0]);
+
+    // Replaying, the task's thread starts first and must wait for the main
+    // program's first two events.
+    start_replay(tape);
+    let order = std::sync::Arc::new(Mutex::new(Vec::new()));
+    let task_order = order.clone();
+    let task = std::thread::spawn(move || {
+        enlist_in_test_tape();
+        async_tape::enter_task(1);
+        ordered(EffectRequest::TaskStart { id: 1 }, || {
+            Some(Outcome::Bool(true))
+        })
+        .unwrap();
+        console_in_turn(stdout("task\n"), || task_order.lock().unwrap().push("task")).unwrap();
+        ordered(
+            EffectRequest::TaskEnd {
+                id: 1,
+                failed: false,
+            },
+            || None,
+        )
+        .unwrap();
+    });
+    std::thread::sleep(Duration::from_millis(30));
+    ordered(EffectRequest::TaskSpawn { id: 1 }, || None).unwrap();
+    console_in_turn(stdout("main\n"), || order.lock().unwrap().push("main")).unwrap();
+    task.join().unwrap();
+    console_in_turn(stdout("after\n"), || order.lock().unwrap().push("after")).unwrap();
+    assert_eq!(finish(false, None), Ok(()));
+    assert_eq!(*order.lock().unwrap(), ["main", "task", "after"]);
+    reset();
+}
+
+#[test]
+fn ordered_work_must_do_what_it_did_when_recorded() {
+    let _serial = serial();
+    let tape = record("ordered.jsonl", || {
+        ordered(EffectRequest::TaskStart { id: 1 }, || {
+            Some(Outcome::Bool(false))
+        })
+        .unwrap();
+        finish(false, None).unwrap();
+    });
+    start_replay(tape);
+    let err = ordered(EffectRequest::TaskStart { id: 1 }, || {
+        Some(Outcome::Bool(true))
+    })
+    .unwrap_err();
+    assert!(
+        matches!(&err, TapeError::PayloadMismatch { what, .. } if what.contains("task_start")),
+        "{err:?}"
+    );
+    reset();
+}
+
+#[test]
+fn a_thread_whose_turn_never_comes_stops_the_replay() {
+    let _serial = serial();
+    let tape = record_two_threads("stall.jsonl");
+    start_replay(tape);
+    ordered(EffectRequest::TaskSpawn { id: 1 }, || None).unwrap();
+    // The main program skips its print: the task waits for it, in vain.
+    TURN_LIMIT_MS.store(200, Ordering::Relaxed);
+    let waited = std::thread::spawn(|| {
+        enlist_in_test_tape();
+        async_tape::enter_task(1);
+        ordered(EffectRequest::TaskStart { id: 1 }, || {
+            Some(Outcome::Bool(true))
+        })
+    })
+    .join()
+    .unwrap();
+    TURN_LIMIT_MS.store(30_000, Ordering::Relaxed);
+    let err = waited.unwrap_err();
+    assert!(
+        matches!(&err, TapeError::Stalled { owner, waiting, .. }
+            if owner == "the main program" && waiting == "task 1"),
+        "{err:?}"
+    );
+    assert!(err.message().contains("stdout"), "{}", err.message());
     reset();
 }

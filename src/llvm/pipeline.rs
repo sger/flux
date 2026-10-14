@@ -365,12 +365,14 @@ fn discover_rust_staticlib() -> Option<PathBuf> {
     // --features llvm (a feature-less build lacks flux_async_* symbols) and
     // is recent enough for the runtime it links with: the C runtime calls
     // the effect tape's `flux_tape_*` (proposal 0188 S1) and the debugger's
-    // `flux_async_debug_block` (S8b), which an archive left from an older
+    // `flux_async_debug_block` (S8b) and the tape's thread ordering,
+    // `flux_tape_ordered_begin` (S8c), which an archive left from an older
     // build lacks.
     let has_sentinel = |path: &Path| {
         archive_exports_symbol(path, "flux_async_run_root")
             && archive_exports_symbol(path, "flux_tape_init")
             && archive_exports_symbol(path, "flux_async_debug_block")
+            && archive_exports_symbol(path, "flux_tape_ordered_begin")
     };
 
     // Fast path: sidecar written by a previous successful link.
