@@ -64,6 +64,8 @@ pub enum CliCommand {
     ParityCheck {
         raw_args: Vec<String>,
     },
+    /// `flux debug --lldb-script`: prints `flux_lldb.py`.
+    LldbScript,
     /// `flux init [name] [--lib]` — scaffold a package in place.
     Init {
         name: Option<String>,
@@ -245,6 +247,12 @@ fn reject_unknown_flag_tokens(args: &[String]) -> Result<(), String> {
     if args
         .get(1)
         .is_some_and(|arg| OWN_FLAGS.contains(&arg.as_str()))
+    {
+        return Ok(());
+    }
+
+    if args.get(1).map(String::as_str) == Some("debug")
+        && args.get(2).map(String::as_str) == Some("--lldb-script")
     {
         return Ok(());
     }
@@ -455,11 +463,17 @@ fn run_command(flags: DriverFlags, path: String, mode: RunMode) -> CliCommand {
 
 /// `flux debug <file.flx> [--script <commands>]`: runs the program on the
 /// VM, built with `-g`, under the command-line debugger.
+///
+/// `flux debug --lldb-script` prints the lldb script that shows native
+/// values as Flux values.
 fn parse_debug_subcommand(
     args: &[String],
     flags: &DriverFlags,
     run_mode: RunMode,
 ) -> Result<CliCommand, String> {
+    if args.get(2).map(String::as_str) == Some("--lldb-script") {
+        return Ok(CliCommand::LldbScript);
+    }
     let path = require_flx_arg(
         args,
         2,

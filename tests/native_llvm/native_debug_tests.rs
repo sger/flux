@@ -1,12 +1,14 @@
-//! Native debug builds (proposal 0188 S5): DWARF line tables that lldb and
-//! Xcode read.
+//! Native debug builds (proposal 0188 S5 and S6): DWARF that lldb and Xcode
+//! read, and `tools/lldb/flux_lldb.py`, which shows Flux values.
 //!
 //! Each fixture in `tests/native_llvm/debug/` is built with
 //! `--native -g -o <binary>`. Then:
 //! - `llvm-dwarfdump --verify` must find no errors in the binary's debug
 //!   information (the `.dSYM` on macOS);
 //! - lldb, run in batch mode, must break at a Flux line, show Flux functions
-//!   in the backtrace, and step.
+//!   in the backtrace, and step;
+//! - with the script loaded, `flux locals`, `flux print` and `flux bt` must
+//!   show variables and frames as `flux debug` does on the VM.
 //!
 //! lldb's exact output differs between versions, so the tests look for the
 //! lines that matter rather than snapshot whole sessions. A machine without
@@ -140,7 +142,9 @@ const FIXTURES: &[&str] = &[
     "classes.flx",
     "async_nap.flx",
     "deep.flx",
+    "values.flx",
     "twomods/main.flx",
+    "adtmods/main.flx",
 ];
 
 /// The errors `llvm-dwarfdump --verify` reports in Flux's compile units.
@@ -396,4 +400,319 @@ fn without_a_debug_level_the_ir_has_no_debug_information() {
     assert!(!ir.contains("!dbg"), "{ir}");
     assert!(!ir.contains("llvm.dbg.cu"), "{ir}");
     assert!(!ir.contains("frame-pointer"), "{ir}");
+}
+
+/// `flux_lldb.py`, as the repository has it.
+fn lldb_script() -> String {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tools/lldb/flux_lldb.py")
+        .display()
+        .to_string()
+}
+
+/// Runs lldb with `flux_lldb.py` loaded, stopped at `file:line`, then runs
+/// `commands`. `None`, with a note, when this lldb runs no Python scripts.
+fn flux_session(
+    lldb: &[String],
+    scratch: &Scratch,
+    binary: &str,
+    stop_at: (&str, u32),
+    commands: &[&str],
+) -> Option<String> {
+    let import = format!("command script import {}", lldb_script());
+    let breakpoint = format!("breakpoint set --file {} --line {}", stop_at.0, stop_at.1);
+    let mut all = vec![import.as_str(), breakpoint.as_str(), "run"];
+    all.extend_from_slice(commands);
+    let session = lldb_session(lldb, scratch, binary, &all);
+    if session.contains("script interpreter") || session.contains("scripting not supported") {
+        eprintln!("note: this lldb runs no Python scripts; skipping");
+        return None;
+    }
+    Some(session)
+}
+
+/// The output lines of the session's `flux` commands, without lldb's echo.
+fn flux_lines(session: &str) -> Vec<String> {
+    session
+        .lines()
+        .filter(|line| !line.starts_with("(lldb)"))
+        .map(|line| line.trim_end().to_string())
+        .collect()
+}
+
+fn assert_lines(session: &str, expected: &[&str]) {
+    let lines = flux_lines(session);
+    for line in expected {
+        assert!(
+            lines.iter().any(|shown| shown == line),
+            "missing `{line}`:\n{session}"
+        );
+    }
+}
+
+#[test]
+fn lldb_shows_flux_values() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = prepare("values");
+    build(&scratch, "values.flx", "app");
+    let Some(session) = flux_session(
+        &lldb,
+        &scratch,
+        "app",
+        ("values.flx", 14),
+        &[
+            "flux locals",
+            "flux print p",
+            "flux print xs.2",
+            "frame variable shape",
+        ],
+    ) else {
+        return;
+    };
+    assert_lines(
+        &session,
+        &[
+            "n = 7",
+            "name = \"flux\"",
+            "flag = true",
+            "ratio = 2.5",
+            "xs = [1, 2, 3]",
+            "pair = (9, \"x\")",
+            "opt = Some(4)",
+            "arr = [|1, 2|]",
+            "shape = Square(3)",
+            "p = Point(1, 2)",
+            "label = \"flux!\"",
+            "  .0 = 1",
+            "  .1 = 2",
+            "xs.2 = 3",
+        ],
+    );
+    // lldb's own view of a variable uses the script's summary.
+    assert!(
+        session.contains("(FluxValue) shape = Square(3)"),
+        "{session}"
+    );
+}
+
+#[test]
+fn lldb_shows_variables_once_they_are_bound() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = prepare("calls");
+    build(&scratch, "calls.flx", "app");
+    let Some(session) = flux_session(
+        &lldb,
+        &scratch,
+        "app",
+        ("calls.flx", 8),
+        &["flux locals", "thread step-over", "flux locals"],
+    ) else {
+        return;
+    };
+    // At line 8, `sa` is not bound yet; one line on, it is.
+    let (before, after) = session
+        .split_once("(lldb) thread step-over")
+        .expect("the session stepped");
+    let shown = |part: &str, line: &str| flux_lines(part).iter().any(|shown| shown == line);
+    let named = |part: &str, name: &str| {
+        flux_lines(part)
+            .iter()
+            .any(|shown| shown.starts_with(&format!("{name} = ")))
+    };
+    assert!(
+        shown(before, "a = 3") && shown(before, "b = 4"),
+        "{session}"
+    );
+    assert!(!named(before, "sa"), "{session}");
+    assert!(shown(after, "sa = 9"), "{session}");
+}
+
+#[test]
+fn lldb_shows_captured_variables_and_local_function_names() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = prepare("lambdas");
+    build(&scratch, "lambdas.flx", "app");
+    let Some(session) = flux_session(
+        &lldb,
+        &scratch,
+        "app",
+        ("lambdas.flx", 5),
+        &["flux locals", "flux bt"],
+    ) else {
+        return;
+    };
+    assert_lines(&session, &["x = 1", "offset = 10 (captured)"]);
+    let lines = flux_lines(&session);
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.starts_with("#0 <lambda lambdas.flx:4:34> at lambdas.flx:5:")),
+        "{session}"
+    );
+    // A local recursive function has its own name, as on the VM.
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.starts_with("#1 map_acc at List.flx:")),
+        "{session}"
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.starts_with("#2 main at lambdas.flx:4:")),
+        "{session}"
+    );
+}
+
+#[test]
+fn lldb_shows_the_binders_of_the_arm_that_matched() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = prepare("matches");
+    build(&scratch, "matches.flx", "app");
+    let Some(session) = flux_session(
+        &lldb,
+        &scratch,
+        "app",
+        ("matches.flx", 10),
+        &["flux locals"],
+    ) else {
+        return;
+    };
+    // Only the `Rect` arm stops here, not the `Circle` arm before it.
+    assert_lines(&session, &["shape = Rect(3, 4)", "w = 3", "h = 4"]);
+    assert!(!session.contains("r = "), "{session}");
+}
+
+#[test]
+fn lldb_names_constructors_another_module_declares() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = prepare("adtmods");
+    build(&scratch, "adtmods/main.flx", "app");
+    let Some(session) = flux_session(
+        &lldb,
+        &scratch,
+        "app",
+        ("main.flx", 6),
+        &["flux locals", "flux bt"],
+    ) else {
+        return;
+    };
+    assert_lines(
+        &session,
+        &[
+            "shape = Rect(3, 4)",
+            "w = 3",
+            "#0 size at main.flx:6:23",
+            "#1 main at main.flx:13:11",
+        ],
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn the_dsym_carries_the_lldb_script() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = prepare("values");
+    build(&scratch, "values.flx", "app");
+    let script = scratch
+        .path()
+        .join("app.dSYM/Contents/Resources/Python/app.py");
+    assert_eq!(
+        std::fs::read_to_string(&script).expect("the dSYM has the script"),
+        flux::debuginfo::LLDB_SCRIPT
+    );
+    // lldb loads it from there once allowed to, before it loads the target.
+    let session = run_tool(
+        &lldb,
+        &[
+            "-b",
+            "--no-lldbinit",
+            "-O",
+            "settings set target.load-script-from-symbol-file true",
+            "-o",
+            "breakpoint set --file values.flx --line 14",
+            "-o",
+            "run",
+            "-o",
+            "flux locals",
+            "./app",
+        ],
+        scratch.path(),
+    );
+    assert_lines(&session, &["shape = Square(3)"]);
+}
+
+#[test]
+fn flux_debug_prints_the_lldb_script() {
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .args(["debug", "--lldb-script"])
+        .output()
+        .expect("run flux");
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        flux::debuginfo::LLDB_SCRIPT
+    );
+}
+
+#[test]
+fn the_lldb_script_is_valid_python() {
+    let compiled = Command::new("python3")
+        .args(["-m", "py_compile", &lldb_script()])
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .output();
+    match compiled {
+        Ok(output) => assert!(output.status.success(), "{output:?}"),
+        Err(_) => eprintln!("note: python3 not found; skipping"),
+    }
+}
+
+#[test]
+fn a_debug_build_describes_variables_and_constructors() {
+    let source = std::fs::read_to_string(fixture_dir().join("values.flx")).unwrap();
+    let ir = module_ir(&source, flux::debuginfo::DebugLevel::Full);
+    assert!(ir.contains("emissionKind: FullDebug"), "{ir}");
+    assert!(ir.contains("call void @llvm.dbg.declare("), "{ir}");
+    assert!(
+        ir.contains("!DILocalVariable(name: \"ratio\", arg: 4,"),
+        "{ir}"
+    );
+    assert!(ir.contains("!DILocalVariable(name: \"label\","), "{ir}");
+    assert!(ir.contains("!DIEnumerator(name: \"Square\""), "{ir}");
+    assert!(ir.contains("name: \"FluxCtor.Point\""), "{ir}");
+    assert!(
+        ir.contains("!DIDerivedType(tag: DW_TAG_member, name: \"x\""),
+        "{ir}"
+    );
+    // No store goes between a tail call and its return: the call would
+    // stop being a tail call.
+    let lines: Vec<&str> = ir.lines().collect();
+    for pair in lines.windows(2) {
+        if pair[0].contains(" = tail call ") {
+            assert!(
+                !pair[1].trim_start().starts_with("store"),
+                "a store follows a tail call:\n{}\n{}",
+                pair[0],
+                pair[1]
+            );
+        }
+    }
 }

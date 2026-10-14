@@ -465,6 +465,29 @@ pub struct LirFnDebug {
     pub loc: LirLoc,
     /// Made by the compiler: a debugger does not stop in it.
     pub artificial: bool,
+    /// The source variables bound in the function, and the LIR variable
+    /// holding each (proposal 0188 S6).
+    pub vars: Vec<LirVarBinder>,
+}
+
+/// A source variable and the LIR variable that holds its value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LirVarBinder {
+    pub var: LirVar,
+    pub name: String,
+    pub kind: LirVarKind,
+    /// Where it is bound: the `let`, the lambda, or the case arm.
+    pub loc: LirLoc,
+    /// How its value is represented, when lowering knew.
+    pub rep: crate::core::FluxRep,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LirVarKind {
+    Param,
+    Let,
+    Pattern,
+    Captured,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -520,6 +543,9 @@ pub struct LirProgram {
     /// Built-in constructors (Some=1, Left=2, Right=3, Cons=4) are implicit.
     /// User constructors start at 5 and are assigned sequentially.
     pub constructor_tags: HashMap<String, i32>,
+    /// The field names of each constructor this module declares: `None`
+    /// for a positional field. A debugger shows a value's fields by them.
+    pub constructor_fields: HashMap<String, Vec<Option<String>>>,
     /// Native symbols of imported functions whose call can suspend, taken from
     /// the declared effect row of each import (`can_suspend` on
     /// `ImportedNativeSymbol`).
@@ -755,6 +781,7 @@ impl LirProgram {
             string_pool: Vec::new(),
             func_index: HashMap::new(),
             constructor_tags: HashMap::new(),
+            constructor_fields: HashMap::new(),
             suspending_extern_symbols: std::collections::HashSet::new(),
             next_synthetic_func_id: u32::MAX,
         }

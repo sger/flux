@@ -68,7 +68,7 @@ use crate::syntax::interner::Interner;
 /// reduction exposing a known constructor for COKC).
 #[allow(clippy::result_large_err)]
 pub fn run_core_passes(program: &mut CoreProgram) -> Result<(), Diagnostic> {
-    run_semantic_core_passes_with_optional_interner(program, None, false).map(|_| ())
+    run_semantic_core_passes_with_optional_interner(program, None, false, false).map(|_| ())
 }
 
 #[allow(clippy::result_large_err)]
@@ -87,9 +87,23 @@ pub fn run_core_passes_with_interner_and_registry(
     optimize: bool,
     preloaded_registry: crate::aether::borrow_infer::BorrowRegistry,
 ) -> Result<(), Diagnostic> {
-    run_semantic_core_passes_with_optional_interner(program, Some(interner), optimize)
+    run_semantic_core_passes_with_optional_interner(program, Some(interner), optimize, false)
         .map(|_| ())?;
     run_aether_passes_with_optional_interner(program, Some(interner), preloaded_registry)
+        .map(|_| ())
+}
+
+/// As [`run_core_passes_with_interner`], for a debug build (proposal 0188
+/// S6): the simplifier keeps every `let` the program wrote, so that a native
+/// debugger can show each variable, as the VM debugger does. It still folds
+/// and simplifies, but inlines no `let` and drops none.
+#[allow(clippy::result_large_err)]
+pub fn run_core_passes_keeping_variables(
+    program: &mut CoreProgram,
+    interner: &Interner,
+    optimize: bool,
+) -> Result<(), Diagnostic> {
+    run_semantic_core_passes_with_optional_interner(program, Some(interner), optimize, true)
         .map(|_| ())
 }
 
@@ -99,7 +113,7 @@ pub fn run_core_passes_with_interner_and_warnings(
     interner: &Interner,
     optimize: bool,
 ) -> Result<Vec<Diagnostic>, Diagnostic> {
-    run_semantic_core_passes_with_optional_interner(program, Some(interner), optimize)
+    run_semantic_core_passes_with_optional_interner(program, Some(interner), optimize, false)
 }
 
 /// Maximum number of simplification rounds when `-O` is enabled.
@@ -110,6 +124,7 @@ fn run_semantic_core_passes_with_optional_interner(
     program: &mut CoreProgram,
     interner: Option<&Interner>,
     optimize: bool,
+    keep_variables: bool,
 ) -> Result<Vec<Diagnostic>, Diagnostic> {
     let mut warnings: Vec<Diagnostic> = Vec::new();
     // Find the maximum binder ID so passes can allocate fresh IDs above it.
@@ -160,6 +175,10 @@ fn run_semantic_core_passes_with_optional_interner(
             verify_aether_contract_stage(def, &e, "algebraic_simplify")?;
             let e = constant_fold(e);
             verify_aether_contract_stage(def, &e, "constant_fold")?;
+            if keep_variables {
+                def.expr = e;
+                continue;
+            }
             let e = disciplined_inline(e);
             verify_aether_contract_stage(def, &e, "disciplined_inline")?;
             let e = inline_lets(e);

@@ -1,10 +1,11 @@
 # Debugging native Flux programs with lldb and Xcode
 
-A native build with `-g` carries DWARF line tables (proposal 0188 S5).
-Debuggers can then set breakpoints at `app.flx:12`, show Flux function names
-and lines in backtraces, and step through Flux source. Variables and Flux
-value printing come in S6; until then, use the VM debugger (`flux debug`, or
-VS Code) to inspect values.
+A native build with `-g` carries DWARF (proposal 0188 S5 and S6). Debuggers
+can then set breakpoints at `app.flx:12`, show Flux function names and lines
+in backtraces, step through Flux source, and show variables. With
+`flux_lldb.py` loaded, values print as Flux values (`[1, 2, 3]`,
+`Some(4)`, `Point(1, 2)`), and the `flux` command shows frames and variables
+the way `flux debug` does on the VM.
 
 ## Build
 
@@ -21,6 +22,29 @@ flux app.flx --native -g --emit-binary  # build ./app without running it
 
 `-g` keeps the build's optimisation level and turns on frame pointers. Tail
 calls stay tail calls, so deep recursion behaves as it does without `-g`.
+`-g` does keep every `let` the program wrote, which a build without it may
+inline away, so that the debugger can show it.
+
+## The lldb script
+
+`flux_lldb.py` teaches lldb to read Flux values.
+
+- **macOS:** `-o` and `--emit-binary` put it in the dSYM, as
+  `app.dSYM/Contents/Resources/Python/app.py`. lldb and Xcode load it once
+  you allow scripts from dSYMs, which you do once in `~/.lldbinit`:
+
+  ```text
+  settings set target.load-script-from-symbol-file true
+  ```
+
+  Until then, lldb warns that the dSYM "contains an untrusted debug script"
+  and tells you how to load it.
+- **Anywhere:** write it out and import it:
+
+  ```sh
+  flux debug --lldb-script > flux_lldb.py
+  lldb -o "command script import flux_lldb.py" ./app
+  ```
 
 ## lldb
 
@@ -37,10 +61,44 @@ $ lldb ./app
 (lldb) thread step-out
 ```
 
+With the script loaded:
+
+```text
+(lldb) flux locals
+n = 7
+name = "flux"
+xs = [1, 2, 3]
+shape = Square(3)
+p = Point(1, 2)
+offset = 10 (captured)
+(lldb) flux print p
+p = Point(1, 2)
+  .0 = 1
+  .1 = 2
+(lldb) flux bt
+#0 describe at app.flx:14:5
+#1 main at app.flx:26:17
+(lldb) frame variable shape
+(FluxValue) shape = Square(3)
+```
+
+- `flux locals` shows the variables bound so far, the innermost of each
+  name, and the captured ones last, marked `(captured)`.
+- `flux print xs.2` follows parts by number, or a record's fields by name.
+- `flux bt` shows Flux frames only, from the current one down to `main`.
+- `frame variable` and the variables views of Xcode and VS Code use the same
+  formatting, and expand lists, tuples, arrays and constructors.
+- A value shows as `<dropped>` once the program has released it: native code
+  frees a value at its last use, and the debugger does not read freed
+  memory. The VM keeps such values, so `flux debug` still shows them.
+
 What you see:
 - A breakpoint may resolve to two or three locations: the compiler emits a
   function's body more than once (boxed, unboxed and closure-capture
   variants). They are all the same Flux line.
+- Without the script, `frame variable` shows raw 64-bit words: an Int `n`
+  is `2n+1`, and other values are addresses. In an unboxed worker frame,
+  Ints and Bools are raw.
 - Lambdas are named `<lambda app.flx:4:34>`, handler clauses
   `<handler op>`. Code after a call that can suspend is
   `name (resumed after L:C)`.
@@ -81,3 +139,10 @@ Run this after changing native debug information:
    `<lambda app.flx:L:C>`.
 8. A program with a type class shows its dictionary functions only when
    stepping into them, and never stops there on its own.
+9. With `settings set target.load-script-from-symbol-file true` in
+   `~/.lldbinit`, the Variables view shows Flux values (`[1, 2, 3]`,
+   `Point(1, 2)`), not raw numbers, and a variable not bound yet is absent.
+10. A list, tuple or constructor in the Variables view expands into its
+    parts; a record's parts carry its field names.
+11. `flux locals` typed in Xcode's lldb console prints the frame's
+    variables.

@@ -1,0 +1,14 @@
+// A value of a type another module declares.
+import Geo
+
+fn size(shape) {
+    match shape {
+        Rect(w, h) -> w * h,
+        Circle(r) -> r,
+    }
+}
+
+fn main() {
+    let shape = Geo.demo()
+    print(size(shape))
+}

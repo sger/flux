@@ -19,6 +19,8 @@ pub enum LlvmType {
         varargs: bool,
     },
     Named(String),
+    /// `metadata`: the type of a debug intrinsic's arguments.
+    Metadata,
 }
 
 impl LlvmType {

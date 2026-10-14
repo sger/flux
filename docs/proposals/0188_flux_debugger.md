@@ -149,8 +149,11 @@ in `.flx` files:
 2. Set the produced binary as the scheme's executable.
 
 Breakpoints in `.flx` files, the call stack and stepping work through Xcode's
-built-in lldb. `flux_lldb.py` is embedded in the dSYM, so lldb loads it
-automatically and values print as Flux values.
+built-in lldb. `flux_lldb.py` is embedded in the dSYM, so lldb loads it once
+`settings set target.load-script-from-symbol-file true` is in `~/.lldbinit`,
+and values print as Flux values. As built, the target runs
+`flux app.flx --native -g --emit-binary` (`flux build` is the package
+command); see `docs/tooling/native_debugging_lldb_xcode.md`.
 
 Xcode cannot host a DAP adapter, so **the VM backend cannot be debugged in
 Xcode**. This proposal does not try to change that.
@@ -286,7 +289,11 @@ Three items move to the stages that first need them:
   Each such node either inherits the enclosing span or is marked artificial,
   once LIR stamps source locations.
 - **Core inlining off in the debug profile** → S2 and S5, so that `-g` changes
-  no generated code in S0.
+  no generated code in S0. As built in S6, a `-g` native build runs the Core
+  simplifier without `disciplined_inline`, `inline_lets` and `elim_dead_let`
+  (`run_core_passes_keeping_variables`), so every `let` the program wrote
+  reaches native code and the debugger, as on the VM, which compiles from
+  the AST.
 
 `--dump-debug-info` prints the model. It is the snapshot surface for S0 tests.
 
@@ -330,17 +337,18 @@ that build functions and blocks are unchanged:
 - `source_filename` set to the module's real path, in every per-module
   native build.
 
-Variable records use the `llvm.dbg.value` intrinsic form. Current LLVM still
-parses it and converts it to `#dbg_value` records. Every supported clang
-version gets a pipeline test.
+Variable records use the `llvm.dbg.declare` intrinsic form (§2.6), which
+LLVM 18 and later parse and current LLVM converts to `#dbg_declare` records.
+The IR model gained `LlvmType::Metadata` and `LlvmOperand::Metadata` for
+their arguments.
 
 #### 2.3 Compile units and subprograms
 
 - One `DICompileUnit` per emitted module, since native compiles and caches per
   module (`src/lir/emit_debug.rs`):
   - `producer: "flux <version>"`
-  - `emissionKind: LineTablesOnly` in S5; S6 adds variables and
-    `FullDebug`.
+  - `emissionKind: LineTablesOnly` in S5; `FullDebug` from S6, with
+    variables and types.
 - One `DIFile`, the module's source.
 
 As built in S5, the worker/wrapper split differs from the table below:
@@ -357,7 +365,7 @@ Every function symbol gets a `DISubprogram`, according to its kind:
 
 | Symbol | Source (`emit_llvm.rs`) | `DISubprogram` |
 |---|---|---|
-| `flux_X$w` (worker) | `:230` | The real body. `name` is the Flux name, `linkageName` the symbol. |
+| `flux_X$w` (worker) | `:230` | The real body. `name` is the Flux name. As built, there is no `linkageName`: with one, lldb names frames by the symbol (`flux_app_square`) instead of `name`. |
 | `flux_X`, closure wrappers | `:208`, `:279`, `:548` | `DIFlagArtificial`, line-0 locations, so stepping passes through. |
 | `flux_X$dc` | `:254` | The real body. |
 | `{parent}$cont${block}` (`src/lir/cont_split.rs:264`) | | `name` is the parent's; `scopeLine` is the resume span. Shown as "parent (resumed after perform at L:C)". |
@@ -376,13 +384,16 @@ them with the blocks it clones.
   `CoreExpr` and restored after. `FnLower::emit` is the single place every
   instruction passes through, so it stamps the location there; a node with a
   made-up span keeps its parent's. A `return` gets the location of the last
-  expression lowered, not the function's own line.
+  expression lowered, not the function's own line. A `return` in a block
+  where branches join (after a `match` or `if`) is at line 0 (S6): it
+  belongs to no one branch, and a breakpoint on the last branch would
+  otherwise stop for every branch.
 - Columns convert from 0-based (`Position`) to 1-based (DWARF).
 - `Dup`, `Drop`, `Reuse` and yield-check glue get line 0. A user never stops on
   reference-counting code.
 - Inlining done by LLVM gets `inlinedAt` automatically. Inlining done by Core
-  needs span provenance (S9); until then the debug profile turns Core inlining
-  off.
+  needs span provenance (S9); until then the debug profile turns Core's `let`
+  inlining off (S6).
 
 #### 2.5 The debug profile
 
@@ -407,22 +418,64 @@ overflow in debug builds and not in release builds.
 
 #### 2.6 Variables and values
 
-- Every parameter and `let` gets a `DILocalVariable`. Statically known `Int`s
-  get `DIExpression(DW_OP_constu 1, DW_OP_shra)` to undo the `(raw<<1)|1` tag.
-  Unboxed worker parameters use real base types.
-- Every other variable has type `typedef FluxValue = i64`.
-- ADTs become a `DW_TAG_structure_type` that matches the heap layout:
-  - the header, then `i32 ctor_tag, i32 field_count, i64 fields[]`
-    (`runtime/c/flux_rt.h:38-117`);
-  - a `DW_TAG_variant_part` keyed on `ctor_tag`.
+As built in S6a. The original plan (an untagging `DIExpression` for Ints,
+`llvm.dbg.value` on SSA values, a `DW_TAG_variant_part` per ADT and a
+`.fluxdbg` sidecar) changed in three places:
 
-DWARF can't describe pointer tagging or the sentinels (None=0, False=2, True=4,
-EmptyList=6). So **the lldb formatters in `tools/lldb/flux_lldb.py` are the
-main way native values are printed**; DWARF types are secondary.
-- The formatters read the sidecar `<binary>.fluxdbg` (constructor and field
-  names, effect names, function kinds), written from `ProgramDebugInfo`.
-- On macOS, the script is copied into
-  `X.dSYM/Contents/Resources/Python/`, which Xcode loads.
+- **Debug slots, not `dbg.value`.** Every LIR variable is an SSA value, and
+  at O0 the register allocator reuses registers so freely that lldb shows
+  most `dbg.value` variables as unavailable. So, as clang does for C, each
+  source variable gets an entry-block `alloca i64` that only the debugger
+  reads, described by `llvm.dbg.declare` (`DebugBuilder::add_variables`,
+  `src/lir/emit_debug.rs`):
+  - the slot holds an *unbound* marker until the variable is bound;
+    `flux_lldb.py` hides such a variable, so a frame shows only what is in
+    scope by now;
+  - the value is stored right after the instruction that defines it, or
+    after the block's phis, never between a tail call and its `ret`;
+  - after `flux_drop` / `flux_drop_reuse` of the value, a *dropped* marker:
+    Aether frees a value at its last use, and lldb must not read freed or
+    reused memory. The variable then shows as `<dropped>`;
+  - the markers (`0x0DEB0DEB00000004`, `…02`) are even, so no tagged Int,
+    and far above user-space addresses, so no pointer.
+
+  Which source variable each LIR variable is comes from `LirFnDebug.vars`
+  (`LirVarBinder{var, name, kind, loc, rep}`), recorded where lowering binds
+  parameters, `let`s, local functions, pattern variables and captures
+  (`FnLower::bind_source`, `bind_param`, `bind_captured`).
+- **Typedefs that say how to read a word.** Every variable is a 64-bit word
+  of one of these typedefs of `int64_t`:
+  - `FluxValue`: a tagged value;
+  - `FluxCaptured`: a tagged value the closure captured;
+  - `FluxInt`, `FluxBool`: a raw Int or Bool in an unboxed `$w` worker;
+  - `FluxWord`: a worker word whose representation lowering did not know.
+  DWARF cannot describe pointer tagging or the sentinels (None=0, False=2,
+  True=4, EmptyList=6), so **`tools/lldb/flux_lldb.py` is the main way
+  native values are printed**, as planned.
+- **Constructor names in the DWARF, not a sidecar.** Each compile unit
+  carries `FluxCtor`, an enumeration naming every constructor tag the module
+  knows, and a structure `FluxCtor.<Name>` for each constructor it declares
+  with fields: `ctor_tag`, `field_count`, then one `FluxValue` per field,
+  named. No variable has these types and `dsymutil` drops unreferenced
+  types, so a global `flux_debug_types_<hash>` whose type holds them keeps
+  them in the dSYM. The script merges `FluxCtor` across all units, so a
+  value of a type another module declares is named too.
+
+`flux_lldb.py`:
+- reads memory only; it never calls into the paused program;
+- renders values as the VM's `ValueView::render` does (floats as Rust's
+  `{:?}`, `(a,)`, `[|…|]`, the 120-character cut), and gives compound values
+  children (`0`, `1`, … or field names), so Xcode's and VS Code's variable
+  views expand them;
+- adds `flux bt`, `flux locals` and `flux print <name>[.<part>…]`, printing
+  in `flux debug`'s format;
+- sets `step-avoid-regexp` so stepping passes over the runtime, which is
+  built with debug information.
+
+On macOS, a `-g` build with `-o` or `--emit-binary` copies it to
+`X.dSYM/Contents/Resources/Python/X.py`, which lldb and Xcode load once
+`settings set target.load-script-from-symbol-file true` is set. `flux debug
+--lldb-script` prints it, for Linux and plain lldb sessions.
 
 #### 2.7 Linking and caching
 
@@ -861,7 +914,8 @@ Native effects need special handling in two cases:
 | S3 | VM reverse execution for programs without async code: positions (site counts), checkpoints at top-level sites in a bounded ring, reverse step/next/finish/continue by restoring a checkpoint and replaying forward, `goto`, run to event, every `flux debug` session recording in memory, console output printed once | Golden transcripts where coming back to a stop shows the stack and values seen going forward, the same wherever checkpoints fall. A memory-bound test (900,000 sites, at most 256 checkpoints). Going back performs no effect twice. |
 | S4 | `crates/flux-dap`, mirroring `crates/flux-lsp`: DAP over stdio, the program in a `flux debug --engine` child driven over a JSON-lines socket protocol; breakpoints, stack (tail-call labels), scopes and variables, stepping, Step Back and Reverse Continue, pause; watch, hover and Debug Console evaluate of variable paths, plus console commands for positions and effects; `editors/vscode` `debuggers` and `breakpoints` contributions; launch config with `backend`, `record`, `replay`. Evaluating any pure expression moves to a later stage. | DAP JSON transcript tests in `crates/flux-dap/tests`. A manual VS Code checklist in the crate README. |
 | S5 | Native line tables: LIR locations from Aether spans (reference counting at line 0), the IR metadata side table, one compile unit and file per module, subprograms per symbol kind, locations, real `source_filename`, frame pointers under `-g`, `dsymutil` for kept binaries; the opt level unchanged (O0 honours tail calls); Windows waits for S11 | `llvm-dwarfdump --verify` clean on the native debug fixtures (`tests/native_llvm/debug/`). `lldb -b` sessions break at file:line, show Flux frames and step (`tests/native_llvm/native_debug_tests.rs`). 10⁶-deep tail recursion runs in a `-g` build. Every guide example prints the same natively with and without `-g`. A manual Xcode checklist. |
-| S6 | Native variables and types: untagging expression, ADT `variant_part`, `flux_lldb.py` embedded in the dSYM, `.fluxdbg` sidecar, the native engine in `flux-dap` (proxying `lldb-dap`), `LirFunction.var_binders` side table | **Debug parity harness:** `Way::VmDebug` / `Way::LlvmDebug` in `src/parity/mod.rs:73`, and fixture directives `// dbg: break app.flx:12`, `// dbg: step`, `// dbg-expect: …` in `src/parity/fixture.rs`. Normalized transcripts must match: top frame and locals exactly, the full stack modulo tail-call elision. |
+| S6a | Native variables and types: the `LirFnDebug.vars` side table, a debug slot per variable with `llvm.dbg.declare`, unbound and dropped markers, `FluxValue`/`FluxCaptured`/`FluxInt`/`FluxBool`/`FluxWord` typedefs, the `FluxCtor` enumeration and `FluxCtor.<Name>` structures in the DWARF (instead of a `.fluxdbg` sidecar), `flux_lldb.py` (Flux values, children, `flux bt`/`locals`/`print`) embedded in the dSYM and printed by `flux debug --lldb-script`, Core `let` inlining off under `-g` | `tests/native_llvm/native_debug_tests.rs`: lldb with the script shows each kind of value as the VM does, variables only once bound, captured variables, the matched arm's binders, constructors another module declares; the dSYM carries the script. `llvm-dwarfdump --verify` clean; 10⁶-deep tail recursion still runs under `-g`; every guide example prints the same natively with and without `-g`. |
+| S6b | The native engine in `flux-dap` (building with `-g`, proxying `lldb-dap`), `"backend": "native"` in VS Code | **Debug parity harness:** `Way::VmDebug` / `Way::LlvmDebug` in `src/parity/mod.rs:73`, and fixture directives `// dbg: break 12`, `// dbg: step`, `// dbg-expect: …` in `src/parity/fixture.rs`. Normalized transcripts must match: top frame and locals exactly, the full stack modulo tail-call elision. |
 | S7 | Effects: stacks that follow continuations (both backends), handler view, exception breakpoints, step into `resume` | Parity fixtures for multi-shot, nested handlers, and tail-resumptive vs yielding operations. |
 | S8 | Fibers, tasks and channels as threads; scheduler snapshot APIs; multi-fiber record and replay | Parity fixtures using `both`, `race` and `timeout`. Replay is identical across 100 runs. |
 | S9 | Native replay under lldb, run to event, opening a native tape in the VM, timeline UI; Core-inlining provenance → `inlinedAt`, and Core inlining turned back on in the debug profile | Cross-backend tape tests. Golden `lldb bt` output for inlined frames. |

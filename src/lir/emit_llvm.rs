@@ -141,8 +141,8 @@ pub fn emit_llvm_module_with_yield_options(
     )
 }
 
-/// As [`emit_llvm_module_with_yield_options`], with DWARF line tables when
-/// `debug` is given (proposal 0188 S5).
+/// As [`emit_llvm_module_with_yield_options`], with DWARF when `debug` is
+/// given (proposal 0188 S5 and S6).
 pub fn emit_llvm_module_with_debug(
     program: &LirProgram,
     export_runtime_trampoline: bool,
@@ -151,6 +151,9 @@ pub fn emit_llvm_module_with_debug(
     debug: Option<&super::emit_debug::NativeDebug>,
 ) -> LlvmModule {
     let mut debug_builder = debug.map(super::emit_debug::DebugBuilder::new);
+    if let Some(builder) = debug_builder.as_mut() {
+        builder.add_constructors(program);
+    }
     // Work around an LLVM optimizer hang triggered by many
     // flux_fiber_run_async_with call sites in one generated function.
     // Run before continuation splitting so subsequent native emission sees an
@@ -460,6 +463,12 @@ pub fn emit_llvm_module_with_debug(
     }
 
     if let Some(debug) = debug_builder {
+        if debug.declares() {
+            module.declarations.push(super::emit_debug::dbg_declare());
+        }
+        if let Some(global) = debug.types_global() {
+            module.globals.push(global);
+        }
         module.debug = Some(debug.finish());
     }
     module
@@ -764,7 +773,7 @@ fn push_function(
     {
         // Debuggers and profilers walk frames by their frame pointers.
         function.attrs.push("\"frame-pointer\"=\"all\"".to_string());
-        debug.add_function(&function, func, block_locs);
+        debug.add_function(&mut function, func, block_locs);
     }
     module.functions.push(function);
 }
