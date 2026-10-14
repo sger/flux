@@ -6,7 +6,7 @@
 //! else arrives meanwhile is set aside, except output, which is passed on at
 //! once.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender};
 
@@ -16,6 +16,7 @@ use flux::debug_protocol::{
 use serde_json::{Value, json};
 
 use crate::engine::{LaunchSpec, VmEngine};
+use crate::native::{self, ConsoleCommand, NativeEngine};
 
 /// Something the session hears.
 #[derive(Debug)]
@@ -31,6 +32,10 @@ pub enum Input {
     },
     /// The program has ended, with this exit code.
     Exited(Option<i32>),
+    /// A message from `lldb-dap`, in a native session.
+    Native(Value),
+    /// `lldb-dap` has ended.
+    NativeEnded,
 }
 
 /// The only thread: fibers become threads in 0188 S8.
@@ -59,6 +64,18 @@ pub struct Session<W: FnMut(Value)> {
     stop_on_entry: bool,
     exited: bool,
     done: bool,
+    /// The editor's `initialize` arguments, which `lldb-dap` gets too.
+    client_init: Value,
+    /// In a native session, the `lldb-dap` the session passes messages to.
+    native: Option<NativeEngine>,
+    /// Requests passed to `lldb-dap`, by its sequence number: the editor's
+    /// sequence number and the command.
+    pending: HashMap<i64, (Value, String)>,
+    /// Requests `lldb-dap` made of the editor: the session's sequence
+    /// number for each, and `lldb-dap`'s.
+    reverse: HashMap<i64, Value>,
+    show_internals: bool,
+    source_paths: native::SourcePaths,
 }
 
 impl<W: FnMut(Value)> Session<W> {
@@ -76,6 +93,12 @@ impl<W: FnMut(Value)> Session<W> {
             stop_on_entry: false,
             exited: false,
             done: false,
+            client_init: json!({}),
+            native: None,
+            pending: HashMap::new(),
+            reverse: HashMap::new(),
+            show_internals: false,
+            source_paths: native::SourcePaths::default(),
         }
     }
 
@@ -94,14 +117,26 @@ impl<W: FnMut(Value)> Session<W> {
         if let Some(engine) = &self.engine {
             engine.kill();
         }
+        // Dropping it ends lldb-dap and removes the build.
+        self.native = None;
     }
 
     fn handle(&mut self, input: Input) {
         match input {
+            Input::Client(message) if self.native.is_some() => self.on_editor_message(message),
             Input::Client(message) => {
                 if message["type"] == "request" {
                     self.request(&message);
                 }
+            }
+            Input::Native(message) => self.on_lldb_dap_message(message),
+            Input::NativeEnded => {
+                if !self.exited {
+                    self.exited = true;
+                    self.event("terminated", json!({}));
+                }
+                self.native = None;
+                self.done = true;
             }
             Input::Engine(EngineMessage::Event {
                 event:
@@ -148,8 +183,17 @@ impl<W: FnMut(Value)> Session<W> {
     fn request(&mut self, message: &Value) {
         let command = message["command"].as_str().unwrap_or_default().to_string();
         let args = &message["arguments"];
+        if command == "launch" && args["backend"] == "native" {
+            if let Err(text) = self.launch_native(message) {
+                self.respond(message, Err(text));
+            }
+            return;
+        }
         let result = match command.as_str() {
-            "initialize" => Ok(capabilities()),
+            "initialize" => {
+                self.client_init = args.clone();
+                Ok(capabilities())
+            }
             "launch" => self.launch(args),
             "setBreakpoints" => self.set_breakpoints(args),
             "setExceptionBreakpoints" | "setFunctionBreakpoints" => {
@@ -189,6 +233,15 @@ impl<W: FnMut(Value)> Session<W> {
             }
             other => Err(format!("flux-dap does not support `{other}`")),
         };
+        self.respond(message, result);
+        if command == "launch" && self.engine.is_some() {
+            self.event("initialized", json!({}));
+        }
+    }
+
+    /// Answers the editor's request `message`.
+    fn respond(&mut self, message: &Value, result: Result<Value, String>) {
+        let command = message["command"].clone();
         let seq = self.next_seq();
         let response = match result {
             Ok(body) => json!({
@@ -209,9 +262,6 @@ impl<W: FnMut(Value)> Session<W> {
             }),
         };
         (self.send)(response);
-        if command == "launch" && self.engine.is_some() {
-            self.event("initialized", json!({}));
-        }
     }
 
     // ── Talking to the engine ──────────────────────────────────────────
@@ -253,35 +303,10 @@ impl<W: FnMut(Value)> Session<W> {
         let backend = args["backend"].as_str().unwrap_or("vm");
         if backend != "vm" {
             return Err(format!(
-                "the `{backend}` backend cannot be debugged yet: native debugging comes in \
-                 proposal 0188 S6; use \"backend\": \"vm\""
+                "there is no `{backend}` backend; use \"backend\": \"vm\" or \"native\""
             ));
         }
-        let program = args["program"]
-            .as_str()
-            .filter(|program| !program.is_empty())
-            .ok_or_else(|| "the launch configuration needs a `program`".to_string())?;
-        let program = PathBuf::from(program);
-        let flux_command = match &args["fluxCommand"] {
-            Value::Array(parts) => parts
-                .iter()
-                .filter_map(|part| part.as_str().map(str::to_string))
-                .collect(),
-            Value::String(command) => command.split_whitespace().map(str::to_string).collect(),
-            _ => vec!["flux".to_string()],
-        };
-        let spec = LaunchSpec {
-            flux_command,
-            cwd: args["cwd"]
-                .as_str()
-                .map(PathBuf::from)
-                .or_else(|| program.parent().map(Path::to_path_buf)),
-            program,
-            flux_args: strings(&args["fluxArgs"]),
-            args: strings(&args["args"]),
-            record: args["record"].as_str().map(PathBuf::from),
-            replay: args["replay"].as_str().map(PathBuf::from),
-        };
+        let spec = launch_spec(args)?;
         self.stop_on_entry = args["stopOnEntry"].as_bool().unwrap_or(false);
         let Some(engine) = VmEngine::launch(&spec, self.sender.clone())? else {
             return Err(
@@ -295,6 +320,214 @@ impl<W: FnMut(Value)> Session<W> {
             self.call(Request::SetInternals { show: true })?;
         }
         Ok(json!({}))
+    }
+
+    // ── Native sessions: passing messages to lldb-dap ─────────────────
+
+    /// Builds the program with `-g`, starts `lldb-dap` and launches the
+    /// program under it. `lldb-dap` answers the editor's `launch` itself.
+    fn launch_native(&mut self, message: &Value) -> Result<(), String> {
+        if cfg!(windows) {
+            return Err(
+                "native debugging on Windows comes with proposal 0188 S11; use \"backend\": \"vm\""
+                    .to_string(),
+            );
+        }
+        let args = &message["arguments"];
+        let spec = launch_spec(args)?;
+        let lldb_dap = native::find_lldb_dap(args["lldbDap"].as_str())?;
+        let build = native::build(&spec, |category, text| self.output(category, text))?;
+        let mut engine =
+            NativeEngine::start(&lldb_dap, build.workdir.clone(), self.sender.clone())?;
+        let mut init = self.client_init.clone();
+        if !init.is_object() {
+            init = json!({});
+        }
+        init["adapterID"] = json!("lldb-dap");
+        // DAP's defaults, which newer lldb-dap wants spelled out.
+        for (key, default) in [
+            ("pathFormat", json!("path")),
+            ("linesStartAt1", json!(true)),
+            ("columnsStartAt1", json!(true)),
+        ] {
+            if init.get(key).is_none() {
+                init[key] = default;
+            }
+        }
+        let init_seq = engine.request("initialize", init);
+        self.native = Some(engine);
+        self.show_internals = args["showInternals"].as_bool().unwrap_or(false);
+
+        // lldb-dap's capabilities replace the VM's: no Step Back.
+        let reply = self.await_lldb_dap(init_seq)?;
+        let mut capabilities = reply["body"].clone();
+        if !capabilities.is_object() {
+            capabilities = json!({});
+        }
+        capabilities["supportsStepBack"] = json!(false);
+        self.event("capabilities", json!({ "capabilities": capabilities }));
+
+        let arguments = native::launch_arguments(&spec, &build, args);
+        let engine = self.native.as_mut().expect("just started");
+        let seq = engine.request("launch", arguments);
+        self.pending
+            .insert(seq, (message["seq"].clone(), "launch".to_string()));
+        Ok(())
+    }
+
+    /// Waits for `lldb-dap`'s answer to its request `seq`.
+    fn await_lldb_dap(&mut self, seq: i64) -> Result<Value, String> {
+        loop {
+            let Ok(input) = self.inputs.recv() else {
+                return Err("lldb-dap has gone".to_string());
+            };
+            match input {
+                Input::Native(message)
+                    if message["type"] == "response" && message["request_seq"] == seq =>
+                {
+                    if message["success"] == false {
+                        let reason = message["body"]["error"]["format"]
+                            .as_str()
+                            .or_else(|| message["message"].as_str())
+                            .unwrap_or("no reason given");
+                        return Err(format!("lldb-dap refused: {reason}"));
+                    }
+                    return Ok(message);
+                }
+                Input::Output { category, text } => self.output(category, &text),
+                Input::NativeEnded => {
+                    self.native = None;
+                    return Err("lldb-dap ended before the program started".to_string());
+                }
+                other => self.deferred.push_back(other),
+            }
+        }
+    }
+
+    /// A message from the editor, in a native session.
+    fn on_editor_message(&mut self, message: Value) {
+        match message["type"].as_str() {
+            Some("request") => {}
+            Some("response") => {
+                // An answer to a request lldb-dap made of the editor.
+                let Some(seq) = message["request_seq"].as_i64() else {
+                    return;
+                };
+                if let Some(theirs) = self.reverse.remove(&seq) {
+                    let mut message = message;
+                    message["request_seq"] = theirs;
+                    if let Some(engine) = self.native.as_mut() {
+                        engine.send(message);
+                    }
+                }
+                return;
+            }
+            _ => return,
+        }
+        let command = message["command"].as_str().unwrap_or_default().to_string();
+        let mut message = message;
+        match command.as_str() {
+            "continue" => {
+                // As on the VM, continuing runs to the next breakpoint, not to
+                // the end of a step a breakpoint interrupted.
+                if let Some(engine) = self.native.as_mut() {
+                    let seq = engine.request(
+                        "evaluate",
+                        json!({ "expression": "`flux forget-steps", "context": "repl" }),
+                    );
+                    self.pending.insert(seq, (Value::Null, String::new()));
+                }
+            }
+            "stepBack" | "reverseContinue" => {
+                self.respond(
+                    &message,
+                    Err(
+                        "going back needs the VM backend: native programs do not record their \
+                         run"
+                        .to_string(),
+                    ),
+                );
+                return;
+            }
+            "evaluate" if message["arguments"]["context"] == "repl" => {
+                let expression = message["arguments"]["expression"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
+                if let Some(command) = expression.strip_prefix('.') {
+                    match native::console_command(command) {
+                        ConsoleCommand::Lldb(lldb) => {
+                            message["arguments"]["expression"] = json!(format!("`{lldb}"));
+                        }
+                        ConsoleCommand::Answer(answer) => {
+                            let answer = answer
+                                .map(|text| json!({ "result": text, "variablesReference": 0 }));
+                            self.respond(&message, answer);
+                            return;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        let editor_seq = message["seq"].clone();
+        self.source_paths.to_lldb(&mut message["arguments"]);
+        let Some(engine) = self.native.as_mut() else {
+            return;
+        };
+        let seq = engine.send(message);
+        self.pending.insert(seq, (editor_seq, command));
+    }
+
+    /// A message from lldb-dap: renumbered for the editor, with the stack
+    /// made Flux's.
+    fn on_lldb_dap_message(&mut self, mut message: Value) {
+        self.source_paths.to_editor(&mut message);
+        match message["type"].as_str() {
+            Some("response") => {
+                let Some(seq) = message["request_seq"].as_i64() else {
+                    return;
+                };
+                let Some((editor_seq, command)) = self.pending.remove(&seq) else {
+                    return;
+                };
+                if command.is_empty() {
+                    // The adapter's own request: no one to tell.
+                    return;
+                }
+                if message["success"] == true {
+                    let body = message["body"].take();
+                    message["body"] = match command.as_str() {
+                        "stackTrace" => native::flux_stack(body, self.show_internals),
+                        "scopes" => native::flux_scopes(body, self.show_internals),
+                        "variables" => native::flux_variables(body),
+                        "evaluate" => native::flux_evaluation(body),
+                        _ => body,
+                    };
+                }
+                message["request_seq"] = editor_seq;
+                message["seq"] = json!(self.next_seq());
+                (self.send)(message);
+                if command == "disconnect" {
+                    self.done = true;
+                }
+            }
+            Some("event") => {
+                if message["event"] == "terminated" {
+                    self.exited = true;
+                }
+                message["seq"] = json!(self.next_seq());
+                (self.send)(message);
+            }
+            Some("request") => {
+                let seq = self.next_seq();
+                self.reverse.insert(seq, message["seq"].clone());
+                message["seq"] = json!(seq);
+                (self.send)(message);
+            }
+            _ => {}
+        }
     }
 
     /// Waits for the engine to say the program is compiled.
@@ -619,6 +852,36 @@ A variable or a part of one (`pair.0`) shows its value. Commands:
   .event <n>       go to the last stop before effect <n>
   .rs .rn .rf .rc  reverse step, next, finish, continue
   .internals on|off  show or hide compiler-made frames and variables";
+
+/// How to run the program, from the editor's launch arguments.
+fn launch_spec(args: &Value) -> Result<LaunchSpec, String> {
+    let program = args["program"]
+        .as_str()
+        .filter(|program| !program.is_empty())
+        .ok_or_else(|| "the launch configuration needs a `program`".to_string())?;
+    let program = PathBuf::from(program);
+    let flux_command = match &args["fluxCommand"] {
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(|part| part.as_str().map(str::to_string))
+            .collect(),
+        Value::String(command) => command.split_whitespace().map(str::to_string).collect(),
+        _ => vec!["flux".to_string()],
+    };
+    let spec = LaunchSpec {
+        flux_command,
+        cwd: args["cwd"]
+            .as_str()
+            .map(PathBuf::from)
+            .or_else(|| program.parent().map(Path::to_path_buf)),
+        program,
+        flux_args: strings(&args["fluxArgs"]),
+        args: strings(&args["args"]),
+        record: args["record"].as_str().map(PathBuf::from),
+        replay: args["replay"].as_str().map(PathBuf::from),
+    };
+    Ok(spec)
+}
 
 fn strings(value: &Value) -> Vec<String> {
     value

@@ -138,9 +138,15 @@ in `.flx` files:
   the Step Back and Reverse Continue buttons work.
   `"record": "trace.flxtape"` also writes them to a tape.
 - `"replay": "trace.flxtape"` replays a recording.
-- `"backend": "native"` (S6) builds with `--debug` and starts `lldb-dap`
+- `"backend": "native"` (S6) builds with `--native -g` and starts `lldb-dap`
   underneath `flux-dap`. You see the same Flux views, and VS Code
-  configuration is identical.
+  configuration is identical. As built in S6b, `flux-dap` passes DAP
+  through to `lldb-dap` and rewrites what makes the views Flux's: the stack
+  keeps Flux frames, the variables the Locals scope with `flux_lldb.py`'s
+  values (unbound ones left out), source paths are resolved through
+  symlinks for lldb and returned as the editor wrote them, and Continue
+  first drops a step a breakpoint interrupted, which lldb would otherwise
+  finish. Step Back is not offered: a native run is not recorded.
 
 ### Xcode
 
@@ -915,7 +921,7 @@ Native effects need special handling in two cases:
 | S4 | `crates/flux-dap`, mirroring `crates/flux-lsp`: DAP over stdio, the program in a `flux debug --engine` child driven over a JSON-lines socket protocol; breakpoints, stack (tail-call labels), scopes and variables, stepping, Step Back and Reverse Continue, pause; watch, hover and Debug Console evaluate of variable paths, plus console commands for positions and effects; `editors/vscode` `debuggers` and `breakpoints` contributions; launch config with `backend`, `record`, `replay`. Evaluating any pure expression moves to a later stage. | DAP JSON transcript tests in `crates/flux-dap/tests`. A manual VS Code checklist in the crate README. |
 | S5 | Native line tables: LIR locations from Aether spans (reference counting at line 0), the IR metadata side table, one compile unit and file per module, subprograms per symbol kind, locations, real `source_filename`, frame pointers under `-g`, `dsymutil` for kept binaries; the opt level unchanged (O0 honours tail calls); Windows waits for S11 | `llvm-dwarfdump --verify` clean on the native debug fixtures (`tests/native_llvm/debug/`). `lldb -b` sessions break at file:line, show Flux frames and step (`tests/native_llvm/native_debug_tests.rs`). 10⁶-deep tail recursion runs in a `-g` build. Every guide example prints the same natively with and without `-g`. A manual Xcode checklist. |
 | S6a | Native variables and types: the `LirFnDebug.vars` side table, a debug slot per variable with `llvm.dbg.declare`, unbound and dropped markers, `FluxValue`/`FluxCaptured`/`FluxInt`/`FluxBool`/`FluxWord` typedefs, the `FluxCtor` enumeration and `FluxCtor.<Name>` structures in the DWARF (instead of a `.fluxdbg` sidecar), `flux_lldb.py` (Flux values, children, `flux bt`/`locals`/`print`) embedded in the dSYM and printed by `flux debug --lldb-script`, Core `let` inlining off under `-g` | `tests/native_llvm/native_debug_tests.rs`: lldb with the script shows each kind of value as the VM does, variables only once bound, captured variables, the matched arm's binders, constructors another module declares; the dSYM carries the script. `llvm-dwarfdump --verify` clean; 10⁶-deep tail recursion still runs under `-g`; every guide example prints the same natively with and without `-g`. |
-| S6b | The native engine in `flux-dap` (building with `-g`, proxying `lldb-dap`), `"backend": "native"` in VS Code | **Debug parity harness:** `Way::VmDebug` / `Way::LlvmDebug` in `src/parity/mod.rs:73`, and fixture directives `// dbg: break 12`, `// dbg: step`, `// dbg-expect: …` in `src/parity/fixture.rs`. Normalized transcripts must match: top frame and locals exactly, the full stack modulo tail-call elision. |
+| S6b | The native engine in `flux-dap` (`crates/flux-dap/src/native.rs`: building with `--native -g --emit-binary`, finding and proxying `lldb-dap`), `"backend": "native"`, `lldbDap` and `flux.lldbDapPath` in VS Code; the debug parity harness | **Debug parity harness:** `Way::VmDebug` / `Way::LlvmDebug` (`src/parity/debug.rs`), fixture directives `// dbg: break 12`, `// dbg: step`, … in `tests/parity_debug/`. Stops and frames match line for line; every variable the VM shows is there natively with its value (native code may still hold a value the VM has moved out). Run by `parity_debug_tests` and `parity-check tests/parity_debug --ways vm_debug,llvm_debug`. DAP tests drive a native session through `lldb-dap`. |
 | S7 | Effects: stacks that follow continuations (both backends), handler view, exception breakpoints, step into `resume` | Parity fixtures for multi-shot, nested handlers, and tail-resumptive vs yielding operations. |
 | S8 | Fibers, tasks and channels as threads; scheduler snapshot APIs; multi-fiber record and replay | Parity fixtures using `both`, `race` and `timeout`. Replay is identical across 100 runs. |
 | S9 | Native replay under lldb, run to event, opening a native tape in the VM, timeline UI; Core-inlining provenance → `inlinedAt`, and Core inlining turned back on in the debug profile | Cross-backend tape tests. Golden `lldb bt` output for inlined frames. |

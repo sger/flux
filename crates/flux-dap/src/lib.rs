@@ -9,8 +9,11 @@
 //! - [`transport`]: DAP's `Content-Length` framing.
 //! - [`engine`]: starting the child and talking to it.
 //! - [`server`]: the session, translating DAP requests for the engine.
+//! - [`native`]: native sessions (0188 S6), which build the program with
+//!   `-g` and pass DAP on to `lldb-dap`.
 
 pub mod engine;
+pub mod native;
 pub mod server;
 pub mod transport;
 

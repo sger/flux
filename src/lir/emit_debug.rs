@@ -10,7 +10,8 @@
 //! registers a debugger mostly cannot name. So each source variable gets a
 //! stack slot of its own that only the debugger reads, described by
 //! `llvm.dbg.declare`: the value is stored there when the variable is bound,
-//! and a marker when it is dropped, so a debugger never reads freed memory.
+//! and a marker when a heap value is dropped, so a debugger never reads freed
+//! memory.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -297,6 +298,7 @@ impl DebugBuilder {
             }
         }
 
+        let mut dropped_count = 0;
         for (position, block) in emitted.blocks.iter_mut().enumerate() {
             let old = std::mem::take(&mut block.instrs);
             let mut instrs = Vec::with_capacity(old.len());
@@ -317,9 +319,14 @@ impl DebugBuilder {
                         after.push(store(LlvmOperand::Local(local.clone()), slot));
                     }
                 }
-                if let Some(local) = dropped(&instr) {
-                    for slot in slots.get(&local.0).into_iter().flatten() {
-                        after.push(store(marker(DROPPED_MARKER), slot));
+                if let Some(local) = dropped(&instr)
+                    && let Some(local_slots) = slots.get(&local.0)
+                {
+                    let kept = LlvmLocal(format!("dbg.kept.{}", dropped_count));
+                    dropped_count += 1;
+                    after.extend(kept_after_drop(local, &kept));
+                    for slot in local_slots {
+                        after.push(store(LlvmOperand::Local(kept.clone()), slot));
                     }
                 }
                 instrs.push(instr);
@@ -584,6 +591,52 @@ fn dropped(instr: &LlvmInstr) -> Option<&LlvmLocal> {
         Some((_, LlvmOperand::Local(local))) => Some(local),
         _ => None,
     }
+}
+
+/// What a slot holds once `value` is dropped, computed into `kept`: the
+/// value itself if it is an Int or a sentinel, which dropping leaves alone,
+/// else the dropped marker, since the object may now be freed.
+fn kept_after_drop(value: &LlvmLocal, kept: &LlvmLocal) -> Vec<LlvmInstr> {
+    let part = |name: &str| LlvmLocal(format!("{}.{name}", kept.0));
+    let value = LlvmOperand::Local(value.clone());
+    vec![
+        LlvmInstr::Binary {
+            dst: part("tag"),
+            op: crate::llvm::ir::LlvmValueKind::And,
+            ty: LlvmType::i64(),
+            lhs: value.clone(),
+            rhs: marker(1),
+        },
+        LlvmInstr::Icmp {
+            dst: part("int"),
+            op: crate::llvm::ir::LlvmCmpOp::Ne,
+            ty: LlvmType::i64(),
+            lhs: LlvmOperand::Local(part("tag")),
+            rhs: marker(0),
+        },
+        LlvmInstr::Icmp {
+            dst: part("sentinel"),
+            op: crate::llvm::ir::LlvmCmpOp::Ule,
+            ty: LlvmType::i64(),
+            lhs: value.clone(),
+            rhs: marker(10),
+        },
+        LlvmInstr::Binary {
+            dst: part("unboxed"),
+            op: crate::llvm::ir::LlvmValueKind::Or,
+            ty: LlvmType::i1(),
+            lhs: LlvmOperand::Local(part("int")),
+            rhs: LlvmOperand::Local(part("sentinel")),
+        },
+        LlvmInstr::Select {
+            dst: kept.clone(),
+            cond_ty: LlvmType::i1(),
+            cond: LlvmOperand::Local(part("unboxed")),
+            value_ty: LlvmType::i64(),
+            then_value: value,
+            else_value: marker(DROPPED_MARKER),
+        },
+    ]
 }
 
 fn marker(value: i64) -> LlvmOperand {

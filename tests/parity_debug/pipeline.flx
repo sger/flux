@@ -1,0 +1,24 @@
+// Debug parity: stepping through a |> pipeline of named functions.
+// dbg: break 20
+// dbg: continue
+// dbg: step
+// dbg: bt
+// dbg: locals
+// dbg: finish
+// dbg: locals
+// dbg: continue
+
+fn double(n) {
+    n * 2
+}
+
+fn add_one(n) {
+    n + 1
+}
+
+fn main() {
+    let start = 5
+    let result = start |> double |> add_one
+    print(result)
+    print(start)
+}
