@@ -582,7 +582,10 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
                         },
                     });
                 }
-                if request.cache.no_cache || request.output.emit_binary {
+                // A binary written with `-o` is the user's to keep.
+                if request.output.output_path.is_none()
+                    && (request.cache.no_cache || request.output.emit_binary)
+                {
                     let _ = std::fs::remove_file(&out);
                 }
                 if exit_code != 0 {

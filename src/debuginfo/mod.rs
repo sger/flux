@@ -17,6 +17,11 @@ pub use model::{
 };
 pub use render::render_program_debug_info;
 
+/// The lldb script that shows native Flux values as Flux values
+/// (proposal 0188 S6). A `-g` build's dSYM carries it; `flux debug
+/// --lldb-script` prints it.
+pub const LLDB_SCRIPT: &str = include_str!("../../tools/lldb/flux_lldb.py");
+
 /// How much debug information a compile produces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum DebugLevel {

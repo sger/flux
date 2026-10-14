@@ -37,6 +37,7 @@ impl Display for LlvmType {
                 write!(f, ")")
             }
             LlvmType::Named(name) => write!(f, "%{name}"),
+            LlvmType::Metadata => write!(f, "metadata"),
         }
     }
 }
@@ -109,11 +110,16 @@ impl Display for LlvmGlobal {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match &self.value {
             Some(value) => {
+                // A definition with external linkage spells no linkage.
+                let linkage = match self.linkage {
+                    Linkage::External => String::new(),
+                    linkage => format!("{linkage} "),
+                };
                 write!(
                     f,
-                    "@{} = {} {} {} {}",
+                    "@{} = {}{} {} {}",
                     self.name,
-                    self.linkage,
+                    linkage,
                     if self.is_constant {
                         "constant"
                     } else {
@@ -508,6 +514,7 @@ impl Display for LlvmOperand {
             LlvmOperand::Local(local) => write!(f, "{local}"),
             LlvmOperand::Global(global) => write!(f, "@{global}"),
             LlvmOperand::Const(value) => write!(f, "{value}"),
+            LlvmOperand::Metadata(text) => write!(f, "{text}"),
         }
     }
 }

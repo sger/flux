@@ -440,7 +440,7 @@ pub fn write_debug_symbols(binary: &Path) {
         .stdout(std::process::Stdio::null())
         .status();
     match status {
-        Ok(status) if status.success() => {}
+        Ok(status) if status.success() => write_dsym_script(binary),
         Ok(status) => eprintln!(
             "warning: dsymutil failed ({status}); debug information for {} stays in its object files",
             binary.display()
@@ -449,6 +449,31 @@ pub fn write_debug_symbols(binary: &Path) {
             "warning: cannot run dsymutil ({err}); debug information for {} stays in its object files",
             binary.display()
         ),
+    }
+}
+
+/// Puts `flux_lldb.py` in the binary's dSYM, where lldb and Xcode look for
+/// a script that formats its values: `Contents/Resources/Python/<name>.py`,
+/// named after the binary with characters Python cannot import replaced.
+fn write_dsym_script(binary: &Path) {
+    let Some(name) = binary.file_name().map(|name| name.to_string_lossy()) else {
+        return;
+    };
+    let module: String = name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    let mut dsym = binary.as_os_str().to_owned();
+    dsym.push(".dSYM");
+    let dir = PathBuf::from(dsym).join("Contents/Resources/Python");
+    let written = fs::create_dir_all(&dir).and_then(|()| {
+        fs::write(
+            dir.join(format!("{module}.py")),
+            crate::debuginfo::LLDB_SCRIPT,
+        )
+    });
+    if let Err(err) = written {
+        eprintln!("warning: cannot add flux_lldb.py to the dSYM: {err}");
     }
 }
 

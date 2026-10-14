@@ -2176,7 +2176,19 @@ impl Compiler {
 
         let preloaded_registry = self.build_preloaded_borrow_registry(program_to_lower);
         let _ = preloaded_registry;
-        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
+        if self.debug_level.is_enabled() {
+            crate::core::passes::run_core_passes_keeping_variables(
+                &mut core,
+                &self.interner,
+                optimize,
+            )?;
+        } else {
+            crate::core::passes::run_core_passes_with_interner(
+                &mut core,
+                &self.interner,
+                optimize,
+            )?;
+        }
         Ok(core)
     }
 
@@ -6968,7 +6980,7 @@ impl Compiler {
             emit_main,
             entry_qualifier.as_deref(),
         );
-        // `-g`: DWARF line tables. MSVC targets need CodeView, which
+        // `-g`: DWARF lines, variables and types. MSVC targets need CodeView, which
         // comes with 0188 S11; until then they get no debug information.
         let debug = (self.debug_level.is_enabled() && !cfg!(target_env = "msvc")).then(|| {
             crate::lir::emit_debug::NativeDebug {

@@ -187,6 +187,9 @@ pub enum LlvmOperand {
     Local(LlvmLocal),
     Global(GlobalId),
     Const(LlvmConst),
+    /// A debug intrinsic's metadata argument, as written: `ptr %slot`,
+    /// `!12`, `!DIExpression()`.
+    Metadata(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

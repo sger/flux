@@ -1,0 +1,28 @@
+// Flux values, for lldb's `flux locals` and `flux print`.
+data Shape { Circle(Float), Square(Int) }
+data Point { Point { x: Int, y: Int } }
+
+fn area(shape) {
+    match shape {
+        Circle(r) -> r * r * 3.0,
+        Square(s) -> 1.0,
+    }
+}
+
+fn describe(n, name, flag, ratio, xs, pair, opt, arr, shape, p) {
+    let label = name + "!"
+    print(label)
+    print(area(shape))
+    print(p.x)
+    print(pair)
+    print(opt)
+    print(arr)
+    n + len(xs)
+}
+
+fn main() {
+    let shape = Square(3)
+    let p = Point { x: 1, y: 2 }
+    let total = describe(7, "flux", true, 2.5, [1, 2, 3], (9, "x"), Some(4), [|1, 2|], shape, p)
+    print(total)
+}
