@@ -4,7 +4,7 @@ source: tests/debug/vm_debug_tests.rs
 > break 20
 breakpoint at effect_yield.flx:20
 > continue
-stopped: breakpoint at effect_yield.flx:20:25 in <handler Flip.flip> (position 10)
+stopped: breakpoint at effect_yield.flx:20:25 in <handler Flip.flip> (position 9)
     20 |         flip(resume) -> resume(true) + resume(false)
 > bt
 #0 <handler Flip.flip> at effect_yield.flx:20:25

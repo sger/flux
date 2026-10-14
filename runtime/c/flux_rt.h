@@ -799,6 +799,15 @@ int64_t flux_is_none_val(int64_t val);
 /* ── Control ────────────────────────────────────────────────────────── */
 
 void    flux_panic(int64_t msg);
+
+/* Debugger hooks (proposal 0188 S7b): empty functions the runtime calls
+ * just before it reports an error, so a debugger can stop there by name.
+ * `flux_lldb.py`'s `flux catch` sets its breakpoints on them. They cost a
+ * call only on paths that are already failing. */
+void    flux_debug_on_panic(int64_t msg);
+void    flux_debug_on_unhandled_effect(int64_t htag);
+/* Reports an effect no handler covers and aborts. */
+void    flux_unhandled_effect(const char *where, int64_t htag);
 void    flux_trace_push(const char *name, const char *file, int32_t line);
 void    flux_trace_pop(void);
 int64_t flux_clock_now(void);

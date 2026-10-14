@@ -229,6 +229,13 @@ static void evv_dup_owned_fields(const int64_t *entry) {
 
 /* ── Public API ────────────────────────────────────────────────────── */
 
+void flux_unhandled_effect(const char *where, int64_t htag) {
+    flux_debug_on_unhandled_effect(htag);
+    fprintf(stderr, "%s: unhandled effect (htag=0x%llx)\n", where,
+            (unsigned long long)(uint64_t)htag);
+    abort();
+}
+
 int64_t flux_evv_get(void) {
     return flux_thread_ctx.current_evv;
 }
@@ -328,9 +335,7 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
     int idx = evv_lookup(arr, htag);
 
     if (idx < 0) {
-        fprintf(stderr, "flux_yield_to: unhandled effect (htag=0x%llx)\n",
-                (unsigned long long)(uint64_t)htag);
-        abort();
+        flux_unhandled_effect("flux_yield_to", htag);
     }
 
     int64_t *entry = &arr->data[idx * EVV_ENTRY_WORDS];
@@ -479,9 +484,7 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
     int idx = evv_lookup(arr, htag);
 
     if (idx < 0) {
-        fprintf(stderr, "flux_perform_direct: unhandled effect (htag=0x%llx)\n",
-                (unsigned long long)(uint64_t)htag);
-        abort();
+        flux_unhandled_effect("flux_perform_direct", htag);
     }
 
     int64_t *entry = &arr->data[idx * EVV_ENTRY_WORDS];

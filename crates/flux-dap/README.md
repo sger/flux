@@ -72,7 +72,18 @@ Most messages pass unchanged, renumbered. The adapter changes what makes the
 views Flux's:
 
 - **Call Stack:** only frames in `.flx` source; the runtime's frames show,
-  de-emphasised, with `showInternals`.
+  de-emphasised, with `showInternals`. Inside a handler arm, the frames the
+  perform suspended, and the `⟂ handling …` label, are added from
+  `flux bt --json` (they have no variables), as are the continuations a
+  running `resume` has still to run. A resumed frame is named by its
+  function, without lldb's `(resumed after L:C)`.
+- **Stepping:** Step Over, Into and Out run `flux next`, `flux step` and
+  `flux finish`, which step as the VM does, across performs and into
+  `resume` too, and report the stop themselves.
+- **Exceptions:** the Breakpoints view offers Flux's runtime errors, not
+  lldb-dap's C++ ones; ticking them runs `flux catch`. A stop at one is
+  held until `flux where` says what it is, then reported as an
+  `exception`, with `exceptionInfo`.
 - **Variables:** the Locals scope only. Values are Flux values (`[1, 2]`,
   `Point(1, 2)`), and a variable not bound yet is left out. A value the
   program has freed shows `<dropped>`: native code frees a value at its last
@@ -129,7 +140,7 @@ The console also takes commands for what DAP has no button for:
 | `.internals on\|off` | Show or hide compiler-made frames and variables. |
 | `.help` | This list. |
 
-In a native session, `.bt`, `.locals` and `.print <name>` run
+In a native session, `.bt`, `.locals`, `.print <name>` and `.handlers` run
 `flux_lldb.py`'s `flux` command, and lldb commands work behind a backtick:
 `` `bt all ``.
 
@@ -225,3 +236,7 @@ With `"backend": "native"` and `flux.runCommand` set to
 20. Step Over, Step Into and Step Out move through Flux lines, never into
     the runtime. Step Back is not offered.
 21. `.locals` in the Debug Console prints the frame's variables.
+22. In a handler arm, the Call Stack shows the `⟂ handling …` label and the
+    suspended frames; Step Into on `resume(…)` stops in the resumed frame.
+23. With "Panics" ticked, a `panic` stops at the Flux line that panicked,
+    shown as an exception with its message.

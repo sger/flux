@@ -1,5 +1,6 @@
 ---
 source: crates/flux-dap/tests/dap_tests.rs
+assertion_line: 276
 ---
 -> initialize {"adapterID":"flux"}
 <- {"body":{"exceptionBreakpointFilters":[{"default":true,"filter":"panic","label":"Panics"},{"default":true,"filter":"division_by_zero","label":"Division by zero"},{"default":true,"filter":"unhandled_effect","label":"Unhandled effects"},{"default":false,"filter":"runtime_error","label":"Other runtime errors"}],"supportsConfigurationDoneRequest":true,"supportsEvaluateForHovers":true,"supportsExceptionInfoRequest":true,"supportsLoadedSourcesRequest":false,"supportsSetVariable":false,"supportsStepBack":true,"supportsTerminateRequest":true},"command":"initialize","success":true}
@@ -10,7 +11,7 @@ source: crates/flux-dap/tests/dap_tests.rs
 <- {"body":{"breakpoints":[{"line":12,"verified":true}]},"command":"setBreakpoints","success":true}
 -> configurationDone null
 <- {"body":{},"command":"configurationDone","success":true}
-<- event {"body":{"allThreadsStopped":true,"description":"position 8","reason":"breakpoint","threadId":1},"event":"stopped"}
+<- event {"body":{"allThreadsStopped":true,"description":"position 7","reason":"breakpoint","threadId":1},"event":"stopped"}
 -> stackTrace {"threadId":1}
 <- {"body":{"stackFrames":[{"column":28,"id":5,"line":12,"name":"<handler Flip.flip>","source":{"name":"flip.flx","path":"<dir>/flip.flx"}},{"column":0,"id":1000003,"line":0,"name":"⟂ handling Flip.flip — performed at flip.flx:6:13","presentationHint":"label"},{"column":13,"id":3,"line":6,"name":"decide (suspended)","presentationHint":"subtle","source":{"name":"flip.flx","path":"<dir>/flip.flx"}},{"column":18,"id":2,"line":11,"name":"main","source":{"name":"flip.flx","path":"<dir>/flip.flx"}}],"totalFrames":4},"command":"stackTrace","success":true}
 -> scopes {"frameId":5}
