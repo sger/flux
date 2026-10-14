@@ -1,0 +1,26 @@
+// A panic in a fiber (0188 S8) stops where it happens, in that fiber; the
+// run then fails with it.
+import Flow.Async exposing (..)
+
+fn worker() -> Int with Async {
+    let limit = 3
+    if limit > 2 {
+        panic("worker gave up")
+    } else {
+        limit
+    }
+}
+
+fn idle() -> Int with Async {
+    sleep(50)
+    0
+}
+
+fn body() -> Int with Async {
+    let pair = both(idle, worker)
+    pair.0
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

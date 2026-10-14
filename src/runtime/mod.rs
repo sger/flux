@@ -127,4 +127,10 @@ pub trait RuntimeContext {
     fn vm_worker_shared_state(&self) -> Option<Box<dyn std::any::Any + Send>> {
         None
     }
+
+    /// Every fiber waits and the front end has asked the debugger to
+    /// pause: stop here (0188 S8). Nothing to do without a debugger.
+    fn debug_idle(&mut self) -> Result<(), String> {
+        Ok(())
+    }
 }

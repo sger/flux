@@ -34,7 +34,9 @@ commands:
   locals                               show this frame's variables
   print <name>[.<n>...]                show a value, or one of its parts (p)
   handlers                             show the active effect handlers, innermost first
-  catch [panic|division|unhandled|errors|all|none]...
+  threads                              list the fibers and tasks, and what each waits for
+  thread <n>                           look at thread <n>: bt, locals and print read it
+  catch [panic|division|unhandled|fibers|errors|all|none]...
                                        choose the runtime errors to stop at; alone, list them
   internals on|off                     show or hide compiler-made frames and variables
   quit                                 stop the program (q)";
@@ -176,9 +178,14 @@ impl CommandObserver {
                 "q" | "quit" => return Resume::Quit,
                 "b" | "break" => self.set_breakpoint(inspector, rest),
                 "delete" => self.clear_breakpoint(inspector, rest),
-                "bt" | "backtrace" | "locals" | "p" | "print" | "handlers" if !paused => {
+                "bt" | "backtrace" | "locals" | "p" | "print" | "handlers" | "threads"
+                | "thread"
+                    if !paused =>
+                {
                     say(NOT_STARTED)
                 }
+                "threads" => threads(inspector),
+                "thread" => select_thread(inspector, rest),
                 "bt" | "backtrace" => backtrace(inspector),
                 "locals" => locals(inspector),
                 "handlers" => handlers(inspector),
@@ -303,8 +310,12 @@ impl VmObserver for CommandObserver {
                     }
                     _ => reason.as_str().to_string(),
                 };
+                let thread = match inspector.stopped_thread() {
+                    1 => String::new(),
+                    thread => format!("thread {thread}, "),
+                };
                 say(&format!(
-                    "stopped: {why} at {place} in {} (position {})",
+                    "stopped: {why} at {place} in {} ({thread}position {})",
                     frame.name,
                     inspector.position()
                 ));
@@ -423,7 +434,7 @@ fn catch(inspector: &mut Inspector<'_>, rest: &str) {
                     None => {
                         say(&format!(
                             "unknown error kind `{other}`; use panic, division, unhandled, \
-                             errors, all or none"
+                             fibers, errors, all or none"
                         ));
                         return;
                     }
@@ -438,6 +449,55 @@ fn catch(inspector: &mut Inspector<'_>, rest: &str) {
     } else {
         let names: Vec<&str> = caught.iter().map(|kind| kind.label()).collect();
         say(&format!("stopping at: {}", names.join(", ")));
+    }
+}
+
+/// `threads`: each fiber and task, what it is doing, and where.
+fn threads(inspector: &mut Inspector<'_>) {
+    let looking_at = inspector.selected_thread();
+    for thread in inspector.threads() {
+        let mark = if thread.id == looking_at { "*" } else { " " };
+        let place = inspector
+            .select_thread(thread.id)
+            .ok()
+            .and_then(|()| inspector.stack().into_iter().next())
+            .and_then(|frame| {
+                let file = frame.file?;
+                Some(format!(
+                    " at {}:{}:{}",
+                    short(&file),
+                    frame.line,
+                    frame.column
+                ))
+            })
+            .unwrap_or_default();
+        say(&format!(
+            "{mark} {} {} [{}]{place}",
+            thread.id,
+            thread.name,
+            thread.state.describe()
+        ));
+    }
+    let _ = inspector.select_thread(looking_at);
+}
+
+/// `thread <n>`: look at thread `n` until the next stop.
+fn select_thread(inspector: &mut Inspector<'_>, rest: &str) {
+    let Ok(id) = rest.trim().parse::<u64>() else {
+        say("usage: thread <n>; `threads` lists them");
+        return;
+    };
+    match inspector.select_thread(id) {
+        Ok(()) => {
+            let name = inspector
+                .threads()
+                .into_iter()
+                .find(|thread| thread.id == id)
+                .map(|thread| format!("{} [{}]", thread.name, thread.state.describe()))
+                .unwrap_or_default();
+            say(&format!("thread {id}: {name}"));
+        }
+        Err(message) => say(&message),
     }
 }
 

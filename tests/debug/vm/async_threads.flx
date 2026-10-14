@@ -1,0 +1,24 @@
+// Fibers as threads (0188 S8): a stop in one child of `both` lists every
+// fiber with what it waits for, and a parked fiber's stack is its
+// continuation's frames.
+import Flow.Async exposing (..)
+
+fn slow() -> Int with Async {
+    sleep(20)
+    let m = 3 * 2
+    m + 1
+}
+
+fn fast() -> Int with Async {
+    let k = 4 + 1
+    k * 10
+}
+
+fn body() -> String with Async {
+    let pair = both(slow, fast)
+    to_string(pair.0) + "," + to_string(pair.1)
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

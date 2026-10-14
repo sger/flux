@@ -2,7 +2,7 @@
 source: crates/flux-dap/tests/dap_tests.rs
 ---
 -> initialize {"adapterID":"flux"}
-<- {"body":{"exceptionBreakpointFilters":[{"default":true,"filter":"panic","label":"Panics"},{"default":true,"filter":"division_by_zero","label":"Division by zero"},{"default":true,"filter":"unhandled_effect","label":"Unhandled effects"},{"default":false,"filter":"runtime_error","label":"Other runtime errors"}],"supportsConfigurationDoneRequest":true,"supportsEvaluateForHovers":true,"supportsExceptionInfoRequest":true,"supportsLoadedSourcesRequest":false,"supportsSetVariable":false,"supportsStepBack":true,"supportsTerminateRequest":true},"command":"initialize","success":true}
+<- {"body":{"exceptionBreakpointFilters":[{"default":true,"filter":"panic","label":"Panics"},{"default":true,"filter":"division_by_zero","label":"Division by zero"},{"default":true,"filter":"unhandled_effect","label":"Unhandled effects"},{"default":true,"filter":"fiber_failure","label":"Fiber failures"},{"default":false,"filter":"runtime_error","label":"Other runtime errors"}],"supportsConfigurationDoneRequest":true,"supportsEvaluateForHovers":true,"supportsExceptionInfoRequest":true,"supportsLoadedSourcesRequest":false,"supportsSetVariable":false,"supportsStepBack":true,"supportsTerminateRequest":true},"command":"initialize","success":true}
 -> launch {"fluxArgs":["--no-cache"],"fluxCommand":["<flux>"],"program":"<dir>/nap.flx"}
 <- {"body":{},"command":"launch","success":true}
 <- event {"body":{},"event":"initialized"}
@@ -12,7 +12,7 @@ source: crates/flux-dap/tests/dap_tests.rs
 <- {"body":{},"command":"configurationDone","success":true}
 <- event {"body":{"allThreadsStopped":true,"description":"position 13","reason":"breakpoint","threadId":1},"event":"stopped"}
 -> stepBack {"threadId":1}
-<- {"command":"stepBack","message":"cannot go back: the program has run async code, which going back does not cover yet (0188 S8)","success":false}
+<- {"command":"stepBack","message":"cannot go back: the program has run async code, which going back does not cover yet (0188 S9)","success":false}
 -> continue {"threadId":1}
 <- {"body":{"allThreadsContinued":true},"command":"continue","success":true}
 <- event {"body":{"exitCode":0},"event":"exited"}

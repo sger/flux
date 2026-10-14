@@ -39,10 +39,14 @@ pub enum Input {
     NativeEnded,
 }
 
-/// The only thread: fibers become threads in 0188 S8.
+/// The program's thread outside `run_async`, and its root fiber inside.
+/// Each other fiber is a thread of its own (0188 S8).
 const THREAD: i64 = 1;
 /// Frame ids at or above this are tail-call labels, not frames.
 const LABEL_FRAMES: i64 = 1_000_000;
+/// Frame ids at or above this are frames of a thread other than the one
+/// that stopped: `OTHER_FRAMES + n` is entry `n` of the session's table.
+const OTHER_FRAMES: i64 = 3_000_000;
 /// In a native session, frame ids at or above this are lines the session
 /// adds to lldb-dap's stack: `⟂ handling …` labels and the frames an effect
 /// handler holds (0188 S7). They have no variables.
@@ -51,6 +55,8 @@ const SPLICED_FRAMES: i64 = 2_000_000;
 /// A `variablesReference`: a frame's scope, or a value in it.
 #[derive(Debug, Clone)]
 struct VarRef {
+    /// The thread the frame is in, when not the one that stopped.
+    thread: Option<u64>,
     frame: usize,
     scope: Scope,
     path: Vec<String>,
@@ -83,6 +89,10 @@ pub struct Session<W: FnMut(Value)> {
     source_paths: native::SourcePaths,
     /// The runtime error the program is stopped at, for `exceptionInfo`.
     exception: Option<ExceptionInfo>,
+    /// The thread the program last stopped in, while it is stopped.
+    stopped: Option<u64>,
+    /// Frames of other threads handed out since the last stop.
+    other_frames: Vec<(u64, usize)>,
 }
 
 impl<W: FnMut(Value)> Session<W> {
@@ -107,6 +117,8 @@ impl<W: FnMut(Value)> Session<W> {
             show_internals: false,
             source_paths: native::SourcePaths::default(),
             exception: None,
+            stopped: None,
+            other_frames: Vec::new(),
         }
     }
 
@@ -153,9 +165,12 @@ impl<W: FnMut(Value)> Session<W> {
                         position,
                         description,
                         exception,
+                        thread,
                     },
             }) => {
                 self.refs.clear();
+                self.other_frames.clear();
+                self.stopped = Some(thread);
                 let reason = match reason {
                     StopKind::Entry => "entry",
                     StopKind::Breakpoint => "breakpoint",
@@ -172,7 +187,7 @@ impl<W: FnMut(Value)> Session<W> {
                 };
                 let mut body = json!({
                     "reason": reason,
-                    "threadId": THREAD,
+                    "threadId": thread,
                     "allThreadsStopped": true,
                     "description": description,
                 });
@@ -224,7 +239,7 @@ impl<W: FnMut(Value)> Session<W> {
                 self.call(Request::Start { stop_on_entry })
                     .map(|_| json!({}))
             }
-            "threads" => Ok(json!({ "threads": [{ "id": THREAD, "name": "main" }] })),
+            "threads" => self.threads(),
             "stackTrace" => self.stack_trace(args),
             "scopes" => self.scopes(args),
             "variables" => self.variables(args),
@@ -316,7 +331,53 @@ impl<W: FnMut(Value)> Session<W> {
     fn resume(&mut self, how: ResumeKind) -> Result<Value, String> {
         self.call(Request::Resume { how })?;
         self.refs.clear();
+        self.other_frames.clear();
+        self.stopped = None;
         Ok(json!({}))
+    }
+
+    /// The program's threads: its fibers and tasks while it is stopped, and
+    /// one thread while it runs.
+    fn threads(&mut self) -> Result<Value, String> {
+        let main = || json!({ "threads": [{ "id": THREAD, "name": "main" }] });
+        if self.stopped.is_none() {
+            return Ok(main());
+        }
+        match self.call(Request::Threads) {
+            Ok(Reply::Threads { threads }) => Ok(json!({
+                "threads": threads
+                    .into_iter()
+                    .map(|thread| {
+                        let name = if thread.state == "stopped" {
+                            thread.name
+                        } else {
+                            format!("{} — {}", thread.name, thread.state)
+                        };
+                        json!({ "id": thread.id, "name": name })
+                    })
+                    .collect::<Vec<_>>(),
+            })),
+            _ => Ok(main()),
+        }
+    }
+
+    /// Thread `id` as the engine is asked for it: none for the one that
+    /// stopped.
+    fn other_thread(&self, id: Option<i64>) -> Option<u64> {
+        let id = id.filter(|id| *id > 0)? as u64;
+        (Some(id) != self.stopped).then_some(id)
+    }
+
+    /// The frame a frame id names: its thread when not the one stopped,
+    /// and its index on that thread's stack.
+    fn frame_ref(&self, id: i64) -> Option<(Option<u64>, usize)> {
+        if (1..LABEL_FRAMES).contains(&id) {
+            return Some((None, id as usize - 1));
+        }
+        let (thread, index) = *self
+            .other_frames
+            .get(id.checked_sub(OTHER_FRAMES)? as usize)?;
+        Some((Some(thread), index))
     }
 
     fn launch(&mut self, args: &Value) -> Result<Value, String> {
@@ -788,8 +849,8 @@ impl<W: FnMut(Value)> Session<W> {
         Ok(json!({ "breakpoints": breakpoints }))
     }
 
-    fn frames(&mut self) -> Result<Vec<Frame>, String> {
-        match self.call(Request::Stack)? {
+    fn frames(&mut self, thread: Option<u64>) -> Result<Vec<Frame>, String> {
+        match self.call(Request::Stack { thread })? {
             Reply::Stack { frames } => Ok(frames
                 .into_iter()
                 .filter(|frame| !(frame.file.is_none() && frame.name == "<entry>"))
@@ -799,8 +860,9 @@ impl<W: FnMut(Value)> Session<W> {
     }
 
     fn stack_trace(&mut self, args: &Value) -> Result<Value, String> {
+        let thread = self.other_thread(args["threadId"].as_i64());
         let mut frames = Vec::new();
-        for frame in self.frames()? {
+        for frame in self.frames(thread)? {
             if frame.kind == FrameKind::Label {
                 frames.push(json!({
                     "id": LABEL_FRAMES + frame.index as i64,
@@ -816,8 +878,15 @@ impl<W: FnMut(Value)> Session<W> {
                 FrameKind::Dropped => format!("{} (suspended, not resumable)", frame.name),
                 _ => frame.name,
             };
+            let id = match thread {
+                None => frame.index as i64 + 1,
+                Some(thread) => {
+                    self.other_frames.push((thread, frame.index));
+                    OTHER_FRAMES + self.other_frames.len() as i64 - 1
+                }
+            };
             let mut shown = json!({
-                "id": frame.index as i64 + 1,
+                "id": id,
                 "name": name,
                 "line": frame.line,
                 "column": frame.column,
@@ -853,20 +922,20 @@ impl<W: FnMut(Value)> Session<W> {
 
     fn scopes(&mut self, args: &Value) -> Result<Value, String> {
         let id = args["frameId"].as_i64().unwrap_or(0);
-        if !(1..LABEL_FRAMES).contains(&id) {
+        let Some((thread, frame)) = self.frame_ref(id) else {
             return Ok(json!({ "scopes": [] }));
-        }
-        let frame = id as usize - 1;
+        };
         let mut scopes = vec![json!({
             "name": "Locals",
             "presentationHint": "locals",
-            "variablesReference": self.reference(frame, Scope::Locals, Vec::new()),
+            "variablesReference": self.reference(thread, frame, Scope::Locals, Vec::new()),
             "expensive": false,
         })];
         let captured = match self.call(Request::Variables {
             frame,
             scope: Scope::Captured,
             path: Vec::new(),
+            thread,
         })? {
             Reply::Variables { variables } => variables,
             _ => Vec::new(),
@@ -874,14 +943,14 @@ impl<W: FnMut(Value)> Session<W> {
         if !captured.is_empty() {
             scopes.push(json!({
                 "name": "Captured",
-                "variablesReference": self.reference(frame, Scope::Captured, Vec::new()),
+                "variablesReference": self.reference(thread, frame, Scope::Captured, Vec::new()),
                 "expensive": false,
             }));
         }
-        if !self.handlers()?.is_empty() {
+        if thread.is_none() && !self.handlers()?.is_empty() {
             scopes.push(json!({
                 "name": "Handlers",
-                "variablesReference": self.reference(frame, Scope::Handlers, Vec::new()),
+                "variablesReference": self.reference(thread, frame, Scope::Handlers, Vec::new()),
                 "expensive": false,
             }));
         }
@@ -894,6 +963,7 @@ impl<W: FnMut(Value)> Session<W> {
             frame: 0,
             scope: Scope::Handlers,
             path: Vec::new(),
+            thread: None,
         })? {
             Reply::Variables { variables } => Ok(variables),
             _ => Err("unexpected reply to handlers".to_string()),
@@ -929,6 +999,7 @@ impl<W: FnMut(Value)> Session<W> {
             frame: var_ref.frame,
             scope: var_ref.scope,
             path: var_ref.path.clone(),
+            thread: var_ref.thread,
         })?
         else {
             return Err("unexpected reply to variables".to_string());
@@ -938,7 +1009,7 @@ impl<W: FnMut(Value)> Session<W> {
             .map(|variable| {
                 let mut path = var_ref.path.clone();
                 path.push(variable.name.clone());
-                self.variable_json(var_ref.frame, var_ref.scope, path, variable)
+                self.variable_json(var_ref.thread, var_ref.frame, var_ref.scope, path, variable)
             })
             .collect();
         Ok(json!({ "variables": shown }))
@@ -946,13 +1017,14 @@ impl<W: FnMut(Value)> Session<W> {
 
     fn variable_json(
         &mut self,
+        thread: Option<u64>,
         frame: usize,
         scope: Scope,
         path: Vec<String>,
         variable: Variable,
     ) -> Value {
         let reference = if variable.has_children {
-            self.reference(frame, scope, path)
+            self.reference(thread, frame, scope, path)
         } else {
             0
         };
@@ -968,21 +1040,32 @@ impl<W: FnMut(Value)> Session<W> {
         shown
     }
 
-    fn reference(&mut self, frame: usize, scope: Scope, path: Vec<String>) -> usize {
-        self.refs.push(VarRef { frame, scope, path });
+    fn reference(
+        &mut self,
+        thread: Option<u64>,
+        frame: usize,
+        scope: Scope,
+        path: Vec<String>,
+    ) -> usize {
+        self.refs.push(VarRef {
+            thread,
+            frame,
+            scope,
+            path,
+        });
         self.refs.len()
     }
 
-    /// The frame an expression is read in: the one asked for, else the top.
-    fn frame_for(&mut self, args: &Value) -> Result<usize, String> {
-        match args["frameId"].as_i64() {
-            Some(id) if (1..LABEL_FRAMES).contains(&id) => Ok(id as usize - 1),
-            _ => self
-                .frames()?
-                .first()
-                .map(|frame| frame.index)
-                .ok_or_else(|| "there is no frame to read".to_string()),
+    /// The frame an expression is read in: the one asked for, else the top
+    /// of the stopped thread.
+    fn frame_for(&mut self, args: &Value) -> Result<(Option<u64>, usize), String> {
+        if let Some(found) = args["frameId"].as_i64().and_then(|id| self.frame_ref(id)) {
+            return Ok(found);
         }
+        self.frames(None)?
+            .first()
+            .map(|frame| (None, frame.index))
+            .ok_or_else(|| "there is no frame to read".to_string())
     }
 
     fn evaluate(&mut self, args: &Value) -> Result<Value, String> {
@@ -994,9 +1077,10 @@ impl<W: FnMut(Value)> Session<W> {
                 .console_command(command)
                 .map(|text| json!({ "result": text, "variablesReference": 0 }));
         }
-        let frame = self.frame_for(args)?;
+        let (thread, frame) = self.frame_for(args)?;
         let Reply::Value { variable } = self.call(Request::Evaluate {
             frame,
+            thread,
             expression: expression.to_string(),
         })?
         else {
@@ -1006,7 +1090,7 @@ impl<W: FnMut(Value)> Session<W> {
             .split('.')
             .map(|part| part.trim().to_string())
             .collect();
-        let shown = self.variable_json(frame, Scope::Any, path, variable);
+        let shown = self.variable_json(thread, frame, Scope::Any, path, variable);
         Ok(json!({
             "result": shown["value"],
             "type": shown["type"],
@@ -1045,6 +1129,14 @@ impl<W: FnMut(Value)> Session<W> {
                     .collect::<Vec<_>>()
                     .join("\n"))
             }
+            "threads" => match self.call(Request::Threads)? {
+                Reply::Threads { threads } => Ok(threads
+                    .into_iter()
+                    .map(|thread| format!("{} {} [{}]", thread.id, thread.name, thread.state))
+                    .collect::<Vec<_>>()
+                    .join("\n")),
+                _ => Err("unexpected reply to .threads".to_string()),
+            },
             "where" => match self.call(Request::Where)? {
                 Reply::Position { position } => Ok(format!("position {position}")),
                 _ => Err("unexpected reply to .where".to_string()),
@@ -1115,6 +1207,7 @@ A variable or a part of one (`pair.0`) shows its value. Commands:
   .event <n>       go to the last stop before effect <n>
   .rs .rn .rf .rc  reverse step, next, finish, continue
   .handlers        the active effect handlers, innermost first
+  .threads         the fibers and tasks, and what each waits for
   .internals on|off  show or hide compiler-made frames and variables";
 
 /// How to run the program, from the editor's launch arguments.
@@ -1169,10 +1262,11 @@ fn source(file: &str) -> Value {
 
 /// The exception breakpoint filters, which the engine's exception kinds
 /// name.
-const EXCEPTION_FILTERS: [(&str, &str, bool); 4] = [
+const EXCEPTION_FILTERS: [(&str, &str, bool); 5] = [
     ("panic", "Panics", true),
     ("division_by_zero", "Division by zero", true),
     ("unhandled_effect", "Unhandled effects", true),
+    ("fiber_failure", "Fiber failures", true),
     ("runtime_error", "Other runtime errors", false),
 ];
 
@@ -1191,6 +1285,7 @@ fn exception_label(kind: &str) -> &str {
         "panic" => "panic",
         "division_by_zero" => "division by zero",
         "unhandled_effect" => "unhandled effect",
+        "fiber_failure" => "fiber failure",
         "runtime_error" => "runtime error",
         other => other,
     }

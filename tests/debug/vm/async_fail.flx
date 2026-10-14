@@ -1,0 +1,23 @@
+// A fiber failing (0188 S8): `Async.fail` stops as a fiber failure where it
+// is raised, with the fiber's stack, before `try` turns it into a value.
+import Flow.Async exposing (..)
+
+fn checked(n: Int) -> Int with Async {
+    if n > 2 {
+        fail(protocol_error(503, "too many"))
+    } else {
+        n
+    }
+}
+
+fn attempt() -> Int with Async {
+    checked(5)
+}
+
+fn body() -> Int with Async {
+    result_or(try(attempt), -1)
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

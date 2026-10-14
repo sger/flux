@@ -513,7 +513,7 @@ fn a_panic_stops_as_an_exception() {
         .as_array()
         .cloned()
         .unwrap_or_default();
-    assert_eq!(filters.len(), 4, "{initialized}");
+    assert_eq!(filters.len(), 5, "{initialized}");
     assert_eq!(initialized["body"]["supportsExceptionInfoRequest"], true);
     let args = editor.launch_args(&program, json!({}));
     editor.request("launch", args);
@@ -528,6 +528,81 @@ fn a_panic_stops_as_an_exception() {
     let transcript = editor.finish();
     let (session, _) = transcript.split_once("\n--- program output ---").unwrap();
     snapshot("a_panic_stops_as_an_exception", session);
+}
+
+const BOTH: &str = "\
+import Flow.Async exposing (..)
+
+fn slow() -> Int with Async {
+    sleep(20)
+    let m = 3 * 2
+    m + 1
+}
+
+fn fast() -> Int with Async {
+    let k = 4 + 1
+    k * 10
+}
+
+fn body() -> String with Async {
+    let label = \"pair\"
+    let pair = both(slow, fast)
+    label + to_string(pair.0) + \",\" + to_string(pair.1)
+}
+
+fn main() with IO {
+    print(run_async(body))
+}
+";
+
+#[test]
+fn fibers_are_threads_with_their_own_stacks() {
+    let scratch = Scratch::new("fibers");
+    let program = scratch.write("both.flx", BOTH);
+    let mut editor = Editor::start(&scratch);
+    editor.launch(&program, json!({}), &[11]);
+    let stopped = editor.event("stopped");
+    assert_eq!(stopped["body"]["threadId"], 3, "{stopped}");
+    editor.request("threads", Value::Null);
+    editor.request("stackTrace", json!({ "threadId": 3 }));
+    // A parked fiber's frames, and its variables, from its continuation.
+    let parked = editor.request("stackTrace", json!({ "threadId": 1, "levels": 1 }));
+    let body = parked["body"]["stackFrames"][0]["id"].clone();
+    let scopes = editor.request("scopes", json!({ "frameId": body }));
+    let locals = scopes["body"]["scopes"][0]["variablesReference"].clone();
+    editor.request("variables", json!({ "variablesReference": locals }));
+    editor.request("stackTrace", json!({ "threadId": 2 }));
+    editor.request(
+        "evaluate",
+        json!({ "expression": ".threads", "context": "repl" }),
+    );
+    editor.request("continue", json!({ "threadId": 3 }));
+    snapshot("fibers_are_threads_with_their_own_stacks", &editor.finish());
+}
+
+#[test]
+fn pause_while_every_fiber_waits() {
+    let scratch = Scratch::new("idle");
+    let program = scratch.write(
+        "idle.flx",
+        "import Flow.Async exposing (..)\n\nfn nap() -> Int with Async {\n    sleep(1500)\n    1\n}\n\nfn main() with IO {\n    print(run_async(nap))\n}\n",
+    );
+    let mut editor = Editor::start(&scratch);
+    editor.launch(&program, json!({}), &[]);
+    std::thread::sleep(Duration::from_millis(500));
+    editor.request("pause", json!({ "threadId": 1 }));
+    let stopped = editor.event("stopped");
+    assert_eq!(stopped["body"]["reason"], "pause");
+    let threads = editor.request("threads", Value::Null);
+    assert_eq!(
+        threads["body"]["threads"][0]["name"], "main — waiting sleep 1500 ms",
+        "{threads}"
+    );
+    let stack = editor.request("stackTrace", json!({ "threadId": 1 }));
+    assert_eq!(stack["body"]["stackFrames"][0]["name"], "nap (suspended)");
+    editor.request("continue", json!({ "threadId": 1 }));
+    let transcript = editor.finish();
+    assert!(transcript.ends_with("1\n"), "{transcript}");
 }
 
 /// The adapter's own `lldb-dap`, or `None` (with a note) on a machine

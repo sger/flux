@@ -1,0 +1,20 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 18
+breakpoint at async_channel.flx:18
+> continue
+stopped: breakpoint at async_channel.flx:18:9 in produce (thread 3, position 31)
+    18 |         let n = 41
+> threads
+  1 main [waiting both (threads 2, 3)] at async_channel.flx:23:16
+  2 <lambda async_channel.flx:23:21> [waiting channel #1 recv] at async_channel.flx:10:15
+* 3 <lambda async_channel.flx:23:41> [stopped] at async_channel.flx:18:9
+> thread 2
+thread 2: <lambda async_channel.flx:23:21> [waiting channel #1 recv]
+> bt
+#0 consume at async_channel.flx:10:15   (suspended)
+> continue
+program finished
+--- program output ---
+42

@@ -55,6 +55,8 @@ struct TaskState<T> {
     outcome: Mutex<Option<TaskOutcome<T>>>,
     finished: Condvar,
     cancelled: AtomicBool,
+    /// Set with the outcome, and stays set once a joiner takes it.
+    done: AtomicBool,
 }
 
 impl<T> TaskState<T> {
@@ -63,12 +65,14 @@ impl<T> TaskState<T> {
             outcome: Mutex::new(None),
             finished: Condvar::new(),
             cancelled: AtomicBool::new(false),
+            done: AtomicBool::new(false),
         }
     }
 
     fn set_outcome(&self, outcome: TaskOutcome<T>) {
         let mut slot = self.outcome.lock().expect("task outcome poisoned");
         *slot = Some(outcome);
+        self.done.store(true, Ordering::SeqCst);
         self.finished.notify_all();
     }
 }
@@ -84,6 +88,16 @@ pub struct TaskHandle<T> {
 impl<T> TaskHandle<T> {
     pub fn id(&self) -> TaskId {
         self.id
+    }
+
+    /// A check of whether the task has finished, for the debugger's
+    /// thread view (0188 S8), which outlives the handle.
+    pub fn finished_check(&self) -> Box<dyn Fn() -> bool>
+    where
+        T: Send + 'static,
+    {
+        let state = Arc::clone(&self.state);
+        Box::new(move || state.done.load(Ordering::SeqCst))
     }
 
     /// Mark the task cancelled. See module docs for the per-phase

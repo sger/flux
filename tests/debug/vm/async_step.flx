@@ -1,0 +1,26 @@
+// Stepping stays in one fiber (0188 S8): `next` over a sleep runs the other
+// fibers and stops at the next line of the same one.
+import Flow.Async exposing (..)
+
+fn left() -> Int with Async {
+    let a = 1
+    sleep(10)
+    let b = a + 1
+    b * 2
+}
+
+fn right() -> Int with Async {
+    let c = 10
+    sleep(1)
+    let d = c + 1
+    d * 3
+}
+
+fn body() -> Int with Async {
+    let pair = both(left, right)
+    pair.0 + pair.1
+}
+
+fn main() with IO {
+    print(run_async(body))
+}
