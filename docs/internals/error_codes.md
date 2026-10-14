@@ -242,12 +242,12 @@ These indicate a bug in the compiler, not user code:
 | <a id="e1019"></a>`E1019` | `STRING_INDEX_ERROR` | String character index out of range |
 | <a id="e1020"></a>`E1020` | `STRING_ENCODING_ERROR` | Invalid UTF-8 in string operation |
 | <a id="e1021"></a>`E1021` | `INVALID_SUBSTRING` | `substring` bounds are invalid |
-| <a id="e1022"></a>`E1022` | `REPLAY_KIND_MISMATCH` | Replay: the program performed a different effect than the tape recorded |
+| <a id="e1022"></a>`E1022` | `REPLAY_KIND_MISMATCH` | Replay: the program performed a different effect than the tape recorded, or (with tasks) a thread waited for an event that never came |
 | <a id="e1023"></a>`E1023` | `REPLAY_PAYLOAD_MISMATCH` | Replay: same effect, different details (path, printed text, exit result) |
 | <a id="e1024"></a>`E1024` | `REPLAY_TAPE_EXHAUSTED` | Replay: the program performed more effects than the tape holds |
 | <a id="e1025"></a>`E1025` | `REPLAY_LEFTOVER_EVENTS` | Replay: the program finished before the tape did |
 | <a id="e1026"></a>`E1026` | `REPLAY_BAD_TAPE` | The tape cannot be read, written, or belongs to another program |
-| <a id="e1027"></a>`E1027` | `REPLAY_UNSUPPORTED_EFFECT` | An effect that cannot be recorded yet (`Task.spawn`, until 0188 S8) |
+| <a id="e1027"></a>`E1027` | `REPLAY_UNSUPPORTED_EFFECT` | An effect that cannot be recorded yet: `run_async` inside a task (tasks themselves record since 0188 S8c) |
 
 ---
 

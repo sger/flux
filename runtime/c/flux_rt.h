@@ -504,9 +504,10 @@ size_t flux_gc_num_allocs(void);
 
 /* ── I/O ────────────────────────────────────────────────────────────── */
 
-void    flux_print(int64_t value);
-void    flux_println(int64_t value);
-void    flux_debug_trace(int64_t value);
+/* They return Unit (FLUX_NONE): compiled code drops a primop's result. */
+int64_t flux_print(int64_t value);
+int64_t flux_println(int64_t value);
+int64_t flux_debug_trace(int64_t value);
 int64_t flux_read_line(void);
 int64_t flux_read_file(int64_t path);
 
@@ -615,7 +616,33 @@ void           flux_tape_list_push(const uint8_t *ptr, size_t len);
 void           flux_tape_record(const FluxTapeOutcome *outcome);
 void           flux_tape_replay(FluxTapeOutcome *out);
 const uint8_t *flux_tape_list_item(size_t index, size_t *len);
-void           flux_tape_console(int32_t stream, const uint8_t *ptr, size_t len);
+int32_t        flux_tape_console(int32_t stream, const uint8_t *ptr, size_t len);
+void           flux_tape_console_done(void);
+void           flux_tape_enter_task(uint32_t task);
+uint64_t       flux_tape_ordered_begin(uint32_t kind, uint64_t a, uint64_t b);
+void           flux_tape_ordered_end(int32_t shape, int64_t value);
+int32_t        flux_tape_has_tasks(void);
+
+/* What crosses threads under a tape (0188 S8c): flux_tape_ordered_begin's
+ * kinds, and the channel operations FLUX_TAPE_CHANNEL names in its `b`. */
+#define FLUX_TAPE_TASK_SPAWN   1
+#define FLUX_TAPE_TASK_START   2
+#define FLUX_TAPE_TASK_END     3
+#define FLUX_TAPE_TASK_CANCEL  4
+#define FLUX_TAPE_TASK_JOIN    5
+#define FLUX_TAPE_TASK_AWAIT   6
+#define FLUX_TAPE_CHANNEL      7
+#define FLUX_TAPE_CHAN_MAKE      0
+#define FLUX_TAPE_CHAN_SEND      1
+#define FLUX_TAPE_CHAN_RECV      2
+#define FLUX_TAPE_CHAN_TRY_SEND  3
+#define FLUX_TAPE_CHAN_TRY_RECV  4
+#define FLUX_TAPE_CHAN_CLOSE     5
+#define FLUX_TAPE_CHAN_LEN       6
+#define FLUX_TAPE_CHAN_IS_CLOSED 7
+#define FLUX_TAPE_NONE 0
+#define FLUX_TAPE_BOOL 1
+#define FLUX_TAPE_INT  2
 void           flux_tape_finish(int32_t failed, const uint8_t *ptr, size_t len);
 void           flux_tape_refuse(const char *what);
 

@@ -1,0 +1,29 @@
+// Cancelling a task races with the task (0188 S8c): whether it ran is
+// decided by the threads, and a replay decides it the same way.
+import Flow.Async exposing (..)
+import Flow.Task as Task
+
+fn job() -> Int { 42 }
+
+fn spin(n: Int) -> Int {
+    if n <= 0 { 0 } else { spin(n - 1) }
+}
+
+fn await_cancelled() -> Int with Async {
+    let t = Task.spawn(job)
+    let _ = spin(200)
+    Task.cancel(t)
+    Task.await(t)
+}
+
+fn cancelled_one() -> Bool with Async {
+    result_is_ok(try(await_cancelled))
+}
+
+fn main() with IO {
+    print("awaited after cancel: " + to_string(run_async(cancelled_one)))
+    let kept = Task.spawn(job)
+    let dropped = Task.spawn(job)
+    Task.cancel(dropped)
+    print("kept = " + to_string(Task.blocking_join(kept)))
+}

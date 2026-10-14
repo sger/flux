@@ -1,9 +1,0 @@
-// Tasks run on threads of their own and cannot be recorded yet (0188 S8).
-import Flow.Task exposing (..)
-
-fn work() -> Int { 41 + 1 }
-
-fn main() with IO {
-    let t = spawn(work)
-    print("result = " + to_string(blocking_join(t)))
-}

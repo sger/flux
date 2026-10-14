@@ -1,10 +1,10 @@
-//! The effect tape's file format (proposal 0188 §4.3, version 1).
+//! The effect tape's file format (proposal 0188 §4.3, version 2).
 //!
 //! A tape is JSON Lines: one header line, then one line per effect in the
 //! order the program performed them.
 //!
 //! ```text
-//! {"magic":"FLXTAPE","version":1,"flux_version":"0.0.7","program_hash":"sha256:…","argv":["app.flx"],"backend":"vm"}
+//! {"magic":"FLXTAPE","version":2,"flux_version":"0.0.7","program_hash":"sha256:…","argv":["app.flx"],"backend":"vm"}
 //! {"seq":0,"kind":"read_file","path":"in.txt","result":{"ok":{"text":"hello\n"}}}
 //! {"seq":1,"kind":"stdout","text":"hello\n"}
 //! {"seq":2,"kind":"exit","failed":false}
@@ -14,6 +14,12 @@
 //! value, so a tape of synchronous effects recorded by one backend replays on
 //! the other. A tape with async events replays on the backend that recorded
 //! it, whose scheduler it follows.
+//!
+//! Version 2 (0188 S8c) adds tasks: an event says which task's thread
+//! performed it (`task`, absent for the main program), and the tape orders
+//! what crosses threads (spawns, task starts and ends, completions handed
+//! from one thread to another, channel operations once a task exists), so a
+//! replay runs every thread in the recorded order.
 
 use std::fmt;
 use std::io::{BufRead, BufReader};
@@ -24,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use super::error::TapeError;
 
 pub const TAPE_MAGIC: &str = "FLXTAPE";
-pub const TAPE_VERSION: u32 = 1;
+pub const TAPE_VERSION: u32 = 2;
 
 /// The first line of a tape.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,6 +70,11 @@ pub struct TapeEvent {
     /// the tape.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub fiber: u32,
+    /// The logical task whose thread performed the effect: 0 for the main
+    /// program, otherwise tasks numbered from 1 in the order they were
+    /// spawned (0188 S8c).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub task: u32,
     #[serde(flatten)]
     pub request: EffectRequest,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -192,6 +203,50 @@ pub enum EffectRequest {
     AsyncComplete {
         req: u64,
     },
+    // ── Threads (0188 S8c) ────────────────────────────────────────────
+    // What crosses from one thread to another, in the order it happened, so
+    // a replay runs every thread in that order. A task is `id`: tasks are
+    // numbered from 1 in the order they are spawned.
+    /// The program spawned task `id`.
+    TaskSpawn {
+        id: u32,
+    },
+    /// Task `id`'s thread picked it up; the result says whether it ran (a
+    /// task cancelled before it started does not).
+    TaskStart {
+        id: u32,
+    },
+    /// Task `id` finished: with a value, or failed.
+    TaskEnd {
+        id: u32,
+        failed: bool,
+    },
+    /// The program cancelled task `id`.
+    TaskCancel {
+        id: u32,
+    },
+    /// The program joined task `id`.
+    TaskJoin {
+        id: u32,
+    },
+    /// A fiber awaited task `id`; the result says whether the task had
+    /// already finished (native code then takes its result at once).
+    TaskAwait {
+        id: u32,
+    },
+    /// The scheduler received request `req`'s completion from another
+    /// thread: a task's result, or a value a channel or event handed over.
+    /// Replay delivers the real completion at this point.
+    Wake {
+        req: u64,
+    },
+    /// A channel operation once the program has a task: `op` is `make`,
+    /// `send`, `recv`, `try_send`, `try_recv` or `close`, and the result
+    /// whether it succeeded.
+    Channel {
+        chan: u64,
+        op: String,
+    },
     // ── Console ───────────────────────────────────────────────────────
     Stdout {
         text: TapeBytes,
@@ -220,6 +275,8 @@ pub enum EffectClass {
     Submit,
     /// An async completion: replay delivers its recorded result.
     Completion,
+    /// Something that crosses threads: replay does it again, at its turn.
+    Ordered,
 }
 
 impl EffectRequest {
@@ -261,6 +318,14 @@ impl EffectRequest {
             | TcpWrite { .. }
             | TcpClose { .. } => EffectClass::Submit,
             AsyncComplete { .. } => EffectClass::Completion,
+            TaskSpawn { .. }
+            | TaskStart { .. }
+            | TaskEnd { .. }
+            | TaskCancel { .. }
+            | TaskJoin { .. }
+            | TaskAwait { .. }
+            | Wake { .. }
+            | Channel { .. } => EffectClass::Ordered,
         }
     }
 
@@ -304,21 +369,36 @@ impl EffectRequest {
             TcpWrite { .. } => "tcp_write",
             TcpClose { .. } => "tcp_close",
             AsyncComplete { .. } => "async_complete",
+            TaskSpawn { .. } => "task_spawn",
+            TaskStart { .. } => "task_start",
+            TaskEnd { .. } => "task_end",
+            TaskCancel { .. } => "task_cancel",
+            TaskJoin { .. } => "task_join",
+            TaskAwait { .. } => "task_await",
+            Wake { .. } => "wake",
+            Channel { .. } => "channel",
         }
     }
 
     /// Whether a recorded event of this kind must carry a result.
     fn expects_result(&self) -> bool {
-        matches!(
-            self.class(),
-            EffectClass::Input | EffectClass::Output | EffectClass::Completion
-        )
+        use EffectRequest::*;
+        match self {
+            TaskStart { .. } | TaskAwait { .. } | Channel { .. } => true,
+            _ => matches!(
+                self.class(),
+                EffectClass::Input | EffectClass::Output | EffectClass::Completion
+            ),
+        }
     }
 
     /// Whether this event belongs to async code, which replays only on the
     /// backend that recorded it.
     pub fn is_async(&self) -> bool {
-        matches!(self.class(), EffectClass::Submit | EffectClass::Completion)
+        matches!(
+            self.class(),
+            EffectClass::Submit | EffectClass::Completion | EffectClass::Ordered
+        )
     }
 }
 
@@ -381,6 +461,20 @@ impl fmt::Display for EffectRequest {
             ),
             TcpClose { handle } => write!(f, "{kind}(handle {handle})"),
             AsyncComplete { req } => write!(f, "the completion of async request #{req}"),
+            TaskSpawn { id }
+            | TaskStart { id }
+            | TaskCancel { id }
+            | TaskJoin { id }
+            | TaskAwait { id } => {
+                write!(f, "{kind}(task {id})")
+            }
+            TaskEnd { id, failed } => write!(
+                f,
+                "{kind}(task {id}, {})",
+                if *failed { "failed" } else { "done" }
+            ),
+            Wake { req } => write!(f, "the hand-over of async request #{req}"),
+            Channel { chan, op } => write!(f, "{kind}(#{chan}, {op})"),
         }
     }
 }

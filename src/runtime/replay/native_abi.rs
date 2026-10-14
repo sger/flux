@@ -11,9 +11,9 @@
 //! A tape error ends the process: the error goes to stderr as one
 //! `flux-tape-error: {json}` line, which the driver renders as a diagnostic.
 
+use std::cell::RefCell;
 use std::ffi::{CStr, c_char};
 use std::path::Path;
-use std::sync::Mutex;
 
 use super::{
     EffectRequest, FsMeta, IoKind, LoadedTape, Outcome, ProcOut, TapeBytes, TapeError, TapeIoError,
@@ -163,7 +163,10 @@ pub struct FluxTapeOutcome {
 }
 
 /// The request being described, and the buffers a replayed outcome points
-/// into, which stay valid until the next `flux_tape_begin`.
+/// into, which stay valid until the next `flux_tape_begin`. One per thread:
+/// a task's thread describes its own requests while the main program
+/// describes others (0188 S8c).
+#[derive(Default)]
 struct Pending {
     kind: Option<EventKind>,
     args: Vec<Vec<u8>>,
@@ -172,18 +175,28 @@ struct Pending {
     s1: Vec<u8>,
 }
 
-static PENDING: Mutex<Pending> = Mutex::new(Pending {
-    kind: None,
-    args: Vec::new(),
-    list: Vec::new(),
-    s0: Vec::new(),
-    s1: Vec::new(),
-});
+thread_local! {
+    static PENDING: RefCell<Pending> = const {
+        RefCell::new(Pending {
+            kind: None,
+            args: Vec::new(),
+            list: Vec::new(),
+            s0: Vec::new(),
+            s1: Vec::new(),
+        })
+    };
+}
 
-fn pending() -> std::sync::MutexGuard<'static, Pending> {
-    PENDING
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+fn with_pending<R>(f: impl FnOnce(&mut Pending) -> R) -> R {
+    let mut f = Some(f);
+    if let Ok(result) =
+        PENDING.try_with(|pending| (f.take().expect("runs once"))(&mut pending.borrow_mut()))
+    {
+        return result;
+    }
+    // At process exit, after this thread's locals are gone (the tape's
+    // atexit hook): nothing is being described any more.
+    (f.take().expect("did not run"))(&mut Pending::default())
 }
 
 /// Reports a tape error and ends the process.
@@ -228,10 +241,11 @@ pub extern "C" fn flux_tape_init() -> i32 {
 /// Begins describing a request of `kind`.
 #[unsafe(no_mangle)]
 pub extern "C" fn flux_tape_begin(kind: u32) {
-    let mut pending = pending();
-    pending.kind = EventKind::from_raw(kind);
-    pending.args.clear();
-    pending.list.clear();
+    with_pending(|pending| {
+        pending.kind = EventKind::from_raw(kind);
+        pending.args.clear();
+        pending.list.clear();
+    });
 }
 
 /// Adds the request's next string argument.
@@ -242,7 +256,7 @@ pub extern "C" fn flux_tape_begin(kind: u32) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn flux_tape_arg(ptr: *const u8, len: usize) {
     let bytes = unsafe { slice(ptr, len) }.to_vec();
-    pending().args.push(bytes);
+    with_pending(|pending| pending.args.push(bytes));
 }
 
 /// Adds the next item of a LIST outcome being recorded.
@@ -253,7 +267,7 @@ pub unsafe extern "C" fn flux_tape_arg(ptr: *const u8, len: usize) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn flux_tape_list_push(ptr: *const u8, len: usize) {
     let bytes = unsafe { slice(ptr, len) }.to_vec();
-    pending().list.push(bytes);
+    with_pending(|pending| pending.list.push(bytes));
 }
 
 fn take_request(pending: &mut Pending) -> EffectRequest {
@@ -273,12 +287,11 @@ fn take_request(pending: &mut Pending) -> EffectRequest {
 pub unsafe extern "C" fn flux_tape_record(outcome: *const FluxTapeOutcome) {
     // SAFETY: C passes a valid outcome.
     let raw = unsafe { &*outcome };
-    let (request, outcome) = {
-        let mut pending = pending();
-        let request = take_request(&mut pending);
+    let (request, outcome) = with_pending(|pending| {
+        let request = take_request(pending);
         let list = std::mem::take(&mut pending.list);
         (request, unsafe { decode(raw, list) })
-    };
+    });
     if let Err(err) = super::effect(request, || outcome) {
         fatal(err);
     }
@@ -292,15 +305,14 @@ pub unsafe extern "C" fn flux_tape_record(outcome: *const FluxTapeOutcome) {
 /// `out` points to a writable `FluxTapeOutcome`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn flux_tape_replay(out: *mut FluxTapeOutcome) {
-    let request = take_request(&mut pending());
+    let request = with_pending(take_request);
     let outcome = match super::effect(request, || unreachable!("replay never performs")) {
         Ok(outcome) => outcome,
         Err(err) => fatal(err),
     };
-    let mut pending = pending();
     // SAFETY: C passes a writable outcome.
     let out = unsafe { &mut *out };
-    encode(&outcome, out, &mut pending);
+    with_pending(|pending| encode(&outcome, out, pending));
 }
 
 /// The `index`th item of the LIST outcome just replayed.
@@ -310,30 +322,135 @@ pub unsafe extern "C" fn flux_tape_replay(out: *mut FluxTapeOutcome) {
 /// `len` points to a writable `usize`; the returned bytes are valid until the next `flux_tape_begin`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn flux_tape_list_item(index: usize, len: *mut usize) -> *const u8 {
-    let pending = pending();
-    let item = pending.list.get(index).map(Vec::as_slice).unwrap_or(&[]);
-    // SAFETY: C passes a writable length; the bytes live in PENDING until the
-    // next begin, and C copies them before then.
-    unsafe { *len = item.len() };
-    item.as_ptr()
+    with_pending(|pending| {
+        let item = pending.list.get(index).map(Vec::as_slice).unwrap_or(&[]);
+        // SAFETY: C passes a writable length; the bytes live in this thread's
+        // PENDING until its next begin, and C copies them before then.
+        unsafe { *len = item.len() };
+        item.as_ptr()
+    })
 }
 
-/// Records or checks a line of console output (`stream` 0 stdout, 1 stderr).
+/// Records or checks a line of console output (`stream` 0 stdout, 1 stderr),
+/// and returns whether to print it. C prints it, then calls
+/// `flux_tape_console_done`: while replaying, this thread keeps its turn in
+/// between, so threads print in the recorded order (0188 S8c).
 ///
 /// # Safety
 ///
 /// `ptr` points to `len` readable bytes (or is null with `len` 0).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn flux_tape_console(stream: i32, ptr: *const u8, len: usize) {
+pub unsafe extern "C" fn flux_tape_console(stream: i32, ptr: *const u8, len: usize) -> i32 {
     let text = TapeBytes(unsafe { slice(ptr, len) }.to_vec());
     let request = if stream == 1 {
         EffectRequest::Stderr { text }
     } else {
         EffectRequest::Stdout { text }
     };
-    if let Err(err) = super::console(request) {
+    match super::console_begin(request) {
+        Ok(shown) => shown as i32,
+        Err(err) => fatal(err),
+    }
+}
+
+/// Ends the turn `flux_tape_console` took, once the text is printed.
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_tape_console_done() {
+    super::console_end();
+}
+
+/// What `flux_tape_ordered_begin` begins (0188 S8c).
+const ORDERED_TASK_SPAWN: u32 = 1;
+const ORDERED_TASK_START: u32 = 2;
+const ORDERED_TASK_END: u32 = 3;
+const ORDERED_TASK_CANCEL: u32 = 4;
+const ORDERED_TASK_JOIN: u32 = 5;
+const ORDERED_TASK_AWAIT: u32 = 6;
+const ORDERED_CHANNEL: u32 = 7;
+
+/// The channel operations `flux_tape_ordered_begin` names by number.
+const CHANNEL_OPS: [&str; 8] = [
+    "make",
+    "send",
+    "recv",
+    "try_send",
+    "try_recv",
+    "close",
+    "len",
+    "is_closed",
+];
+
+/// Begins something that crosses threads while a tape is active: `kind` is
+/// one of the `ORDERED_*` numbers, `a` the logical task (or the real
+/// channel id), `b` a task end's `failed` (or a channel's operation, an
+/// index in `CHANNEL_OPS`). C does it, then calls `flux_tape_ordered_end`.
+/// Returns a spawned task's logical number, or a channel's.
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_tape_ordered_begin(kind: u32, a: u64, b: u64) -> u64 {
+    let id = a as u32;
+    let channel_op = || {
+        CHANNEL_OPS
+            .get(b as usize)
+            .copied()
+            .unwrap_or("?")
+            .to_string()
+    };
+    let hint = match kind {
+        ORDERED_TASK_SPAWN => EffectRequest::TaskSpawn { id: 0 },
+        ORDERED_TASK_START => EffectRequest::TaskStart { id },
+        ORDERED_TASK_END => EffectRequest::TaskEnd { id, failed: b != 0 },
+        ORDERED_TASK_CANCEL => EffectRequest::TaskCancel { id },
+        ORDERED_TASK_JOIN => EffectRequest::TaskJoin { id },
+        ORDERED_TASK_AWAIT => EffectRequest::TaskAwait { id },
+        _ => EffectRequest::Channel {
+            chan: 0,
+            op: channel_op(),
+        },
+    };
+    let made = super::ordered_begin(&hint, || match kind {
+        ORDERED_TASK_SPAWN => EffectRequest::TaskSpawn {
+            id: super::async_tape::next_task(),
+        },
+        ORDERED_CHANNEL => EffectRequest::Channel {
+            chan: super::async_tape::logical_channel(a),
+            op: channel_op(),
+        },
+        _ => hint.clone(),
+    });
+    match made {
+        Ok(EffectRequest::TaskSpawn { id }) => id as u64,
+        Ok(EffectRequest::Channel { chan, .. }) => chan,
+        Ok(_) => 0,
+        Err(err) => fatal(err),
+    }
+}
+
+/// Ends what `flux_tape_ordered_begin` began, with what it returned:
+/// `shape` 0 nothing, 1 a Bool, 2 an Int, in `value`.
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_tape_ordered_end(shape: i32, value: i64) {
+    let outcome = match shape {
+        1 => Some(Outcome::Bool(value != 0)),
+        2 => Some(Outcome::Int(value)),
+        _ => None,
+    };
+    if let Err(err) = super::ordered_end(outcome) {
         fatal(err);
     }
+}
+
+/// Whether the program has spawned a task under the tape: from then on its
+/// channel operations are ordered.
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_tape_has_tasks() -> i32 {
+    super::async_tape::has_tasks() as i32
+}
+
+/// This thread runs logical task `task` (0188 S8c): what it records is that
+/// task's.
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_tape_enter_task(task: u32) {
+    super::async_tape::enter_task(task);
 }
 
 /// Ends the tape: `failed` when the program panicked. A request begun but not
@@ -347,10 +464,8 @@ pub unsafe extern "C" fn flux_tape_console(stream: i32, ptr: *const u8, len: usi
 pub unsafe extern "C" fn flux_tape_finish(failed: i32, ptr: *const u8, len: usize) {
     let message = (!ptr.is_null() && len > 0)
         .then(|| String::from_utf8_lossy(unsafe { slice(ptr, len) }).into_owned());
-    let unfinished = {
-        let mut pending = pending();
-        pending.kind.take().map(|kind| kind.request(&pending.args))
-    };
+    let unfinished =
+        with_pending(|pending| pending.kind.take().map(|kind| kind.request(&pending.args)));
     if let (Some(request), true) = (unfinished, failed != 0) {
         let failure = Outcome::Fail(message.clone().unwrap_or_default());
         if let Err(err) = super::effect(request, || failure) {

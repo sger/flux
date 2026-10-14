@@ -95,6 +95,8 @@ thread_local! {
     static CURRENT_FIBER: Cell<u64> = const { Cell::new(0) };
     static CURRENT_WORKER: Cell<usize> = const { Cell::new(0) };
     static LAST_RUN_FAILED: Cell<bool> = const { Cell::new(false) };
+    /// Whether this thread runs the active `run_async`'s scheduler.
+    static ON_RUN_THREAD: Cell<bool> = const { Cell::new(false) };
 }
 
 #[repr(C)]
@@ -249,6 +251,10 @@ struct NativeRun {
     blocked: HashMap<u64, Blocked>,
     bodies: HashMap<u64, u64>,
     running_fibers: HashMap<u64, u64>,
+    /// Under an effect tape (0188 S8c): completions another thread handed
+    /// over (a task's result, a channel's value), which the run's own
+    /// thread delivers where the tape has them.
+    handed_over: VecDeque<(u64, i64)>,
 }
 
 /// What a parked fiber waits for. Fibers are named by id; the thread view
@@ -435,6 +441,7 @@ impl NativeRun {
             blocked: HashMap::new(),
             bodies,
             running_fibers: HashMap::new(),
+            handed_over: VecDeque::new(),
         }
     }
 
@@ -1246,7 +1253,11 @@ fn ready_timers() -> &'static Mutex<HashSet<u64>> {
 }
 
 fn next_request_id() -> u64 {
-    NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed)
+    let req = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
+    // Numbered for the tape as it is made: another thread may complete it
+    // without it ever being submitted (0188 S8c).
+    crate::runtime::replay::async_tape::note_request(req);
+    req
 }
 
 fn next_fiber_id() -> u64 {
@@ -1663,9 +1674,21 @@ pub extern "C" fn flux_async_run_root(root_closure: i64) -> i64 {
 
 fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64 {
     let worker_count = crate::runtime::replay::worker_count(worker_count);
+    if crate::runtime::replay::is_active()
+        && crate::runtime::replay::async_tape::current_task() != 0
+    {
+        // A task's own run_async would share the process's one active run
+        // with the program's (0188 S8c).
+        crate::runtime::replay::async_tape::fail(crate::runtime::replay::unsupported(
+            "run_async inside a task",
+        ));
+    }
     if crate::runtime::replay::is_active() {
         crate::runtime::replay::async_tape::set_fiber_source(|| {
-            Some(CURRENT_FIBER.with(|c| c.get())).filter(|id| *id != 0)
+            CURRENT_FIBER
+                .try_with(|c| c.get())
+                .ok()
+                .filter(|id| *id != 0)
         });
     }
     let Some(cb) = callbacks().copied() else {
@@ -1680,6 +1703,7 @@ fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64
     let previous_run = active_run();
     let handle = RunHandle::new(root_closure, worker_count);
     set_active_run(Some(handle.clone()));
+    let was_run_thread = ON_RUN_THREAD.with(|on| on.replace(true));
     // Reuse the process-global worker pool instead of spawning fresh threads
     // per boundary; pooled workers serve whatever `active_run()` currently is.
     pool_ensure(worker_count, cb);
@@ -1735,6 +1759,23 @@ fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64
             if state.shutdown {
                 break;
             }
+        }
+
+        if crate::runtime::replay::is_active()
+            && let Some((req, value)) = crate::runtime::replay::async_tape::deliver_cross(|want| {
+                take_handed_over(&handle, want)
+            })
+        {
+            {
+                let mut state = handle
+                    .shared
+                    .state
+                    .lock()
+                    .expect("native async state poisoned");
+                state.wake(req, FiberOutcome::Value(value));
+            }
+            handle.notify_all();
+            continue;
         }
 
         if let Some(completion) = backend().next_completion() {
@@ -1812,6 +1853,7 @@ fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64
         unsafe { (cb.task_cancel)(task_id) };
     }
 
+    ON_RUN_THREAD.with(|on| on.set(was_run_thread));
     set_active_run(previous_run);
     // Redirect pooled workers to the (possibly restored) active run, or let
     // them park if there is none.
@@ -2244,9 +2286,54 @@ pub extern "C" fn flux_async_task_complete(request_id: u64, value: i64) {
             .state
             .lock()
             .expect("native async state poisoned");
-        state.wake(request_id, FiberOutcome::Value(value));
+        if crate::runtime::replay::is_active() && !ON_RUN_THREAD.with(|on| on.get()) {
+            // From another thread: the run's thread delivers it where the
+            // tape has it (0188 S8c).
+            state.handed_over.push_back((request_id, value));
+        } else {
+            state.wake(request_id, FiberOutcome::Value(value));
+        }
     }
     handle.notify_all();
+}
+
+/// A completion another thread handed over, for `async_tape::deliver_cross`:
+/// `None` takes the first, without waiting; `Some(req)` waits for request
+/// `req`'s, which the tape says has been handed over.
+fn take_handed_over(handle: &RunHandle, want: Option<u64>) -> Option<(u64, (u64, i64))> {
+    let started = std::time::Instant::now();
+    let mut state = handle
+        .shared
+        .state
+        .lock()
+        .expect("native async state poisoned");
+    loop {
+        let at = match want {
+            None => (!state.handed_over.is_empty()).then_some(0),
+            Some(req) => state.handed_over.iter().position(|(id, _)| *id == req),
+        };
+        if let Some(at) = at {
+            let found = state.handed_over.remove(at).expect("position is in range");
+            return Some((found.0, found));
+        }
+        let req = want?;
+        if started.elapsed() >= crate::runtime::replay::async_tape::HAND_OVER_LIMIT {
+            drop(state);
+            crate::runtime::replay::async_tape::fail(crate::runtime::replay::TapeError::Stalled {
+                index: 0,
+                expected: format!("the hand-over of request {req}"),
+                owner: "another thread".to_string(),
+                waiting: "the scheduler".to_string(),
+                actual: "the next fiber".to_string(),
+            });
+        }
+        state = handle
+            .shared
+            .cvar
+            .wait_timeout(state, Duration::from_millis(1))
+            .expect("native async state poisoned")
+            .0;
+    }
 }
 
 /// Poll the backend dispatch path until `req` has completed.

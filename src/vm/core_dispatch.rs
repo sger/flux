@@ -302,7 +302,11 @@ pub(super) mod vm_async {
     }
 
     pub fn alloc_request_id() -> RequestId {
-        RequestId(NEXT_REQ.fetch_add(1, Ordering::Relaxed))
+        let req = NEXT_REQ.fetch_add(1, Ordering::Relaxed);
+        // Numbered for the tape as it is made: another thread may complete
+        // it without it ever being submitted (0188 S8c).
+        crate::runtime::replay::async_tape::note_request(req);
+        RequestId(req)
     }
 
     pub fn configure_dns_pool_size(size: usize) {
@@ -496,6 +500,71 @@ mod vm_fibers {
         }))
     }
 
+    /// The next completion another thread or queue handed the scheduler: a
+    /// task's result, then a channel's value, then an event's, in that order.
+    fn next_handed_over() -> Option<(u64, FiberOutcome)> {
+        if let Some((request_id, result)) = super::super::task::try_recv_completion() {
+            let outcome = match result {
+                Ok(value) => FiberOutcome::Value(Value::Some(Rc::new(value))),
+                Err(err) if err == "TaskCancelled" => FiberOutcome::Value(Value::None),
+                Err(err) => FiberOutcome::Error(async_panicked(err)),
+            };
+            return Some((request_id, outcome));
+        }
+        if let Some((request_id, result)) = super::super::channel::try_recv_completion() {
+            let outcome = match result {
+                Ok(value) => FiberOutcome::Value(value),
+                Err(err) => FiberOutcome::Error(async_panicked(err)),
+            };
+            return Some((request_id, outcome));
+        }
+        super::super::event::try_recv_completion()
+            .map(|request_id| (request_id, FiberOutcome::Value(Value::None)))
+    }
+
+    thread_local! {
+        /// Hand-overs taken from the queues and not yet delivered: a replay
+        /// delivers them in the tape's order, not the order they arrived in.
+        static HANDED_OVER: RefCell<Vec<(u64, FiberOutcome)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// [`next_handed_over`] for `async_tape::deliver_cross`: `None` takes the
+    /// first ready, `Some(req)` waits for request `req`'s.
+    fn take_handed_over(want: Option<u64>) -> Option<(u64, (u64, FiberOutcome))> {
+        let started = std::time::Instant::now();
+        loop {
+            while let Some(found) = next_handed_over() {
+                HANDED_OVER.with(|held| held.borrow_mut().push(found));
+            }
+            let taken = HANDED_OVER.with(|held| {
+                let mut held = held.borrow_mut();
+                let at = match want {
+                    None => (!held.is_empty()).then_some(0),
+                    Some(req) => held.iter().position(|(id, _)| *id == req),
+                }?;
+                Some(held.remove(at))
+            });
+            match (taken, want) {
+                (Some(found), _) => return Some((found.0, found)),
+                (None, None) => return None,
+                (None, Some(req)) => {
+                    if started.elapsed() >= crate::runtime::replay::async_tape::HAND_OVER_LIMIT {
+                        crate::runtime::replay::async_tape::fail(
+                            crate::runtime::replay::TapeError::Stalled {
+                                index: 0,
+                                expected: format!("the hand-over of request {req}"),
+                                owner: "another thread".to_string(),
+                                waiting: "the scheduler".to_string(),
+                                actual: "the next fiber".to_string(),
+                            },
+                        );
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+            }
+        }
+    }
+
     pub fn async_panicked(message: impl Into<String>) -> Value {
         adt1("Panicked", Value::String(Rc::new(message.into())))
     }
@@ -611,6 +680,15 @@ mod vm_fibers {
     /// the root fiber id so the caller can pair this with `exit_run_async`.
     pub fn enter_run_async() -> FiberId {
         crate::vm::debug::note_async_start();
+        if crate::runtime::replay::is_active()
+            && crate::runtime::replay::async_tape::current_task() != 0
+        {
+            // A task's own scheduler would interleave with the program's
+            // in ways the tape does not order (0188 S8c).
+            crate::runtime::replay::async_tape::fail(crate::runtime::replay::unsupported(
+                "run_async inside a task",
+            ));
+        }
         if crate::runtime::replay::is_active() {
             crate::runtime::replay::async_tape::set_fiber_source(|| {
                 CURRENT.with(|c| c.get()).map(|id| id.0)
@@ -1810,37 +1888,15 @@ mod vm_fibers {
 
             // Pump the backend until a completion arrives, then route it.
             loop {
-                if let Some((request_id, result)) = super::super::task::try_recv_completion() {
-                    let outcome = match result {
-                        Ok(value) => FiberOutcome::Value(Value::Some(Rc::new(value))),
-                        Err(err) if err == "TaskCancelled" => FiberOutcome::Value(Value::None),
-                        Err(err) => FiberOutcome::Error(async_panicked(err)),
-                    };
+                // Task results and channel and event hand-overs: under a
+                // tape, taken where the tape has them (0188 S8c).
+                let handed_over = if crate::runtime::replay::is_active() {
+                    crate::runtime::replay::async_tape::deliver_cross(take_handed_over)
+                } else {
+                    next_handed_over()
+                };
+                if let Some((request_id, outcome)) = handed_over {
                     set_resume_outcome(request_id, outcome);
-                    SCHED.with(|s| {
-                        s.borrow_mut()
-                            .as_mut()
-                            .expect("scheduler missing")
-                            .complete_request(RequestId(request_id));
-                    });
-                    break;
-                }
-                if let Some((request_id, result)) = super::super::channel::try_recv_completion() {
-                    let outcome = match result {
-                        Ok(value) => FiberOutcome::Value(value),
-                        Err(err) => FiberOutcome::Error(async_panicked(err)),
-                    };
-                    set_resume_outcome(request_id, outcome);
-                    SCHED.with(|s| {
-                        s.borrow_mut()
-                            .as_mut()
-                            .expect("scheduler missing")
-                            .complete_request(RequestId(request_id));
-                    });
-                    break;
-                }
-                if let Some(request_id) = super::super::event::try_recv_completion() {
-                    set_resume_outcome(request_id, FiberOutcome::Value(Value::None));
                     SCHED.with(|s| {
                         s.borrow_mut()
                             .as_mut()
@@ -3009,6 +3065,42 @@ fn propagate_if_park_cancelled() -> Result<(), String> {
     }
 }
 
+/// Under a tape, once the program has spawned a task, a channel operation
+/// takes its turn on the tape (0188 S8c): another thread may use the
+/// channel, and what the operation finds depends on who got there first.
+/// `outcome` says what it found, which a replay checks.
+fn taped_channel<T>(
+    id: i64,
+    op: &str,
+    run: impl FnOnce() -> Result<T, String>,
+    outcome: impl FnOnce(&T) -> crate::runtime::replay::Outcome,
+) -> Result<T, String> {
+    use crate::runtime::replay::{self, EffectRequest, Outcome, async_tape};
+    if !async_tape::has_tasks() {
+        return run();
+    }
+    let hint = EffectRequest::Channel {
+        chan: 0,
+        op: op.to_string(),
+    };
+    let began = replay::ordered_begin(&hint, || EffectRequest::Channel {
+        chan: async_tape::logical_channel(id as u64),
+        op: op.to_string(),
+    });
+    if let Err(err) = began {
+        async_tape::fail(err);
+    }
+    let result = run();
+    let found = match &result {
+        Ok(value) => outcome(value),
+        Err(err) => Outcome::Fail(err.clone()),
+    };
+    if let Err(err) = replay::ordered_end(Some(found)) {
+        async_tape::fail(err);
+    }
+    result
+}
+
 /// Execute a `CorePrimOp` with the given arguments.
 ///
 /// This is the single dispatch point for all `OpPrimOp` instructions in the VM.
@@ -4172,12 +4264,19 @@ pub fn execute_core_primop(
                     }
                     let req = vm_async::alloc_request_id();
                     let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
-                    if move_send {
-                        let mut args = args;
-                        super::channel::start_send_move(id, args.swap_remove(1), req.0)?;
-                    } else {
-                        super::channel::start_send(id, &args[1], req.0)?;
-                    }
+                    taped_channel(
+                        id,
+                        "send",
+                        || {
+                            if move_send {
+                                let mut args = args;
+                                super::channel::start_send_move(id, args.swap_remove(1), req.0)
+                            } else {
+                                super::channel::start_send(id, &args[1], req.0)
+                            }
+                        },
+                        |_| crate::runtime::replay::Outcome::Bool(true),
+                    )?;
                     fiber_trace::emit(FiberEvent::ChanSend {
                         ch: id,
                         fid: vm_fibers::current_fiber_id(),
@@ -4212,7 +4311,12 @@ pub fn execute_core_primop(
                     }
                     let req = vm_async::alloc_request_id();
                     let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
-                    super::channel::start_recv(*id, req.0)?;
+                    taped_channel(
+                        *id,
+                        "recv",
+                        || super::channel::start_recv(*id, req.0),
+                        |_| crate::runtime::replay::Outcome::Bool(true),
+                    )?;
                     fiber_trace::emit(FiberEvent::ChanRecv {
                         ch: *id,
                         fid: vm_fibers::current_fiber_id(),
@@ -4236,29 +4340,53 @@ pub fn execute_core_primop(
         ChanTrySend | ChanTrySendMove => match &args[0] {
             Value::Integer(id) => {
                 let id = *id;
-                if op == ChanTrySendMove {
-                    let mut args = args;
-                    super::channel::try_send_move(id, args.swap_remove(1)).map(Value::Boolean)
-                } else {
-                    super::channel::try_send(id, &args[1]).map(Value::Boolean)
-                }
+                taped_channel(
+                    id,
+                    "try_send",
+                    || {
+                        if op == ChanTrySendMove {
+                            let mut args = args;
+                            super::channel::try_send_move(id, args.swap_remove(1))
+                        } else {
+                            super::channel::try_send(id, &args[1])
+                        }
+                    },
+                    |sent| crate::runtime::replay::Outcome::Bool(*sent),
+                )
+                .map(Value::Boolean)
             }
             other => Err(terr("chan_try_send", "Int", other)),
         },
         ChanTryRecv => match &args[0] {
-            Value::Integer(id) => super::channel::try_recv(*id),
+            Value::Integer(id) => taped_channel(
+                *id,
+                "try_recv",
+                || super::channel::try_recv(*id),
+                |got| crate::runtime::replay::Outcome::Bool(!matches!(got, Value::None)),
+            ),
             other => Err(terr("chan_try_recv", "Int", other)),
         },
         ChanClose => match &args[0] {
             Value::Integer(id) => {
-                super::channel::close(*id)?;
+                taped_channel(
+                    *id,
+                    "close",
+                    || super::channel::close(*id),
+                    |_| crate::runtime::replay::Outcome::Bool(true),
+                )?;
                 fiber_trace::emit(FiberEvent::ChanClose { ch: *id });
                 Ok(Value::None)
             }
             other => Err(terr("chan_close", "Int", other)),
         },
         ChanLen => match &args[0] {
-            Value::Integer(id) => super::channel::len(*id).map(Value::Integer),
+            Value::Integer(id) => taped_channel(
+                *id,
+                "len",
+                || super::channel::len(*id),
+                |len| crate::runtime::replay::Outcome::Int(*len),
+            )
+            .map(Value::Integer),
             other => Err(terr("chan_len", "Int", other)),
         },
         ChanCap => match &args[0] {
@@ -4266,7 +4394,13 @@ pub fn execute_core_primop(
             other => Err(terr("chan_cap", "Int", other)),
         },
         ChanIsClosed => match &args[0] {
-            Value::Integer(id) => super::channel::is_closed(*id).map(Value::Boolean),
+            Value::Integer(id) => taped_channel(
+                *id,
+                "is_closed",
+                || super::channel::is_closed(*id),
+                |closed| crate::runtime::replay::Outcome::Bool(*closed),
+            )
+            .map(Value::Boolean),
             other => Err(terr("chan_is_closed", "Int", other)),
         },
         EventRecv => match &args[0] {

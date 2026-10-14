@@ -42,12 +42,21 @@ pub enum TapeError {
     BadTape { path: String, reason: String },
     /// E1027: an effect that cannot be recorded yet.
     Unsupported { what: String },
+    /// E1022: a replay with tasks where one thread waited for its turn while
+    /// the tape's next event, another thread's, never came (0188 S8c).
+    Stalled {
+        index: u64,
+        expected: String,
+        owner: String,
+        waiting: String,
+        actual: String,
+    },
 }
 
 impl TapeError {
     pub fn code(&self) -> &'static ErrorCode {
         match self {
-            TapeError::KindMismatch { .. } => &REPLAY_KIND_MISMATCH,
+            TapeError::KindMismatch { .. } | TapeError::Stalled { .. } => &REPLAY_KIND_MISMATCH,
             TapeError::PayloadMismatch { .. } => &REPLAY_PAYLOAD_MISMATCH,
             TapeError::Exhausted { .. } => &REPLAY_TAPE_EXHAUSTED,
             TapeError::Leftover { .. } => &REPLAY_LEFTOVER_EVENTS,
@@ -87,6 +96,16 @@ impl TapeError {
             TapeError::Unsupported { what } => {
                 format!("`{what}` cannot be recorded or replayed yet.")
             }
+            TapeError::Stalled {
+                index,
+                expected,
+                owner,
+                waiting,
+                actual,
+            } => format!(
+                "Replay diverged at event #{index}: the tape expected {expected} from {owner}, \
+                 which never came, while {waiting} waited to perform {actual}."
+            ),
         }
     }
 
