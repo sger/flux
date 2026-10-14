@@ -772,7 +772,25 @@ impl RuntimeContext for VM {
         // `execute_primop_opcode` which has not yet returned, so the
         // frame's IP still points at the OpPrimOp; on resume we want to
         // continue at the next instruction, not re-execute the primop.
-        self.capture_to_boundary(entry_frame_index, entry_sp, 3, vec![], None)
+        let serials = if self.debugger.is_some() {
+            self.debug_call_serials(entry_frame_index)
+        } else {
+            Vec::new()
+        };
+        let cont = self.capture_to_boundary(entry_frame_index, entry_sp, 3, vec![], None)?;
+        if !serials.is_empty()
+            && let Value::Continuation(continuation) = &cont
+        {
+            continuation.borrow_mut().debug_serials = serials;
+        }
+        Ok(cont)
+    }
+
+    fn debug_idle(&mut self) -> Result<(), String> {
+        if self.debugger.is_none() {
+            return Ok(());
+        }
+        self.debug_pause_idle()
     }
 
     fn vm_worker_shared_state(&self) -> Option<Box<dyn std::any::Any + Send>> {
@@ -787,6 +805,9 @@ impl RuntimeContext for VM {
         // the captured frames back on top.
         self.push(cont)?;
         self.push(resume_val)?;
+        if let Some(state) = self.debugger.as_mut() {
+            state.control.resuming_fiber = true;
+        }
         self.execute_resume(1, None)?;
         // Drive the interpreter loop until the captured frames return.
         // Mirrors invoke_value's tail (lines 564–571) so we get a final

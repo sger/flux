@@ -21,13 +21,16 @@
 mod checkpoint;
 mod effects;
 mod inspect;
+mod threads;
 mod values;
 
 use std::collections::HashSet;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+pub(crate) use inspect::display_name;
 pub use inspect::{FrameKind, HandlerView, Inspector, StackFrame, Variable};
+pub use threads::{ThreadState, ThreadView};
 
 pub use values::ValueView;
 
@@ -62,22 +65,25 @@ impl StopReason {
     }
 }
 
-/// The runtime errors the debugger can stop at (0188 S7). Async and fiber
-/// failures come with fibers, in S8.
+/// The runtime errors the debugger can stop at (0188 S7, S8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ExceptionKind {
     Panic,
     DivisionByZero,
     UnhandledEffect,
+    /// A fiber failing with `Async.fail` (S8). A panic or another runtime
+    /// error in a fiber stops as itself.
+    FiberFailure,
     /// Any other runtime error: a failed `unwrap`, a type error, ...
     RuntimeError,
 }
 
 impl ExceptionKind {
-    pub const ALL: [ExceptionKind; 4] = [
+    pub const ALL: [ExceptionKind; 5] = [
         ExceptionKind::Panic,
         ExceptionKind::DivisionByZero,
         ExceptionKind::UnhandledEffect,
+        ExceptionKind::FiberFailure,
         ExceptionKind::RuntimeError,
     ];
 
@@ -87,6 +93,7 @@ impl ExceptionKind {
             ExceptionKind::Panic => "panic",
             ExceptionKind::DivisionByZero => "division_by_zero",
             ExceptionKind::UnhandledEffect => "unhandled_effect",
+            ExceptionKind::FiberFailure => "fiber_failure",
             ExceptionKind::RuntimeError => "runtime_error",
         }
     }
@@ -96,6 +103,7 @@ impl ExceptionKind {
             "panic" => Some(ExceptionKind::Panic),
             "division" | "division_by_zero" => Some(ExceptionKind::DivisionByZero),
             "unhandled" | "unhandled_effect" => Some(ExceptionKind::UnhandledEffect),
+            "fibers" | "fiber_failure" => Some(ExceptionKind::FiberFailure),
             "errors" | "runtime_error" => Some(ExceptionKind::RuntimeError),
             _ => None,
         }
@@ -107,6 +115,7 @@ impl ExceptionKind {
             ExceptionKind::Panic => "panic",
             ExceptionKind::DivisionByZero => "division by zero",
             ExceptionKind::UnhandledEffect => "unhandled effect",
+            ExceptionKind::FiberFailure => "fiber failure",
             ExceptionKind::RuntimeError => "runtime error",
         }
     }
@@ -206,6 +215,11 @@ static INTERRUPT: AtomicBool = AtomicBool::new(false);
 /// stop site. Safe to call from any thread.
 pub fn request_interrupt() {
     INTERRUPT.store(true, Ordering::Release);
+}
+
+/// Whether the front end has asked to be heard.
+pub(crate) fn interrupt_pending() -> bool {
+    INTERRUPT.load(Ordering::Relaxed)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -308,8 +322,17 @@ pub(crate) struct DebugControl {
     /// The runtime errors to stop at.
     pub(crate) catch: HashSet<ExceptionKind>,
     /// The error stopped at, while the program is stopped there and after:
-    /// it unwinds through nested dispatch loops, each of which sees it.
-    pub(crate) exception: Option<(ExceptionKind, String, String)>,
+    /// it unwinds through nested dispatch loops, each of which sees it, and
+    /// the position it was at. A fiber's error comes back up as the run's
+    /// own (`AsyncError: …`) at the same position.
+    pub(crate) exception: Option<(ExceptionKind, String, String, u64)>,
+    /// The thread the front end looks at, when not the one stopped (S8).
+    pub(crate) thread: Option<u64>,
+    /// The fiber a step started in: sites in other fibers do not end it.
+    step_fiber: Option<u64>,
+    /// The next resume puts back a parked fiber, not a continuation a
+    /// handler resumes.
+    pub(crate) resuming_fiber: bool,
 }
 
 impl DebugControl {
@@ -365,6 +388,9 @@ impl DebugState {
                     .filter(|kind| kind.caught_by_default())
                     .collect(),
                 exception: None,
+                thread: None,
+                step_fiber: None,
+                resuming_fiber: false,
             },
             observer,
         }
@@ -385,7 +411,7 @@ pub(crate) fn turn_off_reverse(reason: String) {
 }
 
 /// The program is entering `run_async`. The scheduler's state lives outside
-/// the VM, where checkpoints do not reach yet (0188 S8), so going back is
+/// the VM, where checkpoints do not reach yet (0188 S9), so going back is
 /// off from here on, and a debug session's own recording stops.
 pub(crate) fn note_async_start() {
     if ASYNC_STARTED.swap(true, Ordering::Relaxed) {
@@ -393,7 +419,7 @@ pub(crate) fn note_async_start() {
     }
     replay::stop_implicit();
     turn_off_reverse(
-        "the program has run async code, which going back does not cover yet (0188 S8)".to_string(),
+        "the program has run async code, which going back does not cover yet (0188 S9)".to_string(),
     );
 }
 
@@ -431,6 +457,7 @@ impl VM {
     /// Attaches a debugger and lets it set breakpoints before the program
     /// runs. The program must be built with `-g` for it to stop anywhere.
     pub fn attach_debugger(&mut self, observer: Box<dyn VmObserver>) {
+        super::fiber_debug::enable();
         let mut state = Box::new(DebugState::new(observer));
         let resume = {
             let mut inspector = Inspector::new(self, &mut state.control);
@@ -522,18 +549,22 @@ impl VM {
     #[cold]
     #[inline(never)]
     pub(super) fn debug_on_error(&mut self, error: String) -> String {
-        if error == REWIND || error == "__fiber_error__" {
+        // A fiber parking unwinds to the scheduler: not an error.
+        if error == REWIND || error == "__fiber_park__" || error == "__flux_fiber_park__" {
             return error;
         }
+        let Some((kind, message)) = classify_error(&error) else {
+            return error;
+        };
         let Some(mut state) = self.debugger.take() else {
             return error;
         };
+        let position = state.control.position;
         let seen = state
             .control
             .exception
             .as_ref()
-            .is_some_and(|(_, _, raw)| *raw == error);
-        let (kind, message) = ExceptionKind::classify(&error);
+            .is_some_and(|(_, _, raw, at)| *raw == error || *at == position);
         let result =
             if seen || state.control.rewind.is_some() || !state.control.catch.contains(&kind) {
                 Ok(())
@@ -545,7 +576,7 @@ impl VM {
                 // stop before it is where the search ends.
                 Ok(())
             } else {
-                state.control.exception = Some((kind, message, error.clone()));
+                state.control.exception = Some((kind, message, error.clone(), position));
                 self.stop(&mut state, StopReason::Exception(kind))
             };
         self.debugger = Some(state);
@@ -553,6 +584,36 @@ impl VM {
             Err(rewind) => rewind,
             Ok(()) => error,
         }
+    }
+
+    /// Every fiber waits, and the front end has something to say: hear it,
+    /// and stop if it asks to pause (S8). There is no stop site to wait
+    /// for while nothing runs.
+    #[cold]
+    #[inline(never)]
+    pub(super) fn debug_pause_idle(&mut self) -> Result<(), String> {
+        let Some(mut state) = self.debugger.take() else {
+            return Ok(());
+        };
+        let result = if matches!(
+            state.control.mode,
+            StepMode::Scan(_) | StepMode::RunTo { .. }
+        ) {
+            Ok(())
+        } else {
+            INTERRUPT.store(false, Ordering::Relaxed);
+            let pause = {
+                let mut inspector = Inspector::new(self, &mut state.control);
+                state.observer.on_interrupt(&mut inspector)
+            };
+            if pause {
+                self.stop(&mut state, StopReason::Pause)
+            } else {
+                Ok(())
+            }
+        };
+        self.debugger = Some(state);
+        result
     }
 
     fn debug_site_with(&mut self, state: &mut DebugState, site: usize) -> Result<(), String> {
@@ -587,20 +648,23 @@ impl VM {
             }
         }
         let control = &mut state.control;
+        let in_step_fiber = in_step_fiber(control);
 
         let reason = match &mut control.mode {
             StepMode::Continue => {
                 (here.fresh && here.on_breakpoint).then_some(StopReason::Breakpoint)
             }
-            StepMode::StepIn => forward_stop(&here, true),
+            StepMode::StepIn => forward_stop(&here, in_step_fiber),
             StepMode::StepOver {
                 depth: from,
                 serial,
             } => {
                 let same_call = control.serials.get(here.depth) == Some(serial);
-                forward_stop(&here, here.logical <= *from || same_call)
+                forward_stop(&here, in_step_fiber && (here.logical <= *from || same_call))
             }
-            StepMode::StepOut { depth: from } => forward_stop(&here, here.logical < *from),
+            StepMode::StepOut { depth: from } => {
+                forward_stop(&here, in_step_fiber && here.logical < *from)
+            }
             StepMode::Scan(search) => {
                 if position >= search.end {
                     self.end_scan_stretch(control);
@@ -650,6 +714,7 @@ impl VM {
 
     /// Hands the paused VM to the observer and acts on its answer.
     fn stop(&mut self, state: &mut DebugState, reason: StopReason) -> Result<(), String> {
+        state.control.thread = None;
         let resume = {
             let mut inspector = Inspector::new(self, &mut state.control);
             state.observer.on_stop(reason, &mut inspector)
@@ -711,6 +776,12 @@ impl VM {
             Resume::StepOver => StepMode::StepOver { depth, serial },
             Resume::StepOut => StepMode::StepOut { depth },
             _ => StepMode::Continue,
+        };
+        control.step_fiber = match control.mode {
+            StepMode::StepIn | StepMode::StepOver { .. } | StepMode::StepOut { .. } => {
+                super::core_dispatch::debug_current_fiber().map(|(fiber, _)| fiber)
+            }
+            _ => None,
         };
     }
 
@@ -903,6 +974,59 @@ impl VM {
             control.suspensions.push(suspension);
         }
     }
+}
+
+/// The kind of a VM error and its message, or None for an error that is
+/// not one here: a fiber's cancellation unwinding it, or the run failing
+/// with a fiber's error again. A fiber's own error
+/// (`__fiber_error__`) is the value it failed with: `Panicked(msg)` for a
+/// panic, else what `Async.fail` raised.
+fn classify_error(error: &str) -> Option<(ExceptionKind, String)> {
+    // `run_async` failing with its root fiber's error: that error was
+    // seen where it happened.
+    if error.starts_with("AsyncError: ") {
+        return None;
+    }
+    if error != "__fiber_error__" {
+        return Some(ExceptionKind::classify(error));
+    }
+    let failed = super::core_dispatch::debug_pending_fiber_error()?;
+    match &failed {
+        crate::runtime::value::Value::AdtUnit(name) if name.as_str() == "Canceled" => None,
+        crate::runtime::value::Value::Adt(adt) if adt.constructor.as_str() == "Panicked" => {
+            let message = match &adt.fields {
+                crate::runtime::value::AdtFields::One(crate::runtime::value::Value::String(
+                    text,
+                )) => text.to_string(),
+                _ => ValueView::new(failed.clone()).render(),
+            };
+            Some(ExceptionKind::classify(&format!("panic: {message}")))
+        }
+        _ => Some((
+            ExceptionKind::FiberFailure,
+            ValueView::new(failed.clone()).render(),
+        )),
+    }
+}
+
+/// Whether a site is in the fiber the step started in (S8): another fiber
+/// that runs while that one waits does not end the step. Once that fiber
+/// has finished, a site anywhere does.
+fn in_step_fiber(control: &mut DebugControl) -> bool {
+    let Some(fiber) = control.step_fiber else {
+        return true;
+    };
+    let current = super::core_dispatch::debug_current_fiber().map(|(id, _)| id);
+    if current == Some(fiber) {
+        return true;
+    }
+    let alive = super::core_dispatch::debug_fibers()
+        .iter()
+        .any(|other| other.id == fiber);
+    if !alive {
+        control.step_fiber = None;
+    }
+    !alive
 }
 
 /// A forward step's stop: a fresh line on a breakpoint, or a fresh visible

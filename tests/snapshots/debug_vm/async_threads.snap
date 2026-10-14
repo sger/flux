@@ -1,0 +1,35 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 14
+breakpoint at async_threads.flx:14
+> continue
+stopped: breakpoint at async_threads.flx:14:5 in fast (thread 3, position 19)
+    14 |     k * 10
+> threads
+  1 main [waiting both (threads 2, 3)] at async_threads.flx:18:16
+  2 slow [waiting sleep 20 ms] at async_threads.flx:7:5
+* 3 fast [stopped] at async_threads.flx:14:5
+> bt
+#0 fast at async_threads.flx:14:5
+> locals
+k = 5
+> thread 2
+thread 2: slow [waiting sleep 20 ms]
+> bt
+#0 slow at async_threads.flx:7:5   (suspended)
+> thread 1
+thread 1: main [waiting both (threads 2, 3)]
+> bt
+#0 body at async_threads.flx:18:16   (suspended)
+#1 Flow.Async.run_async at Async.flx:209:9
+#2 main at async_threads.flx:23:11
+#3 <entry>
+> locals
+no variables
+> thread 9
+no thread 9; `threads` lists them
+> continue
+program finished
+--- program output ---
+"7,50"

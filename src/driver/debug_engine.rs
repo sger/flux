@@ -13,7 +13,7 @@ use std::sync::mpsc::{Receiver, TryRecvError, channel};
 
 use crate::debug_protocol::{
     EngineMessage, Event, ExceptionInfo, Frame, FrameKind, Reply, Request, RequestMessage,
-    ResumeKind, Scope, StopKind, TapeEvent, Variable,
+    ResumeKind, Scope, StopKind, TapeEvent, Thread, Variable,
 };
 use crate::runtime::replay;
 use crate::vm::debug::{
@@ -162,8 +162,24 @@ impl EngineObserver {
                     return Handled::Pause;
                 }
             }
-            Request::Stack if !paused => self.reply(id, running()),
-            Request::Stack => {
+            Request::Stack { .. } | Request::Threads if !paused => self.reply(id, running()),
+            Request::Threads => {
+                let threads = inspector
+                    .threads()
+                    .into_iter()
+                    .map(|thread| Thread {
+                        id: thread.id,
+                        name: thread.name,
+                        state: thread.state.describe(),
+                    })
+                    .collect();
+                self.reply(id, Ok(Reply::Threads { threads }));
+            }
+            Request::Stack { thread } => {
+                if let Err(message) = look_at(inspector, thread) {
+                    self.reply(id, Err(message));
+                    return Handled::Stay;
+                }
                 let frames = inspector
                     .stack()
                     .into_iter()
@@ -188,13 +204,24 @@ impl EngineObserver {
             Request::Variables { .. } | Request::Evaluate { .. } if !paused => {
                 self.reply(id, running())
             }
-            Request::Variables { frame, scope, path } => {
-                let result = variables(inspector, frame, scope, &path)
+            Request::Variables {
+                frame,
+                scope,
+                path,
+                thread,
+            } => {
+                let result = look_at(inspector, thread)
+                    .and_then(|()| variables(inspector, frame, scope, &path))
                     .map(|variables| Reply::Variables { variables });
                 self.reply(id, result);
             }
-            Request::Evaluate { frame, expression } => {
-                let result = evaluate(inspector, frame, &expression)
+            Request::Evaluate {
+                frame,
+                expression,
+                thread,
+            } => {
+                let result = look_at(inspector, thread)
+                    .and_then(|()| evaluate(inspector, frame, &expression))
                     .map(|variable| Reply::Value { variable });
                 self.reply(id, result);
             }
@@ -271,12 +298,14 @@ impl VmObserver for EngineObserver {
             ),
         };
         let position = inspector.position();
+        let thread = inspector.stopped_thread();
         self.send(&EngineMessage::Event {
             event: Event::Stopped {
                 reason,
                 position,
                 description,
                 exception,
+                thread,
             },
         });
         self.serve(inspector, true)
@@ -302,6 +331,12 @@ impl VmObserver for EngineObserver {
 fn leave() -> ! {
     let _ = std::io::stdout().flush();
     std::process::exit(0);
+}
+
+/// Reads `thread` (the stopped one when none) until told otherwise.
+fn look_at(inspector: &mut Inspector<'_>, thread: Option<u64>) -> Result<(), String> {
+    let thread = thread.unwrap_or_else(|| inspector.stopped_thread());
+    inspector.select_thread(thread)
 }
 
 fn resume_for(how: ResumeKind, inspector: &Inspector<'_>) -> Result<Resume, String> {

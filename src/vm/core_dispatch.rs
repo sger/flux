@@ -17,6 +17,7 @@ use crate::runtime::r#async::fiber_trace::{self, FiberEvent};
 use crate::runtime::hamt as rc_hamt;
 use crate::runtime::hash_key::HashKey;
 use crate::runtime::value::{Value, format_value};
+use crate::vm::fiber_debug::Blocked;
 
 // ── TCP handle table (proposal 0174 Phase 1b-vii) ────────────────────────────
 // DEPRECATED: Replaced by async mio backend in Phase 1b-vi-e.
@@ -322,6 +323,48 @@ pub(super) mod vm_async {
 // unchanged — `FiberFork`'s body still runs inline to completion. The point
 // is to land the registry shape without behaviour change so b₂ can replace
 // the inline call with a real park/resume cycle without touching bookkeeping.
+/// A fiber as the debugger lists it (0188 S8).
+pub(crate) struct DebugFiber {
+    /// The scheduler's id.
+    pub(crate) id: u64,
+    pub(crate) state: DebugFiberState,
+    /// A parked fiber's continuation: its frames.
+    pub(crate) parked: Option<Rc<std::cell::RefCell<crate::runtime::continuation::Continuation>>>,
+    /// What a fiber that has not started will run.
+    pub(crate) body: Option<Value>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DebugFiberState {
+    Running,
+    Ready,
+    NotStarted,
+    Waiting,
+    Cancelled,
+}
+
+/// The fibers of the active `run_async`, oldest first, for the debugger.
+pub(crate) fn debug_fibers() -> Vec<DebugFiber> {
+    vm_fibers::debug_fibers()
+}
+
+/// The error a `__fiber_error__` unwinds with: `Panicked(msg)`, `Canceled`,
+/// or what `Async.fail` raised.
+pub(crate) fn debug_pending_fiber_error() -> Option<Value> {
+    vm_fibers::debug_pending_error()
+}
+
+/// The frame `run_async` was called from: the fibers' stacks start above it.
+pub(crate) fn debug_fiber_boundary() -> Option<usize> {
+    vm_fibers::debug_boundary()
+}
+
+/// The fiber running now, and, for a child fiber, the frame index its stack
+/// starts above.
+pub(crate) fn debug_current_fiber() -> Option<(u64, Option<usize>)> {
+    vm_fibers::debug_current()
+}
+
 mod vm_fibers {
     use std::cell::{Cell, RefCell};
     use std::collections::{HashMap, HashSet};
@@ -340,6 +383,7 @@ mod vm_fibers {
     use crate::runtime::r#async::scheduler::FiberScheduler;
     use crate::runtime::value::Value;
     use crate::runtime::value::{demote_value, promote_value};
+    use crate::vm::fiber_debug::{self, Blocked};
 
     thread_local! {
         static SCHED: RefCell<Option<FiberScheduler>> = const { RefCell::new(None) };
@@ -521,15 +565,28 @@ mod vm_fibers {
     }
 
     fn resolved_untaped_worker_count() -> usize {
-        if let Some(cfg) = PENDING_RUN_CONFIG.with(|c| c.get())
+        let requested = if let Some(cfg) = PENDING_RUN_CONFIG.with(|c| c.get())
             && cfg.worker_count > 0
         {
-            return cfg.worker_count as usize;
+            cfg.worker_count as usize
+        } else {
+            env_workers_once().unwrap_or(1)
+        };
+        // Under a debugger every fiber runs on the one VM it can pause
+        // (0188 S8), as under a tape.
+        if requested > 1 && fiber_debug::on() {
+            note_debug_one_worker();
+            return 1;
         }
-        if let Some(n) = env_workers_once() {
-            return n;
+        requested
+    }
+
+    fn note_debug_one_worker() {
+        use std::sync::atomic::AtomicBool;
+        static SAID: AtomicBool = AtomicBool::new(false);
+        if !SAID.swap(true, Ordering::Relaxed) {
+            eprintln!("note: debugging runs async code on one worker");
         }
-        1
     }
 
     /// Parse `FLUX_WORKERS` once per process; return `Some(n)` for a
@@ -565,6 +622,7 @@ mod vm_fibers {
             n
         });
         if depth == 0 {
+            fiber_debug::start_run();
             // Phase 2 slice 2-vii: respect the pending `RuntimeConfig`
             // knobs set by `FiberRunAsyncWith`. Both blocking services are
             // configured before the process-global backend is first started.
@@ -798,6 +856,86 @@ mod vm_fibers {
         })
     }
 
+    /// The current fiber parks for `blocked`: note it for the debugger's
+    /// thread view (0188 S8). Nothing is built without a debugger.
+    pub fn debug_block(blocked: impl FnOnce() -> Blocked) {
+        if !fiber_debug::on() {
+            return;
+        }
+        if let Some(id) = CURRENT.with(|c| c.get()) {
+            fiber_debug::note_block(id.0, blocked());
+        }
+    }
+
+    /// The fibers of the active `run_async`, for the debugger: the one
+    /// running, then the scheduler's, oldest first.
+    pub fn debug_fibers() -> Vec<super::DebugFiber> {
+        let current = CURRENT.with(|c| c.get());
+        let mut fibers: Vec<super::DebugFiber> = Vec::new();
+        SCHED.with(|s| {
+            let sched = s.borrow();
+            let Some(sched) = sched.as_ref() else {
+                return;
+            };
+            for (fiber, ready) in sched.fibers() {
+                if fiber.body.is_none() && fiber.parked.is_none() {
+                    continue;
+                }
+                let state = if fiber.state == FiberState::Cancelled {
+                    super::DebugFiberState::Cancelled
+                } else if fiber.parked.is_none() {
+                    super::DebugFiberState::NotStarted
+                } else if ready {
+                    super::DebugFiberState::Ready
+                } else {
+                    super::DebugFiberState::Waiting
+                };
+                fibers.push(super::DebugFiber {
+                    id: fiber.id.0,
+                    state,
+                    parked: fiber.parked.clone(),
+                    body: fiber.body.clone(),
+                });
+            }
+        });
+        // The fiber running is in no queue. Between fibers, the current one
+        // is the root, parked: then nothing runs.
+        if let Some(id) = current
+            && !fibers.iter().any(|fiber| fiber.id == id.0)
+            && SCHED.with(|s| s.borrow().is_some())
+        {
+            fibers.push(super::DebugFiber {
+                id: id.0,
+                state: super::DebugFiberState::Running,
+                parked: None,
+                body: None,
+            });
+        }
+        fibers.sort_by_key(|fiber| fiber.id);
+        fibers
+    }
+
+    /// The error the current fiber failed with, before the dispatch loop
+    /// takes it.
+    pub fn debug_pending_error() -> Option<Value> {
+        PENDING_FIBER_ERROR.with(|p| p.borrow().clone())
+    }
+
+    /// The fiber running now, and the frame its stack starts above when it
+    /// is not the root fiber.
+    pub fn debug_boundary() -> Option<usize> {
+        BOUNDARY.with(|b| b.get()).map(|(frame, _)| frame)
+    }
+
+    pub fn debug_current() -> Option<(u64, Option<usize>)> {
+        let id = CURRENT.with(|c| c.get())?;
+        let child = ROOT.with(|r| r.get()) != Some(id);
+        let above = child
+            .then(|| BOUNDARY.with(|b| b.get()).map(|(frame, _)| frame))
+            .flatten();
+        Some((id.0, above))
+    }
+
     pub fn take_park() -> Option<(u64, Value)> {
         PENDING_PARK.with(|p| p.borrow_mut().take())
     }
@@ -823,6 +961,7 @@ mod vm_fibers {
     }
 
     fn attach_body_to_ready_fiber(id: FiberId, body: Value) {
+        fiber_debug::note_spawn(id.0, &body);
         // Multi-worker path: use the shared scheduler.
         if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
             let mut sched = shared.sched.lock().unwrap_or_else(|e| e.into_inner());
@@ -1775,6 +1914,9 @@ mod vm_fibers {
                             .complete_request(c.request_id);
                     });
                     break;
+                }
+                if crate::vm::debug::interrupt_pending() {
+                    ctx.debug_idle()?;
                 }
                 std::thread::park_timeout(std::time::Duration::from_millis(1));
             }
@@ -2761,6 +2903,9 @@ fn park_fs_op(
             return Err("__fiber_error__".to_string());
         }
         let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+        vm_fibers::debug_block(|| Blocked::Io {
+            what: "file system",
+        });
         vm_fibers::signal_park(req, cont);
         if let Err(e) = propagate_if_park_cancelled() {
             if let Ok(backend) = vm_async::backend() {
@@ -2806,6 +2951,7 @@ fn park_tcp_op(
             return Err("__fiber_error__".to_string());
         }
         let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+        vm_fibers::debug_block(|| Blocked::Io { what: "tcp" });
         vm_fibers::signal_park(req, cont);
         if let Err(e) = propagate_if_park_cancelled() {
             // signal_park detected cancellation after cont capture —
@@ -3686,6 +3832,7 @@ pub fn execute_core_primop(
             }
             if let Some((boundary_frame, boundary_sp)) = vm_fibers::boundary() {
                 let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+                vm_fibers::debug_block(|| Blocked::Yield);
                 vm_fibers::signal_yield(cont);
                 Err("__fiber_park__".to_string())
             } else {
@@ -3723,6 +3870,7 @@ pub fn execute_core_primop(
                     // Inside Async.run_async: capture continuation, signal
                     // park; dispatch loop resumes us when timer fires.
                     let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+                    vm_fibers::debug_block(|| Blocked::Sleep { ms: *ms as u64 });
                     vm_fibers::signal_park(req, cont);
                     if let Err(e) = propagate_if_park_cancelled() {
                         // Timer was already armed — cancel it.
@@ -3784,6 +3932,9 @@ pub fn execute_core_primop(
             let req = vm_async::alloc_request_id();
             vm_fibers::register_both_await(req.0, child_a, child_b);
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+            vm_fibers::debug_block(|| Blocked::Both {
+                fibers: vec![child_a.0, child_b.0],
+            });
             vm_fibers::signal_park(req, cont);
             if let Err(e) = propagate_if_park_cancelled() {
                 vm_fibers::deregister_await(req.0);
@@ -3803,6 +3954,9 @@ pub fn execute_core_primop(
             let req = vm_async::alloc_request_id();
             vm_fibers::register_race_await(req.0, vec![child_a, child_b]);
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+            vm_fibers::debug_block(|| Blocked::Race {
+                fibers: vec![child_a.0, child_b.0],
+            });
             vm_fibers::signal_park(req, cont);
             if let Err(e) = propagate_if_park_cancelled() {
                 vm_fibers::deregister_await(req.0);
@@ -3831,6 +3985,9 @@ pub fn execute_core_primop(
             let req = vm_async::alloc_request_id();
             vm_fibers::register_first_of_await(req.0, children.clone());
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+            vm_fibers::debug_block(|| Blocked::FirstOf {
+                fibers: children.iter().map(|(id, _)| id.0).collect(),
+            });
             vm_fibers::signal_park(req, cont);
             if let Err(e) = propagate_if_park_cancelled() {
                 vm_fibers::deregister_await(req.0);
@@ -3850,6 +4007,7 @@ pub fn execute_core_primop(
             let req = vm_async::alloc_request_id();
             vm_fibers::register_try_await(req.0, child);
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+            vm_fibers::debug_block(|| Blocked::Try { fiber: child.0 });
             vm_fibers::signal_park(req, cont);
             if let Err(e) = propagate_if_park_cancelled() {
                 vm_fibers::deregister_await(req.0);
@@ -3888,6 +4046,10 @@ pub fn execute_core_primop(
             let backend = vm_async::backend()?;
             backend.timer_start(req, ms);
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+            vm_fibers::debug_block(|| Blocked::Timeout {
+                ms,
+                fiber: body_child.0,
+            });
             vm_fibers::signal_park(req, cont);
             if let Err(e) = propagate_if_park_cancelled() {
                 vm_fibers::deregister_await(req.0);
@@ -3983,6 +4145,7 @@ pub fn execute_core_primop(
                     let req = vm_async::alloc_request_id();
                     let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
                     super::task::start_await(*id, req.0)?;
+                    vm_fibers::debug_block(|| Blocked::Task { id: *id });
                     vm_fibers::signal_park(req, cont);
                     Err("__flux_fiber_park__".to_string())
                 } else {
@@ -4020,6 +4183,7 @@ pub fn execute_core_primop(
                         fid: vm_fibers::current_fiber_id(),
                         backpressure: true,
                     });
+                    vm_fibers::debug_block(|| Blocked::ChannelSend { channel: id });
                     vm_fibers::signal_park(req, cont);
                     Err("__flux_fiber_park__".to_string())
                 } else {
@@ -4054,6 +4218,7 @@ pub fn execute_core_primop(
                         fid: vm_fibers::current_fiber_id(),
                         was_empty: true,
                     });
+                    vm_fibers::debug_block(|| Blocked::ChannelRecv { channel: *id });
                     vm_fibers::signal_park(req, cont);
                     Err("__flux_fiber_park__".to_string())
                 } else {
@@ -4156,6 +4321,7 @@ pub fn execute_core_primop(
                 let req = vm_async::alloc_request_id();
                 let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
                 super::event::wait(*id, req.0)?;
+                vm_fibers::debug_block(|| Blocked::Event { id: *id });
                 vm_fibers::signal_park(req, cont);
                 Err("__flux_fiber_park__".to_string())
             }

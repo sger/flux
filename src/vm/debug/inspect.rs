@@ -58,7 +58,7 @@ pub struct HandlerView {
 }
 
 /// Where the logical stack's frame comes from.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum FrameSource {
     /// `VM.frames[index]`.
     Live(usize),
@@ -71,6 +71,11 @@ enum FrameSource {
     /// VM frame `arm`.
     Suspended {
         arm: usize,
+        frame: usize,
+    },
+    /// Frame `frame` (outermost first) of a parked fiber's continuation (S8).
+    Parked {
+        continuation: Rc<std::cell::RefCell<crate::runtime::continuation::Continuation>>,
         frame: usize,
     },
     Label,
@@ -93,8 +98,8 @@ pub struct Variable {
 
 /// A paused VM, as the observer sees it.
 pub struct Inspector<'a> {
-    vm: &'a VM,
-    control: &'a mut DebugControl,
+    pub(super) vm: &'a VM,
+    pub(super) control: &'a mut DebugControl,
 }
 
 /// A compiler-made function: dictionaries, wrappers and other `__` names.
@@ -114,7 +119,7 @@ const INSTANCE_METHOD: &str = "__tc_";
 
 /// How a function is named on the stack: an instance method as
 /// `Class<Type>.method`, everything else as compiled.
-pub(super) fn display_name(name: &str) -> String {
+pub(crate) fn display_name(name: &str) -> String {
     name.strip_prefix(INSTANCE_METHOD)
         .and_then(demangle_instance_method)
         .unwrap_or_else(|| name.to_string())
@@ -262,6 +267,29 @@ impl<'a> Inspector<'a> {
 
     /// The logical stack, oldest first, with where each frame comes from.
     fn layout(&self) -> Vec<(FrameSource, StackFrame)> {
+        match self.other_thread() {
+            Some(super::threads::OtherThread::Parked {
+                continuation,
+                below: Some(below),
+            }) => {
+                let mut out = self.live_layout(0, below.min(self.vm.frame_index));
+                out.extend(parked_layout(&continuation));
+                for (index, (_, frame)) in out.iter_mut().enumerate() {
+                    frame.index = index;
+                }
+                return out;
+            }
+            Some(other) => return other_layout(other),
+            None => {}
+        }
+        // A child fiber's stack starts above `run_async`'s caller (S8).
+        let top = self.vm.frame_index;
+        let first = self.fiber_base().map_or(0, |base| base + 1).min(top);
+        self.live_layout(first, top)
+    }
+
+    /// The VM's frames `first ..= last`, with what effects took off them.
+    fn live_layout(&self, first: usize, last: usize) -> Vec<(FrameSource, StackFrame)> {
         let vm = self.vm;
         let control = &*self.control;
         let top = vm.frame_index;
@@ -270,7 +298,7 @@ impl<'a> Inspector<'a> {
             frame.index = out.len();
             out.push((source, frame));
         };
-        for index in 0..=top {
+        for index in first..=last {
             if let Some(suspension) = control
                 .suspensions
                 .iter()
@@ -440,6 +468,21 @@ impl<'a> Inspector<'a> {
                     slots: continuation.stack.get(from..to)?.to_vec(),
                 })
             }
+            FrameSource::Parked {
+                continuation,
+                frame,
+            } => {
+                let continuation = continuation.borrow();
+                let captured = continuation.frames.get(frame)?;
+                let count = captured.closure.function.num_locals;
+                let from = captured.base_pointer.checked_sub(continuation.entry_sp)?;
+                let to = (from + count).min(continuation.stack.len());
+                Some(FrameView {
+                    closure: captured.closure.clone(),
+                    ip: captured.ip.saturating_sub(1),
+                    slots: continuation.stack.get(from..to)?.to_vec(),
+                })
+            }
             FrameSource::Label => None,
         }
     }
@@ -518,6 +561,10 @@ impl<'a> Inspector<'a> {
     /// the compiler puts around `main` are left out unless internals are
     /// shown.
     pub fn handlers(&self) -> Vec<HandlerView> {
+        // A parked fiber keeps no handlers of its own on the VM (S8).
+        if self.control.thread.is_some() {
+            return Vec::new();
+        }
         self.vm
             .handler_stack
             .iter()
@@ -596,7 +643,7 @@ impl<'a> Inspector<'a> {
         self.control
             .exception
             .as_ref()
-            .map(|(kind, message, _)| (*kind, message.clone()))
+            .map(|(kind, message, _, _)| (*kind, message.clone()))
     }
 
     /// The runtime errors the debugger stops at.
@@ -635,6 +682,95 @@ impl<'a> Inspector<'a> {
     pub fn show_internals(&self) -> bool {
         self.control.show_internals
     }
+}
+
+/// The stack of a thread other than the stopped one, oldest first (S8).
+/// A parked fiber's frames, oldest first. The primop it parked in (`sleep`,
+/// `recv`) has no source of its own: the frame that called it is where the
+/// fiber waits.
+fn parked_layout(
+    continuation: &Rc<std::cell::RefCell<crate::runtime::continuation::Continuation>>,
+) -> Vec<(FrameSource, StackFrame)> {
+    let frames: Vec<(super::FrameSummary, bool)> = continuation
+        .borrow()
+        .frames
+        .iter()
+        .map(|frame| {
+            let function = &frame.closure.function;
+            let info = function.debug_info.as_ref();
+            let location = location_at(function, frame.ip.saturating_sub(1));
+            let artificial =
+                location.is_none() || is_artificial(info.and_then(|info| info.name.as_deref()));
+            ((function_name(info, 1), location), artificial)
+        })
+        .collect();
+    frames
+        .into_iter()
+        .enumerate()
+        .map(|(k, ((name, location), artificial))| {
+            (
+                FrameSource::Parked {
+                    continuation: continuation.clone(),
+                    frame: k,
+                },
+                summary_frame(
+                    &name,
+                    location.as_ref(),
+                    artificial,
+                    None,
+                    FrameKind::Suspended { resumable: true },
+                ),
+            )
+        })
+        .collect()
+}
+
+fn other_layout(other: super::threads::OtherThread) -> Vec<(FrameSource, StackFrame)> {
+    use super::threads::OtherThread;
+    let mut out: Vec<(FrameSource, StackFrame)> = Vec::new();
+    match other {
+        OtherThread::Parked { continuation, .. } => {
+            out = parked_layout(&continuation);
+            for (index, (_, frame)) in out.iter_mut().enumerate() {
+                frame.index = index;
+            }
+        }
+        OtherThread::NotStarted(body) => {
+            let function = match &body {
+                Value::Closure(closure) => Some(closure.function.clone()),
+                Value::Function(function) => Some(function.clone()),
+                _ => None,
+            };
+            if let Some(function) = function {
+                let info = function.debug_info.as_ref();
+                let name = function_name(info, 1);
+                let location = location_at(&function, 0);
+                out.push((
+                    FrameSource::Label,
+                    summary_frame(
+                        &name,
+                        location.as_ref(),
+                        false,
+                        None,
+                        FrameKind::Suspended { resumable: true },
+                    ),
+                ));
+            }
+        }
+        OtherThread::Task(task) => out.push((
+            FrameSource::Label,
+            summary_frame(
+                &format!(
+                    "task {task} runs on a thread of its own, which the debugger does not pause"
+                ),
+                None,
+                false,
+                None,
+                FrameKind::Label,
+            ),
+        )),
+    }
+    out
 }
 
 /// A stack line from a name and a location.

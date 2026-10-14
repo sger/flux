@@ -194,6 +194,36 @@ fn catch_none_lets_errors_end_the_program() {
 }
 
 #[test]
+fn fibers_are_threads_with_what_each_waits_for() {
+    assert_session("async_threads");
+}
+
+#[test]
+fn a_fiber_waiting_on_a_channel() {
+    assert_session("async_channel");
+}
+
+#[test]
+fn stepping_over_a_sleep_stays_in_the_fiber() {
+    assert_session("async_step");
+}
+
+#[test]
+fn a_failing_fiber_stops_where_it_fails() {
+    assert_session("async_fail");
+}
+
+#[test]
+fn a_panic_in_a_fiber_stops_in_that_fiber() {
+    assert_failing_session("async_panic");
+}
+
+#[test]
+fn a_task_is_a_thread_the_debugger_does_not_pause() {
+    assert_session("async_task");
+}
+
+#[test]
 fn compiler_internals_are_hidden_until_asked_for() {
     assert_session("internals");
 }

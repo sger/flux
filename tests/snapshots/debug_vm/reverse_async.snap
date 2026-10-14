@@ -10,7 +10,7 @@ stopped: breakpoint at reverse_async.flx:13:5 in main (position 14)
 before = 1
 after = 7
 > reverse-step
-cannot go back: the program has run async code, which going back does not cover yet (0188 S8)
+cannot go back: the program has run async code, which going back does not cover yet (0188 S9)
 > where
 position 14
 > continue

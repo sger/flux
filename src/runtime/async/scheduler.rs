@@ -437,6 +437,18 @@ impl FiberScheduler {
         None
     }
 
+    /// Every fiber the scheduler holds, with whether it is ready to run
+    /// (else suspended), for the debugger's thread view (0188 S8).
+    pub fn fibers(&self) -> impl Iterator<Item = (&Fiber, bool)> {
+        self.workers.iter().flat_map(|worker| {
+            worker
+                .ready
+                .iter()
+                .map(|fiber| (fiber, true))
+                .chain(worker.suspended.values().map(|fiber| (fiber, false)))
+        })
+    }
+
     /// Return all request IDs currently in the suspended map for a worker.
     /// Used by `exit_run_async` to cancel outstanding backend requests on teardown.
     pub fn all_suspended_reqs(&self, worker: WorkerId) -> Vec<u64> {

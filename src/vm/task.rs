@@ -136,18 +136,27 @@ fn default_worker_count() -> usize {
 
 impl VM {
     pub(super) fn spawn_vm_task(&mut self, action: Value) -> Result<i64, String> {
+        let name_from = super::fiber_debug::on().then(|| action.clone());
         let payload = self.task_payload(action, false)?;
-        self.spawn_task_payload(payload)
+        self.spawn_task_payload(payload, name_from)
     }
 
     pub(super) fn spawn_vm_task_move(&mut self, action: Value) -> Result<i64, String> {
+        let name_from = super::fiber_debug::on().then(|| action.clone());
         let payload = self.task_payload(action, true)?;
-        self.spawn_task_payload(payload)
+        self.spawn_task_payload(payload, name_from)
     }
 
-    fn spawn_task_payload(&mut self, payload: VmTaskPayload) -> Result<i64, String> {
+    fn spawn_task_payload(
+        &mut self,
+        payload: VmTaskPayload,
+        name_from: Option<Value>,
+    ) -> Result<i64, String> {
         let id = NEXT_TASK_ID.fetch_add(1, Ordering::Relaxed);
         let handle = scheduler().spawn(move || run_task_payload(payload));
+        if let Some(action) = &name_from {
+            super::fiber_debug::note_task(id, action, handle.finished_check());
+        }
         tasks().lock().expect("VM task table poisoned").insert(
             id,
             VmTaskEntry {

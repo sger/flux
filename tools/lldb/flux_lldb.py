@@ -856,14 +856,17 @@ KINDS = {
     "division_by_zero": "division_by_zero",
     "unhandled": "unhandled_effect",
     "unhandled_effect": "unhandled_effect",
+    "fibers": "fiber_failure",
+    "fiber_failure": "fiber_failure",
     "errors": "runtime_error",
     "runtime_error": "runtime_error",
 }
-ALL_KINDS = ["panic", "division_by_zero", "unhandled_effect", "runtime_error"]
+ALL_KINDS = ["panic", "division_by_zero", "unhandled_effect", "fiber_failure", "runtime_error"]
 LABELS = {
     "panic": "panic",
     "division_by_zero": "division by zero",
     "unhandled_effect": "unhandled effect",
+    "fiber_failure": "fiber failure",
     "runtime_error": "runtime error",
 }
 CAUGHT = set()
@@ -955,7 +958,7 @@ def _command_catch(debugger, args, result):
                 kinds.add(KINDS[word])
             else:
                 result.AppendMessage(
-                    "unknown error kind `%s`; use panic, division, unhandled, errors, all or none"
+                    "unknown error kind `%s`; use panic, division, unhandled, fibers, errors, all or none"
                     % word
                 )
                 return

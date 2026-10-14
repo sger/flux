@@ -710,15 +710,50 @@ function that made it, when a tail call replaced that function's frame.
 
 #### 3.5 Fibers as threads
 
-- **Fibers:** add `FiberScheduler::debug_snapshot()`
-  (`src/runtime/async/scheduler.rs:83`; its queues are private today), reached
-  through the `SCHED`/`CURRENT` thread-locals (`src/vm/core_dispatch.rs:328-390`).
-  Each fiber becomes a DAP thread. A parked fiber's stack comes from its
-  `parked` continuation (`src/runtime/async/fiber.rs:71-120`).
-- **Tasks:** OS-thread tasks (`src/vm/task.rs:95`) use a separate range of
-  thread ids.
-- **Blocked state:** the reason a fiber is blocked (channel, sleep, join, I/O
-  request) comes from the scheduler's `suspended` table.
+As built in S8a (`src/vm/fiber_debug.rs`, `src/vm/debug/threads.rs`):
+
+- **Threads.** Thread 1 is the program: outside `run_async`, or its root
+  fiber inside it. Each fiber the program spawns is the next number, in
+  spawn order, which with one worker is the program's own order on both
+  backends. A task (`Task.spawn`) is thread `1000 + id`, named
+  `task N (function)`.
+- **Records.** While a debugger is attached, the scheduler records each
+  fiber's function, its number, and what it parks for: `sleep N ms`,
+  `channel #c recv|send`, `task #t`, `event #e`, `both|race|first_of
+  (threads 2, 3)`, `try`, `timeout`, `yield`, file system or TCP I/O. Without
+  a debugger, recording costs one thread-local flag read per spawn and park.
+- **One worker.** Under a debugger, `run_async` runs every fiber on the one
+  VM, as under a tape, and says so once when more workers were asked for.
+  A task runs on a thread of its own, which the debugger lists with its
+  state (`running (not paused)` or `done`) and no stack: breakpoints in a
+  task's code do not stop.
+- **Stacks.** The fiber that stopped is the VM's stack, cut where the fiber
+  starts: a child fiber's stack ends at its function, not at `run_async`'s
+  caller; the root fiber's goes on down to `main`. A parked fiber's frames
+  are in its continuation, read as a perform's are below its arm (S7), with
+  their variables, and marked `(suspended)`; the primop it parked in has no
+  source, so it is left out. A fiber that has not started shows its
+  function.
+- **Commands.** `threads` lists them (`* 3 fast [stopped] at app.flx:11:5`,
+  `  2 slow [waiting sleep 20 ms] at app.flx:4:5`); `thread N` makes `bt`,
+  `locals` and `print` read thread N until the next stop. A stop in a fiber
+  says which (`(thread 3, position 19)`). The protocol has `Threads`, a
+  `thread` on `Stack`, `Variables` and `Evaluate`, and the thread on
+  `Stopped`; VS Code shows each fiber as a thread, named with what it waits
+  for.
+- **Stepping** stays in the fiber it started in: `next` over `sleep` or
+  `recv` lets the other fibers run and stops at the next line of the same
+  one. A parked fiber keeps the serials of its calls in its continuation,
+  so it does not stop again on the line it parked at. Once the fiber has
+  finished, the step stops anywhere.
+- **Fiber failure.** `Async.fail` stops as a `fiber failure` exception
+  (`catch fibers`, on by default), where it is raised. A panic or another
+  runtime error in a fiber stops as itself, in that fiber, before
+  `Async.try`, `race` or `timeout` would recover it. A cancelled fiber
+  unwinding, a fiber parking, and `run_async` failing again with its root
+  fiber's error are not stops.
+- **Pause** lands while every fiber waits: the scheduler hears the front
+  end while it waits for a completion, and stops at the `run_async` call.
 
 #### 3.6 Frames removed by tail calls
 
@@ -921,7 +956,10 @@ Implemented in S3 (`src/vm/debug/`), for programs without async code.
 - **Async code:** once the program enters `run_async`, going back is off for
   the rest of the session, with the reason shown, and the session's own
   recording stops. The scheduler's state lives in thread-locals and global
-  tables that checkpoints do not copy yet. S8 adds it.
+  tables that checkpoints do not copy, and fibers run in nested dispatch
+  loops, where checkpoints are not taken. Going back through async code
+  comes with S9: from the checkpoint before `run_async`, replaying the
+  scheduler forward.
 - **OS-thread tasks:** a session's own recording stops when the program
   starts a task, and going back is off from there. A `--record` or
   `--replay` run still refuses tasks (E1027) until S8.
@@ -945,7 +983,7 @@ Implemented in S3 (`src/vm/debug/`), for programs without async code.
 |---|---|---|---|
 | Dictionaries and wrappers hidden (`artificial` maps to DAP `presentationHint: subtle` and `visibility: internal`), with a "Show compiler internals" toggle | ✓ | ✓ | S2 / S6 |
 | Stepping through `\|>` stages (`PipeStage` sites, column breakpoints, DAP `breakpointLocations`) | ✓ | distinct columns | S2 / S5 |
-| Exception breakpoints: panic, division by zero, unhandled effect, and other runtime errors on the VM (VM error paths; native symbolic breakpoints on runtime debug hooks). A failed match has no runtime error on either backend (exhaustiveness is checked when compiling), so there is nothing to stop at; fiber failure comes with fibers in S8 | ✓ | ✓ | S7 / S8 |
+| Exception breakpoints: panic, division by zero, unhandled effect, fiber failure (`Async.fail`), and other runtime errors on the VM (VM error paths; native symbolic breakpoints on runtime debug hooks). A failed match has no runtime error on either backend (exhaustiveness is checked when compiling), so there is nothing to stop at | ✓ | ✓ | S7 / S8 |
 | Stacks that follow continuations; step into `resume` lands at the `perform` site (native: `flux_lldb.py` follows the arm's `resume` to its `$cont$` closures, and lands at the line after the perform) | ✓ | ✓ | S7 |
 | Handler stack view (VM `handler_stack`; native evidence vector, read as the runtime's thread-local) | ✓ | ✓ | S7 |
 | Fibers, tasks and channels shown as threads with what they are blocked on (native: `flux_debug_fibers()` called through lldb) | ✓ | ✓ | S8 |
@@ -1019,8 +1057,10 @@ As built in S7b:
 | S6b | The native engine in `flux-dap` (`crates/flux-dap/src/native.rs`: building with `--native -g --emit-binary`, finding and proxying `lldb-dap`), `"backend": "native"`, `lldbDap` and `flux.lldbDapPath` in VS Code; the debug parity harness | **Debug parity harness:** `Way::VmDebug` / `Way::LlvmDebug` (`src/parity/debug.rs`), fixture directives `// dbg: break 12`, `// dbg: step`, … in `tests/parity_debug/`. Stops and frames match line for line; every variable the VM shows is there natively with its value (native code may still hold a value the VM has moved out). Run by `parity_debug_tests` and `parity-check tests/parity_debug --ways vm_debug,llvm_debug`. DAP tests drive a native session through `lldb-dap`. |
 | S7a | VM effects: the logical stack (suspensions, resume notes, call serials in continuations; `src/vm/debug/effects.rs`), stepping by logical depth, step into `resume`, `handlers`, exception stops with `catch` filters (panic, division by zero, unhandled effect, other runtime errors), the protocol's `exception` stops, frame kinds and `Handlers` scope; flux-dap exception breakpoint filters, `exceptionInfo`, label and suspended frames, `.handlers` | Golden transcripts `tests/debug/vm/effect_*.flxdbg` and `exception_*.flxdbg`; DAP transcript tests for the Handlers scope, suspended frames and an exception stop. |
 | S7b | Native effects: runtime debug hooks (`flux_debug_on_panic`, `flux_debug_on_unhandled_effect`), `<handler Effect.op>` names and `resume` as a debug variable, `flux_lldb.py` following `resume` closures and the compose trampoline, `flux handlers`/`catch`/`where`/`next`/`step`/`finish`; the lldb-dap proxy's exception filters, `exceptionInfo`, spliced suspended frames and Flux stepping | Debug parity fixtures for multi-shot, nested handlers with state, a handler that never resumes, tail-resumptive vs yielding operations, stepping across perform and `resume`, panics and division by zero (`tests/parity_debug/effect_*`, `exception_*`). lldb sessions in `native_debug_tests` (ten frames past the runtime's eight continuation slots, `flux catch`); native DAP tests for the spliced stack and an exception stop. |
-| S8 | Fibers, tasks and channels as threads; scheduler snapshot APIs; multi-fiber record and replay; fiber failure as an exception breakpoint | Parity fixtures using `both`, `race` and `timeout`. Replay is identical across 100 runs. |
-| S9 | Native replay under lldb, run to event, opening a native tape in the VM, timeline UI; Core-inlining provenance → `inlinedAt`, and Core inlining turned back on in the debug profile | Cross-backend tape tests. Golden `lldb bt` output for inlined frames. |
+| S8a | VM fibers as threads (`src/vm/fiber_debug.rs`, `src/vm/debug/threads.rs`): names, numbers and what each parked fiber waits for, per-thread stacks (a parked fiber's from its continuation), `threads` / `thread N`, stepping that stays in one fiber, fiber failure as an exception, pause while every fiber waits, one worker while debugging; the protocol's `Threads` and per-thread requests; fibers as threads in VS Code | Golden transcripts `tests/debug/vm/async_*.flxdbg` (both, a channel, stepping over a sleep, `Async.fail`, a panic in a fiber, a task); DAP tests for fiber threads and their stacks, and a pause while every fiber waits. |
+| S8b | Native fibers: the runtime's fiber records and `flux_debug_fibers()`, a fiber failure hook, `flux threads` / `thread` / `catch fibers` in lldb, fibers as threads in the lldb-dap proxy | Debug parity fixtures using `both`, `race` and `timeout`, a channel, a failing fiber, and stepping over a sleep. |
+| S8c | Multi-fiber record and replay with tasks: logical task ids, task completions and cross-thread channel wakes on the tape, one task worker under a tape; E1027 retired | Task fixtures record and replay on both backends; replay is identical across 100 runs. |
+| S9 | Native replay under lldb, run to event, opening a native tape in the VM, timeline UI; going back through async code (from the checkpoint before `run_async`, replaying the scheduler forward); Core-inlining provenance → `inlinedAt`, and Core inlining turned back on in the debug profile | Cross-backend tape tests. Going back across `sleep`, `both` and a channel. Golden `lldb bt` output for inlined frames. |
 | S10 | Aether reference-count view, debug-heap runtime, native panic symbolization; `flux_trace_push` deleted | Golden reference counts. A use-after-free fixture that the debug heap catches. Native panic output lists Flux frames. |
 | S11 | Windows call stacks for Visual Studio (§2.8): `"CodeView"` module flag on MSVC targets, `/DEBUG` and `/PDB` in `run_linker`, runtime built with `-gcodeview` | On a Windows CI runner, `llvm-pdbutil dump -symbols app.pdb` lists Flux subprogram names with `.flx` line entries. `cdb -z app.exe -c "g; k; q"` on a fixture that panics prints Flux frames with `app.flx` file and line. A manual check that Visual Studio's Call Stack window shows them. |
 

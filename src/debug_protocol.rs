@@ -35,23 +35,38 @@ pub enum Request {
     Resume { how: ResumeKind },
     /// Stop at the next stop site.
     Pause,
-    /// The call stack, newest first. Answered with [`Reply::Stack`].
-    Stack,
+    /// The call stack of a thread, newest first: the one stopped unless
+    /// `thread` names another. Answered with [`Reply::Stack`].
+    Stack {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread: Option<u64>,
+    },
     /// The variables of a frame's scope, or the parts of one of them, named
     /// by a path: a variable, then indexes into its parts. Answered with
-    /// [`Reply::Variables`].
+    /// [`Reply::Variables`]. The frame is in `thread`'s stack.
     Variables {
         frame: usize,
         scope: Scope,
         path: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread: Option<u64>,
     },
     /// A variable or a part of one, written `name.0.1`. Answered with
     /// [`Reply::Value`].
-    Evaluate { frame: usize, expression: String },
+    Evaluate {
+        frame: usize,
+        expression: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread: Option<u64>,
+    },
+    /// The program's threads: its fibers and tasks (0188 S8). Answered
+    /// with [`Reply::Threads`].
+    Threads,
     /// Show or hide compiler-made frames and variables.
     SetInternals { show: bool },
     /// The runtime errors to stop at, by [`ExceptionInfo::kind`] id:
-    /// `panic`, `division_by_zero`, `unhandled_effect`, `runtime_error`.
+    /// `panic`, `division_by_zero`, `unhandled_effect`, `fiber_failure`,
+    /// `runtime_error`.
     SetExceptionFilters { filters: Vec<String> },
     /// The effects the program has performed. Answered with
     /// [`Reply::Events`].
@@ -124,6 +139,18 @@ pub enum Reply {
     Position {
         position: u64,
     },
+    Threads {
+        threads: Vec<Thread>,
+    },
+}
+
+/// A thread of the paused program: a fiber, or a task (0188 S8).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Thread {
+    pub id: u64,
+    pub name: String,
+    /// `stopped`, `ready`, `not started`, `waiting channel #1 recv`, ...
+    pub state: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -140,7 +167,18 @@ pub enum Event {
         /// The runtime error an `exception` stop is at.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         exception: Option<ExceptionInfo>,
+        /// The thread that stopped: 1, the program, or a fiber (S8).
+        #[serde(default = "main_thread", skip_serializing_if = "is_main_thread")]
+        thread: u64,
     },
+}
+
+fn main_thread() -> u64 {
+    1
+}
+
+fn is_main_thread(thread: &u64) -> bool {
+    *thread == 1
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -156,7 +194,8 @@ pub enum StopKind {
 /// A runtime error the program stopped at.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExceptionInfo {
-    /// `panic`, `division_by_zero`, `unhandled_effect` or `runtime_error`.
+    /// `panic`, `division_by_zero`, `unhandled_effect`, `fiber_failure` or
+    /// `runtime_error`.
     pub kind: String,
     pub message: String,
 }
@@ -251,6 +290,7 @@ mod tests {
                 position: 7,
                 description: None,
                 exception: None,
+                thread: 1,
             },
         };
         let line = serde_json::to_string(&stopped).unwrap();
@@ -272,6 +312,7 @@ mod tests {
                     kind: "panic".to_string(),
                     message: "boom".to_string(),
                 }),
+                thread: 1,
             },
         };
         let line = serde_json::to_string(&exception).unwrap();
@@ -316,6 +357,40 @@ mod tests {
             "live is the default: {line}"
         );
         assert_eq!(serde_json::from_str::<Reply>(&line).unwrap(), frames);
+
+        let fiber = EngineMessage::Event {
+            event: Event::Stopped {
+                reason: StopKind::Breakpoint,
+                position: 3,
+                description: None,
+                exception: None,
+                thread: 2,
+            },
+        };
+        let line = serde_json::to_string(&fiber).unwrap();
+        assert!(line.ends_with(r#""thread":2}}"#), "{line}");
+        assert_eq!(serde_json::from_str::<EngineMessage>(&line).unwrap(), fiber);
+
+        let stack = RequestMessage {
+            id: 4,
+            request: Request::Stack { thread: None },
+        };
+        let line = serde_json::to_string(&stack).unwrap();
+        assert_eq!(line, r#"{"id":4,"request":{"kind":"stack"}}"#);
+        assert_eq!(
+            serde_json::from_str::<RequestMessage>(&line).unwrap(),
+            stack
+        );
+
+        let threads = Reply::Threads {
+            threads: vec![Thread {
+                id: 2,
+                name: "worker".to_string(),
+                state: "waiting sleep 30 ms".to_string(),
+            }],
+        };
+        let line = serde_json::to_string(&threads).unwrap();
+        assert_eq!(serde_json::from_str::<Reply>(&line).unwrap(), threads);
 
         let reply = EngineMessage::Reply {
             id: 1,

@@ -25,6 +25,7 @@ pub mod debug;
 pub use core_dispatch::{program_args_snapshot, set_program_args};
 mod dispatch;
 mod event;
+mod fiber_debug;
 mod function_call;
 mod index_ops;
 mod primop;

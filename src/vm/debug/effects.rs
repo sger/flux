@@ -145,6 +145,19 @@ impl VM {
             .collect()
     }
 
+    /// A fiber parks: the serials of the calls `entry + 1 ..= frame_index`
+    /// that its continuation takes, to give back when it resumes (S8).
+    #[cold]
+    #[inline(never)]
+    pub(in crate::vm) fn debug_call_serials(&self, entry: usize) -> Vec<u64> {
+        let Some(state) = self.debugger.as_ref() else {
+            return Vec::new();
+        };
+        (entry + 1..=self.frame_index)
+            .map(|index| state.control.serials.get(index).copied().unwrap_or(0))
+            .collect()
+    }
+
     /// A non-tail `resume` is about to run a continuation above frame
     /// `entry`: keep the frames it will cover, the arm among them.
     #[cold]
@@ -256,7 +269,10 @@ impl VM {
                 last_line[index] = Some((key, line));
             }
         }
-        let result = if state.control.stepping_in() && self.frame_index > entry {
+        // A parked fiber put back stops at its next line, not where it
+        // parked (S8).
+        let fiber = std::mem::take(&mut state.control.resuming_fiber);
+        let result = if !fiber && state.control.stepping_in() && self.frame_index > entry {
             let top = self.frame_index;
             let visible = !inspect::is_artificial(
                 self.frames[top]
