@@ -1,0 +1,53 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 9
+breakpoint at effect_steps.flx:9
+> continue
+stopped: breakpoint at effect_steps.flx:9:5 in decide (position 5)
+     9 |     let b = perform Flip.flip()
+> next
+stopped: step at effect_steps.flx:10:5 in decide (position 11)
+    10 |     let n = if b { 1 } else { 2 }
+> bt
+#0 decide at effect_steps.flx:10:5
+#1 both at effect_steps.flx:15:13
+   … 1 call elided by tail calls (last: <handler Flip.flip> at effect_steps.flx:22:25)
+#2 main at effect_steps.flx:21:18
+#3 <entry>
+> locals
+b = true
+> delete 9
+deleted breakpoint at effect_steps.flx:9
+> break 16
+breakpoint at effect_steps.flx:16
+> continue
+stopped: breakpoint at effect_steps.flx:16:5 in both (position 14)
+    16 |     let b = resume(false)
+> bt
+#0 both at effect_steps.flx:16:5
+   … 1 call elided by tail calls (last: <handler Flip.flip> at effect_steps.flx:22:25)
+   ⟂ handling Flip.flip — performed at effect_steps.flx:9:13
+#1 decide at effect_steps.flx:9:13   (suspended)
+#2 main at effect_steps.flx:21:18
+#3 <entry>
+> next
+stopped: step at effect_steps.flx:17:5 in both (position 18)
+    17 |     a + b
+> bt
+#0 both at effect_steps.flx:17:5
+   … 1 call elided by tail calls (last: <handler Flip.flip> at effect_steps.flx:22:25)
+   ⟂ handling Flip.flip — performed at effect_steps.flx:9:13
+#1 decide at effect_steps.flx:9:13   (suspended)
+#2 main at effect_steps.flx:21:18
+#3 <entry>
+> step
+stopped: step at effect_steps.flx:24:5 in main (position 19)
+    24 |     print(to_string(result))
+> bt
+#0 main at effect_steps.flx:24:5
+#1 <entry>
+> finish
+program finished
+--- program output ---
+"3"

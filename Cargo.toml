@@ -540,7 +540,7 @@ path = "tests/native_llvm/native_debug_tests.rs"
 
 [[test]]
 name = "parity_debug_tests"
-path = "tests/parity_debug_tests.rs"
+path = "tests/debug/parity_debug_tests.rs"
 
 [[test]]
 name = "native_runtime_error_spans"

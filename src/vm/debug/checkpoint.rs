@@ -19,6 +19,7 @@ use crate::runtime::nanbox::NanTag;
 use crate::runtime::replay::{self, TapeMark};
 
 use super::super::{VM, slot, slot::Slot};
+use super::effects::Suspension;
 use super::{DebugControl, TailCalls};
 
 /// The VM and debugger state at one stop site, before it ran.
@@ -36,6 +37,7 @@ pub(super) struct Checkpoint {
     tail_calls: Vec<TailCalls>,
     serials: Vec<u64>,
     next_serial: u64,
+    suspensions: Vec<Suspension>,
     tape: Option<TapeMark>,
 }
 
@@ -59,6 +61,7 @@ impl Checkpoint {
             tail_calls: control.tail_calls.clone(),
             serials: control.serials.clone(),
             next_serial: control.next_serial,
+            suspensions: control.suspensions.clone(),
             tape: replay::mark(),
         }
     }
@@ -102,6 +105,11 @@ impl Checkpoint {
         control.tail_calls.clone_from(&self.tail_calls);
         control.serials.clone_from(&self.serials);
         control.next_serial = self.next_serial;
+        // Checkpoints are taken in the top-level loop, where no resume runs.
+        control.suspensions.clone_from(&self.suspensions);
+        control.pending_suspension = None;
+        control.resumes.clear();
+        control.top_ip = None;
         if let Some(mark) = self.tape {
             replay::rewind_to(mark);
         }
@@ -258,6 +266,7 @@ mod tests {
             tail_calls: Vec::new(),
             serials: Vec::new(),
             next_serial: 0,
+            suspensions: Vec::new(),
             tape: None,
         }
     }

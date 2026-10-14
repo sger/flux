@@ -801,6 +801,7 @@ mod tests {
                 entry_frame_index,
                 inner_handlers: vec![],
                 state_marker: None,
+                debug_serials: Vec::new(),
             };
             let mut fiber = Fiber::new(WorkerId(1));
             fiber.parked = Some(Rc::new(RefCell::new(cont)));

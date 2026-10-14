@@ -627,8 +627,8 @@ against its frame, with the last four callers it replaced. The stack shows
 **Front ends.** `flux debug app.flx [--script file]` runs the program on
 the VM, built with `-g`, under a command-line debugger
 (`src/driver/debug_session.rs`): `break`, `delete`, `continue`, `step`,
-`next`, `finish`, `bt`, `locals`, `print`, `internals on|off`, `quit`, and
-the S3 reverse commands. It reads commands from a terminal as typed, or from
+`next`, `finish`, `bt`, `locals`, `print`, `internals on|off`, `quit`, the
+S3 reverse commands, and `handlers` and `catch` (S7). It reads commands from a terminal as typed, or from
 a script or pipe. It works with `--record` and `--replay`. Golden
 transcripts are in `tests/debug/vm/` (`tests/debug/vm_debug_tests.rs`).
 
@@ -642,18 +642,71 @@ apply and a pause stops there.
 
 #### 3.4 Stacks that follow continuations
 
-`OpPerform` (`src/vm/dispatch.rs:1286`) captures the performing frames into a
-`Continuation` (`capture_to_boundary`, `function_call.rs:81`). The handler arm
-then runs with those frames *off* `VM.frames`.
+`OpPerform` (`src/vm/dispatch.rs`) captures the performing frames into a
+`Continuation` (`capture_to_boundary`, `src/vm/function_call.rs`). The
+handler arm then runs with those frames *off* `VM.frames`. While a non-tail
+`resume` runs the continuation again (`execute_resume`), the arm that called
+it is off the stack instead, kept in a Rust local until the continuation
+returns.
 
-The debugger rebuilds the logical stack as three parts:
-1. the live frames, down to the handler's `entry_frame_index`
-   (`src/runtime/handler_frame.rs:10-34`);
-2. a label pseudo-frame, "⟂ handling `Effect.op` — performed at …";
-3. the frames inside `Continuation.frames`, marked "suspended, resumable".
+As built in S7a (`src/vm/debug/effects.rs`), the debugger notes both, only
+while it is attached:
 
-Multi-shot continuations show which shot is running. Stepping into `resume`
-(`execute_resume`, `function_call.rs:350`) lands at the `perform` site.
+- **Suspensions.** A perform on the general path, or on the path of a
+  handler that never resumes, records the frames it takes off the stack:
+  name and place, and whether they can be resumed. The record attaches to
+  the arm's frame when it is pushed, and lasts while that call does.
+- **Resume notes.** A non-tail `resume` keeps the frames it covers, the arm
+  among them, with their variables and what the debugger knew of them (last
+  line, call serial, tail calls), and puts that back when the continuation
+  returns.
+- **Call serials.** The continuation keeps the serials of its frames
+  (`Continuation.debug_serials`, empty without a debugger), so a resumed
+  frame is the same call it was before the perform.
+
+`bt` then shows the logical stack:
+
+```text
+#0 <handler Flip.flip> at app.flx:20:25
+   ⟂ handling Flip.flip — performed at app.flx:9:13
+#1 decide at app.flx:9:13   (suspended)
+#2 twice at app.flx:14:13   (suspended)
+#3 main at app.flx:19:18
+```
+
+While `resume` runs them again, the resumed frames sit above the arm, which
+shows at its `resume` call. A handler that never resumes marks its frames
+`(suspended, not resumable)`. A tail-resumptive handler leaves the
+performing frames on the stack, so its arm simply sits above them. A
+suspended frame's variables are read from the continuation the arm holds as
+`resume`.
+
+**Stepping** measures depth on the logical stack: suspended frames count
+below the arm, and resumed frames above the arm that resumed them. So:
+- stepping over a perform runs the handler and stops at the next line of the
+  same call, after `resume` brings it back;
+- stepping over `resume(x)` runs the continuation and stops back in the arm;
+- stepping out of resumed code returns into the arm;
+- stepping into `resume` stops at once, at the `perform` the continuation
+  resumes from.
+
+Shots of a multi-shot continuation are told apart by the arm's position in
+the stack (the column of the `resume` running), not by a shot number: the VM
+does not count them.
+
+**Handlers.** `handlers` in `flux debug`, the `Handlers` scope in VS Code
+and `.handlers` in its Debug Console list the active handlers, innermost
+first, with a parameterized handler's state and the function the `handle` is
+in. The default handlers around `main` are internals.
+
+**Exceptions.** A runtime error the debugger catches stops where it
+happened, before the error unwinds anything, with reason `exception`:
+`stopped: exception (panic: too big) at app.flx:5:9 in check`. Going on ends
+the program with the error, as without a debugger. `catch` chooses the kinds
+(panic, division by zero and unhandled effect by default; other runtime
+errors on request); VS Code shows them as exception breakpoint filters, with
+`exceptionInfo`. A call to an intrinsic such as `panic` shows as the
+function that made it, when a tail call replaced that function's frame.
 
 #### 3.5 Fibers as threads
 
@@ -892,7 +945,7 @@ Implemented in S3 (`src/vm/debug/`), for programs without async code.
 |---|---|---|---|
 | Dictionaries and wrappers hidden (`artificial` maps to DAP `presentationHint: subtle` and `visibility: internal`), with a "Show compiler internals" toggle | ✓ | ✓ | S2 / S6 |
 | Stepping through `\|>` stages (`PipeStage` sites, column breakpoints, DAP `breakpointLocations`) | ✓ | distinct columns | S2 / S5 |
-| Exception breakpoints: panic, unhandled effect, division by zero, match failure, fiber failure (VM error paths; native symbolic breakpoints on `flux_panic` and the unhandled-effect path) | ✓ | ✓ | S7 |
+| Exception breakpoints: panic, division by zero, unhandled effect, and other runtime errors on the VM (VM error paths; native symbolic breakpoints on runtime debug hooks). A failed match has no runtime error on either backend (exhaustiveness is checked when compiling), so there is nothing to stop at; fiber failure comes with fibers in S8 | ✓ | ✓ | S7 / S8 |
 | Stacks that follow continuations; step into `resume` lands at the `perform` site (native: `flux_debug_yield_chain()` walks the `$cont$` closure chain) | ✓ | ✓ | S7 |
 | Handler stack view (VM `handler_stack`; native evidence vector and markers) | ✓ | ✓ | S7 |
 | Fibers, tasks and channels shown as threads with what they are blocked on (native: `flux_debug_fibers()` called through lldb) | ✓ | ✓ | S8 |
@@ -922,8 +975,9 @@ Native effects need special handling in two cases:
 | S5 | Native line tables: LIR locations from Aether spans (reference counting at line 0), the IR metadata side table, one compile unit and file per module, subprograms per symbol kind, locations, real `source_filename`, frame pointers under `-g`, `dsymutil` for kept binaries; the opt level unchanged (O0 honours tail calls); Windows waits for S11 | `llvm-dwarfdump --verify` clean on the native debug fixtures (`tests/native_llvm/debug/`). `lldb -b` sessions break at file:line, show Flux frames and step (`tests/native_llvm/native_debug_tests.rs`). 10⁶-deep tail recursion runs in a `-g` build. Every guide example prints the same natively with and without `-g`. A manual Xcode checklist. |
 | S6a | Native variables and types: the `LirFnDebug.vars` side table, a debug slot per variable with `llvm.dbg.declare`, unbound and dropped markers, `FluxValue`/`FluxCaptured`/`FluxInt`/`FluxBool`/`FluxWord` typedefs, the `FluxCtor` enumeration and `FluxCtor.<Name>` structures in the DWARF (instead of a `.fluxdbg` sidecar), `flux_lldb.py` (Flux values, children, `flux bt`/`locals`/`print`) embedded in the dSYM and printed by `flux debug --lldb-script`, Core `let` inlining off under `-g` | `tests/native_llvm/native_debug_tests.rs`: lldb with the script shows each kind of value as the VM does, variables only once bound, captured variables, the matched arm's binders, constructors another module declares; the dSYM carries the script. `llvm-dwarfdump --verify` clean; 10⁶-deep tail recursion still runs under `-g`; every guide example prints the same natively with and without `-g`. |
 | S6b | The native engine in `flux-dap` (`crates/flux-dap/src/native.rs`: building with `--native -g --emit-binary`, finding and proxying `lldb-dap`), `"backend": "native"`, `lldbDap` and `flux.lldbDapPath` in VS Code; the debug parity harness | **Debug parity harness:** `Way::VmDebug` / `Way::LlvmDebug` (`src/parity/debug.rs`), fixture directives `// dbg: break 12`, `// dbg: step`, … in `tests/parity_debug/`. Stops and frames match line for line; every variable the VM shows is there natively with its value (native code may still hold a value the VM has moved out). Run by `parity_debug_tests` and `parity-check tests/parity_debug --ways vm_debug,llvm_debug`. DAP tests drive a native session through `lldb-dap`. |
-| S7 | Effects: stacks that follow continuations (both backends), handler view, exception breakpoints, step into `resume` | Parity fixtures for multi-shot, nested handlers, and tail-resumptive vs yielding operations. |
-| S8 | Fibers, tasks and channels as threads; scheduler snapshot APIs; multi-fiber record and replay | Parity fixtures using `both`, `race` and `timeout`. Replay is identical across 100 runs. |
+| S7a | VM effects: the logical stack (suspensions, resume notes, call serials in continuations; `src/vm/debug/effects.rs`), stepping by logical depth, step into `resume`, `handlers`, exception stops with `catch` filters (panic, division by zero, unhandled effect, other runtime errors), the protocol's `exception` stops, frame kinds and `Handlers` scope; flux-dap exception breakpoint filters, `exceptionInfo`, label and suspended frames, `.handlers` | Golden transcripts `tests/debug/vm/effect_*.flxdbg` and `exception_*.flxdbg`; DAP transcript tests for the Handlers scope, suspended frames and an exception stop. |
+| S7b | Native effects: runtime debug hooks, `<handler Effect.op>` names, the `FluxEffect` enumeration in the DWARF, `flux_lldb.py` following `resume` closures, `flux handlers`/`catch`/`where`, exception breakpoints through the lldb-dap proxy | Parity fixtures for multi-shot, nested handlers, and tail-resumptive vs yielding operations. |
+| S8 | Fibers, tasks and channels as threads; scheduler snapshot APIs; multi-fiber record and replay; fiber failure as an exception breakpoint | Parity fixtures using `both`, `race` and `timeout`. Replay is identical across 100 runs. |
 | S9 | Native replay under lldb, run to event, opening a native tape in the VM, timeline UI; Core-inlining provenance → `inlinedAt`, and Core inlining turned back on in the debug profile | Cross-backend tape tests. Golden `lldb bt` output for inlined frames. |
 | S10 | Aether reference-count view, debug-heap runtime, native panic symbolization; `flux_trace_push` deleted | Golden reference counts. A use-after-free fixture that the debug heap catches. Native panic output lists Flux frames. |
 | S11 | Windows call stacks for Visual Studio (§2.8): `"CodeView"` module flag on MSVC targets, `/DEBUG` and `/PDB` in `run_linker`, runtime built with `-gcodeview` | On a Windows CI runner, `llvm-pdbutil dump -symbols app.pdb` lists Flux subprogram names with `.flx` line entries. `cdb -z app.exe -c "g; k; q"` on a fixture that panics prints Flux frames with `app.flx` file and line. A manual check that Visual Studio's Call Stack window shows them. |

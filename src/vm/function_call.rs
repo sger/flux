@@ -38,6 +38,7 @@ impl VM {
             entry_frame_index: self.frame_index.saturating_sub(1),
             inner_handlers: vec![],
             state_marker: None,
+            debug_serials: Vec::new(),
         })))
     }
 
@@ -371,6 +372,13 @@ impl VM {
         let cont_val = self.pop_untracked()?; // the callee (Continuation)
         let next_state_for_caller = next_state.clone();
 
+        if caller_ip_advance.is_some() && self.debugger.is_some() {
+            let entry = match &cont_val {
+                Value::Continuation(rc) => rc.borrow().entry_frame_index,
+                _ => self.frame_index,
+            };
+            self.debug_note_resume_start(entry);
+        }
         let caller = caller_ip_advance.map(|advance| {
             let mut frame = self.current_frame().clone();
             frame.ip += advance;
@@ -401,6 +409,7 @@ impl VM {
         let mut frames = std::mem::take(&mut cont_shell.frames);
         let mut stack = std::mem::take(&mut cont_shell.stack);
         let mut inner_handlers = std::mem::take(&mut cont_shell.inner_handlers);
+        let debug_serials = std::mem::take(&mut cont_shell.debug_serials);
 
         // Unwind all frames above the handler boundary.
         // On background worker VMs the `frames` vec starts with a single
@@ -451,9 +460,15 @@ impl VM {
         self.stack_set(captured_sp, resume_val);
         self.sp = captured_sp + 1;
 
-        // Restore captured frames above the handler boundary.
+        // Restore captured frames above the handler boundary. Each caller
+        // was captured past its call instruction; its call is the
+        // instruction before that.
         for frame in frames.drain(..) {
             self.push_frame(frame);
+            let below = self.frame_index - 1;
+            if below > entry_frame_index {
+                self.call_ips[self.frame_index] = self.frames[below].ip.saturating_sub(1);
+            }
         }
 
         // Recycle the now-empty continuation shell (capacities retained) for
@@ -465,9 +480,13 @@ impl VM {
             self.cont_pool.push(cont_shell);
         }
 
+        if self.debugger.is_some() {
+            self.debug_note_resumed(entry_frame_index, &debug_serials)?;
+        }
+
         if let Some((caller_frame_index, caller_frame, caller_stack, mut caller_handlers)) = caller
         {
-            self.nested(|vm| {
+            let ran = self.nested(|vm| {
                 while vm.frame_index > entry_frame_index {
                     if vm.current_frame().ip >= vm.current_frame().instructions().len() {
                         return Err("resumed continuation exited without return".to_string());
@@ -475,7 +494,11 @@ impl VM {
                     vm.execute_current_instruction(Some(entry_frame_index + 1))?;
                 }
                 Ok(())
-            })?;
+            });
+            if self.debugger.is_some() {
+                self.debug_note_resume_end();
+            }
+            ran?;
 
             let result = self.pop()?;
             if let (Some(marker), Some(next_state)) = (state_marker, next_state_for_caller)

@@ -1,0 +1,34 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> continue
+stopped: exception (division by zero) at exception_division.flx:4:13 in ratio (position 16)
+     4 |     let q = a / b
+> bt
+#0 ratio at exception_division.flx:4:13
+#1 main at exception_division.flx:11:21
+#2 <entry>
+> locals
+no variables
+> continue
+program finished
+• 1 error • exception_division.flx
+error[E1008]: Division By Zero
+
+Cannot divide by zero.
+
+  exception_division.flx:4:13
+  |
+4 |     let q = a / b
+  |             ^^^^^
+
+Hint:
+  Check divisor is non-zero before division.
+
+Stack trace:
+  at ratio (exception_division.flx:4:13)
+  at main (exception_division.flx:11:21)
+  at <entry>
+
+--- program output ---
+"5"

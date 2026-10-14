@@ -87,6 +87,29 @@ views Flux's:
 
 On Windows, `"native"` is refused until CodeView comes (0188 S11).
 
+## Effects and exceptions
+
+While a handler arm runs, the Call Stack shows the frames the `perform`
+suspended below it, after a label line:
+
+```text
+<handler Flip.flip>         app.flx 20:25
+⟂ handling Flip.flip — performed at app.flx:9:13
+decide (suspended)          app.flx 9:13
+main                        app.flx 19:18
+```
+
+Selecting a suspended frame shows its variables. While `resume` runs the
+continuation again, its frames sit above the arm, which waits at its
+`resume` call. A handler that never resumes marks its frames
+`(suspended, not resumable)`. The `Handlers` scope lists the active effect
+handlers, innermost first, with a parameterized handler's state.
+
+The Breakpoints view offers the runtime errors to stop at: panics, division
+by zero and unhandled effects (on by default) and other runtime errors.
+Such a stop shows the error where it happened, with the stack as it was;
+continuing ends the program with the error.
+
 ## The Debug Console
 
 Typing a variable, or a part of one (`pair.0`, `tree.2.1`), shows its value.
@@ -102,6 +125,7 @@ The console also takes commands for what DAP has no button for:
 | `.events` | The effects the program has performed, with their positions. |
 | `.event <n>` | Go to the last stop before effect `n`. |
 | `.rs` `.rn` `.rf` `.rc` | Reverse step, next, finish, continue. |
+| `.handlers` | The active effect handlers, innermost first. |
 | `.internals on\|off` | Show or hide compiler-made frames and variables. |
 | `.help` | This list. |
 
@@ -178,16 +202,26 @@ Run this after changing the adapter or the extension, using
     shows the recorded values.
 12. `"showInternals": true` shows the dictionary frames that are hidden by
     default.
+17. In a handler arm (`examples/effects`), the Call Stack shows the
+    `⟂ handling …` label and the suspended frames; selecting one shows its
+    variables.
+18. Step Into on `resume(…)` stops at the `perform`; Step Over on it stops
+    back in the arm.
+19. The `Handlers` scope lists the handlers, with a parameterized handler's
+    state.
+20. With "Panics" ticked in the Breakpoints view, a `panic` stops where it
+    happens, the editor shows the exception and its message, and Continue
+    ends the program with the error. Unticked, the program just ends.
 
 With `"backend": "native"` and `flux.runCommand` set to
 `cargo run --features llvm --`:
 
-13. F5 builds the program (the build's progress in the Debug Console) and
+17. F5 builds the program (the build's progress in the Debug Console) and
     stops at a gutter breakpoint, which turns solid.
-14. The Call Stack shows only Flux frames, `main` at the bottom.
-15. Variables shows Locals with Flux values; lists and constructors expand,
+18. The Call Stack shows only Flux frames, `main` at the bottom.
+19. Variables shows Locals with Flux values; lists and constructors expand,
     a record's parts by field name; a `let` below the current line is
     absent.
-16. Step Over, Step Into and Step Out move through Flux lines, never into
+20. Step Over, Step Into and Step Out move through Flux lines, never into
     the runtime. Step Back is not offered.
-17. `.locals` in the Debug Console prints the frame's variables.
+21. `.locals` in the Debug Console prints the frame's variables.

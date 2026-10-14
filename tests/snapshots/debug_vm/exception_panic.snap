@@ -1,0 +1,27 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> catch
+stopping at: panic, division by zero, unhandled effect
+> continue
+stopped: exception (panic: too big) at exception_panic.flx:5:9 in check (position 10)
+     5 |         panic("too big")
+> bt
+#0 check at exception_panic.flx:5:9
+#1 total at exception_panic.flx:12:13
+#2 main at exception_panic.flx:18:21
+#3 <entry>
+> continue
+program finished
+error[E1009]: panic: too big
+
+  <unknown>:0:1
+  |
+
+Stack trace:
+  at Flow.Primops.panic
+  at total (exception_panic.flx:12:13)
+  at main (exception_panic.flx:18:21)
+  at <entry>
+
+--- program output ---

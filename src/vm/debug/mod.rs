@@ -19,6 +19,7 @@
 //! VS Code adapter (S4) later.
 
 mod checkpoint;
+mod effects;
 mod inspect;
 mod values;
 
@@ -26,7 +27,8 @@ use std::collections::HashSet;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-pub use inspect::{Inspector, StackFrame, Variable};
+pub use inspect::{FrameKind, HandlerView, Inspector, StackFrame, Variable};
+
 pub use values::ValueView;
 
 use crate::runtime::replay;
@@ -43,6 +45,9 @@ pub enum StopReason {
     StartOfRecording,
     /// The front end asked the running program to stop.
     Pause,
+    /// A runtime error the debugger catches, where it happened, before the
+    /// program ends with it. [`Inspector::exception`] has the message.
+    Exception(ExceptionKind),
 }
 
 impl StopReason {
@@ -52,7 +57,89 @@ impl StopReason {
             StopReason::Step => "step",
             StopReason::StartOfRecording => "start of the recording",
             StopReason::Pause => "pause",
+            StopReason::Exception(_) => "exception",
         }
+    }
+}
+
+/// The runtime errors the debugger can stop at (0188 S7). Async and fiber
+/// failures come with fibers, in S8.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ExceptionKind {
+    Panic,
+    DivisionByZero,
+    UnhandledEffect,
+    /// Any other runtime error: a failed `unwrap`, a type error, ...
+    RuntimeError,
+}
+
+impl ExceptionKind {
+    pub const ALL: [ExceptionKind; 4] = [
+        ExceptionKind::Panic,
+        ExceptionKind::DivisionByZero,
+        ExceptionKind::UnhandledEffect,
+        ExceptionKind::RuntimeError,
+    ];
+
+    /// The name commands and the debug protocol use.
+    pub fn id(self) -> &'static str {
+        match self {
+            ExceptionKind::Panic => "panic",
+            ExceptionKind::DivisionByZero => "division_by_zero",
+            ExceptionKind::UnhandledEffect => "unhandled_effect",
+            ExceptionKind::RuntimeError => "runtime_error",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        match id {
+            "panic" => Some(ExceptionKind::Panic),
+            "division" | "division_by_zero" => Some(ExceptionKind::DivisionByZero),
+            "unhandled" | "unhandled_effect" => Some(ExceptionKind::UnhandledEffect),
+            "errors" | "runtime_error" => Some(ExceptionKind::RuntimeError),
+            _ => None,
+        }
+    }
+
+    /// What the stop says it is.
+    pub fn label(self) -> &'static str {
+        match self {
+            ExceptionKind::Panic => "panic",
+            ExceptionKind::DivisionByZero => "division by zero",
+            ExceptionKind::UnhandledEffect => "unhandled effect",
+            ExceptionKind::RuntimeError => "runtime error",
+        }
+    }
+
+    /// The kinds a session catches until told otherwise.
+    pub fn caught_by_default(self) -> bool {
+        !matches!(self, ExceptionKind::RuntimeError)
+    }
+
+    /// The kind of a VM error and its message, without the diagnostic's
+    /// decoration.
+    pub fn classify(error: &str) -> (ExceptionKind, String) {
+        let plain = crate::vm::trace::strip_ansi(error);
+        let plain = plain.trim();
+        let lower = plain.to_lowercase();
+        if let Some(message) = plain.strip_prefix("panic: ") {
+            return (ExceptionKind::Panic, message.to_string());
+        }
+        if lower.contains("e1008") || lower.contains("division by zero") {
+            return (
+                ExceptionKind::DivisionByZero,
+                "division by zero".to_string(),
+            );
+        }
+        if lower.starts_with("unhandled effect") || lower.starts_with("unhandled operation") {
+            return (ExceptionKind::UnhandledEffect, plain.to_string());
+        }
+        let first = plain
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .unwrap_or("runtime error");
+        (ExceptionKind::RuntimeError, first.to_string())
     }
 }
 
@@ -125,9 +212,11 @@ pub fn request_interrupt() {
 enum StepMode {
     Continue,
     StepIn,
-    /// Stop at a site whose frame index is at most `depth`.
+    /// Stop at a site whose logical depth is at most `depth`, or in the
+    /// call `serial` (a resumed frame is the same call, deeper).
     StepOver {
         depth: usize,
+        serial: u64,
     },
     /// Stop at a site whose frame index is below `depth`.
     StepOut {
@@ -207,6 +296,26 @@ pub(crate) struct DebugControl {
     /// The checkpoint position to restore once the run has unwound to the
     /// top-level loop.
     rewind: Option<u64>,
+    /// Frames performs took off the stack, per arm (S7).
+    pub(crate) suspensions: Vec<effects::Suspension>,
+    /// A perform's frames, until its arm's frame is pushed.
+    pending_suspension: Option<effects::Suspension>,
+    /// Frames non-tail resumes took off the stack, outermost first.
+    pub(crate) resumes: Vec<effects::ResumeNote>,
+    /// The instruction the top frame is shown at, when that is not its `ip`:
+    /// a stop right after `resume`, at the perform.
+    pub(crate) top_ip: Option<usize>,
+    /// The runtime errors to stop at.
+    pub(crate) catch: HashSet<ExceptionKind>,
+    /// The error stopped at, while the program is stopped there and after:
+    /// it unwinds through nested dispatch loops, each of which sees it.
+    pub(crate) exception: Option<(ExceptionKind, String, String)>,
+}
+
+impl DebugControl {
+    fn stepping_in(&self) -> bool {
+        matches!(self.mode, StepMode::StepIn)
+    }
 }
 
 /// Calls a frame no longer shows because each was replaced by a tail call.
@@ -247,6 +356,15 @@ impl DebugState {
                 next_serial: 1,
                 checkpoints: Checkpoints::new(),
                 rewind: None,
+                suspensions: Vec::new(),
+                pending_suspension: None,
+                resumes: Vec::new(),
+                top_ip: None,
+                catch: ExceptionKind::ALL
+                    .into_iter()
+                    .filter(|kind| kind.caught_by_default())
+                    .collect(),
+                exception: None,
             },
             observer,
         }
@@ -296,7 +414,11 @@ pub(crate) fn reverse_unavailable() -> Option<String> {
 
 /// Where a stop site is, and what a stop there would be.
 struct SiteHere {
+    /// The VM frame index.
     depth: usize,
+    /// The depth on the logical stack, which counts the frames a perform or
+    /// a resume took off the VM's stack.
+    logical: usize,
     identity: (usize, usize),
     /// The first site of its line in this frame since another line ran.
     fresh: bool,
@@ -393,6 +515,46 @@ impl VM {
         result
     }
 
+    /// An instruction failed with `error`. When the debugger catches its
+    /// kind, stop where it happened, with the stack as it was; then the
+    /// error goes on as before and ends the program. Returns the error to
+    /// unwind with: `error`, or the debugger's own to go back.
+    #[cold]
+    #[inline(never)]
+    pub(super) fn debug_on_error(&mut self, error: String) -> String {
+        if error == REWIND || error == "__fiber_error__" {
+            return error;
+        }
+        let Some(mut state) = self.debugger.take() else {
+            return error;
+        };
+        let seen = state
+            .control
+            .exception
+            .as_ref()
+            .is_some_and(|(_, _, raw)| *raw == error);
+        let (kind, message) = ExceptionKind::classify(&error);
+        let result =
+            if seen || state.control.rewind.is_some() || !state.control.catch.contains(&kind) {
+                Ok(())
+            } else if matches!(
+                state.control.mode,
+                StepMode::Scan(_) | StepMode::RunTo { .. }
+            ) {
+                // Going back passes the error's place without stopping: the
+                // stop before it is where the search ends.
+                Ok(())
+            } else {
+                state.control.exception = Some((kind, message, error.clone()));
+                self.stop(&mut state, StopReason::Exception(kind))
+            };
+        self.debugger = Some(state);
+        match result {
+            Err(rewind) => rewind,
+            Ok(()) => error,
+        }
+    }
+
     fn debug_site_with(&mut self, state: &mut DebugState, site: usize) -> Result<(), String> {
         let control = &mut state.control;
         if self.nested_runs == 0
@@ -431,8 +593,14 @@ impl VM {
                 (here.fresh && here.on_breakpoint).then_some(StopReason::Breakpoint)
             }
             StepMode::StepIn => forward_stop(&here, true),
-            StepMode::StepOver { depth: from } => forward_stop(&here, here.depth <= *from),
-            StepMode::StepOut { depth: from } => forward_stop(&here, here.depth < *from),
+            StepMode::StepOver {
+                depth: from,
+                serial,
+            } => {
+                let same_call = control.serials.get(here.depth) == Some(serial);
+                forward_stop(&here, here.logical <= *from || same_call)
+            }
+            StepMode::StepOut { depth: from } => forward_stop(&here, here.logical < *from),
             StepMode::Scan(search) => {
                 if position >= search.end {
                     self.end_scan_stretch(control);
@@ -536,10 +704,11 @@ impl VM {
     }
 
     fn apply_forward(&self, control: &mut DebugControl, resume: Resume) {
-        let depth = self.frame_index;
+        let depth = control.logical_depth(self.frame_index, self.frame_index);
+        let serial = control.serials.get(self.frame_index).copied().unwrap_or(0);
         control.mode = match resume {
             Resume::StepIn => StepMode::StepIn,
-            Resume::StepOver => StepMode::StepOver { depth },
+            Resume::StepOver => StepMode::StepOver { depth, serial },
             Resume::StepOut => StepMode::StepOut { depth },
             _ => StepMode::Continue,
         };
@@ -665,6 +834,7 @@ impl VM {
         let artificial = inspect::is_artificial(info.name.as_deref());
         Some(SiteHere {
             depth,
+            logical: control.logical_depth(depth, depth),
             identity: (function_key, site),
             fresh,
             on_breakpoint,
@@ -720,6 +890,18 @@ impl VM {
         }
         control.serials[index] = control.next_serial;
         control.next_serial += 1;
+        // The arm of a perform that took frames off the stack.
+        if let Some(mut suspension) = control.pending_suspension.take() {
+            if control.resumes.is_empty() {
+                let serials = &control.serials;
+                control.suspensions.retain(|old| {
+                    old.arm_index < index && serials.get(old.arm_index) == Some(&old.arm_serial)
+                });
+            }
+            suspension.arm_index = index;
+            suspension.arm_serial = control.serials[index];
+            control.suspensions.push(suspension);
+        }
     }
 }
 

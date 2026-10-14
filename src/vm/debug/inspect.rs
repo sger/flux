@@ -1,8 +1,10 @@
 //! Reading a paused VM: its stack, each frame's variables, and breakpoints.
 
+use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::bytecode::debug_info::FunctionDebugInfo;
+use crate::runtime::closure::Closure;
 use crate::runtime::compiled_function::CompiledFunction;
 use crate::runtime::value::Value;
 
@@ -13,7 +15,9 @@ use super::{DebugControl, LineBreakpoint};
 /// One frame of the call stack, newest first.
 #[derive(Debug, Clone)]
 pub struct StackFrame {
-    /// The VM frame index, for [`Inspector::locals`].
+    /// The frame's place on the logical stack, counted from the bottom, for
+    /// [`Inspector::locals`]. Without effects in flight it is the VM frame
+    /// index.
     pub index: usize,
     pub name: String,
     pub file: Option<String>,
@@ -24,6 +28,59 @@ pub struct StackFrame {
     pub artificial: bool,
     /// Calls this frame replaced by tail calls, and the latest of them.
     pub elided: Option<(u64, String)>,
+    pub kind: FrameKind,
+}
+
+/// What a line of the logical stack is (0188 S7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrameKind {
+    /// A frame running or waiting for a call to return.
+    Live,
+    /// A frame a perform took off the stack, waiting in a continuation
+    /// below the arm handling it. A handler that never resumes has dropped
+    /// it: then it is not `resumable`.
+    Suspended { resumable: bool },
+    /// Not a frame: `handling Effect.op — performed at file:line:col`,
+    /// between an arm and the frames it suspended. Its text is the name.
+    Label,
+}
+
+/// An active effect handler, innermost first.
+#[derive(Debug, Clone)]
+pub struct HandlerView {
+    pub effect: String,
+    /// A parameterized handler's state.
+    pub state: Option<ValueView>,
+    /// The function the `handle` is in.
+    pub handled_in: Option<String>,
+    /// A default handler the compiler put around `main`.
+    pub internal: bool,
+}
+
+/// Where the logical stack's frame comes from.
+#[derive(Debug, Clone, Copy)]
+enum FrameSource {
+    /// `VM.frames[index]`.
+    Live(usize),
+    /// Frame `frame` of resume note `note`.
+    Hidden {
+        note: usize,
+        frame: usize,
+    },
+    /// Frame `frame` (outermost first) of the suspension below the arm at
+    /// VM frame `arm`.
+    Suspended {
+        arm: usize,
+        frame: usize,
+    },
+    Label,
+}
+
+/// A frame's function, instruction and local slots, wherever it lives.
+struct FrameView {
+    closure: Rc<Closure>,
+    ip: usize,
+    slots: Vec<Value>,
 }
 
 /// A named value in a frame.
@@ -188,63 +245,215 @@ impl<'a> Inspector<'a> {
         Self { vm, control }
     }
 
-    /// The call stack, newest first. Compiler-made frames are left out
+    /// The call stack, newest first: the logical stack, which shows the
+    /// frames a perform suspended below the arm handling it, and the arm a
+    /// running `resume` will return to. Compiler-made frames are left out
     /// unless internals are shown.
     pub fn stack(&self) -> Vec<StackFrame> {
-        (0..=self.vm.frame_index)
-            .rev()
-            .filter_map(|index| {
-                let function = &self.vm.frames[index].closure.function;
-                let info = function.debug_info.as_ref();
-                let name = function_name(info, index);
-                let artificial = is_artificial(info.and_then(|info| info.name.as_deref()));
-                if artificial && !self.control.show_internals {
+        let mut frames: Vec<StackFrame> = self
+            .layout()
+            .into_iter()
+            .map(|(_, frame)| frame)
+            .filter(|frame| !frame.artificial || self.control.show_internals)
+            .collect();
+        frames.reverse();
+        frames
+    }
+
+    /// The logical stack, oldest first, with where each frame comes from.
+    fn layout(&self) -> Vec<(FrameSource, StackFrame)> {
+        let vm = self.vm;
+        let control = &*self.control;
+        let top = vm.frame_index;
+        let mut out: Vec<(FrameSource, StackFrame)> = Vec::new();
+        let push = |out: &mut Vec<(FrameSource, StackFrame)>, source, mut frame: StackFrame| {
+            frame.index = out.len();
+            out.push((source, frame));
+        };
+        for index in 0..=top {
+            if let Some(suspension) = control
+                .suspensions
+                .iter()
+                .rev()
+                .find(|s| s.arm_index == index && control.suspension_live(s, top))
+            {
+                for (k, suspended) in suspension.frames.iter().enumerate() {
+                    let (name, location) = &suspended.summary;
+                    push(
+                        &mut out,
+                        FrameSource::Suspended {
+                            arm: index,
+                            frame: k,
+                        },
+                        summary_frame(
+                            name,
+                            location.as_ref(),
+                            suspended.artificial,
+                            None,
+                            FrameKind::Suspended {
+                                resumable: suspension.resumable,
+                            },
+                        ),
+                    );
+                }
+                let performed = suspension
+                    .frames
+                    .last()
+                    .and_then(|frame| frame.summary.1.as_ref())
+                    .map(|(file, line, column)| {
+                        format!(" — performed at {}:{line}:{column}", short_file(file))
+                    })
+                    .unwrap_or_default();
+                push(
+                    &mut out,
+                    FrameSource::Label,
+                    summary_frame(
+                        &format!("handling {}{performed}", suspension.operation),
+                        None,
+                        false,
+                        None,
+                        FrameKind::Label,
+                    ),
+                );
+            }
+            let function = &vm.frames[index].closure.function;
+            let info = function.debug_info.as_ref();
+            let mut name = function_name(info, index);
+            let mut artificial = is_artificial(info.and_then(|info| info.name.as_deref()));
+            let mut location = location_at(function, self.frame_ip(index));
+            let mut calls = control.tail_calls.get(index).cloned();
+            if location.is_none() && index > 0 {
+                // An intrinsic (`panic`, `print`): no source of its own. A
+                // tail call to it shows as the call, in the function that
+                // made it, as native code does.
+                match calls.as_mut().and_then(|calls| {
+                    let caller = calls.recent.pop()?;
+                    calls.count -= 1;
+                    Some(caller)
+                }) {
+                    Some((caller, at)) => {
+                        name = caller;
+                        location = at;
+                    }
+                    None => artificial = true,
+                }
+            }
+            let tail = elided(calls.as_ref());
+            push(
+                &mut out,
+                FrameSource::Live(index),
+                summary_frame(&name, location.as_ref(), artificial, tail, FrameKind::Live),
+            );
+            for (note_index, note) in control.resumes.iter().enumerate() {
+                if note.entry != index {
+                    continue;
+                }
+                for (k, hidden) in note.hidden.iter().enumerate() {
+                    let function = &hidden.frame.closure.function;
+                    let info = function.debug_info.as_ref();
+                    let name = function_name(info, hidden.index);
+                    let artificial = is_artificial(info.and_then(|info| info.name.as_deref()));
+                    let location = location_at(function, hidden.ip);
+                    push(
+                        &mut out,
+                        FrameSource::Hidden {
+                            note: note_index,
+                            frame: k,
+                        },
+                        summary_frame(
+                            &name,
+                            location.as_ref(),
+                            artificial,
+                            elided(Some(&hidden.tail_calls)),
+                            FrameKind::Live,
+                        ),
+                    );
+                }
+            }
+        }
+        out
+    }
+
+    /// The instruction VM frame `index` is shown at.
+    fn frame_ip(&self, index: usize) -> usize {
+        match self.control.top_ip {
+            Some(ip) if index == self.vm.frame_index => ip,
+            _ => self.vm.frame_ip(index),
+        }
+    }
+
+    /// The function, instruction and slots of logical frame `index`.
+    fn frame_view(&self, index: usize) -> Option<FrameView> {
+        let (source, _) = self.layout().into_iter().nth(index)?;
+        match source {
+            FrameSource::Live(index) => {
+                let frame = self.vm.frames.get(index)?;
+                let count = frame.closure.function.num_locals;
+                let from = frame.base_pointer.min(self.vm.stack.len());
+                let to = (frame.base_pointer + count).min(self.vm.stack.len());
+                Some(FrameView {
+                    closure: frame.closure.clone(),
+                    ip: self.frame_ip(index),
+                    slots: self.vm.stack[from..to]
+                        .iter()
+                        .map(slot::from_slot_ref)
+                        .collect(),
+                })
+            }
+            FrameSource::Hidden { note, frame } => {
+                let note = self.control.resumes.get(note)?;
+                let hidden = note.hidden.get(frame)?;
+                let count = hidden.frame.closure.function.num_locals;
+                let from = hidden.frame.base_pointer.checked_sub(note.stack_from)?;
+                let to = (from + count).min(note.stack.len());
+                Some(FrameView {
+                    closure: hidden.frame.closure.clone(),
+                    ip: hidden.ip,
+                    slots: note.stack.get(from..to)?.to_vec(),
+                })
+            }
+            FrameSource::Suspended { arm, frame } => {
+                // The continuation is the arm's first argument, `resume`,
+                // while the arm still holds it.
+                let suspension = self
+                    .control
+                    .suspensions
+                    .iter()
+                    .rev()
+                    .find(|s| s.arm_index == arm)?;
+                let arm_frame = self.vm.frames.get(arm)?;
+                let resume = self.vm.stack.get(arm_frame.base_pointer)?;
+                let Value::Continuation(continuation) = slot::from_slot_ref(resume) else {
+                    return None;
+                };
+                let continuation = continuation.borrow();
+                if continuation.frames.len() != suspension.frames.len() {
                     return None;
                 }
-                let (file, line, column) = location_at(function, self.vm.frame_ip(index))
-                    .map(|(file, line, column)| (Some(file), line, column))
-                    .unwrap_or((None, 0, 0));
-                let elided = self
-                    .control
-                    .tail_calls
-                    .get(index)
-                    .filter(|calls| calls.count > 0)
-                    .map(|calls| {
-                        let last = calls
-                            .recent
-                            .last()
-                            .map(|(name, location)| match location {
-                                Some((file, line, column)) => {
-                                    format!("{name} at {}:{line}:{column}", short_file(file))
-                                }
-                                None => name.clone(),
-                            })
-                            .unwrap_or_default();
-                        (calls.count, last)
-                    });
-                Some(StackFrame {
-                    index,
-                    name,
-                    file,
-                    line,
-                    column,
-                    artificial,
-                    elided,
+                let captured = continuation.frames.get(frame)?;
+                let count = captured.closure.function.num_locals;
+                let from = captured.base_pointer.checked_sub(continuation.entry_sp)?;
+                let to = (from + count).min(continuation.stack.len());
+                Some(FrameView {
+                    closure: captured.closure.clone(),
+                    ip: captured.ip.saturating_sub(1),
+                    slots: continuation.stack.get(from..to)?.to_vec(),
                 })
-            })
-            .collect()
+            }
+            FrameSource::Label => None,
+        }
     }
 
     /// The local variables of frame `index` that hold a value at its current
     /// instruction. A name bound twice shows its innermost binding.
     pub fn locals(&self, index: usize) -> Vec<Variable> {
-        let Some(frame) = self.vm.frames.get(index) else {
+        let Some(view) = self.frame_view(index) else {
             return Vec::new();
         };
-        let Some(info) = frame.closure.function.debug_info.as_ref() else {
+        let Some(info) = view.closure.function.debug_info.as_ref() else {
             return Vec::new();
         };
-        let ip = self.vm.frame_ip(index);
+        let ip = view.ip;
         let mut live: Vec<&crate::bytecode::debug_info::LocalVar> = info
             .locals
             .iter()
@@ -258,7 +467,10 @@ impl<'a> Inspector<'a> {
         live.sort_by_key(|local| local.slot);
         live.into_iter()
             .filter_map(|local| {
-                let value = self.slot_value(index, local.slot as usize)?;
+                let value = view.slots.get(local.slot as usize)?.clone();
+                if matches!(value, Value::Uninit) {
+                    return None;
+                }
                 Some(Variable {
                     name: local.name.clone(),
                     value: ValueView::new(value),
@@ -270,15 +482,15 @@ impl<'a> Inspector<'a> {
 
     /// The values frame `index`'s closure captured.
     pub fn captured(&self, index: usize) -> Vec<Variable> {
-        let Some(frame) = self.vm.frames.get(index) else {
+        let Some(view) = self.frame_view(index) else {
             return Vec::new();
         };
-        let Some(info) = frame.closure.function.debug_info.as_ref() else {
+        let Some(info) = view.closure.function.debug_info.as_ref() else {
             return Vec::new();
         };
         info.free_names
             .iter()
-            .zip(frame.closure.free.iter())
+            .zip(view.closure.free.iter())
             .filter(|(name, _)| self.control.show_internals || !name.starts_with("__"))
             .map(|(name, value)| Variable {
                 name: name.clone(),
@@ -302,11 +514,34 @@ impl<'a> Inspector<'a> {
         found
     }
 
-    fn slot_value(&self, index: usize, slot_index: usize) -> Option<Value> {
-        let frame = &self.vm.frames[index];
-        let slot = self.vm.stack.get(frame.base_pointer + slot_index)?;
-        let value = slot::from_slot_ref(slot);
-        (!matches!(value, Value::Uninit)).then_some(value)
+    /// The active effect handlers, innermost first. The default handlers
+    /// the compiler puts around `main` are left out unless internals are
+    /// shown.
+    pub fn handlers(&self) -> Vec<HandlerView> {
+        self.vm
+            .handler_stack
+            .iter()
+            .rev()
+            .map(|handler| {
+                let arm_name = handler
+                    .arms
+                    .first()
+                    .and_then(|arm| arm.closure.function.debug_info.as_ref())
+                    .and_then(|info| info.name.clone())
+                    .unwrap_or_default();
+                let internal = arm_name.starts_with("__default_handler");
+                let effect = handled_effect(&arm_name).unwrap_or_else(|| "<effect>".to_string());
+                let handled_in = (handler.entry_frame_index <= self.vm.frame_index)
+                    .then(|| frame_summary(self.vm, handler.entry_frame_index).0);
+                HandlerView {
+                    effect,
+                    state: handler.state.clone().map(ValueView::new),
+                    handled_in,
+                    internal,
+                }
+            })
+            .filter(|handler| !handler.internal || self.control.show_internals)
+            .collect()
     }
 
     /// Sets a breakpoint at the first line at or after `line` in `file` that
@@ -356,6 +591,27 @@ impl<'a> Inspector<'a> {
         self.control.breakpoints.len() != before
     }
 
+    /// The runtime error the program stopped at, and its message.
+    pub fn exception(&self) -> Option<(super::ExceptionKind, String)> {
+        self.control
+            .exception
+            .as_ref()
+            .map(|(kind, message, _)| (*kind, message.clone()))
+    }
+
+    /// The runtime errors the debugger stops at.
+    pub fn caught(&self) -> Vec<super::ExceptionKind> {
+        super::ExceptionKind::ALL
+            .into_iter()
+            .filter(|kind| self.control.catch.contains(kind))
+            .collect()
+    }
+
+    /// Stops at these runtime errors, and no others.
+    pub fn set_caught(&mut self, kinds: &[super::ExceptionKind]) {
+        self.control.catch = kinds.iter().copied().collect();
+    }
+
     /// Sites the program has run so far: where it is in its run.
     pub fn position(&self) -> u64 {
         self.control.position
@@ -379,6 +635,56 @@ impl<'a> Inspector<'a> {
     pub fn show_internals(&self) -> bool {
         self.control.show_internals
     }
+}
+
+/// A stack line from a name and a location.
+fn summary_frame(
+    name: &str,
+    location: Option<&(String, usize, usize)>,
+    artificial: bool,
+    elided: Option<(u64, String)>,
+    kind: FrameKind,
+) -> StackFrame {
+    let (file, line, column) = location
+        .map(|(file, line, column)| (Some(file.clone()), *line, *column))
+        .unwrap_or((None, 0, 0));
+    StackFrame {
+        index: 0,
+        name: name.to_string(),
+        file,
+        line,
+        column,
+        artificial,
+        elided,
+        kind,
+    }
+}
+
+/// The calls a frame replaced by tail calls, and the latest of them.
+fn elided(calls: Option<&super::TailCalls>) -> Option<(u64, String)> {
+    let calls = calls.filter(|calls| calls.count > 0)?;
+    let last = calls
+        .recent
+        .last()
+        .map(|(name, location)| match location {
+            Some((file, line, column)) => {
+                format!("{name} at {}:{line}:{column}", short_file(file))
+            }
+            None => name.clone(),
+        })
+        .unwrap_or_default();
+    Some((calls.count, last))
+}
+
+/// The effect an arm named `<handler Effect.op>` (or `__default_handler
+/// Effect.op`) handles.
+fn handled_effect(arm_name: &str) -> Option<String> {
+    let operation = arm_name
+        .strip_prefix("<handler ")
+        .and_then(|rest| rest.strip_suffix('>'))
+        .or_else(|| arm_name.strip_prefix("__default_handler "))?;
+    let (effect, _op) = operation.rsplit_once('.')?;
+    Some(effect.to_string())
 }
 
 /// The file name for a stack line: the last component.
