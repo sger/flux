@@ -14,6 +14,8 @@
 
 pub mod cont_split;
 #[cfg(feature = "llvm")]
+pub mod emit_debug;
+#[cfg(feature = "llvm")]
 pub mod emit_llvm;
 pub mod liveness;
 pub mod lower;
@@ -413,6 +415,66 @@ pub struct LirBlock {
     pub params: Vec<LirVar>,
     pub instrs: Vec<LirInstr>,
     pub terminator: LirTerminator,
+    /// Where each instruction came from in the source, by index; an
+    /// instruction past the end of the list has no location. Native debug
+    /// builds turn these into line tables (proposal 0188 S5).
+    pub locs: Vec<LirLoc>,
+    /// Where the terminator came from.
+    pub term_loc: LirLoc,
+}
+
+impl LirBlock {
+    /// The source location of instruction `index`.
+    pub fn loc(&self, index: usize) -> LirLoc {
+        self.locs.get(index).copied().unwrap_or_default()
+    }
+}
+
+/// A source position: line and column from 1. Line 0 is code the compiler
+/// made (reference counting, glue), which a debugger steps over.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct LirLoc {
+    pub line: u32,
+    pub col: u32,
+}
+
+impl LirLoc {
+    pub const NONE: LirLoc = LirLoc { line: 0, col: 0 };
+
+    /// From a source span; a span the compiler made up has no location.
+    pub fn from_span(span: crate::diagnostics::position::Span) -> Self {
+        if span.start.line == 0 {
+            return Self::NONE;
+        }
+        LirLoc {
+            line: span.start.line as u32,
+            col: span.start.column as u32 + 1,
+        }
+    }
+
+    pub fn is_none(self) -> bool {
+        self.line == 0
+    }
+}
+
+/// What a debugger calls a function (proposal 0188 S5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LirFnDebug {
+    pub kind: LirFnKind,
+    /// Where the function is defined.
+    pub loc: LirLoc,
+    /// Made by the compiler: a debugger does not stop in it.
+    pub artificial: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LirFnKind {
+    /// A function with a source name.
+    Named(String),
+    /// A lambda, named after where it is: `<lambda file:line:col>`.
+    Lambda,
+    /// The rest of `parent` after a call that can suspend returns.
+    Resumed { parent: String, after: LirLoc },
 }
 
 /// A function in LIR.
@@ -441,6 +503,8 @@ pub struct LirFunction {
     pub param_reps: Vec<crate::core::FluxRep>,
     /// Return type representation (from CoreDef::result_ty).
     pub result_rep: crate::core::FluxRep,
+    /// Its name and place for a debugger, when lowering knew them.
+    pub debug: Option<LirFnDebug>,
 }
 
 /// A complete LIR program — a collection of functions.

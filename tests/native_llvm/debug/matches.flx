@@ -1,0 +1,16 @@
+// Match arms on a data type.
+data Shape {
+    Circle(Int),
+    Rect(Int, Int),
+}
+
+fn area(shape) {
+    match shape {
+        Circle(r) -> 3 * r * r,
+        Rect(w, h) -> w * h,
+    }
+}
+
+fn main() {
+    print(area(Circle(2)) + area(Rect(3, 4)))
+}

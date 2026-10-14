@@ -450,6 +450,13 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
         {
             eprintln!("llvm linker failed: {e}");
             std::process::exit(1);
+        } else if request.compile.debug_level.is_enabled()
+            && (request.output.emit_binary || request.output.output_path.is_some())
+        {
+            // A binary the user keeps carries its debug information with
+            // it: on macOS that means a .dSYM, since otherwise it lives in
+            // object files the cache may remove (proposal 0188 S5).
+            flux::llvm::pipeline::write_debug_symbols(&out);
         }
         let link_ms = link_start.elapsed().as_secs_f64() * 1000.0;
         if request.runtime.verbose {
@@ -465,7 +472,13 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
 
         let exec_start = Instant::now();
         let fiber_trace = std::env::var("FLUX_FIBER_TRACE").ok();
-        let mut native_cmd = std::process::Command::new(&out);
+        // `-o app` names a file here, not a command to look up on PATH.
+        let runnable = if out.is_relative() {
+            std::path::Path::new(".").join(&out)
+        } else {
+            out.clone()
+        };
+        let mut native_cmd = std::process::Command::new(&runnable);
         // Forward the program's own arguments (everything the driver saw
         // after `--`). The child is a separate process, so argv[0] would
         // otherwise be the cache path of the compiled binary; arg0 is

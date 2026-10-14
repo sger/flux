@@ -1030,6 +1030,13 @@ fn promote_tail_calls(program: &mut LirProgram) {
     }
 }
 
+/// The location of a node with `span`: its own, or, for a node the compiler
+/// made without one, the enclosing node's.
+fn located(span: crate::diagnostics::position::Span, enclosing: LirLoc) -> LirLoc {
+    let loc = LirLoc::from_span(span);
+    if loc.is_none() { enclosing } else { loc }
+}
+
 // ── Per-function lowering context ────────────────────────────────────────────
 
 /// Tracks state while lowering a single function body to LIR.
@@ -1101,6 +1108,12 @@ struct FnLower<'a> {
     parameterized_effects_in_program: &'a HashSet<Identifier>,
     /// True when this lowered function's source effect row includes Async.
     async_indirect_calls: bool,
+    /// The source position of the expression being lowered, stamped on each
+    /// instruction emitted for it (proposal 0188 S5).
+    current_loc: LirLoc,
+    /// The position of the last expression lowered: where a `return`
+    /// happens, once the function's body is done.
+    last_loc: LirLoc,
 }
 
 struct FnLowerCtx<'a> {
@@ -1120,7 +1133,14 @@ struct FnLowerCtx<'a> {
 
 impl<'a> FnLower<'a> {
     fn new(name: String, id: LirFuncId, qualified_name: String, ctx: FnLowerCtx<'a>) -> Self {
+        let debug = Some(LirFnDebug {
+            kind: LirFnKind::Named(qualified_name.clone()),
+            loc: LirLoc::NONE,
+            artificial: false,
+        });
         let entry_block = LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
             id: BlockId(0),
             params: Vec::new(),
             instrs: Vec::new(),
@@ -1130,6 +1150,7 @@ impl<'a> FnLower<'a> {
             env: HashMap::new(),
             block_func_closures: HashMap::new(),
             func: LirFunction {
+                debug,
                 name,
                 id,
                 qualified_name,
@@ -1159,6 +1180,8 @@ impl<'a> FnLower<'a> {
             active_parameterized_effects: HashSet::new(),
             parameterized_effects_in_program: ctx.parameterized_effects_in_program,
             async_indirect_calls: ctx.async_indirect_calls,
+            current_loc: LirLoc::NONE,
+            last_loc: LirLoc::NONE,
         }
     }
 
@@ -1308,23 +1331,69 @@ impl<'a> FnLower<'a> {
             }
             LirInstr::UntagBool { dst, val } => {
                 if let Some(&raw) = self.bool_raw_source.get(val) {
-                    self.func.blocks[self.current_block]
-                        .instrs
-                        .push(LirInstr::Copy {
-                            dst: *dst,
-                            src: raw,
-                        });
+                    self.push_instr(LirInstr::Copy {
+                        dst: *dst,
+                        src: raw,
+                    });
                     return;
                 }
             }
             _ => {}
         }
-        self.func.blocks[self.current_block].instrs.push(instr);
+        self.push_instr(instr);
+    }
+
+    /// Appends `instr` to the current block, with the current location.
+    fn push_instr(&mut self, instr: LirInstr) {
+        let loc = self.current_loc;
+        let block = &mut self.func.blocks[self.current_block];
+        if !loc.is_none() || !block.locs.is_empty() {
+            block.locs.resize(block.instrs.len(), LirLoc::NONE);
+            block.locs.push(loc);
+        }
+        block.instrs.push(instr);
     }
 
     /// Set the terminator of the current block.
     fn set_terminator(&mut self, term: LirTerminator) {
-        self.func.blocks[self.current_block].terminator = term;
+        // A return comes after the body's last expression, not at the
+        // function's own line.
+        let loc = match term {
+            LirTerminator::Return(_) if !self.last_loc.is_none() => self.last_loc,
+            _ => self.current_loc,
+        };
+        let block = &mut self.func.blocks[self.current_block];
+        block.terminator = term;
+        block.term_loc = loc;
+    }
+
+    /// Says what a debugger calls this function and where it is.
+    fn place(&mut self, kind: LirFnKind, loc: LirLoc) {
+        self.current_loc = loc;
+        self.func.debug = Some(LirFnDebug {
+            kind,
+            loc,
+            artificial: false,
+        });
+    }
+
+    /// A source name, as written.
+    fn name_of(&self, name: Identifier) -> String {
+        self.interner
+            .and_then(|interner| interner.try_resolve(name))
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("{name:?}"))
+    }
+
+    /// Lowers `body` with `loc` as the current location, then restores it.
+    fn at_loc<T>(&mut self, loc: LirLoc, body: impl FnOnce(&mut Self) -> T) -> T {
+        let saved = std::mem::replace(&mut self.current_loc, loc);
+        if !loc.is_none() {
+            self.last_loc = loc;
+        }
+        let result = body(self);
+        self.current_loc = saved;
+        result
     }
 
     fn suppress_yield_check_for_calls_into_block(&mut self, target: BlockId) {
@@ -1346,6 +1415,8 @@ impl<'a> FnLower<'a> {
     fn new_block(&mut self) -> usize {
         let id = BlockId(self.func.blocks.len() as u32);
         self.func.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
             id,
             params: Vec::new(),
             instrs: Vec::new(),
@@ -1395,6 +1466,11 @@ impl<'a> FnLower<'a> {
     /// Lower a `CoreExpr` and return the `LirVar` holding the result.
     /// The result is always a NaN-boxed i64 value.
     fn lower_expr(&mut self, expr: &CoreExpr) -> LirVar {
+        let loc = located(expr.span(), self.current_loc);
+        self.at_loc(loc, |lower| lower.lower_expr_here(expr))
+    }
+
+    fn lower_expr_here(&mut self, expr: &CoreExpr) -> LirVar {
         match expr {
             CoreExpr::Lit(lit, _span) => self.lower_lit(lit),
 
@@ -1569,6 +1645,7 @@ impl<'a> FnLower<'a> {
                     let synthetic_id = temp_program.alloc_synthetic_func_id();
                     let func_idx = temp_program.functions.len();
                     temp_program.functions.push(LirFunction {
+                        debug: None,
                         name: format!("letrec_group_{}_placeholder", func_idx),
                         id: synthetic_id,
                         qualified_name: format!(
@@ -1633,6 +1710,7 @@ impl<'a> FnLower<'a> {
                                 async_indirect_calls: self.async_indirect_calls,
                             },
                         );
+                        inner.place(LirFnKind::Lambda, self.current_loc);
 
                         // Capture shared outer variables.
                         for &(binder_id, _) in &entry.outer_captures {
@@ -1782,6 +1860,7 @@ impl<'a> FnLower<'a> {
                     // Pre-assign function slot so self-recursion works.
                     let func_idx = temp_program.functions.len();
                     temp_program.functions.push(LirFunction {
+                        debug: None,
                         name: format!("letrec_{}_placeholder", func_idx),
                         id: synthetic_id,
                         qualified_name: letrec_qname.clone(),
@@ -1814,6 +1893,7 @@ impl<'a> FnLower<'a> {
                             async_indirect_calls: self.async_indirect_calls,
                         },
                     );
+                    inner.place(LirFnKind::Lambda, self.current_loc);
 
                     // Capture outer variables.
                     for &(binder_id, _outer_var) in &outer_captures {
@@ -1955,6 +2035,7 @@ impl<'a> FnLower<'a> {
                             async_indirect_calls: self.async_indirect_calls,
                         },
                     );
+                    inner.place(LirFnKind::Lambda, self.current_loc);
 
                     // Map captured variables: create fresh LirVars inside the inner
                     // function, mark them as capture_vars (→ OpGetFree in emitter).
@@ -2184,6 +2265,20 @@ impl<'a> FnLower<'a> {
     }
 
     fn lower_expr_aether(&mut self, expr: &AetherExpr) -> LirVar {
+        // Reference counting is the compiler's, not the program's: a
+        // debugger steps over it. The expressions inside keep their own
+        // places.
+        let loc = match expr {
+            AetherExpr::Dup { .. }
+            | AetherExpr::Drop { .. }
+            | AetherExpr::Reuse { .. }
+            | AetherExpr::DropSpecialized { .. } => LirLoc::NONE,
+            _ => located(expr.span(), self.current_loc),
+        };
+        self.at_loc(loc, |lower| lower.lower_expr_aether_here(expr))
+    }
+
+    fn lower_expr_aether_here(&mut self, expr: &AetherExpr) -> LirVar {
         match expr {
             AetherExpr::Lit(lit, _) => self.lower_lit(lit),
             AetherExpr::Var { var, .. } => {
@@ -2230,6 +2325,7 @@ impl<'a> FnLower<'a> {
                             async_indirect_calls: self.async_indirect_calls,
                         },
                     );
+                    inner.place(LirFnKind::Lambda, self.current_loc);
                     for &(binder_id, _) in &outer_captures {
                         let inner_var = inner.fresh_var();
                         inner.func.capture_vars.push(inner_var);
@@ -2315,6 +2411,7 @@ impl<'a> FnLower<'a> {
                     let synthetic_id = temp_program.alloc_synthetic_func_id();
                     let func_idx = temp_program.functions.len();
                     temp_program.functions.push(LirFunction {
+                        debug: None,
                         name: format!("letrec_group_{}_placeholder", func_idx),
                         id: synthetic_id,
                         qualified_name: format!(
@@ -2376,6 +2473,7 @@ impl<'a> FnLower<'a> {
                                 async_indirect_calls: self.async_indirect_calls,
                             },
                         );
+                        inner.place(LirFnKind::Lambda, self.current_loc);
                         for &(binder_id, _) in &entry.outer_captures {
                             let inner_var = inner.fresh_var();
                             inner.func.capture_vars.push(inner_var);
@@ -2494,6 +2592,7 @@ impl<'a> FnLower<'a> {
                         format!("{}_letrec_{}", self.func.qualified_name, synthetic_id.0);
                     let func_idx = temp_program.functions.len();
                     temp_program.functions.push(LirFunction {
+                        debug: None,
                         name: format!("letrec_{}_placeholder", func_idx),
                         id: synthetic_id,
                         qualified_name: letrec_qname.clone(),
@@ -2525,6 +2624,7 @@ impl<'a> FnLower<'a> {
                             async_indirect_calls: self.async_indirect_calls,
                         },
                     );
+                    inner.place(LirFnKind::Lambda, self.current_loc);
                     for &(binder_id, _) in &outer_captures {
                         let inner_var = inner.fresh_var();
                         inner.func.capture_vars.push(inner_var);
@@ -3689,6 +3789,10 @@ impl<'a> FnLower<'a> {
                 async_indirect_calls: self.async_indirect_calls,
             },
         );
+        inner.place(
+            LirFnKind::Named(format!("<handler {}>", self.name_of(handler.operation))),
+            LirLoc::from_span(handler.span),
+        );
 
         // Map captured variables.
         for &(binder_id, _outer_var) in &outer_captures {
@@ -3791,6 +3895,10 @@ impl<'a> FnLower<'a> {
                 parameterized_effects_in_program: self.parameterized_effects_in_program,
                 async_indirect_calls: self.async_indirect_calls,
             },
+        );
+        inner.place(
+            LirFnKind::Named(format!("<handler {}>", self.name_of(handler.operation))),
+            LirLoc::from_span(handler.span),
         );
 
         for &(binder_id, _) in &outer_captures {
@@ -5381,6 +5489,15 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
     );
     ctx.func.is_dict_def =
         def.is_dict_def || crate::types::class_env::is_dictionary_name(&ctx.func.qualified_name);
+    let name = if def.is_anonymous {
+        ctx.func.qualified_name.clone()
+    } else {
+        ctx.name_of(def.name)
+    };
+    ctx.place(LirFnKind::Named(name), LirLoc::from_span(def.span));
+    if let Some(debug) = ctx.func.debug.as_mut() {
+        debug.artificial = ctx.func.is_dict_def;
+    }
 
     // Register top-level binders for direct call resolution.
     // Unlike the old approach (which created MakeClosure for every sibling),
@@ -5450,6 +5567,15 @@ fn lower_aether_def(def: &crate::aether::AetherDef, ctx: LowerDefCtx<'_>) -> Lir
     );
     ctx.func.is_dict_def =
         def.is_dict_def || crate::types::class_env::is_dictionary_name(&ctx.func.qualified_name);
+    let name = if def.is_anonymous {
+        ctx.func.qualified_name.clone()
+    } else {
+        ctx.name_of(def.name)
+    };
+    ctx.place(LirFnKind::Named(name), LirLoc::from_span(def.span));
+    if let Some(debug) = ctx.func.debug.as_mut() {
+        debug.artificial = ctx.func.is_dict_def;
+    }
 
     ctx.func.result_rep = result_rep_for_aether_def_expr(&def.expr, def.result_ty.as_ref());
 
@@ -6366,6 +6492,8 @@ mod tests {
     fn suppress_helper_marks_only_calls_into_target_block() {
         let mut blocks = vec![
             LirBlock {
+                locs: Vec::new(),
+                term_loc: Default::default(),
                 id: BlockId(0),
                 params: Vec::new(),
                 instrs: Vec::new(),
@@ -6382,6 +6510,8 @@ mod tests {
                 },
             },
             LirBlock {
+                locs: Vec::new(),
+                term_loc: Default::default(),
                 id: BlockId(1),
                 params: Vec::new(),
                 instrs: Vec::new(),

@@ -1,0 +1,18 @@
+// An effect operation and the handler that resumes it.
+effect Log {
+    log: String -> ()
+}
+
+fn work(n) with Log {
+    perform Log.log("start")
+    let doubled = n * 2
+    perform Log.log("doubled")
+    doubled + 1
+}
+
+fn main() {
+    let result = work(20) handle Log {
+        log(resume, _message) -> resume(())
+    }
+    print(result)
+}

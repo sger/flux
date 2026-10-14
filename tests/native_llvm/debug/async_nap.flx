@@ -1,0 +1,11 @@
+// Async code: fibers and the scheduler.
+import Flow.Async exposing (..)
+
+fn nap() -> Int with Async {
+    sleep(1)
+    7
+}
+
+fn main() with IO {
+    print(run_async(nap))
+}

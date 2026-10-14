@@ -315,14 +315,20 @@ The cost is tail calls:
 
 #### 2.2 Additions to the IR model
 
-`src/llvm/ir/syntax.rs` and `ppr.rs` gain:
-- `LlvmModule.metadata: Vec<(MetaId, MetaNode)>` and named metadata:
+Implemented in S5. `src/llvm/ir/syntax.rs` and `ppr.rs` gain
+`LlvmModule.debug: Option<ModuleDebug>`, a side table, so the ~130 places
+that build functions and blocks are unchanged:
+- numbered metadata nodes, printed `!N = …`, and named metadata:
   `!llvm.dbg.cu`, plus `!llvm.module.flags` with `"Debug Info Version" 3` and
-  `"Dwarf Version"`.
-- `LlvmFunction.dbg: Option<MetaId>`, printed after the attributes.
-- `dbg: Option<MetaId>` on every instruction and terminator, printed as
-  `, !dbg !N` (block printing is at `ppr.rs:175`).
-- `source_filename` set to the module's real path.
+  `"Dwarf Version" 4`;
+- per function (by name), its subprogram, printed `!dbg !N` after the
+  attributes, and per block a list of change points: "from instruction i
+  on, location !N", plus the terminator's. Every instruction of a function
+  with a subprogram is printed with `, !dbg !N`; one no mark covers gets the
+  function's line-0 location, since LLVM requires a location on every call
+  there;
+- `source_filename` set to the module's real path, in every per-module
+  native build.
 
 Variable records use the `llvm.dbg.value` intrinsic form. Current LLVM still
 parses it and converts it to `#dbg_value` records. Every supported clang
@@ -331,11 +337,21 @@ version gets a pipeline test.
 #### 2.3 Compile units and subprograms
 
 - One `DICompileUnit` per emitted module, since native compiles and caches per
-  module:
+  module (`src/lir/emit_debug.rs`):
   - `producer: "flux <version>"`
-  - `isOptimized` from the profile
-  - `emissionKind: FullDebug` or `LineTablesOnly`
-- One `DIFile` per `DebugFile`.
+  - `emissionKind: LineTablesOnly` in S5; S6 adds variables and
+    `FullDebug`.
+- One `DIFile`, the module's source.
+
+As built in S5, the worker/wrapper split differs from the table below:
+`flux_X` is not a thin wrapper but a second full emission of the body, so
+`flux_X`, `flux_X$w` and `flux_X$dc` all get real subprograms with the Flux
+name, and a line breakpoint resolves to more than one location. The closure
+entry wrappers and outlined `run_async` helpers get no subprogram, so a
+debugger steps through them like library code built without `-g`. Lambdas
+and local functions are `<lambda file:line:col>`, handler clauses
+`<handler op>`, continuations `parent (resumed after L:C)`. Dictionary
+functions are `DIFlagArtificial`.
 
 Every function symbol gets a `DISubprogram`, according to its kind:
 
@@ -351,12 +367,16 @@ Every function symbol gets a `DISubprogram`, according to its kind:
 #### 2.4 Source locations
 
 LIR gains locations without touching every instruction variant: each
-`LirBlock` gets a parallel `locs: Vec<Option<SpanId>>` for its instructions,
-plus a location for its terminator.
+`LirBlock` gets a parallel `locs: Vec<LirLoc>` for its instructions (an
+instruction past its end has none), plus `term_loc` for its terminator.
+`run_async_outline` splits them with the instructions; `cont_split` copies
+them with the blocks it clones.
 
-- `FnLower` tracks a `current_span`, updated as it enters each `AetherExpr`.
-  `FnLower::emit` (`src/lir/lower.rs:1301`) is the single place every
-  instruction passes through, so it stamps the span there.
+- `FnLower` tracks a `current_loc`, set as it enters each `AetherExpr` or
+  `CoreExpr` and restored after. `FnLower::emit` is the single place every
+  instruction passes through, so it stamps the location there; a node with a
+  made-up span keeps its parent's. A `return` gets the location of the last
+  expression lowered, not the function's own line.
 - Columns convert from 0-based (`Position`) to 1-based (DWARF).
 - `Dup`, `Drop`, `Reuse` and yield-check glue get line 0. A user never stops on
   reference-counting code.
@@ -368,13 +388,16 @@ plus a location for its terminator.
 
 `DriverFlags.debug_info: DebugLevel { None, Lines, Full }`
 (`src/driver/flags.rs:114`) is set by `--debug` or `-g`
-(`src/cli/shared.rs:162-312`). In the debug profile, codegen uses an **Og**
-pipeline (`opt -passes=default<O1>` plus `llc -O1`). That needs a new O1 case
-next to O0/O2 (`pipeline.rs:96-205`) and `"frame-pointer"="all"`.
+(`src/cli/shared.rs:162-312`). As built in S5, `-g` keeps the build's opt level (O0, or O2 with
+`--optimize`) and adds `"frame-pointer"="all"` to every function with a
+subprogram. The concern below did not hold: at O0 the generated `tail call
+fastcc` is honoured, and a 2·10⁷-deep tail-recursive loop runs in a `-g`
+build on Apple clang 21. So no Og profile was needed. Should a toolchain stop
+honouring it, the fallback stays as written: O1 for `-g`, or `musttail`.
 
-Plain `-O0` is not used. `tail call` is only a hint, and at `-O0` LLVM's fast
-instruction selector does not honour it, so deep tail recursion would overflow
-in debug builds and not in release builds.
+The original concern: `tail call` is only a hint, and at `-O0` LLVM's fast
+instruction selector might not honour it, so deep tail recursion would
+overflow in debug builds and not in release builds.
 
 - **Exit gate:** a 10⁶-deep tail-recursive fixture must complete in the debug
   profile.
@@ -403,9 +426,11 @@ main way native values are printed**; DWARF types are secondary.
 
 #### 2.7 Linking and caching
 
-- **macOS:** run `dsymutil` after `run_linker`. Today the native binary only
-  points at cached `.o` files, so its debug information is lost when the cache
-  is cleared.
+- **macOS:** run `dsymutil` after `run_linker` for a `-g` binary the user
+  keeps (`-o`, `--emit-binary`), writing `<binary>.dSYM`. Otherwise the binary
+  only points at cached `.o` files, so its debug information is lost when the
+  cache is cleared. Run mode, whose binary is temporary, skips it.
+- **Windows (MSVC):** `-g` emits no metadata until S11 adds CodeView.
 - **Linux:** DWARF stays in the binary.
 - **Runtime:** already built with `-O2 -g` (`pipeline.rs:774`).
 - **Cache key (done in S0):** `compute_artifact_config_hash(strict, optimize,
@@ -835,7 +860,7 @@ Native effects need special handling in two cases:
 | S2 | VM engine: `OpBreakpoint` sites (entry, statement, match arm, `|>` stage, perform) from the AST compiler under `-g`, `VmObserver` and `Inspector` (`src/vm/debug/`), step in/over/out, local-variable tables, caller-location fix (also in runtime stack traces), tail-call elision counter, compiler-made code hidden, `flux debug` front end | Golden transcripts of scripted sessions (`tests/debug/vm/*.flxdbg`). Every example runs the same with and without `-g`, apart from timing and one unused failing binding. No slowdown in non-debug runs. |
 | S3 | VM reverse execution for programs without async code: positions (site counts), checkpoints at top-level sites in a bounded ring, reverse step/next/finish/continue by restoring a checkpoint and replaying forward, `goto`, run to event, every `flux debug` session recording in memory, console output printed once | Golden transcripts where coming back to a stop shows the stack and values seen going forward, the same wherever checkpoints fall. A memory-bound test (900,000 sites, at most 256 checkpoints). Going back performs no effect twice. |
 | S4 | `crates/flux-dap`, mirroring `crates/flux-lsp`: DAP over stdio, the program in a `flux debug --engine` child driven over a JSON-lines socket protocol; breakpoints, stack (tail-call labels), scopes and variables, stepping, Step Back and Reverse Continue, pause; watch, hover and Debug Console evaluate of variable paths, plus console commands for positions and effects; `editors/vscode` `debuggers` and `breakpoints` contributions; launch config with `backend`, `record`, `replay`. Evaluating any pure expression moves to a later stage. | DAP JSON transcript tests in `crates/flux-dap/tests`. A manual VS Code checklist in the crate README. |
-| S5 | Native line tables: IR metadata model, compile units, files, subprograms, locations, LIR location stamping, `Span::default()` audit, Og profile, `dsymutil`, real `source_filename` | `llvm-dwarfdump --verify` clean on all native fixtures. `lldb -b` scripts (break at file:line, `bt`, step) in `tests/native_llvm/debug_*.rs`. 10⁶-deep tail recursion passes in the debug profile. A manual Xcode checklist. |
+| S5 | Native line tables: LIR locations from Aether spans (reference counting at line 0), the IR metadata side table, one compile unit and file per module, subprograms per symbol kind, locations, real `source_filename`, frame pointers under `-g`, `dsymutil` for kept binaries; the opt level unchanged (O0 honours tail calls); Windows waits for S11 | `llvm-dwarfdump --verify` clean on the native debug fixtures (`tests/native_llvm/debug/`). `lldb -b` sessions break at file:line, show Flux frames and step (`tests/native_llvm/native_debug_tests.rs`). 10⁶-deep tail recursion runs in a `-g` build. Every guide example prints the same natively with and without `-g`. A manual Xcode checklist. |
 | S6 | Native variables and types: untagging expression, ADT `variant_part`, `flux_lldb.py` embedded in the dSYM, `.fluxdbg` sidecar, the native engine in `flux-dap` (proxying `lldb-dap`), `LirFunction.var_binders` side table | **Debug parity harness:** `Way::VmDebug` / `Way::LlvmDebug` in `src/parity/mod.rs:73`, and fixture directives `// dbg: break app.flx:12`, `// dbg: step`, `// dbg-expect: …` in `src/parity/fixture.rs`. Normalized transcripts must match: top frame and locals exactly, the full stack modulo tail-call elision. |
 | S7 | Effects: stacks that follow continuations (both backends), handler view, exception breakpoints, step into `resume` | Parity fixtures for multi-shot, nested handlers, and tail-resumptive vs yielding operations. |
 | S8 | Fibers, tasks and channels as threads; scheduler snapshot APIs; multi-fiber record and replay | Parity fixtures using `both`, `race` and `timeout`. Replay is identical across 100 runs. |

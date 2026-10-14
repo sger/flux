@@ -535,6 +535,10 @@ name = "safe_arithmetic_tests"
 path = "tests/native_llvm/safe_arithmetic_tests.rs"
 
 [[test]]
+name = "native_debug_tests"
+path = "tests/native_llvm/native_debug_tests.rs"
+
+[[test]]
 name = "native_runtime_error_spans"
 path = "tests/native_llvm/native_runtime_error_spans.rs"
 
