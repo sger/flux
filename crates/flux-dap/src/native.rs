@@ -248,7 +248,9 @@ impl Drop for NativeEngine {
 
 /// The arguments of `lldb-dap`'s `launch` for `build`, from the editor's.
 pub fn launch_arguments(spec: &LaunchSpec, build: &NativeBuild, editor: &Value) -> Value {
-    let mut env = Vec::new();
+    // Every fiber on one worker, as `flux debug` runs them (0188 S8): the
+    // fibers' threads then follow the program's own order.
+    let mut env = vec!["FLUX_WORKERS=1".to_string()];
     if let Some(tape) = &spec.record {
         env.push(format!(
             "FLUX_TAPE_RECORD={}",
@@ -274,9 +276,7 @@ pub fn launch_arguments(spec: &LaunchSpec, build: &NativeBuild, editor: &Value) 
     if let Some(cwd) = &spec.cwd {
         arguments["cwd"] = json!(cwd);
     }
-    if !env.is_empty() {
-        arguments["env"] = json!(env);
-    }
+    arguments["env"] = json!(env);
     arguments
 }
 
@@ -373,6 +373,38 @@ pub fn spliced_stack(body: &Value, lines: &[Value], first_id: i64) -> Vec<Value>
     frames
 }
 
+/// The threads `flux threads --json` lists, for the editor (0188 S8): a
+/// running fiber is the OS thread it runs on, which lldb-dap knows; a
+/// fiber that waits is `fiber_threads + its number`. None outside
+/// `run_async`, where lldb-dap's own threads are the program's.
+pub fn fiber_threads(text: &str, fiber_threads: i64) -> Option<Vec<Value>> {
+    let line = text
+        .lines()
+        .find(|line| line.trim_start().starts_with('['))?;
+    let listed: Vec<Value> = serde_json::from_str(line.trim()).ok()?;
+    if listed.len() <= 1 && listed.iter().all(|thread| thread["os"].is_i64()) {
+        // One thread, the program's: no fibers to show.
+        return None;
+    }
+    Some(
+        listed
+            .iter()
+            .map(|thread| {
+                let number = thread["id"].as_i64().unwrap_or(1);
+                let id = thread["os"].as_i64().unwrap_or(fiber_threads + number);
+                let name = thread["name"].as_str().unwrap_or("<fiber>");
+                let state = thread["state"].as_str().unwrap_or_default();
+                let name = if state == "stopped" {
+                    name.to_string()
+                } else {
+                    format!("{name} — {state}")
+                };
+                json!({ "id": id, "name": name })
+            })
+            .collect(),
+    )
+}
+
 /// The runtime error `flux where`'s answer says the program stopped at:
 /// `stopped: exception (panic: too big) at …`.
 pub fn stop_exception(text: &str) -> Option<ExceptionInfo> {
@@ -385,6 +417,7 @@ pub fn stop_exception(text: &str) -> Option<ExceptionInfo> {
         "panic" => "panic",
         "division by zero" => "division_by_zero",
         "unhandled effect" => "unhandled_effect",
+        "fiber failure" => "fiber_failure",
         _ => "runtime_error",
     };
     Some(ExceptionInfo {
@@ -526,6 +559,7 @@ pub fn console_command(command: &str) -> ConsoleCommand {
         "locals" => ConsoleCommand::Lldb("flux locals".to_string()),
         "print" | "p" => ConsoleCommand::Lldb(format!("flux print {rest}")),
         "handlers" => ConsoleCommand::Lldb("flux handlers".to_string()),
+        "threads" => ConsoleCommand::Lldb("flux threads".to_string()),
         "help" => ConsoleCommand::Answer(Ok(NATIVE_HELP.to_string())),
         "where" | "goto" | "events" | "event" | "rs" | "rn" | "rf" | "rc" | "internals" => {
             ConsoleCommand::Answer(Err(format!(
@@ -542,4 +576,5 @@ A variable or a part of one (`xs.1`) shows its value. Commands:
   .locals          the current frame's variables
   .print <name>    a variable and its parts
   .handlers        the active effect handlers, innermost first
+  .threads         the fibers, and what each waits for
 Commands starting with ` go to lldb itself: `bt all";

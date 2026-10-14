@@ -29,14 +29,21 @@ cargo test --features llvm --test parity_debug_tests
   step` and `flux finish` step as the VM does, across performs too, and
   `continue` first drops a step a breakpoint interrupted. After each command
   that runs the program, `flux where` says where it stopped. The session
-  starts with `flux catch panic division unhandled`, the VM's default.
+  starts with `flux catch panic division unhandled fibers`, the VM's
+  default, and runs the program with `FLUX_WORKERS=1`, as the VM debugger
+  runs async code on one worker.
 - Besides `break`, `delete`, `continue`, `step`, `next`, `finish`, `bt`,
-  `locals` and `print`, a fixture can use `handlers` and `catch <kinds>`.
+  `locals` and `print`, a fixture can use `handlers`, `catch <kinds>`,
+  `threads` and `thread N` (0188 S8).
 
 Both transcripts are reduced to stops and frames (function and
 `file:line`), `exception <kind>` after a stop at a runtime error, handlers
 (`handler Effect state = v`), variables (`name = value`, each group sorted)
-and `finished`. Columns, positions, stop reasons, the VM's tail-call labels,
+and `finished`. A stop in a fiber other than thread 1 adds ` thread N`, and
+`threads` reduces to `thread N name [state] file:line` per fiber. Frames in
+standard-library files (`Async.flx`, any file starting with a capital),
+whose shape differs between the backends, read `<library>`, one line for a
+run of them. Columns, positions, stop reasons, the VM's tail-call labels,
 the `⟂ handling …` labels, the `(suspended)` marks, where a handler was
 installed and the program's output are left out. Stops and frames must
 match line for line, except that native code may show a handler's arm the
@@ -62,4 +69,9 @@ Writing a fixture:
   helper loses its frame natively, and the frames it suspended with it.
 - A line that is only a value (`n`) has code on the VM but not natively:
   step over it in neither.
-- Async code is 0188 S8.
+- Async code: keep one fiber running at a time where the order matters,
+  so both backends number and schedule fibers alike (`both` runs its
+  children in order; a channel's sender and receiver take turns). Timers
+  keep counting while a session is stopped, so let a `timeout` be long
+  enough not to fire during it. Look at values in the fiber that stopped:
+  a waiting fiber's frames have no variables natively.

@@ -181,6 +181,45 @@ What you see:
   passes over it. So does the C runtime: `main(argc, argv)` in `flux_rt.c`
   is the frame below the Flux `main`.
 
+### Fibers
+
+Native fibers are not OS threads: lldb's `thread list` shows the runtime's
+workers, and a fiber that waits is a continuation the scheduler holds.
+`flux threads` lists the fibers as `flux debug` does, numbered in spawn
+order from 1, the root fiber, with what each waits for:
+
+```text
+(lldb) flux where
+stopped: breakpoint at app.flx:13:9 in fast (thread 3)
+(lldb) flux threads
+  1 main [waiting both (threads 2, 3)] at app.flx:31:16
+  2 slow [waiting sleep 20 ms] at app.flx:6:5
+* 3 fast [stopped] at app.flx:13:9
+(lldb) flux thread 2
+thread 2: slow [waiting sleep 20 ms]
+(lldb) flux bt
+#0 slow at app.flx:6:5   (suspended)
+```
+
+- `flux thread N` makes `flux bt` show thread N until the next stop, and
+  `flux bt --thread N` shows it once. A waiting fiber's frames are read from
+  its continuation, without variables; a fiber that has not started shows
+  its function.
+- `flux next`, `flux step` and `flux finish` stay in the fiber they start
+  in: `flux next` over `sleep` or a channel `recv` lets the other fibers run
+  and stops at the next line of the same fiber.
+- `flux catch fibers` stops where `Async.fail` is raised, in the failing
+  fiber, before `Async.try`, `race` or `timeout` recovers it. A failed root
+  fiber stops once, not again when `run_async` fails with its error.
+- Run the program with `FLUX_WORKERS=1` (`settings set target.env-vars
+  FLUX_WORKERS=1`), as `flux debug` and VS Code do: with several workers,
+  fibers run in parallel and the numbering follows whichever runs first.
+- `flux threads` runs `flux_debug_fibers()` in the stopped program. It
+  takes no lock it cannot get at once: if the program stopped inside the
+  scheduler, `flux threads` shows only thread 1, the stopped one.
+- A task (`Task.spawn`) runs on an OS thread of its own: it is in lldb's
+  `thread list`, not in `flux threads`.
+
 ## VS Code
 
 Set `"backend": "native"` in the launch configuration:
@@ -200,8 +239,10 @@ The adapter builds the program with `--native -g`, runs it under `lldb-dap`
 `flux.lldbDapPath` setting), and shows the same Flux views as a VM session:
 Flux frames, variables as Flux values, stepping through Flux lines, the
 frames an effect handler suspended (without variables), `.handlers` in the
-Debug Console, and the runtime errors to stop at in the Breakpoints view.
-Step Back needs the VM. In this repository, set `flux.runCommand` to
+Debug Console, the runtime errors to stop at in the Breakpoints view, and
+each fiber as a thread with what it waits for (`.threads` in the Debug
+Console). It runs the program with `FLUX_WORKERS=1`. Step Back needs the
+VM. In this repository, set `flux.runCommand` to
 `cargo run --features llvm --`, since native builds need the `llvm`
 feature. See `crates/flux-dap/README.md`.
 

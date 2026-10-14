@@ -507,6 +507,7 @@ static int64_t flux_chan_send_owned(int64_t id_val, int64_t value, const char *w
         abort();
     }
     FLUX_MUTEX_UNLOCK(&ch->mutex);
+    flux_async_debug_block(request_id, FLUX_DEBUG_BLOCK_CHANNEL_SEND, id);
     return flux_async_suspend_request(request_id);
 }
 
@@ -565,6 +566,7 @@ int64_t flux_chan_recv(int64_t id_val) {
         abort();
     }
     FLUX_MUTEX_UNLOCK(&ch->mutex);
+    flux_async_debug_block(request_id, FLUX_DEBUG_BLOCK_CHANNEL_RECV, id);
     return flux_async_suspend_request(request_id);
 }
 

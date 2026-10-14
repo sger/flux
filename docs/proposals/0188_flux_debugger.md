@@ -755,6 +755,41 @@ As built in S8a (`src/vm/fiber_debug.rs`, `src/vm/debug/threads.rs`):
 - **Pause** lands while every fiber waits: the scheduler hears the front
   end while it waits for a completion, and stops at the `run_async` call.
 
+Natively, as built in S8b (`src/runtime/async/native_abi.rs`,
+`tools/lldb/flux_lldb.py`):
+
+- **Records.** Fibers are not OS threads: a waiting fiber is a continuation
+  closure the scheduler holds. `NativeRun` keeps what each request parks
+  for (the runtime's C side notes channels, tasks, events and TCP through
+  `flux_async_debug_block`), each fiber's function, and the OS thread a
+  running fiber is on. A fiber's thread number is its id from the root's,
+  plus one: spawn order, as on the VM.
+- **`flux_debug_fibers()`** writes them as JSON into a static buffer. lldb
+  calls it by address in the stopped program; it takes only locks it can
+  get at once, and answers `busy` otherwise.
+- **lldb.** `flux threads [--json]`, `flux thread N` and `flux bt --thread
+  N`: the stopped fiber's stack is cut at the scheduler's `execute_fiber`;
+  a waiting fiber's frames are its continuation's, without variables; a
+  standard-library frame at the top of a waiting fiber is left out. `flux
+  where` adds `(thread N)`. `flux next`, `step` and `finish` stay in their
+  fiber: a breakpoint hit in another fiber is passed over, and a parked
+  fiber is followed into its continuation.
+- **Fiber failure.** `flux_fiber_fail` calls `flux_debug_on_fiber_failure`
+  first, while the failing fiber's frames are intact (`flux catch fibers`).
+  `run_async`'s re-raise of a failed root, and `run_async_with`'s (which now
+  checks, as the VM does), use `flux_panic_unhooked`, so they do not stop
+  again.
+- **DWARF.** A lambda's continuation is named after the lambda, and the line
+  a continuation resumes on has no location in it, so a breakpoint there
+  resolves only where the line runs first.
+- **Proxy.** lldb-dap's threads are replaced by `flux threads --json`: the
+  stopped fiber keeps its OS thread id, a waiting one is `5_000_000 + N`
+  with frames from `flux bt --json --thread N`. Sessions run with
+  `FLUX_WORKERS=1`.
+- **Builds.** `dsymutil` takes one of two machine-wide lock slots
+  (`FLUX_DSYMUTIL_JOBS`): many `-g` builds at once (a test suite, the
+  parity harness) each ran one at about 700 MB, enough to exhaust memory.
+
 #### 3.6 Frames removed by tail calls
 
 - A debug-only side table, indexed by frame token, records
@@ -1058,7 +1093,7 @@ As built in S7b:
 | S7a | VM effects: the logical stack (suspensions, resume notes, call serials in continuations; `src/vm/debug/effects.rs`), stepping by logical depth, step into `resume`, `handlers`, exception stops with `catch` filters (panic, division by zero, unhandled effect, other runtime errors), the protocol's `exception` stops, frame kinds and `Handlers` scope; flux-dap exception breakpoint filters, `exceptionInfo`, label and suspended frames, `.handlers` | Golden transcripts `tests/debug/vm/effect_*.flxdbg` and `exception_*.flxdbg`; DAP transcript tests for the Handlers scope, suspended frames and an exception stop. |
 | S7b | Native effects: runtime debug hooks (`flux_debug_on_panic`, `flux_debug_on_unhandled_effect`), `<handler Effect.op>` names and `resume` as a debug variable, `flux_lldb.py` following `resume` closures and the compose trampoline, `flux handlers`/`catch`/`where`/`next`/`step`/`finish`; the lldb-dap proxy's exception filters, `exceptionInfo`, spliced suspended frames and Flux stepping | Debug parity fixtures for multi-shot, nested handlers with state, a handler that never resumes, tail-resumptive vs yielding operations, stepping across perform and `resume`, panics and division by zero (`tests/parity_debug/effect_*`, `exception_*`). lldb sessions in `native_debug_tests` (ten frames past the runtime's eight continuation slots, `flux catch`); native DAP tests for the spliced stack and an exception stop. |
 | S8a | VM fibers as threads (`src/vm/fiber_debug.rs`, `src/vm/debug/threads.rs`): names, numbers and what each parked fiber waits for, per-thread stacks (a parked fiber's from its continuation), `threads` / `thread N`, stepping that stays in one fiber, fiber failure as an exception, pause while every fiber waits, one worker while debugging; the protocol's `Threads` and per-thread requests; fibers as threads in VS Code | Golden transcripts `tests/debug/vm/async_*.flxdbg` (both, a channel, stepping over a sleep, `Async.fail`, a panic in a fiber, a task); DAP tests for fiber threads and their stacks, and a pause while every fiber waits. |
-| S8b | Native fibers: the runtime's fiber records and `flux_debug_fibers()`, a fiber failure hook, `flux threads` / `thread` / `catch fibers` in lldb, fibers as threads in the lldb-dap proxy | Debug parity fixtures using `both`, `race` and `timeout`, a channel, a failing fiber, and stepping over a sleep. |
+| S8b | Native fibers: the runtime's fiber records and `flux_debug_fibers()`, a fiber failure hook, `flux threads` / `thread` / `catch fibers` and fiber-aware stepping in lldb, fibers as threads in the lldb-dap proxy; `dsymutil` limited to two at a time per machine | Debug parity fixtures `tests/parity_debug/async_*` (`both`, `race`, `timeout`, a channel, a failing fiber, stepping over a sleep), with `threads` / `thread N`. lldb sessions in `native_debug_tests` (`flux threads`, a waiting fiber's stack, `flux catch fibers`, a failed root stops once); a native DAP test for fiber threads and their stacks. |
 | S8c | Multi-fiber record and replay with tasks: logical task ids, task completions and cross-thread channel wakes on the tape, one task worker under a tape; E1027 retired | Task fixtures record and replay on both backends; replay is identical across 100 runs. |
 | S9 | Native replay under lldb, run to event, opening a native tape in the VM, timeline UI; going back through async code (from the checkpoint before `run_async`, replaying the scheduler forward); Core-inlining provenance → `inlinedAt`, and Core inlining turned back on in the debug profile | Cross-backend tape tests. Going back across `sleep`, `both` and a channel. Golden `lldb bt` output for inlined frames. |
 | S10 | Aether reference-count view, debug-heap runtime, native panic symbolization; `flux_trace_push` deleted | Golden reference counts. A use-after-free fixture that the debug heap catches. Native panic output lists Flux frames. |

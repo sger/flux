@@ -578,6 +578,7 @@ int64_t flux_event_wait(int64_t id_val) {
         flux_event_complete_wait(request_id);
     } else {
         register_event_wait(id, request_id);
+        flux_async_debug_block(request_id, FLUX_DEBUG_BLOCK_EVENT, id);
     }
     return flux_async_suspend_request(request_id);
 }

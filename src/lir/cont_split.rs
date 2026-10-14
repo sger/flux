@@ -30,6 +30,10 @@ use crate::lir::{
     LirTerminator, LirVar,
 };
 
+/// The parent a lambda's continuation names: the debug information writes
+/// it `<lambda file:line:col>`, from the continuation's `loc`.
+pub(crate) const LAMBDA_PARENT: &str = "<lambda>";
+
 /// Run the continuation-splitting pass, producing a new program with
 /// synthesized continuation functions and `Call.yield_cont` populated.
 ///
@@ -269,7 +273,8 @@ fn synthesize_continuation(
     let debug = parent.debug.as_ref().map(|debug| {
         let parent_name = match &debug.kind {
             LirFnKind::Named(name) => name.clone(),
-            LirFnKind::Lambda => parent.qualified_name.clone(),
+            // Named by its place, which the continuation keeps as `loc`.
+            LirFnKind::Lambda => LAMBDA_PARENT.to_string(),
             LirFnKind::Resumed { parent, .. } => parent.clone(),
         };
         let after = parent

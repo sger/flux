@@ -30,6 +30,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#if defined(__linux__)
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
 
 #if defined(_WIN32) || defined(_MSC_VER)
 #include <windows.h>
@@ -381,6 +385,7 @@ int64_t flux_task_await(int64_t task) {
     e->await_request = request_id;
     pthread_detach(e->thread);
     pthread_mutex_unlock(&e->mutex);
+    flux_async_debug_block(request_id, FLUX_DEBUG_BLOCK_TASK, id);
     return flux_async_suspend_request(request_id);
 }
 
@@ -782,8 +787,24 @@ int64_t flux_fiber_get_context(void) {
 }
 
 int64_t flux_fiber_fail(int64_t error_value) {
-    flux_panic(error_value);
+    flux_debug_on_fiber_failure(error_value);
+    flux_panic_unhooked(error_value);
     return FLUX_NONE;
+}
+
+/* The calling OS thread's id, as lldb names threads (0188 S8b). */
+static uint64_t flux_async_os_thread_id(void) {
+#if defined(_WIN32)
+    return (uint64_t)GetCurrentThreadId();
+#elif defined(__APPLE__)
+    uint64_t id = 0;
+    pthread_threadid_np(NULL, &id);
+    return id;
+#elif defined(__linux__)
+    return (uint64_t)syscall(SYS_gettid);
+#else
+    return 0;
+#endif
 }
 
 /* ── Entry-point / scheduling shims (proposal 0174 Phase 1b) ───────────── */
@@ -820,6 +841,7 @@ static void flux_async_register_callbacks(void) {
         flux_task_cancel,
         flux_async_register_root_task,
         flux_async_deregister_root_task,
+        flux_async_os_thread_id,
     };
     if (flux_async_set_callbacks(&callbacks) != 0) {
         fprintf(stderr, "flux_async_set_callbacks failed\n");
@@ -831,7 +853,9 @@ int64_t flux_fiber_run_async(int64_t closure) {
     flux_async_register_callbacks();
     int64_t result = flux_async_run_root(closure);
     if (flux_async_last_run_failed() != 0) {
-        flux_panic(result);
+        /* The root fiber's failure, which the debugger saw where it
+         * happened. */
+        flux_panic_unhooked(result);
     }
     return result;
 }
@@ -1076,5 +1100,9 @@ int64_t flux_fiber_run_async_with(int64_t worker_count, int64_t fs_pool_size, in
     int64_t workers = flux_untag_int(worker_count);
     int64_t fs = flux_untag_int(fs_pool_size);
     int64_t dns = flux_untag_int(dns_pool_size);
-    return flux_async_run_root_with(workers, fs, dns, closure);
+    int64_t result = flux_async_run_root_with(workers, fs, dns, closure);
+    if (flux_async_last_run_failed() != 0) {
+        flux_panic_unhooked(result);
+    }
+    return result;
 }

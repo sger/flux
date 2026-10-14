@@ -807,6 +807,64 @@ fn main() with IO {
 ";
 
 #[test]
+fn native_fibers_are_threads_with_their_own_stacks() {
+    if !native_debugging() {
+        return;
+    }
+    let scratch = Scratch::new("native-fibers");
+    let program = scratch.write("both.flx", BOTH);
+    let mut editor = Editor::start(&scratch);
+    let Some(stopped) = launch_native(&mut editor, &program, &[11]) else {
+        return;
+    };
+    let thread = stopped["body"]["threadId"].clone();
+    let threads = editor.request("threads", Value::Null);
+    let listed: Vec<(i64, String)> = threads["body"]["threads"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|thread| {
+            (
+                thread["id"].as_i64().unwrap_or(0),
+                thread["name"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect();
+    let names: Vec<&str> = listed.iter().map(|(_, name)| name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "main — waiting both (threads 2, 3)",
+            "slow — waiting sleep 20 ms",
+            "fast"
+        ],
+        "{threads}"
+    );
+    // The fiber that stopped is the OS thread lldb-dap stopped.
+    assert_eq!(json!(listed[2].0), thread, "{threads}");
+    let frames = frame_names(&mut editor, &thread);
+    let names: Vec<&str> = frames.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(names, ["fast"], "{frames:?}");
+    // A fiber that waits: the frames its continuation holds.
+    let waiting = json!(listed[1].0);
+    let frames = frame_names(&mut editor, &waiting);
+    let names: Vec<&str> = frames.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(names, ["slow (suspended)"], "{frames:?}");
+    assert_eq!(frames[0].1["line"], 4, "{frames:?}");
+    let console = editor.request(
+        "evaluate",
+        json!({ "expression": ".threads", "context": "repl" }),
+    );
+    let text = console["body"]["result"].as_str().unwrap_or_default();
+    assert!(text.contains("* 3 fast [stopped]"), "{console}");
+
+    editor.request("continue", json!({ "threadId": waiting }));
+    let transcript = editor.finish();
+    assert!(transcript.contains("pair7,50"), "{transcript}");
+}
+
+#[test]
 fn native_handler_arms_show_the_frames_they_suspended() {
     if !native_debugging() {
         return;
