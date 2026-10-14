@@ -1,0 +1,27 @@
+// Debug parity (0188 S8): a fiber under `timeout` stops in its body; the
+// parent waits on the timeout, then steps on with the result.
+// dbg: break 15
+// dbg: continue
+// dbg: threads
+// dbg: delete 15
+// dbg: break 21
+// dbg: continue
+// dbg: locals
+// dbg: continue
+
+import Flow.Async exposing (..)
+
+fn work() -> Int with Async {
+    let n = 20
+    n + 1
+}
+
+fn body() -> Int with Async {
+    let got = timeout(500, work)
+    let value = unwrap_or(got, 0)
+    value * 2
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

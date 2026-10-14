@@ -16,8 +16,11 @@
 //! commands in `lldb -b`, through `flux_lldb.py`'s `flux` command. Each
 //! transcript is reduced to what both debuggers mean the same way:
 //!
-//! - `stop <function> <file>:<line>` for each stop, then
-//!   `exception <kind>` when it is a runtime error the debugger caught;
+//! - `stop <function> <file>:<line>` for each stop, with `thread <n>` when
+//!   it is in a fiber other than the root (S8), then `exception <kind>`
+//!   when it is a runtime error the debugger caught;
+//! - `thread <n> <name> [<state>] <file>:<line>` for each thread of
+//!   `threads` (S8);
 //! - `frame <function> <file>:<line>` for each Flux frame of `bt`, the
 //!   frames an effect handler suspended among them (S7);
 //! - `handler <effect>[ state = <value>]` for each handler of `handlers`;
@@ -190,11 +193,10 @@ pub fn normalize_vm(transcript: &str) -> String {
     for line in transcript.lines() {
         let line = line.trim_end();
         if let Some(rest) = line.strip_prefix("stopped: ") {
-            // stopped: <reason> at <file>:<l>:<c> in <fn> (position <n>)
-            let rest = rest
-                .rsplit_once(" (position ")
-                .map_or(rest, |(rest, _)| rest);
+            // stopped: <reason> at <file>:<l>:<c> in <fn> ([thread <t>, ]position <n>)
             push_stop(&mut out, rest);
+        } else if let Some(thread) = parse_thread(line) {
+            out.push(thread);
         } else if let Some(handler) = parse_handler(line) {
             out.push(handler);
         } else if let Some(frame) = parse_frame(line) {
@@ -281,7 +283,7 @@ fn run_lldb(
         "settings set target.load-script-from-symbol-file false".to_string(),
         format!("command script import \"{}\"", lldb_script.display()),
         // The runtime errors `flux debug` stops at unless told otherwise.
-        "flux catch panic division unhandled".to_string(),
+        "flux catch panic division unhandled fibers".to_string(),
     ];
     let mut started = false;
     for line in script {
@@ -330,6 +332,8 @@ fn run_lldb(
             "locals" => "flux locals".to_string(),
             "print" | "p" => format!("flux print {rest}"),
             "handlers" => "flux handlers".to_string(),
+            "threads" => "flux threads".to_string(),
+            "thread" => format!("flux thread {rest}"),
             "catch" => format!("flux catch {rest}"),
             other => return Err(format!("`// dbg: {other}` has no lldb equivalent")),
         };
@@ -340,7 +344,11 @@ fn run_lldb(
     for line in &commands {
         command.arg("-o").arg(line);
     }
-    command.arg(&program).current_dir(&dir);
+    // One worker, as `flux debug` runs async code (S8).
+    command
+        .arg(&program)
+        .current_dir(&dir)
+        .env("FLUX_WORKERS", "1");
     let (_, stdout, stderr) = run(command, timeout * 2, "lldb")?;
     let transcript = format!("{stdout}{stderr}");
     if transcript.contains("script interpreter") {
@@ -373,6 +381,8 @@ pub fn normalize_lldb(transcript: &str) -> String {
         }
         if line.starts_with("Process ") && line.contains(" exited with status") {
             out.push("finished".to_string());
+        } else if let Some(thread) = parse_thread(line) {
+            out.push(thread);
         } else if let Some(handler) = parse_handler(line) {
             out.push(handler);
         } else if let Some(frame) = parse_frame(line) {
@@ -390,21 +400,36 @@ pub fn normalize_lldb(transcript: &str) -> String {
     out.finish()
 }
 
-/// `<why> at <file>:<l>:<c> in <fn>`, from either debugger, as `stop`
-/// and, for a caught runtime error, `exception <kind>`.
+/// `<why> at <file>:<l>:<c> in <fn>[ (<notes>)]`, from either debugger, as
+/// `stop`, with the thread a note names (`thread 3, position 19` on the
+/// VM, `thread 3` natively), and, for a caught runtime error,
+/// `exception <kind>`.
 fn push_stop(out: &mut Transcript, rest: &str) {
+    let (rest, notes) = match rest
+        .strip_suffix(')')
+        .and_then(|rest| rest.rsplit_once(" ("))
+    {
+        Some((rest, notes)) if !notes.contains(" at ") => (rest, notes),
+        _ => (rest, ""),
+    };
+    let thread = notes
+        .split(", ")
+        .find_map(|note| note.strip_prefix("thread "))
+        .map(|thread| format!(" thread {thread}"))
+        .unwrap_or_default();
     let Some((why_place, function)) = rest.rsplit_once(" in ") else {
         return;
     };
     let Some((why, place)) = why_place.rsplit_once(" at ") else {
         return;
     };
-    out.push(format!("stop {function} {}", file_line(place)));
+    out.push(format!("stop {}{thread}", place_of(function, place)));
     if let Some(error) = why.strip_prefix("exception (") {
         let kind = [
             "panic",
             "division by zero",
             "unhandled effect",
+            "fiber failure",
             "runtime error",
         ]
         .into_iter()
@@ -520,7 +545,49 @@ fn parse_frame(line: &str) -> Option<String> {
         .split_once("   (suspended")
         .map_or(rest, |(rest, _)| rest);
     let (function, place) = rest.rsplit_once(" at ")?;
-    Some(format!("frame {function} {}", file_line(place)))
+    Some(format!("frame {}", place_of(function, place)))
+}
+
+/// `<function> <file>:<line>`, or `<library>` for a place in the Flux
+/// library (`Async.flx`, `List.flx`): the backends name and inline the
+/// library's functions differently, so a stop or frame there, such as
+/// `sleep` or `fail` a fiber is in, reads the same on both only as that.
+/// A fixture's own file is named in lower case.
+fn place_of(function: &str, place: &str) -> String {
+    let file = file_line(place);
+    if is_library_file(&file) {
+        "<library>".to_string()
+    } else {
+        format!("{function} {file}")
+    }
+}
+
+fn is_library_file(file_line: &str) -> bool {
+    file_line.chars().next().is_some_and(char::is_uppercase)
+}
+
+/// `* 3 fast [stopped] at app.flx:14:5` → `thread 3 fast [stopped]
+/// app.flx:14`, from `threads` (S8).
+fn parse_thread(line: &str) -> Option<String> {
+    let rest = line
+        .strip_prefix("* ")
+        .or_else(|| line.strip_prefix("  "))?;
+    let (number, rest) = rest.split_once(' ')?;
+    number.parse::<u64>().ok()?;
+    let (name, rest) = rest.split_once(" [")?;
+    let (state, rest) = rest.split_once(']')?;
+    let place = rest
+        .strip_prefix(" at ")
+        .map(|place| {
+            let file = file_line(place);
+            if is_library_file(&file) {
+                " <library>".to_string()
+            } else {
+                format!(" {file}")
+            }
+        })
+        .unwrap_or_default();
+    Some(format!("thread {number} {name} [{state}]{place}"))
 }
 
 /// `#0 Counter state = 1 — handled in main` → `handler Counter state = 1`:
@@ -573,6 +640,10 @@ struct Transcript {
 impl Transcript {
     fn push(&mut self, line: String) {
         self.end_group();
+        // Library frames, one after another, read as one (see `place`).
+        if line == "frame <library>" && self.lines.last() == Some(&line) {
+            return;
+        }
         self.lines.push(line);
     }
 

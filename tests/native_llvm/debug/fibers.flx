@@ -1,0 +1,38 @@
+// Fibers under a debugger (0188 S8): `both` with a child that waits, and a
+// fiber that fails inside `try`.
+import Flow.Async exposing (..)
+
+fn slow() -> Int with Async {
+    sleep(20)
+    let m = 3 * 2
+    m + 1
+}
+
+fn fast() -> Int with Async {
+    let k = 4 + 1
+    k * 10
+}
+
+fn checked(n: Int) -> Int with Async {
+    let limit = 2
+    if n > limit {
+        fail(protocol_error(503, "too many"))
+    } else {
+        n
+    }
+}
+
+fn attempt() -> Int with Async {
+    let got = checked(5)
+    got + 1
+}
+
+fn body() -> Int with Async {
+    let pair = both(slow, fast)
+    let fallback = result_or(try(attempt), -1)
+    pair.0 + pair.1 + fallback
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

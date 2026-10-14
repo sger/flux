@@ -145,6 +145,14 @@ While debugging, the VM runs every fiber on one worker. A task
 the debugger does not pause it, and breakpoints in its code do not stop.
 Going back is off once the program runs async code (0188 S9).
 
+In a native session, the threads come from `flux threads --json`. The fiber
+that stopped is the OS thread it runs on, so its frames and variables are
+lldb-dap's; a waiting fiber is a thread numbered from 5,000,000, whose
+frames come from `flux bt --json --thread N`, marked `(suspended)` and
+without variables. Continue and the step buttons on a waiting fiber act on
+the thread that stopped. The program runs with `FLUX_WORKERS=1`. Tasks are
+not listed: each is an OS thread lldb-dap does not show.
+
 ## The Debug Console
 
 Typing a variable, or a part of one (`pair.0`, `tree.2.1`), shows its value.
@@ -189,7 +197,8 @@ VS Code ──DAP over stdio──▶ flux-dap ──DAP over stdio──▶ lld
   - The program's stdin is not connected, since DAP has no channel for it.
 - While the program runs, the child reads requests at its next stop site:
   new breakpoints apply there, and a pause stops there.
-- There is one thread, `main`. Fibers become threads in 0188 S8.
+- Thread 1 is the program; inside `run_async`, each fiber is a thread of
+  its own (0188 S8).
 - A native session (`src/native.rs`) builds the program, starts `lldb-dap`
   and leaves the debugging to it; the session renumbers messages and
   rewrites the stack, scopes, variables and source paths.
@@ -272,3 +281,9 @@ With `"backend": "native"` and `flux.runCommand` set to
     suspended frames; Step Into on `resume(…)` stops in the resumed frame.
 25. With "Panics" ticked, a `panic` stops at the Flux line that panicked,
     shown as an exception with its message.
+26. In `examples/async/03_both.flx` with a breakpoint in one child, the
+    Call Stack lists every fiber with what it waits for; selecting a
+    waiting one shows its suspended frames. Step Over on a `sleep` stops at
+    the next line of the same fiber.
+27. With "Fiber failures" ticked, `Async.fail` in
+    `examples/async/07_try_fail.flx` stops where it is raised.

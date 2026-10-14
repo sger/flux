@@ -49,7 +49,33 @@ fn copy_dir(from: &Path, to: &Path) {
 
 /// Builds `program` with `-g` into `binary`, without running it: for a
 /// program that ends with a runtime error.
+/// Native `-g` builds this suite runs at once. Each links the Rust runtime
+/// and runs `dsymutil`; cargo runs the tests on every core.
+const BUILDS_AT_ONCE: usize = 2;
+
+/// Waits for one of the suite's build slots; the slot is free again when
+/// the guard is dropped.
+fn build_slot() -> impl Drop {
+    use std::sync::{Condvar, Mutex};
+    static RUNNING: Mutex<usize> = Mutex::new(0);
+    static FREED: Condvar = Condvar::new();
+    struct Slot;
+    impl Drop for Slot {
+        fn drop(&mut self) {
+            *RUNNING.lock().unwrap_or_else(|e| e.into_inner()) -= 1;
+            FREED.notify_one();
+        }
+    }
+    let mut running = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
+    while *running >= BUILDS_AT_ONCE {
+        running = FREED.wait(running).unwrap_or_else(|e| e.into_inner());
+    }
+    *running += 1;
+    Slot
+}
+
 fn build_only(scratch: &Scratch, program: &str, binary: &str) {
+    let _slot = build_slot();
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(scratch.path())
         .args([program, "--native", "-g", "--emit-binary", "-o", binary])
@@ -66,6 +92,7 @@ fn build_only(scratch: &Scratch, program: &str, binary: &str) {
 
 /// Builds `program` with `-g` into `binary` and returns the build's output.
 fn build(scratch: &Scratch, program: &str, binary: &str) -> Output {
+    let _slot = build_slot();
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(scratch.path())
         .args([program, "--native", "-g", "-o", binary])
@@ -164,6 +191,8 @@ const FIXTURES: &[&str] = &[
     "adtmods/main.flx",
     "handlers.flx",
     "overflow.flx",
+    "fibers.flx",
+    "root_panic.flx",
 ];
 
 /// The errors `llvm-dwarfdump --verify` reports in Flux's compile units.
@@ -199,18 +228,29 @@ fn debug_builds_have_valid_dwarf_with_flux_lines() {
         return;
     };
     // Verifying also walks the runtime's own DWARF, which takes a while:
-    // the fixtures run side by side.
+    // the fixtures run two at a time. One thread per fixture ran every
+    // build and `dsymutil` at once, which exhausted a 24 GB machine.
+    let next = std::sync::atomic::AtomicUsize::new(0);
     std::thread::scope(|threads| {
-        for fixture in FIXTURES {
-            let dwarfdump = &dwarfdump;
-            threads.spawn(move || check_dwarf(dwarfdump, fixture));
+        for _ in 0..2 {
+            let (dwarfdump, next) = (&dwarfdump, &next);
+            threads.spawn(move || {
+                loop {
+                    let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some(fixture) = FIXTURES.get(index) else {
+                        break;
+                    };
+                    check_dwarf(dwarfdump, fixture);
+                }
+            });
         }
     });
 }
 
 fn check_dwarf(dwarfdump: &[String], fixture: &str) {
     let scratch = prepare(fixture);
-    build(&scratch, fixture, "app");
+    // Built, not run: some fixtures end with a runtime error on purpose.
+    build_only(&scratch, fixture, "app");
     let debug = debug_file(&scratch, "app");
     let debug = debug.to_string_lossy();
     let verify = run_tool(dwarfdump, &["--verify", &debug], scratch.path());
@@ -840,6 +880,160 @@ fn stepping_across_a_perform_follows_the_handler() {
             "#1 <handler Flip.flip> at handlers.flx:25:29",
         ],
     );
+}
+
+/// Runs `commands` in lldb on `binary` with the lldb script, every fiber
+/// on one worker as under `flux debug`; None when lldb runs no Python.
+fn fiber_session(
+    lldb: &[String],
+    scratch: &Scratch,
+    binary: &str,
+    commands: &[&str],
+) -> Option<String> {
+    let import = format!("command script import {}", lldb_script());
+    let mut all = vec![
+        import.as_str(),
+        "settings set target.env-vars FLUX_WORKERS=1",
+    ];
+    all.extend_from_slice(commands);
+    let session = lldb_session(lldb, scratch, binary, &all);
+    if session.contains("script interpreter") || session.contains("scripting not supported") {
+        eprintln!("note: this lldb runs no Python scripts; skipping");
+        return None;
+    }
+    Some(session)
+}
+
+#[test]
+fn flux_threads_lists_the_fibers_and_what_each_waits_for() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = prepare("fibers");
+    build_only(&scratch, "fibers.flx", "app");
+    let Some(session) = fiber_session(
+        &lldb,
+        &scratch,
+        "app",
+        &[
+            "breakpoint set --file fibers.flx --line 13",
+            "run",
+            "flux where",
+            "flux threads",
+            "flux bt",
+            "flux thread 2",
+            "flux bt",
+            "flux thread 1",
+            "flux bt",
+        ],
+    ) else {
+        return;
+    };
+    assert_lines(
+        &session,
+        &[
+            "stopped: breakpoint at fibers.flx:13:9 in fast (thread 3)",
+            "  1 main [waiting both (threads 2, 3)] at fibers.flx:31:16",
+            "  2 slow [waiting sleep 20 ms] at fibers.flx:6:5",
+            "* 3 fast [stopped] at fibers.flx:13:9",
+            "thread 2: slow [waiting sleep 20 ms]",
+            "#0 slow at fibers.flx:6:5   (suspended)",
+            "thread 1: main [waiting both (threads 2, 3)]",
+            "#0 body at fibers.flx:31:16   (suspended)",
+        ],
+    );
+    // A child fiber's stack ends at its function; the root fiber's goes on
+    // down to `main`.
+    let lines = flux_lines(&session);
+    let fast = lines
+        .iter()
+        .position(|line| line == "#0 fast at fibers.flx:13:9");
+    assert!(
+        fast.is_some_and(|at| !lines[at + 1].starts_with("#1")),
+        "{session}"
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.starts_with("#") && line.contains(" main at fibers.flx:37:")),
+        "{session}"
+    );
+}
+
+#[test]
+fn flux_catch_fibers_stops_where_a_fiber_fails() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = prepare("fibers");
+    build_only(&scratch, "fibers.flx", "app");
+    let Some(session) = fiber_session(
+        &lldb,
+        &scratch,
+        "app",
+        &[
+            "flux catch fibers",
+            "run",
+            "flux where",
+            "flux threads",
+            "continue",
+        ],
+    ) else {
+        return;
+    };
+    let lines = flux_lines(&session);
+    let stop = lines
+        .iter()
+        .find(|line| line.starts_with("stopped: exception"))
+        .unwrap_or_else(|| panic!("no exception stop:\n{session}"));
+    assert!(
+        stop.starts_with(
+            r#"stopped: exception (fiber failure: ProtocolError(503, "too many")) at "#
+        ) && stop.ends_with("(thread 4)"),
+        "{session}"
+    );
+    assert_lines(
+        &session,
+        &["  1 main [waiting try (thread 4)] at fibers.flx:32:30"],
+    );
+    // `try` turns the failure into a value: the program goes on and ends.
+    assert!(session.contains("exited with status = 0"), "{session}");
+}
+
+#[test]
+fn a_panicking_root_fiber_stops_once() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = prepare("root_panic");
+    build_only(&scratch, "root_panic.flx", "app");
+    let Some(session) = fiber_session(
+        &lldb,
+        &scratch,
+        "app",
+        &[
+            "flux catch panic",
+            "run",
+            "flux where",
+            "continue",
+            "flux where",
+        ],
+    ) else {
+        return;
+    };
+    assert_lines(
+        &session,
+        &["stopped: exception (panic: root gave up) at root_panic.flx:8:9 in body"],
+    );
+    assert_eq!(
+        session.matches("stopped: exception").count(),
+        1,
+        "{session}"
+    );
+    assert!(session.contains("exited with status = 1"), "{session}");
 }
 
 #[test]

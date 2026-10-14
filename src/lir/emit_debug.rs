@@ -136,6 +136,12 @@ impl DebugBuilder {
                 "<lambda {}:{}:{}>",
                 self.file_name, debug.loc.line, debug.loc.col
             ),
+            LirFnKind::Resumed { parent, after } if parent == super::cont_split::LAMBDA_PARENT => {
+                format!(
+                    "<lambda {}:{}:{}> (resumed after {}:{})",
+                    self.file_name, debug.loc.line, debug.loc.col, after.line, after.col
+                )
+            }
             LirFnKind::Resumed { parent, after } => {
                 format!("{parent} (resumed after {}:{})", after.line, after.col)
             }
@@ -167,14 +173,25 @@ impl DebugBuilder {
         let line_zero = self.location(LirLoc::NONE, subprogram);
         let mut blocks = blocks.to_vec();
         self.add_variables(emitted, func, subprogram, &mut blocks);
+        // The rest of the line a continuation resumes on ran with the call
+        // it resumes after, to `flux debug`: it is not a place to stop
+        // again, for a breakpoint on that line or a step (0188 S8b).
+        let resumed_line = match &debug.kind {
+            LirFnKind::Resumed { after, .. } => Some(after.line),
+            _ => None,
+        };
+        let shown = |loc: LirLoc| match resumed_line {
+            Some(line) if loc.line == line => LirLoc::NONE,
+            _ => loc,
+        };
         let blocks = blocks
             .iter()
             .map(|(marks, term)| BlockDebug {
                 marks: marks
                     .iter()
-                    .map(|(from, loc)| (*from, self.location(*loc, subprogram)))
+                    .map(|(from, loc)| (*from, self.location(shown(*loc), subprogram)))
                     .collect(),
-                term: Some(self.location(*term, subprogram)),
+                term: Some(self.location(shown(*term), subprogram)),
             })
             .collect();
         self.debug.functions.insert(

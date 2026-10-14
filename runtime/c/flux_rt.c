@@ -2520,6 +2520,16 @@ FLUX_DEBUG_HOOK void flux_debug_on_unhandled_effect(int64_t htag) {
     FLUX_DEBUG_HOOK_BODY();
 }
 
+FLUX_DEBUG_HOOK void flux_debug_on_fiber_failure(int64_t err) {
+    (void)err;
+    FLUX_DEBUG_HOOK_BODY();
+}
+
+void flux_panic(int64_t msg) {
+    flux_debug_on_panic(msg);
+    flux_panic_unhooked(msg);
+}
+
 #if defined(_MSC_VER) || defined(_WIN32)
 
 #define FLUX_PANIC_EXCEPTION 0xE0464C58u  /* user-facility | 'F''L''X' */
@@ -2527,8 +2537,7 @@ FLUX_DEBUG_HOOK void flux_debug_on_unhandled_effect(int64_t htag) {
 static __thread int     flux_try_depth     = 0;
 static __thread int64_t flux_try_error_msg = 0;
 
-void flux_panic(int64_t msg) {
-    flux_debug_on_panic(msg);
+void flux_panic_unhooked(int64_t msg) {
     if (flux_try_depth > 0) {
         flux_try_error_msg = msg;
         ULONG_PTR args[1] = { (ULONG_PTR)(uintptr_t)msg };
@@ -2563,8 +2572,7 @@ void flux_panic(int64_t msg) {
 static __thread jmp_buf *flux_try_jmp = NULL;
 static __thread int64_t  flux_try_error_msg = 0; /* FLUX_NONE */
 
-void flux_panic(int64_t msg) {
-    flux_debug_on_panic(msg);
+void flux_panic_unhooked(int64_t msg) {
     /* If a try handler is active, longjmp instead of aborting. */
     if (flux_try_jmp) {
         flux_try_error_msg = msg;

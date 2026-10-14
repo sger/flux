@@ -1,0 +1,31 @@
+// Debug parity (0188 S8): `race` runs its candidates in order; a stop in
+// the second shows the first waiting, and the parent waiting on both.
+// dbg: break 20
+// dbg: continue
+// dbg: threads
+// dbg: thread 2
+// dbg: bt
+// dbg: continue
+
+import Flow.Async exposing (..)
+
+fn slow() -> Int with Async {
+    sleep(200)
+    let m = 1
+    m
+}
+
+fn quick() -> Int with Async {
+    yield_now()
+    let n = 2
+    n
+}
+
+fn body() -> Int with Async {
+    let winner = race(slow, quick)
+    winner * 10
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

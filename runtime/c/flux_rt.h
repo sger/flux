@@ -283,6 +283,8 @@ typedef struct FluxAsyncCallbacks {
     int64_t (*task_cancel)(int64_t task_id);
     void    (*register_root_task)(int64_t task_id);
     void    (*deregister_root_task)(int64_t task_id);
+    /* The calling OS thread's id, as a debugger names it (0188 S8b). */
+    uint64_t (*os_thread_id)(void);
 } FluxAsyncCallbacks;
 
 typedef struct FluxFsTags {
@@ -328,6 +330,16 @@ int64_t  flux_async_task_spawn_scoped_move(uint64_t scope_id, int64_t closure);
 void     flux_async_register_root_task(int64_t task_id);
 void     flux_async_deregister_root_task(int64_t task_id);
 int32_t  flux_async_check_cancelled(void);
+/* What the current fiber parks for, for the debugger's thread view (0188
+ * S8b): one of the FLUX_DEBUG_BLOCK_* kinds and its argument. */
+void     flux_async_debug_block(uint64_t request_id, int32_t kind, int64_t arg);
+#define FLUX_DEBUG_BLOCK_CHANNEL_RECV 2
+#define FLUX_DEBUG_BLOCK_CHANNEL_SEND 3
+#define FLUX_DEBUG_BLOCK_TASK         4
+#define FLUX_DEBUG_BLOCK_EVENT        5
+#define FLUX_DEBUG_BLOCK_TCP          6
+/* The program's fibers as JSON, for `flux_lldb.py` (0188 S8b). */
+const char *flux_debug_fibers(void);
 int32_t  flux_async_current_worker_count(void);
 uint64_t flux_async_tcp_connect(const uint8_t *host, uintptr_t host_len, int64_t port);
 uint64_t flux_async_tcp_listen(const uint8_t *host, uintptr_t host_len, int64_t port);
@@ -806,6 +818,11 @@ void    flux_panic(int64_t msg);
  * call only on paths that are already failing. */
 void    flux_debug_on_panic(int64_t msg);
 void    flux_debug_on_unhandled_effect(int64_t htag);
+/* `Async.fail(err)` (0188 S8b). */
+void    flux_debug_on_fiber_failure(int64_t err);
+/* `flux_panic` without its debugger hook: for a failure the debugger has
+ * already seen where it happened. */
+void    flux_panic_unhooked(int64_t msg);
 /* Reports an effect no handler covers and aborts. */
 void    flux_unhandled_effect(const char *where, int64_t htag);
 void    flux_trace_push(const char *name, const char *file, int32_t line);

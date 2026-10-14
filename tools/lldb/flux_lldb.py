@@ -1,4 +1,4 @@
-"""Flux values in lldb (proposal 0188 S6, S7).
+"""Flux values in lldb (proposal 0188 S6, S7, S8).
 
 A native Flux build with `-g` describes each variable as a 64-bit word whose
 typedef says how to read it:
@@ -20,7 +20,9 @@ This script prints them as Flux values, the way `flux debug` does, and adds a
     flux print <name>[.<part>...]
                           a variable, or a part of it, and its parts
     flux handlers         the active effect handlers, innermost first
-    flux catch [panic|division|unhandled|errors|all|none]...
+    flux threads          the fibers of `run_async`, and what each waits for
+    flux thread <n>       look at thread <n>: `flux bt` reads it
+    flux catch [panic|division|unhandled|fibers|errors|all|none]...
                           the runtime errors to stop at; alone, lists them
     flux where            where the program stopped, and why
     flux next, flux step, flux finish
@@ -725,9 +727,19 @@ def _resuming(shown):
 
 
 def _command_bt(debugger, args, result):
-    thread = debugger.GetSelectedTarget().GetProcess().GetSelectedThread()
-    shown = logical_stack(thread)
-    if args.strip() == "--json":
+    process = debugger.GetSelectedTarget().GetProcess()
+    words = args.split()
+    number = None
+    if "--thread" in words:
+        # `--thread N`: thread N's stack, without selecting it (0188 S8).
+        index = words.index("--thread")
+        try:
+            number = int(words[index + 1])
+        except (IndexError, ValueError):
+            result.AppendMessage("usage: flux bt [--json] [--thread <n>]")
+            return
+    shown = thread_stack(process, number)
+    if "--json" in words:
         # For the debug adapter, which splices the frames lldb does not
         # see into lldb-dap's stack: each line, with its lldb frame index
         # when it is a frame lldb has.
@@ -758,6 +770,261 @@ def _command_bt(debugger, args, result):
         note = "   (suspended)" if line.kind == "suspended" else ""
         result.AppendMessage("#%d %s at %s%s" % (number, line.name, line.place(), note))
         number += 1
+
+
+# ── Fibers as threads (0188 S8) ─────────────────────────────────────────
+#
+# Native fibers are not OS threads: the runtime's scheduler runs them on
+# its workers, and a fiber that waits is an entry in its tables holding a
+# continuation, the closure `resume` would be (S7). `flux_debug_fibers()`
+# answers what those tables hold, as JSON. It is called in the stopped
+# program, the one call into it these commands make, and only while the
+# stop is inside `run_async`; it takes no lock another thread may hold.
+#
+# Thread 1 is the program and its root fiber, each other fiber the next
+# number in spawn order, as in `flux debug`. `flux thread N` makes `flux
+# bt` read thread N until the program runs again.
+
+FIBER_ENTRY = "execute_fiber"
+FIBERS_FUNCTION = "flux_debug_fibers"
+SCHEDULER_ROOT = "flux_async_run_root"
+# The thread looked at, per process: (stop id, thread number).
+SELECTED = {}
+
+
+def _fiber_entry_index(thread):
+    """The index of the scheduler frame that runs the thread's fiber, or
+    None when the thread runs no fiber."""
+    for index in range(thread.GetNumFrames()):
+        if FIBER_ENTRY in (thread.GetFrameAtIndex(index).GetFunctionName() or ""):
+            return index
+    return None
+
+
+def _in_async(process):
+    return any(_fiber_entry_index(thread) is not None for thread in process) or any(
+        SCHEDULER_ROOT in (frame.GetFunctionName() or "") for thread in process for frame in thread
+    )
+
+
+def fibers(process):
+    """The fibers of the active `run_async`, as the runtime lists them, or
+    [] outside one."""
+    if not _in_async(process):
+        return []
+    target = process.GetTarget()
+    found = target.FindSymbols(FIBERS_FUNCTION)
+    address = None
+    for index in range(found.GetSize()):
+        symbol = found.GetContextAtIndex(index).GetSymbol()
+        if symbol.IsValid():
+            address = symbol.GetStartAddress().GetLoadAddress(target)
+            break
+    if not address or address == lldb.LLDB_INVALID_ADDRESS:
+        return []
+    options = lldb.SBExpressionOptions()
+    options.SetTryAllThreads(False)
+    options.SetUnwindOnError(True)
+    options.SetIgnoreBreakpoints(True)
+    options.SetTimeoutInMicroSeconds(2000000)
+    frame = process.GetSelectedThread().GetFrameAtIndex(0)
+    value = frame.EvaluateExpression(
+        "(const char *)((const char *(*)(void))%d)()" % address, options
+    )
+    if not value.IsValid() or not value.GetError().Success():
+        return []
+    error = lldb.SBError()
+    text = process.ReadCStringFromMemory(value.GetValueAsUnsigned(), 1 << 16, error)
+    if not error.Success() or not text:
+        return []
+    try:
+        answer = json.loads(text)
+    except ValueError:
+        return []
+    return sorted(answer.get("fibers", []), key=lambda fiber: fiber["thread"])
+
+
+def _library_file(path):
+    return "/Flow/" in (path or "").replace("\\", "/")
+
+
+def _fiber_name(target, fiber):
+    if fiber["thread"] == 1:
+        return "main"
+    code = fiber.get("code") or 0
+    _, function = _function_at(target, code) if code else (None, None)
+    if function is None:
+        return "<fiber>"
+    return flux_name(function.GetName())
+
+
+def _thread_by_id(process, os_id):
+    for thread in process:
+        if thread.GetThreadID() == os_id:
+            return thread
+    return None
+
+
+def stopped_thread(process, listed=None):
+    """The number of the thread the program stopped in: the fiber running
+    on the selected OS thread, else 1."""
+    listed = fibers(process) if listed is None else listed
+    os_id = process.GetSelectedThread().GetThreadID()
+    for fiber in listed:
+        if fiber["state"] == "running" and fiber.get("os") == os_id:
+            return fiber["thread"]
+    return 1
+
+
+def selected_thread(process, listed=None):
+    chosen = SELECTED.get(process.GetUniqueID())
+    if chosen is not None and chosen[0] == process.GetStopID():
+        return chosen[1]
+    return stopped_thread(process, listed)
+
+
+def _start_line(target, code):
+    """A function that has not run, at its first line."""
+    _, function = _function_at(target, code) if code else (None, None)
+    if function is None:
+        return None
+    entry = function.GetStartAddress().GetLineEntry()
+    spec = entry.GetFileSpec()
+    return Shown(
+        "suspended",
+        flux_name(function.GetName()),
+        spec.GetFilename() or "?",
+        entry.GetLine(),
+        entry.GetColumn(),
+        path=spec.fullpath,
+    )
+
+
+def _below_scheduler(process):
+    """The Flux frames below the scheduler: the code that called
+    `run_async`, newest first."""
+    for thread in process:
+        frames = list(thread)
+        for index, frame in enumerate(frames):
+            if SCHEDULER_ROOT in (frame.GetFunctionName() or ""):
+                shown = []
+                for below in frames[index + 1 :]:
+                    if not _is_flux_frame(below):
+                        continue
+                    entry = below.GetLineEntry()
+                    name = below.GetFunctionName() or ""
+                    shown.append(
+                        Shown("live", flux_name(name), entry.GetFileSpec().GetFilename(),
+                              entry.GetLine(), entry.GetColumn(), below,
+                              path=entry.GetFileSpec().fullpath)
+                    )
+                    if name == "main":
+                        break
+                return shown
+    return []
+
+
+def _live_stack(thread, fiber_number):
+    """A running thread's stack: a child fiber's ends where the scheduler
+    starts it; the root fiber's goes on down to `main`."""
+    shown = logical_stack(thread)
+    entry = _fiber_entry_index(thread)
+    if entry is None or fiber_number == 1:
+        return shown
+    kept = []
+    for line in shown:
+        if line.frame is not None and line.frame.GetFrameID() > entry:
+            break
+        kept.append(line)
+    return kept
+
+
+def thread_stack(process, number=None):
+    """Thread `number`'s Flux stack, newest first: the selected thread's
+    when none is given."""
+    listed = fibers(process)
+    if not listed:
+        return logical_stack(process.GetSelectedThread())
+    number = selected_thread(process, listed) if number is None else number
+    fiber = next((fiber for fiber in listed if fiber["thread"] == number), None)
+    if fiber is None:
+        return []
+    target = process.GetTarget()
+    if fiber["state"] == "running":
+        thread = _thread_by_id(process, fiber.get("os"))
+        return _live_stack(thread, number) if thread is not None else []
+    if fiber["state"] == "not started":
+        line = _start_line(target, fiber.get("code"))
+        return [line] if line is not None else []
+    shown = continuations(Memory(process), target, fiber.get("work") or 0)
+    # The library functions it parked in (`sleep`, `Channel.recv`, ...):
+    # the fiber waits at its own call to them.
+    while shown and _library_file(shown[0].path):
+        shown.pop(0)
+    if number == 1:
+        shown.extend(_below_scheduler(process))
+    return shown
+
+
+def threads(process):
+    """Each thread: (number, name, state, top line or None, the OS thread a
+    running fiber is on or None)."""
+    listed = fibers(process)
+    target = process.GetTarget()
+    if not listed:
+        shown = logical_stack(process.GetSelectedThread())
+        return [(1, "main", "stopped", shown[0] if shown else None,
+                 process.GetSelectedThread().GetThreadID())]
+    stopped = stopped_thread(process, listed)
+    found = []
+    for fiber in listed:
+        state = fiber["state"]
+        if state == "running":
+            state = "stopped" if fiber["thread"] == stopped else "running"
+        elif state == "waiting":
+            state = "waiting %s" % fiber.get("blocked", "a completion")
+        shown = thread_stack(process, fiber["thread"])
+        found.append((fiber["thread"], _fiber_name(target, fiber), state,
+                      shown[0] if shown else None,
+                      fiber.get("os") if fiber["state"] == "running" else None))
+    return found
+
+
+def _command_threads(debugger, args, result):
+    process = debugger.GetSelectedTarget().GetProcess()
+    found = threads(process)
+    if args.strip() == "--json":
+        # For the debug adapter: a running fiber is the OS thread `os`.
+        result.AppendMessage(json.dumps([
+            {"id": number, "name": name, "state": state, "os": os}
+            for number, name, state, _, os in found
+        ]))
+        return
+    looking_at = selected_thread(process)
+    for number, name, state, top, _ in found:
+        mark = "*" if number == looking_at else " "
+        place = " at %s" % top.place() if top is not None else ""
+        result.AppendMessage("%s %d %s [%s]%s" % (mark, number, name, state, place))
+
+
+def _command_thread(debugger, args, result):
+    process = debugger.GetSelectedTarget().GetProcess()
+    try:
+        number = int(args.strip())
+    except ValueError:
+        result.AppendMessage("usage: flux thread <n>; `flux threads` lists them")
+        return
+    found = {entry[0]: entry for entry in threads(process)}
+    if number not in found:
+        result.AppendMessage("no thread %d; `flux threads` lists them" % number)
+        return
+    listed = fibers(process)
+    fiber = next((fiber for fiber in listed if fiber["thread"] == number), None)
+    if fiber is not None and fiber["state"] == "running":
+        process.SetSelectedThreadByID(fiber["os"])
+    SELECTED[process.GetUniqueID()] = (process.GetStopID(), number)
+    _, name, state, _, _ = found[number]
+    result.AppendMessage("thread %d: %s [%s]" % (number, name, state))
 
 
 # ── Handlers (0188 S7) ──────────────────────────────────────────────────
@@ -849,7 +1116,8 @@ def _command_handlers(debugger, args, result):
 
 PANIC_HOOK = "flux_debug_on_panic"
 UNHANDLED_HOOK = "flux_debug_on_unhandled_effect"
-HOOKS = (PANIC_HOOK, UNHANDLED_HOOK)
+FIBER_FAILURE_HOOK = "flux_debug_on_fiber_failure"
+HOOKS = (PANIC_HOOK, UNHANDLED_HOOK, FIBER_FAILURE_HOOK)
 KINDS = {
     "panic": "panic",
     "division": "division_by_zero",
@@ -876,9 +1144,16 @@ EXCEPTION = {}
 
 def _classify(thread):
     """The kind and message of the error a hook stopped at."""
-    top = thread.GetFrameAtIndex(0).GetFunctionName() or ""
+    top_frame = thread.GetFrameAtIndex(0)
+    top = top_frame.GetFunctionName() or ""
     if top.startswith(UNHANDLED_HOOK):
         return "unhandled_effect", "unhandled effect"
+    if top.startswith(FIBER_FAILURE_HOOK):
+        memory = Memory(thread.GetProcess())
+        word = _first_argument(top_frame, "err")
+        text = Value(memory, Constructors.of(thread.GetProcess().GetTarget()),
+                     word).render() if word is not None else ""
+        return "fiber_failure", text or LABELS["fiber_failure"]
     message = ""
     kind = "runtime_error"
     memory = Memory(thread.GetProcess())
@@ -897,6 +1172,19 @@ def _classify(thread):
             kind = "panic"
             break
     return kind, message or LABELS[kind]
+
+
+def _first_argument(frame, name):
+    """A hook's first argument: its variable when the optimised runtime
+    kept it, else the register it arrived in, at the hook's entry."""
+    variable = frame.FindVariable(name)
+    if variable.IsValid() and variable.GetError().Success() and variable.GetValue() is not None:
+        return variable.GetValueAsUnsigned()
+    for register in ("x0", "rdi"):
+        value = frame.FindRegister(register)
+        if value.IsValid() and value.GetValue() is not None:
+            return value.GetValueAsUnsigned()
+    return None
 
 
 def _first_flux_frame(thread):
@@ -999,6 +1287,12 @@ def stop_description(thread):
     else:
         why = "step"
     top = shown[0]
+    process = thread.GetProcess()
+    listed = fibers(process)
+    number = stopped_thread(process, listed) if listed else 1
+    if number > 1:
+        top = next(iter(_live_stack(thread, number)), top)
+        return "stopped: %s at %s in %s (thread %d)" % (why, top.place(), top.name, number)
     return "stopped: %s at %s in %s" % (why, top.place(), top.name)
 
 
@@ -1071,12 +1365,19 @@ MAX_STEPS = 256
 
 
 def _context_word(frame, field):
+    """A field of the thread's `flux_thread_ctx`, read in the first frame
+    from `frame` down that can name it: a closure's entry wrapper has no
+    debug information to read it in."""
     options = lldb.SBExpressionOptions()
     options.SetTryAllThreads(False)
-    value = frame.EvaluateExpression("flux_thread_ctx.%s" % field, options)
-    if not value.IsValid() or not value.GetError().Success():
-        return None
-    return value.GetValueAsUnsigned()
+    thread = frame.GetThread()
+    for index in range(frame.GetFrameID(), min(thread.GetNumFrames(), frame.GetFrameID() + 16)):
+        value = thread.GetFrameAtIndex(index).EvaluateExpression(
+            "flux_thread_ctx.%s" % field, options
+        )
+        if value.IsValid() and value.GetError().Success():
+            return value.GetValueAsUnsigned()
+    return None
 
 
 def _frame_alive(thread, cfa):
@@ -1123,6 +1424,10 @@ def _step(debugger, result, into, out=False):
     cfa = origin.GetCFA()
     was_async = debugger.GetAsync()
     debugger.SetAsync(False)
+    # In a fiber, the step stays in it while it runs (0188 S8): another
+    # fiber running the same function does not end it.
+    origin_fiber = stopped_thread(process) if _fiber_entry_index(thread) is not None else None
+    anywhere = []
     # One stop per line, as in `flux debug`: returning into a caller, on
     # the line of its call, is not a new place to stop.
     seen = {
@@ -1174,9 +1479,21 @@ def _step(debugger, result, into, out=False):
                 return
             thread = process.GetSelectedThread()
             frame = thread.GetFrameAtIndex(0)
-            hit = thread.GetStopReason() == lldb.eStopReasonBreakpoint and any(
-                thread.GetStopReasonDataAtIndex(0) == bp.GetID() for bp in breakpoints
+            hit_id = (
+                thread.GetStopReasonDataAtIndex(0)
+                if thread.GetStopReason() == lldb.eStopReasonBreakpoint
+                else None
             )
+            hit = any(hit_id == bp.GetID() for bp in breakpoints + anywhere)
+            if (
+                hit
+                and origin_fiber is not None
+                and not any(hit_id == bp.GetID() for bp in anywhere)
+                and stopped_thread(process) != origin_fiber
+            ):
+                # The same function, in another fiber: go on.
+                process.Continue()
+                continue
             if hit:
                 # A continuation starts on the line of the call it resumes
                 # after, which has run: go on to the next.
@@ -1205,12 +1522,44 @@ def _step(debugger, result, into, out=False):
                     _functions_named(target, "%s (resumed after %d:" % (flux_name(name), line))
                 )
                 breakpoints.extend(_break_at_functions(target, targets))
+            if origin_fiber is not None and not alive and _fiber_finished(thread):
+                # Out of the fiber's code, in the scheduler. Parked, it
+                # goes on where its frame does; finished, the step stops
+                # where the next fiber goes on, as `flux debug`'s does.
+                mine = next(
+                    (fiber for fiber in fibers(process) if fiber["thread"] == origin_fiber), None
+                )
+                if mine is not None and mine["state"] == "running" and not yielding:
+                    # Returning its result to the scheduler: finished.
+                    mine = None
+                if mine is not None and not armed:
+                    armed = True
+                    breakpoints.extend(
+                        _break_at_functions(
+                            target,
+                            _functions_named(
+                                target, "%s (resumed after %d:" % (flux_name(name), line)
+                            ),
+                        )
+                    )
+                    process.Continue()
+                    continue
+                if mine is None and not anywhere:
+                    anywhere = _break_where_fibers_go_on(process)
+                    if anywhere:
+                        process.Continue()
+                        continue
             if not _is_flux_frame(frame):
                 # The runtime: out to the Flux code that called it.
                 thread.StepOut()
                 continue
             here = (frame.GetCFA(), frame.GetLineEntry().GetLine())
             if here in seen:
+                thread.StepOver()
+                continue
+            if any(here[0] == caller for caller, _ in seen) and here[1] == _declared_line(frame):
+                # A caller's return, at the line of its `fn`: no place to
+                # stop in `flux debug`.
                 thread.StepOver()
                 continue
             if here == (cfa, line):
@@ -1227,13 +1576,55 @@ def _step(debugger, result, into, out=False):
                 continue
             return
     finally:
-        for breakpoint in breakpoints:
+        for breakpoint in breakpoints + anywhere:
             target.BreakpointDelete(breakpoint.GetID())
         debugger.SetAsync(was_async)
         # Where it stopped, for a debug adapter: it reports the stop, which
         # this synchronous run kept from it.
         if process.GetState() == lldb.eStateStopped:
             result.AppendMessage("thread %d" % process.GetSelectedThread().GetThreadID())
+
+
+def _declared_line(frame):
+    """The line of the frame's function's `fn`."""
+    function = frame.GetFunction()
+    if not function.IsValid():
+        return None
+    return function.GetStartAddress().GetLineEntry().GetLine()
+
+
+def _fiber_finished(thread):
+    """Whether the thread is in the scheduler with its fiber's Flux code
+    returned: no Flux frame above the frame that ran the fiber."""
+    entry = _fiber_entry_index(thread)
+    if entry is None:
+        return False
+    return not any(_is_flux_frame(thread.GetFrameAtIndex(index)) for index in range(entry))
+
+
+def _break_where_fibers_go_on(process):
+    """Breakpoints where each other fiber goes on: a parked one at its
+    continuation, one that has not started at its function."""
+    target = process.GetTarget()
+    memory = Memory(process)
+    functions = []
+    for fiber in fibers(process):
+        if fiber["state"] == "not started":
+            _, function = _function_at(target, fiber.get("code") or 0)
+            functions.append(function)
+        elif fiber["state"] in ("waiting", "ready"):
+            conts = [
+                cont
+                for cont in continuations(memory, target, fiber.get("work") or 0)
+                if not _library_file(cont.path)
+            ]
+            if conts:
+                functions.extend(
+                    _functions_named(
+                        target, "%s (resumed after %d:" % (conts[0].name, conts[0].line)
+                    )
+                )
+    return _break_at_functions(target, functions)
 
 
 def _at_hook(frame):
@@ -1274,6 +1665,8 @@ COMMANDS = {
     "print": _command_print,
     "p": _command_print,
     "handlers": _command_handlers,
+    "threads": _command_threads,
+    "thread": _command_thread,
     "catch": _command_catch,
     "where": _command_where,
     "next": _command_next,
@@ -1283,6 +1676,7 @@ COMMANDS = {
 }
 USAGE = (
     "usage: flux bt | flux locals | flux print <name>[.<part>...] | flux handlers"
+    " | flux threads | flux thread <n>"
     " | flux catch [kind...] | flux where | flux next | flux step | flux finish"
     " | flux forget-steps"
 )

@@ -364,11 +364,13 @@ fn discover_rust_staticlib() -> Option<PathBuf> {
     // The archive must export the sentinels proving it was built with
     // --features llvm (a feature-less build lacks flux_async_* symbols) and
     // is recent enough for the runtime it links with: the C runtime calls
-    // the effect tape's `flux_tape_*` (proposal 0188 S1), which an archive
-    // left from an older build lacks.
+    // the effect tape's `flux_tape_*` (proposal 0188 S1) and the debugger's
+    // `flux_async_debug_block` (S8b), which an archive left from an older
+    // build lacks.
     let has_sentinel = |path: &Path| {
         archive_exports_symbol(path, "flux_async_run_root")
             && archive_exports_symbol(path, "flux_tape_init")
+            && archive_exports_symbol(path, "flux_async_debug_block")
     };
 
     // Fast path: sidecar written by a previous successful link.
@@ -435,10 +437,15 @@ pub fn write_debug_symbols(binary: &Path) {
     if !cfg!(target_os = "macos") {
         return;
     }
+    // Each `dsymutil` holds the runtime's DWARF too, hundreds of MB: many
+    // builds at once (a test suite's) exhausted a 24 GB machine. Take one
+    // of a few machine-wide slots first.
+    let slot = DsymutilSlot::acquire();
     let status = Command::new("dsymutil")
         .arg(binary)
         .stdout(std::process::Stdio::null())
         .status();
+    drop(slot);
     match status {
         Ok(status) if status.success() => write_dsym_script(binary),
         Ok(status) => eprintln!(
@@ -449,6 +456,54 @@ pub fn write_debug_symbols(binary: &Path) {
             "warning: cannot run dsymutil ({err}); debug information for {} stays in its object files",
             binary.display()
         ),
+    }
+}
+
+/// One of the machine's `dsymutil` slots, held while it runs: a lock on
+/// `<temp>/flux-dsymutil/slot-<n>.lock`, released when dropped or when the
+/// process ends. `FLUX_DSYMUTIL_JOBS` sets how many (2 by default).
+struct DsymutilSlot(Option<fs::File>);
+
+impl DsymutilSlot {
+    fn acquire() -> Self {
+        let slots = std::env::var("FLUX_DSYMUTIL_JOBS")
+            .ok()
+            .and_then(|jobs| jobs.parse::<usize>().ok())
+            .filter(|jobs| *jobs > 0)
+            .unwrap_or(2);
+        let dir = std::env::temp_dir().join("flux-dsymutil");
+        if fs::create_dir_all(&dir).is_err() {
+            return Self(None);
+        }
+        let files: Vec<fs::File> = (0..slots)
+            .filter_map(|slot| {
+                fs::OpenOptions::new()
+                    .create(true)
+                    .truncate(false)
+                    .write(true)
+                    .open(dir.join(format!("slot-{slot}.lock")))
+                    .ok()
+            })
+            .collect();
+        if files.is_empty() {
+            return Self(None);
+        }
+        loop {
+            for file in &files {
+                if file.try_lock().is_ok() {
+                    return Self(file.try_clone().ok());
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+}
+
+impl Drop for DsymutilSlot {
+    fn drop(&mut self) {
+        if let Some(file) = &self.0 {
+            let _ = file.unlock();
+        }
     }
 }
 

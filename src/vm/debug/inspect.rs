@@ -704,8 +704,22 @@ fn parked_layout(
             ((function_name(info, 1), location), artificial)
         })
         .collect();
+    // The library functions it parked in (`sleep`, `Channel.recv`, ...): the
+    // fiber waits at its own call to them.
+    let parked_in = frames
+        .iter()
+        .rev()
+        .take_while(|((_, location), artificial)| {
+            *artificial
+                || location
+                    .as_ref()
+                    .is_some_and(|(file, _, _)| is_library_file(file))
+        })
+        .count();
+    let keep = frames.len() - parked_in;
     frames
         .into_iter()
+        .take(keep)
         .enumerate()
         .map(|(k, ((name, location), artificial))| {
             (
@@ -723,6 +737,11 @@ fn parked_layout(
             )
         })
         .collect()
+}
+
+/// A file of the Flux library (`lib/Flow/Async.flx`).
+fn is_library_file(file: &str) -> bool {
+    file.replace('\\', "/").contains("/Flow/")
 }
 
 fn other_layout(other: super::threads::OtherThread) -> Vec<(FrameSource, StackFrame)> {

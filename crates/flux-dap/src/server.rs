@@ -51,6 +51,10 @@ const OTHER_FRAMES: i64 = 3_000_000;
 /// adds to lldb-dap's stack: `⟂ handling …` labels and the frames an effect
 /// handler holds (0188 S7). They have no variables.
 const SPLICED_FRAMES: i64 = 2_000_000;
+/// In a native session, thread ids at or above this are fibers that wait:
+/// `FIBER_THREADS + n` is thread `n` of `flux threads` (0188 S8). A running
+/// fiber is the OS thread lldb-dap knows it by.
+const FIBER_THREADS: i64 = 5_000_000;
 
 /// A `variablesReference`: a frame's scope, or a value in it.
 #[derive(Debug, Clone)]
@@ -93,6 +97,8 @@ pub struct Session<W: FnMut(Value)> {
     stopped: Option<u64>,
     /// Frames of other threads handed out since the last stop.
     other_frames: Vec<(u64, usize)>,
+    /// In a native session, the lldb thread the program last stopped in.
+    native_stopped: Option<i64>,
 }
 
 impl<W: FnMut(Value)> Session<W> {
@@ -119,6 +125,7 @@ impl<W: FnMut(Value)> Session<W> {
             exception: None,
             stopped: None,
             other_frames: Vec::new(),
+            native_stopped: None,
         }
     }
 
@@ -510,7 +517,54 @@ impl<W: FnMut(Value)> Session<W> {
         }
         let command = message["command"].as_str().unwrap_or_default().to_string();
         let mut message = message;
+        // A fiber that waits is no thread of lldb-dap's: run requests go
+        // to the thread the program stopped in.
+        if message["arguments"]["threadId"].as_i64() >= Some(FIBER_THREADS)
+            && command != "stackTrace"
+            && let Some(stopped) = self.native_stopped
+        {
+            message["arguments"]["threadId"] = json!(stopped);
+        }
         match command.as_str() {
+            "threads" => {
+                // The fibers of `run_async`, when the program is in it.
+                if let Some(engine) = self.native.as_mut() {
+                    let seq = engine.request(
+                        "evaluate",
+                        json!({ "expression": "`flux threads --json", "context": "repl" }),
+                    );
+                    self.pending.insert(seq, (message, "@threads".to_string()));
+                }
+                return;
+            }
+            "stackTrace" if message["arguments"]["threadId"].as_i64() >= Some(FIBER_THREADS) => {
+                let arguments = &message["arguments"];
+                let number = arguments["threadId"].as_i64().unwrap_or(0) - FIBER_THREADS;
+                let held = json!({
+                    "editor": {
+                        "seq": message["seq"],
+                        "start": arguments["startFrame"].as_u64().unwrap_or(0),
+                        "levels": arguments["levels"].as_u64().unwrap_or(0),
+                    },
+                    "response": {
+                        "type": "response",
+                        "command": "stackTrace",
+                        "success": true,
+                        "body": { "stackFrames": [] },
+                    },
+                });
+                if let Some(engine) = self.native.as_mut() {
+                    let seq = engine.request(
+                        "evaluate",
+                        json!({
+                            "expression": format!("`flux bt --json --thread {number}"),
+                            "context": "repl",
+                        }),
+                    );
+                    self.pending.insert(seq, (held, "@flux-bt".to_string()));
+                }
+                return;
+            }
             "continue" => {
                 // As on the VM, continuing runs to the next breakpoint, not to
                 // the end of a step a breakpoint interrupted.
@@ -648,6 +702,7 @@ impl<W: FnMut(Value)> Session<W> {
                     "@stackTrace" => return self.splice_stack(editor_seq, message),
                     "@flux-bt" => return self.send_spliced_stack(editor_seq, &message),
                     "@stopped" => return self.send_stop(editor_seq, &message),
+                    "@threads" => return self.send_threads(editor_seq, &message),
                     "@step" => return self.after_step(&message),
                     _ => {}
                 }
@@ -751,8 +806,27 @@ impl<W: FnMut(Value)> Session<W> {
         (self.send)(response);
     }
 
+    /// The editor's `threads`: the fibers `flux threads` lists, or, outside
+    /// `run_async`, lldb-dap's own threads.
+    fn send_threads(&mut self, request: Value, evaluated: &Value) {
+        let text = evaluated["body"]["result"].as_str().unwrap_or_default();
+        match native::fiber_threads(text, FIBER_THREADS) {
+            Some(threads) => self.respond(&request, Ok(json!({ "threads": threads }))),
+            None => {
+                let editor_seq = request["seq"].clone();
+                let Some(engine) = self.native.as_mut() else {
+                    return;
+                };
+                let seq = engine.send(request);
+                self.pending
+                    .insert(seq, (editor_seq, "threads".to_string()));
+            }
+        }
+    }
+
     /// A held `stopped` event, now that `flux where` has said why.
     fn send_stop(&mut self, mut event: Value, evaluated: &Value) {
+        self.native_stopped = event["body"]["threadId"].as_i64();
         let text = evaluated["body"]["result"].as_str().unwrap_or_default();
         self.exception = native::stop_exception(text);
         if let Some(exception) = &self.exception {
