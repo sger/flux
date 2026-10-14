@@ -92,6 +92,78 @@ p = Point(1, 2)
   frees a value at its last use, and the debugger does not read freed
   memory. The VM keeps such values, so `flux debug` still shows them.
 
+### Effects
+
+When a handler arm runs, the frames that performed the operation have
+already returned: what is left of each is a continuation, which the arm
+holds as `resume`. `flux bt` reads them from there and shows them below the
+arm, as `flux debug` does:
+
+```text
+(lldb) flux bt
+#0 <handler Flip.flip> at app.flx:17:25
+   ⟂ handling Flip.flip — performed at app.flx:6:13
+#1 decide at app.flx:6:13   (suspended)
+#2 twice at app.flx:11:13   (suspended)
+#3 main at app.flx:16:18
+(lldb) flux handlers
+#0 Flip
+#1 Counter state = 5
+```
+
+- While `resume` runs them, the resumed frames show above the arm, and
+  those still to run below the one running.
+- `flux handlers` lists the active handlers, innermost first, with a
+  parameterized handler's state. In an arm, the handlers inside it are
+  suspended with the frames that performed, so they are not listed. The
+  default handlers the compiler puts around `main` (Console, FileSystem, …)
+  are left out.
+- lldb's own `bt` shows the arm called from the runtime's
+  `flux_yield_prompt`, and a resumed frame as `decide (resumed after 6:13)`.
+- A suspended frame has no variables natively: they are in the
+  continuation, which the debugger cannot take apart.
+- A handler that never resumes still shows its frames as `(suspended)`:
+  native code cannot know ahead that the arm will not call `resume`.
+- An arm whose last call is `resume` stays on the stack under the frames it
+  resumes. On the VM, a tail `resume` replaces the arm.
+
+### Stepping
+
+lldb's own steps treat a perform as a call that returns: `thread
+step-over` on a perform line stops in the function that installed the
+handler. `flux next`, `flux step` and `flux finish` step as `flux debug`
+does:
+- **`flux next` on a perform** runs the handler and stops at the next line of
+  the same call, once `resume` brings it back; a handler that never resumes
+  ends it at the handle site's next line.
+- **`flux step` on a perform** stops in the handler's arm.
+- **`flux step` on `resume(…)`** stops in the frame it resumes.
+- Returning into a caller does not stop again on the line of its call.
+
+VS Code's step buttons use them in native sessions.
+
+### Runtime errors
+
+```text
+(lldb) flux catch panic division
+stopping at: panic, division by zero
+(lldb) run
+(lldb) flux where
+stopped: exception (division by zero) at app.flx:11:5 in ratio
+(lldb) flux bt
+#0 ratio at app.flx:11:5
+#1 main at app.flx:17:21
+```
+
+`flux catch` takes `panic`, `division`, `unhandled` (effects), `errors` (the
+runtime's other errors: a failed `unwrap`, a wrong argument count, …), `all`
+or `none`; alone, it lists what it stops at. It breaks on the runtime's
+`flux_debug_on_panic` and `flux_debug_on_unhandled_effect`, which the
+runtime calls before it reports an error, and selects the Flux frame the
+error happened in. A panic inside a `try` stops too, before it is caught.
+`flux where` says where the program stopped, and why, in `flux debug`'s
+words.
+
 What you see:
 - A breakpoint may resolve to two or three locations: the compiler emits a
   function's body more than once (boxed, unboxed and closure-capture
@@ -100,8 +172,11 @@ What you see:
   is `2n+1`, and other values are addresses. In an unboxed worker frame,
   Ints and Bools are raw.
 - Lambdas are named `<lambda app.flx:4:34>`, handler clauses
-  `<handler op>`. Code after a call that can suspend is
-  `name (resumed after L:C)`.
+  `<handler Effect.op>`. Code after a call that can suspend is
+  `name (resumed after L:C)`. A tail-resumptive handler whose operation is
+  performed in the function that handles it is also compiled as a lambda,
+  called directly: the stack then shows `<lambda app.flx:L:C>` where
+  `flux debug` shows `<handler Effect.op>`.
 - Reference counting and other compiler-made code is at line 0, so stepping
   passes over it. So does the C runtime: `main(argc, argv)` in `flux_rt.c`
   is the frame below the Flux `main`.
@@ -123,8 +198,10 @@ Set `"backend": "native"` in the launch configuration:
 The adapter builds the program with `--native -g`, runs it under `lldb-dap`
 (Xcode's on macOS, `lldb-dap-18` or later on Linux, or the
 `flux.lldbDapPath` setting), and shows the same Flux views as a VM session:
-Flux frames, variables as Flux values, stepping through Flux lines. Step
-Back needs the VM. In this repository, set `flux.runCommand` to
+Flux frames, variables as Flux values, stepping through Flux lines, the
+frames an effect handler suspended (without variables), `.handlers` in the
+Debug Console, and the runtime errors to stop at in the Breakpoints view.
+Step Back needs the VM. In this repository, set `flux.runCommand` to
 `cargo run --features llvm --`, since native builds need the `llvm`
 feature. See `crates/flux-dap/README.md`.
 
@@ -168,3 +245,8 @@ Run this after changing native debug information:
     parts; a record's parts carry its field names.
 11. `flux locals` typed in Xcode's lldb console prints the frame's
     variables.
+12. With the script loaded, a breakpoint in a handler arm and `flux bt` in
+    the lldb console show the suspended frames below the arm; Xcode's own
+    call stack shows the arm above `flux_yield_prompt`.
+13. `flux catch panic`, then ⌘R, stops a panicking program with the Flux
+    frame that panicked selected.

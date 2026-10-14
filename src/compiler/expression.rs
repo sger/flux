@@ -4327,15 +4327,19 @@ impl Compiler {
                     format!("<handler {operation}>")
                 });
             }
-            // compile_function_literal emits OpClosure, leaving a closure on the stack
-            self.compile_function_literal(
+            // compile_function_literal emits OpClosure, leaving a closure on the stack.
+            // The arm's entry site is at the arm, not at the `handle`.
+            let handle_span = self.current_span.replace(arm_span);
+            let compiled = self.compile_function_literal(
                 ExprId::UNSET,
                 &params,
                 &parameter_types,
                 &None,
                 &[],
                 &arm_block,
-            )?;
+            );
+            self.current_span = handle_span;
+            compiled?;
         }
 
         if let Some(parameter) = parameter {

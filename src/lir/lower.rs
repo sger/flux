@@ -1147,6 +1147,10 @@ struct FnLower<'a> {
     /// The source position of the expression being lowered, stamped on each
     /// instruction emitted for it (proposal 0188 S5).
     current_loc: LirLoc,
+    /// Where a lambda being lowered is made: the place of the code around
+    /// it, not the lambda's own, so a breakpoint on the lambda's first line
+    /// stops in the lambda only.
+    lambda_site: Option<LirLoc>,
     /// The position of the last expression lowered: where a `return`
     /// happens, once the function's body is done.
     last_loc: LirLoc,
@@ -1221,6 +1225,7 @@ impl<'a> FnLower<'a> {
             parameterized_effects_in_program: ctx.parameterized_effects_in_program,
             async_indirect_calls: ctx.async_indirect_calls,
             current_loc: LirLoc::NONE,
+            lambda_site: None,
             last_loc: LirLoc::NONE,
             binder_names: HashMap::new(),
         }
@@ -1386,7 +1391,10 @@ impl<'a> FnLower<'a> {
 
     /// Appends `instr` to the current block, with the current location.
     fn push_instr(&mut self, instr: LirInstr) {
-        let loc = self.current_loc;
+        let loc = match instr {
+            LirInstr::MakeClosure { .. } => self.lambda_site.take().unwrap_or(self.current_loc),
+            _ => self.current_loc,
+        };
         let block = &mut self.func.blocks[self.current_block];
         if !loc.is_none() || !block.locs.is_empty() {
             block.locs.resize(block.instrs.len(), LirLoc::NONE);
@@ -1577,6 +1585,9 @@ impl<'a> FnLower<'a> {
     /// Lower a `CoreExpr` and return the `LirVar` holding the result.
     /// The result is always a NaN-boxed i64 value.
     fn lower_expr(&mut self, expr: &CoreExpr) -> LirVar {
+        if matches!(expr, CoreExpr::Lam { .. }) {
+            self.lambda_site = Some(self.current_loc);
+        }
         let loc = located(expr.span(), self.current_loc);
         self.at_loc(loc, |lower| lower.lower_expr_here(expr))
     }
@@ -2386,6 +2397,9 @@ impl<'a> FnLower<'a> {
             | AetherExpr::DropSpecialized { .. } => LirLoc::NONE,
             _ => located(expr.span(), self.current_loc),
         };
+        if matches!(expr, AetherExpr::Lam { .. }) {
+            self.lambda_site = Some(self.current_loc);
+        }
         self.at_loc(loc, |lower| lower.lower_expr_aether_here(expr))
     }
 
@@ -3205,11 +3219,11 @@ impl<'a> FnLower<'a> {
         //    For multi-operation effects, we'd need a dispatch closure, but
         //    for now we support single-operation effects.
         let handler_closure = if handlers.len() == 1 {
-            self.lower_handler_clause(&handlers[0])
+            self.lower_handler_clause(effect, &handlers[0])
         } else {
             // Multi-operation: build the first handler for now.
             // TODO: dispatch closure for multi-op effects.
-            self.lower_handler_clause(&handlers[0])
+            self.lower_handler_clause(effect, &handlers[0])
         };
 
         // 3. Create fresh marker + insert evidence.
@@ -3287,7 +3301,7 @@ impl<'a> FnLower<'a> {
             args: vec![],
         });
 
-        let handler_closure = self.lower_handler_clause_aether(&handlers[0]);
+        let handler_closure = self.lower_handler_clause_aether(effect, &handlers[0]);
 
         let marker = self.fresh_var();
         self.emit(LirInstr::PrimCall {
@@ -3850,7 +3864,7 @@ impl<'a> FnLower<'a> {
     ///
     /// The closure takes (resume, param0, param1, ...) and executes the
     /// handler body. Free variables from the enclosing scope are captured.
-    fn lower_handler_clause(&mut self, handler: &CoreHandler) -> LirVar {
+    fn lower_handler_clause(&mut self, effect: Identifier, handler: &CoreHandler) -> LirVar {
         // Collect free variables in the handler body, excluding params and resume.
         let free = {
             let mut free = HashSet::new();
@@ -3901,7 +3915,11 @@ impl<'a> FnLower<'a> {
             },
         );
         inner.place(
-            LirFnKind::Named(format!("<handler {}>", self.name_of(handler.operation))),
+            LirFnKind::Named(format!(
+                "<handler {}.{}>",
+                self.name_of(effect),
+                self.name_of(handler.operation)
+            )),
             LirLoc::from_span(handler.span),
         );
 
@@ -3914,7 +3932,7 @@ impl<'a> FnLower<'a> {
 
         // Parameters: resume first, then handler params.
         let resume_var = inner.fresh_var();
-        inner.bind(handler.resume.id, resume_var);
+        inner.bind_param(&handler.resume, resume_var);
         inner.func.params.push(resume_var);
         inner
             .func
@@ -3962,7 +3980,11 @@ impl<'a> FnLower<'a> {
         dst
     }
 
-    fn lower_handler_clause_aether(&mut self, handler: &AetherHandler) -> LirVar {
+    fn lower_handler_clause_aether(
+        &mut self,
+        effect: Identifier,
+        handler: &AetherHandler,
+    ) -> LirVar {
         let free = {
             let mut free = HashSet::new();
             let mut bound = HashSet::new();
@@ -4008,7 +4030,11 @@ impl<'a> FnLower<'a> {
             },
         );
         inner.place(
-            LirFnKind::Named(format!("<handler {}>", self.name_of(handler.operation))),
+            LirFnKind::Named(format!(
+                "<handler {}.{}>",
+                self.name_of(effect),
+                self.name_of(handler.operation)
+            )),
             LirLoc::from_span(handler.span),
         );
 
@@ -4019,7 +4045,7 @@ impl<'a> FnLower<'a> {
         }
 
         let resume_var = inner.fresh_var();
-        inner.bind(handler.resume.id, resume_var);
+        inner.bind_param(&handler.resume, resume_var);
         inner.func.params.push(resume_var);
         inner
             .func

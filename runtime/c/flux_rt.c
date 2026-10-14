@@ -2500,6 +2500,26 @@ static void flux_trace_print(void) {
  * (RaiseException + __try/__except) instead — that is the unwind
  * mechanism Windows is built around and it walks the same frames
  * correctly whether or not their .pdata is exhaustive. */
+/* The debugger hooks: never inlined, and never removed as pure, so a
+ * breakpoint on them is hit on every call. */
+#if defined(_MSC_VER)
+#  define FLUX_DEBUG_HOOK __declspec(noinline)
+#  define FLUX_DEBUG_HOOK_BODY() _ReadWriteBarrier()
+#else
+#  define FLUX_DEBUG_HOOK __attribute__((noinline, used))
+#  define FLUX_DEBUG_HOOK_BODY() __asm__ volatile("" ::: "memory")
+#endif
+
+FLUX_DEBUG_HOOK void flux_debug_on_panic(int64_t msg) {
+    (void)msg;
+    FLUX_DEBUG_HOOK_BODY();
+}
+
+FLUX_DEBUG_HOOK void flux_debug_on_unhandled_effect(int64_t htag) {
+    (void)htag;
+    FLUX_DEBUG_HOOK_BODY();
+}
+
 #if defined(_MSC_VER) || defined(_WIN32)
 
 #define FLUX_PANIC_EXCEPTION 0xE0464C58u  /* user-facility | 'F''L''X' */
@@ -2508,6 +2528,7 @@ static __thread int     flux_try_depth     = 0;
 static __thread int64_t flux_try_error_msg = 0;
 
 void flux_panic(int64_t msg) {
+    flux_debug_on_panic(msg);
     if (flux_try_depth > 0) {
         flux_try_error_msg = msg;
         ULONG_PTR args[1] = { (ULONG_PTR)(uintptr_t)msg };
@@ -2543,6 +2564,7 @@ static __thread jmp_buf *flux_try_jmp = NULL;
 static __thread int64_t  flux_try_error_msg = 0; /* FLUX_NONE */
 
 void flux_panic(int64_t msg) {
+    flux_debug_on_panic(msg);
     /* If a try handler is active, longjmp instead of aborting. */
     if (flux_try_jmp) {
         flux_try_error_msg = msg;

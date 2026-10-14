@@ -1,4 +1,4 @@
-"""Flux values in lldb (proposal 0188 S6).
+"""Flux values in lldb (proposal 0188 S6, S7).
 
 A native Flux build with `-g` describes each variable as a 64-bit word whose
 typedef says how to read it:
@@ -14,10 +14,19 @@ typedef says how to read it:
 This script prints them as Flux values, the way `flux debug` does, and adds a
 `flux` command:
 
-    flux bt               the Flux frames of the current thread
+    flux bt               the Flux frames of the current thread, with the
+                          frames an effect handler's `resume` would run
     flux locals           the current frame's variables
     flux print <name>[.<part>...]
                           a variable, or a part of it, and its parts
+    flux handlers         the active effect handlers, innermost first
+    flux catch [panic|division|unhandled|errors|all|none]...
+                          the runtime errors to stop at; alone, lists them
+    flux where            where the program stopped, and why
+    flux next, flux step, flux finish
+                          step over, into or out, as `flux debug` does:
+                          following a perform to where its frame goes on,
+                          and stopping once per line
     flux forget-steps     drop steps a breakpoint interrupted, so that
                           continuing does not finish them
 
@@ -26,6 +35,8 @@ dSYM carries it, and lldb loads it from there once
 `settings set target.load-script-from-symbol-file true` is set.
 """
 
+import json
+import re
 import struct
 
 import lldb
@@ -532,14 +543,466 @@ def frame_variables(frame):
     return [entry for entry in result if not entry[2]] + [entry for entry in result if entry[2]]
 
 
+# ── Stacks that follow continuations (0188 S7) ──────────────────────────
+#
+# A perform on the general path returns from every frame between it and the
+# handler, each leaving a `$cont$` closure (named `f (resumed after L:C)` in
+# the DWARF) that runs the rest of it. The handler's arm gets them as
+# `resume`: one such closure, or the runtime's compose trampoline holding
+# an array of them, innermost first. While the arm runs, they are the
+# frames it suspended; while `resume` runs them, the ones still to run sit
+# in that array.
+
+RESUMED = re.compile(r"^(.*) \(resumed after (\d+):(\d+)\)$")
+TRAMPOLINE = "flux_compose_trampoline.closure_entry"
+CLOSURE_ENTRY = ".closure_entry"
+# The header before a closure's captures (`FluxClosure`, flux_rt.c).
+CLOSURE_PAYLOAD = 24
+MAX_CONTINUATIONS = 256
+
+
+class Shown:
+    """One line of the logical stack."""
+
+    def __init__(self, kind, name, file, line, column, frame=None, path=None):
+        self.kind = kind  # "live", "suspended" or "label"
+        self.name = name
+        self.file = file
+        self.line = line
+        self.column = column
+        self.frame = frame
+        self.path = path
+
+    def place(self):
+        return "%s:%d:%d" % (self.file, self.line, self.column)
+
+
+def flux_name(name):
+    """A function's Flux name: a continuation is the function it resumes."""
+    match = RESUMED.match(name or "")
+    return match.group(1) if match else (name or "")
+
+
+def _symbol_name(symbol):
+    name = symbol.GetName() if symbol.IsValid() else None
+    return (name or "").lstrip("_") if name and name.startswith("_flux") else name
+
+
+def _function_at(target, address):
+    """The symbol at a code address, and the Flux function it runs: a
+    closure's entry wrapper has no DWARF of its own, the function it wraps
+    does."""
+    resolved = target.ResolveLoadAddress(address)
+    name = _symbol_name(resolved.GetSymbol())
+    if not name:
+        return None, None
+    function = resolved.GetFunction()
+    if name.endswith(CLOSURE_ENTRY) and name != TRAMPOLINE:
+        found = target.FindSymbols(name[: -len(CLOSURE_ENTRY)])
+        function = None
+        for index in range(found.GetSize()):
+            candidate = found.GetContextAtIndex(index).GetSymbol().GetStartAddress().GetFunction()
+            if candidate.IsValid():
+                function = candidate
+                break
+    if function is not None and not function.IsValid():
+        function = None
+    return name, function
+
+
+def continuations(memory, target, word, depth=0):
+    """The continuations a `resume` value runs, innermost first, as Shown
+    lines: each at the perform or call it resumes after."""
+    value = Value(memory, None, word)
+    if depth > 8 or value.object_kind() != OBJ_CLOSURE:
+        return []
+    code = memory.word(word)
+    if code is None:
+        return []
+    name, function = _function_at(target, code)
+    if name == TRAMPOLINE:
+        array = memory.word(word + CLOSURE_PAYLOAD)
+        if array is None or Value(memory, None, array).object_kind() != OBJ_ARRAY:
+            return []
+        count = min(memory.u32(array + 4) or 0, MAX_CONTINUATIONS)
+        found = []
+        for index in range(count):
+            item = memory.word(array + 16 + 8 * index)
+            if item is not None:
+                found.extend(continuations(memory, target, item, depth + 1))
+        return found
+    if function is None:
+        return []
+    match = RESUMED.match(function.GetName() or "")
+    if not match:
+        return []
+    spec = function.GetStartAddress().GetLineEntry().GetFileSpec()
+    return [
+        Shown(
+            "suspended",
+            match.group(1),
+            spec.GetFilename() or "?",
+            int(match.group(2)),
+            int(match.group(3)),
+            path=spec.fullpath,
+        )
+    ]
+
+
+def _resume_word(frame):
+    """An arm's `resume` argument, its first."""
+    arguments = frame.GetVariables(True, False, False, True)
+    if arguments.GetSize() == 0:
+        return None
+    return arguments.GetValueAtIndex(0).GetNonSyntheticValue().GetValueAsUnsigned()
+
+
+def _is_arm(name):
+    return (name or "").startswith("<handler ")
+
+
+def logical_stack(thread):
+    """The thread's Flux stack, newest first, down to the Flux `main`: each
+    handler arm with the frames it suspended below it, and the continuations
+    a running `resume` has still to run above it."""
+    target = thread.GetProcess().GetTarget()
+    memory = Memory(thread.GetProcess())
+    shown = []
+    resumed = []  # continuation frames above the next arm, newest first
+    for frame in thread:
+        if not _is_flux_frame(frame):
+            continue
+        name = frame.GetFunctionName() or ""
+        entry = frame.GetLineEntry()
+        if _is_arm(name):
+            word = _resume_word(frame)
+            pending = continuations(memory, target, word) if word is not None else []
+            if resumed:
+                # `resume` is running the continuations: the ones after the
+                # running one wait in the trampoline, below it.
+                running = flux_name(resumed[-1])
+                names = [cont.name for cont in pending]
+                if running in names:
+                    for cont in pending[names.index(running) + 1 :]:
+                        cont.kind = "live"
+                        shown.append(cont)
+                resumed = []
+            shown.append(
+                Shown("live", name, entry.GetFileSpec().GetFilename(), entry.GetLine(),
+                      entry.GetColumn(), frame)
+            )
+            if not resumed and pending and not _resuming(shown):
+                performed = pending[0]
+                shown.append(
+                    Shown("label", "handling %s — performed at %s"
+                          % (name[len("<handler "):-1], performed.place()), None, 0, 0)
+                )
+                shown.extend(pending)
+        else:
+            if RESUMED.match(name):
+                resumed.append(name)
+            shown.append(
+                Shown("live", flux_name(name), entry.GetFileSpec().GetFilename(),
+                      entry.GetLine(), entry.GetColumn(), frame)
+            )
+        if name == "main":
+            break
+    return shown
+
+
+def _resuming(shown):
+    """Whether the arm just added is running `resume`: a continuation frame
+    sits above it."""
+    for line in reversed(shown[:-1]):
+        if line.frame is None:
+            continue
+        name = line.frame.GetFunctionName() or ""
+        if _is_arm(name):
+            return False
+        if RESUMED.match(name):
+            return True
+    return False
+
+
 def _command_bt(debugger, args, result):
     thread = debugger.GetSelectedTarget().GetProcess().GetSelectedThread()
-    frames = flux_frames(thread)
-    if not frames:
+    shown = logical_stack(thread)
+    if args.strip() == "--json":
+        # For the debug adapter, which splices the frames lldb does not
+        # see into lldb-dap's stack: each line, with its lldb frame index
+        # when it is a frame lldb has.
+        result.AppendMessage(
+            json.dumps(
+                [
+                    {
+                        "kind": line.kind,
+                        "name": line.name,
+                        "path": line.path,
+                        "line": line.line,
+                        "column": line.column,
+                        "index": line.frame.GetFrameID() if line.frame is not None else None,
+                    }
+                    for line in shown
+                ]
+            )
+        )
+        return
+    if not shown:
         result.AppendMessage("no Flux frames")
         return
-    for number, frame in enumerate(frames):
-        result.AppendMessage("#%d %s at %s" % (number, frame.GetFunctionName(), _place(frame)))
+    number = 0
+    for line in shown:
+        if line.kind == "label":
+            result.AppendMessage("   \u27c2 %s" % line.name)
+            continue
+        note = "   (suspended)" if line.kind == "suspended" else ""
+        result.AppendMessage("#%d %s at %s%s" % (number, line.name, line.place(), note))
+        number += 1
+
+
+# ── Handlers (0188 S7) ──────────────────────────────────────────────────
+#
+# The runtime keeps the active handlers in the thread's evidence vector,
+# `flux_thread_ctx.current_evv` (effects.c): a count, then five words per
+# handler, oldest first.
+
+EVV_ENTRY_WORDS = 5
+# The effects the compiler handles around `main`: internals, as in
+# `flux debug`.
+DEFAULT_HANDLED = {
+    "Console", "FileSystem", "Stdin", "Env", "Process", "Clock", "Time", "IO",
+}
+SHOW_INTERNALS = [False]
+
+
+def _current_evidence(frame):
+    """`flux_thread_ctx.current_evv`, a thread-local, read in this frame's
+    thread. The runtime is built with debug information, so the expression
+    is a read lldb answers itself, running nothing in the program."""
+    options = lldb.SBExpressionOptions()
+    options.SetTryAllThreads(False)
+    options.SetUnwindOnError(True)
+    value = frame.EvaluateExpression("flux_thread_ctx.current_evv", options)
+    if not value.IsValid() or not value.GetError().Success():
+        return None
+    return value.GetValueAsUnsigned()
+
+
+def handlers(thread):
+    """The active handlers, innermost first, as (effect, state Value or
+    None)."""
+    process = thread.GetProcess()
+    target = process.GetTarget()
+    memory = Memory(process)
+    ctors = Constructors.of(target)
+    frame = thread.GetFrameAtIndex(0)
+    word = _current_evidence(frame)
+    if not word or Value(memory, ctors, word).object_kind() != OBJ_EVIDENCE:
+        return []
+    count = memory.i32(word) or 0
+    found = []
+    for index in range(min(count, 1024)):
+        base = word + 8 + 8 * EVV_ENTRY_WORDS * index
+        clause = memory.word(base + 16)
+        state = memory.word(base + 32)
+        code = memory.word(clause) if clause else None
+        _, function = _function_at(target, code) if code else (None, None)
+        arm = function.GetName() if function is not None else ""
+        effect = arm[len("<handler "):-1].rsplit(".", 1)[0] if _is_arm(arm) else "<effect>"
+        found.append((effect, arm, Value(memory, ctors, state) if state else None))
+    found.reverse()
+    # In a handler's arm, the handlers inside it are suspended with the
+    # frames that performed: the arm runs under its own handler and those
+    # outside it.
+    shown = logical_stack(thread)
+    if len(shown) > 1 and shown[1].kind == "label" and shown[0].frame is not None:
+        arm = shown[0].frame.GetFunctionName()
+        arms = [entry[1] for entry in found]
+        if arm in arms:
+            found = found[arms.index(arm):]
+    return [
+        (effect, state)
+        for effect, _, state in found
+        if effect not in DEFAULT_HANDLED or SHOW_INTERNALS[0]
+    ]
+
+
+def _command_handlers(debugger, args, result):
+    thread = debugger.GetSelectedTarget().GetProcess().GetSelectedThread()
+    found = handlers(thread)
+    if not found:
+        result.AppendMessage("no handlers")
+        return
+    for number, (effect, state) in enumerate(found):
+        text = " state = %s" % state.render() if state is not None else ""
+        result.AppendMessage("#%d %s%s" % (number, effect, text))
+
+
+# ── Runtime errors (0188 S7) ────────────────────────────────────────────
+#
+# The runtime calls an empty hook before it reports an error:
+# `flux_debug_on_panic` from `flux_panic`, which user panics, division by
+# zero and the runtime's other errors all go through, and
+# `flux_debug_on_unhandled_effect`. `flux catch` breaks on them; the
+# breakpoint's callback tells the kinds apart and goes on past the ones not
+# asked for.
+
+PANIC_HOOK = "flux_debug_on_panic"
+UNHANDLED_HOOK = "flux_debug_on_unhandled_effect"
+HOOKS = (PANIC_HOOK, UNHANDLED_HOOK)
+KINDS = {
+    "panic": "panic",
+    "division": "division_by_zero",
+    "division_by_zero": "division_by_zero",
+    "unhandled": "unhandled_effect",
+    "unhandled_effect": "unhandled_effect",
+    "errors": "runtime_error",
+    "runtime_error": "runtime_error",
+}
+ALL_KINDS = ["panic", "division_by_zero", "unhandled_effect", "runtime_error"]
+LABELS = {
+    "panic": "panic",
+    "division_by_zero": "division by zero",
+    "unhandled_effect": "unhandled effect",
+    "runtime_error": "runtime error",
+}
+CAUGHT = set()
+# The error the program last stopped at: (kind, message), per process.
+EXCEPTION = {}
+
+
+def _classify(thread):
+    """The kind and message of the error a hook stopped at."""
+    top = thread.GetFrameAtIndex(0).GetFunctionName() or ""
+    if top.startswith(UNHANDLED_HOOK):
+        return "unhandled_effect", "unhandled effect"
+    message = ""
+    kind = "runtime_error"
+    memory = Memory(thread.GetProcess())
+    for index in range(1, min(thread.GetNumFrames(), 8)):
+        frame = thread.GetFrameAtIndex(index)
+        name = frame.GetFunctionName() or ""
+        if name.startswith("flux_panic") and not message:
+            msg = frame.FindVariable("msg")
+            if msg.IsValid():
+                text = Value(memory, None, msg.GetValueAsUnsigned()).render()
+                message = text[1:-1] if len(text) >= 2 and text[0] == '"' else text
+            continue
+        if "division_by_zero" in name or name.startswith(("flux_rt_div", "flux_rt_mod")):
+            return "division_by_zero", "division by zero"
+        if _is_flux_frame(frame):
+            kind = "panic"
+            break
+    return kind, message or LABELS[kind]
+
+
+def _first_flux_frame(thread):
+    for index in range(thread.GetNumFrames()):
+        if _is_flux_frame(thread.GetFrameAtIndex(index)):
+            return index
+    return None
+
+
+def exception_stop(frame, location, *rest):
+    """The hooks' breakpoint callback: stop for the kinds caught, at the
+    Flux frame the error happened in."""
+    thread = frame.GetThread()
+    kind, message = _classify(thread)
+    EXCEPTION[thread.GetProcess().GetUniqueID()] = (kind, message)
+    if kind not in CAUGHT:
+        return False
+    index = _first_flux_frame(thread)
+    if index is not None:
+        thread.SetSelectedFrame(index)
+    return True
+
+
+def _hook_breakpoints(target):
+    found = []
+    for index in range(target.GetNumBreakpoints()):
+        breakpoint = target.GetBreakpointAtIndex(index)
+        if breakpoint.MatchesName("flux-exception"):
+            found.append(breakpoint)
+    return found
+
+
+def set_caught(debugger, kinds):
+    """Stops at these kinds of runtime errors, and no others."""
+    CAUGHT.clear()
+    CAUGHT.update(kinds)
+    target = debugger.GetSelectedTarget()
+    existing = _hook_breakpoints(target)
+    if CAUGHT and not existing:
+        for hook in HOOKS:
+            breakpoint = target.BreakpointCreateByName(hook)
+            breakpoint.AddName("flux-exception")
+            breakpoint.SetScriptCallbackFunction("%s.exception_stop" % __name__)
+    elif not CAUGHT:
+        for breakpoint in existing:
+            target.BreakpointDelete(breakpoint.GetID())
+
+
+def _command_catch(debugger, args, result):
+    words = args.split()
+    if words:
+        kinds = set()
+        for word in words:
+            if word == "all":
+                kinds.update(ALL_KINDS)
+            elif word == "none":
+                continue
+            elif word in KINDS:
+                kinds.add(KINDS[word])
+            else:
+                result.AppendMessage(
+                    "unknown error kind `%s`; use panic, division, unhandled, errors, all or none"
+                    % word
+                )
+                return
+        set_caught(debugger, kinds)
+    caught = [LABELS[kind] for kind in ALL_KINDS if kind in CAUGHT]
+    if caught:
+        result.AppendMessage("stopping at: %s" % ", ".join(caught))
+    else:
+        result.AppendMessage("stopping at no runtime errors")
+
+
+def stop_description(thread):
+    """`stopped: <why> at <file:line:col> in <function>`, as `flux debug`
+    says it, or None when the thread is not stopped in Flux code."""
+    if not thread.IsValid():
+        return None
+    top_frame = thread.GetFrameAtIndex(0)
+    top_name = top_frame.GetFunctionName() or ""
+    exception = EXCEPTION.get(thread.GetProcess().GetUniqueID())
+    at_error = top_name.startswith(HOOKS) and exception is not None
+    # Stepping out of `main` stops in the runtime: not a Flux stop.
+    if not at_error and not _is_flux_frame(top_frame):
+        return None
+    shown = [line for line in logical_stack(thread) if line.kind != "label"]
+    if not shown:
+        return None
+    if at_error:
+        kind, message = exception
+        label = LABELS[kind]
+        why = "exception (%s)" % message if message == label else "exception (%s: %s)" % (
+            label,
+            message,
+        )
+    elif thread.GetStopReason() == lldb.eStopReasonBreakpoint and thread.GetProcess().GetTarget().FindBreakpointByID(thread.GetStopReasonDataAtIndex(0)).IsValid():
+        # A breakpoint `flux next` or `flux step` set for itself is gone
+        # by now: that stop is a step.
+        why = "breakpoint"
+    else:
+        why = "step"
+    top = shown[0]
+    return "stopped: %s at %s in %s" % (why, top.place(), top.name)
+
+
+def _command_where(debugger, args, result):
+    thread = debugger.GetSelectedTarget().GetProcess().GetSelectedThread()
+    text = stop_description(thread)
+    result.AppendMessage(text if text else "not stopped in Flux code")
 
 
 def _selected_frame(debugger):
@@ -591,6 +1054,201 @@ def _command_print(debugger, args, result):
         result.AppendMessage("  .%s = %s" % (label, child.render()))
 
 
+# ── Stepping across effects (0188 S7) ───────────────────────────────────
+#
+# A perform on the general path returns from the performing frames before
+# the handler runs: lldb's step over a perform line ends in the frame that
+# installed the handler. `flux next` and `flux step` step the way `flux
+# debug` does. When a step leaves its frame while the runtime is yielding,
+# they break where the frame goes on, its continuation (or, stepping in,
+# the handler's arm), and keep stepping over in the frame they landed in, so
+# a handler that never resumes ends at that frame's next line instead.
+
+MAX_STEPS = 256
+
+
+def _context_word(frame, field):
+    options = lldb.SBExpressionOptions()
+    options.SetTryAllThreads(False)
+    value = frame.EvaluateExpression("flux_thread_ctx.%s" % field, options)
+    if not value.IsValid() or not value.GetError().Success():
+        return None
+    return value.GetValueAsUnsigned()
+
+
+def _frame_alive(thread, cfa):
+    for frame in thread:
+        if frame.GetCFA() == cfa:
+            return True
+    return False
+
+
+def _functions_named(target, prefix):
+    found = target.FindGlobalFunctions("^" + re.escape(prefix), 64, lldb.eMatchTypeRegex)
+    return [found.GetContextAtIndex(i).GetFunction() for i in range(found.GetSize())]
+
+
+def _break_at_functions(target, functions):
+    breakpoints = []
+    for function in functions:
+        if function is None or not function.IsValid():
+            continue
+        address = function.GetStartAddress()
+        breakpoint = target.BreakpointCreateBySBAddress(address)
+        # Past the prologue, where the function's first line starts.
+        prologue = function.GetPrologueByteSize()
+        if prologue:
+            target.BreakpointDelete(breakpoint.GetID())
+            breakpoint = target.BreakpointCreateByAddress(
+                address.GetLoadAddress(target) + prologue
+            )
+        breakpoint.SetOneShot(False)
+        breakpoints.append(breakpoint)
+    return breakpoints
+
+
+def _step(debugger, result, into, out=False):
+    target = debugger.GetSelectedTarget()
+    process = target.GetProcess()
+    thread = process.GetSelectedThread()
+    origin = thread.GetSelectedFrame()
+    if not _is_flux_frame(origin):
+        index = _first_flux_frame(thread)
+        origin = thread.GetFrameAtIndex(index) if index is not None else origin
+    name = origin.GetFunctionName() or ""
+    line = origin.GetLineEntry().GetLine()
+    cfa = origin.GetCFA()
+    was_async = debugger.GetAsync()
+    debugger.SetAsync(False)
+    # One stop per line, as in `flux debug`: returning into a caller, on
+    # the line of its call, is not a new place to stop.
+    seen = {
+        (frame.GetCFA(), frame.GetLineEntry().GetLine())
+        for frame in thread
+        if _is_flux_frame(frame) and frame.GetCFA() != cfa
+    }
+    breakpoints = []
+    if into and _is_arm(name):
+        # Into `resume`: the runtime calls the continuations, which lldb
+        # steps over with the rest of the runtime. Break where they start.
+        word = _resume_word(origin)
+        if word is not None:
+            functions = []
+            for cont in continuations(Memory(process), target, word):
+                functions.extend(
+                    _functions_named(target, "%s (resumed after %d:" % (cont.name, cont.line))
+                )
+            breakpoints = _break_at_functions(target, functions)
+    if RESUMED.match(name):
+        # A resumed frame returns into the runtime's trampoline, which runs
+        # the continuations after it: the frames below it on the logical
+        # stack. Break where they start.
+        shown = logical_stack(thread)
+        waiting = []
+        for index, entry in enumerate(shown):
+            if entry.frame is not None and entry.frame.GetCFA() == cfa:
+                for below in shown[index + 1 :]:
+                    if below.frame is not None or below.kind != "live":
+                        break
+                    waiting.append(below)
+                break
+        functions = []
+        for cont in waiting:
+            functions.extend(
+                _functions_named(target, "%s (resumed after %d:" % (cont.name, cont.line))
+            )
+        breakpoints.extend(_break_at_functions(target, functions))
+    if out:
+        thread.StepOut()
+    elif into:
+        thread.StepInto()
+    else:
+        thread.StepOver()
+    try:
+        armed = False
+        for _ in range(MAX_STEPS):
+            if process.GetState() != lldb.eStateStopped:
+                return
+            thread = process.GetSelectedThread()
+            frame = thread.GetFrameAtIndex(0)
+            hit = thread.GetStopReason() == lldb.eStopReasonBreakpoint and any(
+                thread.GetStopReasonDataAtIndex(0) == bp.GetID() for bp in breakpoints
+            )
+            if hit:
+                # A continuation starts on the line of the call it resumes
+                # after, which has run: go on to the next.
+                match = RESUMED.match(frame.GetFunctionName() or "")
+                if not _is_flux_frame(frame) or (
+                    match and frame.GetLineEntry().GetLine() == int(match.group(2))
+                ):
+                    thread.StepOver()
+                return
+            if _at_hook(frame):
+                return
+            alive = _frame_alive(thread, cfa)
+            yielding = _context_word(frame, "yielding")
+            if yielding and not alive and not armed:
+                # The frame returned to let a handler run: break where it
+                # goes on, and, stepping in, where the handler starts.
+                armed = True
+                targets = []
+                if into:
+                    clause = _context_word(frame, "clause")
+                    code = Memory(process).word(clause) if clause else None
+                    if code:
+                        _, function = _function_at(target, code)
+                        targets.append(function)
+                targets.extend(
+                    _functions_named(target, "%s (resumed after %d:" % (flux_name(name), line))
+                )
+                breakpoints.extend(_break_at_functions(target, targets))
+            if not _is_flux_frame(frame):
+                # The runtime: out to the Flux code that called it.
+                thread.StepOut()
+                continue
+            here = (frame.GetCFA(), frame.GetLineEntry().GetLine())
+            if here in seen:
+                thread.StepOver()
+                continue
+            if here == (cfa, line):
+                # Back on the line it started from, out of the runtime lldb
+                # steps over: a call to `resume`, or a perform, still to
+                # come. Step on.
+                if into:
+                    thread.StepInto()
+                else:
+                    thread.StepOver()
+                continue
+            if armed and yielding:
+                thread.StepOver()
+                continue
+            return
+    finally:
+        for breakpoint in breakpoints:
+            target.BreakpointDelete(breakpoint.GetID())
+        debugger.SetAsync(was_async)
+        # Where it stopped, for a debug adapter: it reports the stop, which
+        # this synchronous run kept from it.
+        if process.GetState() == lldb.eStateStopped:
+            result.AppendMessage("thread %d" % process.GetSelectedThread().GetThreadID())
+
+
+def _at_hook(frame):
+    return (frame.GetFunctionName() or "").startswith(HOOKS)
+
+
+def _command_next(debugger, args, result):
+    _step(debugger, result, into=False)
+
+
+def _command_step(debugger, args, result):
+    _step(debugger, result, into=True)
+
+
+def _command_finish(debugger, args, result):
+    _step(debugger, result, into=False, out=True)
+
+
 def drop_interrupted_steps(debugger):
     """Forgets the steps a breakpoint interrupted, so that continuing runs
     to the next breakpoint, as on the VM. lldb would otherwise finish such a
@@ -612,9 +1270,19 @@ COMMANDS = {
     "locals": _command_locals,
     "print": _command_print,
     "p": _command_print,
+    "handlers": _command_handlers,
+    "catch": _command_catch,
+    "where": _command_where,
+    "next": _command_next,
+    "step": _command_step,
+    "finish": _command_finish,
     "forget-steps": _command_forget_steps,
 }
-USAGE = "usage: flux bt | flux locals | flux print <name>[.<part>...] | flux forget-steps"
+USAGE = (
+    "usage: flux bt | flux locals | flux print <name>[.<part>...] | flux handlers"
+    " | flux catch [kind...] | flux where | flux next | flux step | flux finish"
+    " | flux forget-steps"
+)
 
 
 def flux_command(debugger, command, result, internal_dict):

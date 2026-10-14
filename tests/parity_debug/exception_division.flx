@@ -1,0 +1,16 @@
+// Debug parity (0188 S7): division by zero stops at the division; `catch
+// none` would let the program end without stopping.
+// dbg: continue
+// dbg: bt
+// dbg: continue
+
+fn ratio(a: Int, b: Int) -> Int {
+    let q = a / b
+    q
+}
+
+fn main() with IO {
+    let zero = 0
+    print(to_string(ratio(10, 2)))
+    print(to_string(ratio(10, zero)))
+}

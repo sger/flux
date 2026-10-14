@@ -1,0 +1,31 @@
+// Debug parity (0188 S7): a handler that never resumes. The frames that
+// performed still show below its arm.
+// dbg: break 28
+// dbg: continue
+// dbg: bt
+// dbg: handlers
+// dbg: continue
+
+effect Fail {
+    raise : (String) -> Int
+}
+
+fn safe_div(a: Int, b: Int) -> Int with Fail {
+    if b == 0 {
+        perform Fail.raise("division by zero")
+    } else {
+        a / b
+    }
+}
+
+fn compute() -> Int with Fail {
+    let q = safe_div(10, 0)
+    q + 1
+}
+
+fn main() with IO {
+    let result = compute() handle Fail {
+        raise(resume, msg) -> len(msg)
+    }
+    print(to_string(result))
+}

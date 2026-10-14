@@ -1,0 +1,35 @@
+// Debug parity (0188 S7): a handler that resumes twice. In its arm, the
+// frames the perform suspended show below it; in each shot, the resumed
+// frames show above it.
+// dbg: break 32
+// dbg: continue
+// dbg: bt
+// dbg: break 22
+// dbg: continue
+// dbg: bt
+// dbg: locals
+// dbg: continue
+// dbg: bt
+// dbg: locals
+// dbg: continue
+
+effect Flip {
+    flip : () -> Bool
+}
+
+fn decide() -> Int with Flip {
+    let b = perform Flip.flip()
+    if b { 1 } else { 2 }
+}
+
+fn twice() -> Int with Flip {
+    let d = decide()
+    d * 10
+}
+
+fn main() with IO {
+    let result = twice() handle Flip {
+        flip(resume) -> resume(true) + resume(false)
+    }
+    print(to_string(result))
+}

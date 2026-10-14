@@ -47,6 +47,23 @@ fn copy_dir(from: &Path, to: &Path) {
     }
 }
 
+/// Builds `program` with `-g` into `binary`, without running it: for a
+/// program that ends with a runtime error.
+fn build_only(scratch: &Scratch, program: &str, binary: &str) {
+    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+        .current_dir(scratch.path())
+        .args([program, "--native", "-g", "--emit-binary", "-o", binary])
+        .args(scratch.cache_args())
+        .env("NO_COLOR", "1")
+        .output()
+        .expect("run flux");
+    assert!(
+        output.status.success(),
+        "flux --native -g --emit-binary failed for {program}:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 /// Builds `program` with `-g` into `binary` and returns the build's output.
 fn build(scratch: &Scratch, program: &str, binary: &str) -> Output {
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
@@ -145,6 +162,8 @@ const FIXTURES: &[&str] = &[
     "values.flx",
     "twomods/main.flx",
     "adtmods/main.flx",
+    "handlers.flx",
+    "overflow.flx",
 ];
 
 /// The errors `llvm-dwarfdump --verify` reports in Flux's compile units.
@@ -715,4 +734,190 @@ fn a_debug_build_describes_variables_and_constructors() {
             );
         }
     }
+}
+
+// ── Effects and runtime errors (0188 S7) ─────────────────────────────────
+
+#[test]
+fn a_handler_arm_shows_the_frames_it_suspended_and_the_handlers() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = prepare("handlers");
+    build(&scratch, "handlers.flx", "app");
+    let Some(session) = flux_session(
+        &lldb,
+        &scratch,
+        "app",
+        ("handlers.flx", 25),
+        &["flux bt", "flux handlers", "flux where"],
+    ) else {
+        return;
+    };
+    assert_lines(
+        &session,
+        &[
+            "#0 <handler Flip.flip> at handlers.flx:25:29",
+            "   \u{27c2} handling Flip.flip — performed at handlers.flx:17:13",
+            "#1 decide at handlers.flx:17:13   (suspended)",
+            "#2 main at handlers.flx:24:9",
+            "#0 Flip",
+            "#1 Counter state = 5",
+            "stopped: breakpoint at handlers.flx:25:29 in <handler Flip.flip>",
+        ],
+    );
+}
+
+#[test]
+fn more_frames_than_the_runtime_keeps_in_one_continuation() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = prepare("overflow");
+    build(&scratch, "overflow.flx", "app");
+    let Some(session) = flux_session(&lldb, &scratch, "app", ("overflow.flx", 49), &["flux bt"])
+    else {
+        return;
+    };
+    // `resume` holds a composed closure: an array of continuations, the
+    // first eight composed into one.
+    let suspended: Vec<String> = flux_lines(&session)
+        .into_iter()
+        .filter(|line| line.ends_with("(suspended)"))
+        .collect();
+    let names: Vec<&str> = suspended
+        .iter()
+        .filter_map(|line| line.split(' ').nth(1))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "level10", "level9", "level8", "level7", "level6", "level5", "level4", "level3",
+            "level2", "level1"
+        ],
+        "{session}"
+    );
+}
+
+#[test]
+fn stepping_across_a_perform_follows_the_handler() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = prepare("handlers");
+    build(&scratch, "handlers.flx", "app");
+    // Over a perform: the next line of the same call, after the handler
+    // resumed it.
+    let Some(over) = flux_session(
+        &lldb,
+        &scratch,
+        "app",
+        ("handlers.flx", 17),
+        &["flux next", "flux where"],
+    ) else {
+        return;
+    };
+    assert_lines(&over, &["stopped: step at handlers.flx:18:13 in decide"]);
+    // Into a perform: the handler's arm; then into `resume`: the frame it
+    // resumes, above the arm.
+    let Some(into) = flux_session(
+        &lldb,
+        &scratch,
+        "app",
+        ("handlers.flx", 17),
+        &["flux step", "flux where", "flux step", "flux bt"],
+    ) else {
+        return;
+    };
+    assert_lines(
+        &into,
+        &[
+            "stopped: step at handlers.flx:25:29 in <handler Flip.flip>",
+            "#0 decide at handlers.flx:18:13",
+            "#1 <handler Flip.flip> at handlers.flx:25:29",
+        ],
+    );
+}
+
+#[test]
+fn flux_catch_stops_at_runtime_errors_in_flux_frames() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = prepare("panic");
+    build_only(&scratch, "panic.flx", "app");
+    let import = format!("command script import {}", lldb_script());
+    let session = lldb_session(
+        &lldb,
+        &scratch,
+        "app",
+        &[&import, "flux catch panic", "run", "flux where", "flux bt"],
+    );
+    if session.contains("script interpreter") {
+        eprintln!("note: this lldb runs no Python scripts; skipping");
+        return;
+    }
+    // Division by zero is not one of the kinds asked for: the program ends
+    // with it, without stopping.
+    assert!(session.contains("exited with status = 1"), "{session}");
+    assert!(!session.contains("stopped: exception"), "{session}");
+
+    let session = lldb_session(
+        &lldb,
+        &scratch,
+        "app",
+        &[
+            &import,
+            "flux catch division",
+            "run",
+            "flux where",
+            "flux bt",
+            "flux catch",
+        ],
+    );
+    assert_lines(
+        &session,
+        &[
+            "stopped: exception (division by zero) at panic.flx:11:5 in ratio",
+            "#0 ratio at panic.flx:11:5",
+            "#1 main at panic.flx:17:21",
+            "stopping at: division by zero",
+        ],
+    );
+}
+
+#[test]
+fn a_caught_panic_stops_at_the_call_to_panic() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = prepare("boom");
+    scratch.write(
+        "boom.flx",
+        "fn check(n: Int) -> Int {\n    if n > 2 {\n        panic(\"too big\")\n    } else {\n        n\n    }\n}\n\nfn main() with IO {\n    print(to_string(check(3)))\n}\n",
+    );
+    build_only(&scratch, "boom.flx", "boom");
+    let import = format!("command script import {}", lldb_script());
+    let session = lldb_session(
+        &lldb,
+        &scratch,
+        "boom",
+        &[&import, "flux catch panic", "run", "flux where", "flux bt"],
+    );
+    if session.contains("script interpreter") {
+        eprintln!("note: this lldb runs no Python scripts; skipping");
+        return;
+    }
+    assert_lines(
+        &session,
+        &[
+            "stopped: exception (panic: too big) at boom.flx:3:9 in check",
+            "#0 check at boom.flx:3:9",
+        ],
+    );
 }

@@ -708,6 +708,142 @@ fn native_breakpoints_stack_and_variables() {
     assert!(transcript.contains("25"), "{transcript}");
 }
 
+const FLIP_TWICE: &str = "\
+effect Flip {
+    flip : () -> Bool
+}
+
+fn decide() -> Int with Flip {
+    let b = perform Flip.flip()
+    if b { 1 } else { 2 }
+}
+
+fn twice() -> Int with Flip {
+    let d = decide()
+    d * 10
+}
+
+fn main() with IO {
+    let result = twice() handle Flip {
+        flip(resume) -> resume(true) + resume(false)
+    }
+    print(to_string(result))
+}
+";
+
+#[test]
+fn native_handler_arms_show_the_frames_they_suspended() {
+    if !native_debugging() {
+        return;
+    }
+    let scratch = Scratch::new("native-effects");
+    let program = scratch.write("flip.flx", FLIP_TWICE);
+    let mut editor = Editor::start(&scratch);
+    let Some(stopped) = launch_native(&mut editor, &program, &[17]) else {
+        return;
+    };
+    let thread = stopped["body"]["threadId"].clone();
+    let capabilities = editor
+        .pending
+        .iter()
+        .find(|message| message["event"] == "capabilities")
+        .cloned()
+        .expect("a capabilities event");
+    let filters = &capabilities["body"]["capabilities"]["exceptionBreakpointFilters"];
+    assert_eq!(filters[0]["filter"], "panic", "{capabilities}");
+
+    let frames = frame_names(&mut editor, &thread);
+    let names: Vec<&str> = frames.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "<handler Flip.flip>",
+            "⟂ handling Flip.flip — performed at flip.flx:6:13",
+            "decide (suspended)",
+            "twice (suspended)",
+            "main",
+        ],
+        "{frames:?}"
+    );
+    assert_eq!(frames[2].1["line"], 6, "{frames:?}");
+    // A suspended frame has no variables natively.
+    let scopes = editor.request("scopes", json!({ "frameId": frames[2].1["id"] }));
+    assert_eq!(scopes["body"]["scopes"], json!([]), "{scopes}");
+
+    // Into `resume`: the resumed frames, above the arm.
+    editor.request("stepIn", json!({ "threadId": thread }));
+    editor.event("stopped");
+    let frames = frame_names(&mut editor, &thread);
+    let names: Vec<&str> = frames.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["decide", "twice", "<handler Flip.flip>", "main"],
+        "{frames:?}"
+    );
+    let handlers = editor.request(
+        "evaluate",
+        json!({ "expression": ".handlers", "context": "repl" }),
+    );
+    let text = handlers["body"]["result"].as_str().unwrap_or_default();
+    assert!(text.contains("#0 Flip"), "{handlers}");
+
+    editor.request("continue", json!({ "threadId": thread }));
+    let transcript = editor.finish();
+    assert!(transcript.contains("30"), "{transcript}");
+}
+
+#[test]
+fn a_native_panic_stops_as_an_exception() {
+    if !native_debugging() {
+        return;
+    }
+    let scratch = Scratch::new("native-panic");
+    let program = scratch.write(
+        "boom.flx",
+        "fn check(n: Int) -> Int {\n    if n > 2 {\n        panic(\"too big\")\n    } else {\n        n\n    }\n}\n\nfn main() with IO {\n    let n = check(3)\n    print(to_string(n))\n}\n",
+    );
+    let mut editor = Editor::start(&scratch);
+    let init = editor.request("initialize", json!({ "adapterID": "flux" }));
+    assert_eq!(init["success"], true, "{init}");
+    let args = editor.launch_args(&program, json!({ "backend": "native" }));
+    let launch = editor.send("launch", args);
+    loop {
+        let message = editor.receive();
+        if message["type"] == "response" && message["request_seq"] == launch {
+            if message["success"] != true {
+                eprintln!("note: this flux has no native backend; skipping");
+                return;
+            }
+            editor.pending.push_back(message);
+            continue;
+        }
+        if message["type"] == "event" && message["event"] == "initialized" {
+            break;
+        }
+        if message["type"] == "event" && message["event"] != "output" {
+            editor.pending.push_back(message);
+        }
+    }
+    let set = editor.request("setExceptionBreakpoints", json!({ "filters": ["panic"] }));
+    assert_eq!(set["success"], true, "{set}");
+    editor.request("configurationDone", json!({}));
+    let launched = editor.response(launch);
+    assert_eq!(launched["success"], true, "{launched}");
+    let stopped = editor.event("stopped");
+    assert_eq!(stopped["body"]["reason"], "exception", "{stopped}");
+    assert_eq!(stopped["body"]["text"], "too big", "{stopped}");
+    let thread = stopped["body"]["threadId"].clone();
+    let info = editor.request("exceptionInfo", json!({ "threadId": thread }));
+    assert_eq!(info["body"]["exceptionId"], "panic", "{info}");
+    let frames = frame_names(&mut editor, &thread);
+    let names: Vec<&str> = frames.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(names, ["check", "main"], "{frames:?}");
+    assert_eq!(frames[0].1["line"], 3, "{frames:?}");
+    editor.request("continue", json!({ "threadId": thread }));
+    let transcript = editor.finish();
+    assert!(transcript.contains("\"exitCode\":1"), "{transcript}");
+}
+
 #[test]
 fn a_native_program_that_does_not_build() {
     if !native_debugging() {

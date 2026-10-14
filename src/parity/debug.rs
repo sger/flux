@@ -16,14 +16,18 @@
 //! commands in `lldb -b`, through `flux_lldb.py`'s `flux` command. Each
 //! transcript is reduced to what both debuggers mean the same way:
 //!
-//! - `stop <function> <file>:<line>` for each stop;
-//! - `frame <function> <file>:<line>` for each Flux frame of `bt`;
+//! - `stop <function> <file>:<line>` for each stop, then
+//!   `exception <kind>` when it is a runtime error the debugger caught;
+//! - `frame <function> <file>:<line>` for each Flux frame of `bt`, the
+//!   frames an effect handler suspended among them (S7);
+//! - `handler <effect>[ state = <value>]` for each handler of `handlers`;
 //! - `<name> = <value>` for each variable of `locals` or part of `print`,
 //!   each group sorted by name;
 //! - `finished` when the program ends.
 //!
-//! Columns, stop reasons, positions, the VM's tail-call labels and the
-//! program's own output are left out. The way's "stdout" is that reduced
+//! Columns, stop reasons, positions, the VM's tail-call labels, the
+//! `⟂ handling …` labels, the `(suspended)` marks and the program's own
+//! output are left out. The way's "stdout" is that reduced
 //! transcript, so the usual stdout comparison checks the two match.
 
 use std::path::{Path, PathBuf};
@@ -187,18 +191,17 @@ pub fn normalize_vm(transcript: &str) -> String {
         let line = line.trim_end();
         if let Some(rest) = line.strip_prefix("stopped: ") {
             // stopped: <reason> at <file>:<l>:<c> in <fn> (position <n>)
-            let place = rest.split_once(" at ").map(|(_, rest)| rest);
-            if let Some((place, function)) = place.and_then(|rest| rest.split_once(" in ")) {
-                let function = function
-                    .rsplit_once(" (position ")
-                    .map_or(function, |(function, _)| function);
-                out.push(format!("stop {function} {}", file_line(place)));
-            }
+            let rest = rest
+                .rsplit_once(" (position ")
+                .map_or(rest, |(rest, _)| rest);
+            push_stop(&mut out, rest);
+        } else if let Some(handler) = parse_handler(line) {
+            out.push(handler);
         } else if let Some(frame) = parse_frame(line) {
             out.push(frame);
         } else if line == "program finished" {
             out.push("finished".to_string());
-        } else if line == "no variables" {
+        } else if line == "no variables" || line == "no handlers" {
             out.push(line.to_string());
         } else if let Some(value) = parse_value(line) {
             out.value(value);
@@ -277,6 +280,8 @@ fn run_lldb(
     let mut commands = vec![
         "settings set target.load-script-from-symbol-file false".to_string(),
         format!("command script import \"{}\"", lldb_script.display()),
+        // The runtime errors `flux debug` stops at unless told otherwise.
+        "flux catch panic division unhandled".to_string(),
     ];
     let mut started = false;
     for line in script {
@@ -296,25 +301,36 @@ fn run_lldb(
             "continue" | "c" if !started => {
                 started = true;
                 // The program's own output stays out of the transcript.
-                format!("process launch -o \"{}\"", dir.join("output.txt").display())
+                commands.push(format!(
+                    "process launch -o \"{}\"",
+                    dir.join("output.txt").display()
+                ));
+                WHERE.to_string()
             }
             "continue" | "c" => {
                 commands.push("flux forget-steps".to_string());
-                "process continue".to_string()
+                commands.push("process continue".to_string());
+                WHERE.to_string()
             }
-            "step" | "s" => "thread step-in".to_string(),
-            "next" | "n" => "thread step-over".to_string(),
-            // The VM finishes at the caller's next line, lldb where the call
-            // returns: step over the rest of that line too, and keep the
-            // second stop only.
+            // `flux_lldb.py` steps as `flux debug` does: once per line, and
+            // following a perform to where its frame goes on.
+            "step" | "s" => {
+                commands.push("flux step".to_string());
+                WHERE.to_string()
+            }
+            "next" | "n" => {
+                commands.push("flux next".to_string());
+                WHERE.to_string()
+            }
             "finish" | "f" => {
-                commands.push("thread step-out".to_string());
-                commands.push(format!("script print(\"{MERGE_STOPS}\")"));
-                "thread step-over".to_string()
+                commands.push("flux finish".to_string());
+                WHERE.to_string()
             }
             "bt" | "backtrace" => "flux bt".to_string(),
             "locals" => "flux locals".to_string(),
             "print" | "p" => format!("flux print {rest}"),
+            "handlers" => "flux handlers".to_string(),
+            "catch" => format!("flux catch {rest}"),
             other => return Err(format!("`// dbg: {other}` has no lldb equivalent")),
         };
         commands.push(command);
@@ -333,14 +349,15 @@ fn run_lldb(
     Ok((normalize_lldb(&transcript), transcript))
 }
 
-/// Printed between two lldb stops that are one step of the script: the
-/// first is dropped.
-const MERGE_STOPS: &str = "flux-parity: one step";
+/// Says where the program stopped, as `flux debug` says it, after each
+/// command that runs it: lldb's own stop lines name the runtime's frame at
+/// a caught error, and stop at every step of a script step that took
+/// several.
+const WHERE: &str = "flux where";
 
 /// An lldb batch session's transcript, reduced.
 pub fn normalize_lldb(transcript: &str) -> String {
     let mut out = Transcript::default();
-    let mut stopping = false;
     for line in transcript.lines() {
         let line = line.trim_end();
         let trimmed = line.trim_start();
@@ -348,36 +365,19 @@ pub fn normalize_lldb(transcript: &str) -> String {
             out.end_group();
             continue;
         }
-        if trimmed == MERGE_STOPS {
-            out.drop_last_stop();
-            continue;
-        }
-        if trimmed.starts_with("* thread #") && line.contains("stop reason =") {
-            stopping = true;
-            continue;
-        }
-        if stopping && let Some(rest) = trimmed.strip_prefix("frame #0:") {
-            stopping = false;
-            // frame #0: 0x… app`square(x=3) at calls.flx:3:13
-            if let Some((function, place)) = rest
-                .split_once('`')
-                .map(|(_, rest)| rest)
-                .and_then(|rest| rest.rsplit_once(" at "))
-            {
-                // Stepping out of `main` lands in the runtime: not a
-                // Flux stop.
-                if place.contains(".flx:") {
-                    let function = strip_arguments(function);
-                    out.push(format!("stop {function} {}", file_line(place)));
-                }
-            }
+        // `flux where`: stopping out of `main`, in the runtime, says no
+        // stop.
+        if let Some(rest) = line.strip_prefix("stopped: ") {
+            push_stop(&mut out, rest);
             continue;
         }
         if line.starts_with("Process ") && line.contains(" exited with status") {
             out.push("finished".to_string());
+        } else if let Some(handler) = parse_handler(line) {
+            out.push(handler);
         } else if let Some(frame) = parse_frame(line) {
             out.push(frame);
-        } else if line == "no variables" {
+        } else if line == "no variables" || line == "no handlers" {
             out.push(line.to_string());
         } else if let Some(value) = parse_value(line) {
             // A value native code has freed: the VM has moved it out of its
@@ -390,12 +390,28 @@ pub fn normalize_lldb(transcript: &str) -> String {
     out.finish()
 }
 
-/// `square(x=3, y=4)` → `square`, but `<lambda app.flx:4:34>` stays.
-fn strip_arguments(function: &str) -> &str {
-    if function.starts_with('<') {
-        return function.find('>').map_or(function, |end| &function[..=end]);
+/// `<why> at <file>:<l>:<c> in <fn>`, from either debugger, as `stop`
+/// and, for a caught runtime error, `exception <kind>`.
+fn push_stop(out: &mut Transcript, rest: &str) {
+    let Some((why_place, function)) = rest.rsplit_once(" in ") else {
+        return;
+    };
+    let Some((why, place)) = why_place.rsplit_once(" at ") else {
+        return;
+    };
+    out.push(format!("stop {function} {}", file_line(place)));
+    if let Some(error) = why.strip_prefix("exception (") {
+        let kind = [
+            "panic",
+            "division by zero",
+            "unhandled effect",
+            "runtime error",
+        ]
+        .into_iter()
+        .find(|kind| error.starts_with(kind))
+        .unwrap_or("runtime error");
+        out.push(format!("exception {kind}"));
     }
-    function.split_once('(').map_or(function, |(name, _)| name)
 }
 
 // ── Comparing ────────────────────────────────────────────────────────────
@@ -413,14 +429,32 @@ pub fn outputs_match(left: &RunResult, right: &RunResult) -> bool {
     };
     let vm = items(&vm.normalized_stdout);
     let native = items(&native.normalized_stdout);
-    vm.len() == native.len()
-        && vm.iter().zip(&native).all(|pair| match pair {
+    let mut native = native.iter().peekable();
+    for vm in &vm {
+        // A handler arm whose `resume` is its last call waits natively
+        // under the continuation that call runs; on the VM the tail resume
+        // has replaced it, and a tail-resumptive arm has already returned.
+        while let Some(Item::Line(line)) = native.peek()
+            && line.starts_with("frame <handler ")
+            && !matches!(vm, Item::Line(vm) if vm == line)
+        {
+            native.next();
+        }
+        let Some(native) = native.next() else {
+            return false;
+        };
+        let same = match (vm, native) {
             (Item::Line(vm), Item::Line(native)) => vm == native,
             (Item::Values(vm), Item::Values(native)) => {
                 vm.iter().all(|value| native.contains(value))
             }
             _ => false,
-        })
+        };
+        if !same {
+            return false;
+        }
+    }
+    native.next().is_none()
 }
 
 /// A reduced transcript, as lines and groups of values (each a variable
@@ -480,8 +514,30 @@ fn parse_frame(line: &str) -> Option<String> {
     let rest = line.strip_prefix('#')?;
     let (number, rest) = rest.split_once(' ')?;
     number.parse::<usize>().ok()?;
+    // `   (suspended)` and `   (suspended, not resumable)`: native code
+    // cannot tell whether a handler will resume.
+    let rest = rest
+        .split_once("   (suspended")
+        .map_or(rest, |(rest, _)| rest);
     let (function, place) = rest.rsplit_once(" at ")?;
     Some(format!("frame {function} {}", file_line(place)))
+}
+
+/// `#0 Counter state = 1 — handled in main` → `handler Counter state = 1`:
+/// native code does not know where a handler was installed.
+fn parse_handler(line: &str) -> Option<String> {
+    let rest = line.strip_prefix('#')?;
+    let (number, rest) = rest.split_once(' ')?;
+    number.parse::<usize>().ok()?;
+    let rest = rest.split_once(" — ").map_or(rest, |(rest, _)| rest);
+    let effect = rest.split(' ').next()?;
+    let is_handler = !rest.contains(" at ")
+        && effect.chars().next().is_some_and(char::is_uppercase)
+        && effect
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+        && (rest == effect || rest.starts_with(&format!("{effect} state = ")));
+    is_handler.then(|| format!("handler {rest}"))
 }
 
 /// A variable, `name = value`, or a part of the one before,
@@ -538,18 +594,6 @@ impl Transcript {
         }
     }
 
-    /// Drops the last line, if it is a stop.
-    fn drop_last_stop(&mut self) {
-        self.end_group();
-        if self
-            .lines
-            .last()
-            .is_some_and(|line| line.starts_with("stop "))
-        {
-            self.lines.pop();
-        }
-    }
-
     fn finish(mut self) -> String {
         self.end_group();
         self.lines.join("\n")
@@ -599,6 +643,8 @@ Process 42 stopped
     frame #0: 0x0000000100000dcc app`sum_squares(a=3, b=4) at calls.flx:9:14
    8   \t    let sa = square(a)
 -> 9   \t    let sb = square(b)
+(lldb) flux where
+stopped: breakpoint at calls.flx:9:14 in sum_squares
 (lldb) flux locals
 a = 3
 b = 4
@@ -613,6 +659,8 @@ xs = [1, 2]
 (lldb) process continue
 Process 42 resuming
 Process 42 exited with status = 0 (0x00000000)
+(lldb) flux where
+not stopped in Flux code
 ";
         let expected = "\
 stop sum_squares calls.flx:9

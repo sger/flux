@@ -43,6 +43,10 @@ pub enum Input {
 const THREAD: i64 = 1;
 /// Frame ids at or above this are tail-call labels, not frames.
 const LABEL_FRAMES: i64 = 1_000_000;
+/// In a native session, frame ids at or above this are lines the session
+/// adds to lldb-dap's stack: `⟂ handling …` labels and the frames an effect
+/// handler holds (0188 S7). They have no variables.
+const SPLICED_FRAMES: i64 = 2_000_000;
 
 /// A `variablesReference`: a frame's scope, or a value in it.
 #[derive(Debug, Clone)]
@@ -381,6 +385,9 @@ impl<W: FnMut(Value)> Session<W> {
             capabilities = json!({});
         }
         capabilities["supportsStepBack"] = json!(false);
+        // Flux's runtime errors, not C++'s and Objective-C's.
+        capabilities["exceptionBreakpointFilters"] = exception_filters();
+        capabilities["supportsExceptionInfoRequest"] = json!(true);
         self.event("capabilities", json!({ "capabilities": capabilities }));
 
         let arguments = native::launch_arguments(&spec, &build, args);
@@ -465,6 +472,56 @@ impl<W: FnMut(Value)> Session<W> {
                 );
                 return;
             }
+            // `flux_lldb.py` steps as `flux debug` does: once per line, and
+            // across a perform to where its frame goes on.
+            "next" | "stepIn" | "stepOut" => {
+                let step = match command.as_str() {
+                    "next" => "next",
+                    "stepIn" => "step",
+                    _ => "finish",
+                };
+                self.respond(&message, Ok(json!({})));
+                if let Some(engine) = self.native.as_mut() {
+                    let seq = engine.request(
+                        "evaluate",
+                        json!({ "expression": format!("`flux {step}"), "context": "repl" }),
+                    );
+                    self.pending.insert(seq, (Value::Null, "@step".to_string()));
+                }
+                return;
+            }
+            "setExceptionBreakpoints" => {
+                let filters = strings(&message["arguments"]["filters"]);
+                let kinds = if filters.is_empty() {
+                    "none".to_string()
+                } else {
+                    filters.join(" ")
+                };
+                if let Some(engine) = self.native.as_mut() {
+                    let seq = engine.request(
+                        "evaluate",
+                        json!({ "expression": format!("`flux catch {kinds}"), "context": "repl" }),
+                    );
+                    self.pending.insert(seq, (Value::Null, String::new()));
+                }
+                let verified = vec![json!({ "verified": true }); filters.len()];
+                self.respond(&message, Ok(json!({ "breakpoints": verified })));
+                return;
+            }
+            "exceptionInfo" => {
+                let answer = self.exception_info();
+                self.respond(&message, answer);
+                return;
+            }
+            "scopes" if message["arguments"]["frameId"].as_i64() >= Some(SPLICED_FRAMES) => {
+                self.respond(&message, Ok(json!({ "scopes": [] })));
+                return;
+            }
+            "evaluate" if message["arguments"]["frameId"].as_i64() >= Some(SPLICED_FRAMES) => {
+                if let Some(arguments) = message["arguments"].as_object_mut() {
+                    arguments.remove("frameId");
+                }
+            }
             "evaluate" if message["arguments"]["context"] == "repl" => {
                 let expression = message["arguments"]["expression"]
                     .as_str()
@@ -487,7 +544,21 @@ impl<W: FnMut(Value)> Session<W> {
             }
             _ => {}
         }
-        let editor_seq = message["seq"].clone();
+        let mut editor_seq = message["seq"].clone();
+        let mut command = command;
+        if command == "stackTrace" && !self.show_internals {
+            // The whole stack, for the frames the session adds to it; the
+            // editor's page of it is cut once they are in.
+            let arguments = &mut message["arguments"];
+            editor_seq = json!({
+                "seq": editor_seq,
+                "start": arguments["startFrame"].as_u64().unwrap_or(0),
+                "levels": arguments["levels"].as_u64().unwrap_or(0),
+            });
+            arguments["startFrame"] = json!(0);
+            arguments["levels"] = json!(0);
+            command = "@stackTrace".to_string();
+        }
         self.source_paths.to_lldb(&mut message["arguments"]);
         let Some(engine) = self.native.as_mut() else {
             return;
@@ -512,6 +583,13 @@ impl<W: FnMut(Value)> Session<W> {
                     // The adapter's own request: no one to tell.
                     return;
                 }
+                match command.as_str() {
+                    "@stackTrace" => return self.splice_stack(editor_seq, message),
+                    "@flux-bt" => return self.send_spliced_stack(editor_seq, &message),
+                    "@stopped" => return self.send_stop(editor_seq, &message),
+                    "@step" => return self.after_step(&message),
+                    _ => {}
+                }
                 if message["success"] == true {
                     let body = message["body"].take();
                     message["body"] = match command.as_str() {
@@ -533,6 +611,18 @@ impl<W: FnMut(Value)> Session<W> {
                 if message["event"] == "terminated" {
                     self.exited = true;
                 }
+                if message["event"] == "stopped" {
+                    // Held until `flux where` says whether it is a runtime
+                    // error the session catches.
+                    if let Some(engine) = self.native.as_mut() {
+                        let seq = engine.request(
+                            "evaluate",
+                            json!({ "expression": "`flux where", "context": "repl" }),
+                        );
+                        self.pending.insert(seq, (message, "@stopped".to_string()));
+                        return;
+                    }
+                }
                 message["seq"] = json!(self.next_seq());
                 (self.send)(message);
             }
@@ -544,6 +634,95 @@ impl<W: FnMut(Value)> Session<W> {
             }
             _ => {}
         }
+    }
+
+    /// lldb-dap's whole stack has come: ask `flux_lldb.py` for the frames it
+    /// does not see.
+    fn splice_stack(&mut self, editor: Value, mut response: Value) {
+        if response["success"] != true {
+            response["request_seq"] = editor["seq"].clone();
+            response["seq"] = json!(self.next_seq());
+            (self.send)(response);
+            return;
+        }
+        let Some(engine) = self.native.as_mut() else {
+            return;
+        };
+        let mut arguments = json!({ "expression": "`flux bt --json", "context": "repl" });
+        if let Some(frame) = response["body"]["stackFrames"][0]["id"].as_i64() {
+            arguments["frameId"] = json!(frame);
+        }
+        let seq = engine.request("evaluate", arguments);
+        let held = json!({ "editor": editor, "response": response });
+        self.pending.insert(seq, (held, "@flux-bt".to_string()));
+    }
+
+    /// The stack for the editor: lldb-dap's Flux frames, with the frames an
+    /// effect handler holds and their labels between them.
+    fn send_spliced_stack(&mut self, held: Value, evaluated: &Value) {
+        let editor = &held["editor"];
+        let mut response = held["response"].clone();
+        let body = response["body"].take();
+        let text = evaluated["body"]["result"].as_str().unwrap_or_default();
+        let lines: Option<Vec<Value>> = text
+            .lines()
+            .find(|line| line.trim_start().starts_with('['))
+            .and_then(|line| serde_json::from_str(line.trim()).ok());
+        let mut frames = match lines {
+            Some(lines) => native::spliced_stack(&body, &lines, SPLICED_FRAMES),
+            None => native::flux_stack(body, false)["stackFrames"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default(),
+        };
+        let total = frames.len();
+        let start = editor["start"].as_u64().unwrap_or(0) as usize;
+        let levels = editor["levels"].as_u64().unwrap_or(0) as usize;
+        frames = frames
+            .into_iter()
+            .skip(start)
+            .take(if levels == 0 { usize::MAX } else { levels })
+            .collect();
+        response["body"] = json!({ "stackFrames": frames, "totalFrames": total });
+        self.source_paths.to_editor(&mut response);
+        response["request_seq"] = editor["seq"].clone();
+        response["seq"] = json!(self.next_seq());
+        (self.send)(response);
+    }
+
+    /// A held `stopped` event, now that `flux where` has said why.
+    fn send_stop(&mut self, mut event: Value, evaluated: &Value) {
+        let text = evaluated["body"]["result"].as_str().unwrap_or_default();
+        self.exception = native::stop_exception(text);
+        if let Some(exception) = &self.exception {
+            event["body"]["reason"] = json!("exception");
+            event["body"]["description"] =
+                json!(format!("Paused on {}", exception_label(&exception.kind)));
+            event["body"]["text"] = json!(exception.message);
+        }
+        event["seq"] = json!(self.next_seq());
+        (self.send)(event);
+    }
+
+    /// A `flux next`, `step` or `finish` has run: lldb ran it in the
+    /// command's own synchronous mode, so lldb-dap saw no stop to report.
+    /// Report it.
+    fn after_step(&mut self, evaluated: &Value) {
+        let text = evaluated["body"]["result"].as_str().unwrap_or_default();
+        let thread = text
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("thread "))
+            .and_then(|id| id.trim().parse::<i64>().ok());
+        let Some(thread) = thread else {
+            // The program ended: lldb-dap says so itself.
+            return;
+        };
+        let event = json!({
+            "type": "event",
+            "event": "stopped",
+            "body": { "reason": "step", "threadId": thread, "allThreadsStopped": true },
+        });
+        self.on_lldb_dap_message(event);
     }
 
     /// Waits for the engine to say the program is compiled.

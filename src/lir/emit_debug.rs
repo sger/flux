@@ -140,8 +140,11 @@ impl DebugBuilder {
                 format!("{parent} (resumed after {}:{})", after.line, after.col)
             }
         };
+        // A continuation's prologue is not a line of its own: with the
+        // perform's line there, a breakpoint on that line would stop again
+        // each time the continuation starts, which `flux debug` does not.
         let scope_line = match &debug.kind {
-            LirFnKind::Resumed { after, .. } if !after.is_none() => after.line,
+            LirFnKind::Resumed { .. } => 0,
             _ => debug.loc.line,
         };
         let flags = if debug.artificial {

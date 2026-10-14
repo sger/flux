@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::Sender;
 
+use flux::debug_protocol::ExceptionInfo;
 use serde_json::{Value, json};
 
 use crate::engine::{LaunchSpec, is_progress_line};
@@ -316,6 +317,82 @@ pub fn flux_stack(mut body: Value, show_internals: bool) -> Value {
     body
 }
 
+/// lldb-dap's whole stack, as the Flux stack `flux bt --json` describes:
+/// its frames for the lines lldb has, by frame index, named as Flux names
+/// them; the frames an effect handler holds, and their `⟂ handling …`
+/// labels, added with ids from `first_id` (0188 S7).
+pub fn spliced_stack(body: &Value, lines: &[Value], first_id: i64) -> Vec<Value> {
+    let lldb_frames = body["stackFrames"].as_array().cloned().unwrap_or_default();
+    let mut frames = Vec::new();
+    let mut next_id = first_id;
+    for line in lines {
+        let name = line["name"].as_str().unwrap_or_default();
+        match (line["kind"].as_str(), line["index"].as_u64()) {
+            (Some("label"), _) => {
+                frames.push(json!({
+                    "id": next_id,
+                    "name": format!("⟂ {name}"),
+                    "line": 0,
+                    "column": 0,
+                    "presentationHint": "label",
+                }));
+                next_id += 1;
+            }
+            (_, Some(index)) => {
+                if let Some(frame) = lldb_frames.get(index as usize) {
+                    let mut frame = frame.clone();
+                    frame["name"] = json!(name);
+                    frames.push(frame);
+                }
+            }
+            (kind, None) => {
+                let shown = if kind == Some("suspended") {
+                    format!("{name} (suspended)")
+                } else {
+                    name.to_string()
+                };
+                let mut frame = json!({
+                    "id": next_id,
+                    "name": shown,
+                    "line": line["line"],
+                    "column": line["column"],
+                    "presentationHint": "subtle",
+                });
+                if let Some(path) = line["path"].as_str() {
+                    let file = Path::new(path)
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| path.to_string());
+                    frame["source"] = json!({ "name": file, "path": path });
+                }
+                frames.push(frame);
+                next_id += 1;
+            }
+        }
+    }
+    frames
+}
+
+/// The runtime error `flux where`'s answer says the program stopped at:
+/// `stopped: exception (panic: too big) at …`.
+pub fn stop_exception(text: &str) -> Option<ExceptionInfo> {
+    let rest = text
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("stopped: exception ("))?;
+    let (error, _) = rest.rsplit_once(") at ")?;
+    let (label, message) = error.split_once(": ").unwrap_or((error, error));
+    let kind = match label {
+        "panic" => "panic",
+        "division by zero" => "division_by_zero",
+        "unhandled effect" => "unhandled_effect",
+        _ => "runtime_error",
+    };
+    Some(ExceptionInfo {
+        kind: kind.to_string(),
+        message: message.to_string(),
+    })
+}
+
 /// `lldb-dap`'s scopes, as a Flux frame has them: its variables, without
 /// lldb's globals and registers unless the session shows internals.
 pub fn flux_scopes(mut body: Value, show_internals: bool) -> Value {
@@ -448,6 +525,7 @@ pub fn console_command(command: &str) -> ConsoleCommand {
         "bt" => ConsoleCommand::Lldb("flux bt".to_string()),
         "locals" => ConsoleCommand::Lldb("flux locals".to_string()),
         "print" | "p" => ConsoleCommand::Lldb(format!("flux print {rest}")),
+        "handlers" => ConsoleCommand::Lldb("flux handlers".to_string()),
         "help" => ConsoleCommand::Answer(Ok(NATIVE_HELP.to_string())),
         "where" | "goto" | "events" | "event" | "rs" | "rn" | "rf" | "rc" | "internals" => {
             ConsoleCommand::Answer(Err(format!(
@@ -463,4 +541,5 @@ A variable or a part of one (`xs.1`) shows its value. Commands:
   .bt              the Flux frames
   .locals          the current frame's variables
   .print <name>    a variable and its parts
+  .handlers        the active effect handlers, innermost first
 Commands starting with ` go to lldb itself: `bt all";

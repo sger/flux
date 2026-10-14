@@ -4,7 +4,7 @@ source: tests/debug/vm_debug_tests.rs
 > break 22
 breakpoint at effect_discard.flx:22
 > continue
-stopped: breakpoint at effect_discard.flx:22:31 in <handler Fail.raise> (position 11)
+stopped: breakpoint at effect_discard.flx:22:31 in <handler Fail.raise> (position 10)
     22 |         raise(resume, msg) -> len(msg)
 > bt
 #0 <handler Fail.raise> at effect_discard.flx:22:31

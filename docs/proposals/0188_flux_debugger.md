@@ -946,8 +946,8 @@ Implemented in S3 (`src/vm/debug/`), for programs without async code.
 | Dictionaries and wrappers hidden (`artificial` maps to DAP `presentationHint: subtle` and `visibility: internal`), with a "Show compiler internals" toggle | ✓ | ✓ | S2 / S6 |
 | Stepping through `\|>` stages (`PipeStage` sites, column breakpoints, DAP `breakpointLocations`) | ✓ | distinct columns | S2 / S5 |
 | Exception breakpoints: panic, division by zero, unhandled effect, and other runtime errors on the VM (VM error paths; native symbolic breakpoints on runtime debug hooks). A failed match has no runtime error on either backend (exhaustiveness is checked when compiling), so there is nothing to stop at; fiber failure comes with fibers in S8 | ✓ | ✓ | S7 / S8 |
-| Stacks that follow continuations; step into `resume` lands at the `perform` site (native: `flux_debug_yield_chain()` walks the `$cont$` closure chain) | ✓ | ✓ | S7 |
-| Handler stack view (VM `handler_stack`; native evidence vector and markers) | ✓ | ✓ | S7 |
+| Stacks that follow continuations; step into `resume` lands at the `perform` site (native: `flux_lldb.py` follows the arm's `resume` to its `$cont$` closures, and lands at the line after the perform) | ✓ | ✓ | S7 |
+| Handler stack view (VM `handler_stack`; native evidence vector, read as the runtime's thread-local) | ✓ | ✓ | S7 |
 | Fibers, tasks and channels shown as threads with what they are blocked on (native: `flux_debug_fibers()` called through lldb) | ✓ | ✓ | S8 |
 | Effect timeline: tape events, click one to travel there | ✓ | run-to-event | S3 / S9 |
 | Watch expressions and hovers: a variable or a part of it (`pair.0`) in S4; any expression later, allowed only when its inferred effect row is empty, so evaluating it can't cause side effects | ✓ | formatter-level only | S4 / later |
@@ -956,11 +956,53 @@ Implemented in S3 (`src/vm/debug/`), for programs without async code.
 
 Native effects need special handling in two cases:
 - Tail-resumptive operations go through `flux_perform_direct`
-  (`runtime/c/effects.c:475`). The performing frames are still physically on
+  (`runtime/c/effects.c`), or, performed in the function that handles them,
+  a direct call of the arm. The performing frames are still physically on
   the stack, so DWARF shows them with no extra work.
-- The general path is `flux_yield_to` (`effects.c:324`). There the performing
-  frames have already returned, and only a chain of `$cont$` closures
-  describes what will run next.
+- The general path is `flux_yield_to`. There the performing frames have
+  already returned, and only their `$cont$` closures describe what will run
+  next.
+
+As built in S7b:
+- **The walk through `resume`.** The arm's first parameter, `resume`, is a
+  debug variable. `flux_lldb.py` follows it to the continuations: one
+  `$cont$` closure, or the compose trampoline's array of them, innermost
+  first. It names each by the function its code pointer resolves to,
+  `f (resumed after L:C)`. While `resume` runs them, the ones after the
+  running one are still in that array, and the walk shows them below it.
+  No `flux_debug_yield_chain()` call into the program is needed.
+- **Handlers.** `flux handlers` reads the thread's evidence vector,
+  `flux_thread_ctx.current_evv`. The runtime is built with debug
+  information, so lldb reads the thread-local itself, without running
+  code. Each entry is named by its clause closure's function,
+  `<handler Effect.op>`, so the DWARF needs no table of effect names.
+- **Runtime errors.** `flux_panic` calls `flux_debug_on_panic(msg)` first,
+  and unhandled effects go through `flux_unhandled_effect`, which calls
+  `flux_debug_on_unhandled_effect(htag)`. Both hooks are empty, never
+  inlined and never removed. `flux catch` breaks on them. The breakpoint's
+  callback tells panics from division by zero and the runtime's other
+  errors by the frames that called `flux_panic`, goes on past the kinds
+  not asked for, and selects the Flux frame of the error.
+- **Stepping.** `flux next`, `flux step` and `flux finish` step as the VM
+  does:
+  - when a step leaves its frame while the runtime is yielding, they break
+    at that frame's continuation (and, stepping in, at the handler's
+    clause);
+  - stepping into `resume` breaks where its continuations start;
+  - returning into a caller does not stop again on the line of its call.
+
+  A continuation's `scopeLine` is 0, so its prologue does not repeat the
+  perform's line. A lambda's closure is made at the line of the code around
+  it, so a breakpoint on a lambda's or arm's first line stops only inside
+  it.
+- **Known differences from the VM, which the debug parity check allows:**
+  - an arm whose last call is `resume` stays on the native stack under
+    the frames it resumes;
+  - native code cannot tell a handler that never resumes, so its frames
+    show as `(suspended)`;
+  - suspended frames have no variables natively;
+  - stepping into `resume` stops at the first line after the perform,
+    not on the perform itself.
 
 ### §6 Staging
 
@@ -976,7 +1018,7 @@ Native effects need special handling in two cases:
 | S6a | Native variables and types: the `LirFnDebug.vars` side table, a debug slot per variable with `llvm.dbg.declare`, unbound and dropped markers, `FluxValue`/`FluxCaptured`/`FluxInt`/`FluxBool`/`FluxWord` typedefs, the `FluxCtor` enumeration and `FluxCtor.<Name>` structures in the DWARF (instead of a `.fluxdbg` sidecar), `flux_lldb.py` (Flux values, children, `flux bt`/`locals`/`print`) embedded in the dSYM and printed by `flux debug --lldb-script`, Core `let` inlining off under `-g` | `tests/native_llvm/native_debug_tests.rs`: lldb with the script shows each kind of value as the VM does, variables only once bound, captured variables, the matched arm's binders, constructors another module declares; the dSYM carries the script. `llvm-dwarfdump --verify` clean; 10⁶-deep tail recursion still runs under `-g`; every guide example prints the same natively with and without `-g`. |
 | S6b | The native engine in `flux-dap` (`crates/flux-dap/src/native.rs`: building with `--native -g --emit-binary`, finding and proxying `lldb-dap`), `"backend": "native"`, `lldbDap` and `flux.lldbDapPath` in VS Code; the debug parity harness | **Debug parity harness:** `Way::VmDebug` / `Way::LlvmDebug` (`src/parity/debug.rs`), fixture directives `// dbg: break 12`, `// dbg: step`, … in `tests/parity_debug/`. Stops and frames match line for line; every variable the VM shows is there natively with its value (native code may still hold a value the VM has moved out). Run by `parity_debug_tests` and `parity-check tests/parity_debug --ways vm_debug,llvm_debug`. DAP tests drive a native session through `lldb-dap`. |
 | S7a | VM effects: the logical stack (suspensions, resume notes, call serials in continuations; `src/vm/debug/effects.rs`), stepping by logical depth, step into `resume`, `handlers`, exception stops with `catch` filters (panic, division by zero, unhandled effect, other runtime errors), the protocol's `exception` stops, frame kinds and `Handlers` scope; flux-dap exception breakpoint filters, `exceptionInfo`, label and suspended frames, `.handlers` | Golden transcripts `tests/debug/vm/effect_*.flxdbg` and `exception_*.flxdbg`; DAP transcript tests for the Handlers scope, suspended frames and an exception stop. |
-| S7b | Native effects: runtime debug hooks, `<handler Effect.op>` names, the `FluxEffect` enumeration in the DWARF, `flux_lldb.py` following `resume` closures, `flux handlers`/`catch`/`where`, exception breakpoints through the lldb-dap proxy | Parity fixtures for multi-shot, nested handlers, and tail-resumptive vs yielding operations. |
+| S7b | Native effects: runtime debug hooks (`flux_debug_on_panic`, `flux_debug_on_unhandled_effect`), `<handler Effect.op>` names and `resume` as a debug variable, `flux_lldb.py` following `resume` closures and the compose trampoline, `flux handlers`/`catch`/`where`/`next`/`step`/`finish`; the lldb-dap proxy's exception filters, `exceptionInfo`, spliced suspended frames and Flux stepping | Debug parity fixtures for multi-shot, nested handlers with state, a handler that never resumes, tail-resumptive vs yielding operations, stepping across perform and `resume`, panics and division by zero (`tests/parity_debug/effect_*`, `exception_*`). lldb sessions in `native_debug_tests` (ten frames past the runtime's eight continuation slots, `flux catch`); native DAP tests for the spliced stack and an exception stop. |
 | S8 | Fibers, tasks and channels as threads; scheduler snapshot APIs; multi-fiber record and replay; fiber failure as an exception breakpoint | Parity fixtures using `both`, `race` and `timeout`. Replay is identical across 100 runs. |
 | S9 | Native replay under lldb, run to event, opening a native tape in the VM, timeline UI; Core-inlining provenance → `inlinedAt`, and Core inlining turned back on in the debug profile | Cross-backend tape tests. Golden `lldb bt` output for inlined frames. |
 | S10 | Aether reference-count view, debug-heap runtime, native panic symbolization; `flux_trace_push` deleted | Golden reference counts. A use-after-free fixture that the debug heap catches. Native panic output lists Flux frames. |
