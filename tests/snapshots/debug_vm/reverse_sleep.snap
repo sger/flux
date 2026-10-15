@@ -1,0 +1,26 @@
+---
+source: tests/debug/vm_debug_tests.rs
+assertion_line: 110
+---
+> break 14
+breakpoint at reverse_sleep.flx:14
+> continue
+stopped: breakpoint at reverse_sleep.flx:14:5 in worker (thread 3, position 23)
+    14 |     let y = x * 3
+> locals
+x = 2
+> reverse-next
+stopped: step at reverse_sleep.flx:13:5 in worker (thread 3, position 19)
+    13 |     sleep(1)
+> reverse-next
+stopped: step at reverse_sleep.flx:12:5 in worker (thread 3, position 18)
+    12 |     let x = 2
+> locals
+no variables
+> continue
+stopped: breakpoint at reverse_sleep.flx:14:5 in worker (thread 3, position 23)
+    14 |     let y = x * 3
+> continue
+program finished
+--- program output ---
+7

@@ -1,5 +1,5 @@
-// Going back stops being possible once the program runs async code: the
-// scheduler's state is outside what checkpoints copy (0188 S8).
+// Going back into async code (0188 S9a): from the checkpoint before
+// `run_async`, the run goes forward again with the recording answering it.
 import Flow.Async exposing (..)
 
 fn nap() -> Int with Async {

@@ -31,6 +31,19 @@ thread_local! {
     static EVENTS: RefCell<HashMap<i64, VmEvent>> = RefCell::new(HashMap::new());
 }
 
+/// The id the next event gets: a debugger's checkpoint keeps it.
+pub(crate) fn next_id() -> i64 {
+    NEXT_EVENT_ID.with(|next| *next.borrow())
+}
+
+/// A debugger restored a checkpoint taken when `next` was the next id
+/// (0188 S9a): events made since are gone, and the re-run makes them again
+/// with the same ids.
+pub(crate) fn rewind_ids(next: i64) {
+    EVENTS.with(|events| events.borrow_mut().retain(|id, _| *id < next));
+    NEXT_EVENT_ID.with(|id| *id.borrow_mut() = next);
+}
+
 struct WaitQueue {
     tx: mpsc::Sender<u64>,
     rx: Mutex<mpsc::Receiver<u64>>,

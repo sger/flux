@@ -1,5 +1,6 @@
 ---
 source: tests/debug/vm_debug_tests.rs
+assertion_line: 110
 ---
 > break 13
 breakpoint at reverse_async.flx:13
@@ -10,10 +11,13 @@ stopped: breakpoint at reverse_async.flx:13:5 in main (position 14)
 before = 1
 after = 7
 > reverse-step
-cannot go back: the program has run async code, which going back does not cover yet (0188 S9)
+stopped: step at reverse_async.flx:7:5 in nap (position 13)
+     7 |     7
 > where
-position 14
+position 13
 > continue
+stopped: breakpoint at reverse_async.flx:13:5 in main (position 14)
+    13 |     print(before + after)
 program finished
 --- program output ---
 8

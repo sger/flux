@@ -246,6 +246,38 @@ impl MioBackend {
         replay::is_active() && self.taped.load(Ordering::Relaxed)
     }
 
+    /// Starts work for real, bypassing the effect tape: a debugger's re-run
+    /// answered it from the tape, and now runs live (0188 S9a). Only a timer
+    /// can start over; false for anything else.
+    pub fn resubmit(&self, req: RequestId, submission: &Submission) -> bool {
+        match submission {
+            Submission::Timer { ms } => {
+                self.start_timer(req, *ms);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn start_timer(&self, req: RequestId, ms: u64) {
+        let deadline = Instant::now() + Duration::from_millis(ms);
+        if let Some(()) = self.with_shared(|shared| {
+            shared
+                .timers
+                .lock()
+                .expect("timer-heap poisoned")
+                .push(TimerEntry {
+                    deadline,
+                    request_id: req,
+                });
+            // Wake the reactor so it recomputes its next poll timeout against
+            // the new deadline.
+            let _ = shared.waker.wake();
+        }) {
+            // ran
+        }
+    }
+
     /// Records or checks a submission on the tape. True when the backend
     /// should perform it.
     fn performs(&self, req: Option<RequestId>, submission: Submission) -> bool {
@@ -389,22 +421,7 @@ impl AsyncBackend for MioBackend {
         if !self.performs(Some(req), Submission::Timer { ms }) {
             return;
         }
-        let deadline = Instant::now() + Duration::from_millis(ms);
-        if let Some(()) = self.with_shared(|shared| {
-            shared
-                .timers
-                .lock()
-                .expect("timer-heap poisoned")
-                .push(TimerEntry {
-                    deadline,
-                    request_id: req,
-                });
-            // Wake the reactor so it recomputes its next poll timeout against
-            // the new deadline.
-            let _ = shared.waker.wake();
-        }) {
-            // ran
-        }
+        self.start_timer(req, ms);
     }
 
     fn next_completion(&self) -> Option<Completion> {

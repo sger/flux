@@ -1,5 +1,5 @@
-// A task cannot be recorded yet, so the session stops recording when the
-// program starts one, and going back is off from there.
+// Going back across a task (0188 S9a): the session keeps recording, and a
+// re-run starts the task again, in the order the recording has it.
 import Flow.Task exposing (..)
 
 fn work() -> Int { 41 + 1 }

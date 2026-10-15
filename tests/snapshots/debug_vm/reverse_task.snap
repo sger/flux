@@ -7,11 +7,14 @@ breakpoint at reverse_task.flx:9
 > continue
 stopped: breakpoint at reverse_task.flx:9:5 in main (position 7)
      9 |     let answer = blocking_join(t)
-> reverse-step
-cannot go back: the program used `Task.spawn`; going back across tasks comes in 0188 S9
+> reverse-next
+stopped: step at reverse_task.flx:8:5 in main (position 3)
+     8 |     let t = spawn(work)
 > locals
-t = Task(1)
+no variables
 > continue
+stopped: breakpoint at reverse_task.flx:9:5 in main (position 7)
+     9 |     let answer = blocking_join(t)
 program finished
 --- program output ---
 42

@@ -1,0 +1,28 @@
+---
+source: tests/debug/vm_debug_tests.rs
+assertion_line: 110
+---
+> break 22
+breakpoint at reverse_async_replayed.flx:22
+> continue
+stopped: breakpoint at reverse_async_replayed.flx:22:9 in consume (thread 3, position 37)
+    22 |         let sum = total + unwrap_or(got, 0)
+> continue
+stopped: breakpoint at reverse_async_replayed.flx:22:9 in consume (thread 3, position 60)
+    22 |         let sum = total + unwrap_or(got, 0)
+> reverse-continue
+stopped: breakpoint at reverse_async_replayed.flx:22:9 in consume (thread 3, position 37)
+    22 |         let sum = total + unwrap_or(got, 0)
+> locals
+total = 0
+got = Some(10)
+ch = Channel(1) (captured)
+> continue
+stopped: breakpoint at reverse_async_replayed.flx:22:9 in consume (thread 3, position 60)
+    22 |         let sum = total + unwrap_or(got, 0)
+> delete 22
+deleted breakpoint at reverse_async_replayed.flx:22
+> continue
+program finished
+--- program output ---
+"total = 60"

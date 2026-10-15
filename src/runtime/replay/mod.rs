@@ -116,10 +116,14 @@ struct Recording {
 /// cannot record.
 static IMPLICIT: AtomicBool = AtomicBool::new(false);
 
-/// A place in the tape a debugger can come back to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A place in the tape a debugger can come back to, with the tape's
+/// numbering of requests, fibers, tasks and channels there, so a re-run
+/// numbers them as the first run did (0188 S9a).
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TapeMark {
     cursor: usize,
+    ids: async_tape::Ids,
+    live_tasks: BTreeSet<u32>,
 }
 
 // Lib tests run in parallel in one process, and the tape is process-wide:
@@ -269,36 +273,93 @@ pub fn stop_implicit() {
 /// Where the tape is now, if a debugger can come back here: a replay, or a
 /// recording that keeps its events.
 pub fn mark() -> Option<TapeMark> {
-    match lock().as_ref()? {
+    let cursor = match lock().as_ref()? {
         TapeState::Record(Recording {
             kept: Some(kept), ..
-        }) => Some(TapeMark { cursor: kept.len() }),
-        TapeState::Record(_) => None,
-        TapeState::Replay { cursor, .. } | TapeState::Rerun { cursor, .. } => {
-            Some(TapeMark { cursor: *cursor })
-        }
-    }
+        }) => kept.len(),
+        TapeState::Record(_) => return None,
+        TapeState::Replay { cursor, .. } | TapeState::Rerun { cursor, .. } => *cursor,
+    };
+    Some(TapeMark {
+        cursor,
+        ids: async_tape::snapshot_ids(),
+        live_tasks: live_tasks().clone(),
+    })
 }
 
 /// Puts the tape back at `mark`. A recording then answers effects from its
 /// kept events until it reaches its end again.
 pub fn rewind_to(mark: TapeMark) {
+    async_tape::restore_ids(mark.ids);
+    *live_tasks() = mark.live_tasks;
     let mut guard = lock();
     let Some(state) = guard.take() else {
         return;
     };
     let state = match state {
-        TapeState::Replay { tape, shown, .. } => TapeState::Replay {
-            tape,
-            cursor: mark.cursor,
-            finished: false,
-            shown,
-        },
+        TapeState::Replay { tape, shown, .. } => {
+            MODE.store(ReplayMode::Replay as u8, Ordering::Relaxed);
+            TapeState::Replay {
+                tape,
+                cursor: mark.cursor,
+                finished: false,
+                shown,
+            }
+        }
         TapeState::Record(recording) | TapeState::Rerun { recording, .. } => {
             rerun_or_record(recording, mark.cursor)
         }
     };
     *guard = Some(state);
+}
+
+/// Whether a debug session is re-running its own recording (0188 S3).
+pub(crate) fn is_rerun() -> bool {
+    matches!(lock().as_ref(), Some(TapeState::Rerun { .. }))
+}
+
+/// The mode the tape had when a debugger began going back, while the run
+/// it abandons unwinds (0188 S9a).
+static PAUSED_FROM: AtomicU8 = AtomicU8::new(ReplayMode::Off as u8);
+
+/// Counts the runs a debugger has abandoned by going back. A task thread
+/// belongs to the generation it started in; one from an abandoned run
+/// finishes without touching the tape.
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+
+pub(crate) fn generation() -> u64 {
+    GENERATION.load(Ordering::Relaxed)
+}
+
+/// Whether this thread runs a task of a run a debugger abandoned.
+fn stale_thread() -> bool {
+    async_tape::current_task() != 0 && async_tape::task_generation() != generation()
+}
+
+/// A debugger is going back: the run it abandons unwinds without touching
+/// the tape (cancelling its tasks, ending its `run_async`), until
+/// [`rewind_to`] or [`unpause`].
+pub fn pause() {
+    let mode = MODE.swap(ReplayMode::Off as u8, Ordering::Relaxed);
+    if mode != ReplayMode::Off as u8 {
+        PAUSED_FROM.store(mode, Ordering::Relaxed);
+    }
+    // The abandoned run's task threads stop waiting for turns.
+    GENERATION.fetch_add(1, Ordering::Relaxed);
+    TURN.notify_all();
+}
+
+/// Ends a [`pause`] that no [`rewind_to`] ended: the tape goes on as it was.
+pub fn unpause() {
+    let from = PAUSED_FROM.swap(ReplayMode::Off as u8, Ordering::Relaxed);
+    if from != ReplayMode::Off as u8 && lock().is_some() {
+        let _ = MODE.compare_exchange(
+            ReplayMode::Off as u8,
+            from,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        );
+    }
 }
 
 /// A recording at `cursor`: re-running its kept events, or recording when
@@ -351,12 +412,17 @@ pub fn effect(
             append(request, Some(outcome.clone()))?;
             Ok(outcome)
         }
-        ReplayMode::Replay => {
-            let event = take_matching(&request)?;
-            Ok(event
+        ReplayMode::Replay => match take_matching(&request)? {
+            Some(event) => Ok(event
                 .result
-                .expect("a loaded tape gives every input and output a result"))
-        }
+                .expect("a loaded tape gives every input and output a result")),
+            // Another thread reached the end of a re-run: record from here.
+            None => {
+                let outcome = perform();
+                append(request, Some(outcome.clone()))?;
+                Ok(outcome)
+            }
+        },
     }
 }
 
@@ -403,8 +469,10 @@ pub fn console_begin(request: EffectRequest) -> Result<bool, TapeError> {
         ReplayMode::Off => Ok(true),
         ReplayMode::Record => append(request, None).map(|_| true),
         ReplayMode::Replay => {
-            let Some(event) = next_turn(&request)? else {
-                return Ok(true);
+            let event = match next_turn(&request)? {
+                Turn::Event(event) => event,
+                Turn::Over => return Ok(true),
+                Turn::Live => return append(request, None).map(|_| true),
             };
             let index = event.seq as usize;
             let first_time = match lock().as_mut() {
@@ -504,27 +572,36 @@ pub fn ordered_begin(
     hint: &EffectRequest,
     make: impl FnOnce() -> EffectRequest,
 ) -> Result<EffectRequest, TapeError> {
+    if stale_thread() {
+        return Ok(make());
+    }
+    let record = |make: Box<dyn FnOnce() -> EffectRequest + '_>| {
+        let order = order_lock();
+        let request = make();
+        CROSSING.with(|crossing| {
+            *crossing.borrow_mut() = Some(Crossing {
+                request: request.clone(),
+                order: Some(order),
+                event: None,
+            })
+        });
+        request
+    };
     match mode() {
         ReplayMode::Off => Ok(make()),
-        ReplayMode::Record => {
-            let order = order_lock();
-            let request = make();
-            CROSSING.with(|crossing| {
-                *crossing.borrow_mut() = Some(Crossing {
-                    request: request.clone(),
-                    order: Some(order),
-                    event: None,
-                })
-            });
-            Ok(request)
-        }
+        ReplayMode::Record => Ok(record(Box::new(make))),
         ReplayMode::Replay => {
-            if wait_turn(hint)?.is_none() {
-                return Ok(make());
+            match wait_turn(hint)? {
+                Turn::Event(_) => {}
+                Turn::Over => return Ok(make()),
+                // Another thread reached the end of a re-run: record.
+                Turn::Live => return Ok(record(Box::new(make))),
             }
             let request = make();
-            let Some(event) = next_turn(&request)? else {
-                return Ok(request);
+            let event = match next_turn(&request)? {
+                Turn::Event(event) => event,
+                Turn::Over => return Ok(request),
+                Turn::Live => unreachable!("a turn already taken stays taken"),
             };
             CROSSING.with(|crossing| {
                 *crossing.borrow_mut() = Some(Crossing {
@@ -588,10 +665,15 @@ pub fn ordered_after(request: EffectRequest, op: impl FnOnce()) -> Result<(), Ta
             append(request, None)
         }
         ReplayMode::Replay => {
-            let event = next_turn(&request)?;
+            let turn = next_turn(&request)?;
             op();
-            if let Some(event) = event {
-                advance(&event);
+            match turn {
+                Turn::Event(event) => advance(&event),
+                Turn::Over => {}
+                Turn::Live => {
+                    let _order = order_lock();
+                    append(request, None)?;
+                }
             }
             Ok(())
         }
@@ -747,6 +829,9 @@ fn event_fiber(request: &EffectRequest) -> u32 {
 }
 
 fn append(request: EffectRequest, result: Option<Outcome>) -> Result<(), TapeError> {
+    if stale_thread() {
+        return Ok(());
+    }
     let fiber = event_fiber(&request);
     let task = async_tape::current_task();
     let mut guard = lock();
@@ -791,15 +876,31 @@ impl Recording {
 }
 
 /// Takes the next recorded event, which must be `request`.
-fn take_matching(request: &EffectRequest) -> Result<TapeEvent, TapeError> {
-    let Some(event) = next_turn(request)? else {
-        return Err(TapeError::Exhausted {
+/// None when the tape went live meanwhile: another thread reached the end
+/// of a debug session's re-run, and the caller records instead.
+fn take_matching(request: &EffectRequest) -> Result<Option<TapeEvent>, TapeError> {
+    match next_turn(request)? {
+        Turn::Event(event) => {
+            advance(&event);
+            Ok(Some(event))
+        }
+        Turn::Over => Err(TapeError::Exhausted {
             count: events_reached() as u64,
             actual: request.to_string(),
-        });
-    };
-    advance(&event);
-    Ok(event)
+        }),
+        Turn::Live => Ok(None),
+    }
+}
+
+/// What waiting for a turn found.
+enum Turn {
+    /// The tape's next event, this thread's to perform.
+    Event(TapeEvent),
+    /// The replay has finished: the thread goes on untaped.
+    Over,
+    /// A debug session's re-run reached the end of its recording and
+    /// records again (0188 S9a).
+    Live,
 }
 
 /// The tape's events and the cursor, while replaying or re-running.
@@ -816,11 +917,12 @@ fn replay_events(state: &Option<TapeState>) -> (&[TapeEvent], usize) {
 /// Waits until the tape's next event is this thread's, and checks it is
 /// `request`, without moving past it: other threads keep waiting until
 /// [`advance`]. A program without tasks never waits.
-fn next_turn(request: &EffectRequest) -> Result<Option<TapeEvent>, TapeError> {
+fn next_turn(request: &EffectRequest) -> Result<Turn, TapeError> {
     let fiber = event_fiber(request);
     let task = async_tape::current_task();
-    let Some(event) = wait_turn(request)? else {
-        return Ok(None);
+    let event = match wait_turn(request)? {
+        Turn::Event(event) => event,
+        other => return Ok(other),
     };
     if event.request.kind_name() != request.kind_name() {
         return Err(TapeError::KindMismatch {
@@ -854,7 +956,7 @@ fn next_turn(request: &EffectRequest) -> Result<Option<TapeEvent>, TapeError> {
             program: describe_fiber(fiber),
         });
     }
-    Ok(Some(event))
+    Ok(Turn::Event(event))
 }
 
 /// Waits until the tape's next event is this thread's, or belongs to a
@@ -862,13 +964,23 @@ fn next_turn(request: &EffectRequest) -> Result<Option<TapeEvent>, TapeError> {
 /// `request` is what this thread is about to do, for the error when its
 /// turn never comes. None once the replay has finished: a task the program
 /// left running goes on past the end of the tape, as it did unrecorded.
-fn wait_turn(request: &EffectRequest) -> Result<Option<TapeEvent>, TapeError> {
+fn wait_turn(request: &EffectRequest) -> Result<Turn, TapeError> {
     let task = async_tape::current_task();
+    let started_in = generation();
+    if stale_thread() {
+        return Ok(Turn::Over);
+    }
     let mut guard = lock();
     let mut waited_at: Option<(usize, Instant)> = None;
     let event = loop {
-        if let Some(TapeState::Replay { finished: true, .. }) = guard.as_ref() {
-            return Ok(None);
+        if generation() != started_in {
+            // A debugger went back while this thread waited: its run is over.
+            return Ok(Turn::Over);
+        }
+        match guard.as_ref() {
+            None | Some(TapeState::Replay { finished: true, .. }) => return Ok(Turn::Over),
+            Some(TapeState::Record(_)) => return Ok(Turn::Live),
+            Some(TapeState::Replay { .. } | TapeState::Rerun { .. }) => {}
         }
         let (events, cursor) = replay_events(&guard);
         let Some(event) = events.get(cursor) else {
@@ -903,7 +1015,7 @@ fn wait_turn(request: &EffectRequest) -> Result<Option<TapeEvent>, TapeError> {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .0;
     };
-    Ok(Some(event))
+    Ok(Turn::Event(event))
 }
 
 /// Whether events of task `task` can still come: the main program's can,
@@ -933,13 +1045,19 @@ fn advance(event: &TapeEvent) {
         _ => {}
     }
     // A re-run that reaches the end of its kept events records again.
+    let mut live_again = false;
     if let Some(TapeState::Rerun { recording, cursor }) = guard.as_ref()
         && *cursor >= recording.kept.as_ref().map_or(0, Vec::len)
         && let Some(TapeState::Rerun { recording, cursor }) = guard.take()
     {
         *guard = Some(rerun_or_record(recording, cursor));
+        live_again = true;
     }
     drop(guard);
+    if live_again {
+        // What the re-run only answered and still waits for starts now.
+        async_tape::go_live();
+    }
     TURN.notify_all();
     async_tape::progressed();
 }
@@ -950,6 +1068,12 @@ fn advance(event: &TapeEvent) {
 fn peek_own(wanted: impl Fn(&EffectRequest) -> bool) -> Option<TapeEvent> {
     let task = async_tape::current_task();
     let guard = lock();
+    if !matches!(
+        guard.as_ref(),
+        Some(TapeState::Replay { .. } | TapeState::Rerun { .. })
+    ) {
+        return None;
+    }
     let (events, cursor) = replay_events(&guard);
     let event = events.get(cursor)?;
     (event.task == task && wanted(&event.request)).then(|| event.clone())
