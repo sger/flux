@@ -41,6 +41,7 @@ runtime/c/*.obj
 runtime/c/*.lib
 runtime/c/smoke_test
 runtime/c/.flux_rt.lock
+runtime/c/*.flags
 
 # Debug symbols — they embed the build machine's absolute paths
 *.pdb

@@ -51,7 +51,7 @@ takes a whole-process recorder such as `rr`.
 - The runtime has a shadow-stack API, `flux_trace_push` (`runtime/c/flux_rt.c:2228`),
   that the compiler never calls. `flux_panic` prints it (`:2295`), so native
   panics print an empty trace.
-- On macOS no `dsymutil` step runs after `run_linker` (`src/llvm/pipeline.rs:262`).
+- On macOS no `dsymutil` step runs after `run_linker` (`src/llvm/pipeline.rs`).
 
 The result is that lldb, in Xcode or VS Code, shows symbols like `flux_Main_go$w`
 with no file, line or variables.
@@ -511,9 +511,10 @@ On macOS, a `-g` build with `-o` or `--emit-binary` copies it to
   keeps (`-o`, `--emit-binary`), writing `<binary>.dSYM`. Otherwise the binary
   only points at cached `.o` files, so its debug information is lost when the
   cache is cleared. Run mode, whose binary is temporary, skips it.
-- **Windows (MSVC):** `-g` emits no metadata until S11 adds CodeView.
+- **Windows (MSVC):** CodeView, linked into `<exe>.pdb` (S11, §2.8).
 - **Linux:** DWARF stays in the binary.
-- **Runtime:** already built with `-O2 -g` (`pipeline.rs:774`).
+- **Runtime:** already built with `-O2 -g` (`ensure_runtime_lib` in
+  `src/llvm/pipeline.rs`).
 - **Cache key (done in S0):** `compute_artifact_config_hash(strict, optimize,
   debug)` (`src/compiler/module_interface.rs`) keys compiled artifacts: VM
   bytecode, native objects (`compute_native_cache_key`,
@@ -529,24 +530,41 @@ On macOS, a `-g` build with `-o` or `--emit-binary` copies it to
 The only goal on Windows is that Visual Studio's Call Stack window shows Flux
 frames with their source locations. The S5 metadata already describes
 everything this needs: subprograms, locations and files. Only the output format
-changes.
+changes. As built in S11:
 
-- **Metadata format:** on `*-windows-msvc` targets, emit the module flag
-  `!{i32 2, !"CodeView", i32 1}` instead of `"Dwarf Version"`. LLVM then emits
-  CodeView `.debug$S` / `.debug$T` sections from the same `DICompileUnit`,
-  `DISubprogram` and `DILocation` nodes. The emitter needs no other change.
-- **Linking:** add `/DEBUG` and `/PDB:<exe>.pdb` to the Windows `lld-link` /
-  `link.exe` path in `run_linker` (`src/llvm/pipeline.rs:280-300`). That path
-  already passes `/nologo /subsystem:console /STACK:67108864`.
-- **Runtime:** build the C runtime with `-gcodeview`, so frames in
-  `flux_panic` and the runtime also resolve. The Rust staticlib should be built
-  with `debuginfo` in its debug profile.
+- **Metadata format:** `NativeDebug.codeview` (`src/lir/emit_debug.rs`), set on
+  MSVC targets, emits the module flag `!{i32 2, !"CodeView", i32 1}` instead of
+  `"Dwarf Version"`. LLVM then writes CodeView `.debug$S` / `.debug$T` sections
+  from the same `DICompileUnit`, `DISubprogram` and `DILocation` nodes, and
+  from the S6 variables, which show as raw words. The `FluxCtor` types and
+  their holder global are skipped: only `flux_lldb.py` reads them, and the
+  global exists only for `dsymutil`. The source path loses the `\\?\` prefix
+  of a canonical Windows path, which debuggers do not resolve. The native
+  cache tag became `native-cache-abi-v9:codeview`, so `-g` objects cached
+  before S11 (built without metadata) are rebuilt.
+- **Linking:** `link_objects` takes the debug level. Under `-g` both Windows
+  branches of `run_linker` pass `/DEBUG /OPT:REF /OPT:ICF /PDB:<exe>.pdb`:
+  the `lld-link` / `link.exe` branch used with `cl`, and the clang-driver
+  branch (`-Wl,…`), which is the usual one, since `detect_c_toolchain` prefers
+  clang. `/DEBUG` alone turns off `/OPT:REF` and kept the whole Rust staticlib
+  (1.5 MB → 18.8 MB). A cached run reuses its binary only if the PDB is there
+  too, and `--no-cache` removes both `program.exe` and its PDB.
+- **Runtime:** clang's `-g` already emits CodeView on the MSVC triple, so the
+  C runtime needed no new flag; `cl` gets `/Z7`. The compile flags are kept
+  in `flux_rt.lib.flags`, and a change to them rebuilds the runtime. The Rust
+  staticlib carries CodeView from its own debug profile.
 - **Names:** use the `DISubprogram` `name` (`Flow.List.map`,
   `<lambda app.flx:12:5>`). Visual Studio shows `name`, not the `flux_*$w`
   linkage symbol. Artificial wrappers keep `DIFlagArtificial`; Visual Studio
   shows them, but with line 0 and no source.
+- **lldb on Windows:** lldb reads the PDB, and `flux_lldb.py` loads, but it
+  names frames by their symbols (`flux_calls_square`), not by the
+  `DISubprogram` names. So `vm_debug`/`llvm_debug` debug parity reports a
+  skip on Windows, as `native_debug_tests` and `parity_debug_tests`, which
+  are Unix-only, already did.
 - **Explicitly not included:** `.natvis` value formatting, a Visual Studio
-  extension to host `flux-dap`, VM debugging, and recording.
+  extension to host `flux-dap`, VM debugging, recording, and lldb debug
+  parity on Windows.
 
 ### §3 VM engine
 
@@ -1235,7 +1253,7 @@ As built in S7b:
 | S9c | Every Core pass back on under `-g`, keeping the binders the program wrote (`keep.rs`: lets, pattern variables and lambda parameters are bound, not substituted; a lambda with a named parameter stays a call); `InlineSite`s from `beta_reduce` through `AetherProgram` to `LirLoc.inlined`, `inlinedAt` and inlined-lambda subprograms in DWARF, `[inlined]` frames in `flux bt`; the `llvm_g` parity way and the guide checked with and without `-g` in `xtask verify` | Core unit tests (kept lets, pattern variables, parameters; inline sites recorded). `native_debug_tests`: the IR has `inlinedAt`, golden `flux bt` with an `[inlined]` frame, `llvm-dwarfdump --verify` over `inlined.flx`. Debug parity 21/21 with `inlined_lambda.flx`. `parity-check examples/guide --ways llvm,llvm_g` 59/59. |
 | S9d | Backend-neutral async tapes (§4.2 "One schedule"): the VM's scheduler follows native's (channel and event completions wake at once on the run's thread, `Task.await` as an ordered turn, cancelled fibers dropped, a winning timeout body cancels its timer, the run ends with its root, a task cancelled before it started does not fail); names that do not depend on the backend (a request belongs to the fiber that made it, `req` numbered at its first submission, `wake{waiter}`), tape format version 3; E1026 for async tapes lifted | `replay_cli_tests`: every async and task fixture (and `async_race_loser`) recorded on one backend replays on the other; 100 replays of `task_cancel` and `task_channel` recorded on each backend print the same on the other; unit test `async_names_do_not_depend_on_the_backend`; version 2 tapes refused. |
 | S10 | Aether reference-count view, debug-heap runtime, native panic symbolization; `flux_trace_push` deleted | Golden reference counts. A use-after-free fixture that the debug heap catches. Native panic output lists Flux frames. |
-| S11 | Windows call stacks for Visual Studio (§2.8): `"CodeView"` module flag on MSVC targets, `/DEBUG` and `/PDB` in `run_linker`, runtime built with `-gcodeview` | On a Windows CI runner, `llvm-pdbutil dump -symbols app.pdb` lists Flux subprogram names with `.flx` line entries. `cdb -z app.exe -c "g; k; q"` on a fixture that panics prints Flux frames with `app.flx` file and line. A manual check that Visual Studio's Call Stack window shows them. |
+| S11 | Windows call stacks for Visual Studio (§2.8): `"CodeView"` module flag on MSVC targets, `/DEBUG /OPT:REF /OPT:ICF /PDB` in both Windows branches of `run_linker`, the PDB kept with cached binaries and removed with uncached ones, runtime rebuilt when its flags change | `native_codeview_tests`: `llvm-pdbutil dump -symbols` lists the Flux functions, `dump -l` their `.flx` lines and one file per module; cdb stopped at `flux_debug_on_panic` prints the Flux frames with `panic.flx` lines (skipped without cdb). A manual Visual Studio checklist (`docs/tooling/native_debugging_lldb_xcode.md`). |
 
 S0 and S1 come first because everything else depends on them. After that, the
 **VM line (S2–S4)** and the **native line (S5–S6)** can proceed in parallel.

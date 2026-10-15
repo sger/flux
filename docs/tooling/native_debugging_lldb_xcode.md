@@ -17,8 +17,9 @@ flux app.flx --native -g --emit-binary  # build ./app without running it
 - On macOS, `-o` and `--emit-binary` also write `app.dSYM` next to the
   binary, so the debug information survives cleaning the build cache.
 - On Linux, the DWARF is inside the binary.
-- On Windows, `-g` builds have no debug information yet; CodeView for Visual
-  Studio comes in 0188 S11.
+- On Windows, the debug information is CodeView, in `app.pdb` next to
+  `app.exe`, for Visual Studio, WinDbg and cdb. They show Flux call stacks
+  with `.flx` lines; see [Visual Studio, WinDbg and cdb](#visual-studio-windbg-and-cdb-windows).
 
 `-g` keeps the build's optimisation level and turns on frame pointers. Tail
 calls stay tail calls, so deep recursion behaves as it does without `-g`.
@@ -338,3 +339,58 @@ Run this after changing native debug information:
     call stack shows the arm above `flux_yield_prompt`.
 13. `flux catch panic`, then ⌘R, stops a panicking program with the Flux
     frame that panicked selected.
+
+## Visual Studio, WinDbg and cdb (Windows)
+
+On Windows a `-g` build writes `app.pdb` next to `app.exe`: CodeView, made
+from the same metadata as the DWARF above (0188 S11). Visual Studio, WinDbg
+and cdb read it and show Flux function names and `.flx` lines in call
+stacks. A run without `-o` keeps its PDB in the build cache, next to the
+cached binary.
+
+```sh
+flux app.flx --native -g --emit-binary -o app.exe   # app.exe and app.pdb
+```
+
+This is call stacks only. Variables show as raw 64-bit words (the
+`FluxValue` typedef), `flux_lldb.py` has no Windows counterpart, and stepping
+is the debugger's own, which does not know about effects or fibers. For
+those, debug in VS Code (`flux-dap`), on the VM or through lldb.
+
+### cdb and WinDbg
+
+A Flux panic ends the process, so stop where the runtime reports it,
+`flux_debug_on_panic`:
+
+```text
+cdb -lines -c "bp app!flux_debug_on_panic; g; k; q" app.exe
+```
+
+`k` lists the Flux frames, as `app!check+0x2a [C:\src\app.flx @ 4]`.
+`bp app!main` and `bu` on a Flux name work too, as in a C program. cdb comes
+with the Windows SDK's *Debugging Tools for Windows*.
+
+### Visual Studio
+
+1. **File → Open → Project/Solution…**, pick `app.exe`. Visual Studio makes
+   an EXE project around it.
+2. Open `app.flx` (**File → Open → File…**) and set breakpoints in it.
+3. **Debug → Start Debugging** (F5).
+
+### Manual checklist
+
+Run this on Windows after changing native debug information:
+
+1. `flux app.flx --native -g --emit-binary -o app.exe` writes `app.exe` and
+   `app.pdb`.
+2. A breakpoint on a line of `app.flx` turns solid once the program starts,
+   and F5 stops there with the line highlighted.
+3. The **Call Stack** window shows the Flux function names (`main`,
+   `<lambda app.flx:L:C>`), each with `app.flx` and its line.
+4. Double-clicking a caller's frame opens `app.flx` at the line that made the
+   call.
+5. A breakpoint on `flux_debug_on_panic` (**Debug → New Breakpoint →
+   Function Breakpoint**) stops a panicking program with the Flux frame that
+   panicked below the runtime's frames.
+6. In a program of two modules, frames from each module open their own
+   `.flx` file.

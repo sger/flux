@@ -242,9 +242,9 @@ pub fn find_lldb() -> Option<Vec<String>> {
     None
 }
 
-/// The message of a `llvm_debug` run on a machine without lldb, which the
-/// parity check reports as a skip.
-pub const NO_LLDB: &str = "lldb not found; native debug parity needs it (set FLUX_LLDB)";
+/// How a `llvm_debug` run that cannot compare starts its message, which the
+/// parity check reports as a skip; the reason follows.
+pub const NATIVE_DEBUG_SKIPPED: &str = "native debug parity skipped";
 
 fn run_lldb(
     binary: &Path,
@@ -254,8 +254,18 @@ fn run_lldb(
     extra_args: &[String],
     timeout: Duration,
 ) -> Result<(String, String), String> {
+    // Windows builds carry CodeView for Visual Studio and cdb, which show
+    // call stacks only (0188 S11). lldb reads it, but names frames by their
+    // symbols, so its transcripts cannot match the VM's.
+    if cfg!(windows) {
+        return Err(format!(
+            "{NATIVE_DEBUG_SKIPPED}: Windows debug builds are for Visual Studio and cdb"
+        ));
+    }
     let Some(lldb) = find_lldb() else {
-        return Err(NO_LLDB.to_string());
+        return Err(format!(
+            "{NATIVE_DEBUG_SKIPPED}: lldb not found (set FLUX_LLDB)"
+        ));
     };
     let dir = std::fs::canonicalize(dir).map_err(|err| err.to_string())?;
     let program = dir.join("app");
@@ -352,7 +362,9 @@ fn run_lldb(
     let (_, stdout, stderr) = run(command, timeout * 2, "lldb")?;
     let transcript = format!("{stdout}{stderr}");
     if transcript.contains("script interpreter") {
-        return Err(format!("{NO_LLDB}: this lldb runs no Python scripts"));
+        return Err(format!(
+            "{NATIVE_DEBUG_SKIPPED}: this lldb runs no Python scripts"
+        ));
     }
     Ok((normalize_lldb(&transcript), transcript))
 }
