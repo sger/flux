@@ -32,6 +32,9 @@ cargo test --features llvm --test parity_debug_tests
   starts with `flux catch panic division unhandled fibers`, the VM's
   default, and runs the program with `FLUX_WORKERS=1`, as the VM debugger
   runs async code on one worker.
+- `llvm_debug` reports a skip on a machine without lldb, with an lldb that
+  runs no Python, and on Windows, whose debug builds carry CodeView for
+  Visual Studio and cdb (0188 S11).
 - Besides `break`, `delete`, `continue`, `step`, `next`, `finish`, `bt`,
   `locals` and `print`, a fixture can use `handlers`, `catch <kinds>`,
   `threads` and `thread N` (0188 S8).

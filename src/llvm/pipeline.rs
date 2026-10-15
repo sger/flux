@@ -255,7 +255,24 @@ fn has_lld() -> bool {
     }
 }
 
-/// Link `.o`/`.obj` + runtime library → executable.
+/// The file the linker writes for `exe_path`: on Windows, `.exe` is added
+/// to a path without an extension.
+pub fn linked_exe_path(exe_path: &Path) -> PathBuf {
+    if cfg!(windows) && exe_path.extension().is_none() {
+        exe_path.with_extension("exe")
+    } else {
+        exe_path.to_path_buf()
+    }
+}
+
+/// The PDB a `-g` link writes beside the executable on Windows, where
+/// Visual Studio and cdb look for it (0188 S11).
+pub fn pdb_path(exe_path: &Path) -> PathBuf {
+    linked_exe_path(exe_path).with_extension("pdb")
+}
+
+/// Link `.o`/`.obj` + runtime library → executable. With `debug`, the
+/// Windows linker also writes the program's CodeView into a PDB.
 ///
 /// Prefers `lld` (LLVM's linker) when available for faster linking.
 /// Falls back to system linker (`cc`/`link.exe`) if `lld` is not found.
@@ -263,6 +280,7 @@ fn run_linker(
     obj_paths: &[PathBuf],
     exe_path: &Path,
     runtime_lib_dir: Option<&Path>,
+    debug: bool,
 ) -> Result<(), PipelineError> {
     if let Some(parent) = exe_path.parent() {
         fs::create_dir_all(parent)?;
@@ -272,17 +290,18 @@ fn run_linker(
 
     match &toolchain {
         CToolchain::Msvc { .. } => {
-            let exe_path_with_ext = if exe_path.extension().is_none() {
-                exe_path.with_extension("exe")
-            } else {
-                exe_path.to_path_buf()
-            };
             // Prefer lld-link over MSVC link.exe when available.
             let linker = if use_lld { "lld-link" } else { "link" };
             let mut cmd = Command::new(linker);
             cmd.args(["/nologo", "/subsystem:console"])
-                .arg(format!("/OUT:{}", exe_path_with_ext.display()))
+                .arg(format!("/OUT:{}", linked_exe_path(exe_path).display()))
                 .args(obj_paths);
+            if debug {
+                // `/DEBUG` turns off dropping unused code, which keeps the
+                // whole Rust staticlib: ten times the size. Turn it back on.
+                cmd.args(["/DEBUG", "/OPT:REF", "/OPT:ICF"])
+                    .arg(format!("/PDB:{}", pdb_path(exe_path).display()));
+            }
             // Set large stack size for deeply recursive programs.
             cmd.arg("/STACK:67108864"); // 64 MB stack
             // Rust staticlib (defines flux_async_*) must precede flux_rt.lib
@@ -300,13 +319,8 @@ fn run_linker(
             check_output(if use_lld { "lld-link" } else { "link" }, &output)
         }
         CToolchain::Gcc { cc, .. } => {
-            let exe_path_final = if cfg!(windows) && exe_path.extension().is_none() {
-                exe_path.with_extension("exe")
-            } else {
-                exe_path.to_path_buf()
-            };
             let mut cmd = Command::new(cc);
-            cmd.args(obj_paths).arg("-o").arg(&exe_path_final);
+            cmd.args(obj_paths).arg("-o").arg(linked_exe_path(exe_path));
             // Use lld for faster linking when available.
             if use_lld {
                 cmd.arg("-fuse-ld=lld");
@@ -327,6 +341,11 @@ fn run_linker(
                 // The Rust staticlib linked for native async pulls in small
                 // portions of `std` that reference these Windows system libs.
                 cmd.args(["-luserenv", "-lntdll"]);
+                if debug {
+                    // See the MSVC branch: `/DEBUG` would keep unused code.
+                    cmd.args(["-Wl,/DEBUG", "-Wl,/OPT:REF", "-Wl,/OPT:ICF"])
+                        .arg(format!("-Wl,/PDB:{}", pdb_path(exe_path).display()));
+                }
             }
             // Set large stack size for deeply recursive programs.
             #[cfg(target_os = "macos")]
@@ -540,8 +559,9 @@ pub fn link_objects(
     object_paths: &[PathBuf],
     output_path: &Path,
     runtime_lib_dir: Option<&Path>,
+    debug: bool,
 ) -> Result<(), PipelineError> {
-    run_linker(object_paths, output_path, runtime_lib_dir)
+    run_linker(object_paths, output_path, runtime_lib_dir, debug)
 }
 
 /// Bundle multiple `.o` files into a static archive (`.a` / `.lib`).
@@ -653,6 +673,7 @@ pub fn compile_to_binary(config: &PipelineConfig) -> Result<PipelineResult, Pipe
         std::slice::from_ref(&obj_path),
         &exe_path,
         config.runtime_lib_dir.as_deref(),
+        false,
     )?;
 
     // Clean up intermediates (keep the output binary).
@@ -808,7 +829,28 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
     // platform-specific dependency.
     let _lock = RuntimeBuildLock::acquire(runtime_c_dir)?;
 
-    if lib_path.exists() {
+    // The compile flags, kept beside the library so a change to them
+    // rebuilds it, as a changed source does. Debuggers read the runtime's
+    // debug information too: DWARF, or CodeView on Windows, where clang's
+    // `-g` already gives it and `cl` needs `/Z7` (0188 S11).
+    let mut flags: Vec<&str> = match &toolchain {
+        CToolchain::Msvc { .. } => vec!["/nologo", "/c", "/O2", "/W3", "/Z7"],
+        CToolchain::Gcc { .. } => vec!["-std=c11", "-Wall", "-O2", "-g", "-c"],
+    };
+    // On Windows, the C runtime uses MS SEH (`__try` / `__except` /
+    // `RaiseException`) to unwind across LLVM-emitted Flux frames
+    // — Windows `longjmp` walks the SEH chain and trips on
+    // STATUS_BAD_FUNCTION_TABLE when LLVM `.pdata` is incomplete.
+    // Strict `-std=c11` disables MS extensions; re-enable them so
+    // clang actually generates SEH unwind info for `__try`.
+    if matches!(toolchain, CToolchain::Gcc { .. }) && cfg!(windows) {
+        flags.extend(["-fms-extensions", "-fms-compatibility"]);
+    }
+    let flags_stamp = flags.join(" ");
+    let flags_path = runtime_c_dir.join(format!("{lib_name}.flags"));
+    let same_flags = std::fs::read_to_string(&flags_path).is_ok_and(|kept| kept == flags_stamp);
+
+    if lib_path.exists() && same_flags {
         // Check if any .c or .h file is newer than the library
         let lib_mtime = std::fs::metadata(&lib_path).and_then(|m| m.modified()).ok();
         let sources_newer = lib_mtime.is_none_or(|lib_t| {
@@ -859,7 +901,7 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
                 }
                 let obj = runtime_c_dir.join(c_file.replace(".c", ".obj"));
                 let output = Command::new(cc)
-                    .args(["/nologo", "/c", "/O2", "/W3"])
+                    .args(&flags)
                     .arg(format!("/Fo{}", obj.display()))
                     .arg(&src)
                     .arg(format!("/I{}", runtime_c_dir.display()))
@@ -885,23 +927,13 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
                     continue;
                 }
                 let obj = runtime_c_dir.join(c_file.replace(".c", obj_ext));
-                let mut command = Command::new(cc);
-                command
-                    .args(["-std=c11", "-Wall", "-O2", "-g", "-c"])
+                let output = Command::new(cc)
+                    .args(&flags)
                     .arg("-o")
                     .arg(&obj)
                     .arg(&src)
-                    .arg(format!("-I{}", runtime_c_dir.display()));
-                // On Windows, the C runtime uses MS SEH (`__try` / `__except` /
-                // `RaiseException`) to unwind across LLVM-emitted Flux frames
-                // — Windows `longjmp` walks the SEH chain and trips on
-                // STATUS_BAD_FUNCTION_TABLE when LLVM `.pdata` is incomplete.
-                // Strict `-std=c11` disables MS extensions; re-enable them so
-                // clang actually generates SEH unwind info for `__try`.
-                if cfg!(windows) {
-                    command.args(["-fms-extensions", "-fms-compatibility"]);
-                }
-                let output = command.output()?;
+                    .arg(format!("-I{}", runtime_c_dir.display()))
+                    .output()?;
                 check_output("cc (runtime)", &output)?;
                 obj_files.push(obj);
             }
@@ -920,6 +952,7 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
     for obj in &obj_files {
         let _ = std::fs::remove_file(obj);
     }
+    std::fs::write(&flags_path, flags_stamp)?;
 
     Ok(())
 }

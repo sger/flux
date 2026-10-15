@@ -435,7 +435,7 @@ pub fn is_native_skip(result: &RunResult) -> Option<String> {
         return None;
     }
     for line in result.stderr.lines() {
-        if line.contains(super::debug::NO_LLDB) {
+        if line.contains(super::debug::NATIVE_DEBUG_SKIPPED) {
             return Some(line.to_string());
         }
         if line.contains("llvm compilation failed") || line.contains("unsupported CoreToLlvm") {

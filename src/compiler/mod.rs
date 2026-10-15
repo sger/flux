@@ -6984,13 +6984,15 @@ impl Compiler {
             emit_main,
             entry_qualifier.as_deref(),
         );
-        // `-g`: DWARF lines, variables and types. MSVC targets need CodeView, which
-        // comes with 0188 S11; until then they get no debug information.
-        let debug = (self.debug_level.is_enabled() && !cfg!(target_env = "msvc")).then(|| {
-            crate::lir::emit_debug::NativeDebug {
+        // `-g`: lines, variables and types, as DWARF or, on MSVC targets,
+        // CodeView (0188 S11).
+        let debug = self
+            .debug_level
+            .is_enabled()
+            .then(|| crate::lir::emit_debug::NativeDebug {
                 file: self.file_path.clone(),
-            }
-        });
+                codeview: cfg!(target_env = "msvc"),
+            });
         let mut module = crate::lir::emit_llvm::emit_llvm_module_with_debug(
             &lir,
             false,

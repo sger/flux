@@ -11,7 +11,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use flux::parity::debug::{NO_LLDB, outputs_match, run_debug_way};
+use flux::parity::debug::{NATIVE_DEBUG_SKIPPED, outputs_match, run_debug_way};
 use flux::parity::{ExitKind, Way};
 
 fn fixtures() -> Vec<PathBuf> {
@@ -45,7 +45,7 @@ fn the_vm_and_native_debuggers_agree() {
         runs.into_iter()
             .filter_map(|run| {
                 let (file, vm, native) = run.join().expect("a fixture's thread");
-                if native.stderr.contains(NO_LLDB) {
+                if native.stderr.contains(NATIVE_DEBUG_SKIPPED) {
                     eprintln!("note: {}; skipping {}", native.stderr, file.display());
                     return None;
                 }

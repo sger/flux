@@ -1,4 +1,5 @@
-//! DWARF for native code (proposal 0188 S5 and S6).
+//! DWARF for native code (proposal 0188 S5 and S6), or CodeView on MSVC
+//! targets (S11): the same metadata, which LLVM writes in either format.
 //!
 //! A `-g` build gives each emitted module one compile unit and file, and
 //! each Flux function a `DISubprogram`. Each instruction gets a location
@@ -37,6 +38,8 @@ pub const DROPPED_MARKER: i64 = 0x0DEB_0DEB_0000_0002;
 pub struct NativeDebug {
     /// The source file the module was compiled from.
     pub file: String,
+    /// Whether the target reads CodeView (MSVC, 0188 S11) rather than DWARF.
+    pub codeview: bool,
 }
 
 /// Where each LLVM block's instructions came from: marks of (first
@@ -63,11 +66,13 @@ pub(super) struct DebugBuilder {
     /// source file, and its debug information once described.
     types_symbol: String,
     types_global: Option<u32>,
+    codeview: bool,
 }
 
 impl DebugBuilder {
     pub(super) fn new(native: &NativeDebug) -> Self {
-        let path = Path::new(&native.file);
+        let path = without_verbatim_prefix(&native.file);
+        let path = Path::new(path.as_ref());
         let absolute = if path.is_absolute() {
             path.to_path_buf()
         } else {
@@ -96,14 +101,18 @@ impl DebugBuilder {
              isOptimized: false, runtimeVersion: 0, emissionKind: FullDebug)",
             env!("CARGO_PKG_VERSION")
         );
-        let dwarf_version = debug.node("!{i32 7, !\"Dwarf Version\", i32 4}".to_string());
+        let format_flag = debug.node(if native.codeview {
+            "!{i32 2, !\"CodeView\", i32 1}".to_string()
+        } else {
+            "!{i32 7, !\"Dwarf Version\", i32 4}".to_string()
+        });
         let info_version = debug.node("!{i32 2, !\"Debug Info Version\", i32 3}".to_string());
         let no_types = debug.node("!{}".to_string());
         let subroutine_type = debug.node(format!("!DISubroutineType(types: !{no_types})"));
         debug.named.push(("llvm.dbg.cu".to_string(), vec![unit]));
         debug.named.push((
             "llvm.module.flags".to_string(),
-            vec![dwarf_version, info_version],
+            vec![format_flag, info_version],
         ));
         Self {
             debug,
@@ -120,6 +129,7 @@ impl DebugBuilder {
                 fnv1a(&absolute.display().to_string())
             ),
             types_global: None,
+            codeview: native.codeview,
         }
     }
 
@@ -448,7 +458,11 @@ impl DebugBuilder {
     ///   `FluxCtor.Name` laid out as its heap object, naming the fields.
     ///
     /// No variable has these types, so the compile unit retains them.
+    /// CodeView builds skip them: only `flux_lldb.py` reads them.
     pub(super) fn add_constructors(&mut self, program: &super::LirProgram) {
+        if self.codeview {
+            return;
+        }
         let mut tags: Vec<(i32, &str)> = [(1, "Some"), (2, "Left"), (3, "Right"), (4, "Cons")]
             .into_iter()
             .chain(
@@ -776,6 +790,16 @@ pub(super) fn dbg_declare() -> crate::llvm::ir::LlvmDecl {
     }
 }
 
+/// `path` without the `\\?\` a canonical Windows path starts with, which
+/// Visual Studio and cdb do not resolve when they look for a source file.
+fn without_verbatim_prefix(path: &str) -> std::borrow::Cow<'_, str> {
+    if let Some(share) = path.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{share}").into()
+    } else {
+        path.strip_prefix(r"\\?\").unwrap_or(path).into()
+    }
+}
+
 /// A stable 64-bit hash, so a module's symbols do not change between builds.
 fn fnv1a(text: &str) -> u64 {
     text.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
@@ -793,4 +817,54 @@ fn escape(text: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn module_flags(codeview: bool) -> Vec<String> {
+        let builder = DebugBuilder::new(&NativeDebug {
+            file: "app.flx".to_string(),
+            codeview,
+        });
+        let (_, flags) = builder
+            .debug
+            .named
+            .iter()
+            .find(|(name, _)| name == "llvm.module.flags")
+            .expect("module flags");
+        flags
+            .iter()
+            .map(|node| builder.debug.nodes[*node as usize].clone())
+            .collect()
+    }
+
+    #[test]
+    fn a_codeview_build_says_so_in_its_module_flags() {
+        let flags = module_flags(true);
+        assert!(flags.iter().any(|flag| flag.contains("\"CodeView\"")));
+        assert!(!flags.iter().any(|flag| flag.contains("Dwarf Version")));
+        assert!(flags.iter().any(|flag| flag.contains("Debug Info Version")));
+    }
+
+    #[test]
+    fn source_paths_lose_the_windows_verbatim_prefix() {
+        assert_eq!(
+            without_verbatim_prefix(r"\\?\E:\src\app.flx"),
+            r"E:\src\app.flx"
+        );
+        assert_eq!(
+            without_verbatim_prefix(r"\\?\UNC\server\share\app.flx"),
+            r"\\server\share\app.flx"
+        );
+        assert_eq!(without_verbatim_prefix("/src/app.flx"), "/src/app.flx");
+    }
+
+    #[test]
+    fn a_dwarf_build_names_its_dwarf_version() {
+        let flags = module_flags(false);
+        assert!(flags.iter().any(|flag| flag.contains("Dwarf Version")));
+        assert!(!flags.iter().any(|flag| flag.contains("CodeView")));
+    }
 }

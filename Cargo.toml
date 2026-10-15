@@ -539,6 +539,10 @@ name = "native_debug_tests"
 path = "tests/native_llvm/native_debug_tests.rs"
 
 [[test]]
+name = "native_codeview_tests"
+path = "tests/native_llvm/native_codeview_tests.rs"
+
+[[test]]
 name = "parity_debug_tests"
 path = "tests/debug/parity_debug_tests.rs"
 

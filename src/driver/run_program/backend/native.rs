@@ -451,12 +451,16 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
 
         let link_start = Instant::now();
         // A binary linked before the effect tape existed would ignore it, so a
-        // run with a tape always relinks.
+        // run with a tape always relinks. A `-g` binary on Windows also needs
+        // its PDB (0188 S11).
+        let debug = request.compile.debug_level.is_enabled();
+        let pdb_ready = !(debug && cfg!(windows)) || flux::llvm::pipeline::pdb_path(&out).exists();
+        let binary_exists = out.exists() && pdb_ready;
         let binary_up_to_date = should_skip_native_relink(
             request.cache.no_cache,
             request.output.emit_binary,
             any_native_recompiled,
-            out.exists(),
+            binary_exists,
         ) && crate::driver::replay_session::native_child_env().is_none();
 
         if binary_up_to_date {
@@ -464,13 +468,11 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
                 eprintln!("{}", native_binary_up_to_date_banner());
             }
         } else if let Err(e) =
-            flux::llvm::pipeline::link_objects(&link_paths, &out, runtime_lib_dir.as_deref())
+            flux::llvm::pipeline::link_objects(&link_paths, &out, runtime_lib_dir.as_deref(), debug)
         {
             eprintln!("llvm linker failed: {e}");
             std::process::exit(1);
-        } else if request.compile.debug_level.is_enabled()
-            && (request.output.emit_binary || request.output.output_path.is_some())
-        {
+        } else if debug && (request.output.emit_binary || request.output.output_path.is_some()) {
             // A binary the user keeps carries its debug information with
             // it: on macOS that means a .dSYM, since otherwise it lives in
             // object files the cache may remove (proposal 0188 S5).
@@ -602,11 +604,13 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
                         },
                     });
                 }
-                // A binary written with `-o` is the user's to keep.
+                // A binary written with `-o` is the user's to keep. On Windows
+                // the linker wrote `out` with `.exe` added, and a PDB beside it.
                 if request.output.output_path.is_none()
                     && (request.cache.no_cache || request.output.emit_binary)
                 {
-                    let _ = std::fs::remove_file(&out);
+                    let _ = std::fs::remove_file(flux::llvm::pipeline::linked_exe_path(&out));
+                    let _ = std::fs::remove_file(flux::llvm::pipeline::pdb_path(&out));
                 }
                 if exit_code != 0 {
                     std::process::exit(exit_code);
