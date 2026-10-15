@@ -109,6 +109,9 @@ struct Recording {
     finished: bool,
     /// Every event so far, kept while a debugger may go back.
     kept: Option<Vec<TapeEvent>>,
+    /// What each event so far was, for a native program's debugger, which
+    /// lists the events but never goes back (`flux events`, 0188 S9b).
+    titles: Option<Vec<String>>,
 }
 
 /// Whether the recording was started by `flux debug` rather than asked for
@@ -184,15 +187,13 @@ pub fn start_record(path: &Path, header: &TapeHeader) -> Result<(), TapeError> {
     start_record_append(path)
 }
 
-/// Creates a tape holding only its header. The driver does this for a native
-/// program, which then records into it with [`start_record_append`].
+/// Creates a tape holding only its header, replacing any file at `path`.
 pub fn create_tape(path: &Path, header: &TapeHeader) -> Result<(), TapeError> {
     let line = serde_json::to_string(header).expect("tape header serializes");
     std::fs::write(path, format!("{line}\n")).map_err(|err| cannot_write(path, &err))
 }
 
-/// Continues recording into a tape whose header has already been written: a
-/// native program records into the tape the driver created for it.
+/// Continues recording into a tape whose header has already been written.
 pub fn start_record_append(path: &Path) -> Result<(), TapeError> {
     let file = OpenOptions::new()
         .append(true)
@@ -208,6 +209,7 @@ fn install_record(writer: BufWriter<File>, path: &Path) -> Result<(), TapeError>
         next_seq: 0,
         finished: false,
         kept: None,
+        titles: None,
     });
     Ok(())
 }
@@ -242,6 +244,7 @@ pub fn start_memory_record() {
         next_seq: 0,
         finished: false,
         kept: Some(Vec::new()),
+        titles: None,
     });
     IMPLICIT.store(true, Ordering::Relaxed);
 }
@@ -251,6 +254,14 @@ pub fn start_memory_record() {
 pub fn keep_events() {
     if let Some(TapeState::Record(recording)) = lock().as_mut() {
         recording.kept.get_or_insert_with(Vec::new);
+    }
+}
+
+/// Keeps what each recorded event was, so a debugger attached to a native
+/// program can list them.
+pub fn keep_titles() {
+    if let Some(TapeState::Record(recording)) = lock().as_mut() {
+        recording.titles.get_or_insert_with(Vec::new);
     }
 }
 
@@ -850,7 +861,20 @@ fn append(request: EffectRequest, result: Option<Outcome>) -> Result<(), TapeErr
     };
     recording.next_seq += 1;
     note_event_position(event.seq as usize);
-    recording.store(event)
+    let seq = event.seq;
+    recording.store(event)?;
+    drop(guard);
+    flux_debug_on_tape_event(seq);
+    Ok(())
+}
+
+/// Called with each event's number as the run reaches it, recorded or
+/// replayed. Does nothing: a debugger stops here to run to an event
+/// (`flux event N` in lldb, 0188 S9b).
+#[unsafe(no_mangle)]
+#[inline(never)]
+pub extern "C" fn flux_debug_on_tape_event(seq: u64) {
+    std::hint::black_box(seq);
 }
 
 impl Recording {
@@ -858,6 +882,9 @@ impl Recording {
         if let Some(writer) = self.writer.as_mut() {
             let line = serde_json::to_string(&event).expect("tape events serialize");
             writeln!(writer, "{line}").map_err(|err| cannot_write(Path::new(&self.path), &err))?;
+        }
+        if let Some(titles) = self.titles.as_mut() {
+            titles.push(event.request.to_string());
         }
         if let Some(kept) = self.kept.as_mut() {
             kept.push(event);
@@ -1060,6 +1087,7 @@ fn advance(event: &TapeEvent) {
     }
     TURN.notify_all();
     async_tape::progressed();
+    flux_debug_on_tape_event(event.seq);
 }
 
 /// The next event, if it is this thread's turn and the event is the kind
@@ -1146,6 +1174,14 @@ pub fn event_list() -> Vec<(u64, String, Option<u64>)> {
             .iter()
             .map(|event| (event.seq, event.request.to_string()))
             .collect(),
+        Some(TapeState::Record(Recording {
+            titles: Some(titles),
+            ..
+        })) => titles
+            .iter()
+            .enumerate()
+            .map(|(seq, title)| (seq as u64, title.clone()))
+            .collect(),
         _ => Vec::new(),
     };
     let positions = positions();
@@ -1153,6 +1189,73 @@ pub fn event_list() -> Vec<(u64, String, Option<u64>)> {
         .into_iter()
         .map(|(seq, text)| (seq, text, positions.get(seq as usize).copied()))
         .collect()
+}
+
+/// What a debugger attached to a native program shows of the tape: up to
+/// `max` events from `from`, each as its number and what it was.
+pub struct EventPage {
+    pub events: Vec<(u64, String)>,
+    /// Where the next page starts, when there is one.
+    pub next: Option<u64>,
+    /// The number of the next event the run reaches.
+    pub cursor: u64,
+    pub replaying: bool,
+}
+
+/// A page of the tape's events, or `None` when there is no tape.
+pub fn event_page(from: u64, max: usize) -> Option<EventPage> {
+    page_of(&lock(), from, max)
+}
+
+/// [`event_page`] for a debugger evaluating it in a stopped program: `None`
+/// when another thread holds the tape, instead of waiting for it forever.
+pub fn try_event_page(from: u64, max: usize) -> Option<Option<EventPage>> {
+    match STATE.try_lock() {
+        Ok(guard) => Some(page_of(&guard, from, max)),
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => {
+            Some(page_of(&poisoned.into_inner(), from, max))
+        }
+        Err(std::sync::TryLockError::WouldBlock) => None,
+    }
+}
+
+fn page_of(state: &Option<TapeState>, from: u64, max: usize) -> Option<EventPage> {
+    let (titles, cursor, replaying): (Vec<(u64, String)>, u64, bool) = match state.as_ref()? {
+        TapeState::Replay { tape, cursor, .. } => (
+            tape.events
+                .iter()
+                .skip(from as usize)
+                .take(max + 1)
+                .map(|event| (event.seq, event.request.to_string()))
+                .collect(),
+            *cursor as u64,
+            true,
+        ),
+        TapeState::Record(recording) => (
+            recording
+                .titles
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .enumerate()
+                .skip(from as usize)
+                .take(max + 1)
+                .map(|(seq, title)| (seq as u64, title.clone()))
+                .collect(),
+            recording.next_seq,
+            false,
+        ),
+        TapeState::Rerun { .. } => return None,
+    };
+    let mut events = titles;
+    let next = (events.len() > max).then(|| from + max as u64);
+    events.truncate(max);
+    Some(EventPage {
+        events,
+        next,
+        cursor,
+        replaying,
+    })
 }
 
 fn describe_fiber(fiber: u32) -> String {

@@ -173,7 +173,25 @@ The console also takes commands for what DAP has no button for:
 
 In a native session, `.bt`, `.locals`, `.print <name>` and `.handlers` run
 `flux_lldb.py`'s `flux` command, and lldb commands work behind a backtick:
-`` `bt all ``.
+`` `bt all ``. With `"record"` or `"replay"`, `.events` lists the tape and
+`.event <n>` runs forward to effect `n`; going back to an earlier one needs
+a new session, since lldb-dap owns the process.
+
+## The Flux Timeline
+
+With a Flux session stopped, the Run and Debug view's **Flux Timeline**
+lists the effects of the run's tape: on the VM, the session's own recording
+or the tape it replays; natively, the tape of a `"record"` or `"replay"`
+launch. Each shows whether the run has reached it. Clicking one goes there:
+on the VM, to the last stop before it, earlier or later; natively, forward
+to the effect.
+
+The view asks `flux-dap` with two requests of its own, answered on both
+backends:
+- `fluxEvents` → `{ events: [{ index, text, reached, next?, position? }] }`
+  (VM: the engine's `events` and `where`; native: `flux events --json`).
+- `fluxGoToEvent { index }` → a stop at the effect (VM: resume to event
+  `index`; native: `flux event --no-relaunch index`).
 
 ## Architecture
 
@@ -241,7 +259,8 @@ Run this after changing the adapter or the extension, using
 7. Pause stops a long-running loop. Stop ends the session.
 8. Watch shows `name.0` parts, and hovering a local shows its value.
 9. The Debug Console's `.events` lists printed text, and `.event 0` goes
-   to it.
+   to it. The Flux Timeline lists the same effects; clicking one goes there,
+   earlier or later.
 10. A program with a compile error shows the error in the Debug Console and
     ends the session.
 11. `"replay"` with a tape recorded by `flux app.flx --record run.jsonl`
@@ -288,3 +307,16 @@ With `"backend": "native"` and `flux.runCommand` set to
     the next line of the same fiber.
 27. With "Fiber failures" ticked, `Async.fail` in
     `examples/async/07_try_fail.flx` stops where it is raised.
+28. With `"record": "run.jsonl"`, the run writes `run.jsonl`; a second
+    session with `"replay": "run.jsonl"` prints the same, and `.events`
+    lists the effects.
+29. In that replay, the Flux Timeline lists the effects; clicking a later
+    one stops at the line that performed it, and clicking an earlier one
+    says to restart the session.
+30. The same tape with `"backend": "vm"` replays on the VM, and Step Back
+    works.
+
+On either backend:
+
+31. The Flux Timeline shows only during a Flux session, refreshes at each
+    stop, and is empty again when the session ends.

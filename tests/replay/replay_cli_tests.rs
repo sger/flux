@@ -671,6 +671,97 @@ mod native {
         assert_tape_error(&run, "E1023", "\"data/other.txt\"");
     }
 
+    /// Builds the case's program as a native binary, as an editor does.
+    fn build_binary(case: &Case) -> PathBuf {
+        let binary = case.scratch.join("app_bin");
+        let run = case.run(
+            Backend::Native,
+            &["--emit-binary", "-o", binary.to_str().unwrap()],
+            "",
+            &[],
+        );
+        assert_eq!(run.code, 0, "{}", run.stderr);
+        binary
+    }
+
+    /// Runs a native binary the driver built, without the driver.
+    fn run_binary(case: &Case, binary: &Path, env: &[(&str, &Path)]) -> Run {
+        let mut command = Command::new(binary);
+        command
+            .current_dir(case.scratch.path())
+            .env("NO_COLOR", "1")
+            .stdin(Stdio::null());
+        for (key, value) in env {
+            command.env(key, value);
+        }
+        let output = command.output().expect("run the native binary");
+        Run {
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            code: output.status.code().unwrap_or(-1),
+        }
+    }
+
+    fn header(tape: &Path) -> serde_json::Value {
+        let text = std::fs::read_to_string(tape).unwrap();
+        serde_json::from_str(text.lines().next().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn a_native_program_records_on_its_own() {
+        // Under lldb or an editor, nothing but the program writes the tape.
+        let case = Case::new("clock");
+        let binary = build_binary(&case);
+        let by_driver = case.tape("driver.jsonl");
+        let recorded = case.record(Backend::Native, &by_driver, "", &[]);
+        assert_eq!(recorded.code, 0, "{}", recorded.stderr);
+        let tape = case.tape("own.jsonl");
+        // A file already there is replaced, not added to.
+        std::fs::write(&tape, "left from another run\n").unwrap();
+        let run = run_binary(&case, &binary, &[("FLUX_TAPE_RECORD", &tape)]);
+        assert_eq!(run.code, 0, "{}", run.stderr);
+        let own = header(&tape);
+        assert_eq!(own["program_hash"], header(&by_driver)["program_hash"]);
+        assert_eq!(own["backend"], "native");
+        assert_eq!(own["magic"], "FLXTAPE");
+        for backend in [Backend::Vm, Backend::Native] {
+            let replayed = case.replay(backend, &tape, &[]);
+            assert_eq!(replayed.code, 0, "{backend:?}: {}", replayed.stderr);
+            assert_eq!(replayed.stdout, run.stdout, "{backend:?}");
+        }
+        let replayed = run_binary(&case, &binary, &[("FLUX_TAPE_REPLAY", &tape)]);
+        assert_eq!(replayed.stdout, run.stdout, "{}", replayed.stderr);
+    }
+
+    #[test]
+    fn a_native_program_checks_the_tape_it_replays() {
+        let other = Case::new("console");
+        let tape = other.tape("console.jsonl");
+        let recorded = other.record(Backend::Native, &tape, STDIN, &[]);
+        assert_eq!(recorded.code, 0, "{}", recorded.stderr);
+        let case = Case::new("clock");
+        let binary = build_binary(&case);
+        let run = run_binary(&case, &binary, &[("FLUX_TAPE_REPLAY", &tape)]);
+        assert_eq!(run.code, 1);
+        // Rendered for the person running it, and as the line tools read.
+        assert!(run.stderr.contains("error[E1026]"), "{}", run.stderr);
+        assert!(
+            run.stderr.contains("recorded from a different program"),
+            "{}",
+            run.stderr
+        );
+        assert!(run.stderr.contains("flux-tape-error: {"), "{}", run.stderr);
+        // Through the driver, the error is shown once.
+        let run = case.replay(Backend::Native, &tape, &[]);
+        assert_eq!(
+            run.stderr.matches("error[E1026]").count(),
+            1,
+            "{}",
+            run.stderr
+        );
+        assert!(!run.stderr.contains("flux-tape-error:"), "{}", run.stderr);
+    }
+
     #[test]
     fn each_async_fixture_replays_on_native() {
         for fixture in ASYNC_FIXTURES {

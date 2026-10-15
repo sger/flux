@@ -366,13 +366,15 @@ fn discover_rust_staticlib() -> Option<PathBuf> {
     // is recent enough for the runtime it links with: the C runtime calls
     // the effect tape's `flux_tape_*` (proposal 0188 S1) and the debugger's
     // `flux_async_debug_block` (S8b) and the tape's thread ordering,
-    // `flux_tape_ordered_begin` (S8c), which an archive left from an older
-    // build lacks.
+    // `flux_tape_ordered_begin` (S8c), and `flux_tape_init` with the program
+    // hash, which came with `flux_debug_tape_events` (S9b); an archive left
+    // from an older build lacks them.
     let has_sentinel = |path: &Path| {
         archive_exports_symbol(path, "flux_async_run_root")
             && archive_exports_symbol(path, "flux_tape_init")
             && archive_exports_symbol(path, "flux_async_debug_block")
             && archive_exports_symbol(path, "flux_tape_ordered_begin")
+            && archive_exports_symbol(path, "flux_debug_tape_events")
     };
 
     // Fast path: sidecar written by a previous successful link.

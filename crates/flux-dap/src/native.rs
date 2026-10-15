@@ -543,9 +543,11 @@ impl SourcePaths {
 }
 
 /// What a Debug Console `.`-command becomes for `lldb-dap`: an lldb command
-/// (run through the console's escape prefix), or an answer of its own.
+/// (run through the console's escape prefix), one that runs the program and
+/// stops it, which the adapter reports as a stop, or an answer of its own.
 pub enum ConsoleCommand {
     Lldb(String),
+    Run(String),
     Answer(Result<String, String>),
 }
 
@@ -560,14 +562,59 @@ pub fn console_command(command: &str) -> ConsoleCommand {
         "print" | "p" => ConsoleCommand::Lldb(format!("flux print {rest}")),
         "handlers" => ConsoleCommand::Lldb("flux handlers".to_string()),
         "threads" => ConsoleCommand::Lldb("flux threads".to_string()),
+        "events" => ConsoleCommand::Lldb("flux events".to_string()),
+        "event" => match rest.parse::<u64>() {
+            Ok(number) => ConsoleCommand::Run(go_to_event(number)),
+            Err(_) => ConsoleCommand::Answer(Err("usage: .event <n>".to_string())),
+        },
         "help" => ConsoleCommand::Answer(Ok(NATIVE_HELP.to_string())),
-        "where" | "goto" | "events" | "event" | "rs" | "rn" | "rf" | "rc" | "internals" => {
-            ConsoleCommand::Answer(Err(format!(
-                "`.{name}` needs the VM backend: native programs do not record their run"
-            )))
-        }
+        "where" | "goto" | "rs" | "rn" | "rf" | "rc" | "internals" => ConsoleCommand::Answer(Err(
+            format!("`.{name}` needs the VM backend: native programs do not record their run"),
+        )),
         other => ConsoleCommand::Answer(Err(format!("unknown command `.{other}`; try `.help`"))),
     }
+}
+
+/// The lldb command that runs to tape event `number`. lldb-dap owns the
+/// process, so it only goes forward; going back needs a new session.
+pub fn go_to_event(number: u64) -> String {
+    format!("flux event --no-relaunch {number}")
+}
+
+/// The thread a `flux next`, `step`, `finish` or `event` stopped in, from
+/// its output, or None when the program ended.
+pub fn stopped_thread(text: &str) -> Option<i64> {
+    text.lines()
+        .find_map(|line| line.trim().strip_prefix("thread "))
+        .and_then(|id| id.trim().parse::<i64>().ok())
+}
+
+/// The editor's `fluxEvents` answer from `flux events --json`: the tape's
+/// events, each with whether the run has reached it.
+pub fn tape_events(text: &str) -> Value {
+    let listed: Option<Value> = text
+        .lines()
+        .find(|line| line.trim_start().starts_with('{'))
+        .and_then(|line| serde_json::from_str(line.trim()).ok());
+    let Some(listed) = listed.filter(|listed| listed["events"].is_array()) else {
+        return json!({ "events": [], "message": text.trim() });
+    };
+    let cursor = listed["cursor"].as_u64().unwrap_or(0);
+    let events: Vec<Value> = listed["events"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|event| {
+            let index = event["seq"].as_u64().unwrap_or(0);
+            json!({
+                "index": index,
+                "text": event["text"],
+                "reached": index < cursor,
+                "next": index == cursor,
+            })
+        })
+        .collect();
+    json!({ "events": events, "replaying": listed["mode"] == "replay" })
 }
 
 const NATIVE_HELP: &str = "\
@@ -577,4 +624,6 @@ A variable or a part of one (`xs.1`) shows its value. Commands:
   .print <name>    a variable and its parts
   .handlers        the active effect handlers, innermost first
   .threads         the fibers, and what each waits for
+  .events          the tape's effects, with FLUX_TAPE_REPLAY or _RECORD
+  .event <n>       run to effect <n> (forward; restart to go back)
 Commands starting with ` go to lldb itself: `bt all";

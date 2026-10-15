@@ -750,3 +750,67 @@ fn a_thread_whose_turn_never_comes_stops_the_replay() {
     assert!(err.message().contains("stdout"), "{}", err.message());
     reset();
 }
+
+#[test]
+fn a_tape_is_checked_against_the_program_and_backend_replaying_it() {
+    let _guard = serial();
+    let tape = record("checked.jsonl", || {
+        effect(read_file("in.txt"), || text("recorded")).unwrap();
+        finish(false, None).unwrap();
+    });
+    assert_eq!(tape.check_for("sha256:test", "vm"), Ok(Vec::new()));
+    // Without async code, a tape replays on either backend.
+    assert_eq!(tape.check_for("sha256:test", "native"), Ok(Vec::new()));
+    // A program that does not know its hash skips that check.
+    assert_eq!(tape.check_for("", "vm"), Ok(Vec::new()));
+    let Err(TapeError::BadTape { reason, .. }) = tape.check_for("sha256:other", "vm") else {
+        panic!("another program's tape must be refused");
+    };
+    assert!(reason.contains("different program"), "{reason}");
+
+    let mut unfinished = tape.clone();
+    unfinished.events.pop();
+    unfinished.header.flux_version = "0.0.0".to_string();
+    let warnings = unfinished.check_for("sha256:test", "vm").unwrap();
+    assert_eq!(warnings.len(), 2, "{warnings:?}");
+    assert!(
+        warnings[0].contains("recorded by flux 0.0.0"),
+        "{warnings:?}"
+    );
+    assert!(warnings[1].contains("incomplete"), "{warnings:?}");
+}
+
+#[test]
+fn a_debugger_reads_the_tape_a_page_at_a_time() {
+    let _guard = serial();
+    let tape = record("paged.jsonl", || {
+        for i in 0..5 {
+            console(stdout(&format!("{i}\n"))).unwrap();
+        }
+        finish(false, None).unwrap();
+    });
+    start_replay(tape);
+    console(stdout("0\n")).unwrap();
+    let page = event_page(0, 4).unwrap();
+    assert!(page.replaying);
+    assert_eq!(page.cursor, 1);
+    assert_eq!(page.events.len(), 4);
+    assert_eq!(page.events[0], (0, stdout("0\n").to_string()));
+    assert_eq!(page.next, Some(4));
+    let rest = event_page(4, 4).unwrap();
+    assert_eq!(rest.events.len(), 2);
+    assert_eq!(rest.next, None);
+    reset();
+    assert!(event_page(0, 4).is_none());
+
+    // A recording lists what it has recorded, once asked to keep it.
+    let path = scratch_tape("titles.jsonl");
+    start_record(&path, &header()).unwrap();
+    keep_titles();
+    console(stdout("a\n")).unwrap();
+    let page = event_page(0, 10).unwrap();
+    assert!(!page.replaying);
+    assert_eq!(page.cursor, 1);
+    assert_eq!(page.events, vec![(0, stdout("a\n").to_string())]);
+    reset();
+}

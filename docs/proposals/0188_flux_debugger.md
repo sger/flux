@@ -147,6 +147,10 @@ in `.flx` files:
   symlinks for lldb and returned as the editor wrote them, and Continue
   first drops a step a breakpoint interrupted, which lldb would otherwise
   finish. Step Back is not offered: a native run is not recorded.
+  As built in S9b, `"record"` and `"replay"` work natively too (the program
+  writes and checks its tape itself), and a **Flux Timeline** view lists the
+  tape's effects on both backends: clicking one goes there (on the VM,
+  earlier or later; natively, forward).
 
 ### Xcode
 
@@ -852,6 +856,14 @@ Implemented in S1a (synchronous effects) and S1b (async code).
 - **Driver:** `src/driver/replay_session.rs` hashes the program's modules,
   writes or checks the tape header, and hands a native program its tape
   through `FLUX_TAPE_RECORD` / `FLUX_TAPE_REPLAY`.
+- **Native without the driver (S9b):** the driver links into every native
+  program an object defining `flux_program_hash`, the hash above. The
+  program's `flux_tape_init(hash, argc, argv)` writes a new tape's header
+  itself and runs the same checks on a tape it replays
+  (`LoadedTape::check_for`), so a program started by lldb or an editor
+  records and replays as under `flux`. A tape error is printed rendered,
+  then as the wire line; the driver sets `FLUX_TAPE_WIRE` for its child to
+  get the line alone.
 - **Async (S1b):** both backends run async code on the same `MioBackend`,
   and the program's instance sends everything through
   `src/runtime/replay/async_tape.rs`:
@@ -1072,6 +1084,15 @@ Implemented in S3 (`src/vm/debug/`), for programs without async code.
 - Record, and deterministic replay under lldb.
 - **Run to event N:** restart the replay and stop when the tape cursor reaches
   N. This needs no instruction counting.
+  As built in S9b: each event, recorded or replayed, calls
+  `flux_debug_on_tape_event(seq)`, an empty function. `flux event N` in
+  `flux_lldb.py` breaks there for N, past other breakpoints, and selects
+  the frame that performed the effect, past the default handler arms
+  `with IO` installs. An event already passed in a replay is reached by
+  launching again; in a recording it is refused. `flux events` lists the
+  tape through `flux_debug_tape_events(from)` (JSON, paged, a static
+  buffer). Under VS Code, lldb-dap owns the process (Xcode's has no
+  `restart`), so the Timeline goes forward only.
 - **Hand-off:** open the same tape in the VM engine to step backwards through
   the same execution.
 - **No reverse execution of native code.** On Linux x86-64, `rr` works with a
@@ -1164,7 +1185,7 @@ As built in S7b:
 | S8b | Native fibers: the runtime's fiber records and `flux_debug_fibers()`, a fiber failure hook, `flux threads` / `thread` / `catch fibers` and fiber-aware stepping in lldb, fibers as threads in the lldb-dap proxy; `dsymutil` limited to two at a time per machine | Debug parity fixtures `tests/parity_debug/async_*` (`both`, `race`, `timeout`, a channel, a failing fiber, stepping over a sleep), with `threads` / `thread N`. lldb sessions in `native_debug_tests` (`flux threads`, a waiting fiber's stack, `flux catch fibers`, a failed root stops once); a native DAP test for fiber threads and their stacks. |
 | S8c | Record and replay with tasks (§4.2): tape format version 2 with a `task` on each event, the turnstile that runs threads in the recorded order (console text at its turn), task spawns, starts, ends, cancels, joins and awaits as ordered events, completions handed over between threads as `wake` events, channel operations ordered once a task exists, the native tape protocol per thread; E1027 narrowed to `run_async` inside a task | `tests/replay/fixtures/task_*` (join, await, cancel racing the task, a channel shared with fibers) record and replay on both backends; 100 replays of `task_cancel` and `task_channel` print the same on each backend; an edited task tape stops with E1022; `run_async` inside a task fails with E1027. |
 | S9a | Going back through async code and tasks on the VM (§4.4): recording through `run_async`, re-running from the checkpoint before it with the kept events (tape marks keep the tape's numbering, checkpoints the next channel/task/event ids), the abandoned run unwinding with its tape paused and its tasks forgotten (tape generations, stale completions dropped), stepping back that stays in its fiber, running live again where a re-run ends (timers start over) | Transcripts `reverse_async`, `reverse_task`, `reverse_both`, `reverse_sleep`, `reverse_channel`, `reverse_async_replayed` in `tests/debug/vm/`; DAP `stepping_back_into_async_code`. |
-| S9b | Native replay under lldb (the tape header and checks for runs started outside `flux`), run to event (`flux event N` through a tape-event hook), a Timeline view in VS Code for both backends | lldb replays a tape and stops at event N; native record and replay from VS Code; the Timeline view lists and goes to events. |
+| S9b | Native replay under lldb: the build embeds `flux_program_hash`, so a native program writes its tape header and checks a replayed tape itself, with rendered errors (§4.2); run to event (`flux_debug_on_tape_event`, `flux events` / `flux event N` in lldb, relaunching a replay to go back); `fluxEvents` / `fluxGoToEvent` in `flux-dap` for both backends and a Flux Timeline view in VS Code; `.events` / `.event N` in native sessions (forward) | `replay_cli_tests`: a binary run directly records a tape the driver replays on both backends, and refuses another program's tape with E1026; lldb sessions in `native_debug_tests` (to an event and back in a replay, forward only in a recording, no tape); DAP `the_timeline_lists_the_effects_and_goes_to_one` and `native_record_and_replay_with_the_timeline` (native record, replay, Timeline, the tape on the VM with Step Back). |
 | S9c | Core-inlining provenance → `inlinedAt`, and Core inlining turned back on in the debug profile | Golden `lldb bt` output for inlined frames; `llvm-dwarfdump --verify`; debug parity unchanged. |
 | S9d | Backend-neutral async tapes: requests named by the fiber that made them, the schedule on the tape, each scheduler following it | Every async and task fixture recorded on one backend replays on the other; 100 identical cross-backend replays. |
 | S10 | Aether reference-count view, debug-heap runtime, native panic symbolization; `flux_trace_push` deleted | Golden reference counts. A use-after-free fixture that the debug heap catches. Native panic output lists Flux frames. |

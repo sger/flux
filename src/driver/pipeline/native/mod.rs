@@ -125,6 +125,48 @@ pub(crate) fn compile_native_support_object(
 }
 
 #[cfg(feature = "llvm")]
+/// Builds or reuses the object that defines `flux_program_hash`, the hash a
+/// tape names this program by (proposal 0188 S9b). Linked into every native
+/// program, so the program writes and checks tapes without the driver.
+pub(crate) fn compile_program_hash_object(
+    cache_layout: &CacheLayout,
+    no_cache: bool,
+    program_hash: &str,
+) -> Result<PathBuf, String> {
+    let digest = program_hash.trim_start_matches("sha256:");
+    let name = format!(
+        "flux_program_{}.{}",
+        &digest[..digest.len().min(16)],
+        if cfg!(windows) { "obj" } else { "o" }
+    );
+    let object_path = if no_cache {
+        let dir = native_temp_dir(cache_layout);
+        let _ = std::fs::create_dir_all(&dir);
+        dir.join(name)
+    } else {
+        let dir = cache_layout.native_dir().join("program_hash");
+        let _ = std::fs::create_dir_all(&dir);
+        dir.join(name)
+    };
+    if !no_cache && object_path.exists() {
+        return Ok(object_path);
+    }
+    let mut ll_text = String::new();
+    if let Some(layout) = target::host_data_layout() {
+        ll_text.push_str(&format!("target datalayout = \"{layout}\"\n"));
+    }
+    ll_text.push_str(&format!(
+        "target triple = \"{}\"\n@flux_program_hash = constant [{} x i8] c\"{}\\00\", align 1\n",
+        target::host_triple(),
+        program_hash.len() + 1,
+        program_hash
+    ));
+    compile_ir_to_object(&ll_text, &object_path, 0)
+        .map_err(|err| format!("native program hash object compilation failed: {err}"))?;
+    Ok(object_path)
+}
+
+#[cfg(feature = "llvm")]
 /// Grouped inputs for native parallel module compilation.
 pub(crate) struct NativeParallelCompileRequest<'a> {
     pub(crate) graph: &'a ModuleGraph,

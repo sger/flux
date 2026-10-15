@@ -761,4 +761,59 @@ impl LoadedTape {
             Some(EffectRequest::Exit { .. })
         )
     }
+
+    /// Checks that this tape can be replayed by the program `program_hash`
+    /// names, on `backend` (`"vm"` or `"native"`): the same checks whether
+    /// the driver or a native program opens it. An empty `program_hash`
+    /// means the program does not know its own, and skips that check.
+    /// Returns the warnings to show, each without its `warning: ` prefix.
+    pub fn check_for(&self, program_hash: &str, backend: &str) -> Result<Vec<String>, TapeError> {
+        if !program_hash.is_empty() && self.header.program_hash != program_hash {
+            return Err(TapeError::BadTape {
+                path: self.path.clone(),
+                reason: "it was recorded from a different program, or from this one \
+                         before it was changed"
+                    .to_string(),
+            });
+        }
+        if self.has_async() && self.header.backend != backend {
+            return Err(TapeError::BadTape {
+                path: self.path.clone(),
+                reason: format!(
+                    "it records async code run on {recorded}, which replays only on \
+                     {recorded}; replay it with {flag}",
+                    recorded = backend_name(&self.header.backend),
+                    flag = if self.header.backend == "native" {
+                        "--native"
+                    } else {
+                        "the VM (without --native)"
+                    },
+                ),
+            });
+        }
+        let mut warnings = Vec::new();
+        if self.header.flux_version != env!("CARGO_PKG_VERSION") {
+            warnings.push(format!(
+                "tape `{}` was recorded by flux {}; this is flux {}.",
+                self.path,
+                self.header.flux_version,
+                env!("CARGO_PKG_VERSION")
+            ));
+        }
+        if self.is_truncated() {
+            warnings.push(format!(
+                "tape `{}` is incomplete: the recorded run did not finish.",
+                self.path
+            ));
+        }
+        Ok(warnings)
+    }
+}
+
+fn backend_name(backend: &str) -> &str {
+    match backend {
+        "native" => "the native backend",
+        "vm" => "the VM",
+        other => other,
+    }
 }

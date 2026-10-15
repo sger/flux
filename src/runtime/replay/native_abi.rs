@@ -8,8 +8,9 @@
 //! [`FluxTapeOutcome`] — and C builds its own values from it, so this side
 //! never touches the native heap.
 //!
-//! A tape error ends the process: the error goes to stderr as one
-//! `flux-tape-error: {json}` line, which the driver renders as a diagnostic.
+//! A tape error ends the process. It goes to stderr rendered as a
+//! diagnostic and then as one `flux-tape-error: {json}` line for tools; run
+//! by the driver (`FLUX_TAPE_WIRE`), only the line, which the driver renders.
 
 use std::cell::RefCell;
 use std::ffi::{CStr, c_char};
@@ -199,11 +200,56 @@ fn with_pending<R>(f: impl FnOnce(&mut Pending) -> R) -> R {
     (f.take().expect("did not run"))(&mut Pending::default())
 }
 
+/// Set by the driver for the native program it runs: tape errors go to
+/// stderr only as wire lines, which the driver renders itself.
+pub const WIRE_ENV: &str = "FLUX_TAPE_WIRE";
+
+/// The program's name for rendered errors: its `argv[0]`.
+static PROGRAM: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
 /// Reports a tape error and ends the process.
 fn fatal(err: TapeError) -> ! {
     super::abandon();
-    eprintln!("{}", err.to_wire());
+    report(&err);
     std::process::exit(1);
+}
+
+/// Prints a tape error: rendered, unless the driver will render it, and
+/// always as the wire line tools read.
+fn report(err: &TapeError) {
+    if std::env::var_os(WIRE_ENV).is_none() {
+        let program = PROGRAM.get().map(String::as_str).unwrap_or("program");
+        let diagnostic = err.to_diagnostic(program, None);
+        eprintln!(
+            "{}",
+            crate::diagnostics::render_runtime_diagnostic(&diagnostic, program, None, &[])
+        );
+    }
+    eprintln!("{}", err.to_wire());
+}
+
+/// Reads C's `argv`.
+///
+/// # Safety
+///
+/// `argv` holds `argc` NUL-terminated strings (or is null).
+unsafe fn read_argv(argc: i32, argv: *const *const c_char) -> Vec<String> {
+    if argv.is_null() {
+        return Vec::new();
+    }
+    (0..argc.max(0) as usize)
+        .map(|i| {
+            // SAFETY: the caller passes `argc` valid pointers.
+            let arg = unsafe { *argv.add(i) };
+            if arg.is_null() {
+                String::new()
+            } else {
+                unsafe { CStr::from_ptr(arg) }
+                    .to_string_lossy()
+                    .into_owned()
+            }
+        })
+        .collect()
 }
 
 unsafe fn slice<'a>(ptr: *const u8, len: usize) -> &'a [u8] {
@@ -216,26 +262,104 @@ unsafe fn slice<'a>(ptr: *const u8, len: usize) -> &'a [u8] {
 }
 
 /// Starts recording or replaying from `FLUX_TAPE_RECORD` / `FLUX_TAPE_REPLAY`,
-/// which the driver sets. Returns the mode: 0 off, 1 record, 2 replay.
+/// set by the driver, an editor or by hand. Returns the mode: 0 off, 1
+/// record, 2 replay.
+///
+/// The program needs no driver for either: it writes a new tape's header
+/// itself, from `program_hash` (the `flux_program_hash` its build embeds)
+/// and its own `argv`, and checks a tape it replays the way the driver does.
+///
+/// # Safety
+///
+/// `program_hash` is a NUL-terminated string or null; `argv` holds `argc`
+/// NUL-terminated strings or is null.
 #[unsafe(no_mangle)]
-pub extern "C" fn flux_tape_init() -> i32 {
-    // Errors found inside the async scheduler reach the driver the same way
-    // as the rest: one wire line on stderr.
-    super::async_tape::set_fatal_handler(Box::new(|err| eprintln!("{}", err.to_wire())));
+pub unsafe extern "C" fn flux_tape_init(
+    program_hash: *const c_char,
+    argc: i32,
+    argv: *const *const c_char,
+) -> i32 {
+    let argv = unsafe { read_argv(argc, argv) };
+    let _ = PROGRAM.set(argv.first().cloned().unwrap_or_default());
+    let program_hash = if program_hash.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(program_hash) }
+            .to_string_lossy()
+            .into_owned()
+    };
+    // Errors found inside the async scheduler are reported the same way as
+    // the rest.
+    super::async_tape::set_fatal_handler(Box::new(report));
     if let Some(path) = std::env::var_os("FLUX_TAPE_RECORD") {
-        if let Err(err) = super::start_record_append(Path::new(&path)) {
+        let header = super::TapeHeader::new(program_hash, argv, "native");
+        if let Err(err) = super::start_record(Path::new(&path), &header) {
             fatal(err);
         }
+        super::keep_titles();
         return 1;
     }
     if let Some(path) = std::env::var_os("FLUX_TAPE_REPLAY") {
-        match LoadedTape::load(Path::new(&path)) {
-            Ok(tape) => super::start_replay(tape),
+        let tape = LoadedTape::load(Path::new(&path)).unwrap_or_else(|err| fatal(err));
+        match tape.check_for(&program_hash, "native") {
+            // The driver already showed these.
+            Ok(warnings) if std::env::var_os(WIRE_ENV).is_none() => {
+                for warning in warnings {
+                    eprintln!("warning: {warning}");
+                }
+            }
+            Ok(_) => {}
             Err(err) => fatal(err),
         }
+        super::start_replay(tape);
         return 2;
     }
     0
+}
+
+/// The tape's events for a debugger, as JSON: up to a page of them from
+/// event `from`, with where the next page starts and the next event the run
+/// reaches —
+/// `{"events":[{"seq":0,"text":"read_file(\"in.txt\")"}],"next":null,"cursor":1,"mode":"replay"}`,
+/// or `{"events":null}` without a tape. lldb calls it while the program is
+/// stopped (`flux events`, 0188 S9b); like `flux_debug_fibers` it answers
+/// in a static buffer, valid until the next call, and takes no lock it
+/// could wait for.
+#[unsafe(no_mangle)]
+#[inline(never)]
+pub extern "C" fn flux_debug_tape_events(from: u64) -> *const c_char {
+    use crate::runtime::r#async::native_abi::debug_json;
+    use std::fmt::Write as _;
+    // Escaped, an event's text fits in a few hundred bytes; a page this
+    // long stays well inside the buffer.
+    const PAGE: usize = 100;
+    let Ok(page) = std::panic::catch_unwind(|| super::try_event_page(from, PAGE)) else {
+        return debug_json::write(|out| out.text("{\"busy\":true}"));
+    };
+    debug_json::write(|out| match page {
+        None => out.text("{\"busy\":true}"),
+        Some(None) => out.text("{\"events\":null}"),
+        Some(Some(page)) => {
+            out.text("{\"events\":[")?;
+            for (i, (seq, text)) in page.events.iter().enumerate() {
+                if i > 0 {
+                    out.text(",")?;
+                }
+                let text = serde_json::to_string(text).map_err(|_| std::fmt::Error)?;
+                write!(out, "{{\"seq\":{seq},\"text\":{text}}}")?;
+            }
+            match page.next {
+                Some(next) => write!(out, "],\"next\":{next}")?,
+                None => out.text("],\"next\":null")?,
+            }
+            write!(
+                out,
+                ",\"cursor\":{},\"mode\":\"{}\"}}",
+                page.cursor,
+                if page.replaying { "replay" } else { "record" }
+            )
+        }
+    })
 }
 
 /// Begins describing a request of `kind`.
