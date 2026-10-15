@@ -183,6 +183,7 @@ pub(super) fn complete_wait(request_id: u64) {
         .lock()
         .expect("VM event active wait set poisoned")
         .remove(&request_id)
+        && !super::core_dispatch::wake_here(request_id, || Ok(Value::None))
     {
         let _ = wait_queue().tx.send(request_id);
     }

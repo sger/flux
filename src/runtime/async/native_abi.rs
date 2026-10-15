@@ -1254,8 +1254,8 @@ fn ready_timers() -> &'static Mutex<HashSet<u64>> {
 
 fn next_request_id() -> u64 {
     let req = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
-    // Numbered for the tape as it is made: another thread may complete it
-    // without it ever being submitted (0188 S8c).
+    // The tape notes which fiber made it: its submission and a hand-over of
+    // its completion are that fiber's (0188 S9d).
     crate::runtime::replay::async_tape::note_request(req);
     req
 }

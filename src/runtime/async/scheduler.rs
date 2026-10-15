@@ -258,8 +258,8 @@ impl FiberScheduler {
     /// Cancel all suspended fibers whose `FiberId` matches the given set.
     ///
     /// Cancelled fibers are moved back onto the ready queue in `Cancelled`
-    /// state; when the dispatch loop next dequeues them it delivers the
-    /// `AsyncError.Canceled` error (Phase 1b-vi).
+    /// state; when the dispatch loop next dequeues them it drops them
+    /// (0188 S9d).
     ///
     /// Also marks any matching fiber already in the ready queue as `Cancelled`
     /// to close the window where `deliver_completion` moves a fiber from
@@ -281,7 +281,7 @@ impl FiberScheduler {
                 })
                 .copied()
                 .collect();
-            // Requeue in request order, not hash order, so cleanup runs the
+            // Requeue in request order, not hash order, so they are dropped the
             // same way every run (and a recorded run replays).
             to_cancel.sort_unstable();
             for req in to_cancel {

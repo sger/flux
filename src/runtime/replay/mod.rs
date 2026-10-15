@@ -835,7 +835,12 @@ fn event_fiber(request: &EffectRequest) -> u32 {
         EffectRequest::AsyncComplete { .. }
         | EffectRequest::Wake { .. }
         | EffectRequest::Exit { .. } => 0,
-        _ => async_tape::current_fiber(),
+        // A submission is the fiber's whose request it is, whichever fiber
+        // the scheduler was running when it sent it (0188 S9d).
+        _ => match request.submitted_req() {
+            Some(req) => async_tape::request_fiber(req),
+            None => async_tape::current_fiber(),
+        },
     }
 }
 

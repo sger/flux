@@ -54,8 +54,7 @@ pub(crate) fn prepare(graph: &ModuleGraph, entry_path: &Path, flags: &DriverFlag
         }
         TapeRequest::Replay(path) => {
             let tape = LoadedTape::load(path).unwrap_or_else(|err| fail(&err, path));
-            let backend = if native { "native" } else { "vm" };
-            match tape.check_for(&program_hash, backend) {
+            match tape.check_for(&program_hash) {
                 Ok(warnings) => {
                     for warning in warnings {
                         eprintln!("warning: {warning}");

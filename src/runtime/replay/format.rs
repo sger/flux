@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use super::error::TapeError;
 
 pub const TAPE_MAGIC: &str = "FLXTAPE";
-pub const TAPE_VERSION: u32 = 2;
+pub const TAPE_VERSION: u32 = 3;
 
 /// The first line of a tape.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -161,9 +161,10 @@ pub enum EffectRequest {
     },
     // ── Async submissions ─────────────────────────────────────────────
     // Work handed to the async backend. `req` numbers requests from 1 in
-    // the order they are first submitted. Replay checks each submission
-    // and does not perform it; the result arrives later as
-    // `async_complete`.
+    // the order they are first submitted, and the event's `fiber` is the
+    // fiber the request belongs to, which is the same on either backend
+    // (0188 S9d). Replay checks each submission and does not perform it;
+    // the result arrives later as `async_complete`.
     TimerStart {
         req: u64,
         ms: u64,
@@ -234,11 +235,13 @@ pub enum EffectRequest {
     TaskAwait {
         id: u32,
     },
-    /// The scheduler received request `req`'s completion from another
-    /// thread: a task's result, or a value a channel or event handed over.
-    /// Replay delivers the real completion at this point.
+    /// The scheduler received, from another thread, the completion fiber
+    /// `waiter` was waiting for: a task's result, or a value a channel or
+    /// event handed over. Replay delivers the real completion at this
+    /// point. A fiber waits for one thing at a time, so the fiber names it
+    /// on either backend (0188 S9d).
     Wake {
-        req: u64,
+        waiter: u32,
     },
     /// A channel operation once the program has a task: `op` is `make`,
     /// `send`, `recv`, `try_send`, `try_recv` or `close`, and the result
@@ -329,6 +332,21 @@ impl EffectRequest {
         }
     }
 
+    /// The request an async submission makes, if it makes one.
+    pub fn submitted_req(&self) -> Option<u64> {
+        use EffectRequest::*;
+        match self {
+            TimerStart { req, .. }
+            | DnsResolve { req, .. }
+            | TcpConnect { req, .. }
+            | TcpListen { req, .. }
+            | TcpAccept { req, .. }
+            | TcpRead { req, .. }
+            | TcpWrite { req, .. } => Some(*req),
+            _ => None,
+        }
+    }
+
     /// The `kind` written to the tape.
     pub fn kind_name(&self) -> &'static str {
         use EffectRequest::*;
@@ -390,15 +408,6 @@ impl EffectRequest {
                 EffectClass::Input | EffectClass::Output | EffectClass::Completion
             ),
         }
-    }
-
-    /// Whether this event belongs to async code, which replays only on the
-    /// backend that recorded it.
-    pub fn is_async(&self) -> bool {
-        matches!(
-            self.class(),
-            EffectClass::Submit | EffectClass::Completion | EffectClass::Ordered
-        )
     }
 }
 
@@ -473,7 +482,7 @@ impl fmt::Display for EffectRequest {
                 "{kind}(task {id}, {})",
                 if *failed { "failed" } else { "done" }
             ),
-            Wake { req } => write!(f, "the hand-over of async request #{req}"),
+            Wake { waiter } => write!(f, "the hand-over fiber {waiter} waits for"),
             Channel { chan, op } => write!(f, "{kind}(#{chan}, {op})"),
         }
     }
@@ -747,12 +756,6 @@ impl LoadedTape {
         })
     }
 
-    /// True when the tape records async code, which replays only on the
-    /// backend that recorded it.
-    pub fn has_async(&self) -> bool {
-        self.events.iter().any(|event| event.request.is_async())
-    }
-
     /// True when the recorded run did not reach its end, for example because
     /// it crashed; replaying it stops with "tape exhausted".
     pub fn is_truncated(&self) -> bool {
@@ -763,32 +766,18 @@ impl LoadedTape {
     }
 
     /// Checks that this tape can be replayed by the program `program_hash`
-    /// names, on `backend` (`"vm"` or `"native"`): the same checks whether
-    /// the driver or a native program opens it. An empty `program_hash`
-    /// means the program does not know its own, and skips that check.
-    /// Returns the warnings to show, each without its `warning: ` prefix.
-    pub fn check_for(&self, program_hash: &str, backend: &str) -> Result<Vec<String>, TapeError> {
+    /// names: the same checks whether the driver or a native program opens
+    /// it, on either backend, async code included (0188 S9d). An empty
+    /// `program_hash` means the program does not know its own, and skips
+    /// that check. Returns the warnings to show, each without its
+    /// `warning: ` prefix.
+    pub fn check_for(&self, program_hash: &str) -> Result<Vec<String>, TapeError> {
         if !program_hash.is_empty() && self.header.program_hash != program_hash {
             return Err(TapeError::BadTape {
                 path: self.path.clone(),
                 reason: "it was recorded from a different program, or from this one \
                          before it was changed"
                     .to_string(),
-            });
-        }
-        if self.has_async() && self.header.backend != backend {
-            return Err(TapeError::BadTape {
-                path: self.path.clone(),
-                reason: format!(
-                    "it records async code run on {recorded}, which replays only on \
-                     {recorded}; replay it with {flag}",
-                    recorded = backend_name(&self.header.backend),
-                    flag = if self.header.backend == "native" {
-                        "--native"
-                    } else {
-                        "the VM (without --native)"
-                    },
-                ),
             });
         }
         let mut warnings = Vec::new();
@@ -807,13 +796,5 @@ impl LoadedTape {
             ));
         }
         Ok(warnings)
-    }
-}
-
-fn backend_name(backend: &str) -> &str {
-    match backend {
-        "native" => "the native backend",
-        "vm" => "the VM",
-        other => other,
     }
 }

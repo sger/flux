@@ -346,8 +346,8 @@ fn an_edited_tape_stops_the_replay_where_it_diverges() {
 }
 
 /// Async code: fibers, sleeps, channels, events, sockets and file system
-/// calls inside `run_async`. A tape of async code replays on the backend that
-/// recorded it.
+/// calls inside `run_async`. A tape of async code replays on either backend
+/// (0188 S9d).
 const ASYNC_FIXTURES: &[&str] = &[
     "async_sleep",
     "async_channels",
@@ -355,6 +355,7 @@ const ASYNC_FIXTURES: &[&str] = &[
     "async_scopes",
     "async_fs",
     "async_tcp",
+    "async_race_loser",
 ];
 
 #[test]
@@ -530,16 +531,17 @@ fn each_task_fixture_replays_on_the_vm() {
     }
 }
 
-/// Records `fixture` once, with several workers asked for, then replays the
-/// tape `times` times: every replay prints exactly what the recording did.
-fn assert_replays_identically(fixture: &str, backend: Backend, times: usize) {
+/// Records `fixture` once on `from`, with several workers asked for, then
+/// replays the tape `times` times on `to`: every replay prints exactly what
+/// the recording did.
+fn assert_replays_identically(fixture: &str, from: Backend, to: Backend, times: usize) {
     let workers = [("FLUX_WORKERS", "4")];
     let case = Case::new(fixture);
     let tape = case.tape("run.jsonl");
-    let recorded = case.record(backend, &tape, "", &workers);
+    let recorded = case.record(from, &tape, "", &workers);
     assert_eq!(recorded.code, 0, "{fixture}: {}", recorded.stderr);
     for run in 0..times {
-        let replayed = case.replay(backend, &tape, &workers);
+        let replayed = case.replay(to, &tape, &workers);
         assert_eq!(
             replayed.stdout, recorded.stdout,
             "{fixture}: replay {run} printed something else:\n{}",
@@ -556,7 +558,7 @@ fn assert_replays_identically(fixture: &str, backend: Backend, times: usize) {
 #[test]
 fn a_replay_with_tasks_is_identical_a_hundred_times() {
     for fixture in ["task_cancel", "task_channel"] {
-        assert_replays_identically(fixture, Backend::Vm, 100);
+        assert_replays_identically(fixture, Backend::Vm, Backend::Vm, 100);
     }
 }
 
@@ -793,17 +795,27 @@ mod native {
         assert_async_tape_divergence(Backend::Native);
     }
 
+    /// Both schedulers follow the same rules, so a tape of async code or
+    /// tasks replays on the other backend too (0188 S9d).
     #[test]
-    fn an_async_tape_replays_only_on_the_backend_that_recorded_it() {
-        for (from, to, flag) in [
-            (Backend::Vm, Backend::Native, "the VM (without --native)"),
-            (Backend::Native, Backend::Vm, "--native"),
-        ] {
-            let case = Case::new("async_sleep");
-            let tape = case.tape("run.jsonl");
-            let recorded = case.record(from, &tape, "", &[]);
-            assert_eq!(recorded.code, 0, "{}", recorded.stderr);
-            assert_tape_error(&case.replay(to, &tape, &[]), "E1026", flag);
+    fn a_vm_async_tape_replays_on_native() {
+        for fixture in ASYNC_FIXTURES.iter().chain(TASK_FIXTURES) {
+            assert_replays(fixture, Backend::Vm, Backend::Native);
+        }
+    }
+
+    #[test]
+    fn a_native_async_tape_replays_on_the_vm() {
+        for fixture in ASYNC_FIXTURES.iter().chain(TASK_FIXTURES) {
+            assert_replays(fixture, Backend::Native, Backend::Vm);
+        }
+    }
+
+    #[test]
+    fn a_cross_backend_replay_with_tasks_is_identical_a_hundred_times() {
+        for fixture in ["task_cancel", "task_channel"] {
+            assert_replays_identically(fixture, Backend::Vm, Backend::Native, 100);
+            assert_replays_identically(fixture, Backend::Native, Backend::Vm, 100);
         }
     }
 
@@ -817,7 +829,7 @@ mod native {
     #[test]
     fn a_native_replay_with_tasks_is_identical_a_hundred_times() {
         for fixture in ["task_cancel", "task_channel"] {
-            assert_replays_identically(fixture, Backend::Native, 100);
+            assert_replays_identically(fixture, Backend::Native, Backend::Native, 100);
         }
     }
 

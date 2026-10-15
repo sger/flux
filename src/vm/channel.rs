@@ -56,7 +56,16 @@ fn lookup(id: i64) -> Result<Arc<ChannelEntry>, String> {
 }
 
 fn publish(request_id: u64, result: ChannelResult) {
-    let _ = completion_queue().tx.send((request_id, result));
+    // On the run's own thread the waiter wakes at once (0188 S9d); from
+    // another thread the result goes through the queue.
+    let mut pending = Some(result);
+    super::core_dispatch::wake_here(request_id, || {
+        let result = pending.take().expect("taken once");
+        result.and_then(VmSendValue::into_value)
+    });
+    if let Some(result) = pending {
+        let _ = completion_queue().tx.send((request_id, result));
+    }
 }
 
 fn unit() -> VmSendValue {
