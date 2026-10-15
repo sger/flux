@@ -25,7 +25,6 @@ mod threads;
 mod values;
 
 use std::collections::HashSet;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub(crate) use inspect::display_name;
@@ -279,6 +278,13 @@ struct Search {
     found: Option<(u64, (usize, usize))>,
     /// The first place a step would stop, should nothing match.
     first_stop: Option<(u64, (usize, usize))>,
+    /// Going back a step, a line or out of a call stays in the fiber it
+    /// started in, as going forward does (0188 S9a): its thread number,
+    /// which a re-run gives it again.
+    fiber: Option<u64>,
+    /// The latest match in any fiber: where a step back from a fiber's
+    /// first line goes.
+    found_any: Option<(u64, (usize, usize))>,
 }
 
 /// A resolved line breakpoint: the file as the bytecode names it.
@@ -357,7 +363,7 @@ pub(crate) type FrameSummary = (String, Option<(String, usize, usize)>);
 /// The error a rewind unwinds the VM with, out of any nested dispatch
 /// loops, to [`VM::run`], which restores the checkpoint. The VM checks its
 /// debugger for a pending rewind, not this text.
-const REWIND: &str = "the debugger is going back";
+pub(crate) const REWIND: &str = "the debugger is going back";
 
 /// A debugger attached to a VM.
 pub struct DebugState {
@@ -399,39 +405,36 @@ impl DebugState {
 
 // ── Whether going back is possible ──────────────────────────────────────
 
-static ASYNC_STARTED: AtomicBool = AtomicBool::new(false);
-static REVERSE_OFF: Mutex<Option<String>> = Mutex::new(None);
+/// Set while the run the debugger is leaving unwinds to `VM::run` to be
+/// restored: async code passes the debugger's error on untouched, and the
+/// tape is paused (0188 S9a).
+static REWINDING: AtomicBool = AtomicBool::new(false);
 
-/// Going back is off for the rest of the run, for `reason`.
-pub(crate) fn turn_off_reverse(reason: String) {
-    let mut off = REVERSE_OFF
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    off.get_or_insert(reason);
+/// Whether the debugger is going back and the run is unwinding.
+pub(crate) fn rewinding() -> bool {
+    REWINDING.load(Ordering::Relaxed)
 }
 
-/// The program is entering `run_async`. The scheduler's state lives outside
-/// the VM, where checkpoints do not reach yet (0188 S9), so going back is
-/// off from here on, and a debug session's own recording stops.
-pub(crate) fn note_async_start() {
-    if ASYNC_STARTED.swap(true, Ordering::Relaxed) {
-        return;
-    }
-    replay::stop_implicit();
-    turn_off_reverse(
-        "the program has run async code, which going back does not cover yet (0188 S9)".to_string(),
-    );
+/// The thread the program is running: its fiber's number, or 1 outside
+/// `run_async` (the program, as the threads view numbers it).
+fn this_thread() -> Option<u64> {
+    Some(
+        super::core_dispatch::debug_current_fiber().map_or(1, |(fiber, _)| {
+            super::fiber_debug::number(fiber).unwrap_or(1)
+        }),
+    )
+}
+
+/// Goes back to the checkpoint at `from`: the run unwinds to `VM::run`,
+/// which restores it.
+fn start_rewind(control: &mut DebugControl, from: u64) {
+    control.rewind = Some(from);
+    REWINDING.store(true, Ordering::Relaxed);
+    replay::pause();
 }
 
 /// Why going back is not possible now, if it is not.
 pub(crate) fn reverse_unavailable() -> Option<String> {
-    if let Some(reason) = REVERSE_OFF
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clone()
-    {
-        return Some(reason);
-    }
     if replay::is_active() && replay::mark().is_none() {
         return Some("this session's recording does not keep its events".to_string());
     }
@@ -504,6 +507,11 @@ impl VM {
                 self.end_scan_stretch(&mut state.control);
             }
             let rewind = state.control.rewind.take();
+            if rewind.is_some() {
+                // What the abandoned run left outside the VM goes (0188 S9a).
+                super::task::abandon_all();
+                super::core_dispatch::debug_reset_async();
+            }
             let restored = rewind.and_then(|position| {
                 // Restoring writes the control; the checkpoints stay as they are.
                 let checkpoints =
@@ -515,6 +523,10 @@ impl VM {
                 found
             });
             self.debugger = Some(state);
+            if rewind.is_some() {
+                REWINDING.store(false, Ordering::Relaxed);
+                replay::unpause();
+            }
             match (rewind, restored) {
                 (Some(_), Some(())) => continue,
                 (Some(position), None) => {
@@ -618,10 +630,13 @@ impl VM {
 
     fn debug_site_with(&mut self, state: &mut DebugState, site: usize) -> Result<(), String> {
         let control = &mut state.control;
+        // No checkpoint while a task is running: restoring one would not
+        // bring it back. Inside async code `nested_runs` is never 0.
         if self.nested_runs == 0
             && control.checkpoints.due(control.position)
             && control.checkpoints.len() > 0
             && reverse_unavailable().is_none()
+            && !super::task::any_live()
         {
             let checkpoint = Checkpoint::take(self, control);
             control.checkpoints.push(checkpoint);
@@ -675,7 +690,10 @@ impl VM {
                     search.first_stop = Some((position, here.identity));
                 }
                 if search.matches(&here, serial) {
-                    search.found = Some((position, here.identity));
+                    search.found_any = Some((position, here.identity));
+                    if search.in_fiber(this_thread()) {
+                        search.found = Some((position, here.identity));
+                    }
                 }
                 None
             }
@@ -788,6 +806,11 @@ impl VM {
     /// Starts going back from the current stop.
     fn go_back(&self, control: &mut DebugControl, goal: Goal) -> Result<(), String> {
         self.start_search(control, goal, control.position);
+        if let StepMode::Scan(search) = &mut control.mode
+            && goal != Goal::Breakpoint
+        {
+            search.fiber = this_thread();
+        }
         Err(REWIND.to_string())
     }
 
@@ -809,8 +832,10 @@ impl VM {
             callers,
             found: None,
             first_stop: None,
+            fiber: None,
+            found_any: None,
         });
-        control.rewind = Some(from);
+        start_rewind(control, from);
     }
 
     /// A scanned stretch has ended: go to what it found, or scan the stretch
@@ -819,7 +844,7 @@ impl VM {
         let StepMode::Scan(search) = &mut control.mode else {
             return;
         };
-        if let Some((target, identity)) = search.found {
+        if let Some((target, identity)) = search.found.or(search.found_any) {
             let reason = if search.goal == Goal::Breakpoint {
                 StopReason::Breakpoint
             } else {
@@ -856,7 +881,7 @@ impl VM {
         search.end = end;
         search.from = from;
         search.first_stop = None;
-        control.rewind = Some(from);
+        start_rewind(control, from);
     }
 
     /// Restores the newest checkpoint before `target` and runs silently to
@@ -877,7 +902,7 @@ impl VM {
             reason,
             expect,
         };
-        control.rewind = Some(from);
+        start_rewind(control, from);
     }
 
     /// Where site `site` is and what a stop there would be. Notes the line
@@ -1044,6 +1069,11 @@ fn forward_stop(here: &SiteHere, mode_accepts: bool) -> Option<StopReason> {
 }
 
 impl Search {
+    /// Whether a site in thread `thread` is in the fiber the search keeps to.
+    fn in_fiber(&self, thread: Option<u64>) -> bool {
+        self.fiber.is_none() || self.fiber == thread
+    }
+
     fn matches(&self, here: &SiteHere, serial: u64) -> bool {
         if !here.fresh {
             return false;

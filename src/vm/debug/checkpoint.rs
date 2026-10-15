@@ -39,6 +39,9 @@ pub(super) struct Checkpoint {
     next_serial: u64,
     suspensions: Vec<Suspension>,
     tape: Option<TapeMark>,
+    /// The next channel, task and event ids: a re-run gives what it makes
+    /// the same ids (0188 S9a).
+    next_ids: (i64, i64, i64),
 }
 
 impl Checkpoint {
@@ -63,6 +66,11 @@ impl Checkpoint {
             next_serial: control.next_serial,
             suspensions: control.suspensions.clone(),
             tape: replay::mark(),
+            next_ids: (
+                crate::vm::channel::next_id(),
+                crate::vm::task::next_id(),
+                crate::vm::event::next_id(),
+            ),
         }
     }
 
@@ -110,9 +118,13 @@ impl Checkpoint {
         control.pending_suspension = None;
         control.resumes.clear();
         control.top_ip = None;
-        if let Some(mark) = self.tape {
+        if let Some(mark) = self.tape.clone() {
             replay::rewind_to(mark);
         }
+        let (channels, tasks, events) = self.next_ids;
+        crate::vm::channel::rewind_ids(channels);
+        crate::vm::task::rewind_ids(tasks);
+        crate::vm::event::rewind_ids(events);
     }
 
     /// About how much memory the checkpoint holds itself: its copies of the
@@ -268,6 +280,7 @@ mod tests {
             next_serial: 0,
             suspensions: Vec::new(),
             tape: None,
+            next_ids: (0, 0, 0),
         }
     }
 

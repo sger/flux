@@ -1027,7 +1027,7 @@ fn debugging_a_replay() {
 }
 
 #[test]
-fn going_back_through_async_code_is_refused() {
+fn stepping_back_into_async_code() {
     let scratch = Scratch::new("async");
     let program = scratch.write(
         "nap.flx",
@@ -1036,7 +1036,13 @@ fn going_back_through_async_code_is_refused() {
     let mut editor = Editor::start(&scratch);
     editor.launch(&program, json!({}), &[10]);
     editor.event("stopped");
+    // Back past `run_async` (0188 S9a), then forward through it again: the
+    // recording answers the sleep, and the breakpoint stops again.
     editor.request("stepBack", json!({ "threadId": 1 }));
+    editor.event("stopped");
+    editor.request("stackTrace", json!({ "threadId": 1 }));
     editor.request("continue", json!({ "threadId": 1 }));
-    snapshot("going_back_through_async_code_is_refused", &editor.finish());
+    editor.event("stopped");
+    editor.request("continue", json!({ "threadId": 1 }));
+    snapshot("stepping_back_into_async_code", &editor.finish());
 }

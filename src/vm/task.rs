@@ -419,6 +419,46 @@ pub(super) fn start_await(id: i64, request_id: u64) -> Result<(), String> {
     }
 }
 
+/// The id the next task gets: a debugger's checkpoint keeps it.
+pub(crate) fn next_id() -> i64 {
+    NEXT_TASK_ID.load(Ordering::Relaxed)
+}
+
+/// A debugger restored a checkpoint taken when `next` was the next id
+/// (0188 S9a): the re-run gives its tasks the same ids.
+pub(crate) fn rewind_ids(next: i64) {
+    NEXT_TASK_ID.store(next, Ordering::Relaxed);
+}
+
+/// Whether the program has a task it has not joined or awaited: a debugger
+/// takes no checkpoint then, since restoring one would not bring the task
+/// back (0188 S9a).
+pub(crate) fn any_live() -> bool {
+    !tasks().lock().expect("VM task table poisoned").is_empty()
+}
+
+/// A debugger going back abandoned the run (0188 S9a): its tasks are
+/// cancelled and forgotten. A thread still running one finishes on its own,
+/// without touching the tape (`replay::pause` moved the generation on).
+pub(crate) fn abandon_all() {
+    let entries: Vec<VmTaskEntry> = tasks()
+        .lock()
+        .expect("VM task table poisoned")
+        .drain()
+        .map(|(_, entry)| entry)
+        .collect();
+    for entry in entries {
+        if let Some(handle) = entry.handle {
+            handle.cancel();
+        }
+    }
+    cancelled()
+        .lock()
+        .expect("VM task cancel set poisoned")
+        .clear();
+    while try_recv_completion().is_some() {}
+}
+
 pub(super) fn try_recv_completion() -> Option<(u64, Result<Value, String>)> {
     let queue = completion_queue();
     let rx = queue.rx.lock().expect("VM task completion queue poisoned");

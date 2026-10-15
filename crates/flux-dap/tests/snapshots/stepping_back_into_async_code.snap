@@ -1,5 +1,6 @@
 ---
 source: crates/flux-dap/tests/dap_tests.rs
+assertion_line: 276
 ---
 -> initialize {"adapterID":"flux"}
 <- {"body":{"exceptionBreakpointFilters":[{"default":true,"filter":"panic","label":"Panics"},{"default":true,"filter":"division_by_zero","label":"Division by zero"},{"default":true,"filter":"unhandled_effect","label":"Unhandled effects"},{"default":true,"filter":"fiber_failure","label":"Fiber failures"},{"default":false,"filter":"runtime_error","label":"Other runtime errors"}],"supportsConfigurationDoneRequest":true,"supportsEvaluateForHovers":true,"supportsExceptionInfoRequest":true,"supportsLoadedSourcesRequest":false,"supportsSetVariable":false,"supportsStepBack":true,"supportsTerminateRequest":true},"command":"initialize","success":true}
@@ -12,7 +13,13 @@ source: crates/flux-dap/tests/dap_tests.rs
 <- {"body":{},"command":"configurationDone","success":true}
 <- event {"body":{"allThreadsStopped":true,"description":"position 13","reason":"breakpoint","threadId":1},"event":"stopped"}
 -> stepBack {"threadId":1}
-<- {"command":"stepBack","message":"cannot go back: the program has run async code, which going back does not cover yet (0188 S9)","success":false}
+<- {"body":{},"command":"stepBack","success":true}
+<- event {"body":{"allThreadsStopped":true,"description":"position 3","reason":"step","threadId":1},"event":"stopped"}
+-> stackTrace {"threadId":1}
+<- {"body":{"stackFrames":[{"column":5,"id":2,"line":9,"name":"main","source":{"name":"nap.flx","path":"<dir>/nap.flx"}}],"totalFrames":1},"command":"stackTrace","success":true}
+-> continue {"threadId":1}
+<- {"body":{"allThreadsContinued":true},"command":"continue","success":true}
+<- event {"body":{"allThreadsStopped":true,"description":"position 13","reason":"breakpoint","threadId":1},"event":"stopped"}
 -> continue {"threadId":1}
 <- {"body":{"allThreadsContinued":true},"command":"continue","success":true}
 <- event {"body":{"exitCode":0},"event":"exited"}

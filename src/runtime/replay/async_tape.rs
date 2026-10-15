@@ -22,6 +22,7 @@
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -36,8 +37,10 @@ use super::{
 /// while the scheduler waits for a completion the tape does not have next.
 const STALL_LIMIT: Duration = Duration::from_secs(2);
 
-/// Logical numbering of requests and fibers for the active tape.
-#[derive(Default)]
+/// Logical numbering of requests and fibers for the active tape. A tape
+/// mark keeps a copy, so a debugger going back numbers everything again as
+/// the first run did (0188 S9a).
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub(super) struct Ids {
     req_logical: HashMap<u64, u64>,
     req_real: HashMap<u64, u64>,
@@ -53,6 +56,18 @@ static IDS: Mutex<Option<Ids>> = Mutex::new(None);
 
 pub(super) fn reset_ids() {
     *ids_lock() = Some(Ids::default());
+    unperformed().clear();
+}
+
+/// The numbering so far, for a tape mark.
+pub(super) fn snapshot_ids() -> Ids {
+    with_ids(|ids| ids.clone())
+}
+
+/// Puts the numbering back as a tape mark had it.
+pub(super) fn restore_ids(ids: Ids) {
+    *ids_lock() = Some(ids);
+    unperformed().clear();
 }
 
 fn ids_lock() -> std::sync::MutexGuard<'static, Option<Ids>> {
@@ -92,11 +107,35 @@ pub fn note_request(req: u64) {
 thread_local! {
     /// The logical task this thread runs: 0 on the main program's thread.
     static CURRENT_TASK: Cell<u32> = const { Cell::new(0) };
+    /// The tape generation the task started in (0188 S9a).
+    static TASK_GENERATION: Cell<u64> = const { Cell::new(0) };
 }
 
 /// This thread runs task `task` from now on (0 when it stops).
 pub fn enter_task(task: u32) {
     let _ = CURRENT_TASK.try_with(|current| current.set(task));
+    let _ = TASK_GENERATION.try_with(|generation| generation.set(super::generation()));
+}
+
+/// The tape generation this thread's task started in.
+pub(super) fn task_generation() -> u64 {
+    TASK_GENERATION
+        .try_with(|generation| generation.get())
+        .unwrap_or(0)
+}
+
+/// Requests made before this one belong to runs a debugger abandoned by
+/// going back: their completions, arriving late, are dropped (0188 S9a).
+static STALE_BELOW: AtomicU64 = AtomicU64::new(0);
+
+/// Drops, from now on, completions of requests numbered below `req`.
+pub fn forget_requests_before(req: u64) {
+    STALE_BELOW.store(req, Ordering::Relaxed);
+}
+
+/// Whether request `req` belongs to an abandoned run.
+pub fn is_stale(req: u64) -> bool {
+    req < STALE_BELOW.load(Ordering::Relaxed)
 }
 
 /// The logical task running on this thread: 0 for the main program.
@@ -140,6 +179,12 @@ pub fn logical_channel(chan: u64) -> u64 {
 /// event is this thread's `wake`, and then that request's, which the
 /// thread handing it over has done by then, since it came first on the tape.
 pub fn deliver_cross<T>(mut take: impl FnMut(Option<u64>) -> Option<(u64, T)>) -> Option<T> {
+    let mut take = move |want: Option<u64>| loop {
+        let (req, value) = take(want)?;
+        if want.is_some() || !is_stale(req) {
+            return Some((req, value));
+        }
+    };
     match mode() {
         ReplayMode::Off => take(None).map(|(_, value)| value),
         ReplayMode::Record => {
@@ -310,10 +355,70 @@ pub fn submit(req: Option<RequestId>, submission: Submission) -> bool {
             true
         }
         ReplayMode::Replay => {
-            if let Err(err) = super::take_matching(&request) {
-                fail(err);
+            match super::take_matching(&request) {
+                Ok(Some(_)) => {}
+                // Another thread reached the end of a re-run: record, and
+                // perform it.
+                Ok(None) => {
+                    if let Err(err) = append(request, None) {
+                        fail(err);
+                    }
+                    return true;
+                }
+                Err(err) => fail(err),
+            }
+            // Re-running a debug session's recording, which turns back into
+            // recording where it ends: work answered from the tape whose
+            // completion has not come yet must then really be started.
+            if super::is_rerun()
+                && let Some(req) = req
+            {
+                unperformed().push((req.0, submission));
             }
             false
+        }
+    }
+}
+
+// ── Running live again after a re-run (0188 S9a) ────────────────────────
+
+/// Work a re-run answered from the tape, by real request, whose completion
+/// has not come yet.
+static UNPERFORMED: Mutex<Vec<(u64, Submission)>> = Mutex::new(Vec::new());
+
+fn unperformed() -> std::sync::MutexGuard<'static, Vec<(u64, Submission)>> {
+    UNPERFORMED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Starts work for real, bypassing the tape: false when it cannot be.
+pub type Resubmit = fn(u64, &Submission) -> bool;
+
+static RESUBMIT: RwLock<Option<Resubmit>> = RwLock::new(None);
+
+/// Tells the tape how to start, for real, work a re-run only answered.
+/// Each backend's async runtime registers itself under a debugger.
+pub fn set_resubmit(resubmit: Resubmit) {
+    *RESUBMIT
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(resubmit);
+}
+
+/// A re-run reached the end of what was recorded and records again: starts
+/// for real what it only answered and is still waiting for. A timer starts
+/// over; a socket request cannot, and stops the run.
+pub(super) fn go_live() {
+    let pending = std::mem::take(&mut *unperformed());
+    let resubmit = *RESUBMIT
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    for (req, submission) in pending {
+        let started = resubmit.is_some_and(|resubmit| resubmit(req, &submission));
+        if !started {
+            fail(super::unsupported(
+                "running past the recording while a socket request is in flight",
+            ));
         }
     }
 }
@@ -323,7 +428,13 @@ pub fn submit(req: Option<RequestId>, submission: Submission) -> bool {
 /// Takes the next completion for the scheduler. Off: from the backend.
 /// Recording: from the backend, writing it to the tape. Replaying: from the
 /// tape, when its next event is a completion, and otherwise none yet.
-pub fn deliver(real_next: impl FnOnce() -> Option<Completion>) -> Option<Completion> {
+pub fn deliver(mut real_next: impl FnMut() -> Option<Completion>) -> Option<Completion> {
+    let mut real_next = move || loop {
+        let completion = real_next()?;
+        if !is_stale(completion.request_id.0) {
+            return Some(completion);
+        }
+    };
     match mode() {
         ReplayMode::Off => real_next(),
         ReplayMode::Record => {
@@ -341,11 +452,15 @@ pub fn deliver(real_next: impl FnOnce() -> Option<Completion>) -> Option<Complet
 
 fn replay_next() -> Option<Completion> {
     let next = {
-        let mut guard = lock();
-        let Some(TapeState::Replay { tape, cursor, .. }) = guard.as_mut() else {
+        let guard = lock();
+        if !matches!(
+            guard.as_ref(),
+            Some(TapeState::Replay { .. } | TapeState::Rerun { .. })
+        ) {
             return None;
-        };
-        match tape.events.get(*cursor) {
+        }
+        let (events, cursor) = super::replay_events(&guard);
+        match events.get(cursor) {
             // Another thread's event, or a completion handed over from one:
             // not the backend's to deliver, and not a stall.
             Some(event)
@@ -356,30 +471,27 @@ fn replay_next() -> Option<Completion> {
                 progressed();
                 return None;
             }
-            Some(TapeEvent {
-                request: EffectRequest::AsyncComplete { req },
-                result: Some(outcome),
-                seq,
-                ..
-            }) => {
-                let found = (*seq, *req, outcome.clone());
-                *cursor += 1;
-                Ok(found)
-            }
+            Some(
+                event @ TapeEvent {
+                    request: EffectRequest::AsyncComplete { req },
+                    result: Some(outcome),
+                    ..
+                },
+            ) => Ok((event.clone(), *req, outcome.clone())),
             Some(event) => Err(TapeError::KindMismatch {
                 index: event.seq,
                 expected: event.request.to_string(),
                 actual: "waiting for an async completion".to_string(),
             }),
             None => Err(TapeError::Exhausted {
-                count: tape.events.len() as u64,
+                count: events.len() as u64,
                 actual: "waiting for an async completion".to_string(),
             }),
         }
     };
     match next {
-        Ok((seq, req, outcome)) => {
-            progressed();
+        Ok((event, req, outcome)) => {
+            let seq = event.seq;
             let Some(real) = real_req(req) else {
                 fail(TapeError::PayloadMismatch {
                     index: seq,
@@ -396,6 +508,10 @@ fn replay_next() -> Option<Completion> {
                     program: "a timer, socket or DNS result".to_string(),
                 })
             });
+            unperformed().retain(|(pending, _)| *pending != real);
+            // Positions, the re-run's switch back to recording, and the
+            // threads waiting for their turn (0188 S9a).
+            super::advance(&event);
             Some(Completion {
                 request_id: RequestId(real),
                 payload,

@@ -309,6 +309,11 @@ pub(super) mod vm_async {
         RequestId(req)
     }
 
+    /// The next request number, without taking it.
+    pub fn next_request_id() -> u64 {
+        NEXT_REQ.load(Ordering::Relaxed)
+    }
+
     pub fn configure_dns_pool_size(size: usize) {
         configure_default_dns_pool_size(size);
     }
@@ -348,6 +353,11 @@ pub(crate) enum DebugFiberState {
 }
 
 /// The fibers of the active `run_async`, oldest first, for the debugger.
+/// A debugger going back abandoned the run: its async state goes (0188 S9a).
+pub(crate) fn debug_reset_async() {
+    vm_fibers::debug_reset();
+}
+
 pub(crate) fn debug_fibers() -> Vec<DebugFiber> {
     vm_fibers::debug_fibers()
 }
@@ -498,6 +508,16 @@ mod vm_fibers {
             constructor: Rc::new(name.to_string()),
             fields: AdtFields::One(value),
         }))
+    }
+
+    /// The debugger is going back (0188 S9a): the fiber that ran unwound with
+    /// the debugger's error, which goes on to `VM::run` as it is, rather than
+    /// as the fiber's failure. What the fiber left staged is dropped.
+    fn abandon_for_rewind() -> String {
+        let _ = take_park();
+        let _ = take_yield();
+        let _ = take_fiber_error();
+        crate::vm::debug::REWIND.to_string()
     }
 
     /// The next completion another thread or queue handed the scheduler: a
@@ -679,7 +699,6 @@ mod vm_fibers {
     /// outermost entry, spawn the root fiber, and make it current. Returns
     /// the root fiber id so the caller can pair this with `exit_run_async`.
     pub fn enter_run_async() -> FiberId {
-        crate::vm::debug::note_async_start();
         if crate::runtime::replay::is_active()
             && crate::runtime::replay::async_tape::current_task() != 0
         {
@@ -692,6 +711,12 @@ mod vm_fibers {
         if crate::runtime::replay::is_active() {
             crate::runtime::replay::async_tape::set_fiber_source(|| {
                 CURRENT.with(|c| c.get()).map(|id| id.0)
+            });
+            // A debugger's re-run that runs live again starts the timers it
+            // only answered (0188 S9a).
+            crate::runtime::replay::async_tape::set_resubmit(|req, submission| {
+                vm_async::backend()
+                    .is_ok_and(|backend| backend.resubmit(RequestId(req), submission))
             });
         }
         let depth = DEPTH.with(|d| {
@@ -1570,6 +1595,33 @@ mod vm_fibers {
 
     /// Tear down the await-coordination state at run_async exit
     /// (Phase 1b-vi-b₂.2). Avoids leaks across nested boundaries.
+    /// A debugger going back abandoned the run (0188 S9a). What it left in
+    /// the scheduler's thread-locals and queues goes, and completions of its
+    /// requests are dropped when they arrive, so the re-run starts as the
+    /// first run did.
+    pub fn debug_reset() {
+        SCHED.with(|s| *s.borrow_mut() = None);
+        DEPTH.with(|d| d.set(0));
+        CURRENT.with(|c| c.set(None));
+        CURRENT_WORKER.with(|c| c.set(None));
+        BOUNDARY.with(|b| b.set(None));
+        ROOT.with(|r| r.set(None));
+        PENDING_PARK.with(|p| p.borrow_mut().take());
+        PENDING_YIELD.with(|p| p.borrow_mut().take());
+        PENDING_FIBER_ERROR.with(|p| p.borrow_mut().take());
+        PARK_CANCELLED.with(|p| p.set(false));
+        PENDING_RUN_CONFIG.with(|c| c.set(None));
+        CANCELLED_IDS.with(|c| c.borrow_mut().clear());
+        clear_await_state();
+        RUN_ROOT_TASKS.with(|r| *r.borrow_mut() = None);
+        HANDED_OVER.with(|held| held.borrow_mut().clear());
+        while next_handed_over().is_some() {}
+        if let Ok(backend) = vm_async::backend() {
+            while backend.next_completion().is_some() {}
+        }
+        crate::runtime::replay::async_tape::forget_requests_before(vm_async::next_request_id());
+    }
+
     pub fn clear_await_state() {
         AWAITS.with(|a| a.borrow_mut().clear());
         RESUME_OUTCOMES.with(|r| r.borrow_mut().clear());
@@ -1632,6 +1684,9 @@ mod vm_fibers {
                         let outcome = with_current(fid, || {
                             ctx.resume_from_dispatch(Value::Continuation(cont), cancel_val)
                         });
+                        if crate::vm::debug::rewinding() {
+                            return Err(abandon_for_rewind());
+                        }
                         // The fiber may park again (e.g. inside a release arm
                         // that does async I/O).  Handle exactly like normal park.
                         if let Some((req, cont_val)) = take_park() {
@@ -1739,6 +1794,9 @@ mod vm_fibers {
                         }
                     })
                 });
+                if crate::vm::debug::rewinding() {
+                    return Err(abandon_for_rewind());
+                }
 
                 // Did the fiber park during this tick?  FiberSleep/FiberSuspend
                 // capture+unwind+set PENDING_PARK, then return Err so the

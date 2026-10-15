@@ -49,9 +49,7 @@ Otherwise, add one to `.vscode/launch.json`:
 | `fluxArgs` | Options for `flux` itself, such as `["--no-cache"]`. |
 
 Every session keeps its effects in memory, so Step Back and Reverse Continue
-work without a tape. Once a program runs async code or starts a task, going
-back is off for the rest of the session, and the step-back requests answer
-with the reason (0188 S8 lifts this).
+work without a tape, through async code and tasks too (0188 S9a).
 
 ## Native sessions
 
@@ -143,7 +141,7 @@ works while every fiber waits.
 While debugging, the VM runs every fiber on one worker. A task
 (`Task.spawn`) runs on a thread of its own: it is listed with its state, but
 the debugger does not pause it, and breakpoints in its code do not stop.
-Going back is off once the program runs async code (0188 S9).
+Step Back and Reverse Continue work through async code and tasks: the session goes back to before `run_async` and runs forward again from its recording (0188 S9a). Stepping back stays in the fiber that stopped.
 
 In a native session, the threads come from `flux threads --json`. The fiber
 that stopped is the OS thread it runs on, so its frames and variables are
@@ -237,6 +235,9 @@ Run this after changing the adapter or the extension, using
    `|>` pipeline stops at each stage.
 6. Step Back and Reverse Continue go back, and the variables match what
    they were going forward.
+   In `examples/async/03_both.flx`, Step Back inside a child fiber goes to
+   its previous line, and Reverse Continue to a breakpoint the other child
+   hit.
 7. Pause stops a long-running loop. Stop ends the session.
 8. Watch shows `name.0` parts, and hovering a local shows its value.
 9. The Debug Console's `.events` lists printed text, and `.event 0` goes

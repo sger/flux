@@ -315,13 +315,61 @@ fn going_back_performs_no_effect_twice() {
 }
 
 #[test]
-fn going_back_is_off_once_async_code_runs() {
+fn going_back_into_async_code() {
     assert_session("reverse_async");
 }
 
 #[test]
-fn going_back_is_off_once_a_task_starts() {
+fn going_back_across_a_task() {
     assert_session("reverse_task");
+}
+
+#[test]
+fn going_back_between_fibers() {
+    assert_session("reverse_both");
+}
+
+#[test]
+fn going_back_while_a_timer_is_in_flight_then_running_live() {
+    assert_session("reverse_sleep");
+}
+
+#[test]
+fn going_back_through_a_channel() {
+    assert_session("reverse_channel");
+}
+
+#[test]
+fn going_back_in_a_replay_of_async_code() {
+    let scratch = prepare("reverse_async_replayed");
+    let recorded = flux(
+        &scratch,
+        &["reverse_async_replayed.flx", "--record", "run.jsonl"],
+        &[],
+    );
+    assert!(
+        recorded.status.success(),
+        "{}",
+        String::from_utf8_lossy(&recorded.stderr)
+    );
+    let output = flux(
+        &scratch,
+        &[
+            "debug",
+            "reverse_async_replayed.flx",
+            "--script",
+            "reverse_async_replayed.flxdbg",
+            "--replay",
+            "run.jsonl",
+        ],
+        &[],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    snapshot("reverse_async_replayed", &transcript(&output));
 }
 
 #[test]

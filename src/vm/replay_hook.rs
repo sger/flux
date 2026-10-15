@@ -28,18 +28,9 @@ impl VM {
         args: Vec<Value>,
     ) -> Result<Value, String> {
         match replay::tape_class(op) {
-            TapeClass::Untaped | TapeClass::Scheduled => execute_core_primop(self, op, args),
-            TapeClass::Task if replay::is_implicit() => {
-                // A debug session's own recording: going back across tasks
-                // comes in S9, so drop it rather than the run.
-                replay::stop_implicit();
-                super::debug::turn_off_reverse(format!(
-                    "the program used `{}`; going back across tasks comes in 0188 S9",
-                    replay_codec::op_name(op)
-                ));
+            TapeClass::Untaped | TapeClass::Scheduled | TapeClass::Task => {
                 execute_core_primop(self, op, args)
             }
-            TapeClass::Task => execute_core_primop(self, op, args),
             TapeClass::Console => {
                 let text = render_console(op, &args);
                 let to_stderr = op == CorePrimOp::DebugTrace;

@@ -1034,17 +1034,38 @@ Implemented in S3 (`src/vm/debug/`), for programs without async code.
   run reaches the end of it, then recorded again, so going back never
   performs an effect twice. Console text is printed only the first time the
   run reaches it.
-- **Async code:** once the program enters `run_async`, going back is off for
-  the rest of the session, with the reason shown, and the session's own
-  recording stops. The scheduler's state lives in thread-locals and global
-  tables that checkpoints do not copy, and fibers run in nested dispatch
-  loops, where checkpoints are not taken. Going back through async code
-  comes with S9: from the checkpoint before `run_async`, replaying the
-  scheduler forward.
-- **OS-thread tasks:** a session's own recording stops when the program
-  starts a task, and going back is off from there; going back across tasks
-  comes with async going back in S9. A `--record` or `--replay` run records
-  and replays tasks (S8c, §4.2).
+- **Async code (S9a):** the session keeps recording through `run_async`.
+  No checkpoint is taken inside async code (fibers run in nested dispatch
+  loops), so going back to a position there restores the last checkpoint
+  before the outermost `run_async` and runs forward again, the kept events
+  answering every effect, completion and hand-over, as they do for synchronous
+  code:
+  - **The tape mark** keeps the tape's numbering of requests, fibers, tasks
+    and channels, and the live tasks; a checkpoint keeps the next channel,
+    task and event ids. A re-run numbers everything as the first run did, so
+    values like `Channel(1)` read the same.
+  - **The abandoned run** unwinds with the debugger's own error, which the
+    scheduler passes on rather than turning into a fiber's failure, while the
+    tape is paused. Its scheduler state, queues and tasks are dropped. A task
+    thread still running finishes without touching the tape (each going back
+    starts a new generation), and completions of its requests are dropped.
+  - **Stepping back stays in its fiber,** as stepping forward does:
+    `reverse-step`, `reverse-next` and `reverse-finish` go to the last place
+    in the same fiber, or, from a fiber's first line, to the last place in
+    any. `reverse-continue` goes back to a breakpoint any fiber hit.
+  - **Running live again.** Where a re-run reaches the end of what was kept,
+    it records again. Work the re-run only answered and still waits for
+    starts for real: a timer starts over; a socket request in flight cannot,
+    and stops the run.
+  - **Tasks** run again on the re-run, in the recorded order (§4.2). No
+    checkpoint is taken while a task is unjoined, since restoring one would
+    not bring the task back.
+  - **Limits:** state outside the VM that a re-run does not rebuild, such as
+    a channel made and used before `run_async`, is restored only as far as
+    the run makes it again; a re-run that reaches a different place says the
+    run is not deterministic there.
+- **OS-thread tasks:** going back across a task works the same way (S9a); a
+  `--record` or `--replay` run records and replays tasks (S8c, §4.2).
 
 #### 4.5 What native supports
 
@@ -1142,7 +1163,10 @@ As built in S7b:
 | S8a | VM fibers as threads (`src/vm/fiber_debug.rs`, `src/vm/debug/threads.rs`): names, numbers and what each parked fiber waits for, per-thread stacks (a parked fiber's from its continuation), `threads` / `thread N`, stepping that stays in one fiber, fiber failure as an exception, pause while every fiber waits, one worker while debugging; the protocol's `Threads` and per-thread requests; fibers as threads in VS Code | Golden transcripts `tests/debug/vm/async_*.flxdbg` (both, a channel, stepping over a sleep, `Async.fail`, a panic in a fiber, a task); DAP tests for fiber threads and their stacks, and a pause while every fiber waits. |
 | S8b | Native fibers: the runtime's fiber records and `flux_debug_fibers()`, a fiber failure hook, `flux threads` / `thread` / `catch fibers` and fiber-aware stepping in lldb, fibers as threads in the lldb-dap proxy; `dsymutil` limited to two at a time per machine | Debug parity fixtures `tests/parity_debug/async_*` (`both`, `race`, `timeout`, a channel, a failing fiber, stepping over a sleep), with `threads` / `thread N`. lldb sessions in `native_debug_tests` (`flux threads`, a waiting fiber's stack, `flux catch fibers`, a failed root stops once); a native DAP test for fiber threads and their stacks. |
 | S8c | Record and replay with tasks (§4.2): tape format version 2 with a `task` on each event, the turnstile that runs threads in the recorded order (console text at its turn), task spawns, starts, ends, cancels, joins and awaits as ordered events, completions handed over between threads as `wake` events, channel operations ordered once a task exists, the native tape protocol per thread; E1027 narrowed to `run_async` inside a task | `tests/replay/fixtures/task_*` (join, await, cancel racing the task, a channel shared with fibers) record and replay on both backends; 100 replays of `task_cancel` and `task_channel` print the same on each backend; an edited task tape stops with E1022; `run_async` inside a task fails with E1027. |
-| S9 | Native replay under lldb, run to event, opening a native tape in the VM, timeline UI; going back through async code (from the checkpoint before `run_async`, replaying the scheduler forward); Core-inlining provenance → `inlinedAt`, and Core inlining turned back on in the debug profile | Cross-backend tape tests. Going back across `sleep`, `both` and a channel. Golden `lldb bt` output for inlined frames. |
+| S9a | Going back through async code and tasks on the VM (§4.4): recording through `run_async`, re-running from the checkpoint before it with the kept events (tape marks keep the tape's numbering, checkpoints the next channel/task/event ids), the abandoned run unwinding with its tape paused and its tasks forgotten (tape generations, stale completions dropped), stepping back that stays in its fiber, running live again where a re-run ends (timers start over) | Transcripts `reverse_async`, `reverse_task`, `reverse_both`, `reverse_sleep`, `reverse_channel`, `reverse_async_replayed` in `tests/debug/vm/`; DAP `stepping_back_into_async_code`. |
+| S9b | Native replay under lldb (the tape header and checks for runs started outside `flux`), run to event (`flux event N` through a tape-event hook), a Timeline view in VS Code for both backends | lldb replays a tape and stops at event N; native record and replay from VS Code; the Timeline view lists and goes to events. |
+| S9c | Core-inlining provenance → `inlinedAt`, and Core inlining turned back on in the debug profile | Golden `lldb bt` output for inlined frames; `llvm-dwarfdump --verify`; debug parity unchanged. |
+| S9d | Backend-neutral async tapes: requests named by the fiber that made them, the schedule on the tape, each scheduler following it | Every async and task fixture recorded on one backend replays on the other; 100 identical cross-backend replays. |
 | S10 | Aether reference-count view, debug-heap runtime, native panic symbolization; `flux_trace_push` deleted | Golden reference counts. A use-after-free fixture that the debug heap catches. Native panic output lists Flux frames. |
 | S11 | Windows call stacks for Visual Studio (§2.8): `"CodeView"` module flag on MSVC targets, `/DEBUG` and `/PDB` in `run_linker`, runtime built with `-gcodeview` | On a Windows CI runner, `llvm-pdbutil dump -symbols app.pdb` lists Flux subprogram names with `.flx` line entries. `cdb -z app.exe -c "g; k; q"` on a fixture that panics prints Flux frames with `app.flx` file and line. A manual check that Visual Studio's Call Stack window shows them. |
 

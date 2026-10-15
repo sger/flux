@@ -149,6 +149,22 @@ fn flush_waiters(cell: &mut ChannelCell) {
     notify_event_watchers(cell);
 }
 
+/// The id the next channel gets: a debugger's checkpoint keeps it.
+pub(crate) fn next_id() -> i64 {
+    NEXT_CHANNEL_ID.load(Ordering::Relaxed)
+}
+
+/// A debugger restored a checkpoint taken when `next` was the next id
+/// (0188 S9a): channels made since are gone, and the re-run makes them
+/// again with the same ids.
+pub(crate) fn rewind_ids(next: i64) {
+    channels()
+        .lock()
+        .expect("VM channel registry poisoned")
+        .retain(|id, _| *id < next);
+    NEXT_CHANNEL_ID.store(next, Ordering::Relaxed);
+}
+
 pub(super) fn make(capacity: i64) -> Result<i64, String> {
     if capacity < 0 {
         return Err("chan_make: capacity must be non-negative".to_string());
