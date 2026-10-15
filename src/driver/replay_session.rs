@@ -44,11 +44,9 @@ pub(crate) fn prepare(graph: &ModuleGraph, entry_path: &Path, flags: &DriverFlag
     let session = match request {
         TapeRequest::Record(path) => {
             let argv = crate::vm::program_args_snapshot().to_vec();
+            // A native program writes this header itself, from the hash its
+            // build carries (`flux_program_hash`).
             let header = TapeHeader::new(program_hash, argv, if native { "native" } else { "vm" });
-            if native {
-                // The native program appends its events after this header.
-                replay::create_tape(path, &header).unwrap_or_else(|err| fail(&err, path));
-            }
             Session::Record {
                 path: path.clone(),
                 header,
@@ -56,54 +54,26 @@ pub(crate) fn prepare(graph: &ModuleGraph, entry_path: &Path, flags: &DriverFlag
         }
         TapeRequest::Replay(path) => {
             let tape = LoadedTape::load(path).unwrap_or_else(|err| fail(&err, path));
-            if tape.header.program_hash != program_hash {
-                fail(
-                    &TapeError::BadTape {
-                        path: path.display().to_string(),
-                        reason: "it was recorded from a different program, or from this one \
-                                 before it was changed"
-                            .to_string(),
-                    },
-                    path,
-                );
-            }
             let backend = if native { "native" } else { "vm" };
-            if tape.has_async() && tape.header.backend != backend {
-                fail(
-                    &TapeError::BadTape {
-                        path: path.display().to_string(),
-                        reason: format!(
-                            "it records async code run on {recorded}, which replays only on \
-                             {recorded}; replay it with {flag}",
-                            recorded = backend_name(&tape.header.backend),
-                            flag = if tape.header.backend == "native" {
-                                "--native"
-                            } else {
-                                "the VM (without --native)"
-                            },
-                        ),
-                    },
-                    path,
-                );
-            }
-            if tape.header.flux_version != env!("CARGO_PKG_VERSION") {
-                eprintln!(
-                    "warning: tape `{}` was recorded by flux {}; this is flux {}.",
-                    path.display(),
-                    tape.header.flux_version,
-                    env!("CARGO_PKG_VERSION")
-                );
-            }
-            if tape.is_truncated() {
-                eprintln!(
-                    "warning: tape `{}` is incomplete: the recorded run did not finish.",
-                    path.display()
-                );
+            match tape.check_for(&program_hash, backend) {
+                Ok(warnings) => {
+                    for warning in warnings {
+                        eprintln!("warning: {warning}");
+                    }
+                }
+                Err(err) => fail(&err, path),
             }
             Session::Replay { tape }
         }
     };
     let _ = SESSION.set(session);
+}
+
+/// The program hash a native build embeds as `flux_program_hash`, so the
+/// program can write and check tapes without the driver.
+#[cfg(feature = "llvm")]
+pub(crate) fn native_program_hash(graph: &ModuleGraph, entry_path: &Path) -> String {
+    program_hash(graph, entry_path)
 }
 
 /// Starts recording or replaying in this process, for a run on the VM.
@@ -182,14 +152,6 @@ pub(crate) fn report(err: &TapeError, program_path: &str) {
         "{}",
         render_runtime_diagnostic(&diagnostic, program_path, None, &[])
     );
-}
-
-fn backend_name(backend: &str) -> &str {
-    match backend {
-        "native" => "the native backend",
-        "vm" => "the VM",
-        other => other,
-    }
 }
 
 fn fail(err: &TapeError, path: &Path) -> ! {

@@ -4433,7 +4433,7 @@ int main(int argc, char **argv) {
      * On native the process's own argv is already in argv[0]-first form,
      * which is the shape the VM driver synthesizes to match. */
     flux_env_set_args(argc, argv);
-    flux_tape_c_init();
+    flux_tape_c_init(argc, argv);
     flux_rt_init();
     int64_t result = flux_main();
     (void)result;

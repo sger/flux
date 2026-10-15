@@ -220,6 +220,41 @@ thread 2: slow [waiting sleep 20 ms]
 - A task (`Task.spawn`) runs on an OS thread of its own: it is in lldb's
   `thread list`, not in `flux threads`.
 
+### Recording and replaying
+
+A native program records and replays its effects on its own, without the
+`flux` driver: set `FLUX_TAPE_RECORD` or `FLUX_TAPE_REPLAY` to a tape path.
+The build embeds the program's hash, so the program writes a new tape's
+header itself and refuses a tape recorded from another program, or from
+this one before it changed (E1026), as `flux --replay` does.
+
+```text
+(lldb) settings set target.env-vars FLUX_WORKERS=1 FLUX_TAPE_REPLAY=/path/run.jsonl
+(lldb) flux event 1
+stopped: event 1 (clock_now()) at app.flx:4:18 in main
+(lldb) flux events
+#0 clock_now() (done)
+#1 clock_now() (done)
+#2 stdout("6299870\n") (next)
+#3 stdout("true\n") (ahead)
+#4 a normal exit (ahead)
+(lldb) flux event 0
+stopped: event 0 (clock_now()) at app.flx:3:17 in main
+```
+
+- `flux event N` runs to the effect that made event N and stops in the
+  Flux frame that performed it, past the breakpoints on the way (not past a
+  runtime error `flux catch` stops at). It starts the program if it is not
+  running.
+- An event the replay has passed is reached by running the replay again
+  from the start: it reaches every event as it did before. In a recording,
+  going back to an event is refused; replay the tape instead.
+- `flux events` (`--json` for tools) lists the tape's events, or, in a
+  recording, those recorded so far. It runs `flux_debug_tape_events()` in
+  the stopped program, as `flux threads` does.
+- Every event passes through `flux_debug_on_tape_event(seq)`, an empty
+  function: a breakpoint there with a condition on `seq` stops at any event.
+
 ## VS Code
 
 Set `"backend": "native"` in the launch configuration:
@@ -241,8 +276,9 @@ Flux frames, variables as Flux values, stepping through Flux lines, the
 frames an effect handler suspended (without variables), `.handlers` in the
 Debug Console, the runtime errors to stop at in the Breakpoints view, and
 each fiber as a thread with what it waits for (`.threads` in the Debug
-Console). It runs the program with `FLUX_WORKERS=1`. Step Back needs the
-VM. In this repository, set `flux.runCommand` to
+Console). It runs the program with `FLUX_WORKERS=1`. `"record"` and
+`"replay"` work as on the VM, and the Flux Timeline goes forward to an
+effect. Step Back needs the VM: open the same tape with `"backend": "vm"`. In this repository, set `flux.runCommand` to
 `cargo run --features llvm --`, since native builds need the `llvm`
 feature. See `crates/flux-dap/README.md`.
 

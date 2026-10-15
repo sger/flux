@@ -13,7 +13,7 @@ use crate::driver::{
     },
     pipeline::native::{
         NativeParallelCompileRequest, compile_native_modules_parallel,
-        compile_native_support_object, locate_runtime_lib_dir,
+        compile_native_support_object, compile_program_hash_object, locate_runtime_lib_dir,
     },
     reporting::{
         report::{
@@ -401,6 +401,24 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
         } else {
             object_paths.clone()
         };
+        // The hash a tape names this program by, so the program records and
+        // replays on its own too: under a debugger, or from an editor.
+        let mut link_paths = link_paths;
+        let program_hash = crate::driver::replay_session::native_program_hash(
+            request.program.graph,
+            std::path::Path::new(request.program.path),
+        );
+        match compile_program_hash_object(
+            request.cache.cache_layout,
+            request.cache.no_cache,
+            &program_hash,
+        ) {
+            Ok(object) => link_paths.push(object),
+            Err(err) => {
+                eprintln!("{err}");
+                std::process::exit(1);
+            }
+        }
         let archive_ms = archive_start.elapsed().as_secs_f64() * 1000.0;
 
         emit_diagnostics_or_exit(
@@ -515,6 +533,8 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
         }
         if let Some((key, tape)) = crate::driver::replay_session::native_child_env() {
             native_cmd.env(key, tape);
+            // This driver renders the program's tape errors itself.
+            native_cmd.env(flux::runtime::replay::native_abi::WIRE_ENV, "1");
         }
         match native_cmd.spawn() {
             Ok(child) => {

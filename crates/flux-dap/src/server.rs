@@ -260,6 +260,12 @@ impl<W: FnMut(Value)> Session<W> {
             "stepBack" => self.resume(ResumeKind::ReverseNext),
             "reverseContinue" => self.resume(ResumeKind::ReverseContinue),
             "pause" => self.call(Request::Pause).map(|_| json!({})),
+            // The Timeline view (0188 S9b).
+            "fluxEvents" => self.tape_events(),
+            "fluxGoToEvent" => match args["index"].as_u64() {
+                Some(number) => self.resume(ResumeKind::Event(number)),
+                None => Err("fluxGoToEvent needs an `index`".to_string()),
+            },
             "terminate" => {
                 if self.engine.is_some() {
                     let _ = self.call(Request::Quit);
@@ -628,6 +634,27 @@ impl<W: FnMut(Value)> Session<W> {
                 self.respond(&message, answer);
                 return;
             }
+            // The Timeline view (0188 S9b): the tape's events, and going to one.
+            "fluxEvents" => {
+                if let Some(engine) = self.native.as_mut() {
+                    let seq = engine.request(
+                        "evaluate",
+                        json!({ "expression": "`flux events --json", "context": "repl" }),
+                    );
+                    self.pending.insert(seq, (message, "@events".to_string()));
+                }
+                return;
+            }
+            "fluxGoToEvent" => {
+                match message["arguments"]["index"].as_u64() {
+                    Some(number) => {
+                        let lldb = native::go_to_event(number);
+                        self.run_to_stop(message, &lldb, "@goto-event");
+                    }
+                    None => self.respond(&message, Err("fluxGoToEvent needs an `index`".into())),
+                }
+                return;
+            }
             "scopes" if message["arguments"]["frameId"].as_i64() >= Some(SPLICED_FRAMES) => {
                 self.respond(&message, Ok(json!({ "scopes": [] })));
                 return;
@@ -647,6 +674,10 @@ impl<W: FnMut(Value)> Session<W> {
                     match native::console_command(command) {
                         ConsoleCommand::Lldb(lldb) => {
                             message["arguments"]["expression"] = json!(format!("`{lldb}"));
+                        }
+                        ConsoleCommand::Run(lldb) => {
+                            self.run_to_stop(message, &lldb, "@run");
+                            return;
                         }
                         ConsoleCommand::Answer(answer) => {
                             let answer = answer
@@ -704,6 +735,14 @@ impl<W: FnMut(Value)> Session<W> {
                     "@stopped" => return self.send_stop(editor_seq, &message),
                     "@threads" => return self.send_threads(editor_seq, &message),
                     "@step" => return self.after_step(&message),
+                    "@events" => {
+                        let text = message["body"]["result"].as_str().unwrap_or_default();
+                        let events = native::tape_events(text);
+                        return self.respond(&editor_seq, Ok(events));
+                    }
+                    "@run" | "@goto-event" => {
+                        return self.after_run(&editor_seq, &message, command == "@run");
+                    }
                     _ => {}
                 }
                 if message["success"] == true {
@@ -839,16 +878,47 @@ impl<W: FnMut(Value)> Session<W> {
         (self.send)(event);
     }
 
+    /// Runs `lldb`, an lldb command that runs the program until it stops,
+    /// for the editor's `request`, which [`Self::after_run`] answers.
+    fn run_to_stop(&mut self, request: Value, lldb: &str, kind: &str) {
+        if let Some(engine) = self.native.as_mut() {
+            let seq = engine.request(
+                "evaluate",
+                json!({ "expression": format!("`{lldb}"), "context": "repl" }),
+            );
+            self.pending.insert(seq, (request, kind.to_string()));
+        }
+    }
+
+    /// A command [`Self::run_to_stop`] ran has finished: answer the
+    /// editor's request with what it said, and report the stop.
+    fn after_run(&mut self, request: &Value, evaluated: &Value, console: bool) {
+        let text = evaluated["body"]["result"].as_str().unwrap_or_default();
+        let said = text
+            .lines()
+            .filter(|line| !line.trim().starts_with("thread "))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if native::stopped_thread(text).is_none() && !said.contains("ended") {
+            // It refused: going back, an event not on the tape, no tape.
+            self.respond(request, Err(said));
+            return;
+        }
+        let body = if console {
+            json!({ "result": said, "variablesReference": 0 })
+        } else {
+            json!({})
+        };
+        self.respond(request, Ok(body));
+        self.after_step(evaluated);
+    }
+
     /// A `flux next`, `step` or `finish` has run: lldb ran it in the
     /// command's own synchronous mode, so lldb-dap saw no stop to report.
     /// Report it.
     fn after_step(&mut self, evaluated: &Value) {
         let text = evaluated["body"]["result"].as_str().unwrap_or_default();
-        let thread = text
-            .lines()
-            .find_map(|line| line.trim().strip_prefix("thread "))
-            .and_then(|id| id.trim().parse::<i64>().ok());
-        let Some(thread) = thread else {
+        let Some(thread) = native::stopped_thread(text) else {
             // The program ended: lldb-dap says so itself.
             return;
         };
@@ -1254,6 +1324,37 @@ impl<W: FnMut(Value)> Session<W> {
             }
             other => Err(format!("unknown command `.{other}`; try `.help`")),
         }
+    }
+
+    /// The tape's events for the Timeline view: each with where it happened
+    /// and whether the run, after going back, has reached it again.
+    fn tape_events(&mut self) -> Result<Value, String> {
+        let Reply::Events { events } = self.call(Request::Events)? else {
+            return Err("unexpected reply to fluxEvents".to_string());
+        };
+        let current = match self.call(Request::Where) {
+            Ok(Reply::Position { position }) => Some(position),
+            _ => None,
+        };
+        let events: Vec<Value> = events
+            .into_iter()
+            .map(|event| {
+                let reached =
+                    matches!((event.position, current), (Some(at), Some(now)) if at <= now);
+                json!({
+                    "index": event.index,
+                    "text": event.text,
+                    "position": event.position,
+                    "reached": reached,
+                })
+            })
+            .collect();
+        let next = events.iter().position(|event| event["reached"] != true);
+        let mut events = events;
+        if let Some(next) = next {
+            events[next]["next"] = json!(true);
+        }
+        Ok(json!({ "events": events, "position": current }))
     }
 
     // ── Sending ────────────────────────────────────────────────────────

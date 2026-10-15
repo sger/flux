@@ -609,7 +609,7 @@ typedef struct {
 } FluxTapeOutcome;
 
 /* Rust (native_abi.rs). */
-int32_t        flux_tape_init(void);
+int32_t        flux_tape_init(const char *program_hash, int32_t argc, char **argv);
 void           flux_tape_begin(uint32_t kind);
 void           flux_tape_arg(const uint8_t *ptr, size_t len);
 void           flux_tape_list_push(const uint8_t *ptr, size_t len);
@@ -665,7 +665,7 @@ void           flux_tape_refuse(const char *what);
  * flux_tape_start with its string arguments (0 for none); when that returns
  * 1 it is replaying and returns flux_tape_replay_value, otherwise it runs and
  * returns flux_tape_record_value of its real result. */
-void    flux_tape_c_init(void);
+void    flux_tape_c_init(int argc, char **argv);
 int     flux_tape_start(uint32_t kind, int64_t arg0, int64_t arg1);
 int     flux_tape_start_proc(int64_t cmd, int64_t argv);
 int64_t flux_tape_record_value(int64_t value, int shape, const FluxIoTags *tags,

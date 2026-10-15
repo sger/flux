@@ -2393,26 +2393,26 @@ pub extern "C" fn flux_async_poll_dispatch(req: u64) -> i32 {
 /// A JSON answer written into a static buffer, for `flux_debug_fibers`: a
 /// debugger calls it with every thread stopped, any of which may hold the
 /// allocator's lock.
-mod debug_json {
+pub(crate) mod debug_json {
     use std::cell::UnsafeCell;
 
     const SIZE: usize = 64 * 1024;
 
     struct Buffer(UnsafeCell<[u8; SIZE]>);
 
-    // SAFETY: only `flux_debug_fibers` writes it, called by a debugger
-    // evaluating one expression at a time.
+    // SAFETY: only `flux_debug_fibers` and `flux_debug_tape_events` write
+    // it, called by a debugger evaluating one expression at a time.
     unsafe impl Sync for Buffer {}
 
     static BUFFER: Buffer = Buffer(UnsafeCell::new([0; SIZE]));
 
-    pub(super) struct Out {
+    pub(crate) struct Out {
         buffer: &'static mut [u8; SIZE],
         len: usize,
     }
 
     impl Out {
-        pub(super) fn text(&mut self, text: &str) -> std::fmt::Result {
+        pub(crate) fn text(&mut self, text: &str) -> std::fmt::Result {
             std::fmt::Write::write_str(self, text)
         }
     }
@@ -2432,7 +2432,7 @@ mod debug_json {
 
     /// Runs `write` into the buffer and returns it as a C string. An answer
     /// too long for the buffer is `{"truncated":true}`.
-    pub(super) fn write(
+    pub(crate) fn write(
         write: impl FnOnce(&mut Out) -> std::fmt::Result,
     ) -> *const std::ffi::c_char {
         // SAFETY: see `Buffer`.

@@ -57,8 +57,28 @@
         "command": "flux.restartServer",
         "title": "Flux: Restart Language Server",
         "category": "Flux"
+      },
+      {
+        "command": "flux.timeline.refresh",
+        "title": "Refresh",
+        "category": "Flux",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "flux.timeline.goTo",
+        "title": "Go to This Effect",
+        "category": "Flux"
       }
     ],
+    "views": {
+      "debug": [
+        {
+          "id": "flux.timeline",
+          "name": "Flux Timeline",
+          "when": "debugType == flux"
+        }
+      ]
+    },
     "menus": {
       "commandPalette": [
         {
@@ -76,6 +96,17 @@
         {
           "command": "flux.restartServer",
           "when": "editorLangId == flux"
+        },
+        {
+          "command": "flux.timeline.goTo",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "flux.timeline.refresh",
+          "when": "view == flux.timeline",
+          "group": "navigation"
         }
       ]
     },

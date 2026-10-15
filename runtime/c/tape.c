@@ -16,6 +16,18 @@
 
 int32_t flux_tape_mode = 0;
 
+/* The program's hash ("sha256:..."), which a tape names its program by. The
+ * driver links an object defining it into every native program it builds;
+ * this empty default, for programs linked without one, skips the hash check
+ * when replaying. */
+#if defined(_MSC_VER) && !defined(__clang__)
+const char flux_program_hash_default[] = "";
+#pragma comment(linker, "/alternatename:flux_program_hash=flux_program_hash_default")
+extern const char flux_program_hash[];
+#else
+__attribute__((weak)) const char flux_program_hash[] = "";
+#endif
+
 /* A process that exits without reaching flux_rt_shutdown (a panic already
  * finishes the tape itself) still ends its tape, as a failed run. */
 static void flux_tape_atexit(void) {
@@ -23,8 +35,8 @@ static void flux_tape_atexit(void) {
     flux_tape_finish(1, (const uint8_t *)msg, sizeof(msg) - 1);
 }
 
-void flux_tape_c_init(void) {
-    flux_tape_mode = flux_tape_init();
+void flux_tape_c_init(int argc, char **argv) {
+    flux_tape_mode = flux_tape_init(flux_program_hash, argc, argv);
     if (flux_tape_mode) {
         atexit(flux_tape_atexit);
     }

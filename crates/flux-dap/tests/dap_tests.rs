@@ -621,9 +621,21 @@ fn native_debugging() -> bool {
 /// Launches `program` natively and runs to the first stop at
 /// `breakpoints`. `None` when this `flux` has no native backend.
 fn launch_native(editor: &mut Editor, program: &Path, breakpoints: &[usize]) -> Option<Value> {
+    launch_native_with(editor, program, json!({}), breakpoints)
+}
+
+/// [`launch_native`] with more launch arguments, such as a tape.
+fn launch_native_with(
+    editor: &mut Editor,
+    program: &Path,
+    extra: Value,
+    breakpoints: &[usize],
+) -> Option<Value> {
     let init = editor.request("initialize", json!({ "adapterID": "flux" }));
     assert_eq!(init["success"], true, "{init}");
-    let args = editor.launch_args(program, json!({ "backend": "native" }));
+    let mut extra = extra;
+    extra["backend"] = json!("native");
+    let args = editor.launch_args(program, extra);
     let launch = editor.send("launch", args);
     // lldb-dap may answer `launch` only after `configurationDone`: wait for
     // whichever comes first, its `initialized` or a failed launch.
@@ -1045,4 +1057,140 @@ fn stepping_back_into_async_code() {
     editor.event("stopped");
     editor.request("continue", json!({ "threadId": 1 }));
     snapshot("stepping_back_into_async_code", &editor.finish());
+}
+
+/// What the program printed, from a finished transcript: its output
+/// without the adapter's and lldb's own lines.
+fn program_output(transcript: &str) -> String {
+    let output = transcript
+        .split_once("--- program output ---\n")
+        .map_or("", |(_, output)| output);
+    output
+        .lines()
+        .map(|line| line.trim_end_matches('\r'))
+        .filter(|line| {
+            !(line.starts_with("Building ")
+                || line.starts_with("Running initCommands")
+                || line.starts_with("(lldb)")
+                || line.starts_with("Process "))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn the_timeline_lists_the_effects_and_goes_to_one() {
+    let scratch = Scratch::new("timeline");
+    let program = scratch.write("calls.flx", CALLS);
+    let mut editor = Editor::start(&scratch);
+    editor.launch(&program, json!({}), &[16]);
+    editor.event("stopped");
+    // The Timeline view's requests (0188 S9b).
+    editor.request("fluxEvents", json!({}));
+    editor.request("fluxGoToEvent", json!({ "index": 0 }));
+    editor.event("stopped");
+    editor.request("stackTrace", json!({ "threadId": 1, "levels": 1 }));
+    editor.request("fluxEvents", json!({}));
+    editor.request("fluxGoToEvent", json!({ "index": 7 }));
+    editor.request("continue", json!({ "threadId": 1 }));
+    editor.event("stopped");
+    editor.request("continue", json!({ "threadId": 1 }));
+    snapshot(
+        "the_timeline_lists_the_effects_and_goes_to_one",
+        &editor.finish(),
+    );
+}
+
+const CLOCK: &str = "\
+fn main() with IO {
+    let first = now_ms()
+    let second = now_ms()
+    println(first)
+    println(second >= first)
+}
+";
+
+#[test]
+fn native_record_and_replay_with_the_timeline() {
+    if !native_debugging() {
+        return;
+    }
+    let scratch = Scratch::new("native-tape");
+    let program = scratch.write("clock.flx", CLOCK);
+    let tape = scratch.dir.join("run.jsonl");
+
+    // Recorded under lldb-dap: the program writes its tape itself.
+    let mut editor = Editor::start(&scratch);
+    let Some(stopped) = launch_native_with(&mut editor, &program, json!({ "record": tape }), &[5])
+    else {
+        return;
+    };
+    // A line can have more than one location: clear it to run to the end.
+    editor.request(
+        "setBreakpoints",
+        json!({ "source": { "path": program }, "breakpoints": [] }),
+    );
+    editor.request(
+        "continue",
+        json!({ "threadId": stopped["body"]["threadId"] }),
+    );
+    let recorded = editor.finish();
+    let recorded = program_output(&recorded);
+    let header = std::fs::read_to_string(&tape).unwrap();
+    assert!(header.starts_with("{\"magic\":\"FLXTAPE\""), "{header}");
+
+    // Replayed natively: the Timeline lists the tape and goes forward.
+    let mut editor = Editor::start(&scratch);
+    let stopped = launch_native_with(&mut editor, &program, json!({ "replay": tape }), &[3])
+        .expect("a native backend, as when recording");
+    let thread = stopped["body"]["threadId"].clone();
+    let events = editor.request("fluxEvents", json!({}));
+    let listed = &events["body"]["events"];
+    assert_eq!(listed[0]["text"], "clock_now()", "{events}");
+    assert_eq!(listed[0]["reached"], true, "{events}");
+    assert_eq!(listed[1]["next"], true, "{events}");
+    assert_eq!(listed[4]["text"], "a normal exit", "{events}");
+    let console = editor.request(
+        "evaluate",
+        json!({ "expression": ".events", "context": "repl" }),
+    );
+    let text = console["body"]["result"].as_str().unwrap_or_default();
+    assert!(text.contains("#1 clock_now() (next)"), "{console}");
+    let went = editor.request("fluxGoToEvent", json!({ "index": 3 }));
+    assert_eq!(went["success"], true, "{went}");
+    let stopped = editor.event("stopped");
+    assert_eq!(stopped["body"]["reason"], "step", "{stopped}");
+    let frames = frame_names(&mut editor, &thread);
+    assert_eq!(frames[0].0, "main", "{frames:?}");
+    assert_eq!(frames[0].1["line"], 5, "{frames:?}");
+    // lldb-dap owns the process: going back needs a new session.
+    let back = editor.request("fluxGoToEvent", json!({ "index": 0 }));
+    assert_eq!(back["success"], false, "{back}");
+    assert!(
+        back["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("restart the session"),
+        "{back}"
+    );
+    editor.request(
+        "setBreakpoints",
+        json!({ "source": { "path": program }, "breakpoints": [] }),
+    );
+    editor.request("continue", json!({ "threadId": thread }));
+    let replayed = editor.finish();
+    assert_eq!(program_output(&replayed), recorded, "{replayed}");
+    assert!(recorded.ends_with("true"), "{recorded}");
+
+    // A native recording opened in a VM session, stepping back included.
+    let mut editor = Editor::start(&scratch);
+    editor.launch(&program, json!({ "replay": tape }), &[5]);
+    editor.event("stopped");
+    editor.request("stepBack", json!({ "threadId": 1 }));
+    editor.event("stopped");
+    editor.request("continue", json!({ "threadId": 1 }));
+    editor.event("stopped");
+    editor.request("continue", json!({ "threadId": 1 }));
+    let on_the_vm = editor.finish();
+    assert_eq!(program_output(&on_the_vm), recorded);
 }

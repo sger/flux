@@ -1115,3 +1115,146 @@ fn a_caught_panic_stops_at_the_call_to_panic() {
         ],
     );
 }
+
+/// Runs the binary with `FLUX_TAPE_RECORD` set, as an editor does: the
+/// program writes the tape on its own.
+fn record_tape(scratch: &Scratch, binary: &str, tape: &str) {
+    let output = Command::new(scratch.join(binary))
+        .current_dir(scratch.path())
+        .env("FLUX_TAPE_RECORD", scratch.join(tape))
+        .output()
+        .expect("run the program");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Runs `commands` in lldb with the script loaded and the program set to
+/// run with `env`; None when lldb runs no Python.
+fn tape_session(
+    lldb: &[String],
+    scratch: &Scratch,
+    binary: &str,
+    env: &str,
+    commands: &[&str],
+) -> Option<String> {
+    let import = format!("command script import {}", lldb_script());
+    let env = format!("settings set target.env-vars FLUX_WORKERS=1 {env}");
+    let mut all = vec![import.as_str(), env.as_str()];
+    all.extend_from_slice(commands);
+    let session = lldb_session(lldb, scratch, binary, &all);
+    if session.contains("script interpreter") || session.contains("scripting not supported") {
+        eprintln!("note: this lldb runs no Python scripts; skipping");
+        return None;
+    }
+    Some(session)
+}
+
+#[test]
+fn lldb_runs_a_replay_to_an_event_and_back() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = prepare("tape");
+    build_only(&scratch, "tape.flx", "app");
+    record_tape(&scratch, "app", "run.jsonl");
+    let replay = format!("FLUX_TAPE_REPLAY={}", scratch.join("run.jsonl").display());
+    let Some(session) = tape_session(
+        &lldb,
+        &scratch,
+        "app",
+        &replay,
+        &[
+            "flux event 1",
+            "flux locals",
+            "flux events",
+            "flux event 3",
+            "flux event 0",
+            "flux event 9",
+        ],
+    ) else {
+        return;
+    };
+    assert_lines(
+        &session,
+        &[
+            "stopped: event 1 (clock_now()) at tape.flx:5:18 in main",
+            "#0 clock_now() (done)",
+            "#1 clock_now() (done)",
+            "#3 stdout(\"true\\n\") (ahead)",
+            "#4 a normal exit (ahead)",
+            "stopped: event 3 (stdout(\"true\\n\")) at tape.flx:7:5 in main",
+            // Back, by running the replay again.
+            "stopped: event 0 (clock_now()) at tape.flx:4:17 in main",
+            "no event #9 on the tape; `flux events` lists them",
+        ],
+    );
+    let locals = flux_lines(&session);
+    assert!(
+        locals.iter().any(|line| line.starts_with("first = ")),
+        "{session}"
+    );
+}
+
+#[test]
+fn lldb_goes_forward_only_in_a_recording() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = prepare("tape");
+    build_only(&scratch, "tape.flx", "app");
+    let record = format!("FLUX_TAPE_RECORD={}", scratch.join("run.jsonl").display());
+    let Some(session) = tape_session(
+        &lldb,
+        &scratch,
+        "app",
+        &record,
+        &["flux event 2", "flux events", "flux event 0"],
+    ) else {
+        return;
+    };
+    // Event 2 prints the clock's reading, whatever it was.
+    let lines = flux_lines(&session);
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.starts_with("stopped: event 2 (stdout(")
+                && line.ends_with(") at tape.flx:6:5 in main")),
+        "{session}"
+    );
+    assert_lines(
+        &session,
+        &["event #0 has happened; going back to it needs a replay of this tape"],
+    );
+}
+
+#[test]
+fn lldb_says_when_a_run_has_no_tape() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = prepare("tape");
+    build_only(&scratch, "tape.flx", "app");
+    let Some(session) = tape_session(
+        &lldb,
+        &scratch,
+        "app",
+        "",
+        &[
+            "breakpoint set --file tape.flx --line 6",
+            "run",
+            "flux events",
+        ],
+    ) else {
+        return;
+    };
+    assert_lines(
+        &session,
+        &["this run has no tape: launch it with FLUX_TAPE_REPLAY or FLUX_TAPE_RECORD set"],
+    );
+}

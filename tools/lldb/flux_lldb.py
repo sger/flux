@@ -671,8 +671,13 @@ def logical_stack(thread):
     memory = Memory(thread.GetProcess())
     shown = []
     resumed = []  # continuation frames above the next arm, newest first
-    for frame in thread:
-        if not _is_flux_frame(frame):
+    # Stopped at a tape event, the stack starts where the effect was
+    # performed, past the default handler arms it went through.
+    start = 0
+    if thread.GetProcess().GetUniqueID() in AT_EVENT and _event_hook_frame(thread) is not None:
+        start = _effect_frame(thread) or 0
+    for index, frame in enumerate(thread):
+        if index < start or not _is_flux_frame(frame):
             continue
         name = frame.GetFunctionName() or ""
         entry = frame.GetLineEntry()
@@ -807,13 +812,12 @@ def _in_async(process):
     )
 
 
-def fibers(process):
-    """The fibers of the active `run_async`, as the runtime lists them, or
-    [] outside one."""
-    if not _in_async(process):
-        return []
+def _ask_runtime(process, function, argument=None):
+    """Calls one of the runtime's `flux_debug_*` functions, which answer a
+    JSON string, in the stopped program: its answer, or None when it
+    cannot be asked."""
     target = process.GetTarget()
-    found = target.FindSymbols(FIBERS_FUNCTION)
+    found = target.FindSymbols(function)
     address = None
     for index in range(found.GetSize()):
         symbol = found.GetContextAtIndex(index).GetSymbol()
@@ -821,25 +825,40 @@ def fibers(process):
             address = symbol.GetStartAddress().GetLoadAddress(target)
             break
     if not address or address == lldb.LLDB_INVALID_ADDRESS:
-        return []
+        return None
     options = lldb.SBExpressionOptions()
     options.SetTryAllThreads(False)
     options.SetUnwindOnError(True)
     options.SetIgnoreBreakpoints(True)
     options.SetTimeoutInMicroSeconds(2000000)
     frame = process.GetSelectedThread().GetFrameAtIndex(0)
-    value = frame.EvaluateExpression(
-        "(const char *)((const char *(*)(void))%d)()" % address, options
-    )
+    if argument is None:
+        expression = "(const char *)((const char *(*)(void))%d)()" % address
+    else:
+        expression = "(const char *)((const char *(*)(unsigned long long))%d)(%dULL)" % (
+            address,
+            argument,
+        )
+    value = frame.EvaluateExpression(expression, options)
     if not value.IsValid() or not value.GetError().Success():
-        return []
+        return None
     error = lldb.SBError()
     text = process.ReadCStringFromMemory(value.GetValueAsUnsigned(), 1 << 16, error)
     if not error.Success() or not text:
-        return []
+        return None
     try:
-        answer = json.loads(text)
+        return json.loads(text)
     except ValueError:
+        return None
+
+
+def fibers(process):
+    """The fibers of the active `run_async`, as the runtime lists them, or
+    [] outside one."""
+    if not _in_async(process):
+        return []
+    answer = _ask_runtime(process, FIBERS_FUNCTION)
+    if not answer:
         return []
     return sorted(answer.get("fibers", []), key=lambda fiber: fiber["thread"])
 
@@ -1267,13 +1286,18 @@ def stop_description(thread):
     top_name = top_frame.GetFunctionName() or ""
     exception = EXCEPTION.get(thread.GetProcess().GetUniqueID())
     at_error = top_name.startswith(HOOKS) and exception is not None
+    event = AT_EVENT.get(thread.GetProcess().GetUniqueID())
+    at_event = event is not None and _event_hook_frame(thread) is not None
     # Stepping out of `main` stops in the runtime: not a Flux stop.
-    if not at_error and not _is_flux_frame(top_frame):
+    if not at_error and not at_event and not _is_flux_frame(top_frame):
         return None
     shown = [line for line in logical_stack(thread) if line.kind != "label"]
     if not shown:
         return None
-    if at_error:
+    if at_event:
+        text = _event_text(thread.GetProcess(), event)
+        why = "event %d (%s)" % (event, text) if text else "event %d" % event
+    elif at_error:
         kind, message = exception
         label = LABELS[kind]
         why = "exception (%s)" % message if message == label else "exception (%s: %s)" % (
@@ -1287,6 +1311,13 @@ def stop_description(thread):
     else:
         why = "step"
     top = shown[0]
+    if at_event:
+        # Where the effect was performed, which `flux event` selected.
+        selected = thread.GetSelectedFrame().GetCFA()
+        top = next(
+            (line for line in shown if line.frame is not None and line.frame.GetCFA() == selected),
+            top,
+        )
     process = thread.GetProcess()
     listed = fibers(process)
     number = stopped_thread(process, listed) if listed else 1
@@ -1300,6 +1331,208 @@ def _command_where(debugger, args, result):
     thread = debugger.GetSelectedTarget().GetProcess().GetSelectedThread()
     text = stop_description(thread)
     result.AppendMessage(text if text else "not stopped in Flux code")
+
+
+# The effect tape (0188 S9b). A program run with FLUX_TAPE_REPLAY or
+# FLUX_TAPE_RECORD calls an empty hook, `flux_debug_on_tape_event`, with each
+# event's number as it reaches it; `flux event N` breaks there.
+
+EVENTS_FUNCTION = "flux_debug_tape_events"
+EVENT_HOOK = "flux_debug_on_tape_event"
+NO_TAPE = "this run has no tape: launch it with FLUX_TAPE_REPLAY or FLUX_TAPE_RECORD set"
+# The event `flux event` runs to (it may start the process, so there is no
+# process to key it by yet), and the one each process stopped at.
+WANTED_EVENT = [None]
+AT_EVENT = {}
+
+
+def _event_hook_frame(thread):
+    """The hook's frame when the thread stopped in it: frame 0, or below
+    the frames inlined into the hook."""
+    for index in range(min(thread.GetNumFrames(), 3)):
+        frame = thread.GetFrameAtIndex(index)
+        if (frame.GetFunctionName() or "").startswith(EVENT_HOOK):
+            return frame
+        if not frame.IsInlined():
+            return None
+    return None
+
+
+def tape_events(process):
+    """The tape's events so far, as `{"events": [...], "cursor": n, "mode":
+    "replay"|"record"}`; `{"events": None}` without a tape; None when the
+    program cannot be asked."""
+    events = []
+    start = 0
+    while True:
+        answer = _ask_runtime(process, EVENTS_FUNCTION, start)
+        if answer is None:
+            return None
+        if answer.get("busy"):
+            raise RuntimeError("another thread is using the tape; step and ask again")
+        if answer.get("events") is None:
+            return {"events": None}
+        events.extend(answer["events"])
+        if answer.get("next") is None:
+            return {"events": events, "cursor": answer["cursor"], "mode": answer["mode"]}
+        start = answer["next"]
+
+
+def _event_text(process, number):
+    listed = tape_events(process)
+    for event in (listed or {}).get("events") or []:
+        if event["seq"] == number:
+            return event["text"]
+    return None
+
+
+def _command_events(debugger, args, result):
+    process = debugger.GetSelectedTarget().GetProcess()
+    if not process.IsValid() or process.GetState() != lldb.eStateStopped:
+        result.AppendMessage("the program is not running")
+        return
+    listed = tape_events(process)
+    if listed is None or listed["events"] is None:
+        result.AppendMessage(NO_TAPE)
+        return
+    if args.strip() == "--json":
+        result.AppendMessage(json.dumps(listed))
+        return
+    if not listed["events"]:
+        result.AppendMessage("no effects yet")
+        return
+    cursor = listed["cursor"]
+    for event in listed["events"]:
+        seq = event["seq"]
+        state = "done" if seq < cursor else "next" if seq == cursor else "ahead"
+        result.AppendMessage("#%d %s (%s)" % (seq, event["text"], state))
+
+
+def _effect_frame(thread):
+    """The Flux frame that performed the effect the thread is in: the
+    first one, past the default handler arms `with IO` installs, which are
+    placed on the `fn` line of the function they handle for."""
+    frames = [
+        index for index in range(thread.GetNumFrames())
+        if _is_flux_frame(thread.GetFrameAtIndex(index))
+    ]
+    for position, index in enumerate(frames):
+        frame = thread.GetFrameAtIndex(index)
+        below = frames[position + 1] if position + 1 < len(frames) else None
+        if (
+            below is not None
+            and (frame.GetFunctionName() or "").startswith("<lambda")
+            and frame.GetLineEntry().GetLine()
+            == _declared_line(thread.GetFrameAtIndex(below))
+        ):
+            continue
+        return index
+    return None
+
+
+def event_stop(frame, location, *rest):
+    """The tape hook's breakpoint callback: stop at the event wanted, in
+    the Flux code that asked for it."""
+    thread = frame.GetThread()
+    process = thread.GetProcess()
+    wanted = WANTED_EVENT[0]
+    hook = _event_hook_frame(thread)
+    seq = _first_argument(hook if hook is not None else frame, "seq")
+    if wanted is None or seq != wanted:
+        return False
+    AT_EVENT[process.GetUniqueID()] = seq
+    index = _effect_frame(thread)
+    if index is not None:
+        thread.SetSelectedFrame(index)
+    return True
+
+
+def _command_event(debugger, args, result):
+    """Runs to event N, from the start when it has happened in a replay.
+    With --no-relaunch (a debug adapter, which owns the process) it only
+    goes forward."""
+    words = args.split()
+    no_relaunch = "--no-relaunch" in words
+    words = [word for word in words if word != "--no-relaunch"]
+    try:
+        number = int(words[0]) if len(words) == 1 else None
+    except ValueError:
+        number = None
+    if number is None:
+        result.AppendMessage("usage: flux event [--no-relaunch] <n>")
+        return
+    target = debugger.GetSelectedTarget()
+    process = target.GetProcess()
+    relaunch = True
+    if process.IsValid() and process.GetState() == lldb.eStateStopped:
+        listed = tape_events(process)
+        if listed is None or listed["events"] is None:
+            result.AppendMessage(NO_TAPE)
+            return
+        if listed["mode"] == "replay" and number >= len(listed["events"]):
+            result.AppendMessage("no event #%d on the tape; `flux events` lists them" % number)
+            return
+        if number >= listed["cursor"]:
+            relaunch = False
+        elif listed["mode"] != "replay":
+            result.AppendMessage(
+                "event #%d has happened; going back to it needs a replay of this tape" % number
+            )
+            return
+        elif no_relaunch:
+            result.AppendMessage(
+                "event #%d has happened; restart the session to go back to it" % number
+            )
+            return
+    elif no_relaunch:
+        result.AppendMessage("the program is not running")
+        return
+    was_async = debugger.GetAsync()
+    debugger.SetAsync(False)
+    # Straight to the event, as on the VM: past the breakpoints on the way,
+    # though not past a runtime error `flux catch` stops at.
+    passed = []
+    for index in range(target.GetNumBreakpoints()):
+        breakpoint = target.GetBreakpointAtIndex(index)
+        if breakpoint.IsEnabled() and not breakpoint.MatchesName("flux-exception"):
+            breakpoint.SetEnabled(False)
+            passed.append(breakpoint)
+    hook = target.BreakpointCreateByName(EVENT_HOOK)
+    hook.SetScriptCallbackFunction("%s.event_stop" % __name__)
+    WANTED_EVENT[0] = number
+    try:
+        if relaunch:
+            # From the start: a replay reaches each event as it did before.
+            info = target.GetLaunchInfo()
+            if process.IsValid():
+                process.Kill()
+            error = lldb.SBError()
+            process = target.Launch(info, error)
+            if not error.Success():
+                result.SetError("could not launch the program: %s" % error.GetCString())
+                return
+        if not relaunch:
+            AT_EVENT.pop(process.GetUniqueID(), None)
+            drop_interrupted_steps(debugger)
+            process.Continue()
+        if process.GetState() != lldb.eStateStopped:
+            result.AppendMessage("the program ended before event #%d" % number)
+            return
+        thread = process.GetSelectedThread()
+        index = _effect_frame(thread) if _event_hook_frame(thread) is not None else None
+        if index is not None:
+            # The callback's selection does not outlive a synchronous run.
+            thread.SetSelectedFrame(index)
+        text = stop_description(thread)
+        result.AppendMessage(text if text else "not stopped in Flux code")
+        # Where it stopped, for a debug adapter, as after a step.
+        result.AppendMessage("thread %d" % thread.GetThreadID())
+    finally:
+        WANTED_EVENT[0] = None
+        target.BreakpointDelete(hook.GetID())
+        for breakpoint in passed:
+            breakpoint.SetEnabled(True)
+        debugger.SetAsync(was_async)
 
 
 def _selected_frame(debugger):
@@ -1673,12 +1906,14 @@ COMMANDS = {
     "step": _command_step,
     "finish": _command_finish,
     "forget-steps": _command_forget_steps,
+    "events": _command_events,
+    "event": _command_event,
 }
 USAGE = (
     "usage: flux bt | flux locals | flux print <name>[.<part>...] | flux handlers"
     " | flux threads | flux thread <n>"
     " | flux catch [kind...] | flux where | flux next | flux step | flux finish"
-    " | flux forget-steps"
+    " | flux forget-steps | flux events [--json] | flux event <n>"
 )
 
 
