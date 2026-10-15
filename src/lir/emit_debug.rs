@@ -71,7 +71,8 @@ pub(super) struct DebugBuilder {
 
 impl DebugBuilder {
     pub(super) fn new(native: &NativeDebug) -> Self {
-        let path = without_verbatim_prefix(&native.file);
+        // Visual Studio and cdb do not resolve a source file's `\\?\` path.
+        let path = crate::shared::paths::without_verbatim_prefix(&native.file);
         let path = Path::new(path.as_ref());
         let absolute = if path.is_absolute() {
             path.to_path_buf()
@@ -790,16 +791,6 @@ pub(super) fn dbg_declare() -> crate::llvm::ir::LlvmDecl {
     }
 }
 
-/// `path` without the `\\?\` a canonical Windows path starts with, which
-/// Visual Studio and cdb do not resolve when they look for a source file.
-fn without_verbatim_prefix(path: &str) -> std::borrow::Cow<'_, str> {
-    if let Some(share) = path.strip_prefix(r"\\?\UNC\") {
-        format!(r"\\{share}").into()
-    } else {
-        path.strip_prefix(r"\\?\").unwrap_or(path).into()
-    }
-}
-
 /// A stable 64-bit hash, so a module's symbols do not change between builds.
 fn fnv1a(text: &str) -> u64 {
     text.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
@@ -846,19 +837,6 @@ mod tests {
         assert!(flags.iter().any(|flag| flag.contains("\"CodeView\"")));
         assert!(!flags.iter().any(|flag| flag.contains("Dwarf Version")));
         assert!(flags.iter().any(|flag| flag.contains("Debug Info Version")));
-    }
-
-    #[test]
-    fn source_paths_lose_the_windows_verbatim_prefix() {
-        assert_eq!(
-            without_verbatim_prefix(r"\\?\E:\src\app.flx"),
-            r"E:\src\app.flx"
-        );
-        assert_eq!(
-            without_verbatim_prefix(r"\\?\UNC\server\share\app.flx"),
-            r"\\server\share\app.flx"
-        );
-        assert_eq!(without_verbatim_prefix("/src/app.flx"), "/src/app.flx");
     }
 
     #[test]

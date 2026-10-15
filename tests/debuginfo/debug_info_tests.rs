@@ -41,7 +41,19 @@ fn dump_debug_info(example: &str, extra: &[&str]) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     let root = workspace_root().to_string_lossy().into_owned();
-    String::from_utf8_lossy(&output.stdout).replace(&root, "<root>")
+    let dump = String::from_utf8_lossy(&output.stdout).replace(&root, "<root>");
+    // A file's path uses `\` on Windows.
+    dump.lines()
+        .map(|line| {
+            if line.starts_with("debug info: ") {
+                line.replace('\\', "/")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        + if dump.ends_with('\n') { "\n" } else { "" }
 }
 
 fn assert_dump_snapshot(name: &str, example: &str, extra: &[&str]) {
