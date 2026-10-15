@@ -111,8 +111,6 @@ fn lower_program_to_ir_impl(
         None,
         class_env,
         evidence,
-        // Not yet on the VM path: step 2a-3c.
-        false,
     );
     if let Some(error) = errors.into_iter().next() {
         return Err(error);
@@ -130,7 +128,32 @@ fn lower_program_to_ir_impl(
         // `multiply` duplicate binder CoreBinderId(5) in Lam`. Latent while few
         // functions carried dictionaries; reachable as soon as more do.
         let mut next_id = crate::core::passes::next_fresh_binder_id(&core);
-        crate::core::passes::build_referenced_dictionaries(&mut core, ce, int, &mut next_id);
+        // A call to a clone that does without dictionaries passes none, but
+        // a caller compiled from the AST, or the clone's own forwarding body,
+        // still passes the ones it stands for (0.0.8 plan, step 2a-3c).
+        let clone_dictionaries = type_env
+            .map(|type_env| {
+                let clones = crate::core::lower_ast::specialization_clone_names(
+                    program,
+                    hm_expr_types,
+                    int,
+                    type_env,
+                    class_env,
+                    evidence,
+                );
+                crate::core::lower_ast::dictionary_names(
+                    clones.iter().flat_map(|(_, _, dicts)| dicts),
+                    int,
+                )
+            })
+            .unwrap_or_default();
+        crate::core::passes::build_referenced_dictionaries_and(
+            &mut core,
+            ce,
+            int,
+            &mut next_id,
+            &clone_dictionaries,
+        );
     }
 
     let mut warnings = if let Some(interner) = interner {

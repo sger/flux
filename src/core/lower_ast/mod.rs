@@ -36,7 +36,7 @@ mod pattern;
 mod specialize;
 
 use binder_resolution::{resolve_program_binders, validate_program_binders};
-pub use specialize::specialization_clone_names;
+pub use specialize::{dictionary_names, specialization_clone_names};
 
 /// Pre-resolved effect operation signatures: `(effect, operation) → (param_types, return_type)`.
 /// Used by the lowerer to assign `FluxRep` to handler arm binders.
@@ -117,7 +117,6 @@ pub fn lower_program_ast_with_class_env(
         effect_op_sigs,
         class_env,
         None,
-        false,
     )
     .0
 }
@@ -138,7 +137,6 @@ pub fn lower_program_ast_with_evidence(
     effect_op_sigs: Option<&EffectOpSigs>,
     class_env: Option<&crate::types::class_env::ClassEnv>,
     evidence: Option<&crate::types::evidence::EvidenceMap>,
-    dictionary_clones: bool,
 ) -> (CoreProgram, Vec<crate::diagnostics::Diagnostic>) {
     let mut lowerer = AstLowerer::new(
         hm_expr_types,
@@ -148,7 +146,6 @@ pub fn lower_program_ast_with_evidence(
         class_env,
         evidence,
     );
-    lowerer.dictionary_clones = dictionary_clones;
     lowerer.collect_ctor_field_names(program);
     lowerer.collect_local_function_names(program);
     lowerer.collect_specializations(program);
@@ -421,10 +418,6 @@ pub(super) struct AstLowerer<'a> {
     context_call_targets: HashMap<(Identifier, ExprId), Identifier>,
     /// The name of the definition whose body is being lowered.
     current_def: Option<Identifier>,
-    /// Whether a function that takes dictionaries may be cloned where they
-    /// are known (step 2a-3b). Off on the VM path until its CFG compiler can
-    /// take every clone without the AST fallback (step 2a-3c).
-    pub(super) dictionary_clones: bool,
     /// The clones that take no dictionaries though their function does
     /// (step 2a-3b): a call to one passes none.
     dictless_clones: std::collections::HashSet<Identifier>,
@@ -480,7 +473,6 @@ impl<'a> AstLowerer<'a> {
             call_targets: HashMap::new(),
             context_call_targets: HashMap::new(),
             current_def: None,
-            dictionary_clones: false,
             dictless_clones: std::collections::HashSet::new(),
             clone_dicts: None,
             active_subst: None,

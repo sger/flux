@@ -90,9 +90,14 @@ impl Compiler {
                     // under another name, compiled from its own IR. A clone
                     // has IR whenever the program does, and without IR nothing
                     // calls it: every call compiles from the AST, by the
-                    // function's own name. It is skipped then, since the AST
-                    // body of a dictionary clone would need the dictionaries
-                    // the clone does without.
+                    // function's own name. It is skipped then.
+                    //
+                    // A clone that does without its function's dictionaries
+                    // (step 2a-3b) can't fall back to the function's AST body,
+                    // which reads them. Its fallback body forwards to the
+                    // function with the dictionaries it stands for instead
+                    // (step 2a-3c): it compiles from its CFG where it can, and
+                    // is correct everywhere.
                     let clones = self
                         .specialization_clones
                         .get(name)
@@ -104,13 +109,33 @@ impl Compiler {
                         if function != *name && ir_function.is_none() {
                             continue;
                         }
+                        let forwarder = match self.clone_dictionaries.get(&function) {
+                            Some(dicts) => {
+                                match self.forwarding_body(*name, dicts, parameters, *span) {
+                                    Some(forwarder) => Some(forwarder),
+                                    None => {
+                                        use crate::diagnostics::DiagnosticBuilder;
+                                        let error: crate::diagnostics::Diagnostic =
+                                            crate::ice!(format!(
+                                                "the clone `{}` stands for a dictionary \
+                                                 that was never interned",
+                                                self.sym(function)
+                                            ))
+                                            .with_span(*span);
+                                        result = Err(Box::new(error));
+                                        break;
+                                    }
+                                }
+                            }
+                            None => None,
+                        };
                         result = self.compile_function_statement(
                             function,
                             parameters,
                             parameter_types,
                             return_type,
                             &effective_effects,
-                            body,
+                            forwarder.as_ref().unwrap_or(body),
                             *intrinsic,
                             ir_function,
                             *span,
@@ -153,6 +178,74 @@ impl Compiler {
         // constructor reads when it is finally called. That is what the
         // boundary store above would otherwise walk straight into.
         self.emit_instance_method_aliases(ir_program);
+    }
+
+    /// The AST body of a clone that does without `function`'s dictionaries:
+    /// a call to `function` itself, with the dictionaries the clone stands for
+    /// ahead of the clone's own parameters (0.0.8 plan, step 2a-3c). The AST
+    /// compiler takes leading dictionary arguments as already supplied.
+    ///
+    /// `None` when a dictionary was never interned, or is not known: a clone
+    /// only ever stands for known ones.
+    fn forwarding_body(
+        &self,
+        function: crate::syntax::Identifier,
+        dicts: &[crate::types::translate::DictArg],
+        parameters: &[crate::syntax::Identifier],
+        span: crate::diagnostics::position::Span,
+    ) -> Option<crate::syntax::block::Block> {
+        use crate::syntax::expression::{ExprId, Expression};
+        use crate::types::translate::DictArg;
+
+        let identifier = |name| Expression::Identifier {
+            name,
+            span,
+            id: ExprId::UNSET,
+        };
+        fn dictionary(
+            compiler: &Compiler,
+            arg: &DictArg,
+            identifier: &dyn Fn(crate::syntax::Identifier) -> Expression,
+        ) -> Option<Expression> {
+            match arg {
+                DictArg::Global { instance } => {
+                    Some(identifier(instance.dict_name(&compiler.interner)?))
+                }
+                DictArg::Applied { instance, context } => {
+                    let function = identifier(instance.dict_name(&compiler.interner)?);
+                    Some(Expression::Call {
+                        span: function.span(),
+                        function: Box::new(function),
+                        arguments: context
+                            .iter()
+                            .map(|arg| dictionary(compiler, arg, identifier))
+                            .collect::<Option<_>>()?,
+                        id: ExprId::UNSET,
+                    })
+                }
+                DictArg::Param { .. } | DictArg::None => None,
+            }
+        }
+
+        let arguments = dicts
+            .iter()
+            .filter(|arg| !matches!(arg, DictArg::None))
+            .map(|arg| dictionary(self, arg, &identifier))
+            .chain(parameters.iter().map(|&name| Some(identifier(name))))
+            .collect::<Option<Vec<_>>>()?;
+        Some(crate::syntax::block::Block {
+            statements: vec![Statement::Expression {
+                expression: Expression::Call {
+                    function: Box::new(identifier(function)),
+                    arguments,
+                    span,
+                    id: ExprId::UNSET,
+                },
+                has_semicolon: false,
+                span,
+            }],
+            span,
+        })
     }
 
     /// Store the dictionary globals: the ones this unit defines, and the ones

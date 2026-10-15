@@ -2534,7 +2534,6 @@ fn lower_emitting(
         None,
         Some(&compiler.class_env),
         Some(evidence),
-        true,
     )
 }
 
@@ -2788,14 +2787,22 @@ fn measure<a: Sized>(x: a) -> Int {
 "#;
 
 /// 1e: a call to a constrained function passes the dictionaries its
-/// callee's evidence names, ahead of its own arguments: an instance's
-/// global, or a contextual instance's applied to its context.
+/// callee's evidence names, ahead of its own arguments: the caller's own
+/// dictionary parameter, or a contextual instance's applied to it.
+///
+/// Where every dictionary is known, the call reaches a clone that takes none
+/// instead (step 2a-3b), so `main` calls clones; the generic body of
+/// `measure_both`, which only has its parameter, still passes dictionaries.
 #[test]
 fn emitting_evidence_passes_a_constrained_calls_dictionaries() {
     let (program, interner) = parse_program(&format!(
         r#"{CONTEXTUAL_SIZED}
+fn measure_both<a: Sized>(x: a) -> Int {{
+    measure(x) + measure([x])
+}}
+
 fn main() {{
-    measure(3) + measure([1, 2])
+    measure(3) + measure([1, 2]) + measure_both(5)
 }}
 "#
     ));
@@ -2804,12 +2811,20 @@ fn main() {{
 
     let core = lower_emitting_evidence(&mut compiler, &program);
     assert_eq!(
-        calls_in(&compiler, &core, "main", "measure"),
+        calls_in(&compiler, &core, "measure_both", "measure"),
         [
-            vec!["__dict_Sized_Int", "_"],
-            vec!["__dict_Sized_List<a>(__dict_Sized_Int)", "_"],
+            vec!["__dict_Sized", "x"],
+            vec!["__dict_Sized_List<a>(__dict_Sized)", "_"],
         ]
     );
+    // The clones take no dictionaries: only the call's own argument.
+    for clone in ["measure$Int$Sized_Int", "measure$Box$Sized_List<a>_Sized_Int"] {
+        assert_eq!(
+            calls_in(&compiler, &core, "main", clone),
+            [vec!["_"]],
+            "{clone}"
+        );
+    }
 }
 
 /// 1e: a method call on a type with an instance calls the instance's method
@@ -3878,8 +3893,11 @@ fn main() {{
     );
 }
 
+/// The VM compiles a dictionary clone from its own IR, and keeps the
+/// dictionaries it stands for defined: a caller compiled from the AST, and
+/// the clone's own forwarding body, still pass them (step 2a-3c).
 #[test]
-fn the_vm_path_makes_no_dictionary_clones_yet() {
+fn the_vm_compiles_dictionary_clones() {
     let (program, interner) = parse_program(&format!(
         "{CLONE_CLASSES}
 fn main() {{
@@ -3890,18 +3908,21 @@ fn main() {{
     ));
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler.compile(&program).expect("the program compiles");
-    let program = program_to_lower(&mut compiler, &program);
-    let names = |dictionary_clones| {
-        crate::core::lower_ast::specialization_clone_names(
-            &program,
-            &compiler.hm_expr_types,
-            &compiler.interner,
-            &compiler.type_env,
-            Some(&compiler.class_env),
-            Some(&compiler.evidence_map),
-            dictionary_clones,
-        )
-    };
-    assert!(names(false).is_empty(), "{:?}", names(false));
-    assert_eq!(names(true).len(), 2, "{:?}", names(true));
+    let mut clones: Vec<String> = compiler
+        .clone_dictionaries
+        .keys()
+        .map(|&clone| compiler.interner.resolve(clone).to_string())
+        .collect();
+    clones.sort();
+    assert_eq!(clones, ["dbl$Float$Twice_Float", "dbl$Int$Twice_Int"]);
+    for clone in compiler.clone_dictionaries.keys() {
+        assert!(
+            compiler
+                .ir_function_symbols
+                .values()
+                .any(|name| name == clone),
+            "no VM IR for `{}`",
+            compiler.interner.resolve(*clone)
+        );
+    }
 }

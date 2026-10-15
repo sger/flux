@@ -28,11 +28,27 @@ pub fn build_referenced_dictionaries(
     interner: &Interner,
     next_id: &mut u32,
 ) {
+    build_referenced_dictionaries_and(program, class_env, interner, next_id, &[]);
+}
+
+/// [`build_referenced_dictionaries`], also defining the dictionaries in
+/// `also`, though the program may not refer to them.
+///
+/// The VM needs this for dictionary clones (0.0.8 plan, step 2a-3c): a call
+/// to one passes no dictionaries, so the program may no longer name those it
+/// stands for, but a caller or clone compiled from the AST still passes them.
+pub fn build_referenced_dictionaries_and(
+    program: &mut CoreProgram,
+    class_env: &ClassEnv,
+    interner: &Interner,
+    next_id: &mut u32,
+    also: &[Identifier],
+) {
     normalize_all_existing_dict_param_types(program, interner);
     if class_env.classes.is_empty() {
         return;
     }
-    define_referenced_dictionaries(program, class_env, interner, next_id);
+    define_referenced_dictionaries(program, class_env, interner, next_id, also);
 }
 
 /// Prepend a definition for every dictionary the program refers to, and for
@@ -42,8 +58,10 @@ fn define_referenced_dictionaries(
     class_env: &ClassEnv,
     interner: &Interner,
     next_id: &mut u32,
+    also: &[Identifier],
 ) {
-    let referenced_dicts = collect_referenced_dictionary_names(program, interner);
+    let mut referenced_dicts = collect_referenced_dictionary_names(program, interner);
+    referenced_dicts.extend(also.iter().copied());
     if referenced_dicts.is_empty() {
         return;
     }

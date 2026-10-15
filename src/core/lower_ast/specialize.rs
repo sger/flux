@@ -103,8 +103,7 @@ pub fn specialization_clone_names(
     type_env: &TypeEnv,
     class_env: Option<&ClassEnv>,
     evidence: Option<&EvidenceMap>,
-    dictionary_clones: bool,
-) -> Vec<(Identifier, String)> {
+) -> Vec<(Identifier, String, Vec<DictArg>)> {
     let mut lowerer = AstLowerer::new(
         hm_expr_types,
         Some(interner),
@@ -113,14 +112,43 @@ pub fn specialization_clone_names(
         class_env,
         evidence,
     );
-    lowerer.dictionary_clones = dictionary_clones;
     lowerer.collect_local_function_names(program);
     lowerer
         .plan_specializations(program)
         .clones
         .into_iter()
-        .flat_map(|(function, clones)| clones.into_iter().map(move |clone| (function, clone.name)))
+        .flat_map(|(function, clones)| {
+            clones
+                .into_iter()
+                .map(move |clone| (function, clone.name, clone.dicts))
+        })
         .collect()
+}
+
+/// The names of the dictionaries `dicts` build: each instance's own, and for
+/// an applied one, the ones its context needs. A name that was never interned
+/// is left out.
+pub fn dictionary_names<'a>(
+    dicts: impl IntoIterator<Item = &'a DictArg>,
+    interner: &Interner,
+) -> Vec<Identifier> {
+    fn collect(arg: &DictArg, interner: &Interner, names: &mut Vec<Identifier>) {
+        match arg {
+            DictArg::Global { instance } => names.extend(instance.dict_name(interner)),
+            DictArg::Applied { instance, context } => {
+                names.extend(instance.dict_name(interner));
+                for arg in context {
+                    collect(arg, interner, names);
+                }
+            }
+            DictArg::Param { .. } | DictArg::None => {}
+        }
+    }
+    let mut names = Vec::new();
+    for arg in dicts {
+        collect(arg, interner, &mut names);
+    }
+    names
 }
 
 /// The key spelling each variable's representation, for the instantiation
@@ -526,11 +554,43 @@ impl AstLowerer<'_> {
             .filter_map(|site| evidence.dict_args_at(*site))
             .flatten()
             .all(|arg| {
-                !names_param_of(
-                    &resolve_dict_arg(&arg, *owner, dicts, self.class_env),
-                    *owner,
-                )
+                let resolved = resolve_dict_arg(&arg, *owner, dicts, self.class_env);
+                !names_param_of(&resolved, *owner) && self.methods_generated(&resolved)
             })
+    }
+
+    /// Whether every method of each instance `arg` names was generated. A
+    /// clone calls them by name, where its function reads them from a
+    /// dictionary; a unit that never compiled an instance's module has none.
+    fn methods_generated(&self, arg: &DictArg) -> bool {
+        let (Some(class_env), Some(interner)) = (self.class_env, self.interner) else {
+            return false;
+        };
+        match arg {
+            DictArg::Global { instance } | DictArg::Applied { instance, .. } => {
+                let methods =
+                    class_env
+                        .lookup_class_by_id(instance.class_id)
+                        .is_some_and(|class| {
+                            class.methods.iter().all(|method| {
+                                interner
+                                    .lookup(&crate::types::class_env::mangled_method_name(
+                                        instance.class_id,
+                                        &instance.dict_type_key,
+                                        interner.resolve(method.name),
+                                        interner,
+                                    ))
+                                    .is_some()
+                            })
+                        });
+                let context = match arg {
+                    DictArg::Applied { context, .. } => context.as_slice(),
+                    _ => &[],
+                };
+                methods && context.iter().all(|arg| self.methods_generated(arg))
+            }
+            DictArg::Param { .. } | DictArg::None => true,
+        }
     }
 
     /// Whether `name` calls itself at a type other than its own.
@@ -618,7 +678,6 @@ impl AstLowerer<'_> {
             return None;
         }
         if dicts.len() != self.dict_param_count(function, visitor)
-            || (!dicts.is_empty() && !self.dictionary_clones)
             || !dicts.iter().all(is_known)
             || (!dicts.is_empty() && !self.resolves_in_body(function, &dicts, visitor))
         {

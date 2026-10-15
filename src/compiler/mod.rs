@@ -1408,6 +1408,10 @@ pub struct Compiler {
     /// [`Self::pre_intern_specialization_names`]. Codegen compiles each next
     /// to the function it clones.
     pub(super) specialization_clones: HashMap<Symbol, Vec<Symbol>>,
+    /// The dictionaries each clone of a function that takes them stands for
+    /// (step 2a-3b): the clone takes none. On the VM, a clone that falls back
+    /// to the AST compiles as a call to its function with these (2a-3c).
+    pub(super) clone_dictionaries: HashMap<Symbol, Vec<crate::types::translate::DictArg>>,
     pub(super) inferred_function_effects: HashMap<ContractKey, HashSet<Symbol>>,
     strict_mode: bool,
     strict_require_main: bool,
@@ -1960,6 +1964,7 @@ impl Compiler {
             deferred_lowering_error: None,
             ir_function_symbols: HashMap::new(),
             specialization_clones: HashMap::new(),
+            clone_dictionaries: HashMap::new(),
             inferred_function_effects: HashMap::new(),
             strict_mode: false,
             strict_require_main: true,
@@ -2103,16 +2108,9 @@ impl Compiler {
     /// Intern the names of the clones lowering will emit for `program`, which
     /// it can only look up (0.0.8 plan, step 2a). Call it with the program
     /// about to be lowered, after `apply_hm_final`.
-    ///
-    /// `dictionary_clones` says whether the lowering that follows clones a
-    /// function that takes dictionaries: the Core path does, the VM path not
-    /// yet (step 2a-3c).
-    pub(super) fn pre_intern_specialization_names(
-        &mut self,
-        program: &Program,
-        dictionary_clones: bool,
-    ) {
+    pub(super) fn pre_intern_specialization_names(&mut self, program: &Program) {
         self.specialization_clones.clear();
+        self.clone_dictionaries.clear();
         let clones = crate::core::lower_ast::specialization_clone_names(
             program,
             &self.hm_expr_types,
@@ -2120,10 +2118,12 @@ impl Compiler {
             &self.type_env,
             Some(&self.class_env),
             Some(&self.evidence_map),
-            dictionary_clones,
         );
-        for (function, clone) in clones {
+        for (function, clone, dicts) in clones {
             let clone = self.interner.intern(&clone);
+            if !dicts.is_empty() {
+                self.clone_dictionaries.insert(clone, dicts);
+            }
             self.specialization_clones
                 .entry(function)
                 .or_default()
@@ -2154,7 +2154,6 @@ impl Compiler {
             None,
             class_env_ref,
             Some(&self.evidence_map),
-            true,
         );
         if let Some(mut error) = errors.into_iter().next() {
             error.set_file(self.file_path.clone());
@@ -2206,7 +2205,7 @@ impl Compiler {
         self.apply_hm_final(&prepared.hm_final);
         let mut program_to_lower = prepared.effective_program.into_owned();
         self.apply_named_field_desugar(&mut program_to_lower);
-        self.pre_intern_specialization_names(&program_to_lower, true);
+        self.pre_intern_specialization_names(&program_to_lower);
         self.lower_core_from_program(&program_to_lower, optimize, define_dictionaries)
     }
 
@@ -2255,7 +2254,7 @@ impl Compiler {
         self.apply_hm_final(&prepared.hm_final);
         let mut program_to_lower = prepared.effective_program.into_owned();
         self.apply_named_field_desugar(&mut program_to_lower);
-        self.pre_intern_specialization_names(&program_to_lower, true);
+        self.pre_intern_specialization_names(&program_to_lower);
         self.lower_aether_from_program(&program_to_lower, optimize, true)
     }
 
@@ -6839,7 +6838,7 @@ impl Compiler {
     pub fn dump_cfg(&mut self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
         let prepared = self.prepare_program_for_lowering(program);
         self.apply_hm_final(&prepared.hm_final);
-        self.pre_intern_specialization_names(prepared.effective_program.as_ref(), false);
+        self.pre_intern_specialization_names(prepared.effective_program.as_ref());
         let class_env_ref = if self.class_env.classes.is_empty() {
             None
         } else {
@@ -6899,7 +6898,7 @@ impl Compiler {
         self.apply_hm_final(&prepared.hm_final);
         let mut effective_program = prepared.effective_program.into_owned();
         self.apply_named_field_desugar(&mut effective_program);
-        self.pre_intern_specialization_names(&effective_program, true);
+        self.pre_intern_specialization_names(&effective_program);
         let aether = self.lower_aether_from_program(&effective_program, optimize, true)?;
 
         let extern_symbols = self.build_native_extern_symbols(&effective_program);
