@@ -954,8 +954,9 @@ Implemented in S1a (synchronous effects) and S1b (async code).
     completion is a hand-over.
   - `Task.await` is a `task_await` turn on both backends. A task that had
     ended by then gives its result at once; otherwise its end is handed
-    over. A task cancelled before its end gives none, and a task cancelled
-    before it started ends `failed: false`.
+    over. A task cancelled before the await gives no result, even one that
+    had already ended, and a task cancelled before it started ends
+    `failed: false`.
   - A fiber that loses a race, or that a timeout cuts off, is dropped and
     never runs again (the VM used to resume it with `()`), and a timeout
     whose body wins cancels its timer.
