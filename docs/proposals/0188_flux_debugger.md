@@ -932,9 +932,9 @@ Implemented in S1a (synchronous effects) and S1b (async code).
     `is_closed`) are `channel` events, with what they found.
   - **Hand-overs.** A completion another thread hands to the scheduler (a
     task's result for `Task.await`, a value a channel passes to a parked
-    fiber) is a `wake{req}` event where the scheduler took it. A replay
-    delivers the real completion there. Requests are numbered when they
-    are made, since a handed-over one is never submitted.
+    fiber) is a `wake{waiter}` event where the scheduler took it, naming
+    the fiber that waited for it (S9d; `wake{req}` before). A replay
+    delivers the real completion there.
   - **Unchanged:** tasks keep their own threads and the VM's pool keeps its
     size. Tasks cannot perform I/O (`spawn` takes `() -> a`), so their own
     events are their start, end and channel operations. A task the program
@@ -944,14 +944,36 @@ Implemented in S1a (synchronous effects) and S1b (async code).
     interleave with the program's in ways the tape does not order, and
     natively it would share the process's one active run.
 
+  **One schedule (S9d).** The VM's scheduler follows native's rules, so
+  an async tape replays on either backend. The order of completions,
+  hand-overs and thread turns on the tape is then the whole schedule, and
+  no event records which fiber runs next:
+  - A channel or event completion on the run's own thread wakes the
+    waiting fiber at once, at the back of the ready queue (the fiber that
+    made the operation last, when it parks). Only another thread's
+    completion is a hand-over.
+  - `Task.await` is a `task_await` turn on both backends. A task that had
+    ended by then gives its result at once; otherwise its end is handed
+    over. A task cancelled before its end gives none, and a task cancelled
+    before it started ends `failed: false`.
+  - A fiber that loses a race, or that a timeout cuts off, is dropped and
+    never runs again (the VM used to resume it with `()`), and a timeout
+    whose body wins cancels its timer.
+  - The run ends with its root: fibers still ready then never run.
+  - The names on the tape do not depend on either backend's id counters.
+    A request belongs to the fiber that made it, so its submission is that
+    fiber's even when the scheduler sends it (a connect after a DNS
+    lookup). A request is numbered when it is first submitted. A fiber is
+    numbered when it first appears or makes a request.
+
 #### 4.3 Tape format
 
-A tape is JSON Lines (format version 2 since S8c; a version 1 tape is
+A tape is JSON Lines (format version 3 since S9d; a version 1 or 2 tape is
 refused with E1026): one header line, then one event per line in the order
 the program performed them.
 
 ```text
-{"magic":"FLXTAPE","version":2,"flux_version":"0.0.7","program_hash":"sha256:…","argv":["app.flx"],"backend":"vm"}
+{"magic":"FLXTAPE","version":3,"flux_version":"0.0.7","program_hash":"sha256:…","argv":["app.flx"],"backend":"vm"}
 {"seq":0,"kind":"read_file","path":"in.txt","result":{"text":"hello\n"}}
 {"seq":1,"kind":"stdout","text":"hello\n"}
 {"seq":2,"kind":"exit","failed":false}
@@ -964,7 +986,8 @@ the program performed them.
 - **Events:** `seq` (contiguous from 0), `kind`, the request's fields, and a
   `result` for inputs, outputs and completions. `fiber` (omitted when 0)
   is the logical fiber that performed the event: 0 outside `run_async`,
-  otherwise fibers numbered from 1 in the order they first appear. `task`
+  otherwise fibers numbered from 1 in the order they first appear or make
+  a request. A submission is the fiber's whose request it is. `task`
   (omitted when 0, S8c) is the logical task whose thread performed it.
 - **Async events (S1b):**
   - Submissions: `timer_start`, `dns_resolve`, `tcp_connect`,
@@ -977,15 +1000,16 @@ the program performed them.
     `Flow.Event` deadlines use.
   - Threads (S8c): `task_spawn`, `task_start` (result: whether it ran),
     `task_end`, `task_cancel`, `task_join`, `task_await` (result: whether
-    the task had finished), `wake{req}` (a completion handed over by
-    another thread) and `channel{chan, op}` (result: what it found).
+    the task had finished), `wake{waiter}` (a completion handed over by
+    another thread, to fiber `waiter`) and `channel{chan, op}` (result:
+    what it found).
 
   ```text
   {"seq":0,"fiber":1,"kind":"task_spawn","id":1}
   {"seq":1,"task":1,"kind":"task_start","id":1,"result":{"bool":true}}
   {"seq":2,"fiber":1,"kind":"task_cancel","id":1}
   {"seq":3,"task":1,"kind":"task_end","id":1,"failed":false}
-  {"seq":4,"kind":"wake","req":2}
+  {"seq":4,"kind":"wake","waiter":1}
   ```
 
   ```text
@@ -999,11 +1023,10 @@ the program performed them.
   as `{"hex": …}`.
 - **The last event** is `exit`, with whether the run failed. Replay compares
   `failed`, not the message, since the backends word failures differently.
-- **Backend-neutral for synchronous effects:** a tape without async events
-  replays on either backend. A tape with async events replays only on the
-  backend that recorded it, since the two schedulers order fibers
-  differently; replaying it on the other backend gives E1026.
-  Cross-backend async replay is S9.
+- **Backend-neutral:** a tape replays on either backend, whichever recorded
+  it. Until S9d a tape with async events replayed only on the backend that
+  recorded it (E1026), since the two schedulers ordered fibers differently;
+  they now follow one schedule (§4.2).
 - **Step annotation (S9):** each event can optionally carry a `vm_step: u64`,
   for opening a native tape in the VM. S3 keeps each event's position in
   memory only.
@@ -1194,7 +1217,7 @@ As built in S7b:
 |---|---|---|
 | S0 | `src/debuginfo/` model (functions, lambdas, variables with types, ADT layouts, effects), built per module where Core is lowered and kept on `Compiler`; `--debug` / `-g` and `DebugLevel`; debug level in the cache keys; `--dump-debug-info` | Snapshot tests of `--dump-debug-info` for ~8 fixtures, including a two-module program with each module in its own file. A test that cache keys differ by debug level while the default key is unchanged. `-g` leaves the LLVM IR and bytecode unchanged in S0. |
 | S1a | Recording of synchronous effects (implements 0038): the tape format and runtime, VM hook, native C/Rust ABI, `--record`/`--replay`, E1022–E1027; async refused | Tapes recorded on either backend replay on both with identical output; replay reads and changes nothing outside the program; edited tapes fail with E1022–E1026; async under a tape fails with E1027. Off-mode overhead measured with `benches/effect_tape_off_bench.rs`. |
-| S1b | Async recording: submissions and completions through the shared async backend, one worker and synchronous fs under a tape, the taped event clock, logical request and fiber ids; `Task.spawn` refused until S8 | Every async fixture (sleep, channels, events, scopes, fs, TCP) and every async example replays on the backend that recorded it, without waiting on timers or opening sockets; edited async tapes fail with E1022/E1023; an async tape on the other backend fails with E1026. |
+| S1b | Async recording: submissions and completions through the shared async backend, one worker and synchronous fs under a tape, the taped event clock, logical request and fiber ids; `Task.spawn` refused until S8 | Every async fixture (sleep, channels, events, scopes, fs, TCP) and every async example replays on the backend that recorded it, without waiting on timers or opening sockets; edited async tapes fail with E1022/E1023; an async tape on the other backend fails with E1026 (lifted in S9d). |
 | S2 | VM engine: `OpBreakpoint` sites (entry, statement, match arm, `|>` stage, perform) from the AST compiler under `-g`, `VmObserver` and `Inspector` (`src/vm/debug/`), step in/over/out, local-variable tables, caller-location fix (also in runtime stack traces), tail-call elision counter, compiler-made code hidden, `flux debug` front end | Golden transcripts of scripted sessions (`tests/debug/vm/*.flxdbg`). Every example runs the same with and without `-g`, apart from timing and one unused failing binding. No slowdown in non-debug runs. |
 | S3 | VM reverse execution for programs without async code: positions (site counts), checkpoints at top-level sites in a bounded ring, reverse step/next/finish/continue by restoring a checkpoint and replaying forward, `goto`, run to event, every `flux debug` session recording in memory, console output printed once | Golden transcripts where coming back to a stop shows the stack and values seen going forward, the same wherever checkpoints fall. A memory-bound test (900,000 sites, at most 256 checkpoints). Going back performs no effect twice. |
 | S4 | `crates/flux-dap`, mirroring `crates/flux-lsp`: DAP over stdio, the program in a `flux debug --engine` child driven over a JSON-lines socket protocol; breakpoints, stack (tail-call labels), scopes and variables, stepping, Step Back and Reverse Continue, pause; watch, hover and Debug Console evaluate of variable paths, plus console commands for positions and effects; `editors/vscode` `debuggers` and `breakpoints` contributions; launch config with `backend`, `record`, `replay`. Evaluating any pure expression moves to a later stage. | DAP JSON transcript tests in `crates/flux-dap/tests`. A manual VS Code checklist in the crate README. |
@@ -1209,7 +1232,7 @@ As built in S7b:
 | S9a | Going back through async code and tasks on the VM (§4.4): recording through `run_async`, re-running from the checkpoint before it with the kept events (tape marks keep the tape's numbering, checkpoints the next channel/task/event ids), the abandoned run unwinding with its tape paused and its tasks forgotten (tape generations, stale completions dropped), stepping back that stays in its fiber, running live again where a re-run ends (timers start over) | Transcripts `reverse_async`, `reverse_task`, `reverse_both`, `reverse_sleep`, `reverse_channel`, `reverse_async_replayed` in `tests/debug/vm/`; DAP `stepping_back_into_async_code`. |
 | S9b | Native replay under lldb: the build embeds `flux_program_hash`, so a native program writes its tape header and checks a replayed tape itself, with rendered errors (§4.2); run to event (`flux_debug_on_tape_event`, `flux events` / `flux event N` in lldb, relaunching a replay to go back); `fluxEvents` / `fluxGoToEvent` in `flux-dap` for both backends and a Flux Timeline view in VS Code; `.events` / `.event N` in native sessions (forward) | `replay_cli_tests`: a binary run directly records a tape the driver replays on both backends, and refuses another program's tape with E1026; lldb sessions in `native_debug_tests` (to an event and back in a replay, forward only in a recording, no tape); DAP `the_timeline_lists_the_effects_and_goes_to_one` and `native_record_and_replay_with_the_timeline` (native record, replay, Timeline, the tape on the VM with Step Back). |
 | S9c | Every Core pass back on under `-g`, keeping the binders the program wrote (`keep.rs`: lets, pattern variables and lambda parameters are bound, not substituted; a lambda with a named parameter stays a call); `InlineSite`s from `beta_reduce` through `AetherProgram` to `LirLoc.inlined`, `inlinedAt` and inlined-lambda subprograms in DWARF, `[inlined]` frames in `flux bt`; the `llvm_g` parity way and the guide checked with and without `-g` in `xtask verify` | Core unit tests (kept lets, pattern variables, parameters; inline sites recorded). `native_debug_tests`: the IR has `inlinedAt`, golden `flux bt` with an `[inlined]` frame, `llvm-dwarfdump --verify` over `inlined.flx`. Debug parity 21/21 with `inlined_lambda.flx`. `parity-check examples/guide --ways llvm,llvm_g` 59/59. |
-| S9d | Backend-neutral async tapes: requests named by the fiber that made them, the schedule on the tape, each scheduler following it | Every async and task fixture recorded on one backend replays on the other; 100 identical cross-backend replays. |
+| S9d | Backend-neutral async tapes (§4.2 "One schedule"): the VM's scheduler follows native's (channel and event completions wake at once on the run's thread, `Task.await` as an ordered turn, cancelled fibers dropped, a winning timeout body cancels its timer, the run ends with its root, a task cancelled before it started does not fail); names that do not depend on the backend (a request belongs to the fiber that made it, `req` numbered at its first submission, `wake{waiter}`), tape format version 3; E1026 for async tapes lifted | `replay_cli_tests`: every async and task fixture (and `async_race_loser`) recorded on one backend replays on the other; 100 replays of `task_cancel` and `task_channel` recorded on each backend print the same on the other; unit test `async_names_do_not_depend_on_the_backend`; version 2 tapes refused. |
 | S10 | Aether reference-count view, debug-heap runtime, native panic symbolization; `flux_trace_push` deleted | Golden reference counts. A use-after-free fixture that the debug heap catches. Native panic output lists Flux frames. |
 | S11 | Windows call stacks for Visual Studio (§2.8): `"CodeView"` module flag on MSVC targets, `/DEBUG` and `/PDB` in `run_linker`, runtime built with `-gcodeview` | On a Windows CI runner, `llvm-pdbutil dump -symbols app.pdb` lists Flux subprogram names with `.flx` line entries. `cdb -z app.exe -c "g; k; q"` on a fixture that panics prints Flux frames with `app.flx` file and line. A manual check that Visual Studio's Call Stack window shows them. |
 

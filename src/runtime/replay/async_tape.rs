@@ -18,6 +18,12 @@
 //! ([`enter_task`]); tasks and channels get logical numbers too; and a
 //! completion another thread hands to the scheduler goes through
 //! [`deliver_cross`], which puts it on the tape where the scheduler took it.
+//!
+//! The names do not depend on the backend either (0188 S9d), since both
+//! schedulers follow the same rules: a request belongs to the fiber that made
+//! it ([`note_request`]), a request is numbered when it is first submitted,
+//! a fiber when it first appears or makes a request, and a hand-over is named
+//! by the fiber waiting for it, which waits for one thing at a time.
 
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -45,6 +51,11 @@ pub(super) struct Ids {
     req_logical: HashMap<u64, u64>,
     req_real: HashMap<u64, u64>,
     fibers: HashMap<u64, u32>,
+    /// The real fiber each real request belongs to.
+    owners: HashMap<u64, u64>,
+    /// The last request each real fiber made: the one it waits for when it
+    /// parks.
+    waiting: HashMap<u64, u64>,
     stalled_since: Option<Instant>,
     /// Tasks spawned so far, for numbering the next.
     tasks: u32,
@@ -92,14 +103,30 @@ fn real_req(logical: u64) -> Option<u64> {
     with_ids(|ids| ids.req_real.get(&logical).copied())
 }
 
-/// Gives request `req` its logical number now, when the scheduler makes it
-/// rather than when it is first submitted: a request another thread
-/// completes (a task's result, a channel hand-over) is never submitted, and
-/// must still be numbered in an order replay repeats.
+/// Request `req` was made by the fiber running now: its submission is that
+/// fiber's, and a hand-over of its completion names that fiber.
 pub fn note_request(req: u64) {
-    if super::is_active() {
-        logical_req(req);
+    if !super::is_active() {
+        return;
     }
+    let Some(fiber) = real_fiber() else {
+        return;
+    };
+    logical_fiber(fiber);
+    with_ids(|ids| {
+        ids.owners.insert(req, fiber);
+        ids.waiting.insert(fiber, req);
+    });
+}
+
+/// The logical fiber logical request `req` belongs to: the running one when
+/// no fiber made it.
+pub(super) fn request_fiber(req: u64) -> u32 {
+    let owner = with_ids(|ids| {
+        let real = ids.req_real.get(&req)?;
+        ids.owners.get(real).copied()
+    });
+    owner.map_or_else(current_fiber, logical_fiber)
 }
 
 // ── Tasks and channels (0188 S8c) ───────────────────────────────────────
@@ -190,23 +217,28 @@ pub fn deliver_cross<T>(mut take: impl FnMut(Option<u64>) -> Option<(u64, T)>) -
         ReplayMode::Record => {
             let _order = super::order_lock();
             let (req, value) = take(None)?;
-            let req = logical_req(req);
-            if let Err(err) = append(EffectRequest::Wake { req }, None) {
+            let owner = with_ids(|ids| ids.owners.get(&req).copied());
+            let waiter = owner.map_or(0, logical_fiber);
+            if let Err(err) = append(EffectRequest::Wake { waiter }, None) {
                 fail(err);
             }
             Some(value)
         }
         ReplayMode::Replay => {
             let event = super::peek_own(|request| matches!(request, EffectRequest::Wake { .. }))?;
-            let EffectRequest::Wake { req } = event.request else {
+            let EffectRequest::Wake { waiter } = event.request else {
                 unreachable!("peek_own matched a wake");
             };
-            let Some(real) = real_req(req) else {
+            let real = with_ids(|ids| {
+                let (fiber, _) = ids.fibers.iter().find(|(_, logical)| **logical == waiter)?;
+                ids.waiting.get(fiber).copied()
+            });
+            let Some(real) = real else {
                 fail(TapeError::PayloadMismatch {
                     index: event.seq,
-                    what: "which request was handed over".to_string(),
-                    tape: format!("request #{req}"),
-                    program: "no such request made yet".to_string(),
+                    what: "which fiber a hand-over was for".to_string(),
+                    tape: format!("fiber {waiter}"),
+                    program: "no such fiber waiting".to_string(),
                 });
             };
             let (_, value) = take(Some(real))?;
@@ -239,18 +271,25 @@ pub fn set_fiber_source(source: FiberSource) {
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(source);
 }
 
-/// The logical number of the fiber running now: 0 outside `run_async`.
-pub(super) fn current_fiber() -> u32 {
+/// The real id of the fiber running now, if any.
+fn real_fiber() -> Option<u64> {
     let source = *FIBER_SOURCE
         .read()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let Some(real) = source.and_then(|source| source()) else {
-        return 0;
-    };
+    source.and_then(|source| source())
+}
+
+/// The logical number of real fiber `real`, assigned on first sight.
+fn logical_fiber(real: u64) -> u32 {
     with_ids(|ids| {
         let next = ids.fibers.len() as u32 + 1;
         *ids.fibers.entry(real).or_insert(next)
     })
+}
+
+/// The logical number of the fiber running now: 0 outside `run_async`.
+pub(super) fn current_fiber() -> u32 {
+    real_fiber().map_or(0, logical_fiber)
 }
 
 // ── Stopping on a tape error ────────────────────────────────────────────

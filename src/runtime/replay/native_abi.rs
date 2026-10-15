@@ -301,7 +301,7 @@ pub unsafe extern "C" fn flux_tape_init(
     }
     if let Some(path) = std::env::var_os("FLUX_TAPE_REPLAY") {
         let tape = LoadedTape::load(Path::new(&path)).unwrap_or_else(|err| fatal(err));
-        match tape.check_for(&program_hash, "native") {
+        match tape.check_for(&program_hash) {
             // The driver already showed these.
             Ok(warnings) if std::env::var_os(WIRE_ENV).is_none() => {
                 for warning in warnings {

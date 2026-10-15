@@ -303,9 +303,10 @@ pub(super) mod vm_async {
 
     pub fn alloc_request_id() -> RequestId {
         let req = NEXT_REQ.fetch_add(1, Ordering::Relaxed);
-        // Numbered for the tape as it is made: another thread may complete
-        // it without it ever being submitted (0188 S8c).
+        // The tape notes which fiber made it: its submission and a hand-over
+        // of its completion are that fiber's (0188 S9d).
         crate::runtime::replay::async_tape::note_request(req);
+        super::vm_fibers::note_owned_request(req);
         RequestId(req)
     }
 
@@ -377,6 +378,13 @@ pub(crate) fn debug_fiber_boundary() -> Option<usize> {
 /// starts above.
 pub(crate) fn debug_current_fiber() -> Option<(u64, Option<usize>)> {
     vm_fibers::debug_current()
+}
+
+/// Completes request `req` at once when the current thread's run made it,
+/// as native does: false when the request belongs elsewhere and the
+/// caller hands it over through its queue (0188 S9d).
+pub(super) fn wake_here(req: u64, result: impl FnOnce() -> Result<Value, String>) -> bool {
+    vm_fibers::wake_here_with(req, result)
 }
 
 mod vm_fibers {
@@ -467,6 +475,12 @@ mod vm_fibers {
         // loop exits.
         static ACTIVE_SHARED: RefCell<Option<Arc<SharedDispatchState>>> =
             const { RefCell::new(None) };
+        // Requests this thread's one-worker run made, and the ones of them
+        // completed on this thread and not yet delivered: a channel, event
+        // or finished task completes its waiter here at once, as on native,
+        // instead of through the queues another thread uses (0188 S9d).
+        static OWNED_REQUESTS: RefCell<HashSet<u64>> = RefCell::new(HashSet::new());
+        static LOCAL_WAKES: RefCell<Vec<(u64, FiberOutcome)>> = const { RefCell::new(Vec::new()) };
     }
 
     /// RuntimeConfig knobs threaded from `FiberRunAsyncWith` into
@@ -524,12 +538,7 @@ mod vm_fibers {
     /// task's result, then a channel's value, then an event's, in that order.
     fn next_handed_over() -> Option<(u64, FiberOutcome)> {
         if let Some((request_id, result)) = super::super::task::try_recv_completion() {
-            let outcome = match result {
-                Ok(value) => FiberOutcome::Value(Value::Some(Rc::new(value))),
-                Err(err) if err == "TaskCancelled" => FiberOutcome::Value(Value::None),
-                Err(err) => FiberOutcome::Error(async_panicked(err)),
-            };
-            return Some((request_id, outcome));
+            return Some((request_id, task_outcome(result)));
         }
         if let Some((request_id, result)) = super::super::channel::try_recv_completion() {
             let outcome = match result {
@@ -811,6 +820,7 @@ mod vm_fibers {
             // via `take_all_root_tasks`; reaching this point should leave the
             // set empty.
             RUN_ROOT_TASKS.with(|r| *r.borrow_mut() = None);
+            clear_local_wakes();
         }
     }
 
@@ -1041,6 +1051,74 @@ mod vm_fibers {
 
     pub fn take_park() -> Option<(u64, Value)> {
         PENDING_PARK.with(|p| p.borrow_mut().take())
+    }
+
+    /// A request the current thread's one-worker run made (0188 S9d).
+    pub fn note_owned_request(req: u64) {
+        let one_worker =
+            SCHED.with(|s| s.borrow().is_some()) && ACTIVE_SHARED.with(|s| s.borrow().is_none());
+        if one_worker {
+            OWNED_REQUESTS.with(|owned| owned.borrow_mut().insert(req));
+        }
+    }
+
+    /// Completes request `req` on this thread, as native does, when this
+    /// thread's run made it: its fiber is woken where the scheduler next
+    /// looks, not after every ready fiber has run. False for another
+    /// thread's request, which goes through the queues.
+    pub fn wake_here(req: u64, outcome: impl FnOnce() -> FiberOutcome) -> bool {
+        if !OWNED_REQUESTS.with(|owned| owned.borrow_mut().remove(&req)) {
+            return false;
+        }
+        let outcome = outcome();
+        LOCAL_WAKES.with(|wakes| wakes.borrow_mut().push((req, outcome)));
+        true
+    }
+
+    /// [`wake_here`] for a channel's or an event's completion.
+    pub fn wake_here_with(req: u64, result: impl FnOnce() -> Result<Value, String>) -> bool {
+        wake_here(req, || match result() {
+            Ok(value) => FiberOutcome::Value(value),
+            Err(err) => FiberOutcome::Error(async_panicked(err)),
+        })
+    }
+
+    /// A finished task's result as its awaiting fiber gets it: `Some(value)`,
+    /// `None` when it was cancelled, or its failure.
+    pub fn task_outcome(result: Result<Value, String>) -> FiberOutcome {
+        match result {
+            Ok(value) => FiberOutcome::Value(Value::Some(Rc::new(value))),
+            Err(err) if err == "TaskCancelled" => FiberOutcome::Value(Value::None),
+            Err(err) => FiberOutcome::Error(async_panicked(err)),
+        }
+    }
+
+    /// Wakes the fibers completed on this thread, in the order they were
+    /// completed. `parking` is the request the fiber that just ran is about
+    /// to park on: native wakes it when it parks, after the others, so it
+    /// waits here until the fiber is suspended.
+    fn deliver_local_wakes(parking: Option<u64>) {
+        let wakes = LOCAL_WAKES.with(|wakes| {
+            let mut wakes = wakes.borrow_mut();
+            let (kept, ready): (Vec<_>, Vec<_>) = std::mem::take(&mut *wakes)
+                .into_iter()
+                .partition(|(req, _)| Some(*req) == parking);
+            *wakes = kept;
+            ready
+        });
+        for (req, outcome) in wakes {
+            set_resume_outcome(req, outcome);
+            SCHED.with(|s| {
+                if let Some(sched) = s.borrow_mut().as_mut() {
+                    sched.complete_request(RequestId(req));
+                }
+            });
+        }
+    }
+
+    fn clear_local_wakes() {
+        OWNED_REQUESTS.with(|owned| owned.borrow_mut().clear());
+        LOCAL_WAKES.with(|wakes| wakes.borrow_mut().clear());
     }
 
     /// FiberYieldNow signals that the current fiber has captured its
@@ -1398,15 +1476,22 @@ mod vm_fibers {
                     }
                     losers.extend(event_losers);
                 }
-                AwaitEvent::TimeoutBodyReady { request, outcome } => match outcome {
-                    FiberOutcome::Value(result) => {
-                        completions
-                            .push((request, FiberOutcome::Value(Value::Some(Rc::new(result)))));
+                AwaitEvent::TimeoutBodyReady { request, outcome } => {
+                    // The body won: its timer goes, as on native, so it never
+                    // completes for nothing (0188 S9d).
+                    if let Ok(backend) = vm_async::backend() {
+                        backend.cancel(RequestId(request));
                     }
-                    FiberOutcome::Error(err) => {
-                        completions.push((request, FiberOutcome::Error(err)));
+                    match outcome {
+                        FiberOutcome::Value(result) => {
+                            completions
+                                .push((request, FiberOutcome::Value(Value::Some(Rc::new(result)))));
+                        }
+                        FiberOutcome::Error(err) => {
+                            completions.push((request, FiberOutcome::Error(err)));
+                        }
                     }
-                },
+                }
                 AwaitEvent::TimeoutTimerReady { .. } => {}
             }
         }
@@ -1419,8 +1504,8 @@ mod vm_fibers {
 
     /// Cancel a set of fibers: look up each fiber's pending backend request,
     /// call `backend.cancel` to stop I/O work, then mark the fiber `Cancelled`
-    /// in the scheduler so the dispatch loop resumes it with `AsyncError.Canceled`
-    /// (proposal 0174 1b-vi-c).  Always cancel the backend request *before*
+    /// in the scheduler so the dispatch loop drops it, as native does
+    /// (0188 S9d).  Always cancel the backend request *before*
     /// moving the fiber to `Cancelled` so a late-arriving completion cannot
     /// re-queue a fiber that is about to be dropped.
     pub fn cancel_losers(
@@ -1451,6 +1536,19 @@ mod vm_fibers {
             }
         });
         mark_cancelled(loser_ids);
+    }
+
+    /// A cancelled fiber the scheduler dropped: nothing awaits it any more.
+    fn forget_cancelled(id: FiberId) {
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            shared
+                .awaits
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove_child(id);
+        } else {
+            AWAITS.with(|a| a.borrow_mut().remove_child(id));
+        }
     }
 
     /// Record `ids` as cancelled so a fiber that is currently *executing*
@@ -1615,6 +1713,7 @@ mod vm_fibers {
         clear_await_state();
         RUN_ROOT_TASKS.with(|r| *r.borrow_mut() = None);
         HANDED_OVER.with(|held| held.borrow_mut().clear());
+        clear_local_wakes();
         while next_handed_over().is_some() {}
         if let Ok(backend) = vm_async::backend() {
             while backend.next_completion().is_some() {}
@@ -1651,6 +1750,12 @@ mod vm_fibers {
         loop {
             // Drain ready queue.
             loop {
+                deliver_local_wakes(None);
+                // The run ends with its root, as on native: fibers still
+                // ready then never run (0188 S9d).
+                if root_result.is_some() {
+                    break;
+                }
                 let next = SCHED.with(|s| {
                     s.borrow_mut()
                         .as_mut()
@@ -1668,85 +1773,11 @@ mod vm_fibers {
                     continue;
                 }
 
-                // Cancelled fibers (1b-vi-c): resume their parked continuation
-                // with `AsyncError.Canceled` so that `bracket`/`finally`
-                // cleanup arms run before the fiber exits.  If there is no
-                // continuation (body never ran), the fiber is dropped silently.
+                // Cancelled fibers are dropped, as on native: a fiber that
+                // lost a race or whose timeout fired never runs again
+                // (0188 S9d).
                 if fiber.state == FiberState::Cancelled {
-                    if let Some(cont) = fiber.parked.take() {
-                        // Resume with Unit (None) rather than Canceled so that
-                        // intermediate operation return-type contracts are not
-                        // violated (e.g. sleep -> Unit).  The fiber completes
-                        // normally: bracket's release arm still runs since
-                        // bracket is sequential (body → release).
-                        let cancel_val = Value::None;
-                        let fid = fiber.id;
-                        let outcome = with_current(fid, || {
-                            ctx.resume_from_dispatch(Value::Continuation(cont), cancel_val)
-                        });
-                        if crate::vm::debug::rewinding() {
-                            return Err(abandon_for_rewind());
-                        }
-                        // The fiber may park again (e.g. inside a release arm
-                        // that does async I/O).  Handle exactly like normal park.
-                        if let Some((req, cont_val)) = take_park() {
-                            let cont_rc =
-                                match cont_val {
-                                    Value::Continuation(rc) => rc,
-                                    _ => return Err(
-                                        "cancelled fiber re-park: non-Continuation in PENDING_PARK"
-                                            .into(),
-                                    ),
-                                };
-                            fiber.parked = Some(cont_rc);
-                            fiber.mark_parked();
-                            fiber.state = FiberState::Suspended { request_id: req };
-                            let home_worker = fiber.home_worker;
-                            fiber_trace::emit(FiberEvent::Suspend {
-                                fid: fid.0,
-                                worker: home_worker.0,
-                                request_id: req,
-                            });
-                            SCHED.with(|s| {
-                                s.borrow_mut()
-                                    .as_mut()
-                                    .expect("scheduler missing")
-                                    .insert_suspended(home_worker, req, fiber);
-                            });
-                            let done = on_fiber_suspended(fid);
-                            if !done.losers.is_empty() {
-                                cancel_losers(&done.losers, backend);
-                            }
-                            for (pr, rv) in done.completions {
-                                set_resume_outcome(pr, rv);
-                                SCHED.with(|s| {
-                                    s.borrow_mut()
-                                        .as_mut()
-                                        .expect("scheduler missing")
-                                        .complete_request(RequestId(pr));
-                                });
-                            }
-                            continue;
-                        }
-                        // Fiber ran to completion after cleanup.
-                        if let Ok(v) = outcome {
-                            let done = on_fiber_done(fid, v);
-                            if !done.losers.is_empty() {
-                                cancel_losers(&done.losers, backend);
-                            }
-                            for (pr, rv) in done.completions {
-                                set_resume_outcome(pr, rv);
-                                SCHED.with(|s| {
-                                    s.borrow_mut()
-                                        .as_mut()
-                                        .expect("scheduler missing")
-                                        .complete_request(RequestId(pr));
-                                });
-                            }
-                        }
-                        // Errors from cancelled fibers' cleanup are swallowed.
-                    }
-                    // No continuation → bookkeeping artifact; drop silently.
+                    forget_cancelled(fiber.id);
                     continue;
                 }
 
@@ -1797,6 +1828,8 @@ mod vm_fibers {
                 if crate::vm::debug::rewinding() {
                     return Err(abandon_for_rewind());
                 }
+                let parking = PENDING_PARK.with(|p| p.borrow().as_ref().map(|(req, _)| *req));
+                deliver_local_wakes(parking);
 
                 // Did the fiber park during this tick?  FiberSleep/FiberSuspend
                 // capture+unwind+set PENDING_PARK, then return Err so the
@@ -1826,6 +1859,7 @@ mod vm_fibers {
                             .expect("scheduler missing")
                             .insert_suspended(home_worker, req, fiber);
                     });
+                    deliver_local_wakes(None);
                     let done = on_fiber_suspended(fiber_id);
                     if !done.losers.is_empty() {
                         cancel_losers(&done.losers, backend);
@@ -2597,16 +2631,9 @@ mod vm_fibers {
                     continue;
                 }
 
-                // Cancelled fibers: resume with None so cleanup arms run.
+                // Cancelled fibers are dropped (0188 S9d).
                 if fiber.state == FiberState::Cancelled {
-                    if fiber.parked.is_some() {
-                        let resume_val = Value::None;
-                        let result = run_one_fiber(&mut fiber, &mut vm, resume_val);
-                        let done = process_fiber_result(result, fiber, &shared, backend);
-                        if done {
-                            break;
-                        }
-                    }
+                    forget_cancelled(fiber.id);
                     continue;
                 }
 
@@ -2706,14 +2733,7 @@ mod vm_fibers {
                 }
 
                 if fiber.state == FiberState::Cancelled {
-                    if fiber.parked.is_some() {
-                        let resume_val = Value::None;
-                        let result = run_one_fiber(&mut fiber, ctx, resume_val);
-                        let done = process_fiber_result(result, fiber, &shared, backend);
-                        if done {
-                            break;
-                        }
-                    }
+                    forget_cancelled(fiber.id);
                     continue;
                 }
 
@@ -4294,7 +4314,16 @@ pub fn execute_core_primop(
                     }
                     let req = vm_async::alloc_request_id();
                     let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
-                    super::task::start_await(*id, req.0)?;
+                    if crate::runtime::replay::is_active() {
+                        // A task finished at the await's turn completes it at
+                        // once, as on native (0188 S9d).
+                        if let Some(result) = super::task::taped_await(*id, req.0)? {
+                            let result = result.and_then(|value| value.into_value());
+                            vm_fibers::wake_here(req.0, || vm_fibers::task_outcome(result));
+                        }
+                    } else {
+                        super::task::start_await(*id, req.0)?;
+                    }
                     vm_fibers::debug_block(|| Blocked::Task { id: *id });
                     vm_fibers::signal_park(req, cont);
                     Err("__flux_fiber_park__".to_string())

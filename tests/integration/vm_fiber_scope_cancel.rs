@@ -2,7 +2,7 @@
 //!
 //! `scope` now allocates a real cancellation boundary; `fork` registers child
 //! fibers under it; `cancel` stops them immediately by cancelling their backend
-//! requests and resuming their continuations with `AsyncError.Canceled`.
+//! requests and dropping them: a cancelled fiber never runs again (0188 S9d).
 
 #[path = "../support/flux_runner.rs"]
 mod flux_runner;

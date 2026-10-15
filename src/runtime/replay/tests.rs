@@ -133,7 +133,7 @@ fn every_request_and_outcome_round_trips_through_json() {
         EffectRequest::TaskCancel { id: 2 },
         EffectRequest::TaskJoin { id: 2 },
         EffectRequest::TaskAwait { id: 2 },
-        EffectRequest::Wake { req: 3 },
+        EffectRequest::Wake { waiter: 3 },
         EffectRequest::Channel {
             chan: 1,
             op: "try_recv".into(),
@@ -367,11 +367,15 @@ fn loading_rejects_tapes_that_cannot_be_replayed() {
     };
 
     assert!(reason(&write("not_tape.jsonl", "hello\n")).contains("not a Flux tape"));
-    let future = header_line.replace("\"version\":2", "\"version\":99");
+    let future = header_line.replace("\"version\":3", "\"version\":99");
     assert!(reason(&write("future.jsonl", &format!("{future}\n"))).contains("version 99"));
-    // Version 1 tapes have no task field and no hand-overs (0188 S8c).
-    let older = header_line.replace("\"version\":2", "\"version\":1");
-    assert!(reason(&write("older.jsonl", &format!("{older}\n"))).contains("version 1"));
+    // Version 1 tapes have no task field and no hand-overs (0188 S8c);
+    // version 2 tapes name a hand-over by a backend's request (0188 S9d).
+    for older in ["1", "2"] {
+        let line = header_line.replace("\"version\":3", &format!("\"version\":{older}"));
+        let path = write(&format!("older{older}.jsonl"), &format!("{line}\n"));
+        assert!(reason(&path).contains(&format!("version {older}")));
+    }
     let gap = format!(
         "{header_line}\n{}\n",
         r#"{"seq":1,"kind":"clock_now","result":{"int":1}}"#
@@ -483,7 +487,6 @@ fn async_replay_answers_from_the_tape_without_the_backend() {
         console(stdout("woke\n")).unwrap();
         finish(false, None).unwrap();
     });
-    assert!(tape.has_async());
     assert_eq!(
         tape.events[0].request,
         EffectRequest::TimerStart { req: 1, ms: 5 }
@@ -508,14 +511,67 @@ fn async_replay_answers_from_the_tape_without_the_backend() {
     reset();
 }
 
+/// The fiber `test_fiber` reports as running: 0 for none.
+static TEST_FIBER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn test_fiber() -> Option<u64> {
+    match TEST_FIBER.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => None,
+        fiber => Some(fiber),
+    }
+}
+
+fn run_fiber(fiber: u64) {
+    TEST_FIBER.store(fiber, std::sync::atomic::Ordering::Relaxed);
+}
+
 #[test]
-fn a_tape_without_async_events_replays_on_either_backend() {
+fn async_names_do_not_depend_on_the_backend() {
+    use crate::runtime::r#async::backend::RequestId;
+    use async_tape::{Submission, deliver_cross, note_request, set_fiber_source, submit};
     let _guard = serial();
-    let tape = record("sync.jsonl", || {
-        effect(EffectRequest::ClockNow, || Outcome::Int(5)).unwrap();
+    set_fiber_source(test_fiber);
+    // Fiber 70 makes a request it never submits, then a timer, which the
+    // scheduler submits while no fiber runs; fiber 71 waits for a hand-over.
+    let tape = record("names.jsonl", || {
+        run_fiber(70);
+        note_request(100);
+        note_request(101);
+        run_fiber(71);
+        note_request(102);
+        run_fiber(0);
+        assert!(submit(Some(RequestId(101)), Submission::Timer { ms: 5 }));
+        let handed = deliver_cross(|want| {
+            assert_eq!(want, None);
+            Some((102, "handed"))
+        });
+        assert_eq!(handed, Some("handed"));
         finish(false, None).unwrap();
     });
-    assert!(!tape.has_async());
+    // The timer is request 1, the hidden request numbered nothing, and it
+    // is fiber 1's; the hand-over is named by the fiber waiting for it.
+    assert_eq!(tape.events[0].fiber, 1);
+    assert_eq!(
+        tape.events[0].request,
+        EffectRequest::TimerStart { req: 1, ms: 5 }
+    );
+    assert_eq!(tape.events[1].request, EffectRequest::Wake { waiter: 2 });
+
+    // Another backend: other ids, and no hidden request.
+    start_replay(tape);
+    run_fiber(9);
+    note_request(7);
+    run_fiber(8);
+    note_request(8);
+    run_fiber(0);
+    assert!(!submit(Some(RequestId(7)), Submission::Timer { ms: 5 }));
+    let handed = deliver_cross(|want| {
+        assert_eq!(want, Some(8));
+        Some((8, "handed"))
+    });
+    assert_eq!(handed, Some("handed"));
+    assert_eq!(finish(false, None), Ok(()));
+    reset();
 }
 
 #[test]
@@ -752,18 +808,16 @@ fn a_thread_whose_turn_never_comes_stops_the_replay() {
 }
 
 #[test]
-fn a_tape_is_checked_against_the_program_and_backend_replaying_it() {
+fn a_tape_is_checked_against_the_program_replaying_it() {
     let _guard = serial();
     let tape = record("checked.jsonl", || {
         effect(read_file("in.txt"), || text("recorded")).unwrap();
         finish(false, None).unwrap();
     });
-    assert_eq!(tape.check_for("sha256:test", "vm"), Ok(Vec::new()));
-    // Without async code, a tape replays on either backend.
-    assert_eq!(tape.check_for("sha256:test", "native"), Ok(Vec::new()));
+    assert_eq!(tape.check_for("sha256:test"), Ok(Vec::new()));
     // A program that does not know its hash skips that check.
-    assert_eq!(tape.check_for("", "vm"), Ok(Vec::new()));
-    let Err(TapeError::BadTape { reason, .. }) = tape.check_for("sha256:other", "vm") else {
+    assert_eq!(tape.check_for(""), Ok(Vec::new()));
+    let Err(TapeError::BadTape { reason, .. }) = tape.check_for("sha256:other") else {
         panic!("another program's tape must be refused");
     };
     assert!(reason.contains("different program"), "{reason}");
@@ -771,7 +825,7 @@ fn a_tape_is_checked_against_the_program_and_backend_replaying_it() {
     let mut unfinished = tape.clone();
     unfinished.events.pop();
     unfinished.header.flux_version = "0.0.0".to_string();
-    let warnings = unfinished.check_for("sha256:test", "vm").unwrap();
+    let warnings = unfinished.check_for("sha256:test").unwrap();
     assert_eq!(warnings.len(), 2, "{warnings:?}");
     assert!(
         warnings[0].contains("recorded by flux 0.0.0"),
