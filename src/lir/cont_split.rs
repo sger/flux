@@ -289,8 +289,10 @@ fn synthesize_continuation(
             },
             loc: debug.loc,
             artificial: debug.artificial,
-            // Its blocks keep the parent's variable ids.
+            // Its blocks keep the parent's variable ids, and their
+            // locations its inlined lambdas.
             vars: debug.vars.clone(),
+            inline_sites: debug.inline_sites.clone(),
         }
     });
     let synthesized = LirFunction {

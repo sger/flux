@@ -16,6 +16,7 @@ mod evidence;
 mod helpers;
 mod inline;
 mod inliner;
+mod keep;
 pub mod lint;
 mod primop_promote;
 mod specialize;
@@ -68,7 +69,7 @@ use crate::syntax::interner::Interner;
 /// reduction exposing a known constructor for COKC).
 #[allow(clippy::result_large_err)]
 pub fn run_core_passes(program: &mut CoreProgram) -> Result<(), Diagnostic> {
-    run_semantic_core_passes_with_optional_interner(program, None, false, false).map(|_| ())
+    run_semantic_core_passes_with_optional_interner(program, None, false).map(|_| ())
 }
 
 #[allow(clippy::result_large_err)]
@@ -87,24 +88,29 @@ pub fn run_core_passes_with_interner_and_registry(
     optimize: bool,
     preloaded_registry: crate::aether::borrow_infer::BorrowRegistry,
 ) -> Result<(), Diagnostic> {
-    run_semantic_core_passes_with_optional_interner(program, Some(interner), optimize, false)
+    run_semantic_core_passes_with_optional_interner(program, Some(interner), optimize)
         .map(|_| ())?;
     run_aether_passes_with_optional_interner(program, Some(interner), preloaded_registry)
         .map(|_| ())
 }
 
 /// As [`run_core_passes_with_interner`], for a debug build (proposal 0188
-/// S6): the simplifier keeps every `let` the program wrote, so that a native
-/// debugger can show each variable, as the VM debugger does. It still folds
-/// and simplifies, but inlines no `let` and drops none.
+/// S6, S9c): every pass runs, but no binder the program wrote is substituted
+/// away — a `let`, a lambda's parameter or a pattern variable it named stays,
+/// bound by a `let` where a pass would have inlined it — so that a native
+/// debugger shows each variable and stops on each line, as the VM debugger
+/// does. Returns the lambdas the simplifier inlined, for debug information.
 #[allow(clippy::result_large_err)]
 pub fn run_core_passes_keeping_variables(
     program: &mut CoreProgram,
     interner: &Interner,
     optimize: bool,
-) -> Result<(), Diagnostic> {
-    run_semantic_core_passes_with_optional_interner(program, Some(interner), optimize, true)
-        .map(|_| ())
+) -> Result<Vec<crate::core::InlineSite>, Diagnostic> {
+    let kept = keep::source_binders(program, interner);
+    let (result, sites) = keep::keeping(kept, || {
+        run_semantic_core_passes_with_optional_interner(program, Some(interner), optimize)
+    });
+    result.map(|_| sites)
 }
 
 #[allow(clippy::result_large_err)]
@@ -113,7 +119,7 @@ pub fn run_core_passes_with_interner_and_warnings(
     interner: &Interner,
     optimize: bool,
 ) -> Result<Vec<Diagnostic>, Diagnostic> {
-    run_semantic_core_passes_with_optional_interner(program, Some(interner), optimize, false)
+    run_semantic_core_passes_with_optional_interner(program, Some(interner), optimize)
 }
 
 /// Maximum number of simplification rounds when `-O` is enabled.
@@ -124,7 +130,6 @@ fn run_semantic_core_passes_with_optional_interner(
     program: &mut CoreProgram,
     interner: Option<&Interner>,
     optimize: bool,
-    keep_variables: bool,
 ) -> Result<Vec<Diagnostic>, Diagnostic> {
     let mut warnings: Vec<Diagnostic> = Vec::new();
     // Find the maximum binder ID so passes can allocate fresh IDs above it.
@@ -175,10 +180,6 @@ fn run_semantic_core_passes_with_optional_interner(
             verify_aether_contract_stage(def, &e, "algebraic_simplify")?;
             let e = constant_fold(e);
             verify_aether_contract_stage(def, &e, "constant_fold")?;
-            if keep_variables {
-                def.expr = e;
-                continue;
-            }
             let e = disciplined_inline(e);
             verify_aether_contract_stage(def, &e, "disciplined_inline")?;
             let e = inline_lets(e);

@@ -2210,6 +2210,17 @@ pub enum CoreTopLevelItem {
     },
 }
 
+/// A lambda the simplifier inlined where it was applied, in a debug build
+/// (proposal 0188 S9c): its code keeps the lambda's places, and native debug
+/// information describes it as inlined at the call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InlineSite {
+    /// The lambda's span.
+    pub lambda: Span,
+    /// The span of the call it replaced.
+    pub call: Span,
+}
+
 #[derive(Debug, Clone)]
 pub struct CoreProgram {
     pub defs: Vec<CoreDef>,

@@ -29,8 +29,8 @@
 //! - `finished` when the program ends.
 //!
 //! Columns, stop reasons, positions, the VM's tail-call labels, the
-//! `⟂ handling …` labels, the `(suspended)` marks and the program's own
-//! output are left out. The way's "stdout" is that reduced
+//! `⟂ handling …` labels, the `(suspended)` and `[inlined]` marks and the
+//! program's own output are left out. The way's "stdout" is that reduced
 //! transcript, so the usual stdout comparison checks the two match.
 
 use std::path::{Path, PathBuf};
@@ -540,9 +540,13 @@ fn parse_frame(line: &str) -> Option<String> {
     let (number, rest) = rest.split_once(' ')?;
     number.parse::<usize>().ok()?;
     // `   (suspended)` and `   (suspended, not resumable)`: native code
-    // cannot tell whether a handler will resume.
+    // cannot tell whether a handler will resume. `   [inlined]`: the VM
+    // inlines nothing, and native code's lambda is the VM's frame.
     let rest = rest
         .split_once("   (suspended")
+        .map_or(rest, |(rest, _)| rest);
+    let rest = rest
+        .split_once("   [inlined]")
         .map_or(rest, |(rest, _)| rest);
     let (function, place) = rest.rsplit_once(" at ")?;
     Some(format!("frame {}", place_of(function, place)))
@@ -679,6 +683,18 @@ mod tests {
     fn a_fixture_scripts_its_session_in_dbg_lines() {
         let source = "// dbg: break 3\n// dbg: continue\n//dbg: no\n// dbg:\nfn main() {}\n";
         assert_eq!(debug_script(source), ["break 3", "continue"]);
+    }
+
+    #[test]
+    fn an_inlined_lambda_is_the_same_frame_on_both() {
+        assert_eq!(
+            parse_frame("#0 <lambda app.flx:2:14> at app.flx:4:9   [inlined]"),
+            parse_frame("#0 <lambda app.flx:2:14> at app.flx:4:9"),
+        );
+        assert_eq!(
+            parse_frame("#0 <lambda app.flx:2:14> at app.flx:4:9   [inlined]").as_deref(),
+            Some("frame <lambda app.flx:2:14> app.flx:4")
+        );
     }
 
     #[test]

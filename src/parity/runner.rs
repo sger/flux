@@ -206,12 +206,15 @@ fn build_way_args<'a>(
 ) -> (&'a Path, Vec<String>) {
     let (binary, mut args) = match way {
         Way::Vm | Way::VmCached | Way::VmStrict | Way::VmDebug => (vm_binary, vec![]),
-        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug => {
+        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug | Way::LlvmG => {
             (llvm_binary, vec!["--native".to_string()])
         }
     };
     if way.is_strict() {
         args.push("--strict".to_string());
+    }
+    if way == Way::LlvmG {
+        args.push("-g".to_string());
     }
     (binary, args)
 }
@@ -351,7 +354,7 @@ fn parity_cache_dir(file: &Path, way: Way) -> PathBuf {
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     let backend = match way {
         Way::Vm | Way::VmCached | Way::VmStrict | Way::VmDebug => "vm",
-        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug => "llvm",
+        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug | Way::LlvmG => "llvm",
     };
     project_root
         .join("target")
@@ -427,7 +430,7 @@ fn classify_cache_observation(path: &Path) -> Option<CacheFileKind> {
 pub fn is_native_skip(result: &RunResult) -> Option<String> {
     if !matches!(
         result.way,
-        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug
+        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug | Way::LlvmG
     ) {
         return None;
     }
@@ -461,7 +464,7 @@ pub fn capture_dump_core(
 ) -> DebugArtifacts {
     let binary = match way {
         Way::Vm | Way::VmCached | Way::VmStrict | Way::VmDebug => vm_binary,
-        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug => llvm_binary,
+        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug | Way::LlvmG => llvm_binary,
     };
 
     if !binary.exists() {
@@ -503,7 +506,7 @@ pub fn capture_dump_aether(
 ) -> DebugArtifacts {
     let binary = match way {
         Way::Vm | Way::VmCached | Way::VmStrict | Way::VmDebug => vm_binary,
-        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug => llvm_binary,
+        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug | Way::LlvmG => llvm_binary,
     };
 
     if !binary.exists() {
@@ -546,7 +549,7 @@ pub fn capture_dump_repr(
 ) -> DebugArtifacts {
     let binary = match way {
         Way::Vm | Way::VmCached | Way::VmStrict | Way::VmDebug => vm_binary,
-        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug => llvm_binary,
+        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug | Way::LlvmG => llvm_binary,
     };
 
     if !binary.exists() {
@@ -560,7 +563,7 @@ pub fn capture_dump_repr(
     ];
     if matches!(
         way,
-        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug
+        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug | Way::LlvmG
     ) {
         args.push("--native".to_string());
     }

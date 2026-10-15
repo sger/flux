@@ -203,6 +203,9 @@ pub struct AetherProgram {
     pub core: CoreProgram,
     pub defs: Vec<AetherDef>,
     pub top_level_items: Vec<CoreTopLevelItem>,
+    /// The lambdas a debug build's simplifier inlined (proposal 0188 S9c),
+    /// for debug information.
+    pub inline_sites: Vec<crate::core::InlineSite>,
 }
 
 impl AetherProgram {
@@ -218,6 +221,7 @@ impl AetherProgram {
             core,
             defs,
             top_level_items,
+            inline_sites: Vec::new(),
         }
     }
 
@@ -246,6 +250,7 @@ impl AetherProgram {
             core,
             defs,
             top_level_items,
+            inline_sites: Vec::new(),
         }
     }
 }

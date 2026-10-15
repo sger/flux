@@ -82,6 +82,9 @@ pub enum Way {
     VmDebug,
     /// The same session in lldb, on a `-g` native build.
     LlvmDebug,
+    /// The program built natively with `-g`: a debug build runs as a plain
+    /// one does (0188 S9c).
+    LlvmG,
 }
 
 impl fmt::Display for Way {
@@ -95,6 +98,7 @@ impl fmt::Display for Way {
             Self::LlvmStrict => write!(f, "llvm_strict"),
             Self::VmDebug => write!(f, "vm_debug"),
             Self::LlvmDebug => write!(f, "llvm_debug"),
+            Self::LlvmG => write!(f, "llvm_g"),
         }
     }
 }
@@ -110,6 +114,7 @@ impl Way {
             "llvm_strict" => Some(Self::LlvmStrict),
             "vm_debug" => Some(Self::VmDebug),
             "llvm_debug" => Some(Self::LlvmDebug),
+            "llvm_g" => Some(Self::LlvmG),
             _ => None,
         }
     }
@@ -151,7 +156,9 @@ impl Way {
     pub fn backend_id(self) -> BackendId {
         match self {
             Self::Vm | Self::VmCached | Self::VmStrict | Self::VmDebug => BackendId::Vm,
-            Self::Llvm | Self::LlvmCached | Self::LlvmStrict | Self::LlvmDebug => BackendId::Llvm,
+            Self::Llvm | Self::LlvmCached | Self::LlvmStrict | Self::LlvmDebug | Self::LlvmG => {
+                BackendId::Llvm
+            }
         }
     }
 }

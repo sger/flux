@@ -193,6 +193,7 @@ const FIXTURES: &[&str] = &[
     "overflow.flx",
     "fibers.flx",
     "root_panic.flx",
+    "inlined.flx",
 ];
 
 /// The errors `llvm-dwarfdump --verify` reports in Flux's compile units.
@@ -1256,5 +1257,53 @@ fn lldb_says_when_a_run_has_no_tape() {
     assert_lines(
         &session,
         &["this run has no tape: launch it with FLUX_TAPE_REPLAY or FLUX_TAPE_RECORD set"],
+    );
+}
+
+#[test]
+fn an_inlined_lambda_is_described_as_inlined() {
+    // 0188 S9c: Core inlines a lambda applied where it is written; its code
+    // keeps the lambda's places, inlined at the call.
+    let source = std::fs::read_to_string(fixture_dir().join("inlined.flx")).unwrap();
+    let ir = module_ir(&source, flux::debuginfo::DebugLevel::Full);
+    assert!(
+        ir.contains("distinct !DISubprogram(name: \"<lambda app.flx:4:14>\""),
+        "{ir}"
+    );
+    assert!(ir.contains(", inlinedAt: !"), "{ir}");
+}
+
+#[test]
+fn lldb_shows_an_inlined_lambda_as_a_frame() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = prepare("inlined");
+    build_only(&scratch, "inlined.flx", "app");
+    let Some(session) = flux_session(
+        &lldb,
+        &scratch,
+        "app",
+        ("inlined.flx", 6),
+        &[
+            "flux bt",
+            "flux locals",
+            "flux next",
+            "flux bt",
+            "flux locals",
+        ],
+    ) else {
+        return;
+    };
+    assert_lines(
+        &session,
+        &[
+            "#0 <lambda inlined.flx:4:14> at inlined.flx:6:9   [inlined]",
+            "#1 main at inlined.flx:4:14",
+            "y = 40",
+            "#0 main at inlined.flx:8:14",
+            "n = 41",
+        ],
     );
 }
