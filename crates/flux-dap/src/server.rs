@@ -1427,7 +1427,11 @@ fn strings(value: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The DAP `source` of `file`, without the `\\?\` of a canonical Windows
+/// path: the editor would not take that for the file it has open.
 fn source(file: &str) -> Value {
+    let file = flux::shared::paths::without_verbatim_prefix(file);
+    let file = file.as_ref();
     let name = Path::new(file)
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())

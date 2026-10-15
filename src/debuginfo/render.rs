@@ -11,7 +11,11 @@ use super::model::{DebugFunction, DebugType, DebugTypeId, FnKind, ProgramDebugIn
 pub fn render_program_debug_info(info: &ProgramDebugInfo) -> String {
     let mut out = String::new();
     for file in &info.files {
-        let _ = writeln!(out, "debug info: {}", file.path);
+        let _ = writeln!(
+            out,
+            "debug info: {}",
+            crate::shared::paths::without_verbatim_prefix(&file.path)
+        );
     }
     for function in &info.functions {
         render_function(&mut out, info, function);

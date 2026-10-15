@@ -217,10 +217,12 @@ impl Editor {
         // The temporary directory can be reached through a symlink
         // (`/var` is `/private/var` on macOS): take out both spellings.
         if let Ok(resolved) = std::fs::canonicalize(&self.dir) {
-            text = text.replace(&resolved.display().to_string(), "<dir>");
+            text = redact(&text, &resolved.display().to_string(), "<dir>");
         }
-        text = text.replace(&self.dir, "<dir>");
-        text = text.replace(&flux_bin().display().to_string(), "<flux>");
+        text = redact(&text, &self.dir, "<dir>");
+        text = redact(&text, &flux_bin().display().to_string(), "<flux>");
+        // A file in it, on Windows, follows a `\`, which JSON doubles.
+        text = text.replace(r"<dir>\\", "<dir>/");
         if std::env::var_os("FLUX_DAP_TEST_TRACE").is_some() {
             eprintln!("{label} {text}");
         }
@@ -265,6 +267,14 @@ impl Editor {
             self.output
         )
     }
+}
+
+/// `text`, a JSON message, with `path` replaced by `marker`, as it is and as
+/// JSON spells it, its `\`s doubled on Windows.
+fn redact(text: &str, path: &str, marker: &str) -> String {
+    let quoted = serde_json::to_string(path).unwrap();
+    let escaped = &quoted[1..quoted.len() - 1];
+    text.replace(escaped, marker).replace(path, marker)
 }
 
 fn snapshot(name: &str, transcript: &str) {
