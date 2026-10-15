@@ -401,6 +401,15 @@ pub(super) fn cancel(id: i64) -> Result<(), String> {
                 .lock()
                 .expect("VM task cancel set poisoned")
                 .insert(id);
+            // A task that has already ended loses its result, as on native
+            // (0188 S9d).
+            if let Some(dropped) = ended()
+                .lock()
+                .expect("VM task end set poisoned")
+                .get_mut(&id)
+            {
+                *dropped = true;
+            }
             None
         })
         .unwrap_or_else(|err| replay::async_tape::fail(err));
