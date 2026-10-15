@@ -2126,11 +2126,13 @@ impl Compiler {
             define_dictionaries,
             None,
         )
+        .map(|(core, _)| core)
     }
 
     /// [`Self::lower_core_from_program`], also storing the Core program as
     /// lowered, before any Core pass, in `pre_pass_core` when given: the
-    /// debug-info model describes the program as the user wrote it.
+    /// debug-info model describes the program as the user wrote it. Returns
+    /// with it the lambdas a debug build's simplifier inlined.
     #[allow(clippy::result_large_err)]
     fn lower_core_from_program_capturing(
         &self,
@@ -2138,7 +2140,7 @@ impl Compiler {
         optimize: bool,
         define_dictionaries: bool,
         pre_pass_core: Option<&mut Option<crate::core::CoreProgram>>,
-    ) -> Result<crate::core::CoreProgram, Diagnostic> {
+    ) -> Result<(crate::core::CoreProgram, Vec<crate::core::InlineSite>), Diagnostic> {
         let class_env_ref = if self.class_env.classes.is_empty() {
             None
         } else {
@@ -2176,20 +2178,21 @@ impl Compiler {
 
         let preloaded_registry = self.build_preloaded_borrow_registry(program_to_lower);
         let _ = preloaded_registry;
-        if self.debug_level.is_enabled() {
+        let inline_sites = if self.debug_level.is_enabled() {
             crate::core::passes::run_core_passes_keeping_variables(
                 &mut core,
                 &self.interner,
                 optimize,
-            )?;
+            )?
         } else {
             crate::core::passes::run_core_passes_with_interner(
                 &mut core,
                 &self.interner,
                 optimize,
             )?;
-        }
-        Ok(core)
+            Vec::new()
+        };
+        Ok((core, inline_sites))
     }
 
     #[allow(clippy::result_large_err)]
@@ -2200,18 +2203,19 @@ impl Compiler {
         define_dictionaries: bool,
         pre_pass_core: Option<&mut Option<crate::core::CoreProgram>>,
     ) -> Result<crate::aether::AetherProgram, Diagnostic> {
-        let core = self.lower_core_from_program_capturing(
+        let (core, inline_sites) = self.lower_core_from_program_capturing(
             program_to_lower,
             optimize,
             define_dictionaries,
             pre_pass_core,
         )?;
         let preloaded_registry = self.build_preloaded_borrow_registry(program_to_lower);
-        let (aether, _) = crate::aether::lower_core_to_aether_program(
+        let (mut aether, _) = crate::aether::lower_core_to_aether_program(
             &core,
             Some(&self.interner),
             preloaded_registry,
         )?;
+        aether.inline_sites = inline_sites;
         Ok(aether)
     }
 

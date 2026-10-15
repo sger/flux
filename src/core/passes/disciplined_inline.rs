@@ -3,6 +3,7 @@ use crate::core::{CoreBinder, CoreExpr, CorePrimOp};
 use super::{
     helpers::{expr_size, is_pure, subst},
     inliner::{count_occurrences, occurs_as_callee, occurs_under_lambda},
+    keep,
 };
 
 const INLINE_THRESHOLD: usize = 8;
@@ -21,7 +22,15 @@ pub fn disciplined_inline(expr: CoreExpr) -> CoreExpr {
             let count = count_occurrences(var.id, &body);
             let preserves_call_boundary = occurs_as_callee(var.id, &body) && !is_wrapper_rhs(&rhs);
 
-            if count == 0 && is_pure(&rhs) {
+            if keep::keeps(var.id) {
+                // A debug build keeps the program's own `let`s (0188 S9c).
+                CoreExpr::Let {
+                    var,
+                    rhs: Box::new(rhs),
+                    body: Box::new(body),
+                    span,
+                }
+            } else if count == 0 && is_pure(&rhs) {
                 body
             } else if count == 0 {
                 CoreExpr::Let {

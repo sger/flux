@@ -1058,6 +1058,7 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
             Way::LlvmStrict => 5,
             Way::VmDebug => 6,
             Way::LlvmDebug => 7,
+            Way::LlvmG => 8,
         });
         compile_ways.dedup();
         let mut expected_failure_stderr: Vec<(Way, String)> = Vec::new();
@@ -1590,7 +1591,8 @@ Usage:
 
 Options:
   --ways <w1,w2,...>     Ways to compare (default: vm,llvm)
-                         Available: vm, llvm, vm_cached, llvm_cached, vm_strict, llvm_strict
+                         Available: vm, llvm, vm_cached, llvm_cached, vm_strict, llvm_strict,
+                         llvm_g (native with -g); vm_debug, llvm_debug (scripted debug sessions)
   --show <filter>        Show only: pass, fail, or all (default: all)
   --capture-core         Capture --dump-core per way and compare Core IR
   --capture-aether       Capture --dump-aether=debug per way and compare ownership

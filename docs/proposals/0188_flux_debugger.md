@@ -114,7 +114,7 @@ flux run --replay trace.flxtape app.flx --native
 ```
 
 `--debug` selects the **debug profile**:
-- VM: emit breakpoint sites, record local-variable tables, disable Core inlining.
+- VM: emit breakpoint sites, record local-variable tables.
 - Native: emit DWARF, use the `Og` pipeline, emit frame pointers.
 
 The debug profile has its own cache entries, so switching between profiles
@@ -279,8 +279,9 @@ pub enum DebugType {
   (`src/driver/run_program/modules.rs:180`,
   `src/driver/pipeline/native/parallel.rs:152`). The model is built there, so
   every function belongs to that module's file. No `CoreDef.file` field is
-  needed while Core inlining is off in the debug profile. Cross-module
-  provenance is S9.
+  needed: Core never inlines one function into another (S9c found every
+  substitution stays inside one `CoreDef`), so a function's code comes from
+  its own module's file.
 - **Variable spans.** A variable's declaration span is the span of the
   expression that binds it: the `Let`, the `Lam`, or the case arm. Every
   `CoreExpr` already has one. Exact binder spans (`CoreBinder.span` or a side
@@ -304,6 +305,16 @@ Three items move to the stages that first need them:
   (`run_core_passes_keeping_variables`), so every `let` the program wrote
   reaches native code and the debugger, as on the VM, which compiles from
   the AST.
+  As built in S9c, a `-g` build runs every pass again, under one rule
+  (`src/core/passes/keep.rs`): a binder the program wrote — named, not `__…`,
+  bound at a place in the source — is never substituted away. The let
+  inliners and `elim_dead_let` leave such a `let`; `case_of_known_constructor`
+  and `constant_fold` bind such a pattern variable with a `let`;
+  `specialize_known_shapes` keeps such a `let f = fn…`; `beta_reduce` leaves a
+  lambda with such a parameter applied, a call as on the VM. Compiler-made
+  binders inline and go as in a plain build. A lambda that is still inlined
+  (one without parameters the program named) is recorded as an `InlineSite`
+  and described with `inlinedAt` (§2.4).
 
 `--dump-debug-info` prints the model. It is the snapshot surface for S0 tests.
 
@@ -402,8 +413,15 @@ them with the blocks it clones.
 - `Dup`, `Drop`, `Reuse` and yield-check glue get line 0. A user never stops on
   reference-counting code.
 - Inlining done by LLVM gets `inlinedAt` automatically. Inlining done by Core
-  needs span provenance (S9); until then the debug profile turns Core's `let`
-  inlining off (S6).
+  needs span provenance. As built in S9c: `beta_reduce` records each lambda
+  it inlines (`InlineSite { lambda, call }`), `AetherProgram.inline_sites`
+  carries them to LIR, where a location inside one gets `LirLoc.inlined` (an
+  index into `LirFnDebug.inline_sites`, with the call's own location, itself
+  perhaps inlined). `emit_debug.rs` then emits a `distinct !DISubprogram` per
+  inlined lambda and `!DILocation(…, scope: !lambda, inlinedAt: !call)`; its
+  variables take the lambda's scope, and their `llvm.dbg.declare` a location
+  inlined the same way. lldb shows the lambda as an inlined frame, which
+  `flux bt` marks `[inlined]`.
 
 #### 2.5 The debug profile
 
@@ -549,7 +567,11 @@ or locals. Two consequences:
 - `-g` can differ from a plain run where the two compilers already differ.
   The one case found across `examples/` (1,111 programs, compared with and
   without `-g`) is an unused binding whose value fails: `let ignored = 100 / x`
-  raises under `-g` and is optimized away in a plain run.
+  raises under `-g` and is optimized away in a plain run. Native `-g` keeps
+  that binding too (S9c), as the VM debugger does; otherwise a native `-g`
+  build runs the passes a plain build does, and `xtask verify` checks that
+  every guide example prints the same natively with and without `-g`
+  (the `llvm_g` parity way).
 
 **Sites.** Under `-g` the compiler emits `OpBreakpoint(site)` (opcode 63,
 `src/compiler/debug_sites.rs`) at:
@@ -1186,7 +1208,7 @@ As built in S7b:
 | S8c | Record and replay with tasks (§4.2): tape format version 2 with a `task` on each event, the turnstile that runs threads in the recorded order (console text at its turn), task spawns, starts, ends, cancels, joins and awaits as ordered events, completions handed over between threads as `wake` events, channel operations ordered once a task exists, the native tape protocol per thread; E1027 narrowed to `run_async` inside a task | `tests/replay/fixtures/task_*` (join, await, cancel racing the task, a channel shared with fibers) record and replay on both backends; 100 replays of `task_cancel` and `task_channel` print the same on each backend; an edited task tape stops with E1022; `run_async` inside a task fails with E1027. |
 | S9a | Going back through async code and tasks on the VM (§4.4): recording through `run_async`, re-running from the checkpoint before it with the kept events (tape marks keep the tape's numbering, checkpoints the next channel/task/event ids), the abandoned run unwinding with its tape paused and its tasks forgotten (tape generations, stale completions dropped), stepping back that stays in its fiber, running live again where a re-run ends (timers start over) | Transcripts `reverse_async`, `reverse_task`, `reverse_both`, `reverse_sleep`, `reverse_channel`, `reverse_async_replayed` in `tests/debug/vm/`; DAP `stepping_back_into_async_code`. |
 | S9b | Native replay under lldb: the build embeds `flux_program_hash`, so a native program writes its tape header and checks a replayed tape itself, with rendered errors (§4.2); run to event (`flux_debug_on_tape_event`, `flux events` / `flux event N` in lldb, relaunching a replay to go back); `fluxEvents` / `fluxGoToEvent` in `flux-dap` for both backends and a Flux Timeline view in VS Code; `.events` / `.event N` in native sessions (forward) | `replay_cli_tests`: a binary run directly records a tape the driver replays on both backends, and refuses another program's tape with E1026; lldb sessions in `native_debug_tests` (to an event and back in a replay, forward only in a recording, no tape); DAP `the_timeline_lists_the_effects_and_goes_to_one` and `native_record_and_replay_with_the_timeline` (native record, replay, Timeline, the tape on the VM with Step Back). |
-| S9c | Core-inlining provenance → `inlinedAt`, and Core inlining turned back on in the debug profile | Golden `lldb bt` output for inlined frames; `llvm-dwarfdump --verify`; debug parity unchanged. |
+| S9c | Every Core pass back on under `-g`, keeping the binders the program wrote (`keep.rs`: lets, pattern variables and lambda parameters are bound, not substituted; a lambda with a named parameter stays a call); `InlineSite`s from `beta_reduce` through `AetherProgram` to `LirLoc.inlined`, `inlinedAt` and inlined-lambda subprograms in DWARF, `[inlined]` frames in `flux bt`; the `llvm_g` parity way and the guide checked with and without `-g` in `xtask verify` | Core unit tests (kept lets, pattern variables, parameters; inline sites recorded). `native_debug_tests`: the IR has `inlinedAt`, golden `flux bt` with an `[inlined]` frame, `llvm-dwarfdump --verify` over `inlined.flx`. Debug parity 21/21 with `inlined_lambda.flx`. `parity-check examples/guide --ways llvm,llvm_g` 59/59. |
 | S9d | Backend-neutral async tapes: requests named by the fiber that made them, the schedule on the tape, each scheduler following it | Every async and task fixture recorded on one backend replays on the other; 100 identical cross-backend replays. |
 | S10 | Aether reference-count view, debug-heap runtime, native panic symbolization; `flux_trace_push` deleted | Golden reference counts. A use-after-free fixture that the debug heap catches. Native panic output lists Flux frames. |
 | S11 | Windows call stacks for Visual Studio (§2.8): `"CodeView"` module flag on MSVC targets, `/DEBUG` and `/PDB` in `run_linker`, runtime built with `-gcodeview` | On a Windows CI runner, `llvm-pdbutil dump -symbols app.pdb` lists Flux subprogram names with `.flx` line entries. `cdb -z app.exe -c "g; k; q"` on a fixture that panics prints Flux frames with `app.flx` file and line. A manual check that Visual Studio's Call Stack window shows them. |
@@ -1206,8 +1228,8 @@ S11 depends only on S5 and can land any time after it.
   Core, Aether, CFG and LIR.
 - **Native values depend on formatters.** Without `flux_lldb.py` (for example,
   plain `lldb` with script loading disabled), values are raw `i64`s.
-- **Debug builds use different code generation from release builds** (Og vs
-  O2, Core inlining off). A bug that only happens at O2 may not reproduce under
+- **Debug builds use different code generation from release builds** (O0 vs
+  O2, the program's own bindings kept). A bug that only happens at O2 may not reproduce under
   the debugger. Recording a release run and replaying it on the VM is the
   intended remedy.
 - **Checkpoints block in-place reuse** while a session is stepping backwards.
@@ -1278,8 +1300,10 @@ Checked against the GHC source tree (commit `65bcf9e911`):
   may make lldb fall back to raw output. Decide in S5 by testing in Xcode.
 - **DWARF version on Apple:** 4 or 5? Check what Xcode's lldb handles best for
   `variant_part`.
-- **Core inlining in the debug profile:** keep it off permanently, or turn it
-  back on once provenance exists (S9)?
+- **Core inlining in the debug profile:** resolved in S9c. Every pass runs
+  under `-g`, keeping the binders the program wrote; Core inlines no function
+  into another, and the lambdas it still inlines are described with
+  `inlinedAt`.
 - **Closures in recorded values.** Channel and task messages may contain
   closures. Options: record by logical identity, or forbid recording such
   programs in v1.

@@ -22,7 +22,7 @@ use crate::llvm::ir::{
     LlvmOperand, LlvmType, ModuleDebug,
 };
 
-use super::{LirFnKind, LirFunction, LirLoc, LirVarKind};
+use super::{LirFnKind, LirFunction, LirInlineSite, LirLoc, LirVarKind};
 
 /// What a debug slot holds before its variable is bound. `flux_lldb.py`
 /// hides such a variable. The markers are even, so no tagged Int, and far
@@ -49,7 +49,11 @@ pub(super) struct DebugBuilder {
     unit: u32,
     subroutine_type: u32,
     file_name: String,
-    locations: HashMap<(u32, u32, u32), u32>,
+    /// `!DILocation`s by line, column, scope and the call they are inlined
+    /// at (0 for none).
+    locations: HashMap<(u32, u32, u32, u32), u32>,
+    /// The subprograms of inlined lambdas, by their place (0188 S9c).
+    inlined_lambdas: HashMap<(u32, u32), u32>,
     /// The variable types, by name, made when first used.
     types: HashMap<&'static str, u32>,
     /// Whether a function calls `llvm.dbg.declare`, which the module must
@@ -108,6 +112,7 @@ impl DebugBuilder {
             subroutine_type,
             file_name,
             locations: HashMap::new(),
+            inlined_lambdas: HashMap::new(),
             types: HashMap::new(),
             declares: false,
             types_symbol: format!(
@@ -184,14 +189,15 @@ impl DebugBuilder {
             Some(line) if loc.line == line => LirLoc::NONE,
             _ => loc,
         };
+        let sites = &debug.inline_sites;
         let blocks = blocks
             .iter()
             .map(|(marks, term)| BlockDebug {
                 marks: marks
                     .iter()
-                    .map(|(from, loc)| (*from, self.location(shown(*loc), subprogram)))
+                    .map(|(from, loc)| (*from, self.place(shown(*loc), subprogram, sites)))
                     .collect(),
-                term: Some(self.location(shown(*term), subprogram)),
+                term: Some(self.place(shown(*term), subprogram, sites)),
             })
             .collect();
         self.debug.functions.insert(
@@ -238,6 +244,9 @@ impl DebugBuilder {
         let mut slots: HashMap<String, Vec<LlvmLocal>> = HashMap::new();
         let mut prologue = Vec::new();
         let mut declares = Vec::new();
+        // The declares of variables of inlined lambdas, which need a location
+        // inlined as their scope is (0188 S9c).
+        let mut inlined_declares = Vec::new();
         for (index, var) in debug.vars.iter().enumerate() {
             let value = format!("v{}", var.var.0);
             if !defined.contains(value.as_str()) {
@@ -269,8 +278,15 @@ impl DebugBuilder {
             } else {
                 var.loc.line
             };
+            let scope = match self.inlined_scope(var.loc, subprogram, &debug.inline_sites) {
+                Some((scope, _)) => {
+                    inlined_declares.push((declares.len(), var.loc));
+                    scope
+                }
+                None => subprogram,
+            };
             let variable = self.debug.node(format!(
-                "!DILocalVariable(name: \"{}\", {arg}scope: !{subprogram}, file: !{}, \
+                "!DILocalVariable(name: \"{}\", {arg}scope: !{scope}, file: !{}, \
                  line: {line}, type: !{ty}{flags})",
                 escape(&var.name),
                 self.file,
@@ -311,6 +327,7 @@ impl DebugBuilder {
             return;
         }
         self.declares = true;
+        let first_declare = prologue.len();
         prologue.append(&mut declares);
         for param in &emitted.params {
             for slot in slots.get(&param.0).into_iter().flatten() {
@@ -371,6 +388,20 @@ impl DebugBuilder {
                     *from = moved.get(*from).copied().unwrap_or(*from);
                 }
             }
+        }
+        // Each inlined variable's declare at its own place, the prologue's
+        // other instructions at line 0, as before.
+        if let Some((marks, _)) = blocks.first_mut()
+            && !inlined_declares.is_empty()
+        {
+            let mut placed = Vec::new();
+            for (index, loc) in inlined_declares {
+                placed.push((first_declare + index, loc));
+                placed.push((first_declare + index + 1, LirLoc::NONE));
+            }
+            placed.append(marks);
+            placed.sort_by_key(|(from, _)| *from);
+            *marks = placed;
         }
     }
 
@@ -554,15 +585,70 @@ impl DebugBuilder {
     }
 
     fn location(&mut self, loc: LirLoc, scope: u32) -> u32 {
-        let key = (loc.line, loc.col, scope);
+        self.location_inlined(loc, scope, 0)
+    }
+
+    fn location_inlined(&mut self, loc: LirLoc, scope: u32, inlined_at: u32) -> u32 {
+        let key = (loc.line, loc.col, scope, inlined_at);
         if let Some(node) = self.locations.get(&key) {
             return *node;
         }
+        let inlined = if inlined_at == 0 {
+            String::new()
+        } else {
+            format!(", inlinedAt: !{inlined_at}")
+        };
         let node = self.debug.node(format!(
-            "!DILocation(line: {}, column: {}, scope: !{scope})",
+            "!DILocation(line: {}, column: {}, scope: !{scope}{inlined})",
             loc.line, loc.col
         ));
         self.locations.insert(key, node);
+        node
+    }
+
+    /// The `!DILocation` of `loc` in the function `subprogram`: in the
+    /// subprogram, or, inside a lambda the simplifier inlined, in the
+    /// lambda's, inlined at its call (0188 S9c).
+    fn place(&mut self, loc: LirLoc, subprogram: u32, sites: &[LirInlineSite]) -> u32 {
+        match self.inlined_scope(loc, subprogram, sites) {
+            Some((scope, call)) => self.location_inlined(loc, scope, call),
+            None => self.location(loc, subprogram),
+        }
+    }
+
+    /// For a location inside an inlined lambda, the lambda's subprogram and
+    /// the location of the call it is inlined at.
+    fn inlined_scope(
+        &mut self,
+        loc: LirLoc,
+        subprogram: u32,
+        sites: &[LirInlineSite],
+    ) -> Option<(u32, u32)> {
+        let site = *sites.get((loc.inlined as usize).checked_sub(1)?)?;
+        let scope = self.inlined_lambda(site.lambda);
+        let call = self.place(site.call, subprogram, sites);
+        Some((scope, call))
+    }
+
+    /// The subprogram of a lambda that is inlined: a definition with no code
+    /// of its own, which inlined locations name as their scope.
+    fn inlined_lambda(&mut self, lambda: LirLoc) -> u32 {
+        if let Some(node) = self.inlined_lambdas.get(&(lambda.line, lambda.col)) {
+            return *node;
+        }
+        let name = format!("<lambda {}:{}:{}>", self.file_name, lambda.line, lambda.col);
+        let node = self.debug.node(format!(
+            "distinct !DISubprogram(name: \"{}\", scope: !{file}, file: !{file}, line: {}, \
+             type: !{}, scopeLine: {}, flags: DIFlagPrototyped, spFlags: DISPFlagDefinition, \
+             unit: !{})",
+            escape(&name),
+            lambda.line,
+            self.subroutine_type,
+            lambda.line,
+            self.unit,
+            file = self.file,
+        ));
+        self.inlined_lambdas.insert((lambda.line, lambda.col), node);
         node
     }
 

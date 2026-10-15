@@ -86,6 +86,17 @@ p = Point(1, 2)
   name, and the captured ones last, marked `(captured)`.
 - `flux print xs.2` follows parts by number, or a record's fields by name.
 - `flux bt` shows Flux frames only, from the current one down to `main`.
+  A lambda the compiler inlined where it was written, such as
+  `(fn() { … })()`, is still a frame, marked `[inlined]`:
+
+  ```text
+  (lldb) flux bt
+  #0 <lambda app.flx:4:14> at app.flx:6:9   [inlined]
+  #1 main at app.flx:4:14
+  ```
+
+  Under `-g` the compiler keeps every binding the program wrote, so a lambda
+  with a parameter stays a call of its own, as in `flux debug`.
 - `frame variable` and the variables views of Xcode and VS Code use the same
   formatting, and expand lists, tuples, arrays and constructors.
 - A value shows as `<dropped>` once the program has released it: native code

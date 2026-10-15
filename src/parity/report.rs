@@ -329,6 +329,7 @@ pub fn cargo_run_for_way(way: Way, file: &str) -> String {
             format!("cargo run --features llvm -- {file} --native --strict --no-cache")
         }
         Way::VmDebug => format!("cargo run -- debug {file} --script <its // dbg: lines>"),
+        Way::LlvmG => format!("cargo run --features llvm -- {file} --native -g --no-cache"),
         Way::LlvmDebug => format!(
             "cargo run --features llvm -- {file} --native -g -o app && lldb ./app \
              (with `flux debug --lldb-script` imported)"

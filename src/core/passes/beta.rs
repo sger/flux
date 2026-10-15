@@ -6,7 +6,10 @@
 /// (e.g. `|>` pipe always produces `App(f, x)` which may be immediately applied).
 use crate::core::CoreExpr;
 
-use super::helpers::{map_children, subst};
+use super::{
+    helpers::{map_children, subst},
+    keep,
+};
 
 pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
     match expr {
@@ -18,11 +21,28 @@ pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
                 param_types,
                 result_ty,
                 body,
-                ..
+                span: lambda,
             } = func
             {
-                if params.len() == args.len() {
+                if params.iter().any(|param| keep::keeps(param.id)) {
+                    // A debug build keeps a parameter the program named
+                    // (0188 S9c): the lambda stays a call, as on the VM, so
+                    // the debugger shows its frame, its parameters and each
+                    // of its lines as there.
+                    CoreExpr::App {
+                        func: Box::new(CoreExpr::Lam {
+                            params,
+                            param_types,
+                            result_ty,
+                            body,
+                            span: lambda,
+                        }),
+                        args,
+                        span,
+                    }
+                } else if params.len() == args.len() {
                     // Full application: substitute all params
+                    keep::note_inlined(lambda, span);
                     let mut body = *body;
                     for (p, a) in params.into_iter().zip(args) {
                         body = subst(body, p.id, &a);
@@ -50,6 +70,7 @@ pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
                 } else {
                     // Over-application: apply all params, then apply remaining args
                     let extra_args = args[params.len()..].to_vec();
+                    keep::note_inlined(lambda, span);
                     let mut body = *body;
                     for (p, a) in params.into_iter().zip(args) {
                         body = subst(body, p.id, &a);

@@ -8,6 +8,7 @@
 //! - `dump_<tag>__dump_core/`: ... with `--dump-core`
 //! - `dump_<tag>__optimize___dump_core/`: ... with `--optimize --dump-core`
 //! - `parity_<tag>.txt`: vm, vm_cached, vm_strict and llvm compared
+//! - `parity_g_<tag>.txt`: the guide natively with and without `-g`
 //! - `parity_debug_<tag>.txt`: the VM debugger and lldb compared
 //!
 //! With `--base`, each sweep is compared with the same sweep of the earlier
@@ -211,6 +212,16 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
     outcome.note(format!(
         "parity: {mismatches} MISMATCH line(s); compare with the base's parity log"
     ));
+
+    // A debug build runs as a plain one does (0188 S9c): every guide
+    // example prints the same natively with and without `-g`.
+    section("debug build parity");
+    let mut log = fs::File::create(out.join(format!("parity_g_{tag}.txt"))).map_err(io)?;
+    let mismatches = parity(root, &flux, "examples/guide", "llvm,llvm_g", &mut log).map_err(io)?;
+    outcome.record(
+        mismatches == 0,
+        format!("debug build parity ({mismatches} MISMATCH line(s))"),
+    );
 
     // The VM debugger and lldb on the same scripted sessions (0188 S6b).
     // Every fixture is expected to match, so a mismatch fails the run.

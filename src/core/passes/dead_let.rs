@@ -8,6 +8,7 @@
 use crate::core::CoreExpr;
 
 use super::helpers::{appears_free, can_discard, map_children};
+use super::keep;
 
 pub fn elim_dead_let(expr: CoreExpr) -> CoreExpr {
     match expr {
@@ -19,7 +20,8 @@ pub fn elim_dead_let(expr: CoreExpr) -> CoreExpr {
         } => {
             let rhs = elim_dead_let(*rhs);
             let body = elim_dead_let(*body);
-            if can_discard(&rhs) && !appears_free(var.id, &body) {
+            // A debug build keeps the program's own `let`s (0188 S9c).
+            if !keep::keeps(var.id) && can_discard(&rhs) && !appears_free(var.id, &body) {
                 body
             } else {
                 CoreExpr::Let {

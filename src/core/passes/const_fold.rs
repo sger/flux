@@ -1,6 +1,6 @@
-use crate::core::{CoreAlt, CoreBinderId, CoreExpr, CoreLit, CorePat, CorePrimOp, CoreTag};
+use crate::core::{CoreAlt, CoreBinder, CoreExpr, CoreLit, CorePat, CorePrimOp, CoreTag};
 
-use super::helpers::subst;
+use super::helpers::bind_pattern;
 
 /// Fold literal-only Core primops and known branch conditions.
 ///
@@ -167,10 +167,7 @@ fn fold_case(scrutinee: &CoreExpr, alts: &[CoreAlt]) -> Option<CoreExpr> {
                     Some(CoreExpr::Lit(CoreLit::Bool(true), _)) | None => {}
                     Some(_) => return None,
                 }
-                let mut body = alt.rhs.clone();
-                for (var, val) in bindings {
-                    body = subst(body, var, &val);
-                }
+                let body = bind_pattern(alt.rhs.clone(), bindings, alt.span);
                 return Some(constant_fold(body));
             }
             None
@@ -185,10 +182,7 @@ fn fold_case(scrutinee: &CoreExpr, alts: &[CoreAlt]) -> Option<CoreExpr> {
                     Some(CoreExpr::Lit(CoreLit::Bool(true), _)) | None => {}
                     Some(_) => return None,
                 }
-                let mut body = alt.rhs.clone();
-                for (var, val) in bindings {
-                    body = subst(body, var, &val);
-                }
+                let body = bind_pattern(alt.rhs.clone(), bindings, alt.span);
                 return Some(constant_fold(body));
             }
             None
@@ -201,10 +195,10 @@ fn match_lit_pat(
     pat: &CorePat,
     lit: &CoreLit,
     lit_span: crate::diagnostics::position::Span,
-) -> Option<Vec<(CoreBinderId, CoreExpr)>> {
+) -> Option<Vec<(CoreBinder, CoreExpr)>> {
     match pat {
         CorePat::Wildcard => Some(Vec::new()),
-        CorePat::Var(binder) => Some(vec![(binder.id, CoreExpr::Lit(lit.clone(), lit_span))]),
+        CorePat::Var(binder) => Some(vec![(*binder, CoreExpr::Lit(lit.clone(), lit_span))]),
         CorePat::Lit(pat_lit) if pat_lit == lit => Some(Vec::new()),
         _ => None,
     }
@@ -215,11 +209,11 @@ fn match_con_pat(
     tag: &CoreTag,
     fields: &[CoreExpr],
     span: crate::diagnostics::position::Span,
-) -> Option<Vec<(CoreBinderId, CoreExpr)>> {
+) -> Option<Vec<(CoreBinder, CoreExpr)>> {
     match pat {
         CorePat::Wildcard => Some(Vec::new()),
         CorePat::Var(binder) => Some(vec![(
-            binder.id,
+            *binder,
             CoreExpr::Con {
                 tag: tag.clone(),
                 fields: fields.to_vec(),
@@ -234,7 +228,7 @@ fn match_con_pat(
             for (pat_field, field) in pat_fields.iter().zip(fields.iter()) {
                 match pat_field {
                     CorePat::Wildcard => {}
-                    CorePat::Var(binder) => bindings.push((binder.id, field.clone())),
+                    CorePat::Var(binder) => bindings.push((*binder, field.clone())),
                     _ => return None,
                 }
             }

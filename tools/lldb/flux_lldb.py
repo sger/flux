@@ -758,6 +758,7 @@ def _command_bt(debugger, args, result):
                         "line": line.line,
                         "column": line.column,
                         "index": line.frame.GetFrameID() if line.frame is not None else None,
+                        "inlined": line.frame is not None and line.frame.IsInlined(),
                     }
                     for line in shown
                 ]
@@ -773,6 +774,9 @@ def _command_bt(debugger, args, result):
             result.AppendMessage("   \u27c2 %s" % line.name)
             continue
         note = "   (suspended)" if line.kind == "suspended" else ""
+        if line.frame is not None and line.frame.IsInlined():
+            # A lambda the simplifier inlined where it was applied (0188 S9c).
+            note += "   [inlined]"
         result.AppendMessage("#%d %s at %s%s" % (number, line.name, line.place(), note))
         number += 1
 

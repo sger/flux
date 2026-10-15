@@ -10,6 +10,7 @@
 use crate::core::{CoreBinderId, CoreExpr, CorePat};
 
 use super::helpers::{can_discard, expr_size, is_pure, map_children, subst};
+use super::keep;
 
 /// Maximum node count of an RHS to inline when the binder is used more than once.
 const INLINE_THRESHOLD: usize = 10;
@@ -34,7 +35,15 @@ pub fn inline_lets(expr: CoreExpr) -> CoreExpr {
                 matches!(rhs, CoreExpr::Var { .. } | CoreExpr::Lam { .. })
                     && occurs_as_callee(var.id, &body);
 
-            if count == 0 && can_discard(&rhs) {
+            if keep::keeps(var.id) {
+                // A debug build keeps the program's own `let`s (0188 S9c).
+                CoreExpr::Let {
+                    var,
+                    rhs: Box::new(rhs),
+                    body: Box::new(body),
+                    span,
+                }
+            } else if count == 0 && can_discard(&rhs) {
                 // Dead binding — drop it. Proposal 0161 Phase 3: `CanFail`
                 // primops (`10 / n`, `arr[i]`) are also droppable here because
                 // the binding was unused, so the failure was never observed.

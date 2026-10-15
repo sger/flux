@@ -781,6 +781,28 @@ pub fn lower_aether_program_with_interner_and_externs(
     emit_main: bool,
     entry_qualifier: Option<&str>,
 ) -> LirProgram {
+    with_inline_sites(&program.inline_sites, || {
+        lower_aether_program_inner(
+            program,
+            interner,
+            globals_map,
+            extern_symbols,
+            imported_constructor_tags,
+            emit_main,
+            entry_qualifier,
+        )
+    })
+}
+
+fn lower_aether_program_inner(
+    program: &crate::aether::AetherProgram,
+    interner: Option<&Interner>,
+    globals_map: Option<&HashMap<String, usize>>,
+    extern_symbols: Option<&HashMap<String, ImportedNativeSymbol>>,
+    imported_constructor_tags: Option<&HashMap<String, i32>>,
+    emit_main: bool,
+    entry_qualifier: Option<&str>,
+) -> LirProgram {
     let core = program.as_core();
     let mut lir = LirProgram::new();
 
@@ -1066,11 +1088,56 @@ fn promote_tail_calls(program: &mut LirProgram) {
     }
 }
 
-/// The location of a node with `span`: its own, or, for a node the compiler
-/// made without one, the enclosing node's.
-fn located(span: crate::diagnostics::position::Span, enclosing: LirLoc) -> LirLoc {
-    let loc = LirLoc::from_span(span);
-    if loc.is_none() { enclosing } else { loc }
+thread_local! {
+    /// The lambdas the program's simplifier inlined (proposal 0188 S9c), for
+    /// the lowering in progress on this thread.
+    static INLINE_SITES: std::cell::RefCell<Vec<crate::core::InlineSite>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Makes `sites` the inlined lambdas while `lower` runs.
+fn with_inline_sites<R>(sites: &[crate::core::InlineSite], lower: impl FnOnce() -> R) -> R {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            INLINE_SITES.with(|slot| slot.borrow_mut().clear());
+        }
+    }
+    INLINE_SITES.with(|slot| *slot.borrow_mut() = sites.to_vec());
+    let _reset = Reset;
+    lower()
+}
+
+fn span_within(
+    inner: crate::diagnostics::position::Span,
+    outer: crate::diagnostics::position::Span,
+) -> bool {
+    let at = |p: crate::diagnostics::position::Position| (p.line, p.column);
+    at(outer.start) <= at(inner.start) && at(inner.end) <= at(outer.end)
+}
+
+/// The innermost inlined lambda holding `span`, for the function being
+/// lowered: a lambda inlined into it, not one the function itself is part of
+/// (`own`, a closure's lambda, inside an inlined one).
+fn inlined_lambda_of(
+    span: crate::diagnostics::position::Span,
+    own: Option<crate::diagnostics::position::Span>,
+) -> Option<crate::core::InlineSite> {
+    INLINE_SITES.with(|sites| {
+        sites
+            .borrow()
+            .iter()
+            .filter(|site| own.is_none_or(|own| !span_within(own, site.lambda)))
+            .filter(|site| span_within(span, site.lambda))
+            .fold(
+                None,
+                |innermost: Option<&crate::core::InlineSite>, site| match innermost {
+                    Some(found) if !span_within(site.lambda, found.lambda) => Some(found),
+                    _ => Some(site),
+                },
+            )
+            .copied()
+    })
 }
 
 // ── Per-function lowering context ────────────────────────────────────────────
@@ -1151,6 +1218,11 @@ struct FnLower<'a> {
     /// it, not the lambda's own, so a breakpoint on the lambda's first line
     /// stops in the lambda only.
     lambda_site: Option<LirLoc>,
+    /// For a closure, its lambda's span: an inlined lambda holding it is not
+    /// inlined into this function (proposal 0188 S9c).
+    scope: Option<crate::diagnostics::position::Span>,
+    /// The span of the lambda being lowered, for its function's `scope`.
+    lambda_span: Option<crate::diagnostics::position::Span>,
     /// The position of the last expression lowered: where a `return`
     /// happens, once the function's body is done.
     last_loc: LirLoc,
@@ -1181,6 +1253,7 @@ impl<'a> FnLower<'a> {
             loc: LirLoc::NONE,
             artificial: false,
             vars: Vec::new(),
+            inline_sites: Vec::new(),
         });
         let entry_block = LirBlock {
             locs: Vec::new(),
@@ -1226,6 +1299,8 @@ impl<'a> FnLower<'a> {
             async_indirect_calls: ctx.async_indirect_calls,
             current_loc: LirLoc::NONE,
             lambda_site: None,
+            scope: None,
+            lambda_span: None,
             last_loc: LirLoc::NONE,
             binder_names: HashMap::new(),
         }
@@ -1423,17 +1498,18 @@ impl<'a> FnLower<'a> {
     /// Says what a debugger calls this function and where it is.
     fn place(&mut self, kind: LirFnKind, loc: LirLoc) {
         self.current_loc = loc;
-        let vars = self
+        let (vars, inline_sites) = self
             .func
             .debug
             .take()
-            .map(|debug| debug.vars)
+            .map(|debug| (debug.vars, debug.inline_sites))
             .unwrap_or_default();
         self.func.debug = Some(LirFnDebug {
             kind,
             loc,
             artificial: false,
             vars,
+            inline_sites,
         });
     }
 
@@ -1584,11 +1660,50 @@ impl<'a> FnLower<'a> {
 
     /// Lower a `CoreExpr` and return the `LirVar` holding the result.
     /// The result is always a NaN-boxed i64 value.
+    /// The location of a node with `span`: its own, with the inlined lambda
+    /// it belongs to, if any, or, for a node the compiler made without one,
+    /// the enclosing node's.
+    fn located(&mut self, span: crate::diagnostics::position::Span, enclosing: LirLoc) -> LirLoc {
+        let loc = LirLoc::from_span(span);
+        if loc.is_none() {
+            return enclosing;
+        }
+        LirLoc {
+            inlined: self.inline_site(span),
+            ..loc
+        }
+    }
+
+    /// The function's number for the inlined lambda holding `span`, adding
+    /// it, and the lambdas its call is inlined in, to the function's sites.
+    fn inline_site(&mut self, span: crate::diagnostics::position::Span) -> u32 {
+        let Some(site) = inlined_lambda_of(span, self.scope) else {
+            return 0;
+        };
+        let call = self.located(site.call, LirLoc::NONE);
+        let site = LirInlineSite {
+            lambda: LirLoc::from_span(site.lambda),
+            call,
+        };
+        let Some(debug) = self.func.debug.as_mut() else {
+            return 0;
+        };
+        let index = match debug.inline_sites.iter().position(|known| *known == site) {
+            Some(index) => index,
+            None => {
+                debug.inline_sites.push(site);
+                debug.inline_sites.len() - 1
+            }
+        };
+        index as u32 + 1
+    }
+
     fn lower_expr(&mut self, expr: &CoreExpr) -> LirVar {
         if matches!(expr, CoreExpr::Lam { .. }) {
             self.lambda_site = Some(self.current_loc);
+            self.lambda_span = Some(expr.span());
         }
-        let loc = located(expr.span(), self.current_loc);
+        let loc = self.located(expr.span(), self.current_loc);
         self.at_loc(loc, |lower| lower.lower_expr_here(expr))
     }
 
@@ -1833,6 +1948,7 @@ impl<'a> FnLower<'a> {
                             },
                         );
                         inner.place(LirFnKind::Lambda, self.current_loc);
+                        inner.scope = self.lambda_span;
 
                         // Capture shared outer variables.
                         for &(binder_id, _) in &entry.outer_captures {
@@ -2016,6 +2132,7 @@ impl<'a> FnLower<'a> {
                         },
                     );
                     inner.place(LirFnKind::Lambda, self.current_loc);
+                    inner.scope = self.lambda_span;
 
                     // Capture outer variables.
                     for &(binder_id, _outer_var) in &outer_captures {
@@ -2158,6 +2275,7 @@ impl<'a> FnLower<'a> {
                         },
                     );
                     inner.place(LirFnKind::Lambda, self.current_loc);
+                    inner.scope = self.lambda_span;
 
                     // Map captured variables: create fresh LirVars inside the inner
                     // function, mark them as capture_vars (→ OpGetFree in emitter).
@@ -2395,10 +2513,11 @@ impl<'a> FnLower<'a> {
             | AetherExpr::Drop { .. }
             | AetherExpr::Reuse { .. }
             | AetherExpr::DropSpecialized { .. } => LirLoc::NONE,
-            _ => located(expr.span(), self.current_loc),
+            _ => self.located(expr.span(), self.current_loc),
         };
         if matches!(expr, AetherExpr::Lam { .. }) {
             self.lambda_site = Some(self.current_loc);
+            self.lambda_span = Some(expr.span());
         }
         self.at_loc(loc, |lower| lower.lower_expr_aether_here(expr))
     }
@@ -2451,6 +2570,7 @@ impl<'a> FnLower<'a> {
                         },
                     );
                     inner.place(LirFnKind::Lambda, self.current_loc);
+                    inner.scope = self.lambda_span;
                     for &(binder_id, _) in &outer_captures {
                         let inner_var = inner.fresh_var();
                         inner.func.capture_vars.push(inner_var);
@@ -2599,6 +2719,7 @@ impl<'a> FnLower<'a> {
                             },
                         );
                         inner.place(LirFnKind::Named(self.name_of(var.name)), self.current_loc);
+                        inner.scope = Some(rhs.span());
                         for &(binder_id, _) in &entry.outer_captures {
                             let inner_var = inner.fresh_var();
                             inner.func.capture_vars.push(inner_var);
@@ -2750,6 +2871,7 @@ impl<'a> FnLower<'a> {
                         },
                     );
                     inner.place(LirFnKind::Named(self.name_of(var.name)), self.current_loc);
+                    inner.scope = Some(rhs.span());
                     for &(binder_id, _) in &outer_captures {
                         let inner_var = inner.fresh_var();
                         inner.func.capture_vars.push(inner_var);

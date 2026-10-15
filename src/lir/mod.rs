@@ -436,10 +436,17 @@ impl LirBlock {
 pub struct LirLoc {
     pub line: u32,
     pub col: u32,
+    /// Inside a lambda the simplifier inlined (proposal 0188 S9c): 1 + its
+    /// index in the function's `LirFnDebug::inline_sites`; 0 otherwise.
+    pub inlined: u32,
 }
 
 impl LirLoc {
-    pub const NONE: LirLoc = LirLoc { line: 0, col: 0 };
+    pub const NONE: LirLoc = LirLoc {
+        line: 0,
+        col: 0,
+        inlined: 0,
+    };
 
     /// From a source span; a span the compiler made up has no location.
     pub fn from_span(span: crate::diagnostics::position::Span) -> Self {
@@ -449,6 +456,7 @@ impl LirLoc {
         LirLoc {
             line: span.start.line as u32,
             col: span.start.column as u32 + 1,
+            inlined: 0,
         }
     }
 
@@ -468,6 +476,17 @@ pub struct LirFnDebug {
     /// The source variables bound in the function, and the LIR variable
     /// holding each (proposal 0188 S6).
     pub vars: Vec<LirVarBinder>,
+    /// The lambdas inlined into the function, which its locations' `inlined`
+    /// numbers name (proposal 0188 S9c).
+    pub inline_sites: Vec<LirInlineSite>,
+}
+
+/// A lambda inlined where it was applied: where the lambda is, and the call
+/// it replaced, itself perhaps inside another inlined lambda.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LirInlineSite {
+    pub lambda: LirLoc,
+    pub call: LirLoc,
 }
 
 /// A source variable and the LIR variable that holds its value.
