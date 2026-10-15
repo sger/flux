@@ -94,24 +94,16 @@ impl Compiler {
             }
         }
 
-        let Some(entry_index) = function
-            .blocks
-            .iter()
-            .position(|block| block.id == function.entry)
-        else {
+        let Some(layout) = Self::cfg_layout(function) else {
             return false;
         };
-        if entry_index != 0 {
-            return false;
-        }
-        let block_indices: HashMap<_, _> = function
-            .blocks
+        let block_indices: HashMap<_, _> = layout
             .iter()
             .enumerate()
             .map(|(index, block)| (block.id, index))
             .collect();
 
-        for (index, block) in function.blocks.iter().enumerate() {
+        for (index, block) in layout.iter().enumerate() {
             if !block.instrs.iter().all(|instr| match instr {
                 IrInstr::Assign { expr, .. } => supported_expr(expr),
                 IrInstr::Call { target, .. } => {
@@ -138,7 +130,7 @@ impl Compiler {
                     if target_index <= index {
                         return false;
                     }
-                    if function.blocks[target_index].params.len() != args.len() {
+                    if layout[target_index].params.len() != args.len() {
                         return false;
                     }
                 }
@@ -156,8 +148,8 @@ impl Compiler {
                     if then_index <= index || else_index <= index {
                         return false;
                     }
-                    if !function.blocks[then_index].params.is_empty()
-                        || !function.blocks[else_index].params.is_empty()
+                    if !layout[then_index].params.is_empty()
+                        || !layout[else_index].params.is_empty()
                     {
                         return false;
                     }
@@ -167,13 +159,107 @@ impl Compiler {
         }
 
         matches!(
-            function.blocks.last().map(|block| &block.terminator),
+            layout.last().map(|block| &block.terminator),
             Some(
                 IrTerminator::Return(..)
                     | IrTerminator::TailCall { .. }
                     | IrTerminator::Unreachable(_)
             )
         )
+    }
+
+    /// The order to emit `function`'s blocks in: reverse postorder from the
+    /// entry, so every block comes after each block that jumps to it.
+    ///
+    /// Lowering allocates a join block before the arms that jump to it, so
+    /// the order of `function.blocks` often jumps backwards even when the
+    /// graph has no cycle. The emitter only needs every jump to go forward:
+    /// `OpJumpNotTruthy` leaves the condition on the stack when it jumps,
+    /// and the `else` block pops it on entry, which is right only when the
+    /// branch comes first and nothing else enters that block.
+    ///
+    /// `None` for a graph the emitter can't lay out that way: a cycle, a
+    /// missing target, or an `else` block also entered as a `then` block, by
+    /// a jump, or as the entry. Blocks the entry can't reach are left out.
+    pub(super) fn cfg_layout(function: &IrFunction) -> Option<Vec<&IrBlock>> {
+        fn successors(block: &IrBlock) -> Vec<BlockId> {
+            match &block.terminator {
+                IrTerminator::Jump(target, _, _) => vec![*target],
+                // Visited from the back, so `else` first, and the layout
+                // (the reverse of the visit) puts `then` first.
+                IrTerminator::Branch {
+                    then_block,
+                    else_block,
+                    ..
+                } => vec![*then_block, *else_block],
+                IrTerminator::Return(..)
+                | IrTerminator::TailCall { .. }
+                | IrTerminator::Unreachable(_) => Vec::new(),
+            }
+        }
+
+        let blocks: HashMap<BlockId, &IrBlock> = function
+            .blocks
+            .iter()
+            .map(|block| (block.id, block))
+            .collect();
+
+        let mut else_targets = HashSet::new();
+        let mut other_targets = HashSet::from([function.entry]);
+        for block in &function.blocks {
+            match &block.terminator {
+                IrTerminator::Jump(target, _, _) => {
+                    other_targets.insert(*target);
+                }
+                IrTerminator::Branch {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    other_targets.insert(*then_block);
+                    else_targets.insert(*else_block);
+                }
+                _ => {}
+            }
+        }
+        if else_targets.iter().any(|id| other_targets.contains(id)) {
+            return None;
+        }
+
+        // Depth-first, iteratively: a block is on `stack` while its
+        // successors are being visited, and a successor still on it closes
+        // a cycle.
+        let mut on_stack = HashSet::new();
+        let mut finished = HashSet::new();
+        let mut postorder = Vec::new();
+        let mut stack = vec![(
+            *blocks.get(&function.entry)?,
+            successors(blocks.get(&function.entry)?),
+        )];
+        on_stack.insert(function.entry);
+        while let Some((block, pending)) = stack.last_mut() {
+            let block = *block;
+            match pending.pop() {
+                Some(next) => {
+                    if on_stack.contains(&next) {
+                        return None;
+                    }
+                    if !finished.contains(&next) {
+                        let next_block = *blocks.get(&next)?;
+                        on_stack.insert(next);
+                        stack.push((next_block, successors(next_block)));
+                    }
+                }
+                None => {
+                    on_stack.remove(&block.id);
+                    finished.insert(block.id);
+                    postorder.push(block);
+                    stack.pop();
+                }
+            }
+        }
+        postorder.reverse();
+        Some(postorder)
     }
 
     #[allow(dead_code)]
@@ -185,6 +271,7 @@ impl Compiler {
         if !Self::can_compile_ir_cfg_function(function) {
             return None;
         }
+        let layout = Self::cfg_layout(function)?;
 
         let mut bindings: HashMap<IrVar, crate::compiler::binding::Binding> = HashMap::new();
         for param in &function.params {
@@ -238,7 +325,7 @@ impl Compiler {
             let mut pending_jumps = Vec::<(usize, BlockId)>::new();
             let mut false_target_blocks = HashSet::<BlockId>::new();
 
-            for block in &function.blocks {
+            for &block in &layout {
                 block_offsets.insert(block.id, self.current_instructions().len());
                 if false_target_blocks.remove(&block.id) {
                     self.emit(OpCode::OpPop, &[]);
@@ -1307,5 +1394,124 @@ impl Compiler {
             self.emit(OpCode::OpCall, &[args.len()]);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::cfg::{
+        BlockId, FunctionId, IrBlock, IrBlockParam, IrConst, IrExpr, IrFunction, IrFunctionOrigin,
+        IrInstr, IrMetadata, IrTerminator, IrType, IrVar,
+    };
+    use crate::compiler::Compiler;
+
+    fn jump(to: u32, args: Vec<IrVar>) -> IrTerminator {
+        IrTerminator::Jump(BlockId(to), args, IrMetadata::empty())
+    }
+
+    fn branch(then_block: u32, else_block: u32) -> IrTerminator {
+        IrTerminator::Branch {
+            cond: IrVar(0),
+            then_block: BlockId(then_block),
+            else_block: BlockId(else_block),
+            metadata: IrMetadata::empty(),
+        }
+    }
+
+    fn ret(var: u32) -> IrTerminator {
+        IrTerminator::Return(IrVar(var), IrMetadata::empty())
+    }
+
+    /// A block assigning a constant to `dest`, with `params` block parameters.
+    fn block(id: u32, params: &[u32], dest: u32, terminator: IrTerminator) -> IrBlock {
+        IrBlock {
+            id: BlockId(id),
+            params: params
+                .iter()
+                .map(|&var| IrBlockParam {
+                    var: IrVar(var),
+                    ty: IrType::Tagged,
+                    inferred_ty: None,
+                })
+                .collect(),
+            instrs: vec![IrInstr::Assign {
+                dest: IrVar(dest),
+                expr: IrExpr::Const(IrConst::Bool(true)),
+                metadata: IrMetadata::empty(),
+            }],
+            terminator,
+        }
+    }
+
+    fn function(blocks: Vec<IrBlock>) -> IrFunction {
+        IrFunction {
+            id: FunctionId(0),
+            name: None,
+            params: Vec::new(),
+            parameter_types: Vec::new(),
+            return_type_annotation: None,
+            effects: Vec::new(),
+            captures: Vec::new(),
+            body_span: crate::diagnostics::position::Span::default(),
+            ret_type: IrType::Tagged,
+            entry: BlockId(0),
+            blocks,
+            origin: IrFunctionOrigin::NamedFunction,
+            metadata: IrMetadata::empty(),
+            inferred_param_types: Vec::new(),
+            inferred_return_type: None,
+        }
+    }
+
+    fn order(function: &IrFunction) -> Option<Vec<u32>> {
+        Compiler::cfg_layout(function).map(|blocks| blocks.iter().map(|b| b.id.0).collect())
+    }
+
+    /// `let y = if c { 1 } else { 2 }; y`, laid out the way lowering
+    /// allocates it: the join block before the arms that jump to it.
+    #[test]
+    fn a_join_allocated_before_its_arms_is_laid_out_after_them() {
+        let function = function(vec![
+            block(0, &[], 0, branch(2, 3)),
+            block(1, &[4], 5, ret(4)),
+            block(2, &[], 1, jump(1, vec![IrVar(1)])),
+            block(3, &[], 2, jump(1, vec![IrVar(2)])),
+        ]);
+        assert_eq!(order(&function), Some(vec![0, 2, 3, 1]));
+        assert!(Compiler::can_compile_ir_cfg_function(&function));
+    }
+
+    #[test]
+    fn a_cycle_has_no_layout() {
+        let function = function(vec![
+            block(0, &[], 0, jump(1, Vec::new())),
+            block(1, &[], 1, branch(2, 3)),
+            block(2, &[], 2, jump(1, Vec::new())),
+            block(3, &[], 3, ret(3)),
+        ]);
+        assert_eq!(order(&function), None);
+        assert!(!Compiler::can_compile_ir_cfg_function(&function));
+    }
+
+    /// The `else` block pops the condition its branch left on the stack, so
+    /// it can't also be entered by a jump, which leaves nothing there.
+    #[test]
+    fn an_else_block_entered_another_way_has_no_layout() {
+        let function = function(vec![
+            block(0, &[], 0, branch(1, 2)),
+            block(1, &[], 1, jump(2, Vec::new())),
+            block(2, &[], 2, ret(2)),
+        ]);
+        assert_eq!(order(&function), None);
+    }
+
+    #[test]
+    fn an_unreachable_block_is_left_out() {
+        let function = function(vec![
+            block(0, &[], 0, ret(0)),
+            block(1, &[], 1, jump(0, Vec::new())),
+        ]);
+        assert_eq!(order(&function), Some(vec![0]));
+        assert!(Compiler::can_compile_ir_cfg_function(&function));
     }
 }

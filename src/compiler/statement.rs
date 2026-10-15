@@ -1197,6 +1197,14 @@ impl Compiler {
             .all(|required_name| declared.contains(required_name))
     }
 
+    /// With `FLUX_DBG_CFG` set, report a function that has IR but compiles
+    /// from the AST, and why.
+    fn log_cfg_fallback(&self, name: Symbol, reason: &str) {
+        if std::env::var("FLUX_DBG_CFG").is_ok() {
+            eprintln!("CFG-FALLBACK {}: {reason}", self.sym(name));
+        }
+    }
+
     fn block_contains_cfg_incompatible_statements_ast(body: &Block) -> bool {
         body.statements.iter().any(|statement| {
             matches!(
@@ -2272,6 +2280,17 @@ impl Compiler {
                     || Self::block_contains_cfg_incompatible_statements_ast(body)
             };
 
+            if use_ast_path && ir_function.is_some() {
+                let reason = if Self::block_contains_cfg_incompatible_statements_ast(body) {
+                    "incompatible-statement"
+                } else if has_body_errors {
+                    "body-errors"
+                } else {
+                    "hm-diagnostics"
+                };
+                self.log_cfg_fallback(name, reason);
+            }
+
             if !use_ast_path {
                 let ir_function = ir_function.unwrap();
                 let scope_snapshot = self.scopes[self.scope_index].clone();
@@ -2288,16 +2307,28 @@ impl Compiler {
                         cfg_param_count.set(Some(explicit_param_count));
                         return Ok(());
                     }
-                    Some(Err(ref _e)) => {
+                    Some(Err(ref error)) => {
                         // CFG compilation error (e.g. unresolved name) — roll
                         // back and fall through to AST for proper diagnostics.
                         self.scopes[self.scope_index] = scope_snapshot;
                         self.constants.truncate(const_len);
+                        let reason = format!(
+                            "cfg-error ({}{})",
+                            error.title(),
+                            error
+                                .message()
+                                .map(|m| format!(": {m}"))
+                                .unwrap_or_default()
+                        );
+                        self.log_cfg_fallback(name, &reason);
                     }
                     None => {
-                        // Unsupported expression — should be unreachable now
-                        // that all IrExpr variants are in supported_expr().
-                        // Fall through to AST as a safety net.
+                        // Unsupported expression, or blocks the emitter can't
+                        // order (`cfg_layout`: a cycle). Every IrExpr variant
+                        // is in supported_expr(), and lowering makes no
+                        // cycles, so this should be unreachable. Fall through
+                        // to AST as a safety net.
+                        self.log_cfg_fallback(name, "layout");
                         debug_assert!(
                             false,
                             "CFG returned None for well-typed function '{}' — \
