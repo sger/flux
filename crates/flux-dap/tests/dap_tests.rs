@@ -215,9 +215,13 @@ impl Editor {
         }
         let mut text = serde_json::to_string(&message).unwrap();
         // The temporary directory can be reached through a symlink
-        // (`/var` is `/private/var` on macOS): take out both spellings.
+        // (`/var` is `/private/var` on macOS) or a short name (`RUNNER~1`
+        // on Windows CI): take out both spellings. The adapter sends the
+        // canonical one without the `\\?\` of a verbatim Windows path.
         if let Ok(resolved) = std::fs::canonicalize(&self.dir) {
-            text = redact(&text, &resolved.display().to_string(), "<dir>");
+            let resolved = resolved.display().to_string();
+            let resolved = flux::shared::paths::without_verbatim_prefix(&resolved);
+            text = redact(&text, &resolved, "<dir>");
         }
         text = redact(&text, &self.dir, "<dir>");
         text = redact(&text, &flux_bin().display().to_string(), "<flux>");
