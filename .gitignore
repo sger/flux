@@ -61,3 +61,7 @@ runtime/c/*.flags
 # insta writes these beside the accepted snapshot on a mismatch; they are
 # review artifacts, never committed.
 *.snap.new
+
+# Python bytecode caches (e.g. from lldb loading tools/lldb/flux_lldb.py)
+__pycache__/
+*.pyc

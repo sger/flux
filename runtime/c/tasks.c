@@ -24,6 +24,12 @@
  * platform until then.
  */
 
+// `-std=c11` defines __STRICT_ANSI__, which hides glibc's `syscall()`;
+// request the default feature set before any header is included.
+#if defined(__linux__) && !defined(_DEFAULT_SOURCE)
+#define _DEFAULT_SOURCE
+#endif
+
 #include "flux_rt.h"
 #include <errno.h>
 #include <inttypes.h>
