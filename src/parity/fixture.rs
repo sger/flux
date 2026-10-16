@@ -10,6 +10,7 @@
 //! // error[E300]: type mismatch
 //! // parity-expected-stderr-end
 //! // skip: reason to skip this fixture
+//! // skip-way: llvm, llvm_strict: KI-091 a known divergence on these ways
 //! // requires: unix        (or `windows`) — skip elsewhere, with a reason
 //! // bug: description of the bug shape
 //! ```
@@ -24,6 +25,15 @@ pub enum Expect {
     Success,
     CompileError,
     RuntimeError,
+}
+
+/// A way a fixture is known to diverge on, and why. The reason names the
+/// open known issue (`KI-nnn`) that tracks it, so no skip is anonymous and
+/// each one is removed with the bug.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkipWay {
+    pub way: Way,
+    pub reason: String,
 }
 
 /// Parsed metadata from a parity fixture file.
@@ -41,6 +51,12 @@ pub struct FixtureMeta {
     pub bug: Option<String>,
     /// Optional reason to skip this fixture while still reporting it.
     pub skip: Option<String>,
+    /// Ways removed from this fixture's run, from `// skip-way:`. Unlike
+    /// `// parity:`, they hold when `--ways` is given.
+    pub skip_ways: Vec<SkipWay>,
+    /// Header lines that could not be understood. A fixture with any fails
+    /// instead of running, so a typo cannot silently widen or narrow a run.
+    pub meta_errors: Vec<String>,
     /// Platform this fixture requires, verbatim from `// requires:`.
     ///
     /// A fixture that spawns `/bin/echo`, or asserts that reading a directory
@@ -65,6 +81,8 @@ impl Default for FixtureMeta {
             extra_args: Vec::new(),
             bug: None,
             skip: None,
+            skip_ways: Vec::new(),
+            meta_errors: Vec::new(),
             requires: None,
             expected_stdout: None,
             expected_stderr: None,
@@ -169,6 +187,13 @@ pub fn parse_fixture_meta(path: &Path) -> FixtureMeta {
             if !value.is_empty() {
                 meta.requires = Some(value.to_string());
             }
+        } else if let Some(value) = comment.strip_prefix("skip-way:") {
+            match parse_skip_way(value) {
+                Ok(skips) => meta.skip_ways.extend(skips),
+                Err(error) => meta
+                    .meta_errors
+                    .push(format!("`// skip-way:{value}`: {error}")),
+            }
         } else if let Some(value) = comment.strip_prefix("skip:") {
             let value = value.trim();
             meta.skip = Some(if value.is_empty() {
@@ -189,6 +214,31 @@ pub fn parse_fixture_meta(path: &Path) -> FixtureMeta {
 
     apply_platform_requirement(&mut meta);
     meta
+}
+
+/// Parses the value of `// skip-way: <way>[, <way>…]: <reason>`.
+///
+/// The reason must name a known issue (`KI-nnn`): a skip is a recorded,
+/// tracked divergence, not a way to make a run quiet.
+fn parse_skip_way(value: &str) -> Result<Vec<SkipWay>, String> {
+    let Some((ways, reason)) = value.split_once(':') else {
+        return Err("expected `<way>[, <way>…]: <reason>`".to_string());
+    };
+    let reason = reason.trim();
+    if !reason.contains("KI-") {
+        return Err("the reason must name a known issue, as `KI-nnn`".to_string());
+    }
+    ways.split(',')
+        .map(str::trim)
+        .map(|name| {
+            Way::parse(name)
+                .map(|way| SkipWay {
+                    way,
+                    reason: reason.to_string(),
+                })
+                .ok_or_else(|| format!("unknown way `{name}`"))
+        })
+        .collect()
 }
 
 /// Turn an unmet `// requires:` into a skip, leaving an explicit `// skip:` alone.
@@ -400,6 +450,57 @@ mod tests {
             meta.expected_stderr.as_deref(),
             Some("error[E300]: type mismatch\n  at line 1")
         );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn skip_way_names_one_or_more_ways_and_a_ki() {
+        assert_eq!(
+            parse_skip_way(" llvm: KI-091 float formatting of -0.0"),
+            Ok(vec![SkipWay {
+                way: Way::Llvm,
+                reason: "KI-091 float formatting of -0.0".to_string(),
+            }])
+        );
+        let ways: Vec<Way> = parse_skip_way(" vm, vm_strict : KI-102 x")
+            .unwrap()
+            .into_iter()
+            .map(|skip| skip.way)
+            .collect();
+        assert_eq!(ways, [Way::Vm, Way::VmStrict]);
+    }
+
+    #[test]
+    fn skip_way_rejects_an_anonymous_reason_an_unknown_way_and_no_reason() {
+        assert!(parse_skip_way(" llvm: flaky").unwrap_err().contains("KI-"));
+        assert!(
+            parse_skip_way(" llvmm: KI-091 x")
+                .unwrap_err()
+                .contains("llvmm")
+        );
+        assert!(parse_skip_way(" llvm").is_err());
+    }
+
+    #[test]
+    fn skip_way_lines_accumulate_and_bad_ones_are_kept_as_errors() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-scratch")
+            .join("flux_parity_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test_skip_way.flx");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(f, "// skip-way: llvm: KI-091 a").unwrap();
+        writeln!(f, "// skip-way: vm_strict: KI-076 b").unwrap();
+        writeln!(f, "// skip-way: vm: no issue named").unwrap();
+        writeln!(f, "fn main() {{ }}").unwrap();
+
+        let meta = parse_fixture_meta(&path);
+        let ways: Vec<Way> = meta.skip_ways.iter().map(|skip| skip.way).collect();
+        assert_eq!(ways, [Way::Llvm, Way::VmStrict]);
+        assert_eq!(meta.skip, None);
+        assert_eq!(meta.meta_errors.len(), 1);
 
         let _ = std::fs::remove_file(&path);
     }

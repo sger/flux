@@ -1,6 +1,6 @@
 // expect: compile_error
 // expect-error: E300
-
+// expect-error: E300
 // GAP — owner: 0.0.8, the same boundary as B2.
 // Measured 2026-09-11: two error[E300] Argument Type Mismatch.
 //

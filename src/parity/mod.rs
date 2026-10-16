@@ -337,6 +337,8 @@ pub struct ParityResult {
     pub results: Vec<RunResult>,
     pub artifacts: Vec<(Way, DebugArtifacts)>,
     pub verdict: Verdict,
+    /// Requested ways the fixture's `// skip-way:` lines removed.
+    pub skipped_ways: Vec<fixture::SkipWay>,
 }
 
 #[derive(Debug)]

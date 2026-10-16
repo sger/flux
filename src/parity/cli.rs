@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime};
 
-use super::fixture::{Expect, parse_fixture_meta};
+use super::fixture::{Expect, SkipWay, parse_fixture_meta};
 use super::normalize::normalize_stderr;
 use super::report::{
     DisplayFilter, cargo_run_for_way, diagnose_mismatch, print_debug_first_failure, print_result,
@@ -136,6 +136,8 @@ pub fn run_parity_check(args: &[String]) {
                 expected_errors: &fixture_meta.expected_errors,
                 expect: fixture_meta.expect,
                 skip: fixture_meta.skip.as_deref(),
+                skip_ways: &fixture_meta.skip_ways,
+                meta_errors: &fixture_meta.meta_errors,
             },
         );
         print_result(&parity_result, config.display_filter, config.explain);
@@ -208,24 +210,71 @@ struct CheckOpts<'a> {
     expect: Expect,
     /// Declared reason to skip this fixture while still reporting it.
     skip: Option<&'a str>,
+    /// Ways the fixture is known to diverge on (`// skip-way:`).
+    skip_ways: &'a [SkipWay],
+    /// Header lines that could not be understood.
+    meta_errors: &'a [String],
+}
+
+impl CheckOpts<'_> {
+    /// Whether the fixture says what its run must produce, so that a single
+    /// way still has something to be checked against.
+    fn declares_expectation(&self) -> bool {
+        self.expected_stdout.is_some()
+            || self.expected_stderr.is_some()
+            || !self.expected_errors.is_empty()
+            || !matches!(self.expect, Expect::Success)
+    }
+}
+
+/// Splits `ways` into those to run and the `skip_ways` that remove one of
+/// them. A skip naming a way that was not requested is not reported.
+fn apply_skip_ways(ways: &[Way], skip_ways: &[SkipWay]) -> (Vec<Way>, Vec<SkipWay>) {
+    let skipped: Vec<SkipWay> = skip_ways
+        .iter()
+        .filter(|skip| ways.contains(&skip.way))
+        .cloned()
+        .collect();
+    let run = ways
+        .iter()
+        .copied()
+        .filter(|way| !skipped.iter().any(|skip| skip.way == *way))
+        .collect();
+    (run, skipped)
 }
 
 /// Run all requested ways on a single file and compare.
 fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
+    // A verdict reached before any way runs.
+    let unrun = |verdict, skipped_ways| ParityResult {
+        file: file.to_path_buf(),
+        results: vec![],
+        artifacts: vec![],
+        verdict,
+        skipped_ways,
+    };
     if let Some(reason) = opts.skip {
-        return ParityResult {
-            file: file.to_path_buf(),
-            results: vec![],
-            artifacts: vec![],
-            verdict: Verdict::Skip {
-                reason: reason.to_string(),
-            },
+        let reason = reason.to_string();
+        return unrun(Verdict::Skip { reason }, vec![]);
+    }
+    if !opts.meta_errors.is_empty() {
+        let verdict = Verdict::ExpectedOutputMismatch {
+            expected: "valid fixture metadata".to_string(),
+            actual: opts.meta_errors.join("\n"),
         };
+        return unrun(verdict, vec![]);
+    }
+
+    let (ways, skipped_ways) = apply_skip_ways(opts.ways, opts.skip_ways);
+    let too_few_to_compare = ways.len() < 2 && !opts.declares_expectation();
+    if !skipped_ways.is_empty() && (ways.is_empty() || too_few_to_compare) {
+        let reason = format!("{} way(s) left after skip-way", ways.len());
+        return unrun(Verdict::Skip { reason }, skipped_ways);
     }
 
     let mut run_results = Vec::new();
 
-    for &way in opts.ways {
+    for &way in &ways {
         let result = run_way(
             opts.vm_binary,
             opts.llvm_binary,
@@ -245,11 +294,12 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
                 results: run_results,
                 artifacts: vec![],
                 verdict: Verdict::Skip { reason },
+                skipped_ways,
             };
         }
     }
 
-    let mut artifacts = capture_artifacts(file, opts, false);
+    let mut artifacts = capture_artifacts(file, opts, &ways, false);
     let mut details = collect_mismatch_details(
         &run_results,
         &artifacts,
@@ -263,7 +313,7 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         && artifacts.is_empty()
         && !opts.compare_surfaces_only
     {
-        artifacts = capture_artifacts(file, opts, true);
+        artifacts = capture_artifacts(file, opts, &ways, true);
         details = collect_mismatch_details(
             &run_results,
             &artifacts,
@@ -415,12 +465,14 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         results: run_results,
         artifacts,
         verdict,
+        skipped_ways,
     }
 }
 
 fn capture_artifacts(
     file: &Path,
     opts: &CheckOpts<'_>,
+    ways: &[Way],
     force_core_on_mismatch: bool,
 ) -> Vec<(Way, DebugArtifacts)> {
     let capture_core = opts.capture_core || force_core_on_mismatch;
@@ -432,8 +484,7 @@ fn capture_artifacts(
         return vec![];
     }
 
-    opts.ways
-        .iter()
+    ways.iter()
         .map(|&way| {
             let mut arts = DebugArtifacts::default();
             if capture_core {
@@ -557,7 +608,14 @@ fn collect_diagnostic_code_details(
                 baseline_expected.clone()
             };
             let actual = diagnostic_codes(&run.normalized_stderr);
-            if actual == expected {
+            // Strict mode exists to reject more, so a strict way may add
+            // codes (such as E425) as long as it reports every expected one.
+            let agrees = if run.way.is_strict() {
+                includes_codes(&actual, &expected)
+            } else {
+                actual == expected
+            };
+            if agrees {
                 None
             } else {
                 Some(MismatchDetail::DiagnosticCodes {
@@ -568,6 +626,16 @@ fn collect_diagnostic_code_details(
             }
         })
         .collect()
+}
+
+/// Whether `actual` holds every code in `expected`, each as many times as
+/// `expected` lists it. Both are sorted.
+fn includes_codes(actual: &[String], expected: &[String]) -> bool {
+    let mut actual = actual.iter().peekable();
+    expected.iter().all(|code| {
+        while actual.next_if(|candidate| *candidate < code).is_some() {}
+        actual.next_if(|candidate| *candidate == code).is_some()
+    })
 }
 
 fn diagnostic_codes(stderr: &str) -> Vec<String> {
@@ -987,6 +1055,75 @@ mod tests {
     }
 
     #[test]
+    fn a_strict_way_may_add_codes_but_not_drop_one() {
+        let expected = vec!["E300".to_string()];
+        let run_results = vec![
+            result(Way::Vm, ExitKind::CompileError, "", "error[E300]: a"),
+            result(
+                Way::VmStrict,
+                ExitKind::CompileError,
+                "",
+                "error[E300]: a\nerror[E425]: strict",
+            ),
+        ];
+        assert!(collect_diagnostic_code_details(&run_results, &expected).is_empty());
+
+        // An extra code is still a mismatch on a non-strict way, and a strict
+        // way that lost the expected code is one too.
+        let run_results = vec![
+            result(
+                Way::Vm,
+                ExitKind::CompileError,
+                "",
+                "error[E300]: a\nerror[E425]: b",
+            ),
+            result(
+                Way::VmStrict,
+                ExitKind::CompileError,
+                "",
+                "error[E425]: strict",
+            ),
+        ];
+        let ways: Vec<Way> = collect_diagnostic_code_details(&run_results, &expected)
+            .iter()
+            .map(|detail| match detail {
+                MismatchDetail::DiagnosticCodes { way, .. } => *way,
+                other => panic!("unexpected detail {other:?}"),
+            })
+            .collect();
+        assert_eq!(ways, [Way::Vm, Way::VmStrict]);
+    }
+
+    #[test]
+    fn includes_codes_counts_repeats() {
+        let codes = |list: &[&str]| list.iter().map(|c| c.to_string()).collect::<Vec<_>>();
+        assert!(includes_codes(
+            &codes(&["E300", "E300", "E425"]),
+            &codes(&["E300", "E300"])
+        ));
+        assert!(!includes_codes(
+            &codes(&["E300", "E425"]),
+            &codes(&["E300", "E300"])
+        ));
+        assert!(includes_codes(&codes(&["E100"]), &[]));
+    }
+
+    #[test]
+    fn skip_way_removes_only_requested_ways_and_reports_them() {
+        let skip = |way| SkipWay {
+            way,
+            reason: "KI-1".to_string(),
+        };
+        let (run, skipped) = apply_skip_ways(
+            &[Way::Vm, Way::VmStrict, Way::Llvm],
+            &[skip(Way::Llvm), skip(Way::LlvmStrict)],
+        );
+        assert_eq!(run, [Way::Vm, Way::VmStrict]);
+        // `llvm_strict` was not requested, so its skip says nothing.
+        assert_eq!(skipped, [skip(Way::Llvm)]);
+    }
+
+    #[test]
     fn strict_rejections_must_agree_on_diagnostic_codes() {
         let run_results = vec![
             result(Way::Vm, ExitKind::Success, "output", ""),
@@ -1044,12 +1181,8 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
         }
         let extra_args = merged_fixture_args(&config.extra_args, &meta.extra_args);
         let expects_failure = matches!(meta.expect, Expect::CompileError | Expect::RuntimeError);
-        let mut compile_ways = meta
-            .ways
-            .iter()
-            .copied()
-            .map(Way::base_way)
-            .collect::<Vec<_>>();
+        let (ways, _) = apply_skip_ways(&meta.ways, &meta.skip_ways);
+        let mut compile_ways = ways.into_iter().map(Way::base_way).collect::<Vec<_>>();
         compile_ways.sort_by_key(|way| match way {
             Way::Vm => 0,
             Way::Llvm => 1,

@@ -224,12 +224,13 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
     let mut log = open_log(&out.join(format!("parity_{tag}.txt"))).map_err(io)?;
     let mut counts = ParityCounts::default();
     let mut failed_runs = 0;
-    for dir in [
+    let dirs = [
         "examples/type_classes",
         "examples/generics",
         "tests/flux",
         "tests/parity",
-    ] {
+    ];
+    for dir in dirs {
         println!("{}", Paint::detect().bold(&format!("=== {dir}")));
         writeln!(log, "=== {dir}").map_err(io)?;
         let run = parity(root, &flux, dir, "vm,vm_cached,vm_strict,llvm", &mut log).map_err(io)?;
@@ -239,13 +240,17 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
             failed_runs += 1;
         }
     }
-    // Known divergences can only be recorded by skipping a whole fixture
-    // until `// skip-way:` exists (0190 S2), so this step stays a note.
-    outcome.note(format!(
-        "parity: {} MISMATCH, {} EXPECTED_OUTPUT_MISMATCH, {failed_runs} run(s) exited non-zero; \
-         compare with the base's parity log",
-        counts.mismatches, counts.expected
-    ));
+    // A known divergence is recorded in its fixture with `// skip-way:` and
+    // a KI (0190 S2), so anything left here is new and fails the run.
+    outcome.record(
+        counts.mismatches == 0 && counts.expected == 0 && failed_runs == 0,
+        format!(
+            "parity ({} MISMATCH, {} EXPECTED_OUTPUT_MISMATCH, {failed_runs} of {} dir(s) exited non-zero)",
+            counts.mismatches,
+            counts.expected,
+            dirs.len()
+        ),
+    );
 
     // A debug build runs as a plain one does (0188 S9c): every guide
     // example prints the same natively with and without `-g`.
@@ -426,6 +431,8 @@ fn parity(
                 counts.tally(verdict);
                 let counter = progress(fixtures, total, started);
                 println!("{} {}", paint.dim(&counter), verdict.paint(paint, &plain));
+            } else if plain.starts_with("SKIP_WAY ") {
+                println!("{}", paint.yellow(&plain));
             } else if plain.starts_with("[parity]") {
                 println!("{}", paint.dim(&plain));
             } else if is_parity_line(&plain) {

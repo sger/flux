@@ -1,13 +1,12 @@
 // parity: vm, llvm
 // expect: success
-// skip: KI-073 — native loses result-directed selection through a `where`-constrained function
-// bug: Registered so the divergence is listed rather than forgotten, and so
-//      the skip disappears the day it starts passing. Do not un-skip without
-//      re-measuring both backends.
+// bug: KI-073, fixed: native lost result-directed selection through a
+//      `where`-constrained function. Kept as a regression fixture.
 //
-// Measured 2026-09-11:
+// Measured 2026-09-11, before the fix:
 //   VM     prints "42" then "42"   (correct)
 //   native prints "42" then "<value>"
+// Re-measured 2026-10-16: both backends print "42" then "42".
 //
 // The first call resolves the instance from the *result* type, which is
 // proposal 0179 stage 4 working as specified, and both backends get it right.
@@ -40,3 +39,8 @@ fn main() with IO {
     let routed: String = via(42)
     print(routed)
 }
+
+// parity-expected-stdout-begin
+// "42"
+// "42"
+// parity-expected-stdout-end
