@@ -29,9 +29,41 @@ Each fixture starts with a header comment block:
 ```
 
 Fields:
-- `parity:` — which ways to compare (default: `vm, llvm`)
-- `expect:` — `success` | `compile_error` | `runtime_error`
+- `parity:` — which ways to compare (default: `vm, llvm`). `--ways` on the
+  command line overrides it.
+- `expect:` — `success` | `compile_error` | `runtime_error` (default: `success`).
+  A failing expectation requires every way to fail in that phase.
+- `expect-error:` — one diagnostic code, such as `E300`; repeat the line once per
+  reported error, duplicates included. Non-strict ways must report exactly these
+  codes. Strict ways must report all of them and may add their own, such as `E425`.
 - `bug:` — what regression this fixture guards against
+- `root:` — a module root passed to every way as `--root <path>`
+- `requires:` — `unix` or `windows`; elsewhere the fixture is reported as `SKIP`
+- `skip:` — a reason to skip the whole fixture. It is still listed as `SKIP`.
+  Use it only when no way can run the fixture, for example when it needs the
+  network.
+- `skip-way:` — `<way>[, <way>…]: <reason>`. It removes those ways from this
+  fixture's run, even when `--ways` is given, and prints a `SKIP_WAY` line for each.
+  The reason must name the open known issue that tracks the divergence (`KI-nnn`);
+  a skip-way without one fails the fixture. Delete the line when the KI is fixed.
+  If fewer than two ways are left and the fixture declares no expected outcome,
+  it is skipped.
+
+  ```
+  // skip-way: vm_strict: KI-090 strict rejects the boundary the VM fails at run time
+  ```
+
+Expected output blocks may appear anywhere in the file. The first way's
+normalized stdout must match the stdout block:
+
+```
+// parity-expected-stdout-begin
+// "42"
+// parity-expected-stdout-end
+```
+
+`parity-expected-stderr-begin` / `-end` does the same for stderr on a failing
+fixture.
 
 ## Rules
 

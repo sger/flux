@@ -42,6 +42,80 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-102 — A user effect named after a builtin suppresses the builtin's default handler on `--no-cache` VM runs
+
+**Severity:** Medium · **Area:** Effects, module compilation · **Verified:** 2026-10-16 · **From:** [0190](proposals/0190_verification_toolkit.md) S2 triage
+
+```
+$ flux --no-cache examples/type_classes/console_logger_example.flx
+error[E1009]: unhandled effect: Console (no matching handle block)
+  examples/type_classes/console_logger_example.flx:4:5
+4 |     print(to_string(Main.run()))
+```
+
+The same program prints `1` with the cache, and natively with or without it.
+`custom_handled_tracer_example.flx` and `foldable_row_poly_example.flx` fail the
+same way. All three ship their own `Flow/Console.flx`, which declares
+`effect Console`.
+
+**Cause.** With `--no-cache`, a multi-module VM run compiles every module in one
+shared `Compiler` (`compile_modules`, `src/driver/run_program/modules.rs`). The
+cached path builds a fresh `Compiler` per module (`build_module_compiler`,
+`src/driver/module_compile.rs`), and so does native. The shared compiler's
+`user_declared_effect_names` is never cleared between modules. By the time the
+entry module compiles, the example's `effect Console` is in it, and
+`wrap_block_with_default_handlers` (`src/ast/route_effectful_primops.rs`) treats
+the builtin `Console` as redefined by the user. It does not wrap `main` in the
+default `Console` handler, so `main`'s own `print` performs an effect nothing
+handles. `--dump-core` shows the entry wrapped in `Process`, `Env`, `Stdin` and
+`FileSystem` handlers, with no `Console`.
+
+The cached path passes by accident, not by design: the set is documented as
+covering "this module or one of its transitive dependencies", and the example's
+`Flow.Console` is a transitive dependency of the entry. The cached path only
+preloads direct imports. The underlying defect is that effects are matched by
+bare name, so a user's `ConsoleLoggerExample.Flow.Console.Console` is taken for
+the builtin `Console`. The progress lines under `--no-cache` name modules by
+file stem (`Compiling  Console`) for the same reason as [KI-037](#ki-037): the
+serial path never builds an interface.
+
+Parity records the three fixtures with `// skip-way: vm, vm_strict: KI-102`, and
+the cached and native ways still compare.
+
+### KI-103 — Natively, a constructor reached through a module alias fails at run time
+
+**Severity:** Medium · **Area:** Native backend, LIR lowering · **Verified:** 2026-10-16 · **From:** [0190](proposals/0190_verification_toolkit.md) S2 triage
+
+```flux
+import ModuleMemberShadowsStub.Version as V
+
+fn main() {
+    print(V.less(V.Ver(1), V.Ver(2)))   // native: error[E1009]: unwrap called on None
+}
+```
+
+The VM prints `true`. Natively the call fails at `V.Ver(1)` (column 18), with or
+without the cache. `examples/type_classes/module_member_shadows_stub.flx` is the
+only program in the repository with this shape, and it gets warning W201 for it.
+
+**Cause.** Core lowers `V.Ver` as a `MemberAccess` on the alias, and ANF binds it
+to a temporary before the call. LIR's `MemberAccess` lowering
+(`src/lir/lower.rs`, the Core and Aether twins) finds no global map natively and
+no qualified extern, because `build_native_extern_symbols`
+(`src/compiler/mod.rs`) builds `alias.member` entries only for functions. Its
+last fallback is a runtime HAMT lookup followed by `flux_unwrap`, which panics.
+The constructor shortcut in `lower_call_expr_aether` only fires when the callee
+is itself a `MemberAccess` or an unbound `Var`, not a let-bound temporary.
+
+**Fix direction.** Lower `Alias.Ctor` to the constructor itself in Core
+(`src/core/lower_ast/expression.rs`, the `MemberAccess` arm) when the object
+names a module and the member one of its constructors. The existing `MakeCtor`
+paths then apply. Alternatively, have LIR check `constructor_tags` before the
+HAMT fallback. Same-named constructors in two modules ([KI-099](#ki-099)) are
+the case to test.
+
+Parity records the fixture with `// skip-way: llvm: KI-103`.
+
 ### KI-006 — I/O uses `String`, so binary data cannot round-trip
 
 **Severity:** Medium · **Area:** `Flow.Fs`, stdlib API surface · **From:** [0178](proposals/implemented/0178_os_capabilities_for_tooling.md) Q7

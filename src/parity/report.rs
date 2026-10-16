@@ -77,6 +77,14 @@ pub fn print_result(result: &ParityResult, filter: DisplayFilter, explain: bool)
         let cmd = cargo_run_for_way(run.way, &result.file.to_string_lossy());
         println!("{label:>14} {cmd}");
     }
+    for skip in &result.skipped_ways {
+        println!(
+            "{} {name} {}: {}",
+            yellow("SKIP_WAY"),
+            skip.way,
+            skip.reason
+        );
+    }
 
     match &result.verdict {
         Verdict::Pass => {
@@ -758,6 +766,7 @@ pub fn print_summary(results: &[ParityResult]) {
         .iter()
         .filter(|r| matches!(r.verdict, Verdict::Skip { .. }))
         .count();
+    let skipped_ways: usize = results.iter().map(|r| r.skipped_ways.len()).sum();
 
     println!();
     println!("=== Parity Results ===");
@@ -769,6 +778,7 @@ pub fn print_summary(results: &[ParityResult]) {
         red(&expected_output_mismatch.to_string())
     );
     println!("Skip:     {}", yellow(&skip.to_string()));
+    println!("SkippedWays: {}", yellow(&skipped_ways.to_string()));
 
     if mismatch == 0 && expected_output_mismatch == 0 && pass > 0 {
         println!();

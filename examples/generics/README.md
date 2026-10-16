@@ -159,11 +159,9 @@ for a stated reason.
 | KI-073 | result-directed selection through `where Convert<a, b>` — VM prints `"42"`, native prints `<value>` | VM-only harnesses; on the VM this program is **correct**, so neither would show anything | 0.0.8 (D2) |
 | KI-086 (runtime half) | across a module boundary a class default body is dropped and dispatch panics, `E1009` | the runtime harness passes `--no-cache`, which is precisely what hides it — see below | 0.0.8 (D4) |
 
-KI-073 is nonetheless registered, as
-[`tests/parity/ki_073_result_selection_through_constrained_fn.flx`](../../tests/parity/ki_073_result_selection_through_constrained_fn.flx)
-carrying a `// skip:` directive. The parity runner reports it as `SKIP` with its
-reason rather than dropping it, so the divergence is listed rather than
-forgotten, and the skip disappears the day it starts passing.
+KI-073 is fixed on native (re-measured 2026-10-13). Its parity fixture,
+[`tests/parity/ki_073_result_selection_through_constrained_fn.flx`](../../tests/parity/ki_073_result_selection_through_constrained_fn.flx),
+now runs on both backends and pins the output, so a regression fails parity.
 
 ### Why KI-086's runtime half cannot be pinned here
 
