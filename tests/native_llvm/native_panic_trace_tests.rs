@@ -40,7 +40,11 @@ fn run_native(scratch: &Scratch, name: &str, extra: &[&str]) -> (String, i32) {
 
 /// Builds `name` into the scratch directory, without running it.
 fn build_binary(scratch: &Scratch, name: &str) -> PathBuf {
-    let binary = scratch.join("program");
+    let binary = scratch.join(if cfg!(windows) {
+        "program.exe"
+    } else {
+        "program"
+    });
     let (output, _) = run_native(
         scratch,
         name,

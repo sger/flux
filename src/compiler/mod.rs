@@ -6984,12 +6984,12 @@ impl Compiler {
             emit_main,
             entry_qualifier.as_deref(),
         );
-        // `-g`: lines, variables and types, as DWARF or, on MSVC targets,
-        // CodeView (0188 S11). Without it, lines alone, so a panic can name
-        // the Flux frames it crossed (0188 S10a).
+        // `-g`: lines, variables and types, as DWARF and, on MSVC targets,
+        // CodeView for the PDB (0188 S11). Without it, lines alone, so a
+        // panic can name the Flux frames it crossed (0188 S10a).
         let debug = Some(crate::lir::emit_debug::NativeDebug {
             file: self.file_path.clone(),
-            codeview: cfg!(target_env = "msvc"),
+            codeview: cfg!(target_env = "msvc") && self.debug_level.is_enabled(),
             lines_only: !self.debug_level.is_enabled(),
         });
         let mut module = crate::lir::emit_llvm::emit_llvm_module_with_debug(

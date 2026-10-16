@@ -32,20 +32,22 @@ pub extern "C" fn flux_print_backtrace() {
 
 /// Each Flux frame on the stack, inlined ones included, innermost first.
 fn flux_frames() -> Vec<String> {
-    let mut frames = Vec::new();
+    let mut ips = Vec::new();
     backtrace::trace(|frame| {
-        backtrace::resolve_frame(frame, |symbol| {
-            if let Some(place) = flux_place(symbol) {
-                frames.push(format!("at {place}"));
-            }
-        });
+        ips.push(frame.ip() as usize);
         true
     });
+    let lines = Lines::load();
+    let mut frames = Vec::new();
+    for ip in ips.into_iter().filter(|&ip| ip != 0) {
+        lines.places(ip, |place| frames.push(format!("at {place}")));
+    }
     frames
 }
 
 /// `name (file:line:col)` for a symbol in a `.flx` file, or `None` for a
 /// runtime or Rust one.
+#[cfg(not(windows))]
 fn flux_place(symbol: &backtrace::Symbol) -> Option<String> {
     let (Some(file), Some(line)) = (symbol.filename(), symbol.lineno()) else {
         return None;
@@ -57,8 +59,11 @@ fn flux_place(symbol: &backtrace::Symbol) -> Option<String> {
         .name()
         .and_then(|name| name.as_str().map(str::to_string))
         .unwrap_or_else(|| "<unknown>".to_string());
-    let col = symbol.colno().unwrap_or(1);
-    Some(format!("{name} ({}:{line}:{col})", file.display()))
+    Some(place(&name, file, line, symbol.colno().unwrap_or(1)))
+}
+
+fn place(name: &str, file: &std::path::Path, line: u32, col: u32) -> String {
+    format!("{name} ({}:{line}:{col})", file.display())
 }
 
 /// Records the return addresses on the stack, innermost first, into
@@ -111,13 +116,11 @@ pub unsafe extern "C" fn flux_describe_site(
 }
 
 fn describe_site(site: &[usize]) -> String {
+    let lines = Lines::load();
     for &ip in site.iter().take_while(|&&ip| ip != 0) {
         let mut place = None;
-        // A return address points after its call: step back into it.
-        backtrace::resolve((ip - 1) as *mut std::ffi::c_void, |symbol| {
-            if place.is_none() {
-                place = flux_place(symbol);
-            }
+        lines.places(ip, |found| {
+            place.get_or_insert(found);
         });
         if let Some(place) = place {
             return relative_to_cwd(place);
@@ -126,15 +129,133 @@ fn describe_site(site: &[usize]) -> String {
     "the runtime".to_string()
 }
 
-/// A place under the working directory, named from it, as `flux` names
-/// the files of a trace.
+/// A place under the working directory, named from it with `/`, as
+/// `flux` names the files of a trace.
 fn relative_to_cwd(place: String) -> String {
     let Ok(cwd) = std::env::current_dir() else {
         return place;
     };
     let mut prefix = cwd.display().to_string();
     prefix.push(std::path::MAIN_SEPARATOR);
-    place.replace(&format!("({prefix}"), "(")
+    let place = place.replace(&format!("({prefix}"), "(");
+    if cfg!(windows) {
+        place.replace('\\', "/")
+    } else {
+        place
+    }
+}
+
+/// Where the Flux frames at a return address are, from the program's line
+/// table: through `backtrace`, which reads the DWARF of the binary.
+#[cfg(not(windows))]
+struct Lines;
+
+#[cfg(not(windows))]
+impl Lines {
+    fn load() -> Self {
+        Lines
+    }
+
+    /// Calls `found` with each Flux frame at return address `ip`, inlined
+    /// ones first.
+    fn places(&self, ip: usize, mut found: impl FnMut(String)) {
+        // A return address points after its call: step back into it.
+        backtrace::resolve((ip - 1) as *mut std::ffi::c_void, |symbol| {
+            if let Some(place) = flux_place(symbol) {
+                found(place);
+            }
+        });
+    }
+}
+
+#[cfg(windows)]
+use exe_dwarf::Lines;
+
+/// On Windows, `backtrace` names frames from a PDB alone, which a plain
+/// build has none of. The linker keeps the Flux DWARF line table in the
+/// .exe instead (`/DEBUG:DWARF`), and this reads it.
+#[cfg(windows)]
+mod exe_dwarf {
+    use std::path::Path;
+    use std::rc::Rc;
+
+    use object::{Object, ObjectSection};
+
+    type Reader = gimli::EndianRcSlice<gimli::LittleEndian>;
+
+    unsafe extern "system" {
+        fn GetModuleHandleW(name: *const u16) -> *mut std::ffi::c_void;
+    }
+
+    pub(super) struct Lines {
+        context: Option<addr2line::Context<Reader>>,
+        /// What turns a run-time address into one in the .exe's own
+        /// address space, where the line table puts its code.
+        bias: u64,
+    }
+
+    impl Lines {
+        pub(super) fn load() -> Self {
+            Self::read().unwrap_or(Lines {
+                context: None,
+                bias: 0,
+            })
+        }
+
+        fn read() -> Option<Self> {
+            let data = std::fs::read(std::env::current_exe().ok()?).ok()?;
+            let file = object::read::pe::PeFile64::parse(&*data).ok()?;
+            let dwarf = gimli::Dwarf::load(|id| {
+                let bytes = file
+                    .section_by_name(id.name())
+                    .and_then(|section| section.data().ok())
+                    .unwrap_or(&[]);
+                Ok::<_, ()>(Reader::new(Rc::from(bytes), gimli::LittleEndian))
+            })
+            .ok()?;
+            let context = addr2line::Context::from_dwarf(dwarf).ok()?;
+            // SAFETY: a null name asks for the .exe's own module, which
+            // is loaded for as long as the program runs.
+            let base = unsafe { GetModuleHandleW(std::ptr::null()) } as u64;
+            Some(Lines {
+                context: Some(context),
+                bias: file.relative_address_base().wrapping_sub(base),
+            })
+        }
+
+        /// Calls `found` with each Flux frame at return address `ip`,
+        /// inlined ones first.
+        pub(super) fn places(&self, ip: usize, mut found: impl FnMut(String)) {
+            let Some(context) = &self.context else {
+                return;
+            };
+            // A return address points after its call: step back into it.
+            let probe = (ip as u64).wrapping_sub(1).wrapping_add(self.bias);
+            let Ok(mut frames) = context.find_frames(probe).skip_all_loads() else {
+                return;
+            };
+            while let Ok(Some(frame)) = frames.next() {
+                let Some(location) = frame.location else {
+                    continue;
+                };
+                let (Some(file), Some(line)) = (location.file, location.line) else {
+                    continue;
+                };
+                let file = Path::new(file);
+                if file.extension().is_none_or(|ext| ext != "flx") {
+                    continue;
+                }
+                let name = frame
+                    .function
+                    .as_ref()
+                    .and_then(|function| function.raw_name().ok())
+                    .map(|name| name.into_owned())
+                    .unwrap_or_else(|| "<unknown>".to_string());
+                let col = location.column.unwrap_or(1);
+                found(super::place(&name, file, line, col));
+            }
+        }
+    }
 }
 
 /// The frames of a long trace kept, as the VM keeps them: the first and

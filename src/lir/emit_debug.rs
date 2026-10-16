@@ -1,5 +1,5 @@
-//! DWARF for native code (proposal 0188 S5 and S6), or CodeView on MSVC
-//! targets (S11): the same metadata, which LLVM writes in either format.
+//! DWARF for native code (proposal 0188 S5 and S6), and CodeView beside it
+//! on MSVC targets (S11): the same metadata, which LLVM writes in both.
 //!
 //! A `-g` build gives each emitted module one compile unit and file, and
 //! each Flux function a `DISubprogram`. Each instruction gets a location
@@ -38,7 +38,8 @@ pub const DROPPED_MARKER: i64 = 0x0DEB_0DEB_0000_0002;
 pub struct NativeDebug {
     /// The source file the module was compiled from.
     pub file: String,
-    /// Whether the target reads CodeView (MSVC, 0188 S11) rather than DWARF.
+    /// Whether to emit CodeView beside the DWARF: a `-g` build on MSVC,
+    /// whose PDB Visual Studio and cdb read (0188 S11).
     pub codeview: bool,
     /// A build without `-g`: functions and lines only, for the program's
     /// own panic traces (0188 S10a), without variables or types.
@@ -105,25 +106,27 @@ impl DebugBuilder {
             "distinct !DICompileUnit(language: DW_LANG_C, file: !{file}, producer: \"flux {}\", \
              isOptimized: false, runtimeVersion: 0, emissionKind: {})",
             env!("CARGO_PKG_VERSION"),
-            if native.lines_only {
+            // A line-tables-only unit describes no functions: elsewhere the
+            // binary's symbol table names a trace's frames, but a Windows
+            // .exe has none the program reads, so its DWARF names them.
+            if native.lines_only && !cfg!(target_env = "msvc") {
                 "LineTablesOnly"
             } else {
                 "FullDebug"
             }
         );
-        let format_flag = debug.node(if native.codeview {
-            "!{i32 2, !\"CodeView\", i32 1}".to_string()
-        } else {
-            "!{i32 7, !\"Dwarf Version\", i32 4}".to_string()
-        });
-        let info_version = debug.node("!{i32 2, !\"Debug Info Version\", i32 3}".to_string());
+        // DWARF always: on Windows too, where the linker keeps its line table
+        // in the .exe for the program's own traces, which cannot read the
+        // CodeView a plain build never puts in a PDB.
+        let mut flags = vec![debug.node("!{i32 7, !\"Dwarf Version\", i32 4}".to_string())];
+        if native.codeview {
+            flags.push(debug.node("!{i32 2, !\"CodeView\", i32 1}".to_string()));
+        }
+        flags.push(debug.node("!{i32 2, !\"Debug Info Version\", i32 3}".to_string()));
         let no_types = debug.node("!{}".to_string());
         let subroutine_type = debug.node(format!("!DISubroutineType(types: !{no_types})"));
         debug.named.push(("llvm.dbg.cu".to_string(), vec![unit]));
-        debug.named.push((
-            "llvm.module.flags".to_string(),
-            vec![format_flag, info_version],
-        ));
+        debug.named.push(("llvm.module.flags".to_string(), flags));
         Self {
             debug,
             file,
@@ -853,7 +856,8 @@ mod tests {
     fn a_codeview_build_says_so_in_its_module_flags() {
         let flags = module_flags(true);
         assert!(flags.iter().any(|flag| flag.contains("\"CodeView\"")));
-        assert!(!flags.iter().any(|flag| flag.contains("Dwarf Version")));
+        // And DWARF beside it, which the program's own traces read.
+        assert!(flags.iter().any(|flag| flag.contains("Dwarf Version")));
         assert!(flags.iter().any(|flag| flag.contains("Debug Info Version")));
     }
 
@@ -868,7 +872,12 @@ mod tests {
             assert_eq!(builder.is_full(), !lines_only);
             builder.debug.nodes[builder.unit as usize].clone()
         };
-        assert!(unit(true).contains("emissionKind: LineTablesOnly"));
+        let plain_kind = if cfg!(target_env = "msvc") {
+            "emissionKind: FullDebug"
+        } else {
+            "emissionKind: LineTablesOnly"
+        };
+        assert!(unit(true).contains(plain_kind));
         assert!(unit(false).contains("emissionKind: FullDebug"));
     }
 

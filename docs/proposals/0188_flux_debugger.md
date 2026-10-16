@@ -511,7 +511,10 @@ On macOS, a `-g` build with `-o` or `--emit-binary` copies it to
   keeps (`-o`, `--emit-binary`), writing `<binary>.dSYM`. Otherwise the binary
   only points at cached `.o` files, so its debug information is lost when the
   cache is cleared. Run mode, whose binary is temporary, skips it.
-- **Windows (MSVC):** CodeView, linked into `<exe>.pdb` (S11, §2.8).
+- **Windows (MSVC):** CodeView, linked into `<exe>.pdb` (S11, §2.8). Every
+  build also keeps the Flux DWARF in the `.exe` (`lld-link /DEBUG:DWARF
+  /DEBUG:NOSYMTAB`), which the program's own traces read with `addr2line`:
+  `backtrace` reads only a PDB there, and a plain build writes none (S10a).
 - **Linux:** DWARF stays in the binary.
 - **Runtime:** already built with `-O2 -g` (`ensure_runtime_lib` in
   `src/llvm/pipeline.rs`).
@@ -1180,7 +1183,7 @@ Implemented in S3 (`src/vm/debug/`), for programs without async code.
 | Effect timeline: tape events, click one to travel there | ✓ | run-to-event | S3 / S9 |
 | Watch expressions and hovers: a variable or a part of it (`pair.0`) in S4; any expression later, allowed only when its inferred effect row is empty, so evaluating it can't cause side effects | ✓ | formatter-level only | S4 / later |
 | Aether view: reference counts, "unique, so reuse is possible" (`refs <path>` on demand, S10b), and a debug-heap runtime (`libflux_rt_debug.a`) that poisons freed memory and records allocation sites (S10c) | ✓ | ✓ | S10b / S10c |
-| Panic backtraces without a debugger (VM today; native since S10a: a line table in every build, the program unwinds and symbolizes itself through the `backtrace` crate's gimli in the staticlib; `flux_trace_push` deleted) | ✓ | ✓ | S10a |
+| Panic backtraces without a debugger (VM today; native since S10a: a line table in every build, the program unwinds and symbolizes itself through the `backtrace` crate's gimli in the staticlib, or on Windows `addr2line` over the DWARF its `.exe` keeps; `flux_trace_push` deleted) | ✓ | ✓ | S10a |
 
 Native effects need special handling in two cases:
 - Tail-resumptive operations go through `flux_perform_direct`
