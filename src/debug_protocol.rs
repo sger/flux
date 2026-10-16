@@ -59,6 +59,15 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         thread: Option<u64>,
     },
+    /// How many references the value at `expression` (`xs`, `pair.0`) has,
+    /// the debugger's own left out (0188 S10b). Answered with
+    /// [`Reply::Refs`].
+    Refs {
+        frame: usize,
+        expression: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread: Option<u64>,
+    },
     /// The program's threads: its fibers and tasks (0188 S8). Answered
     /// with [`Reply::Threads`].
     Threads,
@@ -142,6 +151,42 @@ pub enum Reply {
     Threads {
         threads: Vec<Thread>,
     },
+    /// A value's references: none for a value that is not reference
+    /// counted, such as an Int.
+    Refs {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        count: Option<u64>,
+        type_name: String,
+    },
+}
+
+/// How `refs <path>` reads, on every surface (0188 S10b): the count, and
+/// whether the value is unique, so the compiled code can reuse it in place.
+/// `across_threads` is native's count shared between threads.
+pub fn describe_refs(
+    path: &str,
+    count: Option<u64>,
+    across_threads: bool,
+    type_name: &str,
+) -> String {
+    match count {
+        None => format!("{path}: not reference counted ({type_name})"),
+        Some(count) => {
+            let noun = if count == 1 {
+                "reference"
+            } else {
+                "references"
+            };
+            let how = if across_threads {
+                "shared across threads"
+            } else if count == 1 {
+                "unique: can be reused in place"
+            } else {
+                "shared"
+            };
+            format!("{path}: {count} {noun} ({how})")
+        }
+    }
 }
 
 /// A thread of the paused program: a fiber, or a task (0188 S8).
@@ -265,6 +310,51 @@ pub struct TapeEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_refs_request_and_its_reply_cross_as_json() {
+        let request = Request::Refs {
+            frame: 0,
+            expression: "pair.0".to_string(),
+            thread: None,
+        };
+        let line = serde_json::to_string(&request).unwrap();
+        assert_eq!(line, r#"{"kind":"refs","frame":0,"expression":"pair.0"}"#);
+        assert_eq!(serde_json::from_str::<Request>(&line).unwrap(), request);
+        for reply in [
+            Reply::Refs {
+                count: Some(2),
+                type_name: "List".to_string(),
+            },
+            Reply::Refs {
+                count: None,
+                type_name: "Int".to_string(),
+            },
+        ] {
+            let line = serde_json::to_string(&reply).unwrap();
+            assert_eq!(serde_json::from_str::<Reply>(&line).unwrap(), reply);
+        }
+    }
+
+    #[test]
+    fn refs_read_the_same_everywhere() {
+        assert_eq!(
+            describe_refs("xs", Some(1), false, "List"),
+            "xs: 1 reference (unique: can be reused in place)"
+        );
+        assert_eq!(
+            describe_refs("xs", Some(2), false, "List"),
+            "xs: 2 references (shared)"
+        );
+        assert_eq!(
+            describe_refs("xs", Some(3), true, "List"),
+            "xs: 3 references (shared across threads)"
+        );
+        assert_eq!(
+            describe_refs("n", None, false, "Int"),
+            "n: not reference counted (Int)"
+        );
+    }
 
     #[test]
     fn messages_are_one_json_object_each() {

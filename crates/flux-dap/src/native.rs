@@ -560,6 +560,7 @@ pub fn console_command(command: &str) -> ConsoleCommand {
         "bt" => ConsoleCommand::Lldb("flux bt".to_string()),
         "locals" => ConsoleCommand::Lldb("flux locals".to_string()),
         "print" | "p" => ConsoleCommand::Lldb(format!("flux print {rest}")),
+        "refs" => ConsoleCommand::Lldb(format!("flux refs {rest}")),
         "handlers" => ConsoleCommand::Lldb("flux handlers".to_string()),
         "threads" => ConsoleCommand::Lldb("flux threads".to_string()),
         "events" => ConsoleCommand::Lldb("flux events".to_string()),
@@ -622,6 +623,7 @@ A variable or a part of one (`xs.1`) shows its value. Commands:
   .bt              the Flux frames
   .locals          the current frame's variables
   .print <name>    a variable and its parts
+  .refs <name>     how many references a value has: a unique one can be reused
   .handlers        the active effect handlers, innermost first
   .threads         the fibers, and what each waits for
   .events          the tape's effects, with FLUX_TAPE_REPLAY or _RECORD

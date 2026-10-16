@@ -1,0 +1,46 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 4
+breakpoint at refs.flx:4
+> break 6
+breakpoint at refs.flx:6
+> break 13
+breakpoint at refs.flx:13
+> continue
+stopped: breakpoint at refs.flx:13:5 in main (position 6)
+    13 |     print(total(xs))
+> refs xs
+xs: 1 reference (unique: can be reused in place)
+> refs s
+s: 1 reference (unique: can be reused in place)
+> refs n
+n: not reference counted (Int)
+> refs nope
+no variable `nope` here
+> continue
+stopped: breakpoint at refs.flx:4:5 in total (position 8)
+     4 |     let ys = xs
+> refs xs
+xs: 2 references (shared)
+> continue
+stopped: breakpoint at refs.flx:6:5 in total (position 10)
+     6 |     len(xs) + len(pair.0)
+> refs xs
+xs: 4 references (shared)
+> refs ys
+ys: 4 references (shared)
+> refs pair
+pair: 1 reference (unique: can be reused in place)
+> refs pair.0
+pair.0: 4 references (shared)
+> refs pair.1
+pair.1: 2 references (shared)
+> refs pair.5
+`pair.5` has no part `5`
+> continue
+program finished
+--- program output ---
+6
+"fresh!"
+7

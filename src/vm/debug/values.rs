@@ -72,6 +72,55 @@ impl ValueView {
     }
 }
 
+/// How many references `value` has, read without adding one: `None` for a
+/// value that is not reference counted (an Int, a Bool, `None`, `[]`, a
+/// constructor without fields) (0188 S10b).
+pub(crate) fn owners(value: &Value) -> Option<usize> {
+    use std::rc::Rc;
+    use std::sync::Arc;
+    Some(match value {
+        Value::String(rc) => Rc::strong_count(rc),
+        Value::Some(rc) | Value::Left(rc) | Value::Right(rc) | Value::ReturnValue(rc) => {
+            Rc::strong_count(rc)
+        }
+        Value::Function(arc) => Arc::strong_count(arc),
+        Value::Closure(rc) => Rc::strong_count(rc),
+        Value::Array(rc) | Value::Tuple(rc) => Rc::strong_count(rc),
+        Value::Adt(rc) => Rc::strong_count(rc),
+        Value::Continuation(rc) => Rc::strong_count(rc),
+        Value::Cons(rc) => Rc::strong_count(rc),
+        Value::HashMap(rc) => Rc::strong_count(rc),
+        _ => return None,
+    })
+}
+
+/// The part `label` of `value`, as [`ValueView::child`] finds it, by
+/// reference: looking at it adds no reference.
+pub(crate) fn child_ref<'a>(value: &'a Value, label: &str) -> Option<&'a Value> {
+    let index: usize = label.parse().ok()?;
+    match value {
+        Value::Some(inner) | Value::Left(inner) | Value::Right(inner) => {
+            (index == 0).then_some(&**inner)
+        }
+        Value::Tuple(items) | Value::Array(items) => items.get(index),
+        Value::Adt(adt) => adt.fields.iter().nth(index),
+        Value::Cons(_) => {
+            let mut current = value;
+            for _ in 0..index {
+                let Value::Cons(cell) = current else {
+                    return None;
+                };
+                current = &cell.tail;
+            }
+            match current {
+                Value::Cons(cell) => Some(&cell.head),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 fn list_items(list: &Value, limit: usize) -> Vec<Value> {
     let mut items = Vec::new();
     let mut current = list.clone();
@@ -143,4 +192,39 @@ fn wrap(out: &mut String, name: &str, inner: &Value) {
     out.push('(');
     render_into(inner, out);
     out.push(')');
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use super::*;
+    use crate::runtime::cons_cell::ConsCell;
+
+    #[test]
+    fn counting_and_finding_a_part_add_no_reference() {
+        let shared = Value::String(Rc::new("s".to_string()));
+        let tuple = Value::Tuple(Rc::new(vec![shared.clone(), Value::Integer(1)]));
+        // `shared` and the tuple's element.
+        assert_eq!(owners(&shared), Some(2));
+        assert_eq!(owners(&tuple), Some(1));
+        assert_eq!(child_ref(&tuple, "0"), Some(&shared));
+        assert_eq!(owners(child_ref(&tuple, "0").unwrap()), Some(2));
+        assert_eq!(owners(&Value::Integer(1)), None);
+        assert_eq!(owners(&Value::EmptyList), None);
+        assert_eq!(child_ref(&tuple, "2"), None);
+
+        let list = Value::Cons(Rc::new(ConsCell {
+            head: Value::Integer(1),
+            tail: Value::Cons(Rc::new(ConsCell {
+                head: shared.clone(),
+                tail: Value::EmptyList,
+            })),
+        }));
+        assert_eq!(child_ref(&list, "1"), Some(&shared));
+        assert_eq!(child_ref(&list, "2"), None);
+        let some = Value::Some(Rc::new(shared.clone()));
+        assert_eq!(child_ref(&some, "0"), Some(&shared));
+        assert_eq!(child_ref(&some, "1"), None);
+    }
 }

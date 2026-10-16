@@ -9,7 +9,7 @@ use crate::runtime::compiled_function::CompiledFunction;
 use crate::runtime::value::Value;
 
 use super::super::{VM, slot};
-use super::values::ValueView;
+use super::values::{ValueView, child_ref, owners};
 use super::{DebugControl, LineBreakpoint};
 
 /// One frame of the call stack, newest first.
@@ -86,6 +86,14 @@ struct FrameView {
     closure: Rc<Closure>,
     ip: usize,
     slots: Vec<Value>,
+}
+
+/// How many references a value has (0188 S10b), the debugger's own left
+/// out: `count` is `None` for a value that is not reference counted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Refs {
+    pub count: Option<usize>,
+    pub type_name: &'static str,
 }
 
 /// A named value in a frame.
@@ -543,6 +551,121 @@ impl<'a> Inspector<'a> {
             .collect()
     }
 
+    /// How many references the value at `path` (`xs`, `pair.0`) in frame
+    /// `index` has (0188 S10b). The value is read where it lives, never
+    /// copied, so looking adds no reference; the copies the debugger keeps
+    /// (checkpoints' slots, a resume note's values) are left out. A slot's
+    /// box shared by several slots counts each of them.
+    pub fn refs(&self, index: usize, path: &str) -> Result<Refs, String> {
+        let mut parts = path.split('.');
+        let name = parts
+            .next()
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| "usage: refs <name>[.<n>...]".to_string())?;
+        let parts: Vec<&str> = parts.collect();
+        let missing = || format!("no variable `{name}` here");
+        let (source, _) = self.layout().into_iter().nth(index).ok_or_else(missing)?;
+        // A value among a frame's locals, `locals` starting at its first;
+        // `copies` of it are the debugger's.
+        let in_locals = |locals: &[Value], closure: &Closure, ip: usize, copies| match local_slot(
+            closure, ip, name,
+        ) {
+            Some(slot) => Some(counted(locals.get(slot)?, copies, path, &parts)),
+            None => captured_value(closure, name).map(|value| counted(value, 0, path, &parts)),
+        };
+        let found = match source {
+            FrameSource::Live(frame_index) => {
+                let frame = self.vm.frames.get(frame_index).ok_or_else(missing)?;
+                let ip = self.frame_ip(index);
+                match local_slot(&frame.closure, ip, name) {
+                    Some(slot) => self
+                        .vm
+                        .stack
+                        .get(frame.base_pointer + slot)
+                        .map(|slot| self.counted_slot(slot, path, &parts)),
+                    None => captured_value(&frame.closure, name)
+                        .map(|value| counted(value, 0, path, &parts)),
+                }
+            }
+            FrameSource::Hidden { note, frame } => {
+                let note = self.control.resumes.get(note).ok_or_else(missing)?;
+                let hidden = note.hidden.get(frame).ok_or_else(missing)?;
+                // The note's values are the debugger's copies.
+                let from = hidden
+                    .frame
+                    .base_pointer
+                    .checked_sub(note.stack_from)
+                    .ok_or_else(missing)?;
+                let locals = note.stack.get(from..).ok_or_else(missing)?;
+                in_locals(locals, &hidden.frame.closure, hidden.ip, 1)
+            }
+            FrameSource::Suspended { .. } | FrameSource::Parked { .. } => self
+                .in_continuation(&source, |locals, closure, ip| {
+                    in_locals(locals, closure, ip, 0)
+                }),
+            FrameSource::Label => None,
+        };
+        found.ok_or_else(missing)?
+    }
+
+    /// Calls `f` with the locals of the continuation frame `source` names,
+    /// its closure and its instruction.
+    fn in_continuation<R>(
+        &self,
+        source: &FrameSource,
+        f: impl FnOnce(&[Value], &Closure, usize) -> Option<R>,
+    ) -> Option<R> {
+        let continuation = match source {
+            FrameSource::Suspended { arm, frame } => {
+                let suspension = self
+                    .control
+                    .suspensions
+                    .iter()
+                    .rev()
+                    .find(|s| s.arm_index == *arm)?;
+                let arm_frame = self.vm.frames.get(*arm)?;
+                let resume = self.vm.stack.get(arm_frame.base_pointer)?;
+                let Value::Continuation(continuation) = slot::from_slot_ref(resume) else {
+                    return None;
+                };
+                if continuation.borrow().frames.len() != suspension.frames.len() {
+                    return None;
+                }
+                (continuation, *frame)
+            }
+            FrameSource::Parked {
+                continuation,
+                frame,
+            } => (continuation.clone(), *frame),
+            _ => return None,
+        };
+        let (continuation, frame) = continuation;
+        let continuation = continuation.borrow();
+        let captured = continuation.frames.get(frame)?;
+        let from = captured.base_pointer.checked_sub(continuation.entry_sp)?;
+        let values = continuation.stack.get(from..)?;
+        f(values, &captured.closure, captured.ip.saturating_sub(1))
+    }
+
+    /// [`counted`] for a VM stack slot: every slot sharing its box counts,
+    /// less the checkpoints' copies of it.
+    fn counted_slot(&self, slot: &slot::Slot, path: &str, parts: &[&str]) -> Result<Refs, String> {
+        let Some((value, slots)) = slot.boxed() else {
+            let value = slot::from_slot_ref(slot);
+            return counted(&value, 0, path, parts);
+        };
+        if !parts.is_empty() {
+            return counted(value, 0, path, parts);
+        }
+        let copies = self.control.checkpoints.copies_of(slot);
+        Ok(Refs {
+            // The box is one of the value's references; the slots holding
+            // the box are the references it stands for.
+            count: owners(value).map(|inner| inner - 1 + slots - copies),
+            type_name: value.type_name(),
+        })
+    }
+
     /// The value of `name` in frame `index`: a local, else a captured value.
     pub fn lookup(&mut self, index: usize, name: &str) -> Option<ValueView> {
         let show = self.control.show_internals;
@@ -874,6 +997,48 @@ impl VM {
             .copied()
             .unwrap_or_else(|| self.frames[index].ip.saturating_sub(1))
     }
+}
+
+/// The slot of the local `name` live at `ip` in `closure`'s function: the
+/// innermost binding, as [`Inspector::locals`] shows it.
+fn local_slot(closure: &Closure, ip: usize, name: &str) -> Option<usize> {
+    let info = closure.function.debug_info.as_ref()?;
+    info.locals
+        .iter()
+        .filter(|local| local.name == name && local.is_live_at(ip))
+        .max_by_key(|local| local.start_ip)
+        .map(|local| local.slot as usize)
+}
+
+/// The value `closure` captured as `name`.
+fn captured_value<'a>(closure: &'a Closure, name: &str) -> Option<&'a Value> {
+    let info = closure.function.debug_info.as_ref()?;
+    info.free_names
+        .iter()
+        .zip(closure.free.iter())
+        .find(|(free, _)| *free == name)
+        .map(|(_, value)| value)
+}
+
+/// The references of the part `parts` of `value`, less `copies` the
+/// debugger holds of `value` itself.
+fn counted(value: &Value, copies: usize, path: &str, parts: &[&str]) -> Result<Refs, String> {
+    if matches!(value, Value::Uninit) {
+        let name = path.split('.').next().unwrap_or(path);
+        return Err(format!("no variable `{name}` here"));
+    }
+    let mut current = value;
+    let mut copies = copies;
+    for part in parts {
+        current =
+            child_ref(current, part).ok_or_else(|| format!("`{path}` has no part `{part}`"))?;
+        // A copy of the whole holds the whole, not each part.
+        copies = 0;
+    }
+    Ok(Refs {
+        count: owners(current).map(|count| count - copies),
+        type_name: current.type_name(),
+    })
 }
 
 #[cfg(test)]

@@ -1,0 +1,16 @@
+// Reference counts (0188 S10b): a value's references, the debugger's own
+// left out. `ys` makes `xs` shared, and a tuple holds it once more.
+fn total(xs: List<Int>) -> Int {
+    let ys = xs
+    let pair = (ys, "pair")
+    len(xs) + len(pair.0)
+}
+
+fn main() {
+    let xs = [1, 2, 3]
+    let s = "fresh" + "!"
+    let n = 7
+    print(total(xs))
+    print(s)
+    print(n)
+}

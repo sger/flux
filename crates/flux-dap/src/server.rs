@@ -12,7 +12,7 @@ use std::sync::mpsc::{Receiver, Sender};
 
 use flux::debug_protocol::{
     EngineMessage, Event, ExceptionInfo, Frame, FrameKind, Reply, Request, ResumeKind, Scope,
-    StopKind, Variable,
+    StopKind, Variable, describe_refs,
 };
 use serde_json::{Value, json};
 
@@ -1218,7 +1218,7 @@ impl<W: FnMut(Value)> Session<W> {
             && let Some(command) = expression.strip_prefix('.')
         {
             return self
-                .console_command(command)
+                .console_command(command, args)
                 .map(|text| json!({ "result": text, "variablesReference": 0 }));
         }
         let (thread, frame) = self.frame_for(args)?;
@@ -1244,7 +1244,7 @@ impl<W: FnMut(Value)> Session<W> {
 
     /// The Debug Console's own commands, which reach what DAP has no request
     /// for.
-    fn console_command(&mut self, command: &str) -> Result<String, String> {
+    fn console_command(&mut self, command: &str, args: &Value) -> Result<String, String> {
         let (name, rest) = command
             .split_once(char::is_whitespace)
             .map(|(name, rest)| (name, rest.trim()))
@@ -1255,6 +1255,23 @@ impl<W: FnMut(Value)> Session<W> {
         };
         match name {
             "help" => Ok(CONSOLE_HELP.to_string()),
+            // In the frame the console reads (0188 S10b).
+            "refs" => {
+                if rest.is_empty() {
+                    return Err("usage: .refs <name>[.<n>...]".to_string());
+                }
+                let (thread, frame) = self.frame_for(args)?;
+                match self.call(Request::Refs {
+                    frame,
+                    expression: rest.to_string(),
+                    thread,
+                })? {
+                    Reply::Refs { count, type_name } => {
+                        Ok(describe_refs(rest, count, false, &type_name))
+                    }
+                    _ => Err("unexpected reply to .refs".to_string()),
+                }
+            }
             "handlers" => {
                 let handlers = self.handlers()?;
                 if handlers.is_empty() {
@@ -1381,6 +1398,7 @@ A variable or a part of one (`pair.0`) shows its value. Commands:
   .events          the effects the program has performed
   .event <n>       go to the last stop before effect <n>
   .rs .rn .rf .rc  reverse step, next, finish, continue
+  .refs <name>     how many references a value has: a unique one can be reused
   .handlers        the active effect handlers, innermost first
   .threads         the fibers and tasks, and what each waits for
   .internals on|off  show or hide compiler-made frames and variables";
