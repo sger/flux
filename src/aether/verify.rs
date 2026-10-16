@@ -28,6 +28,9 @@ pub enum AetherErrorKind {
     InvalidFieldMask,
     InvalidDropSpecializedScrutinee,
     InvalidDropSpecializedUse,
+    /// A binder released twice on one path: dropped, reused or
+    /// drop-specialized after it already was.
+    DoubleDrop,
 }
 
 /// Non-fatal Aether diagnostic.
@@ -52,6 +55,7 @@ pub fn verify_contract(expr: &CoreExpr) -> Result<(), Vec<AetherError>> {
 pub fn verify_contract_aether(expr: &AetherExpr) -> Result<(), Vec<AetherError>> {
     let mut errors = Vec::new();
     check_contract(expr, &mut errors);
+    check_single_release(expr, &mut Vec::new(), &mut errors);
     if errors.is_empty() {
         Ok(())
     } else {
@@ -69,6 +73,135 @@ pub fn verify_diagnostics_aether(expr: &AetherExpr) -> Vec<AetherDiagnostic> {
     let mut diags = Vec::new();
     check_diagnostics(expr, &mut diags);
     diags
+}
+
+/// Checks that no path releases a binder twice. `released` holds the
+/// binders released so far on the path being walked, in evaluation order;
+/// a case's arms each continue from it, and what follows the case continues
+/// from every arm.
+fn check_single_release(
+    expr: &AetherExpr,
+    released: &mut Vec<crate::core::CoreBinderId>,
+    errors: &mut Vec<AetherError>,
+) {
+    let release = |var: &crate::core::CoreVarRef,
+                   released: &mut Vec<crate::core::CoreBinderId>,
+                   errors: &mut Vec<AetherError>| {
+        let Some(binder) = var.binder else {
+            return;
+        };
+        if released.contains(&binder) {
+            errors.push(AetherError {
+                kind: AetherErrorKind::DoubleDrop,
+                message: format!("binder {binder:?} is released twice on one path"),
+            });
+        } else {
+            released.push(binder);
+        }
+    };
+    match expr {
+        AetherExpr::Var { .. } | AetherExpr::Lit(_, _) => {}
+        // Another function: its own paths.
+        AetherExpr::Lam { body, .. } => check_single_release(body, &mut Vec::new(), errors),
+        AetherExpr::Return { value, .. } => check_single_release(value, released, errors),
+        AetherExpr::App { func, args, .. } | AetherExpr::AetherCall { func, args, .. } => {
+            check_single_release(func, released, errors);
+            for arg in args {
+                check_single_release(arg, released, errors);
+            }
+        }
+        AetherExpr::Let { rhs, body, .. } | AetherExpr::LetRec { rhs, body, .. } => {
+            check_single_release(rhs, released, errors);
+            check_single_release(body, released, errors);
+        }
+        AetherExpr::LetRecGroup { bindings, body, .. } => {
+            for (_, rhs) in bindings {
+                check_single_release(rhs, released, errors);
+            }
+            check_single_release(body, released, errors);
+        }
+        AetherExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            check_single_release(scrutinee, released, errors);
+            let entry = released.clone();
+            for alt in alts {
+                let mut path = entry.clone();
+                if let Some(guard) = &alt.guard {
+                    check_single_release(guard, &mut path, errors);
+                }
+                check_single_release(&alt.rhs, &mut path, errors);
+                for binder in path {
+                    if !released.contains(&binder) {
+                        released.push(binder);
+                    }
+                }
+            }
+        }
+        AetherExpr::Con { fields: args, .. }
+        | AetherExpr::PrimOp { args, .. }
+        | AetherExpr::Perform { args, .. } => {
+            for arg in args {
+                check_single_release(arg, released, errors);
+            }
+        }
+        AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
+            check_single_release(object, released, errors)
+        }
+        AetherExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                check_single_release(parameter, released, errors);
+            }
+            check_single_release(body, released, errors);
+            // Each clause runs as a function of its own.
+            for handler in handlers {
+                check_single_release(&handler.body, &mut Vec::new(), errors);
+            }
+        }
+        AetherExpr::Dup { body, .. } => check_single_release(body, released, errors),
+        AetherExpr::Drop { var, body, .. } => {
+            release(var, released, errors);
+            check_single_release(body, released, errors);
+        }
+        AetherExpr::Reuse { token, fields, .. } => {
+            for field in fields {
+                check_single_release(field, released, errors);
+            }
+            release(token, released, errors);
+        }
+        AetherExpr::DropSpecialized {
+            scrutinee,
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            // The scrutinee is released once on each side: the unique side
+            // may reuse it (its `Reuse` is that release) or frees it, the
+            // shared side gives up its reference on entry.
+            let entry = released.clone();
+            if scrutinee
+                .binder
+                .is_some_and(|binder| entry.contains(&binder))
+            {
+                release(scrutinee, &mut entry.clone(), errors);
+            }
+            let mut unique = entry.clone();
+            check_single_release(unique_body, &mut unique, errors);
+            let mut shared = entry.clone();
+            release(scrutinee, &mut shared, errors);
+            check_single_release(shared_body, &mut shared, errors);
+            for binder in unique.into_iter().chain(shared).chain(scrutinee.binder) {
+                if !released.contains(&binder) {
+                    released.push(binder);
+                }
+            }
+        }
+    }
 }
 
 fn check_contract(expr: &AetherExpr, errors: &mut Vec<AetherError>) {
@@ -621,6 +754,64 @@ mod tests {
         };
         let err = verify_contract(&expr).expect_err("expected unsafe drop");
         assert!(err.iter().any(|e| e.kind == AetherErrorKind::UnsafeDrop));
+    }
+
+    /// `case flag of true -> <then>, _ -> <other>`.
+    fn on_flag(flag: CoreBinder, then: CoreExpr, other: CoreExpr) -> CoreExpr {
+        CoreExpr::Case {
+            scrutinee: Box::new(v(flag)),
+            alts: vec![
+                CoreAlt {
+                    pat: CorePat::Lit(CoreLit::Bool(true)),
+                    guard: None,
+                    rhs: then,
+                    span: s(),
+                },
+                CoreAlt {
+                    pat: CorePat::Wildcard,
+                    guard: None,
+                    rhs: other,
+                    span: s(),
+                },
+            ],
+            join_ty: None,
+            span: s(),
+        }
+    }
+
+    fn drop_in(x: CoreBinder, body: CoreExpr) -> CoreExpr {
+        CoreExpr::Drop {
+            var: crate::core::CoreVarRef::resolved(&x),
+            body: Box::new(body),
+            span: s(),
+        }
+    }
+
+    #[test]
+    fn contract_rejects_a_double_drop_on_one_path() {
+        let mut interner = Interner::new();
+        let x = binder(1, interner.intern("x"));
+        let flag = binder(2, interner.intern("flag"));
+        let lit = |n| CoreExpr::Lit(CoreLit::Int(n), s());
+
+        // Dropped on entry and again in one arm: twice on that path.
+        let twice = drop_in(x, on_flag(flag, drop_in(x, lit(1)), lit(0)));
+        let err = verify_contract(&twice).expect_err("expected a double drop");
+        assert!(err.iter().any(|e| e.kind == AetherErrorKind::DoubleDrop));
+
+        // Once in each arm: once on every path.
+        let once = on_flag(flag, drop_in(x, lit(1)), drop_in(x, lit(0)));
+        assert!(verify_contract(&once).is_ok());
+
+        // Once in an arm, again after the case: twice on that arm's path.
+        let after = CoreExpr::Let {
+            var: binder(3, interner.intern("y")),
+            rhs: Box::new(on_flag(flag, drop_in(x, lit(1)), lit(0))),
+            body: Box::new(drop_in(x, lit(2))),
+            span: s(),
+        };
+        let err = verify_contract(&after).expect_err("expected a double drop");
+        assert!(err.iter().any(|e| e.kind == AetherErrorKind::DoubleDrop));
     }
 
     #[test]

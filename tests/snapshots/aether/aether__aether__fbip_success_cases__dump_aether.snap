@@ -1464,15 +1464,14 @@ lam(xs, acc, f) ->
         MakeList(dup acc#711 in acc#711)
       MakeTuple(<sym:4001696>#1696, acc#711)
 ── fn scanr_step ──
-  Dups: 2  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 2  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(h, state, acc, f) ->
   drop acc#718 in
     case state#717 of
       (rest, next_acc) ->
-        drop acc#718 in
-          aether_call[owned, owned, owned, borrowed] scanr_finish#722(dup rest#720 in rest#720, dup next_acc#721 in next_acc#721, h#716, f#719)
+        aether_call[owned, owned, owned, borrowed] scanr_finish#722(dup rest#720 in rest#720, dup next_acc#721 in next_acc#721, h#716, f#719)
 ── fn scanr_finish ──
   Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
@@ -1660,7 +1659,7 @@ lam(xs) ->
     Nil
   aether_call[owned, owned, owned] partition_acc#811(xs#810, <sym:4001734>#1734, <sym:4001735>#1735)
 ── fn __tc_m7_466C6F772E4571_Eq_List<a>_eq ──
-  Dups: 0  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, xs, ys) ->
@@ -1682,11 +1681,9 @@ lam(__dict_m7_466C6F772E4571_Eq, xs, ys) ->
       drop __dict_m7_466C6F772E4571_Eq#844 in
         case ys#846 of
           Cons(h, t) ->
-            drop __dict_m7_466C6F772E4571_Eq#844 in
-              false
+            false
           _ ->
-            drop __dict_m7_466C6F772E4571_Eq#844 in
-              true
+            true
 ── fn print_all [yield×2] ──
   Dups: 0  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 2  Handles: 0  HandlerArms: 0
   FreshAllocs: 0
@@ -1871,7 +1868,7 @@ lam(opt, f) ->
     _ ->
       None
 ── fn __tc_m8_466C6F772E4F7264_Ord_Int_compare ──
-  Dups: 0  Drops: 5  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
@@ -1880,19 +1877,15 @@ lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
       ICmpLt(x#1066, y#1067)
     case <sym:4001801>#1801 of
       true ->
-        drop __dict_m7_466C6F772E4571_Eq#1065 in
-          Neg(1)
+        Neg(1)
       _ ->
-        drop __dict_m7_466C6F772E4571_Eq#1065 in
-          let <sym:4001802> =
-            ICmpGt(x#1066, y#1067)
-          case <sym:4001802>#1802 of
-            true ->
-              drop __dict_m7_466C6F772E4571_Eq#1065 in
-                1
-            _ ->
-              drop __dict_m7_466C6F772E4571_Eq#1065 in
-                0
+        let <sym:4001802> =
+          ICmpGt(x#1066, y#1067)
+        case <sym:4001802>#1802 of
+          true ->
+            1
+          _ ->
+            0
 ── fn __tc_m8_466C6F772E4F7264_Ord_Int_lt ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
@@ -1922,7 +1915,7 @@ lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
   drop __dict_m7_466C6F772E4571_Eq#1081 in
     ICmpGe(x#1082, y#1083)
 ── fn __tc_m8_466C6F772E4F7264_Ord_Float_compare ──
-  Dups: 0  Drops: 5  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
@@ -1931,19 +1924,15 @@ lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
       FCmpLt(x#1086, y#1087)
     case <sym:4001803>#1803 of
       true ->
-        drop __dict_m7_466C6F772E4571_Eq#1085 in
-          Neg(1)
+        Neg(1)
       _ ->
-        drop __dict_m7_466C6F772E4571_Eq#1085 in
-          let <sym:4001804> =
-            FCmpGt(x#1086, y#1087)
-          case <sym:4001804>#1804 of
-            true ->
-              drop __dict_m7_466C6F772E4571_Eq#1085 in
-                1
-            _ ->
-              drop __dict_m7_466C6F772E4571_Eq#1085 in
-                0
+        let <sym:4001804> =
+          FCmpGt(x#1086, y#1087)
+        case <sym:4001804>#1804 of
+          true ->
+            1
+          _ ->
+            0
 ── fn __tc_m8_466C6F772E4F7264_Ord_Float_lt ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
@@ -1973,7 +1962,7 @@ lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
   drop __dict_m7_466C6F772E4571_Eq#1101 in
     FCmpGe(x#1102, y#1103)
 ── fn __tc_m8_466C6F772E4F7264_Ord_String_compare ──
-  Dups: 0  Drops: 5  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
@@ -1982,19 +1971,15 @@ lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
       Lt(x#1106, y#1107)
     case <sym:4001805>#1805 of
       true ->
-        drop __dict_m7_466C6F772E4571_Eq#1105 in
-          Neg(1)
+        Neg(1)
       _ ->
-        drop __dict_m7_466C6F772E4571_Eq#1105 in
-          let <sym:4001806> =
-            Gt(x#1106, y#1107)
-          case <sym:4001806>#1806 of
-            true ->
-              drop __dict_m7_466C6F772E4571_Eq#1105 in
-                1
-            _ ->
-              drop __dict_m7_466C6F772E4571_Eq#1105 in
-                0
+        let <sym:4001806> =
+          Gt(x#1106, y#1107)
+        case <sym:4001806>#1806 of
+          true ->
+            1
+          _ ->
+            0
 ── fn __tc_m8_466C6F772E4F7264_Ord_String_lt ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
@@ -2109,7 +2094,7 @@ lam() ->
         aether_call[owned] __resume_default#1358(<sym:4001908>#1908)
 
 ── Total ──
-  Dups: 50  Drops: 159  Reuses: 19  DropSpecs: 1  BorrowedCallGuards: 45  FBIP: fbip(26)  Yields: 11  Handles: 5  HandlerArms: 11
+  Dups: 50  Drops: 144  Reuses: 19  DropSpecs: 1  BorrowedCallGuards: 45  FBIP: fbip(26)  Yields: 11  Handles: 5  HandlerArms: 11
   FreshAllocs: 26
 
 [ 1 of 18] Compiling  Add

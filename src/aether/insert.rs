@@ -1120,8 +1120,57 @@ fn has_compatible_con(pat: &crate::core::CorePat, rhs: &CoreExpr) -> bool {
     let Some(pat_tag) = pat_tag else {
         return false;
     };
-    find_con_tag_in_spine(rhs, Some(pat_tag))
+    unclaimed_con_tag_in_spine(rhs, pat_tag, &mut Vec::new())
         .is_some_and(|ref con_tag| tags_shape_compatible(pat_tag, con_tag))
+}
+
+/// The tag of a constructor along `expr`'s spine that a scrutinee being
+/// discharged could reuse: as [`find_con_tag_in_spine`], but leaving out one
+/// an inner case's own scrutinee already claims — a constructor under that
+/// scrutinee's discharge `Drop`, in an arm whose pattern has the shape. The
+/// reuse pass gives such a constructor to the inner scrutinee, so
+/// discharging the outer one for it would only drop it early (`claimants`
+/// holds the inner scrutinees on the way down).
+fn unclaimed_con_tag_in_spine(
+    expr: &CoreExpr,
+    expected_tag: &CoreTag,
+    claimants: &mut Vec<CoreBinderId>,
+) -> Option<CoreTag> {
+    match expr {
+        CoreExpr::Reuse { .. } => None,
+        _ if constructor_shape_for_tag_aether(expr, Some(expected_tag)).is_some() => {
+            constructor_shape_for_tag_aether(expr, Some(expected_tag)).map(|(tag, _, _)| tag)
+        }
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            let scrutinee = match scrutinee.as_ref() {
+                CoreExpr::Var { var, .. } => var.binder,
+                _ => None,
+            };
+            alts.iter().find_map(|alt| {
+                let claims = scrutinee.filter(|_| {
+                    pat_constructor_tag(&alt.pat)
+                        .is_some_and(|tag| tags_shape_compatible(expected_tag, &tag))
+                });
+                claimants.extend(claims);
+                let found = unclaimed_con_tag_in_spine(&alt.rhs, expected_tag, claimants);
+                if claims.is_some() {
+                    claimants.pop();
+                }
+                found
+            })
+        }
+        CoreExpr::Drop { var, .. }
+            if var.binder.is_some_and(|binder| claimants.contains(&binder)) =>
+        {
+            None
+        }
+        CoreExpr::Let { body, .. } | CoreExpr::Drop { body, .. } | CoreExpr::Dup { body, .. } => {
+            unclaimed_con_tag_in_spine(body, expected_tag, claimants)
+        }
+        _ => None,
+    }
 }
 
 fn rhs_has_compatible_tag(rhs: &CoreExpr, tag: &CoreTag) -> bool {

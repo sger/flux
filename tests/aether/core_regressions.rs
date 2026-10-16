@@ -1611,3 +1611,50 @@ fn fbip_failure_cases_fixture_reports_expected_warning_mix() {
         })
     }));
 }
+
+/// Nested matches that rebuild the inner list (`list_zip`'s shape): the
+/// inner list's cell is reused, and the outer one, whose cell nothing
+/// reuses, is never dropped here, let alone twice. The debug heap (0188
+/// S10c) caught it dropped once on entering the outer arm and again in each
+/// inner arm.
+#[test]
+fn nested_match_drops_neither_list_twice() {
+    let src = r#"
+fn pairs(a, b) {
+    match a {
+        [ha | ta] -> match b {
+            [hb | tb] -> [ha + hb | pairs(ta, tb)],
+            _ -> [],
+        },
+        _ -> [],
+    }
+}
+fn main() { pairs([1, 2], [10, 20]) }
+"#;
+    let core = lowered_core(src);
+    let (params, body) = core
+        .defs
+        .iter()
+        .find_map(|def| match &def.expr {
+            CoreExpr::Lam { params, body, .. } if params.len() == 2 => Some((params, body)),
+            _ => None,
+        })
+        .expect("pairs");
+    let (a, b) = (params[0].id, params[1].id);
+    let drops_of = |binder| {
+        count_matching(
+            body,
+            &|expr| matches!(expr, CoreExpr::Drop { var, .. } if var.binder == Some(binder)),
+        )
+    };
+    let reuses_of = |binder| {
+        count_matching(
+            body,
+            &|expr| matches!(expr, CoreExpr::Reuse { token, .. } if token.binder == Some(binder)),
+        )
+    };
+    assert_eq!(drops_of(a), 0, "{body:?}");
+    assert_eq!(reuses_of(b), 1, "{body:?}");
+    assert_eq!(drops_of(b), 0, "{body:?}");
+    assert!(flux::aether::verify::verify_contract_aether(body).is_ok());
+}
