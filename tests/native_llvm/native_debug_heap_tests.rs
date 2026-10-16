@@ -109,6 +109,7 @@ fn programs_run_the_same_on_the_debug_heap() {
         "examples/guide/mini_database.flx",
         "examples/guide/sort_by_string_len.flx",
         "examples/guide/map_builtins.flx",
+        "examples/guide/using_list_module.flx",
         "examples/async/15_concurrent_jobs.flx",
         "examples/async/18_task_closure_captures.flx",
     ] {
@@ -120,6 +121,19 @@ fn programs_run_the_same_on_the_debug_heap() {
             "{file}:\n{stderr}"
         );
     }
+}
+
+/// A nested match rebuilding the inner list, over lists built at run time,
+/// prints what the VM prints on the debug heap: Aether used to drop the
+/// outer list twice on every path.
+#[test]
+fn a_nested_match_releases_each_list_once() {
+    let scratch = Scratch::new("debug-heap-nested-match");
+    let file = "tests/native_llvm/debug_heap/nested_match.flx";
+    let (vm, _, _) = run(&scratch, file, &["--vm"], None);
+    let (heap, stderr, code) = run(&scratch, file, &["--native", "--debug-heap"], None);
+    assert_eq!((heap.as_str(), code), (vm.as_str(), 0), "{stderr}");
+    assert_eq!(vm, "[34, 23, 12]\n[510, 405]\n[]\n");
 }
 
 #[test]

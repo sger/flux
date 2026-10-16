@@ -1,0 +1,22 @@
+// Nested matches that rebuild the inner list, over lists built at run time:
+// Aether once dropped `a` on entering the outer arm and again in each inner
+// arm, and the debug heap caught the second drop.
+fn pairs(a, b) {
+    match a {
+        [ha | ta] -> match b {
+            [hb | tb] -> [ha + hb | pairs(ta, tb)],
+            _ -> [],
+        },
+        _ -> [],
+    }
+}
+
+fn build(n, step) {
+    if n == 0 { [] } else { [n * step | build(n - 1, step)] }
+}
+
+fn main() {
+    print(pairs(build(4, 1), build(3, 10)))
+    print(pairs(build(2, 5), build(5, 100)))
+    print(pairs([], build(2, 1)))
+}
