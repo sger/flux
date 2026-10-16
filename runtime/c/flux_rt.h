@@ -852,8 +852,9 @@ void    flux_debug_on_fiber_failure(int64_t err);
 void    flux_panic_unhooked(int64_t msg);
 /* Reports an effect no handler covers and aborts. */
 void    flux_unhandled_effect(const char *where, int64_t htag);
-void    flux_trace_push(const char *name, const char *file, int32_t line);
-void    flux_trace_pop(void);
+/* Prints the Flux frames the program is in to stderr, from its line table
+ * (0188 S10a). In the Rust staticlib. */
+void    flux_print_backtrace(void);
 int64_t flux_clock_now(void);
 int64_t flux_try(int64_t thunk);
 int64_t flux_assert_throws(int64_t thunk, int64_t expected_msg);

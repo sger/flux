@@ -13,7 +13,7 @@ use crate::shared::cache_paths;
 
 use super::normalize::{
     normalize, normalize_aether_dump, normalize_cfg_dump, normalize_core_dump, normalize_lir_dump,
-    normalize_repr_dump,
+    normalize_repr_dump, normalize_stderr,
 };
 use super::{
     BackendId, CacheFileKind, CacheFileState, CacheObservation, DebugArtifacts, ExitKind,
@@ -243,7 +243,7 @@ fn execute_and_collect(binary: &Path, args: &[String], way: Way, timeout: Durati
         } => {
             let exit_kind = classify_exit(exit_code, &stderr);
             let normalized_stdout = normalize(&stdout);
-            let normalized_stderr = normalize(&stderr);
+            let normalized_stderr = normalize_stderr(&stderr);
             RunResult {
                 way,
                 exit_kind,

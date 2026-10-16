@@ -1,0 +1,8 @@
+// A panic a hundred calls deep (0188 S10a): the trace keeps both ends.
+fn down(n: Int) -> Int {
+    if n == 0 { panic("bottom") } else { 1 + down(n - 1) }
+}
+
+fn main() with IO {
+    print(to_string(down(100)))
+}

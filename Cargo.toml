@@ -22,7 +22,7 @@ default-run = "flux"
 [features]
 default = ["repl"]
 native = []
-llvm = ["native"]
+llvm = ["native", "dep:backtrace"]
 # Interactive `flux repl` (proposals 0175 / 0176). Pulls in `rustyline`, which on
 # Windows transitively depends on `clipboard-win` — its Win32 clipboard/bitmap
 # imports make the small native binaries that link the flux staticlib look like
@@ -43,6 +43,9 @@ mio = { version = "1.0", features = ["os-poll", "net"] }
 # Interactive `flux repl` line editing + history (proposal 0175). Optional and
 # behind the default `repl` feature so native builds can exclude it (see above).
 rustyline = { version = "14.0", optional = true }
+# A native program's own panic trace: its frames, named from its DWARF line
+# table (proposal 0188 S10a). In the staticlib only.
+backtrace = { version = "0.3.76", optional = true }
 
 [dev-dependencies]
 insta = { version = "1.41", features = ["yaml"] }
@@ -549,6 +552,10 @@ path = "tests/debug/parity_debug_tests.rs"
 [[test]]
 name = "native_runtime_error_spans"
 path = "tests/native_llvm/native_runtime_error_spans.rs"
+
+[[test]]
+name = "native_panic_trace_tests"
+path = "tests/native_llvm/native_panic_trace_tests.rs"
 
 [[test]]
 name = "effect_runtime_parity_tests"

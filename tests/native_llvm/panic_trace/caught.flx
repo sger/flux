@@ -1,0 +1,9 @@
+// A panic that is caught (0188 S10a): no trace.
+import Flow.Assert exposing (..)
+
+fn boom() -> Int { panic("caught") }
+
+fn main() with IO {
+    assert_throws(boom, "caught")
+    print("still running")
+}

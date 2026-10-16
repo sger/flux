@@ -771,8 +771,11 @@ fn push_function(
     if let Some(debug) = debug
         && func.debug.is_some()
     {
-        // Debuggers and profilers walk frames by their frame pointers.
-        function.attrs.push("\"frame-pointer\"=\"all\"".to_string());
+        // Debuggers and profilers walk frames by their frame pointers; a
+        // plain build's line table leaves the code as it is (0188 S10a).
+        if debug.is_full() {
+            function.attrs.push("\"frame-pointer\"=\"all\"".to_string());
+        }
         debug.add_function(&mut function, func, block_locs);
     }
     module.functions.push(function);

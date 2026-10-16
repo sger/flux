@@ -233,6 +233,7 @@ void flux_unhandled_effect(const char *where, int64_t htag) {
     flux_debug_on_unhandled_effect(htag);
     fprintf(stderr, "%s: unhandled effect (htag=0x%llx)\n", where,
             (unsigned long long)(uint64_t)htag);
+    flux_print_backtrace();
     abort();
 }
 
@@ -545,6 +546,7 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
             "\n"
             "The VM backend supports this shape. Run with --native disabled\n"
             "(the default) until Phase 3 lands.\n");
+        flux_print_backtrace();
         abort();
     }
     if (flux_thread_ctx.resume_called >= 2) {
@@ -563,6 +565,7 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
             "one-shot continuations), so this program has no valid\n"
             "execution path — the handler needs to be rewritten.\n",
             (int)flux_thread_ctx.resume_called);
+        flux_print_backtrace();
         abort();
     }
 

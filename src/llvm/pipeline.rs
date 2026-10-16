@@ -394,6 +394,7 @@ fn discover_rust_staticlib() -> Option<PathBuf> {
             && archive_exports_symbol(path, "flux_async_debug_block")
             && archive_exports_symbol(path, "flux_tape_ordered_begin")
             && archive_exports_symbol(path, "flux_debug_tape_events")
+            && archive_exports_symbol(path, "flux_print_backtrace")
     };
 
     // Fast path: sidecar written by a previous successful link.

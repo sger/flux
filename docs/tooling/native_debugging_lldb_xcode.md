@@ -26,6 +26,35 @@ calls stay tail calls, so deep recursion behaves as it does without `-g`.
 `-g` does keep every `let` the program wrote, which a build without it may
 inline away, so that the debugger can show it.
 
+## Panic traces without a debugger
+
+Every native build, with or without `-g`, carries a DWARF line table
+(proposal 0188 S10a): functions and lines only, without variables. A program
+that dies of an error (a panic, a division by zero, a failed `unwrap`, an
+unhandled effect) walks its own stack and prints the Flux frames it was in,
+as the VM does:
+
+```text
+panic: too big
+
+Stack trace:
+  at c (/path/to/app.flx:3:16)
+  at b (/path/to/app.flx:7:5)
+  at main (/path/to/app.flx:15:21)
+  at <main>
+```
+
+`flux app.flx --native` renders this as its usual diagnostic, pointing at
+the innermost frame's line. A program run on its own (`./app`) prints it as
+above. A long trace keeps its first 20 frames and its last 10, with a count
+of the ones between. A panic a `try` or `assert_throws` catches prints
+nothing. Frames can differ from the VM's: a tail call leaves no frame, and
+code inlined into another function shows as that function's line.
+
+On macOS a plain build's line table stays in the build cache's object files,
+which the binary names. A binary copied to another machine without them
+prints `panic:` without its trace; a `-g` build's `app.dSYM` keeps it.
+
 ## The lldb script
 
 `flux_lldb.py` teaches lldb to read Flux values.
