@@ -115,6 +115,7 @@ fn dump_gives_each_module_its_own_file() {
 }
 
 #[test]
+#[cfg(feature = "llvm")]
 fn native_dump_matches_vm_dump() {
     // Both backends build the model from the same Core, before their own
     // lowering, so they must agree.
