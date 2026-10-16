@@ -19,12 +19,12 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::compare;
 use crate::proc::{run, run_tee};
 use crate::sweep::{self, Mode};
-use crate::text::strip_ansi;
+use crate::text::{Paint, strip_ansi};
 
 pub struct Options {
     pub tag: String,
@@ -33,27 +33,49 @@ pub struct Options {
     pub skip_sweeps: bool,
 }
 
-/// What failed, for the closing summary.
+/// How a summary line counts towards the run.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mark {
+    Ok,
+    Fail,
+    /// Informational: never fails the run.
+    Note,
+}
+
+/// The closing summary, one marked line per step.
 #[derive(Default)]
 struct Outcome {
-    lines: Vec<String>,
-    failed: bool,
+    lines: Vec<(Mark, String)>,
 }
 
 impl Outcome {
     fn record(&mut self, ok: bool, line: String) {
-        self.failed |= !ok;
         self.lines
-            .push(format!("{} {line}", if ok { "ok  " } else { "FAIL" }));
+            .push((if ok { Mark::Ok } else { Mark::Fail }, line));
     }
 
     fn note(&mut self, line: String) {
-        self.lines.push(format!("     {line}"));
+        self.lines.push((Mark::Note, line));
+    }
+
+    fn failed(&self) -> bool {
+        self.lines.iter().any(|(mark, _)| *mark == Mark::Fail)
+    }
+
+    fn print(&self) {
+        let paint = Paint::detect();
+        for (mark, line) in &self.lines {
+            match mark {
+                Mark::Ok => println!("{} {line}", paint.green("ok  ")),
+                Mark::Fail => println!("{} {line}", paint.red("FAIL")),
+                Mark::Note => println!("     {}", paint.yellow(line)),
+            }
+        }
     }
 }
 
 fn section(title: &str) {
-    println!("== {title}");
+    println!("{}", Paint::detect().heading(&format!("== {title}")));
 }
 
 fn cargo() -> Command {
@@ -196,38 +218,52 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
     }
 
     section("parity");
-    let mut log = fs::File::create(out.join(format!("parity_{tag}.txt"))).map_err(io)?;
-    let mut mismatches = 0;
+    println!(
+        "each fixture runs on the VM (fresh, cached, strict) and natively; their outputs must agree"
+    );
+    let mut log = open_log(&out.join(format!("parity_{tag}.txt"))).map_err(io)?;
+    let mut counts = ParityCounts::default();
+    let mut failed_runs = 0;
     for dir in [
         "examples/type_classes",
         "examples/generics",
         "tests/flux",
         "tests/parity",
     ] {
-        println!("=== {dir}");
+        println!("{}", Paint::detect().bold(&format!("=== {dir}")));
         writeln!(log, "=== {dir}").map_err(io)?;
-        mismatches +=
-            parity(root, &flux, dir, "vm,vm_cached,vm_strict,llvm", &mut log).map_err(io)?;
+        let run = parity(root, &flux, dir, "vm,vm_cached,vm_strict,llvm", &mut log).map_err(io)?;
+        counts.mismatches += run.mismatches;
+        counts.expected += run.expected;
+        if run.exit != 0 {
+            failed_runs += 1;
+        }
     }
+    // Known divergences can only be recorded by skipping a whole fixture
+    // until `// skip-way:` exists (0190 S2), so this step stays a note.
     outcome.note(format!(
-        "parity: {mismatches} MISMATCH line(s); compare with the base's parity log"
+        "parity: {} MISMATCH, {} EXPECTED_OUTPUT_MISMATCH, {failed_runs} run(s) exited non-zero; \
+         compare with the base's parity log",
+        counts.mismatches, counts.expected
     ));
 
     // A debug build runs as a plain one does (0188 S9c): every guide
     // example prints the same natively with and without `-g`.
     section("debug build parity");
-    let mut log = fs::File::create(out.join(format!("parity_g_{tag}.txt"))).map_err(io)?;
-    let mismatches = parity(root, &flux, "examples/guide", "llvm,llvm_g", &mut log).map_err(io)?;
+    println!("every guide example built natively with and without -g; output must agree");
+    let mut log = open_log(&out.join(format!("parity_g_{tag}.txt"))).map_err(io)?;
+    let counts = parity(root, &flux, "examples/guide", "llvm,llvm_g", &mut log).map_err(io)?;
     outcome.record(
-        mismatches == 0,
-        format!("debug build parity ({mismatches} MISMATCH line(s))"),
+        counts.ok(),
+        format!("debug build parity ({})", counts.describe()),
     );
 
     // The VM debugger and lldb on the same scripted sessions (0188 S6b).
     // Every fixture is expected to match, so a mismatch fails the run.
     section("debug parity");
-    let mut log = fs::File::create(out.join(format!("parity_debug_{tag}.txt"))).map_err(io)?;
-    let mismatches = parity(
+    println!("each // dbg: script run in the VM debugger and in lldb; transcripts must agree");
+    let mut log = open_log(&out.join(format!("parity_debug_{tag}.txt"))).map_err(io)?;
+    let counts = parity(
         root,
         &flux,
         "tests/parity_debug",
@@ -235,17 +271,12 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
         &mut log,
     )
     .map_err(io)?;
-    outcome.record(
-        mismatches == 0,
-        format!("debug parity ({mismatches} MISMATCH line(s))"),
-    );
+    outcome.record(counts.ok(), format!("debug parity ({})", counts.describe()));
 
     section(&format!("summary {tag}"));
-    for line in &outcome.lines {
-        println!("{line}");
-    }
+    outcome.print();
     println!("all-done: {tag}");
-    Ok(!outcome.failed)
+    Ok(!outcome.failed())
 }
 
 const SWEEPS: [Mode; 3] = [Mode::Cfg, Mode::Core, Mode::CoreOpt];
@@ -259,36 +290,177 @@ fn sweep_dir(tag: &str, mode: Mode) -> String {
     }
 }
 
+/// Creates a step's log file and says where it is.
+fn open_log(path: &Path) -> std::io::Result<fs::File> {
+    println!(
+        "{}",
+        Paint::detect().dim(&format!("  log: {}", path.display()))
+    );
+    fs::File::create(path)
+        .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", path.display())))
+}
+
+/// A fixture's verdict, the first word of the line `print_result` writes
+/// for it. One list of the words, so counting, numbering and colouring
+/// cannot disagree about what a verdict line is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Verdict {
+    Pass,
+    Skip,
+    Mismatch,
+    ExpectedOutputMismatch,
+}
+
+impl Verdict {
+    const ALL: [Self; 4] = [
+        Self::Pass,
+        Self::Skip,
+        Self::Mismatch,
+        Self::ExpectedOutputMismatch,
+    ];
+
+    fn word(self) -> &'static str {
+        match self {
+            Self::Pass => "PASS",
+            Self::Skip => "SKIP",
+            Self::Mismatch => "MISMATCH",
+            Self::ExpectedOutputMismatch => "EXPECTED_OUTPUT_MISMATCH",
+        }
+    }
+
+    /// The verdict `line` (without colour) reports, if it is a verdict line.
+    fn parse(line: &str) -> Option<Self> {
+        let (word, _) = line.split_once(' ')?;
+        Self::ALL.into_iter().find(|v| v.word() == word)
+    }
+
+    /// `line` with its verdict word coloured: pass green, skip yellow,
+    /// either mismatch red.
+    fn paint(self, paint: Paint, line: &str) -> String {
+        let word = self.word();
+        let painted = match self {
+            Self::Pass => paint.green(word),
+            Self::Skip => paint.yellow(word),
+            Self::Mismatch | Self::ExpectedOutputMismatch => paint.red(word),
+        };
+        format!("{painted}{}", &line[word.len()..])
+    }
+}
+
+/// What one `parity-check` run reported.
+#[derive(Debug, Default, PartialEq)]
+struct ParityCounts {
+    /// Fixtures whose ways disagreed (`MISMATCH`).
+    mismatches: usize,
+    /// Fixtures whose ways agreed but missed the fixture's declared
+    /// outcome or expected stdout (`EXPECTED_OUTPUT_MISMATCH`).
+    expected: usize,
+    /// `parity-check`'s exit code: 1 on any failure, when nothing passed,
+    /// or when it could not run at all.
+    exit: i32,
+}
+
+impl ParityCounts {
+    /// Counts `verdict` if it is a failing one.
+    fn tally(&mut self, verdict: Verdict) {
+        match verdict {
+            Verdict::Mismatch => self.mismatches += 1,
+            Verdict::ExpectedOutputMismatch => self.expected += 1,
+            Verdict::Pass | Verdict::Skip => {}
+        }
+    }
+
+    fn ok(&self) -> bool {
+        self.mismatches == 0 && self.expected == 0 && self.exit == 0
+    }
+
+    fn describe(&self) -> String {
+        format!(
+            "{} MISMATCH, {} EXPECTED_OUTPUT_MISMATCH, exit {}",
+            self.mismatches, self.expected, self.exit
+        )
+    }
+}
+
 /// Runs `flux parity-check <dir> --ways <ways>`, writing its output, without
-/// cargo's progress lines, to `log` and printing the result lines. Returns
-/// how many fixtures did not match.
+/// cargo's progress lines, to `log`. Prints, as they arrive, its `[parity]`
+/// lines (such as rebuilding its binaries) and each verdict, numbered and
+/// timed, so a long run shows where it is. Returns the failing verdicts and
+/// the exit code.
 fn parity(
     root: &Path,
     flux: &Path,
     dir: &str,
     ways: &str,
     log: &mut fs::File,
-) -> std::io::Result<usize> {
-    let mut lines = Vec::new();
-    run_tee(
+) -> std::io::Result<ParityCounts> {
+    let started = Instant::now();
+    let paint = Paint::detect();
+    let mut counts = ParityCounts::default();
+    let mut fixtures = 0;
+    let mut total: Option<usize> = None;
+    let mut log_error = None;
+    let exit = run_tee(
         Command::new(flux)
             .current_dir(root)
             .args(["parity-check", dir, "--ways", ways]),
         None,
-        |line| lines.push(line.to_string()),
+        |line| {
+            if is_cargo_progress(line) {
+                return;
+            }
+            let plain = strip_ansi(line);
+            if let Err(e) = writeln!(log, "{plain}")
+                && log_error.is_none()
+            {
+                log_error = Some(e);
+            }
+            if let Some(n) = plain
+                .strip_prefix("[parity] fixtures: ")
+                .and_then(|n| n.trim().parse().ok())
+            {
+                total = Some(n);
+            }
+            if let Some(verdict) = Verdict::parse(&plain) {
+                fixtures += 1;
+                counts.tally(verdict);
+                let counter = progress(fixtures, total, started);
+                println!("{} {}", paint.dim(&counter), verdict.paint(paint, &plain));
+            } else if plain.starts_with("[parity]") {
+                println!("{}", paint.dim(&plain));
+            } else if is_parity_line(&plain) {
+                println!("{plain}");
+            }
+        },
     )?;
-    let mut mismatches = 0;
-    for line in lines.iter().filter(|l| !is_cargo_progress(l)) {
-        writeln!(log, "{line}")?;
-        let plain = strip_ansi(line);
-        if is_parity_line(&plain) {
-            println!("{plain}");
-        }
-        if plain.starts_with("MISMATCH") {
-            mismatches += 1;
-        }
+    if let Some(e) = log_error {
+        return Err(e);
     }
-    Ok(mismatches)
+    counts.exit = exit;
+    let result = counts.describe();
+    println!(
+        "{dir}: {fixtures} fixture(s) in {} ({})",
+        elapsed(started),
+        if counts.ok() {
+            paint.green(&result)
+        } else {
+            paint.red(&result)
+        }
+    );
+    Ok(counts)
+}
+
+/// `fixture 3/23 · 0:41 elapsed`, the position of a verdict in its run;
+/// without the total when `parity-check` did not announce one.
+fn progress(done: usize, total: Option<usize>, started: Instant) -> String {
+    let of = total.map(|t| format!("/{t}")).unwrap_or_default();
+    format!("fixture {done}{of} · {} elapsed", elapsed(started))
+}
+
+/// `m:ss` since `started`.
+fn elapsed(started: Instant) -> String {
+    let secs = started.elapsed().as_secs();
+    format!("{}:{:02}", secs / 60, secs % 60)
 }
 
 /// `^\s+Running `: cargo's line naming each test binary.
@@ -306,7 +478,14 @@ fn is_cargo_progress(line: &str) -> bool {
 
 fn is_parity_line(line: &str) -> bool {
     [
-        "PASS", "MISMATCH", "EXPECTED", "SKIP", "Total", "Pass", "Mismatch",
+        "PASS",
+        "MISMATCH",
+        "EXPECTED",
+        "SKIP",
+        "Total",
+        "Pass",
+        "Mismatch",
+        "ExpectedMismatch",
     ]
     .iter()
     .any(|prefix| line.starts_with(prefix))
@@ -377,6 +556,68 @@ mod tests {
             "dump_dump__optimize___dump_core"
         );
         assert_eq!(sweep_dir("main", Mode::Cfg), "sweep_main");
+    }
+
+    #[test]
+    fn only_a_failed_step_fails_the_run() {
+        let mut outcome = Outcome::default();
+        outcome.record(true, "fmt".into());
+        outcome.note("parity: 9 MISMATCH".into());
+        assert!(!outcome.failed());
+        outcome.record(false, "debug parity".into());
+        assert!(outcome.failed());
+    }
+
+    #[test]
+    fn counts_both_failing_verdicts_and_nothing_else() {
+        let mut counts = ParityCounts::default();
+        for line in [
+            "PASS tests/parity/a.flx",
+            "MISMATCH tests/parity/b.flx",
+            "EXPECTED_OUTPUT_MISMATCH tests/parity/c.flx",
+            "EXPECTED_OUTPUT_MISMATCH tests/parity/d.flx",
+            "SKIP tests/parity/e.flx (KI-073)",
+            "Mismatch: 1",
+            "ExpectedMismatch: 2",
+            "MISMATCH_KIND b.flx stdout vm/llvm",
+        ] {
+            if let Some(verdict) = Verdict::parse(line) {
+                counts.tally(verdict);
+            }
+        }
+        assert_eq!(counts.mismatches, 1);
+        assert_eq!(counts.expected, 2);
+    }
+
+    #[test]
+    fn colours_only_the_verdict_word() {
+        let on = Paint::always();
+        let line = "EXPECTED_OUTPUT_MISMATCH b.flx";
+        assert_eq!(
+            Verdict::parse(line).unwrap().paint(on, line),
+            "\x1b[1;31mEXPECTED_OUTPUT_MISMATCH\x1b[0m b.flx"
+        );
+        let line = "PASS a.flx";
+        assert_eq!(
+            Verdict::parse(line).unwrap().paint(on, line),
+            "\x1b[32mPASS\x1b[0m a.flx"
+        );
+    }
+
+    #[test]
+    fn a_failing_exit_alone_is_not_ok() {
+        // parity-check exits 1 when nothing passed or it could not start,
+        // with no verdict line to count.
+        let counts = ParityCounts {
+            exit: 1,
+            ..ParityCounts::default()
+        };
+        assert!(!counts.ok());
+        assert!(ParityCounts::default().ok());
+        assert_eq!(
+            counts.describe(),
+            "0 MISMATCH, 0 EXPECTED_OUTPUT_MISMATCH, exit 1"
+        );
     }
 
     #[test]
