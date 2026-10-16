@@ -656,8 +656,10 @@ struct Transcript {
 impl Transcript {
     fn push(&mut self, line: String) {
         self.end_group();
-        // Library frames, one after another, read as one (see `place`).
-        if line == "frame <library>" && self.lines.last() == Some(&line) {
+        // Library frames, one after another, read as one (see `place`); and
+        // one exit, which `flux_lldb.py` reports after a step that ran off
+        // the end and lldb may report again.
+        if (line == "frame <library>" || line == "finished") && self.lines.last() == Some(&line) {
             return;
         }
         self.lines.push(line);

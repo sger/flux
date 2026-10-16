@@ -1183,6 +1183,13 @@ def _classify(thread):
     message = ""
     kind = "runtime_error"
     memory = Memory(thread.GetProcess())
+    # The message is the hook's own argument: `flux_panic`'s `msg` is gone
+    # by then where the optimised runtime keeps it only in a register (gcc).
+    if top.startswith(PANIC_HOOK):
+        word = _first_argument(top_frame, "msg")
+        if word is not None:
+            text = Value(memory, None, word).render()
+            message = text[1:-1] if len(text) >= 2 and text[0] == '"' else text
     for index in range(1, min(thread.GetNumFrames(), 8)):
         frame = thread.GetFrameAtIndex(index)
         name = frame.GetFunctionName() or ""
@@ -1887,6 +1894,14 @@ def _step(debugger, result, into, out=False):
         # this synchronous run kept from it.
         if process.GetState() == lldb.eStateStopped:
             result.AppendMessage("thread %d" % process.GetSelectedThread().GetThreadID())
+        elif process.GetState() == lldb.eStateExited:
+            # A step that ran off the end of the program: say so as lldb
+            # does, which a batch session does not for a script's run.
+            status = process.GetExitStatus()
+            result.AppendMessage(
+                "Process %d exited with status = %d (0x%08x)"
+                % (process.GetProcessID(), status, status & 0xFFFFFFFF)
+            )
 
 
 def _declared_line(frame):

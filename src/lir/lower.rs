@@ -1703,6 +1703,19 @@ impl<'a> FnLower<'a> {
         }
     }
 
+    /// A literal is placed where the expression using it is, when that is on
+    /// its line: building `true` for `resume(true)` is part of the call, and
+    /// a debugger stopping on the line stops at the call, not at `true`.
+    fn literal_loc(&mut self, span: crate::diagnostics::position::Span) -> LirLoc {
+        let own = self.located(span, self.current_loc);
+        let user = self.current_loc;
+        if !user.is_none() && user.line == own.line && user.inlined == own.inlined {
+            user
+        } else {
+            own
+        }
+    }
+
     /// The function's number for the inlined lambda holding `span`, adding
     /// it, and the lambdas its call is inlined in, to the function's sites.
     fn inline_site(&mut self, span: crate::diagnostics::position::Span) -> u32 {
@@ -1732,7 +1745,10 @@ impl<'a> FnLower<'a> {
             self.lambda_site = Some(self.current_loc);
             self.lambda_span = Some(expr.span());
         }
-        let loc = self.located(expr.span(), self.current_loc);
+        let loc = match expr {
+            CoreExpr::Lit(_, span) => self.literal_loc(*span),
+            _ => self.located(expr.span(), self.current_loc),
+        };
         self.at_loc(loc, |lower| lower.lower_expr_here(expr))
     }
 
@@ -2542,6 +2558,7 @@ impl<'a> FnLower<'a> {
             | AetherExpr::Drop { .. }
             | AetherExpr::Reuse { .. }
             | AetherExpr::DropSpecialized { .. } => LirLoc::NONE,
+            AetherExpr::Lit(_, span) => self.literal_loc(*span),
             _ => self.located(expr.span(), self.current_loc),
         };
         if matches!(expr, AetherExpr::Lam { .. }) {
