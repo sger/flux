@@ -1,0 +1,7 @@
+// A lambda's captured values.
+fn main() {
+    let scale = 3
+    let offset = 10
+    let f = fn(x) { x * scale + offset }
+    print(f(2))
+}

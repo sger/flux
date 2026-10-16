@@ -13,6 +13,7 @@
 #endif
 
 #include "flux_rt.h"
+#include <stdarg.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -174,6 +175,11 @@ void flux_rt_init(void) {
 }
 
 void flux_rt_shutdown(void) {
+    /* The program reached its end: the tape records a normal exit, or checks
+     * that the recorded run ended the same way with nothing left over. */
+    if (flux_tape_mode) {
+        flux_tape_finish(0, NULL, 0);
+    }
     /* Skip GC shutdown — the OS reclaims all memory at process exit.
      * Walking millions of malloc'd objects is slower than just exiting. */
     fflush(stdout);
@@ -189,37 +195,106 @@ static const char *flux_lookup_user_ctor_name(int32_t ctor_tag) {
     return flux_user_ctor_name(ctor_tag);
 }
 
+/* Value printing writes through these. With no effect tape they go straight
+ * to stdout; with one, a line is collected so the tape sees it whole, and
+ * flux_print writes it once the tape has recorded or checked it. */
+/* One line per thread: tasks print on threads of their own (0188 S8c). */
+#if defined(_MSC_VER)
+#  define FLUX_OUT_TLS __declspec(thread)
+#else
+#  define FLUX_OUT_TLS _Thread_local
+#endif
+static FLUX_OUT_TLS char  *flux_out_line = NULL;
+static FLUX_OUT_TLS size_t flux_out_len  = 0;
+static FLUX_OUT_TLS size_t flux_out_cap  = 0;
+
+static void flux_out_append(const char *data, size_t len) {
+    if (flux_out_len + len > flux_out_cap) {
+        size_t cap = flux_out_cap ? flux_out_cap * 2 : 256;
+        while (cap < flux_out_len + len) cap *= 2;
+        char *grown = (char *)realloc(flux_out_line, cap);
+        if (!grown) return;
+        flux_out_line = grown;
+        flux_out_cap = cap;
+    }
+    memcpy(flux_out_line + flux_out_len, data, len);
+    flux_out_len += len;
+}
+
+static void flux_out_write(const void *data, size_t len) {
+    if (!flux_tape_mode) {
+        fwrite(data, 1, len, stdout);
+        return;
+    }
+    flux_out_append((const char *)data, len);
+}
+
+static void flux_out_putc(int c) {
+    if (!flux_tape_mode) {
+        putchar(c);
+        return;
+    }
+    char ch = (char)c;
+    flux_out_append(&ch, 1);
+}
+
+static void flux_out_printf(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    if (!flux_tape_mode) {
+        vprintf(fmt, args);
+        va_end(args);
+        return;
+    }
+    char buf[128];
+    va_list again;
+    va_copy(again, args);
+    int n = vsnprintf(buf, sizeof(buf), fmt, args);
+    if (n >= 0 && (size_t)n < sizeof(buf)) {
+        flux_out_append(buf, (size_t)n);
+    } else if (n >= 0) {
+        char *big = (char *)malloc((size_t)n + 1);
+        if (big) {
+            vsnprintf(big, (size_t)n + 1, fmt, again);
+            flux_out_append(big, (size_t)n);
+            free(big);
+        }
+    }
+    va_end(again);
+    va_end(args);
+}
+
 /* Internal: print a value without trailing newline. */
 static void flux_print_value(int64_t val) {
     /* Integer: LSB = 1 */
     if (flux_is_int(val)) {
-        printf("%lld", (long long)flux_untag_int(val));
+        flux_out_printf("%lld", (long long)flux_untag_int(val));
         return;
     }
 
     /* Sentinel values (even, < FLUX_MIN_PTR) */
     if (val == FLUX_NONE) {
-        printf("None");
+        flux_out_printf("None");
         return;
     }
     if (val == FLUX_FALSE) {
-        printf("false");
+        flux_out_printf("false");
         return;
     }
     if (val == FLUX_TRUE) {
-        printf("true");
+        flux_out_printf("true");
         return;
     }
     if (val == FLUX_EMPTY_LIST) {
-        printf("[]");
+        flux_out_printf("[]");
         return;
     }
     if (val == FLUX_UNINIT) {
-        printf("<uninit>");
+        flux_out_printf("<uninit>");
         return;
     }
     if (val == FLUX_YIELD_SENTINEL) {
-        printf("<yield>");
+        flux_out_printf("<yield>");
         return;
     }
 
@@ -230,38 +305,38 @@ static void flux_print_value(int64_t val) {
         uint8_t obj = flux_obj_tag(ptr);
         if (obj == FLUX_OBJ_FLOAT) {
             double d = flux_unbox_float(val);
-            printf("%.15g", d);
+            flux_out_printf("%.15g", d);
         } else if (obj == FLUX_OBJ_STRING) {
             /* String: { obj_tag, _pad[3], len, data[] } */
             uint32_t len = *(uint32_t *)((char *)ptr + 4);
             const char *data = (const char *)ptr + 8;
-            putchar('"');
-            fwrite(data, 1, len, stdout);
-            putchar('"');
+            flux_out_putc('"');
+            flux_out_write(data, len);
+            flux_out_putc('"');
         } else if (obj == FLUX_OBJ_ARRAY) {
             /* Array: { obj_tag, _pad[3], len, capacity, _pad2, elements[] } */
             uint32_t len = *(uint32_t *)((char *)ptr + 4);
             int64_t *elems = (int64_t *)((char *)ptr + 16);
-            printf("[|");
+            flux_out_printf("[|");
             for (uint32_t i = 0; i < len; i++) {
-                if (i > 0) printf(", ");
+                if (i > 0) flux_out_printf(", ");
                 flux_print_value(elems[i]);
             }
-            printf("|]");
+            flux_out_printf("|]");
         } else if (obj == FLUX_OBJ_TUPLE) {
             /* Tuple: { obj_tag, _pad[3], i32 arity, i64 elements[] } */
             uint32_t arity = *(uint32_t *)((char *)ptr + 4);
             int64_t *elems = (int64_t *)((char *)ptr + 8);
-            printf("(");
+            flux_out_printf("(");
             for (uint32_t i = 0; i < arity; i++) {
-                if (i > 0) printf(", ");
+                if (i > 0) flux_out_printf(", ");
                 flux_print_value(elems[i]);
             }
-            if (arity == 1) printf(",");
-            printf(")");
+            if (arity == 1) flux_out_printf(",");
+            flux_out_printf(")");
         } else if (obj == FLUX_OBJ_THUNK) {
             /* Thunks should never escape to user code; print for debugging. */
-            printf("<thunk>");
+            flux_out_printf("<thunk>");
         } else if (obj == FLUX_OBJ_ADT) {
             /* ADT: { i32 tag, i32 field_count, i64 fields[] } */
             int32_t ctor_tag = *(int32_t *)ptr;
@@ -271,33 +346,33 @@ static void flux_print_value(int64_t val) {
             switch (ctor_tag) {
             case 0: /* None or Nil */
                 if (field_count == 0) {
-                    printf("None");
+                    flux_out_printf("None");
                 } else {
-                    printf("(");
+                    flux_out_printf("(");
                     for (int32_t i = 0; i < field_count; i++) {
-                        if (i > 0) printf(", ");
+                        if (i > 0) flux_out_printf(", ");
                         flux_print_value(fields[i]);
                     }
-                    printf(")");
+                    flux_out_printf(")");
                 }
                 break;
             case 1: /* Some */
-                printf("Some(");
+                flux_out_printf("Some(");
                 if (field_count > 0) flux_print_value(fields[0]);
-                printf(")");
+                flux_out_printf(")");
                 break;
             case 2: /* Left */
-                printf("Left(");
+                flux_out_printf("Left(");
                 if (field_count > 0) flux_print_value(fields[0]);
-                printf(")");
+                flux_out_printf(")");
                 break;
             case 3: /* Right */
-                printf("Right(");
+                flux_out_printf("Right(");
                 if (field_count > 0) flux_print_value(fields[0]);
-                printf(")");
+                flux_out_printf(")");
                 break;
             case 4: /* Cons */
-                printf("[");
+                flux_out_printf("[");
                 flux_print_value(fields[0]);
                 {
                     int64_t tail = fields[1];
@@ -306,32 +381,32 @@ static void flux_print_value(int64_t val) {
                         int32_t tt = *(int32_t *)tp;
                         if (tt != 4) break;
                         int64_t *tf = (int64_t *)((char *)tp + 8);
-                        printf(", ");
+                        flux_out_printf(", ");
                         flux_print_value(tf[0]);
                         tail = tf[1];
                     }
                 }
-                printf("]");
+                flux_out_printf("]");
                 break;
             default: {
                 const char *ctor_name = flux_lookup_user_ctor_name(ctor_tag);
                 if (field_count == 0) {
                     if (ctor_name) {
-                        printf("%s", ctor_name);
+                        flux_out_printf("%s", ctor_name);
                     } else {
-                        printf("<adt tag=%d>", ctor_tag);
+                        flux_out_printf("<adt tag=%d>", ctor_tag);
                     }
                 } else {
                     if (ctor_name) {
-                        printf("%s(", ctor_name);
+                        flux_out_printf("%s(", ctor_name);
                     } else {
-                        printf("<adt tag=%d>(", ctor_tag);
+                        flux_out_printf("<adt tag=%d>(", ctor_tag);
                     }
                     for (int32_t i = 0; i < field_count; i++) {
-                        if (i > 0) printf(", ");
+                        if (i > 0) flux_out_printf(", ");
                         flux_print_value(fields[i]);
                     }
-                    printf(")");
+                    flux_out_printf(")");
                 }
                 break;
             }
@@ -339,24 +414,37 @@ static void flux_print_value(int64_t val) {
         } else if (flux_is_hamt(ptr)) {
             /* HAMT (hash map) */
             int64_t s = flux_hamt_format(val);
-            fwrite(flux_string_data(s), 1, flux_string_len(s), stdout);
+            flux_out_write(flux_string_data(s), flux_string_len(s));
         } else {
-            printf("<unknown obj=0x%02x>", obj);
+            flux_out_printf("<unknown obj=0x%02x>", obj);
         }
         return;
     }
 
-    printf("<unknown val=%lld>", (long long)val);
+    flux_out_printf("<unknown val=%lld>", (long long)val);
 }
 
-void flux_print(int64_t val) {
+int64_t flux_print(int64_t val) {
     flux_print_value(val);
+    if (flux_tape_mode) {
+        flux_out_append("\n", 1);
+        /* Printed at its turn on the tape, so threads print in the
+         * recorded order. */
+        if (flux_tape_console(0, (const uint8_t *)flux_out_line, flux_out_len)) {
+            fwrite(flux_out_line, 1, flux_out_len, stdout);
+            fflush(stdout);
+        }
+        flux_tape_console_done();
+        flux_out_len = 0;
+        return FLUX_NONE;
+    }
     putchar('\n');
     fflush(stdout);
+    return FLUX_NONE;
 }
 
-void flux_println(int64_t val) {
-    flux_print(val);
+int64_t flux_println(int64_t val) {
+    return flux_print(val);
 }
 
 /* Debug-trace output. Routed to stderr so it does not corrupt stdout
@@ -366,7 +454,22 @@ void flux_println(int64_t val) {
  * `show()` / `to_string()` / a caller-supplied formatter), so the fast
  * path just writes the string's bytes directly to stderr. Non-string
  * fallback is provided for direct tests and primop-level callers. */
-void flux_debug_trace(int64_t val) {
+int64_t flux_debug_trace(int64_t val) {
+    if (flux_tape_mode && flux_is_ptr(val) && flux_obj_tag(flux_untag_ptr(val)) == FLUX_OBJ_STRING) {
+        uint32_t len = flux_string_len(val);
+        char *line = (char *)malloc((size_t)len + 1);
+        if (line) {
+            memcpy(line, flux_string_data(val), len);
+            line[len] = '\n';
+            if (flux_tape_console(1, (const uint8_t *)line, (size_t)len + 1)) {
+                fwrite(line, 1, (size_t)len + 1, stderr);
+                fflush(stderr);
+            }
+            flux_tape_console_done();
+            free(line);
+            return FLUX_NONE;
+        }
+    }
     if (flux_is_ptr(val) && flux_obj_tag(flux_untag_ptr(val)) == FLUX_OBJ_STRING) {
         fwrite(flux_string_data(val), 1, flux_string_len(val), stderr);
         fputc('\n', stderr);
@@ -378,16 +481,17 @@ void flux_debug_trace(int64_t val) {
         fprintf(stderr, "<debug non-string value=%lld>\n", (long long)val);
     }
     fflush(stderr);
+    return FLUX_NONE;
 }
 /* Print value without newline, followed by a space — used for multi-arg print. */
 void flux_print_space(int64_t val) {
     flux_print_value(val);
-    putchar(' ');
+    flux_out_putc(' ');
 }
 
 /* ── I/O ────────────────────────────────────────────────────────────── */
 
-int64_t flux_read_line(void) {
+static int64_t flux_read_line_untaped(void) {
     char buf[4096];
     if (!fgets(buf, sizeof(buf), stdin)) {
         return flux_string_new("", 0);
@@ -398,6 +502,15 @@ int64_t flux_read_line(void) {
         buf[--len] = '\0';
     }
     return flux_string_new(buf, (uint32_t)len);
+}
+
+/* Recorded or replayed while an effect tape is active (proposal 0188 S1). */
+int64_t flux_read_line(void) {
+    if (flux_tape_mode) {
+        if (flux_tape_start(FLUX_TAPE_EV_READ_STDIN, 0, 0)) return flux_tape_replay_value(FLUX_TAPE_SH_TEXT, NULL, 0);
+        return flux_tape_record_value(flux_read_line_untaped(), FLUX_TAPE_SH_TEXT, NULL, 0);
+    }
+    return flux_read_line_untaped();
 }
 
 /* Is this open stream a directory?
@@ -411,7 +524,7 @@ static int flux_stream_is_dir(FILE *f) {
     return fd >= 0 && fstat(fd, &st) == 0 && S_ISDIR(st.st_mode);
 }
 
-int64_t flux_read_file(int64_t path) {
+static int64_t flux_read_file_untaped(int64_t path) {
     const char *path_str = flux_string_data(path);
     uint32_t    path_len = flux_string_len(path);
     char        err_buf[256];
@@ -500,6 +613,15 @@ int64_t flux_read_file(int64_t path) {
     return result;
 
     #undef FLUX_READ_FILE_PANIC
+}
+
+/* Recorded or replayed while an effect tape is active (proposal 0188 S1). */
+int64_t flux_read_file(int64_t path) {
+    if (flux_tape_mode) {
+        if (flux_tape_start(FLUX_TAPE_EV_READ_FILE, path, 0)) return flux_tape_replay_value(FLUX_TAPE_SH_TEXT, NULL, 0);
+        return flux_tape_record_value(flux_read_file_untaped(path), FLUX_TAPE_SH_TEXT, NULL, 0);
+    }
+    return flux_read_file_untaped(path);
 }
 
 /* ── Recoverable file reads ───────────────────────────────────────────────
@@ -943,8 +1065,8 @@ static FluxFsTags flux_fs_tags_from_args(FLUX_IO_TAGS_DECL) {
     };
 }
 
-int64_t flux_try_read_file(FLUX_IO_TAGS_DECL, int64_t path) {
-    if (flux_async_is_active()) {
+static int64_t flux_try_read_file_untaped(FLUX_IO_TAGS_DECL, int64_t path) {
+    if (!flux_tape_mode && flux_async_is_active()) {
         FluxFsTags tags = flux_fs_tags_from_args(
             ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
             already_exists_tag, not_a_directory_tag, is_a_directory_tag,
@@ -963,8 +1085,18 @@ int64_t flux_try_read_file(FLUX_IO_TAGS_DECL, int64_t path) {
     );
 }
 
-int64_t flux_fs_exists(int64_t path) {
-    if (flux_async_is_active()) {
+/* Recorded or replayed while an effect tape is active (proposal 0188 S1). */
+int64_t flux_try_read_file(FLUX_IO_TAGS_DECL, int64_t path) {
+    if (flux_tape_mode) {
+        FluxIoTags tape_tags = FLUX_IO_TAGS_INIT;
+        if (flux_tape_start(FLUX_TAPE_EV_TRY_READ_FILE, path, 0)) return flux_tape_replay_value(FLUX_TAPE_SH_RES_TEXT, &tape_tags, 0);
+        return flux_tape_record_value(flux_try_read_file_untaped(ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag, already_exists_tag, not_a_directory_tag, is_a_directory_tag, directory_not_empty_tag, interrupted_tag, other_tag, path), FLUX_TAPE_SH_RES_TEXT, &tape_tags, 0);
+    }
+    return flux_try_read_file_untaped(ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag, already_exists_tag, not_a_directory_tag, is_a_directory_tag, directory_not_empty_tag, interrupted_tag, other_tag, path);
+}
+
+static int64_t flux_fs_exists_untaped(int64_t path) {
+    if (!flux_tape_mode && flux_async_is_active()) {
         uint64_t req = flux_async_fs_request(
             1, (const uint8_t *)flux_string_data(path), flux_string_len(path),
             NULL, 0, NULL
@@ -974,8 +1106,17 @@ int64_t flux_fs_exists(int64_t path) {
     return flux_fs_exists_sync(path);
 }
 
-int64_t flux_fs_is_dir(int64_t path) {
-    if (flux_async_is_active()) {
+/* Recorded or replayed while an effect tape is active (proposal 0188 S1). */
+int64_t flux_fs_exists(int64_t path) {
+    if (flux_tape_mode) {
+        if (flux_tape_start(FLUX_TAPE_EV_FS_EXISTS, path, 0)) return flux_tape_replay_value(FLUX_TAPE_SH_BOOL, NULL, 0);
+        return flux_tape_record_value(flux_fs_exists_untaped(path), FLUX_TAPE_SH_BOOL, NULL, 0);
+    }
+    return flux_fs_exists_untaped(path);
+}
+
+static int64_t flux_fs_is_dir_untaped(int64_t path) {
+    if (!flux_tape_mode && flux_async_is_active()) {
         uint64_t req = flux_async_fs_request(
             2, (const uint8_t *)flux_string_data(path), flux_string_len(path),
             NULL, 0, NULL
@@ -985,8 +1126,17 @@ int64_t flux_fs_is_dir(int64_t path) {
     return flux_fs_is_dir_sync(path);
 }
 
-int64_t flux_fs_is_file(int64_t path) {
-    if (flux_async_is_active()) {
+/* Recorded or replayed while an effect tape is active (proposal 0188 S1). */
+int64_t flux_fs_is_dir(int64_t path) {
+    if (flux_tape_mode) {
+        if (flux_tape_start(FLUX_TAPE_EV_FS_IS_DIR, path, 0)) return flux_tape_replay_value(FLUX_TAPE_SH_BOOL, NULL, 0);
+        return flux_tape_record_value(flux_fs_is_dir_untaped(path), FLUX_TAPE_SH_BOOL, NULL, 0);
+    }
+    return flux_fs_is_dir_untaped(path);
+}
+
+static int64_t flux_fs_is_file_untaped(int64_t path) {
+    if (!flux_tape_mode && flux_async_is_active()) {
         uint64_t req = flux_async_fs_request(
             3, (const uint8_t *)flux_string_data(path), flux_string_len(path),
             NULL, 0, NULL
@@ -996,8 +1146,17 @@ int64_t flux_fs_is_file(int64_t path) {
     return flux_fs_is_file_sync(path);
 }
 
-int64_t flux_fs_write_file(FLUX_IO_TAGS_DECL, int64_t path, int64_t contents) {
-    if (flux_async_is_active()) {
+/* Recorded or replayed while an effect tape is active (proposal 0188 S1). */
+int64_t flux_fs_is_file(int64_t path) {
+    if (flux_tape_mode) {
+        if (flux_tape_start(FLUX_TAPE_EV_FS_IS_FILE, path, 0)) return flux_tape_replay_value(FLUX_TAPE_SH_BOOL, NULL, 0);
+        return flux_tape_record_value(flux_fs_is_file_untaped(path), FLUX_TAPE_SH_BOOL, NULL, 0);
+    }
+    return flux_fs_is_file_untaped(path);
+}
+
+static int64_t flux_fs_write_file_untaped(FLUX_IO_TAGS_DECL, int64_t path, int64_t contents) {
+    if (!flux_tape_mode && flux_async_is_active()) {
         FluxFsTags tags = flux_fs_tags_from_args(
             ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
             already_exists_tag, not_a_directory_tag, is_a_directory_tag,
@@ -1016,8 +1175,18 @@ int64_t flux_fs_write_file(FLUX_IO_TAGS_DECL, int64_t path, int64_t contents) {
     );
 }
 
-int64_t flux_fs_create_dir_all(FLUX_IO_TAGS_DECL, int64_t path) {
-    if (flux_async_is_active()) {
+/* Recorded or replayed while an effect tape is active (proposal 0188 S1). */
+int64_t flux_fs_write_file(FLUX_IO_TAGS_DECL, int64_t path, int64_t contents) {
+    if (flux_tape_mode) {
+        FluxIoTags tape_tags = FLUX_IO_TAGS_INIT;
+        if (flux_tape_start(FLUX_TAPE_EV_FS_WRITE_FILE, path, contents)) return flux_tape_replay_value(FLUX_TAPE_SH_RES_UNIT, &tape_tags, 0);
+        return flux_tape_record_value(flux_fs_write_file_untaped(ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag, already_exists_tag, not_a_directory_tag, is_a_directory_tag, directory_not_empty_tag, interrupted_tag, other_tag, path, contents), FLUX_TAPE_SH_RES_UNIT, &tape_tags, 0);
+    }
+    return flux_fs_write_file_untaped(ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag, already_exists_tag, not_a_directory_tag, is_a_directory_tag, directory_not_empty_tag, interrupted_tag, other_tag, path, contents);
+}
+
+static int64_t flux_fs_create_dir_all_untaped(FLUX_IO_TAGS_DECL, int64_t path) {
+    if (!flux_tape_mode && flux_async_is_active()) {
         FluxFsTags tags = flux_fs_tags_from_args(
             ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
             already_exists_tag, not_a_directory_tag, is_a_directory_tag,
@@ -1036,8 +1205,18 @@ int64_t flux_fs_create_dir_all(FLUX_IO_TAGS_DECL, int64_t path) {
     );
 }
 
-int64_t flux_fs_remove_file(FLUX_IO_TAGS_DECL, int64_t path) {
-    if (flux_async_is_active()) {
+/* Recorded or replayed while an effect tape is active (proposal 0188 S1). */
+int64_t flux_fs_create_dir_all(FLUX_IO_TAGS_DECL, int64_t path) {
+    if (flux_tape_mode) {
+        FluxIoTags tape_tags = FLUX_IO_TAGS_INIT;
+        if (flux_tape_start(FLUX_TAPE_EV_FS_CREATE_DIR_ALL, path, 0)) return flux_tape_replay_value(FLUX_TAPE_SH_RES_UNIT, &tape_tags, 0);
+        return flux_tape_record_value(flux_fs_create_dir_all_untaped(ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag, already_exists_tag, not_a_directory_tag, is_a_directory_tag, directory_not_empty_tag, interrupted_tag, other_tag, path), FLUX_TAPE_SH_RES_UNIT, &tape_tags, 0);
+    }
+    return flux_fs_create_dir_all_untaped(ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag, already_exists_tag, not_a_directory_tag, is_a_directory_tag, directory_not_empty_tag, interrupted_tag, other_tag, path);
+}
+
+static int64_t flux_fs_remove_file_untaped(FLUX_IO_TAGS_DECL, int64_t path) {
+    if (!flux_tape_mode && flux_async_is_active()) {
         FluxFsTags tags = flux_fs_tags_from_args(
             ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
             already_exists_tag, not_a_directory_tag, is_a_directory_tag,
@@ -1056,8 +1235,18 @@ int64_t flux_fs_remove_file(FLUX_IO_TAGS_DECL, int64_t path) {
     );
 }
 
-int64_t flux_fs_remove_dir_all(FLUX_IO_TAGS_DECL, int64_t path) {
-    if (flux_async_is_active()) {
+/* Recorded or replayed while an effect tape is active (proposal 0188 S1). */
+int64_t flux_fs_remove_file(FLUX_IO_TAGS_DECL, int64_t path) {
+    if (flux_tape_mode) {
+        FluxIoTags tape_tags = FLUX_IO_TAGS_INIT;
+        if (flux_tape_start(FLUX_TAPE_EV_FS_REMOVE_FILE, path, 0)) return flux_tape_replay_value(FLUX_TAPE_SH_RES_UNIT, &tape_tags, 0);
+        return flux_tape_record_value(flux_fs_remove_file_untaped(ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag, already_exists_tag, not_a_directory_tag, is_a_directory_tag, directory_not_empty_tag, interrupted_tag, other_tag, path), FLUX_TAPE_SH_RES_UNIT, &tape_tags, 0);
+    }
+    return flux_fs_remove_file_untaped(ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag, already_exists_tag, not_a_directory_tag, is_a_directory_tag, directory_not_empty_tag, interrupted_tag, other_tag, path);
+}
+
+static int64_t flux_fs_remove_dir_all_untaped(FLUX_IO_TAGS_DECL, int64_t path) {
+    if (!flux_tape_mode && flux_async_is_active()) {
         FluxFsTags tags = flux_fs_tags_from_args(
             ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
             already_exists_tag, not_a_directory_tag, is_a_directory_tag,
@@ -1076,8 +1265,18 @@ int64_t flux_fs_remove_dir_all(FLUX_IO_TAGS_DECL, int64_t path) {
     );
 }
 
-int64_t flux_fs_rename(FLUX_IO_TAGS_DECL, int64_t from, int64_t to) {
-    if (flux_async_is_active()) {
+/* Recorded or replayed while an effect tape is active (proposal 0188 S1). */
+int64_t flux_fs_remove_dir_all(FLUX_IO_TAGS_DECL, int64_t path) {
+    if (flux_tape_mode) {
+        FluxIoTags tape_tags = FLUX_IO_TAGS_INIT;
+        if (flux_tape_start(FLUX_TAPE_EV_FS_REMOVE_DIR_ALL, path, 0)) return flux_tape_replay_value(FLUX_TAPE_SH_RES_UNIT, &tape_tags, 0);
+        return flux_tape_record_value(flux_fs_remove_dir_all_untaped(ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag, already_exists_tag, not_a_directory_tag, is_a_directory_tag, directory_not_empty_tag, interrupted_tag, other_tag, path), FLUX_TAPE_SH_RES_UNIT, &tape_tags, 0);
+    }
+    return flux_fs_remove_dir_all_untaped(ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag, already_exists_tag, not_a_directory_tag, is_a_directory_tag, directory_not_empty_tag, interrupted_tag, other_tag, path);
+}
+
+static int64_t flux_fs_rename_untaped(FLUX_IO_TAGS_DECL, int64_t from, int64_t to) {
+    if (!flux_tape_mode && flux_async_is_active()) {
         FluxFsTags tags = flux_fs_tags_from_args(
             ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
             already_exists_tag, not_a_directory_tag, is_a_directory_tag,
@@ -1096,8 +1295,18 @@ int64_t flux_fs_rename(FLUX_IO_TAGS_DECL, int64_t from, int64_t to) {
     );
 }
 
-int64_t flux_fs_list_dir(FLUX_IO_TAGS_DECL, int64_t path) {
-    if (flux_async_is_active()) {
+/* Recorded or replayed while an effect tape is active (proposal 0188 S1). */
+int64_t flux_fs_rename(FLUX_IO_TAGS_DECL, int64_t from, int64_t to) {
+    if (flux_tape_mode) {
+        FluxIoTags tape_tags = FLUX_IO_TAGS_INIT;
+        if (flux_tape_start(FLUX_TAPE_EV_FS_RENAME, from, to)) return flux_tape_replay_value(FLUX_TAPE_SH_RES_UNIT, &tape_tags, 0);
+        return flux_tape_record_value(flux_fs_rename_untaped(ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag, already_exists_tag, not_a_directory_tag, is_a_directory_tag, directory_not_empty_tag, interrupted_tag, other_tag, from, to), FLUX_TAPE_SH_RES_UNIT, &tape_tags, 0);
+    }
+    return flux_fs_rename_untaped(ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag, already_exists_tag, not_a_directory_tag, is_a_directory_tag, directory_not_empty_tag, interrupted_tag, other_tag, from, to);
+}
+
+static int64_t flux_fs_list_dir_untaped(FLUX_IO_TAGS_DECL, int64_t path) {
+    if (!flux_tape_mode && flux_async_is_active()) {
         FluxFsTags tags = flux_fs_tags_from_args(
             ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
             already_exists_tag, not_a_directory_tag, is_a_directory_tag,
@@ -1116,8 +1325,18 @@ int64_t flux_fs_list_dir(FLUX_IO_TAGS_DECL, int64_t path) {
     );
 }
 
-int64_t flux_fs_metadata(FLUX_IO_TAGS_DECL, int32_t file_meta_tag, int64_t path) {
-    if (flux_async_is_active()) {
+/* Recorded or replayed while an effect tape is active (proposal 0188 S1). */
+int64_t flux_fs_list_dir(FLUX_IO_TAGS_DECL, int64_t path) {
+    if (flux_tape_mode) {
+        FluxIoTags tape_tags = FLUX_IO_TAGS_INIT;
+        if (flux_tape_start(FLUX_TAPE_EV_FS_LIST_DIR, path, 0)) return flux_tape_replay_value(FLUX_TAPE_SH_RES_LIST, &tape_tags, 0);
+        return flux_tape_record_value(flux_fs_list_dir_untaped(ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag, already_exists_tag, not_a_directory_tag, is_a_directory_tag, directory_not_empty_tag, interrupted_tag, other_tag, path), FLUX_TAPE_SH_RES_LIST, &tape_tags, 0);
+    }
+    return flux_fs_list_dir_untaped(ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag, already_exists_tag, not_a_directory_tag, is_a_directory_tag, directory_not_empty_tag, interrupted_tag, other_tag, path);
+}
+
+static int64_t flux_fs_metadata_untaped(FLUX_IO_TAGS_DECL, int32_t file_meta_tag, int64_t path) {
+    if (!flux_tape_mode && flux_async_is_active()) {
         FluxFsTags tags = flux_fs_tags_from_args(
             ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,
             already_exists_tag, not_a_directory_tag, is_a_directory_tag,
@@ -1135,6 +1354,16 @@ int64_t flux_fs_metadata(FLUX_IO_TAGS_DECL, int32_t file_meta_tag, int64_t path)
         already_exists_tag, not_a_directory_tag, is_a_directory_tag,
         directory_not_empty_tag, interrupted_tag, other_tag, file_meta_tag, path
     );
+}
+
+/* Recorded or replayed while an effect tape is active (proposal 0188 S1). */
+int64_t flux_fs_metadata(FLUX_IO_TAGS_DECL, int32_t file_meta_tag, int64_t path) {
+    if (flux_tape_mode) {
+        FluxIoTags tape_tags = FLUX_IO_TAGS_INIT;
+        if (flux_tape_start(FLUX_TAPE_EV_FS_METADATA, path, 0)) return flux_tape_replay_value(FLUX_TAPE_SH_RES_META, &tape_tags, file_meta_tag);
+        return flux_tape_record_value(flux_fs_metadata_untaped(ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag, already_exists_tag, not_a_directory_tag, is_a_directory_tag, directory_not_empty_tag, interrupted_tag, other_tag, file_meta_tag, path), FLUX_TAPE_SH_RES_META, &tape_tags, file_meta_tag);
+    }
+    return flux_fs_metadata_untaped(ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag, already_exists_tag, not_a_directory_tag, is_a_directory_tag, directory_not_empty_tag, interrupted_tag, other_tag, file_meta_tag, path);
 }
 
 /* ── Subprocess execution (proposal 0178, item 6) ───────────────────── */
@@ -1354,7 +1583,7 @@ static int flux_proc_drain_both(int out_fd, int err_fd, FluxProcBuf *out,
  * a second command. A non-zero exit is a successful *run* reporting a result,
  * not an Err — Err is reserved for failing to start the process at all. A
  * signal-terminated child reports -1, which no normal exit status produces. */
-int64_t flux_proc_run(FLUX_IO_TAGS_ARGS, int32_t proc_output_tag, int64_t cmd,
+static int64_t flux_proc_run_untaped(FLUX_IO_TAGS_ARGS, int32_t proc_output_tag, int64_t cmd,
                       int64_t argv) {
     FluxIoTags tags = FLUX_IO_TAGS_INIT;
 
@@ -1596,7 +1825,17 @@ int64_t flux_proc_run(FLUX_IO_TAGS_ARGS, int32_t proc_output_tag, int64_t cmd,
 #endif
 }
 
-int64_t flux_write_file(int64_t path, int64_t content) {
+/* Recorded or replayed while an effect tape is active (proposal 0188 S1). */
+int64_t flux_proc_run(FLUX_IO_TAGS_ARGS, int32_t proc_output_tag, int64_t cmd, int64_t argv) {
+    if (flux_tape_mode) {
+        FluxIoTags tape_tags = FLUX_IO_TAGS_INIT;
+        if (flux_tape_start_proc(cmd, argv)) return flux_tape_replay_value(FLUX_TAPE_SH_RES_PROC, &tape_tags, proc_output_tag);
+        return flux_tape_record_value(flux_proc_run_untaped(ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag, already_exists_tag, not_a_directory_tag, is_a_directory_tag, directory_not_empty_tag, interrupted_tag, other_tag, proc_output_tag, cmd, argv), FLUX_TAPE_SH_RES_PROC, &tape_tags, proc_output_tag);
+    }
+    return flux_proc_run_untaped(ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag, already_exists_tag, not_a_directory_tag, is_a_directory_tag, directory_not_empty_tag, interrupted_tag, other_tag, proc_output_tag, cmd, argv);
+}
+
+static int64_t flux_write_file_untaped(int64_t path, int64_t content) {
     const char *path_str    = flux_string_data(path);
     uint32_t    path_len    = flux_string_len(path);
     const char *content_str = flux_string_data(content);
@@ -1615,6 +1854,15 @@ int64_t flux_write_file(int64_t path, int64_t content) {
     fclose(f);
 
     return flux_make_bool(written == content_len);
+}
+
+/* Recorded or replayed while an effect tape is active (proposal 0188 S1). */
+int64_t flux_write_file(int64_t path, int64_t content) {
+    if (flux_tape_mode) {
+        if (flux_tape_start(FLUX_TAPE_EV_WRITE_FILE, path, content)) return flux_tape_replay_value(FLUX_TAPE_SH_WRITE, NULL, 0);
+        return flux_tape_record_value(flux_write_file_untaped(path, content), FLUX_TAPE_SH_WRITE, NULL, 0);
+    }
+    return flux_write_file_untaped(path, content);
 }
 
 /* ── Numeric helpers ────────────────────────────────────────────────── */
@@ -2212,47 +2460,6 @@ int64_t flux_type_of(int64_t val) {
 /* Runtime-callable type predicates are defined at end of file
  * (after #undef of the static inline helpers from flux_rt.h). */
 
-/* ── Shadow stack for native stack traces ───────────────────────────── */
-
-#define FLUX_TRACE_MAX 256
-
-typedef struct {
-    const char *name;
-    const char *file;
-    int32_t     line;
-} FluxTraceFrame;
-
-static FluxTraceFrame flux_trace_stack[FLUX_TRACE_MAX];
-static int32_t        flux_trace_depth = 0;
-
-void flux_trace_push(const char *name, const char *file, int32_t line) {
-    if (flux_trace_depth < FLUX_TRACE_MAX) {
-        flux_trace_stack[flux_trace_depth].name = name;
-        flux_trace_stack[flux_trace_depth].file = file;
-        flux_trace_stack[flux_trace_depth].line = line;
-    }
-    flux_trace_depth++;
-}
-
-void flux_trace_pop(void) {
-    if (flux_trace_depth > 0) flux_trace_depth--;
-}
-
-static void flux_trace_print(void) {
-    int32_t depth = flux_trace_depth < FLUX_TRACE_MAX
-                  ? flux_trace_depth : FLUX_TRACE_MAX;
-    if (depth == 0) return;
-    fprintf(stderr, "\nStack trace:\n");
-    for (int32_t i = depth - 1; i >= 0; i--) {
-        FluxTraceFrame *f = &flux_trace_stack[i];
-        if (f->file && f->file[0] != '\0') {
-            fprintf(stderr, "  at %s (%s:%d)\n", f->name, f->file, f->line);
-        } else {
-            fprintf(stderr, "  at %s\n", f->name);
-        }
-    }
-}
-
 /* ── Control ────────────────────────────────────────────────────────── */
 
 /* Try/catch infrastructure.
@@ -2269,6 +2476,68 @@ static void flux_trace_print(void) {
  * (RaiseException + __try/__except) instead — that is the unwind
  * mechanism Windows is built around and it walks the same frames
  * correctly whether or not their .pdata is exhaustive. */
+/* The debugger hooks: never inlined, and never removed as pure, so a
+ * breakpoint on them is hit on every call. */
+#if defined(_MSC_VER)
+#  define FLUX_DEBUG_HOOK __declspec(noinline)
+#  define FLUX_DEBUG_HOOK_BODY() _ReadWriteBarrier()
+#else
+#  define FLUX_DEBUG_HOOK __attribute__((noinline, used))
+#  define FLUX_DEBUG_HOOK_BODY() __asm__ volatile("" ::: "memory")
+#endif
+
+FLUX_DEBUG_HOOK void flux_debug_on_panic(int64_t msg) {
+    (void)msg;
+    FLUX_DEBUG_HOOK_BODY();
+}
+
+FLUX_DEBUG_HOOK void flux_debug_on_unhandled_effect(int64_t htag) {
+    (void)htag;
+    FLUX_DEBUG_HOOK_BODY();
+}
+
+FLUX_DEBUG_HOOK void flux_debug_on_fiber_failure(int64_t err) {
+    (void)err;
+    FLUX_DEBUG_HOOK_BODY();
+}
+
+void flux_panic(int64_t msg) {
+    flux_debug_on_panic(msg);
+    flux_panic_unhooked(msg);
+}
+
+/* What a panic nothing catches prints, all to stderr: the message, then
+ * the Flux frames the program was in (0188 S10a). */
+static void flux_report_panic(int64_t msg) {
+    if (!flux_is_string_val(msg)) {
+        msg = flux_to_string(msg);
+    }
+    fprintf(stderr, "panic: %.*s\n", (int)flux_string_len(msg), flux_string_data(msg));
+    flux_print_backtrace();
+}
+
+/* How a panic nothing catches ends the run. */
+static void flux_panic_exit(int64_t msg) {
+    if (flux_tape_mode) {
+        /* The run ends here: the tape records that, and the panic message
+         * below is not program output. */
+        if (flux_is_ptr(msg)) {
+            flux_tape_finish(1, (const uint8_t *)flux_string_data(msg), flux_string_len(msg));
+        } else {
+            flux_tape_finish(1, NULL, 0);
+        }
+        flux_tape_mode = 0;
+    }
+    flux_report_panic(msg);
+    exit(1);
+}
+
+void flux_heap_fault(const char *msg, uint32_t len) {
+    int64_t value = flux_string_new(msg, len);
+    flux_debug_on_panic(value);
+    flux_panic_exit(value);
+}
+
 #if defined(_MSC_VER) || defined(_WIN32)
 
 #define FLUX_PANIC_EXCEPTION 0xE0464C58u  /* user-facility | 'F''L''X' */
@@ -2276,24 +2545,14 @@ static void flux_trace_print(void) {
 static __thread int     flux_try_depth     = 0;
 static __thread int64_t flux_try_error_msg = 0;
 
-void flux_panic(int64_t msg) {
+void flux_panic_unhooked(int64_t msg) {
     if (flux_try_depth > 0) {
         flux_try_error_msg = msg;
         ULONG_PTR args[1] = { (ULONG_PTR)(uintptr_t)msg };
         RaiseException(FLUX_PANIC_EXCEPTION, 0, 1, args);
         /* unreachable — RaiseException unwinds via SEH */
     }
-    if (flux_is_ptr(msg)) {
-        uint32_t len = flux_string_len(msg);
-        const char *data = flux_string_data(msg);
-        fprintf(stderr, "panic: %.*s\n", (int)len, data);
-    } else {
-        fprintf(stderr, "panic: ");
-        flux_print(msg);
-        fprintf(stderr, "\n");
-    }
-    flux_trace_print();
-    exit(1);
+    flux_panic_exit(msg);
 }
 
 #else  /* POSIX */
@@ -2301,23 +2560,13 @@ void flux_panic(int64_t msg) {
 static __thread jmp_buf *flux_try_jmp = NULL;
 static __thread int64_t  flux_try_error_msg = 0; /* FLUX_NONE */
 
-void flux_panic(int64_t msg) {
+void flux_panic_unhooked(int64_t msg) {
     /* If a try handler is active, longjmp instead of aborting. */
     if (flux_try_jmp) {
         flux_try_error_msg = msg;
         longjmp(*flux_try_jmp, 1);
     }
-    if (flux_is_ptr(msg)) {
-        uint32_t len = flux_string_len(msg);
-        const char *data = flux_string_data(msg);
-        fprintf(stderr, "panic: %.*s\n", (int)len, data);
-    } else {
-        fprintf(stderr, "panic: ");
-        flux_print(msg);
-        fprintf(stderr, "\n");
-    }
-    flux_trace_print();
-    exit(1);
+    flux_panic_exit(msg);
 }
 
 #endif
@@ -2650,7 +2899,7 @@ int64_t flux_assert_throws(int64_t thunk, int64_t expected_msg) {
 }
 #endif
 
-int64_t flux_clock_now(void) {
+static int64_t flux_clock_now_untaped(void) {
 #if defined(_MSC_VER) || defined(_WIN32)
     /* Windows: use QueryPerformanceCounter for monotonic time. */
     LARGE_INTEGER freq, counter;
@@ -2663,6 +2912,15 @@ int64_t flux_clock_now(void) {
     int64_t ms = (int64_t)ts.tv_sec * 1000 + (int64_t)ts.tv_nsec / 1000000;
 #endif
     return flux_tag_int(ms);
+}
+
+/* Recorded or replayed while an effect tape is active (proposal 0188 S1). */
+int64_t flux_clock_now(void) {
+    if (flux_tape_mode) {
+        if (flux_tape_start(FLUX_TAPE_EV_CLOCK_NOW, 0, 0)) return flux_tape_replay_value(FLUX_TAPE_SH_INT, NULL, 0);
+        return flux_tape_record_value(flux_clock_now_untaped(), FLUX_TAPE_SH_INT, NULL, 0);
+    }
+    return flux_clock_now_untaped();
 }
 
 /* ── Extended string/I/O helpers ────────────────────────────────────── */
@@ -3005,9 +3263,9 @@ int64_t flux_to_string_value(int64_t val) {
     return flux_string_new("<value>", 7);
 }
 
-int64_t flux_read_lines(int64_t path) {
+static int64_t flux_read_lines_untaped(int64_t path) {
     /* Read file, split on newlines, return as Array (matching VM semantics). */
-    int64_t content = flux_read_file(path);
+    int64_t content = flux_read_file_untaped(path);
     if (content == FLUX_NONE) {
         return flux_array_new(NULL, 0);
     }
@@ -3042,6 +3300,15 @@ int64_t flux_read_lines(int64_t path) {
     int64_t result = flux_array_new(lines, (int32_t)li);
     free(lines);
     return result;
+}
+
+/* Recorded or replayed while an effect tape is active (proposal 0188 S1). */
+int64_t flux_read_lines(int64_t path) {
+    if (flux_tape_mode) {
+        if (flux_tape_start(FLUX_TAPE_EV_READ_LINES, path, 0)) return flux_tape_replay_value(FLUX_TAPE_SH_LIST_TEXT, NULL, 0);
+        return flux_tape_record_value(flux_read_lines_untaped(path), FLUX_TAPE_SH_LIST_TEXT, NULL, 0);
+    }
+    return flux_read_lines_untaped(path);
 }
 
 /* ── Collection helpers ─────────────────────────────────────────────── */
@@ -4008,7 +4275,7 @@ void flux_env_set_args(int argc, char **argv) {
     flux_env_argv = argv;
 }
 
-int64_t flux_env_args(void) {
+static int64_t flux_env_args_untaped(void) {
     if (flux_env_argc <= 0 || !flux_env_argv) return flux_array_new(NULL, 0);
 
     int64_t *elems = (int64_t *)malloc((size_t)flux_env_argc * sizeof(int64_t));
@@ -4022,7 +4289,16 @@ int64_t flux_env_args(void) {
     return result;
 }
 
-int64_t flux_env_var(int64_t name) {
+/* Recorded or replayed while an effect tape is active (proposal 0188 S1). */
+int64_t flux_env_args(void) {
+    if (flux_tape_mode) {
+        if (flux_tape_start(FLUX_TAPE_EV_ENV_ARGS, 0, 0)) return flux_tape_replay_value(FLUX_TAPE_SH_LIST_TEXT, NULL, 0);
+        return flux_tape_record_value(flux_env_args_untaped(), FLUX_TAPE_SH_LIST_TEXT, NULL, 0);
+    }
+    return flux_env_args_untaped();
+}
+
+static int64_t flux_env_var_untaped(int64_t name) {
     char *cname = flux_io_cstr(name);
     if (!cname) return flux_make_none();
     const char *value = getenv(cname);
@@ -4031,7 +4307,16 @@ int64_t flux_env_var(int64_t name) {
     return flux_wrap_some(flux_string_new(value, (uint32_t)strlen(value)));
 }
 
-int64_t flux_env_cwd(FLUX_IO_TAGS_DECL) {
+/* Recorded or replayed while an effect tape is active (proposal 0188 S1). */
+int64_t flux_env_var(int64_t name) {
+    if (flux_tape_mode) {
+        if (flux_tape_start(FLUX_TAPE_EV_ENV_VAR, name, 0)) return flux_tape_replay_value(FLUX_TAPE_SH_OPT_TEXT, NULL, 0);
+        return flux_tape_record_value(flux_env_var_untaped(name), FLUX_TAPE_SH_OPT_TEXT, NULL, 0);
+    }
+    return flux_env_var_untaped(name);
+}
+
+static int64_t flux_env_cwd_untaped(FLUX_IO_TAGS_DECL) {
     FluxIoTags tags = FLUX_IO_TAGS_INIT;
     char buf[4096];
     if (!getcwd(buf, sizeof(buf))) {
@@ -4044,7 +4329,17 @@ int64_t flux_env_cwd(FLUX_IO_TAGS_DECL) {
     return flux_io_make_adt(tags.ok_tag, &dir, 1);
 }
 
-int64_t flux_env_home_dir(void) {
+/* Recorded or replayed while an effect tape is active (proposal 0188 S1). */
+int64_t flux_env_cwd(FLUX_IO_TAGS_DECL) {
+    if (flux_tape_mode) {
+        FluxIoTags tape_tags = FLUX_IO_TAGS_INIT;
+        if (flux_tape_start(FLUX_TAPE_EV_ENV_CWD, 0, 0)) return flux_tape_replay_value(FLUX_TAPE_SH_RES_TEXT, &tape_tags, 0);
+        return flux_tape_record_value(flux_env_cwd_untaped(ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag, already_exists_tag, not_a_directory_tag, is_a_directory_tag, directory_not_empty_tag, interrupted_tag, other_tag), FLUX_TAPE_SH_RES_TEXT, &tape_tags, 0);
+    }
+    return flux_env_cwd_untaped(ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag, already_exists_tag, not_a_directory_tag, is_a_directory_tag, directory_not_empty_tag, interrupted_tag, other_tag);
+}
+
+static int64_t flux_env_home_dir_untaped(void) {
     /* Environment first, so a user who overrides HOME is honoured. Matches
      * the VM, which does not consult the password database either. */
     const char *home = getenv("HOME");
@@ -4069,6 +4364,15 @@ int64_t flux_env_home_dir(void) {
     return flux_make_none();
 }
 
+/* Recorded or replayed while an effect tape is active (proposal 0188 S1). */
+int64_t flux_env_home_dir(void) {
+    if (flux_tape_mode) {
+        if (flux_tape_start(FLUX_TAPE_EV_ENV_HOME_DIR, 0, 0)) return flux_tape_replay_value(FLUX_TAPE_SH_OPT_TEXT, NULL, 0);
+        return flux_tape_record_value(flux_env_home_dir_untaped(), FLUX_TAPE_SH_OPT_TEXT, NULL, 0);
+    }
+    return flux_env_home_dir_untaped();
+}
+
 /*
  * The LLVM codegen emits a `@flux_main() -> i64` function.
  * This C main() initializes the runtime, calls flux_main, and shuts down.
@@ -4080,6 +4384,7 @@ int main(int argc, char **argv) {
      * On native the process's own argv is already in argv[0]-first form,
      * which is the shape the VM driver synthesizes to match. */
     flux_env_set_args(argc, argv);
+    flux_tape_c_init(argc, argv);
     flux_rt_init();
     int64_t result = flux_main();
     (void)result;

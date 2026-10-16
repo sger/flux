@@ -1,0 +1,24 @@
+// Running a process is an input: replay returns the recorded output and
+// starts nothing.
+import Flow.Process as Proc
+import Flow.Env as Env
+import Flow.List as List
+
+fn helper() -> String with IO {
+    Env.var_or("FLUX_PROC_HELPER", "target/debug/flux_proc_helper")
+}
+
+fn main() with IO {
+    match Proc.run(helper(), List.to_array(["echo", "from the helper"])) {
+        Ok(out) -> print(Proc.stdout_of(out)),
+        Err(_) -> println("could not run the helper"),
+    }
+    match Proc.run(helper(), List.to_array(["exit", "3"])) {
+        Ok(out) -> println(Proc.status_of(out)),
+        Err(_) -> println("could not run the helper"),
+    }
+    match Proc.run("no-such-program-for-replay-tests", List.to_array([])) {
+        Ok(_) -> println("unexpected"),
+        Err(_) -> println("missing program is an error"),
+    }
+}

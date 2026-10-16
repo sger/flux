@@ -1,9 +1,9 @@
-//! Acid test: cancelled fibers are resumed with `AsyncError.Canceled` rather
-//! than being silently dropped (proposal 0174 Phase 1b-vi-c).
+//! Acid test: cancelled fibers leave the run cleanly (proposal 0174 Phase
+//! 1b-vi-c). Since 0188 S9d a cancelled fiber is dropped and never runs
+//! again, on the VM as natively.
 //!
 //! A slow fiber races a fast fiber.  After the fast fiber wins, the slow
-//! fiber is cancelled: its continuation is resumed with `Canceled` so that
-//! any `bracket`/`finally` cleanup arms execute before the fiber exits.
+//! fiber is cancelled and dropped.
 //!
 //! We verify:
 //! 1. The program succeeds (no runtime error from the cancelled fiber).
@@ -20,10 +20,9 @@ fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {
 }
 
 #[test]
-fn cancelled_fiber_resumes_cleanly() {
+fn cancelled_fiber_leaves_cleanly() {
     // fast wins in ~50ms; slow sleeps 2000ms and is cancelled.
-    // After 1b-vi-c, the slow fiber's continuation is resumed with Canceled
-    // and the fiber exits cleanly — no runtime panic, correct result returned.
+    // The slow fiber is dropped — no runtime panic, correct result returned.
     let source = r#"
 import Flow.Async exposing (..)
 
@@ -63,9 +62,9 @@ fn main() with IO {
 }
 
 #[test]
-fn both_cancelled_fibers_resume_cleanly() {
+fn both_cancelled_fibers_leave_cleanly() {
     // timeout(50, slow): the timer fires at ~50ms, body child is cancelled.
-    // The cancelled body continuation is resumed with Canceled — must not crash.
+    // The cancelled body is dropped — must not crash.
     let source = r#"
 import Flow.Async exposing (..)
 

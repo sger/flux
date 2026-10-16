@@ -507,7 +507,11 @@ pub fn render_stack_trace(out: &mut String, stack_trace: &[StackTraceFrame], use
     // them buries the error in megabytes of identical lines. The ends carry
     // the information — where it started and where it died — so keep those
     // and count what was dropped.
-    if stack_trace.len() <= STACK_TRACE_HEAD + STACK_TRACE_TAIL {
+    // A native program's own trace comes already cut, with its count of
+    // what it left out (0188 S10a).
+    if stack_trace.len() <= STACK_TRACE_HEAD + STACK_TRACE_TAIL
+        || stack_trace.iter().any(|frame| is_elision(&frame.text))
+    {
         for frame in stack_trace {
             render_stack_frame(out, frame);
         }
@@ -531,9 +535,18 @@ const STACK_TRACE_HEAD: usize = 20;
 const STACK_TRACE_TAIL: usize = 10;
 
 fn render_stack_frame(out: &mut String, frame: &StackTraceFrame) {
-    out.push_str("  at ");
+    if is_elision(&frame.text) {
+        out.push_str("  ");
+    } else {
+        out.push_str("  at ");
+    }
     out.push_str(&frame.text);
     out.push('\n');
+}
+
+/// `... N more frames ...`: what a cut trace left out.
+fn is_elision(text: &str) -> bool {
+    text.starts_with("... ") && text.ends_with(" more frames ...")
 }
 
 fn ensure_section_spacing(out: &mut String) {

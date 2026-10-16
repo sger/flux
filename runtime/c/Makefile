@@ -17,7 +17,7 @@ CFLAGS  += -std=c11 -Wall -Wextra -Wpedantic -O2 -g
 LDFLAGS ?=
 
 SRCS    = rc.c flux_rt.c string.c hamt.c effects.c array.c tasks.c channel.c tcp.c \
-          sha256.c
+          sha256.c tape.c
 OBJS    = $(SRCS:.c=.o)
 LIB     = libflux_rt.a
 

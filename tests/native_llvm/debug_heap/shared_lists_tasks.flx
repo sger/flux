@@ -1,0 +1,22 @@
+// A list built at run time, rebuilt by worker tasks while `main` keeps it.
+import Flow.Task exposing (..)
+
+fn bump(xs) {
+    match xs {
+        [h | t] -> [h + 1 | bump(t)],
+        _ -> [],
+    }
+}
+
+fn build(n) {
+    if n == 0 { [] } else { [n | build(n - 1)] }
+}
+
+fn main() with IO {
+    let xs = build(5)
+    let first = spawn(\() -> bump(xs))
+    let second = spawn(\() -> bump(bump(xs)))
+    print(blocking_join(first))
+    print(blocking_join(second))
+    print(xs)
+}

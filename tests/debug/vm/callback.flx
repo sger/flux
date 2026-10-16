@@ -1,0 +1,10 @@
+// A breakpoint inside a function a library call runs for each element.
+fn bump(x) {
+    let y = x + 100
+    y
+}
+
+fn main() {
+    let ys = map([1, 2, 3], bump)
+    print(ys)
+}

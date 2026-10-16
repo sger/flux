@@ -105,6 +105,7 @@ pub(crate) struct ParallelReplayRequest<'a> {
     pub(crate) strict_mode: bool,
     pub(crate) enable_optimize: bool,
     pub(crate) enable_analyze: bool,
+    pub(crate) debug_level: crate::debuginfo::DebugLevel,
 }
 
 /// Replays module diagnostics using the shared compiler replay path.
@@ -118,6 +119,7 @@ pub(crate) fn replay_module_diagnostics_for(request: ParallelReplayRequest<'_>) 
         strict_mode: request.strict_mode,
         enable_optimize: request.enable_optimize,
         enable_analyze: request.enable_analyze,
+        debug_level: request.debug_level,
     })
 }
 

@@ -1,0 +1,22 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 22
+breakpoint at effect_discard.flx:22
+> continue
+stopped: breakpoint at effect_discard.flx:22:31 in <handler Fail.raise> (position 10)
+    22 |         raise(resume, msg) -> len(msg)
+> bt
+#0 <handler Fail.raise> at effect_discard.flx:22:31
+   ⟂ handling Fail.raise — performed at effect_discard.flx:9:9
+#1 safe_div at effect_discard.flx:9:9   (suspended, not resumable)
+#2 compute at effect_discard.flx:16:13   (suspended, not resumable)
+#3 main at effect_discard.flx:21:18
+#4 <entry>
+> locals
+resume = None
+msg = "division by zero"
+> continue
+program finished
+--- program output ---
+"16"

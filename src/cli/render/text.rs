@@ -8,6 +8,7 @@ Flux CLI
 Usage:
   flux <file.flx>
   flux run <file.flx>
+  flux debug <file.flx> [--script <commands>]
 
 Packages (in a directory holding a flux.toml):
   flux new <name> [--lib]     Create a package in a new directory
@@ -68,11 +69,14 @@ Flags:
   --stats            Print execution analytics (parse/compile/execute times, module info)
   --prof             Print per-function profiling report (call counts, time, allocations)
   --strict           Enable strict type/effect boundary checks
+  --debug, -g        Build debug information (locations, variables and types)
+  --debug=lines      Build locations only
   --all-errors       Show diagnostics from all phases (disable stage-aware filtering)
   --dump-repr        Print the backend representation contract summary and exit
   --dump-cfg         Lower to Flux CFG IR, print a readable dump, and exit
   --dump-core        Lower to Flux Core IR, print a readable dump, and exit
   --dump-core=debug  Lower to Flux Core IR, print a raw debug dump, and exit
+  --dump-debug-info  Print each module's debug information and exit (implies -g)
   --dump-aether      Show Aether memory model report (per-function reuse/drop stats)
   --dump-aether=debug
                     Show detailed Aether debug report (borrow signatures, call modes, dup/drop, reuse)
@@ -80,6 +84,8 @@ Flags:
   --vm               Compile via the bytecode VM, overriding a package profile
   --emit-llvm        Emit LLVM IR text (.ll) to stdout (with --native)
   --emit-binary      Compile to native binary via opt + llc + cc (with --native)
+  --debug-heap       Link the debug-heap runtime: a dup or drop of freed memory stops
+                    the program, naming where it was allocated and freed (with --native)
   -o <path>          Output path for --emit-llvm or --emit-binary
   -h, --help         Show this help message
 

@@ -1,0 +1,10 @@
+module Geo {
+    public data Shape {
+        Circle(Int),
+        Rect(Int, Int),
+    }
+
+    public fn demo() -> Shape {
+        Rect(3, 4)
+    }
+}

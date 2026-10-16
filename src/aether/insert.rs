@@ -17,7 +17,50 @@ use super::{AetherAlt as CoreAlt, AetherExpr, AetherHandler, constructor_shape_f
 
 type CoreExpr = AetherExpr;
 
-type Scope = HashMap<CoreBinderId, CoreBinder>;
+/// The binders in scope, by id, and the function's Borrowed parameters.
+#[derive(Default)]
+struct Scope {
+    binders: HashMap<CoreBinderId, CoreBinder>,
+    /// Parameters the caller lends: the function never releases them, and
+    /// an owned use of one, or of a field taken from one, takes a Dup.
+    borrowed_params: HashSet<CoreBinderId>,
+}
+
+impl Scope {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// Whether `binder` is a Borrowed parameter, or a field taken from one
+    /// (through `field_parents`).
+    fn lent(&self, binder: CoreBinderId, field_parents: &FieldParents) -> bool {
+        let mut current = binder;
+        // A field's parent chain is acyclic; the bound is only a guard.
+        for _ in 0..64 {
+            if self.borrowed_params.contains(&current) {
+                return true;
+            }
+            match field_parents.get(&current) {
+                Some(field) => current = field.parent,
+                None => return false,
+            }
+        }
+        false
+    }
+}
+
+impl std::ops::Deref for Scope {
+    type Target = HashMap<CoreBinderId, CoreBinder>;
+    fn deref(&self) -> &Self::Target {
+        &self.binders
+    }
+}
+
+impl std::ops::DerefMut for Scope {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.binders
+    }
+}
 
 /// Maps an extracted field binder to its scrutinee and provenance.
 /// Tracks which variables were extracted from which scrutinee via
@@ -75,6 +118,31 @@ pub fn insert_dup_drop_with_registry(expr: CoreExpr, registry: &BorrowRegistry) 
 /// consulting the borrow registry to skip unnecessary clones.
 pub fn insert_dup_drop_with_registry_aether(expr: CoreExpr, registry: &BorrowRegistry) -> CoreExpr {
     insert_dup_drop_with_registry(expr, registry)
+}
+
+/// Insert Dup/Drop annotations into a definition whose parameters
+/// `borrowed_params` are Borrowed: its callers lend them, so it never
+/// releases them (`docs/internals/aether_formal_semantics.md`: a borrowed
+/// argument stays available after the call).
+pub fn insert_dup_drop_for_def(
+    expr: CoreExpr,
+    registry: &BorrowRegistry,
+    borrowed_params: HashSet<CoreBinderId>,
+) -> CoreExpr {
+    let mut scope = Scope {
+        binders: HashMap::new(),
+        borrowed_params,
+    };
+    let mut field_parents = FieldParents::new();
+    plan_expr(
+        expr,
+        AetherEnv::default(),
+        ValueDemand::Owned,
+        Some(registry),
+        &mut scope,
+        &mut field_parents,
+    )
+    .expr
 }
 
 fn plan_expr(
@@ -261,7 +329,9 @@ fn plan_expr(
 
             let mut body_expr = body_plan.expr;
             for param in params.iter().rev() {
-                if !body_plan.env_before.is_live(param.id) {
+                if !body_plan.env_before.is_live(param.id)
+                    && !scope.borrowed_params.contains(&param.id)
+                {
                     body_expr = wrap_drop(*param, body_expr, span);
                 }
             }
@@ -490,6 +560,7 @@ fn plan_expr(
                 env_without_pats.remove_all(pat_ids.iter().cloned());
 
                 if let Some(scrut_binder) = scrutinee_var.as_ref()
+                    && !scope.lent(scrut_binder.id, field_parents)
                     && is_constructor_pat(&pat)
                     && !env_without_pats.is_live(scrut_binder.id)
                     && !expr_uses_binder(&rhs, scrut_binder.id)
@@ -522,6 +593,8 @@ fn plan_expr(
                         // scrutinee; they are not independent allocations
                         // and must never be released on their own.
                         .filter(|binder_id| !pat_ids.contains(binder_id))
+                        // Lent by the caller: never released here.
+                        .filter(|binder_id| !scope.lent(*binder_id, field_parents))
                         .filter(|binder_id| {
                             !env_without_pats.is_live(*binder_id) && !tail_env.is_live(*binder_id)
                         })
@@ -991,10 +1064,14 @@ fn plan_var(
             let nested_pattern_field = field_parents
                 .get(&id)
                 .is_some_and(|field| field.nested_pattern);
+            // An owned use of something the caller lent takes its own
+            // reference: the caller keeps the one it lent.
+            let lent = scope.lent(id, field_parents);
             let needs_dup = tail_env.is_live(id)
                 || tuple_pattern_field
                 || nested_pattern_field
-                || borrowed_parent;
+                || borrowed_parent
+                || lent;
             tail_env.mark_owned(id);
             let expr = if needs_dup {
                 if let Some(binder) = scope.get(&id).cloned() {
@@ -1120,8 +1197,57 @@ fn has_compatible_con(pat: &crate::core::CorePat, rhs: &CoreExpr) -> bool {
     let Some(pat_tag) = pat_tag else {
         return false;
     };
-    find_con_tag_in_spine(rhs, Some(pat_tag))
+    unclaimed_con_tag_in_spine(rhs, pat_tag, &mut Vec::new())
         .is_some_and(|ref con_tag| tags_shape_compatible(pat_tag, con_tag))
+}
+
+/// The tag of a constructor along `expr`'s spine that a scrutinee being
+/// discharged could reuse: as [`find_con_tag_in_spine`], but leaving out one
+/// an inner case's own scrutinee already claims — a constructor under that
+/// scrutinee's discharge `Drop`, in an arm whose pattern has the shape. The
+/// reuse pass gives such a constructor to the inner scrutinee, so
+/// discharging the outer one for it would only drop it early (`claimants`
+/// holds the inner scrutinees on the way down).
+fn unclaimed_con_tag_in_spine(
+    expr: &CoreExpr,
+    expected_tag: &CoreTag,
+    claimants: &mut Vec<CoreBinderId>,
+) -> Option<CoreTag> {
+    match expr {
+        CoreExpr::Reuse { .. } => None,
+        _ if constructor_shape_for_tag_aether(expr, Some(expected_tag)).is_some() => {
+            constructor_shape_for_tag_aether(expr, Some(expected_tag)).map(|(tag, _, _)| tag)
+        }
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            let scrutinee = match scrutinee.as_ref() {
+                CoreExpr::Var { var, .. } => var.binder,
+                _ => None,
+            };
+            alts.iter().find_map(|alt| {
+                let claims = scrutinee.filter(|_| {
+                    pat_constructor_tag(&alt.pat)
+                        .is_some_and(|tag| tags_shape_compatible(expected_tag, &tag))
+                });
+                claimants.extend(claims);
+                let found = unclaimed_con_tag_in_spine(&alt.rhs, expected_tag, claimants);
+                if claims.is_some() {
+                    claimants.pop();
+                }
+                found
+            })
+        }
+        CoreExpr::Drop { var, .. }
+            if var.binder.is_some_and(|binder| claimants.contains(&binder)) =>
+        {
+            None
+        }
+        CoreExpr::Let { body, .. } | CoreExpr::Drop { body, .. } | CoreExpr::Dup { body, .. } => {
+            unclaimed_con_tag_in_spine(body, expected_tag, claimants)
+        }
+        _ => None,
+    }
 }
 
 fn rhs_has_compatible_tag(rhs: &CoreExpr, tag: &CoreTag) -> bool {
@@ -1487,6 +1613,87 @@ mod tests {
         };
         let aliased = insert_dup_drop_with_registry(aliased, &registry);
         assert_eq!(borrowed_call_mask(&aliased), Some(vec![true]));
+    }
+
+    /// `lam(xs) -> case xs of Cons(h, t) -> Cons(h, t); _ -> Nil`.
+    fn rebuild(xs: CoreBinder, h: CoreBinder, t: CoreBinder) -> CoreExpr {
+        CoreExpr::Lam {
+            params: vec![xs],
+            param_types: vec![],
+            result_ty: None,
+            body: Box::new(CoreExpr::Case {
+                scrutinee: Box::new(var(xs)),
+                alts: vec![
+                    CoreAlt {
+                        pat: CorePat::Con {
+                            tag: crate::core::CoreTag::Cons,
+                            fields: vec![CorePat::Var(h), CorePat::Var(t)],
+                        },
+                        guard: None,
+                        rhs: CoreExpr::Con {
+                            tag: crate::core::CoreTag::Cons,
+                            fields: vec![var(h), var(t)],
+                            span: Span::default(),
+                        },
+                        span: Span::default(),
+                    },
+                    CoreAlt {
+                        pat: CorePat::Wildcard,
+                        guard: None,
+                        rhs: CoreExpr::Con {
+                            tag: crate::core::CoreTag::Nil,
+                            fields: vec![],
+                            span: Span::default(),
+                        },
+                        span: Span::default(),
+                    },
+                ],
+                join_ty: None,
+                span: Span::default(),
+            }),
+            span: Span::default(),
+        }
+    }
+
+    #[test]
+    fn a_borrowed_parameter_is_never_released() {
+        let mut interner = Interner::new();
+        let xs = binder(&mut interner, 1, "xs");
+        let h = binder(&mut interner, 2, "h");
+        let t = binder(&mut interner, 3, "t");
+        let dups = |expr: &CoreExpr, b: CoreBinder| {
+            count_binder_nodes(
+                expr,
+                b.id,
+                &|expr, binder| matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(binder)),
+            )
+        };
+        let drops = |expr: &CoreExpr, b: CoreBinder| {
+            count_binder_nodes(
+                expr,
+                b.id,
+                &|expr, binder| matches!(expr, CoreExpr::Drop { var, .. } if var.binder == Some(binder)),
+            )
+        };
+
+        // Owned: the cell is discharged for reuse, its fields move.
+        let owned = super::insert_dup_drop_for_def(
+            rebuild(xs, h, t),
+            &BorrowRegistry::default(),
+            Default::default(),
+        );
+        assert_eq!(drops(&owned, xs), 1, "{owned:?}");
+        assert_eq!((dups(&owned, h), dups(&owned, t)), (0, 0), "{owned:?}");
+
+        // Borrowed: the caller keeps the cell, so it is never dropped, and
+        // the new cell takes its own reference to each field.
+        let lent = super::insert_dup_drop_for_def(
+            rebuild(xs, h, t),
+            &BorrowRegistry::default(),
+            [xs.id].into_iter().collect(),
+        );
+        assert_eq!(drops(&lent, xs), 0, "{lent:?}");
+        assert_eq!((dups(&lent, h), dups(&lent, t)), (1, 1), "{lent:?}");
     }
 
     #[test]

@@ -1,0 +1,33 @@
+// Tasks awaited from fibers (0188 S8c): each result reaches the scheduler
+// from another thread, where the tape has it.
+import Flow.Async exposing (..)
+import Flow.Task as Task
+
+fn count(n: Int, acc: Int) -> Int {
+    if n <= 0 { acc } else { count(n - 1, acc + 1) }
+}
+
+fn one() -> Int { count(1000, 0) }
+fn two() -> Int { count(10, 0) }
+fn three() -> Int { count(300, 0) }
+
+fn waiter() -> Int with Async {
+    sleep(5)
+    7
+}
+
+fn first_two() -> Int with Async {
+    let a = Task.spawn(one)
+    let b = Task.spawn(two)
+    Task.await(a) + Task.await(b)
+}
+
+fn body() -> Int with Async {
+    let c = Task.spawn(three)
+    let pair = both(first_two, waiter)
+    pair.0 + pair.1 + Task.await(c)
+}
+
+fn main() with IO {
+    print("sum = " + to_string(run_async(body)))
+}

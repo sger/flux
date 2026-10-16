@@ -35,6 +35,28 @@ pub fn normalize(raw: &str) -> String {
     .to_string()
 }
 
+/// [`normalize`] for stderr, without the `Stack trace:` section of a
+/// runtime error: the backends' frames differ by design (tail calls,
+/// inlining, the VM's primop frames), while the error and its place are
+/// compared as they are (0188 S10a).
+pub fn normalize_stderr(raw: &str) -> String {
+    let normalized = normalize(raw);
+    let mut kept = Vec::new();
+    let mut in_trace = false;
+    for line in normalized.lines() {
+        if line.trim() == "Stack trace:" {
+            in_trace = true;
+            continue;
+        }
+        if in_trace && (line.starts_with("  at ") || line.starts_with("  ... ")) {
+            continue;
+        }
+        in_trace = false;
+        kept.push(line);
+    }
+    kept.join("\n").trim().to_string()
+}
+
 fn normalize_stack_entry_names(s: &str) -> String {
     s.replace("  at <entry>", "  at <main>")
 }
@@ -418,6 +440,16 @@ fn normalize_sym_ids(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stderr_is_compared_without_its_stack_trace() {
+        let vm = "error[E1009]: too big\n\nStack trace:\n  at Flow.Primops.panic\n  at b (app.flx:6:5)\n  at <entry>\n";
+        let native = "error[E1009]: too big\n\nStack trace:\n  at c (app.flx:2:16)\n  ... 3 more frames ...\n  at <main>\n";
+        assert_eq!(normalize_stderr(vm), "error[E1009]: too big");
+        assert_eq!(normalize_stderr(vm), normalize_stderr(native));
+        // Text after the trace stays.
+        assert_eq!(normalize_stderr("Stack trace:\n  at f\nlater"), "later");
+    }
 
     #[test]
     fn normalize_repr_dump_strips_title_and_blank_lines() {

@@ -498,6 +498,16 @@ impl Compiler {
     }
 
     pub(super) fn compile_expression(&mut self, expression: &Expression) -> CompileResult<()> {
+        if self.debug_tables_enabled() {
+            return self.compile_expression_tracking_pipes(expression);
+        }
+        self.compile_expression_untracked(expression)
+    }
+
+    pub(super) fn compile_expression_untracked(
+        &mut self,
+        expression: &Expression,
+    ) -> CompileResult<()> {
         let previous_span = self.current_span;
         self.current_span = Some(expression.span());
         match expression {
@@ -1025,6 +1035,7 @@ impl Compiler {
                     && binding.symbol_scope == SymbolScope::Local
                 {
                     self.compile_non_tail_expression(&arguments[0])?;
+                    self.emit_pending_pipe_site();
                     self.emit(OpCode::OpGetLocalCall1, &[binding.index]);
                     self.current_span = previous_span;
                     return Ok(());
@@ -1080,6 +1091,7 @@ impl Compiler {
                 // otherwise OpCall. OpTailCall reuses the current stack frame
                 // and works for any callee (self-recursive, mutual, or any
                 // known function).
+                self.emit_pending_pipe_site();
                 if is_self_tail_call || self.in_tail_position {
                     self.emit(OpCode::OpTailCall, &[arguments.len()]);
                 } else if is_self_non_tail_call {
@@ -2697,16 +2709,18 @@ impl Compiler {
                 .or_else(|| self.to_runtime_contract(&contract))
         };
 
+        let function_debug_info = {
+            let info = FunctionDebugInfo::new(None, files, locations)
+                .with_boundary_location(Some(boundary_location))
+                .with_effect_summary(effect_summary);
+            self.with_function_debug_tables(info, &free_symbols)
+        };
         let fn_idx = self.add_constant(Value::Function(Arc::new(
             CompiledFunction::new(
                 instructions,
                 num_locals,
                 parameters.len(),
-                Some(
-                    FunctionDebugInfo::new(None, files, locations)
-                        .with_boundary_location(Some(boundary_location))
-                        .with_effect_summary(effect_summary),
-                ),
+                Some(function_debug_info),
             )
             .with_contract(runtime_contract),
         )));
@@ -2790,15 +2804,17 @@ impl Compiler {
             self.load_symbol(free);
         }
 
+        let function_debug_info = {
+            let info = FunctionDebugInfo::new(None, files, locations)
+                .with_boundary_location(Some(boundary_location))
+                .with_effect_summary(effect_summary);
+            self.with_function_debug_tables(info, &free_symbols)
+        };
         let fn_idx = self.add_constant(Value::Function(Arc::new(CompiledFunction::new(
             instructions,
             num_locals,
             0,
-            Some(
-                FunctionDebugInfo::new(None, files, locations)
-                    .with_boundary_location(Some(boundary_location))
-                    .with_effect_summary(effect_summary),
-            ),
+            Some(function_debug_info),
         ))));
 
         self.emit_closure_index(fn_idx, free_symbols.len());
@@ -3061,6 +3077,10 @@ impl Compiler {
                     None
                 }
             };
+            self.emit_site(
+                crate::bytecode::debug_info::SiteKind::MatchArm,
+                arm.body.span(),
+            );
             let in_tail = self.in_tail_position;
             if let Some(counts) = merged_counts {
                 self.with_consumable_local_use_counts(counts, |compiler| -> CompileResult<()> {
@@ -3844,6 +3864,7 @@ impl Compiler {
             self.compile_non_tail_expression(argument)?;
         }
 
+        self.emit_pending_pipe_site();
         self.emit(OpCode::OpPrimOp, &[primop.id() as usize, arguments.len()]);
         Ok(true)
     }
@@ -4026,6 +4047,7 @@ impl Compiler {
             for arg in args {
                 self.compile_non_tail_expression(arg)?;
             }
+            self.emit_perform_sites(span);
             // Call: arm_closure(resume, arg0, ..., argN)
             self.emit(OpCode::OpCall, &[1 + args.len()]);
         } else {
@@ -4033,6 +4055,7 @@ impl Compiler {
             for arg in args {
                 self.compile_non_tail_expression(arg)?;
             }
+            self.emit_perform_sites(span);
             if let Some((depth, arm_idx)) = self.resolve_handler_statically(effect, op) {
                 self.emit(
                     OpCode::OpPerformDirectIndexed,
@@ -4293,15 +4316,30 @@ impl Compiler {
                 span: arm_span,
             };
 
-            // compile_function_literal emits OpClosure, leaving a closure on the stack
-            self.compile_function_literal(
+            // A debug build names the arm after the operation it handles. The
+            // default handlers the compiler wraps around `main` share the
+            // handle's span; they are compiler-made, so hidden.
+            if self.debug_tables_enabled() {
+                let operation = format!("{}.{}", self.sym(effect), self.sym(arm.operation_name));
+                self.pipe_sites.next_function_name = Some(if arm_span == expr.span() {
+                    format!("__default_handler {operation}")
+                } else {
+                    format!("<handler {operation}>")
+                });
+            }
+            // compile_function_literal emits OpClosure, leaving a closure on the stack.
+            // The arm's entry site is at the arm, not at the `handle`.
+            let handle_span = self.current_span.replace(arm_span);
+            let compiled = self.compile_function_literal(
                 ExprId::UNSET,
                 &params,
                 &parameter_types,
                 &None,
                 &[],
                 &arm_block,
-            )?;
+            );
+            self.current_span = handle_span;
+            compiled?;
         }
 
         if let Some(parameter) = parameter {

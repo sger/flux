@@ -16,6 +16,7 @@ pub(crate) struct DriverCompileConfig {
     pub(crate) strict_mode: bool,
     pub(crate) enable_optimize: bool,
     pub(crate) enable_analyze: bool,
+    pub(crate) debug_level: crate::debuginfo::DebugLevel,
 }
 
 impl From<&DriverSession> for DriverCompileConfig {
@@ -24,6 +25,7 @@ impl From<&DriverSession> for DriverCompileConfig {
             strict_mode: value.strict_mode,
             enable_optimize: value.enable_optimize,
             enable_analyze: value.enable_analyze,
+            debug_level: value.debug_level,
         }
     }
 }

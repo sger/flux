@@ -1,0 +1,32 @@
+---
+source: tests/debuginfo/debug_info_tests.rs
+---
+debug info: <root>/examples/guide/factorial.flx
+factorial [fn] @5:1
+  param n: Int @5:1
+  param acc: Int @5:1
+main [fn] @14:1
+  let result: Int @15:5
+  handler __arg0: ? @14:1 (artificial)
+  handler __resume_default: ? @14:1 (artificial)
+  let __tmp_2000000: ? @14:1 (artificial)
+  handler __arg0: ? @14:1 (artificial)
+  handler __resume_default: ? @14:1 (artificial)
+  let __tmp_2000001: ? @14:1 (artificial)
+  handler __arg0: ? @14:1 (artificial)
+  handler __resume_default: ? @14:1 (artificial)
+  handler __arg0: ? @14:1 (artificial)
+  handler __resume_default: ? @14:1 (artificial)
+  handler __arg0: ? @14:1 (artificial)
+  handler __arg1: ? @14:1 (artificial)
+  handler __resume_default: ? @14:1 (artificial)
+  let __tmp_2000002: ? @14:1 (artificial)
+  handler __resume_default: ? @14:1 (artificial)
+  handler __arg0: ? @14:1 (artificial)
+  handler __resume_default: ? @14:1 (artificial)
+  handler __resume_default: ? @14:1 (artificial)
+  handler __resume_default: ? @14:1 (artificial)
+  handler __resume_default: ? @14:1 (artificial)
+  handler __arg0: ? @14:1 (artificial)
+  handler __arg1: ? @14:1 (artificial)
+  handler __resume_default: ? @14:1 (artificial)

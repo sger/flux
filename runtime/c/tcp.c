@@ -637,6 +637,7 @@ static int64_t flux_tcp_suspend_or_abort(uint64_t request_id, const char *which)
         fprintf(stderr, "%s: async TCP request registration failed\n", which);
         abort();
     }
+    flux_async_debug_block(request_id, FLUX_DEBUG_BLOCK_TCP, 0);
     return flux_async_suspend_request(request_id);
 }
 

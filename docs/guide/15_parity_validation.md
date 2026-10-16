@@ -92,6 +92,7 @@ A "way" is a named execution configuration for the same source file.
 | `llvm_cached` | LLVM: warm cache, then run with cache | `--native`, cache enabled |
 | `vm_strict` | VM with strict type/effect checks | `--strict` |
 | `llvm_strict` | LLVM with strict checks | `--native --strict` |
+| `llvm_g` | LLVM with debug information: must print what `llvm` prints | `--native -g` |
 
 Specify ways with `--ways`:
 

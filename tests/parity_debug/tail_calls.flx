@@ -1,0 +1,22 @@
+// Debug parity: a tail-recursive loop; the VM's tail-call labels are left out.
+// dbg: break 13
+// dbg: continue
+// dbg: locals
+// dbg: bt
+// dbg: continue
+// dbg: locals
+// dbg: bt
+// dbg: delete 13
+// dbg: continue
+
+fn count(n, total) {
+    if n == 0 {
+        total
+    } else {
+        count(n - 1, total + n)
+    }
+}
+
+fn main() {
+    print(count(3, 0))
+}

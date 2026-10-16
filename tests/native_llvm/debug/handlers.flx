@@ -1,0 +1,31 @@
+// Effects under a debugger (0188 S7): nested handlers, one with state, and
+// a handler that resumes twice.
+effect Counter {
+    next : () -> Int
+}
+
+effect Flip {
+    flip : () -> Bool
+}
+
+fn count() -> Int with Counter {
+    let x = perform Counter.next()
+    x + 1
+}
+
+fn decide() -> Int with Flip, Counter {
+    let b = perform Flip.flip()
+    let n = count()
+    if b { n } else { n * 10 }
+}
+
+fn main() with IO {
+    let result = do {
+        decide() handle Flip {
+            flip(resume) -> resume(true) + resume(false)
+        }
+    } handle Counter(5) {
+        next(resume, state) -> resume(state, state + 1)
+    }
+    print(to_string(result))
+}

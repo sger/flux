@@ -1,0 +1,13 @@
+// Lambdas applied where they are written (0188 S9c): one without
+// parameters is inlined, one with a parameter stays a call, as on the VM.
+fn main() {
+    let n = (fn() {
+        let y = 20 * 2
+        y + 1
+    })()
+    let m = (fn(a) {
+        let b = a * 3
+        b + 1
+    })(2)
+    println(n + m)
+}

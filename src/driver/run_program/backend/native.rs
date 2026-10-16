@@ -13,7 +13,7 @@ use crate::driver::{
     },
     pipeline::native::{
         NativeParallelCompileRequest, compile_native_modules_parallel,
-        compile_native_support_object, locate_runtime_lib_dir,
+        compile_native_support_object, compile_program_hash_object, locate_runtime_lib_dir,
     },
     reporting::{
         report::{
@@ -142,6 +142,8 @@ pub(crate) struct NativeProgramInput<'a> {
 pub(crate) struct NativeOutputConfig {
     pub(crate) emit_llvm: bool,
     pub(crate) emit_binary: bool,
+    /// Link `libflux_rt_debug.a` (0188 S10c).
+    pub(crate) debug_heap: bool,
     pub(crate) output_path: Option<String>,
 }
 
@@ -188,11 +190,18 @@ fn native_output_path(request: &NativeRunRequest<'_>) -> PathBuf {
                     .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("program");
+                // A debug-heap binary links another runtime: a plain run
+                // must not reuse it, nor the other way round (0188 S10c).
+                let kind = if request.output.debug_heap {
+                    ".debug-heap"
+                } else {
+                    ""
+                };
                 request
                     .cache
                     .cache_layout
                     .native_dir()
-                    .join(format!("{bin_name}.bin"))
+                    .join(format!("{bin_name}{kind}.bin"))
             } else {
                 native_temp_dir(request.cache.cache_layout).join("program")
             }
@@ -280,7 +289,12 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
         }
 
         let frontend_ms = request.program.compile_start.elapsed().as_secs_f64() * 1000.0;
-        let runtime_lib_dir = locate_runtime_lib_dir();
+        let runtime = if request.output.debug_heap {
+            flux::llvm::pipeline::RuntimeVariant::DebugHeap
+        } else {
+            flux::llvm::pipeline::RuntimeVariant::Plain
+        };
+        let runtime_lib_dir = locate_runtime_lib_dir(runtime);
         if request.runtime.verbose {
             eprintln!(
                 "[lir→llvm] toolchain: {}",
@@ -297,6 +311,7 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
                 strict_mode: request.compile.strict_mode,
                 enable_optimize: request.compile.enable_optimize,
                 enable_analyze: request.compile.enable_analyze,
+                debug_level: request.compile.debug_level,
                 verbose: request.runtime.verbose,
                 base_interner: &request.program.compiler.interner,
             },
@@ -400,6 +415,24 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
         } else {
             object_paths.clone()
         };
+        // The hash a tape names this program by, so the program records and
+        // replays on its own too: under a debugger, or from an editor.
+        let mut link_paths = link_paths;
+        let program_hash = crate::driver::replay_session::native_program_hash(
+            request.program.graph,
+            std::path::Path::new(request.program.path),
+        );
+        match compile_program_hash_object(
+            request.cache.cache_layout,
+            request.cache.no_cache,
+            &program_hash,
+        ) {
+            Ok(object) => link_paths.push(object),
+            Err(err) => {
+                eprintln!("{err}");
+                std::process::exit(1);
+            }
+        }
         let archive_ms = archive_start.elapsed().as_secs_f64() * 1000.0;
 
         emit_diagnostics_or_exit(
@@ -431,22 +464,39 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
         }
 
         let link_start = Instant::now();
+        // A binary linked before the effect tape existed would ignore it, so a
+        // run with a tape always relinks. A `-g` binary on Windows also needs
+        // its PDB (0188 S11). A debug-heap run always relinks, so it never
+        // runs with a debug runtime older than the sources (0188 S10c).
+        let debug = request.compile.debug_level.is_enabled();
+        let pdb_ready = !(debug && cfg!(windows)) || flux::llvm::pipeline::pdb_path(&out).exists();
+        let binary_exists = out.exists() && pdb_ready;
         let binary_up_to_date = should_skip_native_relink(
             request.cache.no_cache,
             request.output.emit_binary,
             any_native_recompiled,
-            out.exists(),
-        );
+            binary_exists,
+        ) && crate::driver::replay_session::native_child_env().is_none()
+            && !request.output.debug_heap;
 
         if binary_up_to_date {
             if request.runtime.verbose {
                 eprintln!("{}", native_binary_up_to_date_banner());
             }
-        } else if let Err(e) =
-            flux::llvm::pipeline::link_objects(&link_paths, &out, runtime_lib_dir.as_deref())
-        {
+        } else if let Err(e) = flux::llvm::pipeline::link_objects(
+            &link_paths,
+            &out,
+            runtime_lib_dir.as_deref(),
+            runtime,
+            debug,
+        ) {
             eprintln!("llvm linker failed: {e}");
             std::process::exit(1);
+        } else if debug && (request.output.emit_binary || request.output.output_path.is_some()) {
+            // A binary the user keeps carries its debug information with
+            // it: on macOS that means a .dSYM, since otherwise it lives in
+            // object files the cache may remove (proposal 0188 S5).
+            flux::llvm::pipeline::write_debug_symbols(&out);
         }
         let link_ms = link_start.elapsed().as_secs_f64() * 1000.0;
         if request.runtime.verbose {
@@ -462,7 +512,13 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
 
         let exec_start = Instant::now();
         let fiber_trace = std::env::var("FLUX_FIBER_TRACE").ok();
-        let mut native_cmd = std::process::Command::new(&out);
+        // `-o app` names a file here, not a command to look up on PATH.
+        let runnable = if out.is_relative() {
+            std::path::Path::new(".").join(&out)
+        } else {
+            out.clone()
+        };
+        let mut native_cmd = std::process::Command::new(&runnable);
         // Forward the program's own arguments (everything the driver saw
         // after `--`). The child is a separate process, so argv[0] would
         // otherwise be the cache path of the compiled binary; arg0 is
@@ -497,6 +553,11 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
         if let Some(val) = fiber_trace {
             native_cmd.env("FLUX_FIBER_TRACE", val);
         }
+        if let Some((key, tape)) = crate::driver::replay_session::native_child_env() {
+            native_cmd.env(key, tape);
+            // This driver renders the program's tape errors itself.
+            native_cmd.env(flux::runtime::replay::native_abi::WIRE_ENV, "1");
+        }
         match native_cmd.spawn() {
             Ok(child) => {
                 let output = match child.wait_with_output() {
@@ -510,6 +571,21 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
                 let exit_code = output.status.code().unwrap_or(1);
                 let execute_ms = exec_start.elapsed().as_secs_f64() * 1000.0;
                 let child_stderr = String::from_utf8_lossy(&output.stderr);
+                crate::driver::replay_session::check_native_recording();
+                if exit_code != 0
+                    && let Some(tape_error) =
+                        flux::runtime::replay::TapeError::from_stderr(&child_stderr)
+                {
+                    // The tape stopped the program: everything else it wrote to
+                    // stderr first, then the tape's diagnostic.
+                    for line in child_stderr.lines() {
+                        if !line.starts_with(flux::runtime::replay::error::NATIVE_WIRE_PREFIX) {
+                            eprintln!("{line}");
+                        }
+                    }
+                    crate::driver::replay_session::report(&tape_error, request.program.path);
+                    std::process::exit(exit_code);
+                }
                 if exit_code != 0 {
                     if let Some(rendered) = if request.report.render_runtime_error {
                         render_native_runtime_error(request.program.path, &child_stderr)
@@ -548,8 +624,13 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
                         },
                     });
                 }
-                if request.cache.no_cache || request.output.emit_binary {
-                    let _ = std::fs::remove_file(&out);
+                // A binary written with `-o` is the user's to keep. On Windows
+                // the linker wrote `out` with `.exe` added, and a PDB beside it.
+                if request.output.output_path.is_none()
+                    && (request.cache.no_cache || request.output.emit_binary)
+                {
+                    let _ = std::fs::remove_file(flux::llvm::pipeline::linked_exe_path(&out));
+                    let _ = std::fs::remove_file(flux::llvm::pipeline::pdb_path(&out));
                 }
                 if exit_code != 0 {
                     std::process::exit(exit_code);

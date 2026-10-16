@@ -1,0 +1,10 @@
+break 22
+continue
+continue
+locals
+reverse-continue
+locals
+reverse-next
+continue
+delete 22
+continue

@@ -1,0 +1,19 @@
+// A fiber that loses a race, or that a timeout cuts off, never runs again
+// (0188 S9d): neither backend prints its line, so its tape is the same.
+import Flow.Async exposing (..)
+
+fn slow() -> Int with Async, Console {
+    sleep(50)
+    print("slow went on after losing")
+    1
+}
+
+fn fast() -> Int with Async {
+    sleep(5)
+    2
+}
+
+fn main() with IO {
+    print(run_async(fn() { race(slow, fast) }))
+    print(run_async(fn() { timeout(5, slow) }))
+}

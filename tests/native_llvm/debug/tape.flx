@@ -1,0 +1,8 @@
+// Replayed under lldb (0188 S9b): `flux events` lists the tape, and
+// `flux event N` runs to the effect that made event N.
+fn main() with IO {
+    let first = now_ms()
+    let second = now_ms()
+    println(first)
+    println(second >= first)
+}

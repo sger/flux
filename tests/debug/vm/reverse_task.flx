@@ -1,0 +1,11 @@
+// Going back across a task (0188 S9a): the session keeps recording, and a
+// re-run starts the task again, in the order the recording has it.
+import Flow.Task exposing (..)
+
+fn work() -> Int { 41 + 1 }
+
+fn main() with IO {
+    let t = spawn(work)
+    let answer = blocking_join(t)
+    print(answer)
+}

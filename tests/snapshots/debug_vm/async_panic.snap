@@ -1,0 +1,27 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> continue
+stopped: exception (panic: worker gave up) at async_panic.flx:8:9 in worker (thread 3, position 21)
+     8 |         panic("worker gave up")
+> bt
+#0 worker at async_panic.flx:8:9
+> locals
+message = "worker gave up"
+> threads
+  1 main [waiting both (threads 2, 3)] at async_panic.flx:20:16
+  2 idle [waiting sleep 50 ms] at async_panic.flx:15:5
+* 3 worker [stopped] at async_panic.flx:8:9
+> continue
+program finished
+error[E1009]: AsyncError: Adt(AdtValue { constructor: "Panicked", fields: One(String("worker gave up")) })
+
+  <unknown>:0:1
+  |
+
+Stack trace:
+  at Flow.Async.fiber_run_async
+  at main (async_panic.flx:25:11)
+  at <entry>
+
+--- program output ---

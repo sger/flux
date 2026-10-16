@@ -1211,6 +1211,7 @@ fn demote_continuation(c: ArcContinuation) -> Continuation {
             .map(demote_handler_frame)
             .collect(),
         state_marker: c.state_marker,
+        debug_serials: Vec::new(),
     }
 }
 

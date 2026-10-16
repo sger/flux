@@ -1,0 +1,27 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 3
+breakpoint at callback.flx:3
+> continue
+stopped: breakpoint at callback.flx:3:5 in bump (position 10)
+     3 |     let y = x + 100
+> bt
+#0 bump at callback.flx:3:5
+#1 map_acc at List.flx:19:40
+   … 1 call elided by tail calls (last: Flow.List.map at List.flx:23:9)
+#2 main at callback.flx:8:14
+#3 <entry>
+> locals
+x = 1
+> continue
+stopped: breakpoint at callback.flx:3:5 in bump (position 16)
+     3 |     let y = x + 100
+> locals
+x = 2
+> delete 3
+deleted breakpoint at callback.flx:3
+> continue
+program finished
+--- program output ---
+[101, 102, 103]

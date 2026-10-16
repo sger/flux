@@ -1,0 +1,29 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 5
+breakpoint at closure.flx:5
+> continue
+stopped: breakpoint at closure.flx:5:5 in main (position 5)
+     5 |     let f = fn(x) { x * scale + offset }
+> bt
+#0 main at closure.flx:5:5
+#1 <entry>
+> locals
+scale = 3
+offset = 10
+> continue
+stopped: breakpoint at closure.flx:5:13 in <lambda closure.flx:5:13> (position 7)
+     5 |     let f = fn(x) { x * scale + offset }
+> bt
+#0 <lambda closure.flx:5:13> at closure.flx:5:13
+#1 main at closure.flx:6:11
+#2 <entry>
+> locals
+x = 2
+scale = 3 (captured)
+offset = 10 (captured)
+> continue
+program finished
+--- program output ---
+16

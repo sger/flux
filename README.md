@@ -1,9 +1,13 @@
-# Flux
+<h1 align="center">
+  <img src="docs/assets/flux-banner.png" alt="Flux" width="640">
+</h1>
 
-[![CI](https://github.com/sger/flux/actions/workflows/ci.yml/badge.svg)](https://github.com/sger/flux/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Rust 2024](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org/)
-[![Status: experimental](https://img.shields.io/badge/status-experimental-yellow.svg)](#project-status)
+<p align="center">
+  <a href="https://github.com/sger/flux/actions/workflows/ci.yml"><img src="https://github.com/sger/flux/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-2024%20edition-orange.svg" alt="Rust 2024"></a>
+  <a href="#project-status"><img src="https://img.shields.io/badge/status-experimental-yellow.svg" alt="Status: experimental"></a>
+</p>
 
 **Flux is an experimental, pure functional language with full type inference, algebraic
 effects, and two backends — a bytecode VM and an LLVM-native compiler — sharing one frontend.**

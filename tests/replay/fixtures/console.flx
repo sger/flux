@@ -1,0 +1,7 @@
+// Console output is recorded, checked on replay, and printed again.
+fn main() with IO {
+    println("first line")
+    print("no newline is added twice")
+    println([1, 2, 3])
+    print(42)
+}

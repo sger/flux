@@ -1,0 +1,19 @@
+// A task as a thread (0188 S8): it runs on an OS thread of its own, which
+// the debugger lists but does not pause.
+import Flow.Async exposing (..)
+import Flow.Task as Task
+
+fn crunch() -> Int {
+    let total = 6 * 7
+    total
+}
+
+fn body() -> Int with Async {
+    let t = Task.spawn(crunch)
+    let got = Task.await(t)
+    got + 0
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

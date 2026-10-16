@@ -1,0 +1,5 @@
+// With `catch none`, an error ends the program without stopping.
+fn main() with IO {
+    let zero = 0
+    print(to_string(10 / zero))
+}

@@ -1,0 +1,35 @@
+---
+source: crates/flux-dap/tests/dap_tests.rs
+assertion_line: 276
+---
+-> initialize {"adapterID":"flux"}
+<- {"body":{"exceptionBreakpointFilters":[{"default":true,"filter":"panic","label":"Panics"},{"default":true,"filter":"division_by_zero","label":"Division by zero"},{"default":true,"filter":"unhandled_effect","label":"Unhandled effects"},{"default":true,"filter":"fiber_failure","label":"Fiber failures"},{"default":false,"filter":"runtime_error","label":"Other runtime errors"}],"supportsConfigurationDoneRequest":true,"supportsEvaluateForHovers":true,"supportsExceptionInfoRequest":true,"supportsLoadedSourcesRequest":false,"supportsSetVariable":false,"supportsStepBack":true,"supportsTerminateRequest":true},"command":"initialize","success":true}
+-> launch {"fluxArgs":["--no-cache"],"fluxCommand":["<flux>"],"program":"<dir>/calls.flx"}
+<- {"body":{},"command":"launch","success":true}
+<- event {"body":{},"event":"initialized"}
+-> setBreakpoints {"breakpoints":[{"line":16}],"source":{"path":"<dir>/calls.flx"}}
+<- {"body":{"breakpoints":[{"line":16,"verified":true}]},"command":"setBreakpoints","success":true}
+-> configurationDone null
+<- {"body":{},"command":"configurationDone","success":true}
+<- event {"body":{"allThreadsStopped":true,"description":"position 22","reason":"breakpoint","threadId":1},"event":"stopped"}
+-> fluxEvents {}
+<- {"body":{"events":[{"index":0,"position":8,"reached":true,"text":"stdout(\"\\\"start\\\"\\n\")"}],"position":22},"command":"fluxEvents","success":true}
+-> fluxGoToEvent {"index":0}
+<- {"body":{},"command":"fluxGoToEvent","success":true}
+<- event {"body":{"allThreadsStopped":true,"description":"position 3","reason":"step","threadId":1},"event":"stopped"}
+-> stackTrace {"levels":1,"threadId":1}
+<- {"body":{"stackFrames":[{"column":5,"id":2,"line":14,"name":"main","source":{"name":"calls.flx","path":"<dir>/calls.flx"}}],"totalFrames":1},"command":"stackTrace","success":true}
+-> fluxEvents {}
+<- {"body":{"events":[{"index":0,"next":true,"position":8,"reached":false,"text":"stdout(\"\\\"start\\\"\\n\")"}],"position":3},"command":"fluxEvents","success":true}
+-> fluxGoToEvent {"index":7}
+<- {"command":"fluxGoToEvent","message":"no effect #7 on the recording","success":false}
+-> continue {"threadId":1}
+<- {"body":{"allThreadsContinued":true},"command":"continue","success":true}
+<- event {"body":{"allThreadsStopped":true,"description":"position 22","reason":"breakpoint","threadId":1},"event":"stopped"}
+-> continue {"threadId":1}
+<- {"body":{"allThreadsContinued":true},"command":"continue","success":true}
+<- event {"body":{"exitCode":0},"event":"exited"}
+<- event {"body":{},"event":"terminated"}
+--- program output ---
+"start"
+25

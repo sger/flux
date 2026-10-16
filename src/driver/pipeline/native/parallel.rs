@@ -8,7 +8,8 @@ use std::{
 use crate::{
     bytecode::bytecode_cache::hash_bytes,
     compiler::module_interface::{
-        build_interface, compute_semantic_config_hash, load_cached_interface,
+        build_interface, compute_artifact_config_hash, compute_semantic_config_hash,
+        load_cached_interface,
     },
     diagnostics::{Diagnostic, DiagnosticPhase},
     llvm::{
@@ -91,6 +92,7 @@ struct NativeModuleCompileRequest<'a> {
     strict_mode: bool,
     enable_optimize: bool,
     enable_analyze: bool,
+    debug_level: crate::debuginfo::DebugLevel,
     base_interner: &'a Interner,
     export_user_ctor_name_helper: bool,
 }
@@ -104,7 +106,9 @@ fn compile_parallel_native_module(
     let strict_mode =
         effective_module_strictness(node.kind, request.entry_module_kind, request.strict_mode);
     let semantic_config_hash = compute_semantic_config_hash(strict_mode, request.enable_optimize);
-    let cache_key = compute_native_cache_key(&source_hash, &semantic_config_hash);
+    let artifact_config_hash =
+        compute_artifact_config_hash(strict_mode, request.enable_optimize, request.debug_level);
+    let cache_key = compute_native_cache_key(&source_hash, &artifact_config_hash);
 
     let native_miss_reason = if !request.no_cache && !request.force_rebuild {
         let native_cache = NativeModuleCache::new(request.cache_layout.native_dir());
@@ -149,6 +153,7 @@ fn compile_parallel_native_module(
         request.strict_mode,
         false,
     );
+    compiler.set_debug_level(request.debug_level);
     compiler.set_file_path(node.path.to_string_lossy().to_string());
 
     let compile_result = compiler.compile_with_opts(
@@ -376,6 +381,7 @@ struct NativeResultContext<'a> {
     strict_mode: bool,
     enable_optimize: bool,
     enable_analyze: bool,
+    debug_level: crate::debuginfo::DebugLevel,
     all_diagnostics: &'a mut Vec<Diagnostic>,
 }
 
@@ -394,6 +400,7 @@ fn handle_native_result(
         strict_mode,
         enable_optimize,
         enable_analyze,
+        debug_level,
         all_diagnostics,
     } = context;
     if result.compile_failed {
@@ -407,6 +414,7 @@ fn handle_native_result(
                 strict_mode,
                 enable_optimize,
                 enable_analyze,
+                debug_level,
             }));
         }
         return Err(result.error_message.unwrap_or_else(|| {
@@ -429,6 +437,7 @@ fn handle_native_result(
             strict_mode,
             enable_optimize,
             enable_analyze,
+            debug_level,
         });
         all_diagnostics.extend(filter_non_error_diagnostics(replayed));
     }
@@ -468,6 +477,7 @@ pub(crate) fn compile_native_modules_parallel(
         strict_mode,
         enable_optimize,
         enable_analyze,
+        debug_level,
         verbose,
         base_interner,
     } = request;
@@ -519,6 +529,7 @@ pub(crate) fn compile_native_modules_parallel(
                         strict_mode,
                         enable_optimize,
                         enable_analyze,
+                        debug_level,
                         base_interner,
                         export_user_ctor_name_helper: user_ctor_helper_owner
                             .as_ref()
@@ -548,6 +559,7 @@ pub(crate) fn compile_native_modules_parallel(
                         strict_mode,
                         enable_optimize,
                         enable_analyze,
+                        debug_level,
                         all_diagnostics,
                     },
                 )?;

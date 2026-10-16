@@ -1,0 +1,14 @@
+// `run_async` inside a task cannot be recorded yet (0188 S8c, E1027).
+import Flow.Async exposing (..)
+import Flow.Task as Task
+
+fn inner() -> Int with Async {
+    sleep(1)
+    5
+}
+
+fn job() -> Int { run_async(inner) }
+
+fn main() with IO {
+    print(to_string(Task.blocking_join(Task.spawn(job))))
+}

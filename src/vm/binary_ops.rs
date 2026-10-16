@@ -139,10 +139,12 @@ impl VM {
                     rendered.push_str("\n\n");
                 }
                 rendered.push_str("Stack trace:");
-                for (index, frame) in self.frames[..=self.frame_index].iter().rev().enumerate() {
+                for frame_index in (0..=self.frame_index).rev() {
+                    let frame = &self.frames[frame_index];
                     rendered.push_str("\n  at ");
-                    let is_root_frame = index == self.frame_index;
-                    let (name, location) = self.format_frame(frame, is_root_frame);
+                    let is_root_frame = frame_index == 0;
+                    let (name, location) =
+                        self.format_frame(frame, self.frame_ip(frame_index), is_root_frame);
                     rendered.push_str(&name);
                     if let Some(loc) = location {
                         rendered.push_str(&format!(" ({})", loc));

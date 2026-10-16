@@ -1,0 +1,16 @@
+// A panic three calls down (0188 S10a): the trace names each frame.
+fn c(n: Int) -> Int {
+    if n > 2 { panic("too big") } else { n }
+}
+
+fn b(n: Int) -> Int {
+    c(n + 1) + 1
+}
+
+fn a(n: Int) -> Int {
+    b(n + 1) * 2
+}
+
+fn main() with IO {
+    print(to_string(a(1)))
+}

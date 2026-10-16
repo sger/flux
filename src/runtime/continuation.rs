@@ -43,6 +43,10 @@ pub struct Continuation {
     /// Handler marker whose state should be replaced when this continuation is
     /// resumed with `resume(value, next_state)`.
     pub state_marker: Option<u32>,
+
+    /// While a debugger is attached: the serials of the calls in `frames`,
+    /// so a resumed frame is the same call to it (0188 S7). Empty otherwise.
+    pub debug_serials: Vec<u64>,
 }
 
 impl Continuation {
@@ -197,6 +201,7 @@ mod tests {
             entry_frame_index: 1,
             inner_handlers: vec![],
             state_marker: None,
+            debug_serials: Vec::new(),
         })));
         let outer = Value::Continuation(Rc::new(RefCell::new(Continuation {
             frames: vec![frame(10, 19)],
@@ -206,6 +211,7 @@ mod tests {
             entry_frame_index: 0,
             inner_handlers: vec![],
             state_marker: None,
+            debug_serials: Vec::new(),
         })));
 
         let composed =
@@ -245,6 +251,7 @@ mod tests {
             entry_frame_index,
             inner_handlers: vec![],
             state_marker: None,
+            debug_serials: Vec::new(),
         }
     }
 

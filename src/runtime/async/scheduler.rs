@@ -258,8 +258,8 @@ impl FiberScheduler {
     /// Cancel all suspended fibers whose `FiberId` matches the given set.
     ///
     /// Cancelled fibers are moved back onto the ready queue in `Cancelled`
-    /// state; when the dispatch loop next dequeues them it delivers the
-    /// `AsyncError.Canceled` error (Phase 1b-vi).
+    /// state; when the dispatch loop next dequeues them it drops them
+    /// (0188 S9d).
     ///
     /// Also marks any matching fiber already in the ready queue as `Cancelled`
     /// to close the window where `deliver_completion` moves a fiber from
@@ -269,7 +269,7 @@ impl FiberScheduler {
         let id_set: std::collections::HashSet<u64> = ids.iter().map(|f| f.0).collect();
         let mut ready_was_empty = self.total_ready_count() == 0;
         for (worker_idx, worker) in self.workers.iter_mut().enumerate() {
-            let to_cancel: Vec<u64> = worker
+            let mut to_cancel: Vec<u64> = worker
                 .suspended
                 .keys()
                 .filter(|&&req| {
@@ -281,6 +281,9 @@ impl FiberScheduler {
                 })
                 .copied()
                 .collect();
+            // Requeue in request order, not hash order, so they are dropped the
+            // same way every run (and a recorded run replays).
+            to_cancel.sort_unstable();
             for req in to_cancel {
                 if let Some(mut fiber) = worker.suspended.remove(&req) {
                     let fid = fiber.id.0;
@@ -434,14 +437,28 @@ impl FiberScheduler {
         None
     }
 
+    /// Every fiber the scheduler holds, with whether it is ready to run
+    /// (else suspended), for the debugger's thread view (0188 S8).
+    pub fn fibers(&self) -> impl Iterator<Item = (&Fiber, bool)> {
+        self.workers.iter().flat_map(|worker| {
+            worker
+                .ready
+                .iter()
+                .map(|fiber| (fiber, true))
+                .chain(worker.suspended.values().map(|fiber| (fiber, false)))
+        })
+    }
+
     /// Return all request IDs currently in the suspended map for a worker.
     /// Used by `exit_run_async` to cancel outstanding backend requests on teardown.
     pub fn all_suspended_reqs(&self, worker: WorkerId) -> Vec<u64> {
-        self.workers[worker.0 as usize]
+        let mut reqs: Vec<u64> = self.workers[worker.0 as usize]
             .suspended
             .keys()
             .copied()
-            .collect()
+            .collect();
+        reqs.sort_unstable();
+        reqs
     }
 
     fn drain_pending_drop(&mut self, worker_idx: usize) {
@@ -796,6 +813,7 @@ mod tests {
                 entry_frame_index,
                 inner_handlers: vec![],
                 state_marker: None,
+                debug_serials: Vec::new(),
             };
             let mut fiber = Fiber::new(WorkerId(1));
             fiber.parked = Some(Rc::new(RefCell::new(cont)));

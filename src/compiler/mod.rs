@@ -64,6 +64,7 @@ mod cfg_bytecode;
 pub mod compilation_scope;
 mod constructor_info;
 mod contracts;
+mod debug_sites;
 mod effect_rows;
 mod errors;
 mod expression;
@@ -1405,6 +1406,17 @@ pub struct Compiler {
     pub(super) ir_function_symbols: HashMap<FunctionId, Symbol>,
     pub(super) inferred_function_effects: HashMap<ContractKey, HashSet<Symbol>>,
     strict_mode: bool,
+    /// How much debug information to build (proposal 0188, `-g`).
+    debug_level: crate::debuginfo::DebugLevel,
+    /// One entry per module this compiler lowered while `debug_level` was
+    /// enabled, in lowering order.
+    debug_infos: Vec<crate::debuginfo::ProgramDebugInfo>,
+    /// The debugger tables of the scope `leave_scope` last closed, for the
+    /// function being finished to take (`-g` only).
+    left_debug_tables: Option<debug_sites::DebugTables>,
+    /// The program's `|>` calls and the stage sites waiting for their call
+    /// instruction (`-g` only).
+    pipe_sites: debug_sites::PipeSites,
     strict_require_main: bool,
     /// When true, run two-phase inference with type-informed optimization
     /// between Phase 1 and Phase 2 (proposal 0077).
@@ -1769,6 +1781,7 @@ impl Compiler {
                 statements,
                 span: program.span,
                 doc_comments: program.doc_comments.clone(),
+                pipe_calls: program.pipe_calls.clone(),
             };
         }
 
@@ -1850,6 +1863,7 @@ impl Compiler {
                 statements,
                 span: program.span,
                 doc_comments: program.doc_comments.clone(),
+                pipe_calls: program.pipe_calls.clone(),
             }
         } else {
             let first_non_import = program
@@ -1871,6 +1885,7 @@ impl Compiler {
                 statements,
                 span: program.span,
                 doc_comments: program.doc_comments.clone(),
+                pipe_calls: program.pipe_calls.clone(),
             }
         }
     }
@@ -1956,6 +1971,10 @@ impl Compiler {
             ir_function_symbols: HashMap::new(),
             inferred_function_effects: HashMap::new(),
             strict_mode: false,
+            debug_level: crate::debuginfo::DebugLevel::None,
+            debug_infos: Vec::new(),
+            left_debug_tables: None,
+            pipe_sites: debug_sites::PipeSites::default(),
             strict_require_main: true,
             type_optimize: false,
             profiling: false,
@@ -2101,6 +2120,27 @@ impl Compiler {
         optimize: bool,
         define_dictionaries: bool,
     ) -> Result<crate::core::CoreProgram, Diagnostic> {
+        self.lower_core_from_program_capturing(
+            program_to_lower,
+            optimize,
+            define_dictionaries,
+            None,
+        )
+        .map(|(core, _)| core)
+    }
+
+    /// [`Self::lower_core_from_program`], also storing the Core program as
+    /// lowered, before any Core pass, in `pre_pass_core` when given: the
+    /// debug-info model describes the program as the user wrote it. Returns
+    /// with it the lambdas a debug build's simplifier inlined.
+    #[allow(clippy::result_large_err)]
+    fn lower_core_from_program_capturing(
+        &self,
+        program_to_lower: &Program,
+        optimize: bool,
+        define_dictionaries: bool,
+        pre_pass_core: Option<&mut Option<crate::core::CoreProgram>>,
+    ) -> Result<(crate::core::CoreProgram, Vec<crate::core::InlineSite>), Diagnostic> {
         let class_env_ref = if self.class_env.classes.is_empty() {
             None
         } else {
@@ -2132,11 +2172,27 @@ impl Compiler {
                 &mut next_id,
             );
         }
+        if let Some(slot) = pre_pass_core {
+            *slot = Some(core.clone());
+        }
 
         let preloaded_registry = self.build_preloaded_borrow_registry(program_to_lower);
         let _ = preloaded_registry;
-        crate::core::passes::run_core_passes_with_interner(&mut core, &self.interner, optimize)?;
-        Ok(core)
+        let inline_sites = if self.debug_level.is_enabled() {
+            crate::core::passes::run_core_passes_keeping_variables(
+                &mut core,
+                &self.interner,
+                optimize,
+            )?
+        } else {
+            crate::core::passes::run_core_passes_with_interner(
+                &mut core,
+                &self.interner,
+                optimize,
+            )?;
+            Vec::new()
+        };
+        Ok((core, inline_sites))
     }
 
     #[allow(clippy::result_large_err)]
@@ -2145,14 +2201,21 @@ impl Compiler {
         program_to_lower: &Program,
         optimize: bool,
         define_dictionaries: bool,
+        pre_pass_core: Option<&mut Option<crate::core::CoreProgram>>,
     ) -> Result<crate::aether::AetherProgram, Diagnostic> {
-        let core = self.lower_core_from_program(program_to_lower, optimize, define_dictionaries)?;
+        let (core, inline_sites) = self.lower_core_from_program_capturing(
+            program_to_lower,
+            optimize,
+            define_dictionaries,
+            pre_pass_core,
+        )?;
         let preloaded_registry = self.build_preloaded_borrow_registry(program_to_lower);
-        let (aether, _) = crate::aether::lower_core_to_aether_program(
+        let (mut aether, _) = crate::aether::lower_core_to_aether_program(
             &core,
             Some(&self.interner),
             preloaded_registry,
         )?;
+        aether.inline_sites = inline_sites;
         Ok(aether)
     }
 
@@ -2216,7 +2279,7 @@ impl Compiler {
         self.apply_hm_final(&prepared.hm_final);
         let mut program_to_lower = prepared.effective_program.into_owned();
         self.apply_named_field_desugar(&mut program_to_lower);
-        self.lower_aether_from_program(&program_to_lower, optimize, true)
+        self.lower_aether_from_program(&program_to_lower, optimize, true, None)
     }
 
     fn prepare_program_for_lowering_internal<'a>(
@@ -2420,6 +2483,31 @@ impl Compiler {
 
     pub fn set_strict_mode(&mut self, strict_mode: bool) {
         self.strict_mode = strict_mode;
+    }
+
+    pub fn set_debug_level(&mut self, level: crate::debuginfo::DebugLevel) {
+        self.debug_level = level;
+    }
+
+    pub fn debug_level(&self) -> crate::debuginfo::DebugLevel {
+        self.debug_level
+    }
+
+    /// The debug information built for each module this compiler lowered,
+    /// in lowering order. Empty unless a debug level is set.
+    pub fn debug_infos(&self) -> &[crate::debuginfo::ProgramDebugInfo] {
+        &self.debug_infos
+    }
+
+    /// Builds and keeps the debug information for the module being compiled,
+    /// from the Core program a backend lowers. Does nothing without `-g`.
+    pub(crate) fn record_debug_info(&mut self, core: &crate::core::CoreProgram) {
+        if !self.debug_level.is_enabled() {
+            return;
+        }
+        let info =
+            crate::debuginfo::build_program_debug_info(core, &self.file_path, &self.interner);
+        self.debug_infos.push(info);
     }
 
     pub fn set_profiling(&mut self, enabled: bool) {
@@ -6812,6 +6900,7 @@ impl Compiler {
             Some(&self.type_env),
             class_env_ref,
             Some(&self.evidence_map),
+            None,
         )?;
         crate::cfg::run_ir_pass_pipeline(&mut ir_program, &crate::cfg::IrPassContext)?;
         Ok(ir_program.to_string())
@@ -6858,7 +6947,12 @@ impl Compiler {
         self.apply_hm_final(&prepared.hm_final);
         let mut effective_program = prepared.effective_program.into_owned();
         self.apply_named_field_desugar(&mut effective_program);
-        let aether = self.lower_aether_from_program(&effective_program, optimize, true)?;
+        let mut pre_pass_core = None;
+        let capture = self.debug_level.is_enabled().then_some(&mut pre_pass_core);
+        let aether = self.lower_aether_from_program(&effective_program, optimize, true, capture)?;
+        if let Some(core) = &pre_pass_core {
+            self.record_debug_info(core);
+        }
 
         let extern_symbols = self.build_native_extern_symbols(&effective_program);
         let has_named_main = effective_program.statements.iter().any(|statement| {
@@ -6890,12 +6984,24 @@ impl Compiler {
             emit_main,
             entry_qualifier.as_deref(),
         );
-        Ok(crate::lir::emit_llvm::emit_llvm_module_with_yield_options(
+        // `-g`: lines, variables and types, as DWARF and, on MSVC targets,
+        // CodeView for the PDB (0188 S11). Without it, lines alone, so a
+        // panic can name the Flux frames it crossed (0188 S10a).
+        let debug = Some(crate::lir::emit_debug::NativeDebug {
+            file: self.file_path.clone(),
+            codeview: cfg!(target_env = "msvc") && self.debug_level.is_enabled(),
+            lines_only: !self.debug_level.is_enabled(),
+        });
+        let mut module = crate::lir::emit_llvm::emit_llvm_module_with_debug(
             &lir,
             false,
             export_user_ctor_name_helper,
             false,
-        ))
+            debug.as_ref(),
+        );
+        // Name the module after its source, which the object file records.
+        module.source_filename = Some(self.file_path.clone());
+        Ok(module)
     }
 
     /// Dump LIR as LLVM IR text (Proposal 0132 Phase 7).
@@ -7047,9 +7153,12 @@ impl Compiler {
             out.push_str(&format!("  {}\n", stats));
             out.push_str(&format!("  FreshAllocs: {}\n", stats.allocs));
 
-            let verify_errors = crate::aether::verify::verify_contract_aether(&def.expr)
-                .err()
-                .unwrap_or_default();
+            let verify_errors = crate::aether::verify::verify_def_contract_aether(
+                &def.expr,
+                def.borrow_signature.as_ref(),
+            )
+            .err()
+            .unwrap_or_default();
             let verify_diags = crate::aether::verify::verify_diagnostics_aether(&def.expr);
             if verify_errors.is_empty() && verify_diags.is_empty() {
                 out.push_str("  verifier: ok\n");
@@ -7141,6 +7250,9 @@ impl Compiler {
     }
 
     pub fn compile(&mut self, program: &Program) -> Result<(), Vec<Diagnostic>> {
+        if self.debug_tables_enabled() {
+            self.pipe_sites.calls = program.pipe_calls.clone();
+        }
         self.run_pipeline(program)
     }
 
@@ -7308,9 +7420,14 @@ impl Compiler {
     }
 
     pub(super) fn enter_scope(&mut self) {
+        self.drain_def_log();
         self.scopes.push(CompilationScope::new());
         self.scope_index += 1;
         self.symbol_table = SymbolTable::new_enclosed(self.symbol_table.clone());
+        self.start_def_log();
+        if let Some(span) = self.current_span {
+            self.emit_site(crate::bytecode::debug_info::SiteKind::FnEntry, span);
+        }
         self.static_type_scopes.push(HashMap::new());
         self.effect_alias_scopes.push(HashMap::new());
     }
@@ -7323,6 +7440,7 @@ impl Compiler {
         Vec<String>,
         EffectSummary,
     ) {
+        self.finish_scope_debug_tables();
         let scope = self.scopes.pop().unwrap();
         self.scope_index -= 1;
         if let Some(outer) = self.symbol_table.outer.take() {
@@ -7340,14 +7458,22 @@ impl Compiler {
     }
 
     pub(super) fn enter_block_scope(&mut self) {
+        self.drain_def_log();
+        let mark = self.scopes[self.scope_index].locals.len();
+        self.scopes[self.scope_index].block_marks.push(mark);
         let mut block_table = SymbolTable::new_block(self.symbol_table.clone());
         block_table.num_definitions = self.symbol_table.num_definitions;
         self.symbol_table = block_table;
+        self.start_def_log();
         self.static_type_scopes.push(HashMap::new());
         self.effect_alias_scopes.push(HashMap::new());
     }
 
     pub(super) fn leave_block_scope(&mut self) {
+        self.drain_def_log();
+        if let Some(mark) = self.scopes[self.scope_index].block_marks.pop() {
+            self.close_locals_from(mark);
+        }
         let num_definitions = self.symbol_table.num_definitions;
         if let Some(outer) = self.symbol_table.outer.take() {
             let mut outer = *outer;

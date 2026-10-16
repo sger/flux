@@ -720,9 +720,11 @@ fn main() with IO { shadow_in_handler(41) }
     let drop_count = count_matching(&shadow_def.expr, &|expr| {
         matches!(expr, CoreExpr::Drop { .. })
     });
-    assert!(
-        drop_count >= 1,
-        "unused outer binder should still be discharged even when handler params shadow it"
+    // `x` is unused, so it is Borrowed: its caller keeps it, and the
+    // function never releases it, shadowed or not (F2).
+    assert_eq!(
+        drop_count, 0,
+        "an unused, lent parameter is never released, even when handler params shadow it"
     );
 }
 
@@ -869,7 +871,7 @@ fn bench_reuse_fixture_my_map_shows_borrowed_recursion_and_plain_reuse() {
                         expr,
                         CoreExpr::AetherCall { arg_modes, .. }
                             if arg_modes == &[
-                                flux::aether::borrow_infer::BorrowMode::Borrowed,
+                                flux::aether::borrow_infer::BorrowMode::Owned,
                                 flux::aether::borrow_infer::BorrowMode::Borrowed,
                             ]
                     )
@@ -881,7 +883,7 @@ fn bench_reuse_fixture_my_map_shows_borrowed_recursion_and_plain_reuse() {
             expr,
             CoreExpr::AetherCall { arg_modes, .. }
                 if arg_modes == &[
-                    flux::aether::borrow_infer::BorrowMode::Borrowed,
+                    flux::aether::borrow_infer::BorrowMode::Owned,
                     flux::aether::borrow_infer::BorrowMode::Borrowed,
                 ]
         )
@@ -905,7 +907,7 @@ fn bench_reuse_fixture_my_map_shows_borrowed_recursion_and_plain_reuse() {
         });
     assert!(
         borrowed_self_call,
-        "bench_reuse my_map should preserve the current borrowed/borrowed recursive traversal shape"
+        "bench_reuse my_map owns the list it rebuilds and borrows its function (F2: a list it may reuse in place is owned)"
     );
     assert!(
         has_reuse,
@@ -971,7 +973,7 @@ fn main() { map_like([1, 2, 3], \x -> x + 1) }
             expr,
             CoreExpr::AetherCall { arg_modes, .. }
                 if arg_modes == &[
-                    flux::aether::borrow_infer::BorrowMode::Borrowed,
+                    flux::aether::borrow_infer::BorrowMode::Owned,
                     flux::aether::borrow_infer::BorrowMode::Borrowed,
                 ]
         )
@@ -982,7 +984,7 @@ fn main() { map_like([1, 2, 3], \x -> x + 1) }
     );
     assert!(
         borrowed_self_call,
-        "higher-order recursive rebuild should preserve the current borrowed/borrowed recursive tail traversal"
+        "higher-order recursive rebuild owns the list it reuses and borrows its function (F2)"
     );
 }
 
@@ -1227,7 +1229,7 @@ fn verify_aether_fixture_claimed_fast_paths_match_current_core_shape() {
                     expr,
                     CoreExpr::AetherCall { arg_modes, .. }
                         if arg_modes == &[
-                            flux::aether::borrow_infer::BorrowMode::Borrowed,
+                            flux::aether::borrow_infer::BorrowMode::Owned,
                             flux::aether::borrow_infer::BorrowMode::Borrowed,
                         ]
                 )
@@ -1239,7 +1241,7 @@ fn verify_aether_fixture_claimed_fast_paths_match_current_core_shape() {
             expr,
             CoreExpr::AetherCall { arg_modes, .. }
                 if arg_modes == &[
-                    flux::aether::borrow_infer::BorrowMode::Borrowed,
+                    flux::aether::borrow_infer::BorrowMode::Owned,
                     flux::aether::borrow_infer::BorrowMode::Borrowed,
                 ]
         )
@@ -1265,7 +1267,7 @@ fn hof_recursive_suite_fixture_claims_match_current_core_shape() {
                         expr,
                         CoreExpr::AetherCall { arg_modes, .. }
                             if arg_modes == &[
-                                flux::aether::borrow_infer::BorrowMode::Borrowed,
+                                flux::aether::borrow_infer::BorrowMode::Owned,
                                 flux::aether::borrow_infer::BorrowMode::Borrowed,
                             ]
                     )
@@ -1610,4 +1612,51 @@ fn fbip_failure_cases_fixture_reports_expected_warning_mix() {
             m.contains("@fip on `fail_fresh`") && m.contains("fresh heap allocation remains")
         })
     }));
+}
+
+/// Nested matches that rebuild the inner list (`list_zip`'s shape): the
+/// inner list's cell is reused, and the outer one, whose cell nothing
+/// reuses, is never dropped here, let alone twice. The debug heap (0188
+/// S10c) caught it dropped once on entering the outer arm and again in each
+/// inner arm.
+#[test]
+fn nested_match_drops_neither_list_twice() {
+    let src = r#"
+fn pairs(a, b) {
+    match a {
+        [ha | ta] -> match b {
+            [hb | tb] -> [ha + hb | pairs(ta, tb)],
+            _ -> [],
+        },
+        _ -> [],
+    }
+}
+fn main() { pairs([1, 2], [10, 20]) }
+"#;
+    let core = lowered_core(src);
+    let (params, body) = core
+        .defs
+        .iter()
+        .find_map(|def| match &def.expr {
+            CoreExpr::Lam { params, body, .. } if params.len() == 2 => Some((params, body)),
+            _ => None,
+        })
+        .expect("pairs");
+    let (a, b) = (params[0].id, params[1].id);
+    let drops_of = |binder| {
+        count_matching(
+            body,
+            &|expr| matches!(expr, CoreExpr::Drop { var, .. } if var.binder == Some(binder)),
+        )
+    };
+    let reuses_of = |binder| {
+        count_matching(
+            body,
+            &|expr| matches!(expr, CoreExpr::Reuse { token, .. } if token.binder == Some(binder)),
+        )
+    };
+    assert_eq!(drops_of(a), 0, "{body:?}");
+    assert_eq!(reuses_of(b), 1, "{body:?}");
+    assert_eq!(drops_of(b), 0, "{body:?}");
+    assert!(flux::aether::verify::verify_contract_aether(body).is_ok());
 }

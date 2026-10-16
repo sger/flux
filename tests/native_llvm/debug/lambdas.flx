@@ -1,0 +1,10 @@
+// A lambda passed to a library function, and a pipeline.
+fn main() {
+    let offset = 10
+    let shifted = map([1, 2, 3], \x -> {
+        let moved = x + offset
+        moved
+    })
+    let total = shifted |> fold(0, \(acc, x) -> acc + x)
+    print(total)
+}

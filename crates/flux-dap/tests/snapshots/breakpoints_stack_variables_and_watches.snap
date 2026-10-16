@@ -1,0 +1,41 @@
+---
+source: crates/flux-dap/tests/dap_tests.rs
+---
+-> initialize {"adapterID":"flux"}
+<- {"body":{"exceptionBreakpointFilters":[{"default":true,"filter":"panic","label":"Panics"},{"default":true,"filter":"division_by_zero","label":"Division by zero"},{"default":true,"filter":"unhandled_effect","label":"Unhandled effects"},{"default":true,"filter":"fiber_failure","label":"Fiber failures"},{"default":false,"filter":"runtime_error","label":"Other runtime errors"}],"supportsConfigurationDoneRequest":true,"supportsEvaluateForHovers":true,"supportsExceptionInfoRequest":true,"supportsLoadedSourcesRequest":false,"supportsSetVariable":false,"supportsStepBack":true,"supportsTerminateRequest":true},"command":"initialize","success":true}
+-> launch {"fluxArgs":["--no-cache"],"fluxCommand":["<flux>"],"program":"<dir>/calls.flx"}
+<- {"body":{},"command":"launch","success":true}
+<- event {"body":{},"event":"initialized"}
+-> setBreakpoints {"breakpoints":[{"line":5},{"line":9},{"line":99}],"source":{"path":"<dir>/calls.flx"}}
+<- {"body":{"breakpoints":[{"line":6,"verified":true},{"line":9,"verified":true},{"line":99,"message":"no code at or after this line","verified":false}]},"command":"setBreakpoints","success":true}
+-> configurationDone null
+<- {"body":{},"command":"configurationDone","success":true}
+<- event {"body":{"allThreadsStopped":true,"description":"position 11","reason":"breakpoint","threadId":1},"event":"stopped"}
+-> threads null
+<- {"body":{"threads":[{"id":1,"name":"main"}]},"command":"threads","success":true}
+-> stackTrace {"threadId":1}
+<- {"body":{"stackFrames":[{"column":1,"id":3,"line":6,"name":"sum_squares","source":{"name":"calls.flx","path":"<dir>/calls.flx"}},{"column":17,"id":2,"line":15,"name":"main","source":{"name":"calls.flx","path":"<dir>/calls.flx"}}],"totalFrames":2},"command":"stackTrace","success":true}
+-> continue {"threadId":1}
+<- {"body":{"allThreadsContinued":true},"command":"continue","success":true}
+<- event {"body":{"allThreadsStopped":true,"description":"position 17","reason":"breakpoint","threadId":1},"event":"stopped"}
+-> scopes {"frameId":3}
+<- {"body":{"scopes":[{"expensive":false,"name":"Locals","presentationHint":"locals","variablesReference":1}]},"command":"scopes","success":true}
+-> variables {"variablesReference":1}
+<- {"body":{"variables":[{"name":"a","type":"Int","value":"3","variablesReference":0},{"name":"b","type":"Int","value":"4","variablesReference":0},{"name":"sa","type":"Int","value":"9","variablesReference":0},{"name":"pair","type":"Tuple","value":"(9, [3, 4])","variablesReference":2}]},"command":"variables","success":true}
+-> variables {"variablesReference":2}
+<- {"body":{"variables":[{"name":"0","type":"Int","value":"9","variablesReference":0},{"name":"1","type":"List","value":"[3, 4]","variablesReference":3}]},"command":"variables","success":true}
+-> variables {"variablesReference":3}
+<- {"body":{"variables":[{"name":"0","type":"Int","value":"3","variablesReference":0},{"name":"1","type":"Int","value":"4","variablesReference":0}]},"command":"variables","success":true}
+-> evaluate {"context":"watch","expression":"pair.1","frameId":3}
+<- {"body":{"result":"[3, 4]","type":"List","variablesReference":4},"command":"evaluate","success":true}
+-> evaluate {"context":"hover","expression":"sa","frameId":3}
+<- {"body":{"result":"9","type":"Int","variablesReference":0},"command":"evaluate","success":true}
+-> evaluate {"context":"watch","expression":"nothing","frameId":3}
+<- {"command":"evaluate","message":"no variable `nothing` here","success":false}
+-> continue {"threadId":1}
+<- {"body":{"allThreadsContinued":true},"command":"continue","success":true}
+<- event {"body":{"exitCode":0},"event":"exited"}
+<- event {"body":{},"event":"terminated"}
+--- program output ---
+"start"
+25

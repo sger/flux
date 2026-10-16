@@ -1,0 +1,8 @@
+// A breakpoint on a line without code moves to the next line that has some.
+fn main() {
+    let a = 1
+
+    // a comment
+    let b = a + 1
+    print(b)
+}

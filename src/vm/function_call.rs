@@ -38,6 +38,7 @@ impl VM {
             entry_frame_index: self.frame_index.saturating_sub(1),
             inner_handlers: vec![],
             state_marker: None,
+            debug_serials: Vec::new(),
         })))
     }
 
@@ -286,6 +287,9 @@ impl VM {
             ));
         }
         self.check_closure_contract_stack_args(&closure, num_args)?;
+        if self.debugger.is_some() {
+            self.debug_note_tail_call();
+        }
 
         let base_pointer = self.current_frame().base_pointer;
 
@@ -368,6 +372,13 @@ impl VM {
         let cont_val = self.pop_untracked()?; // the callee (Continuation)
         let next_state_for_caller = next_state.clone();
 
+        if caller_ip_advance.is_some() && self.debugger.is_some() {
+            let entry = match &cont_val {
+                Value::Continuation(rc) => rc.borrow().entry_frame_index,
+                _ => self.frame_index,
+            };
+            self.debug_note_resume_start(entry);
+        }
         let caller = caller_ip_advance.map(|advance| {
             let mut frame = self.current_frame().clone();
             frame.ip += advance;
@@ -398,6 +409,7 @@ impl VM {
         let mut frames = std::mem::take(&mut cont_shell.frames);
         let mut stack = std::mem::take(&mut cont_shell.stack);
         let mut inner_handlers = std::mem::take(&mut cont_shell.inner_handlers);
+        let debug_serials = std::mem::take(&mut cont_shell.debug_serials);
 
         // Unwind all frames above the handler boundary.
         // On background worker VMs the `frames` vec starts with a single
@@ -448,9 +460,15 @@ impl VM {
         self.stack_set(captured_sp, resume_val);
         self.sp = captured_sp + 1;
 
-        // Restore captured frames above the handler boundary.
+        // Restore captured frames above the handler boundary. Each caller
+        // was captured past its call instruction; its call is the
+        // instruction before that.
         for frame in frames.drain(..) {
             self.push_frame(frame);
+            let below = self.frame_index - 1;
+            if below > entry_frame_index {
+                self.call_ips[self.frame_index] = self.frames[below].ip.saturating_sub(1);
+            }
         }
 
         // Recycle the now-empty continuation shell (capacities retained) for
@@ -462,14 +480,25 @@ impl VM {
             self.cont_pool.push(cont_shell);
         }
 
+        if self.debugger.is_some() {
+            self.debug_note_resumed(entry_frame_index, &debug_serials)?;
+        }
+
         if let Some((caller_frame_index, caller_frame, caller_stack, mut caller_handlers)) = caller
         {
-            while self.frame_index > entry_frame_index {
-                if self.current_frame().ip >= self.current_frame().instructions().len() {
-                    return Err("resumed continuation exited without return".to_string());
+            let ran = self.nested(|vm| {
+                while vm.frame_index > entry_frame_index {
+                    if vm.current_frame().ip >= vm.current_frame().instructions().len() {
+                        return Err("resumed continuation exited without return".to_string());
+                    }
+                    vm.execute_current_instruction(Some(entry_frame_index + 1))?;
                 }
-                self.execute_current_instruction(Some(entry_frame_index + 1))?;
+                Ok(())
+            });
+            if self.debugger.is_some() {
+                self.debug_note_resume_end();
             }
+            ran?;
 
             let result = self.pop()?;
             if let (Some(marker), Some(next_state)) = (state_marker, next_state_for_caller)
@@ -494,6 +523,19 @@ impl VM {
         }
 
         Ok(())
+    }
+
+    /// Runs `body`, a dispatch loop nested inside an instruction of the
+    /// top-level loop, counted so the debugger knows not to checkpoint in it.
+    #[inline]
+    fn nested<T>(
+        &mut self,
+        body: impl FnOnce(&mut Self) -> Result<T, String>,
+    ) -> Result<T, String> {
+        self.nested_runs += 1;
+        let result = body(self);
+        self.nested_runs -= 1;
+        result
     }
 
     /// Invokes a callable Value (closure or Flow function) with the given arguments
@@ -538,18 +580,21 @@ impl VM {
                 let target_frame_index = self.frame_index;
 
                 // Run the dispatch loop until this frame returns
-                while self.frame_index >= target_frame_index {
-                    if self.frame_index == target_frame_index
-                        && self.current_frame().ip >= self.current_frame().instructions().len()
-                    {
-                        self.unwind_invoke_error(start_sp, start_frame_index);
-                        return Err("callable exited without return".to_string());
+                self.nested(|vm| {
+                    while vm.frame_index >= target_frame_index {
+                        if vm.frame_index == target_frame_index
+                            && vm.current_frame().ip >= vm.current_frame().instructions().len()
+                        {
+                            vm.unwind_invoke_error(start_sp, start_frame_index);
+                            return Err("callable exited without return".to_string());
+                        }
+                        if let Err(err) = vm.execute_current_instruction(Some(target_frame_index)) {
+                            vm.unwind_invoke_error(start_sp, start_frame_index);
+                            return Err(err);
+                        }
                     }
-                    if let Err(err) = self.execute_current_instruction(Some(target_frame_index)) {
-                        self.unwind_invoke_error(start_sp, start_frame_index);
-                        return Err(err);
-                    }
-                }
+                    Ok(())
+                })?;
 
                 // The return value is on the stack (pushed by OpReturnValue/OpReturn)
                 self.pop()
@@ -582,14 +627,17 @@ impl VM {
         self.sp += num_locals;
 
         let target_frame_index = self.frame_index;
-        while self.frame_index >= target_frame_index {
-            if self.frame_index == target_frame_index
-                && self.current_frame().ip >= self.current_frame().instructions().len()
-            {
-                return Err("callable exited without return".to_string());
+        self.nested(|vm| {
+            while vm.frame_index >= target_frame_index {
+                if vm.frame_index == target_frame_index
+                    && vm.current_frame().ip >= vm.current_frame().instructions().len()
+                {
+                    return Err("callable exited without return".to_string());
+                }
+                vm.execute_current_instruction(Some(target_frame_index))?;
             }
-            self.execute_current_instruction(Some(target_frame_index))?;
-        }
+            Ok(())
+        })?;
 
         self.pop()
     }
@@ -625,14 +673,17 @@ impl VM {
         self.sp += num_locals;
 
         let target_frame_index = self.frame_index;
-        while self.frame_index >= target_frame_index {
-            if self.frame_index == target_frame_index
-                && self.current_frame().ip >= self.current_frame().instructions().len()
-            {
-                return Err("callable exited without return".to_string());
+        self.nested(|vm| {
+            while vm.frame_index >= target_frame_index {
+                if vm.frame_index == target_frame_index
+                    && vm.current_frame().ip >= vm.current_frame().instructions().len()
+                {
+                    return Err("callable exited without return".to_string());
+                }
+                vm.execute_current_instruction(Some(target_frame_index))?;
             }
-            self.execute_current_instruction(Some(target_frame_index))?;
-        }
+            Ok(())
+        })?;
 
         self.pop()
     }
@@ -721,7 +772,25 @@ impl RuntimeContext for VM {
         // `execute_primop_opcode` which has not yet returned, so the
         // frame's IP still points at the OpPrimOp; on resume we want to
         // continue at the next instruction, not re-execute the primop.
-        self.capture_to_boundary(entry_frame_index, entry_sp, 3, vec![], None)
+        let serials = if self.debugger.is_some() {
+            self.debug_call_serials(entry_frame_index)
+        } else {
+            Vec::new()
+        };
+        let cont = self.capture_to_boundary(entry_frame_index, entry_sp, 3, vec![], None)?;
+        if !serials.is_empty()
+            && let Value::Continuation(continuation) = &cont
+        {
+            continuation.borrow_mut().debug_serials = serials;
+        }
+        Ok(cont)
+    }
+
+    fn debug_idle(&mut self) -> Result<(), String> {
+        if self.debugger.is_none() {
+            return Ok(());
+        }
+        self.debug_pause_idle()
     }
 
     fn vm_worker_shared_state(&self) -> Option<Box<dyn std::any::Any + Send>> {
@@ -736,16 +805,22 @@ impl RuntimeContext for VM {
         // the captured frames back on top.
         self.push(cont)?;
         self.push(resume_val)?;
+        if let Some(state) = self.debugger.as_mut() {
+            state.control.resuming_fiber = true;
+        }
         self.execute_resume(1, None)?;
         // Drive the interpreter loop until the captured frames return.
         // Mirrors invoke_value's tail (lines 564–571) so we get a final
         // result on the stack top.
-        while self.frame_index > entry_frame_index {
-            if self.current_frame().ip >= self.current_frame().instructions().len() {
-                return Err("resumed continuation exited without return".to_string());
+        self.nested(|vm| {
+            while vm.frame_index > entry_frame_index {
+                if vm.current_frame().ip >= vm.current_frame().instructions().len() {
+                    return Err("resumed continuation exited without return".to_string());
+                }
+                vm.execute_current_instruction(Some(entry_frame_index + 1))?;
             }
-            self.execute_current_instruction(Some(entry_frame_index + 1))?;
-        }
+            Ok(())
+        })?;
         self.pop()
     }
 }

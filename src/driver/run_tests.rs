@@ -441,6 +441,7 @@ pub(crate) fn run_test_file(path: &str, request: TestRunRequest<'_>) {
 
     let mut compiler = Compiler::new_with_interner(path, graph_result.interner);
     compiler.set_strict_mode(request.session.strict_mode);
+    compiler.set_debug_level(request.session.debug_level);
 
     let mut ordered_nodes = graph.topo_order();
     sort_stdlib_first(&mut ordered_nodes, |node| node.kind);
@@ -554,6 +555,7 @@ pub(crate) fn run_test_file(path: &str, request: TestRunRequest<'_>) {
             enable_optimize: request.session.enable_optimize,
             enable_analyze: request.session.enable_analyze,
             strict_mode: request.session.strict_mode,
+            debug_level: request.session.debug_level,
             use_native: should_use_native_test_backend(request.flags),
         })
     } else {
@@ -579,6 +581,7 @@ struct NativeTestRunConfig<'a> {
     enable_optimize: bool,
     enable_analyze: bool,
     strict_mode: bool,
+    debug_level: flux::debuginfo::DebugLevel,
     use_native: bool,
 }
 
@@ -610,6 +613,9 @@ fn append_native_test_command_args(
     }
     if config.strict_mode {
         cmd.arg("--strict");
+    }
+    if config.debug_level.is_enabled() {
+        cmd.arg(format!("--debug={}", config.debug_level.as_str()));
     }
     if config.roots_only {
         cmd.arg("--roots-only");
@@ -892,6 +898,7 @@ mod tests {
             enable_optimize: true,
             enable_analyze: true,
             strict_mode: true,
+            debug_level: crate::debuginfo::DebugLevel::Lines,
             use_native: true,
         };
         let mut cmd = std::process::Command::new("flux");
@@ -919,6 +926,7 @@ mod tests {
                 "--optimize",
                 "--analyze",
                 "--strict",
+                "--debug=lines",
                 "--roots-only",
                 "--root",
                 "tests",

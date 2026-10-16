@@ -20,6 +20,11 @@ impl Compiler {
         } else {
             Some(&self.class_env)
         };
+        let mut pre_pass_core = None;
+        let capture = self
+            .debug_level()
+            .is_enabled()
+            .then_some(&mut pre_pass_core);
         let (mut ir_program, fbip_warnings) = match lower_program_to_ir_typed(
             &program,
             &self.hm_expr_types,
@@ -28,6 +33,7 @@ impl Compiler {
             Some(&self.type_env),
             class_env_ref,
             Some(&self.evidence_map),
+            capture,
         ) {
             Ok(program) => program,
             // Codegen compiles every function on the AST path without IR,
@@ -50,6 +56,9 @@ impl Compiler {
             }
         };
         self.warnings.extend(fbip_warnings);
+        if let Some(core) = &pre_pass_core {
+            self.record_debug_info(core);
+        }
         if let Err(diag) = run_ir_pass_pipeline(&mut ir_program, &IrPassContext) {
             self.errors.push(diag);
             return Err(std::mem::take(&mut self.errors));

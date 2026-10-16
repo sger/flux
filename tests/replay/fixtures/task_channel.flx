@@ -1,0 +1,48 @@
+// A task shares a channel with fibers (0188 S8c): whether its `try_send`
+// finds a receiver waiting, room in the buffer, or neither depends on the
+// threads, and a replay decides each the same way.
+import Flow.Async exposing (..)
+import Flow.Channel as Channel
+import Flow.Task as Task
+
+fn push(ch: Channel<Int>, n: Int, sent: Int) -> Int {
+    if n <= 0 {
+        sent
+    } else {
+        let more = if Channel.try_send(ch, n) { sent + 1 } else { sent }
+        push(ch, n - 1, more)
+    }
+}
+
+fn receive_two(ch: Channel<Int>) -> Int with Async {
+    let a = Channel.recv(ch)
+    let b = Channel.recv(ch)
+    unwrap_or(a, 0) + unwrap_or(b, 0)
+}
+
+fn send_from_task(ch: Channel<Int>) -> Int with Async {
+    let t = Task.spawn(fn() { push(ch, 6, 0) })
+    Task.await(t)
+}
+
+fn drain(ch: Channel<Int>, total: Int) -> Int {
+    match Channel.try_recv(ch) {
+        Some(v) -> drain(ch, total + v),
+        None -> total,
+    }
+}
+
+fn body() -> String with Async {
+    let ch = Channel.make(2)
+
+    fn receiver() -> Int with Async { receive_two(ch) }
+
+    fn sender() -> Int with Async { send_from_task(ch) }
+
+    let pair = both(fn() { receiver() }, fn() { sender() })
+    "received " + to_string(pair.0) + ", sent " + to_string(pair.1) + ", left " + to_string(drain(ch, 0))
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

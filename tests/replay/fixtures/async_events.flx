@@ -1,0 +1,29 @@
+// An `after` deadline that fires: the select times out on an empty channel,
+// then a value already waiting wins (0188 S1b).
+import Flow.Async as Async
+import Flow.Channel as Channel
+import Flow.Event as Event
+
+fn empty_then_ready() -> String with Async {
+    let ch = Channel.make(1)
+    let first = select {
+        recv ch as value -> match value {
+            Some(n) -> "received " + to_string(n),
+            None -> "closed"
+        },
+        after 30 -> "timed out"
+    }
+    Channel.send(ch, 7)
+    let second = select {
+        recv ch as value -> match value {
+            Some(n) -> "received " + to_string(n),
+            None -> "closed"
+        },
+        after 30 -> "timed out"
+    }
+    first + ", then " + second
+}
+
+fn main() with IO {
+    print(Async.run_async(empty_then_ready))
+}
