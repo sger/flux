@@ -250,7 +250,10 @@ use sha2::{Digest, Sha256};
 /// Epoch 77: function debug info carries the debugger tables (stop sites,
 /// local variables, captured-value names; proposal 0188 S2), which an
 /// epoch-76 reader would misread.
-pub const CACHE_EPOCH: u16 = 77;
+/// Epoch 78: a parameter a function may release (reuse in place, or keep in
+/// a collection) is inferred Owned, and a Borrowed one is never released, so
+/// an epoch-77 unit's borrow signatures and code disagree with its callers'.
+pub const CACHE_EPOCH: u16 = 78;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

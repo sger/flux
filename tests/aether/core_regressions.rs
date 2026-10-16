@@ -720,9 +720,11 @@ fn main() with IO { shadow_in_handler(41) }
     let drop_count = count_matching(&shadow_def.expr, &|expr| {
         matches!(expr, CoreExpr::Drop { .. })
     });
-    assert!(
-        drop_count >= 1,
-        "unused outer binder should still be discharged even when handler params shadow it"
+    // `x` is unused, so it is Borrowed: its caller keeps it, and the
+    // function never releases it, shadowed or not (F2).
+    assert_eq!(
+        drop_count, 0,
+        "an unused, lent parameter is never released, even when handler params shadow it"
     );
 }
 
@@ -869,7 +871,7 @@ fn bench_reuse_fixture_my_map_shows_borrowed_recursion_and_plain_reuse() {
                         expr,
                         CoreExpr::AetherCall { arg_modes, .. }
                             if arg_modes == &[
-                                flux::aether::borrow_infer::BorrowMode::Borrowed,
+                                flux::aether::borrow_infer::BorrowMode::Owned,
                                 flux::aether::borrow_infer::BorrowMode::Borrowed,
                             ]
                     )
@@ -881,7 +883,7 @@ fn bench_reuse_fixture_my_map_shows_borrowed_recursion_and_plain_reuse() {
             expr,
             CoreExpr::AetherCall { arg_modes, .. }
                 if arg_modes == &[
-                    flux::aether::borrow_infer::BorrowMode::Borrowed,
+                    flux::aether::borrow_infer::BorrowMode::Owned,
                     flux::aether::borrow_infer::BorrowMode::Borrowed,
                 ]
         )
@@ -905,7 +907,7 @@ fn bench_reuse_fixture_my_map_shows_borrowed_recursion_and_plain_reuse() {
         });
     assert!(
         borrowed_self_call,
-        "bench_reuse my_map should preserve the current borrowed/borrowed recursive traversal shape"
+        "bench_reuse my_map owns the list it rebuilds and borrows its function (F2: a list it may reuse in place is owned)"
     );
     assert!(
         has_reuse,
@@ -971,7 +973,7 @@ fn main() { map_like([1, 2, 3], \x -> x + 1) }
             expr,
             CoreExpr::AetherCall { arg_modes, .. }
                 if arg_modes == &[
-                    flux::aether::borrow_infer::BorrowMode::Borrowed,
+                    flux::aether::borrow_infer::BorrowMode::Owned,
                     flux::aether::borrow_infer::BorrowMode::Borrowed,
                 ]
         )
@@ -982,7 +984,7 @@ fn main() { map_like([1, 2, 3], \x -> x + 1) }
     );
     assert!(
         borrowed_self_call,
-        "higher-order recursive rebuild should preserve the current borrowed/borrowed recursive tail traversal"
+        "higher-order recursive rebuild owns the list it reuses and borrows its function (F2)"
     );
 }
 
@@ -1227,7 +1229,7 @@ fn verify_aether_fixture_claimed_fast_paths_match_current_core_shape() {
                     expr,
                     CoreExpr::AetherCall { arg_modes, .. }
                         if arg_modes == &[
-                            flux::aether::borrow_infer::BorrowMode::Borrowed,
+                            flux::aether::borrow_infer::BorrowMode::Owned,
                             flux::aether::borrow_infer::BorrowMode::Borrowed,
                         ]
                 )
@@ -1239,7 +1241,7 @@ fn verify_aether_fixture_claimed_fast_paths_match_current_core_shape() {
             expr,
             CoreExpr::AetherCall { arg_modes, .. }
                 if arg_modes == &[
-                    flux::aether::borrow_infer::BorrowMode::Borrowed,
+                    flux::aether::borrow_infer::BorrowMode::Owned,
                     flux::aether::borrow_infer::BorrowMode::Borrowed,
                 ]
         )
@@ -1265,7 +1267,7 @@ fn hof_recursive_suite_fixture_claims_match_current_core_shape() {
                         expr,
                         CoreExpr::AetherCall { arg_modes, .. }
                             if arg_modes == &[
-                                flux::aether::borrow_infer::BorrowMode::Borrowed,
+                                flux::aether::borrow_infer::BorrowMode::Owned,
                                 flux::aether::borrow_infer::BorrowMode::Borrowed,
                             ]
                     )

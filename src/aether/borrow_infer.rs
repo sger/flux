@@ -504,14 +504,41 @@ fn collect_param_constraints(
             }
         }
         CoreExpr::Lit(_, _) => {}
-        CoreExpr::PrimOp { args, .. } => {
+        CoreExpr::PrimOp { op, args, .. } => {
+            // A collection constructor keeps its elements: the planner hands
+            // them over (`insert.rs`), so a parameter put into one is owned.
+            let keeps = matches!(
+                op,
+                crate::core::CorePrimOp::MakeTuple
+                    | crate::core::CorePrimOp::MakeList
+                    | crate::core::CorePrimOp::MakeArray
+                    | crate::core::CorePrimOp::MakeHash
+            );
             for arg in args {
-                collect_param_constraints_skip_direct(target, arg, registry, group_set, constraint);
+                if keeps {
+                    collect_param_constraints(target, arg, registry, group_set, constraint);
+                } else {
+                    collect_param_constraints_skip_direct(
+                        target, arg, registry, group_set, constraint,
+                    );
+                }
             }
         }
         CoreExpr::Case {
             scrutinee, alts, ..
         } => {
+            // A parameter matched by an arm that rebuilds its shape may be
+            // reused in place, which releases it: it is owned. (Over-
+            // approximating: whether the reuse happens is decided later.)
+            if matches!(scrutinee.as_ref(), CoreExpr::Var { var, .. } if var.binder == Some(target))
+                && alts.iter().any(|alt| match &alt.pat {
+                    crate::core::CorePat::Con { tag, .. } => rebuilds_shape(&alt.rhs, tag),
+                    _ => false,
+                })
+            {
+                constraint.force_owned = true;
+                return;
+            }
             collect_param_constraints_skip_direct(
                 target, scrutinee, registry, group_set, constraint,
             );
@@ -653,6 +680,29 @@ fn collect_param_constraints_skip_direct(
         return;
     }
     collect_param_constraints(target, expr, registry, group_set, constraint);
+}
+
+/// Whether `expr` builds a constructor of `tag`'s shape along its spine:
+/// through `let` bodies and case arms, where the reuse pass looks for one.
+fn rebuilds_shape(expr: &CoreExpr, tag: &crate::core::CoreTag) -> bool {
+    use crate::core::CoreTag;
+    if let Some((built, _, _)) = super::constructor_shape_for_tag(expr, Some(tag)) {
+        return match (tag, &built) {
+            (CoreTag::Named(a), CoreTag::Named(b)) => a == b,
+            (CoreTag::Cons, CoreTag::Cons)
+            | (CoreTag::Some, CoreTag::Some)
+            | (CoreTag::Left, CoreTag::Left)
+            | (CoreTag::Right, CoreTag::Right) => true,
+            _ => false,
+        };
+    }
+    match expr {
+        CoreExpr::Let { body, .. }
+        | CoreExpr::LetRec { body, .. }
+        | CoreExpr::LetRecGroup { body, .. } => rebuilds_shape(body, tag),
+        CoreExpr::Case { alts, .. } => alts.iter().any(|alt| rebuilds_shape(&alt.rhs, tag)),
+        _ => false,
+    }
 }
 
 fn pat_binds(var: CoreBinderId, pat: &crate::core::CorePat) -> bool {
@@ -1211,6 +1261,89 @@ mod tests {
                 .expect("make signature")
                 .params,
             vec![BorrowMode::Owned]
+        );
+    }
+
+    /// The modes inferred for the one definition `f(params) = body`.
+    fn modes_of(
+        interner: &mut Interner,
+        params: Vec<CoreBinder>,
+        body: CoreExpr,
+    ) -> Vec<BorrowMode> {
+        let f = binder(100, interner.intern("f"));
+        let mut program = CoreProgram {
+            defs: vec![def(f, params, body, false)],
+            top_level_items: Vec::new(),
+        };
+        let registry = infer_borrow_modes(&mut program, Some(interner));
+        registry
+            .lookup_binder(f.id)
+            .expect("f's signature")
+            .params
+            .clone()
+    }
+
+    #[test]
+    fn a_parameter_rebuilt_in_its_own_shape_is_owned() {
+        // f(xs) = case xs of Cons(h, t) -> Cons(h, t); _ -> Nil
+        let mut interner = Interner::new();
+        let xs = binder(1, interner.intern("xs"));
+        let h = binder(2, interner.intern("h"));
+        let t = binder(3, interner.intern("t"));
+        let body = CoreExpr::Case {
+            scrutinee: Box::new(var_ref(xs)),
+            alts: vec![
+                crate::core::CoreAlt {
+                    pat: crate::core::CorePat::Con {
+                        tag: crate::core::CoreTag::Cons,
+                        fields: vec![crate::core::CorePat::Var(h), crate::core::CorePat::Var(t)],
+                    },
+                    guard: None,
+                    rhs: CoreExpr::Con {
+                        tag: crate::core::CoreTag::Cons,
+                        fields: vec![var_ref(h), var_ref(t)],
+                        span: span(),
+                    },
+                    span: span(),
+                },
+                crate::core::CoreAlt {
+                    pat: crate::core::CorePat::Wildcard,
+                    guard: None,
+                    rhs: CoreExpr::Con {
+                        tag: crate::core::CoreTag::Nil,
+                        fields: vec![],
+                        span: span(),
+                    },
+                    span: span(),
+                },
+            ],
+            join_ty: None,
+            span: span(),
+        };
+        // Reusing `xs`'s cell releases it, so its caller cannot lend it.
+        assert_eq!(
+            modes_of(&mut interner, vec![xs], body),
+            vec![BorrowMode::Owned]
+        );
+    }
+
+    #[test]
+    fn a_parameter_kept_in_a_tuple_is_owned_and_an_unused_one_borrowed() {
+        // f(x, y) = MakeTuple(x, 1)
+        let mut interner = Interner::new();
+        let x = binder(1, interner.intern("x"));
+        let y = binder(2, interner.intern("y"));
+        let body = CoreExpr::PrimOp {
+            op: crate::core::CorePrimOp::MakeTuple,
+            args: vec![
+                var_ref(x),
+                CoreExpr::Lit(crate::core::CoreLit::Int(1), span()),
+            ],
+            span: span(),
+        };
+        assert_eq!(
+            modes_of(&mut interner, vec![x, y], body),
+            vec![BorrowMode::Owned, BorrowMode::Borrowed]
         );
     }
 

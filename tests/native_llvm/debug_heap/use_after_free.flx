@@ -2,8 +2,8 @@ fn numbers(n) {
     [n, n + 1, n + 2]
 }
 
-fn wrap(xs) {
-    (xs, 10)
+fn keep_if(xs, flag) {
+    if flag { xs } else { [] }
 }
 
 fn total(xs) {
@@ -12,8 +12,6 @@ fn total(xs) {
 
 fn main() {
     let victim = numbers(1)
-    let ten = match wrap(victim) {
-        (_, k) -> k,
-    }
-    print(ten + total(victim))
+    let kept = keep_if(victim, len(victim) > 5)
+    print(len(kept) + total(victim))
 }

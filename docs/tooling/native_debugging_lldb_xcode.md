@@ -78,7 +78,7 @@ flux app.flx --native --debug-heap
 ```
 
 ```text
-error[E1009]: use after free: copying a constructor value that was already freed (allocated at numbers (app.flx:2:5), freed at main (app.flx:15:21))
+error[E1009]: use after free: copying a constructor value that was already freed (allocated at numbers (app.flx:2:5), freed at main (app.flx:15:16))
 
   app.flx:10:5
    |
@@ -87,7 +87,7 @@ error[E1009]: use after free: copying a constructor value that was already freed
 
 Stack trace:
   at total (app.flx:10:5)
-  at main (app.flx:18:17)
+  at main (app.flx:16:23)
   at <main>
 ```
 

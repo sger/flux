@@ -1004,7 +1004,26 @@ pub fn run_aether_expr_with_registry(
     expr: AetherExpr,
     registry: &borrow_infer::BorrowRegistry,
 ) -> AetherExpr {
-    let expr = insert::insert_dup_drop_with_registry_aether(expr, registry);
+    run_aether_def_with_registry(expr, registry, None)
+}
+
+/// [`run_aether_expr_with_registry`] for a definition with its borrow
+/// signature: the parameters it marks Borrowed are never released.
+pub fn run_aether_def_with_registry(
+    expr: AetherExpr,
+    registry: &borrow_infer::BorrowRegistry,
+    signature: Option<&borrow_infer::BorrowSignature>,
+) -> AetherExpr {
+    let borrowed_params = match (&expr, signature) {
+        (AetherExpr::Lam { params, .. }, Some(signature)) => params
+            .iter()
+            .zip(&signature.params)
+            .filter(|(_, mode)| **mode == borrow_infer::BorrowMode::Borrowed)
+            .map(|(param, _)| param.id)
+            .collect(),
+        _ => Default::default(),
+    };
+    let expr = insert::insert_dup_drop_for_def(expr, registry, borrowed_params);
     let expr = drop_spec::specialize_drops_aether(expr);
     let expr = fusion::fuse_dup_drop_aether(expr);
     let expr = reuse::insert_reuse_aether(expr);
@@ -1032,7 +1051,11 @@ pub fn lower_core_to_aether_program(
         .map(|def| AetherDef {
             name: def.name,
             binder: def.binder,
-            expr: run_aether_expr_with_registry(AetherExpr::from_core(def.expr), &borrow_registry),
+            expr: run_aether_def_with_registry(
+                AetherExpr::from_core(def.expr),
+                &borrow_registry,
+                def.borrow_signature.as_ref(),
+            ),
             is_dict_def: def.is_dict_def,
             borrow_signature: def.borrow_signature,
             result_ty: def.result_ty,
