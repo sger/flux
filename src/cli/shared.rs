@@ -26,6 +26,8 @@ pub(crate) struct ParsedCliBackendFlags {
     pub(crate) use_llvm: Option<bool>,
     pub(crate) emit_llvm: bool,
     pub(crate) emit_binary: bool,
+    /// `--debug-heap`: link the debug-heap runtime (0188 S10c).
+    pub(crate) debug_heap: bool,
 }
 
 /// Parsed runtime-related CLI flags that affect execution-time reporting or tracing.
@@ -218,6 +220,7 @@ pub(crate) fn extract_cli_flag_groups(args: &mut Vec<String>) -> ParsedCliFlags 
             }
             "--emit-llvm" => flags.backend.emit_llvm = remove_bool_flag(args, i),
             "--emit-binary" => flags.backend.emit_binary = remove_bool_flag(args, i),
+            "--debug-heap" => flags.backend.debug_heap = remove_bool_flag(args, i),
             "--no-cache" => flags.execution.no_cache = remove_bool_flag(args, i),
             "--deps" => flags.execution.clean_deps = remove_bool_flag(args, i),
             "--store" => flags.execution.clean_store = remove_bool_flag(args, i),
@@ -379,6 +382,7 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
             use_llvm: parsed.backend.use_llvm.unwrap_or(false),
             emit_llvm: parsed.backend.emit_llvm,
             emit_binary: parsed.backend.emit_binary,
+            debug_heap: parsed.backend.debug_heap,
             output_path: values.paths.output_path,
         },
         input: DriverInputFlags {
@@ -607,6 +611,7 @@ mod tests {
             "-O".into(),
             "--dump-aether=debug".into(),
             "--emit-binary".into(),
+            "--debug-heap".into(),
             "--prof".into(),
         ];
 
@@ -616,6 +621,7 @@ mod tests {
         assert_eq!(parsed.language.enable_optimize, Some(true));
         assert_eq!(parsed.dumps.dump_aether, AetherDumpMode::Debug);
         assert!(parsed.backend.emit_binary);
+        assert!(parsed.backend.debug_heap);
         assert!(parsed.runtime.profiling);
         assert!(parsed.execution.no_cache);
         assert_eq!(args, vec!["flux".to_string(), "file.flx".to_string()]);

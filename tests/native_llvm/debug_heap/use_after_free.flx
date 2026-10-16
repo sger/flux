@@ -1,0 +1,19 @@
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn wrap(xs) {
+    (xs, 10)
+}
+
+fn total(xs) {
+    sum(xs)
+}
+
+fn main() {
+    let victim = numbers(1)
+    let ten = match wrap(victim) {
+        (_, k) -> k,
+    }
+    print(ten + total(victim))
+}

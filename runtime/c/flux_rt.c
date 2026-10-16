@@ -2516,20 +2516,8 @@ static void flux_report_panic(int64_t msg) {
     flux_print_backtrace();
 }
 
-#if defined(_MSC_VER) || defined(_WIN32)
-
-#define FLUX_PANIC_EXCEPTION 0xE0464C58u  /* user-facility | 'F''L''X' */
-
-static __thread int     flux_try_depth     = 0;
-static __thread int64_t flux_try_error_msg = 0;
-
-void flux_panic_unhooked(int64_t msg) {
-    if (flux_try_depth > 0) {
-        flux_try_error_msg = msg;
-        ULONG_PTR args[1] = { (ULONG_PTR)(uintptr_t)msg };
-        RaiseException(FLUX_PANIC_EXCEPTION, 0, 1, args);
-        /* unreachable — RaiseException unwinds via SEH */
-    }
+/* How a panic nothing catches ends the run. */
+static void flux_panic_exit(int64_t msg) {
     if (flux_tape_mode) {
         /* The run ends here: the tape records that, and the panic message
          * below is not program output. */
@@ -2544,6 +2532,29 @@ void flux_panic_unhooked(int64_t msg) {
     exit(1);
 }
 
+void flux_heap_fault(const char *msg, uint32_t len) {
+    int64_t value = flux_string_new(msg, len);
+    flux_debug_on_panic(value);
+    flux_panic_exit(value);
+}
+
+#if defined(_MSC_VER) || defined(_WIN32)
+
+#define FLUX_PANIC_EXCEPTION 0xE0464C58u  /* user-facility | 'F''L''X' */
+
+static __thread int     flux_try_depth     = 0;
+static __thread int64_t flux_try_error_msg = 0;
+
+void flux_panic_unhooked(int64_t msg) {
+    if (flux_try_depth > 0) {
+        flux_try_error_msg = msg;
+        ULONG_PTR args[1] = { (ULONG_PTR)(uintptr_t)msg };
+        RaiseException(FLUX_PANIC_EXCEPTION, 0, 1, args);
+        /* unreachable — RaiseException unwinds via SEH */
+    }
+    flux_panic_exit(msg);
+}
+
 #else  /* POSIX */
 
 static __thread jmp_buf *flux_try_jmp = NULL;
@@ -2555,18 +2566,7 @@ void flux_panic_unhooked(int64_t msg) {
         flux_try_error_msg = msg;
         longjmp(*flux_try_jmp, 1);
     }
-    if (flux_tape_mode) {
-        /* The run ends here: the tape records that, and the panic message
-         * below is not program output. */
-        if (flux_is_ptr(msg)) {
-            flux_tape_finish(1, (const uint8_t *)flux_string_data(msg), flux_string_len(msg));
-        } else {
-            flux_tape_finish(1, NULL, 0);
-        }
-        flux_tape_mode = 0;
-    }
-    flux_report_panic(msg);
-    exit(1);
+    flux_panic_exit(msg);
 }
 
 #endif

@@ -13,7 +13,7 @@ use crate::{
 use crate::{
     lir::{LirProgram, emit_llvm::emit_llvm_module_with_options},
     llvm::{
-        pipeline::{compile_ir_to_object, ensure_runtime_lib},
+        pipeline::{RuntimeVariant, compile_ir_to_object, ensure_runtime_lib},
         render_module, target,
     },
 };
@@ -37,21 +37,17 @@ fn runtime_lib_candidates() -> Vec<PathBuf> {
     candidates
 }
 
-/// Locates a built native runtime library directory if one is available.
-pub(crate) fn locate_runtime_lib_dir() -> Option<std::path::PathBuf> {
+/// Locates a built native runtime library directory if one is available,
+/// building the `variant` of the runtime there first.
+#[cfg(feature = "llvm")]
+pub(crate) fn locate_runtime_lib_dir(variant: RuntimeVariant) -> Option<std::path::PathBuf> {
     let candidates = runtime_lib_candidates();
     for candidate in &candidates {
         if candidate.join("flux_rt.h").exists() {
-            #[cfg(feature = "llvm")]
-            if let Err(e) = ensure_runtime_lib(candidate) {
+            if let Err(e) = ensure_runtime_lib(candidate, variant) {
                 eprintln!("Warning: failed to build C runtime: {e}");
             }
-            let lib_exists = if cfg!(windows) {
-                candidate.join("flux_rt.lib").exists()
-            } else {
-                candidate.join("libflux_rt.a").exists()
-            };
-            if lib_exists {
+            if candidate.join(variant.file_name()).exists() {
                 return Some(candidate.clone());
             }
         }
