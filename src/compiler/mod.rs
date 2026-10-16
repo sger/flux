@@ -7153,9 +7153,12 @@ impl Compiler {
             out.push_str(&format!("  {}\n", stats));
             out.push_str(&format!("  FreshAllocs: {}\n", stats.allocs));
 
-            let verify_errors = crate::aether::verify::verify_contract_aether(&def.expr)
-                .err()
-                .unwrap_or_default();
+            let verify_errors = crate::aether::verify::verify_def_contract_aether(
+                &def.expr,
+                def.borrow_signature.as_ref(),
+            )
+            .err()
+            .unwrap_or_default();
             let verify_diags = crate::aether::verify::verify_diagnostics_aether(&def.expr);
             if verify_errors.is_empty() && verify_diags.is_empty() {
                 out.push_str("  verifier: ok\n");

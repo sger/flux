@@ -511,7 +511,9 @@ fn verify_aether_contract_stage_aether(
     expr: &crate::aether::AetherExpr,
     stage: &'static str,
 ) -> Result<(), Diagnostic> {
-    if let Err(errors) = crate::aether::verify::verify_contract_aether(expr) {
+    if let Err(errors) =
+        crate::aether::verify::verify_def_contract_aether(expr, def.borrow_signature.as_ref())
+    {
         return Err(aether_contract_error_aether(def, stage, &errors));
     }
     Ok(())

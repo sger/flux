@@ -31,6 +31,10 @@ pub enum AetherErrorKind {
     /// A binder released twice on one path: dropped, reused or
     /// drop-specialized after it already was.
     DoubleDrop,
+    /// A parameter the definition's borrow signature marks Borrowed is
+    /// released (dropped, reused or drop-specialized): its caller still
+    /// holds it.
+    BorrowedParamReleased,
 }
 
 /// Non-fatal Aether diagnostic.
@@ -60,6 +64,121 @@ pub fn verify_contract_aether(expr: &AetherExpr) -> Result<(), Vec<AetherError>>
         Ok(())
     } else {
         Err(errors)
+    }
+}
+
+/// Verify the fatal Aether contract for a definition: the expression's, and
+/// that no parameter its borrow `signature` marks Borrowed is released.
+pub fn verify_def_contract_aether(
+    expr: &AetherExpr,
+    signature: Option<&super::borrow_infer::BorrowSignature>,
+) -> Result<(), Vec<AetherError>> {
+    let mut errors = match verify_contract_aether(expr) {
+        Ok(()) => Vec::new(),
+        Err(errors) => errors,
+    };
+    if let (AetherExpr::Lam { params, body, .. }, Some(signature)) = (expr, signature) {
+        let borrowed: Vec<crate::core::CoreBinderId> = params
+            .iter()
+            .zip(&signature.params)
+            .filter(|(_, mode)| **mode == super::borrow_infer::BorrowMode::Borrowed)
+            .map(|(param, _)| param.id)
+            .collect();
+        if !borrowed.is_empty() {
+            check_borrowed_kept(body, &borrowed, &mut errors);
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+/// Reports every release of one of the `borrowed` parameters in `expr`.
+fn check_borrowed_kept(
+    expr: &AetherExpr,
+    borrowed: &[crate::core::CoreBinderId],
+    errors: &mut Vec<AetherError>,
+) {
+    let released = |var: &crate::core::CoreVarRef| {
+        var.binder
+            .is_some_and(|binder| borrowed.contains(&binder))
+            .then(|| AetherError {
+                kind: AetherErrorKind::BorrowedParamReleased,
+                message: format!(
+                    "borrowed parameter {:?} is released by the function that borrows it",
+                    var.binder
+                ),
+            })
+    };
+    let mut walk = |child: &AetherExpr| check_borrowed_kept(child, borrowed, errors);
+    match expr {
+        AetherExpr::Var { .. } | AetherExpr::Lit(_, _) => {}
+        AetherExpr::Lam { body, .. }
+        | AetherExpr::Return { value: body, .. }
+        | AetherExpr::Dup { body, .. } => walk(body),
+        AetherExpr::Drop { var, body, .. } => {
+            errors.extend(released(var));
+            check_borrowed_kept(body, borrowed, errors);
+        }
+        AetherExpr::App { func, args, .. } | AetherExpr::AetherCall { func, args, .. } => {
+            walk(func);
+            args.iter().for_each(walk);
+        }
+        AetherExpr::Let { rhs, body, .. } | AetherExpr::LetRec { rhs, body, .. } => {
+            walk(rhs);
+            walk(body);
+        }
+        AetherExpr::LetRecGroup { bindings, body, .. } => {
+            bindings.iter().for_each(|(_, rhs)| walk(rhs));
+            walk(body);
+        }
+        AetherExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            walk(scrutinee);
+            for alt in alts {
+                if let Some(guard) = &alt.guard {
+                    walk(guard);
+                }
+                walk(&alt.rhs);
+            }
+        }
+        AetherExpr::Con { fields: args, .. }
+        | AetherExpr::PrimOp { args, .. }
+        | AetherExpr::Perform { args, .. } => args.iter().for_each(walk),
+        AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
+            walk(object)
+        }
+        AetherExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                walk(parameter);
+            }
+            walk(body);
+            handlers.iter().for_each(|handler| walk(&handler.body));
+        }
+        AetherExpr::Reuse { token, fields, .. } => {
+            errors.extend(released(token));
+            fields
+                .iter()
+                .for_each(|field| check_borrowed_kept(field, borrowed, errors));
+        }
+        AetherExpr::DropSpecialized {
+            scrutinee,
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            errors.extend(released(scrutinee));
+            check_borrowed_kept(unique_body, borrowed, errors);
+            check_borrowed_kept(shared_body, borrowed, errors);
+        }
     }
 }
 
@@ -812,6 +931,40 @@ mod tests {
         };
         let err = verify_contract(&after).expect_err("expected a double drop");
         assert!(err.iter().any(|e| e.kind == AetherErrorKind::DoubleDrop));
+    }
+
+    #[test]
+    fn contract_rejects_a_released_borrowed_param() {
+        use crate::aether::borrow_infer::{BorrowMode, BorrowProvenance, BorrowSignature};
+        let mut interner = Interner::new();
+        let x = binder(1, interner.intern("x"));
+        let y = binder(2, interner.intern("y"));
+        let lit = CoreExpr::Lit(CoreLit::Int(0), s());
+        let f = CoreExpr::Lam {
+            params: vec![x, y],
+            param_types: vec![],
+            result_ty: None,
+            body: Box::new(drop_in(y, drop_in(x, lit))),
+            span: s(),
+        };
+        let signature = |modes| BorrowSignature::new(modes, BorrowProvenance::Inferred);
+
+        // `y` owned, `x` lent: dropping `x` releases what the caller holds.
+        let err = super::verify_def_contract_aether(
+            &f,
+            Some(&signature(vec![BorrowMode::Borrowed, BorrowMode::Owned])),
+        )
+        .expect_err("expected a released borrowed parameter");
+        assert_eq!(err.len(), 1);
+        assert_eq!(err[0].kind, AetherErrorKind::BorrowedParamReleased);
+
+        assert!(
+            super::verify_def_contract_aether(
+                &f,
+                Some(&signature(vec![BorrowMode::Owned, BorrowMode::Owned]))
+            )
+            .is_ok()
+        );
     }
 
     #[test]

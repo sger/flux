@@ -52,7 +52,7 @@ fn a_use_after_free_is_caught() {
     // A sound build first: the fault keys its own cache entries, so the
     // faulted build below cannot be served this one's objects.
     let (stdout, _, _) = run(&scratch, FIXTURE, &["--native", "--debug-heap"], None);
-    assert_eq!(stdout, "16\n");
+    assert_eq!(stdout, "6\n");
     let (_, stderr, code) = run(
         &scratch,
         FIXTURE,
@@ -64,7 +64,7 @@ fn a_use_after_free_is_caught() {
         stderr.contains(
             "use after free: copying a constructor value that was already freed \
              (allocated at numbers (tests/native_llvm/debug_heap/use_after_free.flx:2:5), \
-             freed at main (tests/native_llvm/debug_heap/use_after_free.flx:15:21))"
+             freed at main (tests/native_llvm/debug_heap/use_after_free.flx:15:16))"
         ),
         "{stderr}"
     );
@@ -75,7 +75,7 @@ fn a_use_after_free_is_caught() {
         "{stderr}"
     );
     assert!(
-        stderr.contains("at main (tests/native_llvm/debug_heap/use_after_free.flx:18:17)"),
+        stderr.contains("at main (tests/native_llvm/debug_heap/use_after_free.flx:16:23)"),
         "{stderr}"
     );
 }
@@ -86,14 +86,14 @@ fn without_the_debug_heap_the_fault_goes_unnoticed() {
     // faulted program prints its answer and exits cleanly.
     let scratch = Scratch::new("debug-heap-unnoticed");
     let (stdout, stderr, code) = run(&scratch, FIXTURE, &["--native"], Some("skip-dup:victim"));
-    assert_eq!((stdout.as_str(), code), ("16\n", 0), "{stderr}");
+    assert_eq!((stdout.as_str(), code), ("6\n", 0), "{stderr}");
 }
 
 #[test]
 fn the_fixture_runs_clean_without_the_fault() {
     let scratch = Scratch::new("debug-heap-clean");
     let (stdout, stderr, code) = run(&scratch, FIXTURE, &["--native", "--debug-heap"], None);
-    assert_eq!((stdout.as_str(), code), ("16\n", 0), "{stderr}");
+    assert_eq!((stdout.as_str(), code), ("6\n", 0), "{stderr}");
 }
 
 /// Programs over lists, tuples, records, closures, strings, maps, reuse and
@@ -134,6 +134,24 @@ fn a_nested_match_releases_each_list_once() {
     let (heap, stderr, code) = run(&scratch, file, &["--native", "--debug-heap"], None);
     assert_eq!((heap.as_str(), code), (vm.as_str(), 0), "{stderr}");
     assert_eq!(vm, "[34, 23, 12]\n[510, 405]\n[]\n");
+}
+
+/// Functions that rebuild a list, on lists built at run time that the
+/// caller keeps (and on a worker thread): each prints what the VM prints on
+/// the debug heap. A function inferred to borrow its list used to release
+/// it, and the caller's guard released it again.
+#[test]
+fn kept_lists_survive_the_functions_they_are_lent_to() {
+    let scratch = Scratch::new("debug-heap-shared-lists");
+    for file in [
+        "tests/native_llvm/debug_heap/shared_lists.flx",
+        "tests/native_llvm/debug_heap/shared_lists_tasks.flx",
+    ] {
+        let (vm, _, _) = run(&scratch, file, &["--vm"], None);
+        let (heap, stderr, code) = run(&scratch, file, &["--native", "--debug-heap"], None);
+        assert!(!vm.is_empty(), "{file}");
+        assert_eq!((heap.as_str(), code), (vm.as_str(), 0), "{file}:\n{stderr}");
+    }
 }
 
 #[test]
