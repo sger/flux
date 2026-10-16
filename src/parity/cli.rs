@@ -16,7 +16,7 @@ use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 use super::fixture::{Expect, parse_fixture_meta};
-use super::normalize::normalize;
+use super::normalize::normalize_stderr;
 use super::report::{
     DisplayFilter, cargo_run_for_way, diagnose_mismatch, print_debug_first_failure, print_result,
     print_summary,
@@ -603,7 +603,7 @@ fn collect_expected_stderr_details(
     let Some(expected_stderr) = expected_stderr else {
         return Vec::new();
     };
-    let expected = normalize(expected_stderr);
+    let expected = normalize_stderr(expected_stderr);
     let expected = expected.trim();
     run_results
         .iter()
@@ -703,8 +703,9 @@ fn collect_mismatch_details(
                 continue;
             }
 
+            let stdout_differs = !super::debug::outputs_match(base, other);
             let runtime_diverged = base.exit_kind != other.exit_kind
-                || base.normalized_stdout != other.normalized_stdout
+                || stdout_differs
                 || ((base.exit_kind != ExitKind::Success || other.exit_kind != ExitKind::Success)
                     && base.normalized_stderr != other.normalized_stderr);
             if runtime_diverged && !has_shared_mismatch {
@@ -734,7 +735,7 @@ fn collect_mismatch_details(
                 });
             }
 
-            if base.normalized_stdout != other.normalized_stdout {
+            if stdout_differs {
                 details.push(MismatchDetail::Stdout {
                     left_way: base.way,
                     left: base.normalized_stdout.clone(),
@@ -1055,6 +1056,9 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
             Way::LlvmCached => 3,
             Way::VmStrict => 4,
             Way::LlvmStrict => 5,
+            Way::VmDebug => 6,
+            Way::LlvmDebug => 7,
+            Way::LlvmG => 8,
         });
         compile_ways.dedup();
         let mut expected_failure_stderr: Vec<(Way, String)> = Vec::new();
@@ -1138,7 +1142,7 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
                             Expect::Success => "success",
                         }
                     );
-                    let normalized_stderr = normalize(&outcome.stderr);
+                    let normalized_stderr = normalize_stderr(&outcome.stderr);
                     if !meta.expected_errors.is_empty() {
                         let expected = sorted_codes(meta.expected_errors.iter().cloned());
                         let actual = diagnostic_codes(&normalized_stderr);
@@ -1215,7 +1219,7 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
                 }
             }
             if let Some(expected_stderr) = meta.expected_stderr.as_deref() {
-                let expected = normalize(expected_stderr);
+                let expected = normalize_stderr(expected_stderr);
                 let expected = expected.trim();
                 for (way, stderr) in &expected_failure_stderr {
                     let actual = stderr.trim();
@@ -1587,7 +1591,8 @@ Usage:
 
 Options:
   --ways <w1,w2,...>     Ways to compare (default: vm,llvm)
-                         Available: vm, llvm, vm_cached, llvm_cached, vm_strict, llvm_strict
+                         Available: vm, llvm, vm_cached, llvm_cached, vm_strict, llvm_strict,
+                         llvm_g (native with -g); vm_debug, llvm_debug (scripted debug sessions)
   --show <filter>        Show only: pass, fail, or all (default: all)
   --capture-core         Capture --dump-core per way and compare Core IR
   --capture-aether       Capture --dump-aether=debug per way and compare ownership

@@ -11,6 +11,7 @@ struct NativeTraceFrame {
     name: String,
     file: Option<String>,
     line: Option<usize>,
+    column: Option<usize>,
 }
 
 #[cfg(feature = "llvm")]
@@ -20,30 +21,135 @@ pub(crate) fn split_native_panic_message(stderr: &str) -> Option<&str> {
         .find_map(|line| line.strip_prefix("panic: ").map(str::trim))
 }
 
+/// The frames of the trace a native program printed (0188 S10a): `at name
+/// (file:line:col)`, `at <main>`, and `... N more frames ...` where it cut a
+/// long one.
 #[cfg(feature = "llvm")]
 fn parse_native_trace_frames(stderr: &str) -> Vec<NativeTraceFrame> {
+    let named = |name: &str| NativeTraceFrame {
+        name: name.to_string(),
+        file: None,
+        line: None,
+        column: None,
+    };
     stderr
         .lines()
         .filter_map(|line| {
             let line = line.trim();
+            if line.starts_with("... ") && line.ends_with(" more frames ...") {
+                return Some(named(line));
+            }
             let rest = line.strip_prefix("at ")?;
             if let Some((name, location)) = rest.split_once(" (") {
                 let location = location.strip_suffix(')')?;
-                if let Some((file, line_no)) = location.rsplit_once(':') {
+                let (file, column) = match location.rsplit_once(':') {
+                    Some((file, column)) if file.contains(':') => (file, column.parse().ok()),
+                    _ => (location, None),
+                };
+                if let Some((file, line_no)) = file.rsplit_once(':') {
                     return Some(NativeTraceFrame {
                         name: name.to_string(),
                         file: Some(file.to_string()),
                         line: line_no.parse().ok(),
+                        column,
                     });
                 }
             }
-            Some(NativeTraceFrame {
-                name: rest.to_string(),
-                file: None,
-                line: None,
-            })
+            Some(named(rest))
         })
         .collect()
+}
+
+/// The runtime's ` @L:C` names where an expression starts (`a / b`): the
+/// span runs on to its end, as the VM's does, stopping at a `)` or `,` it
+/// did not open.
+#[cfg(feature = "llvm")]
+fn expression_span(path: &str, span: Span) -> Span {
+    let Some(text) = std::fs::read_to_string(path).ok().and_then(|source| {
+        source
+            .lines()
+            .nth(span.start.line.checked_sub(1)?)
+            .map(str::to_string)
+    }) else {
+        return span;
+    };
+    let Some(rest) = text.get(span.start.column..) else {
+        return span;
+    };
+    let mut depth = 0usize;
+    let mut end = rest.len();
+    for (offset, c) in rest.char_indices() {
+        match c {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' | ',' if depth == 0 => {
+                end = offset;
+                break;
+            }
+            ')' | ']' | '}' => depth -= 1,
+            _ => {}
+        }
+    }
+    let end = span.start.column + rest[..end].trim_end().trim_end_matches(';').len();
+    if end <= span.start.column {
+        return span;
+    }
+    Span::new(span.start, Position::new(span.start.line, end))
+}
+
+/// Where the error happened, from the innermost frame of the program's own
+/// trace (0188 S10a), when a call starts there (`panic(…)`, `unwrap(…)`).
+/// Elsewhere (an operator) the span is inferred, on that frame's line.
+#[cfg(feature = "llvm")]
+fn traced_span(path: &str, frames: &[NativeTraceFrame]) -> Option<Span> {
+    let frame = frames.first()?;
+    if !frame
+        .file
+        .as_deref()
+        .is_some_and(|file| same_file(file, path))
+    {
+        return None;
+    }
+    let (line, column) = (frame.line?, frame.column?.checked_sub(1)?);
+    let source = std::fs::read_to_string(path).ok()?;
+    let text = source.lines().nth(line.checked_sub(1)?)?;
+    let rest = text.get(column..)?;
+    let name = rest
+        .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.'))
+        .unwrap_or(rest.len());
+    if name == 0 || !rest[name..].starts_with('(') {
+        return None;
+    }
+    let mut end = column + name;
+    {
+        let mut depth = 0usize;
+        for (offset, c) in rest[name..].char_indices() {
+            match c {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = column + name + offset + 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    Some(Span::new(
+        Position::new(line, column),
+        Position::new(line, end),
+    ))
+}
+
+/// Whether `file`, as a native program's line table names it, is `path`.
+#[cfg(feature = "llvm")]
+fn same_file(file: &str, path: &str) -> bool {
+    file == path
+        || match (std::fs::canonicalize(file), std::fs::canonicalize(path)) {
+            (Ok(file), Ok(path)) => file == path,
+            _ => false,
+        }
 }
 
 #[cfg(feature = "llvm")]
@@ -86,7 +192,7 @@ fn infer_native_runtime_span(path: &str, message: &str, frames: &[NativeTraceFra
             frame
                 .file
                 .as_deref()
-                .filter(|file| *file == path)
+                .filter(|file| same_file(file, path))
                 .and(frame.line)
         })
         .filter(|line| *line > 0);
@@ -229,7 +335,18 @@ fn infer_native_runtime_span(path: &str, message: &str, frames: &[NativeTraceFra
 pub fn render_native_runtime_error(path: &str, stderr: &str) -> Option<String> {
     let (message, encoded_span) = split_native_panic_message_and_span(stderr)?;
     let frames = parse_native_trace_frames(stderr);
-    let span = encoded_span.unwrap_or_else(|| infer_native_runtime_span(path, message, &frames));
+    // The error is in the innermost frame's file, which may be another
+    // module than the program's (0188 S10a).
+    let error_file = frames
+        .first()
+        .and_then(|frame| frame.file.as_deref())
+        .filter(|file| !same_file(file, path))
+        .map(|file| render_display_path(file).into_owned());
+    let path = error_file.as_deref().unwrap_or(path);
+    let span = encoded_span
+        .map(|span| expression_span(path, span))
+        .or_else(|| traced_span(path, &frames))
+        .unwrap_or_else(|| infer_native_runtime_span(path, message, &frames));
     let diag = if message.contains("Cannot call non-function value") {
         let actual = message
             .split("(got ")
@@ -306,7 +423,18 @@ pub fn render_native_runtime_error(path: &str, stderr: &str) -> Option<String> {
                         span.start.column + 1
                     )
                 } else if let (Some(file), Some(line)) = (&frame.file, frame.line) {
-                    format!("{} ({}:{}:1)", frame.name, render_display_path(file), line)
+                    let file = if same_file(file, path) {
+                        path
+                    } else {
+                        file.as_str()
+                    };
+                    format!(
+                        "{} ({}:{}:{})",
+                        frame.name,
+                        render_display_path(file),
+                        line,
+                        frame.column.unwrap_or(1)
+                    )
                 } else {
                     frame.name.clone()
                 }

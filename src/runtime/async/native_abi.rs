@@ -95,6 +95,8 @@ thread_local! {
     static CURRENT_FIBER: Cell<u64> = const { Cell::new(0) };
     static CURRENT_WORKER: Cell<usize> = const { Cell::new(0) };
     static LAST_RUN_FAILED: Cell<bool> = const { Cell::new(false) };
+    /// Whether this thread runs the active `run_async`'s scheduler.
+    static ON_RUN_THREAD: Cell<bool> = const { Cell::new(false) };
 }
 
 #[repr(C)]
@@ -130,6 +132,7 @@ pub struct FluxAsyncCallbacks {
     task_cancel: unsafe extern "C" fn(i64) -> i64,
     register_root_task: unsafe extern "C" fn(i64),
     deregister_root_task: unsafe extern "C" fn(i64),
+    os_thread_id: unsafe extern "C" fn() -> u64,
 }
 
 #[repr(C)]
@@ -242,6 +245,34 @@ struct NativeRun {
     root_result: Option<FiberOutcome>,
     running: usize,
     shutdown: bool,
+    /// For the debugger's thread view (0188 S8b): what each parked request
+    /// waits for, the code each fiber was spawned to run, and the OS thread
+    /// each running fiber is on.
+    blocked: HashMap<u64, Blocked>,
+    bodies: HashMap<u64, u64>,
+    running_fibers: HashMap<u64, u64>,
+    /// Under an effect tape (0188 S8c): completions another thread handed
+    /// over (a task's result, a channel's value), which the run's own
+    /// thread delivers where the tape has them.
+    handed_over: VecDeque<(u64, i64)>,
+}
+
+/// What a parked fiber waits for. Fibers are named by id; the thread view
+/// numbers them.
+#[derive(Clone, Debug)]
+enum Blocked {
+    Sleep(u64),
+    ChannelRecv(i64),
+    ChannelSend(i64),
+    Task(i64),
+    Event(i64),
+    Tcp,
+    FileSystem,
+    Both(u64, u64),
+    Race(Vec<u64>),
+    FirstOf(Vec<u64>),
+    Try(u64),
+    Timeout(u64, u64),
 }
 
 #[derive(Clone)]
@@ -255,6 +286,114 @@ struct RunShared {
 }
 
 impl NativeRun {
+    /// The thread number of fiber `id`: its place in spawn order.
+    fn thread_of(&self, id: u64) -> u64 {
+        id.saturating_sub(self.root) + 1
+    }
+
+    fn describe_blocked(&self, out: &mut debug_json::Out, blocked: &Blocked) -> std::fmt::Result {
+        use std::fmt::Write;
+        let threads = |out: &mut debug_json::Out, ids: &[u64]| -> std::fmt::Result {
+            out.write_str(if ids.len() == 1 {
+                " (thread "
+            } else {
+                " (threads "
+            })?;
+            for (index, id) in ids.iter().enumerate() {
+                if index > 0 {
+                    out.write_str(", ")?;
+                }
+                write!(out, "{}", self.thread_of(*id))?;
+            }
+            out.write_str(")")
+        };
+        match blocked {
+            Blocked::Sleep(ms) => write!(out, "sleep {ms} ms"),
+            Blocked::ChannelRecv(channel) => write!(out, "channel #{channel} recv"),
+            Blocked::ChannelSend(channel) => write!(out, "channel #{channel} send"),
+            Blocked::Task(id) => write!(out, "task #{id}"),
+            Blocked::Event(id) => write!(out, "event #{id}"),
+            Blocked::Tcp => out.write_str("tcp"),
+            Blocked::FileSystem => out.write_str("file system"),
+            Blocked::Both(left, right) => {
+                out.write_str("both")?;
+                threads(out, &[*left, *right])
+            }
+            Blocked::Race(ids) => {
+                out.write_str("race")?;
+                threads(out, ids)
+            }
+            Blocked::FirstOf(ids) => {
+                out.write_str("first_of")?;
+                threads(out, ids)
+            }
+            Blocked::Try(id) => {
+                out.write_str("try")?;
+                threads(out, &[*id])
+            }
+            Blocked::Timeout(ms, id) => {
+                write!(out, "timeout {ms} ms")?;
+                threads(out, &[*id])
+            }
+        }
+    }
+
+    /// Writes the fibers for `flux_debug_fibers`.
+    fn debug_fibers(&self, out: &mut debug_json::Out) -> std::fmt::Result {
+        use std::fmt::Write;
+        out.write_str("{\"fibers\":[")?;
+        let mut first = true;
+        let mut fiber = |out: &mut debug_json::Out,
+                         id: u64,
+                         state: &str,
+                         blocked: Option<&Blocked>,
+                         work: i64,
+                         os: u64|
+         -> std::fmt::Result {
+            if !std::mem::take(&mut first) {
+                out.write_str(",")?;
+            }
+            write!(
+                out,
+                "{{\"thread\":{},\"state\":\"{state}\"",
+                self.thread_of(id)
+            )?;
+            if let Some(blocked) = blocked {
+                out.write_str(",\"blocked\":\"")?;
+                self.describe_blocked(out, blocked)?;
+                out.write_str("\"")?;
+            }
+            let code = self.bodies.get(&id).copied().unwrap_or(0);
+            write!(out, ",\"work\":{work},\"code\":{code},\"os\":{os}}}")
+        };
+        for (id, os) in &self.running_fibers {
+            fiber(out, *id, "running", None, 0, *os)?;
+        }
+        for queue in &self.ready {
+            for ready in queue {
+                let (state, work) = match ready.work {
+                    _ if self.cancelled_fibers.contains(&ready.id) => ("cancelled", 0),
+                    Work::Closure { closure, .. } => ("not started", closure),
+                    Work::Resume { continuation, .. } => ("ready", continuation),
+                };
+                fiber(out, ready.id, state, None, work, 0)?;
+            }
+        }
+        for (req, parked) in &self.suspended {
+            let work = match parked.work {
+                Work::Resume { continuation, .. } => continuation,
+                Work::Closure { closure, .. } => closure,
+            };
+            let blocked = match self.blocked.get(req) {
+                Some(blocked) => Some(blocked),
+                None if self.fs_requests.contains_key(req) => Some(&Blocked::FileSystem),
+                None => None,
+            };
+            fiber(out, parked.id, "waiting", blocked, work, 0)?;
+        }
+        out.write_str("]}")
+    }
+
     fn new(root_closure: i64, worker_count: usize) -> Self {
         let root = next_fiber_id();
         fiber_trace::emit(FiberEvent::Spawn {
@@ -262,6 +401,8 @@ impl NativeRun {
             worker: 0,
         });
         let worker_count = worker_count.max(1);
+        let mut bodies = HashMap::new();
+        bodies.insert(root, closure_code(root_closure));
         let mut ready = (0..worker_count)
             .map(|_| VecDeque::new())
             .collect::<Vec<_>>();
@@ -297,6 +438,10 @@ impl NativeRun {
             root_result: None,
             running: 0,
             shutdown: false,
+            blocked: HashMap::new(),
+            bodies,
+            running_fibers: HashMap::new(),
+            handed_over: VecDeque::new(),
         }
     }
 
@@ -421,6 +566,7 @@ impl NativeRun {
                 (cb.promote)(closure);
             }
         }
+        self.bodies.insert(id, closure_code(closure));
         self.push_ready(Fiber {
             id,
             home_worker,
@@ -455,6 +601,7 @@ impl NativeRun {
 
     fn park(&mut self, req: u64, mut fiber: Fiber, continuation: i64) {
         if self.is_cancelled(fiber.id) {
+            self.blocked.remove(&req);
             let fiber_id = fiber.id;
             release_cancelled_work(Work::Resume {
                 continuation,
@@ -474,6 +621,7 @@ impl NativeRun {
             value: FLUX_NONE,
         };
         if let Some(outcome) = self.pending_wakes.remove(&req) {
+            self.blocked.remove(&req);
             match outcome {
                 FiberOutcome::Value(value) => {
                     if let Work::Resume { continuation, .. } = fiber.work {
@@ -512,6 +660,7 @@ impl NativeRun {
     }
 
     fn wake(&mut self, req: u64, outcome: FiberOutcome) {
+        self.blocked.remove(&req);
         if let Some(mut fiber) = self.suspended.remove(&req) {
             self.fiber_request.remove(&fiber.id);
             if self.is_cancelled(fiber.id) {
@@ -577,6 +726,7 @@ impl NativeRun {
             fid: id,
             worker: home_worker,
         });
+        self.bodies.remove(&id);
 
         if id == self.root {
             self.root_result = Some(outcome);
@@ -774,11 +924,13 @@ impl NativeRun {
     }
 
     fn cancel_scope(&mut self, scope: u64) {
-        let children: Vec<u64> = self
+        let mut children: Vec<u64> = self
             .scopes
             .remove(&scope)
             .map(|children| children.into_iter().collect())
             .unwrap_or_default();
+        // Fiber order, not hash order, so a recorded run replays.
+        children.sort_unstable();
         self.cancel_fibers(&children);
         // Also cancel any tasks registered under this scope via spawn_scoped.
         // flux_task_cancel is idempotent — no-op for already-completed tasks.
@@ -1093,7 +1245,7 @@ fn current_worker() -> usize {
 }
 
 fn backend() -> &'static MioBackend {
-    BACKEND.get_or_init(MioBackend::new)
+    BACKEND.get_or_init(|| MioBackend::new().use_effect_tape())
 }
 
 fn ready_timers() -> &'static Mutex<HashSet<u64>> {
@@ -1101,7 +1253,11 @@ fn ready_timers() -> &'static Mutex<HashSet<u64>> {
 }
 
 fn next_request_id() -> u64 {
-    NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed)
+    let req = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
+    // The tape notes which fiber made it: its submission and a hand-over of
+    // its completion are that fiber's (0188 S9d).
+    crate::runtime::replay::async_tape::note_request(req);
+    req
 }
 
 fn next_fiber_id() -> u64 {
@@ -1167,6 +1323,8 @@ fn execute_fiber(handle: &RunHandle, worker: usize, mut fiber: Fiber, cb: FluxAs
             handle.notify_all();
             return;
         }
+        let os_thread = unsafe { (cb.os_thread_id)() };
+        state.running_fibers.insert(fiber.id, os_thread);
     }
 
     CURRENT_WORKER.with(|current| current.set(worker));
@@ -1189,6 +1347,7 @@ fn execute_fiber(handle: &RunHandle, worker: usize, mut fiber: Fiber, cb: FluxAs
         .state
         .lock()
         .expect("native async state poisoned");
+    state.running_fibers.remove(&fiber.id);
     if unsafe { (cb.is_suspended)() } != 0 {
         let request = untag_int(unsafe { (cb.current_request)() });
         let continuation = unsafe { (cb.compose_conts)() };
@@ -1375,8 +1534,20 @@ pub extern "C" fn flux_async_timer_start(ms: i64) -> u64 {
     }
     let req = next_request_id();
     let delay = if ms < 0 { 0 } else { ms as u64 };
+    note_block(req, Blocked::Sleep(delay));
     backend().timer_start(RequestId(req), delay);
     req
+}
+
+/// Starts a timer that completes the event wait `request_id` after `ms`
+/// milliseconds. Event waits use it while an effect tape is active, in place
+/// of a sleeping thread, so the timer's firing is on the tape.
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_event_timer(request_id: u64, ms: i64) {
+    if request_id == 0 || flux_async_runtime_init() != 0 {
+        return;
+    }
+    backend().timer_start(RequestId(request_id), ms.max(0) as u64);
 }
 
 fn socket_addr_from_raw(
@@ -1502,6 +1673,24 @@ pub extern "C" fn flux_async_run_root(root_closure: i64) -> i64 {
 }
 
 fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64 {
+    let worker_count = crate::runtime::replay::worker_count(worker_count);
+    if crate::runtime::replay::is_active()
+        && crate::runtime::replay::async_tape::current_task() != 0
+    {
+        // A task's own run_async would share the process's one active run
+        // with the program's (0188 S8c).
+        crate::runtime::replay::async_tape::fail(crate::runtime::replay::unsupported(
+            "run_async inside a task",
+        ));
+    }
+    if crate::runtime::replay::is_active() {
+        crate::runtime::replay::async_tape::set_fiber_source(|| {
+            CURRENT_FIBER
+                .try_with(|c| c.get())
+                .ok()
+                .filter(|id| *id != 0)
+        });
+    }
     let Some(cb) = callbacks().copied() else {
         return FLUX_NONE;
     };
@@ -1514,6 +1703,7 @@ fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64
     let previous_run = active_run();
     let handle = RunHandle::new(root_closure, worker_count);
     set_active_run(Some(handle.clone()));
+    let was_run_thread = ON_RUN_THREAD.with(|on| on.replace(true));
     // Reuse the process-global worker pool instead of spawning fresh threads
     // per boundary; pooled workers serve whatever `active_run()` currently is.
     pool_ensure(worker_count, cb);
@@ -1569,6 +1759,23 @@ fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64
             if state.shutdown {
                 break;
             }
+        }
+
+        if crate::runtime::replay::is_active()
+            && let Some((req, value)) = crate::runtime::replay::async_tape::deliver_cross(|want| {
+                take_handed_over(&handle, want)
+            })
+        {
+            {
+                let mut state = handle
+                    .shared
+                    .state
+                    .lock()
+                    .expect("native async state poisoned");
+                state.wake(req, FiberOutcome::Value(value));
+            }
+            handle.notify_all();
+            continue;
         }
 
         if let Some(completion) = backend().next_completion() {
@@ -1638,12 +1845,15 @@ fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64
             .state
             .lock()
             .expect("native async state poisoned");
-        state.root_tasks.drain().collect()
+        let mut leaked: Vec<i64> = state.root_tasks.drain().collect();
+        leaked.sort_unstable();
+        leaked
     };
     for task_id in leaked {
         unsafe { (cb.task_cancel)(task_id) };
     }
 
+    ON_RUN_THREAD.with(|on| on.set(was_run_thread));
     set_active_run(previous_run);
     // Redirect pooled workers to the (possibly restored) active run, or let
     // them park if there is none.
@@ -1671,6 +1881,8 @@ pub extern "C" fn flux_async_fiber_both(left: i64, right: i64) -> u64 {
         run.spawn_child_on(left_worker, left_id, left);
         let right_worker = run.pick_next_worker();
         run.spawn_child_on(right_worker, right_id, right);
+        run.blocked
+            .insert(parent_req, Blocked::Both(left_id, right_id));
         parent_req
     })
     .unwrap_or(0)
@@ -1690,6 +1902,8 @@ pub extern "C" fn flux_async_fiber_race(left: i64, right: i64) -> u64 {
         // child suspends, backend completions still race normally.
         run.spawn_child_on_with_stealable(worker, left_id, left, false);
         run.spawn_child_on_with_stealable(worker, right_id, right, false);
+        run.blocked
+            .insert(parent_req, Blocked::Race(vec![left_id, right_id]));
         parent_req
     })
     .unwrap_or(0)
@@ -1712,6 +1926,10 @@ pub extern "C" fn flux_async_fiber_first_of(children: *const i64, len: usize) ->
             child_ids.push((id, idx));
             planned.push((id, closure));
         }
+        run.blocked.insert(
+            parent_req,
+            Blocked::FirstOf(child_ids.iter().map(|(id, _)| *id).collect()),
+        );
         run.awaits.register_first_of(parent_req, child_ids);
         for (id, closure) in planned {
             run.spawn_child_on_with_stealable(worker, id, closure, false);
@@ -1742,6 +1960,7 @@ pub extern "C" fn flux_async_fiber_try(
             },
         );
         run.spawn_child_on(child_worker, child_id, body);
+        run.blocked.insert(parent_req, Blocked::Try(child_id));
         parent_req
     })
     .unwrap_or(0)
@@ -1756,6 +1975,8 @@ pub extern "C" fn flux_async_fiber_timeout(ms: i64, body: i64) -> u64 {
         run.awaits.register_timeout(parent_req, body_id);
         run.spawn_child_on(body_worker, body_id, body);
         let delay = if ms < 0 { 0 } else { ms as u64 };
+        run.blocked
+            .insert(parent_req, Blocked::Timeout(delay, body_id));
         backend().timer_start(RequestId(parent_req), delay);
         parent_req
     })
@@ -1939,6 +2160,71 @@ mod tests {
     }
 }
 
+/// What the current fiber parks on `request_id` for, from the C runtime:
+/// a `FLUX_DEBUG_BLOCK_*` kind and its argument (0188 S8b).
+#[unsafe(no_mangle)]
+pub extern "C" fn flux_async_debug_block(request_id: u64, kind: i32, arg: i64) {
+    let blocked = match kind {
+        2 => Blocked::ChannelRecv(arg),
+        3 => Blocked::ChannelSend(arg),
+        4 => Blocked::Task(arg),
+        5 => Blocked::Event(arg),
+        6 => Blocked::Tcp,
+        _ => return,
+    };
+    note_block(request_id, blocked);
+}
+
+/// Notes what request `req` waits for, while a run is active.
+fn note_block(req: u64, blocked: Blocked) {
+    if let Some(handle) = active_run()
+        && let Ok(mut state) = handle.shared.state.lock()
+    {
+        state.blocked.insert(req, blocked);
+    }
+}
+
+/// The code a closure runs: the first word of the object it points at.
+fn closure_code(closure: i64) -> u64 {
+    if closure & 7 != 0 || (closure as u64) < 4096 {
+        return 0;
+    }
+    unsafe { *(closure as *const u64) }
+}
+
+/// The program's fibers, as JSON, for `flux_lldb.py` (0188 S8b):
+///
+/// ```text
+/// {"fibers":[{"thread":2,"state":"waiting","blocked":"sleep 20 ms",
+///   "work":4405..,"code":4302..,"os":0}, ...]}
+/// ```
+///
+/// A fiber's thread number is its place in spawn order, 1 for the root.
+/// `work` is a parked fiber's continuation (or the closure it has yet to
+/// run), `code` the code of the function it was spawned with, and `os` the
+/// OS thread a running fiber is on. A debugger calls this with the program
+/// stopped, so it takes no lock that may be held (`{"busy":true}`), and
+/// writes into a static buffer without allocating.
+#[unsafe(no_mangle)]
+#[inline(never)]
+pub extern "C" fn flux_debug_fibers() -> *const std::ffi::c_char {
+    debug_json::write(|out| {
+        let Some(slot) = ACTIVE_RUN.get() else {
+            return out.text("{\"fibers\":[]}");
+        };
+        let Ok(slot) = slot.try_lock() else {
+            return out.text("{\"busy\":true}");
+        };
+        let Some(handle) = slot.as_ref() else {
+            return out.text("{\"fibers\":[]}");
+        };
+        let Ok(state) = handle.shared.state.try_lock() else {
+            return out.text("{\"busy\":true}");
+        };
+        state.debug_fibers(out)
+    })
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn flux_async_suspend_request(request_id: u64) -> i64 {
     if request_id == 0 {
@@ -2000,9 +2286,54 @@ pub extern "C" fn flux_async_task_complete(request_id: u64, value: i64) {
             .state
             .lock()
             .expect("native async state poisoned");
-        state.wake(request_id, FiberOutcome::Value(value));
+        if crate::runtime::replay::is_active() && !ON_RUN_THREAD.with(|on| on.get()) {
+            // From another thread: the run's thread delivers it where the
+            // tape has it (0188 S8c).
+            state.handed_over.push_back((request_id, value));
+        } else {
+            state.wake(request_id, FiberOutcome::Value(value));
+        }
     }
     handle.notify_all();
+}
+
+/// A completion another thread handed over, for `async_tape::deliver_cross`:
+/// `None` takes the first, without waiting; `Some(req)` waits for request
+/// `req`'s, which the tape says has been handed over.
+fn take_handed_over(handle: &RunHandle, want: Option<u64>) -> Option<(u64, (u64, i64))> {
+    let started = std::time::Instant::now();
+    let mut state = handle
+        .shared
+        .state
+        .lock()
+        .expect("native async state poisoned");
+    loop {
+        let at = match want {
+            None => (!state.handed_over.is_empty()).then_some(0),
+            Some(req) => state.handed_over.iter().position(|(id, _)| *id == req),
+        };
+        if let Some(at) = at {
+            let found = state.handed_over.remove(at).expect("position is in range");
+            return Some((found.0, found));
+        }
+        let req = want?;
+        if started.elapsed() >= crate::runtime::replay::async_tape::HAND_OVER_LIMIT {
+            drop(state);
+            crate::runtime::replay::async_tape::fail(crate::runtime::replay::TapeError::Stalled {
+                index: 0,
+                expected: format!("the hand-over of request {req}"),
+                owner: "another thread".to_string(),
+                waiting: "the scheduler".to_string(),
+                actual: "the next fiber".to_string(),
+            });
+        }
+        state = handle
+            .shared
+            .cvar
+            .wait_timeout(state, Duration::from_millis(1))
+            .expect("native async state poisoned")
+            .0;
+    }
 }
 
 /// Poll the backend dispatch path until `req` has completed.
@@ -2056,5 +2387,62 @@ pub extern "C" fn flux_async_poll_dispatch(req: u64) -> i32 {
         } else {
             std::thread::park_timeout(Duration::from_millis(1));
         }
+    }
+}
+
+/// A JSON answer written into a static buffer, for `flux_debug_fibers`: a
+/// debugger calls it with every thread stopped, any of which may hold the
+/// allocator's lock.
+pub(crate) mod debug_json {
+    use std::cell::UnsafeCell;
+
+    const SIZE: usize = 64 * 1024;
+
+    struct Buffer(UnsafeCell<[u8; SIZE]>);
+
+    // SAFETY: only `flux_debug_fibers` and `flux_debug_tape_events` write
+    // it, called by a debugger evaluating one expression at a time.
+    unsafe impl Sync for Buffer {}
+
+    static BUFFER: Buffer = Buffer(UnsafeCell::new([0; SIZE]));
+
+    pub(crate) struct Out {
+        buffer: &'static mut [u8; SIZE],
+        len: usize,
+    }
+
+    impl Out {
+        pub(crate) fn text(&mut self, text: &str) -> std::fmt::Result {
+            std::fmt::Write::write_str(self, text)
+        }
+    }
+
+    impl std::fmt::Write for Out {
+        fn write_str(&mut self, text: &str) -> std::fmt::Result {
+            // Leave room for the terminating zero.
+            let end = self.len + text.len();
+            if end >= SIZE {
+                return Err(std::fmt::Error);
+            }
+            self.buffer[self.len..end].copy_from_slice(text.as_bytes());
+            self.len = end;
+            Ok(())
+        }
+    }
+
+    /// Runs `write` into the buffer and returns it as a C string. An answer
+    /// too long for the buffer is `{"truncated":true}`.
+    pub(crate) fn write(
+        write: impl FnOnce(&mut Out) -> std::fmt::Result,
+    ) -> *const std::ffi::c_char {
+        // SAFETY: see `Buffer`.
+        let buffer = unsafe { &mut *BUFFER.0.get() };
+        let mut out = Out { buffer, len: 0 };
+        if write(&mut out).is_err() {
+            out.len = 0;
+            let _ = out.text("{\"truncated\":true}");
+        }
+        out.buffer[out.len] = 0;
+        out.buffer.as_ptr().cast()
     }
 }

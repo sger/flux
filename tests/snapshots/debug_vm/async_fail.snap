@@ -1,0 +1,16 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> continue
+stopped: exception (fiber failure: ProtocolError(503, "too many")) at Async.flx:391:9 in Flow.Async.fail (thread 2, position 21)
+   391 |         fiber_fail_prim(err)
+> bt
+#0 Flow.Async.fail at Async.flx:391:9
+   … 2 calls elided by tail calls (last: checked at async_fail.flx:7:9)
+> threads
+  1 main [waiting try (thread 2)] at async_fail.flx:18:15
+* 2 attempt [stopped] at Async.flx:391:9
+> continue
+program finished
+--- program output ---
+-1

@@ -67,7 +67,12 @@
 __thread int flux_worker_thread = 0;
 
 int32_t flux_can_use_bump_arena(void) {
+#ifdef FLUX_DEBUG_HEAP
+    /* Every block goes through flux_bump_alloc_slow, which records it. */
+    return 0;
+#else
     return flux_worker_thread ? 0 : 1;
+#endif
 }
 
 /* ── FluxHeader ────────────────────────────────────────────────────── */
@@ -107,6 +112,123 @@ static inline size_t align_up(size_t n, size_t align) {
     return (n + align - 1) & ~(align - 1);
 }
 
+/* ── Debug heap (0188 S10c) ─────────────────────────────────────────── */
+
+/*
+ * Built with -DFLUX_DEBUG_HEAP into libflux_rt_debug.a, which
+ * `flux --debug-heap` links instead of libflux_rt.a. Generated code is the
+ * same: it asks flux_can_use_bump_arena, which says no, so every block is
+ * malloc'd here behind a prefix that records where it was allocated.
+ *
+ *   ┌──────────────────────────┐
+ *   │ FluxDebugPrefix          │  magic, size, allocation and free sites
+ *   ├──────────────────────────┤
+ *   │ FluxHeader (8 bytes)     │
+ *   ├──────────────────────────┤
+ *   │ payload                  │
+ *   └──────────────────────────┘
+ *
+ * A freed block is never given back: it keeps rc 0, its payload is filled
+ * with 0xDEAD…, an odd word that reads as an Int and never as a pointer,
+ * and its free site is recorded. The next dup or drop of it stops the
+ * program with both sites and the Flux trace.
+ */
+#ifdef FLUX_DEBUG_HEAP
+
+#define FLUX_SITE_DEPTH  16
+#define FLUX_LIVE_MAGIC  0x464c55584c495645ull  /* "FLUXLIVE" */
+#define FLUX_FREED_MAGIC 0x464c555846524545ull  /* "FLUXFREE" */
+#define FLUX_POISON      0xDEADDEADDEADDEADull
+
+typedef struct {
+    uint64_t  magic;
+    uint64_t  size;   /* aligned payload bytes */
+    uintptr_t alloc_site[FLUX_SITE_DEPTH];
+    uintptr_t free_site[FLUX_SITE_DEPTH];
+} FluxDebugPrefix;
+
+#if defined(_MSC_VER)
+static_assert(sizeof(FluxDebugPrefix) % 8 == 0, "FluxDebugPrefix keeps 8-byte alignment");
+#else
+_Static_assert(sizeof(FluxDebugPrefix) % 8 == 0, "FluxDebugPrefix keeps 8-byte alignment");
+#endif
+
+/* Implemented in Rust (src/runtime/backtrace_abi.rs). */
+void   flux_capture_site(uintptr_t *out, size_t len);
+size_t flux_describe_site(const uintptr_t *site, size_t len, char *buf, size_t cap);
+
+static inline FluxDebugPrefix *prefix_of(FluxHeader *hdr) {
+    return (FluxDebugPrefix *)((char *)hdr - sizeof(FluxDebugPrefix));
+}
+
+static FluxHeader *debug_alloc(size_t aligned) {
+    FluxDebugPrefix *prefix =
+        (FluxDebugPrefix *)malloc(sizeof(FluxDebugPrefix) + FLUX_HEADER_SIZE + aligned);
+    if (!prefix) {
+        fprintf(stderr, "flux_gc_alloc: out of memory (%zu bytes)\n", aligned);
+        abort();
+    }
+    prefix->magic = FLUX_LIVE_MAGIC;
+    prefix->size  = aligned;
+    flux_capture_site(prefix->alloc_site, FLUX_SITE_DEPTH);
+    memset(prefix->free_site, 0, sizeof prefix->free_site);
+    return (FluxHeader *)(prefix + 1);
+}
+
+/* Quarantines a block instead of freeing it. */
+static void debug_free(FluxHeader *hdr) {
+    FluxDebugPrefix *prefix = prefix_of(hdr);
+    if (prefix->magic != FLUX_LIVE_MAGIC) return;
+    prefix->magic = FLUX_FREED_MAGIC;
+    flux_capture_site(prefix->free_site, FLUX_SITE_DEPTH);
+    rc_store_relaxed(hdr, 0);
+    hdr->scan_fsize = 0;
+    uint64_t *payload = (uint64_t *)((char *)hdr + FLUX_HEADER_SIZE);
+    for (uint64_t i = 0; i < prefix->size / 8; i++) {
+        payload[i] = FLUX_POISON;
+    }
+}
+
+static const char *debug_kind(uint8_t obj_tag) {
+    switch (obj_tag) {
+        case FLUX_OBJ_STRING:   return "a String";
+        case FLUX_OBJ_ADT:      return "a constructor value";
+        case FLUX_OBJ_TUPLE:    return "a tuple";
+        case FLUX_OBJ_ARRAY:    return "an Array";
+        case FLUX_OBJ_CLOSURE:  return "a closure";
+        case FLUX_OBJ_BIGINT:   return "a BigInt";
+        case FLUX_OBJ_EVIDENCE: return "an effect handler";
+        case FLUX_OBJ_FLOAT:    return "a Float";
+        case FLUX_OBJ_THUNK:    return "a thunk";
+        case 0:                 return "a Map node";
+        default:                return "a value";
+    }
+}
+
+/* Stops the program at an operation on a freed block. */
+static void debug_check(FluxHeader *hdr, const char *operation) {
+    FluxDebugPrefix *prefix = prefix_of(hdr);
+    if (prefix->magic != FLUX_FREED_MAGIC) return;
+    char allocated[512], freed[512], message[1200];
+    flux_describe_site(prefix->alloc_site, FLUX_SITE_DEPTH, allocated, sizeof allocated);
+    flux_describe_site(prefix->free_site, FLUX_SITE_DEPTH, freed, sizeof freed);
+    int len = snprintf(message, sizeof message,
+                       "use after free: %s %s that was already freed "
+                       "(allocated at %s, freed at %s)",
+                       operation, debug_kind(hdr->obj_tag), allocated, freed);
+    if (len < 0) len = 0;
+    if ((size_t)len >= sizeof message) len = (int)sizeof message - 1;
+    flux_heap_fault(message, (uint32_t)len);
+}
+
+#define DEBUG_CHECK(hdr, operation) debug_check((hdr), (operation))
+
+#else
+
+#define DEBUG_CHECK(hdr, operation) ((void)0)
+
+#endif /* FLUX_DEBUG_HEAP */
+
 /* ── Stats ─────────────────────────────────────────────────────────── */
 
 static _Atomic(size_t) gc_total_allocated = 0;
@@ -132,6 +254,10 @@ static inline int is_bump_allocated(void *hdr) {
 }
 
 static void arena_init(void) {
+#ifdef FLUX_DEBUG_HEAP
+    /* No arena: every block is recorded (see "Debug heap" above). */
+    return;
+#endif
     arena_base = (char *)malloc(FLUX_ARENA_DEFAULT_SIZE);
     if (!arena_base) {
         fprintf(stderr, "flux: failed to allocate bump arena (%d bytes)\n",
@@ -150,7 +276,11 @@ void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t ob
 
     FluxHeader *hdr = NULL;
 
-    if (!flux_worker_thread && arena_base) {
+#ifdef FLUX_DEBUG_HEAP
+    hdr = debug_alloc(aligned);
+#endif
+
+    if (!hdr && !flux_worker_thread && arena_base) {
         char *hp = flux_arena_hp;
         char *new_ptr = hp + total;
         if (new_ptr <= flux_arena_limit) {
@@ -203,11 +333,16 @@ void *flux_bump_alloc_slow(uint32_t payload_size, uint8_t scan_fsize, uint8_t ob
     size_t aligned = align_up((size_t)payload_size, FLUX_ALIGN);
     size_t total = FLUX_HEADER_SIZE + aligned;
 
+#ifdef FLUX_DEBUG_HEAP
+    (void)total;
+    FluxHeader *hdr = debug_alloc(aligned);
+#else
     FluxHeader *hdr = (FluxHeader *)malloc(total);
     if (!hdr) {
         fprintf(stderr, "flux_bump_alloc_slow: out of memory (%u bytes)\n", payload_size);
         abort();
     }
+#endif
 
     rc_store_relaxed(hdr, 1);
     hdr->scan_fsize = scan_fsize;
@@ -226,6 +361,10 @@ void *flux_bump_alloc_slow(uint32_t payload_size, uint8_t scan_fsize, uint8_t ob
 void flux_gc_free(void *ptr) {
     if (!ptr) return;
     FluxHeader *hdr = header_of(ptr);
+#ifdef FLUX_DEBUG_HEAP
+    debug_free(hdr);
+    return;
+#endif
     if (!is_bump_allocated(hdr)) {
         free(hdr);
     }
@@ -297,6 +436,7 @@ void flux_dup(int64_t val) {
     void *ptr = flux_untag_ptr(val);
     if (!ptr) return;
     FluxHeader *hdr = header_of(ptr);
+    DEBUG_CHECK(hdr, "copying");
     int32_t rc = rc_load_relaxed(hdr);
     if (rc > 0) {
         /* ST mode: only the owning thread is here, plain store is fine. */
@@ -319,6 +459,7 @@ static inline void *flux_field_should_free(void *ptr, int field_idx) {
     void *child = flux_untag_ptr(val);
     if (!child) return NULL;
     FluxHeader *hdr = header_of(child);
+    DEBUG_CHECK(hdr, "dropping");
     int32_t rc = rc_load_relaxed(hdr);
     if (rc > 0) {
         int32_t new_rc = rc - 1;
@@ -335,6 +476,10 @@ static inline void *flux_field_should_free(void *ptr, int field_idx) {
 
 static inline void flux_block_free(void *ptr) {
     FluxHeader *hdr = header_of(ptr);
+#ifdef FLUX_DEBUG_HEAP
+    debug_free(hdr);
+    return;
+#endif
     if (!is_bump_allocated(hdr)) {
         free(hdr);
     }
@@ -417,6 +562,7 @@ void flux_drop(int64_t val) {
     void *ptr = flux_untag_ptr(val);
     if (!ptr) return;
     FluxHeader *hdr = header_of(ptr);
+    DEBUG_CHECK(hdr, "dropping");
     int32_t rc = rc_load_relaxed(hdr);
     if (rc > 0) {
         int32_t new_rc = rc - 1;
@@ -442,6 +588,7 @@ int flux_rc_is_unique(int64_t val) {
     void *ptr = flux_untag_ptr(val);
     if (!ptr) return 1;
     FluxHeader *hdr = header_of(ptr);
+    DEBUG_CHECK(hdr, "reusing");
     /* Unique = the caller is the sole ST owner. A shared (rc < 0) object
      * is never reported as unique even if -rc happens to be 1, because
      * other threads may still hold the reference and the inline-reuse

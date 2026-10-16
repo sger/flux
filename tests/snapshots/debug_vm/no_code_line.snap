@@ -1,0 +1,16 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 4
+no code on line 4; breakpoint at no_code_line.flx:6
+> break 100
+no code at or after line 100 of no_code_line.flx
+> continue
+stopped: breakpoint at no_code_line.flx:6:5 in main (position 4)
+     6 |     let b = a + 1
+> locals
+a = 1
+> continue
+program finished
+--- program output ---
+2

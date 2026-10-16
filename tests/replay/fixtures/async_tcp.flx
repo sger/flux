@@ -1,0 +1,31 @@
+// A TCP echo across two fibers on 127.0.0.1 (0188 S1b). The test replaces
+// PORT with a free port before recording.
+import Flow.Async exposing (..)
+import Flow.Tcp exposing (..)
+
+fn serve() -> String with Async, AsyncFail {
+    let listener = listen("127.0.0.1", PORT)
+    let conn = accept(listener)
+    let msg = read(conn, 64)
+    write_all(conn, "echo " + msg)
+    close(conn)
+    msg
+}
+
+fn call() -> String with Async, AsyncFail {
+    let _wait = sleep(30)
+    let conn = connect("127.0.0.1", PORT)
+    write_all(conn, "hello")
+    let reply = read(conn, 64)
+    close(conn)
+    reply
+}
+
+fn body() -> String with Async, AsyncFail {
+    let pair = both(serve, call)
+    "server got " + pair.0 + "; client got " + pair.1
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

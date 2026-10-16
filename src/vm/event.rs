@@ -9,6 +9,9 @@ use crate::runtime::{
     value::{AdtFields, AdtValue, Value},
 };
 
+use crate::runtime::r#async::backend::{AsyncBackend, RequestId};
+use crate::runtime::replay;
+
 use super::task::VmSendValue;
 
 #[derive(Clone)]
@@ -26,6 +29,19 @@ enum VmEvent {
 thread_local! {
     static NEXT_EVENT_ID: RefCell<i64> = const { RefCell::new(1) };
     static EVENTS: RefCell<HashMap<i64, VmEvent>> = RefCell::new(HashMap::new());
+}
+
+/// The id the next event gets: a debugger's checkpoint keeps it.
+pub(crate) fn next_id() -> i64 {
+    NEXT_EVENT_ID.with(|next| *next.borrow())
+}
+
+/// A debugger restored a checkpoint taken when `next` was the next id
+/// (0188 S9a): events made since are gone, and the re-run makes them again
+/// with the same ids.
+pub(crate) fn rewind_ids(next: i64) {
+    EVENTS.with(|events| events.borrow_mut().retain(|id, _| *id < next));
+    NEXT_EVENT_ID.with(|id| *id.borrow_mut() = next);
 }
 
 struct WaitQueue {
@@ -48,6 +64,28 @@ fn wait_queue() -> &'static WaitQueue {
 
 fn active_waits() -> &'static Mutex<HashSet<u64>> {
     ACTIVE_WAITS.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// The clock `after` deadlines are measured on. Under a tape every reading
+/// is an `event_clock` input, so whether a deadline has passed replays
+/// exactly.
+fn now() -> Instant {
+    if !replay::is_active() {
+        return Instant::now();
+    }
+    static START: OnceLock<Instant> = OnceLock::new();
+    let start = *START.get_or_init(Instant::now);
+    let outcome = replay::effect(replay::EffectRequest::EventClock, || {
+        replay::Outcome::Int(start.elapsed().as_millis() as i64)
+    });
+    match outcome {
+        Ok(replay::Outcome::Int(ms)) => start + Duration::from_millis(ms.max(0) as u64),
+        Ok(other) => replay::async_tape::fail(replay::TapeError::BadTape {
+            path: "the replayed tape".to_string(),
+            reason: format!("its event_clock reading is {other}, not a number"),
+        }),
+        Err(err) => replay::async_tape::fail(err),
+    }
 }
 
 fn insert(event: VmEvent) -> i64 {
@@ -93,7 +131,7 @@ pub(super) fn after(ms: i64) -> Result<i64, String> {
         return Err("event_after: ms must be non-negative".to_string());
     }
     Ok(insert(VmEvent::After(
-        Instant::now() + Duration::from_millis(ms as u64),
+        now() + Duration::from_millis(ms as u64),
     )))
 }
 
@@ -145,6 +183,7 @@ pub(super) fn complete_wait(request_id: u64) {
         .lock()
         .expect("VM event active wait set poisoned")
         .remove(&request_id)
+        && !super::core_dispatch::wake_here(request_id, || Ok(Value::None))
     {
         let _ = wait_queue().tx.send(request_id);
     }
@@ -187,7 +226,7 @@ fn is_ready(id: i64) -> Result<bool, String> {
     match get(id)? {
         VmEvent::Recv(ch) => super::channel::can_recv(ch),
         VmEvent::Send(ch, _) | VmEvent::SendMove(ch, _) => super::channel::can_send(ch),
-        VmEvent::After(deadline) => Ok(Instant::now() >= deadline),
+        VmEvent::After(deadline) => Ok(now() >= deadline),
         VmEvent::Always(_) => Ok(true),
         VmEvent::Never => Ok(false),
         VmEvent::Choose(ids) => {
@@ -209,8 +248,14 @@ fn register_wait(id: i64, request_id: u64) -> Result<(), String> {
             super::channel::watch_send(ch, request_id)
         }
         VmEvent::After(deadline) => {
-            if Instant::now() >= deadline {
+            let now = now();
+            if now >= deadline {
                 complete_wait(request_id);
+            } else if replay::is_active() {
+                // Under a tape the deadline is a backend timer on the wait's
+                // own request, so its firing is on the tape with the rest.
+                let ms = deadline.saturating_duration_since(now).as_millis() as u64;
+                super::core_dispatch::vm_async::backend()?.timer_start(RequestId(request_id), ms);
             } else {
                 std::thread::spawn(move || {
                     std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
@@ -261,7 +306,7 @@ fn poll(ctx: &mut dyn RuntimeContext, id: i64) -> Result<Option<Value>, String> 
             }
         }
         VmEvent::After(deadline) => {
-            if Instant::now() >= deadline {
+            if now() >= deadline {
                 Ok(Some(Value::None))
             } else {
                 Ok(None)

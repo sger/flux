@@ -1,0 +1,29 @@
+// A consumer waiting on a channel (0188 S8): `threads` says which channel
+// and which way.
+import Flow.Async exposing (..)
+import Flow.Channel as Channel
+
+fn body() -> Int with Async {
+    let ch = Channel.make(1)
+
+    fn consume() -> Int with Async {
+        match Channel.recv(ch) {
+            Some(n) -> n + 1,
+            None -> 0
+        }
+    }
+
+    fn produce() -> Int with Async {
+        sleep(5)
+        let n = 41
+        Channel.send(ch, n)
+        n
+    }
+
+    let pair = both(fn() { consume() }, fn() { produce() })
+    pair.0
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

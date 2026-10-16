@@ -56,8 +56,11 @@ jobs:
           echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] http://apt.llvm.org/bookworm/ llvm-toolchain-bookworm-${LLVM_VERSION} main" \
             > /etc/apt/sources.list.d/llvm.list
           apt-get update
+          # lldb runs the native debug tests (proposal 0188 S5);
+          # llvm-dwarfdump comes with llvm.
           apt-get install -y --no-install-recommends \
-            "clang-${LLVM_VERSION}" "llvm-${LLVM_VERSION}" "lld-${LLVM_VERSION}"
+            "clang-${LLVM_VERSION}" "llvm-${LLVM_VERSION}" "lld-${LLVM_VERSION}" \
+            "lldb-${LLVM_VERSION}"
           # Expose the unversioned opt/llc/clang/llvm-config from this toolchain
           # (they live under /usr/lib/llvm-<v>/bin, not /usr/bin).
           echo "/usr/lib/llvm-${LLVM_VERSION}/bin" >> "$GITHUB_PATH"

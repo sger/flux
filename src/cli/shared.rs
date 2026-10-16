@@ -7,13 +7,14 @@
 use std::{path::PathBuf, str::FromStr};
 
 use crate::{
+    debuginfo::DebugLevel,
     diagnostics::DEFAULT_MAX_ERRORS,
     driver::{
         AetherDumpMode, CoreDumpMode,
         backend::Backend,
         flags::{
             DriverBackendFlags, DriverCacheFlags, DriverDiagnosticFlags, DriverDumpFlags,
-            DriverFlags, DriverInputFlags, DriverLanguageFlags, DriverRuntimeFlags,
+            DriverFlags, DriverInputFlags, DriverLanguageFlags, DriverRuntimeFlags, TapeRequest,
         },
         mode::DiagnosticOutputFormat,
     },
@@ -25,6 +26,8 @@ pub(crate) struct ParsedCliBackendFlags {
     pub(crate) use_llvm: Option<bool>,
     pub(crate) emit_llvm: bool,
     pub(crate) emit_binary: bool,
+    /// `--debug-heap`: link the debug-heap runtime (0188 S10c).
+    pub(crate) debug_heap: bool,
 }
 
 /// Parsed runtime-related CLI flags that affect execution-time reporting or tracing.
@@ -58,6 +61,7 @@ pub(crate) struct ParsedCliDumpFlags {
     pub(crate) dump_aether: AetherDumpMode,
     pub(crate) dump_lir: bool,
     pub(crate) dump_lir_llvm: bool,
+    pub(crate) dump_debug_info: bool,
 }
 
 impl Default for ParsedCliDumpFlags {
@@ -69,6 +73,7 @@ impl Default for ParsedCliDumpFlags {
             dump_aether: AetherDumpMode::None,
             dump_lir: false,
             dump_lir_llvm: false,
+            dump_debug_info: false,
         }
     }
 }
@@ -125,6 +130,12 @@ pub(crate) struct CliDiagnosticOptions {
 pub(crate) struct CliCommandValueOptions {
     pub(crate) dump_core: CoreDumpMode,
     pub(crate) test_filter: Option<String>,
+    pub(crate) debug_level: DebugLevel,
+    pub(crate) tape: Option<TapeRequest>,
+    /// `flux debug --script <file>`.
+    pub(crate) debug_script: Option<PathBuf>,
+    /// `flux debug --engine <address>`.
+    pub(crate) debug_engine: Option<String>,
 }
 
 impl Default for CliDiagnosticOptions {
@@ -143,6 +154,10 @@ impl Default for CliCommandValueOptions {
         Self {
             dump_core: CoreDumpMode::None,
             test_filter: None,
+            debug_level: DebugLevel::None,
+            tape: None,
+            debug_script: None,
+            debug_engine: None,
         }
     }
 }
@@ -197,6 +212,7 @@ pub(crate) fn extract_cli_flag_groups(args: &mut Vec<String>) -> ParsedCliFlags 
             }
             "--dump-lir" => flags.dumps.dump_lir = remove_bool_flag(args, i),
             "--dump-lir-llvm" => flags.dumps.dump_lir_llvm = remove_bool_flag(args, i),
+            "--dump-debug-info" => flags.dumps.dump_debug_info = remove_bool_flag(args, i),
             "--native" => flags.backend.use_llvm = Some(remove_bool_flag(args, i)),
             "--vm" => {
                 args.remove(i);
@@ -204,6 +220,7 @@ pub(crate) fn extract_cli_flag_groups(args: &mut Vec<String>) -> ParsedCliFlags 
             }
             "--emit-llvm" => flags.backend.emit_llvm = remove_bool_flag(args, i),
             "--emit-binary" => flags.backend.emit_binary = remove_bool_flag(args, i),
+            "--debug-heap" => flags.backend.debug_heap = remove_bool_flag(args, i),
             "--no-cache" => flags.execution.no_cache = remove_bool_flag(args, i),
             "--deps" => flags.execution.clean_deps = remove_bool_flag(args, i),
             "--store" => flags.execution.clean_store = remove_bool_flag(args, i),
@@ -267,6 +284,46 @@ pub(crate) fn extract_cli_value_options(args: &mut Vec<String>) -> Result<CliVal
             values.command.dump_core = mode;
             continue;
         }
+        if let Some(level) = consume_debug_option(args, &mut i)? {
+            values.command.debug_level = level;
+            continue;
+        }
+        if let Some(path) = take_required_long_option(
+            args,
+            &mut i,
+            "--record",
+            "Usage: flux <file.flx> --record <tape>",
+        )? {
+            set_tape(&mut values, TapeRequest::Record(PathBuf::from(path)))?;
+            continue;
+        }
+        if let Some(path) = take_required_long_option(
+            args,
+            &mut i,
+            "--script",
+            "Usage: flux debug <file.flx> --script <commands>",
+        )? {
+            values.command.debug_script = Some(PathBuf::from(path));
+            continue;
+        }
+        if let Some(address) = take_required_long_option(
+            args,
+            &mut i,
+            "--engine",
+            "Usage: flux debug <file.flx> --engine <host:port>",
+        )? {
+            values.command.debug_engine = Some(address);
+            continue;
+        }
+        if let Some(path) = take_required_long_option(
+            args,
+            &mut i,
+            "--replay",
+            "Usage: flux <file.flx> --replay <tape>",
+        )? {
+            set_tape(&mut values, TapeRequest::Replay(PathBuf::from(path)))?;
+            continue;
+        }
         if let Some(format) = consume_named_value_option(
             args,
             &mut i,
@@ -325,6 +382,7 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
             use_llvm: parsed.backend.use_llvm.unwrap_or(false),
             emit_llvm: parsed.backend.emit_llvm,
             emit_binary: parsed.backend.emit_binary,
+            debug_heap: parsed.backend.debug_heap,
             output_path: values.paths.output_path,
         },
         input: DriverInputFlags {
@@ -342,6 +400,15 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
             profiling: parsed.runtime.profiling,
             quiet: parsed.runtime.quiet,
             check_only: false,
+            tape: values.command.tape,
+            // `flux debug` turns the debugger on; `--script` and `--engine`
+            // only say where its commands come from.
+            debugger: (values.command.debug_script.is_some()
+                || values.command.debug_engine.is_some())
+            .then_some(crate::driver::flags::DebuggerRequest {
+                script: values.command.debug_script,
+                engine: values.command.debug_engine,
+            }),
         },
         dumps: DriverDumpFlags {
             dump_repr: parsed.dumps.dump_repr,
@@ -350,6 +417,7 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
             dump_aether: parsed.dumps.dump_aether,
             dump_lir: parsed.dumps.dump_lir,
             dump_lir_llvm: parsed.dumps.dump_lir_llvm,
+            dump_debug_info: parsed.dumps.dump_debug_info,
         },
         diagnostics: DriverDiagnosticFlags {
             max_errors: values.diagnostics.max_errors,
@@ -368,6 +436,13 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
             enable_optimize: parsed.language.enable_optimize.unwrap_or(false),
             enable_analyze: parsed.language.enable_analyze,
             strict_mode: parsed.language.strict_mode,
+            // Dumping the debug information needs some to dump.
+            debug_level: if parsed.dumps.dump_debug_info && !values.command.debug_level.is_enabled()
+            {
+                crate::debuginfo::DebugLevel::Full
+            } else {
+                values.command.debug_level
+            },
         },
         profile: crate::driver::flags::DriverProfileFlags {
             name: values.profile,
@@ -466,6 +541,37 @@ fn consume_dump_core_option(
     Ok(Some(mode))
 }
 
+/// Records the one tape request a run may carry.
+fn set_tape(values: &mut CliValueOptions, request: TapeRequest) -> Result<(), String> {
+    if values.command.tape.is_some() {
+        return Err("Error: a run takes one of --record and --replay, once.".to_string());
+    }
+    values.command.tape = Some(request);
+    Ok(())
+}
+
+/// Consumes `-g`, `--debug` or `--debug=<lines|full>` and returns the requested debug level.
+///
+/// `-g` and `--debug` mean `full`. `--debug=none` is rejected: leaving the flag out already
+/// means no debug information.
+fn consume_debug_option(
+    args: &mut Vec<String>,
+    index: &mut usize,
+) -> Result<Option<DebugLevel>, String> {
+    if args[*index] == "-g" || args[*index] == "--debug" {
+        args.remove(*index);
+        return Ok(Some(DebugLevel::Full));
+    }
+    let Some(value) = args[*index].strip_prefix("--debug=") else {
+        return Ok(None);
+    };
+    let Some(level) = DebugLevel::parse(value) else {
+        return Err("Error: --debug expects no value, `lines` or `full`.".to_string());
+    };
+    args.remove(*index);
+    Ok(Some(level))
+}
+
 /// Parses a diagnostic format token into a concrete driver rendering mode.
 fn parse_diagnostic_format(value: String) -> Result<DiagnosticOutputFormat, String> {
     let format = match value.as_str() {
@@ -505,6 +611,7 @@ mod tests {
             "-O".into(),
             "--dump-aether=debug".into(),
             "--emit-binary".into(),
+            "--debug-heap".into(),
             "--prof".into(),
         ];
 
@@ -514,6 +621,7 @@ mod tests {
         assert_eq!(parsed.language.enable_optimize, Some(true));
         assert_eq!(parsed.dumps.dump_aether, AetherDumpMode::Debug);
         assert!(parsed.backend.emit_binary);
+        assert!(parsed.backend.debug_heap);
         assert!(parsed.runtime.profiling);
         assert!(parsed.execution.no_cache);
         assert_eq!(args, vec!["flux".to_string(), "file.flx".to_string()]);
@@ -605,6 +713,55 @@ mod tests {
         let err = extract_cli_value_options(&mut args).unwrap_err();
 
         assert!(err.contains("--dump-core"));
+    }
+
+    #[test]
+    fn extract_value_options_reads_each_debug_spelling() {
+        use crate::debuginfo::DebugLevel;
+        for (flag, level) in [
+            ("-g", DebugLevel::Full),
+            ("--debug", DebugLevel::Full),
+            ("--debug=full", DebugLevel::Full),
+            ("--debug=lines", DebugLevel::Lines),
+        ] {
+            let mut args = vec!["flux".into(), "file.flx".into(), flag.into()];
+            let values = extract_cli_value_options(&mut args).unwrap();
+            assert_eq!(values.command.debug_level, level, "{flag}");
+            assert_eq!(args, vec!["flux".to_string(), "file.flx".to_string()]);
+        }
+    }
+
+    #[test]
+    fn extract_value_options_rejects_an_unknown_debug_level() {
+        for flag in ["--debug=none", "--debug=", "--debug=max"] {
+            let mut args = vec!["flux".into(), "file.flx".into(), flag.into()];
+            let err = extract_cli_value_options(&mut args).unwrap_err();
+            assert!(err.contains("--debug"), "{flag}: {err}");
+        }
+    }
+
+    #[test]
+    fn dump_debug_info_implies_full_debug_information() {
+        use crate::debuginfo::DebugLevel;
+        let build = |extra: &[&str]| {
+            let mut args: Vec<String> = ["flux", "file.flx"]
+                .iter()
+                .chain(extra)
+                .map(|arg| arg.to_string())
+                .collect();
+            let parsed = extract_cli_flag_groups(&mut args);
+            let values = extract_cli_value_options(&mut args).unwrap();
+            build_driver_flags(parsed, values)
+        };
+
+        let dump = build(&["--dump-debug-info"]);
+        assert!(dump.dumps.dump_debug_info);
+        assert_eq!(dump.language.debug_level, DebugLevel::Full);
+
+        let lines = build(&["--dump-debug-info", "--debug=lines"]);
+        assert_eq!(lines.language.debug_level, DebugLevel::Lines);
+
+        assert_eq!(build(&[]).language.debug_level, DebugLevel::None);
     }
 
     #[test]

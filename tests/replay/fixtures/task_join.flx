@@ -1,0 +1,17 @@
+// Tasks under a tape (0188 S8c): two tasks spawned and joined; what they
+// return is printed by the main program.
+import Flow.Task exposing (..)
+
+fn sum_squares(n: Int, acc: Int) -> Int {
+    if n <= 0 { acc } else { sum_squares(n - 1, acc + n * n) }
+}
+
+fn small() -> Int { sum_squares(10, 0) }
+fn large() -> Int { sum_squares(2000, 0) }
+
+fn main() with IO {
+    let a = spawn(small)
+    let b = spawn(large)
+    print("small = " + to_string(blocking_join(a)))
+    print("large = " + to_string(blocking_join(b)))
+}

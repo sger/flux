@@ -54,7 +54,7 @@ pub enum CancelScope {
 /// are public for now so Phase 0c can wire the VM through this type with
 /// minimal ceremony; we can tighten the surface to accessor methods once the
 /// migration is settled.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct EffectContext {
     /// In-flight perform / yield bookkeeping. Today this lives on `Vm`;
     /// Phase 0c moves it here.

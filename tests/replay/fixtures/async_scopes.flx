@@ -1,0 +1,19 @@
+// Cancelling a scope with several sleeping fibers (0188 S1b).
+import Flow.Async exposing (..)
+
+fn worker() -> Unit with Async { sleep(5000) }
+
+fn body() -> String with Async {
+    scope(fn(s) {
+        fork(s, worker)
+        fork(s, worker)
+        fork(s, worker)
+        sleep(15)
+        cancel(s)
+        "cancelled three"
+    })
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

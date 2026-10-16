@@ -83,9 +83,11 @@ jobs:
         with:
           key: test
 
+      # lldb and llvm-dwarfdump run the native debug tests (proposal 0188
+      # S5); macOS has both through Xcode.
       - name: Install Linux native build toolchain
         if: ${{ runner.os == 'Linux' }}
-        run: sudo apt-get update && sudo apt-get install -y build-essential binutils lld
+        run: sudo apt-get update && sudo apt-get install -y build-essential binutils lld lldb-18 llvm-18
 
       # The native backend emits LLVM IR as *text* and shells out, so LLVM is a
       # runtime dependency of the test suite rather than a linked one — there is

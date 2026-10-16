@@ -41,6 +41,7 @@ runtime/c/*.obj
 runtime/c/*.lib
 runtime/c/smoke_test
 runtime/c/.flux_rt.lock
+runtime/c/*.flags
 
 # Debug symbols — they embed the build machine's absolute paths
 *.pdb
@@ -60,3 +61,7 @@ runtime/c/.flux_rt.lock
 # insta writes these beside the accepted snapshot on a mismatch; they are
 # review artifacts, never committed.
 *.snap.new
+
+# Python bytecode caches (e.g. from lldb loading tools/lldb/flux_lldb.py)
+__pycache__/
+*.pyc

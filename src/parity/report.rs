@@ -328,6 +328,12 @@ pub fn cargo_run_for_way(way: Way, file: &str) -> String {
         Way::LlvmStrict => {
             format!("cargo run --features llvm -- {file} --native --strict --no-cache")
         }
+        Way::VmDebug => format!("cargo run -- debug {file} --script <its // dbg: lines>"),
+        Way::LlvmG => format!("cargo run --features llvm -- {file} --native -g --no-cache"),
+        Way::LlvmDebug => format!(
+            "cargo run --features llvm -- {file} --native -g -o app && lldb ./app \
+             (with `flux debug --lldb-script` imported)"
+        ),
     }
 }
 
@@ -686,7 +692,13 @@ fn print_inline_diff(left_label: String, left: &str, right_label: String, right:
     println!("    --- {left_label}");
     println!("    +++ {right_label}");
 
-    let max_lines = left_lines.len().max(right_lines.len()).min(12);
+    // A debug session's transcript is read whole, a program's output in part.
+    let limit = if left_label.ends_with("_debug") {
+        80
+    } else {
+        12
+    };
+    let max_lines = left_lines.len().max(right_lines.len()).min(limit);
 
     for i in 0..max_lines {
         let l = left_lines.get(i).copied().unwrap_or("");

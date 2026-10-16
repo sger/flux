@@ -283,6 +283,8 @@ typedef struct FluxAsyncCallbacks {
     int64_t (*task_cancel)(int64_t task_id);
     void    (*register_root_task)(int64_t task_id);
     void    (*deregister_root_task)(int64_t task_id);
+    /* The calling OS thread's id, as a debugger names it (0188 S8b). */
+    uint64_t (*os_thread_id)(void);
 } FluxAsyncCallbacks;
 
 typedef struct FluxFsTags {
@@ -328,6 +330,16 @@ int64_t  flux_async_task_spawn_scoped_move(uint64_t scope_id, int64_t closure);
 void     flux_async_register_root_task(int64_t task_id);
 void     flux_async_deregister_root_task(int64_t task_id);
 int32_t  flux_async_check_cancelled(void);
+/* What the current fiber parks for, for the debugger's thread view (0188
+ * S8b): one of the FLUX_DEBUG_BLOCK_* kinds and its argument. */
+void     flux_async_debug_block(uint64_t request_id, int32_t kind, int64_t arg);
+#define FLUX_DEBUG_BLOCK_CHANNEL_RECV 2
+#define FLUX_DEBUG_BLOCK_CHANNEL_SEND 3
+#define FLUX_DEBUG_BLOCK_TASK         4
+#define FLUX_DEBUG_BLOCK_EVENT        5
+#define FLUX_DEBUG_BLOCK_TCP          6
+/* The program's fibers as JSON, for `flux_lldb.py` (0188 S8b). */
+const char *flux_debug_fibers(void);
 int32_t  flux_async_current_worker_count(void);
 uint64_t flux_async_tcp_connect(const uint8_t *host, uintptr_t host_len, int64_t port);
 uint64_t flux_async_tcp_listen(const uint8_t *host, uintptr_t host_len, int64_t port);
@@ -362,6 +374,7 @@ int32_t  flux_async_runtime_init(void);
 int64_t  flux_async_run_root(int64_t root_closure);
 int32_t  flux_async_last_run_failed(void);
 uint64_t flux_async_timer_start(int64_t ms);
+void     flux_async_event_timer(uint64_t request_id, int64_t ms);
 int64_t  flux_async_suspend(int64_t request_id, int64_t resume_value);
 int64_t  flux_async_suspend_request(uint64_t request_id);
 uint64_t flux_async_task_await_request(void);
@@ -491,9 +504,10 @@ size_t flux_gc_num_allocs(void);
 
 /* ── I/O ────────────────────────────────────────────────────────────── */
 
-void    flux_print(int64_t value);
-void    flux_println(int64_t value);
-void    flux_debug_trace(int64_t value);
+/* They return Unit (FLUX_NONE): compiled code drops a primop's result. */
+int64_t flux_print(int64_t value);
+int64_t flux_println(int64_t value);
+int64_t flux_debug_trace(int64_t value);
 int64_t flux_read_line(void);
 int64_t flux_read_file(int64_t path);
 
@@ -531,6 +545,132 @@ typedef struct {
     { ok_tag, err_tag, io_error_tag, not_found_tag, permission_denied_tag,     \
       already_exists_tag, not_a_directory_tag, is_a_directory_tag,             \
       directory_not_empty_tag, interrupted_tag, other_tag }
+
+/* ── Effect tape (proposal 0188 S1) ─────────────────────────────────────
+ *
+ * With --record / --replay, every synchronous effect is recorded to a tape or
+ * answered from one. The tape itself lives in Rust (src/runtime/replay); C
+ * describes each request and hands over, or rebuilds, its result through the
+ * flat FluxTapeOutcome. tape.c holds the C half.
+ */
+extern int32_t flux_tape_mode;   /* 0 off, 1 record, 2 replay */
+
+/* Request kinds: must match EventKind in src/runtime/replay/native_abi.rs. */
+#define FLUX_TAPE_EV_READ_STDIN        0
+#define FLUX_TAPE_EV_READ_FILE         1
+#define FLUX_TAPE_EV_READ_LINES        2
+#define FLUX_TAPE_EV_TRY_READ_FILE     3
+#define FLUX_TAPE_EV_FS_EXISTS         4
+#define FLUX_TAPE_EV_FS_IS_DIR         5
+#define FLUX_TAPE_EV_FS_IS_FILE        6
+#define FLUX_TAPE_EV_FS_LIST_DIR       7
+#define FLUX_TAPE_EV_FS_METADATA       8
+#define FLUX_TAPE_EV_SHA256_FILE       9
+#define FLUX_TAPE_EV_ENV_VAR           10
+#define FLUX_TAPE_EV_ENV_ARGS          11
+#define FLUX_TAPE_EV_ENV_CWD           12
+#define FLUX_TAPE_EV_ENV_HOME_DIR      13
+#define FLUX_TAPE_EV_PROC_RUN          14
+#define FLUX_TAPE_EV_CLOCK_NOW         15
+#define FLUX_TAPE_EV_WRITE_FILE        16
+#define FLUX_TAPE_EV_FS_WRITE_FILE     17
+#define FLUX_TAPE_EV_FS_CREATE_DIR_ALL 18
+#define FLUX_TAPE_EV_FS_REMOVE_FILE    19
+#define FLUX_TAPE_EV_FS_REMOVE_DIR_ALL 20
+#define FLUX_TAPE_EV_FS_RENAME         21
+#define FLUX_TAPE_EV_EVENT_CLOCK       22
+
+/* Outcome tags: must match OUT_* in native_abi.rs. */
+#define FLUX_TAPE_OUT_UNIT 0
+#define FLUX_TAPE_OUT_BOOL 1
+#define FLUX_TAPE_OUT_INT  2
+#define FLUX_TAPE_OUT_TEXT 3
+#define FLUX_TAPE_OUT_LIST 4
+#define FLUX_TAPE_OUT_SOME 5
+#define FLUX_TAPE_OUT_NONE 6
+#define FLUX_TAPE_OUT_ERR  7
+#define FLUX_TAPE_OUT_META 8
+#define FLUX_TAPE_OUT_PROC 9
+#define FLUX_TAPE_OUT_FAIL 10
+
+/* Must match FluxTapeOutcome in native_abi.rs, field for field. */
+typedef struct {
+    int32_t        tag;
+    int32_t        ok;        /* 1: the outcome is wrapped in Ok(..) */
+    int32_t        err_kind;  /* IoError kind, in Flow.IoError declaration order */
+    int32_t        b0, b1;
+    int32_t        pad;
+    int64_t        i0, i1;
+    const uint8_t *s0;
+    size_t         n0;
+    const uint8_t *s1;
+    size_t         n1;
+    size_t         list_len;
+} FluxTapeOutcome;
+
+/* Rust (native_abi.rs). */
+int32_t        flux_tape_init(const char *program_hash, int32_t argc, char **argv);
+void           flux_tape_begin(uint32_t kind);
+void           flux_tape_arg(const uint8_t *ptr, size_t len);
+void           flux_tape_list_push(const uint8_t *ptr, size_t len);
+void           flux_tape_record(const FluxTapeOutcome *outcome);
+void           flux_tape_replay(FluxTapeOutcome *out);
+const uint8_t *flux_tape_list_item(size_t index, size_t *len);
+int32_t        flux_tape_console(int32_t stream, const uint8_t *ptr, size_t len);
+void           flux_tape_console_done(void);
+void           flux_tape_enter_task(uint32_t task);
+uint64_t       flux_tape_ordered_begin(uint32_t kind, uint64_t a, uint64_t b);
+void           flux_tape_ordered_end(int32_t shape, int64_t value);
+int32_t        flux_tape_has_tasks(void);
+
+/* What crosses threads under a tape (0188 S8c): flux_tape_ordered_begin's
+ * kinds, and the channel operations FLUX_TAPE_CHANNEL names in its `b`. */
+#define FLUX_TAPE_TASK_SPAWN   1
+#define FLUX_TAPE_TASK_START   2
+#define FLUX_TAPE_TASK_END     3
+#define FLUX_TAPE_TASK_CANCEL  4
+#define FLUX_TAPE_TASK_JOIN    5
+#define FLUX_TAPE_TASK_AWAIT   6
+#define FLUX_TAPE_CHANNEL      7
+#define FLUX_TAPE_CHAN_MAKE      0
+#define FLUX_TAPE_CHAN_SEND      1
+#define FLUX_TAPE_CHAN_RECV      2
+#define FLUX_TAPE_CHAN_TRY_SEND  3
+#define FLUX_TAPE_CHAN_TRY_RECV  4
+#define FLUX_TAPE_CHAN_CLOSE     5
+#define FLUX_TAPE_CHAN_LEN       6
+#define FLUX_TAPE_CHAN_IS_CLOSED 7
+#define FLUX_TAPE_NONE 0
+#define FLUX_TAPE_BOOL 1
+#define FLUX_TAPE_INT  2
+void           flux_tape_finish(int32_t failed, const uint8_t *ptr, size_t len);
+void           flux_tape_refuse(const char *what);
+
+/* How a primop's native result is shaped, so tape.c can take it apart and
+ * rebuild it. RES_* are Result<_, IoError>; WRITE is the legacy write_file,
+ * which answers a Bool. */
+#define FLUX_TAPE_SH_TEXT      0
+#define FLUX_TAPE_SH_BOOL      1
+#define FLUX_TAPE_SH_INT       2
+#define FLUX_TAPE_SH_OPT_TEXT  3
+#define FLUX_TAPE_SH_LIST_TEXT 4
+#define FLUX_TAPE_SH_RES_TEXT  5
+#define FLUX_TAPE_SH_RES_UNIT  6
+#define FLUX_TAPE_SH_RES_LIST  7
+#define FLUX_TAPE_SH_RES_META  8
+#define FLUX_TAPE_SH_RES_PROC  9
+#define FLUX_TAPE_SH_WRITE     10
+
+/* tape.c. Each effect primop, while flux_tape_mode is set, calls
+ * flux_tape_start with its string arguments (0 for none); when that returns
+ * 1 it is replaying and returns flux_tape_replay_value, otherwise it runs and
+ * returns flux_tape_record_value of its real result. */
+void    flux_tape_c_init(int argc, char **argv);
+int     flux_tape_start(uint32_t kind, int64_t arg0, int64_t arg1);
+int     flux_tape_start_proc(int64_t cmd, int64_t argv);
+int64_t flux_tape_record_value(int64_t value, int shape, const FluxIoTags *tags,
+                               int32_t extra_tag);
+int64_t flux_tape_replay_value(int shape, const FluxIoTags *tags, int32_t extra_tag);
 
 /* Shared by every fallible operation, including those in other .c files. */
 int64_t flux_io_make_adt(int32_t ctor_tag, const int64_t *fields, int32_t count);
@@ -698,8 +838,27 @@ int64_t flux_is_none_val(int64_t val);
 /* ── Control ────────────────────────────────────────────────────────── */
 
 void    flux_panic(int64_t msg);
-void    flux_trace_push(const char *name, const char *file, int32_t line);
-void    flux_trace_pop(void);
+
+/* Debugger hooks (proposal 0188 S7b): empty functions the runtime calls
+ * just before it reports an error, so a debugger can stop there by name.
+ * `flux_lldb.py`'s `flux catch` sets its breakpoints on them. They cost a
+ * call only on paths that are already failing. */
+void    flux_debug_on_panic(int64_t msg);
+void    flux_debug_on_unhandled_effect(int64_t htag);
+/* `Async.fail(err)` (0188 S8b). */
+void    flux_debug_on_fiber_failure(int64_t err);
+/* `flux_panic` without its debugger hook: for a failure the debugger has
+ * already seen where it happened. */
+void    flux_panic_unhooked(int64_t msg);
+/* Stops the program at a fault the debug heap found (0188 S10c): the
+ * debugger hook, then the message and the Flux trace, as a panic nothing
+ * catches. A `try` does not catch it: the heap is no longer sound. */
+void    flux_heap_fault(const char *msg, uint32_t len);
+/* Reports an effect no handler covers and aborts. */
+void    flux_unhandled_effect(const char *where, int64_t htag);
+/* Prints the Flux frames the program is in to stderr, from its line table
+ * (0188 S10a). In the Rust staticlib. */
+void    flux_print_backtrace(void);
 int64_t flux_clock_now(void);
 int64_t flux_try(int64_t thunk);
 int64_t flux_assert_throws(int64_t thunk, int64_t expected_msg);

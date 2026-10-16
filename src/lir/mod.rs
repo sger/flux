@@ -14,6 +14,8 @@
 
 pub mod cont_split;
 #[cfg(feature = "llvm")]
+pub mod emit_debug;
+#[cfg(feature = "llvm")]
 pub mod emit_llvm;
 pub mod liveness;
 pub mod lower;
@@ -413,6 +415,108 @@ pub struct LirBlock {
     pub params: Vec<LirVar>,
     pub instrs: Vec<LirInstr>,
     pub terminator: LirTerminator,
+    /// Where each instruction came from in the source, by index; an
+    /// instruction past the end of the list has no location. Native debug
+    /// builds turn these into line tables (proposal 0188 S5).
+    pub locs: Vec<LirLoc>,
+    /// Where the terminator came from.
+    pub term_loc: LirLoc,
+}
+
+impl LirBlock {
+    /// The source location of instruction `index`.
+    pub fn loc(&self, index: usize) -> LirLoc {
+        self.locs.get(index).copied().unwrap_or_default()
+    }
+}
+
+/// A source position: line and column from 1. Line 0 is code the compiler
+/// made (reference counting, glue), which a debugger steps over.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct LirLoc {
+    pub line: u32,
+    pub col: u32,
+    /// Inside a lambda the simplifier inlined (proposal 0188 S9c): 1 + its
+    /// index in the function's `LirFnDebug::inline_sites`; 0 otherwise.
+    pub inlined: u32,
+}
+
+impl LirLoc {
+    pub const NONE: LirLoc = LirLoc {
+        line: 0,
+        col: 0,
+        inlined: 0,
+    };
+
+    /// From a source span; a span the compiler made up has no location.
+    pub fn from_span(span: crate::diagnostics::position::Span) -> Self {
+        if span.start.line == 0 {
+            return Self::NONE;
+        }
+        LirLoc {
+            line: span.start.line as u32,
+            col: span.start.column as u32 + 1,
+            inlined: 0,
+        }
+    }
+
+    pub fn is_none(self) -> bool {
+        self.line == 0
+    }
+}
+
+/// What a debugger calls a function (proposal 0188 S5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LirFnDebug {
+    pub kind: LirFnKind,
+    /// Where the function is defined.
+    pub loc: LirLoc,
+    /// Made by the compiler: a debugger does not stop in it.
+    pub artificial: bool,
+    /// The source variables bound in the function, and the LIR variable
+    /// holding each (proposal 0188 S6).
+    pub vars: Vec<LirVarBinder>,
+    /// The lambdas inlined into the function, which its locations' `inlined`
+    /// numbers name (proposal 0188 S9c).
+    pub inline_sites: Vec<LirInlineSite>,
+}
+
+/// A lambda inlined where it was applied: where the lambda is, and the call
+/// it replaced, itself perhaps inside another inlined lambda.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LirInlineSite {
+    pub lambda: LirLoc,
+    pub call: LirLoc,
+}
+
+/// A source variable and the LIR variable that holds its value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LirVarBinder {
+    pub var: LirVar,
+    pub name: String,
+    pub kind: LirVarKind,
+    /// Where it is bound: the `let`, the lambda, or the case arm.
+    pub loc: LirLoc,
+    /// How its value is represented, when lowering knew.
+    pub rep: crate::core::FluxRep,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LirVarKind {
+    Param,
+    Let,
+    Pattern,
+    Captured,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LirFnKind {
+    /// A function with a source name.
+    Named(String),
+    /// A lambda, named after where it is: `<lambda file:line:col>`.
+    Lambda,
+    /// The rest of `parent` after a call that can suspend returns.
+    Resumed { parent: String, after: LirLoc },
 }
 
 /// A function in LIR.
@@ -441,6 +545,8 @@ pub struct LirFunction {
     pub param_reps: Vec<crate::core::FluxRep>,
     /// Return type representation (from CoreDef::result_ty).
     pub result_rep: crate::core::FluxRep,
+    /// Its name and place for a debugger, when lowering knew them.
+    pub debug: Option<LirFnDebug>,
 }
 
 /// A complete LIR program — a collection of functions.
@@ -456,6 +562,9 @@ pub struct LirProgram {
     /// Built-in constructors (Some=1, Left=2, Right=3, Cons=4) are implicit.
     /// User constructors start at 5 and are assigned sequentially.
     pub constructor_tags: HashMap<String, i32>,
+    /// The field names of each constructor this module declares: `None`
+    /// for a positional field. A debugger shows a value's fields by them.
+    pub constructor_fields: HashMap<String, Vec<Option<String>>>,
     /// Native symbols of imported functions whose call can suspend, taken from
     /// the declared effect row of each import (`can_suspend` on
     /// `ImportedNativeSymbol`).
@@ -691,6 +800,7 @@ impl LirProgram {
             string_pool: Vec::new(),
             func_index: HashMap::new(),
             constructor_tags: HashMap::new(),
+            constructor_fields: HashMap::new(),
             suspending_extern_symbols: std::collections::HashSet::new(),
             next_synthetic_func_id: u32::MAX,
         }

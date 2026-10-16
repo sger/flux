@@ -1,0 +1,16 @@
+// Stepping through a match: the arm that runs is its own stop.
+data Shape {
+    Circle(Int),
+    Rect(Int, Int),
+}
+
+fn area(s) {
+    match s {
+        Circle(r) -> 3 * r * r,
+        Rect(w, h) -> w * h,
+    }
+}
+
+fn main() {
+    print(area(Rect(2, 5)))
+}

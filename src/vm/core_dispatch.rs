@@ -17,6 +17,7 @@ use crate::runtime::r#async::fiber_trace::{self, FiberEvent};
 use crate::runtime::hamt as rc_hamt;
 use crate::runtime::hash_key::HashKey;
 use crate::runtime::value::{Value, format_value};
+use crate::vm::fiber_debug::Blocked;
 
 // ── TCP handle table (proposal 0174 Phase 1b-vii) ────────────────────────────
 // DEPRECATED: Replaced by async mio backend in Phase 1b-vi-e.
@@ -275,7 +276,7 @@ mod vm_http {
 // OS-thread call stack *is* the continuation; this module deliberately
 // does NOT involve the FiberScheduler or capture continuations — that's
 // 1b-vi-b/c work.
-mod vm_async {
+pub(super) mod vm_async {
     use std::sync::OnceLock;
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -291,7 +292,7 @@ mod vm_async {
         if let Some(b) = BACKEND.get() {
             return Ok(*b);
         }
-        let owned = Box::leak(Box::new(MioBackend::new()));
+        let owned = Box::leak(Box::new(MioBackend::new().use_effect_tape()));
         owned
             .start()
             .map_err(|e| format!("MioBackend::start failed: {e}"))?;
@@ -301,7 +302,17 @@ mod vm_async {
     }
 
     pub fn alloc_request_id() -> RequestId {
-        RequestId(NEXT_REQ.fetch_add(1, Ordering::Relaxed))
+        let req = NEXT_REQ.fetch_add(1, Ordering::Relaxed);
+        // The tape notes which fiber made it: its submission and a hand-over
+        // of its completion are that fiber's (0188 S9d).
+        crate::runtime::replay::async_tape::note_request(req);
+        super::vm_fibers::note_owned_request(req);
+        RequestId(req)
+    }
+
+    /// The next request number, without taking it.
+    pub fn next_request_id() -> u64 {
+        NEXT_REQ.load(Ordering::Relaxed)
     }
 
     pub fn configure_dns_pool_size(size: usize) {
@@ -322,6 +333,60 @@ mod vm_async {
 // unchanged — `FiberFork`'s body still runs inline to completion. The point
 // is to land the registry shape without behaviour change so b₂ can replace
 // the inline call with a real park/resume cycle without touching bookkeeping.
+/// A fiber as the debugger lists it (0188 S8).
+pub(crate) struct DebugFiber {
+    /// The scheduler's id.
+    pub(crate) id: u64,
+    pub(crate) state: DebugFiberState,
+    /// A parked fiber's continuation: its frames.
+    pub(crate) parked: Option<Rc<std::cell::RefCell<crate::runtime::continuation::Continuation>>>,
+    /// What a fiber that has not started will run.
+    pub(crate) body: Option<Value>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DebugFiberState {
+    Running,
+    Ready,
+    NotStarted,
+    Waiting,
+    Cancelled,
+}
+
+/// The fibers of the active `run_async`, oldest first, for the debugger.
+/// A debugger going back abandoned the run: its async state goes (0188 S9a).
+pub(crate) fn debug_reset_async() {
+    vm_fibers::debug_reset();
+}
+
+pub(crate) fn debug_fibers() -> Vec<DebugFiber> {
+    vm_fibers::debug_fibers()
+}
+
+/// The error a `__fiber_error__` unwinds with: `Panicked(msg)`, `Canceled`,
+/// or what `Async.fail` raised.
+pub(crate) fn debug_pending_fiber_error() -> Option<Value> {
+    vm_fibers::debug_pending_error()
+}
+
+/// The frame `run_async` was called from: the fibers' stacks start above it.
+pub(crate) fn debug_fiber_boundary() -> Option<usize> {
+    vm_fibers::debug_boundary()
+}
+
+/// The fiber running now, and, for a child fiber, the frame index its stack
+/// starts above.
+pub(crate) fn debug_current_fiber() -> Option<(u64, Option<usize>)> {
+    vm_fibers::debug_current()
+}
+
+/// Completes request `req` at once when the current thread's run made it,
+/// as native does: false when the request belongs elsewhere and the
+/// caller hands it over through its queue (0188 S9d).
+pub(super) fn wake_here(req: u64, result: impl FnOnce() -> Result<Value, String>) -> bool {
+    vm_fibers::wake_here_with(req, result)
+}
+
 mod vm_fibers {
     use std::cell::{Cell, RefCell};
     use std::collections::{HashMap, HashSet};
@@ -340,6 +405,7 @@ mod vm_fibers {
     use crate::runtime::r#async::scheduler::FiberScheduler;
     use crate::runtime::value::Value;
     use crate::runtime::value::{demote_value, promote_value};
+    use crate::vm::fiber_debug::{self, Blocked};
 
     thread_local! {
         static SCHED: RefCell<Option<FiberScheduler>> = const { RefCell::new(None) };
@@ -409,6 +475,12 @@ mod vm_fibers {
         // loop exits.
         static ACTIVE_SHARED: RefCell<Option<Arc<SharedDispatchState>>> =
             const { RefCell::new(None) };
+        // Requests this thread's one-worker run made, and the ones of them
+        // completed on this thread and not yet delivered: a channel, event
+        // or finished task completes its waiter here at once, as on native,
+        // instead of through the queues another thread uses (0188 S9d).
+        static OWNED_REQUESTS: RefCell<HashSet<u64>> = RefCell::new(HashSet::new());
+        static LOCAL_WAKES: RefCell<Vec<(u64, FiberOutcome)>> = const { RefCell::new(Vec::new()) };
     }
 
     /// RuntimeConfig knobs threaded from `FiberRunAsyncWith` into
@@ -450,6 +522,76 @@ mod vm_fibers {
             constructor: Rc::new(name.to_string()),
             fields: AdtFields::One(value),
         }))
+    }
+
+    /// The debugger is going back (0188 S9a): the fiber that ran unwound with
+    /// the debugger's error, which goes on to `VM::run` as it is, rather than
+    /// as the fiber's failure. What the fiber left staged is dropped.
+    fn abandon_for_rewind() -> String {
+        let _ = take_park();
+        let _ = take_yield();
+        let _ = take_fiber_error();
+        crate::vm::debug::REWIND.to_string()
+    }
+
+    /// The next completion another thread or queue handed the scheduler: a
+    /// task's result, then a channel's value, then an event's, in that order.
+    fn next_handed_over() -> Option<(u64, FiberOutcome)> {
+        if let Some((request_id, result)) = super::super::task::try_recv_completion() {
+            return Some((request_id, task_outcome(result)));
+        }
+        if let Some((request_id, result)) = super::super::channel::try_recv_completion() {
+            let outcome = match result {
+                Ok(value) => FiberOutcome::Value(value),
+                Err(err) => FiberOutcome::Error(async_panicked(err)),
+            };
+            return Some((request_id, outcome));
+        }
+        super::super::event::try_recv_completion()
+            .map(|request_id| (request_id, FiberOutcome::Value(Value::None)))
+    }
+
+    thread_local! {
+        /// Hand-overs taken from the queues and not yet delivered: a replay
+        /// delivers them in the tape's order, not the order they arrived in.
+        static HANDED_OVER: RefCell<Vec<(u64, FiberOutcome)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// [`next_handed_over`] for `async_tape::deliver_cross`: `None` takes the
+    /// first ready, `Some(req)` waits for request `req`'s.
+    fn take_handed_over(want: Option<u64>) -> Option<(u64, (u64, FiberOutcome))> {
+        let started = std::time::Instant::now();
+        loop {
+            while let Some(found) = next_handed_over() {
+                HANDED_OVER.with(|held| held.borrow_mut().push(found));
+            }
+            let taken = HANDED_OVER.with(|held| {
+                let mut held = held.borrow_mut();
+                let at = match want {
+                    None => (!held.is_empty()).then_some(0),
+                    Some(req) => held.iter().position(|(id, _)| *id == req),
+                }?;
+                Some(held.remove(at))
+            });
+            match (taken, want) {
+                (Some(found), _) => return Some((found.0, found)),
+                (None, None) => return None,
+                (None, Some(req)) => {
+                    if started.elapsed() >= crate::runtime::replay::async_tape::HAND_OVER_LIMIT {
+                        crate::runtime::replay::async_tape::fail(
+                            crate::runtime::replay::TapeError::Stalled {
+                                index: 0,
+                                expected: format!("the hand-over of request {req}"),
+                                owner: "another thread".to_string(),
+                                waiting: "the scheduler".to_string(),
+                                actual: "the next fiber".to_string(),
+                            },
+                        );
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+            }
+        }
     }
 
     pub fn async_panicked(message: impl Into<String>) -> Value {
@@ -517,15 +659,32 @@ mod vm_fibers {
     ///   4. Hardcoded fallback of 2 logical workers when parallelism cannot
     ///      be determined (matches the Phase 1b-vi-c default).
     fn resolved_worker_count() -> usize {
-        if let Some(cfg) = PENDING_RUN_CONFIG.with(|c| c.get())
+        crate::runtime::replay::worker_count(resolved_untaped_worker_count())
+    }
+
+    fn resolved_untaped_worker_count() -> usize {
+        let requested = if let Some(cfg) = PENDING_RUN_CONFIG.with(|c| c.get())
             && cfg.worker_count > 0
         {
-            return cfg.worker_count as usize;
+            cfg.worker_count as usize
+        } else {
+            env_workers_once().unwrap_or(1)
+        };
+        // Under a debugger every fiber runs on the one VM it can pause
+        // (0188 S8), as under a tape.
+        if requested > 1 && fiber_debug::on() {
+            note_debug_one_worker();
+            return 1;
         }
-        if let Some(n) = env_workers_once() {
-            return n;
+        requested
+    }
+
+    fn note_debug_one_worker() {
+        use std::sync::atomic::AtomicBool;
+        static SAID: AtomicBool = AtomicBool::new(false);
+        if !SAID.swap(true, Ordering::Relaxed) {
+            eprintln!("note: debugging runs async code on one worker");
         }
-        1
     }
 
     /// Parse `FLUX_WORKERS` once per process; return `Some(n)` for a
@@ -549,12 +708,33 @@ mod vm_fibers {
     /// outermost entry, spawn the root fiber, and make it current. Returns
     /// the root fiber id so the caller can pair this with `exit_run_async`.
     pub fn enter_run_async() -> FiberId {
+        if crate::runtime::replay::is_active()
+            && crate::runtime::replay::async_tape::current_task() != 0
+        {
+            // A task's own scheduler would interleave with the program's
+            // in ways the tape does not order (0188 S8c).
+            crate::runtime::replay::async_tape::fail(crate::runtime::replay::unsupported(
+                "run_async inside a task",
+            ));
+        }
+        if crate::runtime::replay::is_active() {
+            crate::runtime::replay::async_tape::set_fiber_source(|| {
+                CURRENT.with(|c| c.get()).map(|id| id.0)
+            });
+            // A debugger's re-run that runs live again starts the timers it
+            // only answered (0188 S9a).
+            crate::runtime::replay::async_tape::set_resubmit(|req, submission| {
+                vm_async::backend()
+                    .is_ok_and(|backend| backend.resubmit(RequestId(req), submission))
+            });
+        }
         let depth = DEPTH.with(|d| {
             let n = d.get();
             d.set(n + 1);
             n
         });
         if depth == 0 {
+            fiber_debug::start_run();
             // Phase 2 slice 2-vii: respect the pending `RuntimeConfig`
             // knobs set by `FiberRunAsyncWith`. Both blocking services are
             // configured before the process-global backend is first started.
@@ -640,6 +820,7 @@ mod vm_fibers {
             // via `take_all_root_tasks`; reaching this point should leave the
             // set empty.
             RUN_ROOT_TASKS.with(|r| *r.borrow_mut() = None);
+            clear_local_wakes();
         }
     }
 
@@ -659,7 +840,11 @@ mod vm_fibers {
         RUN_ROOT_TASKS.with(|r| {
             r.borrow_mut()
                 .as_mut()
-                .map(|set| set.drain().collect())
+                .map(|set| {
+                    let mut ids: Vec<i64> = set.drain().collect();
+                    ids.sort_unstable();
+                    ids
+                })
                 .unwrap_or_default()
         })
     }
@@ -784,8 +969,156 @@ mod vm_fibers {
         })
     }
 
+    /// The current fiber parks for `blocked`: note it for the debugger's
+    /// thread view (0188 S8). Nothing is built without a debugger.
+    pub fn debug_block(blocked: impl FnOnce() -> Blocked) {
+        if !fiber_debug::on() {
+            return;
+        }
+        if let Some(id) = CURRENT.with(|c| c.get()) {
+            fiber_debug::note_block(id.0, blocked());
+        }
+    }
+
+    /// The fibers of the active `run_async`, for the debugger: the one
+    /// running, then the scheduler's, oldest first.
+    pub fn debug_fibers() -> Vec<super::DebugFiber> {
+        let current = CURRENT.with(|c| c.get());
+        let mut fibers: Vec<super::DebugFiber> = Vec::new();
+        SCHED.with(|s| {
+            let sched = s.borrow();
+            let Some(sched) = sched.as_ref() else {
+                return;
+            };
+            for (fiber, ready) in sched.fibers() {
+                if fiber.body.is_none() && fiber.parked.is_none() {
+                    continue;
+                }
+                let state = if fiber.state == FiberState::Cancelled {
+                    super::DebugFiberState::Cancelled
+                } else if fiber.parked.is_none() {
+                    super::DebugFiberState::NotStarted
+                } else if ready {
+                    super::DebugFiberState::Ready
+                } else {
+                    super::DebugFiberState::Waiting
+                };
+                fibers.push(super::DebugFiber {
+                    id: fiber.id.0,
+                    state,
+                    parked: fiber.parked.clone(),
+                    body: fiber.body.clone(),
+                });
+            }
+        });
+        // The fiber running is in no queue. Between fibers, the current one
+        // is the root, parked: then nothing runs.
+        if let Some(id) = current
+            && !fibers.iter().any(|fiber| fiber.id == id.0)
+            && SCHED.with(|s| s.borrow().is_some())
+        {
+            fibers.push(super::DebugFiber {
+                id: id.0,
+                state: super::DebugFiberState::Running,
+                parked: None,
+                body: None,
+            });
+        }
+        fibers.sort_by_key(|fiber| fiber.id);
+        fibers
+    }
+
+    /// The error the current fiber failed with, before the dispatch loop
+    /// takes it.
+    pub fn debug_pending_error() -> Option<Value> {
+        PENDING_FIBER_ERROR.with(|p| p.borrow().clone())
+    }
+
+    /// The fiber running now, and the frame its stack starts above when it
+    /// is not the root fiber.
+    pub fn debug_boundary() -> Option<usize> {
+        BOUNDARY.with(|b| b.get()).map(|(frame, _)| frame)
+    }
+
+    pub fn debug_current() -> Option<(u64, Option<usize>)> {
+        let id = CURRENT.with(|c| c.get())?;
+        let child = ROOT.with(|r| r.get()) != Some(id);
+        let above = child
+            .then(|| BOUNDARY.with(|b| b.get()).map(|(frame, _)| frame))
+            .flatten();
+        Some((id.0, above))
+    }
+
     pub fn take_park() -> Option<(u64, Value)> {
         PENDING_PARK.with(|p| p.borrow_mut().take())
+    }
+
+    /// A request the current thread's one-worker run made (0188 S9d).
+    pub fn note_owned_request(req: u64) {
+        let one_worker =
+            SCHED.with(|s| s.borrow().is_some()) && ACTIVE_SHARED.with(|s| s.borrow().is_none());
+        if one_worker {
+            OWNED_REQUESTS.with(|owned| owned.borrow_mut().insert(req));
+        }
+    }
+
+    /// Completes request `req` on this thread, as native does, when this
+    /// thread's run made it: its fiber is woken where the scheduler next
+    /// looks, not after every ready fiber has run. False for another
+    /// thread's request, which goes through the queues.
+    pub fn wake_here(req: u64, outcome: impl FnOnce() -> FiberOutcome) -> bool {
+        if !OWNED_REQUESTS.with(|owned| owned.borrow_mut().remove(&req)) {
+            return false;
+        }
+        let outcome = outcome();
+        LOCAL_WAKES.with(|wakes| wakes.borrow_mut().push((req, outcome)));
+        true
+    }
+
+    /// [`wake_here`] for a channel's or an event's completion.
+    pub fn wake_here_with(req: u64, result: impl FnOnce() -> Result<Value, String>) -> bool {
+        wake_here(req, || match result() {
+            Ok(value) => FiberOutcome::Value(value),
+            Err(err) => FiberOutcome::Error(async_panicked(err)),
+        })
+    }
+
+    /// A finished task's result as its awaiting fiber gets it: `Some(value)`,
+    /// `None` when it was cancelled, or its failure.
+    pub fn task_outcome(result: Result<Value, String>) -> FiberOutcome {
+        match result {
+            Ok(value) => FiberOutcome::Value(Value::Some(Rc::new(value))),
+            Err(err) if err == "TaskCancelled" => FiberOutcome::Value(Value::None),
+            Err(err) => FiberOutcome::Error(async_panicked(err)),
+        }
+    }
+
+    /// Wakes the fibers completed on this thread, in the order they were
+    /// completed. `parking` is the request the fiber that just ran is about
+    /// to park on: native wakes it when it parks, after the others, so it
+    /// waits here until the fiber is suspended.
+    fn deliver_local_wakes(parking: Option<u64>) {
+        let wakes = LOCAL_WAKES.with(|wakes| {
+            let mut wakes = wakes.borrow_mut();
+            let (kept, ready): (Vec<_>, Vec<_>) = std::mem::take(&mut *wakes)
+                .into_iter()
+                .partition(|(req, _)| Some(*req) == parking);
+            *wakes = kept;
+            ready
+        });
+        for (req, outcome) in wakes {
+            set_resume_outcome(req, outcome);
+            SCHED.with(|s| {
+                if let Some(sched) = s.borrow_mut().as_mut() {
+                    sched.complete_request(RequestId(req));
+                }
+            });
+        }
+    }
+
+    fn clear_local_wakes() {
+        OWNED_REQUESTS.with(|owned| owned.borrow_mut().clear());
+        LOCAL_WAKES.with(|wakes| wakes.borrow_mut().clear());
     }
 
     /// FiberYieldNow signals that the current fiber has captured its
@@ -809,6 +1142,7 @@ mod vm_fibers {
     }
 
     fn attach_body_to_ready_fiber(id: FiberId, body: Value) {
+        fiber_debug::note_spawn(id.0, &body);
         // Multi-worker path: use the shared scheduler.
         if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
             let mut sched = shared.sched.lock().unwrap_or_else(|e| e.into_inner());
@@ -1142,15 +1476,22 @@ mod vm_fibers {
                     }
                     losers.extend(event_losers);
                 }
-                AwaitEvent::TimeoutBodyReady { request, outcome } => match outcome {
-                    FiberOutcome::Value(result) => {
-                        completions
-                            .push((request, FiberOutcome::Value(Value::Some(Rc::new(result)))));
+                AwaitEvent::TimeoutBodyReady { request, outcome } => {
+                    // The body won: its timer goes, as on native, so it never
+                    // completes for nothing (0188 S9d).
+                    if let Ok(backend) = vm_async::backend() {
+                        backend.cancel(RequestId(request));
                     }
-                    FiberOutcome::Error(err) => {
-                        completions.push((request, FiberOutcome::Error(err)));
+                    match outcome {
+                        FiberOutcome::Value(result) => {
+                            completions
+                                .push((request, FiberOutcome::Value(Value::Some(Rc::new(result)))));
+                        }
+                        FiberOutcome::Error(err) => {
+                            completions.push((request, FiberOutcome::Error(err)));
+                        }
                     }
-                },
+                }
                 AwaitEvent::TimeoutTimerReady { .. } => {}
             }
         }
@@ -1163,8 +1504,8 @@ mod vm_fibers {
 
     /// Cancel a set of fibers: look up each fiber's pending backend request,
     /// call `backend.cancel` to stop I/O work, then mark the fiber `Cancelled`
-    /// in the scheduler so the dispatch loop resumes it with `AsyncError.Canceled`
-    /// (proposal 0174 1b-vi-c).  Always cancel the backend request *before*
+    /// in the scheduler so the dispatch loop drops it, as native does
+    /// (0188 S9d).  Always cancel the backend request *before*
     /// moving the fiber to `Cancelled` so a late-arriving completion cannot
     /// re-queue a fiber that is about to be dropped.
     pub fn cancel_losers(
@@ -1195,6 +1536,19 @@ mod vm_fibers {
             }
         });
         mark_cancelled(loser_ids);
+    }
+
+    /// A cancelled fiber the scheduler dropped: nothing awaits it any more.
+    fn forget_cancelled(id: FiberId) {
+        if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
+            shared
+                .awaits
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove_child(id);
+        } else {
+            AWAITS.with(|a| a.borrow_mut().remove_child(id));
+        }
     }
 
     /// Record `ids` as cancelled so a fiber that is currently *executing*
@@ -1339,6 +1693,34 @@ mod vm_fibers {
 
     /// Tear down the await-coordination state at run_async exit
     /// (Phase 1b-vi-b₂.2). Avoids leaks across nested boundaries.
+    /// A debugger going back abandoned the run (0188 S9a). What it left in
+    /// the scheduler's thread-locals and queues goes, and completions of its
+    /// requests are dropped when they arrive, so the re-run starts as the
+    /// first run did.
+    pub fn debug_reset() {
+        SCHED.with(|s| *s.borrow_mut() = None);
+        DEPTH.with(|d| d.set(0));
+        CURRENT.with(|c| c.set(None));
+        CURRENT_WORKER.with(|c| c.set(None));
+        BOUNDARY.with(|b| b.set(None));
+        ROOT.with(|r| r.set(None));
+        PENDING_PARK.with(|p| p.borrow_mut().take());
+        PENDING_YIELD.with(|p| p.borrow_mut().take());
+        PENDING_FIBER_ERROR.with(|p| p.borrow_mut().take());
+        PARK_CANCELLED.with(|p| p.set(false));
+        PENDING_RUN_CONFIG.with(|c| c.set(None));
+        CANCELLED_IDS.with(|c| c.borrow_mut().clear());
+        clear_await_state();
+        RUN_ROOT_TASKS.with(|r| *r.borrow_mut() = None);
+        HANDED_OVER.with(|held| held.borrow_mut().clear());
+        clear_local_wakes();
+        while next_handed_over().is_some() {}
+        if let Ok(backend) = vm_async::backend() {
+            while backend.next_completion().is_some() {}
+        }
+        crate::runtime::replay::async_tape::forget_requests_before(vm_async::next_request_id());
+    }
+
     pub fn clear_await_state() {
         AWAITS.with(|a| a.borrow_mut().clear());
         RESUME_OUTCOMES.with(|r| r.borrow_mut().clear());
@@ -1368,6 +1750,12 @@ mod vm_fibers {
         loop {
             // Drain ready queue.
             loop {
+                deliver_local_wakes(None);
+                // The run ends with its root, as on native: fibers still
+                // ready then never run (0188 S9d).
+                if root_result.is_some() {
+                    break;
+                }
                 let next = SCHED.with(|s| {
                     s.borrow_mut()
                         .as_mut()
@@ -1385,82 +1773,11 @@ mod vm_fibers {
                     continue;
                 }
 
-                // Cancelled fibers (1b-vi-c): resume their parked continuation
-                // with `AsyncError.Canceled` so that `bracket`/`finally`
-                // cleanup arms run before the fiber exits.  If there is no
-                // continuation (body never ran), the fiber is dropped silently.
+                // Cancelled fibers are dropped, as on native: a fiber that
+                // lost a race or whose timeout fired never runs again
+                // (0188 S9d).
                 if fiber.state == FiberState::Cancelled {
-                    if let Some(cont) = fiber.parked.take() {
-                        // Resume with Unit (None) rather than Canceled so that
-                        // intermediate operation return-type contracts are not
-                        // violated (e.g. sleep -> Unit).  The fiber completes
-                        // normally: bracket's release arm still runs since
-                        // bracket is sequential (body → release).
-                        let cancel_val = Value::None;
-                        let fid = fiber.id;
-                        let outcome = with_current(fid, || {
-                            ctx.resume_from_dispatch(Value::Continuation(cont), cancel_val)
-                        });
-                        // The fiber may park again (e.g. inside a release arm
-                        // that does async I/O).  Handle exactly like normal park.
-                        if let Some((req, cont_val)) = take_park() {
-                            let cont_rc =
-                                match cont_val {
-                                    Value::Continuation(rc) => rc,
-                                    _ => return Err(
-                                        "cancelled fiber re-park: non-Continuation in PENDING_PARK"
-                                            .into(),
-                                    ),
-                                };
-                            fiber.parked = Some(cont_rc);
-                            fiber.mark_parked();
-                            fiber.state = FiberState::Suspended { request_id: req };
-                            let home_worker = fiber.home_worker;
-                            fiber_trace::emit(FiberEvent::Suspend {
-                                fid: fid.0,
-                                worker: home_worker.0,
-                                request_id: req,
-                            });
-                            SCHED.with(|s| {
-                                s.borrow_mut()
-                                    .as_mut()
-                                    .expect("scheduler missing")
-                                    .insert_suspended(home_worker, req, fiber);
-                            });
-                            let done = on_fiber_suspended(fid);
-                            if !done.losers.is_empty() {
-                                cancel_losers(&done.losers, backend);
-                            }
-                            for (pr, rv) in done.completions {
-                                set_resume_outcome(pr, rv);
-                                SCHED.with(|s| {
-                                    s.borrow_mut()
-                                        .as_mut()
-                                        .expect("scheduler missing")
-                                        .complete_request(RequestId(pr));
-                                });
-                            }
-                            continue;
-                        }
-                        // Fiber ran to completion after cleanup.
-                        if let Ok(v) = outcome {
-                            let done = on_fiber_done(fid, v);
-                            if !done.losers.is_empty() {
-                                cancel_losers(&done.losers, backend);
-                            }
-                            for (pr, rv) in done.completions {
-                                set_resume_outcome(pr, rv);
-                                SCHED.with(|s| {
-                                    s.borrow_mut()
-                                        .as_mut()
-                                        .expect("scheduler missing")
-                                        .complete_request(RequestId(pr));
-                                });
-                            }
-                        }
-                        // Errors from cancelled fibers' cleanup are swallowed.
-                    }
-                    // No continuation → bookkeeping artifact; drop silently.
+                    forget_cancelled(fiber.id);
                     continue;
                 }
 
@@ -1508,6 +1825,11 @@ mod vm_fibers {
                         }
                     })
                 });
+                if crate::vm::debug::rewinding() {
+                    return Err(abandon_for_rewind());
+                }
+                let parking = PENDING_PARK.with(|p| p.borrow().as_ref().map(|(req, _)| *req));
+                deliver_local_wakes(parking);
 
                 // Did the fiber park during this tick?  FiberSleep/FiberSuspend
                 // capture+unwind+set PENDING_PARK, then return Err so the
@@ -1537,6 +1859,7 @@ mod vm_fibers {
                             .expect("scheduler missing")
                             .insert_suspended(home_worker, req, fiber);
                     });
+                    deliver_local_wakes(None);
                     let done = on_fiber_suspended(fiber_id);
                     if !done.losers.is_empty() {
                         cancel_losers(&done.losers, backend);
@@ -1657,37 +1980,15 @@ mod vm_fibers {
 
             // Pump the backend until a completion arrives, then route it.
             loop {
-                if let Some((request_id, result)) = super::super::task::try_recv_completion() {
-                    let outcome = match result {
-                        Ok(value) => FiberOutcome::Value(Value::Some(Rc::new(value))),
-                        Err(err) if err == "TaskCancelled" => FiberOutcome::Value(Value::None),
-                        Err(err) => FiberOutcome::Error(async_panicked(err)),
-                    };
+                // Task results and channel and event hand-overs: under a
+                // tape, taken where the tape has them (0188 S8c).
+                let handed_over = if crate::runtime::replay::is_active() {
+                    crate::runtime::replay::async_tape::deliver_cross(take_handed_over)
+                } else {
+                    next_handed_over()
+                };
+                if let Some((request_id, outcome)) = handed_over {
                     set_resume_outcome(request_id, outcome);
-                    SCHED.with(|s| {
-                        s.borrow_mut()
-                            .as_mut()
-                            .expect("scheduler missing")
-                            .complete_request(RequestId(request_id));
-                    });
-                    break;
-                }
-                if let Some((request_id, result)) = super::super::channel::try_recv_completion() {
-                    let outcome = match result {
-                        Ok(value) => FiberOutcome::Value(value),
-                        Err(err) => FiberOutcome::Error(async_panicked(err)),
-                    };
-                    set_resume_outcome(request_id, outcome);
-                    SCHED.with(|s| {
-                        s.borrow_mut()
-                            .as_mut()
-                            .expect("scheduler missing")
-                            .complete_request(RequestId(request_id));
-                    });
-                    break;
-                }
-                if let Some(request_id) = super::super::event::try_recv_completion() {
-                    set_resume_outcome(request_id, FiberOutcome::Value(Value::None));
                     SCHED.with(|s| {
                         s.borrow_mut()
                             .as_mut()
@@ -1761,6 +2062,9 @@ mod vm_fibers {
                             .complete_request(c.request_id);
                     });
                     break;
+                }
+                if crate::vm::debug::interrupt_pending() {
+                    ctx.debug_idle()?;
                 }
                 std::thread::park_timeout(std::time::Duration::from_millis(1));
             }
@@ -2327,16 +2631,9 @@ mod vm_fibers {
                     continue;
                 }
 
-                // Cancelled fibers: resume with None so cleanup arms run.
+                // Cancelled fibers are dropped (0188 S9d).
                 if fiber.state == FiberState::Cancelled {
-                    if fiber.parked.is_some() {
-                        let resume_val = Value::None;
-                        let result = run_one_fiber(&mut fiber, &mut vm, resume_val);
-                        let done = process_fiber_result(result, fiber, &shared, backend);
-                        if done {
-                            break;
-                        }
-                    }
+                    forget_cancelled(fiber.id);
                     continue;
                 }
 
@@ -2436,14 +2733,7 @@ mod vm_fibers {
                 }
 
                 if fiber.state == FiberState::Cancelled {
-                    if fiber.parked.is_some() {
-                        let resume_val = Value::None;
-                        let result = run_one_fiber(&mut fiber, ctx, resume_val);
-                        let done = process_fiber_result(result, fiber, &shared, backend);
-                        if done {
-                            break;
-                        }
-                    }
+                    forget_cancelled(fiber.id);
                     continue;
                 }
 
@@ -2747,6 +3037,9 @@ fn park_fs_op(
             return Err("__fiber_error__".to_string());
         }
         let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+        vm_fibers::debug_block(|| Blocked::Io {
+            what: "file system",
+        });
         vm_fibers::signal_park(req, cont);
         if let Err(e) = propagate_if_park_cancelled() {
             if let Ok(backend) = vm_async::backend() {
@@ -2792,6 +3085,7 @@ fn park_tcp_op(
             return Err("__fiber_error__".to_string());
         }
         let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+        vm_fibers::debug_block(|| Blocked::Io { what: "tcp" });
         vm_fibers::signal_park(req, cont);
         if let Err(e) = propagate_if_park_cancelled() {
             // signal_park detected cancellation after cont capture —
@@ -2847,6 +3141,42 @@ fn propagate_if_park_cancelled() -> Result<(), String> {
     } else {
         Ok(())
     }
+}
+
+/// Under a tape, once the program has spawned a task, a channel operation
+/// takes its turn on the tape (0188 S8c): another thread may use the
+/// channel, and what the operation finds depends on who got there first.
+/// `outcome` says what it found, which a replay checks.
+fn taped_channel<T>(
+    id: i64,
+    op: &str,
+    run: impl FnOnce() -> Result<T, String>,
+    outcome: impl FnOnce(&T) -> crate::runtime::replay::Outcome,
+) -> Result<T, String> {
+    use crate::runtime::replay::{self, EffectRequest, Outcome, async_tape};
+    if !async_tape::has_tasks() {
+        return run();
+    }
+    let hint = EffectRequest::Channel {
+        chan: 0,
+        op: op.to_string(),
+    };
+    let began = replay::ordered_begin(&hint, || EffectRequest::Channel {
+        chan: async_tape::logical_channel(id as u64),
+        op: op.to_string(),
+    });
+    if let Err(err) = began {
+        async_tape::fail(err);
+    }
+    let result = run();
+    let found = match &result {
+        Ok(value) => outcome(value),
+        Err(err) => Outcome::Fail(err.clone()),
+    };
+    if let Err(err) = replay::ordered_end(Some(found)) {
+        async_tape::fail(err);
+    }
+    result
 }
 
 /// Execute a `CorePrimOp` with the given arguments.
@@ -3203,18 +3533,8 @@ pub fn execute_core_primop(
         }
 
         // ── I/O ───────────────────────────────────────────────────────
-        Print => {
-            for (i, arg) in args.iter().enumerate() {
-                if i > 0 {
-                    print!(" ");
-                }
-                print!("{}", format_value(arg));
-            }
-            println!();
-            Ok(Value::None)
-        }
-        Println => {
-            println!("{}", format_value(&args[0]));
+        Print | Println => {
+            print!("{}", render_console(op, &args));
             Ok(Value::None)
         }
         DebugTrace => {
@@ -3223,7 +3543,7 @@ pub fn execute_core_primop(
             // Python's default logging behavior. The argument is expected to
             // be a pre-formatted string (the Flow.Debug wrappers call
             // `show()` on values before perform-ing the effect operation).
-            eprintln!("{}", format_value(&args[0]));
+            eprint!("{}", render_console(op, &args));
             Ok(Value::None)
         }
         ReadFile => {
@@ -3682,6 +4002,7 @@ pub fn execute_core_primop(
             }
             if let Some((boundary_frame, boundary_sp)) = vm_fibers::boundary() {
                 let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+                vm_fibers::debug_block(|| Blocked::Yield);
                 vm_fibers::signal_yield(cont);
                 Err("__fiber_park__".to_string())
             } else {
@@ -3719,6 +4040,7 @@ pub fn execute_core_primop(
                     // Inside Async.run_async: capture continuation, signal
                     // park; dispatch loop resumes us when timer fires.
                     let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+                    vm_fibers::debug_block(|| Blocked::Sleep { ms: *ms as u64 });
                     vm_fibers::signal_park(req, cont);
                     if let Err(e) = propagate_if_park_cancelled() {
                         // Timer was already armed — cancel it.
@@ -3780,6 +4102,9 @@ pub fn execute_core_primop(
             let req = vm_async::alloc_request_id();
             vm_fibers::register_both_await(req.0, child_a, child_b);
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+            vm_fibers::debug_block(|| Blocked::Both {
+                fibers: vec![child_a.0, child_b.0],
+            });
             vm_fibers::signal_park(req, cont);
             if let Err(e) = propagate_if_park_cancelled() {
                 vm_fibers::deregister_await(req.0);
@@ -3799,6 +4124,9 @@ pub fn execute_core_primop(
             let req = vm_async::alloc_request_id();
             vm_fibers::register_race_await(req.0, vec![child_a, child_b]);
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+            vm_fibers::debug_block(|| Blocked::Race {
+                fibers: vec![child_a.0, child_b.0],
+            });
             vm_fibers::signal_park(req, cont);
             if let Err(e) = propagate_if_park_cancelled() {
                 vm_fibers::deregister_await(req.0);
@@ -3827,6 +4155,9 @@ pub fn execute_core_primop(
             let req = vm_async::alloc_request_id();
             vm_fibers::register_first_of_await(req.0, children.clone());
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+            vm_fibers::debug_block(|| Blocked::FirstOf {
+                fibers: children.iter().map(|(id, _)| id.0).collect(),
+            });
             vm_fibers::signal_park(req, cont);
             if let Err(e) = propagate_if_park_cancelled() {
                 vm_fibers::deregister_await(req.0);
@@ -3846,6 +4177,7 @@ pub fn execute_core_primop(
             let req = vm_async::alloc_request_id();
             vm_fibers::register_try_await(req.0, child);
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+            vm_fibers::debug_block(|| Blocked::Try { fiber: child.0 });
             vm_fibers::signal_park(req, cont);
             if let Err(e) = propagate_if_park_cancelled() {
                 vm_fibers::deregister_await(req.0);
@@ -3884,6 +4216,10 @@ pub fn execute_core_primop(
             let backend = vm_async::backend()?;
             backend.timer_start(req, ms);
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
+            vm_fibers::debug_block(|| Blocked::Timeout {
+                ms,
+                fiber: body_child.0,
+            });
             vm_fibers::signal_park(req, cont);
             if let Err(e) = propagate_if_park_cancelled() {
                 vm_fibers::deregister_await(req.0);
@@ -3978,7 +4314,17 @@ pub fn execute_core_primop(
                     }
                     let req = vm_async::alloc_request_id();
                     let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
-                    super::task::start_await(*id, req.0)?;
+                    if crate::runtime::replay::is_active() {
+                        // A task finished at the await's turn completes it at
+                        // once, as on native (0188 S9d).
+                        if let Some(result) = super::task::taped_await(*id, req.0)? {
+                            let result = result.and_then(|value| value.into_value());
+                            vm_fibers::wake_here(req.0, || vm_fibers::task_outcome(result));
+                        }
+                    } else {
+                        super::task::start_await(*id, req.0)?;
+                    }
+                    vm_fibers::debug_block(|| Blocked::Task { id: *id });
                     vm_fibers::signal_park(req, cont);
                     Err("__flux_fiber_park__".to_string())
                 } else {
@@ -4005,17 +4351,25 @@ pub fn execute_core_primop(
                     }
                     let req = vm_async::alloc_request_id();
                     let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
-                    if move_send {
-                        let mut args = args;
-                        super::channel::start_send_move(id, args.swap_remove(1), req.0)?;
-                    } else {
-                        super::channel::start_send(id, &args[1], req.0)?;
-                    }
+                    taped_channel(
+                        id,
+                        "send",
+                        || {
+                            if move_send {
+                                let mut args = args;
+                                super::channel::start_send_move(id, args.swap_remove(1), req.0)
+                            } else {
+                                super::channel::start_send(id, &args[1], req.0)
+                            }
+                        },
+                        |_| crate::runtime::replay::Outcome::Bool(true),
+                    )?;
                     fiber_trace::emit(FiberEvent::ChanSend {
                         ch: id,
                         fid: vm_fibers::current_fiber_id(),
                         backpressure: true,
                     });
+                    vm_fibers::debug_block(|| Blocked::ChannelSend { channel: id });
                     vm_fibers::signal_park(req, cont);
                     Err("__flux_fiber_park__".to_string())
                 } else {
@@ -4044,12 +4398,18 @@ pub fn execute_core_primop(
                     }
                     let req = vm_async::alloc_request_id();
                     let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
-                    super::channel::start_recv(*id, req.0)?;
+                    taped_channel(
+                        *id,
+                        "recv",
+                        || super::channel::start_recv(*id, req.0),
+                        |_| crate::runtime::replay::Outcome::Bool(true),
+                    )?;
                     fiber_trace::emit(FiberEvent::ChanRecv {
                         ch: *id,
                         fid: vm_fibers::current_fiber_id(),
                         was_empty: true,
                     });
+                    vm_fibers::debug_block(|| Blocked::ChannelRecv { channel: *id });
                     vm_fibers::signal_park(req, cont);
                     Err("__flux_fiber_park__".to_string())
                 } else {
@@ -4067,29 +4427,53 @@ pub fn execute_core_primop(
         ChanTrySend | ChanTrySendMove => match &args[0] {
             Value::Integer(id) => {
                 let id = *id;
-                if op == ChanTrySendMove {
-                    let mut args = args;
-                    super::channel::try_send_move(id, args.swap_remove(1)).map(Value::Boolean)
-                } else {
-                    super::channel::try_send(id, &args[1]).map(Value::Boolean)
-                }
+                taped_channel(
+                    id,
+                    "try_send",
+                    || {
+                        if op == ChanTrySendMove {
+                            let mut args = args;
+                            super::channel::try_send_move(id, args.swap_remove(1))
+                        } else {
+                            super::channel::try_send(id, &args[1])
+                        }
+                    },
+                    |sent| crate::runtime::replay::Outcome::Bool(*sent),
+                )
+                .map(Value::Boolean)
             }
             other => Err(terr("chan_try_send", "Int", other)),
         },
         ChanTryRecv => match &args[0] {
-            Value::Integer(id) => super::channel::try_recv(*id),
+            Value::Integer(id) => taped_channel(
+                *id,
+                "try_recv",
+                || super::channel::try_recv(*id),
+                |got| crate::runtime::replay::Outcome::Bool(!matches!(got, Value::None)),
+            ),
             other => Err(terr("chan_try_recv", "Int", other)),
         },
         ChanClose => match &args[0] {
             Value::Integer(id) => {
-                super::channel::close(*id)?;
+                taped_channel(
+                    *id,
+                    "close",
+                    || super::channel::close(*id),
+                    |_| crate::runtime::replay::Outcome::Bool(true),
+                )?;
                 fiber_trace::emit(FiberEvent::ChanClose { ch: *id });
                 Ok(Value::None)
             }
             other => Err(terr("chan_close", "Int", other)),
         },
         ChanLen => match &args[0] {
-            Value::Integer(id) => super::channel::len(*id).map(Value::Integer),
+            Value::Integer(id) => taped_channel(
+                *id,
+                "len",
+                || super::channel::len(*id),
+                |len| crate::runtime::replay::Outcome::Int(*len),
+            )
+            .map(Value::Integer),
             other => Err(terr("chan_len", "Int", other)),
         },
         ChanCap => match &args[0] {
@@ -4097,7 +4481,13 @@ pub fn execute_core_primop(
             other => Err(terr("chan_cap", "Int", other)),
         },
         ChanIsClosed => match &args[0] {
-            Value::Integer(id) => super::channel::is_closed(*id).map(Value::Boolean),
+            Value::Integer(id) => taped_channel(
+                *id,
+                "is_closed",
+                || super::channel::is_closed(*id),
+                |closed| crate::runtime::replay::Outcome::Bool(*closed),
+            )
+            .map(Value::Boolean),
             other => Err(terr("chan_is_closed", "Int", other)),
         },
         EventRecv => match &args[0] {
@@ -4152,6 +4542,7 @@ pub fn execute_core_primop(
                 let req = vm_async::alloc_request_id();
                 let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
                 super::event::wait(*id, req.0)?;
+                vm_fibers::debug_block(|| Blocked::Event { id: *id });
                 vm_fibers::signal_park(req, cont);
                 Err("__flux_fiber_park__".to_string())
             }
@@ -4769,12 +5160,24 @@ fn vm_json_stringify(args: &[Value]) -> Result<Value, String> {
     ))
 }
 
+/// The text a console primop writes, newline included: `print`'s arguments
+/// separated by spaces, or `println` / `trace`'s one value. Shared with the
+/// effect tape, which records exactly what is written.
+pub(super) fn render_console(op: CorePrimOp, args: &[Value]) -> String {
+    let mut text = match op {
+        CorePrimOp::Print => args.iter().map(format_value).collect::<Vec<_>>().join(" "),
+        _ => args.first().map(format_value).unwrap_or_default(),
+    };
+    text.push('\n');
+    text
+}
+
 /// Wrap a value as `Flow.Result`'s `Ok`.
 ///
 /// Both outcomes come back as `Ok(Value::Adt(..))` — the Flux `Result` is the
 /// return value. Rust-level `Err` is reserved for real VM faults like a
 /// wrong-typed argument.
-fn vm_io_ok(value: Value) -> Value {
+pub(super) fn vm_io_ok(value: Value) -> Value {
     use crate::runtime::value::{AdtFields, AdtValue};
     Value::Adt(Rc::new(AdtValue {
         constructor: Rc::new("Ok".to_string()),
@@ -4783,7 +5186,9 @@ fn vm_io_ok(value: Value) -> Value {
 }
 
 fn dispatch_fs(ctx: &mut dyn RuntimeContext, operation: FsOperation) -> Result<Value, String> {
-    if vm_fibers::boundary().is_none() {
+    // Under a tape, fs runs synchronously even inside `run_async`: the tape
+    // records it like any other synchronous effect.
+    if vm_fibers::boundary().is_none() || crate::runtime::replay::is_active() {
         return Ok(execute_fs_sync(&operation));
     }
 
@@ -4855,7 +5260,7 @@ fn vm_fs_completion(completion: FsCompletion) -> Value {
     }
 }
 
-fn vm_fs_error(error: &FsError) -> Value {
+pub(super) fn vm_fs_error(error: &FsError) -> Value {
     use crate::runtime::value::{AdtFields, AdtValue};
     let kind_name = match error.kind {
         FsErrorKind::NotFound => "NotFound",

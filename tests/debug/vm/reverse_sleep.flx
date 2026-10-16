@@ -1,0 +1,25 @@
+// Going back while a timer is in flight (0188 S9a). The run goes forward
+// again from the recording, and where the recording ends it runs live: the
+// timer the recording answered starts for real.
+import Flow.Async exposing (..)
+
+fn sleeper() -> Int with Async {
+    sleep(40)
+    1
+}
+
+fn worker() -> Int with Async {
+    let x = 2
+    sleep(1)
+    let y = x * 3
+    y
+}
+
+fn body() -> Int with Async {
+    let pair = both(sleeper, worker)
+    pair.0 + pair.1
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

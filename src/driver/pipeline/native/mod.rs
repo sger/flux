@@ -13,7 +13,7 @@ use crate::{
 use crate::{
     lir::{LirProgram, emit_llvm::emit_llvm_module_with_options},
     llvm::{
-        pipeline::{compile_ir_to_object, ensure_runtime_lib},
+        pipeline::{RuntimeVariant, compile_ir_to_object, ensure_runtime_lib},
         render_module, target,
     },
 };
@@ -37,21 +37,17 @@ fn runtime_lib_candidates() -> Vec<PathBuf> {
     candidates
 }
 
-/// Locates a built native runtime library directory if one is available.
-pub(crate) fn locate_runtime_lib_dir() -> Option<std::path::PathBuf> {
+/// Locates a built native runtime library directory if one is available,
+/// building the `variant` of the runtime there first.
+#[cfg(feature = "llvm")]
+pub(crate) fn locate_runtime_lib_dir(variant: RuntimeVariant) -> Option<std::path::PathBuf> {
     let candidates = runtime_lib_candidates();
     for candidate in &candidates {
         if candidate.join("flux_rt.h").exists() {
-            #[cfg(feature = "llvm")]
-            if let Err(e) = ensure_runtime_lib(candidate) {
+            if let Err(e) = ensure_runtime_lib(candidate, variant) {
                 eprintln!("Warning: failed to build C runtime: {e}");
             }
-            let lib_exists = if cfg!(windows) {
-                candidate.join("flux_rt.lib").exists()
-            } else {
-                candidate.join("libflux_rt.a").exists()
-            };
-            if lib_exists {
+            if candidate.join(variant.file_name()).exists() {
                 return Some(candidate.clone());
             }
         }
@@ -125,6 +121,48 @@ pub(crate) fn compile_native_support_object(
 }
 
 #[cfg(feature = "llvm")]
+/// Builds or reuses the object that defines `flux_program_hash`, the hash a
+/// tape names this program by (proposal 0188 S9b). Linked into every native
+/// program, so the program writes and checks tapes without the driver.
+pub(crate) fn compile_program_hash_object(
+    cache_layout: &CacheLayout,
+    no_cache: bool,
+    program_hash: &str,
+) -> Result<PathBuf, String> {
+    let digest = program_hash.trim_start_matches("sha256:");
+    let name = format!(
+        "flux_program_{}.{}",
+        &digest[..digest.len().min(16)],
+        if cfg!(windows) { "obj" } else { "o" }
+    );
+    let object_path = if no_cache {
+        let dir = native_temp_dir(cache_layout);
+        let _ = std::fs::create_dir_all(&dir);
+        dir.join(name)
+    } else {
+        let dir = cache_layout.native_dir().join("program_hash");
+        let _ = std::fs::create_dir_all(&dir);
+        dir.join(name)
+    };
+    if !no_cache && object_path.exists() {
+        return Ok(object_path);
+    }
+    let mut ll_text = String::new();
+    if let Some(layout) = target::host_data_layout() {
+        ll_text.push_str(&format!("target datalayout = \"{layout}\"\n"));
+    }
+    ll_text.push_str(&format!(
+        "target triple = \"{}\"\n@flux_program_hash = constant [{} x i8] c\"{}\\00\", align 1\n",
+        target::host_triple(),
+        program_hash.len() + 1,
+        program_hash
+    ));
+    compile_ir_to_object(&ll_text, &object_path, 0)
+        .map_err(|err| format!("native program hash object compilation failed: {err}"))?;
+    Ok(object_path)
+}
+
+#[cfg(feature = "llvm")]
 /// Grouped inputs for native parallel module compilation.
 pub(crate) struct NativeParallelCompileRequest<'a> {
     pub(crate) graph: &'a ModuleGraph,
@@ -133,6 +171,7 @@ pub(crate) struct NativeParallelCompileRequest<'a> {
     pub(crate) strict_mode: bool,
     pub(crate) enable_optimize: bool,
     pub(crate) enable_analyze: bool,
+    pub(crate) debug_level: crate::debuginfo::DebugLevel,
     pub(crate) verbose: bool,
     pub(crate) base_interner: &'a Interner,
 }

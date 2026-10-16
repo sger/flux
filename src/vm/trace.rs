@@ -115,9 +115,13 @@ impl VM {
         Some((file.to_string(), location.span))
     }
 
+    /// A stack-trace line for `frame`, at instruction `ip`: the current
+    /// instruction for the newest frame, the running call for the others
+    /// (see [`VM::frame_ip`]).
     pub(super) fn format_frame(
         &self,
         frame: &Frame,
+        ip: usize,
         is_root_frame: bool,
     ) -> (String, Option<String>) {
         let debug_info = frame.closure.function.debug_info.as_ref();
@@ -131,7 +135,7 @@ impl VM {
                 }
             });
         let location = debug_info.and_then(|info| {
-            info.location_at(frame.ip).and_then(|loc| {
+            info.location_at(ip).and_then(|loc| {
                 info.file_for(loc.file_id).map(|file| {
                     format!(
                         "{}:{}:{}",
@@ -145,15 +149,15 @@ impl VM {
         (name, location)
     }
 
-    fn render_runtime_diagnostic(&self, diag: &Diagnostic, file: &str) -> String {
+    pub(super) fn render_runtime_diagnostic(&self, diag: &Diagnostic, file: &str) -> String {
         let source = std::fs::read_to_string(file).ok();
-        let stack_frames = self.frames[..=self.frame_index]
-            .iter()
+        let stack_frames = (0..=self.frame_index)
             .rev()
-            .enumerate()
-            .map(|(index, frame)| {
-                let is_root_frame = index == self.frame_index;
-                let (name, location) = self.format_frame(frame, is_root_frame);
+            .map(|frame_index| {
+                let frame = &self.frames[frame_index];
+                let is_root_frame = frame_index == 0;
+                let (name, location) =
+                    self.format_frame(frame, self.frame_ip(frame_index), is_root_frame);
                 match location {
                     Some(loc) => format!("{name} ({loc})"),
                     None => name,

@@ -1,9 +1,9 @@
 use std::fmt::{self, Display, Formatter};
 
 use super::{
-    CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCmpOp, LlvmConst, LlvmDecl, LlvmFunction,
-    LlvmGlobal, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator, LlvmType,
-    LlvmTypeDef, LlvmValueKind,
+    BlockDebug, CallConv, FunctionDebug, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCmpOp,
+    LlvmConst, LlvmDecl, LlvmFunction, LlvmGlobal, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand,
+    LlvmTerminator, LlvmType, LlvmTypeDef, LlvmValueKind,
 };
 
 pub fn render_module(module: &LlvmModule) -> String {
@@ -37,6 +37,7 @@ impl Display for LlvmType {
                 write!(f, ")")
             }
             LlvmType::Named(name) => write!(f, "%{name}"),
+            LlvmType::Metadata => write!(f, "metadata"),
         }
     }
 }
@@ -72,7 +73,30 @@ impl Display for LlvmModule {
         write_section(f, &self.type_defs)?;
         write_section(f, &self.globals)?;
         write_section(f, &self.declarations)?;
-        write_section(f, &self.functions)
+        let Some(debug) = &self.debug else {
+            return write_section(f, &self.functions);
+        };
+        for (idx, function) in self.functions.iter().enumerate() {
+            if idx > 0 {
+                writeln!(f)?;
+            }
+            match debug.functions.get(&function.name.0) {
+                Some(function_debug) => fmt_function(f, function, Some(function_debug))?,
+                None => fmt_function(f, function, None)?,
+            }
+            writeln!(f)?;
+        }
+        if !self.functions.is_empty() {
+            writeln!(f)?;
+        }
+        for (name, nodes) in &debug.named {
+            let list: Vec<String> = nodes.iter().map(|node| format!("!{node}")).collect();
+            writeln!(f, "!{name} = !{{{}}}", list.join(", "))?;
+        }
+        for (index, text) in debug.nodes.iter().enumerate() {
+            writeln!(f, "!{index} = {text}")?;
+        }
+        Ok(())
     }
 }
 
@@ -86,11 +110,16 @@ impl Display for LlvmGlobal {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match &self.value {
             Some(value) => {
+                // A definition with external linkage spells no linkage.
+                let linkage = match self.linkage {
+                    Linkage::External => String::new(),
+                    linkage => format!("{linkage} "),
+                };
                 write!(
                     f,
-                    "@{} = {} {} {} {}",
+                    "@{} = {}{} {} {}",
                     self.name,
-                    self.linkage,
+                    linkage,
                     if self.is_constant {
                         "constant"
                     } else {
@@ -128,17 +157,32 @@ impl Display for LlvmDecl {
 
 impl Display for LlvmFunction {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        fmt_function(f, self, None)
+    }
+}
+
+/// Prints a function, with its debug locations when it has a subprogram.
+fn fmt_function(
+    f: &mut Formatter<'_>,
+    function: &LlvmFunction,
+    debug: Option<&FunctionDebug>,
+) -> fmt::Result {
+    {
         write!(f, "define ")?;
-        fmt_linkage(f, self.linkage)?;
-        write!(f, "{} {} @{}(", self.sig.call_conv, self.sig.ret, self.name)?;
-        for (idx, (ty, param)) in self.sig.params.iter().zip(&self.params).enumerate() {
+        fmt_linkage(f, function.linkage)?;
+        write!(
+            f,
+            "{} {} @{}(",
+            function.sig.call_conv, function.sig.ret, function.name
+        )?;
+        for (idx, (ty, param)) in function.sig.params.iter().zip(&function.params).enumerate() {
             if idx > 0 {
                 write!(f, ", ")?;
             }
             write!(f, "{ty} {param}")?;
         }
-        if self.sig.varargs {
-            if !self.sig.params.is_empty() {
+        if function.sig.varargs {
+            if !function.sig.params.is_empty() {
                 write!(f, ", ")?;
             }
             write!(f, "...")?;
@@ -154,7 +198,7 @@ impl Display for LlvmFunction {
         // `uwtable` is harmless on Linux/macOS (DWARF unwind info is
         // emitted regardless) so we add it unconditionally.
         let mut emitted_uwtable = false;
-        for attr in &self.attrs {
+        for attr in &function.attrs {
             if attr == "uwtable" {
                 emitted_uwtable = true;
             }
@@ -163,9 +207,24 @@ impl Display for LlvmFunction {
         if !emitted_uwtable {
             write!(f, " uwtable")?;
         }
-        writeln!(f, " {{")?;
-        for block in &self.blocks {
-            writeln!(f, "{block}")?;
+        let Some(debug) = debug else {
+            writeln!(f, " {{")?;
+            for block in &function.blocks {
+                writeln!(f, "{block}")?;
+            }
+            return write!(f, "}}");
+        };
+        writeln!(f, " !dbg !{} {{", debug.subprogram)?;
+        let none = BlockDebug::default();
+        for (index, block) in function.blocks.iter().enumerate() {
+            let block_debug = debug.blocks.get(index).unwrap_or(&none);
+            writeln!(f, "{}:", block.label)?;
+            for (at, instr) in block.instrs.iter().enumerate() {
+                let loc = block_debug.loc_of(at).unwrap_or(debug.line_zero);
+                writeln!(f, "  {instr}, !dbg !{loc}")?;
+            }
+            let loc = block_debug.term.unwrap_or(debug.line_zero);
+            writeln!(f, "  {}, !dbg !{loc}", block.term)?;
         }
         write!(f, "}}")
     }
@@ -455,6 +514,7 @@ impl Display for LlvmOperand {
             LlvmOperand::Local(local) => write!(f, "{local}"),
             LlvmOperand::Global(global) => write!(f, "@{global}"),
             LlvmOperand::Const(value) => write!(f, "{value}"),
+            LlvmOperand::Metadata(text) => write!(f, "{text}"),
         }
     }
 }
@@ -727,6 +787,7 @@ mod tests {
 
     fn build_demo_module() -> LlvmModule {
         LlvmModule {
+            debug: None,
             source_filename: Some("demo.flx".into()),
             target_triple: Some("x86_64-unknown-linux-gnu".into()),
             data_layout: Some("e-m:e-p:64:64-i64:64-n8:16:32:64-S128".into()),

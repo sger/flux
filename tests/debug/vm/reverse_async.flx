@@ -1,0 +1,14 @@
+// Going back into async code (0188 S9a): from the checkpoint before
+// `run_async`, the run goes forward again with the recording answering it.
+import Flow.Async exposing (..)
+
+fn nap() -> Int with Async {
+    sleep(1)
+    7
+}
+
+fn main() with IO {
+    let before = 1
+    let after = run_async(nap)
+    print(before + after)
+}

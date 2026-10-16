@@ -1,0 +1,12 @@
+// Going back into a function a library call runs for each element: the
+// library's loop runs on the Rust stack, so the debugger goes back to a
+// checkpoint taken before the call and runs forward from there.
+fn bump(x) {
+    let y = x + 100
+    y
+}
+
+fn main() {
+    let ys = map([1, 2, 3], bump)
+    print(ys)
+}

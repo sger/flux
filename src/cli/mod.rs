@@ -33,6 +33,7 @@ fn run_command(command: CliCommand) -> ExitCode {
         CliCommand::Bytecode { flags } => inspect::show_bytecode(&flags),
         CliCommand::Lint { flags } => inspect::lint(&flags),
         CliCommand::Fmt { path, check } => inspect::fmt(&path, check),
+        CliCommand::LldbScript => print!("{}", crate::debuginfo::LLDB_SCRIPT),
         CliCommand::Eval { expr, flags } => entry::eval(&expr, flags),
         CliCommand::Repl { flags } => entry::repl(flags),
         // These report a missing input rather than exiting in-process, so the

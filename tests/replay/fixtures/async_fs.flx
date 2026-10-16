@@ -1,0 +1,17 @@
+// File system calls inside run_async run synchronously under a tape and are
+// recorded like any other (0188 S1b).
+import Flow.Async exposing (..)
+import Flow.Fs as Fs
+
+fn body() -> String with Async, IO {
+    let wrote = match Fs.write_file("out-async.txt", "from a fiber") {
+        Ok(_) -> "wrote",
+        Err(_) -> "write failed",
+    }
+    let read = Fs.read_file_or("data/in.txt", "MISSING")
+    wrote + "; read " + read + "; exists=" + to_string(Fs.exists("out-async.txt"))
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

@@ -180,6 +180,12 @@ Each instruction handler ends with a `goto` to the next handler. In Rust, this c
 
 ### Phase 3 — Breakpoint and stepping support
 
+> **Implemented by [0188](0188_flux_debugger.md) stage S2 (2026-10-13).**
+> `OpBreakpoint(u16)` is emitted only under `-g`, breakpoints live in debugger
+> state, and `local_names` became a local-variable table with live ranges
+> (0188 §3). `flux debug` drives it until the VS Code adapter (0188 S4). The
+> text below is kept for history.
+
 **Goal**: Add interactive debugging to the VM, enabling a future REPL with `:step`, `:break`, and variable inspection.
 
 **New instruction:**

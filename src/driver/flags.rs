@@ -13,6 +13,9 @@ pub struct DriverBackendFlags {
     pub use_llvm: bool,
     pub emit_llvm: bool,
     pub emit_binary: bool,
+    /// Link the debug-heap runtime, which catches a use after free
+    /// (0188 S10c). Native only.
+    pub debug_heap: bool,
     pub output_path: Option<String>,
 }
 
@@ -23,6 +26,13 @@ pub struct DriverInputFlags {
     pub roots: Vec<PathBuf>,
     pub roots_only: bool,
     pub test_filter: Option<String>,
+}
+
+/// `--record <tape>` or `--replay <tape>` (proposal 0188 S1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TapeRequest {
+    Record(PathBuf),
+    Replay(PathBuf),
 }
 
 /// Runtime-only execution controls that do not affect frontend semantics.
@@ -42,6 +52,20 @@ pub struct DriverRuntimeFlags {
     /// Backs `flux build` and `flux check`: both need every compile-time error
     /// surfaced without running `main`.
     pub check_only: bool,
+    /// Record the run's effects to a tape, or replay them from one.
+    pub tape: Option<TapeRequest>,
+    /// Run under the debugger (`flux debug`, proposal 0188 S2).
+    pub debugger: Option<DebuggerRequest>,
+}
+
+/// How `flux debug` takes its commands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DebuggerRequest {
+    /// Read commands from this file instead of stdin.
+    pub script: Option<PathBuf>,
+    /// Serve a debug adapter (`flux-dap`) at this address instead of
+    /// reading commands (0188 S4).
+    pub engine: Option<String>,
 }
 
 /// Dump and inspection surfaces emitted by the driver.
@@ -53,6 +77,8 @@ pub struct DriverDumpFlags {
     pub dump_aether: AetherDumpMode,
     pub dump_lir: bool,
     pub dump_lir_llvm: bool,
+    /// Print each module's debug information (proposal 0188) and stop.
+    pub dump_debug_info: bool,
 }
 
 /// Diagnostic rendering and reporting options shared across driver modes.
@@ -87,6 +113,8 @@ pub struct DriverLanguageFlags {
     pub enable_optimize: bool,
     pub enable_analyze: bool,
     pub strict_mode: bool,
+    /// How much debug information to produce (`-g` / `--debug`).
+    pub debug_level: crate::debuginfo::DebugLevel,
 }
 
 /// The selected package build profile and the parse-time overrides that must

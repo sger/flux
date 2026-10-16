@@ -1,0 +1,12 @@
+// A long sleep: a replay answers it from the tape instead of waiting
+// (0188 S1b).
+import Flow.Async exposing (..)
+
+fn body() -> String with Async {
+    sleep(2500)
+    "woke"
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

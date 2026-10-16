@@ -1,0 +1,14 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 6
+breakpoint at replayed.flx:6
+> continue
+stopped: breakpoint at replayed.flx:6:5 in greeting (position 13)
+     6 |     text
+> locals
+text = "hello recorded"
+> continue
+program finished
+--- program output ---
+"hello recorded"

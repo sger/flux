@@ -1,0 +1,19 @@
+// Debug parity: a match arm's binder shadows a `let` of the same name;
+// the frame shows the innermost.
+// dbg: break 11
+// dbg: continue
+// dbg: locals
+// dbg: continue
+
+fn pick(o) {
+    let x = 1
+    let found = match o {
+        Some(x) -> x + 100,
+        None -> 0,
+    }
+    found + x
+}
+
+fn main() {
+    print(pick(Some(5)))
+}

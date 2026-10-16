@@ -1,0 +1,18 @@
+break 4
+continue
+continue
+continue
+bt
+locals
+reverse-continue
+bt
+locals
+reverse-continue
+locals
+reverse-continue
+continue
+continue
+bt
+locals
+delete 4
+continue

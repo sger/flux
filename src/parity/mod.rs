@@ -33,6 +33,7 @@
 //! ```
 
 pub mod cli;
+pub mod debug;
 pub mod fixture;
 pub mod normalize;
 pub mod report;
@@ -77,6 +78,13 @@ pub enum Way {
     LlvmCached,
     VmStrict,
     LlvmStrict,
+    /// A scripted session in the VM debugger (`flux debug`), 0188 S6.
+    VmDebug,
+    /// The same session in lldb, on a `-g` native build.
+    LlvmDebug,
+    /// The program built natively with `-g`: a debug build runs as a plain
+    /// one does (0188 S9c).
+    LlvmG,
 }
 
 impl fmt::Display for Way {
@@ -88,6 +96,9 @@ impl fmt::Display for Way {
             Self::LlvmCached => write!(f, "llvm_cached"),
             Self::VmStrict => write!(f, "vm_strict"),
             Self::LlvmStrict => write!(f, "llvm_strict"),
+            Self::VmDebug => write!(f, "vm_debug"),
+            Self::LlvmDebug => write!(f, "llvm_debug"),
+            Self::LlvmG => write!(f, "llvm_g"),
         }
     }
 }
@@ -101,6 +112,9 @@ impl Way {
             "llvm_cached" => Some(Self::LlvmCached),
             "vm_strict" => Some(Self::VmStrict),
             "llvm_strict" => Some(Self::LlvmStrict),
+            "vm_debug" => Some(Self::VmDebug),
+            "llvm_debug" => Some(Self::LlvmDebug),
+            "llvm_g" => Some(Self::LlvmG),
             _ => None,
         }
     }
@@ -119,6 +133,12 @@ impl Way {
         matches!(self, Self::VmCached | Self::LlvmCached)
     }
 
+    /// Whether this way runs a debugging session (`// dbg:` commands)
+    /// rather than the program.
+    pub fn is_debug(self) -> bool {
+        matches!(self, Self::VmDebug | Self::LlvmDebug)
+    }
+
     /// Whether this way enables `--strict` mode.
     pub fn is_strict(self) -> bool {
         matches!(self, Self::VmStrict | Self::LlvmStrict)
@@ -135,8 +155,10 @@ impl Way {
 
     pub fn backend_id(self) -> BackendId {
         match self {
-            Self::Vm | Self::VmCached | Self::VmStrict => BackendId::Vm,
-            Self::Llvm | Self::LlvmCached | Self::LlvmStrict => BackendId::Llvm,
+            Self::Vm | Self::VmCached | Self::VmStrict | Self::VmDebug => BackendId::Vm,
+            Self::Llvm | Self::LlvmCached | Self::LlvmStrict | Self::LlvmDebug | Self::LlvmG => {
+                BackendId::Llvm
+            }
         }
     }
 }
