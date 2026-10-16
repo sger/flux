@@ -157,7 +157,8 @@ fn the_ir_of_a_debug_build_is_codeview() {
         .expect("the module compiles");
     let ir = flux::llvm::render_module(&module);
     assert!(ir.contains("!\"CodeView\", i32 1"), "{ir}");
-    assert!(!ir.contains("Dwarf Version"), "{ir}");
+    // DWARF beside it, which the .exe keeps for the program's own traces.
+    assert!(ir.contains("Dwarf Version"), "{ir}");
     assert!(ir.contains("DISubprogram(name: \"sum_squares\""), "{ir}");
 }
 

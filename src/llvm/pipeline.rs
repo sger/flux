@@ -320,6 +320,33 @@ impl RuntimeVariant {
     }
 }
 
+/// What the Windows linker is told about debug information. `lld-link`
+/// keeps the Flux DWARF line table in every .exe (`/DEBUG:DWARF`): the
+/// program's own traces read it (0188 S10a), since dbghelp reads only a
+/// PDB. With `debug`, it also writes the program's CodeView into a PDB
+/// for Visual Studio and cdb (S11). MSVC's `link.exe` keeps no DWARF, so
+/// a program it links names no Flux frames.
+fn windows_debug_args(exe_path: &Path, debug: bool, lld: bool) -> Vec<String> {
+    let mut args = Vec::new();
+    if debug {
+        args.push("/DEBUG".to_string());
+    }
+    if lld {
+        // Without `NOSYMTAB`, `DWARF` also keeps a COFF symbol table that
+        // nothing reads, doubling the size of the .exe.
+        args.extend(["/DEBUG:DWARF".to_string(), "/DEBUG:NOSYMTAB".to_string()]);
+    }
+    if !args.is_empty() {
+        // `/DEBUG` turns off dropping unused code, which keeps the whole
+        // Rust staticlib: ten times the size. Turn it back on.
+        args.extend(["/OPT:REF".to_string(), "/OPT:ICF".to_string()]);
+    }
+    if debug {
+        args.push(format!("/PDB:{}", pdb_path(exe_path).display()));
+    }
+    args
+}
+
 /// Link `.o`/`.obj` + runtime library → executable. With `debug`, the
 /// Windows linker also writes the program's CodeView into a PDB.
 ///
@@ -346,12 +373,7 @@ fn run_linker(
             cmd.args(["/nologo", "/subsystem:console"])
                 .arg(format!("/OUT:{}", linked_exe_path(exe_path).display()))
                 .args(obj_paths);
-            if debug {
-                // `/DEBUG` turns off dropping unused code, which keeps the
-                // whole Rust staticlib: ten times the size. Turn it back on.
-                cmd.args(["/DEBUG", "/OPT:REF", "/OPT:ICF"])
-                    .arg(format!("/PDB:{}", pdb_path(exe_path).display()));
-            }
+            cmd.args(windows_debug_args(exe_path, debug, use_lld));
             // Set large stack size for deeply recursive programs.
             cmd.arg("/STACK:67108864"); // 64 MB stack
             // Rust staticlib (defines flux_async_*) must precede flux_rt.lib
@@ -391,11 +413,11 @@ fn run_linker(
                 // The Rust staticlib linked for native async pulls in small
                 // portions of `std` that reference these Windows system libs.
                 cmd.args(["-luserenv", "-lntdll"]);
-                if debug {
-                    // See the MSVC branch: `/DEBUG` would keep unused code.
-                    cmd.args(["-Wl,/DEBUG", "-Wl,/OPT:REF", "-Wl,/OPT:ICF"])
-                        .arg(format!("-Wl,/PDB:{}", pdb_path(exe_path).display()));
-                }
+                cmd.args(
+                    windows_debug_args(exe_path, debug, use_lld)
+                        .into_iter()
+                        .map(|arg| format!("-Wl,{arg}")),
+                );
             }
             // Set large stack size for deeply recursive programs.
             #[cfg(target_os = "macos")]
