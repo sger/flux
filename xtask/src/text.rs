@@ -33,6 +33,60 @@ fn ansi_len(text: &str) -> Option<usize> {
     (bytes.get(2 + params) == Some(&b'm')).then_some(3 + params)
 }
 
+/// Console colour: on when stdout is a terminal and `NO_COLOR` is unset.
+/// Only for what is printed; logs stay plain.
+#[derive(Clone, Copy)]
+pub struct Paint {
+    on: bool,
+}
+
+impl Paint {
+    pub fn detect() -> Self {
+        use std::io::IsTerminal;
+        Self {
+            on: std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none(),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn always() -> Self {
+        Self { on: true }
+    }
+
+    fn wrap(self, code: &str, text: &str) -> String {
+        if self.on {
+            format!("\x1b[{code}m{text}\x1b[0m")
+        } else {
+            text.to_string()
+        }
+    }
+
+    pub fn green(self, text: &str) -> String {
+        self.wrap("32", text)
+    }
+
+    pub fn red(self, text: &str) -> String {
+        self.wrap("1;31", text)
+    }
+
+    pub fn yellow(self, text: &str) -> String {
+        self.wrap("33", text)
+    }
+
+    pub fn dim(self, text: &str) -> String {
+        self.wrap("2", text)
+    }
+
+    pub fn bold(self, text: &str) -> String {
+        self.wrap("1", text)
+    }
+
+    /// A step heading: bold cyan.
+    pub fn heading(self, text: &str) -> String {
+        self.wrap("1;36", text)
+    }
+}
+
 /// Every diagnostic code `[E123]` or `[E1234]` in `text`, sorted and unique.
 pub fn diagnostic_codes(text: &str) -> Vec<String> {
     let mut codes = Vec::new();
@@ -60,6 +114,12 @@ mod tests {
         assert_eq!(strip_ansi("\x1b[mplain"), "plain");
         assert_eq!(strip_ansi("lone \x1b escape"), "lone \x1b escape");
         assert_eq!(strip_ansi("no colour"), "no colour");
+    }
+
+    #[test]
+    fn colours_only_when_on() {
+        assert_eq!(Paint::always().dim("x"), "\x1b[2mx\x1b[0m");
+        assert_eq!(Paint { on: false }.dim("[parity]"), "[parity]");
     }
 
     #[test]

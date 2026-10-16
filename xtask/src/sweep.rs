@@ -178,11 +178,12 @@ pub fn run(root: &Path, options: &Options) -> Result<Vec<FileResult>, String> {
 
     let flags = options.mode.flags();
     println!(
-        "sweep: {} files, mode {} ({}), {} jobs",
+        "sweep: {} files, mode {}, {} jobs; each runs\n  $ flux --no-cache --quiet {} <file>\n  out: {}",
         files.len(),
         options.mode.name(),
+        options.jobs,
         flags.join(" "),
-        options.jobs
+        out_dir.display()
     );
     let started = Instant::now();
 

@@ -84,6 +84,7 @@ pub fn run_parity_check(args: &[String]) {
         eprintln!("Error: no .flx files found in {}", config.path.display());
         std::process::exit(1);
     }
+    eprintln!("[parity] fixtures: {}", files.len());
 
     // `--compile` pre-pass: compile every fixture (populating caches) before
     // starting the parity loop. Bail on the first compilation failure.
