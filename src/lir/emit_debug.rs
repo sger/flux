@@ -106,11 +106,14 @@ impl DebugBuilder {
             "distinct !DICompileUnit(language: DW_LANG_C, file: !{file}, producer: \"flux {}\", \
              isOptimized: false, runtimeVersion: 0, emissionKind: {})",
             env!("CARGO_PKG_VERSION"),
-            // A line-tables-only unit describes no functions: elsewhere the
-            // binary's symbol table names a trace's frames, but a Windows
-            // .exe has none the program reads, so its DWARF names them.
+            // Lines alone still name each function: outside Darwin, LLVM
+            // drops a line-tables-only subprogram with nothing inlined into
+            // it unless the unit asks for profiling debug info, and a trace
+            // would then name the frame by its symbol (`flux_main`) rather
+            // than `main`. A Windows .exe has no symbol table the program
+            // reads, so there the unit is full and its DWARF names them.
             if native.lines_only && !cfg!(target_env = "msvc") {
-                "LineTablesOnly"
+                "LineTablesOnly, debugInfoForProfiling: true"
             } else {
                 "FullDebug"
             }
