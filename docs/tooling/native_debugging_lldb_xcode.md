@@ -132,6 +132,25 @@ p = Point(1, 2)
 - A value shows as `<dropped>` once the program has released it: native code
   frees a value at its last use, and the debugger does not read freed
   memory. The VM keeps such values, so `flux debug` still shows them.
+- `flux refs xs` reads the value's reference count from its header: how
+  many references the program holds, and whether it is unique, which is
+  when the compiled code can reuse it in place (0188 S10b):
+
+  ```text
+  (lldb) flux refs xs
+  xs: 3 references (shared)
+  (lldb) flux refs pair
+  pair: 1 reference (unique: can be reused in place)
+  (lldb) flux refs n
+  n: not reference counted (Int)
+  ```
+
+  A count shared between threads (a value sent on a channel or to a task)
+  reads `shared across threads`. A debug slot holds no reference, so the
+  count is the program's own. `flux debug`'s `refs` counts the VM's
+  references instead, which can differ: the VM keeps a variable until its
+  frame returns, where native code releases it at its last use. In VS Code,
+  `.refs xs` in the Debug Console does the same on either backend.
 
 ### Effects
 

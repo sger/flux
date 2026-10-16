@@ -201,7 +201,9 @@ impl EngineObserver {
                     .collect();
                 self.reply(id, Ok(Reply::Stack { frames }));
             }
-            Request::Variables { .. } | Request::Evaluate { .. } if !paused => {
+            Request::Variables { .. } | Request::Evaluate { .. } | Request::Refs { .. }
+                if !paused =>
+            {
                 self.reply(id, running())
             }
             Request::Variables {
@@ -223,6 +225,19 @@ impl EngineObserver {
                 let result = look_at(inspector, thread)
                     .and_then(|()| evaluate(inspector, frame, &expression))
                     .map(|variable| Reply::Value { variable });
+                self.reply(id, result);
+            }
+            Request::Refs {
+                frame,
+                expression,
+                thread,
+            } => {
+                let result = look_at(inspector, thread)
+                    .and_then(|()| inspector.refs(frame, expression.trim()))
+                    .map(|refs| Reply::Refs {
+                        count: refs.count.map(|count| count as u64),
+                        type_name: refs.type_name.to_string(),
+                    });
                 self.reply(id, result);
             }
             Request::SetInternals { show } => {

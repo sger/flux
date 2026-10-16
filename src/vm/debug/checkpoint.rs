@@ -127,6 +127,17 @@ impl Checkpoint {
         crate::vm::event::rewind_ids(events);
     }
 
+    /// How many of this checkpoint's slots are copies of `slot`'s box: a
+    /// debugger's own references to the value in it (0188 S10b).
+    fn copies_of(&self, slot: &Slot) -> usize {
+        self.stack
+            .iter()
+            .chain(&self.globals)
+            .chain(std::iter::once(&self.last_popped))
+            .filter(|copy| slot.same_box(copy))
+            .count()
+    }
+
     /// About how much memory the checkpoint holds itself: its copies of the
     /// roots, not the values they share with the running program.
     fn bytes(&self) -> usize {
@@ -170,6 +181,14 @@ pub(super) struct Checkpoints {
 }
 
 impl Checkpoints {
+    /// How many slots of all the checkpoints are copies of `slot`'s box.
+    pub(super) fn copies_of(&self, slot: &Slot) -> usize {
+        self.list
+            .iter()
+            .map(|checkpoint| checkpoint.copies_of(slot))
+            .sum()
+    }
+
     pub(super) fn new() -> Self {
         let fixed = std::env::var("FLUX_DEBUG_CHECKPOINT_EVERY")
             .ok()

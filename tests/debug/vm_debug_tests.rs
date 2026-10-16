@@ -136,6 +136,17 @@ fn locals_and_parts_of_values() {
     assert_session("values");
 }
 
+/// `refs` counts a value's references, the debugger's own left out
+/// (0188 S10b): with a checkpoint at every site, holding a copy of each
+/// slot, the counts are the same.
+#[test]
+fn reference_counts() {
+    let plain = debug_session("refs", &[], &[]);
+    snapshot("refs", &plain);
+    let checkpointed = debug_session("refs", &[], &checkpoint_every("1"));
+    assert_eq!(checkpointed, plain);
+}
+
 #[test]
 fn a_lambda_and_what_it_captured() {
     assert_session("closure");

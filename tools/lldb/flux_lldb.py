@@ -19,6 +19,9 @@ This script prints them as Flux values, the way `flux debug` does, and adds a
     flux locals           the current frame's variables
     flux print <name>[.<part>...]
                           a variable, or a part of it, and its parts
+    flux refs <name>[.<part>...]
+                          how many references the value has: a unique
+                          one can be reused in place (0188 S10b)
     flux handlers         the active effect handlers, innermost first
     flux threads          the fibers of `run_async`, and what each waits for
     flux thread <n>       look at thread <n>: `flux bt` reads it
@@ -1588,6 +1591,70 @@ def _command_print(debugger, args, result):
         result.AppendMessage("  .%s = %s" % (label, child.render()))
 
 
+def _uncounted(value):
+    """What a value with no reference count is, as `refs` names it, or None
+    for a heap object, which has one."""
+    if value.kind == "FluxInt" or (value.kind == "FluxWord" and not value.tagged()):
+        return "Int"
+    if value.kind == "FluxBool":
+        return "Bool"
+    word = value.word
+    if word & 1:
+        return "Int"
+    names = {NONE: "None", FALSE: "Bool", TRUE: "Bool", EMPTY_LIST: "List"}
+    if word in names:
+        return names[word]
+    if value.object_kind() is None:
+        return "an unreadable value"
+    return None
+
+
+def _command_refs(debugger, args, result):
+    """How many references a value has (0188 S10b): the count in its
+    header, at the word before it. A negative count is shared across
+    threads. A debug slot holds no reference, so the count is the
+    program's own."""
+    path = args.strip()
+    parts = path.split(".")
+    if not parts or not parts[0]:
+        result.AppendMessage("usage: flux refs <name>[.<n>...]")
+        return
+    frame = _selected_frame(debugger)
+    if frame is None:
+        result.AppendMessage("no Flux frame")
+        return
+    found = [variable for name, variable, _ in frame_variables(frame) if name == parts[0]]
+    if not found:
+        result.AppendMessage("no variable `%s` here" % parts[0])
+        return
+    value = _value_of(found[0].GetNonSyntheticValue())
+    for part in parts[1:]:
+        child = value.child(part)
+        if child is None:
+            result.AppendMessage("`%s` has no part `%s`" % (path, part))
+            return
+        value = child
+    if value.marker() == "dropped":
+        result.AppendMessage("%s: dropped" % path)
+        return
+    uncounted = _uncounted(value)
+    if uncounted is not None:
+        result.AppendMessage("%s: not reference counted (%s)" % (path, uncounted))
+        return
+    count = value.memory.i32(value.word - 8)
+    if not count:
+        result.AppendMessage("%s: freed or unreadable" % path)
+        return
+    noun = "reference" if abs(count) == 1 else "references"
+    if count < 0:
+        how = "shared across threads"
+    elif count == 1:
+        how = "unique: can be reused in place"
+    else:
+        how = "shared"
+    result.AppendMessage("%s: %d %s (%s)" % (path, abs(count), noun, how))
+
+
 # ── Stepping across effects (0188 S7) ───────────────────────────────────
 #
 # A perform on the general path returns from the performing frames before
@@ -1901,6 +1968,7 @@ COMMANDS = {
     "locals": _command_locals,
     "print": _command_print,
     "p": _command_print,
+    "refs": _command_refs,
     "handlers": _command_handlers,
     "threads": _command_threads,
     "thread": _command_thread,
@@ -1914,7 +1982,8 @@ COMMANDS = {
     "event": _command_event,
 }
 USAGE = (
-    "usage: flux bt | flux locals | flux print <name>[.<part>...] | flux handlers"
+    "usage: flux bt | flux locals | flux print <name>[.<part>...]"
+    " | flux refs <name>[.<part>...] | flux handlers"
     " | flux threads | flux thread <n>"
     " | flux catch [kind...] | flux where | flux next | flux step | flux finish"
     " | flux forget-steps | flux events [--json] | flux event <n>"

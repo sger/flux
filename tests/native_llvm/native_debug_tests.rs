@@ -194,6 +194,7 @@ const FIXTURES: &[&str] = &[
     "fibers.flx",
     "root_panic.flx",
     "inlined.flx",
+    "refs.flx",
 ];
 
 /// The errors `llvm-dwarfdump --verify` reports in Flux's compile units.
@@ -513,6 +514,67 @@ fn assert_lines(session: &str, expected: &[&str]) {
             "missing `{line}`:\n{session}"
         );
     }
+}
+
+/// `flux refs` reads a value's reference count from its header (0188
+/// S10b). Natively `main` has passed `xs` on, so `total` holds its three
+/// references: `xs`, `ys` and the tuple's.
+#[test]
+fn lldb_counts_references() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = prepare("refs");
+    build(&scratch, "refs.flx", "app");
+    let Some(session) = flux_session(
+        &lldb,
+        &scratch,
+        "app",
+        ("refs.flx", 13),
+        &[
+            "flux refs xs",
+            "flux refs s",
+            "flux refs n",
+            "flux refs nope",
+        ],
+    ) else {
+        return;
+    };
+    assert_lines(
+        &session,
+        &[
+            "xs: 1 reference (unique: can be reused in place)",
+            "s: 1 reference (unique: can be reused in place)",
+            "n: not reference counted (Int)",
+            "no variable `nope` here",
+        ],
+    );
+    let Some(session) = flux_session(
+        &lldb,
+        &scratch,
+        "app",
+        ("refs.flx", 6),
+        &[
+            "flux refs xs",
+            "flux refs ys",
+            "flux refs pair",
+            "flux refs pair.0",
+            "flux refs pair.5",
+        ],
+    ) else {
+        return;
+    };
+    assert_lines(
+        &session,
+        &[
+            "xs: 3 references (shared)",
+            "ys: 3 references (shared)",
+            "pair: 1 reference (unique: can be reused in place)",
+            "pair.0: 3 references (shared)",
+            "`pair.5` has no part `5`",
+        ],
+    );
 }
 
 #[test]

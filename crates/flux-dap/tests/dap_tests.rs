@@ -341,6 +341,70 @@ fn breakpoints_stack_variables_and_watches() {
     snapshot("breakpoints_stack_variables_and_watches", &editor.finish());
 }
 
+/// A program for `.refs` (0188 S10b): at line 6, `xs` is shared.
+const REFS: &str = "fn total(xs: List<Int>) -> Int {\n    let ys = xs\n    let pair = (ys, \"pair\")\n    len(xs) + len(pair.0)\n}\n\nfn main() {\n    let fresh = [1, 2, 3]\n    print(total(fresh))\n}\n";
+
+/// The Debug Console's answer to `expression`.
+fn console_result(editor: &mut Editor, expression: &str) -> String {
+    let reply = editor.request(
+        "evaluate",
+        json!({ "expression": expression, "context": "repl" }),
+    );
+    reply["body"]["result"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string()
+}
+
+#[test]
+fn the_console_counts_references() {
+    let scratch = Scratch::new("refs");
+    let program = scratch.write("refs.flx", REFS);
+    let mut editor = Editor::start(&scratch);
+    editor.launch(&program, json!({}), &[4]);
+    editor.event("stopped");
+    assert_eq!(
+        console_result(&mut editor, ".refs pair"),
+        "pair: 1 reference (unique: can be reused in place)"
+    );
+    // `main`'s `fresh`, `xs`, `ys` and the tuple's.
+    assert_eq!(
+        console_result(&mut editor, ".refs pair.0"),
+        "pair.0: 4 references (shared)"
+    );
+    let usage = editor.request(
+        "evaluate",
+        json!({ "expression": ".refs", "context": "repl" }),
+    );
+    assert_eq!(usage["message"], "usage: .refs <name>[.<n>...]", "{usage}");
+    editor.request("terminate", json!({}));
+    editor.finish();
+}
+
+#[test]
+fn native_the_console_counts_references() {
+    if !native_debugging() {
+        return;
+    }
+    let scratch = Scratch::new("native-refs");
+    let program = scratch.write("refs.flx", REFS);
+    let mut editor = Editor::start(&scratch);
+    let Some(stopped) = launch_native(&mut editor, &program, &[4]) else {
+        return;
+    };
+    let thread = stopped["body"]["threadId"].clone();
+    assert!(
+        console_result(&mut editor, ".refs pair").contains("pair: 1 reference (unique"),
+        "native .refs pair"
+    );
+    assert!(
+        console_result(&mut editor, ".refs pair.0").contains("pair.0: 3 references (shared)"),
+        "native .refs pair.0"
+    );
+    editor.request("continue", json!({ "threadId": thread }));
+    editor.finish();
+}
+
 #[test]
 fn stepping_forward_and_back() {
     let scratch = Scratch::new("stepping");

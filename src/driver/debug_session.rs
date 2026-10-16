@@ -33,6 +33,7 @@ commands:
   bt                                   show the call stack
   locals                               show this frame's variables
   print <name>[.<n>...]                show a value, or one of its parts (p)
+  refs <name>[.<n>...]                 count a value's references: unique ones can be reused
   handlers                             show the active effect handlers, innermost first
   threads                              list the fibers and tasks, and what each waits for
   thread <n>                           look at thread <n>: bt, locals and print read it
@@ -178,7 +179,7 @@ impl CommandObserver {
                 "q" | "quit" => return Resume::Quit,
                 "b" | "break" => self.set_breakpoint(inspector, rest),
                 "delete" => self.clear_breakpoint(inspector, rest),
-                "bt" | "backtrace" | "locals" | "p" | "print" | "handlers" | "threads"
+                "bt" | "backtrace" | "locals" | "p" | "print" | "refs" | "handlers" | "threads"
                 | "thread"
                     if !paused =>
                 {
@@ -191,6 +192,7 @@ impl CommandObserver {
                 "handlers" => handlers(inspector),
                 "catch" => catch(inspector, rest),
                 "p" | "print" => print(inspector, rest),
+                "refs" => refs(inspector, rest),
                 "internals" => match rest {
                     "on" => inspector.set_show_internals(true),
                     "off" => inspector.set_show_internals(false),
@@ -567,6 +569,22 @@ fn print(inspector: &mut Inspector<'_>, path: &str) {
         }
     }
     show_value(path, &value);
+}
+
+/// `refs xs`: how many references the value has (0188 S10b).
+fn refs(inspector: &mut Inspector<'_>, path: &str) {
+    let Some(frame) = inspector.stack().into_iter().next() else {
+        return;
+    };
+    match inspector.refs(frame.index, path) {
+        Ok(refs) => say(&crate::debug_protocol::describe_refs(
+            path,
+            refs.count.map(|count| count as u64),
+            false,
+            refs.type_name,
+        )),
+        Err(message) => say(&message),
+    }
 }
 
 fn show_value(path: &str, value: &ValueView) {
