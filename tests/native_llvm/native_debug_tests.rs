@@ -3,8 +3,9 @@
 //!
 //! Each fixture in `tests/native_llvm/debug/` is built with
 //! `--native -g -o <binary>`. Then:
-//! - `llvm-dwarfdump --verify` must find no errors in the binary's debug
-//!   information (the `.dSYM` on macOS);
+//! - `llvm-dwarfdump --verify` must find no errors in the Flux debug
+//!   information: the `.dSYM` on macOS, elsewhere the Flux objects the build
+//!   cached;
 //! - lldb, run in batch mode, must break at a Flux line, show Flux functions
 //!   in the backtrace, and step;
 //! - with the script loaded, `flux locals`, `flux print` and `flux bt` must
@@ -229,9 +230,9 @@ fn debug_builds_have_valid_dwarf_with_flux_lines() {
         eprintln!("note: llvm-dwarfdump not found; skipping (set FLUX_DWARFDUMP)");
         return;
     };
-    // Verifying also walks the runtime's own DWARF, which takes a while:
-    // the fixtures run two at a time. One thread per fixture ran every
-    // build and `dsymutil` at once, which exhausted a 24 GB machine.
+    // Verifying a dSYM also walks the runtime's own DWARF, which takes a
+    // while: the fixtures run two at a time. One thread per fixture ran
+    // every build and `dsymutil` at once, which exhausted a 24 GB machine.
     let next = std::sync::atomic::AtomicUsize::new(0);
     std::thread::scope(|threads| {
         for _ in 0..2 {
@@ -249,14 +250,58 @@ fn debug_builds_have_valid_dwarf_with_flux_lines() {
     });
 }
 
+/// The objects a build of `scratch` cached: the Flux modules it compiled,
+/// each with its own compile unit, and the program's entry object.
+fn flux_objects(scratch: &Scratch) -> Vec<PathBuf> {
+    fn collect(dir: &Path, objects: &mut Vec<PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                collect(&path, objects);
+            } else if path.extension().is_some_and(|ext| ext == "o") {
+                objects.push(path);
+            }
+        }
+    }
+    let mut objects = Vec::new();
+    collect(&scratch.cache_dir().join("native"), &mut objects);
+    objects.sort();
+    assert!(
+        !objects.is_empty(),
+        "no cached objects under {}",
+        scratch.cache_dir().display()
+    );
+    objects
+}
+
 fn check_dwarf(dwarfdump: &[String], fixture: &str) {
     let scratch = prepare(fixture);
     // Built, not run: some fixtures end with a runtime error on purpose.
     build_only(&scratch, fixture, "app");
     let debug = debug_file(&scratch, "app");
     let debug = debug.to_string_lossy();
-    let verify = run_tool(dwarfdump, &["--verify", &debug], scratch.path());
-    let errors = flux_unit_errors(&verify);
+    // Outside macOS the linked binary carries the runtime's DWARF too, tens
+    // of megabytes that `--verify` takes the better part of an hour over
+    // and `flux_unit_errors` ignores: verify the Flux objects instead.
+    let verified = if cfg!(target_os = "macos") {
+        vec![PathBuf::from(&*debug)]
+    } else {
+        flux_objects(&scratch)
+    };
+    let mut errors = Vec::new();
+    for path in &verified {
+        let verify = run_tool(
+            dwarfdump,
+            &["--verify", &path.to_string_lossy()],
+            scratch.path(),
+        );
+        let name = path.file_name().unwrap().to_string_lossy();
+        errors.extend(
+            flux_unit_errors(&verify)
+                .into_iter()
+                .map(|error| format!("{name}: {error}")),
+        );
+    }
     assert!(
         errors.is_empty(),
         "llvm-dwarfdump --verify found errors in the Flux units of {fixture}:\n{}",
