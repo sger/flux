@@ -40,6 +40,9 @@ pub struct NativeDebug {
     pub file: String,
     /// Whether the target reads CodeView (MSVC, 0188 S11) rather than DWARF.
     pub codeview: bool,
+    /// A build without `-g`: functions and lines only, for the program's
+    /// own panic traces (0188 S10a), without variables or types.
+    pub lines_only: bool,
 }
 
 /// Where each LLVM block's instructions came from: marks of (first
@@ -67,6 +70,7 @@ pub(super) struct DebugBuilder {
     types_symbol: String,
     types_global: Option<u32>,
     codeview: bool,
+    lines_only: bool,
 }
 
 impl DebugBuilder {
@@ -99,8 +103,13 @@ impl DebugBuilder {
         ));
         debug.nodes[unit as usize] = format!(
             "distinct !DICompileUnit(language: DW_LANG_C, file: !{file}, producer: \"flux {}\", \
-             isOptimized: false, runtimeVersion: 0, emissionKind: FullDebug)",
-            env!("CARGO_PKG_VERSION")
+             isOptimized: false, runtimeVersion: 0, emissionKind: {})",
+            env!("CARGO_PKG_VERSION"),
+            if native.lines_only {
+                "LineTablesOnly"
+            } else {
+                "FullDebug"
+            }
         );
         let format_flag = debug.node(if native.codeview {
             "!{i32 2, !\"CodeView\", i32 1}".to_string()
@@ -131,6 +140,7 @@ impl DebugBuilder {
             ),
             types_global: None,
             codeview: native.codeview,
+            lines_only: native.lines_only,
         }
     }
 
@@ -188,7 +198,9 @@ impl DebugBuilder {
         ));
         let line_zero = self.location(LirLoc::NONE, subprogram);
         let mut blocks = blocks.to_vec();
-        self.add_variables(emitted, func, subprogram, &mut blocks);
+        if !self.lines_only {
+            self.add_variables(emitted, func, subprogram, &mut blocks);
+        }
         // The rest of the line a continuation resumes on ran with the call
         // it resumes after, to `flux debug`: it is not a place to stop
         // again, for a breakpoint on that line or a step (0188 S8b).
@@ -461,7 +473,7 @@ impl DebugBuilder {
     /// No variable has these types, so the compile unit retains them.
     /// CodeView builds skip them: only `flux_lldb.py` reads them.
     pub(super) fn add_constructors(&mut self, program: &super::LirProgram) {
-        if self.codeview {
+        if self.codeview || self.lines_only {
             return;
         }
         let mut tags: Vec<(i32, &str)> = [(1, "Some"), (2, "Left"), (3, "Right"), (4, "Cons")]
@@ -595,6 +607,11 @@ impl DebugBuilder {
     }
 
     /// Whether the module calls `llvm.dbg.declare`.
+    /// Whether this is a `-g` build, rather than a plain build's lines.
+    pub(super) fn is_full(&self) -> bool {
+        !self.lines_only
+    }
+
     pub(super) fn declares(&self) -> bool {
         self.declares
     }
@@ -818,6 +835,7 @@ mod tests {
         let builder = DebugBuilder::new(&NativeDebug {
             file: "app.flx".to_string(),
             codeview,
+            lines_only: false,
         });
         let (_, flags) = builder
             .debug
@@ -837,6 +855,21 @@ mod tests {
         assert!(flags.iter().any(|flag| flag.contains("\"CodeView\"")));
         assert!(!flags.iter().any(|flag| flag.contains("Dwarf Version")));
         assert!(flags.iter().any(|flag| flag.contains("Debug Info Version")));
+    }
+
+    #[test]
+    fn a_plain_build_has_lines_only() {
+        let unit = |lines_only| {
+            let builder = DebugBuilder::new(&NativeDebug {
+                file: "app.flx".to_string(),
+                codeview: false,
+                lines_only,
+            });
+            assert_eq!(builder.is_full(), !lines_only);
+            builder.debug.nodes[builder.unit as usize].clone()
+        };
+        assert!(unit(true).contains("emissionKind: LineTablesOnly"));
+        assert!(unit(false).contains("emissionKind: FullDebug"));
     }
 
     #[test]

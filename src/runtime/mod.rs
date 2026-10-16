@@ -16,6 +16,8 @@
 use crate::runtime::value::Value;
 
 pub mod r#async;
+#[cfg(feature = "llvm")]
+pub mod backtrace_abi;
 pub mod closure;
 pub mod compiled_function;
 pub mod cons_cell;

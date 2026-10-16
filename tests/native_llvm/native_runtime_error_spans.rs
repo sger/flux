@@ -39,9 +39,12 @@ fn native_division_by_zero_reports_precise_span() {
         output.contains("examples/runtime_errors/division_by_zero_int.flx:2:19"),
         "expected native runtime error to report precise divide span, got:\n{output}"
     );
+    // The program's own trace, from its line table (0188 S10a).
     assert!(
-        !output.contains("Stack trace:"),
-        "expected native runtime error to omit synthetic stack trace, got:\n{output}"
+        output.contains(
+            "Stack trace:\n  at main (examples/runtime_errors/division_by_zero_int.flx:2:19)\n  at <main>"
+        ),
+        "expected the native frames, got:\n{output}"
     );
 }
 
@@ -52,8 +55,11 @@ fn native_modulo_by_zero_reports_precise_span() {
         output.contains("examples/runtime_errors/division_by_zero_modulo.flx:2:19"),
         "expected native runtime error to report precise modulo span, got:\n{output}"
     );
+    // The program's own trace, from its line table (0188 S10a).
     assert!(
-        !output.contains("Stack trace:"),
-        "expected native runtime error to omit synthetic stack trace, got:\n{output}"
+        output.contains(
+            "Stack trace:\n  at main (examples/runtime_errors/division_by_zero_modulo.flx:2:19)\n  at <main>"
+        ),
+        "expected the native frames, got:\n{output}"
     );
 }

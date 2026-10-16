@@ -16,7 +16,7 @@ use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 use super::fixture::{Expect, parse_fixture_meta};
-use super::normalize::normalize;
+use super::normalize::normalize_stderr;
 use super::report::{
     DisplayFilter, cargo_run_for_way, diagnose_mismatch, print_debug_first_failure, print_result,
     print_summary,
@@ -603,7 +603,7 @@ fn collect_expected_stderr_details(
     let Some(expected_stderr) = expected_stderr else {
         return Vec::new();
     };
-    let expected = normalize(expected_stderr);
+    let expected = normalize_stderr(expected_stderr);
     let expected = expected.trim();
     run_results
         .iter()
@@ -1142,7 +1142,7 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
                             Expect::Success => "success",
                         }
                     );
-                    let normalized_stderr = normalize(&outcome.stderr);
+                    let normalized_stderr = normalize_stderr(&outcome.stderr);
                     if !meta.expected_errors.is_empty() {
                         let expected = sorted_codes(meta.expected_errors.iter().cloned());
                         let actual = diagnostic_codes(&normalized_stderr);
@@ -1219,7 +1219,7 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
                 }
             }
             if let Some(expected_stderr) = meta.expected_stderr.as_deref() {
-                let expected = normalize(expected_stderr);
+                let expected = normalize_stderr(expected_stderr);
                 let expected = expected.trim();
                 for (way, stderr) in &expected_failure_stderr {
                     let actual = stderr.trim();

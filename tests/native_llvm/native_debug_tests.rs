@@ -453,12 +453,17 @@ fn the_ir_of_a_debug_build_locates_every_instruction() {
     }
 }
 
+/// Without `-g`, a build has a line table alone, for its own panic traces
+/// (0188 S10a): no variables, no types, and code as without it.
 #[test]
-fn without_a_debug_level_the_ir_has_no_debug_information() {
+fn without_a_debug_level_the_ir_has_lines_only() {
     let source = std::fs::read_to_string(fixture_dir().join("calls.flx")).unwrap();
     let ir = module_ir(&source, flux::debuginfo::DebugLevel::None);
-    assert!(!ir.contains("!dbg"), "{ir}");
-    assert!(!ir.contains("llvm.dbg.cu"), "{ir}");
+    assert!(ir.contains("emissionKind: LineTablesOnly"), "{ir}");
+    assert!(ir.contains("DISubprogram(name: \"square\""), "{ir}");
+    assert!(!ir.contains("DILocalVariable"), "{ir}");
+    assert!(!ir.contains("llvm.dbg.declare"), "{ir}");
+    assert!(!ir.contains("FluxCtor"), "{ir}");
     assert!(!ir.contains("frame-pointer"), "{ir}");
 }
 

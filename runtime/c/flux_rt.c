@@ -2460,47 +2460,6 @@ int64_t flux_type_of(int64_t val) {
 /* Runtime-callable type predicates are defined at end of file
  * (after #undef of the static inline helpers from flux_rt.h). */
 
-/* ── Shadow stack for native stack traces ───────────────────────────── */
-
-#define FLUX_TRACE_MAX 256
-
-typedef struct {
-    const char *name;
-    const char *file;
-    int32_t     line;
-} FluxTraceFrame;
-
-static FluxTraceFrame flux_trace_stack[FLUX_TRACE_MAX];
-static int32_t        flux_trace_depth = 0;
-
-void flux_trace_push(const char *name, const char *file, int32_t line) {
-    if (flux_trace_depth < FLUX_TRACE_MAX) {
-        flux_trace_stack[flux_trace_depth].name = name;
-        flux_trace_stack[flux_trace_depth].file = file;
-        flux_trace_stack[flux_trace_depth].line = line;
-    }
-    flux_trace_depth++;
-}
-
-void flux_trace_pop(void) {
-    if (flux_trace_depth > 0) flux_trace_depth--;
-}
-
-static void flux_trace_print(void) {
-    int32_t depth = flux_trace_depth < FLUX_TRACE_MAX
-                  ? flux_trace_depth : FLUX_TRACE_MAX;
-    if (depth == 0) return;
-    fprintf(stderr, "\nStack trace:\n");
-    for (int32_t i = depth - 1; i >= 0; i--) {
-        FluxTraceFrame *f = &flux_trace_stack[i];
-        if (f->file && f->file[0] != '\0') {
-            fprintf(stderr, "  at %s (%s:%d)\n", f->name, f->file, f->line);
-        } else {
-            fprintf(stderr, "  at %s\n", f->name);
-        }
-    }
-}
-
 /* ── Control ────────────────────────────────────────────────────────── */
 
 /* Try/catch infrastructure.
@@ -2547,6 +2506,16 @@ void flux_panic(int64_t msg) {
     flux_panic_unhooked(msg);
 }
 
+/* What a panic nothing catches prints, all to stderr: the message, then
+ * the Flux frames the program was in (0188 S10a). */
+static void flux_report_panic(int64_t msg) {
+    if (!flux_is_string_val(msg)) {
+        msg = flux_to_string(msg);
+    }
+    fprintf(stderr, "panic: %.*s\n", (int)flux_string_len(msg), flux_string_data(msg));
+    flux_print_backtrace();
+}
+
 #if defined(_MSC_VER) || defined(_WIN32)
 
 #define FLUX_PANIC_EXCEPTION 0xE0464C58u  /* user-facility | 'F''L''X' */
@@ -2571,16 +2540,7 @@ void flux_panic_unhooked(int64_t msg) {
         }
         flux_tape_mode = 0;
     }
-    if (flux_is_ptr(msg)) {
-        uint32_t len = flux_string_len(msg);
-        const char *data = flux_string_data(msg);
-        fprintf(stderr, "panic: %.*s\n", (int)len, data);
-    } else {
-        fprintf(stderr, "panic: ");
-        flux_print(msg);
-        fprintf(stderr, "\n");
-    }
-    flux_trace_print();
+    flux_report_panic(msg);
     exit(1);
 }
 
@@ -2605,16 +2565,7 @@ void flux_panic_unhooked(int64_t msg) {
         }
         flux_tape_mode = 0;
     }
-    if (flux_is_ptr(msg)) {
-        uint32_t len = flux_string_len(msg);
-        const char *data = flux_string_data(msg);
-        fprintf(stderr, "panic: %.*s\n", (int)len, data);
-    } else {
-        fprintf(stderr, "panic: ");
-        flux_print(msg);
-        fprintf(stderr, "\n");
-    }
-    flux_trace_print();
+    flux_report_panic(msg);
     exit(1);
 }
 
