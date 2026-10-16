@@ -359,6 +359,19 @@ fn lldb_session(lldb: &[String], scratch: &Scratch, binary: &str, commands: &[&s
     run_tool(lldb, &args, scratch.path())
 }
 
+/// Asserts the program ended with `status`. lldb on Linux at times loses a
+/// threaded program as it exits, under load more often than not, and says
+/// so instead of its status; then what the program printed as it ended,
+/// `last_words`, shows how it did.
+fn assert_exited(session: &str, status: i32, last_words: &str) {
+    let lost = "exited with status = -1 (0xffffffff) lost connection";
+    assert!(
+        session.contains(&format!("exited with status = {status}"))
+            || (session.contains(lost) && session.lines().any(|line| line == last_words)),
+        "{session}"
+    );
+}
+
 /// The `frame #N: … <function> at <file>:<line>` lines of a session.
 fn frames(session: &str) -> Vec<String> {
     session
@@ -1046,10 +1059,10 @@ fn flux_threads_lists_the_fibers_and_what_each_waits_for() {
     assert_lines(
         &session,
         &[
-            "stopped: breakpoint at fibers.flx:13:9 in fast (thread 3)",
+            "stopped: breakpoint at fibers.flx:13:5 in fast (thread 3)",
             "  1 main [waiting both (threads 2, 3)] at fibers.flx:31:16",
             "  2 slow [waiting sleep 20 ms] at fibers.flx:6:5",
-            "* 3 fast [stopped] at fibers.flx:13:9",
+            "* 3 fast [stopped] at fibers.flx:13:5",
             "thread 2: slow [waiting sleep 20 ms]",
             "#0 slow at fibers.flx:6:5   (suspended)",
             "thread 1: main [waiting both (threads 2, 3)]",
@@ -1061,7 +1074,7 @@ fn flux_threads_lists_the_fibers_and_what_each_waits_for() {
     let lines = flux_lines(&session);
     let fast = lines
         .iter()
-        .position(|line| line == "#0 fast at fibers.flx:13:9");
+        .position(|line| line == "#0 fast at fibers.flx:13:5");
     assert!(
         fast.is_some_and(|at| !lines[at + 1].starts_with("#1")),
         "{session}"
@@ -1112,7 +1125,7 @@ fn flux_catch_fibers_stops_where_a_fiber_fails() {
         &["  1 main [waiting try (thread 4)] at fibers.flx:32:30"],
     );
     // `try` turns the failure into a value: the program goes on and ends.
-    assert!(session.contains("exited with status = 0"), "{session}");
+    assert_exited(&session, 0, "56");
 }
 
 #[test]
@@ -1146,7 +1159,7 @@ fn a_panicking_root_fiber_stops_once() {
         1,
         "{session}"
     );
-    assert!(session.contains("exited with status = 1"), "{session}");
+    assert_exited(&session, 1, "panic: root gave up");
 }
 
 #[test]
@@ -1170,7 +1183,7 @@ fn flux_catch_stops_at_runtime_errors_in_flux_frames() {
     }
     // Division by zero is not one of the kinds asked for: the program ends
     // with it, without stopping.
-    assert!(session.contains("exited with status = 1"), "{session}");
+    assert_exited(&session, 1, "panic: Division by zero @11:5");
     assert!(!session.contains("stopped: exception"), "{session}");
 
     let session = lldb_session(

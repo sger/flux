@@ -253,7 +253,7 @@ use sha2::{Digest, Sha256};
 /// Epoch 78: a parameter a function may release (reuse in place, or keep in
 /// a collection) is inferred Owned, and a Borrowed one is never released, so
 /// an epoch-77 unit's borrow signatures and code disagree with its callers'.
-pub const CACHE_EPOCH: u16 = 79;
+pub const CACHE_EPOCH: u16 = 80;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
