@@ -15,6 +15,7 @@ pub(crate) fn base_flags() -> DriverFlags {
             use_llvm: false,
             emit_llvm: false,
             emit_binary: false,
+            debug_heap: false,
             output_path: None,
         },
         input: DriverInputFlags {

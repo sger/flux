@@ -160,6 +160,24 @@ fn aether_handler_resume_result_rep(handler: &AetherHandler) -> FluxRep {
     }
 }
 
+/// A test-only fault, for the debug heap's own tests (0188 S10c):
+/// `FLUX_AETHER_FAULT=skip-dup:<name>` leaves out every Dup of the variable
+/// a `let` or parameter named `<name>` is bound to — Aether's own and the
+/// call guards' — so the program frees a value it still uses. Never set it
+/// outside a test: the program it builds is wrong on purpose.
+pub fn aether_fault() -> Option<String> {
+    std::env::var("FLUX_AETHER_FAULT").ok()
+}
+
+/// The binder name whose Dups `FLUX_AETHER_FAULT` leaves out.
+fn skipped_dup_name() -> Option<&'static str> {
+    static NAME: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| {
+        aether_fault().and_then(|fault| fault.strip_prefix("skip-dup:").map(str::to_string))
+    })
+    .as_deref()
+}
+
 /// Enabled by default; opt out with `FLUX_YIELD_CHECKS=0` to fall back to
 /// the legacy direct-perform path.
 fn native_yield_checks_enabled() -> bool {
@@ -1229,6 +1247,8 @@ struct FnLower<'a> {
     /// The source name and representation of each binder bound here, so
     /// that a closure made here can name what it captures (0188 S6).
     binder_names: HashMap<CoreBinderId, (String, crate::core::FluxRep)>,
+    /// The variables `FLUX_AETHER_FAULT` takes the Dups of (a test hook).
+    faulted_vars: HashSet<LirVar>,
 }
 
 struct FnLowerCtx<'a> {
@@ -1303,6 +1323,7 @@ impl<'a> FnLower<'a> {
             lambda_span: None,
             last_loc: LirLoc::NONE,
             binder_names: HashMap::new(),
+            faulted_vars: HashSet::new(),
         }
     }
 
@@ -1443,6 +1464,11 @@ impl<'a> FnLower<'a> {
 
     /// Emit an instruction into the current block.
     fn emit(&mut self, instr: LirInstr) {
+        if let LirInstr::Dup { val } = &instr
+            && self.faulted_vars.contains(val)
+        {
+            return;
+        }
         // Phase 6 (Proposal 0140): track TagBool producers and elide
         // UntagBool when the source was a TagBool — the raw i1 value
         // can be used directly, avoiding the tag→untag round-trip.
@@ -1586,6 +1612,9 @@ impl<'a> FnLower<'a> {
         } else {
             binder.rep
         };
+        if skipped_dup_name() == Some(name.as_str()) {
+            self.faulted_vars.insert(var);
+        }
         self.binder_names.insert(binder.id, (name.clone(), rep));
         self.record_var(var, name, kind, rep);
     }

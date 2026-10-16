@@ -748,7 +748,15 @@ pub fn compute_artifact_config_hash(
     optimize_mode: bool,
     debug_level: crate::debuginfo::DebugLevel,
 ) -> [u8; 32] {
-    hash_bytes(config_marker(strict_mode, optimize_mode, debug_level).as_bytes())
+    let mut marker = config_marker(strict_mode, optimize_mode, debug_level);
+    // A test's deliberate fault changes the native code; it must never
+    // share a cache entry with a sound build (0188 S10c).
+    if let Some(fault) = crate::lir::lower::aether_fault() {
+        marker.push_str("aether fault: ");
+        marker.push_str(&fault);
+        marker.push('\n');
+    }
+    hash_bytes(marker.as_bytes())
 }
 
 fn config_marker(

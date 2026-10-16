@@ -55,6 +55,57 @@ On macOS a plain build's line table stays in the build cache's object files,
 which the binary names. A binary copied to another machine without them
 prints `panic:` without its trace; a `-g` build's `app.dSYM` keeps it.
 
+## The debug heap
+
+A native program frees a value when its last reference goes. If the compiler
+or the runtime gets a count wrong, the program goes on using memory it has
+freed. The usual runtime rarely shows it: blocks from its arena are never
+reused, so the stale value still reads as it was, and the program prints a
+plausible answer.
+
+`--debug-heap` links another build of the C runtime, `libflux_rt_debug.a`
+(proposal 0188 S10c), which catches it:
+
+- no arena: every block comes from `malloc`, with a prefix recording the
+  stack where it was allocated;
+- a freed block is never given back: its count stays 0, its contents are
+  overwritten with `0xDEADDEAD…` (an odd word, so a stale field reads as an
+  Int and never as a pointer), and the stack that freed it is recorded;
+- the next dup, drop or reuse check of a freed block stops the program:
+
+```sh
+flux app.flx --native --debug-heap
+```
+
+```text
+error[E1009]: use after free: copying a constructor value that was already freed (allocated at numbers (app.flx:2:5), freed at main (app.flx:15:21))
+
+  app.flx:10:5
+   |
+10 |     sum(xs)
+   |     ^^^^^^^
+
+Stack trace:
+  at total (app.flx:10:5)
+  at main (app.flx:18:17)
+  at <main>
+```
+
+The sites are the innermost Flux frame of each recorded stack. A `try`
+does not catch the error, since the heap can no longer be trusted. Under
+lldb or VS Code the program stops there first, as at a panic (`flux catch
+panic`), with the stack of the bad copy or drop.
+
+What it does not catch: a read of a freed block alone, with no count
+operation. The read shows the poison (`0xDEADDEAD…`), in `print` and in
+lldb. A block freed early and never touched again is not an error.
+
+The cost: every allocation records its stack and nothing is ever freed, so a
+debug-heap run is slower and its memory only grows. Use it on a reproducer,
+not in production. It combines with `-g`, `--emit-binary` and `-o`; its
+cached binary (`<name>.debug-heap.bin`) is kept apart from the plain one, so
+a plain run never picks it up.
+
 ## The lldb script
 
 `flux_lldb.py` teaches lldb to read Flux values.

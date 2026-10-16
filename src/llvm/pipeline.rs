@@ -271,6 +271,55 @@ pub fn pdb_path(exe_path: &Path) -> PathBuf {
     linked_exe_path(exe_path).with_extension("pdb")
 }
 
+/// Which build of the C runtime a program links.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RuntimeVariant {
+    /// `libflux_rt.a`.
+    #[default]
+    Plain,
+    /// `libflux_rt_debug.a`, built with `FLUX_DEBUG_HEAP`: freed blocks are
+    /// kept and poisoned, and the next dup or drop of one stops the program
+    /// with where it was allocated and freed (`flux --debug-heap`, 0188 S10c).
+    DebugHeap,
+}
+
+impl RuntimeVariant {
+    /// The library's name without `lib` or an extension: what `-l` takes.
+    pub fn stem(self) -> &'static str {
+        match self {
+            RuntimeVariant::Plain => "flux_rt",
+            RuntimeVariant::DebugHeap => "flux_rt_debug",
+        }
+    }
+
+    /// The library's file name in `runtime/c`.
+    pub fn file_name(self) -> String {
+        if cfg!(windows) {
+            format!("{}.lib", self.stem())
+        } else {
+            format!("lib{}.a", self.stem())
+        }
+    }
+
+    /// The preprocessor definitions this build adds.
+    fn defines(self, msvc: bool) -> &'static [&'static str] {
+        match (self, msvc) {
+            (RuntimeVariant::Plain, _) => &[],
+            (RuntimeVariant::DebugHeap, false) => &["-DFLUX_DEBUG_HEAP"],
+            (RuntimeVariant::DebugHeap, true) => &["/DFLUX_DEBUG_HEAP"],
+        }
+    }
+
+    /// What this build adds to an object file's name, so two builds never
+    /// share one.
+    fn object_suffix(self) -> &'static str {
+        match self {
+            RuntimeVariant::Plain => "",
+            RuntimeVariant::DebugHeap => ".debug",
+        }
+    }
+}
+
 /// Link `.o`/`.obj` + runtime library → executable. With `debug`, the
 /// Windows linker also writes the program's CodeView into a PDB.
 ///
@@ -280,6 +329,7 @@ fn run_linker(
     obj_paths: &[PathBuf],
     exe_path: &Path,
     runtime_lib_dir: Option<&Path>,
+    runtime: RuntimeVariant,
     debug: bool,
 ) -> Result<(), PipelineError> {
     if let Some(parent) = exe_path.parent() {
@@ -311,7 +361,7 @@ fn run_linker(
             }
             if let Some(dir) = runtime_lib_dir {
                 cmd.arg(format!("/LIBPATH:{}", dir.display()));
-                cmd.arg("flux_rt.lib");
+                cmd.arg(runtime.file_name());
             }
             // Link the C runtime and kernel libraries.
             cmd.args(["libcmt.lib", "kernel32.lib"]);
@@ -327,7 +377,7 @@ fn run_linker(
             }
             if let Some(dir) = runtime_lib_dir {
                 cmd.arg(format!("-L{}", dir.display()));
-                cmd.arg("-lflux_rt");
+                cmd.arg(format!("-l{}", runtime.stem()));
             }
             // libflux.a defines the Rust async bridge symbols referenced by
             // libflux_rt.a. Unix archive linkers extract members left-to-right,
@@ -386,8 +436,9 @@ fn discover_rust_staticlib() -> Option<PathBuf> {
     // the effect tape's `flux_tape_*` (proposal 0188 S1) and the debugger's
     // `flux_async_debug_block` (S8b) and the tape's thread ordering,
     // `flux_tape_ordered_begin` (S8c), and `flux_tape_init` with the program
-    // hash, which came with `flux_debug_tape_events` (S9b); an archive left
-    // from an older build lacks them.
+    // hash, which came with `flux_debug_tape_events` (S9b), the panic trace's
+    // `flux_print_backtrace` (S10a) and the debug heap's `flux_capture_site`
+    // (S10c); an archive left from an older build lacks them.
     let has_sentinel = |path: &Path| {
         archive_exports_symbol(path, "flux_async_run_root")
             && archive_exports_symbol(path, "flux_tape_init")
@@ -395,6 +446,7 @@ fn discover_rust_staticlib() -> Option<PathBuf> {
             && archive_exports_symbol(path, "flux_tape_ordered_begin")
             && archive_exports_symbol(path, "flux_debug_tape_events")
             && archive_exports_symbol(path, "flux_print_backtrace")
+            && archive_exports_symbol(path, "flux_capture_site")
     };
 
     // Fast path: sidecar written by a previous successful link.
@@ -560,9 +612,10 @@ pub fn link_objects(
     object_paths: &[PathBuf],
     output_path: &Path,
     runtime_lib_dir: Option<&Path>,
+    runtime: RuntimeVariant,
     debug: bool,
 ) -> Result<(), PipelineError> {
-    run_linker(object_paths, output_path, runtime_lib_dir, debug)
+    run_linker(object_paths, output_path, runtime_lib_dir, runtime, debug)
 }
 
 /// Bundle multiple `.o` files into a static archive (`.a` / `.lib`).
@@ -674,6 +727,7 @@ pub fn compile_to_binary(config: &PipelineConfig) -> Result<PipelineResult, Pipe
         std::slice::from_ref(&obj_path),
         &exe_path,
         config.runtime_lib_dir.as_deref(),
+        RuntimeVariant::Plain,
         false,
     )?;
 
@@ -811,15 +865,15 @@ fn detect_c_toolchain() -> Result<CToolchain, PipelineError> {
 ///
 /// On Unix: produces `libflux_rt.a` using `cc` + `ar`.
 /// On Windows: produces `flux_rt.lib` using `clang` + `llvm-ar` or `cl.exe` + `lib.exe`.
-pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
+/// The debug-heap variant is `libflux_rt_debug.a` / `flux_rt_debug.lib`.
+pub fn ensure_runtime_lib(
+    runtime_c_dir: &Path,
+    variant: RuntimeVariant,
+) -> Result<(), PipelineError> {
     let toolchain = detect_c_toolchain()?;
 
-    let lib_name = match &toolchain {
-        CToolchain::Msvc { .. } => "flux_rt.lib",
-        CToolchain::Gcc { .. } if cfg!(windows) => "flux_rt.lib",
-        CToolchain::Gcc { .. } => "libflux_rt.a",
-    };
-    let lib_path = runtime_c_dir.join(lib_name);
+    let lib_name = variant.file_name();
+    let lib_path = runtime_c_dir.join(&lib_name);
 
     // The runtime source tree is shared by every native Flux process. A
     // parallel test run can therefore enter this function once per child
@@ -847,6 +901,7 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
     if matches!(toolchain, CToolchain::Gcc { .. }) && cfg!(windows) {
         flags.extend(["-fms-extensions", "-fms-compatibility"]);
     }
+    flags.extend(variant.defines(matches!(toolchain, CToolchain::Msvc { .. })));
     let flags_stamp = flags.join(" ");
     let flags_path = runtime_c_dir.join(format!("{lib_name}.flags"));
     let same_flags = std::fs::read_to_string(&flags_path).is_ok_and(|kept| kept == flags_stamp);
@@ -900,7 +955,8 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
                 if !src.exists() {
                     continue;
                 }
-                let obj = runtime_c_dir.join(c_file.replace(".c", ".obj"));
+                let obj = runtime_c_dir
+                    .join(c_file.replace(".c", &format!("{}.obj", variant.object_suffix())));
                 let output = Command::new(cc)
                     .args(&flags)
                     .arg(format!("/Fo{}", obj.display()))
@@ -927,7 +983,8 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
                 if !src.exists() {
                     continue;
                 }
-                let obj = runtime_c_dir.join(c_file.replace(".c", obj_ext));
+                let obj = runtime_c_dir
+                    .join(c_file.replace(".c", &format!("{}{obj_ext}", variant.object_suffix())));
                 let output = Command::new(cc)
                     .args(&flags)
                     .arg("-o")
@@ -1093,5 +1150,26 @@ fn check_output(tool: &'static str, output: &std::process::Output) -> Result<(),
             exit_code: output.status.code(),
             stderr: combined,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RuntimeVariant;
+
+    #[test]
+    fn the_debug_heap_runtime_is_its_own_library() {
+        let plain = RuntimeVariant::Plain;
+        let debug = RuntimeVariant::DebugHeap;
+        assert_eq!((plain.stem(), debug.stem()), ("flux_rt", "flux_rt_debug"));
+        if cfg!(windows) {
+            assert_eq!(debug.file_name(), "flux_rt_debug.lib");
+        } else {
+            assert_eq!(debug.file_name(), "libflux_rt_debug.a");
+        }
+        assert!(plain.defines(false).is_empty());
+        assert_eq!(debug.defines(false), ["-DFLUX_DEBUG_HEAP"]);
+        assert_eq!(debug.defines(true), ["/DFLUX_DEBUG_HEAP"]);
+        assert_ne!(plain.object_suffix(), debug.object_suffix());
     }
 }

@@ -142,6 +142,8 @@ pub(crate) struct NativeProgramInput<'a> {
 pub(crate) struct NativeOutputConfig {
     pub(crate) emit_llvm: bool,
     pub(crate) emit_binary: bool,
+    /// Link `libflux_rt_debug.a` (0188 S10c).
+    pub(crate) debug_heap: bool,
     pub(crate) output_path: Option<String>,
 }
 
@@ -188,11 +190,18 @@ fn native_output_path(request: &NativeRunRequest<'_>) -> PathBuf {
                     .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("program");
+                // A debug-heap binary links another runtime: a plain run
+                // must not reuse it, nor the other way round (0188 S10c).
+                let kind = if request.output.debug_heap {
+                    ".debug-heap"
+                } else {
+                    ""
+                };
                 request
                     .cache
                     .cache_layout
                     .native_dir()
-                    .join(format!("{bin_name}.bin"))
+                    .join(format!("{bin_name}{kind}.bin"))
             } else {
                 native_temp_dir(request.cache.cache_layout).join("program")
             }
@@ -280,7 +289,12 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
         }
 
         let frontend_ms = request.program.compile_start.elapsed().as_secs_f64() * 1000.0;
-        let runtime_lib_dir = locate_runtime_lib_dir();
+        let runtime = if request.output.debug_heap {
+            flux::llvm::pipeline::RuntimeVariant::DebugHeap
+        } else {
+            flux::llvm::pipeline::RuntimeVariant::Plain
+        };
+        let runtime_lib_dir = locate_runtime_lib_dir(runtime);
         if request.runtime.verbose {
             eprintln!(
                 "[lir→llvm] toolchain: {}",
@@ -452,7 +466,8 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
         let link_start = Instant::now();
         // A binary linked before the effect tape existed would ignore it, so a
         // run with a tape always relinks. A `-g` binary on Windows also needs
-        // its PDB (0188 S11).
+        // its PDB (0188 S11). A debug-heap run always relinks, so it never
+        // runs with a debug runtime older than the sources (0188 S10c).
         let debug = request.compile.debug_level.is_enabled();
         let pdb_ready = !(debug && cfg!(windows)) || flux::llvm::pipeline::pdb_path(&out).exists();
         let binary_exists = out.exists() && pdb_ready;
@@ -461,15 +476,20 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
             request.output.emit_binary,
             any_native_recompiled,
             binary_exists,
-        ) && crate::driver::replay_session::native_child_env().is_none();
+        ) && crate::driver::replay_session::native_child_env().is_none()
+            && !request.output.debug_heap;
 
         if binary_up_to_date {
             if request.runtime.verbose {
                 eprintln!("{}", native_binary_up_to_date_banner());
             }
-        } else if let Err(e) =
-            flux::llvm::pipeline::link_objects(&link_paths, &out, runtime_lib_dir.as_deref(), debug)
-        {
+        } else if let Err(e) = flux::llvm::pipeline::link_objects(
+            &link_paths,
+            &out,
+            runtime_lib_dir.as_deref(),
+            runtime,
+            debug,
+        ) {
             eprintln!("llvm linker failed: {e}");
             std::process::exit(1);
         } else if debug && (request.output.emit_binary || request.output.output_path.is_some()) {

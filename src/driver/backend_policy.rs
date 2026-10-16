@@ -66,6 +66,12 @@ pub fn validate_flags(flags: &DriverFlags, is_test_mode: bool) -> Result<(), &'s
         return Err("Error: --record and --replay apply only to running a program.");
     }
 
+    // The debug heap is a build of the C runtime: only a native program
+    // links one, and the native test runner does not pass it on.
+    if flags.backend.debug_heap && (flags.backend.selected != Backend::Native || is_test_mode) {
+        return Err("Error: --debug-heap applies to a program run or built with --native.");
+    }
+
     validate_dump_flags(flags)?;
     Ok(())
 }
@@ -170,6 +176,18 @@ mod tests {
         flags.runtime.trace_aether = true;
         flags.dumps.dump_core = CoreDumpMode::Readable;
         assert!(validate_flags(&flags, false).is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "llvm")]
+    fn validate_flags_keeps_the_debug_heap_native() {
+        let mut flags = base_flags();
+        flags.backend.debug_heap = true;
+        assert!(validate_flags(&flags.clone().finalize_backend(), false).is_err());
+        flags.backend.use_llvm = true;
+        let flags = flags.finalize_backend();
+        assert!(validate_flags(&flags, false).is_ok());
+        assert!(validate_flags(&flags, true).is_err());
     }
 
     #[test]

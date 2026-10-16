@@ -13,6 +13,9 @@ pub struct DriverBackendFlags {
     pub use_llvm: bool,
     pub emit_llvm: bool,
     pub emit_binary: bool,
+    /// Link the debug-heap runtime, which catches a use after free
+    /// (0188 S10c). Native only.
+    pub debug_heap: bool,
     pub output_path: Option<String>,
 }
 

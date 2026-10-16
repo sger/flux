@@ -850,6 +850,10 @@ void    flux_debug_on_fiber_failure(int64_t err);
 /* `flux_panic` without its debugger hook: for a failure the debugger has
  * already seen where it happened. */
 void    flux_panic_unhooked(int64_t msg);
+/* Stops the program at a fault the debug heap found (0188 S10c): the
+ * debugger hook, then the message and the Flux trace, as a panic nothing
+ * catches. A `try` does not catch it: the heap is no longer sound. */
+void    flux_heap_fault(const char *msg, uint32_t len);
 /* Reports an effect no handler covers and aborts. */
 void    flux_unhandled_effect(const char *where, int64_t htag);
 /* Prints the Flux frames the program is in to stderr, from its line table

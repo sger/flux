@@ -84,6 +84,8 @@ Flags:
   --vm               Compile via the bytecode VM, overriding a package profile
   --emit-llvm        Emit LLVM IR text (.ll) to stdout (with --native)
   --emit-binary      Compile to native binary via opt + llc + cc (with --native)
+  --debug-heap       Link the debug-heap runtime: a dup or drop of freed memory stops
+                    the program, naming where it was allocated and freed (with --native)
   -o <path>          Output path for --emit-llvm or --emit-binary
   -h, --help         Show this help message
 
