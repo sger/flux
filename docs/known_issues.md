@@ -341,6 +341,14 @@ the case to test.
 
 Parity records the fixture with `// skip-way: llvm, llvm_opt: KI-103`.
 
+**Without an alias too** (census c4, 2026-10-17). The full module path fails
+the same way, with a different message: `TypeSystem.BoundaryCtor.SomeInt(1)` in
+`examples/type_system/failing/150_cross_module_constructor_access_nonstrict_warning.flx`
+gets W201, runs on the VM, and natively stops with `error[E1001]: Not A
+Function — Cannot call non-function value (got None)`. A `public data` type
+fails the same way, so this is not about the constructor being private. Not
+traced past that; the `MemberAccess` path above is the likely shared cause.
+
 ### KI-006 — I/O uses `String`, so binary data cannot round-trip
 
 **Severity:** Medium · **Area:** `Flow.Fs`, stdlib API surface · **From:** [0178](proposals/implemented/0178_os_capabilities_for_tooling.md) Q7
