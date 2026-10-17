@@ -38,7 +38,11 @@ Fields:
   codes. Strict ways must report all of them and may add their own, such as `E425`.
 - `bug:` — what regression this fixture guards against
 - `root:` — a module root passed to every way as `--root <path>`
-- `requires:` — `unix` or `windows`; elsewhere the fixture is reported as `SKIP`
+- `requires:` — `unix` or `windows`; elsewhere the fixture is reported as `SKIP`.
+  `network` skips the fixture unless the run passes `--allow network`.
+- `feature:` — `<tag>[, <tag>…]`, read by the support census (`flux features`).
+  A tag adds to what the census infers from the program; `-tag` removes one it
+  got wrong. The tags are listed in `src/ast/features.rs` (`TAGS`).
 - `skip:` — a reason to skip the whole fixture. It is still listed as `SKIP`.
   Use it only when no way can run the fixture, for example when it needs the
   network.
@@ -93,6 +97,38 @@ cargo run -- parity-check tests/parity --capture-core --capture-aether
 cargo run -- parity-check tests/parity --ways vm,llvm
 cargo run -- parity-check examples/guide --ways vm,llvm
 cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,vm_strict,llvm_strict
+```
+
+## The support census
+
+`cargo xtask census` runs every `.flx` file under `examples/`, `tests/` and
+`lib/`, including those without `main`, on `vm`, `llvm`, `vm_opt` and
+`llvm_opt`, and records one row per file and way in
+`.flux-cache/verify/census_<tag>/` (proposal 0190 §16). A file's `// parity:`
+line limits its ways there, by backend: `// parity: vm` rules out the native
+ways, not `vm_opt`.
+
+| class | meaning |
+|---|---|
+| `works` | succeeds with the expected stdout, or with what most ways print |
+| `wrong` | succeeds with other output, or fails differently from what the header declares |
+| `disagree` | the ways split evenly on stdout and the file declares none |
+| `expected-error` | fails as declared, with the declared codes |
+| `rejected` | a compile error on a file expected to succeed |
+| `crashed` | a panic, an internal compiler error, an IR check failure, a native lowering or link failure, a signal or a timeout |
+| `compile-only` | no `main`: compiled, nothing to run |
+| `not-run` | skipped, outside the `// parity:` ways, or a `skip-way:` |
+
+Every failure is matched to a known issue, from its skip reason or from an
+entry in `docs/known_issues.md` that cites the file. Those with none are
+listed in `unfiled.txt`. Each is either a missing or wrong header, fixed in the
+file, or a bug, which gets a KI.
+
+```bash
+cargo xtask census --tag c1                    # everything, 4 files at a time
+cargo xtask census --tag c2 --base c1          # and what changed since c1
+cargo xtask census --tag fx examples/effects   # one area
+flux features examples/effects/*.flx           # the feature tags alone
 ```
 
 ## How to debug a parity failure
