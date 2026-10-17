@@ -42,6 +42,169 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-112 — A module can use a type it does not import, when the module importing it does
+
+**Severity:** Medium · **Area:** Module system, name resolution · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+
+```flux
+// lib/Flume/Fail.flx — no `import Flow.Result`
+module Flume.Fail {
+    public fn ok_or_abort<a>(result: Result<a, String>, fallback: a) -> a with Fail { … }
+}
+```
+
+```
+$ flux --no-cache --root lib lib/Flume/Fail.flx
+error[E423]: Unknown Type — I can't find a type named `Result`.
+$ flux --no-cache --root lib lib/Flume/Resolve/Plan.flx    # imports Flow.Result and Flume.Fail
+(compiles, on every way)
+```
+
+Compiled alone, `Flume.Fail` is rejected; compiled as a dependency of a module
+that imports `Flow.Result`, the same source is accepted. A module's type names
+should resolve through its own imports only. `lib/Flume/Fail.flx` is left as
+the reproduction; the fix there is `import Flow.Result`.
+
+### KI-105 — `--optimize` hides type errors in branches it folds away
+
+**Severity:** High · **Area:** Type inference, AST optimization · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+
+```flux
+// examples/type_system/failing/134_if_concrete_branch_mismatch.flx
+fn main() -> Unit {
+    let _x = if true { 42 } else { "nope" }
+}
+```
+
+```
+$ flux --no-cache examples/type_system/failing/134_if_concrete_branch_mismatch.flx
+error[E300]: Branch Type Mismatch
+$ flux --no-cache --optimize examples/type_system/failing/134_if_concrete_branch_mismatch.flx
+(runs, exit 0)
+```
+
+Whether a program type-checks depends on the optimization level, on both
+backends. With `--optimize`, `infer_final_program` (`src/compiler/mod.rs`)
+folds the AST with `type_informed_fold` and infers the folded program again,
+and `optimize_for_lowering` folds before the final inference; either way the
+dead `else` branch, and its error, is gone before diagnostics are collected.
+Diagnostics should come from inference on the program as written. The same
+holds for:
+
+- `examples/type_system/failing/92_hm_if_branch_contextual_mismatch.flx`
+- `examples/type_system/failing/96_hm_fun_param_mismatch_contextual.flx`
+- `examples/type_system/failing/97_hm_fun_return_mismatch_contextual.flx`
+- `examples/type_system/failing/98_hm_fun_arity_mismatch_contextual.flx`
+- `examples/type_system/failing/133_if_branch_value_span_precision.flx`
+- `examples/type_system/failing/135_if_any_branch_suppressed.flx`
+
+### KI-106 — Natively under `--optimize`, a nested constructor match on a known value takes the wildcard arm
+
+**Severity:** High · **Area:** Native backend, optimizer · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+
+```flux
+// examples/patterns/pattern_validation_happy_path.flx
+let value = Some(Left(21));
+let result = match value {
+    Some(Left(v)) -> v + 1,
+    Some(Right(v)) -> v,
+    _ -> 0,
+};
+print(result);
+```
+
+`vm`, `vm_opt` and `llvm` print `22`, then `10` for the `Some(Right(5))` case;
+`llvm_opt` prints `0` and `0`. The guarded `match Some(8)` in the same file is
+right on every way. The VM runs the same optimized Core correctly, so the
+fault is in native lowering of what the optimizer produces for a nested
+pattern on a known constructor.
+
+### KI-107 — Natively, calling a function through a variable with too few arguments is not an error
+
+**Severity:** Medium · **Area:** Native backend, calls · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+
+```flux
+// examples/runtime_errors/indirect_call_wrong_arity.flx
+fn add(a, b) { a + b }
+fn main() {
+    let f = add
+    let ignored = f(1)
+}
+```
+
+`vm`, `vm_opt` and `llvm_opt` stop with `error[E1000]` (wrong number of
+arguments); plain `llvm` exits 0.
+
+### KI-108 — Native async, channel and HTTP programs crash with a signal
+
+**Severity:** High · **Area:** Native backend, async runtime · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+
+Each runs to completion on `vm` and `vm_opt`; natively it is killed:
+
+| file | `llvm` | `llvm_opt` |
+|---|---|---|
+| `examples/http/hello_http_service.flx` | signal 10 | SIGSEGV |
+| `examples/http/json_echo_service.flx` | crash | crash |
+| `examples/http/parallel_http_fetch.flx` | signal 5 | crash |
+| `examples/http/sse_broadcaster.flx` | signal 10 | crash |
+| `tests/replay/fixtures/async_channels.flx` | signal 5 | SIGSEGV |
+| `tests/debug/vm/async_channel.flx` | SIGSEGV | works |
+| `tests/debug/vm/reverse_async_replayed.flx` | crash | crash |
+| `tests/debug/vm/reverse_channel.flx` | crash | crash |
+| `tests/replay/fixtures/async_events.flx` | timeout | timeout |
+
+```
+$ flux --native --no-cache tests/replay/fixtures/async_channels.flx
+native program terminated by signal 11 (SIGSEGV): invalid memory access
+```
+
+The table is from the census, which runs four files at a time;
+`async_channels.flx` fails the same way run alone, and the others are not yet
+rechecked alone. Some may share a cause with [KI-009](#ki-009).
+
+### KI-109 — Natively, indexing fails with "index operator not supported: Object" in AoC 2025 day 8
+
+**Severity:** Medium · **Area:** Native backend, indexing · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+
+```
+$ flux --native --no-cache examples/aoc/2025/aoc_day8_part1.flx
+error[E1009]: index operator not supported: Object
+```
+
+`vm` and `vm_opt` print the answer; `llvm` and `llvm_opt` stop with this
+error. Not yet reduced to the indexing expression involved.
+
+### KI-110 — Natively, a module file without `main` that imports others fails to link
+
+**Severity:** Low · **Area:** Native backend, linking · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+
+```
+$ flux --native --no-cache lib/Flume/Cli.flx
+llvm linker failed: cc failed (exit 1): Undefined symbols for architecture arm64:
+  "_flux_main", referenced from: _main in libflux_rt.a
+```
+
+The VM compiles and exits 0. The same holds for `lib/Flume/Build/Graph.flx`.
+A single module without `main` (`examples/Modules/TestSupport/Math.flx`)
+links, so the difference is in how the multi-module native build emits the
+entry point.
+
+### KI-111 — The VM rejects a closure where a function type over `Event` is expected
+
+**Severity:** Medium · **Area:** VM, runtime type checks, async · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+
+```
+$ flux --no-cache examples/async/24_event_composition.flx
+error[E1004]: AsyncError: … Panicked …
+  error[E1004]: Type Error
+  expected type: (Flow.Event.Event<Unit>) -> Flow.Event.Event<Unit>
+  found type:    Closure
+  at composed (examples/async/24_event_composition.flx:7:24)
+```
+
+`llvm` and `llvm_opt` run the program; `vm` and `vm_opt` fail the runtime
+boundary check on a closure passed where a function type is declared.
+
 ### KI-102 — A user effect named after a builtin suppresses the builtin's default handler on `--no-cache` VM runs
 
 **Severity:** Medium · **Area:** Effects, module compilation · **Verified:** 2026-10-16 · **From:** [0190](proposals/0190_verification_toolkit.md) S2 triage

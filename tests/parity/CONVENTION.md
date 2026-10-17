@@ -31,8 +31,11 @@ Each fixture starts with a header comment block:
 Fields:
 - `parity:` — which ways to compare (default: `vm, llvm`). `--ways` on the
   command line overrides it.
-- `expect:` — `success` | `compile_error` | `runtime_error` (default: `success`).
-  A failing expectation requires every way to fail in that phase.
+- `expect:` — `success` | `compile_error` | `runtime_error` | `any` (default:
+  `success`). A failing expectation requires every way to fail in that phase.
+  `any` is for diagnostic demos whose messages snapshots already pin: the
+  program may compile or fail, but every way must do the same (same exit kind,
+  and the same stdout when it succeeds), and none may crash.
 - `expect-error:` — one diagnostic code, such as `E300`; repeat the line once per
   reported error, duplicates included. Non-strict ways must report exactly these
   codes. Strict ways must report all of them and may add their own, such as `E425`.
@@ -40,6 +43,10 @@ Fields:
 - `root:` — a module root passed to every way as `--root <path>`
 - `requires:` — `unix` or `windows`; elsewhere the fixture is reported as `SKIP`.
   `network` skips the fixture unless the run passes `--allow network`.
+- `stdout: varies` — the program prints the time, timings or the host's core
+  count, so its ways' exits are compared and their stdout is not.
+- `census-skip:` — a reason to leave the file out of `cargo xtask census` only,
+  for fixtures another harness drives (debugger scripts, replay recordings).
 - `feature:` — `<tag>[, <tag>…]`, read by the support census (`flux features`).
   A tag adds to what the census infers from the program; `-tag` removes one it
   got wrong. The tags are listed in `src/ast/features.rs` (`TAGS`).
@@ -56,6 +63,22 @@ Fields:
   ```
   // skip-way: vm_strict: KI-090 strict rejects the boundary the VM fails at run time
   ```
+
+A `parity.dir` file gives the same directives, one per line without `//`, to
+every fixture in its folder and the folders below; the nearest folder wins, and
+a fixture's own header wins over any folder. A line `name.flx: <directive>`
+(a path relative to the folder) applies to that file only. Use it where adding
+a header line would move line numbers that snapshots or `// dbg:` scripts pin:
+
+```
+# examples/diagnostics/parity.dir
+expect: any
+```
+
+```
+# tests/parity_debug/parity.dir
+exception_panic.flx: census-skip: stops the debugger on a panic; checked by debug parity
+```
 
 Expected output blocks may appear anywhere in the file. The first way's
 normalized stdout must match the stdout block:

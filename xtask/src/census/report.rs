@@ -121,11 +121,11 @@ impl Summary<'_> {
         for class in classes {
             let _ = write!(header, "{:>15}", class.name());
         }
+        // Pad before painting: colour codes would count towards the width.
         let _ = writeln!(
             text,
-            "{}{:>11}",
-            paint.bold(&header),
-            paint.bold("supported")
+            "{}",
+            paint.bold(&format!("{header}{:>11}", "supported"))
         );
         for way in &self.census.ways {
             let mut line = format!("{way:<10}");
@@ -147,7 +147,7 @@ impl Summary<'_> {
             let percent = share
                 .percent()
                 .map_or("-".to_string(), |p| format!("{p:.1}%"));
-            let _ = writeln!(text, "{line}{:>11}", paint.bold(&percent));
+            let _ = writeln!(text, "{line}{}", paint.bold(&format!("{percent:>11}")));
         }
     }
 

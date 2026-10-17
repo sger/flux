@@ -742,6 +742,9 @@ const CRASH_MARKERS: &[&str] = &[
     "llvm module pipeline failed",
     "llvm linker failed",
     "llvm execution failed",
+    // Generated native code killed by a signal: a segfault is a backend bug,
+    // not a runtime error the program raised.
+    "native program terminated by signal",
 ];
 
 /// Whether a run's failure is the compiler's own: a crash marker, an internal
@@ -833,6 +836,10 @@ mod tests {
             (1, "error[E999]: Aether Verification Failed\n"),
             (1, "native lowering failed for main.flx: oops"),
             (1, "llvm module pipeline failed: verifier"),
+            (
+                1,
+                "native program terminated by signal 11 (SIGSEGV): invalid memory access",
+            ),
             (-1, ""),
         ];
         for (code, stderr) in crashes {

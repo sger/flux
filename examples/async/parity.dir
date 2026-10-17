@@ -1,0 +1,4 @@
+# 17 prints the default worker count, which follows the host's cores natively;
+# 25 prints timings.
+17_worker_diagnostic.flx: stdout: varies
+25_multiworker_parallel.flx: stdout: varies
