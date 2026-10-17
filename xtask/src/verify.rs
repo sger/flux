@@ -2,15 +2,17 @@
 //! backend parity. Each run's outputs are tagged, so a step's results compare
 //! with the previous step's.
 //!
-//! Outputs go to `.git/parked/out/` (untracked, survives `cargo clean`):
-//! - `test_<tag>.txt`: the suite
-//! - `sweep_<tag>/`: every example compiled with `--dump-cfg`
-//! - `dump_<tag>__dump_core/`: ... with `--dump-core`
-//! - `dump_<tag>__optimize___dump_core/`: ... with `--optimize --dump-core`
-//! - `parity_<tag>.txt`: vm, vm_cached, vm_strict, vm_opt, llvm and llvm_opt
+//! Outputs go to the run's own folder, `.flux-cache/verify/<tag>/`, which git
+//! ignores (see `store.rs`):
+//! - `test.txt`: the suite
+//! - `sweep_cfg/`: every example compiled with `--dump-cfg`
+//! - `sweep_core/`: ... with `--dump-core`
+//! - `sweep_core-opt/`: ... with `--optimize --dump-core`
+//! - `parity.txt`: vm, vm_cached, vm_strict, vm_opt, llvm and llvm_opt
 //!   compared
-//! - `parity_g_<tag>.txt`: the guide natively with and without `-g`
-//! - `parity_debug_<tag>.txt`: the VM debugger and lldb compared
+//! - `parity_g.txt`: the guide natively with and without `-g`
+//! - `parity_debug.txt`: the VM debugger and lldb compared
+//! - `summary.txt`: each step's result and time, for a later `--base`
 //!
 //! With `--base`, each sweep is compared with the same sweep of the earlier
 //! tag. A sweep's base must come from the same tools, so run one on main
@@ -26,6 +28,7 @@ use std::time::{Duration, Instant};
 use crate::compare;
 use crate::outcome::{Outcome, Steps, format_duration, parse_summary_file};
 use crate::proc::{run, run_tee};
+use crate::store;
 use crate::sweep::{self, Mode};
 use crate::text::{Paint, StatusLine, strip_ansi};
 
@@ -65,16 +68,22 @@ pub fn flux_binary(root: &Path) -> PathBuf {
         .join(format!("flux{}", std::env::consts::EXE_SUFFIX))
 }
 
-/// The summary file a run of `tag` saves, for a later run to compare with.
-fn summary_file(out: &Path, tag: &str) -> PathBuf {
-    out.join(format!("verify_{tag}.txt"))
+/// The summary file a run saves in its folder, for a later run to compare
+/// with.
+fn summary_file(run: &Path) -> PathBuf {
+    run.join("summary.txt")
 }
 
 /// Returns whether every check passed.
 pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
-    let tag = &options.tag;
-    let out = root.join(".git/parked/out");
-    fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+    let out = store::run_dir(root, &options.tag)?;
+    let base_out = options
+        .base
+        .as_deref()
+        .map(|base| store::run_dir(root, base))
+        .transpose()?;
+    fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
+    println!("outputs: {}", store::display(&out));
     let mut outcome = Outcome::new();
     let mut steps = Steps::new(step_count(options));
     let io = |e: std::io::Error| e.to_string();
@@ -129,11 +138,11 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
         .map_err(io)?;
         outcome.record("build", build == 0, "build".into(), started.elapsed());
         if build != 0 {
-            return Ok(finish(&outcome, root, &out, options));
+            return Ok(finish(&outcome, &out, base_out.as_deref(), options));
         }
     } else {
         let started = steps.start("suite");
-        let log = out.join(format!("test_{tag}.txt"));
+        let log = out.join("test.txt");
         let _ = fs::remove_file(&log);
         let tests = run_tee(
             cargo()
@@ -182,7 +191,7 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
 
     let flux = flux_binary(root);
     if !options.skip_sweeps {
-        let sweeps = SWEEPS.map(|mode| (sweep_dir(tag, mode), mode));
+        let sweeps = SWEEPS.map(|mode| (sweep_dir(mode), mode));
         let mut internal = Vec::new();
         for (dir, mode) in &sweeps {
             let started = steps.start(&format!("sweep {dir} ({})", mode.name()));
@@ -221,10 +230,10 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
             );
         }
 
-        if let Some(base) = &options.base {
+        if let (Some(base), Some(base_out)) = (&options.base, &base_out) {
             for (dir, mode) in &sweeps {
                 let started = steps.start(&format!("compare {dir} with {base}"));
-                let base_dir = out.join(sweep_dir(base, *mode));
+                let base_dir = base_out.join(dir);
                 let step = format!("compare {}", mode.name());
                 let head_dir = out.join(dir);
                 match compare::run(root, &base_dir, &head_dir, true) {
@@ -270,7 +279,7 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
     println!(
         "each fixture runs on the VM (fresh, cached, strict, optimized) and natively (plain, optimized); their outputs must agree"
     );
-    let log_path = out.join(format!("parity_{tag}.txt"));
+    let log_path = out.join("parity.txt");
     let mut log = open_log(&log_path).map_err(io)?;
     let mut counts = ParityCounts::default();
     let mut failed_runs = 0;
@@ -315,7 +324,7 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
     // example prints the same natively with and without `-g`.
     let started = steps.start("debug build parity");
     println!("every guide example built natively with and without -g; output must agree");
-    let log_path = out.join(format!("parity_g_{tag}.txt"));
+    let log_path = out.join("parity_g.txt");
     let mut log = open_log(&log_path).map_err(io)?;
     let counts = parity(root, &flux, "examples/guide", "llvm,llvm_g", &mut log).map_err(io)?;
     record_parity(
@@ -330,7 +339,7 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
     // Every fixture is expected to match, so a mismatch fails the run.
     let started = steps.start("debug parity");
     println!("each // dbg: script run in the VM debugger and in lldb; transcripts must agree");
-    let log_path = out.join(format!("parity_debug_{tag}.txt"));
+    let log_path = out.join("parity_debug.txt");
     let mut log = open_log(&log_path).map_err(io)?;
     let counts = parity(
         root,
@@ -342,7 +351,7 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
     .map_err(io)?;
     record_parity(&mut outcome, "debug parity", &counts, &log_path, started);
 
-    Ok(finish(&outcome, root, &out, options))
+    Ok(finish(&outcome, &out, base_out.as_deref(), options))
 }
 
 /// Records a one-directory parity step, listing its failures when it failed.
@@ -382,31 +391,30 @@ const MAX_DETAILS: usize = 10;
 /// Prints the summary, comparing times with the base run's saved summary
 /// when there is one, and saves this run's. Returns whether every step
 /// passed.
-fn finish(outcome: &Outcome, root: &Path, out: &Path, options: &Options) -> bool {
+fn finish(outcome: &Outcome, out: &Path, base_out: Option<&Path>, options: &Options) -> bool {
     let paint = Paint::detect();
-    let base_times: Option<HashMap<String, Duration>> = options.base.as_ref().and_then(|base| {
-        let path = summary_file(out, base);
+    let base_times: Option<HashMap<String, Duration>> = base_out.and_then(|base_out| {
+        let path = summary_file(base_out);
         let text = fs::read_to_string(&path).ok();
         if text.is_none() {
             println!(
                 "{}",
-                paint.dim(&format!("no {} to compare times with", path.display()))
+                paint.dim(&format!(
+                    "no {} to compare times with",
+                    store::display(&path)
+                ))
             );
         }
         text.map(|text| parse_summary_file(&text))
     });
-    let out_display = out.strip_prefix(root).unwrap_or(out).display().to_string();
-    outcome.print(&options.tag, &out_display, base_times.as_ref());
-    let path = summary_file(out, &options.tag);
+    outcome.print(&options.tag, &store::display(out), base_times.as_ref());
+    let path = summary_file(out);
     if let Err(e) = fs::write(&path, outcome.to_file()) {
         println!("could not save {}: {e}", path.display());
     } else {
         println!(
             "{}",
-            paint.dim(&format!(
-                "summary saved: {}",
-                path.strip_prefix(root).unwrap_or(&path).display()
-            ))
+            paint.dim(&format!("summary saved: {}", store::display(&path)))
         );
     }
     println!("all-done: {}", options.tag);
@@ -420,20 +428,16 @@ const SWEEPS: [Mode; 3] = [Mode::Cfg, Mode::Core, Mode::CoreOpt];
 /// (0190 S3).
 const MAIN_WAYS: &str = "vm,vm_cached,vm_strict,vm_opt,llvm,llvm_opt";
 
-/// The folder a sweep of `tag` in `mode` writes to, under the out dir.
-fn sweep_dir(tag: &str, mode: Mode) -> String {
-    match mode {
-        Mode::Cfg => format!("sweep_{tag}"),
-        Mode::Core => format!("dump_{tag}__dump_core"),
-        Mode::CoreOpt => format!("dump_{tag}__optimize___dump_core"),
-    }
+/// The folder a sweep in `mode` writes to, in a run's folder.
+fn sweep_dir(mode: Mode) -> String {
+    format!("sweep_{}", mode.name())
 }
 
 /// Creates a step's log file and says where it is.
 fn open_log(path: &Path) -> std::io::Result<fs::File> {
     println!(
         "{}",
-        Paint::detect().dim(&format!("  log: {}", path.display()))
+        Paint::detect().dim(&format!("  log: {}", store::display(path)))
     );
     fs::File::create(path)
         .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", path.display())))
@@ -752,15 +756,9 @@ mod tests {
     }
 
     #[test]
-    fn a_base_sweep_is_named_from_its_own_tag() {
-        // A tag that is part of a folder name must not change the rest of it.
-        assert_eq!(sweep_dir("core", Mode::Core), "dump_core__dump_core");
-        assert_eq!(sweep_dir("main", Mode::Core), "dump_main__dump_core");
-        assert_eq!(
-            sweep_dir("dump", Mode::CoreOpt),
-            "dump_dump__optimize___dump_core"
-        );
-        assert_eq!(sweep_dir("main", Mode::Cfg), "sweep_main");
+    fn each_sweep_has_its_own_folder_in_a_run() {
+        assert_eq!(sweep_dir(Mode::Cfg), "sweep_cfg");
+        assert_eq!(sweep_dir(Mode::CoreOpt), "sweep_core-opt");
     }
 
     #[test]

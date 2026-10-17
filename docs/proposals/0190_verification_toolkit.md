@@ -126,7 +126,7 @@ Both engines must still agree with each other. Each must also contain the
 
 ```
 cargo xtask fuzz --seed 1 --count 200
-cargo xtask fuzz reduce .git/parked/out/fuzz_1/mismatch/case_37.flx
+cargo xtask fuzz reduce <store>/fuzz_1/mismatch/case_37.flx
 ```
 
 The first command writes 200 generated programs and runs them with
@@ -276,7 +276,8 @@ line names both counts.
   effect-row typing, and async needs deterministic scheduling across backends.
   Both are listed under Future possibilities.
 - **`cargo xtask fuzz [--seed S] [--count N] [--ways W] [--jobs J]`:**
-  - It writes `.git/parked/out/fuzz_<seed>/case_<i>.flx` and runs
+  - It writes `<store>/fuzz_<seed>/case_<i>.flx` (the store is verify's
+    output folder, below) and runs
     `flux parity-check` on that folder. `parity()` moves from `verify.rs` to a
     module shared by verify and fuzz.
   - It copies mismatching cases to `mismatch/`.
@@ -322,8 +323,12 @@ while they are open. S4 and S5 are independent of the rest. S7 needs S6.
   disk, and expected checks. The content comparison itself is cheap. The opt ways
   are not: §3 records the cost, and the ways can move to an opt-in flag if it is
   too high.
-- **Disk use.** Full Core dumps for every corpus file, three modes, per tag, in
-  `.git/parked/out/`. Old tags must be pruned by hand.
+- **Disk use.** Each run keeps a folder, `.flux-cache/verify/<tag>/`, at the
+  repository root. `.gitignore` lists `.flux-cache/`, so nothing in it is ever
+  committed; `FLUX_VERIFY_OUT` moves it elsewhere. Sweeps keep dump hashes, not
+  dumps, plus the compiler they ran (about 20 MB). `cargo xtask prune --keep <n>
+  [--keep-tag <tag>]… --yes` deletes old runs. Until S4 the outputs piled up,
+  never pruned, under `.git/parked/out/`, which reached 1.5 GB.
 - **Skips can rot.** A `// skip-way:` that outlives its bug hides a regression in
   that way. Requiring a KI per skip keeps them listed in `known_issues.md`.
 - **The generator is code to maintain.** It must track surface syntax. Generator

@@ -5,11 +5,14 @@
 //! cargo xtask verify <tag> [--base <tag> [--cmp]] [--skip-suite] [--skip-sweeps]
 //!     lint, the suite, the three corpus sweeps (compared with --base's, by
 //!     status and by dump; --cmp fails on any changed dump) and parity;
-//!     outputs in .git/parked/out/
+//!     outputs in .flux-cache/verify/<tag>/ (git-ignored; `store.rs`)
 //! cargo xtask sweep --out <dir> [--mode cfg|core|core-opt] [--files <list>]
 //!                   [--jobs <n>] [--timeout <seconds>] [--flux <path>] [--determinism]
 //!     compile every .flx file under examples/, tests/ and lib/; with
 //!     --determinism, twice into <dir>_a and <dir>_b, which must agree
+//! cargo xtask prune [--keep <n>] [--keep-tag <tag>]... [--yes]
+//!     delete all but the newest n (default 5) verify runs, and never a
+//!     --keep-tag one; only lists them without --yes
 //! cargo xtask compare <base sweep dir> <head sweep dir> [--content]
 //!     exits 1 when a file is newly rejected or newly internal, or with
 //!     --content when a file's dump changed
@@ -20,6 +23,7 @@
 mod compare;
 mod outcome;
 mod proc;
+mod store;
 mod sweep;
 mod text;
 mod verify;
@@ -33,7 +37,8 @@ use sweep::Mode;
 const USAGE: &str = "usage:
   cargo xtask verify <tag> [--base <tag> [--cmp]] [--skip-suite] [--skip-sweeps]
   cargo xtask sweep --out <dir> [--mode cfg|core|core-opt] [--files <list>] [--jobs <n>] [--timeout <seconds>] [--flux <path>] [--determinism]
-  cargo xtask compare <base sweep dir> <head sweep dir> [--content]";
+  cargo xtask compare <base sweep dir> <head sweep dir> [--content]
+  cargo xtask prune [--keep <n>] [--keep-tag <tag>]... [--yes]";
 
 fn main() -> ExitCode {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -105,6 +110,13 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
                 compare::run(root, &resolve(root, &base), &resolve(root, &head), content)?;
             Ok(!comparison.failed && comparison.changed.is_empty())
         }
+        "prune" => {
+            let keep = args.number("--keep")?.unwrap_or(5);
+            let keep_tags = args.values("--keep-tag")?;
+            let yes = args.flag("--yes");
+            args.finish()?;
+            Ok(store::prune(root, keep, &keep_tags, yes))
+        }
         "help" | "--help" | "-h" => {
             println!("{USAGE}");
             Ok(true)
@@ -142,6 +154,15 @@ impl Args {
         let value = self.0.remove(at + 1);
         self.0.remove(at);
         Ok(Some(value))
+    }
+
+    /// Every value of an option that may repeat, in order.
+    fn values(&mut self, name: &str) -> Result<Vec<String>, String> {
+        let mut values = Vec::new();
+        while let Some(value) = self.value(name)? {
+            values.push(value);
+        }
+        Ok(values)
     }
 
     fn number(&mut self, name: &str) -> Result<Option<usize>, String> {
