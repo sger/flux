@@ -23,8 +23,32 @@
 - **Debugger fixtures carry expected text.** `// dbg-check:` lines catch a bug that
   the VM debugger and lldb share, as rustc's `lldb-check` lines do (S5).
 - **A differential fuzzer** generates well-typed programs and runs them through
-  parity, as Csmith and YARPGen do for C compilers (S6). A reducer shrinks what it
-  finds (S7).
+  parity, as Csmith and YARPGen do for C compilers (S8). A reducer shrinks what it
+  finds (S9).
+
+What S1–S4 found reordered the rest (§16). The cheap checks found the bugs: S1
+and S2 turned up 11 hidden parity failures, and S4's first run found
+non-deterministic CFG lowering. The 6½ minutes of opt ways found nothing. So
+cheap invariants come next:
+
+- **Skips are checked** (S5). A skipped way that starts passing is reported, and
+  every KI a skip names must still be open, as lit's `XFAIL` and pytest's strict
+  `xfail` do.
+- **Dumps get a second, normalized hash**, verify checks determinism on a sample,
+  and Aether and LIR dumps are swept too (S6).
+- **Semantics-preserving rewrites** of existing fixtures, such as reordering
+  top-level definitions, must not change their output (S7), as EMI testing does.
+- **Behaviour against the base compiler** (S10) and **a faster verify** (S11).
+- `// dbg-check:` moves last (S12): debug parity already agrees 21/21.
+
+A survey of other compilers' checks added three more (§13–§15):
+
+- **Optimization bisection** (S13), as LLVM's `-opt-bisect-limit`: an opt-way
+  mismatch is narrowed to the one rewrite that causes it.
+- **IR checks after every pass** (S14), as rustc's `-Zvalidate-mir` and GHC's
+  `-dcore-lint`, with a LIR verifier, which Flux lacks.
+- **Garbage-free checks** (S15): leaks and lost reuse fail a run, which no parity
+  way can see today.
 
 ## Motivation
 [motivation]: #motivation
@@ -222,6 +246,12 @@ line names both counts.
     counters that depend on scheduling. It is either fixed in the dump printer or
     filed as a KI.
   - This command is not run by verify, because it doubles the cost of a sweep.
+    §9 adds a sampled check that verify does run.
+  - **Found on S4's first run:** 900 of the `cfg` sweep's dumps changed against
+    a base built from the same source. Core lowering to CFG (`src/core/to_ir/`)
+    gave every named function a `LoadName` per top-level function, in
+    `HashMap` order, which differs from run to run. They are now emitted in
+    binder order, with a unit test that lowers one program nine times.
 
 ### §5 `// dbg-check:`
 
@@ -294,27 +324,275 @@ line names both counts.
 - **Keeping a candidate:** it is kept when it compiles on every way and
   `parity-check` reports the same verdict, between the same pair of ways, on the
   same stream (exit kind, stdout or stderr) as the original.
+- **Syntax-aware passes first.** Line ddmin spends most of its runs on
+  candidates that do not parse. Before it, the reducer tries edits that keep
+  the program well formed, as Perses and llvm-reduce do:
+  - delete a whole top-level item;
+  - delete a statement, or a `match` arm when a later arm is a wildcard;
+  - replace an expression with a literal of its type (`0`, `false`, `""`), the
+    type taken from `--dump-core`'s annotations;
+  - inline a `let` used once.
+
+  Each candidate is checked with `flux --no-cache --dump-core` first, which is
+  far cheaper than a parity run; one that does not compile is dropped. Line
+  ddmin then runs on what is left.
 - **Output:** `<case>.min.flx`.
 - **Promotion:** a minimized case goes to `tests/parity/` with `// expect: success`
   and a `parity-expected-stdout` block taken from the way that is right. It goes in
   the commit that fixes the bug, or with a `// skip-way:` and a KI if the bug stays
   open.
 
-### §8 Staging
+### §8 Checked skips
+
+A `// skip-way:` hides a way until someone removes it, even after its bug is
+fixed. Two checks keep skips honest:
+
+- **Unexpected passes.** `parity-check --check-skips` runs the skipped ways as
+  well, but outside the verdict. When a skipped way agrees with the others (and
+  with the expected output, when there is one), it prints
+  `UNEXPECTED_PASS <file> <way>: KI-102 may be fixed`, and the summary counts
+  `UnexpectedPass: n`. verify passes the flag and records a note, not a failure:
+  the fix may be on another branch. This is lit's `XPASS` and pytest's
+  `xfail(strict=True)`, reported rather than failed.
+- **Open KIs only.** A `// skip:` or `// skip-way:` reason must name a KI listed
+  under `## Open` in `docs/known_issues.md`. One under `## Resolved` or missing
+  from the file is a metadata error, like a reason without `KI-` (§2). xtask
+  reads the file once; `parity-check` takes it as `--known-issues <path>`, so a
+  plain run without it behaves as today.
+
+### §9 Better dump comparison
+
+- **Normalized hashes.** Next to the exact hash, `hashes.tsv` gains a hash of
+  the dump with every number after `v`, `b`, `fn` and `#` replaced by `_`
+  (`DumpHash::normalized`). `compare --content` then reports each changed file
+  as one of:
+  - `structure`: both hashes changed, so the program differs;
+  - `numbering`: only the exact hash changed, so the same program is numbered or
+    ordered differently.
+
+  `--cmp` fails on either. `--cmp=structure` fails only on `structure`, for a
+  change that renumbers on purpose. S4's 900 files would all have read
+  `numbering`, which points at iteration order at once.
+- **Determinism in verify.** After each sweep, verify reruns a sample of its
+  files (`--det-sample`, 50 by default: every file whose name hashes into the
+  sample, so the sample is the same on every run) with the same compiler and
+  compares the exact hashes. A difference fails the step and names the file.
+  It costs about two seconds per mode.
+- **More stages swept.** An `aether` mode (`--dump-aether`), where ownership and
+  reuse decisions show, and a `lir` mode (`--dump-lir`). Each costs about what
+  `core` does; §13 records the measured cost. LLVM IR stays a future
+  possibility, since it needs the native toolchain.
+- **Shuffled internal order.** A hidden `--shuffle-seed <n>` flag (in
+  `FLUX_SHUFFLE_SEED` too) reorders, by seed, what the compiler iterates in an
+  order that should not matter: the top-level items handed to each pass, and
+  the members of any `HashMap` or `HashSet` that a pass iterates, through one
+  `ordered_iter` helper that sorts normally and shuffles under the flag. Go's
+  `ssa/check/seed` does the same for its SSA passes. `sweep --determinism
+  --shuffle` runs the second sweep under a seed, and verify's determinism
+  sample uses a seed taken from the run's tag. A difference then shows on every
+  run instead of by chance, as S4's did. Converting the iteration sites is the
+  bulk of the work; it starts with `src/core/to_ir/`, `src/types/class_env.rs`
+  and `src/core/passes/dict_elaborate.rs`.
+- **Bytecode cache determinism.** `vm_cached` runs read the cache written by an
+  earlier run. `sweep --determinism --mode cache` compiles each file twice with
+  `--cache-dir` pointing at two empty folders and compares the files written,
+  byte for byte.
+
+### §10 Semantics-preserving rewrites
+
+Every fixture with expected output, or that passes parity, is already a test
+with a known answer. A rewrite that cannot change the meaning of a program must
+not change that answer. This is metamorphic testing, as EMI (Equivalence Modulo
+Inputs) does for C compilers.
+
+- **`cargo xtask rewrite [--kind K] [--seed S] <dir>`** writes rewritten copies
+  of each fixture to `<store>/rewrite_<seed>/` and runs `parity-check` on them
+  with the original's expected output. It is a text transform over the
+  fixture's top-level items, std-only, in `xtask/src/rewrite.rs`.
+- **Kinds,** in order of value:
+  1. `reorder`: shuffle the top-level `fn`, `data`, `class` and `instance` items
+     (the seed picks the order). This targets the bug class S4 found: any
+     lowering that depends on definition or hash order.
+  2. `rename`: rename local binders and parameters to fresh names, which
+     catches name capture and lookups by name that should be by binder.
+  3. `let-wrap`: bind an argument expression to a fresh `let` first. This
+     changes evaluation shape, not order, and exercises the optimizer's
+     inliner.
+- A fixture the rewriter cannot parse, or one that uses modules, is skipped and
+  counted. A rewrite that fails to compile is a rewriter bug, counted on its
+  own line with a target of zero, like generator failures (§6).
+- verify does not run it. It is a command for refactors of lowering and for a
+  weekly run, like `fuzz`.
+
+### §11 Behaviour against the base compiler
+
+`--cmp` (§4) fails on any dump change, but most refactors change dumps on
+purpose. What they must not change is behaviour.
+
+- **`verify --base <tag> --behaviour`** runs every parity fixture once more,
+  with the base sweep's kept compiler on the `vm` way, and compares stdout and
+  exit kind with the head's `vm` run. A difference fails the step and names the
+  file, with the first differing line.
+- It needs no expected output, so it covers every fixture, including the ones
+  that only check that the backends agree. When both compilers are wrong in the
+  same way it shows nothing, which parity already accepts.
+
+### §12 Run time
+
+verify takes about 22 minutes; main parity is 15 of them, and `parity-check`
+runs one fixture at a time.
+
+- **Parallel fixtures.** `parity-check --jobs N` runs N fixtures at once, each
+  with its own ways in sequence, and prints verdicts in fixture order. verify
+  passes `--jobs 2` by default and `--jobs` overrides it. Native builds are
+  heavy, so the default stays low on purpose.
+- **Opt ways when they matter.** `vm_opt` and `llvm_opt` run when the diff
+  against the base touches the optimizer (`src/core/passes/`, `src/aether/`),
+  under `--opt`, or when no base is given. Otherwise the summary notes that they
+  were skipped. This answers the open question from §3.
+- **Per-fixture counts, not times.** Wall time is noisy, which is why
+  rustc-perf compares instruction counts and GHC keeps per-test metrics with
+  acceptance windows. A hidden `--metrics <file>` flag makes `flux` write
+  numbers that are the same on every run:
+  - Core size after optimization, and the number of `dup`, `drop` and reuse
+    sites in Aether;
+  - bytecode size;
+  - the VM's executed instruction count and allocation count, from
+    `src/runtime/leak_detector.rs`'s counters (§15).
+
+  `parity-check --metrics` collects them per fixture on the `vm` and `vm_opt`
+  ways. verify keeps them in `<run>/metrics.tsv` and, with `--base`, fails on a
+  fixture whose count grows beyond its metric's tolerance (0% for Core size and
+  instruction count, which are exact) unless the run passes
+  `--accept-metrics`, which records the new values as accepted. Wall time
+  stays in the summary as a coarse signal.
+- **A quick tier.** `verify --quick` runs fmt, clippy, the build, the three
+  sweeps with determinism sampling, and main parity over `tests/parity` only.
+  It is the check while working; the full verify is the check before a merge.
+
+### §13 Optimization bisection
+
+An opt-way mismatch (§3) says the optimizer broke a program, not which of its
+rewrites did. LLVM's `-opt-bisect-limit` answers that by numbering rewrites.
+
+- **A rewrite counter.** `--opt-bisect-limit <n>` (hidden; also
+  `FLUX_OPT_BISECT`) numbers every optimizing rewrite as it is about to fire:
+  each Core pass under `src/core/passes/` that changes a term (inlining, beta,
+  case-of-case, constant folding, specialization, dead `let`), and each Aether
+  reuse, drop specialization and fusion. A rewrite numbered above `n` is
+  skipped. Passes needed for correctness, such as ANF, dictionary elaboration
+  and Aether's dup/drop insertion, are never counted or skipped.
+- **`--opt-bisect-limit -1`** runs everything and prints one line per rewrite to
+  stderr: `opt-bisect: 412 inline `map` into `main` (src/core/passes/inline.rs)`.
+- **`cargo xtask bisect-opt <fixture> [--way vm_opt|llvm_opt]`** finds the
+  number of rewrites `r`, then binary-searches `n` in `0..=r` for the smallest
+  value at which the opt way's output differs from the plain way's. It prints
+  that rewrite's line, and the Core of the function it rewrote with `n - 1` and
+  with `n`. That is about log2(r) runs; a fixture with 5,000 rewrites needs 13.
+- **Where it fits.** CONVENTION.md's debugging guide gains it as the first step
+  for an `OptModeMismatch`, and the fuzz driver (§6) runs it on each mismatch
+  under `--optimize`.
+
+### §14 IR checks after every pass
+
+Flux already checks its IRs at a few points:
+
+- Core lint (`src/core/passes/lint.rs`, modelled on GHC's `-dcore-lint`) runs
+  after every simplification round and after normalization, and is fatal
+  (`E998`). It checks structure: scope, duplicate binders, parameter-type
+  arity, empty `case` and `letrec`. It does not check types.
+- `verify_contract` (`src/aether/verify.rs`) checks Aether's drops, reuse tokens
+  and field masks.
+- `validate_ir` (`src/cfg/validate.rs`) checks CFG IR.
+- LIR has no verifier.
+
+rustc's `-Zvalidate-mir`, Swift's `-sil-verify-all` and Scala's `-Ycheck:all`
+run their checker after *every* pass, so a broken pass is named where it breaks
+the IR rather than seen later as wrong output.
+
+- **`lir::verify`** (`src/lir/verify.rs`): every block ends in one terminator;
+  every value is defined before it is used on every path; branch targets
+  exist; call arities match their callee; `dup` and `drop` apply only to
+  heap-typed values.
+- **`--verify-each`** (hidden): Core lint after each Core pass, not only each
+  round; `verify_contract` after each Aether pass; `validate_ir` after each CFG
+  pass; `lir::verify` after lowering and after each LIR pass. The error names
+  the pass that ran last. Off by default, since it multiplies checking cost.
+- **Where it runs:** a `vm_verify` parity way (the VM pipeline with
+  `--verify-each --optimize`), which verify includes when the diff touches a
+  pass; every fuzz run (§6); and the reducer's oracle (§7), so a lint failure
+  can be reduced like a mismatch.
+- **Types are out of scope here.** A typed Core lint, which re-checks every
+  binder's annotation and every application against Core's types, as GHC's
+  does, is a larger change that needs its own proposal. It is listed under
+  Future possibilities.
+
+### §15 Garbage-free checks
+
+Perceus, which Aether follows, promises that a program frees each value as soon
+as it is dead. Parity compares outputs, so a leak, an extra `dup` or a lost
+reuse passes every way. Today:
+
+- the native debug heap (`--debug-heap`, `FLUX_DEBUG_HEAP` in
+  `runtime/c/rc.c`) catches a use after free or a double drop, with both sites;
+- the VM's `src/runtime/leak_detector.rs` counts allocations by kind but not
+  frees.
+
+The checks:
+
+- **Live blocks at exit.** The debug heap keeps a count of live blocks, and a
+  list of their allocation sites. `flux_rt_shutdown` reports each block still
+  live, up to ten with sites, and exits with a distinct code. The VM's leak
+  detector counts frees as well, and `--leak-check` makes the VM report the
+  same at exit. Values that live for the whole program, such as globals and
+  interned constants, are counted separately and excluded.
+- **A `llvm_heap` parity way:** native with `--debug-heap`, failing on a leak or
+  a heap error. verify runs it over `tests/parity` and `examples/aether`.
+- **Expected counts.** Fixtures in `examples/aether/` may state what Aether must
+  achieve, checked against the `--metrics` counts (§12):
+  `// expect-reuse: >= 1`, `// expect-allocs: 3`. A pass change that loses a
+  reuse then fails a fixture, not only a benchmark.
+- **Sanitizers.** An occasional run (`cargo xtask sanitize`) builds
+  `runtime/c` with AddressSanitizer and UndefinedBehaviorSanitizer and runs the
+  native ways over `tests/parity`, as Lean's CI runs a sanitizer job.
+
+### §16 Staging
 
 | stage | change | exit |
 |---|---|---|
 | S1 ✓ | verify counts `EXPECTED_OUTPUT_MISMATCH` and the `parity-check` exit code (§1) | A deliberately broken expected block in `examples/guide` makes `debug build parity` FAIL. Any failure this uncovers is fixed or filed as a KI. |
 | S2 ✓ | `// skip-way:` (§2); whole-fixture skips narrowed; the main parity step records instead of noting | Unit tests in `src/parity/fixture.rs` for parsing, including the KI requirement. Main parity on `feat/debugger` has 0 MISMATCH, with every skip naming a KI. |
 | S3 ✓ | `vm_opt` / `llvm_opt` and the opt check (§3); added to verify's main parity | `parity-check tests/parity --ways vm,vm_opt,llvm,llvm_opt` has 0 MISMATCH, after fixes or KI skips. The verify run-time increase is recorded in §3. |
-| S4 | Dump hashes in sweeps, `compare --content`, `verify --cmp`, `sweep --determinism` (§4) | `cargo xtask sweep --determinism` reports 0 differences for `cfg`, `core` and `core-opt`. `verify <tag> --base main --cmp` on a no-op change passes; on a dump-printer change it fails and names the files. `compare.rs` unit tests. |
-| S5 | `// dbg-check:` (§5), checks added to all 21 debug fixtures | Debug parity 21/21. Changing one expected local makes both the parity run and `parity_debug_tests` fail. |
-| S6 | The generator and `cargo xtask fuzz` (§6) | Unit tests: the same seed gives the same text; 200 seeds compile with 0 generator failures (an ignored test that runs `flux --dump-core`). A planted miscompile under `--optimize`, not committed, is found within `--count 200`. |
-| S7 | `cargo xtask fuzz reduce` (§7) | The planted miscompile's case shrinks to at most 10 lines. Reducer unit tests on a fake oracle. |
+| S4 | Dump hashes in sweeps, `compare --content`, `verify --cmp`, `sweep --determinism` (§4); the CFG lowering order fix | `cargo xtask sweep --determinism` reports 0 differences for `cfg`, `core` and `core-opt`. `verify <tag> --base main --cmp` on a no-op change passes; on a dump-printer change it fails and names the files. `compare.rs` unit tests. |
+| S5 | Checked skips: `UNEXPECTED_PASS` and open KIs only (§8) | Unit tests for both. Moving a KI that a fixture names to `## Resolved` gives a metadata error; deleting a skipped bug's cause, not committed, gives `UNEXPECTED_PASS`. |
+| S6 | Normalized hashes, sampled determinism in verify, `aether` and `lir` sweeps, cache determinism (§9) | Undoing the S4 lowering fix, not committed, fails verify's determinism sample and reads `numbering` in `compare --content`. The new sweeps' cost is recorded here. |
+| S7 | `cargo xtask rewrite` with `reorder`, then `rename` and `let-wrap` (§10) | Every rewrite of `tests/parity` and `examples/guide` compiles and matches; each mismatch is fixed or filed as a KI. Undoing the S4 lowering fix is caught by `reorder`. |
+| S8 | The generator and `cargo xtask fuzz` (§6) | Unit tests: the same seed gives the same text; 200 seeds compile with 0 generator failures (an ignored test that runs `flux --dump-core`). A planted miscompile under `--optimize`, not committed, is found within `--count 200`. |
+| S9 | `cargo xtask fuzz reduce` (§7) | The planted miscompile's case shrinks to at most 10 lines. Reducer unit tests on a fake oracle. |
+| S10 | `verify --behaviour` (§11) | A planted change to a `print` builtin's output, not committed, fails it and names the files; a no-op change passes. |
+| S11 | `parity-check --jobs`, opt ways on optimizer changes, per-fixture times, `verify --quick` (§12) | Main parity with `--jobs 2` gives the same verdicts as `--jobs 1`, faster; the times are recorded here. A planted slowdown in one fixture is listed. |
+| S12 | `// dbg-check:` (§5), checks added to all 21 debug fixtures | Debug parity 21/21. Changing one expected local makes both the parity run and `parity_debug_tests` fail. |
+| S13 | `--opt-bisect-limit` and `cargo xtask bisect-opt` (§13) | A planted wrong rewrite in one Core pass, not committed, makes a fixture mismatch under `vm_opt`; `bisect-opt` names that rewrite. With `-1`, the rewrite count is the same on every run. |
+| S14 | `lir::verify`, `--verify-each`, the `vm_verify` way (§14) | Unit tests per LIR rule. A planted malformed rewrite, not committed, fails `--verify-each` naming its pass, where plain parity shows only wrong output. Main parity under `vm_verify` has 0 failures, after fixes or KIs. |
+| S15 | Live blocks at exit, the `llvm_heap` way, expected counts, `cargo xtask sanitize` (§15) | `llvm_heap` over `tests/parity` and `examples/aether` reports 0 leaks, after fixes or KIs. A planted missing `drop`, not committed, fails it with the allocation site. A removed reuse fails an `expect-reuse` fixture. |
 
 S1 comes first, since without it the later stages could fail silently. S2 and S3
 go together: the opt ways will find divergences, and S2 is how they are recorded
-while they are open. S4 and S5 are independent of the rest. S7 needs S6.
+while they are open. S9 needs S8. S6's shuffling and S11's counts need nothing else. The expected
+counts in S15 use S11's `--metrics`. The rest are independent of each other.
+
+Stage numbers name the stages; they are not the order of work. The intended
+order is S5, S6, S7, S13, S15, S8, S9, S14, S10, S11, S12: cheap invariants
+first, then the tools that turn a found mismatch into a named cause (S13) and
+the check for the bugs parity cannot see (S15), then the generator.
+
+**Why this order.** The first four stages showed where the bugs are. Counting
+failures that were already printed (S1, S2) uncovered 11 of them, three of
+them real bugs (KI-102 to KI-104). Comparing a run with itself (S4) found
+non-deterministic lowering in its first run. The opt ways (S3), the most
+expensive addition at about 6½ minutes a run, found nothing. So the cheap
+invariants (S5–S7) go before the generator (S8, S9), and `dbg-check` (S12),
+which guards debug output that already agrees 21/21, goes last.
 
 ## Drawbacks
 [drawbacks]: #drawbacks
@@ -331,6 +609,13 @@ while they are open. S4 and S5 are independent of the rest. S7 needs S6.
   never pruned, under `.git/parked/out/`, which reached 1.5 GB.
 - **Skips can rot.** A `// skip-way:` that outlives its bug hides a regression in
   that way. Requiring a KI per skip keeps them listed in `known_issues.md`.
+- **Every optimizing rewrite must report to the bisection counter (§13).** A
+  pass that forgets is invisible to `bisect-opt`. A unit test runs each Core
+  pass on a fixture it changes and checks that the counter moved.
+- **Rewrites and checked skips are code to maintain.** The rewriter parses
+  top-level items with text rules, not the compiler's parser, so new syntax
+  can break it. Its failures are counted on their own line, as the
+  generator's are.
 - **The generator is code to maintain.** It must track surface syntax. Generator
   compile failures are reported separately so that syntax drift shows up at once,
   rather than as missing coverage.
@@ -371,6 +656,25 @@ while they are open. S4 and S5 are independent of the rest. S7 needs S6.
   `lldb-command`/`lldb-check` directives in the test source. This is the model for
   §5.
 - **LLVM, FileCheck.** The ordered-substring semantics used by `dbg-check`.
+- **LLVM lit and pytest, `XFAIL`/`XPASS`.** A test marked as failing that
+  passes is reported (`XPASS`), and fails under pytest's `strict=True`. This is
+  the model for §8.
+- **EMI, Equivalence Modulo Inputs (Le, Afshari and Su, PLDI 2014).** Mutates
+  programs in ways that cannot change their output on given inputs, and found
+  hundreds of GCC and LLVM bugs. This is the model for §10.
+- **LLVM, `-opt-bisect-limit`.** Numbers optimization passes and skips those
+  past a limit, so a miscompile is bisected to one pass. The model for §13.
+- **rustc `-Zvalidate-mir`, Swift `-sil-verify-all`, Scala `-Ycheck:all`, GHC
+  `-dcore-lint`, Go `-d=ssa/check/on`.** IR checkers run after every pass. The
+  models for §14. Go's `ssa/check/seed`, which randomizes value order, is the
+  model for §9's shuffling.
+- **rustc-perf and GHC's performance tests.** Deterministic counts compared with
+  the base, with per-metric tolerances and an explicit accept step. The models
+  for §12's metrics.
+- **Lean 4's CI.** A sanitizer job over the runtime. The model for §15's
+  `cargo xtask sanitize`.
+- **Perses and llvm-reduce.** Reducers that only produce well-formed programs.
+  The model for §7's syntax-aware passes.
 - **Csmith and YARPGen.** Random, well-defined C programs compared across
   compilers and optimization levels; C-Reduce shrinks the failures. These are the
   models for §6 and §7.
@@ -378,8 +682,12 @@ while they are open. S4 and S5 are independent of the rest. S7 needs S6.
 ## Unresolved questions
 [unresolved-questions]: #unresolved-questions
 
-- Whether `vm_opt` / `llvm_opt` stay in verify's default ways or move behind a
-  flag, once their cost is measured.
+- Which paths count as the optimizer for §12, and whether a change outside
+  them (for example in type inference) should still run the opt ways.
+- Whether `UNEXPECTED_PASS` (§8) should fail verify on `main`, where the fix
+  cannot be on another branch.
+- Whether `rewrite` (§10) should handle fixtures with modules, by rewriting each
+  module's file.
 - Whether `--cmp` should also compare the full dumps of files that are rejected on
   both sides, for example diagnostic text. Today only `ok` files are compared.
 - How generated programs should treat `Int` overflow, once its semantics are
@@ -393,4 +701,10 @@ while they are open. S4 and S5 are independent of the rest. S7 needs S6.
 - Generated `-g` programs with generated `// dbg:` scripts, feeding debug parity.
 - A nightly or weekly fuzz run on the CI runners, with seeds recorded in the
   report.
-- `--cmp` over LLVM IR (`--dump-lir-llvm`) as a fourth sweep.
+- `--cmp` over LLVM IR (`--dump-lir-llvm`) as a further sweep.
+- A typed Core lint that re-checks every binder and application against Core's
+  types, as GHC's Core Lint does (§14), in its own proposal.
+- Translation validation of the emitted LLVM IR with Alive2, for the passes
+  Flux asks LLVM to run.
+- More rewrite kinds: inlining a single-use `let`, splitting a module in two,
+  turning a `match` on `Bool` into `if`.
