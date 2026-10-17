@@ -1,10 +1,13 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use crate::aether::AetherExpr;
 use crate::core::{CoreBinderId, CorePat};
 
-pub fn collect_free_vars_aether(expr: &AetherExpr) -> HashSet<CoreBinderId> {
-    let mut free = HashSet::new();
+/// The free binders of `expr`, in binder order: closures' captures are built
+/// from them, and a hash order would make two lowerings of one program
+/// differ.
+pub fn collect_free_vars_aether(expr: &AetherExpr) -> BTreeSet<CoreBinderId> {
+    let mut free = BTreeSet::new();
     free_vars_rec_aether(expr, &mut HashSet::new(), &mut free);
     free
 }
@@ -12,7 +15,7 @@ pub fn collect_free_vars_aether(expr: &AetherExpr) -> HashSet<CoreBinderId> {
 pub fn free_vars_rec_aether(
     expr: &AetherExpr,
     bound: &mut HashSet<CoreBinderId>,
-    free: &mut HashSet<CoreBinderId>,
+    free: &mut BTreeSet<CoreBinderId>,
 ) {
     match expr {
         AetherExpr::Var { var, .. } => {

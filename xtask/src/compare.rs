@@ -16,6 +16,7 @@
 //! the caller's to decide: verify notes it, or fails on it with `--cmp`.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -140,6 +141,41 @@ pub struct Comparison {
     pub failed: bool,
     /// Files `ok` on both sides whose dumps differ; empty without `content`.
     pub changed: Vec<String>,
+    /// How many of `changed` differ only in numbering ([`Change::Numbering`]).
+    pub numbering: usize,
+    /// How many of `changed` cannot be told apart, the base sweep having no
+    /// normalized hashes ([`Change::Unknown`]).
+    pub unknown: usize,
+}
+
+/// What kind of difference a changed dump has, from the normalized hashes
+/// (0190 §9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Change {
+    /// The program differs.
+    Structure,
+    /// The same program, numbered or ordered differently.
+    Numbering,
+    /// The base sweep predates normalized hashes.
+    Unknown,
+}
+
+impl Change {
+    pub fn of(before: &DumpHash, after: &DumpHash) -> Self {
+        match (before.normalized, after.normalized) {
+            (Some(b), Some(a)) if b == a => Self::Numbering,
+            (Some(_), Some(_)) => Self::Structure,
+            _ => Self::Unknown,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Structure => "structure",
+            Self::Numbering => "numbering",
+            Self::Unknown => "unknown",
+        }
+    }
 }
 
 impl Comparison {
@@ -162,7 +198,7 @@ pub fn run(root: &Path, base: &Path, head: &Path, content: bool) -> Result<Compa
     report.print();
     let mut comparison = Comparison {
         failed: report.failed(),
-        changed: Vec::new(),
+        ..Comparison::default()
     };
     if !content {
         return Ok(comparison);
@@ -170,9 +206,25 @@ pub fn run(root: &Path, base: &Path, head: &Path, content: bool) -> Result<Compa
     let (mode, base_hashes) = read_hashes(base)?;
     let (_, head_hashes) = read_hashes(head)?;
     comparison.changed = changed_dumps(&base_sweep, &head_sweep, &base_hashes, &head_hashes);
-    println!("dumps changed: {}", comparison.changed.len());
+    let change = |file: &String| Change::of(&base_hashes[file], &head_hashes[file]);
+    let count = |kind: Change| {
+        comparison
+            .changed
+            .iter()
+            .filter(|f| change(f) == kind)
+            .count()
+    };
+    comparison.numbering = count(Change::Numbering);
+    comparison.unknown = count(Change::Unknown);
+    println!(
+        "dumps changed: {} ({} structure, {} numbering, {} unknown)",
+        comparison.changed.len(),
+        count(Change::Structure),
+        comparison.numbering,
+        comparison.unknown
+    );
     for file in comparison.changed.iter().take(SHOWN_DIFFS) {
-        println!("  {file}");
+        println!("  {file}  [{}]", change(file).name());
         match show_difference(root, base, head, mode, file) {
             Ok(lines) => lines.iter().for_each(|line| println!("    {line}")),
             Err(e) => println!("    {e}"),
@@ -181,10 +233,13 @@ pub fn run(root: &Path, base: &Path, head: &Path, content: bool) -> Result<Compa
     if comparison.changed.len() > SHOWN_DIFFS {
         println!("  … and {} more", comparison.changed.len() - SHOWN_DIFFS);
     }
-    let mut list = comparison.changed.join("\n");
-    if !list.is_empty() {
-        list.push('\n');
-    }
+    let list = comparison
+        .changed
+        .iter()
+        .fold(String::new(), |mut list, file| {
+            let _ = writeln!(list, "{}\t{file}", change(file).name());
+            list
+        });
     let diff_file = Comparison::diff_file(head);
     fs::write(&diff_file, list).map_err(|e| format!("{}: {e}", diff_file.display()))?;
     Ok(comparison)
@@ -209,7 +264,9 @@ fn read_hashes(dir: &Path) -> Result<(Mode, Hashes), String> {
 }
 
 /// Parses `hashes.tsv`: the `# mode <name>` header, then
-/// `file, fnv (hex), bytes, lines` per line. Unreadable lines are skipped.
+/// `file, fnv (hex), bytes, lines[, normalized fnv (hex)]` per line; a sweep
+/// made before 0190 S6 has no normalized column. Unreadable lines are
+/// skipped.
 pub fn parse_hashes(text: &str) -> (Option<String>, Hashes) {
     let mut mode = None;
     let mut hashes = Hashes::new();
@@ -219,15 +276,30 @@ pub fn parse_hashes(text: &str) -> (Option<String>, Hashes) {
             continue;
         }
         let fields: Vec<&str> = line.split('\t').collect();
-        let [file, fnv, bytes, lines] = fields[..] else {
-            continue;
+        let (file, fnv, bytes, lines, normalized) = match fields[..] {
+            [file, fnv, bytes, lines] => (file, fnv, bytes, lines, None),
+            [file, fnv, bytes, lines, normalized] => (file, fnv, bytes, lines, Some(normalized)),
+            _ => continue,
         };
         let (Ok(fnv), Ok(bytes), Ok(lines)) =
             (u64::from_str_radix(fnv, 16), bytes.parse(), lines.parse())
         else {
             continue;
         };
-        hashes.insert(file.to_string(), DumpHash { fnv, bytes, lines });
+        let normalized = match normalized.map(|hex| u64::from_str_radix(hex, 16)) {
+            Some(Ok(hash)) => Some(hash),
+            Some(Err(_)) => continue,
+            None => None,
+        };
+        hashes.insert(
+            file.to_string(),
+            DumpHash {
+                fnv,
+                bytes,
+                lines,
+                normalized,
+            },
+        );
     }
     (mode, hashes)
 }
@@ -248,7 +320,7 @@ pub fn changed_dumps(
                 && ok(head)
                 && base_hashes
                     .get(*file)
-                    .is_some_and(|before| before != *after)
+                    .is_some_and(|before| !before.same_dump(after))
         })
         .map(|(file, _)| file.clone())
         .collect()
@@ -376,6 +448,7 @@ mod tests {
             fnv: n,
             bytes: 1,
             lines: 1,
+            normalized: Some(n),
         }
     }
 
@@ -404,18 +477,61 @@ mod tests {
     #[test]
     fn reads_back_the_hashes_a_sweep_writes() {
         let (mode, hashes) = parse_hashes(
-            "# mode core-opt\na.flx\t00000000000000ff\t10\t2\nbroken line\nb.flx\tzz\t1\t1\n",
+            "# mode core-opt\na.flx\t00000000000000ff\t10\t2\nbroken line\nb.flx\tzz\t1\t1\n\
+             c.flx\t0000000000000001\t3\t1\t00000000000000aa\n",
         );
         assert_eq!(mode.as_deref(), Some("core-opt"));
-        assert_eq!(hashes.len(), 1);
+        assert_eq!(hashes.len(), 2);
         assert_eq!(
             hashes["a.flx"],
             DumpHash {
                 fnv: 0xff,
                 bytes: 10,
-                lines: 2
+                lines: 2,
+                normalized: None,
             }
         );
+        assert_eq!(hashes["c.flx"].normalized, Some(0xaa));
+    }
+
+    #[test]
+    fn a_sweep_writes_hashes_it_reads_back() {
+        let result = crate::sweep::FileResult {
+            file: "a.flx".to_string(),
+            status: "ok",
+            exit: 0,
+            codes: String::new(),
+            ms: 1,
+            dump: DumpHash::of("v1 = Const(2)\n"),
+        };
+        let text = crate::sweep::format_hashes(Mode::Cfg, std::slice::from_ref(&result));
+        let (mode, hashes) = parse_hashes(&text);
+        assert_eq!(mode.as_deref(), Some("cfg"));
+        assert_eq!(hashes["a.flx"], result.dump);
+    }
+
+    #[test]
+    fn a_changed_dump_is_structure_numbering_or_unknown() {
+        let with = |fnv, normalized| DumpHash {
+            fnv,
+            bytes: 1,
+            lines: 1,
+            normalized,
+        };
+        assert_eq!(
+            Change::of(&with(1, Some(7)), &with(2, Some(7))),
+            Change::Numbering
+        );
+        assert_eq!(
+            Change::of(&with(1, Some(7)), &with(2, Some(8))),
+            Change::Structure
+        );
+        assert_eq!(
+            Change::of(&with(1, None), &with(2, Some(8))),
+            Change::Unknown
+        );
+        // Only the exact hash decides whether a dump changed.
+        assert!(with(1, None).same_dump(&with(1, Some(7))));
     }
 
     #[test]

@@ -121,11 +121,7 @@ pub fn to_runtime_contract_checked(
         return Ok(None);
     }
 
-    let effects = contract
-        .effects
-        .iter()
-        .flat_map(EffectExpr::normalized_names)
-        .collect::<Vec<_>>();
+    let effects = EffectExpr::sorted_names(&contract.effects);
 
     Ok(Some(FunctionContract {
         params,
@@ -214,16 +210,10 @@ fn convert_type_expr_rec(
                 .map(|param| convert_type_expr_rec(param, env, bindings, active_adts))
                 .collect::<Result<Vec<_>, _>>()?;
             let ret = convert_type_expr_rec(ret, env, bindings, active_adts)?;
-            let mut effect_set = effects
-                .iter()
-                .flat_map(EffectExpr::normalized_names)
-                .collect::<Vec<_>>();
-            effect_set.sort_by_key(|sym| sym.as_u32());
-            effect_set.dedup();
             Ok(RuntimeType::Function {
                 params,
                 ret: Box::new(ret),
-                effects: effect_set,
+                effects: EffectExpr::sorted_names(effects),
             })
         }
     }

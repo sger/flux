@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::{
     aether::{AetherExpr, AetherHandler},
@@ -699,7 +699,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
 fn collect_used_candidate_binders_aether(
     expr: &AetherExpr,
     bound: &mut HashSet<CoreBinderId>,
-    candidates: &HashSet<CoreBinderId>,
+    candidates: &BTreeSet<CoreBinderId>,
     used: &mut HashSet<CoreBinderId>,
 ) {
     match expr {
@@ -865,7 +865,7 @@ fn collect_used_candidate_binders_aether(
 fn used_outer_binders_aether(
     expr: &AetherExpr,
     initially_bound: impl IntoIterator<Item = CoreBinderId>,
-    candidates: &HashSet<CoreBinderId>,
+    candidates: &BTreeSet<CoreBinderId>,
 ) -> HashSet<CoreBinderId> {
     let mut bound: HashSet<_> = initially_bound.into_iter().collect();
     let mut used = HashSet::new();

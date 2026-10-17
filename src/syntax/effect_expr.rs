@@ -124,6 +124,16 @@ impl EffectExpr {
     /// Normalizes effect atoms using `+`/`-` semantics.
     ///
     /// Row variables are intentionally excluded from the result.
+    /// The effect names `effects` require together, each once, in symbol
+    /// order: the names come out of hash sets, and contracts built from them
+    /// are written into cached interfaces, which must not change between runs.
+    pub fn sorted_names(effects: &[EffectExpr]) -> Vec<Identifier> {
+        let mut names: Vec<Identifier> = effects.iter().flat_map(Self::normalized_names).collect();
+        names.sort_unstable_by_key(|name| name.as_u32());
+        names.dedup();
+        names
+    }
+
     pub fn normalized_names(&self) -> HashSet<Identifier> {
         match self {
             EffectExpr::Named { name, .. } => HashSet::from([*name]),

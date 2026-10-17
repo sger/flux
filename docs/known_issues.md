@@ -42,6 +42,42 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-115 — A cached module with type-class instances is written differently from one run to the next
+
+**Severity:** Low · **Area:** VM bytecode cache · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) S6, `sweep --determinism --mode cache`
+
+```
+$ cargo xtask sweep --determinism --mode cache --out .verify/det/cache
+NOT deterministic: 12 cache file(s) differ between two runs
+```
+
+Six of the 136 `tests/parity` programs write a different `.fxm` for their own
+module on each run, from the same compiler and source:
+
+- `tests/parity/array_instances.flx`
+- `tests/parity/either_instances.flx`
+- `tests/parity/functor_applicative_monad.flx`
+- `tests/parity/imported_constructor_types.flx`
+- `tests/parity/list_instances.flx`
+- `tests/parity/option_instances.flx`
+
+The `$FLUX_HOME/store` copy of each differs with it. In `list_instances` the
+instance methods appear in a different order: one run writes
+`__tc_…_Functor_Array_fmap` where the other writes
+`__tc_…_Applicative_Array_pure`. The program runs the same either way, but the
+cache is not reproducible, and a stale-cache bug would be hard to tell apart
+from this.
+
+The `--dump-cfg`, `--dump-core` and `--dump-aether` sweeps of the same files
+are deterministic, so the order comes from the cached, per-module path. The
+likely place is where instances from imported interfaces are gathered.
+
+S6 fixed the other causes the check found:
+- interface maps serialized in hash order;
+- a loaded interface's new symbols interned in hash order;
+- effect lists in runtime contracts and effect rows;
+- an interface's members defined as globals in hash order.
+
 ### KI-114 — The VM runs a user effect named `Console` with the builtin handler; native reports it unhandled
 
 **Severity:** Medium · **Area:** Effects, VM · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) S5, which made untracked skips cite a KI
