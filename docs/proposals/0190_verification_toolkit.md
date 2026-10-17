@@ -2,7 +2,7 @@
 - Start Date: 2026-10-16
 - Proposal PR:
 - Flux Issue:
-- Status: In progress: S1–S3 done, S4 in its exit checks, on `feat/verification-toolkit`
+- Status: In progress: S1–S3 and S16 done, S4 in its exit checks, on `feat/verification-toolkit`
 - Depends on: [0138](implemented/0138_flux_parity_ways.md) (parity ways and `flux parity-check`), [0188](0188_flux_debugger.md) S6b (the debug parity harness, `// dbg:` fixtures)
 - Relates to: [0188](0188_flux_debugger.md) S9c (`llvm_g` and the guide in `xtask verify`)
 
@@ -670,6 +670,37 @@ Error:` lines in `examples/diagnostics` turned into `expect-error` headers, and
 `requires: network` or `stdin` on the fixtures that need them. Every remaining
 failure is a bug and gets a KI.
 
+**Result** (2026-10-17, five runs, c1 to c5). Supported went from 87–88% to
+98.7–99.9% on every way. c1 had 741 failures, 739 of them unfiled; c5 has 39,
+each joined to an open KI:
+
+| way | c1 | c5 |
+|---|---|---|
+| vm | 88.0% | 99.9% |
+| llvm | 87.5% | 99.3% |
+| vm_opt | 87.5% | 99.3% |
+| llvm_opt | 86.9% | 98.7% |
+
+- **New bugs filed:** KI-105 to KI-113. The worst three are `--optimize`
+  hiding type errors (KI-105), a native `--optimize` nested-match miscompile
+  (KI-106), and native async and HTTP crashes (KI-108). KI-103 grew a second
+  shape.
+- **Fixtures repaired:** most of the rest were header gaps, plus 17
+  `examples/type_system/failing` fixtures that had never found their imports.
+- **Harness problems the census exposed:**
+  - `expect: error` was read silently as success;
+  - the examples snapshot harness ignored `// root:`, so 27 snapshots pinned
+    a module-path error that only that harness produced;
+  - a strict-only fixture had no way to say so (now `// flags: --strict`).
+- **The remaining 18 gaps**, where one way handles a file and another fails:
+
+  | how many | where it fails | KI |
+  |---|---|---|
+  | 9 | native only | KI-103, KI-107, KI-108, KI-109, KI-110 |
+  | 7 | `--optimize` on both backends | KI-105 |
+  | 1 | native `--optimize` | KI-106 |
+  | 1 | VM only | KI-111 |
+
 ### §17 Staging
 
 | stage | change | exit |
@@ -688,7 +719,7 @@ failure is a bug and gets a KI.
 | S12 | `// dbg-check:` (§5), checks added to all 21 debug fixtures | Debug parity 21/21. Changing one expected local makes both the parity run and `parity_debug_tests` fail. |
 | S13 | `--opt-bisect-limit` and `cargo xtask bisect-opt` (§13) | A planted wrong rewrite in one Core pass, not committed, makes a fixture mismatch under `vm_opt`; `bisect-opt` names that rewrite. With `-1`, the rewrite count is the same on every run. |
 | S14 | `lir::verify`, `--verify-each`, the `vm_verify` way (§14) | Unit tests per LIR rule. A planted malformed rewrite, not committed, fails `--verify-each` naming its pass, where plain parity shows only wrong output. Main parity under `vm_verify` has 0 failures, after fixes or KIs. |
-| S16 | The support census (§16): `ExitKind::Crash`, `--jobs`, `--census`, `requires: network`, `flux features`, `cargo xtask census` | Every file and way in the corpus is classified; every failure has a KI or a header fix, so the unfiled list is empty; the matrix is published. Plain parity over `tests/parity` gives the same verdicts as before, except crashes now reported as such. |
+| S16 ✓ | The support census (§16): `ExitKind::Crash`, `--jobs`, `--census`, `requires: network`, `flux features`, `cargo xtask census` | Every file and way in the corpus is classified; every failure has a KI or a header fix, so the unfiled list is empty; the matrix is published. Plain parity over `tests/parity` gives the same verdicts as before, except crashes now reported as such. |
 | S15 | Live blocks at exit, the `llvm_heap` way, expected counts, `cargo xtask sanitize` (§15) | `llvm_heap` over `tests/parity` and `examples/aether` reports 0 leaks, after fixes or KIs. A planted missing `drop`, not committed, fails it with the allocation site. A removed reuse fails an `expect-reuse` fixture. |
 
 S1 comes first, since without it the later stages could fail silently. S2 and S3
