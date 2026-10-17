@@ -126,10 +126,10 @@ fn test_bracket_acquire_release() {
     assert_eq(v, 15)
 }
 
-fn test_try_returns_some() {
-    let opt = run_async(body_try)
-    match opt {
-        Some(v) -> assert_eq(v, 42),
-        None    -> assert_false(true)
+fn test_try_returns_ok() {
+    let result = run_async(body_try)
+    match result {
+        Ok(v)  -> assert_eq(v, 42),
+        Err(_) -> assert_false(true)
     }
 }

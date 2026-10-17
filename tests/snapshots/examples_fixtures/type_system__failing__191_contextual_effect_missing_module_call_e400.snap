@@ -3,19 +3,19 @@ source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/191_contextual_effect_missing_module_call_e400.flx
 == compile ==
-failed (module)
+failed (compile)
 == diagnostics ==
-error[E018]: Import Not Found
+error[E400]: Missing Ambient Effect
 
-Cannot find module `TypeSystem.EffectsChain` to import.
+Call to `call_io_step` requires effect `Console` in this function signature.
 
-  examples/type_system/failing/191_contextual_effect_missing_module_call_e400.flx:54:1
+  examples/type_system/failing/191_contextual_effect_missing_module_call_e400.flx:12:5
    |
-54 | import TypeSystem.EffectsChain
-   | ^
+12 |     TypeSystem.EffectsChain.call_io_step(x)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     ------------------------------------ effectful call occurs here
 
 Hint:
-  Check that: 1) The module file exists (e.g., `TypeSystem.EffectsChain.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `TypeSystem.EffectsChain` under roots: examples/type_system/failing, src, lib (imported from examples/type_system/failing/191_contextual_effect_missing_module_call_e400.flx).
+  Add `with Console` to the enclosing function.
 == stdout ==
 <not executed>

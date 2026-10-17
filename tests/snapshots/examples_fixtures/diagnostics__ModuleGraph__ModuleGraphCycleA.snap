@@ -5,16 +5,17 @@ Fixture: examples/diagnostics/ModuleGraph/ModuleGraphCycleA.flx
 == compile ==
 failed (module)
 == diagnostics ==
-error[E024]: Module Path Mismatch
+error[E021]: Import Cycle
 
-Module name `ModuleGraph.ModuleGraphCycleA` doesn't match file path `examples/diagnostics/ModuleGraph/ModuleGraphCycleA.flx`.
+Circular import detected: examples/diagnostics/ModuleGraph/ModuleGraphCycleA.flx -> examples/diagnostics/ModuleGraph/ModuleGraphCycleB.flx -> examples/diagnostics/ModuleGraph/ModuleGraphCycleA.flx.
 
-  examples/diagnostics/ModuleGraph/ModuleGraphCycleA.flx:7:1
+  examples/diagnostics/ModuleGraph/ModuleGraphCycleA.flx:5:1
   |
-7 | module ModuleGraph.ModuleGraphCycleA {
+5 | import ModuleGraph.ModuleGraphCycleB
   | ^
+  | - this import participates in the cycle
 
 Hint:
-  Rename the module or move the file to match.
+  Reorganize your modules to break the circular dependency.
 == stdout ==
 <not executed>

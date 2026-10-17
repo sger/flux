@@ -3,19 +3,31 @@ source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/185_runtime_boundary_arg_e1004.flx
 == compile ==
-failed (module)
+failed (compile)
 == diagnostics ==
-error[E018]: Import Not Found
+error[E300]: Argument Type Mismatch
 
-Cannot find module `TypeSystem.BoundaryUnknown` to import.
+I found the wrong type in the 1st argument to `typed_add`.
 
-  examples/type_system/failing/185_runtime_boundary_arg_e1004.flx:66:1
+  examples/type_system/failing/185_runtime_boundary_arg_e1004.flx:14:11
    |
-66 | import TypeSystem.BoundaryUnknown
-   | ^
+ 9 | fn typed_add(a: Int, b: Int) -> Int {
+   | ----------------------------------- `typed_add` expects `Int` as the 1st parameter
+10 |     a + b
+11 | }
+12 | 
+13 | let dynamic = TypeSystem.BoundaryUnknown.dynamic_string()
+14 | typed_add(dynamic, 1)
+   |           ^^^^^^^
+   |           ------- this argument has type `String`
 
-Hint:
-  Check that: 1) The module file exists (e.g., `TypeSystem.BoundaryUnknown.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `TypeSystem.BoundaryUnknown` under roots: examples/type_system/failing, src, lib (imported from examples/type_system/failing/185_runtime_boundary_arg_e1004.flx).
+Note:
+  expected argument type: Int
+  found argument type: String
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Pass a `Int` value as the 1st argument.
 == stdout ==
 <not executed>

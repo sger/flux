@@ -3,19 +3,25 @@ source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/79_hm_module_generic_call_mismatch.flx
 == compile ==
-failed (module)
+failed (compile)
 == diagnostics ==
-error[E018]: Import Not Found
+error[E300]: Annotation Type Mismatch
 
-Cannot find module `TypeSystem.HmGenericModule` to import.
+The value of `x` does not match its type annotation.
 
-  examples/type_system/failing/79_hm_module_generic_call_mismatch.flx:52:1
+  examples/type_system/failing/79_hm_module_generic_call_mismatch.flx:10:18
    |
-52 | import TypeSystem.HmGenericModule as M
-   | ^
+10 |     let x: Int = M.id("oops")
+   |                  ^^^^^^^^^^^^
+   |                  ------------ this value has type `String`
 
-Hint:
-  Check that: 1) The module file exists (e.g., `TypeSystem.HmGenericModule.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `TypeSystem.HmGenericModule` under roots: examples/type_system/failing, src, lib (imported from examples/type_system/failing/79_hm_module_generic_call_mismatch.flx).
+   |            --- but `x` was annotated as `Int`
+
+Note:
+  annotated type: Int
+  value type: String
+
+Help:
+  Change `x` to a `Int` value or update the annotation.
 == stdout ==
 <not executed>
