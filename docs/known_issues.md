@@ -54,9 +54,10 @@ error[E1009]: unhandled effect: Console (no matching handle block)
 ```
 
 The same program prints `1` with the cache, and natively with or without it.
-`custom_handled_tracer_example.flx` and `foldable_row_poly_example.flx` fail the
-same way. All three ship their own `Flow/Console.flx`, which declares
-`effect Console`.
+`custom_handled_tracer_example.flx` fails the same way. Both ship their own
+`Flow/Console.flx`, which declares `effect Console`. `--optimize` changes
+nothing. `foldable_row_poly_example.flx` also fails only under `--no-cache`,
+but with a different symptom: see [KI-104](#ki-104).
 
 **Cause.** With `--no-cache`, a multi-module VM run compiles every module in one
 shared `Compiler` (`compile_modules`, `src/driver/run_program/modules.rs`). The
@@ -79,8 +80,45 @@ the builtin `Console`. The progress lines under `--no-cache` name modules by
 file stem (`Compiling  Console`) for the same reason as [KI-037](#ki-037): the
 serial path never builds an interface.
 
-Parity records the three fixtures with `// skip-way: vm, vm_strict: KI-102`, and
-the cached and native ways still compare.
+Parity records the two fixtures with `// skip-way: vm, vm_strict, vm_opt: KI-102`,
+and the cached and native ways still compare.
+
+### KI-104 — Under `--no-cache`, an instance method's call to itself passes a dictionary it does not take
+
+**Severity:** Medium · **Area:** Type classes, module compilation · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) S3 triage
+
+```flux
+// examples/type_classes/FoldableRowPolyExample/Flow/Foldable.flx
+public instance Foldable<List> {
+    fn fold(xs, init, step) {
+        match xs {
+            []      -> init,
+            [h | t] -> fold(t, step(init, h), step),
+            _       -> init
+        }
+    }
+}
+```
+
+```
+$ flux --no-cache examples/type_classes/foldable_row_poly_example.flx
+error[E1000]: wrong number of arguments: want=3, got=4
+  at FoldableRowPolyExample.Flow.Foldable.__tc_m36_…_Foldable_List_fold (Foldable.flx:14:31)
+```
+
+The program prints `3` with the cache, and natively. `--optimize` changes
+nothing. `--strict --no-cache` rejects it with E425 instead. `Foldable<List>`
+has no context, so its `fold` takes three arguments; under `--no-cache` the
+recursive `fold(t, …)` is called with a dictionary as well. [KI-078](#ki-078)'s
+fix says a method calling itself lowers to a direct call and raises no
+constraint, which holds on the cached path.
+
+Like [KI-102](#ki-102), this happens only on the serial `--no-cache` path, which
+compiles every module in one shared `Compiler`. The cached path and native build
+a fresh one per module. Not yet traced. Compiling the `--no-cache` VM run per
+module, as the cached path does, would likely clear both.
+
+Parity records the fixture with `// skip-way: vm, vm_strict, vm_opt: KI-104`.
 
 ### KI-103 — Natively, a constructor reached through a module alias fails at run time
 
@@ -114,7 +152,7 @@ paths then apply. Alternatively, have LIR check `constructor_tags` before the
 HAMT fallback. Same-named constructors in two modules ([KI-099](#ki-099)) are
 the case to test.
 
-Parity records the fixture with `// skip-way: llvm: KI-103`.
+Parity records the fixture with `// skip-way: llvm, llvm_opt: KI-103`.
 
 ### KI-006 — I/O uses `String`, so binary data cannot round-trip
 

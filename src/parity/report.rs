@@ -266,6 +266,15 @@ pub fn diagnose_mismatch(details: &[MismatchDetail]) -> Option<&'static str> {
     let has_strict = details
         .iter()
         .any(|d| matches!(d, MismatchDetail::StrictModeMismatch { .. }));
+    let has_opt = details
+        .iter()
+        .any(|d| matches!(d, MismatchDetail::OptModeMismatch { .. }));
+
+    // An optimized way that disagrees with its own unoptimized run is a
+    // miscompile, whatever else differs alongside it.
+    if has_opt {
+        return Some("the optimizer changed what the program does");
+    }
 
     if has_cache {
         if details.iter().any(
@@ -342,6 +351,10 @@ pub fn cargo_run_for_way(way: Way, file: &str) -> String {
             "cargo run --features llvm -- {file} --native -g -o app && lldb ./app \
              (with `flux debug --lldb-script` imported)"
         ),
+        Way::VmOpt => format!("cargo run -- {file} --optimize --no-cache"),
+        Way::LlvmOpt => {
+            format!("cargo run --features llvm -- {file} --native --optimize --no-cache")
+        }
     }
 }
 
@@ -496,6 +509,24 @@ fn print_mismatch_detail(detail: &MismatchDetail) {
                 normal,
                 format!("{strict_way} (strict)"),
                 strict,
+            );
+        }
+        MismatchDetail::OptModeMismatch {
+            unopt_way,
+            opt_way,
+            field,
+            unopt,
+            opt,
+        } => {
+            println!(
+                "  {} {unopt_way} vs {opt_way} differ on {field}",
+                cyan("opt_mode_mismatch:")
+            );
+            print_inline_diff(
+                format!("{unopt_way}"),
+                unopt,
+                format!("{opt_way} (--optimize)"),
+                opt,
             );
         }
     }

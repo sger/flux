@@ -397,6 +397,8 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         }
     }
 
+    details.extend(collect_opt_mode_details(&run_results));
+
     let verdict = if !details.is_empty() {
         Verdict::Mismatch { details }
     } else if matches!(opts.expect, Expect::CompileError | Expect::RuntimeError) {
@@ -467,6 +469,52 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         verdict,
         skipped_ways,
     }
+}
+
+/// Optimizer parity: each opt way against its unoptimized counterpart. The
+/// optimizer must not change what a program does, so the exit kind always has
+/// to agree, stdout when both succeed, and stderr when either fails.
+fn collect_opt_mode_details(run_results: &[super::RunResult]) -> Vec<MismatchDetail> {
+    let mut details = Vec::new();
+    for opt in run_results.iter().filter(|r| r.way.is_opt()) {
+        let unopt_way = opt.way.non_opt();
+        let Some(unopt) = run_results.iter().find(|r| r.way == unopt_way) else {
+            continue;
+        };
+        let mut differ = |field: &str, unopt_text: String, opt_text: String| {
+            details.push(MismatchDetail::OptModeMismatch {
+                unopt_way,
+                opt_way: opt.way,
+                field: field.to_string(),
+                unopt: unopt_text,
+                opt: opt_text,
+            });
+        };
+        let both_succeeded =
+            unopt.exit_kind == ExitKind::Success && opt.exit_kind == ExitKind::Success;
+        if unopt.exit_kind != opt.exit_kind {
+            differ(
+                "exit_kind",
+                unopt.exit_kind.to_string(),
+                opt.exit_kind.to_string(),
+            );
+        }
+        if both_succeeded && unopt.normalized_stdout != opt.normalized_stdout {
+            differ(
+                "stdout",
+                unopt.normalized_stdout.clone(),
+                opt.normalized_stdout.clone(),
+            );
+        }
+        if !both_succeeded && unopt.normalized_stderr != opt.normalized_stderr {
+            differ(
+                "stderr",
+                unopt.normalized_stderr.clone(),
+                opt.normalized_stderr.clone(),
+            );
+        }
+    }
+    details
 }
 
 fn capture_artifacts(
@@ -1124,6 +1172,46 @@ mod tests {
     }
 
     #[test]
+    fn an_opt_way_must_print_what_its_plain_way_prints() {
+        let run_results = vec![
+            result(Way::Vm, ExitKind::Success, "1\n2", ""),
+            result(Way::VmOpt, ExitKind::Success, "1\n3", ""),
+            result(Way::Llvm, ExitKind::Success, "1\n2", ""),
+            result(Way::LlvmOpt, ExitKind::Success, "1\n2", ""),
+        ];
+        let labels: Vec<String> = collect_opt_mode_details(&run_results)
+            .iter()
+            .map(mismatch_detail_label)
+            .collect();
+        assert_eq!(labels, ["opt stdout: vm vs vm_opt"]);
+    }
+
+    #[test]
+    fn an_opt_way_must_fail_the_way_its_plain_way_fails() {
+        let run_results = vec![
+            result(Way::Llvm, ExitKind::RuntimeError, "", "error[E1000]: x"),
+            result(Way::LlvmOpt, ExitKind::Success, "42", ""),
+        ];
+        let labels: Vec<String> = collect_opt_mode_details(&run_results)
+            .iter()
+            .map(mismatch_detail_label)
+            .collect();
+        assert_eq!(
+            labels,
+            [
+                "opt exit_kind: llvm vs llvm_opt",
+                "opt stderr: llvm vs llvm_opt"
+            ]
+        );
+    }
+
+    #[test]
+    fn an_opt_way_without_its_plain_way_is_not_compared() {
+        let run_results = vec![result(Way::VmOpt, ExitKind::Success, "1", "")];
+        assert!(collect_opt_mode_details(&run_results).is_empty());
+    }
+
+    #[test]
     fn strict_rejections_must_agree_on_diagnostic_codes() {
         let run_results = vec![
             result(Way::Vm, ExitKind::Success, "output", ""),
@@ -1183,17 +1271,7 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
         let expects_failure = matches!(meta.expect, Expect::CompileError | Expect::RuntimeError);
         let (ways, _) = apply_skip_ways(&meta.ways, &meta.skip_ways);
         let mut compile_ways = ways.into_iter().map(Way::base_way).collect::<Vec<_>>();
-        compile_ways.sort_by_key(|way| match way {
-            Way::Vm => 0,
-            Way::Llvm => 1,
-            Way::VmCached => 2,
-            Way::LlvmCached => 3,
-            Way::VmStrict => 4,
-            Way::LlvmStrict => 5,
-            Way::VmDebug => 6,
-            Way::LlvmDebug => 7,
-            Way::LlvmG => 8,
-        });
+        compile_ways.sort_by_key(|way| Way::ALL.iter().position(|w| w == way));
         compile_ways.dedup();
         let mut expected_failure_stderr: Vec<(Way, String)> = Vec::new();
         for way in compile_ways {
@@ -1726,7 +1804,8 @@ Usage:
 Options:
   --ways <w1,w2,...>     Ways to compare (default: vm,llvm)
                          Available: vm, llvm, vm_cached, llvm_cached, vm_strict, llvm_strict,
-                         llvm_g (native with -g); vm_debug, llvm_debug (scripted debug sessions)
+                         llvm_g (native with -g); vm_opt, llvm_opt (with --optimize);
+                         vm_debug, llvm_debug (scripted debug sessions)
   --show <filter>        Show only: pass, fail, or all (default: all)
   --capture-core         Capture --dump-core per way and compare Core IR
   --capture-aether       Capture --dump-aether=debug per way and compare ownership
@@ -2363,6 +2442,12 @@ fn mismatch_detail_label(detail: &MismatchDetail) -> String {
             field,
             ..
         } => format!("strict {field}: {normal_way} vs {strict_way}"),
+        MismatchDetail::OptModeMismatch {
+            unopt_way,
+            opt_way,
+            field,
+            ..
+        } => format!("opt {field}: {unopt_way} vs {opt_way}"),
     }
 }
 

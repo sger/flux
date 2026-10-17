@@ -204,19 +204,37 @@ fn build_way_args<'a>(
     llvm_binary: &'a Path,
     way: Way,
 ) -> (&'a Path, Vec<String>) {
-    let (binary, mut args) = match way {
-        Way::Vm | Way::VmCached | Way::VmStrict | Way::VmDebug => (vm_binary, vec![]),
-        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug | Way::LlvmG => {
-            (llvm_binary, vec!["--native".to_string()])
-        }
-    };
-    if way.is_strict() {
-        args.push("--strict".to_string());
+    let mut args = Vec::new();
+    if way.backend_id() == BackendId::Llvm {
+        args.push("--native".to_string());
     }
+    args.extend(mode_args(way));
     if way == Way::LlvmG {
         args.push("-g".to_string());
     }
-    (binary, args)
+    (binary_for(vm_binary, llvm_binary, way), args)
+}
+
+/// The binary that runs `way`: the native one for every LLVM way.
+fn binary_for<'a>(vm_binary: &'a Path, llvm_binary: &'a Path, way: Way) -> &'a Path {
+    match way.backend_id() {
+        BackendId::Vm => vm_binary,
+        BackendId::Llvm => llvm_binary,
+    }
+}
+
+/// The compile-mode flags `way` adds: `--strict` for a strict way and
+/// `--optimize` for an opt way. A dump captured for the way passes them too,
+/// so it shows what that way compiled.
+fn mode_args(way: Way) -> Vec<String> {
+    let mut args = Vec::new();
+    if way.is_strict() {
+        args.push("--strict".to_string());
+    }
+    if way.is_opt() {
+        args.push("--optimize".to_string());
+    }
+    args
 }
 
 fn make_tool_failure(way: Way, msg: &str) -> RunResult {
@@ -352,14 +370,11 @@ fn observe_cache_files(
 fn parity_cache_dir(file: &Path, way: Way) -> PathBuf {
     let project_root = cache_paths::find_project_root(file)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-    let backend = match way {
-        Way::Vm | Way::VmCached | Way::VmStrict | Way::VmDebug => "vm",
-        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug | Way::LlvmG => "llvm",
-    };
+    let backend = way.backend_id().to_string();
     project_root
         .join("target")
         .join("parity-cache")
-        .join(backend)
+        .join(&backend)
         .join(cache_paths::artifact_stem(file))
 }
 
@@ -428,10 +443,7 @@ fn classify_cache_observation(path: &Path) -> Option<CacheFileKind> {
 
 /// Check if native compilation was unsupported (should be treated as skip).
 pub fn is_native_skip(result: &RunResult) -> Option<String> {
-    if !matches!(
-        result.way,
-        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug | Way::LlvmG
-    ) {
+    if result.way.backend_id() != BackendId::Llvm {
         return None;
     }
     for line in result.stderr.lines() {
@@ -462,10 +474,7 @@ pub fn capture_dump_core(
     extra_args: &[String],
     timeout: Duration,
 ) -> DebugArtifacts {
-    let binary = match way {
-        Way::Vm | Way::VmCached | Way::VmStrict | Way::VmDebug => vm_binary,
-        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug | Way::LlvmG => llvm_binary,
-    };
+    let binary = binary_for(vm_binary, llvm_binary, way);
 
     if !binary.exists() {
         return DebugArtifacts::default();
@@ -476,6 +485,9 @@ pub fn capture_dump_core(
         "--no-cache".to_string(),
         file.to_string_lossy().into_owned(),
     ];
+    if way.is_opt() {
+        args.push("--optimize".to_string());
+    }
     args.extend_from_slice(extra_args);
 
     let result = spawn_with_timeout(binary, &args, timeout);
@@ -504,10 +516,7 @@ pub fn capture_dump_aether(
     extra_args: &[String],
     timeout: Duration,
 ) -> DebugArtifacts {
-    let binary = match way {
-        Way::Vm | Way::VmCached | Way::VmStrict | Way::VmDebug => vm_binary,
-        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug | Way::LlvmG => llvm_binary,
-    };
+    let binary = binary_for(vm_binary, llvm_binary, way);
 
     if !binary.exists() {
         return DebugArtifacts::default();
@@ -518,6 +527,9 @@ pub fn capture_dump_aether(
         "--no-cache".to_string(),
         file.to_string_lossy().into_owned(),
     ];
+    if way.is_opt() {
+        args.push("--optimize".to_string());
+    }
     args.extend_from_slice(extra_args);
 
     let result = spawn_with_timeout(binary, &args, timeout);
@@ -547,10 +559,7 @@ pub fn capture_dump_repr(
     extra_args: &[String],
     timeout: Duration,
 ) -> DebugArtifacts {
-    let binary = match way {
-        Way::Vm | Way::VmCached | Way::VmStrict | Way::VmDebug => vm_binary,
-        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug | Way::LlvmG => llvm_binary,
-    };
+    let binary = binary_for(vm_binary, llvm_binary, way);
 
     if !binary.exists() {
         return DebugArtifacts::default();
@@ -561,15 +570,10 @@ pub fn capture_dump_repr(
         "--no-cache".to_string(),
         file.to_string_lossy().into_owned(),
     ];
-    if matches!(
-        way,
-        Way::Llvm | Way::LlvmCached | Way::LlvmStrict | Way::LlvmDebug | Way::LlvmG
-    ) {
+    if way.backend_id() == BackendId::Llvm {
         args.push("--native".to_string());
     }
-    if way.is_strict() {
-        args.push("--strict".to_string());
-    }
+    args.extend(mode_args(way));
     args.extend_from_slice(extra_args);
 
     let result = spawn_with_timeout(binary, &args, timeout);
@@ -602,9 +606,7 @@ pub fn capture_dump_cfg(
         "--no-cache".to_string(),
         file.to_string_lossy().into_owned(),
     ];
-    if way.is_strict() {
-        args.push("--strict".to_string());
-    }
+    args.extend(mode_args(way));
     args.extend_from_slice(extra_args);
 
     match spawn_with_timeout(vm_binary, &args, timeout) {
@@ -636,9 +638,7 @@ pub fn capture_dump_lir(
         "--no-cache".to_string(),
         file.to_string_lossy().into_owned(),
     ];
-    if way.is_strict() {
-        args.push("--strict".to_string());
-    }
+    args.extend(mode_args(way));
     args.extend_from_slice(extra_args);
 
     match spawn_with_timeout(llvm_binary, &args, timeout) {
