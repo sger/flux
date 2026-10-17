@@ -2,6 +2,10 @@
 /target/
 Cargo.lock
 
+# cargo xtask verify, sweep and fuzz outputs, one folder per run tag;
+# `cargo xtask prune` deletes old runs.
+/.flux-cache/
+
 # IDE
 .idea/
 .vscode/
