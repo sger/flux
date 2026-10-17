@@ -34,6 +34,16 @@ pub(super) struct FnCtx<'a> {
     pub(super) inferred_return_type: Option<CoreType>,
 }
 
+/// `binder_names` in binder order. Lowering must not follow the map's hash
+/// order, or the same program lowers differently from one run to the next.
+pub(super) fn binders_in_order(
+    binder_names: &HashMap<CoreBinderId, Identifier>,
+) -> Vec<(CoreBinderId, Identifier)> {
+    let mut binders: Vec<_> = binder_names.iter().map(|(&id, &name)| (id, name)).collect();
+    binders.sort_unstable_by_key(|&(id, _)| id);
+    binders
+}
+
 impl<'a> FnCtx<'a> {
     pub(super) fn new(
         ctx: &'a mut ToIrCtx,
