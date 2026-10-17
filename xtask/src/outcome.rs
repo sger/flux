@@ -206,12 +206,18 @@ pub fn format_duration(duration: Duration) -> String {
 
 /// How `now` compares with `before`: `+3:12`, `−0:20` or `±0:00`.
 pub fn format_delta(now: Duration, before: Duration) -> String {
-    let sign = match now.as_secs().cmp(&before.as_secs()) {
+    // Whole seconds on both sides, as shown, so the sign always agrees with
+    // the difference: 15.9 s against 16.1 s is −0:01, not −0:00.
+    let (now, before) = (now.as_secs(), before.as_secs());
+    let sign = match now.cmp(&before) {
         std::cmp::Ordering::Greater => "+",
         std::cmp::Ordering::Less => "−",
         std::cmp::Ordering::Equal => "±",
     };
-    format!("{sign}{}", format_duration(now.abs_diff(before)))
+    format!(
+        "{sign}{}",
+        format_duration(Duration::from_secs(now.abs_diff(before)))
+    )
 }
 
 /// The run's steps, numbered as they start: `== [4/9] debug build parity`.
@@ -254,6 +260,9 @@ mod tests {
         assert_eq!(format_delta(secs(300), secs(108)), "+3:12");
         assert_eq!(format_delta(secs(100), secs(120)), "−0:20");
         assert_eq!(format_delta(secs(5), secs(5)), "±0:00");
+        let ms = Duration::from_millis;
+        assert_eq!(format_delta(ms(15_900), ms(16_100)), "−0:01");
+        assert_eq!(format_delta(ms(16_100), ms(16_900)), "±0:00");
     }
 
     #[test]

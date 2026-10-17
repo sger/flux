@@ -16,10 +16,16 @@
 //! cargo xtask compare <base sweep dir> <head sweep dir> [--content]
 //!     exits 1 when a file is newly rejected or newly internal, or with
 //!     --content when a file's dump changed
+//! cargo xtask census [--tag <tag>] [--base <tag>] [--jobs <n>] [--ways <w,…>]
+//!                    [--allow network] [<dir>…]
+//!     run every .flx file on each way, classify each result, tag features,
+//!     join failures to known issues and write the support matrix; outputs
+//!     in .flux-cache/verify/census_<tag>/
 //! ```
 //!
 //! Relative paths are taken from the repository root.
 
+mod census;
 mod compare;
 mod outcome;
 mod proc;
@@ -38,7 +44,8 @@ const USAGE: &str = "usage:
   cargo xtask verify <tag> [--base <tag> [--cmp]] [--skip-suite] [--skip-sweeps]
   cargo xtask sweep --out <dir> [--mode cfg|core|core-opt] [--files <list>] [--jobs <n>] [--timeout <seconds>] [--flux <path>] [--determinism]
   cargo xtask compare <base sweep dir> <head sweep dir> [--content]
-  cargo xtask prune [--keep <n>] [--keep-tag <tag>]... [--yes]";
+  cargo xtask prune [--keep <n>] [--keep-tag <tag>]... [--yes]
+  cargo xtask census [--tag <tag>] [--base <tag>] [--jobs <n>] [--ways <w,...>] [--allow network] [<dir>...]";
 
 fn main() -> ExitCode {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -109,6 +116,19 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
             let comparison =
                 compare::run(root, &resolve(root, &base), &resolve(root, &head), content)?;
             Ok(!comparison.failed && comparison.changed.is_empty())
+        }
+        "census" => {
+            let options = census::Options {
+                tag: args.value("--tag")?.unwrap_or_else(|| "latest".to_string()),
+                base: args.value("--base")?,
+                jobs: args.number("--jobs")?.unwrap_or(4).max(1),
+                ways: args.value("--ways")?,
+                allow: args.values("--allow")?,
+                dirs: std::iter::from_fn(|| args.positional().transpose())
+                    .collect::<Result<_, _>>()?,
+            };
+            args.finish()?;
+            census::run_census(root, &options)
         }
         "prune" => {
             let keep = args.number("--keep")?.unwrap_or(5);
