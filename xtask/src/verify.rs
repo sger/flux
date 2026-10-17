@@ -59,7 +59,7 @@ fn step_count(options: &Options) -> usize {
     2 + sweeps + 3
 }
 
-fn cargo() -> Command {
+pub(crate) fn cargo() -> Command {
     Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
 }
 
@@ -441,7 +441,7 @@ fn open_log(path: &Path) -> std::io::Result<fs::File> {
 /// for it. One list of the words, so counting, numbering and colouring
 /// cannot disagree about what a verdict line is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Verdict {
+pub(crate) enum Verdict {
     Pass,
     Skip,
     Mismatch,
@@ -466,7 +466,7 @@ impl Verdict {
     }
 
     /// The verdict `line` (without colour) reports, if it is a verdict line.
-    fn parse(line: &str) -> Option<Self> {
+    pub(crate) fn parse(line: &str) -> Option<Self> {
         let (word, _) = line.split_once(' ')?;
         Self::ALL.into_iter().find(|v| v.word() == word)
     }
@@ -560,7 +560,8 @@ fn parity(
             }
             if let Some(n) = plain
                 .strip_prefix("[parity] fixtures: ")
-                .and_then(|n| n.trim().parse().ok())
+                .and_then(|rest| rest.split_whitespace().next())
+                .and_then(|n| n.parse().ok())
             {
                 total = Some(n);
             }
@@ -623,7 +624,7 @@ fn parity(
 }
 
 /// The last `max` characters of `text`, marked with `…` when cut.
-fn tail(text: &str, max: usize) -> String {
+pub(crate) fn tail(text: &str, max: usize) -> String {
     let count = text.chars().count();
     if count <= max {
         return text.to_string();
@@ -657,7 +658,7 @@ fn paint_summary_line(paint: Paint, line: &str) -> Option<String> {
 
 /// `fixture 3/23 · 0:41 elapsed`, the position of a verdict in its run;
 /// without the total when `parity-check` did not announce one.
-fn progress(done: usize, total: Option<usize>, started: Instant) -> String {
+pub(crate) fn progress(done: usize, total: Option<usize>, started: Instant) -> String {
     let of = total.map(|t| format!("/{t}")).unwrap_or_default();
     format!(
         "fixture {done}{of} · {} elapsed",
@@ -672,7 +673,7 @@ fn is_running_line(line: &str) -> bool {
 }
 
 /// `^\s+Compiling|^\s+Finished`.
-fn is_cargo_progress(line: &str) -> bool {
+pub(crate) fn is_cargo_progress(line: &str) -> bool {
     let trimmed = line.trim_start();
     trimmed.len() < line.len()
         && (trimmed.starts_with("Compiling") || trimmed.starts_with("Finished"))

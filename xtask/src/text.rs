@@ -50,6 +50,11 @@ impl Paint {
         }
     }
 
+    /// No colour, for text written to a file.
+    pub fn plain() -> Self {
+        Self { on: false }
+    }
+
     #[cfg(test)]
     pub fn always() -> Self {
         Self { on: true }
