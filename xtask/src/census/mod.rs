@@ -4,7 +4,7 @@
 //! with the features it uses (`flux features`), joins every failure to a known
 //! issue, and writes the support matrix: `census.tsv`, `matrix.tsv`,
 //! `unfiled.txt`, `summary.txt` and `census.html`, in
-//! `.flux-cache/verify/census_<tag>/`.
+//! `.verify/census_<tag>/`.
 
 mod known_issues;
 mod report;

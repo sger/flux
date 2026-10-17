@@ -363,11 +363,15 @@ fixed. Two checks keep skips honest:
   `UnexpectedPass: n`. verify passes the flag and records a note, not a failure:
   the fix may be on another branch. This is lit's `XPASS` and pytest's
   `xfail(strict=True)`, reported rather than failed.
-- **Open KIs only.** A `// skip:` or `// skip-way:` reason must name a KI listed
-  under `## Open` in `docs/known_issues.md`. One under `## Resolved` or missing
-  from the file is a metadata error, like a reason without `KI-` (§2). xtask
-  reads the file once; `parity-check` takes it as `--known-issues <path>`, so a
-  plain run without it behaves as today.
+- **Open KIs only.** Every KI a `// skip:` or `// skip-way:` reason names must
+  be listed under `## Open` in `docs/known_issues.md`. One under `## Resolved`,
+  one whose heading says FIXED, or one missing from the file is a metadata
+  error, like a `skip-way:` reason without `KI-` (§2). A `skip:` that names no
+  KI is not checked. After S5, 12 remain: 9 companion files for compiler
+  diagnostics, one that prints the clock, and two TCP fixtures that time out
+  intermittently. The 13th described a VM/native divergence and is now a
+  `skip-way:` citing KI-114. `parity-check` reads the file given as
+  `--known-issues <path>`, so a plain run without it behaves as before.
 
 ### §9 Better dump comparison
 
@@ -646,7 +650,7 @@ test262's `features:` does. The file's directory is a second, coarse tag.
    REPRODUCIBLE" is resolved whatever its section; a fixture path cited in an
    entry links that entry to the file. Every failing row gets a KI, from its
    `skip-way:` or a citation, or is listed as **unfiled**.
-4. Writes `.flux-cache/verify/census_<tag>/`: `census.tsv`, `matrix.tsv`
+4. Writes `.verify/census_<tag>/`: `census.tsv`, `matrix.tsv`
    (feature × way × class counts), `unfiled.txt`, `summary.txt` and a
    self-contained `census.html` with a pass rate per way, the matrix coloured
    by the share that works, the files behind each cell, the backend gaps and
@@ -748,9 +752,8 @@ which guards debug output that already agrees 21/21, goes last.
   disk, and expected checks. The content comparison itself is cheap. The opt ways
   are not: §3 records the cost, and the ways can move to an opt-in flag if it is
   too high.
-- **Disk use.** Each run keeps a folder, `.flux-cache/verify/<tag>/`, at the
-  repository root. `.gitignore` lists `.flux-cache/`, so nothing in it is ever
-  committed; `FLUX_VERIFY_OUT` moves it elsewhere. Sweeps keep dump hashes, not
+- **Disk use.** Each run keeps a folder, `.verify/<tag>/`, at the repository
+  root. `.gitignore` lists `.verify/`, so nothing in it is ever committed; `FLUX_VERIFY_OUT` moves it elsewhere. Sweeps keep dump hashes, not
   dumps, plus the compiler they ran (about 20 MB). `cargo xtask prune --keep <n>
   [--keep-tag <tag>]… --yes` deletes old runs. Until S4 the outputs piled up,
   never pruned, under `.git/parked/out/`, which reached 1.5 GB.

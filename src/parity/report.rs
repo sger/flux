@@ -85,6 +85,17 @@ pub fn print_result(result: &ParityResult, filter: DisplayFilter, explain: bool)
             skip.reason
         );
     }
+    for skip in &result.unexpected_passes {
+        let issue = super::known_issues::cited(&skip.reason)
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| "its known issue".to_string());
+        println!(
+            "{} {name} {}: {issue} may be fixed",
+            yellow("UNEXPECTED_PASS"),
+            skip.way,
+        );
+    }
 
     match &result.verdict {
         Verdict::Pass => {
@@ -798,6 +809,7 @@ pub fn print_summary(results: &[ParityResult]) {
         .filter(|r| matches!(r.verdict, Verdict::Skip { .. }))
         .count();
     let skipped_ways: usize = results.iter().map(|r| r.skipped_ways.len()).sum();
+    let unexpected_passes: usize = results.iter().map(|r| r.unexpected_passes.len()).sum();
 
     println!();
     println!("=== Parity Results ===");
@@ -810,6 +822,10 @@ pub fn print_summary(results: &[ParityResult]) {
     );
     println!("Skip:     {}", yellow(&skip.to_string()));
     println!("SkippedWays: {}", yellow(&skipped_ways.to_string()));
+    // Only `--check-skips` runs skipped ways, so a zero says nothing.
+    if unexpected_passes > 0 {
+        println!("UnexpectedPass: {}", yellow(&unexpected_passes.to_string()));
+    }
 
     if mismatch == 0 && expected_output_mismatch == 0 && pass > 0 {
         println!();

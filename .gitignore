@@ -4,6 +4,8 @@ Cargo.lock
 
 # cargo xtask verify, sweep and fuzz outputs, one folder per run tag;
 # `cargo xtask prune` deletes old runs.
+/.verify/
+# The compiler's old cache folder; package_cli_tests fails if it exists.
 /.flux-cache/
 
 # IDE

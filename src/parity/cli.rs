@@ -13,6 +13,7 @@
 //!   --census <file.tsv>    Write one classified row per file and way
 //!   --allow <resource>     Run fixtures that `// requires:` it (network)
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -22,6 +23,7 @@ use super::census;
 use super::fixture::{
     Expect, FixtureMeta, SkipWay, parse_fixture_meta, parse_fixture_meta_allowing,
 };
+use super::known_issues;
 use super::normalize::normalize_stderr;
 use super::report::{
     DisplayFilter, cargo_run_for_way, diagnose_mismatch, print_debug_first_failure, print_result,
@@ -200,7 +202,11 @@ const CENSUS_WAYS: [Way; 4] = [Way::Vm, Way::Llvm, Way::VmOpt, Way::LlvmOpt];
 /// file's header, and a census limits them to those the header allows.
 fn check_one(file: &Path, config: &Config) -> CheckedFile {
     let census_ways: &[Way] = config.ways.as_deref().unwrap_or(&CENSUS_WAYS);
-    let fixture_meta = parse_fixture_meta_allowing(file, &config.allow);
+    let mut fixture_meta = parse_fixture_meta_allowing(file, &config.allow);
+    if let Some(open) = &config.open_kis {
+        let stale = known_issues::stale_kis(&fixture_meta, open);
+        fixture_meta.meta_errors.extend(stale);
+    }
     let unrun_reason = if is_bench_or_profile(file) {
         Some("benchmark or profile: not run by the census".to_string())
     } else if is_prelude_module(file) {
@@ -224,6 +230,7 @@ fn check_one(file: &Path, config: &Config) -> CheckedFile {
                 },
                 skipped_ways: Vec::new(),
                 elapsed: Vec::new(),
+                unexpected_passes: Vec::new(),
             },
             rows: census::unrun_rows(file, census_ways, &reason),
         };
@@ -267,6 +274,7 @@ fn check_one(file: &Path, config: &Config) -> CheckedFile {
             meta_errors: &fixture_meta.meta_errors,
             census: config.census.is_some(),
             stdout_varies: fixture_meta.stdout_varies,
+            check_skips: config.check_skips,
         },
     );
     let rows = if config.census.is_some() {
@@ -451,6 +459,8 @@ struct CheckOpts<'a> {
     census: bool,
     /// `// stdout: varies`: compare the ways' exits, not what they print.
     stdout_varies: bool,
+    /// `--check-skips`: also run the skipped ways, outside the verdict.
+    check_skips: bool,
 }
 
 impl CheckOpts<'_> {
@@ -490,11 +500,10 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         verdict,
         skipped_ways,
         elapsed: Vec::new(),
+        unexpected_passes: Vec::new(),
     };
-    if let Some(reason) = opts.skip {
-        let reason = reason.to_string();
-        return unrun(Verdict::Skip { reason }, vec![]);
-    }
+    // Before the skip: a skip whose reason cites a closed KI is itself an
+    // error (`--known-issues`).
     if !opts.meta_errors.is_empty() {
         let verdict = Verdict::ExpectedOutputMismatch {
             expected: "valid fixture metadata".to_string(),
@@ -502,12 +511,42 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         };
         return unrun(verdict, vec![]);
     }
+    if let Some(reason) = opts.skip {
+        let reason = reason.to_string();
+        return unrun(Verdict::Skip { reason }, vec![]);
+    }
 
     let (ways, skipped_ways) = apply_skip_ways(opts.ways, opts.skip_ways);
     let too_few_to_compare = ways.len() < 2 && !opts.declares_expectation() && !opts.census;
     if !skipped_ways.is_empty() && (ways.is_empty() || too_few_to_compare) {
         let reason = format!("{} way(s) left after skip-way", ways.len());
-        return unrun(Verdict::Skip { reason }, skipped_ways);
+        let mut result = unrun(Verdict::Skip { reason }, Vec::new());
+        // The fixture stays skipped, but a skipped way that would now pass
+        // with the ways left is still worth reporting.
+        if opts.check_skips {
+            let mut run_results: Vec<_> = ways
+                .iter()
+                .map(|&way| {
+                    run_way(
+                        opts.vm_binary,
+                        opts.llvm_binary,
+                        file,
+                        way,
+                        opts.extra_args,
+                        opts.timeout,
+                    )
+                })
+                .collect();
+            if opts.stdout_varies {
+                for run in &mut run_results {
+                    run.normalized_stdout.clear();
+                }
+            }
+            result.unexpected_passes =
+                skipped_ways_that_pass(file, opts, &mut run_results, &skipped_ways);
+        }
+        result.skipped_ways = skipped_ways;
+        return result;
     }
 
     let mut run_results = Vec::new();
@@ -542,6 +581,7 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
                 verdict: Verdict::Skip { reason },
                 skipped_ways,
                 elapsed,
+                unexpected_passes: Vec::new(),
             };
         }
     }
@@ -570,6 +610,65 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         );
     }
 
+    let verdict = judge(&run_results, details, opts);
+    let unexpected_passes = if opts.check_skips && matches!(verdict, Verdict::Pass) {
+        skipped_ways_that_pass(file, opts, &mut run_results, &skipped_ways)
+    } else {
+        Vec::new()
+    };
+
+    ParityResult {
+        file: file.to_path_buf(),
+        results: run_results,
+        artifacts,
+        verdict,
+        skipped_ways,
+        elapsed,
+        unexpected_passes,
+    }
+}
+
+/// `--check-skips`: runs each skipped way and judges it alongside the ways
+/// that ran, as if its skip were gone. Those that would pass are returned.
+/// `run_results` is left as it was.
+fn skipped_ways_that_pass(
+    file: &Path,
+    opts: &CheckOpts<'_>,
+    run_results: &mut Vec<super::RunResult>,
+    skipped_ways: &[SkipWay],
+) -> Vec<SkipWay> {
+    let mut passing = Vec::new();
+    for skip in skipped_ways {
+        let mut result = run_way(
+            opts.vm_binary,
+            opts.llvm_binary,
+            file,
+            skip.way,
+            opts.extra_args,
+            opts.timeout,
+        );
+        if opts.stdout_varies {
+            result.normalized_stdout.clear();
+        }
+        run_results.push(result);
+        let details =
+            collect_mismatch_details(run_results, &[], opts.compare_surfaces_only, opts.expect);
+        if matches!(judge(run_results, details, opts), Verdict::Pass) {
+            passing.push(skip.clone());
+        }
+        run_results.pop();
+    }
+    passing
+}
+
+/// The verdict over `run_results`, given the `details` their comparison
+/// already found: the cache, strict and opt checks, then what the fixture
+/// declares about its exit and output.
+fn judge(
+    run_results: &[super::RunResult],
+    mut details: Vec<MismatchDetail>,
+    opts: &CheckOpts<'_>,
+) -> Verdict {
     // Cache parity: compare each cached way against its fresh counterpart
     for cached_result in run_results.iter().filter(|r| r.way.is_cached()) {
         let fresh_way = cached_result.way.base_way();
@@ -615,7 +714,7 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         let normal_way = strict_result.way.non_strict();
         if let Some(normal_result) = run_results.iter().find(|r| r.way == normal_way) {
             // Allowed: normal=Success, strict=CompileError (strict caught more)
-            let is_allowed = allowed_strict_compile_error(strict_result, &run_results);
+            let is_allowed = allowed_strict_compile_error(strict_result, run_results);
 
             if !is_allowed {
                 if normal_result.exit_kind != strict_result.exit_kind {
@@ -645,9 +744,9 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         }
     }
 
-    details.extend(collect_opt_mode_details(&run_results));
+    details.extend(collect_opt_mode_details(run_results));
 
-    let verdict = if !details.is_empty() {
+    if !details.is_empty() {
         Verdict::Mismatch { details }
     } else if matches!(opts.expect, Expect::CompileError | Expect::RuntimeError) {
         // Fixture declares it should fail. Require all runs to fail in the
@@ -658,9 +757,9 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
             !run_results.is_empty() && run_results.iter().all(|r| r.exit_kind == expected_kind);
         if all_expected_kind {
             let mut expected_failure_details =
-                collect_diagnostic_code_details(&run_results, opts.expected_errors);
+                collect_diagnostic_code_details(run_results, opts.expected_errors);
             expected_failure_details.extend(collect_expected_stderr_details(
-                &run_results,
+                run_results,
                 opts.expected_stderr,
             ));
             if expected_failure_details.is_empty() {
@@ -682,7 +781,7 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
             }
         }
     } else if opts.expect != Expect::Any
-        && let Some(failed) = first_unsuccessful_run(&run_results)
+        && let Some(failed) = first_unsuccessful_run(run_results)
     {
         // Fixture declares `expect: success`, so every way must actually have
         // run. Comparing the backends against each other is not enough: when
@@ -710,15 +809,6 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         }
     } else {
         Verdict::Pass
-    };
-
-    ParityResult {
-        file: file.to_path_buf(),
-        results: run_results,
-        artifacts,
-        verdict,
-        skipped_ways,
-        elapsed,
     }
 }
 
@@ -1324,6 +1414,78 @@ mod tests {
         }
     }
 
+    fn plain_opts(ways: &[Way]) -> CheckOpts<'_> {
+        CheckOpts {
+            ways,
+            vm_binary: Path::new("flux"),
+            llvm_binary: Path::new("flux"),
+            extra_args: &[],
+            timeout: Duration::from_secs(1),
+            capture_core: false,
+            capture_aether: false,
+            capture_repr: false,
+            capture_cfg: false,
+            capture_lir: false,
+            compare_surfaces_only: false,
+            explain: false,
+            expected_stdout: None,
+            expected_stderr: None,
+            expected_errors: &[],
+            expect: Expect::Success,
+            skip: None,
+            skip_ways: &[],
+            meta_errors: &[],
+            census: false,
+            stdout_varies: false,
+            check_skips: true,
+        }
+    }
+
+    /// `--check-skips` judges a skipped way's run with the others: one that
+    /// agrees passes, one that still diverges does not.
+    #[test]
+    fn a_skipped_way_passes_only_when_it_agrees() {
+        let ways = [Way::Vm, Way::Llvm, Way::LlvmOpt];
+        let opts = plain_opts(&ways);
+        let judged = |skipped: super::super::RunResult| {
+            let runs = vec![
+                result(Way::Vm, ExitKind::Success, "42", ""),
+                result(Way::Llvm, ExitKind::Success, "42", ""),
+                skipped,
+            ];
+            let details = collect_mismatch_details(&runs, &[], false, Expect::Success);
+            judge(&runs, details, &opts)
+        };
+        assert!(matches!(
+            judged(result(Way::LlvmOpt, ExitKind::Success, "42", "")),
+            Verdict::Pass
+        ));
+        assert!(!matches!(
+            judged(result(Way::LlvmOpt, ExitKind::Success, "0", "")),
+            Verdict::Pass
+        ));
+        assert!(!matches!(
+            judged(result(Way::LlvmOpt, ExitKind::Crash, "", "signal")),
+            Verdict::Pass
+        ));
+    }
+
+    #[test]
+    fn check_skips_and_known_issues_flags_parse() {
+        let known = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/known_issues.md");
+        let config = parse_args(&[
+            "x.flx".to_string(),
+            "--check-skips".to_string(),
+            "--known-issues".to_string(),
+            known.display().to_string(),
+        ])
+        .expect("valid arguments");
+        assert!(config.check_skips);
+        let open = config.open_kis.expect("read the file");
+        assert!(open.contains("KI-103"), "KI-103 is open today");
+        assert!(parse_args(&["x.flx".to_string(), "--known-issues".to_string()]).is_err());
+    }
+
     #[test]
     fn allowed_strict_compile_errors_do_not_look_like_backend_divergence() {
         let run_results = vec![
@@ -1893,6 +2055,11 @@ struct Config {
     census: Option<PathBuf>,
     /// `// requires:` resources this run may use.
     allow: Vec<String>,
+    /// `--known-issues`: the open KI ids; a skip citing any other is a
+    /// metadata error.
+    open_kis: Option<BTreeSet<String>>,
+    /// `--check-skips`: run the skipped ways too and report those that pass.
+    check_skips: bool,
     /// `None` means "use per-fixture metadata, falling back to [Vm, Llvm]".
     ways: Option<Vec<Way>>,
     vm_binary: PathBuf,
@@ -1939,6 +2106,8 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
     let mut jobs = 1;
     let mut census: Option<PathBuf> = None;
     let mut allow = Vec::new();
+    let mut open_kis: Option<BTreeSet<String>> = None;
+    let mut check_skips = false;
     let mut ways: Option<Vec<Way>> = None;
     let mut vm_binary = default_vm_binary();
     let mut llvm_binary = default_llvm_binary();
@@ -2017,6 +2186,16 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
                     ));
                 }
                 allow.push(resource.clone());
+            }
+            "--known-issues" => {
+                i += 1;
+                let path = args.get(i).ok_or("--known-issues requires a file path")?;
+                let text = fs::read_to_string(path)
+                    .map_err(|err| format!("cannot read --known-issues {path}: {err}"))?;
+                open_kis = Some(known_issues::open_ids(&text));
+            }
+            "--check-skips" => {
+                check_skips = true;
             }
             "--capture-core" => {
                 capture_core = true;
@@ -2139,6 +2318,8 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
         jobs,
         census,
         allow,
+        open_kis,
+        check_skips,
         ways,
         vm_binary,
         llvm_binary,
@@ -2192,6 +2373,10 @@ Options:
                          on vm,llvm,vm_opt,llvm_opt (or --ways) within each file's `// parity:`
                          line, and write one classified row per file and way. Never fails.
   --allow network        Run fixtures marked `// requires: network`
+  --check-skips          Also run the ways `// skip-way:` removes, outside the verdict, and
+                         print UNEXPECTED_PASS for each that would pass (its KI may be fixed)
+  --known-issues <file>  docs/known_issues.md: a skip reason citing a KI that is not open
+                         there is a metadata error
 
 Binaries are rebuilt automatically when missing or stale.
 Use --rebuild to force a refresh:

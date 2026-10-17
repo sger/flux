@@ -2,7 +2,7 @@
 //! backend parity. Each run's outputs are tagged, so a step's results compare
 //! with the previous step's.
 //!
-//! Outputs go to the run's own folder, `.flux-cache/verify/<tag>/`, which git
+//! Outputs go to the run's own folder, `.verify/<tag>/`, which git
 //! ignores (see `store.rs`):
 //! - `test.txt`: the suite
 //! - `sweep_cfg/`: every example compiled with `--dump-cfg`
@@ -290,6 +290,7 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
         counts.mismatches += run.mismatches;
         counts.expected += run.expected;
         counts.failures.extend(run.failures);
+        counts.unexpected.extend(run.unexpected);
         if run.exit != 0 {
             failed_runs += 1;
         }
@@ -313,6 +314,7 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
     if !ok {
         entry.details = capped(&counts.failures, &log_path);
     }
+    note_unexpected_passes(&mut outcome, "parity", &counts, &log_path);
 
     // A debug build runs as a plain one does (0188 S9c): every guide
     // example prints the same natively with and without `-g`.
@@ -367,6 +369,37 @@ fn record_parity(
     if !counts.ok() {
         entry.details = capped(&counts.failures, log);
     }
+    note_unexpected_passes(outcome, step, counts, log);
+}
+
+/// A note, never a failure, for skipped ways that now pass: their KI may be
+/// fixed, perhaps on another branch (0190 §8).
+fn note_unexpected_passes(outcome: &mut Outcome, step: &str, counts: &ParityCounts, log: &Path) {
+    if let Some(line) = unexpected_note(&counts.unexpected, log) {
+        outcome.note(step, line, None);
+    }
+}
+
+/// `2 skipped way(s) now pass: <first>, <second>`, the lines cut to their
+/// file, way and KI; past three, how many more and the log to read.
+fn unexpected_note(lines: &[String], log: &Path) -> Option<String> {
+    const SHOWN: usize = 3;
+    if lines.is_empty() {
+        return None;
+    }
+    let mut named: Vec<&str> = lines
+        .iter()
+        .take(SHOWN)
+        .map(|line| line.strip_prefix("UNEXPECTED_PASS ").unwrap_or(line))
+        .collect();
+    let more = lines.len().saturating_sub(SHOWN);
+    let rest = (more > 0).then(|| format!("{more} more in {}", log.display()));
+    named.extend(rest.as_deref());
+    Some(format!(
+        "{} skipped way(s) now pass: {}",
+        lines.len(),
+        named.join("; ")
+    ))
 }
 
 /// At most [`MAX_DETAILS`] of `items`, then how many more, then the log to
@@ -497,6 +530,8 @@ struct ParityCounts {
     exit: i32,
     /// Each failing verdict line, as it arrived.
     failures: Vec<String>,
+    /// Each `UNEXPECTED_PASS` line: a skipped way that now passes.
+    unexpected: Vec<String>,
 }
 
 impl ParityCounts {
@@ -546,7 +581,10 @@ fn parity(
     let exit = run_tee(
         Command::new(flux)
             .current_dir(root)
-            .args(["parity-check", dir, "--ways", ways]),
+            .args(["parity-check", dir, "--ways", ways])
+            // 0190 S5: a skip must cite an open KI, and a skipped way that
+            // passes is reported.
+            .args(["--check-skips", "--known-issues", "docs/known_issues.md"]),
         None,
         |line| {
             if is_cargo_progress(line) {
@@ -585,6 +623,9 @@ fn parity(
                     ))
                 }
             } else if plain.starts_with("SKIP_WAY ") {
+                Some(paint.yellow(&plain))
+            } else if plain.starts_with("UNEXPECTED_PASS ") {
+                counts.unexpected.push(plain.clone());
                 Some(paint.yellow(&plain))
             } else if plain.starts_with("[parity]") {
                 Some(paint.dim(&plain))
@@ -648,7 +689,7 @@ fn paint_summary_line(paint: Paint, line: &str) -> Option<String> {
         "Mismatch" | "ExpectedMismatch" if count > 0 => paint.red(&digits),
         // Passes, and failure counts that are zero, are good news.
         "Pass" | "Mismatch" | "ExpectedMismatch" => paint.green(&digits),
-        "Skip" | "SkippedWays" if count > 0 => paint.yellow(&digits),
+        "Skip" | "SkippedWays" | "UnexpectedPass" if count > 0 => paint.yellow(&digits),
         "Skip" | "SkippedWays" => paint.dim(&digits),
         _ => return None,
     };
@@ -748,6 +789,22 @@ mod tests {
             ["warning: x", "b", "error: y", "e"]
         );
         assert_eq!(grep_with_context(&lines, 6, 3), ["warning: x", "b", "c"]);
+    }
+
+    #[test]
+    fn unexpected_passes_are_noted_three_at_a_time() {
+        let log = Path::new("parity.txt");
+        assert_eq!(unexpected_note(&[], log), None);
+        let lines: Vec<String> = (1..=4)
+            .map(|n| format!("UNEXPECTED_PASS f{n}.flx vm: KI-10{n} may be fixed"))
+            .collect();
+        assert_eq!(
+            unexpected_note(&lines[..1], log).as_deref(),
+            Some("1 skipped way(s) now pass: f1.flx vm: KI-101 may be fixed")
+        );
+        let note = unexpected_note(&lines, log).expect("four lines");
+        assert!(note.starts_with("4 skipped way(s) now pass: f1.flx"));
+        assert!(note.ends_with("f3.flx vm: KI-103 may be fixed; 1 more in parity.txt"));
     }
 
     #[test]
