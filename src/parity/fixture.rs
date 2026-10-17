@@ -15,6 +15,8 @@
 //! // requires: network     — skip unless the run allows it (`--allow network`)
 //! // census-skip: reason    — leave the file out of `--census` runs only
 //! // stdout: varies         — output depends on the clock or the host; compare exits only
+//! // root: examples/x       — an extra module root, from the repo root
+//! // flags: --strict        — compile in strict mode on every way
 //! ```
 //!
 //! A `parity.dir` file gives the same directives, one per line and without the
@@ -251,6 +253,17 @@ fn apply_directive(meta: &mut FixtureMeta, comment: &str) {
         if !value.is_empty() {
             meta.extra_args.push("--root".to_string());
             meta.extra_args.push(value.to_string());
+        }
+    } else if let Some(value) = comment.strip_prefix("flags:") {
+        // The examples snapshot harness compiles in-process and honours only
+        // `--strict`; any other flag would pass here and be ignored there.
+        for flag in value.split_whitespace() {
+            if flag == "--strict" {
+                meta.extra_args.push(flag.to_string());
+            } else {
+                meta.meta_errors
+                    .push(format!("`// flags: {flag}`: the only flag is `--strict`"));
+            }
         }
     } else if let Some(value) = comment.strip_prefix("bug:") {
         meta.bug = Some(value.trim().to_string());
@@ -506,6 +519,17 @@ mod tests {
             Some(Path::new("x.flx")),
         );
         assert!(meta.stdout_varies && meta.meta_errors.is_empty());
+    }
+
+    #[test]
+    fn flags_add_strict_and_reject_other_flags() {
+        let mut meta = FixtureMeta::default();
+        apply_directive(&mut meta, "flags: --strict");
+        assert_eq!(meta.extra_args, ["--strict"]);
+        assert!(meta.meta_errors.is_empty(), "{:?}", meta.meta_errors);
+        apply_directive(&mut meta, "flags: --optimize");
+        assert_eq!(meta.extra_args, ["--strict"]);
+        assert_eq!(meta.meta_errors.len(), 1);
     }
 
     #[test]

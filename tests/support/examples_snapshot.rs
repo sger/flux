@@ -296,8 +296,32 @@ fn inject_flow_prelude(program: &mut Program, parser: &mut Parser) {
     program.statements = new_statements;
 }
 
-fn collect_roots(fixture: &Path, workspace_root: &Path, fixture_rel: &str) -> Vec<PathBuf> {
-    let mut roots = Vec::new();
+/// The values of the `// <name>:` lines in the fixture's leading comment
+/// block, the same header parity-check reads.
+fn header_directives<'a>(source: &'a str, name: &'a str) -> impl Iterator<Item = &'a str> {
+    source
+        .lines()
+        .map(str::trim)
+        .take_while(|line| line.is_empty() || line.starts_with("//"))
+        .filter_map(move |line| {
+            line.strip_prefix("//")?
+                .trim()
+                .strip_prefix(name)?
+                .strip_prefix(':')
+                .map(str::trim)
+        })
+}
+
+fn collect_roots(
+    fixture: &Path,
+    workspace_root: &Path,
+    fixture_rel: &str,
+    header_roots: &[&str],
+) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = header_roots
+        .iter()
+        .map(|root| workspace_root.join(root))
+        .collect();
     if fixture_rel.starts_with("examples/runtime_boundaries/RuntimeBoundaries/") {
         roots.push(workspace_root.join("examples/runtime_boundaries"));
     }
@@ -332,6 +356,10 @@ pub fn build_transcript_with_options(
 ) -> Result<String, String> {
     let source = fs::read_to_string(fixture)
         .map_err(|e| format!("failed to read `{}`: {e}", fixture.display()))?;
+    let header_roots: Vec<&str> = header_directives(&source, "root").collect();
+    let strict = header_directives(&source, "flags")
+        .flat_map(str::split_whitespace)
+        .any(|flag| flag == "--strict");
     let source = if strip_parity_metadata {
         strip_parity_metadata_header(&source)
     } else {
@@ -347,7 +375,7 @@ pub fn build_transcript_with_options(
 
     if diagnostics.is_empty() {
         inject_flow_prelude(&mut program, &mut parser);
-        let roots = collect_roots(fixture, workspace_root, fixture_rel);
+        let roots = collect_roots(fixture, workspace_root, fixture_rel, &header_roots);
 
         let interner = parser.take_interner();
 
@@ -358,6 +386,8 @@ pub fn build_transcript_with_options(
             compile_status = String::from("failed (module)");
         } else {
             let mut compiler = Compiler::new_with_interner(fixture_rel, graph_result.interner);
+            // The graph keys modules by canonical path.
+            let entry_path = fs::canonicalize(fixture).unwrap_or_else(|_| fixture.to_path_buf());
             let mut ordered_nodes = graph_result.graph.topo_order();
             ordered_nodes.sort_by_key(|node| {
                 if node.kind == flux::syntax::module_graph::ModuleKind::FlowStdlib {
@@ -389,6 +419,12 @@ pub fn build_transcript_with_options(
                         }
                     }
                 }
+                // As the driver does: the stdlib is never compiled strictly
+                // on behalf of a user program, and only the entry needs `main`.
+                compiler.set_strict_mode(
+                    strict && node.kind != flux::syntax::module_graph::ModuleKind::FlowStdlib,
+                );
+                compiler.set_strict_require_main(node.path == entry_path);
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
                 compiler.set_current_module_kind(node.kind);
                 if let Err(mut diags) = compiler.compile(&node.program) {

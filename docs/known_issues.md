@@ -42,6 +42,30 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-113 — A label whose span is in another file is drawn on the reporting file's lines
+
+**Severity:** Low · **Area:** Diagnostics rendering · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c3
+
+```
+$ flux --no-cache --root examples/type_system examples/type_system/failing/206_hm_stage2_generic_module_arg_mismatch.flx
+error[E300]: Argument Type Mismatch
+  examples/type_system/failing/206_hm_stage2_generic_module_arg_mismatch.flx:18:34
+   |
+14 |
+   | - `prepend` expects `Array<String>` as the 2nd parameter
+```
+
+The label points at `prepend`'s signature, which is line 14 of
+`examples/type_system/TypeSystem/HmGenericModule.flx`, but it is drawn under
+line 14 of the importing file (here a blank line; before the fixture's header
+was rewritten, a comment line). Labels carry a span and no file, so the
+renderer reads every label from the diagnostic's own file. The snapshot
+`type_system__failing__206_hm_stage2_generic_module_arg_mismatch.snap` pins
+the wrong rendering; fixing this changes it.
+
+Old captured `parity-expected-stderr` blocks in `examples/type_system/failing`
+quoted their own comment lines for the same reason.
+
 ### KI-112 — A module can use a type it does not import, when the module importing it does
 
 **Severity:** Medium · **Area:** Module system, name resolution · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1

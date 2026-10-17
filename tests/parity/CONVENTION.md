@@ -40,7 +40,11 @@ Fields:
   reported error, duplicates included. Non-strict ways must report exactly these
   codes. Strict ways must report all of them and may add their own, such as `E425`.
 - `bug:` — what regression this fixture guards against
-- `root:` — a module root passed to every way as `--root <path>`
+- `root:` — a module root passed to every way as `--root <path>`. The examples
+  snapshot harness reads it too.
+- `flags: --strict` — compile in strict mode on every way, for a fixture whose
+  error only strict mode reports. `--strict` is the only flag allowed, because
+  the snapshot harness honours no other.
 - `requires:` — `unix` or `windows`; elsewhere the fixture is reported as `SKIP`.
   `network` skips the fixture unless the run passes `--allow network`.
 - `stdout: varies` — the program prints the time, timings or the host's core

@@ -3,19 +3,31 @@ source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/62_list_boundary_runtime_violation.flx
 == compile ==
-failed (module)
+failed (compile)
 == diagnostics ==
-error[E018]: Import Not Found
+error[E300]: Argument Type Mismatch
 
-Cannot find module `TypeSystem.BoundaryUnknown` to import.
+I found the wrong type in the 1st argument to `sum_list`.
 
-  examples/type_system/failing/62_list_boundary_runtime_violation.flx:81:1
+  examples/type_system/failing/62_list_boundary_runtime_violation.flx:15:10
    |
-81 | import TypeSystem.BoundaryUnknown
-   | ^
+10 | fn sum_list(xs: List<Int>) -> Int {
+   | --------------------------------- `sum_list` expects `List<Int>` as the 1st parameter
+11 |     fold(xs, 0, /(acc: Int, x: Int) -> acc + x)
+12 | }
+13 | 
+14 | let dynamic = TypeSystem.BoundaryUnknown.dynamic_string()
+15 | sum_list(dynamic)
+   |          ^^^^^^^
+   |          ------- this argument has type `String`
 
-Hint:
-  Check that: 1) The module file exists (e.g., `TypeSystem.BoundaryUnknown.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `TypeSystem.BoundaryUnknown` under roots: examples/type_system/failing, src, lib (imported from examples/type_system/failing/62_list_boundary_runtime_violation.flx).
+Note:
+  expected argument type: List<Int>
+  found argument type: String
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Pass a `List<Int>` value as the 1st argument.
 == stdout ==
 <not executed>

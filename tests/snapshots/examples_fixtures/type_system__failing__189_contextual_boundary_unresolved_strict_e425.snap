@@ -3,19 +3,35 @@ source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/189_contextual_boundary_unresolved_strict_e425.flx
 == compile ==
-failed (module)
+failed (compile)
 == diagnostics ==
-error[E018]: Import Not Found
+error[E425]: Unresolved Boundary Type
 
-Cannot find module `TypeSystem.HmGenericModule` to import.
+Strict mode cannot enforce runtime boundary check for unresolved expression type in function return expression.
 
-  examples/type_system/failing/189_contextual_boundary_unresolved_strict_e425.flx:54:1
-   |
-54 | import TypeSystem.HmGenericModule
-   | ^
+  examples/type_system/TypeSystem/HmGenericModule.flx:9:9
+  |
+9 |         x
+  |         ^
+  |         - expression type is unresolved in strict mode
 
 Hint:
-  Check that: 1) The module file exists (e.g., `TypeSystem.HmGenericModule.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `TypeSystem.HmGenericModule` under roots: examples/type_system/failing, src, lib (imported from examples/type_system/failing/189_contextual_boundary_unresolved_strict_e425.flx).
+  Use concrete types (or additional annotations) so HM can resolve this expression.
+
+
+error[E425]: Unresolved Boundary Type
+
+Strict mode cannot enforce runtime boundary check for unresolved expression type in function return expression.
+
+  examples/type_system/TypeSystem/HmGenericModule.flx:15:9
+   |
+15 |         Array.push(xs, elem)
+   |         ^^^^^^^^^^^^^^^^^^^^
+   |         -------------------- expression type is unresolved in strict mode
+
+Hint:
+  Use concrete types (or additional annotations) so HM can resolve this expression.
+
+Found 2 errors.
 == stdout ==
 <not executed>

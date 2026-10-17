@@ -3,19 +3,44 @@ source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/63_either_boundary_runtime_violation.flx
 == compile ==
-failed (module)
+failed (compile)
 == diagnostics ==
-error[E018]: Import Not Found
+Warning: Redundant Match Arm
 
-Cannot find module `TypeSystem.BoundaryUnknown` to import.
+this arm is unreachable — earlier arms already cover it
 
-  examples/type_system/failing/63_either_boundary_runtime_violation.flx:77:1
+  examples/type_system/failing/63_either_boundary_runtime_violation.flx:14:9
    |
-77 | import TypeSystem.BoundaryUnknown
-   | ^
+14 |         _ -> 0
+   |         ^^^^^^
 
-Hint:
-  Check that: 1) The module file exists (e.g., `TypeSystem.BoundaryUnknown.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `TypeSystem.BoundaryUnknown` under roots: examples/type_system/failing, src, lib (imported from examples/type_system/failing/63_either_boundary_runtime_violation.flx).
+
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 1st argument to `unwrap_or_zero`.
+
+  examples/type_system/failing/63_either_boundary_runtime_violation.flx:19:16
+   |
+10 | fn unwrap_or_zero(input: Either<String, Int>) -> Int {
+   | ---------------------------------------------------- `unwrap_or_zero` expects `Either<String, Int>` as the 1st parameter
+11 |     match input {
+12 |         Left(_msg) -> 0,
+... |
+17 | 
+18 | let dynamic = TypeSystem.BoundaryUnknown.dynamic_string()
+19 | unwrap_or_zero(dynamic)
+   |                ^^^^^^^
+   |                ------- this argument has type `String`
+
+Note:
+  expected argument type: Either<String, Int>
+  found argument type: String
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Pass a `Either<String, Int>` value as the 1st argument.
+
+Found 1 error and 1 warning.
 == stdout ==
 <not executed>

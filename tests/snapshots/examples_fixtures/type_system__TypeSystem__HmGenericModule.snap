@@ -3,18 +3,8 @@ source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/TypeSystem/HmGenericModule.flx
 == compile ==
-failed (module)
+ok
 == diagnostics ==
-error[E024]: Module Path Mismatch
-
-Module name `TypeSystem.HmGenericModule` doesn't match file path `examples/type_system/TypeSystem/HmGenericModule.flx`.
-
-  examples/type_system/TypeSystem/HmGenericModule.flx:7:1
-  |
-7 | module TypeSystem.HmGenericModule {
-  | ^
-
-Hint:
-  Rename the module or move the file to match.
+<none>
 == stdout ==
 <not executed>
