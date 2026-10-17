@@ -4,6 +4,7 @@
 # so generated executables carry no Win32 clipboard imports for Windows Defender to
 # flag. `llvm` re-enables the native backend (`llvm = ["native"]`).
 native = ["run", "--no-default-features", "--features", "llvm", "--", "--native"]
-# Repository tasks: `cargo xtask verify <tag>`, `sweep`, `compare` (xtask/src/main.rs).
+# Repository tasks: `cargo xtask verify <tag> [--base <tag> --cmp]`, `sweep [--determinism]`,
+# `compare [--content]` (xtask/src/main.rs).
 # Its own target dir, so the cargo commands it runs never relink the running xtask.
 xtask = ["run", "--package", "xtask", "--quiet", "--target-dir", "target/xtask", "--"]
