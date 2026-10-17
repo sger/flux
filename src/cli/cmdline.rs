@@ -64,6 +64,11 @@ pub enum CliCommand {
     ParityCheck {
         raw_args: Vec<String>,
     },
+    /// `flux features <file.flx>…` (hidden): the language features each file
+    /// uses, for the support census.
+    Features {
+        raw_args: Vec<String>,
+    },
     /// `flux debug --lldb-script`: prints `flux_lldb.py`.
     LldbScript,
     /// `flux init [name] [--lib]` — scaffold a package in place.
@@ -228,6 +233,7 @@ fn reject_unknown_flag_tokens(args: &[String]) -> Result<(), String> {
     // (`--lib`, `--bin <name>`, `--filter <s>`).
     const OWN_FLAGS: &[&str] = &[
         "parity-check",
+        "features",
         "eval",
         "init",
         "new",
@@ -443,6 +449,9 @@ fn parse_subcommand(
             |flags| CliCommand::AnalyzeTailCalls { flags },
         ),
         "parity-check" => Ok(parity_check_command(args)),
+        "features" => Ok(CliCommand::Features {
+            raw_args: args[2..].to_vec(),
+        }),
         other => Err(unknown_command(other)),
     }
 }

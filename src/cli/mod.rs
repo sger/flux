@@ -50,6 +50,7 @@ fn run_command(command: CliCommand) -> ExitCode {
         CliCommand::AnalyzeFreeVars { flags } => inspect::analyze_free_vars(&flags),
         CliCommand::AnalyzeTailCalls { flags } => inspect::analyze_tail_calls(&flags),
         CliCommand::ParityCheck { raw_args } => run_parity_check(&raw_args),
+        CliCommand::Features { raw_args } => crate::ast::features::run(&raw_args),
         CliCommand::Init { name, is_lib } => return package::init(name.as_deref(), is_lib),
         CliCommand::New { name, is_lib } => return package::new(&name, is_lib),
         CliCommand::Package {

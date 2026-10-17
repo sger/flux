@@ -375,7 +375,19 @@ fn parity_cache_dir(file: &Path, way: Way) -> PathBuf {
         .join("target")
         .join("parity-cache")
         .join(&backend)
-        .join(cache_paths::artifact_stem(file))
+        .join(cache_name(file))
+}
+
+/// A cache folder name unique to `file`'s whole path, so fixtures that share a
+/// file name in different folders never share a cache, even when run at once.
+fn cache_name(file: &Path) -> String {
+    file.components()
+        .filter_map(|part| match part {
+            std::path::Component::Normal(name) => Some(name.to_string_lossy()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("__")
 }
 
 fn cache_keys_for_fixture(file: &Path, extra_args: &[String]) -> ([u8; 32], [u8; 32], [u8; 32]) {
@@ -441,24 +453,18 @@ fn classify_cache_observation(path: &Path) -> Option<CacheFileKind> {
     }
 }
 
-/// Check if native compilation was unsupported (should be treated as skip).
+/// Why a native debug way could not run at all (lldb is missing, say), which
+/// skips the fixture. A native compile failure is not a skip: it is a `Crash`
+/// or a diagnostic, and is compared like any other result.
 pub fn is_native_skip(result: &RunResult) -> Option<String> {
     if result.way.backend_id() != BackendId::Llvm {
         return None;
     }
-    for line in result.stderr.lines() {
-        if line.contains(super::debug::NATIVE_DEBUG_SKIPPED) {
-            return Some(line.to_string());
-        }
-        if line.contains("llvm compilation failed") || line.contains("unsupported CoreToLlvm") {
-            let reason = line
-                .rsplit_once(": ")
-                .map(|(_, r)| r.to_string())
-                .unwrap_or_else(|| line.to_string());
-            return Some(reason);
-        }
-    }
-    None
+    result
+        .stderr
+        .lines()
+        .find(|line| line.contains(super::debug::NATIVE_DEBUG_SKIPPED))
+        .map(str::to_string)
 }
 
 /// Capture `--dump-core` output for a fixture under a given way.
@@ -669,6 +675,8 @@ fn spawn_with_timeout(binary: &Path, args: &[String], timeout: Duration) -> Spaw
     let mut child = match Command::new(binary)
         .args(args)
         .env("NO_COLOR", "1")
+        // A fixture that reads stdin must not wait on the terminal.
+        .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -723,9 +731,47 @@ fn spawn_with_timeout(binary: &Path, args: &[String], timeout: Duration) -> Spaw
 
 // ── Exit classification ────────────────────────────────────────────────────
 
+/// Lowercased stderr text that only a failure of the compiler itself prints.
+const CRASH_MARKERS: &[&str] = &[
+    "panicked at",
+    "internal compiler error",
+    "core lint failure",
+    "aether verification failed",
+    "native lowering failed",
+    "native module compilation failed",
+    "llvm module pipeline failed",
+    "llvm linker failed",
+    "llvm execution failed",
+];
+
+/// Whether a run's failure is the compiler's own: a crash marker, an internal
+/// error code (E061–E070, E998), or no exit code at all (a signal).
+fn is_crash(code: i32, stderr: &str) -> bool {
+    if code == -1 {
+        return true;
+    }
+    let lower = stderr.to_lowercase();
+    CRASH_MARKERS.iter().any(|marker| lower.contains(marker))
+        || error_codes(stderr).any(|n| (61..=70).contains(&n) || n == 998)
+}
+
+/// The numbers of every `error[E…]` code in `stderr`.
+pub(crate) fn error_codes(stderr: &str) -> impl Iterator<Item = u32> + '_ {
+    stderr.match_indices("error[E").filter_map(|(start, _)| {
+        let digits: String = stderr[start + 7..]
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect();
+        digits.parse().ok()
+    })
+}
+
 fn classify_exit(code: i32, stderr: &str) -> ExitKind {
     if code == 0 {
         return ExitKind::Success;
+    }
+    if is_crash(code, stderr) {
+        return ExitKind::Crash;
     }
 
     let has_runtime_error_code = stderr.lines().any(|line| {
@@ -769,4 +815,50 @@ fn classify_exit(code: i32, stderr: &str) -> ExitKind {
 
     // Default: treat non-zero exit as runtime error
     ExitKind::RuntimeError
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_compiler_failure_is_a_crash_and_a_program_failure_is_not() {
+        let crashes = [
+            (
+                101,
+                "thread 'main' panicked at src/lir/lower.rs:1685:9:\nunbound binder",
+            ),
+            (1, "error[E063]: INTERNAL COMPILER ERROR\n"),
+            (1, "error[E998]: Core lint failure after `simplification`"),
+            (1, "error[E999]: Aether Verification Failed\n"),
+            (1, "native lowering failed for main.flx: oops"),
+            (1, "llvm module pipeline failed: verifier"),
+            (-1, ""),
+        ];
+        for (code, stderr) in crashes {
+            assert_eq!(classify_exit(code, stderr), ExitKind::Crash, "{stderr:?}");
+        }
+        assert_eq!(
+            classify_exit(1, "error[E1009]: panic: boom"),
+            ExitKind::RuntimeError
+        );
+        assert_eq!(
+            classify_exit(1, "error[E999]: FBIP NOT PROVABLE\n`f` is not yet provable"),
+            ExitKind::CompileError
+        );
+        assert_eq!(
+            classify_exit(1, "error[E300]: type mismatch"),
+            ExitKind::CompileError
+        );
+        assert_eq!(classify_exit(0, "warning: unused"), ExitKind::Success);
+    }
+
+    #[test]
+    fn fixtures_with_the_same_name_get_different_caches() {
+        let a = cache_name(Path::new("examples/Modules/Math.flx"));
+        let b = cache_name(Path::new("tests/fixtures/modules/Math.flx"));
+        assert_ne!(a, b);
+        assert_eq!(a, "examples__Modules__Math.flx");
+        assert_eq!(cache_name(Path::new("./examples/Modules/Math.flx")), a);
+    }
 }
