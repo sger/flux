@@ -1,7 +1,7 @@
-//! Where verify keeps its outputs: one folder per run tag, under
-//! `.flux-cache/verify/` at the repository root. `.gitignore` lists
-//! `.flux-cache/`, so runs are never committed, and `cargo clean` leaves them
-//! alone. `FLUX_VERIFY_OUT` puts them elsewhere. `cargo xtask prune` deletes
+//! Where verify keeps its outputs: one folder per run tag, under `.verify/`
+//! at the repository root. `.gitignore` lists `.verify/`, so runs are never
+//! committed, and `cargo clean` leaves them alone. Not `.flux-cache/`: that
+//! was the compiler's old cache folder, and a test fails when it exists. `FLUX_VERIFY_OUT` puts them elsewhere. `cargo xtask prune` deletes
 //! old runs.
 
 use std::fs;
@@ -10,8 +10,7 @@ use std::time::SystemTime;
 
 /// The folder holding every run of the checkout at `root`.
 pub fn store_root(root: &Path) -> PathBuf {
-    std::env::var_os("FLUX_VERIFY_OUT")
-        .map_or_else(|| root.join(".flux-cache").join("verify"), PathBuf::from)
+    std::env::var_os("FLUX_VERIFY_OUT").map_or_else(|| root.join(".verify"), PathBuf::from)
 }
 
 /// The folder for the run tagged `tag`, which must be one plain name.

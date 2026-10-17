@@ -42,6 +42,42 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-114 — The VM runs a user effect named `Console` with the builtin handler; native reports it unhandled
+
+**Severity:** Medium · **Area:** Effects, VM · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) S5, which made untracked skips cite a KI
+
+```flux
+effect Console {
+    print: String -> ()
+}
+
+fn log(msg: String) -> Unit with Console {
+    perform Console.print(msg)
+}
+
+fn main() -> Unit with Console {
+    log("x")
+}
+```
+
+```
+$ flux examples/type_system/failing/43_main_unhandled_custom_effect.flx
+"x"
+$ flux --native examples/type_system/failing/43_main_unhandled_custom_effect.flx
+flux_perform_direct: unhandled effect (htag=0x1)
+```
+
+The program declares its own `effect Console`, and nothing handles it. Natively
+the `perform` finds no handler, which is what the fixture expects
+(`expect: runtime_error`). The VM prints `x` instead, with or without the cache
+and with `--optimize`, as if the builtin `Console` handler took the user's
+effect. [KI-102](#ki-102) is the same name collision going the other way:
+there the user's effect suppresses the builtin handler that the program's own
+`print` needs. Not traced.
+
+Parity records the fixture with
+`// skip-way: vm, vm_cached, vm_strict, vm_opt: KI-114`.
+
 ### KI-113 — A label whose span is in another file is drawn on the reporting file's lines
 
 **Severity:** Low · **Area:** Diagnostics rendering · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c3
@@ -1135,6 +1171,728 @@ receiver with a *guessed* tuple shape, which is to say it was typed by luck
 rather than by inference. Both of E1's blockers ([KI-095](#ki-095) and this) are
 pre-existing holes in what it copies, not defects in the conversion.
 
+### KI-038 — VM slow-path arithmetic is unchecked
+
+**Severity:** High · **Area:** VM backend · **Verified:** 2026-08-26
+
+`src/vm/binary_ops.rs` uses plain `+`, `-`, and `*` on its slow path, while
+`src/vm/dispatch.rs` uses wrapping operations on the fast path. With Cargo's
+current `overflow-checks = false` the difference is hidden; enabling checks
+would make integer semantics depend on the emitted opcode shape. Reproduce with
+an integer expression that forces the slow path and compare it with the fast
+path equivalent.
+
+### KI-039 — Native integers truncate values that the VM boxes
+
+**Severity:** High · **Area:** VM/native parity · **Verified:** 2026-08-26
+
+The VM nanobox falls back to a heap box for integers outside its inline payload,
+but native `flux_tag_int` has no equivalent fallback. For example, `2^62`
+round-trips on the VM and becomes truncated garbage natively. Reproduce by
+printing that value under both backends.
+
+### KI-040 — `i64::MIN / -1` is unguarded
+
+**Severity:** High · **Area:** arithmetic · **Verified:** 2026-08-26
+
+The VM integer division path and native `sdiv` both leave the two's-complement
+minimum divided by `-1` unguarded. Reproduce with `(-9223372036854775807 - 1) /
+-1` and compare the backend behavior.
+
+### KI-041 — E1010 and E060 describe unwired overflow behavior
+
+**Severity:** Medium · **Area:** diagnostics · **Verified:** 2026-08-26
+
+`INTEGER_OVERFLOW` (E1010) and `CONST_OVERFLOW` (E060) are registered and
+documented, but have no construction sites. Their documented behavior is not
+currently observable. Reproduce by searching the source for constructors of
+both diagnostics; either wire the codes to defined semantics or remove them.
+
+### KI-043 — Workspace field inheritance is incomplete
+
+**Severity:** Medium · **Area:** package manager, workspaces · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
+
+Workspace member discovery, shared cache placement, shared lockfiles, and
+version inheritance are implemented. Members cannot yet inherit `license` or
+common dependencies from the workspace root.
+
+### KI-044 — Registry hosting and package naming policy are deferred
+
+**Severity:** Medium · **Area:** package registry · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
+
+Flux has no hosted registry yet, so registry ownership, naming, squatting rules,
+and the initial hosting policy remain undecided. This is intentionally deferred
+until Flux is released and has users; local index and Git workflows remain
+available.
+
+### KI-047 — Lockfile v1 serialization needs external compatibility validation
+
+**Severity:** Low · **Area:** package manager, lockfiles · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
+
+The v1 lockfile has deterministic ordering, inline checksums, and format
+preservation, but it has not yet been validated against real multi-contributor
+merge-conflict patterns. The format should remain stable while this evidence is
+collected.
+
+### KI-048 — Windows store path limits are not validated
+
+**Severity:** Medium · **Area:** package store, Windows · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
+
+The store layout has not been tested against long package names, compiler ABI
+segments, and nested target paths on Windows. A path-shortening strategy may be
+needed before Windows becomes a supported package-manager target.
+
+**Partly addressed 2026-09-05.** One case was reached in practice: a git
+checkout directory was named after the whole URL with its separators
+flattened, so a `file://` URL naming a deep directory produced a segment long
+enough to push the checkout past the 260-character limit, and `git clone`
+failed with "Filename too long". `Flume.Source.Git.slug` now names it
+`<repo>-<8 hex of the URL digest>`, bounded by the repository's own name
+whatever the URL's length. The rest of the entry stands: package names, ABI
+segments and target paths are still unmeasured.
+
+### KI-049 — One-version-per-package remains a linker limitation
+
+**Severity:** Medium · **Area:** package resolver, linker · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
+
+The resolver permits only one version of a package name in a graph because the
+current linker uses flat global names. Per-package symbol mangling would be
+required before semver-incompatible duplicate versions can be supported safely.
+
+### KI-053 — `--dump-core` and the other whole-program dumps report types from the wrong module
+
+**Severity:** Medium · **Area:** driver, diagnostics tooling · **Verified:** 2026-08-31 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+Every dump flag that needs a whole-program view — `--dump-core`, `--dump-aether`,
+`--dump-cfg`, `--dump-lir`, `--emit-llvm`, `--trace-aether` — concatenates the
+modules into one `Program`:
+
+```rust
+// src/driver/pipeline/program.rs
+fn merge_programs<'a>(programs: impl IntoIterator<Item = &'a Program>) -> Program
+```
+
+Each file is parsed by its own `Parser`, and every `ExprIdGen` starts at 1
+([`src/syntax/expression.rs`](../src/syntax/expression.rs)), while inferred types
+are keyed on that bare number with no module component:
+
+```rust
+// src/ast/type_infer/mod.rs
+expr_types: HashMap<ExprId, InferType>,
+```
+
+So the merged view asks one flat map about ids that several modules each
+allocated from 1. Measured on `import Flow.Json` plus a four-line entry file:
+each module internally clean, the merge holding **2616 expressions across 987
+distinct ids**, with `ExprId(1)` appearing 13 times.
+
+The dumps therefore show expressions annotated with another module's types, and
+lowering decisions taken from them — a dumped call can resolve to an instance
+the compiler would never pick. Normal compilation is unaffected: modules are
+compiled one at a time and `hm_expr_types` is replaced per module, never merged.
+
+**Why this matters more than a cosmetic dump bug.** KI-051's recorded diagnosis
+was derived from one of these dumps and was wrong as a result, which cost two
+attempts. Any diagnosis that quotes a multi-module dump is unsound.
+
+**A worked example, visible in the checked-in snapshots (2026-09-01).** Once
+Stage 7 gave `Eq` a contextual instance over `List`, `--dump-core` began showing
+`Flow.Array.contains` — which is generic over `a: Eq` and must dispatch through
+its dictionary — statically resolved to the `List` instance:
+
+```
+letrec contains =
+λ__dict_Eq, arr, x.
+    let %t = (λv. __tc_Eq_List<a>_eq(__dict_Eq, v, x))   // wrong instance
+    any(arr, %t)
+```
+
+The correct lowering, which `Flow.List.contains` still shows in the same dump,
+projects the method out of the dictionary (`__dict_Eq.0`). If the dumped form
+were what ran, `contains(#[1, 2, 3], 9)` would answer `true`, since an `Int`
+matches neither list arm and the fallthrough returns `true`.
+
+It answers `false` — on the VM and natively, with caches cleared. The compiled
+program is correct; only the merged view is wrong. The `tests/snapshots/aether/`
+files therefore contain a call that no compiled program makes, which is worth
+knowing before reading one as evidence.
+
+**Workaround while this is open:** dump a single module, or read the Core for the
+module you care about from its own compile rather than the merged view.
+
+Two candidate fixes: renumber `ExprId`s when concatenating so the merged program
+is internally consistent, or refuse the merge and dump per module — the latter
+also makes the output match what is actually compiled.
+
+### KI-054 — An imported contextual instance method is declared one parameter short natively
+
+**Severity:** Low · **Area:** type classes, native backend · **Verified:** 2026-08-31 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+`build_public_class_method_scheme`
+([`src/compiler/mod.rs`](../src/compiler/mod.rs)) rebuilds an imported instance
+method's scheme from the *class* method signature and ends in `generalize(...,
+&HashSet::new())`, so `Scheme.constraints` is always empty — the instance's
+`context` is dropped. `native_function_arity` derives an extern's arity from
+exactly those constraints, so a contextual instance method is registered with
+only its declared parameters:
+
+```
+extern __tc_Encode_Int_encode        arity=1 constraints=0   # correct
+extern __tc_Encode_List<a>_encode    arity=1 constraints=0   # takes 2
+```
+
+The definition takes one leading dictionary per context entry, prepended by
+`context_dict_param_names` in
+[`class_dispatch.rs`](../src/types/class_dispatch.rs). Concrete instances have
+an empty context and are unaffected.
+
+**Not currently observable.** `resolve_external_symbol` ignores the `arity`
+field for a direct extern call, and both the flat (`encode([1, 2])`) and nested
+(`encode([[1, 2], [3]])`) cases were verified to behave identically with and
+without a correction. It is recorded because it is a real disagreement between
+what the extern declares and what the callee takes, in the area KI-051 came
+from, and because the VM masks the same class of mismatch behind a deliberate
+fixup for `__tc_*` closures in
+[`vm/function_call.rs`](../src/vm/function_call.rs) — so nothing would catch it
+if a code path started honouring the field.
+
+### KI-055 — Native builds emit an unreferenced forwarding copy of every module-owned class method
+
+**Severity:** Low · **Area:** type classes, native backend · **Verified:** 2026-09-01 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+A module-owned instance method is emitted twice: the real definition inside its
+module, and a file-scope bare-name forwarding alias
+(`generated_instance_method_alias` in
+[`src/compiler/mod.rs`](../src/compiler/mod.rs)). The alias exists so VM dispatch
+can keep using the canonical short name — `emit_instance_method_aliases`
+([`compiler/passes/codegen.rs`](../src/compiler/passes/codegen.rs)) overwrites
+the bare global with the module's function at load time via `OpSetGlobal`.
+
+The native backend has no such load step, so the alias is compiled as a real
+function. Both copies are exported, and their qualified names collide whenever a
+single-segment module shares its file's stem — resolved by the name-claiming
+de-duplication in [`src/lir/lower.rs`](../src/lir/lower.rs), which gives the
+second claimant a `_1` suffix:
+
+```
+_flux_Alpha___tc_m5_416C706861_Render_Int_render
+_flux_Alpha___tc_m5_416C706861_Render_Int_render_1     ← the alias
+_flux_Alpha_render
+_flux_Alpha_render_1                                   ← the stub's alias
+```
+
+**Measured: zero references to the `_1` copies across every object in the
+build**, while each is still exported as `T`. `main.o` resolves straight to the
+module-qualified definitions, as it should. So natively the alias is dead
+exported code, and de-duplication is suppressing a symbol nothing wants.
+
+GHC has no analogue. A dictionary function there is one top-level binding with
+one name derived from `(module, unique)`; nothing resolves dfuns by short name,
+so there is nothing to alias. Not emitting the alias natively is therefore the
+more GHC-faithful shape, not a departure from it.
+
+**Fix:** skip the alias in native lowering, where the module already exports the
+qualified symbol, and keep the de-duplication as a backstop rather than the
+mechanism. Marking generated aliases structurally — a flag on the def rather
+than a name prefix — would let lowering handle them deliberately instead of
+discovering the clash by string equality.
+
+Not urgent: the emitted programs are correct, and the cost is object size plus
+one call hop per native class-method dispatch. Recorded so the measurement above
+does not have to be re-derived.
+
+### KI-056 — Two module files sharing a stem collide natively
+
+**Severity:** Medium · **Area:** native backend, module linking · **Verified:** 2026-09-01
+
+Two modules in different directories whose *files* share a stem fail to link:
+
+```
+examples/.../QualifiedClassId/Alpha/Render.flx    module QualifiedClassId.Alpha.Render
+examples/.../QualifiedClassId/Beta/Render.flx     module QualifiedClassId.Beta.Render
+```
+
+```
+ld: 105 duplicate symbols
+```
+
+The module-qualified names are distinct (`QualifiedClassId_Alpha_Render_…` vs
+`…_Beta_…`), so the module's own functions are fine. The collision is in the
+*file-scope* definitions each module carries — chiefly its private copies of the
+built-in instance methods (`__tc_Show_Int_show`, `__tc_Ord_Int_gt`, …), which
+`collect_module_paths` in [`src/lir/lower.rs`](../src/lir/lower.rs) qualifies
+with the entry file's **stem**. Both files are `Render.flx`, so both produce
+`flux_Render___tc_Show_Int_show`.
+
+The stem is a reasonable guard against clashing with C runtime primops
+(`flux_sum` in `libflux_rt.a`) but is not unique across a project — only the
+module path is. Deriving the qualifier from the module path, and falling back to
+the stem only for a file that declares no module, would remove the collision.
+
+Discovered while adding `examples/type_classes/qualified_class_id.flx`, which
+was written with both modules in `Render.flx` and had to be restructured to
+distinct stems to compile natively. The VM is unaffected.
+
+### KI-068 — A bare `Compiler` cannot supply the standard classes' instance bodies
+
+**Severity:** Low · **Area:** type classes, embedding · **Verified:** 2026-09-02
+
+Proposal 0179 Stage 8 moved `Eq`, `Ord`, `Num`, `Show` and `Semigroup` out of
+Rust and into `lib/Flow/*.flx`, deleting the `builtin_method_body` generation
+that used to synthesize `__tc_Ord_Int_lt` and friends into *every* compilation
+unit. Their implementations now exist only where those modules are compiled.
+
+A `Compiler` constructed directly — no module graph, no driver — therefore
+cannot build a working program that uses them. `ClassEnv::register_prelude_classes`
+puts the classes and instances in the environment, so inference and dispatch
+succeed, but no implementation is generated. For a *contextual* instance the
+failure is visible at compile time: `Ord<Int>` is `Eq<Int> => Ord<Int>`, its
+dictionary is a constructor, and `build_contextual_dictionary_expr` bails when
+the mangled method names are not interned, so the definition is skipped and the
+reference reports `E004 I can't find a value named '__dict_..._Ord_Int'`. A
+non-contextual instance such as `Num<Int>` is emitted as a plain tuple of
+external references and compiles, but would not link or run.
+
+Every real path is unaffected — the driver, `flux --test`, and the REPL all
+compile the `Flow` modules, and `fn max_of<A: Ord>(x: A, y: A)` using `>` works
+on both backends and under `--no-cache`. Only a directly constructed
+`Compiler` is affected, which is a test and embedding concern.
+Two tests drive the real binary for this reason:
+`generic_ord_operator_compiles_without_strict_types` in
+`tests/type_inference/constrained_type_params_integration.rs`, whose doc comment
+records why its `Eq`/`Num` siblings can still use a bare `Compiler`, and
+`polymorphic_operator_dump_core_uses_named_class_methods` in
+`tests/core_ir/ir_pipeline_tests.rs`, which needs a Core dump and so goes
+through `--dump-core --no-cache`.
+
+Restoring the capability means making the prelude modules' instance statements
+available to a unit that has no imported implementation — not reinstating the
+Rust bodies, which Stage 8 removed deliberately so there is one source of
+truth.
+
+---
+
+### KI-071 — An instance method captures unqualified calls to a module-level function of the same name
+
+**Severity:** High · **Area:** Type classes / name resolution · **Verified:** 2026-09-03 · **From:** Flume typeclass conversion
+
+> **Re-measured 2026-10-13: does not reproduce.** The program above, with
+> `Ver` wrapping an `Int` and `Ord<Ver>`'s `compare` returning `Int`, prints
+> `true` on the VM and on native, with no crash (checked at `6f742a78`).
+> Which change stopped it was not bisected. The likely one is 0.0.8's step 1e:
+> lowering now builds a class-method call only where inference raised a
+> `MethodCall` predicate, and inference resolves the bare `compare` to the
+> module's own function. It stays open until Phase 3 pins it with a fixture.
+
+Declaring an instance inside a module silently rebinds every *unqualified* call
+to a module-level function whose name matches one of the instance's methods.
+
+```flux
+module M {
+    public data Ordering { Lt, Eq, Gt }
+
+    public fn compare(a: Ver, b: Ver) -> Ordering { ... }
+
+    public fn equals(a: Ver, b: Ver) -> Bool {
+        match compare(a, b) { Eq -> true, _ -> false }   // resolves to Ord.compare
+    }
+
+    public instance Eq<Ver> => Ord<Ver> {
+        fn compare(x, y) { ... }                          // returns Int
+    }
+}
+```
+
+`equals(a, a)` returns `false`. The bare `compare(a, b)` reaches the `Ord`
+dispatch stub, which returns `Int`, and the `Ordering` constructor patterns then
+never match. Deleting the `Ord` instance restores the correct answer, which is
+how the capture was isolated.
+
+The two backends do not agree: the VM produces the wrong answer, and **the
+native backend terminates with SIGSEGV**. So this is a parity break and a
+memory-safety failure, not only a scoping defect.
+
+**The capture happens after type checking**, which is why nothing reports it.
+Inference resolves the bare `compare` to the module's own function and types the
+scrutinee as `Ordering`, so the arms check out; the rebinding to the class
+dispatch stub is introduced during lowering, when the `Int` it actually returns
+is no longer checked against anything. Re-verified 2026-09-03 against the fix for
+[KI-072](#ki-072): that check now reports a constructor pattern from the wrong
+type, including inside a `module` block, and this program is still silent —
+confirming the defect is in lowering, not inference.
+
+**Workaround:** qualify the call (`M.compare(a, b)`), or route internal callers
+to a differently named private helper. Qualified calls are unaffected.
+
+Found by adding `Eq`/`Ord` instances to `Flume.Resolve.Version`, which turned 21
+of its 60 tests red.
+
+### KI-073 — Result-directed selection is lost on native when routed through a constrained function
+
+**Severity:** High · **Area:** Type classes / native backend · **Verified:** 2026-09-03 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+> **Re-measured 2026-10-13: fixed on native.** `via(42)` prints `"42"` on
+> both backends, and `syntax_tour.flx` passes VM↔LLVM parity. The Core path
+> that per-module LLVM uses lowers its dictionaries from evidence since
+> `f24b88a8` (0.0.8 step 1e), so the `where` bound's dictionary reaches
+> `convert`. Phase 3 mirrors the fixture into `tests/parity/` and marks this
+> fixed.
+
+```flux
+class Convert<a, b> { fn convert(x: a) -> b }
+instance Convert<Int, String> { fn convert(x) { to_string(x) } }
+
+fn via<a, b>(x: a) -> b where Convert<a, b> { convert(x) }
+
+fn main() with IO {
+    let direct: String = convert(42)   // both backends print "42"
+    print(direct)
+    let routed: String = via(42)       // VM prints "42", native prints <value>
+    print(routed)
+}
+```
+
+A direct class-method call resolves from the result type on both backends —
+that is Stage 4 working as specified. Routing the same call through a
+`where`-constrained function loses it on native only.
+
+Since `where C<a, b>` is the *only* spelling that reaches a multi-parameter
+class (see [type_class_syntax.md](internals/type_class_syntax.md#3-constraining-a-function)),
+this makes multi-parameter classes unusable on the native backend in the general
+case.
+
+Reproduced by [`examples/type_classes/syntax_tour.flx`](../examples/type_classes/syntax_tour.flx),
+which is deliberately **not** mirrored into `tests/parity/` until this is fixed.
+
+### KI-074 — A lowercase class name is declarable but unusable in a `where` clause
+
+**Severity:** Low · **Area:** Parser · **Verified:** 2026-09-03 · **From:** syntax reference audit
+
+```flux
+class sz<a> { fn size_of(x: a) -> Int }              // accepted
+fn twice<a>(x: a) -> Int where sz<a> { ... }         // error[E034]
+```
+
+`peek_starts_class_constraint` ([statement.rs](../src/syntax/parser/statement.rs))
+distinguishes a signature-position `where` constraint from a `where x = expr`
+local binding by testing whether the next identifier begins with an uppercase
+letter. A lowercase class therefore cannot be written in the `where` spelling,
+though `<a: sz>` still works.
+
+The diagnostic compounds it: the error blames a missing function body ("This
+looks like the function body… Try adding `{` after the function signature")
+rather than naming the real rule.
+
+**Either** reject a lowercase class name at its declaration, **or** stop
+inferring class-ness from capitalisation. Accepting the declaration and then
+refusing the use is the one combination that should not stand.
+
+### KI-075 — `<a: C>` on a multi-parameter class suggests an instance that cannot be written
+
+**Severity:** Low · **Area:** Diagnostics / type classes · **Verified:** 2026-09-03 · **From:** syntax reference audit
+
+```flux
+class Convert<a, b> { fn convert(x: a) -> b }
+fn via<a: Convert>(x: a) -> String { convert(x) }
+```
+
+```
+error[E444]: No instance for `Convert<Int>`
+Hint: Add an instance: `instance Convert<Int> { ... }`
+```
+
+The hint proposes a one-argument instance of a two-parameter class, which is
+itself a parse error. The real problem is that the `<a: C>` sugar always means
+`C<a>` and cannot supply a second argument, so the constraint is unwritable in
+this spelling; `where Convert<a, b>` is what the user needs.
+
+The diagnostic should say so — that the class takes two parameters and the bound
+sugar reaches only one — rather than suggesting an impossible declaration.
+
+### KI-076 — An operator on a class-constrained type parameter does not dispatch inside a `module` block
+
+**Severity:** High · **Area:** Type classes / dictionary passing · **Verified:** 2026-09-11 · **From:** Flume typeclass conversion
+
+> **Re-measured 2026-09-11: the symptom below is out of date.** The trap is no
+> longer `cannot compare Adt with OpLessThanOrEqual`. It is now
+> `error[E1000]: wrong number of arguments: want=3, got=2`, raised at the
+> `x <= y` itself. `want=3` is `lte(dict, x, y)` and `got=2` is `lte(x, y)`, so
+> the operator *does* now route to the dictionary-passing method — it just
+> arrives without the dictionary. That is a different and later failure point
+> than "cannot compare", which was a missing dispatch entirely, so anyone
+> working from the description below should re-derive it. The control still
+> holds: the identical program at the top level of a script prints `9`.
+> Reproduced by
+> [`examples/generics/failing/runtime/ki_076_operator_in_module.flx`](../examples/generics/failing/runtime/ki_076_operator_in_module.flx),
+> which is snapshot-pinned, so the next change of symptom shows up as a diff.
+>
+> **Re-measured 2026-10-13: native now runs; the VM does not.** Since 0.0.8's
+> step 1e, native prints `9`, as the top-level control does. The VM still fails with
+> `want=3, got=2` at the `x <= y`. Evidence is right on both: the `<=` in
+> `bigger` is a `MethodCall` answered from `bigger`'s own `Ord` parameter,
+> and the merged program's Core projects `lte` out of it. `want=3` is the arity of
+> `Ord<V>`'s instance method with its `Eq<V>` context dictionary first, which
+> points at how the VM builds or applies a contextual instance's dictionary
+> rather than at the operator. Not yet confirmed.
+
+At top level, a constrained function's operator dispatches through the
+dictionary and works on a user type:
+
+```flux
+fn bigger<a: Ord>(x: a, y: a) -> a { if x <= y { y } else { x } }   // works
+```
+
+The identical function inside a `module` block traps at runtime:
+
+```
+cannot compare Adt with OpLessThanOrEqual
+```
+
+**The visible consequence is that `List.sort` and `List.sort_by` cannot sort a
+user type that has an `Ord` instance.** `sort_by<a, b: Ord>` delegates to
+`merge_by_key` ([List.flx](../lib/Flow/List.flx)), whose `key_fn(a) <= key_fn(b)`
+is inside `module Flow.List`; the public signature promises `b: Ord` and the
+implementation cannot honour it. Annotating the private helpers with `<a, b: Ord>`
+does *not* fix it — that was checked, and the constraint reaches them correctly;
+the operator is what fails to dispatch.
+
+This is the shape of [KI-061](#ki-061) but for *operators* rather than calls by
+name, so that fix did not reach it. The claim in
+[Flow/Eq.flx](../lib/Flow/Eq.flx) that "operators desugar through a path that
+does carry the dictionary" holds only outside module blocks.
+
+Found by trying to replace the hand-rolled insertion sort in
+`Flume.Resolve.Solver` — whose comment explains that the sort is hand-rolled
+because `Version` cannot be sorted generically — with `List.sort_by`.
+
+### KI-090 — A constrained function passed as a value loses its dictionary
+
+**Severity:** High · **Area:** Dictionary elaboration · **Verified:** 2026-09-07 · **From:** Proposal 0186
+
+Referencing a constrained function *as a value* rather than calling it does not
+supply its dictionary, so the callee invokes an arity it does not have:
+
+```flux
+fn twice<a>(f: (a) -> a, x: a) -> a { f(f(x)) }
+fn dbl<a: Num>(x: a) -> a { x + x }
+
+fn main() with IO { print(twice(dbl, 2)) }
+```
+
+```
+error[E1000]: wrong number of arguments: want=2, got=1
+1 | fn twice<a>(f: (a) -> a, x: a) -> a { f(f(x)) }
+  |                                         ^^^^
+```
+
+`dbl` is elaborated to take `(dictionary, x)`, but `f` is called with one
+argument. Elaboration rewrites *call sites* of a constrained function; a
+reference that is not a call has no site to rewrite, and nothing eta-expands it
+into one.
+
+**Not caused by generalize-by-arity** — it reproduces identically on `main`,
+with proposal 0186 stashed. What stage 6 changes is the *reach*: before it, an
+unannotated helper was monomorphic and so carried no dictionary, and only a
+function whose author wrote `<a: Num>` could hit this. Now any unannotated
+helper over a class method can.
+
+**Fix direction:** the single evidence-passing translation (proposal 0186 stage
+5), and *only* that — this was attempted locally first and the attempt is what
+established it.
+
+Eta-expanding the reference is the right shape: `dbl` becomes
+`λp0. dbl(__dict_Num_Int, p0)`, since Flux calls are arity-checked rather than
+curried and the dictionary must be applied alongside the value arguments. But
+`insert_dict_args_at_call_sites` cannot build that argument. `resolve_dict_arg`
+answers only two cases — the caller already holds a dictionary for exactly this
+predicate, or the predicate is concrete — and at a reference the scheme's
+predicate is `Num<a>`. The instantiation to `Num<Int>` exists at the *use*, and
+Core does not carry it: `CoreVarRef` is a name and a binder id, with no type,
+and `hm_expr_types` is keyed by AST `ExprId`.
+
+So the missing information is per-site evidence, which is what
+`EvidenceMap`/`EvidenceSite` are for. Resolving it any other way here would
+mean guessing an instance from the class name — which is what KI-052 was.
+
+**Second attempt (2026-09-07), from AST lowering with evidence in hand.** This
+got the Core right and still failed, and the remaining obstacle is *not* about
+evidence. Recorded so the next attempt starts here:
+
+- Evidence reaches lowering once `LowerInputs` carries it. Note the VM path
+  lowers through `cfg/mod.rs`, not the `compiler/mod.rs` entry point — wiring
+  only the latter leaves the map absent where it matters.
+- `Num<Int>` is a *contextual* instance (`instance Add<Int> => Num<Int>` in
+  `lib/Flow/Num.flx`), so its evidence is `FromInstance` with a context and
+  `translate` yields `DictArg::Applied`. That still names a single global: a
+  concrete instance's dictionary is built once, already applied. Only a context
+  reaching a `DictArg::Param` must be assembled at the use site.
+- Naming works. `dictionary_name(class_id, "Int", interner)` produces the
+  module-mangled `__dict_m8_466C6F772E4E756D_Num_Int`, which is the symbol the
+  program actually defines.
+- The lambda's parameters must **not** be named after the function. `λdbl.
+  dbl(dict, dbl)` shadows the callee it wraps.
+
+With all of that, `--dump-core` shows exactly the intended form:
+
+```
+let %t568 = (λ%t569. dbl(__dict_m8_466C6F772E4E756D_Num_Int, %t569))
+twice(%t568, 2)
+```
+
+and **both backends still reject it** — the VM reports the same `E1000` and the
+native backend segfaults. So the defect is downstream of Core: a synthesized
+`CoreExpr::Lam` needs more than the right shape. The prime suspect is
+`param_types: vec![None; n]` and `result_ty: None`, which drive `FluxRep`
+selection and closure conversion; every lambda the ordinary path builds carries
+types. Fixing that is the next step, not more work on evidence.
+
+### KI-086 — A class declared inside a `module` loses its default method bodies
+
+**Severity:** High · **Area:** type classes, module interfaces · **Verified:** 2026-09-11 · **From:** Proposal 0186
+
+> **`--no-cache` hides failure 1** (measured 2026-09-11). On the same file:
+>
+> ```
+> flux --no-strict            <repro>   ->  error[E1009]: panic: No instance of Greet.greet
+> flux --no-cache --no-strict <repro>   ->  prints "hi, someone", exit 0
+> ```
+>
+> This follows from the cause given below — the body is lost when the class is
+> rebuilt from a cached `.flxi` entry, and `--no-cache` skips that round-trip —
+> but it is worth stating as a reproduction condition, because it is also a
+> usable workaround and it makes the defect invisible to any harness that
+> passes the flag. `generics_runtime_fixtures_snapshot` does, which is why
+> `examples/generics/` pins **failure 2** (the compile-time `E004`, in
+> [`failing/compile/Ki086Greet.flx`](../examples/generics/failing/compile/Ki086Greet.flx))
+> and deliberately does not file failure 1: a snapshot there would pin the bug
+> not reproducing.
+
+A default method body works when the class is declared at the top level of a
+script and stops working when the same class is declared inside a `module`.
+There are two separate failures, with two separate causes.
+
+**1. Across the module boundary the body is silently dropped, and the program
+panics at run time.**
+
+```flux
+// A.flx
+module A {
+    public class Greet<a> {
+        fn name(x: a) -> String
+        fn greet(x: a) -> String { "hi, someone" }
+    }
+}
+```
+```flux
+// main.flx
+import A
+data Dog { Dog }
+instance Greet<Dog> { fn name(x) { "dog" } }
+fn main() with IO { print(greet(Dog)) }
+```
+```
+error[E1009]: panic: No instance of Greet.greet for the given type
+  at greet
+  at main
+```
+
+The identical program with `class Greet` written at the top level of `main.flx`
+compiles and prints `"hi, someone"`.
+
+**Cause.** A class rebuilt from a cached `.flxi` interface entry is constructed
+with `default_body: None` (`src/compiler/mod.rs:315`) — method *types* survive
+the boundary, method *bodies* do not. `generate_dispatch_functions` then finds
+no body for the omitted method and `continue`s
+(`src/types/class_dispatch.rs:1306-1312`), so the mangled instance method is
+never generated and dispatch finds nothing at run time.
+
+Nothing reports this at compile time: `ClassDef::default_methods` is populated
+from the source AST, so the instance passes the "missing method" check —
+the class *says* it supplies a default, and only dispatch generation discovers
+that the body is not there. The check and the generator disagree about what the
+class provides.
+
+**2. Within the declaring module, a default body cannot call a sibling method.**
+
+```flux
+module Shape {
+    public class Greet<a> {
+        fn name(x: a) -> String
+        fn greet(x: a) -> String { "hello " + name(x) }   // E004
+    }
+}
+```
+```
+error[E004]: I can't find a value named `name`.
+  Shape.flx:4:47
+```
+
+The same body resolves `name` when the class is at the top level. Class methods
+are not brought into scope for sibling default bodies inside a module — the
+same shape as [KI-061](#ki-061), where a dictionary was not declared across a
+module boundary.
+
+**Why this is filed now.** Proposal 0186 moves default bodies out of `MethodSig`
+into a `ClassBodies` side table, because the class environment should carry
+types and not code. That move preserves the behaviour above exactly — the
+interface path contributes no bodies before or after — but it makes the reach
+of the table explicit and gives the fix one place to land rather than one per
+`MethodSig` construction site. Symptom 1 is fixed by recording bodies in the
+interface, or by generating the instance method in the defining module; symptom 2
+is a scope-construction fix in class collection.
+
+### KI-084 — A bare `Compiler` cannot build a dictionary for a contextual prelude instance
+
+**Severity:** Low · **Area:** Compiler harness / LSP · **Verified:** 2026-09-04 · **From:** Proposal 0183
+
+A `Compiler` built directly — `Compiler::new_with_interner` plus
+`compile_with_opts`, with no module graph — rejects any program that needs a
+dictionary for a *contextual* instance of a prelude class:
+
+```flux
+fn big<A: Ord>(x: A, y: A) -> Bool { x < y }
+
+fn main() { big(8, 2) }
+```
+
+```
+error[E004]: I can't find a value named `__dict_m8_466C6F772E4F7264_Ord_Int`.
+```
+
+The same program compiles and runs through the driver, which is the path the
+CLI, the test runner and every real compilation take. Only the bare-`Compiler`
+harness is affected: unit tests that build one directly, and the LSP's
+"view Core IR" / "view bytecode" commands (`crates/flux-lsp/src/handlers/view.rs`),
+which show the error text in place of the dump. Ordinary LSP diagnostics,
+hovers and completion do not use it.
+
+**Cause.** `ClassEnv::register_prelude_classes` parses `lib/Flow/Eq.flx` and its
+siblings for their *declarations*, so the class environment knows every prelude
+class and instance. It never compiles their *bodies*, so no
+`__tc_<class>_<type>_<method>` symbol is interned. `emit_dictionary_defs`
+(`src/core/passes/dict_elaborate.rs`) needs all of a dictionary's slots or none
+— a short tuple would read every later slot at the wrong index — so it emits no
+def for any prelude instance. For a plain instance that is harmless: the
+dictionary is a tuple of external references and the reference resolves against
+the predeclared global. For a contextual instance the dictionary is a
+*constructor*, the reference is a call, and nothing defines it.
+
+`Compiler::predeclare_instance_dictionary_globals` does not cover the gap: it
+demands only classes some *visible* binding constrains, and in this harness
+`type_env.visible_bindings()` is empty at Phase 2. Declaring a global for every
+known instance closes the error, but the global is then never stored, which
+turns a compile error into a run-time nil — worse, not better.
+
+**Not a regression.** `Ord` has had this since Proposal 0179 Stage 8 made it
+`Eq<a> => Ord<a>`; verified failing at `f8d8f585^`. Proposal 0183 moved `Num`
+into the same position by giving it `Add` as a superclass, which is why
+`tests/type_inference/constrained_type_params_integration.rs` now runs its two
+`Num` cases through the driver, as the `Ord` case already did.
+
+**Fix would be** to compile the prelude bodies in this harness, or to fall back
+to direct dispatch when a unit cannot define the dictionary it references.
+
+
 ---
 
 
@@ -1886,43 +2644,6 @@ made one arm appear to work.
 **Fix.** Carry the original id onto the synthesized call.
 
 ---
-### KI-038 — VM slow-path arithmetic is unchecked
-
-**Severity:** High · **Area:** VM backend · **Verified:** 2026-08-26
-
-`src/vm/binary_ops.rs` uses plain `+`, `-`, and `*` on its slow path, while
-`src/vm/dispatch.rs` uses wrapping operations on the fast path. With Cargo's
-current `overflow-checks = false` the difference is hidden; enabling checks
-would make integer semantics depend on the emitted opcode shape. Reproduce with
-an integer expression that forces the slow path and compare it with the fast
-path equivalent.
-
-### KI-039 — Native integers truncate values that the VM boxes
-
-**Severity:** High · **Area:** VM/native parity · **Verified:** 2026-08-26
-
-The VM nanobox falls back to a heap box for integers outside its inline payload,
-but native `flux_tag_int` has no equivalent fallback. For example, `2^62`
-round-trips on the VM and becomes truncated garbage natively. Reproduce by
-printing that value under both backends.
-
-### KI-040 — `i64::MIN / -1` is unguarded
-
-**Severity:** High · **Area:** arithmetic · **Verified:** 2026-08-26
-
-The VM integer division path and native `sdiv` both leave the two's-complement
-minimum divided by `-1` unguarded. Reproduce with `(-9223372036854775807 - 1) /
--1` and compare the backend behavior.
-
-### KI-041 — E1010 and E060 describe unwired overflow behavior
-
-**Severity:** Medium · **Area:** diagnostics · **Verified:** 2026-08-26
-
-`INTEGER_OVERFLOW` (E1010) and `CONST_OVERFLOW` (E060) are registered and
-documented, but have no construction sites. Their documented behavior is not
-currently observable. Reproduce by searching the source for constructors of
-both diagnostics; either wire the codes to defined semantics or remove them.
-
 ### KI-042 — Package-store garbage collection policy is undecided
 
 **Severity:** Low · **Area:** package store · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
@@ -1930,23 +2651,6 @@ both diagnostics; either wire the codes to defined semantics or remove them.
 The content-addressed store supports explicit `flux clean --store`, but it has
 no automatic LRU or reachability-based garbage collection. The policy can be
 chosen after the store has real usage data.
-
-### KI-043 — Workspace field inheritance is incomplete
-
-**Severity:** Medium · **Area:** package manager, workspaces · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
-
-Workspace member discovery, shared cache placement, shared lockfiles, and
-version inheritance are implemented. Members cannot yet inherit `license` or
-common dependencies from the workspace root.
-
-### KI-044 — Registry hosting and package naming policy are deferred
-
-**Severity:** Medium · **Area:** package registry · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
-
-Flux has no hosted registry yet, so registry ownership, naming, squatting rules,
-and the initial hosting policy remain undecided. This is intentionally deferred
-until Flux is released and has users; local index and Git workflows remain
-available.
 
 ### KI-045 — Registry yanking semantics are undecided
 
@@ -1962,40 +2666,6 @@ including how a yanked version behaves when it is already present in a lockfile.
 No default policy exists for preferring or delaying newly published versions.
 This remains a registry design question rather than a local package-manager
 requirement.
-
-### KI-047 — Lockfile v1 serialization needs external compatibility validation
-
-**Severity:** Low · **Area:** package manager, lockfiles · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
-
-The v1 lockfile has deterministic ordering, inline checksums, and format
-preservation, but it has not yet been validated against real multi-contributor
-merge-conflict patterns. The format should remain stable while this evidence is
-collected.
-
-### KI-048 — Windows store path limits are not validated
-
-**Severity:** Medium · **Area:** package store, Windows · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
-
-The store layout has not been tested against long package names, compiler ABI
-segments, and nested target paths on Windows. A path-shortening strategy may be
-needed before Windows becomes a supported package-manager target.
-
-**Partly addressed 2026-09-05.** One case was reached in practice: a git
-checkout directory was named after the whole URL with its separators
-flattened, so a `file://` URL naming a deep directory produced a segment long
-enough to push the checkout past the 260-character limit, and `git clone`
-failed with "Filename too long". `Flume.Source.Git.slug` now names it
-`<repo>-<8 hex of the URL digest>`, bounded by the repository's own name
-whatever the URL's length. The rest of the entry stands: package names, ABI
-segments and target paths are still unmeasured.
-
-### KI-049 — One-version-per-package remains a linker limitation
-
-**Severity:** Medium · **Area:** package resolver, linker · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
-
-The resolver permits only one version of a package name in a graph because the
-current linker uses flat global names. Per-package symbol mangling would be
-required before semver-incompatible duplicate versions can be supported safely.
 
 ### KI-050 — Same-class contextual instances dispatch the element to themselves — FIXED 2026-08-30
 
@@ -2231,180 +2901,6 @@ Guarded by
 `a_generic_wrapper_forwards_the_right_contextual_dictionary`, which asserts
 stdout so it still catches the bug if both backends were to agree on the wrong
 answer.
-
-### KI-053 — `--dump-core` and the other whole-program dumps report types from the wrong module
-
-**Severity:** Medium · **Area:** driver, diagnostics tooling · **Verified:** 2026-08-31 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
-
-Every dump flag that needs a whole-program view — `--dump-core`, `--dump-aether`,
-`--dump-cfg`, `--dump-lir`, `--emit-llvm`, `--trace-aether` — concatenates the
-modules into one `Program`:
-
-```rust
-// src/driver/pipeline/program.rs
-fn merge_programs<'a>(programs: impl IntoIterator<Item = &'a Program>) -> Program
-```
-
-Each file is parsed by its own `Parser`, and every `ExprIdGen` starts at 1
-([`src/syntax/expression.rs`](../src/syntax/expression.rs)), while inferred types
-are keyed on that bare number with no module component:
-
-```rust
-// src/ast/type_infer/mod.rs
-expr_types: HashMap<ExprId, InferType>,
-```
-
-So the merged view asks one flat map about ids that several modules each
-allocated from 1. Measured on `import Flow.Json` plus a four-line entry file:
-each module internally clean, the merge holding **2616 expressions across 987
-distinct ids**, with `ExprId(1)` appearing 13 times.
-
-The dumps therefore show expressions annotated with another module's types, and
-lowering decisions taken from them — a dumped call can resolve to an instance
-the compiler would never pick. Normal compilation is unaffected: modules are
-compiled one at a time and `hm_expr_types` is replaced per module, never merged.
-
-**Why this matters more than a cosmetic dump bug.** KI-051's recorded diagnosis
-was derived from one of these dumps and was wrong as a result, which cost two
-attempts. Any diagnosis that quotes a multi-module dump is unsound.
-
-**A worked example, visible in the checked-in snapshots (2026-09-01).** Once
-Stage 7 gave `Eq` a contextual instance over `List`, `--dump-core` began showing
-`Flow.Array.contains` — which is generic over `a: Eq` and must dispatch through
-its dictionary — statically resolved to the `List` instance:
-
-```
-letrec contains =
-λ__dict_Eq, arr, x.
-    let %t = (λv. __tc_Eq_List<a>_eq(__dict_Eq, v, x))   // wrong instance
-    any(arr, %t)
-```
-
-The correct lowering, which `Flow.List.contains` still shows in the same dump,
-projects the method out of the dictionary (`__dict_Eq.0`). If the dumped form
-were what ran, `contains(#[1, 2, 3], 9)` would answer `true`, since an `Int`
-matches neither list arm and the fallthrough returns `true`.
-
-It answers `false` — on the VM and natively, with caches cleared. The compiled
-program is correct; only the merged view is wrong. The `tests/snapshots/aether/`
-files therefore contain a call that no compiled program makes, which is worth
-knowing before reading one as evidence.
-
-**Workaround while this is open:** dump a single module, or read the Core for the
-module you care about from its own compile rather than the merged view.
-
-Two candidate fixes: renumber `ExprId`s when concatenating so the merged program
-is internally consistent, or refuse the merge and dump per module — the latter
-also makes the output match what is actually compiled.
-
-### KI-054 — An imported contextual instance method is declared one parameter short natively
-
-**Severity:** Low · **Area:** type classes, native backend · **Verified:** 2026-08-31 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
-
-`build_public_class_method_scheme`
-([`src/compiler/mod.rs`](../src/compiler/mod.rs)) rebuilds an imported instance
-method's scheme from the *class* method signature and ends in `generalize(...,
-&HashSet::new())`, so `Scheme.constraints` is always empty — the instance's
-`context` is dropped. `native_function_arity` derives an extern's arity from
-exactly those constraints, so a contextual instance method is registered with
-only its declared parameters:
-
-```
-extern __tc_Encode_Int_encode        arity=1 constraints=0   # correct
-extern __tc_Encode_List<a>_encode    arity=1 constraints=0   # takes 2
-```
-
-The definition takes one leading dictionary per context entry, prepended by
-`context_dict_param_names` in
-[`class_dispatch.rs`](../src/types/class_dispatch.rs). Concrete instances have
-an empty context and are unaffected.
-
-**Not currently observable.** `resolve_external_symbol` ignores the `arity`
-field for a direct extern call, and both the flat (`encode([1, 2])`) and nested
-(`encode([[1, 2], [3]])`) cases were verified to behave identically with and
-without a correction. It is recorded because it is a real disagreement between
-what the extern declares and what the callee takes, in the area KI-051 came
-from, and because the VM masks the same class of mismatch behind a deliberate
-fixup for `__tc_*` closures in
-[`vm/function_call.rs`](../src/vm/function_call.rs) — so nothing would catch it
-if a code path started honouring the field.
-
-### KI-055 — Native builds emit an unreferenced forwarding copy of every module-owned class method
-
-**Severity:** Low · **Area:** type classes, native backend · **Verified:** 2026-09-01 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
-
-A module-owned instance method is emitted twice: the real definition inside its
-module, and a file-scope bare-name forwarding alias
-(`generated_instance_method_alias` in
-[`src/compiler/mod.rs`](../src/compiler/mod.rs)). The alias exists so VM dispatch
-can keep using the canonical short name — `emit_instance_method_aliases`
-([`compiler/passes/codegen.rs`](../src/compiler/passes/codegen.rs)) overwrites
-the bare global with the module's function at load time via `OpSetGlobal`.
-
-The native backend has no such load step, so the alias is compiled as a real
-function. Both copies are exported, and their qualified names collide whenever a
-single-segment module shares its file's stem — resolved by the name-claiming
-de-duplication in [`src/lir/lower.rs`](../src/lir/lower.rs), which gives the
-second claimant a `_1` suffix:
-
-```
-_flux_Alpha___tc_m5_416C706861_Render_Int_render
-_flux_Alpha___tc_m5_416C706861_Render_Int_render_1     ← the alias
-_flux_Alpha_render
-_flux_Alpha_render_1                                   ← the stub's alias
-```
-
-**Measured: zero references to the `_1` copies across every object in the
-build**, while each is still exported as `T`. `main.o` resolves straight to the
-module-qualified definitions, as it should. So natively the alias is dead
-exported code, and de-duplication is suppressing a symbol nothing wants.
-
-GHC has no analogue. A dictionary function there is one top-level binding with
-one name derived from `(module, unique)`; nothing resolves dfuns by short name,
-so there is nothing to alias. Not emitting the alias natively is therefore the
-more GHC-faithful shape, not a departure from it.
-
-**Fix:** skip the alias in native lowering, where the module already exports the
-qualified symbol, and keep the de-duplication as a backstop rather than the
-mechanism. Marking generated aliases structurally — a flag on the def rather
-than a name prefix — would let lowering handle them deliberately instead of
-discovering the clash by string equality.
-
-Not urgent: the emitted programs are correct, and the cost is object size plus
-one call hop per native class-method dispatch. Recorded so the measurement above
-does not have to be re-derived.
-
-### KI-056 — Two module files sharing a stem collide natively
-
-**Severity:** Medium · **Area:** native backend, module linking · **Verified:** 2026-09-01
-
-Two modules in different directories whose *files* share a stem fail to link:
-
-```
-examples/.../QualifiedClassId/Alpha/Render.flx    module QualifiedClassId.Alpha.Render
-examples/.../QualifiedClassId/Beta/Render.flx     module QualifiedClassId.Beta.Render
-```
-
-```
-ld: 105 duplicate symbols
-```
-
-The module-qualified names are distinct (`QualifiedClassId_Alpha_Render_…` vs
-`…_Beta_…`), so the module's own functions are fine. The collision is in the
-*file-scope* definitions each module carries — chiefly its private copies of the
-built-in instance methods (`__tc_Show_Int_show`, `__tc_Ord_Int_gt`, …), which
-`collect_module_paths` in [`src/lir/lower.rs`](../src/lir/lower.rs) qualifies
-with the entry file's **stem**. Both files are `Render.flx`, so both produce
-`flux_Render___tc_Show_Int_show`.
-
-The stem is a reasonable guard against clashing with C runtime primops
-(`flux_sum` in `libflux_rt.a`) but is not unique across a project — only the
-module path is. Deriving the qualifier from the module path, and falling back to
-the stem only for a file that declares no module, would remove the collision.
-
-Discovered while adding `examples/type_classes/qualified_class_id.flx`, which
-was written with both modules in `Render.flx` and had to be restructured to
-distinct stems to compile natively. The VM is unaffected.
 
 ### KI-057 — A method reachable from two dictionaries always uses the first — FIXED 2026-09-01
 
@@ -3008,45 +3504,6 @@ scope — the precedence `ClassEnv::resolve_class_id` already applies, and which
 the constraint then resolves through. Two classes of the same name that are
 *both* foreign are still ambiguous.
 
-### KI-068 — A bare `Compiler` cannot supply the standard classes' instance bodies
-
-**Severity:** Low · **Area:** type classes, embedding · **Verified:** 2026-09-02
-
-Proposal 0179 Stage 8 moved `Eq`, `Ord`, `Num`, `Show` and `Semigroup` out of
-Rust and into `lib/Flow/*.flx`, deleting the `builtin_method_body` generation
-that used to synthesize `__tc_Ord_Int_lt` and friends into *every* compilation
-unit. Their implementations now exist only where those modules are compiled.
-
-A `Compiler` constructed directly — no module graph, no driver — therefore
-cannot build a working program that uses them. `ClassEnv::register_prelude_classes`
-puts the classes and instances in the environment, so inference and dispatch
-succeed, but no implementation is generated. For a *contextual* instance the
-failure is visible at compile time: `Ord<Int>` is `Eq<Int> => Ord<Int>`, its
-dictionary is a constructor, and `build_contextual_dictionary_expr` bails when
-the mangled method names are not interned, so the definition is skipped and the
-reference reports `E004 I can't find a value named '__dict_..._Ord_Int'`. A
-non-contextual instance such as `Num<Int>` is emitted as a plain tuple of
-external references and compiles, but would not link or run.
-
-Every real path is unaffected — the driver, `flux --test`, and the REPL all
-compile the `Flow` modules, and `fn max_of<A: Ord>(x: A, y: A)` using `>` works
-on both backends and under `--no-cache`. Only a directly constructed
-`Compiler` is affected, which is a test and embedding concern.
-Two tests drive the real binary for this reason:
-`generic_ord_operator_compiles_without_strict_types` in
-`tests/type_inference/constrained_type_params_integration.rs`, whose doc comment
-records why its `Eq`/`Num` siblings can still use a bare `Compiler`, and
-`polymorphic_operator_dump_core_uses_named_class_methods` in
-`tests/core_ir/ir_pipeline_tests.rs`, which needs a Core dump and so goes
-through `--dump-core --no-cache`.
-
-Restoring the capability means making the prelude modules' instance statements
-available to a unit that has no imported implementation — not reinstating the
-Rust bodies, which Stage 8 removed deliberately so there is one source of
-truth.
-
----
-
 ### KI-058 — A `let` annotation naming a rigid type parameter is rejected — FIXED 2026-09-02
 
 **Severity:** High · **Area:** Type inference, annotations · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
@@ -3156,199 +3613,6 @@ signature — which Core already carries, or which lowering can record once per
 binder.
 
 ---
-
-### KI-071 — An instance method captures unqualified calls to a module-level function of the same name
-
-**Severity:** High · **Area:** Type classes / name resolution · **Verified:** 2026-09-03 · **From:** Flume typeclass conversion
-
-> **Re-measured 2026-10-13: does not reproduce.** The program above, with
-> `Ver` wrapping an `Int` and `Ord<Ver>`'s `compare` returning `Int`, prints
-> `true` on the VM and on native, with no crash (checked at `6f742a78`).
-> Which change stopped it was not bisected. The likely one is 0.0.8's step 1e:
-> lowering now builds a class-method call only where inference raised a
-> `MethodCall` predicate, and inference resolves the bare `compare` to the
-> module's own function. It stays open until Phase 3 pins it with a fixture.
-
-Declaring an instance inside a module silently rebinds every *unqualified* call
-to a module-level function whose name matches one of the instance's methods.
-
-```flux
-module M {
-    public data Ordering { Lt, Eq, Gt }
-
-    public fn compare(a: Ver, b: Ver) -> Ordering { ... }
-
-    public fn equals(a: Ver, b: Ver) -> Bool {
-        match compare(a, b) { Eq -> true, _ -> false }   // resolves to Ord.compare
-    }
-
-    public instance Eq<Ver> => Ord<Ver> {
-        fn compare(x, y) { ... }                          // returns Int
-    }
-}
-```
-
-`equals(a, a)` returns `false`. The bare `compare(a, b)` reaches the `Ord`
-dispatch stub, which returns `Int`, and the `Ordering` constructor patterns then
-never match. Deleting the `Ord` instance restores the correct answer, which is
-how the capture was isolated.
-
-The two backends do not agree: the VM produces the wrong answer, and **the
-native backend terminates with SIGSEGV**. So this is a parity break and a
-memory-safety failure, not only a scoping defect.
-
-**The capture happens after type checking**, which is why nothing reports it.
-Inference resolves the bare `compare` to the module's own function and types the
-scrutinee as `Ordering`, so the arms check out; the rebinding to the class
-dispatch stub is introduced during lowering, when the `Int` it actually returns
-is no longer checked against anything. Re-verified 2026-09-03 against the fix for
-[KI-072](#ki-072): that check now reports a constructor pattern from the wrong
-type, including inside a `module` block, and this program is still silent —
-confirming the defect is in lowering, not inference.
-
-**Workaround:** qualify the call (`M.compare(a, b)`), or route internal callers
-to a differently named private helper. Qualified calls are unaffected.
-
-Found by adding `Eq`/`Ord` instances to `Flume.Resolve.Version`, which turned 21
-of its 60 tests red.
-
-### KI-073 — Result-directed selection is lost on native when routed through a constrained function
-
-**Severity:** High · **Area:** Type classes / native backend · **Verified:** 2026-09-03 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
-
-> **Re-measured 2026-10-13: fixed on native.** `via(42)` prints `"42"` on
-> both backends, and `syntax_tour.flx` passes VM↔LLVM parity. The Core path
-> that per-module LLVM uses lowers its dictionaries from evidence since
-> `f24b88a8` (0.0.8 step 1e), so the `where` bound's dictionary reaches
-> `convert`. Phase 3 mirrors the fixture into `tests/parity/` and marks this
-> fixed.
-
-```flux
-class Convert<a, b> { fn convert(x: a) -> b }
-instance Convert<Int, String> { fn convert(x) { to_string(x) } }
-
-fn via<a, b>(x: a) -> b where Convert<a, b> { convert(x) }
-
-fn main() with IO {
-    let direct: String = convert(42)   // both backends print "42"
-    print(direct)
-    let routed: String = via(42)       // VM prints "42", native prints <value>
-    print(routed)
-}
-```
-
-A direct class-method call resolves from the result type on both backends —
-that is Stage 4 working as specified. Routing the same call through a
-`where`-constrained function loses it on native only.
-
-Since `where C<a, b>` is the *only* spelling that reaches a multi-parameter
-class (see [type_class_syntax.md](internals/type_class_syntax.md#3-constraining-a-function)),
-this makes multi-parameter classes unusable on the native backend in the general
-case.
-
-Reproduced by [`examples/type_classes/syntax_tour.flx`](../examples/type_classes/syntax_tour.flx),
-which is deliberately **not** mirrored into `tests/parity/` until this is fixed.
-
-### KI-074 — A lowercase class name is declarable but unusable in a `where` clause
-
-**Severity:** Low · **Area:** Parser · **Verified:** 2026-09-03 · **From:** syntax reference audit
-
-```flux
-class sz<a> { fn size_of(x: a) -> Int }              // accepted
-fn twice<a>(x: a) -> Int where sz<a> { ... }         // error[E034]
-```
-
-`peek_starts_class_constraint` ([statement.rs](../src/syntax/parser/statement.rs))
-distinguishes a signature-position `where` constraint from a `where x = expr`
-local binding by testing whether the next identifier begins with an uppercase
-letter. A lowercase class therefore cannot be written in the `where` spelling,
-though `<a: sz>` still works.
-
-The diagnostic compounds it: the error blames a missing function body ("This
-looks like the function body… Try adding `{` after the function signature")
-rather than naming the real rule.
-
-**Either** reject a lowercase class name at its declaration, **or** stop
-inferring class-ness from capitalisation. Accepting the declaration and then
-refusing the use is the one combination that should not stand.
-
-### KI-075 — `<a: C>` on a multi-parameter class suggests an instance that cannot be written
-
-**Severity:** Low · **Area:** Diagnostics / type classes · **Verified:** 2026-09-03 · **From:** syntax reference audit
-
-```flux
-class Convert<a, b> { fn convert(x: a) -> b }
-fn via<a: Convert>(x: a) -> String { convert(x) }
-```
-
-```
-error[E444]: No instance for `Convert<Int>`
-Hint: Add an instance: `instance Convert<Int> { ... }`
-```
-
-The hint proposes a one-argument instance of a two-parameter class, which is
-itself a parse error. The real problem is that the `<a: C>` sugar always means
-`C<a>` and cannot supply a second argument, so the constraint is unwritable in
-this spelling; `where Convert<a, b>` is what the user needs.
-
-The diagnostic should say so — that the class takes two parameters and the bound
-sugar reaches only one — rather than suggesting an impossible declaration.
-
-### KI-076 — An operator on a class-constrained type parameter does not dispatch inside a `module` block
-
-**Severity:** High · **Area:** Type classes / dictionary passing · **Verified:** 2026-09-11 · **From:** Flume typeclass conversion
-
-> **Re-measured 2026-09-11: the symptom below is out of date.** The trap is no
-> longer `cannot compare Adt with OpLessThanOrEqual`. It is now
-> `error[E1000]: wrong number of arguments: want=3, got=2`, raised at the
-> `x <= y` itself. `want=3` is `lte(dict, x, y)` and `got=2` is `lte(x, y)`, so
-> the operator *does* now route to the dictionary-passing method — it just
-> arrives without the dictionary. That is a different and later failure point
-> than "cannot compare", which was a missing dispatch entirely, so anyone
-> working from the description below should re-derive it. The control still
-> holds: the identical program at the top level of a script prints `9`.
-> Reproduced by
-> [`examples/generics/failing/runtime/ki_076_operator_in_module.flx`](../examples/generics/failing/runtime/ki_076_operator_in_module.flx),
-> which is snapshot-pinned, so the next change of symptom shows up as a diff.
->
-> **Re-measured 2026-10-13: native now runs; the VM does not.** Since 0.0.8's
-> step 1e, native prints `9`, as the top-level control does. The VM still fails with
-> `want=3, got=2` at the `x <= y`. Evidence is right on both: the `<=` in
-> `bigger` is a `MethodCall` answered from `bigger`'s own `Ord` parameter,
-> and the merged program's Core projects `lte` out of it. `want=3` is the arity of
-> `Ord<V>`'s instance method with its `Eq<V>` context dictionary first, which
-> points at how the VM builds or applies a contextual instance's dictionary
-> rather than at the operator. Not yet confirmed.
-
-At top level, a constrained function's operator dispatches through the
-dictionary and works on a user type:
-
-```flux
-fn bigger<a: Ord>(x: a, y: a) -> a { if x <= y { y } else { x } }   // works
-```
-
-The identical function inside a `module` block traps at runtime:
-
-```
-cannot compare Adt with OpLessThanOrEqual
-```
-
-**The visible consequence is that `List.sort` and `List.sort_by` cannot sort a
-user type that has an `Ord` instance.** `sort_by<a, b: Ord>` delegates to
-`merge_by_key` ([List.flx](../lib/Flow/List.flx)), whose `key_fn(a) <= key_fn(b)`
-is inside `module Flow.List`; the public signature promises `b: Ord` and the
-implementation cannot honour it. Annotating the private helpers with `<a, b: Ord>`
-does *not* fix it — that was checked, and the constraint reaches them correctly;
-the operator is what fails to dispatch.
-
-This is the shape of [KI-061](#ki-061) but for *operators* rather than calls by
-name, so that fix did not reach it. The claim in
-[Flow/Eq.flx](../lib/Flow/Eq.flx) that "operators desugar through a path that
-does carry the dictionary" holds only outside module blocks.
-
-Found by trying to replace the hand-rolled insertion sort in
-`Flume.Resolve.Solver` — whose comment explains that the sort is hand-rolled
-because `Version` cannot be sorted generically — with `List.sort_by`.
 
 ### KI-078 — An instance method calling a sibling method on its own head type gains a dictionary parameter — FIXED 2026-09-03
 
@@ -3724,87 +3988,6 @@ the unit value as `()`, which HM *currently* infers as an empty tuple". Two
 spellings of one type, reconciled in one place. Worth a decision, but it is a
 design question rather than a defect, so it is recorded here rather than filed.
 
-### KI-090 — A constrained function passed as a value loses its dictionary
-
-**Severity:** High · **Area:** Dictionary elaboration · **Verified:** 2026-09-07 · **From:** Proposal 0186
-
-Referencing a constrained function *as a value* rather than calling it does not
-supply its dictionary, so the callee invokes an arity it does not have:
-
-```flux
-fn twice<a>(f: (a) -> a, x: a) -> a { f(f(x)) }
-fn dbl<a: Num>(x: a) -> a { x + x }
-
-fn main() with IO { print(twice(dbl, 2)) }
-```
-
-```
-error[E1000]: wrong number of arguments: want=2, got=1
-1 | fn twice<a>(f: (a) -> a, x: a) -> a { f(f(x)) }
-  |                                         ^^^^
-```
-
-`dbl` is elaborated to take `(dictionary, x)`, but `f` is called with one
-argument. Elaboration rewrites *call sites* of a constrained function; a
-reference that is not a call has no site to rewrite, and nothing eta-expands it
-into one.
-
-**Not caused by generalize-by-arity** — it reproduces identically on `main`,
-with proposal 0186 stashed. What stage 6 changes is the *reach*: before it, an
-unannotated helper was monomorphic and so carried no dictionary, and only a
-function whose author wrote `<a: Num>` could hit this. Now any unannotated
-helper over a class method can.
-
-**Fix direction:** the single evidence-passing translation (proposal 0186 stage
-5), and *only* that — this was attempted locally first and the attempt is what
-established it.
-
-Eta-expanding the reference is the right shape: `dbl` becomes
-`λp0. dbl(__dict_Num_Int, p0)`, since Flux calls are arity-checked rather than
-curried and the dictionary must be applied alongside the value arguments. But
-`insert_dict_args_at_call_sites` cannot build that argument. `resolve_dict_arg`
-answers only two cases — the caller already holds a dictionary for exactly this
-predicate, or the predicate is concrete — and at a reference the scheme's
-predicate is `Num<a>`. The instantiation to `Num<Int>` exists at the *use*, and
-Core does not carry it: `CoreVarRef` is a name and a binder id, with no type,
-and `hm_expr_types` is keyed by AST `ExprId`.
-
-So the missing information is per-site evidence, which is what
-`EvidenceMap`/`EvidenceSite` are for. Resolving it any other way here would
-mean guessing an instance from the class name — which is what KI-052 was.
-
-**Second attempt (2026-09-07), from AST lowering with evidence in hand.** This
-got the Core right and still failed, and the remaining obstacle is *not* about
-evidence. Recorded so the next attempt starts here:
-
-- Evidence reaches lowering once `LowerInputs` carries it. Note the VM path
-  lowers through `cfg/mod.rs`, not the `compiler/mod.rs` entry point — wiring
-  only the latter leaves the map absent where it matters.
-- `Num<Int>` is a *contextual* instance (`instance Add<Int> => Num<Int>` in
-  `lib/Flow/Num.flx`), so its evidence is `FromInstance` with a context and
-  `translate` yields `DictArg::Applied`. That still names a single global: a
-  concrete instance's dictionary is built once, already applied. Only a context
-  reaching a `DictArg::Param` must be assembled at the use site.
-- Naming works. `dictionary_name(class_id, "Int", interner)` produces the
-  module-mangled `__dict_m8_466C6F772E4E756D_Num_Int`, which is the symbol the
-  program actually defines.
-- The lambda's parameters must **not** be named after the function. `λdbl.
-  dbl(dict, dbl)` shadows the callee it wraps.
-
-With all of that, `--dump-core` shows exactly the intended form:
-
-```
-let %t568 = (λ%t569. dbl(__dict_m8_466C6F772E4E756D_Num_Int, %t569))
-twice(%t568, 2)
-```
-
-and **both backends still reject it** — the VM reports the same `E1000` and the
-native backend segfaults. So the defect is downstream of Core: a synthesized
-`CoreExpr::Lam` needs more than the right shape. The prime suspect is
-`param_types: vec![None; n]` and `result_ty: None`, which drive `FluxRep`
-selection and closure conversion; every lambda the ordinary path builds carries
-types. Fixing that is the next step, not more work on evidence.
-
 ### KI-088 — A `fn` name cannot be shadowed, in two different broken ways — FIXED 2026-09-11
 
 **Severity:** Medium · **Area:** Name resolution, bytecode emission · **Verified:** 2026-09-11 · **From:** Proposal 0186
@@ -4147,101 +4330,6 @@ and assert output. Treat the parity fixture alone as insufficient evidence
 here: it was green throughout the six sweeps the regression survived
 ([KI-062](#ki-062)).
 
-### KI-086 — A class declared inside a `module` loses its default method bodies
-
-**Severity:** High · **Area:** type classes, module interfaces · **Verified:** 2026-09-11 · **From:** Proposal 0186
-
-> **`--no-cache` hides failure 1** (measured 2026-09-11). On the same file:
->
-> ```
-> flux --no-strict            <repro>   ->  error[E1009]: panic: No instance of Greet.greet
-> flux --no-cache --no-strict <repro>   ->  prints "hi, someone", exit 0
-> ```
->
-> This follows from the cause given below — the body is lost when the class is
-> rebuilt from a cached `.flxi` entry, and `--no-cache` skips that round-trip —
-> but it is worth stating as a reproduction condition, because it is also a
-> usable workaround and it makes the defect invisible to any harness that
-> passes the flag. `generics_runtime_fixtures_snapshot` does, which is why
-> `examples/generics/` pins **failure 2** (the compile-time `E004`, in
-> [`failing/compile/Ki086Greet.flx`](../examples/generics/failing/compile/Ki086Greet.flx))
-> and deliberately does not file failure 1: a snapshot there would pin the bug
-> not reproducing.
-
-A default method body works when the class is declared at the top level of a
-script and stops working when the same class is declared inside a `module`.
-There are two separate failures, with two separate causes.
-
-**1. Across the module boundary the body is silently dropped, and the program
-panics at run time.**
-
-```flux
-// A.flx
-module A {
-    public class Greet<a> {
-        fn name(x: a) -> String
-        fn greet(x: a) -> String { "hi, someone" }
-    }
-}
-```
-```flux
-// main.flx
-import A
-data Dog { Dog }
-instance Greet<Dog> { fn name(x) { "dog" } }
-fn main() with IO { print(greet(Dog)) }
-```
-```
-error[E1009]: panic: No instance of Greet.greet for the given type
-  at greet
-  at main
-```
-
-The identical program with `class Greet` written at the top level of `main.flx`
-compiles and prints `"hi, someone"`.
-
-**Cause.** A class rebuilt from a cached `.flxi` interface entry is constructed
-with `default_body: None` (`src/compiler/mod.rs:315`) — method *types* survive
-the boundary, method *bodies* do not. `generate_dispatch_functions` then finds
-no body for the omitted method and `continue`s
-(`src/types/class_dispatch.rs:1306-1312`), so the mangled instance method is
-never generated and dispatch finds nothing at run time.
-
-Nothing reports this at compile time: `ClassDef::default_methods` is populated
-from the source AST, so the instance passes the "missing method" check —
-the class *says* it supplies a default, and only dispatch generation discovers
-that the body is not there. The check and the generator disagree about what the
-class provides.
-
-**2. Within the declaring module, a default body cannot call a sibling method.**
-
-```flux
-module Shape {
-    public class Greet<a> {
-        fn name(x: a) -> String
-        fn greet(x: a) -> String { "hello " + name(x) }   // E004
-    }
-}
-```
-```
-error[E004]: I can't find a value named `name`.
-  Shape.flx:4:47
-```
-
-The same body resolves `name` when the class is at the top level. Class methods
-are not brought into scope for sibling default bodies inside a module — the
-same shape as [KI-061](#ki-061), where a dictionary was not declared across a
-module boundary.
-
-**Why this is filed now.** Proposal 0186 moves default bodies out of `MethodSig`
-into a `ClassBodies` side table, because the class environment should carry
-types and not code. That move preserves the behaviour above exactly — the
-interface path contributes no bodies before or after — but it makes the reach
-of the table explicit and gives the fix one place to land rather than one per
-`MethodSig` construction site. Symptom 1 is fixed by recording bodies in the
-interface, or by generating the instance method in the defining module; symptom 2
-is a scope-construction fix in class collection.
-
 ### KI-085 — A call to a program's own function was dispatched as a class method — FIXED 2026-09-04
 
 **Severity:** High · **Area:** type classes, Core lowering, VM codegen · **Verified:** 2026-09-04 · **From:** Proposal 0183
@@ -4305,57 +4393,6 @@ where the user's function and the class method disagree on every line.
 
 Related: [KI-065](#ki-065) is the same collision at symbol resolution, and its
 fix covered only a sibling member of an enclosing module.
-
-### KI-084 — A bare `Compiler` cannot build a dictionary for a contextual prelude instance
-
-**Severity:** Low · **Area:** Compiler harness / LSP · **Verified:** 2026-09-04 · **From:** Proposal 0183
-
-A `Compiler` built directly — `Compiler::new_with_interner` plus
-`compile_with_opts`, with no module graph — rejects any program that needs a
-dictionary for a *contextual* instance of a prelude class:
-
-```flux
-fn big<A: Ord>(x: A, y: A) -> Bool { x < y }
-
-fn main() { big(8, 2) }
-```
-
-```
-error[E004]: I can't find a value named `__dict_m8_466C6F772E4F7264_Ord_Int`.
-```
-
-The same program compiles and runs through the driver, which is the path the
-CLI, the test runner and every real compilation take. Only the bare-`Compiler`
-harness is affected: unit tests that build one directly, and the LSP's
-"view Core IR" / "view bytecode" commands (`crates/flux-lsp/src/handlers/view.rs`),
-which show the error text in place of the dump. Ordinary LSP diagnostics,
-hovers and completion do not use it.
-
-**Cause.** `ClassEnv::register_prelude_classes` parses `lib/Flow/Eq.flx` and its
-siblings for their *declarations*, so the class environment knows every prelude
-class and instance. It never compiles their *bodies*, so no
-`__tc_<class>_<type>_<method>` symbol is interned. `emit_dictionary_defs`
-(`src/core/passes/dict_elaborate.rs`) needs all of a dictionary's slots or none
-— a short tuple would read every later slot at the wrong index — so it emits no
-def for any prelude instance. For a plain instance that is harmless: the
-dictionary is a tuple of external references and the reference resolves against
-the predeclared global. For a contextual instance the dictionary is a
-*constructor*, the reference is a call, and nothing defines it.
-
-`Compiler::predeclare_instance_dictionary_globals` does not cover the gap: it
-demands only classes some *visible* binding constrains, and in this harness
-`type_env.visible_bindings()` is empty at Phase 2. Declaring a global for every
-known instance closes the error, but the global is then never stored, which
-turns a compile error into a run-time nil — worse, not better.
-
-**Not a regression.** `Ord` has had this since Proposal 0179 Stage 8 made it
-`Eq<a> => Ord<a>`; verified failing at `f8d8f585^`. Proposal 0183 moved `Num`
-into the same position by giving it `Add` as a superclass, which is why
-`tests/type_inference/constrained_type_params_integration.rs` now runs its two
-`Num` cases through the driver, as the `Ord` case already did.
-
-**Fix would be** to compile the prelude bodies in this harness, or to fall back
-to direct dispatch when a unit cannot define the dictionary it references.
 
 ### KI-083 — A top-level `let` cannot call a constrained function — FIXED 2026-09-05
 

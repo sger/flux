@@ -68,6 +68,15 @@ Fields:
   // skip-way: vm_strict: KI-090 strict rejects the boundary the VM fails at run time
   ```
 
+  Two flags keep skips honest; `cargo xtask verify` passes both.
+  - `--known-issues docs/known_issues.md`: every KI a `skip:` or `skip-way:`
+    reason names must be open there. One under `## Resolved`, or whose heading
+    says FIXED, fails the fixture. A `skip:` that names no KI is not checked.
+  - `--check-skips`: the skipped ways run too, outside the verdict. One that
+    would now pass prints `UNEXPECTED_PASS <file> <way>: KI-nnn may be fixed`,
+    and the summary counts `UnexpectedPass`. verify records it as a note, since
+    the fix may be on another branch.
+
 A `parity.dir` file gives the same directives, one per line without `//`, to
 every fixture in its folder and the folders below; the nearest folder wins, and
 a fixture's own header wins over any folder. A line `name.flx: <directive>`
@@ -131,7 +140,7 @@ cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,vm_strict,llvm_s
 `cargo xtask census` runs every `.flx` file under `examples/`, `tests/` and
 `lib/`, including those without `main`, on `vm`, `llvm`, `vm_opt` and
 `llvm_opt`, and records one row per file and way in
-`.flux-cache/verify/census_<tag>/` (proposal 0190 §16). A file's `// parity:`
+`.verify/census_<tag>/` (proposal 0190 §16). A file's `// parity:`
 line limits its ways there, by backend: `// parity: vm` rules out the native
 ways, not `vm_opt`.
 

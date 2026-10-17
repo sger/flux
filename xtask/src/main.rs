@@ -5,7 +5,7 @@
 //! cargo xtask verify <tag> [--base <tag> [--cmp]] [--skip-suite] [--skip-sweeps]
 //!     lint, the suite, the three corpus sweeps (compared with --base's, by
 //!     status and by dump; --cmp fails on any changed dump) and parity;
-//!     outputs in .flux-cache/verify/<tag>/ (git-ignored; `store.rs`)
+//!     outputs in .verify/<tag>/ (git-ignored; `store.rs`)
 //! cargo xtask sweep --out <dir> [--mode cfg|core|core-opt] [--files <list>]
 //!                   [--jobs <n>] [--timeout <seconds>] [--flux <path>] [--determinism]
 //!     compile every .flx file under examples/, tests/ and lib/; with
@@ -20,7 +20,7 @@
 //!                    [--allow network] [<dir>…]
 //!     run every .flx file on each way, classify each result, tag features,
 //!     join failures to known issues and write the support matrix; outputs
-//!     in .flux-cache/verify/census_<tag>/
+//!     in .verify/census_<tag>/
 //! ```
 //!
 //! Relative paths are taken from the repository root.

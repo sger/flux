@@ -36,6 +36,7 @@ pub mod census;
 pub mod cli;
 pub mod debug;
 pub mod fixture;
+pub mod known_issues;
 pub mod normalize;
 pub mod report;
 pub mod runner;
@@ -391,6 +392,9 @@ pub struct ParityResult {
     pub skipped_ways: Vec<fixture::SkipWay>,
     /// How long each way that ran took, in run order.
     pub elapsed: Vec<(Way, std::time::Duration)>,
+    /// Skipped ways that `--check-skips` ran and found passing: their skip
+    /// may no longer be needed.
+    pub unexpected_passes: Vec<fixture::SkipWay>,
 }
 
 #[derive(Debug)]
