@@ -1,3 +1,4 @@
-# 01 prints the clock, 02 the time.
+# 01 prints the clock, 02 the time, 04 elapsed milliseconds.
 01_default_entry_handlers.flx: stdout: varies
 02_explicit_effect_rows_and_aliases.flx: stdout: varies
+04_modules_and_rows.flx: stdout: varies
