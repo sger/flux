@@ -2,7 +2,7 @@
 - Start Date: 2026-10-16
 - Proposal PR:
 - Flux Issue:
-- Status: In progress: S1–S3 and S16 done, S4 in its exit checks, on `feat/verification-toolkit`
+- Status: In progress: S1–S4 and S16 done, S5 next, on `feat/verification-toolkit`
 - Depends on: [0138](implemented/0138_flux_parity_ways.md) (parity ways and `flux parity-check`), [0188](0188_flux_debugger.md) S6b (the debug parity harness, `// dbg:` fixtures)
 - Relates to: [0188](0188_flux_debugger.md) S9c (`llvm_g` and the guide in `xtask verify`)
 
@@ -708,7 +708,7 @@ each joined to an open KI:
 | S1 ✓ | verify counts `EXPECTED_OUTPUT_MISMATCH` and the `parity-check` exit code (§1) | A deliberately broken expected block in `examples/guide` makes `debug build parity` FAIL. Any failure this uncovers is fixed or filed as a KI. |
 | S2 ✓ | `// skip-way:` (§2); whole-fixture skips narrowed; the main parity step records instead of noting | Unit tests in `src/parity/fixture.rs` for parsing, including the KI requirement. Main parity on `feat/debugger` has 0 MISMATCH, with every skip naming a KI. |
 | S3 ✓ | `vm_opt` / `llvm_opt` and the opt check (§3); added to verify's main parity | `parity-check tests/parity --ways vm,vm_opt,llvm,llvm_opt` has 0 MISMATCH, after fixes or KI skips. The verify run-time increase is recorded in §3. |
-| S4 | Dump hashes in sweeps, `compare --content`, `verify --cmp`, `sweep --determinism` (§4); the CFG lowering order fix | `cargo xtask sweep --determinism` reports 0 differences for `cfg`, `core` and `core-opt`. `verify <tag> --base main --cmp` on a no-op change passes; on a dump-printer change it fails and names the files. `compare.rs` unit tests. |
+| S4 ✓ | Dump hashes in sweeps, `compare --content`, `verify --cmp`, `sweep --determinism` (§4); the CFG lowering order fix | `cargo xtask sweep --determinism` reports 0 differences for `cfg`, `core` and `core-opt`. `verify <tag> --base main --cmp` on a no-op change passes; on a dump-printer change it fails and names the files. `compare.rs` unit tests. |
 | S5 | Checked skips: `UNEXPECTED_PASS` and open KIs only (§8) | Unit tests for both. Moving a KI that a fixture names to `## Resolved` gives a metadata error; deleting a skipped bug's cause, not committed, gives `UNEXPECTED_PASS`. |
 | S6 | Normalized hashes, sampled determinism in verify, `aether` and `lir` sweeps, cache determinism (§9) | Undoing the S4 lowering fix, not committed, fails verify's determinism sample and reads `numbering` in `compare --content`. The new sweeps' cost is recorded here. |
 | S7 | `cargo xtask rewrite` with `reorder`, then `rename` and `let-wrap` (§10) | Every rewrite of `tests/parity` and `examples/guide` compiles and matches; each mismatch is fixed or filed as a KI. Undoing the S4 lowering fix is caught by `reorder`. |
