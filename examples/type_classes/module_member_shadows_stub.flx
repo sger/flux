@@ -1,4 +1,4 @@
-// skip-way: llvm: KI-103 native cannot resolve the constructor V.Ver through the module alias
+// skip-way: llvm, llvm_opt: KI-103 native cannot resolve the constructor V.Ver through the module alias
 // Proposal 0179 Stage 8: a module function named after a class method wins
 // over the generated dispatch stub, including from inside its own module.
 //

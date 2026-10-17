@@ -15,6 +15,7 @@
 //! Relative paths are taken from the repository root.
 
 mod compare;
+mod outcome;
 mod proc;
 mod sweep;
 mod text;

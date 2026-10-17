@@ -1,6 +1,6 @@
 // expect: runtime_error
 // expect-error: E1000
-// skip-way: vm_strict, llvm: KI-076 strict rejects (E425) the boundary the VM fails at run time; native is already fixed and succeeds
+// skip-way: vm_strict, llvm, llvm_opt: KI-076 strict rejects (E425) the boundary the VM fails at run time; native is already fixed and succeeds
 // GAP — owner: KI-076, High, 0.0.8.
 // Measured 2026-09-11 on the VM: error[E1000] wrong number of arguments:
 // want=3, got=2, raised at the `x <= y` in Ki076Ord.bigger.

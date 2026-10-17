@@ -1,6 +1,8 @@
 //! Text helpers shared by the sweep and verify: ANSI stripping and the
 //! diagnostic codes a compiler run reported.
 
+use std::io::Write;
+
 /// Removes ANSI colour sequences (`ESC [ <digits and ;> m`).
 pub fn strip_ansi(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -85,6 +87,48 @@ impl Paint {
     pub fn heading(self, text: &str) -> String {
         self.wrap("1;36", text)
     }
+
+    /// The closing summary's banner: bold magenta, unlike any step heading.
+    pub fn banner(self, text: &str) -> String {
+        self.wrap("1;35", text)
+    }
+
+    /// Whether colour, and so an interactive terminal, is in use.
+    pub fn is_on(self) -> bool {
+        self.on
+    }
+}
+
+/// A single console line redrawn in place, for progress that would otherwise
+/// scroll a line per item. Off, it writes nothing, so piped output and logs
+/// keep every line instead.
+pub struct StatusLine {
+    on: bool,
+    shown: bool,
+}
+
+impl StatusLine {
+    pub fn new(on: bool) -> Self {
+        Self { on, shown: false }
+    }
+
+    /// Replaces the line with `text`, without a newline.
+    pub fn update(&mut self, out: &mut impl Write, text: &str) {
+        if self.on {
+            let _ = write!(out, "\r\x1b[2K{text}");
+            let _ = out.flush();
+            self.shown = true;
+        }
+    }
+
+    /// Erases the line, so that ordinary output starts at the left margin.
+    pub fn clear(&mut self, out: &mut impl Write) {
+        if self.shown {
+            let _ = write!(out, "\r\x1b[2K");
+            let _ = out.flush();
+            self.shown = false;
+        }
+    }
 }
 
 /// Every diagnostic code `[E123]` or `[E1234]` in `text`, sorted and unique.
@@ -120,6 +164,27 @@ mod tests {
     fn colours_only_when_on() {
         assert_eq!(Paint::always().dim("x"), "\x1b[2mx\x1b[0m");
         assert_eq!(Paint { on: false }.dim("[parity]"), "[parity]");
+    }
+
+    #[test]
+    fn a_status_line_redraws_in_place_and_clears_only_what_it_drew() {
+        let mut out = Vec::new();
+        let mut status = StatusLine::new(true);
+        status.clear(&mut out);
+        assert!(out.is_empty());
+        status.update(&mut out, "fixture 1/3");
+        status.update(&mut out, "fixture 2/3");
+        status.clear(&mut out);
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "\r\x1b[2Kfixture 1/3\r\x1b[2Kfixture 2/3\r\x1b[2K"
+        );
+
+        let mut out = Vec::new();
+        let mut off = StatusLine::new(false);
+        off.update(&mut out, "fixture 1/3");
+        off.clear(&mut out);
+        assert!(out.is_empty());
     }
 
     #[test]

@@ -81,7 +81,10 @@ cargo run -- parity-check tests/parity
 cargo run -- parity-check tests/parity/adt_option_equality.flx
 
 # All ways
-cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,vm_strict,llvm_strict
+cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,vm_strict,llvm_strict,vm_opt,llvm_opt
+
+# The optimizer: each opt way must match its plain way
+cargo run -- parity-check tests/parity --ways vm,vm_opt,llvm,llvm_opt
 
 # With Core/Aether checkpoint capture
 cargo run -- parity-check tests/parity --capture-core --capture-aether
@@ -158,6 +161,22 @@ cargo run -- parity-check path/to/failing.flx --ways vm,vm_strict
 Allowed: strict mode rejecting what normal mode accepts (additional diagnostics).
 Not allowed: strict mode producing different output when both succeed.
 
-### 7. Leave a regression fixture
+### 7. For optimizer mismatches
+
+```bash
+cargo run -- parity-check path/to/failing.flx --ways vm,vm_opt
+cargo run -- path/to/failing.flx --dump-core > plain.core
+cargo run -- path/to/failing.flx --optimize --dump-core > opt.core
+diff plain.core opt.core
+```
+
+An `opt_mode_mismatch` means `--optimize` changed what the program does: its
+exit kind, its stdout, or its stderr when it fails. That is a miscompile. The
+Core diff shows which optimization rewrote the program; the passes are in
+`src/core/passes/`. When only `llvm_opt` differs and the Core matches, compare
+`--native --dump-lir` with and without `--optimize`, since `--optimize` also
+raises the LLVM optimization level.
+
+### 8. Leave a regression fixture
 
 Once fixed, add a minimal `.flx` file to `tests/parity/` following the naming convention above.

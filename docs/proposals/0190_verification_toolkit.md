@@ -2,7 +2,7 @@
 - Start Date: 2026-10-16
 - Proposal PR:
 - Flux Issue:
-- Status: Draft
+- Status: In progress: S1–S3 done on `feat/verification-toolkit`
 - Depends on: [0138](implemented/0138_flux_parity_ways.md) (parity ways and `flux parity-check`), [0188](0188_flux_debugger.md) S6b (the debug parity harness, `// dbg:` fixtures)
 - Relates to: [0188](0188_flux_debugger.md) S9c (`llvm_g` and the guide in `xtask verify`)
 
@@ -187,8 +187,14 @@ line names both counts.
   Opt ways also take part in the ordinary cross-way comparison.
 - **verify:** the main parity ways become
   `vm,vm_cached,vm_strict,vm_opt,llvm,llvm_opt`, which is two more runs per
-  fixture. A native `--optimize` build is the slowest of these; S3 records the
-  measured increase in verify's run time here.
+  fixture. A native `--optimize` build is the slowest of these.
+- **Measured cost (2026-10-17, S3):** `tests/parity` took 4:49 with the four
+  ways before S3 and 8:34 with six, about 78% longer. The main parity step over
+  its four directories took 15:15, which puts the four-way step at about 8:35.
+  The opt ways therefore add roughly 6½ minutes to a verify run. A
+  `--skip-suite --skip-sweeps` run took 20:58 in all. The ways stay in the
+  default set for now; verify prints each step's time, so the cost stays
+  visible.
 
 ### §4 Content comparison and determinism
 
@@ -292,9 +298,9 @@ line names both counts.
 
 | stage | change | exit |
 |---|---|---|
-| S1 | verify counts `EXPECTED_OUTPUT_MISMATCH` and the `parity-check` exit code (§1) | A deliberately broken expected block in `examples/guide` makes `debug build parity` FAIL. Any failure this uncovers is fixed or filed as a KI. |
-| S2 | `// skip-way:` (§2); whole-fixture skips narrowed; the main parity step records instead of noting | Unit tests in `src/parity/fixture.rs` for parsing, including the KI requirement. Main parity on `feat/debugger` has 0 MISMATCH, with every skip naming a KI. |
-| S3 | `vm_opt` / `llvm_opt` and the opt check (§3); added to verify's main parity | `parity-check tests/parity --ways vm,vm_opt,llvm,llvm_opt` has 0 MISMATCH, after fixes or KI skips. The verify run-time increase is recorded in §3. |
+| S1 ✓ | verify counts `EXPECTED_OUTPUT_MISMATCH` and the `parity-check` exit code (§1) | A deliberately broken expected block in `examples/guide` makes `debug build parity` FAIL. Any failure this uncovers is fixed or filed as a KI. |
+| S2 ✓ | `// skip-way:` (§2); whole-fixture skips narrowed; the main parity step records instead of noting | Unit tests in `src/parity/fixture.rs` for parsing, including the KI requirement. Main parity on `feat/debugger` has 0 MISMATCH, with every skip naming a KI. |
+| S3 ✓ | `vm_opt` / `llvm_opt` and the opt check (§3); added to verify's main parity | `parity-check tests/parity --ways vm,vm_opt,llvm,llvm_opt` has 0 MISMATCH, after fixes or KI skips. The verify run-time increase is recorded in §3. |
 | S4 | Full dumps in sweeps, `compare --content`, `verify --cmp`, `sweep --determinism` (§4) | `cargo xtask sweep --determinism` reports 0 differences for `cfg`, `core` and `core-opt`. `verify <tag> --base main --cmp` on a no-op change passes; on a dump-printer change it fails and names the files. `compare.rs` unit tests. |
 | S5 | `// dbg-check:` (§5), checks added to all 21 debug fixtures | Debug parity 21/21. Changing one expected local makes both the parity run and `parity_debug_tests` fail. |
 | S6 | The generator and `cargo xtask fuzz` (§6) | Unit tests: the same seed gives the same text; 200 seeds compile with 0 generator failures (an ignored test that runs `flux --dump-core`). A planted miscompile under `--optimize`, not committed, is found within `--count 200`. |

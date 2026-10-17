@@ -85,6 +85,11 @@ pub enum Way {
     /// The program built natively with `-g`: a debug build runs as a plain
     /// one does (0188 S9c).
     LlvmG,
+    /// The VM with `--optimize`: the optimizer must not change what a
+    /// program does (0190 S3).
+    VmOpt,
+    /// The native backend with `--optimize`.
+    LlvmOpt,
 }
 
 impl fmt::Display for Way {
@@ -99,11 +104,28 @@ impl fmt::Display for Way {
             Self::VmDebug => write!(f, "vm_debug"),
             Self::LlvmDebug => write!(f, "llvm_debug"),
             Self::LlvmG => write!(f, "llvm_g"),
+            Self::VmOpt => write!(f, "vm_opt"),
+            Self::LlvmOpt => write!(f, "llvm_opt"),
         }
     }
 }
 
 impl Way {
+    /// Every way, in the order a run reports them.
+    pub const ALL: [Self; 11] = [
+        Self::Vm,
+        Self::Llvm,
+        Self::VmCached,
+        Self::LlvmCached,
+        Self::VmStrict,
+        Self::LlvmStrict,
+        Self::VmDebug,
+        Self::LlvmDebug,
+        Self::LlvmG,
+        Self::VmOpt,
+        Self::LlvmOpt,
+    ];
+
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "vm" => Some(Self::Vm),
@@ -115,6 +137,8 @@ impl Way {
             "vm_debug" => Some(Self::VmDebug),
             "llvm_debug" => Some(Self::LlvmDebug),
             "llvm_g" => Some(Self::LlvmG),
+            "vm_opt" => Some(Self::VmOpt),
+            "llvm_opt" => Some(Self::LlvmOpt),
             _ => None,
         }
     }
@@ -153,12 +177,31 @@ impl Way {
         }
     }
 
+    /// Whether this way enables `--optimize`.
+    pub fn is_opt(self) -> bool {
+        matches!(self, Self::VmOpt | Self::LlvmOpt)
+    }
+
+    /// The unoptimized counterpart of an optimized way.
+    pub fn non_opt(self) -> Self {
+        match self {
+            Self::VmOpt => Self::Vm,
+            Self::LlvmOpt => Self::Llvm,
+            other => other,
+        }
+    }
+
     pub fn backend_id(self) -> BackendId {
         match self {
-            Self::Vm | Self::VmCached | Self::VmStrict | Self::VmDebug => BackendId::Vm,
-            Self::Llvm | Self::LlvmCached | Self::LlvmStrict | Self::LlvmDebug | Self::LlvmG => {
-                BackendId::Llvm
+            Self::Vm | Self::VmCached | Self::VmStrict | Self::VmDebug | Self::VmOpt => {
+                BackendId::Vm
             }
+            Self::Llvm
+            | Self::LlvmCached
+            | Self::LlvmStrict
+            | Self::LlvmDebug
+            | Self::LlvmG
+            | Self::LlvmOpt => BackendId::Llvm,
         }
     }
 }
@@ -412,6 +455,14 @@ pub enum MismatchDetail {
         normal: String,
         strict: String,
     },
+    /// An optimized way disagreed with its unoptimized counterpart.
+    OptModeMismatch {
+        unopt_way: Way,
+        opt_way: Way,
+        field: String,
+        unopt: String,
+        opt: String,
+    },
     DiagnosticCodes {
         way: Way,
         expected: Vec<String>,
@@ -422,4 +473,29 @@ pub enum MismatchDetail {
         expected: String,
         actual: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_way_parses_back_from_its_name() {
+        for way in Way::ALL {
+            assert_eq!(Way::parse(&way.to_string()), Some(way), "{way}");
+        }
+    }
+
+    #[test]
+    fn opt_ways_pair_with_their_plain_way_on_the_same_backend() {
+        for (opt, plain, backend) in [
+            (Way::VmOpt, Way::Vm, BackendId::Vm),
+            (Way::LlvmOpt, Way::Llvm, BackendId::Llvm),
+        ] {
+            assert!(opt.is_opt() && !plain.is_opt());
+            assert_eq!(opt.non_opt(), plain);
+            assert_eq!(opt.backend_id(), backend);
+        }
+        assert_eq!(Way::Vm.non_opt(), Way::Vm);
+    }
 }
