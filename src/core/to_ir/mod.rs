@@ -33,7 +33,7 @@ fn core_type_to_ir_type(ct: &crate::core::CoreType) -> IrType {
     IrType::from_core_type(ct)
 }
 
-use fn_ctx::FnCtx;
+use fn_ctx::{FnCtx, binders_in_order};
 
 fn peel_function_type(
     ty: &crate::core::CoreType,
@@ -197,7 +197,7 @@ impl ToIrCtx {
                     } else {
                         fn_ctx.inferred_return_type = def.result_ty.clone();
                     }
-                    for (&binder_id, &binder_name) in &entry_fn.binder_names {
+                    for (binder_id, binder_name) in binders_in_order(&entry_fn.binder_names) {
                         let v = fn_ctx.ctx.alloc_var();
                         fn_ctx.emit(IrInstr::Assign {
                             dest: v,
@@ -350,7 +350,7 @@ impl ToIrCtx {
                     if fn_ctx.inferred_param_types.len() != params.len() {
                         fn_ctx.inferred_param_types.clear();
                     }
-                    for (&binder_id, &binder_name) in &entry_fn.binder_names {
+                    for (binder_id, binder_name) in binders_in_order(&entry_fn.binder_names) {
                         let v = fn_ctx.ctx.alloc_var();
                         fn_ctx.emit(IrInstr::Assign {
                             dest: v,
@@ -689,6 +689,34 @@ mod tests {
         // Should produce: entry function + the id function body.
         assert!(ir.functions.len() >= 2);
         assert!(ir.globals.contains(&f_name));
+    }
+
+    #[test]
+    fn lowering_the_same_program_twice_gives_the_same_ir() {
+        // Each named function reloads every top-level function. Those loads
+        // once followed a HashMap's per-instance hash order, so two lowerings
+        // of one program differed.
+        let mut interner = make_interner();
+        let defs = (0..12)
+            .map(|i| {
+                let f = binder(i, interner.intern(&format!("f{i}")));
+                let x = binder(100 + i, interner.intern(&format!("x{i}")));
+                CoreDef::new(
+                    f,
+                    CoreExpr::lambda(vec![x], var_expr(x), Span::default()),
+                    false,
+                    Span::default(),
+                )
+            })
+            .collect();
+        let prog = CoreProgram {
+            defs,
+            top_level_items: Vec::new(),
+        };
+        let first = lower_core_to_ir(&prog).dump_text();
+        for _ in 0..8 {
+            assert_eq!(lower_core_to_ir(&prog).dump_text(), first);
+        }
     }
 
     #[test]

@@ -194,7 +194,7 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
         let sweeps = SWEEPS.map(|mode| (sweep_dir(mode), mode));
         let mut internal = Vec::new();
         for (dir, mode) in &sweeps {
-            let started = steps.start(&format!("sweep {dir} ({})", mode.name()));
+            let started = steps.start(&format!("sweep {}", mode.name()));
             let results = sweep::run(
                 root,
                 &sweep::Options {
@@ -208,26 +208,20 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
             )?;
             let took = started.elapsed();
             println!("took {}", format_duration(took));
-            outcome.note(
-                &format!("sweep {}", mode.name()),
-                format!("sweep {dir} ({})", mode.name()),
-                Some(took),
-            );
+            let step = format!("sweep {}", mode.name());
+            outcome.note(&step, step.clone(), Some(took));
             let count = results
                 .iter()
                 .filter(|r| compare::INTERNAL.contains(&r.status))
                 .count();
-            internal.push((dir, *mode, count));
+            internal.push((*mode, count));
         }
 
         steps.start("internal errors");
-        for (dir, mode, count) in &internal {
-            println!("{dir}: {count}");
-            outcome.note(
-                &format!("internal {}", mode.name()),
-                format!("{dir}: {count} internal"),
-                None,
-            );
+        for (mode, count) in &internal {
+            let line = format!("{}: {count} internal error(s)", mode.name());
+            println!("{line}");
+            outcome.note(&format!("internal {}", mode.name()), line, None);
         }
 
         if let (Some(base), Some(base_out)) = (&options.base, &base_out) {
