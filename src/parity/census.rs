@@ -205,6 +205,7 @@ fn classify_run(checked: &Checked<'_>, run: &RunResult) -> (Class, String) {
         _ => {}
     }
     let expected_failure = match meta.expect {
+        Expect::Any => return classify_by_agreement(checked, run),
         Expect::Success => None,
         Expect::CompileError => Some(ExitKind::CompileError),
         Expect::RuntimeError => Some(ExitKind::RuntimeError),
@@ -236,9 +237,66 @@ fn classify_run(checked: &Checked<'_>, run: &RunResult) -> (Class, String) {
     }
 }
 
+/// Under `expect: any`, whatever most ways do is right: the same exit kind,
+/// and the same error codes, or the same stdout when it succeeds. Crashed
+/// runs, already classed, do not vote.
+fn classify_by_agreement(checked: &Checked<'_>, run: &RunResult) -> (Class, String) {
+    let outcome = |r: &RunResult| -> (ExitKind, String) {
+        if r.exit_kind == ExitKind::Success {
+            (r.exit_kind, r.normalized_stdout.clone())
+        } else {
+            (r.exit_kind, codes_of(&r.stderr).join(","))
+        }
+    };
+    let voters: Vec<(Way, (ExitKind, String))> = checked
+        .result
+        .results
+        .iter()
+        .filter(|r| {
+            !matches!(
+                r.exit_kind,
+                ExitKind::Crash | ExitKind::Timeout | ExitKind::ToolFailure
+            )
+        })
+        .map(|r| (r.way, outcome(r)))
+        .collect();
+    let mine = outcome(run);
+    let votes = |o: &(ExitKind, String)| voters.iter().filter(|(_, v)| v == o).count();
+    let best_other = voters
+        .iter()
+        .filter(|(_, v)| *v != mine)
+        .map(|(_, v)| votes(v))
+        .max()
+        .unwrap_or(0);
+    let others = || {
+        voters
+            .iter()
+            .filter(|(_, v)| *v != mine)
+            .map(|(way, (kind, _))| format!("{way} {kind}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let agreed = match run.exit_kind {
+        ExitKind::Success if checked.has_main => Class::Works,
+        ExitKind::Success => Class::CompileOnly,
+        _ => Class::ExpectedError,
+    };
+    match votes(&mine).cmp(&best_other) {
+        std::cmp::Ordering::Greater => (agreed, String::new()),
+        std::cmp::Ordering::Equal => (Class::Disagree, format!("differs from {}", others())),
+        std::cmp::Ordering::Less => (Class::Wrong, format!("differs from {}", others())),
+    }
+}
+
 /// A successful run's output against the expected block, or else against the
 /// other successful runs.
 fn classify_output(checked: &Checked<'_>, run: &RunResult) -> (Class, String) {
+    if checked.meta.stdout_varies {
+        return (
+            Class::Works,
+            "stdout varies: exit compared only".to_string(),
+        );
+    }
     if let Some(expected) = &checked.meta.expected_stdout {
         return if run.normalized_stdout.trim() == expected.trim() {
             (Class::Works, String::new())
@@ -440,6 +498,43 @@ mod tests {
         assert_eq!(
             classes(&r, &meta, true),
             [ExpectedError, Wrong, Wrong, Wrong]
+        );
+    }
+
+    #[test]
+    fn under_expect_any_the_ways_must_agree() {
+        let r = result(vec![
+            run(Way::Vm, ExitKind::RuntimeError, "", "error[E1000]: arity"),
+            run(Way::Llvm, ExitKind::Success, "", ""),
+            run(
+                Way::VmOpt,
+                ExitKind::RuntimeError,
+                "",
+                "error[E1000]: arity",
+            ),
+            run(
+                Way::LlvmOpt,
+                ExitKind::RuntimeError,
+                "",
+                "error[E1000]: arity",
+            ),
+        ]);
+        let meta = FixtureMeta {
+            expect: Expect::Any,
+            ..Default::default()
+        };
+        use Class::*;
+        assert_eq!(
+            classes(&r, &meta, true),
+            [ExpectedError, Wrong, ExpectedError, ExpectedError]
+        );
+        let compiles = result(vec![
+            run(Way::Vm, ExitKind::Success, "", ""),
+            run(Way::Llvm, ExitKind::Success, "", ""),
+        ]);
+        assert_eq!(
+            classes(&compiles, &meta, false)[..2],
+            [CompileOnly, CompileOnly]
         );
     }
 

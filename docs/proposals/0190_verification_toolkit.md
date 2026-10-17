@@ -654,6 +654,15 @@ test262's `features:` does. The file's directory is a second, coarse tag.
 5. With `--base T`, lists what newly works and newly fails since census `T`,
    as crater does.
 
+**Folder defaults.** About 150 of the files the first census reported are
+snapshot-tested or carry `// dbg:` scripts, so a new header line would move
+the line numbers those pin. A `parity.dir` file gives directives to a whole
+folder, or to one named file in it, as LLVM lit's `lit.local.cfg` does; a
+file's own header still wins. Three directives came with it: `expect: any`
+for diagnostic demos (the ways must agree and none may crash; snapshots pin
+the messages), `stdout: varies` for programs that print the clock, timings or
+the host's core count, and `census-skip:` for fixtures another harness drives.
+
 **Fixture hygiene.** The first census will report files whose headers are
 missing or wrong. They are fixed in their headers, not filed: `expect:
 runtime_error` and codes for `examples/runtime_errors`, the prose `// Expected

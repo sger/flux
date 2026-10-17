@@ -1,0 +1,3 @@
+# Parser and type-checker fixtures, read by the Rust tests and snapshots.
+# Many fail on purpose; the ways must agree with each other, and none may crash.
+expect: any

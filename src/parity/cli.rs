@@ -200,29 +200,43 @@ const CENSUS_WAYS: [Way; 4] = [Way::Vm, Way::Llvm, Way::VmOpt, Way::LlvmOpt];
 /// file's header, and a census limits them to those the header allows.
 fn check_one(file: &Path, config: &Config) -> CheckedFile {
     let census_ways: &[Way] = config.ways.as_deref().unwrap_or(&CENSUS_WAYS);
-    if config.census.is_some() && is_bench_or_profile(file) {
-        let reason = "benchmark or profile: not run by the census";
+    let fixture_meta = parse_fixture_meta_allowing(file, &config.allow);
+    let unrun_reason = if is_bench_or_profile(file) {
+        Some("benchmark or profile: not run by the census".to_string())
+    } else if is_prelude_module(file) {
+        Some("standard library: compiled into every program, not alone".to_string())
+    } else {
+        fixture_meta
+            .census_skip
+            .as_ref()
+            .map(|reason| format!("census-skip: {reason}"))
+    };
+    if config.census.is_some()
+        && let Some(reason) = unrun_reason
+    {
         return CheckedFile {
             result: ParityResult {
                 file: file.to_path_buf(),
                 results: Vec::new(),
                 artifacts: Vec::new(),
                 verdict: Verdict::Skip {
-                    reason: reason.to_string(),
+                    reason: reason.clone(),
                 },
                 skipped_ways: Vec::new(),
                 elapsed: Vec::new(),
             },
-            rows: census::unrun_rows(file, census_ways, reason),
+            rows: census::unrun_rows(file, census_ways, &reason),
         };
     }
-    let fixture_meta = parse_fixture_meta_allowing(file, &config.allow);
     let mut extra_args = merged_fixture_args(&config.extra_args, &fixture_meta.extra_args);
     let has_main = declares_entry_point(file);
     // A module without `main`, compiled on its own, needs the root its dotted
-    // name is relative to, or it fails with a module path mismatch.
+    // name is relative to, or it fails with a module path mismatch. One whose
+    // header declares a failure (often that very mismatch, which its snapshot
+    // pins) runs as declared.
     if config.census.is_some()
         && !has_main
+        && matches!(fixture_meta.expect, Expect::Success | Expect::Any)
         && let Some(root) = module_root(file)
     {
         extra_args.push("--root".to_string());
@@ -252,6 +266,7 @@ fn check_one(file: &Path, config: &Config) -> CheckedFile {
             skip_ways: &fixture_meta.skip_ways,
             meta_errors: &fixture_meta.meta_errors,
             census: config.census.is_some(),
+            stdout_varies: fixture_meta.stdout_varies,
         },
     );
     let rows = if config.census.is_some() {
@@ -434,6 +449,8 @@ struct CheckOpts<'a> {
     /// A census run: classify every way, so a single remaining way is still
     /// run, and skip the dump captures a mismatch otherwise triggers.
     census: bool,
+    /// `// stdout: varies`: compare the ways' exits, not what they print.
+    stdout_varies: bool,
 }
 
 impl CheckOpts<'_> {
@@ -508,6 +525,11 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         );
         elapsed.push((way, started.elapsed()));
         run_results.push(result);
+    }
+    if opts.stdout_varies {
+        for result in &mut run_results {
+            result.normalized_stdout.clear();
+        }
     }
 
     // Check for native skip
@@ -659,7 +681,9 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
                 actual,
             }
         }
-    } else if let Some(failed) = first_unsuccessful_run(&run_results) {
+    } else if opts.expect != Expect::Any
+        && let Some(failed) = first_unsuccessful_run(&run_results)
+    {
         // Fixture declares `expect: success`, so every way must actually have
         // run. Comparing the backends against each other is not enough: when
         // both fail the same way their outputs match and `details` is empty, so
@@ -670,7 +694,7 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
             expected: ExitKind::Success.to_string(),
             actual: format!("{}: {}", failed.way, failed.exit_kind),
         }
-    } else if let Some(expected_stdout) = opts.expected_stdout {
+    } else if let Some(expected_stdout) = opts.expected_stdout.filter(|_| !opts.stdout_varies) {
         let expected = expected_stdout.trim();
         let actual = run_results
             .first()
@@ -854,7 +878,8 @@ fn first_unsuccessful_run(run_results: &[super::RunResult]) -> Option<&super::Ru
 
 fn expected_exit_kind(expect: Expect) -> ExitKind {
     match expect {
-        Expect::Success => ExitKind::Success,
+        // `any` accepts every exit kind; its ways are held to agree instead.
+        Expect::Success | Expect::Any => ExitKind::Success,
         Expect::CompileError => ExitKind::CompileError,
         Expect::RuntimeError => ExitKind::RuntimeError,
     }
@@ -1088,7 +1113,10 @@ fn collect_mismatch_details(
                 });
             }
 
-            if (base.exit_kind != ExitKind::Success || other.exit_kind != ExitKind::Success)
+            // A diagnostic demo's messages are pinned by snapshots; each
+            // backend words its own, so only its exit and stdout are compared.
+            if expect != Expect::Any
+                && (base.exit_kind != ExitKind::Success || other.exit_kind != ExitKind::Success)
                 && base.normalized_stderr != other.normalized_stderr
             {
                 details.push(MismatchDetail::Stderr {
@@ -1199,6 +1227,14 @@ mod tests {
             },
         );
         assert_eq!(seen, [0, 1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn the_standard_library_is_not_compiled_alone() {
+        assert!(is_prelude_module(Path::new("lib/Flow/List.flx")));
+        assert!(is_prelude_module(Path::new("./lib/Flow/Http/Server.flx")));
+        assert!(!is_prelude_module(Path::new("lib/Flume/Cli.flx")));
+        assert!(!is_prelude_module(Path::new("examples/lib/Flow/x.flx")));
     }
 
     #[test]
@@ -1635,11 +1671,7 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
                         "\x1b[0;31mCOMPILE UNEXPECTED OK\x1b[0m {} ({}) — fixture declares `expect: {}` but compiled successfully",
                         file.display(),
                         label.as_str(),
-                        match meta.expect {
-                            Expect::CompileError => "compile_error",
-                            Expect::RuntimeError => "runtime_error",
-                            Expect::Success => "success",
-                        }
+                        meta.expect.name()
                     );
                     all_ok = false;
                 } else {
@@ -1647,11 +1679,7 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
                         "\x1b[0;33mCOMPILE EXPECTED FAIL\x1b[0m {} ({}) — matches `expect: {}`",
                         file.display(),
                         label.as_str(),
-                        match meta.expect {
-                            Expect::CompileError => "compile_error",
-                            Expect::RuntimeError => "runtime_error",
-                            Expect::Success => "success",
-                        }
+                        meta.expect.name()
                     );
                     let normalized_stderr = normalize_stderr(&outcome.stderr);
                     if !meta.expected_errors.is_empty() {
@@ -1818,6 +1846,18 @@ fn collect_fixtures_recursive(path: &Path, include_all: bool, files: &mut Vec<Pa
 /// line is always run, so a support module can still be inspected on purpose.
 fn should_skip_fixture(path: &Path) -> bool {
     is_bench_or_profile(path) || !declares_entry_point(path)
+}
+
+/// A `lib/Flow/` module: the prelude imports it into every program, so
+/// compiled on its own it imports itself.
+fn is_prelude_module(path: &Path) -> bool {
+    let mut parts = path
+        .components()
+        .filter(|part| !matches!(part, std::path::Component::CurDir));
+    matches!(
+        (parts.next(), parts.next()),
+        (Some(lib), Some(flow)) if lib.as_os_str() == "lib" && flow.as_os_str() == "Flow"
+    )
 }
 
 fn is_bench_or_profile(path: &Path) -> bool {
