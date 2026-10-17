@@ -25,6 +25,7 @@ pub struct MultipleRowVarError {
 /// - an optional tail row variable for open rows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InferEffectRow {
+    #[serde(serialize_with = "in_symbol_order")]
     concrete: HashSet<Identifier>,
     tail: Option<TypeVarId>,
 }
@@ -184,6 +185,18 @@ impl InferEffectRow {
     }
 }
 
+/// Writes `set` in symbol order: a `HashSet`'s own order differs from one
+/// instance to the next, and a cached interface must be the same bytes each
+/// time it is written.
+fn in_symbol_order<S: serde::Serializer>(
+    set: &HashSet<Identifier>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let mut symbols: Vec<Identifier> = set.iter().copied().collect();
+    symbols.sort_unstable_by_key(|symbol| symbol.as_u32());
+    serializer.collect_seq(symbols)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -196,6 +209,17 @@ mod tests {
 
     fn sym(i: u32) -> Symbol {
         Symbol::new(i)
+    }
+
+    #[test]
+    fn the_same_row_serializes_to_the_same_bytes() {
+        // The concrete set once serialized in its HashSet's hash order, so a
+        // cached interface differed from one compilation to the next.
+        let row = || InferEffectRow::closed_from_symbols((0..32).map(sym));
+        let first = serde_json::to_string(&row()).expect("serialize");
+        for _ in 0..8 {
+            assert_eq!(serde_json::to_string(&row()).expect("serialize"), first);
+        }
     }
 
     #[test]

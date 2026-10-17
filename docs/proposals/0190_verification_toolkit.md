@@ -376,9 +376,12 @@ fixed. Two checks keep skips honest:
 ### §9 Better dump comparison
 
 - **Normalized hashes.** Next to the exact hash, `hashes.tsv` gains a hash of
-  the dump with every number after `v`, `b`, `fn` and `#` replaced by `_`
-  (`DumpHash::normalized`). `compare --content` then reports each changed file
-  as one of:
+  the dump with every compiler-chosen number replaced by `_`
+  (`DumpHash::normalized`, `sweep::normalize`). These are the digits after `#`,
+  `%`, `%t` or `<sym:`, and after `v`, `b`, `bb` or `fn` when that prefix starts a word,
+  which covers the cfg, core, aether and lir dumps. Literals and identifiers
+  such as `sub2` keep their digits. `compare --content` then reports each
+  changed file as one of:
   - `structure`: both hashes changed, so the program differs;
   - `numbering`: only the exact hash changed, so the same program is numbered or
     ordered differently.
@@ -407,9 +410,33 @@ fixed. Two checks keep skips honest:
   bulk of the work; it starts with `src/core/to_ir/`, `src/types/class_env.rs`
   and `src/core/passes/dict_elaborate.rs`.
 - **Bytecode cache determinism.** `vm_cached` runs read the cache written by an
-  earlier run. `sweep --determinism --mode cache` compiles each file twice with
-  `--cache-dir` pointing at two empty folders and compares the files written,
-  byte for byte.
+  earlier run. `sweep --determinism --mode cache` runs each program twice, each
+  time with an empty `--cache-dir` and `FLUX_HOME` at the same path, and
+  compares the files written, byte for byte.
+  - **It has to run the programs:** any `--dump-*` flag turns the VM cache off,
+    and `check` writes none.
+  - **Its corpus is `tests/parity`**, whose programs are meant to run, quickly
+    and without the network. It is not part of verify.
+
+**What S6 found** (2026-10-17).
+
+- **LIR closures captured their variables in `HashSet` order.** The sets came
+  from `collect_free_vars` and the Aether `collect_free_vars_aether`. So two
+  native builds of one program differed, although each was correct. The sets
+  are now `BTreeSet`s. The `lir` sweep showed this as `numbering` on its first
+  three files.
+- **The bytecode cache differed between runs:** 126 cache files, from three
+  programs. Four causes were fixed:
+  - interface maps were serialized in hash order;
+  - a loaded interface interned its new names in hash order;
+  - effect lists in runtime contracts and effect rows were in hash order;
+  - an interface's members were defined as globals in hash order.
+
+  Six instance-heavy programs still differ, and are filed as KI-115.
+
+**Measured cost.** The `aether` and `lir` sweeps each took 3 s over 195 files
+(`tests/parity` and `examples/guide`), about what `core` takes. The cache check
+takes about 70 s over `tests/parity`.
 
 ### §10 Semantics-preserving rewrites
 

@@ -4,7 +4,7 @@
 //! - Phase 2: literals, variables, let/letrec bindings, primop calls, top-level functions.
 //! - Phase 3: pattern matching (Case), ADT/cons/tuple construction (Con), tuple field access.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::aether::{AetherAlt, AetherExpr, AetherHandler};
 use crate::core::{
@@ -4035,7 +4035,7 @@ impl<'a> FnLower<'a> {
     fn lower_handler_clause(&mut self, effect: Identifier, handler: &CoreHandler) -> LirVar {
         // Collect free variables in the handler body, excluding params and resume.
         let free = {
-            let mut free = HashSet::new();
+            let mut free = BTreeSet::new();
             let mut bound = HashSet::new();
             bound.insert(handler.resume.id);
             for p in &handler.params {
@@ -4154,7 +4154,7 @@ impl<'a> FnLower<'a> {
         handler: &AetherHandler,
     ) -> LirVar {
         let free = {
-            let mut free = HashSet::new();
+            let mut free = BTreeSet::new();
             let mut bound = HashSet::new();
             bound.insert(handler.resume.id);
             for p in &handler.params {
@@ -6321,9 +6321,11 @@ fn pattern_is_refutable(pat: &CorePat) -> bool {
 
 // ── Free variable collection ─────────────────────────────────────────────────
 
-/// Collect free variable binder IDs in a `CoreExpr`.
-fn collect_free_vars(expr: &CoreExpr) -> HashSet<CoreBinderId> {
-    let mut free = HashSet::new();
+/// Collect free variable binder IDs in a `CoreExpr`, in binder order: a
+/// closure's captures are built from them, and a hash order would make two
+/// lowerings of one program differ.
+fn collect_free_vars(expr: &CoreExpr) -> BTreeSet<CoreBinderId> {
+    let mut free = BTreeSet::new();
     let mut bound = HashSet::new();
     free_vars_rec(expr, &mut bound, &mut free);
     free
@@ -6496,7 +6498,7 @@ fn collect_parameterized_effects_aether_rec(expr: &AetherExpr, effects: &mut Has
 fn free_vars_rec(
     expr: &CoreExpr,
     bound: &mut HashSet<CoreBinderId>,
-    free: &mut HashSet<CoreBinderId>,
+    free: &mut BTreeSet<CoreBinderId>,
 ) {
     match expr {
         CoreExpr::Var { var, .. } => {
@@ -6677,6 +6679,41 @@ mod tests {
             id: CoreBinderId(id),
             name,
             rep: FluxRep::TaggedRep,
+        }
+    }
+
+    #[test]
+    fn lowering_a_closure_twice_captures_in_the_same_order() {
+        // A closure's captures once came out of a HashSet, in its
+        // per-instance hash order, so two lowerings of one program differed.
+        let span = Span::default();
+        let params: Vec<CoreBinder> = (1..=8).map(|i| mk_binder(i, Identifier::new(i))).collect();
+        let tuple = CoreExpr::PrimOp {
+            op: crate::core::CorePrimOp::MakeTuple,
+            args: params
+                .iter()
+                .map(|p| CoreExpr::bound_var(p, span))
+                .collect(),
+            span,
+        };
+        let y = mk_binder(50, Identifier::new(50));
+        let inner = CoreExpr::lambda(vec![y], tuple, span);
+        let f = mk_binder(100, Identifier::new(100));
+        let program = CoreProgram {
+            defs: vec![CoreDef::new(
+                f,
+                CoreExpr::lambda(params, inner, span),
+                false,
+                span,
+            )],
+            top_level_items: Vec::new(),
+        };
+        let first = super::display_program(&super::lower_program(&program));
+        for _ in 0..8 {
+            assert_eq!(
+                super::display_program(&super::lower_program(&program)),
+                first
+            );
         }
     }
 

@@ -65,10 +65,7 @@ pub fn runtime_contract_from_annotations(
     if !params.iter().any(|t| t.is_some()) && ret.is_none() && effects.is_empty() {
         None
     } else {
-        let effects = effects
-            .iter()
-            .flat_map(crate::syntax::effect_expr::EffectExpr::normalized_names)
-            .collect::<Vec<_>>();
+        let effects = crate::syntax::effect_expr::EffectExpr::sorted_names(effects);
         Some(FunctionContract {
             params,
             ret,
@@ -114,5 +111,40 @@ fn convert_type_expr_for_contract(ty: &TypeExpr, interner: &Interner) -> Option<
                 .collect::<Option<Vec<_>>>()?,
         )),
         TypeExpr::Function { .. } => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::runtime_contract_from_annotations;
+    use crate::diagnostics::position::Span;
+    use crate::syntax::{effect_expr::EffectExpr, interner::Interner, symbol::Symbol};
+
+    #[test]
+    fn a_contract_lists_its_effects_in_one_order() {
+        // `A + B + …` once listed its effects in a HashSet's hash order, so
+        // a cached interface differed from one compilation to the next.
+        let span = Span::default();
+        let row = (1..32)
+            .map(|n| EffectExpr::Named {
+                name: Symbol::new(n),
+                span,
+            })
+            .reduce(|left, right| EffectExpr::Add {
+                left: Box::new(left),
+                right: Box::new(right),
+                span,
+            })
+            .expect("a row");
+        let interner = Interner::new();
+        let effects = || {
+            runtime_contract_from_annotations(&[], &None, std::slice::from_ref(&row), &interner)
+                .expect("a contract")
+                .effects
+        };
+        let first = effects();
+        for _ in 0..8 {
+            assert_eq!(effects(), first);
+        }
     }
 }

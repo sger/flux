@@ -2604,7 +2604,10 @@ impl Compiler {
                 .entry(ctor)
                 .or_insert(fields);
         }
-        for (member_name, scheme) in &interface.schemes {
+        // Each loop below interns names and defines globals as it goes, so
+        // it visits members in name order: a hash order would give the same
+        // program different symbols and global slots on each run.
+        for (member_name, scheme) in in_name_order(&interface.schemes) {
             let member = self.interner.intern(member_name);
             let qualified = self.interner.intern_join(module_name, member);
             if !self.symbol_table.exists_in_current_scope(qualified) {
@@ -2629,7 +2632,7 @@ impl Compiler {
                     .unwrap_or(false),
             );
         }
-        for (member_name, signature) in &interface.borrow_signatures {
+        for (member_name, signature) in in_name_order(&interface.borrow_signatures) {
             let member = self.interner.intern(member_name);
             let qualified = self.interner.intern_join(module_name, member);
             if !self.symbol_table.exists_in_current_scope(qualified) {
@@ -2667,7 +2670,7 @@ impl Compiler {
             );
         }
 
-        for (member_name, runtime_contract) in &interface.runtime_contracts {
+        for (member_name, runtime_contract) in in_name_order(&interface.runtime_contracts) {
             let member = self.interner.intern(member_name);
             let qualified = self.interner.intern_join(module_name, member);
             if !self.symbol_table.exists_in_current_scope(qualified) {
@@ -8667,4 +8670,11 @@ impl Default for Compiler {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// `members` sorted by name, for loops whose side effects depend on order.
+fn in_name_order<V>(members: &HashMap<String, V>) -> Vec<(&String, &V)> {
+    let mut sorted: Vec<(&String, &V)> = members.iter().collect();
+    sorted.sort_unstable_by_key(|&(name, _)| name);
+    sorted
 }

@@ -2,14 +2,19 @@
 //! `.cargo/config.toml`).
 //!
 //! ```text
-//! cargo xtask verify <tag> [--base <tag> [--cmp]] [--skip-suite] [--skip-sweeps]
-//!     lint, the suite, the three corpus sweeps (compared with --base's, by
-//!     status and by dump; --cmp fails on any changed dump) and parity;
-//!     outputs in .verify/<tag>/ (git-ignored; `store.rs`)
-//! cargo xtask sweep --out <dir> [--mode cfg|core|core-opt] [--files <list>]
+//! cargo xtask verify <tag> [--base <tag> [--cmp | --cmp=structure]] [--skip-suite]
+//!                    [--skip-sweeps] [--det-sample <n>]
+//!     lint, the suite, the five corpus sweeps (each with a rerun of n files,
+//!     default 50, that must give the same dumps; compared with --base's, by
+//!     status and by dump; --cmp fails on any changed dump, --cmp=structure
+//!     only on one that is more than renumbered) and parity; outputs in
+//!     .verify/<tag>/ (git-ignored; `store.rs`)
+//! cargo xtask sweep --out <dir> [--mode cfg|core|core-opt|aether|lir|cache] [--files <list>]
 //!                   [--jobs <n>] [--timeout <seconds>] [--flux <path>] [--determinism]
 //!     compile every .flx file under examples/, tests/ and lib/; with
-//!     --determinism, twice into <dir>_a and <dir>_b, which must agree
+//!     --determinism, twice into <dir>_a and <dir>_b, which must agree;
+//!     --mode cache --determinism runs each tests/parity program twice with
+//!     an empty cache and compares the caches written
 //! cargo xtask prune [--keep <n>] [--keep-tag <tag>]... [--yes]
 //!     delete all but the newest n (default 5) verify runs, and never a
 //!     --keep-tag one; only lists them without --yes
@@ -41,8 +46,8 @@ use std::time::Duration;
 use sweep::Mode;
 
 const USAGE: &str = "usage:
-  cargo xtask verify <tag> [--base <tag> [--cmp]] [--skip-suite] [--skip-sweeps]
-  cargo xtask sweep --out <dir> [--mode cfg|core|core-opt] [--files <list>] [--jobs <n>] [--timeout <seconds>] [--flux <path>] [--determinism]
+  cargo xtask verify <tag> [--base <tag> [--cmp | --cmp=structure]] [--skip-suite] [--skip-sweeps] [--det-sample <n>]
+  cargo xtask sweep --out <dir> [--mode cfg|core|core-opt|aether|lir|cache] [--files <list>] [--jobs <n>] [--timeout <seconds>] [--flux <path>] [--determinism]
   cargo xtask compare <base sweep dir> <head sweep dir> [--content]
   cargo xtask prune [--keep <n>] [--keep-tag <tag>]... [--yes]
   cargo xtask census [--tag <tag>] [--base <tag>] [--jobs <n>] [--ways <w,...>] [--allow network] [<dir>...]";
@@ -69,15 +74,22 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
     let mut args = Args::new(rest);
     match command.as_str() {
         "verify" => {
+            let cmp = match (args.flag("--cmp"), args.flag("--cmp=structure")) {
+                (false, false) => verify::Cmp::Off,
+                (true, false) => verify::Cmp::Any,
+                (false, true) => verify::Cmp::Structure,
+                (true, true) => return Err(format!("--cmp or --cmp=structure, not both\n{USAGE}")),
+            };
             let options = verify::Options {
                 base: args.value("--base")?,
-                cmp: args.flag("--cmp"),
+                cmp,
                 skip_suite: args.flag("--skip-suite"),
                 skip_sweeps: args.flag("--skip-sweeps"),
+                det_sample: args.number("--det-sample")?.unwrap_or(50),
                 tag: args.positional()?.ok_or(USAGE)?,
             };
             args.finish()?;
-            if options.cmp && (options.base.is_none() || options.skip_sweeps) {
+            if options.cmp != verify::Cmp::Off && (options.base.is_none() || options.skip_sweeps) {
                 return Err(format!(
                     "--cmp compares the sweeps with --base's, so it needs --base and the sweeps\n{USAGE}"
                 ));
@@ -85,7 +97,9 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
             verify::run_verify(root, &options)
         }
         "sweep" => {
-            let mode = match args.value("--mode")? {
+            let mode_name = args.value("--mode")?;
+            let cache = mode_name.as_deref() == Some("cache");
+            let mode = match mode_name.filter(|_| !cache) {
                 Some(name) => Mode::parse(&name).ok_or(format!("unknown mode {name}"))?,
                 None => Mode::Cfg,
             };
@@ -102,6 +116,14 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
             };
             let determinism = args.flag("--determinism");
             args.finish()?;
+            if cache {
+                if !determinism {
+                    return Err(format!(
+                        "--mode cache only checks determinism: add --determinism\n{USAGE}"
+                    ));
+                }
+                return sweep::cache_determinism(root, &options);
+            }
             if determinism {
                 return sweep::determinism(root, &options);
             }

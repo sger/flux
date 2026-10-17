@@ -712,6 +712,36 @@ fn preload_module_interface_inserts_cached_public_schemes() {
 }
 
 #[test]
+fn preloading_an_interface_numbers_its_members_in_one_order() {
+    // Imported members once got their global slots, and their names their
+    // symbols, in the interface's hash order, so the same program compiled
+    // to different bytecode from one run to the next (0190 S6).
+    let slots = || {
+        let mut interface = ModuleInterface::new("Example.Math", "hash", "cfg");
+        for n in 0..32 {
+            interface.schemes.insert(
+                format!("member{n}"),
+                Scheme::mono(InferType::Con(TypeConstructor::Int)),
+            );
+        }
+        let mut compiler = Compiler::new();
+        compiler.preload_module_interface(&interface);
+        let module = compiler.interner.intern("Example.Math");
+        (0..32)
+            .map(|n| {
+                let member = compiler.interner.intern(&format!("member{n}"));
+                let qualified = compiler.interner.intern_join(module, member);
+                compiler.symbol_table.resolve(qualified).map(|b| b.index)
+            })
+            .collect::<Vec<_>>()
+    };
+    let first = slots();
+    for _ in 0..8 {
+        assert_eq!(slots(), first);
+    }
+}
+
+#[test]
 fn flow_primops_missing_covered_scheme_does_not_fall_back_to_rust_injection() {
     let (program, interner) = parse_program(
         r#"

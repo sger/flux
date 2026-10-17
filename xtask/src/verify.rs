@@ -37,9 +37,35 @@ pub struct Options {
     pub base: Option<String>,
     /// Fail when a sweep's dumps differ from the base's, for a change that
     /// claims to change no output (0190 S4).
-    pub cmp: bool,
+    pub cmp: Cmp,
     pub skip_suite: bool,
     pub skip_sweeps: bool,
+    /// How many files each sweep reruns to check its dumps are reproducible
+    /// (0190 §9); 0 checks none.
+    pub det_sample: usize,
+}
+
+/// Which changed dumps `--cmp` fails on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cmp {
+    /// Changed dumps are noted, not failed.
+    Off,
+    /// `--cmp`: any changed dump fails.
+    Any,
+    /// `--cmp=structure`: only a changed program fails, not a renumbering,
+    /// for a change that renumbers on purpose.
+    Structure,
+}
+
+impl Cmp {
+    /// Whether `comparison`'s changed dumps fail the step.
+    fn fails(self, comparison: &compare::Comparison) -> bool {
+        match self {
+            Self::Off => false,
+            Self::Any => !comparison.changed.is_empty(),
+            Self::Structure => comparison.changed.len() > comparison.numbering,
+        }
+    }
 }
 
 /// How many numbered steps a run with `options` takes; the summary is not one.
@@ -47,13 +73,19 @@ fn step_count(options: &Options) -> usize {
     let sweeps = if options.skip_sweeps {
         0
     } else {
-        // Each sweep, the internal-error tally, and each comparison.
+        // Each sweep and its determinism check, the internal-error tally,
+        // and each comparison.
         let compares = if options.base.is_some() {
             SWEEPS.len()
         } else {
             0
         };
-        SWEEPS.len() + 1 + compares
+        let checks = if options.det_sample > 0 {
+            SWEEPS.len()
+        } else {
+            0
+        };
+        SWEEPS.len() + checks + 1 + compares
     };
     // fmt and clippy; the suite or a build; then the three parity steps.
     2 + sweeps + 3
@@ -210,6 +242,17 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
             println!("took {}", format_duration(took));
             let step = format!("sweep {}", mode.name());
             outcome.note(&step, step.clone(), Some(took));
+            if options.det_sample > 0 {
+                check_determinism(
+                    root,
+                    &out.join(dir),
+                    *mode,
+                    &results,
+                    options,
+                    &mut steps,
+                    &mut outcome,
+                );
+            }
             let count = results
                 .iter()
                 .filter(|r| compare::INTERNAL.contains(&r.status))
@@ -230,10 +273,17 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
                 let base_dir = base_out.join(dir);
                 let step = format!("compare {}", mode.name());
                 let head_dir = out.join(dir);
+                if !base_dir.is_dir() {
+                    // A base from before this mode was swept.
+                    let line = format!("no {} sweep in {base} to compare with", mode.name());
+                    println!("{line}");
+                    outcome.note(&step, line, None);
+                    continue;
+                }
                 match compare::run(root, &base_dir, &head_dir, true) {
                     Ok(comparison) => {
                         let changed = comparison.changed.len();
-                        let fails_on_content = options.cmp && changed > 0;
+                        let fails_on_content = options.cmp.fails(&comparison);
                         let entry = outcome.record(
                             &step,
                             !comparison.failed && !fails_on_content,
@@ -247,8 +297,17 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
                             outcome.note(
                                 &format!("dumps {}", mode.name()),
                                 format!(
-                                    "{changed} {} dump(s) changed; --cmp fails on that ({})",
+                                    "{changed} {} dump(s) changed, {} only in numbering{}; --cmp fails on that ({})",
                                     mode.name(),
+                                    comparison.numbering,
+                                    if comparison.unknown > 0 {
+                                        format!(
+                                            ", {} unknown ({base} has no normalized hashes)",
+                                            comparison.unknown
+                                        )
+                                    } else {
+                                        String::new()
+                                    },
                                     diff_file.display()
                                 ),
                                 None,
@@ -448,7 +507,57 @@ fn finish(outcome: &Outcome, out: &Path, base_out: Option<&Path>, options: &Opti
     !outcome.failed()
 }
 
-const SWEEPS: [Mode; 3] = [Mode::Cfg, Mode::Core, Mode::CoreOpt];
+const SWEEPS: [Mode; 5] = [
+    Mode::Cfg,
+    Mode::Core,
+    Mode::CoreOpt,
+    Mode::Aether,
+    Mode::Lir,
+];
+
+/// Reruns a sample of the sweep in `dir` with the compiler it ran, and
+/// fails the step when any dump comes out different: then some output
+/// depends on more than its input, such as `HashMap` order (0190 §9).
+fn check_determinism(
+    root: &Path,
+    dir: &Path,
+    mode: Mode,
+    results: &[sweep::FileResult],
+    options: &Options,
+    steps: &mut Steps,
+    outcome: &mut Outcome,
+) {
+    let step = format!("determinism {}", mode.name());
+    let started = steps.start(&step);
+    let sample = sweep::determinism_sample(results, options.det_sample);
+    let differing = sweep::recheck(
+        root,
+        dir,
+        mode,
+        &sample,
+        sweep::default_jobs(),
+        Duration::from_secs(120),
+    );
+    let took = started.elapsed();
+    println!("took {}", format_duration(took));
+    let entry = outcome.record(
+        &step,
+        differing.is_empty(),
+        format!(
+            "{step} ({} of {} rerun file(s) differ)",
+            differing.len(),
+            sample.len()
+        ),
+        took,
+    );
+    entry.details = differing
+        .iter()
+        .take(MAX_DETAILS)
+        .map(|(file, first, again)| {
+            format!("{file} [{}]", compare::Change::of(first, again).name())
+        })
+        .collect();
+}
 
 /// The main parity step's ways. The opt ways run every fixture under
 /// `--optimize`, so a miscompile shows up as a difference from the plain way
@@ -818,17 +927,39 @@ mod tests {
         let options = |skip_suite, skip_sweeps, base: Option<&str>| Options {
             tag: "t".into(),
             base: base.map(str::to_string),
-            cmp: false,
+            cmp: Cmp::Off,
             skip_suite,
             skip_sweeps,
+            det_sample: 50,
         };
         // fmt+clippy, suite or build, then three parity steps.
         assert_eq!(step_count(&options(true, true, None)), 5);
         assert_eq!(step_count(&options(false, true, Some("main"))), 5);
-        // Three sweeps and the internal-error tally.
-        assert_eq!(step_count(&options(false, false, None)), 9);
-        // And three comparisons with the base.
-        assert_eq!(step_count(&options(true, false, Some("main"))), 12);
+        // Five sweeps, each with its determinism check, and the
+        // internal-error tally.
+        assert_eq!(step_count(&options(false, false, None)), 16);
+        // And five comparisons with the base.
+        assert_eq!(step_count(&options(true, false, Some("main"))), 21);
+        let unchecked = Options {
+            det_sample: 0,
+            ..options(false, false, None)
+        };
+        assert_eq!(step_count(&unchecked), 11);
+    }
+
+    #[test]
+    fn cmp_structure_fails_only_on_a_changed_program() {
+        let comparison = |changed: usize, numbering| compare::Comparison {
+            failed: false,
+            changed: (0..changed).map(|n| format!("f{n}.flx")).collect(),
+            numbering,
+            unknown: 0,
+        };
+        assert!(!Cmp::Off.fails(&comparison(3, 0)));
+        assert!(Cmp::Any.fails(&comparison(2, 2)));
+        assert!(!Cmp::Structure.fails(&comparison(2, 2)));
+        assert!(Cmp::Structure.fails(&comparison(3, 2)));
+        assert!(!Cmp::Any.fails(&comparison(0, 0)));
     }
 
     #[test]
