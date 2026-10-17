@@ -102,7 +102,8 @@ fn cited_files(line: &str) -> Vec<String> {
             .take_while(|&(_, c)| is_path_char(c))
             .last()
             .map_or(end, |(at, _)| at);
-        let path = line[start..end].trim_start_matches("./");
+        // Markdown links from docs/ reach the corpus as `../examples/…`.
+        let path = line[start..end].trim_start_matches(['.', '/']);
         if ["examples/", "tests/", "lib/"]
             .iter()
             .any(|root| path.starts_with(root))
@@ -133,7 +134,7 @@ mod tests {
 ### KI-102 — Effects leak under --no-cache
 **Severity:** Medium · **Area:** VM
 Fixture: `examples/type_classes/console_logger_example.flx` and
-tests/parity/foo.flx:12.
+tests/parity/foo.flx:12, and [c](../examples/c.flx).
 ### KI-011 — Old bug — FIXED 2026-01-02
 See examples/a.flx.
 ## Resolved
@@ -159,7 +160,8 @@ Was in ./examples/b.flx
             ki102.files,
             [
                 "examples/type_classes/console_logger_example.flx",
-                "tests/parity/foo.flx"
+                "tests/parity/foo.flx",
+                "examples/c.flx"
             ]
         );
         let citing: Vec<&str> = known

@@ -233,7 +233,12 @@ fn apply_directive(meta: &mut FixtureMeta, comment: &str) {
             "compile_error" => Expect::CompileError,
             "runtime_error" => Expect::RuntimeError,
             "any" => Expect::Any,
-            _ => Expect::Success,
+            other => {
+                meta.meta_errors.push(format!(
+                    "`// expect: {other}`: expected success, compile_error, runtime_error or any"
+                ));
+                Expect::Success
+            }
         };
     } else if let Some(code) = comment.strip_prefix("expect-error:") {
         let code = code.trim();
@@ -501,6 +506,13 @@ mod tests {
             Some(Path::new("x.flx")),
         );
         assert!(meta.stdout_varies && meta.meta_errors.is_empty());
+    }
+
+    #[test]
+    fn an_unknown_expect_value_is_a_meta_error() {
+        let mut meta = FixtureMeta::default();
+        apply_directive(&mut meta, "expect: error");
+        assert_eq!(meta.meta_errors.len(), 1, "{:?}", meta.meta_errors);
     }
 
     #[test]
