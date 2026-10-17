@@ -12,8 +12,13 @@
 //! Every run uses `--no-cache`, so no cached module hides a change.
 //!
 //! Writes to the out dir:
-//! - `runs/<file>.txt`: each file's output
+//! - `runs/<file>.txt`: each file's output, with the dump's last 40 lines
 //! - `results.tsv`: file, status, exit code, diagnostic codes, milliseconds
+//! - `hashes.tsv`: the mode, then each file's whole dump as an FNV-1a hash,
+//!   its bytes and its lines. Dumps themselves are not kept: a CFG dump is
+//!   about 2.7 MB, most of it the prelude. `compare --content` reruns both
+//!   sweeps' compilers on a file whose hash changed to show the difference.
+//! - `flux`: the compiler the sweep ran, kept for that
 //! - `summary.txt`: how many files ended each way
 //! - `errors.txt`: the files that did not end `ok`
 //!
@@ -21,6 +26,7 @@
 //! error), panic (the compiler panicked), timeout, crash (any other failure).
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -57,7 +63,7 @@ impl Mode {
         }
     }
 
-    fn flags(self) -> &'static [&'static str] {
+    pub(crate) fn flags(self) -> &'static [&'static str] {
         match self {
             Mode::Cfg => &["--dump-cfg"],
             Mode::Core => &["--dump-core"],
@@ -66,6 +72,7 @@ impl Mode {
     }
 }
 
+#[derive(Clone)]
 pub struct Options {
     pub out_dir: PathBuf,
     pub mode: Mode,
@@ -89,6 +96,79 @@ pub struct FileResult {
     pub exit: i32,
     pub codes: String,
     pub ms: u128,
+    pub dump: DumpHash,
+}
+
+/// A whole dump, summarized: equal hashes mean equal dumps for any purpose
+/// a comparison has, and the sizes say how big a difference is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DumpHash {
+    pub fnv: u64,
+    pub bytes: usize,
+    pub lines: usize,
+}
+
+impl DumpHash {
+    pub fn of(text: &str) -> Self {
+        Self {
+            fnv: fnv64(text.as_bytes()),
+            bytes: text.len(),
+            lines: text.lines().count(),
+        }
+    }
+}
+
+/// FNV-1a, 64-bit. Written out rather than taken from `std`, whose
+/// `DefaultHasher` may change between Rust releases, and a sweep is compared
+/// with sweeps made by other builds.
+pub fn fnv64(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
+/// Where a sweep keeps the compiler it ran.
+pub fn compiler_in(out_dir: &Path) -> PathBuf {
+    out_dir.join(format!("flux{}", std::env::consts::EXE_SUFFIX))
+}
+
+/// What one compiler run printed.
+pub(crate) struct Ran {
+    pub finished: bool,
+    pub exit: i32,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// Runs `flux --no-cache --quiet <flags> <file>` from `root`, as a sweep
+/// does, killing it after `timeout`.
+pub(crate) fn run_flux(
+    root: &Path,
+    flux: &Path,
+    flags: &[&str],
+    file: &str,
+    timeout: Duration,
+) -> Ran {
+    let spawned = Command::new(flux)
+        .args(["--no-cache", "--quiet"])
+        .args(flags)
+        .arg(file)
+        .current_dir(root)
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+    let (finished, exit, stdout, stderr) = match spawned {
+        Ok(child) => wait_with_timeout(child, timeout),
+        Err(e) => (true, -1, String::new(), format!("failed to start: {e}")),
+    };
+    Ran {
+        finished,
+        exit,
+        stdout,
+        stderr,
+    }
 }
 
 /// How a run ended. `text` is its stderr without colour.
@@ -173,7 +253,7 @@ pub fn run(root: &Path, options: &Options) -> Result<Vec<FileResult>, String> {
     // Run a copy: a running compiler locks its file on Windows, so a build
     // during the sweep would fail, and a rebuild would change the compiler
     // halfway.
-    let flux = out_dir.join(options.flux.file_name().expect("compiler file name"));
+    let flux = compiler_in(out_dir);
     fs::copy(&options.flux, &flux).map_err(|e| format!("copying the compiler: {e}"))?;
 
     let flags = options.mode.flags();
@@ -213,6 +293,42 @@ pub fn run(root: &Path, options: &Options) -> Result<Vec<FileResult>, String> {
     Ok(results)
 }
 
+/// Sweeps the corpus twice with one compiler, into `<out>_a` and `<out>_b`,
+/// and compares the two by content. Any difference means a dump depends on
+/// something other than its input, such as `HashMap` order, and makes
+/// `--cmp` unreliable. Returns whether the two agreed.
+pub fn determinism(root: &Path, options: &Options) -> Result<bool, String> {
+    let with_suffix = |suffix: &str| {
+        let mut name = options.out_dir.as_os_str().to_owned();
+        name.push(suffix);
+        PathBuf::from(name)
+    };
+    let (a, b) = (with_suffix("_a"), with_suffix("_b"));
+    let mut files = 0;
+    for dir in [&a, &b] {
+        let results = run(
+            root,
+            &Options {
+                out_dir: dir.clone(),
+                ..options.clone()
+            },
+        )?;
+        files = results.len();
+    }
+    let comparison = crate::compare::run(root, &a, &b, true)?;
+    let deterministic = !comparison.failed && comparison.changed.is_empty();
+    if deterministic {
+        println!("deterministic: {files} files, mode {}", options.mode.name());
+    } else {
+        println!(
+            "NOT deterministic: {} dump(s) differ between two runs of the same compiler; see {}",
+            comparison.changed.len(),
+            crate::compare::Comparison::diff_file(&b).display()
+        );
+    }
+    Ok(deterministic)
+}
+
 fn sweep_file(
     root: &Path,
     flux: &Path,
@@ -222,20 +338,12 @@ fn sweep_file(
     timeout: Duration,
 ) -> FileResult {
     let clock = Instant::now();
-    let spawned = Command::new(flux)
-        .args(["--no-cache", "--quiet"])
-        .args(flags)
-        .arg(file)
-        .current_dir(root)
-        .env("NO_COLOR", "1")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
-    let (finished, exit, stdout, stderr) = match spawned {
-        Ok(child) => wait_with_timeout(child, timeout),
-        Err(e) => (true, -1, String::new(), format!("failed to start: {e}")),
-    };
+    let Ran {
+        finished,
+        exit,
+        stdout,
+        stderr,
+    } = run_flux(root, flux, flags, file, timeout);
     let ms = clock.elapsed().as_millis();
 
     // The dump goes to stdout and is long; diagnostics go to stderr. Keep the
@@ -261,6 +369,7 @@ fn sweep_file(
         exit,
         codes,
         ms,
+        dump: DumpHash::of(&stdout),
     }
 }
 
@@ -300,6 +409,19 @@ fn read_all(stream: Option<impl Read + Send + 'static>) -> thread::JoinHandle<St
     })
 }
 
+/// `hashes.tsv`: `# mode <name>`, then `file, fnv (hex), bytes, lines`.
+fn format_hashes(mode: Mode, results: &[FileResult]) -> String {
+    let mut text = format!("# mode {}\n", mode.name());
+    for r in results {
+        let _ = writeln!(
+            text,
+            "{}\t{:016x}\t{}\t{}",
+            r.file, r.dump.fnv, r.dump.bytes, r.dump.lines
+        );
+    }
+    text
+}
+
 fn write_outputs(
     out_dir: &Path,
     mode: Mode,
@@ -314,6 +436,7 @@ fn write_outputs(
         ));
     }
     fs::write(out_dir.join("results.tsv"), tsv)?;
+    fs::write(out_dir.join("hashes.tsv"), format_hashes(mode, results))?;
 
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
     for r in results {
@@ -350,6 +473,14 @@ mod tests {
 
     fn codes(list: &[&str]) -> Vec<String> {
         list.iter().map(|c| c.to_string()).collect()
+    }
+
+    #[test]
+    fn hashes_with_fnv1a_64() {
+        assert_eq!(fnv64(b""), 0xcbf2_9ce4_8422_2325);
+        assert_eq!(fnv64(b"a"), 0xaf63_dc4c_8601_ec8c);
+        let dump = DumpHash::of("one\ntwo\n");
+        assert_eq!((dump.bytes, dump.lines), (8, 2));
     }
 
     #[test]

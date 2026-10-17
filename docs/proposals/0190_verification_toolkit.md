@@ -198,15 +198,20 @@ line names both counts.
 
 ### §4 Content comparison and determinism
 
-- **Sweep output:** `sweep_file` (`xtask/src/sweep.rs`) also writes each file's
-  full stdout to `<sweep>/dumps/<name>.txt`. `runs/` and `results.tsv` are
+- **Sweep output:** `sweep_file` (`xtask/src/sweep.rs`) hashes each file's full
+  stdout (FNV-1a, 64-bit) into `<sweep>/hashes.tsv`, with its bytes and lines.
+  The dumps themselves are not kept. Measured on 2026-10-17, a CFG dump is about
+  2.7 MB, most of it the prelude, and a Core dump about 65 KB. Full dumps of the
+  1,521-file corpus would take about 4.4 GB per tag. Each sweep keeps the
+  compiler it ran, so a dump can be produced again. `runs/` and `results.tsv` are
   unchanged.
 - **`cargo xtask compare <base> <head> --content`:** for each file on both sides
-  whose status is `ok` on both, it compares `dumps/` byte for byte.
-  - A changed file is printed with its first differing line number and three
-    lines of context from each side, up to 20 files.
+  whose status is `ok` on both, it compares the dumps' hashes.
+  - For up to 20 changed files, it reruns the base sweep's and the head sweep's
+    compilers on the file and prints the first differing line, with three lines
+    of context from each side.
   - The full list goes to `<head>/content_diff.txt`.
-  - `Report` gains `changed_dumps`.
+  - It exits 1 on a changed dump as well as on a status failure.
 - **`cargo xtask verify --cmp`:** with `--base`, content changes are always
   counted in a note. With `--cmp` they record a failure.
 - **Determinism, a precondition for `--cmp`:**
@@ -301,7 +306,7 @@ line names both counts.
 | S1 ✓ | verify counts `EXPECTED_OUTPUT_MISMATCH` and the `parity-check` exit code (§1) | A deliberately broken expected block in `examples/guide` makes `debug build parity` FAIL. Any failure this uncovers is fixed or filed as a KI. |
 | S2 ✓ | `// skip-way:` (§2); whole-fixture skips narrowed; the main parity step records instead of noting | Unit tests in `src/parity/fixture.rs` for parsing, including the KI requirement. Main parity on `feat/debugger` has 0 MISMATCH, with every skip naming a KI. |
 | S3 ✓ | `vm_opt` / `llvm_opt` and the opt check (§3); added to verify's main parity | `parity-check tests/parity --ways vm,vm_opt,llvm,llvm_opt` has 0 MISMATCH, after fixes or KI skips. The verify run-time increase is recorded in §3. |
-| S4 | Full dumps in sweeps, `compare --content`, `verify --cmp`, `sweep --determinism` (§4) | `cargo xtask sweep --determinism` reports 0 differences for `cfg`, `core` and `core-opt`. `verify <tag> --base main --cmp` on a no-op change passes; on a dump-printer change it fails and names the files. `compare.rs` unit tests. |
+| S4 | Dump hashes in sweeps, `compare --content`, `verify --cmp`, `sweep --determinism` (§4) | `cargo xtask sweep --determinism` reports 0 differences for `cfg`, `core` and `core-opt`. `verify <tag> --base main --cmp` on a no-op change passes; on a dump-printer change it fails and names the files. `compare.rs` unit tests. |
 | S5 | `// dbg-check:` (§5), checks added to all 21 debug fixtures | Debug parity 21/21. Changing one expected local makes both the parity run and `parity_debug_tests` fail. |
 | S6 | The generator and `cargo xtask fuzz` (§6) | Unit tests: the same seed gives the same text; 200 seeds compile with 0 generator failures (an ignored test that runs `flux --dump-core`). A planted miscompile under `--optimize`, not committed, is found within `--count 200`. |
 | S7 | `cargo xtask fuzz reduce` (§7) | The planted miscompile's case shrinks to at most 10 lines. Reducer unit tests on a fake oracle. |

@@ -32,6 +32,9 @@ use crate::text::{Paint, StatusLine, strip_ansi};
 pub struct Options {
     pub tag: String,
     pub base: Option<String>,
+    /// Fail when a sweep's dumps differ from the base's, for a change that
+    /// claims to change no output (0190 S4).
+    pub cmp: bool,
     pub skip_suite: bool,
     pub skip_sweeps: bool,
 }
@@ -223,14 +226,31 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
                 let started = steps.start(&format!("compare {dir} with {base}"));
                 let base_dir = out.join(sweep_dir(base, *mode));
                 let step = format!("compare {}", mode.name());
-                match compare::run(&base_dir, &out.join(dir)) {
-                    Ok(failed) => {
-                        outcome.record(
+                let head_dir = out.join(dir);
+                match compare::run(root, &base_dir, &head_dir, true) {
+                    Ok(comparison) => {
+                        let changed = comparison.changed.len();
+                        let fails_on_content = options.cmp && changed > 0;
+                        let entry = outcome.record(
                             &step,
-                            !failed,
-                            format!("compare {dir} with {base}"),
+                            !comparison.failed && !fails_on_content,
+                            format!("compare {dir} with {base} ({changed} dump(s) changed)"),
                             started.elapsed(),
                         );
+                        let diff_file = compare::Comparison::diff_file(&head_dir);
+                        if fails_on_content {
+                            entry.details = capped(&comparison.changed, &diff_file);
+                        } else if changed > 0 {
+                            outcome.note(
+                                &format!("dumps {}", mode.name()),
+                                format!(
+                                    "{changed} {} dump(s) changed; --cmp fails on that ({})",
+                                    mode.name(),
+                                    diff_file.display()
+                                ),
+                                None,
+                            );
+                        }
                     }
                     Err(e) => {
                         println!("{e}");
@@ -748,6 +768,7 @@ mod tests {
         let options = |skip_suite, skip_sweeps, base: Option<&str>| Options {
             tag: "t".into(),
             base: base.map(str::to_string),
+            cmp: false,
             skip_suite,
             skip_sweeps,
         };
