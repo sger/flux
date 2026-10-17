@@ -210,8 +210,10 @@ cargo test --all --all-features
   [`insta`](https://insta.rs/) (`cargo insta review` to accept).
 - [`CHANGELOG.md`](CHANGELOG.md) is written from the merged PRs at release time; a PR's
   description is its changelog entry.
-- Contributor and architecture notes live in [`CLAUDE.md`](CLAUDE.md) and
-  [`docs/internals/`](docs/internals/).
+- Architecture notes live in [`docs/internals/`](docs/internals/); test layout in
+  [`tests/README.md`](tests/README.md).
+- Using an LLM or coding agent? Read the [LLM usage policy](docs/llm_policy.md).
+  Agents follow [`AGENTS.md`](AGENTS.md).
 
 ## Documentation
 

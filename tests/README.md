@@ -123,3 +123,8 @@ cargo test <partial_test_name>                  # filter by test name
 cargo insta review                              # review snapshot diffs
 cargo insta test --accept                       # accept all new snapshots
 ```
+
+The heavy suites (`native_llvm/`, `parity/`, `parity_debug/` and
+`cargo xtask verify`) build and run a lot of native binaries. On a laptop, run
+them one at a time with `-- --test-threads=1`, and wait for one to finish
+before you start the next.
