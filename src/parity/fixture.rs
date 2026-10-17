@@ -12,6 +12,7 @@
 //! // skip: reason to skip this fixture
 //! // skip-way: llvm, llvm_strict: KI-091 a known divergence on these ways
 //! // requires: unix        (or `windows`) — skip elsewhere, with a reason
+//! // requires: network     — skip unless the run allows it (`--allow network`)
 //! // bug: description of the bug shape
 //! ```
 
@@ -41,6 +42,8 @@ pub struct SkipWay {
 pub struct FixtureMeta {
     /// Which ways to compare (defaults to `[Vm, Llvm]`).
     pub ways: Vec<Way>,
+    /// Whether a `// parity:` line chose `ways`, rather than the default.
+    pub declared_ways: bool,
     /// Expected outcome (defaults to `Success`).
     pub expect: Expect,
     /// Expected diagnostic error codes for error fixtures.
@@ -76,6 +79,7 @@ impl Default for FixtureMeta {
     fn default() -> Self {
         Self {
             ways: vec![Way::Vm, Way::Llvm],
+            declared_ways: false,
             expect: Expect::Success,
             expected_errors: Vec::new(),
             extra_args: Vec::new(),
@@ -94,6 +98,12 @@ impl Default for FixtureMeta {
 ///
 /// Returns `FixtureMeta::default()` if no metadata comments are found.
 pub fn parse_fixture_meta(path: &Path) -> FixtureMeta {
+    parse_fixture_meta_allowing(path, &[])
+}
+
+/// [`parse_fixture_meta`], with the `// requires:` resources this run may use
+/// (`network`) in `allowed`.
+pub fn parse_fixture_meta_allowing(path: &Path, allowed: &[String]) -> FixtureMeta {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(_) => return FixtureMeta::default(),
@@ -159,6 +169,7 @@ pub fn parse_fixture_meta(path: &Path) -> FixtureMeta {
                 .collect();
             if !ways.is_empty() {
                 meta.ways = ways;
+                meta.declared_ways = true;
             }
         } else if let Some(value) = comment.strip_prefix("expect:") {
             let value = value.trim();
@@ -212,7 +223,7 @@ pub fn parse_fixture_meta(path: &Path) -> FixtureMeta {
         }
     }
 
-    apply_platform_requirement(&mut meta);
+    apply_platform_requirement(&mut meta, allowed);
     meta
 }
 
@@ -247,7 +258,7 @@ fn parse_skip_way(value: &str) -> Result<Vec<SkipWay>, String> {
 /// would run the fixture on the platform it declared it cannot run on, which is
 /// the failure this directive exists to prevent; skipping loudly costs coverage
 /// on one platform and is visible in the `SKIP` line.
-fn apply_platform_requirement(meta: &mut FixtureMeta) {
+fn apply_platform_requirement(meta: &mut FixtureMeta, allowed: &[String]) {
     let Some(requires) = meta.requires.as_deref() else {
         return;
     };
@@ -257,8 +268,10 @@ fn apply_platform_requirement(meta: &mut FixtureMeta) {
     meta.skip = match requires {
         "unix" => (!cfg!(unix)).then(|| "fixture requires a unix host".to_string()),
         "windows" => (!cfg!(windows)).then(|| "fixture requires a windows host".to_string()),
+        "network" => (!allowed.iter().any(|a| a == "network"))
+            .then(|| "fixture requires network access (--allow network)".to_string()),
         other => Some(format!(
-            "unrecognised `requires: {other}` (expected `unix` or `windows`)"
+            "unrecognised `requires: {other}` (expected `unix`, `windows` or `network`)"
         )),
     };
 }
@@ -311,6 +324,7 @@ mod tests {
 
         let meta = parse_fixture_meta(&path);
         assert_eq!(meta.ways, vec![Way::Vm, Way::Llvm]);
+        assert!(meta.declared_ways);
         assert_eq!(meta.expect, Expect::RuntimeError);
         assert_eq!(meta.expected_errors, vec!["E1004"]);
         assert_eq!(meta.extra_args, Vec::<String>::new());
@@ -334,7 +348,7 @@ mod tests {
             requires: Some(if cfg!(windows) { "windows" } else { "unix" }.to_string()),
             ..Default::default()
         };
-        apply_platform_requirement(&mut meta);
+        apply_platform_requirement(&mut meta, &[]);
         assert_eq!(meta.skip, None);
     }
 
@@ -344,7 +358,7 @@ mod tests {
             requires: Some(if cfg!(windows) { "unix" } else { "windows" }.to_string()),
             ..Default::default()
         };
-        apply_platform_requirement(&mut meta);
+        apply_platform_requirement(&mut meta, &[]);
         assert!(
             meta.skip
                 .as_deref()
@@ -362,12 +376,30 @@ mod tests {
             requires: Some("unixx".to_string()),
             ..Default::default()
         };
-        apply_platform_requirement(&mut meta);
+        apply_platform_requirement(&mut meta, &[]);
         assert!(
             meta.skip.as_deref().is_some_and(|r| r.contains("unixx")),
             "expected the typo to be named, got {:?}",
             meta.skip
         );
+    }
+
+    #[test]
+    fn network_is_skipped_unless_allowed() {
+        let network = || FixtureMeta {
+            requires: Some("network".to_string()),
+            ..Default::default()
+        };
+        let mut meta = network();
+        apply_platform_requirement(&mut meta, &[]);
+        assert!(
+            meta.skip
+                .as_deref()
+                .is_some_and(|r| r.contains("--allow network"))
+        );
+        let mut meta = network();
+        apply_platform_requirement(&mut meta, &["network".to_string()]);
+        assert_eq!(meta.skip, None);
     }
 
     #[test]
@@ -377,7 +409,7 @@ mod tests {
             skip: Some("a real backend gap".to_string()),
             ..Default::default()
         };
-        apply_platform_requirement(&mut meta);
+        apply_platform_requirement(&mut meta, &[]);
         assert_eq!(meta.skip.as_deref(), Some("a real backend gap"));
     }
 
@@ -394,6 +426,7 @@ mod tests {
 
         let meta = parse_fixture_meta(&path);
         assert_eq!(meta.ways, vec![Way::Vm, Way::Llvm]);
+        assert!(!meta.declared_ways);
         assert_eq!(meta.expect, Expect::Success);
         assert_eq!(meta.extra_args, Vec::<String>::new());
         assert!(meta.bug.is_none());

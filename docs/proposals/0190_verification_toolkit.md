@@ -2,7 +2,7 @@
 - Start Date: 2026-10-16
 - Proposal PR:
 - Flux Issue:
-- Status: In progress: S1–S3 done on `feat/verification-toolkit`
+- Status: In progress: S1–S3 done, S4 in its exit checks, on `feat/verification-toolkit`
 - Depends on: [0138](implemented/0138_flux_parity_ways.md) (parity ways and `flux parity-check`), [0188](0188_flux_debugger.md) S6b (the debug parity harness, `// dbg:` fixtures)
 - Relates to: [0188](0188_flux_debugger.md) S9c (`llvm_g` and the guide in `xtask verify`)
 
@@ -26,7 +26,7 @@
   parity, as Csmith and YARPGen do for C compilers (S8). A reducer shrinks what it
   finds (S9).
 
-What S1–S4 found reordered the rest (§16). The cheap checks found the bugs: S1
+What S1–S4 found reordered the rest (§17). The cheap checks found the bugs: S1
 and S2 turned up 11 hidden parity failures, and S4's first run found
 non-deterministic CFG lowering. The 6½ minutes of opt ways found nothing. So
 cheap invariants come next:
@@ -40,6 +40,15 @@ cheap invariants come next:
   top-level definitions, must not change their output (S7), as EMI testing does.
 - **Behaviour against the base compiler** (S10) and **a faster verify** (S11).
 - `// dbg-check:` moves last (S12): debug parity already agrees 21/21.
+
+**The goal is a support census, not only a merge gate** (S16, §16). verify
+executes 427 of the 1,521 `.flx` files in the repository; the rest are only
+compiled. `cargo xtask census` runs every file on `vm`, `llvm`, `vm_opt` and
+`llvm_opt`, sorts each result into a class (works, wrong, expected error,
+rejected, crashed, compile-only, not run), tags each file with the language
+features it uses, and joins every failure to a KI. The result is a feature ×
+way support matrix, as test262.fyi gives for JavaScript engines, and a list of
+unfiled failures. S16 comes first after S4.
 
 A survey of other compilers' checks added three more (§13–§15):
 
@@ -442,7 +451,8 @@ purpose. What they must not change is behaviour.
 verify takes about 22 minutes; main parity is 15 of them, and `parity-check`
 runs one fixture at a time.
 
-- **Parallel fixtures.** `parity-check --jobs N` runs N fixtures at once, each
+- **Parallel fixtures** (moved into S16, which needs them first).
+  `parity-check --jobs N` runs N fixtures at once, each
   with its own ways in sequence, and prints verdicts in fixture order. verify
   passes `--jobs 2` by default and `--jobs` overrides it. Native builds are
   heavy, so the default stays low on purpose.
@@ -556,7 +566,102 @@ The checks:
   `runtime/c` with AddressSanitizer and UndefinedBehaviorSanitizer and runs the
   native ways over `tests/parity`, as Lean's CI runs a sanitizer job.
 
-### §16 Staging
+### §16 Support census
+
+The checks above guard what is already tested. They do not say what Flux
+supports: verify executes 427 of the 1,521 `.flx` files (the four main parity
+directories, `examples/guide` and the debug fixtures). The other files are only
+compiled, on one pipeline. `examples/type_system` (308 files), effects, async,
+aether, `aoc`, `Modules` and `runtime_errors` are never run.
+
+**Why `parity-check` cannot simply be pointed at everything today:**
+
+- It drops every file without `fn main` (455 files) and never reports them
+  (`should_skip_fixture`, `src/parity/cli.rs`).
+- `classify_exit` (`src/parity/runner.rs`) reports a Rust panic as
+  `RuntimeError` and an internal compiler error as `CompileError`, so a crash
+  can compare equal to an ordinary error.
+- `is_native_skip` turns a native failure into SKIP. Its strings ("llvm
+  compilation failed", "unsupported CoreToLlvm") are no longer printed; native
+  prints "native lowering failed", "native module compilation failed" and
+  "llvm module pipeline failed".
+- A file with no header is expected to succeed, so the 20 `runtime_errors`
+  files, which fail on purpose, would count as failures.
+- It runs one file and one way at a time, prints text only, inherits stdin
+  (`tests/replay/fixtures/stdin.flx` blocks until its timeout), and keys its
+  per-file cache by file stem, which collides once files run in parallel.
+- No diagnostic is marked "unsupported". Gaps surface as panics, E998/E999,
+  native-only runtime errors (E1200, E1201), the VM's "native-backend only"
+  error, or the E040 and E308 "not supported" messages.
+
+**Classes,** one per file and way:
+
+| class | meaning |
+|---|---|
+| `works` | succeeds, agrees with the other ways, and matches its expected output |
+| `wrong` | succeeds, but its output differs from another way's or from the expected block |
+| `expected-error` | declared `compile_error` or `runtime_error`, and failed that way with the declared codes |
+| `rejected` | a compile error where success was expected; a **backend gap** when another way of the same file works |
+| `crashed` | a panic, an internal compiler error (E061–E070), E998, Aether verification, a signal, a native lowering or link failure, or a timeout |
+| `compile-only` | no `main`: compiled, not run |
+| `not-run` | `skip:`, an unmet `requires:`, outside the file's `// parity:` line, or `skip-way:` |
+
+**`parity-check` changes:**
+
+- `ExitKind::Crash`, set by `classify_exit` for the crash markers above. It
+  never compares equal to an ordinary error, in plain parity runs too.
+- `is_native_skip` keeps only the debug ways' "lldb is missing" skip. Its other
+  strings were never printed any more; a native compile failure is now a
+  `Crash` or a diagnostic, compared like any other result.
+- Children get a null stdin, so a fixture that reads stdin sees end of input
+  instead of waiting. The cache directory is keyed by the file's whole path.
+- `--jobs N` runs N files at once, each file's ways in sequence, and prints
+  results in file order.
+- `--census <out.tsv>` writes one row per file and way: file, way, exit kind,
+  class, error codes, stdout hash, milliseconds, verdict, KI. Under it, files
+  without `main` run like any other (they compile and exit), with `--root` set
+  above a dotted module name's folders; a file's `// parity:` line limits its
+  ways, by backend, instead of being overridden by `--ways`; benchmarks are
+  listed as not run.
+- `requires: network` joins `unix` and `windows`; it is unmet unless
+  `--allow network` is given.
+
+**Feature tags.** `flux features <file>…` (hidden) parses each file and prints
+its tags, from a walk of its syntax tree (`src/ast/features.rs`): effect annotations, user effects, effect rows, handlers, parameterized
+handlers, sealing, classes, instances,
+deriving, associated types, modules, imports, ADTs, match, nested patterns,
+records, interpolation, lists, arrays, tuples, hashes, closures, recursion,
+do blocks, mutation, annotations, generics, type aliases, `fip`, intrinsics,
+`select` and async. A `// feature: a, -b` header adds or removes tags, as
+test262's `features:` does. The file's directory is a second, coarse tag.
+
+**`cargo xtask census [--tag T] [--jobs N] [--ways W] [--base T] [--allow …] [<dirs>…]`:**
+
+1. Builds flux and runs `parity-check --census` over `examples`, `tests` and
+   `lib` from the repository root, with `--jobs 4` and the ways
+   `vm,llvm,vm_opt,llvm_opt`.
+2. Tags every file with `flux features` (one process for the whole corpus,
+   about 0.2 s).
+3. Parses `docs/known_issues.md`: a heading with "FIXED" or "NOT
+   REPRODUCIBLE" is resolved whatever its section; a fixture path cited in an
+   entry links that entry to the file. Every failing row gets a KI, from its
+   `skip-way:` or a citation, or is listed as **unfiled**.
+4. Writes `.flux-cache/verify/census_<tag>/`: `census.tsv`, `matrix.tsv`
+   (feature × way × class counts), `unfiled.txt`, `summary.txt` and a
+   self-contained `census.html` with a pass rate per way, the matrix coloured
+   by the share that works, the files behind each cell, the backend gaps and
+   the unfiled list.
+5. With `--base T`, lists what newly works and newly fails since census `T`,
+   as crater does.
+
+**Fixture hygiene.** The first census will report files whose headers are
+missing or wrong. They are fixed in their headers, not filed: `expect:
+runtime_error` and codes for `examples/runtime_errors`, the prose `// Expected
+Error:` lines in `examples/diagnostics` turned into `expect-error` headers, and
+`requires: network` or `stdin` on the fixtures that need them. Every remaining
+failure is a bug and gets a KI.
+
+### §17 Staging
 
 | stage | change | exit |
 |---|---|---|
@@ -574,6 +679,7 @@ The checks:
 | S12 | `// dbg-check:` (§5), checks added to all 21 debug fixtures | Debug parity 21/21. Changing one expected local makes both the parity run and `parity_debug_tests` fail. |
 | S13 | `--opt-bisect-limit` and `cargo xtask bisect-opt` (§13) | A planted wrong rewrite in one Core pass, not committed, makes a fixture mismatch under `vm_opt`; `bisect-opt` names that rewrite. With `-1`, the rewrite count is the same on every run. |
 | S14 | `lir::verify`, `--verify-each`, the `vm_verify` way (§14) | Unit tests per LIR rule. A planted malformed rewrite, not committed, fails `--verify-each` naming its pass, where plain parity shows only wrong output. Main parity under `vm_verify` has 0 failures, after fixes or KIs. |
+| S16 | The support census (§16): `ExitKind::Crash`, `--jobs`, `--census`, `requires: network`, `flux features`, `cargo xtask census` | Every file and way in the corpus is classified; every failure has a KI or a header fix, so the unfiled list is empty; the matrix is published. Plain parity over `tests/parity` gives the same verdicts as before, except crashes now reported as such. |
 | S15 | Live blocks at exit, the `llvm_heap` way, expected counts, `cargo xtask sanitize` (§15) | `llvm_heap` over `tests/parity` and `examples/aether` reports 0 leaks, after fixes or KIs. A planted missing `drop`, not committed, fails it with the allocation site. A removed reuse fails an `expect-reuse` fixture. |
 
 S1 comes first, since without it the later stages could fail silently. S2 and S3
@@ -582,8 +688,9 @@ while they are open. S9 needs S8. S6's shuffling and S11's counts need nothing e
 counts in S15 use S11's `--metrics`. The rest are independent of each other.
 
 Stage numbers name the stages; they are not the order of work. The intended
-order is S5, S6, S7, S13, S15, S8, S9, S14, S10, S11, S12: cheap invariants
-first, then the tools that turn a found mismatch into a named cause (S13) and
+order is S16, S5, S6, S7, S13, S15, S8, S9, S14, S10, S11, S12: the census
+first, since the goal is to know what works and what does not, then cheap
+invariants, then the tools that turn a found mismatch into a named cause (S13) and
 the check for the bugs parity cannot see (S15), then the generator.
 
 **Why this order.** The first four stages showed where the bugs are. Counting
@@ -656,6 +763,14 @@ which guards debug output that already agrees 21/21, goes last.
   `lldb-command`/`lldb-check` directives in the test source. This is the model for
   §5.
 - **LLVM, FileCheck.** The ordered-substring semantics used by `dbg-check`.
+- **test262 and test262.fyi.** Each JavaScript conformance test lists the
+  features it uses; every engine runs the whole suite, and the results are
+  shown per feature and per engine. The model for §16's matrix and its
+  `// feature:` header.
+- **Zig, GHC and the Oils spec tests.** Zig reports each backend's share of
+  passing behaviour tests; GHC's `expect_broken(#ticket)` ties each known
+  failure to a ticket and lists the unexpected ones; Oils publishes a table of
+  shells × test cases. The models for §16's per-way rates, KI join and page.
 - **LLVM lit and pytest, `XFAIL`/`XPASS`.** A test marked as failing that
   passes is reported (`XPASS`), and fails under pytest's `strict=True`. This is
   the model for §8.

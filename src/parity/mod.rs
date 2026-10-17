@@ -32,6 +32,7 @@
 //! cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,vm_strict,llvm_strict
 //! ```
 
+pub mod census;
 pub mod cli;
 pub mod debug;
 pub mod fixture;
@@ -53,6 +54,11 @@ pub enum ExitKind {
     RuntimeError,
     Timeout,
     ToolFailure,
+    /// The compiler itself failed: a panic, an internal compiler error, a
+    /// failed IR check, a native lowering or link failure, or a signal. Never
+    /// equal to an ordinary error, so a crash on one way and a diagnostic on
+    /// another is a mismatch.
+    Crash,
 }
 
 impl fmt::Display for ExitKind {
@@ -63,6 +69,7 @@ impl fmt::Display for ExitKind {
             Self::RuntimeError => write!(f, "RuntimeError"),
             Self::Timeout => write!(f, "Timeout"),
             Self::ToolFailure => write!(f, "ToolFailure"),
+            Self::Crash => write!(f, "Crash"),
         }
     }
 }
@@ -382,6 +389,8 @@ pub struct ParityResult {
     pub verdict: Verdict,
     /// Requested ways the fixture's `// skip-way:` lines removed.
     pub skipped_ways: Vec<fixture::SkipWay>,
+    /// How long each way that ran took, in run order.
+    pub elapsed: Vec<(Way, std::time::Duration)>,
 }
 
 #[derive(Debug)]

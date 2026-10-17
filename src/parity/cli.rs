@@ -7,15 +7,21 @@
 //!   --ways <w1,w2,...>     Ways to compare (default: vm,llvm)
 //!   --vm-binary <path>     Path to VM flux binary
 //!   --llvm-binary <path>   Path to native flux binary
-//!   --timeout <secs>       Timeout per file per way (default: 15)
+//!   --timeout <secs>       Timeout per file per way (default: 20)
 //!   --root <path>          Module root (forwarded to flux)
+//!   --jobs <n>             Files checked at once (default: 1)
+//!   --census <file.tsv>    Write one classified row per file and way
+//!   --allow <resource>     Run fixtures that `// requires:` it (network)
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime};
 
-use super::fixture::{Expect, SkipWay, parse_fixture_meta};
+use super::census;
+use super::fixture::{
+    Expect, FixtureMeta, SkipWay, parse_fixture_meta, parse_fixture_meta_allowing,
+};
 use super::normalize::normalize_stderr;
 use super::report::{
     DisplayFilter, cargo_run_for_way, diagnose_mismatch, print_debug_first_failure, print_result,
@@ -79,12 +85,28 @@ pub fn run_parity_check(args: &[String]) {
     print_run_context(&config, &binary_statuses);
 
     // Collect .flx files
-    let files = collect_fixtures(&config.path);
+    let census_mode = config.census.is_some();
+    let files: Vec<PathBuf> = config
+        .paths
+        .iter()
+        .flat_map(|path| collect_fixtures(path, census_mode))
+        .collect();
     if files.is_empty() {
-        eprintln!("Error: no .flx files found in {}", config.path.display());
+        let paths = config
+            .paths
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        eprintln!("Error: no .flx files found in {paths}");
         std::process::exit(1);
     }
-    eprintln!("[parity] fixtures: {}", files.len());
+    let jobs = if config.debug_first_failure {
+        1
+    } else {
+        config.jobs
+    };
+    eprintln!("[parity] fixtures: {} (jobs: {jobs})", files.len());
 
     // `--compile` pre-pass: compile every fixture (populating caches) before
     // starting the parity loop. Bail on the first compilation failure.
@@ -92,77 +114,53 @@ pub fn run_parity_check(args: &[String]) {
         std::process::exit(1);
     }
 
-    // Run parity checks
-    let default_ways = vec![Way::Vm, Way::Llvm];
+    let mut census_out = config.census.as_deref().map(|path| {
+        CensusWriter::create(path).unwrap_or_else(|err| {
+            eprintln!("Error: cannot write {}: {err}", path.display());
+            std::process::exit(1);
+        })
+    });
     let mut results = Vec::new();
     let mut saved_first_failure = false;
 
-    for file in &files {
-        // Use CLI-specified ways, or fall back to per-fixture metadata
-        let ways = config.ways.as_deref().unwrap_or_else(|| {
-            // Leak is avoided by using default_ways for non-metadata case
-            &default_ways
-        });
-        let fixture_meta = parse_fixture_meta(file);
-        let extra_args = merged_fixture_args(&config.extra_args, &fixture_meta.extra_args);
-        let compile_ways;
-        let effective_ways = if config.ways.is_some() {
-            ways
-        } else if config.compile_first && !matches!(fixture_meta.expect, Expect::CompileError) {
-            // --compile: run against warmed caches instead of fresh ways.
-            compile_ways = cached_equivalent_ways(&fixture_meta.ways);
-            &compile_ways
-        } else {
-            &fixture_meta.ways
-        };
-
-        let parity_result = check_file(
-            file,
-            &CheckOpts {
-                ways: effective_ways,
-                vm_binary: &config.vm_binary,
-                llvm_binary: &config.llvm_binary,
-                extra_args: &extra_args,
-                timeout: config.timeout,
-                capture_core: config.capture_core,
-                capture_aether: config.capture_aether,
-                capture_repr: config.capture_repr,
-                capture_cfg: config.capture_cfg,
-                capture_lir: config.capture_lir,
-                compare_surfaces_only: config.compare_surfaces_only,
-                explain: config.explain,
-                expected_stdout: fixture_meta.expected_stdout.as_deref(),
-                expected_stderr: fixture_meta.expected_stderr.as_deref(),
-                expected_errors: &fixture_meta.expected_errors,
-                expect: fixture_meta.expect,
-                skip: fixture_meta.skip.as_deref(),
-                skip_ways: &fixture_meta.skip_ways,
-                meta_errors: &fixture_meta.meta_errors,
-            },
-        );
-        print_result(&parity_result, config.display_filter, config.explain);
-        let is_non_pass = !matches!(parity_result.verdict, Verdict::Pass);
-        if is_non_pass
-            && !saved_first_failure
-            && let Some(dir) = &config.save_debug_dir
-        {
-            if let Err(err) = save_debug_bundle(dir, &parity_result) {
-                eprintln!("[parity] failed to save debug bundle: {err}");
-            } else {
-                eprintln!("[parity] saved first failure bundle to {}", dir.display());
+    run_in_order(
+        &files,
+        jobs,
+        |file| check_one(file, &config),
+        |checked| {
+            let parity_result = checked.result;
+            if let Some(out) = census_out.as_mut() {
+                out.write(&checked.rows);
             }
-            saved_first_failure = true;
-        }
-        let should_stop = config.debug_first_failure && is_non_pass;
-        if should_stop {
-            print_debug_first_failure(&parity_result);
+            print_result(&parity_result, config.display_filter, config.explain);
+            let is_non_pass = !matches!(parity_result.verdict, Verdict::Pass);
+            if is_non_pass
+                && !saved_first_failure
+                && let Some(dir) = &config.save_debug_dir
+            {
+                if let Err(err) = save_debug_bundle(dir, &parity_result) {
+                    eprintln!("[parity] failed to save debug bundle: {err}");
+                } else {
+                    eprintln!("[parity] saved first failure bundle to {}", dir.display());
+                }
+                saved_first_failure = true;
+            }
+            let should_stop = config.debug_first_failure && is_non_pass;
+            if should_stop {
+                print_debug_first_failure(&parity_result);
+            }
             results.push(parity_result);
-            break;
-        }
-        results.push(parity_result);
-    }
+            !should_stop
+        },
+    );
 
     print_summary(&results);
+    if let (Some(out), Some(path)) = (census_out, &config.census) {
+        let rows = out.finish();
+        eprintln!("[parity] census: {rows} row(s) in {}", path.display());
+        // A census records; it never fails on what it finds.
+        return;
+    }
 
     // Exit with appropriate code
     let has_mismatch = results.iter().any(|r| {
@@ -187,6 +185,225 @@ fn cached_equivalent_ways(ways: &[Way]) -> Vec<Way> {
             other => other,
         })
         .collect()
+}
+
+/// One checked file: its parity result and, under `--census`, its rows.
+struct CheckedFile {
+    result: ParityResult,
+    rows: Vec<census::Row>,
+}
+
+/// The ways a census runs when `--ways` is not given.
+const CENSUS_WAYS: [Way; 4] = [Way::Vm, Way::Llvm, Way::VmOpt, Way::LlvmOpt];
+
+/// Checks one file as `config` asks: the ways come from `--ways` or the
+/// file's header, and a census limits them to those the header allows.
+fn check_one(file: &Path, config: &Config) -> CheckedFile {
+    let census_ways: &[Way] = config.ways.as_deref().unwrap_or(&CENSUS_WAYS);
+    if config.census.is_some() && is_bench_or_profile(file) {
+        let reason = "benchmark or profile: not run by the census";
+        return CheckedFile {
+            result: ParityResult {
+                file: file.to_path_buf(),
+                results: Vec::new(),
+                artifacts: Vec::new(),
+                verdict: Verdict::Skip {
+                    reason: reason.to_string(),
+                },
+                skipped_ways: Vec::new(),
+                elapsed: Vec::new(),
+            },
+            rows: census::unrun_rows(file, census_ways, reason),
+        };
+    }
+    let fixture_meta = parse_fixture_meta_allowing(file, &config.allow);
+    let mut extra_args = merged_fixture_args(&config.extra_args, &fixture_meta.extra_args);
+    let has_main = declares_entry_point(file);
+    // A module without `main`, compiled on its own, needs the root its dotted
+    // name is relative to, or it fails with a module path mismatch.
+    if config.census.is_some()
+        && !has_main
+        && let Some(root) = module_root(file)
+    {
+        extra_args.push("--root".to_string());
+        extra_args.push(root.display().to_string());
+    }
+    let effective_ways = ways_for(config, &fixture_meta, census_ways);
+    let result = check_file(
+        file,
+        &CheckOpts {
+            ways: &effective_ways,
+            vm_binary: &config.vm_binary,
+            llvm_binary: &config.llvm_binary,
+            extra_args: &extra_args,
+            timeout: config.timeout,
+            capture_core: config.capture_core,
+            capture_aether: config.capture_aether,
+            capture_repr: config.capture_repr,
+            capture_cfg: config.capture_cfg,
+            capture_lir: config.capture_lir,
+            compare_surfaces_only: config.compare_surfaces_only,
+            explain: config.explain,
+            expected_stdout: fixture_meta.expected_stdout.as_deref(),
+            expected_stderr: fixture_meta.expected_stderr.as_deref(),
+            expected_errors: &fixture_meta.expected_errors,
+            expect: fixture_meta.expect,
+            skip: fixture_meta.skip.as_deref(),
+            skip_ways: &fixture_meta.skip_ways,
+            meta_errors: &fixture_meta.meta_errors,
+            census: config.census.is_some(),
+        },
+    );
+    let rows = if config.census.is_some() {
+        census::rows(&census::Checked {
+            result: &result,
+            meta: &fixture_meta,
+            ways: census_ways,
+            has_main,
+        })
+    } else {
+        Vec::new()
+    };
+    CheckedFile { result, rows }
+}
+
+/// The folder a file's `module A.B.C` name is relative to, when the name has
+/// more than one part and the file sits at `<root>/A/B/C.flx`.
+fn module_root(file: &Path) -> Option<PathBuf> {
+    let source = fs::read_to_string(file).ok()?;
+    let name = source.lines().find_map(|line| {
+        let line = line.trim_start();
+        let line = line.strip_prefix("public ").unwrap_or(line);
+        line.strip_prefix("module ")
+    })?;
+    let name: String = name
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '.' || *c == '_')
+        .collect();
+    let parts: Vec<&str> = name.split('.').collect();
+    if parts.len() < 2 || file.file_stem()?.to_str()? != *parts.last()? {
+        return None;
+    }
+    let mut root = file.parent()?;
+    for part in parts[..parts.len() - 1].iter().rev() {
+        if root.file_name()?.to_str()? != *part {
+            return None;
+        }
+        root = root.parent()?;
+    }
+    Some(root.to_path_buf())
+}
+
+/// The ways to run on one file.
+fn ways_for(config: &Config, meta: &FixtureMeta, census_ways: &[Way]) -> Vec<Way> {
+    if config.census.is_some() {
+        census_ways
+            .iter()
+            .copied()
+            .filter(|&way| census::way_allowed(meta, way))
+            .collect()
+    } else if let Some(ways) = &config.ways {
+        ways.clone()
+    } else if config.compile_first && !matches!(meta.expect, Expect::CompileError) {
+        // --compile: run against warmed caches instead of fresh ways.
+        cached_equivalent_ways(&meta.ways)
+    } else {
+        meta.ways.clone()
+    }
+}
+
+/// Runs `work` on every item, `jobs` at a time, and hands each output to
+/// `done` in item order, as soon as it and every output before it are ready.
+/// `done` returns `false` to stop: no new item starts after that.
+fn run_in_order<T, R>(
+    items: &[T],
+    jobs: usize,
+    work: impl Fn(&T) -> R + Sync,
+    mut done: impl FnMut(R) -> bool,
+) where
+    T: Sync,
+    R: Send,
+{
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    if jobs <= 1 {
+        for item in items {
+            if !done(work(item)) {
+                return;
+            }
+        }
+        return;
+    }
+    let next = AtomicUsize::new(0);
+    let stop = AtomicBool::new(false);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::scope(|scope| {
+        for _ in 0..jobs.min(items.len()) {
+            let sender = sender.clone();
+            let (next, stop, work) = (&next, &stop, &work);
+            scope.spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    let index = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(item) = items.get(index) else {
+                        break;
+                    };
+                    if sender.send((index, work(item))).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+        drop(sender);
+        let mut ready = std::collections::BTreeMap::new();
+        let mut wanted = 0;
+        for (index, output) in receiver {
+            ready.insert(index, output);
+            while let Some(output) = ready.remove(&wanted) {
+                wanted += 1;
+                if !done(output) {
+                    stop.store(true, Ordering::Relaxed);
+                    return;
+                }
+            }
+        }
+    });
+}
+
+/// The census file, written row by row in file order.
+struct CensusWriter {
+    out: std::io::BufWriter<fs::File>,
+    rows: usize,
+}
+
+impl CensusWriter {
+    fn create(path: &Path) -> std::io::Result<Self> {
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            fs::create_dir_all(parent)?;
+        }
+        let mut out = std::io::BufWriter::new(fs::File::create(path)?);
+        std::io::Write::write_all(&mut out, format!("{}\n", census::HEADER).as_bytes())?;
+        Ok(Self { out, rows: 0 })
+    }
+
+    fn write(&mut self, rows: &[census::Row]) {
+        for row in rows {
+            if let Err(err) =
+                std::io::Write::write_all(&mut self.out, format!("{}\n", row.to_tsv()).as_bytes())
+            {
+                eprintln!("[parity] census write failed: {err}");
+                return;
+            }
+            self.rows += 1;
+        }
+    }
+
+    /// Flushes the file and returns how many rows it holds.
+    fn finish(mut self) -> usize {
+        if let Err(err) = std::io::Write::flush(&mut self.out) {
+            eprintln!("[parity] census write failed: {err}");
+        }
+        self.rows
+    }
 }
 
 struct CheckOpts<'a> {
@@ -214,6 +431,9 @@ struct CheckOpts<'a> {
     skip_ways: &'a [SkipWay],
     /// Header lines that could not be understood.
     meta_errors: &'a [String],
+    /// A census run: classify every way, so a single remaining way is still
+    /// run, and skip the dump captures a mismatch otherwise triggers.
+    census: bool,
 }
 
 impl CheckOpts<'_> {
@@ -252,6 +472,7 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         artifacts: vec![],
         verdict,
         skipped_ways,
+        elapsed: Vec::new(),
     };
     if let Some(reason) = opts.skip {
         let reason = reason.to_string();
@@ -266,15 +487,17 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
     }
 
     let (ways, skipped_ways) = apply_skip_ways(opts.ways, opts.skip_ways);
-    let too_few_to_compare = ways.len() < 2 && !opts.declares_expectation();
+    let too_few_to_compare = ways.len() < 2 && !opts.declares_expectation() && !opts.census;
     if !skipped_ways.is_empty() && (ways.is_empty() || too_few_to_compare) {
         let reason = format!("{} way(s) left after skip-way", ways.len());
         return unrun(Verdict::Skip { reason }, skipped_ways);
     }
 
     let mut run_results = Vec::new();
+    let mut elapsed = Vec::new();
 
     for &way in &ways {
+        let started = std::time::Instant::now();
         let result = run_way(
             opts.vm_binary,
             opts.llvm_binary,
@@ -283,6 +506,7 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
             opts.extra_args,
             opts.timeout,
         );
+        elapsed.push((way, started.elapsed()));
         run_results.push(result);
     }
 
@@ -295,6 +519,7 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
                 artifacts: vec![],
                 verdict: Verdict::Skip { reason },
                 skipped_ways,
+                elapsed,
             };
         }
     }
@@ -308,6 +533,7 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
     );
 
     if !opts.capture_core
+        && !opts.census
         && !details.is_empty()
         && run_results.len() >= 2
         && artifacts.is_empty()
@@ -468,6 +694,7 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         artifacts,
         verdict,
         skipped_ways,
+        elapsed,
     }
 }
 
@@ -938,6 +1165,78 @@ fn allowed_strict_compile_error(
 mod tests {
     use super::*;
 
+    #[test]
+    fn parallel_checks_report_in_file_order() {
+        let items: Vec<u64> = (0..40).collect();
+        let mut seen = Vec::new();
+        // Later items finish first, so arrival order is not item order.
+        run_in_order(
+            &items,
+            4,
+            |&n| {
+                std::thread::sleep(Duration::from_millis(40 - n));
+                n
+            },
+            |n| {
+                seen.push(n);
+                true
+            },
+        );
+        assert_eq!(seen, items);
+    }
+
+    #[test]
+    fn stopping_early_reports_nothing_after_the_stop() {
+        let items: Vec<u32> = (0..20).collect();
+        let mut seen = Vec::new();
+        run_in_order(
+            &items,
+            3,
+            |&n| n,
+            |n| {
+                seen.push(n);
+                n < 5
+            },
+        );
+        assert_eq!(seen, [0, 1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn a_dotted_module_is_rooted_above_its_folders() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let file = root.join("examples/runtime_errors/RuntimeErrors/BoundaryUnknown.flx");
+        assert_eq!(
+            module_root(&file),
+            Some(root.join("examples/runtime_errors"))
+        );
+        // A one-part name is already relative to its own folder.
+        let file = root.join("examples/runtime_errors/RuntimeErrors/ExposingRuntimeTarget.flx");
+        assert_eq!(module_root(&file), None);
+    }
+
+    #[test]
+    fn a_census_keeps_the_ways_a_parity_line_allows() {
+        let config = parse_args(&[
+            "x.flx".to_string(),
+            "--census".to_string(),
+            "c.tsv".to_string(),
+        ])
+        .expect("valid arguments");
+        let vm_only = FixtureMeta {
+            ways: vec![Way::Vm],
+            declared_ways: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            ways_for(&config, &vm_only, &CENSUS_WAYS),
+            [Way::Vm, Way::VmOpt]
+        );
+        assert_eq!(
+            ways_for(&config, &FixtureMeta::default(), &CENSUS_WAYS),
+            CENSUS_WAYS
+        );
+    }
+
     /// A support module — no `main` — is not a fixture, and a real fixture is.
     /// Both are checked against the tree so the rule cannot drift from it.
     #[test]
@@ -956,7 +1255,7 @@ mod tests {
     #[test]
     fn every_swept_fixture_declares_an_entry_point() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/parity");
-        let orphans: Vec<_> = collect_fixtures(&root)
+        let orphans: Vec<_> = collect_fixtures(&root, false)
             .into_iter()
             .filter(|path| !declares_entry_point(path))
             .collect();
@@ -1381,18 +1680,6 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
                 );
                 continue;
             }
-            // Distinguish native-unsupported (skip-able) from real compile failure.
-            let is_llvm_skip = matches!(way, Way::Llvm)
-                && (outcome.stderr.contains("llvm compilation failed")
-                    || outcome.stderr.contains("unsupported CoreToLlvm"));
-            if is_llvm_skip {
-                eprintln!(
-                    "\x1b[0;33mCOMPILE SKIP\x1b[0m {} ({}) — native unsupported",
-                    file.display(),
-                    label.as_str()
-                );
-                continue;
-            }
             eprintln!(
                 "\x1b[0;31mCOMPILE FAIL\x1b[0m {} ({}) exit={}",
                 file.display(),
@@ -1478,7 +1765,9 @@ fn merged_fixture_args(global_args: &[String], fixture_args: &[String]) -> Vec<S
     merged
 }
 
-fn collect_fixtures(path: &Path) -> Vec<PathBuf> {
+/// The `.flx` files at `path`. A directory is searched recursively; without
+/// `include_all`, files without `main` and benchmarks are left out.
+fn collect_fixtures(path: &Path, include_all: bool) -> Vec<PathBuf> {
     if path.is_file() {
         if path.extension().and_then(|e| e.to_str()) == Some("flx") {
             return vec![path.to_path_buf()];
@@ -1488,7 +1777,7 @@ fn collect_fixtures(path: &Path) -> Vec<PathBuf> {
 
     if path.is_dir() {
         let mut files = Vec::new();
-        collect_fixtures_recursive(path, &mut files);
+        collect_fixtures_recursive(path, include_all, &mut files);
         files.sort();
         return files;
     }
@@ -1496,7 +1785,7 @@ fn collect_fixtures(path: &Path) -> Vec<PathBuf> {
     vec![]
 }
 
-fn collect_fixtures_recursive(path: &Path, files: &mut Vec<PathBuf>) {
+fn collect_fixtures_recursive(path: &Path, include_all: bool, files: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(path) else {
         return;
     };
@@ -1504,9 +1793,9 @@ fn collect_fixtures_recursive(path: &Path, files: &mut Vec<PathBuf>) {
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            collect_fixtures_recursive(&path, files);
+            collect_fixtures_recursive(&path, include_all, files);
         } else if path.extension().and_then(|e| e.to_str()) == Some("flx")
-            && !should_skip_fixture(&path)
+            && (include_all || !should_skip_fixture(&path))
         {
             files.push(path);
         }
@@ -1528,11 +1817,13 @@ fn collect_fixtures_recursive(path: &Path, files: &mut Vec<PathBuf>) {
 /// Only applies to a directory sweep. A file named explicitly on the command
 /// line is always run, so a support module can still be inspected on purpose.
 fn should_skip_fixture(path: &Path) -> bool {
-    let is_bench_or_profile = path
-        .file_stem()
+    is_bench_or_profile(path) || !declares_entry_point(path)
+}
+
+fn is_bench_or_profile(path: &Path) -> bool {
+    path.file_stem()
         .and_then(|s| s.to_str())
-        .is_some_and(|stem| stem.contains("_bench") || stem.contains("_profile"));
-    is_bench_or_profile || !declares_entry_point(path)
+        .is_some_and(|stem| stem.contains("_bench") || stem.contains("_profile"))
 }
 
 /// Whether a file declares a `main` a parity run could execute.
@@ -1555,7 +1846,13 @@ fn declares_entry_point(path: &Path) -> bool {
 // ── Argument parsing ───────────────────────────────────────────────────────
 
 struct Config {
-    path: PathBuf,
+    paths: Vec<PathBuf>,
+    /// Files checked at once.
+    jobs: usize,
+    /// Where `--census` writes its rows.
+    census: Option<PathBuf>,
+    /// `// requires:` resources this run may use.
+    allow: Vec<String>,
     /// `None` means "use per-fixture metadata, falling back to [Vm, Llvm]".
     ways: Option<Vec<Way>>,
     vm_binary: PathBuf,
@@ -1598,7 +1895,10 @@ struct BinaryStatus {
 }
 
 fn parse_args(args: &[String]) -> Result<Config, String> {
-    let mut path: Option<PathBuf> = None;
+    let mut paths: Vec<PathBuf> = Vec::new();
+    let mut jobs = 1;
+    let mut census: Option<PathBuf> = None;
+    let mut allow = Vec::new();
     let mut ways: Option<Vec<Way>> = None;
     let mut vm_binary = default_vm_binary();
     let mut llvm_binary = default_llvm_binary();
@@ -1654,6 +1954,29 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
                 timeout_secs = args[i]
                     .parse()
                     .map_err(|_| format!("invalid timeout: {}", args[i]))?;
+            }
+            "--jobs" => {
+                i += 1;
+                jobs = args
+                    .get(i)
+                    .and_then(|value| value.parse().ok())
+                    .filter(|&n: &usize| n > 0)
+                    .ok_or("--jobs requires a positive number")?;
+            }
+            "--census" => {
+                i += 1;
+                let path = args.get(i).ok_or("--census requires a file path")?;
+                census = Some(PathBuf::from(path));
+            }
+            "--allow" => {
+                i += 1;
+                let resource = args.get(i).ok_or("--allow requires a resource (network)")?;
+                if resource != "network" {
+                    return Err(format!(
+                        "unknown --allow resource: {resource} (use network)"
+                    ));
+                }
+                allow.push(resource.clone());
             }
             "--capture-core" => {
                 capture_core = true;
@@ -1724,10 +2047,7 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
                 extra_args.push(args[i].clone());
             }
             arg if !arg.starts_with('-') => {
-                if path.is_some() {
-                    return Err(format!("unexpected argument: {arg}"));
-                }
-                path = Some(PathBuf::from(arg));
+                paths.push(PathBuf::from(arg));
             }
             other => {
                 return Err(format!("unknown option: {other}"));
@@ -1736,7 +2056,9 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
         i += 1;
     }
 
-    let path = path.ok_or("missing file or directory argument")?;
+    if paths.is_empty() {
+        return Err("missing file or directory argument".to_string());
+    }
 
     if explain {
         capture_core = true;
@@ -1773,7 +2095,10 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
     }
 
     Ok(Config {
-        path,
+        paths,
+        jobs,
+        census,
+        allow,
         ways,
         vm_binary,
         llvm_binary,
@@ -1799,7 +2124,7 @@ fn print_usage() {
     eprintln!(
         "\
 Usage:
-  flux parity-check <file-or-dir> [options]
+  flux parity-check <file-or-dir>... [options]
 
 Options:
   --ways <w1,w2,...>     Ways to compare (default: vm,llvm)
@@ -1822,6 +2147,11 @@ Options:
   --llvm-binary <path>   Path to native binary (default: {})
   --timeout <secs>       Timeout per file per way (default: {DEFAULT_TIMEOUT_SECS})
   --root <path>          Module root (forwarded to flux, can repeat)
+  --jobs <n>             Check n files at once; results still print in file order (default: 1)
+  --census <file.tsv>    Support census: run every .flx file, including those without main,
+                         on vm,llvm,vm_opt,llvm_opt (or --ways) within each file's `// parity:`
+                         line, and write one classified row per file and way. Never fails.
+  --allow network        Run fixtures marked `// requires: network`
 
 Binaries are rebuilt automatically when missing or stale.
 Use --rebuild to force a refresh:
@@ -1985,7 +2315,13 @@ fn max_system_time(a: Option<SystemTime>, b: Option<SystemTime>) -> Option<Syste
 }
 
 fn print_run_context(config: &Config, statuses: &[BinaryStatus]) {
-    eprintln!("[parity] target: {}", config.path.display());
+    let targets = config
+        .paths
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(" ");
+    eprintln!("[parity] target: {targets}");
     match &config.ways {
         Some(ways) => {
             let way_list = ways
