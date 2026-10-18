@@ -1,4 +1,5 @@
 use crate::core::{CoreBinder, CoreExpr, CorePrimOp};
+use crate::shared::opt_bisect;
 
 use super::{
     helpers::{expr_size, is_pure, subst},
@@ -30,7 +31,12 @@ pub fn disciplined_inline(expr: CoreExpr) -> CoreExpr {
                     body: Box::new(body),
                     span,
                 }
-            } else if count == 0 && is_pure(&rhs) {
+            } else if count == 0
+                && is_pure(&rhs)
+                && opt_bisect::allow("disciplined_inline", || {
+                    "drop a pure let nothing uses".to_string()
+                })
+            {
                 body
             } else if count == 0 {
                 CoreExpr::Let {
@@ -43,6 +49,9 @@ pub fn disciplined_inline(expr: CoreExpr) -> CoreExpr {
                 && !preserves_call_boundary
                 && ((count == 1 && !occurs_under_lambda(var.id, &body))
                     || expr_size(&rhs) <= INLINE_THRESHOLD)
+                && opt_bisect::allow("disciplined_inline", || {
+                    format!("inline a let into {count} use(s)")
+                })
             {
                 disciplined_inline(subst(body, var.id, &rhs))
             } else {

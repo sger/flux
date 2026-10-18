@@ -1,3 +1,4 @@
+use crate::core::{CoreBinder, CoreExpr, CoreLit, CorePat, CoreTag};
 /// Case-of-known-constructor pass.
 ///
 /// Reduces `Case(Con(tag, fields), alts)` and `Case(Lit(l), alts)` when the
@@ -11,7 +12,7 @@
 /// Case(Con(Some, [Lit(42)]), [Con(Some, [Var(x)]) → x])  →  Lit(42)
 /// Case(Lit(true), [Lit(true) → a, Wildcard → b])          →  a
 /// ```
-use crate::core::{CoreBinder, CoreExpr, CoreLit, CorePat, CoreTag};
+use crate::shared::opt_bisect;
 
 use super::helpers::{bind_pattern, map_children};
 
@@ -38,8 +39,13 @@ pub fn case_of_known_constructor(expr: CoreExpr) -> CoreExpr {
                         if let Some(bindings) = match_con_pat(&alt.pat, tag, fields) {
                             match &alt.guard {
                                 Some(CoreExpr::Lit(CoreLit::Bool(false), _)) => continue,
-                                Some(CoreExpr::Lit(CoreLit::Bool(true), _)) | None => {}
-                                Some(_) => {
+                                // A bisected run past its limit (0190 §13)
+                                // keeps the case, as for an undecided guard.
+                                Some(CoreExpr::Lit(CoreLit::Bool(true), _)) | None
+                                    if opt_bisect::allow("case_of_known_constructor", || {
+                                        "select the arm a known value matches".to_string()
+                                    }) => {}
+                                _ => {
                                     return CoreExpr::Case {
                                         scrutinee: Box::new(scrutinee),
                                         alts,
@@ -66,8 +72,13 @@ pub fn case_of_known_constructor(expr: CoreExpr) -> CoreExpr {
                         if let Some(bindings) = match_lit_pat(&alt.pat, &lit, lit_span) {
                             match &alt.guard {
                                 Some(CoreExpr::Lit(CoreLit::Bool(false), _)) => continue,
-                                Some(CoreExpr::Lit(CoreLit::Bool(true), _)) | None => {}
-                                Some(_) => {
+                                // A bisected run past its limit (0190 §13)
+                                // keeps the case, as for an undecided guard.
+                                Some(CoreExpr::Lit(CoreLit::Bool(true), _)) | None
+                                    if opt_bisect::allow("case_of_known_constructor", || {
+                                        "select the arm a known value matches".to_string()
+                                    }) => {}
+                                _ => {
                                     return CoreExpr::Case {
                                         scrutinee: Box::new(scrutinee),
                                         alts,

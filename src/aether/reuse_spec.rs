@@ -1,6 +1,7 @@
 use crate::core::{CoreBinderId, CorePat, CoreTag, CoreVarRef};
 
 use super::{AetherExpr, reuse_analysis::ReuseEnv};
+use crate::shared::opt_bisect;
 
 type CoreExpr = AetherExpr;
 
@@ -238,9 +239,16 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
                 .map(|field| specialize_with_env(field, env))
                 .collect();
             let decision = decide_specialization(&token, &tag, &fields, env);
+            // A bisected run past its limit (0190 §13) writes every field.
             let field_mask = match decision {
-                ReuseSpecDecision::PlainReuse => None,
-                ReuseSpecDecision::SelectiveWrite { field_mask, .. } => Some(field_mask),
+                ReuseSpecDecision::SelectiveWrite { field_mask, .. }
+                    if opt_bisect::allow("reuse_spec", || {
+                        "write only the fields that change".to_string()
+                    }) =>
+                {
+                    Some(field_mask)
+                }
+                ReuseSpecDecision::SelectiveWrite { .. } | ReuseSpecDecision::PlainReuse => None,
             };
             CoreExpr::Reuse {
                 token,
@@ -484,9 +492,16 @@ fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
                 .map(|field| specialize_with_env_aether(field, env))
                 .collect();
             let decision = decide_specialization(&token, &tag, &fields, env);
+            // A bisected run past its limit (0190 §13) writes every field.
             let field_mask = match decision {
-                ReuseSpecDecision::PlainReuse => None,
-                ReuseSpecDecision::SelectiveWrite { field_mask, .. } => Some(field_mask),
+                ReuseSpecDecision::SelectiveWrite { field_mask, .. }
+                    if opt_bisect::allow("reuse_spec", || {
+                        "write only the fields that change".to_string()
+                    }) =>
+                {
+                    Some(field_mask)
+                }
+                ReuseSpecDecision::SelectiveWrite { .. } | ReuseSpecDecision::PlainReuse => None,
             };
             AetherExpr::Reuse {
                 token,

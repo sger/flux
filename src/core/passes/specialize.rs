@@ -1,4 +1,5 @@
 use crate::core::{CoreBinder, CoreExpr, CorePrimOp};
+use crate::shared::opt_bisect;
 
 use super::{
     helpers::{is_pure, subst},
@@ -22,6 +23,9 @@ pub fn specialize_known_shapes(expr: CoreExpr) -> CoreExpr {
                 && occurs_as_callee(var.id, &body)
                 && is_specializable_rhs(&rhs)
                 && is_pure(&rhs)
+                && opt_bisect::allow("specialize_known_shapes", || {
+                    "inline a wrapper into its one call".to_string()
+                })
             {
                 specialize_known_shapes(subst(body, var.id, &rhs))
             } else {

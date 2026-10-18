@@ -5,6 +5,7 @@
 //! `Reuse(x, tag, fields)` which reuses x's allocation if uniquely owned.
 
 use crate::core::{CoreBinderId, CorePat, CoreTag, CoreVarRef};
+use crate::shared::opt_bisect;
 
 use super::reuse_analysis::rewrite_drop_body;
 use super::{AetherExpr, into_constructor_shape_for_tag_aether};
@@ -72,10 +73,26 @@ fn rewrite_with_ctx(
             {
                 return body;
             }
+            // A bisected run (0190 §13) may have to keep the drop, so it keeps
+            // the body as it was; other runs do not pay for the copy.
+            let before = opt_bisect::is_active().then(|| body.clone());
             let rewritten =
                 rewrite_drop_body(&var, body, span, pat_binders, pat_tag, blocked_outer_token);
             if rewritten.reused {
-                return rewritten.expr;
+                match before {
+                    Some(before)
+                        if !opt_bisect::allow("reuse", || {
+                            "reuse a dropped cell for a new one".to_string()
+                        }) =>
+                    {
+                        return CoreExpr::Drop {
+                            var,
+                            body: Box::new(before),
+                            span,
+                        };
+                    }
+                    _ => return rewritten.expr,
+                }
             }
             CoreExpr::Drop {
                 var,

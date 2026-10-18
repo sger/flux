@@ -45,6 +45,7 @@ use crate::diagnostics::compiler_errors::CORE_LINT_FAILURE;
 use crate::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, ErrorType, diagnostic_for,
 };
+use crate::shared::opt_bisect;
 use crate::syntax::interner::Interner;
 
 // ── Pass pipeline ─────────────────────────────────────────────────────────────
@@ -165,6 +166,7 @@ fn run_semantic_core_passes_with_optional_interner(
             .sum();
 
         for def in &mut program.defs {
+            opt_bisect::set_def(|| opt_bisect::def_name(def.name, interner));
             let e = std::mem::replace(&mut def.expr, sentinel.clone());
             let e = beta_reduce(e);
             verify_aether_contract_stage(def, &e, "beta_reduce")?;
@@ -204,6 +206,22 @@ fn run_semantic_core_passes_with_optional_interner(
                 .sum();
             if size_after == size_before {
                 break;
+            }
+        }
+    }
+
+    // `cargo xtask bisect-opt` diffs one definition between two limits
+    // (0190 §13).
+    if let Some(interner) = interner
+        && opt_bisect::is_active()
+    {
+        for def in &program.defs {
+            if opt_bisect::shows(&opt_bisect::def_name(def.name, Some(interner))) {
+                eprintln!(
+                    "opt-bisect-show: core {}\n{}\nopt-bisect-show: end",
+                    opt_bisect::def_name(def.name, Some(interner)),
+                    crate::core::display::display_expr_readable(&def.expr, interner)
+                );
             }
         }
     }

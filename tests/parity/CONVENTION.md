@@ -235,6 +235,19 @@ Not allowed: strict mode producing different output when both succeed.
 
 ### 7. For optimizer mismatches
 
+First let the compiler name the rewrite. `bisect-opt` numbers every
+optimizing rewrite (`--opt-bisect-limit`), binary-searches for the first one
+that makes the opt way differ from its plain way, and shows that rewrite's
+definition without it and with it:
+
+```bash
+cargo xtask bisect-opt path/to/failing.flx --way vm_opt   # or llvm_opt
+```
+
+If it reports that the difference remains with every counted rewrite
+skipped, the cause is the simplifier's extra rounds, LLVM's own `-O2`
+(`llvm_opt`), or a pass that is not counted. Then compare dumps:
+
 ```bash
 cargo run -- parity-check path/to/failing.flx --ways vm,vm_opt
 cargo run -- path/to/failing.flx --dump-core > plain.core

@@ -578,22 +578,62 @@ An opt-way mismatch (§3) says the optimizer broke a program, not which of its
 rewrites did. LLVM's `-opt-bisect-limit` answers that by numbering rewrites.
 
 - **A rewrite counter.** `--opt-bisect-limit <n>` (hidden; also
-  `FLUX_OPT_BISECT`) numbers every optimizing rewrite as it is about to fire:
-  each Core pass under `src/core/passes/` that changes a term (inlining, beta,
-  case-of-case, constant folding, specialization, dead `let`), and each Aether
-  reuse, drop specialization and fusion. A rewrite numbered above `n` is
-  skipped. Passes needed for correctness, such as ANF, dictionary elaboration
-  and Aether's dup/drop insertion, are never counted or skipped.
+  `FLUX_OPT_BISECT`; `src/shared/opt_bisect.rs`) numbers every optimizing
+  rewrite as it is about to fire, and skips those numbered above `n`, so `0`
+  runs none of them. Each fire site asks `opt_bisect::allow(pass, what)` and,
+  when told no, keeps the term as it was. What is counted:
+  - Core simplification (`src/core/passes/`): beta, case-of-case,
+    case-of-known-constructor, known-shape specialization, algebraic
+    identities, constant folding, both let inliners, dead `let`;
+  - the AST rewrites `--optimize` adds: desugaring, constant folding, and the
+    type-informed fold's dead branches, constant propagation and inlining;
+  - Aether: drop specialization (with the reuse on its unique path, which has
+    no drop left to fall back on), dup/drop fusion, reuse, and selective field
+    writes.
+
+  Not counted, since a program is wrong without them or they are shared
+  across modules: builtin promotion, canonicalization, ANF, dictionary and
+  evidence passes, dup/drop insertion and borrow inference.
+- **The same numbers on every run.** The counter is process-wide, and with a
+  limit set the process builds rayon's pool with one thread, so modules
+  compile, and rewrites are numbered, in one order. Native compiles a module
+  more than once; each compile numbers its own rewrites, in order. Without a
+  limit, `allow` is one read and always says yes, so ordinary builds are
+  unchanged.
 - **`--opt-bisect-limit -1`** runs everything and prints one line per rewrite to
-  stderr: `opt-bisect: 412 inline `map` into `main` (src/core/passes/inline.rs)`.
-- **`cargo xtask bisect-opt <fixture> [--way vm_opt|llvm_opt]`** finds the
-  number of rewrites `r`, then binary-searches `n` in `0..=r` for the smallest
-  value at which the opt way's output differs from the plain way's. It prints
-  that rewrite's line, and the Core of the function it rewrote with `n - 1` and
-  with `n`. That is about log2(r) runs; a fixture with 5,000 rewrites needs 13.
+  stderr: `opt-bisect: 49 constant_fold: fold IAdd in main (<module>)`. An AST
+  rewrite names only its module, since it comes before Core.
+  `FLUX_OPT_BISECT_SHOW=<def>` prints that definition's Core after the Core
+  passes and its Aether after Aether.
+- **`cargo xtask bisect-opt <fixture> [--way vm_opt|llvm_opt]`** runs the plain
+  way as the reference, then the opt way with `-1` twice. Two different lists
+  of rewrites stop it as non-deterministic. If the full opt run already
+  behaves like the plain one, there is nothing to bisect. If the run with
+  limit 0 still differs, the cause is outside the counted rewrites: the
+  simplifier's extra rounds, LLVM's own `-O2` under `llvm_opt`, or an
+  uncounted pass. Otherwise it binary-searches for the smallest limit whose
+  run differs, about log2(r) runs, and reports that rewrite's line and a
+  diff of its definition with the limit one below and at it. The report is
+  in `.verify/bisect_<name>/report.txt`. "Behaves the same" is the same exit
+  code, the same stdout, and the same stderr when the run failed.
 - **Where it fits.** CONVENTION.md's debugging guide gains it as the first step
-  for an `OptModeMismatch`, and the fuzz driver (§6) runs it on each mismatch
+  for an opt-mode mismatch, and the fuzz driver (§6) runs it on each mismatch
   under `--optimize`.
+
+**What S13 found.** Optimizing rewrites are rare in the fixtures' own code:
+`stdlib_pipelines.flx` has 119 with `--optimize` on the VM, nearly all in
+`Flow`. Across `tests/parity`, the 20 most frequent kinds add up to about 190
+rewrites in the fixtures' own code; the inliners and the AST constant fold
+lead, and Core constant folding fires there 7 times.
+The exit check planted a wrong `IAdd` fold, active only under `--optimize`.
+`parity-check tests/parity --ways vm,vm_opt` reported no mismatch, which led to
+[KI-118](../known_issues.md#ki-118): on the VM, `main`'s own body does not go
+through the Core simplifier, and the fixture that should have caught the plant
+has all its code in `main`. With the same code in a function
+(`tests/parity/core_inline_outside_main.flx`), `bisect-opt` named the planted
+rewrite in 11 runs: `opt-bisect: 50 constant_fold: fold IAdd in f`, the diff
+showing `IAdd(41, 1)` become `43`, on `vm_opt` in about a second. On `llvm_opt`
+it named rewrite 150, the same fold in the last of native's compiles of `f`.
 
 ### §14 IR checks after every pass
 
@@ -809,7 +849,7 @@ each joined to an open KI:
 | S10 | `verify --behaviour` (§11) | A planted change to a `print` builtin's output, not committed, fails it and names the files; a no-op change passes. |
 | S11 | `parity-check --jobs`, opt ways on optimizer changes, per-fixture times, `verify --quick` (§12) | Main parity with `--jobs 2` gives the same verdicts as `--jobs 1`, faster; the times are recorded here. A planted slowdown in one fixture is listed. |
 | S12 | `// dbg-check:` (§5), checks added to all 21 debug fixtures | Debug parity 21/21. Changing one expected local makes both the parity run and `parity_debug_tests` fail. |
-| S13 | `--opt-bisect-limit` and `cargo xtask bisect-opt` (§13) | A planted wrong rewrite in one Core pass, not committed, makes a fixture mismatch under `vm_opt`; `bisect-opt` names that rewrite. With `-1`, the rewrite count is the same on every run. |
+| S13 | `--opt-bisect-limit` and `cargo xtask bisect-opt` (§13) | A planted wrong rewrite in one Core pass, not committed, makes a fixture mismatch under `vm_opt`; `bisect-opt` names that rewrite. With `-1`, the rewrite count is the same on every run. (Done before verify: a wrong `IAdd` fold, opt-only, named as `constant_fold: fold IAdd in f` in 11 runs; `-1` gives identical lines on two runs, VM and native.) |
 | S14 | `lir::verify`, `--verify-each`, the `vm_verify` way (§14) | Unit tests per LIR rule. A planted malformed rewrite, not committed, fails `--verify-each` naming its pass, where plain parity shows only wrong output. Main parity under `vm_verify` has 0 failures, after fixes or KIs. |
 | S16 ✓ | The support census (§16): `ExitKind::Crash`, `--jobs`, `--census`, `requires: network`, `flux features`, `cargo xtask census` | Every file and way in the corpus is classified; every failure has a KI or a header fix, so the unfiled list is empty; the matrix is published. Plain parity over `tests/parity` gives the same verdicts as before, except crashes now reported as such. |
 | S15 | Live blocks at exit, the `llvm_heap` way, expected counts, `cargo xtask sanitize` (§15) | `llvm_heap` over `tests/parity` and `examples/aether` reports 0 leaks, after fixes or KIs. A planted missing `drop`, not committed, fails it with the allocation site. A removed reuse fails an `expect-reuse` fixture. |

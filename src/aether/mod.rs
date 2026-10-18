@@ -36,6 +36,7 @@ use crate::core::{
     CoreTag, CoreTopLevelItem, CoreType, CoreVarRef,
 };
 use crate::diagnostics::position::Span;
+use crate::shared::opt_bisect;
 use crate::syntax::{Identifier, interner::Interner, statement::FipAnnotation};
 
 // Aether's builtin-effect classifier was retired as part of Proposal 0161.
@@ -1048,21 +1049,40 @@ pub fn lower_core_to_aether_program(
         .defs
         .iter()
         .cloned()
-        .map(|def| AetherDef {
-            name: def.name,
-            binder: def.binder,
-            expr: run_aether_def_with_registry(
+        .map(|def| {
+            // Only a bisected run (0190 §13) names its definitions.
+            let bisected =
+                opt_bisect::is_active().then(|| opt_bisect::def_name(def.name, interner));
+            if let Some(name) = &bisected {
+                opt_bisect::set_def(|| name.clone());
+            }
+            let expr = run_aether_def_with_registry(
                 AetherExpr::from_core(def.expr),
                 &borrow_registry,
                 def.borrow_signature.as_ref(),
-            ),
-            is_dict_def: def.is_dict_def,
-            borrow_signature: def.borrow_signature,
-            result_ty: def.result_ty,
-            is_anonymous: def.is_anonymous,
-            is_recursive: def.is_recursive,
-            fip: def.fip,
-            span: def.span,
+            );
+            // `cargo xtask bisect-opt` diffs one definition between two
+            // limits.
+            if let (Some(interner), Some(name)) = (interner, &bisected)
+                && opt_bisect::shows(name)
+            {
+                eprintln!(
+                    "opt-bisect-show: aether {name}\n{}\nopt-bisect-show: end",
+                    display::display_expr_readable(&expr, interner)
+                );
+            }
+            AetherDef {
+                name: def.name,
+                binder: def.binder,
+                expr,
+                is_dict_def: def.is_dict_def,
+                borrow_signature: def.borrow_signature,
+                result_ty: def.result_ty,
+                is_anonymous: def.is_anonymous,
+                is_recursive: def.is_recursive,
+                fip: def.fip,
+                span: def.span,
+            }
         })
         .collect();
 

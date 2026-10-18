@@ -1,5 +1,6 @@
 use crate::ast::fold::{self, Folder};
 use crate::ast::visit::{self, Visitor};
+use crate::shared::opt_bisect;
 use crate::syntax::{expression::Expression, interner::Interner, program::Program};
 use crate::types::{infer_type::InferType, type_constructor::TypeConstructor};
 use std::borrow::Cow;
@@ -43,7 +44,10 @@ impl Folder for DesugarPass {
                 ref operator,
                 right: ref inner,
                 ..
-            } if operator == "!" && is_syntactically_bool(inner) => {
+            } if operator == "!"
+                && is_syntactically_bool(inner)
+                && opt_bisect::allow("desugar", || "drop a double `!`".to_string()) =>
+            {
                 let Expression::Prefix { right: inner, .. } = *right else {
                     unreachable!()
                 };
@@ -57,7 +61,9 @@ impl Folder for DesugarPass {
                 right,
                 span: infix_span,
                 id: infix_id,
-            } if operator == "==" || operator == "!=" => {
+            } if (operator == "==" || operator == "!=")
+                && opt_bisect::allow("desugar", || format!("flip `!(a {operator} b)`")) =>
+            {
                 let flipped = if operator == "==" { "!=" } else { "==" };
                 Expression::Infix {
                     left,
@@ -95,6 +101,8 @@ fn is_syntactically_bool(expr: &Expression) -> bool {
 
 /// Apply desugaring rules to a program.
 pub fn desugar(program: Program) -> Program {
+    // Its rewrites belong to no Core definition (0190 §13).
+    opt_bisect::set_def(String::new);
     let mut pass = DesugarPass;
     pass.fold_program(program)
 }

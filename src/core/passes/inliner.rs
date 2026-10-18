@@ -8,6 +8,7 @@
 ///
 /// Recursive (`LetRec`) bindings are never inlined (would create infinite expansion).
 use crate::core::{CoreBinderId, CoreExpr, CorePat};
+use crate::shared::opt_bisect;
 
 use super::helpers::{can_discard, expr_size, is_pure, map_children, subst};
 use super::keep;
@@ -43,7 +44,10 @@ pub fn inline_lets(expr: CoreExpr) -> CoreExpr {
                     body: Box::new(body),
                     span,
                 }
-            } else if count == 0 && can_discard(&rhs) {
+            } else if count == 0
+                && can_discard(&rhs)
+                && opt_bisect::allow("inline_lets", || "drop a let nothing uses".to_string())
+            {
                 // Dead binding — drop it. Proposal 0161 Phase 3: `CanFail`
                 // primops (`10 / n`, `arr[i]`) are also droppable here because
                 // the binding was unused, so the failure was never observed.
@@ -60,6 +64,7 @@ pub fn inline_lets(expr: CoreExpr) -> CoreExpr {
                 && !occurs_under_lambda(var.id, &body)
                 && is_pure(&rhs)
                 && !preserves_call_boundary
+                && opt_bisect::allow("inline_lets", || "inline a let used once".to_string())
             {
                 // Used exactly once, not under a lambda, and pure — safe to
                 // inline regardless of size (no code duplication, no work
@@ -68,6 +73,9 @@ pub fn inline_lets(expr: CoreExpr) -> CoreExpr {
             } else if expr_size(&rhs) <= INLINE_THRESHOLD
                 && is_pure(&rhs)
                 && !preserves_call_boundary
+                && opt_bisect::allow("inline_lets", || {
+                    format!("inline a small let into {count} use(s)")
+                })
             {
                 // Small pure RHS — inline even if used multiple times.
                 inline_lets(subst(body, var.id, &rhs))

@@ -19,6 +19,7 @@ use crate::aether::AetherExpr;
 use crate::aether::analysis::use_counts_aether;
 use crate::core::{CoreBinder, CoreVarRef};
 use crate::diagnostics::position::Span;
+use crate::shared::opt_bisect;
 
 type CoreExpr = AetherExpr;
 
@@ -291,6 +292,7 @@ fn fuse_prefix(expr: CoreExpr) -> CoreExpr {
             if let PrefixElem::Rc(RcOp::Dup(ref dup_var, _)) = elems[j]
                 && same_var(dup_var, drop_var)
                 && can_cross_pure_wrappers(drop_var, &elems[j + 1..i])
+                && opt_bisect::allow("fusion", || "cancel a dup against a drop".to_string())
             {
                 cancelled[i] = true;
                 cancelled[j] = true;
@@ -313,6 +315,7 @@ fn fuse_prefix(expr: CoreExpr) -> CoreExpr {
             if let PrefixElem::Rc(RcOp::Drop(ref drop_var, _)) = elems[j]
                 && same_var(dup_var, drop_var)
                 && can_cross_pure_wrappers(dup_var, &elems[j + 1..i])
+                && opt_bisect::allow("fusion", || "cancel a dup against a drop".to_string())
             {
                 cancelled[i] = true;
                 cancelled[j] = true;

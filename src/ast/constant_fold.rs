@@ -1,6 +1,7 @@
 use crate::ast::fold::{self, Folder};
 use crate::core::CorePrimOp;
 use crate::diagnostics::position::Span;
+use crate::shared::opt_bisect;
 use crate::syntax::expression::ExprId;
 use crate::syntax::interner::Interner;
 use crate::syntax::{expression::Expression, program::Program};
@@ -32,7 +33,9 @@ impl Folder for ConstantFolder<'_> {
                 span,
                 id,
             } => {
-                if let Some(folded) = try_fold_infix(left, operator, right, span, id) {
+                if let Some(folded) = try_fold_infix(left, operator, right, span, id)
+                    && opt_bisect::allow("ast_constant_fold", || format!("fold `{operator}`"))
+                {
                     return folded;
                 }
                 expr
@@ -43,7 +46,11 @@ impl Folder for ConstantFolder<'_> {
                 span,
                 id,
             } => {
-                if let Some(folded) = try_fold_prefix(operator, right, span, id) {
+                if let Some(folded) = try_fold_prefix(operator, right, span, id)
+                    && opt_bisect::allow("ast_constant_fold", || {
+                        format!("fold prefix `{operator}`")
+                    })
+                {
                     return folded;
                 }
                 expr
@@ -57,6 +64,7 @@ impl Folder for ConstantFolder<'_> {
                 if let Some(interner) = self.interner
                     && let Some(folded) =
                         try_fold_pure_primop_call(interner, function, arguments, span, id)
+                    && opt_bisect::allow("ast_constant_fold", || "fold a pure call".to_string())
                 {
                     return folded;
                 }
@@ -382,12 +390,16 @@ fn fold_min_max(
 
 /// Apply constant folding to a program (without primop folding).
 pub fn constant_fold(program: Program) -> Program {
+    // Its rewrites belong to no Core definition (0190 §13).
+    opt_bisect::set_def(String::new);
     let mut folder = ConstantFolder { interner: None };
     folder.fold_program(program)
 }
 
 /// Apply constant folding with identifier-aware pure-primop folding.
 pub fn constant_fold_with_interner(program: Program, interner: &Interner) -> Program {
+    // Its rewrites belong to no Core definition (0190 §13).
+    opt_bisect::set_def(String::new);
     let mut folder = ConstantFolder {
         interner: Some(interner),
     };
