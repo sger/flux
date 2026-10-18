@@ -2141,6 +2141,7 @@ impl Compiler {
         define_dictionaries: bool,
         pre_pass_core: Option<&mut Option<crate::core::CoreProgram>>,
     ) -> Result<(crate::core::CoreProgram, Vec<crate::core::InlineSite>), Diagnostic> {
+        crate::shared::opt_bisect::set_module(&self.file_path);
         let class_env_ref = if self.class_env.classes.is_empty() {
             None
         } else {
@@ -6808,6 +6809,7 @@ impl Compiler {
         optimize: bool,
         analyze: bool,
     ) -> Result<(), Vec<Diagnostic>> {
+        crate::shared::opt_bisect::set_module(&self.file_path);
         // Pointer-identity invariant for HM ExprTypeMap:
         // HM expression IDs are keyed by expression allocation addresses from the
         // Program passed to `compile`. All AST rewrites must happen before this call.

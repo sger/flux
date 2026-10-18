@@ -42,6 +42,33 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-118 — On the VM, `main`'s own body is not run through the Core simplifier
+
+**Severity:** Low · **Area:** VM, optimizer coverage · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S13, the `--opt-bisect-limit` exit check
+
+With a wrong `IAdd` fold planted in `src/core/passes/const_fold.rs`, active
+only under `--optimize`, `tests/parity/core_disciplined_inline.flx` printed:
+
+```
+$ flux --no-cache --optimize tests/parity/core_disciplined_inline.flx            # vm_opt
+42
+$ flux --no-cache --native --optimize tests/parity/core_disciplined_inline.flx   # llvm_opt
+43
+```
+
+The fold fired in `main` (`opt-bisect: 49 constant_fold: fold IAdd in main`),
+and `main`'s Core and Aether after the passes both held the planted `43`, but
+the VM printed `42` and its CFG has no folded literal. Moved into a function
+`f` that `main` calls, the same code printed `43` on the VM too, so the VM
+runs the simplified Core for other functions but not for `main`'s body.
+
+No program prints anything wrong because of this. The cost is coverage:
+`vm_opt` never checks an optimization inside `main`, where many fixtures put
+all their code (with the plant above, `parity-check tests/parity --ways
+vm,vm_opt` reported no mismatch). `tests/parity/core_inline_outside_main.flx`
+puts the same shape in a function so `vm_opt` sees it. Not yet known: where
+the VM compiles `main` from instead.
+
 ### KI-117 — A top-level function written after its caller is typed from the call
 
 **Severity:** Medium · **Area:** Type and effect inference · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind reorder` · **Issue:** [#17](https://forgejo.spirosgerokostas.com/sger/flux/issues/17)

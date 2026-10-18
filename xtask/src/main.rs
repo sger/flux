@@ -31,10 +31,15 @@
 //!     rewrite each fixture (default tests/parity and examples/guide) in
 //!     ways that cannot change its output, and check the copies against the
 //!     original's output with parity-check; outputs in .verify/rewrite_<seed>/
+//! cargo xtask bisect-opt <fixture> [--way vm_opt|llvm_opt] [--timeout <seconds>]
+//!                        [--flux <path>]
+//!     find the optimizing rewrite that makes the opt way differ from the
+//!     plain way, with --opt-bisect-limit; report in .verify/bisect_<name>/
 //! ```
 //!
 //! Relative paths are taken from the repository root.
 
+mod bisect;
 mod census;
 mod compare;
 mod outcome;
@@ -57,7 +62,8 @@ const USAGE: &str = "usage:
   cargo xtask compare <base sweep dir> <head sweep dir> [--content]
   cargo xtask prune [--keep <n>] [--keep-tag <tag>]... [--yes]
   cargo xtask census [--tag <tag>] [--base <tag>] [--jobs <n>] [--ways <w,...>] [--allow network] [<dir>...]
-  cargo xtask rewrite [--kind reorder|rename|let-wrap|all] [--seed <n>] [--ways <w,...>] [--jobs <n>] [<dir|file>...]";
+  cargo xtask rewrite [--kind reorder|rename|let-wrap|all] [--seed <n>] [--ways <w,...>] [--jobs <n>] [<dir|file>...]
+  cargo xtask bisect-opt <fixture> [--way vm_opt|llvm_opt] [--timeout <seconds>] [--flux <path>]";
 
 fn main() -> ExitCode {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -163,6 +169,20 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
             let options = rewrite_options(&mut args)?;
             args.finish()?;
             rewrite::run_rewrite(root, &options)
+        }
+        "bisect-opt" => {
+            let way = args.value("--way")?.unwrap_or_else(|| "vm_opt".to_string());
+            let options = bisect::Options {
+                way: bisect::Way::parse(&way)
+                    .ok_or(format!("--way is vm_opt or llvm_opt, not {way}\n{USAGE}"))?,
+                timeout: Duration::from_secs(args.number("--timeout")?.unwrap_or(60) as u64),
+                flux: args
+                    .value("--flux")?
+                    .map_or_else(|| verify::flux_binary(root), |f| resolve(root, &f)),
+                fixture: args.positional()?.ok_or(USAGE)?,
+            };
+            args.finish()?;
+            bisect::run_bisect(root, &options)
         }
         "prune" => {
             let keep = args.number("--keep")?.unwrap_or(5);

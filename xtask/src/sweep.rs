@@ -229,7 +229,7 @@ pub(crate) fn run_flux(
 
 /// Runs `command` from `root` without colour or stdin, killing it after
 /// `timeout`.
-fn run_with_timeout(mut command: Command, root: &Path, timeout: Duration) -> Ran {
+pub(crate) fn run_with_timeout(mut command: Command, root: &Path, timeout: Duration) -> Ran {
     let spawned = command
         .current_dir(root)
         .env("NO_COLOR", "1")

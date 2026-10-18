@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::shared::opt_bisect;
 use crate::{
     ast::{
         Folder, fold_expr,
@@ -272,8 +273,18 @@ impl Folder for TypeInformedFoldCtx<'_> {
                 span,
                 id,
             } => match condition.as_ref() {
-                Expression::Boolean { value: true, .. } => block_to_expr(consequence, span),
-                Expression::Boolean { value: false, .. } => {
+                Expression::Boolean { value: true, .. }
+                    if opt_bisect::allow("type_informed_fold", || {
+                        "drop the else of `if true`".to_string()
+                    }) =>
+                {
+                    block_to_expr(consequence, span)
+                }
+                Expression::Boolean { value: false, .. }
+                    if opt_bisect::allow("type_informed_fold", || {
+                        "drop the then of `if false`".to_string()
+                    }) =>
+                {
                     if let Some(alt) = alternative {
                         block_to_expr(alt, span)
                     } else {
@@ -291,7 +302,11 @@ impl Folder for TypeInformedFoldCtx<'_> {
 
             // T2: Constant propagation replace known-literal identifiers.
             Expression::Identifier { name, span, id } => {
-                if let Some(literal) = self.let_literals.get(&name) {
+                if let Some(literal) = self.let_literals.get(&name)
+                    && opt_bisect::allow("type_informed_fold", || {
+                        "replace a name with its literal".to_string()
+                    })
+                {
                     let mut replaced = fresh_expr_ids(literal.clone(), &mut self.ids);
                     set_expr_span(&mut replaced, span);
                     replaced
@@ -307,7 +322,9 @@ impl Folder for TypeInformedFoldCtx<'_> {
                 span,
                 id,
             } => {
-                if let Some(inlined) = self.try_inline_call(function, arguments, span) {
+                if let Some(inlined) = self.try_inline_call(function, arguments, span)
+                    && opt_bisect::allow("type_informed_fold", || "inline a pure call".to_string())
+                {
                     inlined
                 } else {
                     Expression::Call {
@@ -405,6 +422,8 @@ fn local_binder_names(program: &Program) -> HashSet<Symbol> {
 /// program must be re-inferred (Phase 2) before codegen because pointer-keyed
 /// expression IDs are invalidated by AST rewrites.
 pub fn type_informed_fold(program: &Program, type_env: &TypeEnv, _interner: &Interner) -> Program {
+    // Its rewrites belong to no Core definition (0190 §13).
+    opt_bisect::set_def(String::new);
     let mut ctx = TypeInformedFoldCtx::new(type_env, ExprIdGen::resuming_past_program(program));
     ctx.collect_inlinable_functions(program);
     ctx.collect_let_literals(program);

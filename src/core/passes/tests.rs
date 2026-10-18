@@ -1431,3 +1431,99 @@ fn the_program_s_own_binders_are_kept_not_the_compiler_s() {
     let kept = keep::source_binders(&program, &interner);
     assert_eq!(kept, [y.id].into_iter().collect());
 }
+
+// ── Optimization bisection (0190 §13) ─────────────────────────────────────
+
+/// Whether `pass` leaves `expr` exactly as it was with every rewrite skipped,
+/// and changes it with every rewrite allowed.
+fn bisect_gates(pass: fn(CoreExpr) -> CoreExpr, expr: &CoreExpr) {
+    use crate::shared::opt_bisect::with_test_limit;
+    let before = format!("{expr:?}");
+    let skipped = with_test_limit(0, || pass(expr.clone()));
+    assert_eq!(format!("{skipped:?}"), before, "limit 0 rewrote it");
+    let allowed = with_test_limit(-1, || pass(expr.clone()));
+    assert_ne!(format!("{allowed:?}"), before, "limit -1 left it alone");
+}
+
+fn let_one_in(var: CoreBinder, body: CoreExpr) -> CoreExpr {
+    CoreExpr::Let {
+        var,
+        rhs: Box::new(int(1)),
+        body: Box::new(body),
+        span: s(),
+    }
+}
+
+#[test]
+fn bisect_gates_beta() {
+    let mut interner = Interner::new();
+    let x = binder(0, interner.intern("x"));
+    let applied = CoreExpr::App {
+        func: Box::new(CoreExpr::Lam {
+            params: vec![x],
+            param_types: vec![None],
+            result_ty: None,
+            body: Box::new(add_one(x)),
+            span: s(),
+        }),
+        args: vec![int(20)],
+        span: s(),
+    };
+    bisect_gates(beta_reduce, &applied);
+}
+
+#[test]
+fn bisect_gates_case_of_known_constructor_and_constant_fold() {
+    let known = CoreExpr::Case {
+        scrutinee: Box::new(CoreExpr::Lit(CoreLit::Bool(true), s())),
+        alts: vec![
+            CoreAlt {
+                pat: CorePat::Lit(CoreLit::Bool(true)),
+                guard: None,
+                rhs: int(1),
+                span: s(),
+            },
+            CoreAlt {
+                pat: CorePat::Wildcard,
+                guard: None,
+                rhs: int(0),
+                span: s(),
+            },
+        ],
+        join_ty: None,
+        span: s(),
+    };
+    bisect_gates(case_of_known_constructor, &known);
+    bisect_gates(constant_fold, &known);
+    let sum = CoreExpr::PrimOp {
+        op: CorePrimOp::IAdd,
+        args: vec![int(1), int(2)],
+        span: s(),
+    };
+    bisect_gates(constant_fold, &sum);
+}
+
+#[test]
+fn bisect_gates_algebraic_simplify() {
+    let mut interner = Interner::new();
+    let y = binder(0, interner.intern("y"));
+    let plus_zero = CoreExpr::PrimOp {
+        op: CorePrimOp::IAdd,
+        args: vec![var_ref(y), int(0)],
+        span: s(),
+    };
+    bisect_gates(algebraic_simplify, &plus_zero);
+}
+
+#[test]
+fn bisect_gates_the_let_inliners() {
+    let mut interner = Interner::new();
+    let x = binder(0, interner.intern("x"));
+    let used_once = let_one_in(x, add_one(x));
+    bisect_gates(inline_lets, &used_once);
+    bisect_gates(disciplined_inline, &used_once);
+    let unused = let_one_in(x, int(2));
+    bisect_gates(inline_lets, &unused);
+    bisect_gates(disciplined_inline, &unused);
+    bisect_gates(elim_dead_let, &unused);
+}

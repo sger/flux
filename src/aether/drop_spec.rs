@@ -15,6 +15,7 @@
 //!
 //! The result is `DropSpecialized { scrutinee, unique_body, shared_body }`.
 
+use crate::shared::opt_bisect;
 use std::collections::BTreeSet;
 
 use crate::core::{CoreBinder, CoreBinderId, CoreVarRef};
@@ -259,7 +260,14 @@ fn try_specialize(
     let unique_body = rebuild_candidate(&candidate, DropSpecMode::Unique);
     let shared_body = rebuild_candidate(&candidate, DropSpecMode::Shared);
 
-    if format!("{unique_body:?}") == format!("{shared_body:?}") {
+    // A bisected run past its limit (0190 §13) keeps the plain drop. The
+    // reuse later put on the unique path is part of this rewrite, not one of
+    // its own: that path has no drop of the scrutinee left to fall back on.
+    if format!("{unique_body:?}") == format!("{shared_body:?}")
+        || !opt_bisect::allow("drop_spec", || {
+            "split a drop into unique and shared paths".to_string()
+        })
+    {
         return rhs;
     }
 

@@ -136,6 +136,8 @@ pub(crate) struct CliCommandValueOptions {
     pub(crate) debug_script: Option<PathBuf>,
     /// `flux debug --engine <address>`.
     pub(crate) debug_engine: Option<String>,
+    /// `--opt-bisect-limit <n>` (hidden; proposal 0190 §13).
+    pub(crate) opt_bisect_limit: Option<i64>,
 }
 
 impl Default for CliDiagnosticOptions {
@@ -158,6 +160,7 @@ impl Default for CliCommandValueOptions {
             tape: None,
             debug_script: None,
             debug_engine: None,
+            opt_bisect_limit: None,
         }
     }
 }
@@ -344,6 +347,16 @@ pub(crate) fn extract_cli_value_options(args: &mut Vec<String>) -> Result<CliVal
             values.diagnostics.max_errors = max_errors;
             continue;
         }
+        if let Some(limit) = consume_named_value_option(
+            args,
+            &mut i,
+            "--opt-bisect-limit",
+            "Usage: flux <file.flx> --opt-bisect-limit <n>",
+            parse_opt_bisect_limit,
+        )? {
+            values.command.opt_bisect_limit = Some(limit);
+            continue;
+        }
         if let Some(filter) = take_required_long_option(
             args,
             &mut i,
@@ -376,6 +389,7 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
         parsed.execution.offline,
         parsed.execution.locked,
     );
+    crate::shared::opt_bisect::configure(values.command.opt_bisect_limit);
     DriverFlags {
         backend: DriverBackendFlags {
             selected: Backend::Vm,
@@ -587,6 +601,16 @@ fn parse_diagnostic_format(value: String) -> Result<DiagnosticOutputFormat, Stri
 fn parse_max_errors(value: String) -> Result<usize, String> {
     usize::from_str(&value)
         .map_err(|_| "Error: --max-errors expects a non-negative integer.".to_string())
+}
+
+/// Parses the `--opt-bisect-limit` payload: a rewrite count, or -1.
+fn parse_opt_bisect_limit(value: String) -> Result<i64, String> {
+    i64::from_str(&value)
+        .ok()
+        .filter(|n| *n >= -1)
+        .ok_or_else(|| {
+            "Error: --opt-bisect-limit expects -1 or a non-negative integer.".to_string()
+        })
 }
 
 #[cfg(test)]
