@@ -628,17 +628,17 @@ impl Verdict {
 
 /// What one `parity-check` run reported.
 #[derive(Debug, Default, PartialEq)]
-struct ParityCounts {
+pub(crate) struct ParityCounts {
     /// Fixtures whose ways disagreed (`MISMATCH`).
-    mismatches: usize,
+    pub(crate) mismatches: usize,
     /// Fixtures whose ways agreed but missed the fixture's declared
     /// outcome or expected stdout (`EXPECTED_OUTPUT_MISMATCH`).
-    expected: usize,
+    pub(crate) expected: usize,
     /// `parity-check`'s exit code: 1 on any failure, when nothing passed,
     /// or when it could not run at all.
-    exit: i32,
+    pub(crate) exit: i32,
     /// Each failing verdict line, as it arrived.
-    failures: Vec<String>,
+    pub(crate) failures: Vec<String>,
     /// Each `UNEXPECTED_PASS` line: a skipped way that now passes.
     unexpected: Vec<String>,
 }
@@ -672,7 +672,7 @@ impl ParityCounts {
 /// timed, so a long run shows where it is. On a terminal a passing fixture
 /// only redraws one status line, so what scrolls is what needs attention.
 /// Returns the failing verdicts and the exit code.
-fn parity(
+pub(crate) fn parity(
     root: &Path,
     flux: &Path,
     dir: &str,

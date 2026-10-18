@@ -26,6 +26,11 @@
 //!     run every .flx file on each way, classify each result, tag features,
 //!     join failures to known issues and write the support matrix; outputs
 //!     in .verify/census_<tag>/
+//! cargo xtask rewrite [--kind reorder|rename|let-wrap|all] [--seed <n>]
+//!                     [--ways <w,…>] [--jobs <n>] [<dir|file>…]
+//!     rewrite each fixture (default tests/parity and examples/guide) in
+//!     ways that cannot change its output, and check the copies against the
+//!     original's output with parity-check; outputs in .verify/rewrite_<seed>/
 //! ```
 //!
 //! Relative paths are taken from the repository root.
@@ -34,6 +39,7 @@ mod census;
 mod compare;
 mod outcome;
 mod proc;
+mod rewrite;
 mod store;
 mod sweep;
 mod text;
@@ -50,7 +56,8 @@ const USAGE: &str = "usage:
   cargo xtask sweep --out <dir> [--mode cfg|core|core-opt|aether|lir|cache] [--files <list>] [--jobs <n>] [--timeout <seconds>] [--flux <path>] [--determinism]
   cargo xtask compare <base sweep dir> <head sweep dir> [--content]
   cargo xtask prune [--keep <n>] [--keep-tag <tag>]... [--yes]
-  cargo xtask census [--tag <tag>] [--base <tag>] [--jobs <n>] [--ways <w,...>] [--allow network] [<dir>...]";
+  cargo xtask census [--tag <tag>] [--base <tag>] [--jobs <n>] [--ways <w,...>] [--allow network] [<dir>...]
+  cargo xtask rewrite [--kind reorder|rename|let-wrap|all] [--seed <n>] [--ways <w,...>] [--jobs <n>] [<dir|file>...]";
 
 fn main() -> ExitCode {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -152,6 +159,11 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
             args.finish()?;
             census::run_census(root, &options)
         }
+        "rewrite" => {
+            let options = rewrite_options(&mut args)?;
+            args.finish()?;
+            rewrite::run_rewrite(root, &options)
+        }
         "prune" => {
             let keep = args.number("--keep")?.unwrap_or(5);
             let keep_tags = args.values("--keep-tag")?;
@@ -165,6 +177,24 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
         }
         other => Err(format!("unknown command {other}\n{USAGE}")),
     }
+}
+
+fn rewrite_options(args: &mut Args) -> Result<rewrite::Options, String> {
+    let kind = args.value("--kind")?.unwrap_or_else(|| "all".to_string());
+    let mut options = rewrite::Options {
+        kinds: rewrite::Kind::parse(&kind).ok_or(format!("unknown kind {kind}\n{USAGE}"))?,
+        seed: args.number("--seed")?.unwrap_or(1) as u64,
+        ways: args
+            .value("--ways")?
+            .unwrap_or_else(|| rewrite::DEFAULT_WAYS.to_string()),
+        jobs: args.number("--jobs")?.unwrap_or_else(sweep::default_jobs),
+        // After the options, so their values are not taken as paths.
+        paths: std::iter::from_fn(|| args.positional().transpose()).collect::<Result<_, _>>()?,
+    };
+    if options.paths.is_empty() {
+        options.paths = rewrite::DEFAULT_PATHS.map(String::from).to_vec();
+    }
+    Ok(options)
 }
 
 fn resolve(root: &Path, path: &str) -> PathBuf {

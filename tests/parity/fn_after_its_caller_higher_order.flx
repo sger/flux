@@ -1,0 +1,19 @@
+// parity: vm, llvm
+// expect: success
+// bug: KI-117. `apply_n` is written after `main`, its caller; the VM then
+//      rejects the closure passed to it (E1004, as in KI-111). Written
+//      before `main`, the program runs on every way. Found by
+//      `cargo xtask rewrite --kind reorder` (0190 S7).
+// skip-way: vm, vm_strict, vm_opt: KI-117 a function written after its caller is typed from the call
+// parity-expected-stdout-begin
+// 20
+// parity-expected-stdout-end
+
+fn main() with IO {
+    let double = \x -> x * 2
+    print(apply_n(double, 2, 5))
+}
+
+fn apply_n(f, n, x) {
+    if n <= 0 { x } else { apply_n(f, n - 1, f(x)) }
+}
