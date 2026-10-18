@@ -96,6 +96,18 @@ pub fn print_result(result: &ParityResult, filter: DisplayFilter, explain: bool)
             skip.way,
         );
     }
+    for run in &result.results {
+        if let Some(leak) = &run.leak {
+            println!(
+                "{} {name} {}: {} block{} live at exit, first {}",
+                yellow("LEAK"),
+                run.way,
+                leak.blocks,
+                if leak.blocks == 1 { "" } else { "s" },
+                leak.first_site,
+            );
+        }
+    }
 
     match &result.verdict {
         Verdict::Pass => {
@@ -287,6 +299,21 @@ pub fn diagnose_mismatch(details: &[MismatchDetail]) -> Option<&'static str> {
         return Some("the optimizer changed what the program does");
     }
 
+    // The debug heap saw a dup or drop of freed memory: an ownership bug,
+    // whatever the output says.
+    if details
+        .iter()
+        .any(|d| matches!(d, MismatchDetail::HeapFault { .. }))
+    {
+        return Some("a value was used after it was freed (rerun with --debug-heap)");
+    }
+    if details
+        .iter()
+        .any(|d| matches!(d, MismatchDetail::HeapModeMismatch { .. }))
+    {
+        return Some("the program behaves differently on the debug heap");
+    }
+
     if has_cache {
         if details.iter().any(
             |d| matches!(d, MismatchDetail::CacheMismatch { field, .. } if field.contains(".flxi")),
@@ -365,6 +392,9 @@ pub fn cargo_run_for_way(way: Way, file: &str) -> String {
         Way::VmOpt => format!("cargo run -- {file} --optimize --no-cache"),
         Way::LlvmOpt => {
             format!("cargo run --features llvm -- {file} --native --optimize --no-cache")
+        }
+        Way::LlvmHeap => {
+            format!("cargo run --features llvm -- {file} --native --leak-check --no-cache")
         }
     }
 }
@@ -539,6 +569,27 @@ fn print_mismatch_detail(detail: &MismatchDetail) {
                 format!("{opt_way} (--optimize)"),
                 opt,
             );
+        }
+        MismatchDetail::HeapModeMismatch {
+            plain_way,
+            heap_way,
+            field,
+            plain,
+            heap,
+        } => {
+            println!(
+                "  {} {plain_way} vs {heap_way} differ on {field}",
+                cyan("heap_mode_mismatch:")
+            );
+            print_inline_diff(
+                format!("{plain_way}"),
+                plain,
+                format!("{heap_way} (--leak-check)"),
+                heap,
+            );
+        }
+        MismatchDetail::HeapFault { way, message } => {
+            println!("  {} {way}: {message}", cyan("heap_fault:"));
         }
     }
 }
@@ -810,6 +861,13 @@ pub fn print_summary(results: &[ParityResult]) {
         .count();
     let skipped_ways: usize = results.iter().map(|r| r.skipped_ways.len()).sum();
     let unexpected_passes: usize = results.iter().map(|r| r.unexpected_passes.len()).sum();
+    let heap_ran = results
+        .iter()
+        .any(|r| r.results.iter().any(|run| run.way.is_heap()));
+    let leaks = results
+        .iter()
+        .filter(|r| r.results.iter().any(|run| run.leak.is_some()))
+        .count();
 
     println!();
     println!("=== Parity Results ===");
@@ -825,6 +883,10 @@ pub fn print_summary(results: &[ParityResult]) {
     // Only `--check-skips` runs skipped ways, so a zero says nothing.
     if unexpected_passes > 0 {
         println!("UnexpectedPass: {}", yellow(&unexpected_passes.to_string()));
+    }
+    // Files that leak on a heap way; counted, not failed (KI-119 to KI-121).
+    if heap_ran {
+        println!("Leaks: {}", yellow(&leaks.to_string()));
     }
 
     if mismatch == 0 && expected_output_mismatch == 0 && pass > 0 {

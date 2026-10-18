@@ -42,6 +42,36 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-122 — Natively, the async runtime releases one of its own closures twice
+
+**Severity:** Medium · **Area:** native runtime, async scheduler · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `llvm_heap` run over `tests/parity` · **Issue:** [#22](https://forgejo.spirosgerokostas.com/sger/flux/issues/22)
+
+Two fixtures print the right output natively but stop on the debug heap:
+
+```
+$ flux --native --debug-heap tests/parity/async_select_loser_watchers_reclaimed.flx
+error[E1009]: use after free: dropping a closure that was already freed
+(allocated at fiber_run_async (lib/Flow/Async.flx:72:15),
+ freed at fiber_run_async (lib/Flow/Async.flx:72:15))
+
+$ flux --native --debug-heap tests/parity/fs_async.flx
+error[E1009]: use after free: dropping a closure that was already freed
+(allocated at fiber_run_async_with_prim (lib/Flow/Async.flx:77:15),
+ freed at fiber_run_async_with_prim (lib/Flow/Async.flx:77:15))
+```
+
+Both sites are inside the `run_async` intrinsic, with no Flux frame below
+it, so the closure is one the scheduler or the C runtime made (a
+continuation or a watcher), not one from the program. The first fixture
+cancels the losing arms of a `select`; the second runs `Flow.Fs` calls on
+the blocking pool. Simpler `run_async` programs
+(`async_run_async_returns_value.flx`) run clean, so the extra release is on
+those paths. On the plain heap the freed block is still readable, which is
+why `llvm` passes. Both fixtures carry `skip-way: llvm_heap KI-122`.
+
+Not yet known: which release is the extra one, in `runtime/c/tasks.c` or the
+Rust scheduler (`flux_async_release`, `flux_async_run_root`).
+
 ### KI-121 — Natively, a `let` value read in one branch and dead in the other is never dropped
 
 **Severity:** Medium · **Area:** Aether, drop insertion · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs · **Issue:** [#21](https://forgejo.spirosgerokostas.com/sger/flux/issues/21)

@@ -126,6 +126,9 @@ cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,vm_strict,llvm_s
 # The optimizer: each opt way must match its plain way
 cargo run -- parity-check tests/parity --ways vm,vm_opt,llvm,llvm_opt
 
+# The debug heap: llvm_heap must match llvm; leaks are counted (LEAK lines)
+cargo run -- parity-check tests/parity --ways llvm,llvm_heap
+
 # With Core/Aether checkpoint capture
 cargo run -- parity-check tests/parity --capture-core --capture-aether
 
@@ -262,6 +265,33 @@ Core diff shows which optimization rewrote the program; the passes are in
 `--native --dump-lir` with and without `--optimize`, since `--optimize` also
 raises the LLVM optimization level.
 
-### 8. Leave a regression fixture
+### 8. For debug-heap failures
+
+`llvm_heap` runs the native build with `--leak-check`: the debug heap keeps
+every freed block poisoned, stops at the next dup or drop of one, and at the
+end names the blocks nothing freed.
+
+A `heap_fault` is a use after free: a value released while the program still
+used it, which plain `llvm` may survive by luck. Rerun it to read both sites
+and the Flux trace:
+
+```bash
+cargo run --features llvm -- path/to/failing.flx --native --debug-heap
+```
+
+The allocation site names the value; the free site is where ownership went
+wrong. `--dump-aether=debug` shows the Dups and Drops Aether placed there.
+
+A `heap_mode_mismatch` without a fault means the program behaves differently
+on the debug heap, for example a timeout from the slower allocator.
+
+`LEAK` lines do not fail a fixture. They count files with blocks still live
+at exit, and the summary's `Leaks:` line totals them. Nearly every native
+program leaks today ([KI-119](../../docs/known_issues.md#ki-119),
+[KI-120](../../docs/known_issues.md#ki-120),
+[KI-121](../../docs/known_issues.md#ki-121)); a fix for those should bring
+the count down.
+
+### 9. Leave a regression fixture
 
 Once fixed, add a minimal `.flx` file to `tests/parity/` following the naming convention above.

@@ -17,7 +17,7 @@ use super::normalize::{
 };
 use super::{
     BackendId, CacheFileKind, CacheFileState, CacheObservation, DebugArtifacts, ExitKind,
-    RunResult, SurfaceArtifact, Way,
+    LeakReport, RunResult, SurfaceArtifact, Way,
 };
 
 /// Default timeout per way per fixture.
@@ -212,6 +212,10 @@ fn build_way_args<'a>(
     if way == Way::LlvmG {
         args.push("-g".to_string());
     }
+    // A run flag, not a compile mode: dumps never take it.
+    if way.is_heap() {
+        args.push("--leak-check".to_string());
+    }
     (binary_for(vm_binary, llvm_binary, way), args)
 }
 
@@ -247,7 +251,42 @@ fn make_tool_failure(way: Way, msg: &str) -> RunResult {
         normalized_stdout: String::new(),
         normalized_stderr: msg.to_string(),
         cache_observations: vec![],
+        leak: None,
     }
+}
+
+/// The exit code the debug heap uses after a leak report (`FLUX_EXIT_LEAK`
+/// in `runtime/c/flux_rt.h`).
+const LEAK_EXIT_CODE: i32 = 3;
+
+/// Takes the debug heap's leak report off the end of a heap way's stderr:
+/// the report, and stderr without it. A run that leaks but otherwise did
+/// what it should then reads as the success it was, and compares equal to
+/// the plain build; the leak is counted on its own.
+fn split_leak_report(exit_code: i32, stderr: &str) -> Option<(LeakReport, String)> {
+    if exit_code != LEAK_EXIT_CODE {
+        return None;
+    }
+    let start = stderr
+        .match_indices("leak: ")
+        .map(|(index, _)| index)
+        .filter(|&index| index == 0 || stderr.as_bytes()[index - 1] == b'\n')
+        .last()?;
+    let report = &stderr[start..];
+    let mut lines = report.lines();
+    let blocks = lines
+        .next()?
+        .strip_prefix("leak: ")?
+        .split_once(' ')
+        .filter(|(_, rest)| rest.ends_with("still live at exit"))?
+        .0
+        .parse()
+        .ok()?;
+    let first_site = lines.next().map(str::trim).unwrap_or_default().to_string();
+    Some((
+        LeakReport { blocks, first_site },
+        stderr[..start].to_string(),
+    ))
 }
 
 fn execute_and_collect(binary: &Path, args: &[String], way: Way, timeout: Duration) -> RunResult {
@@ -259,6 +298,10 @@ fn execute_and_collect(binary: &Path, args: &[String], way: Way, timeout: Durati
             stdout,
             stderr,
         } => {
+            let (leak, exit_code, stderr) = match split_leak_report(exit_code, &stderr) {
+                Some((report, rest)) if way.is_heap() => (Some(report), 0, rest),
+                _ => (None, exit_code, stderr),
+            };
             let exit_kind = classify_exit(exit_code, &stderr);
             let normalized_stdout = normalize(&stdout);
             let normalized_stderr = normalize_stderr(&stderr);
@@ -271,6 +314,7 @@ fn execute_and_collect(binary: &Path, args: &[String], way: Way, timeout: Durati
                 normalized_stdout,
                 normalized_stderr,
                 cache_observations: vec![],
+                leak,
             }
         }
         SpawnResult::Timeout => RunResult {
@@ -282,6 +326,7 @@ fn execute_and_collect(binary: &Path, args: &[String], way: Way, timeout: Durati
             normalized_stdout: String::new(),
             normalized_stderr: format!("timed out after {}s", timeout.as_secs()),
             cache_observations: vec![],
+            leak: None,
         },
         SpawnResult::SpawnError(err) => RunResult {
             way,
@@ -292,6 +337,7 @@ fn execute_and_collect(binary: &Path, args: &[String], way: Way, timeout: Durati
             normalized_stdout: String::new(),
             normalized_stderr: err,
             cache_observations: vec![],
+            leak: None,
         },
     }
 }
@@ -823,6 +869,46 @@ fn classify_exit(code: i32, stderr: &str) -> ExitKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const SITE: &str = "  a constructor value (24 bytes) allocated at numbers (leak.flx:6:5)";
+
+    #[test]
+    fn a_leak_report_is_split_off_stderr() {
+        let stderr = format!("leak: 3 blocks still live at exit\n{SITE}\n{SITE}\n{SITE}\n");
+        let (report, rest) = split_leak_report(3, &stderr).unwrap();
+        assert_eq!(
+            report,
+            LeakReport {
+                blocks: 3,
+                first_site: SITE.trim().to_string(),
+            }
+        );
+        assert_eq!(rest, "");
+    }
+
+    #[test]
+    fn a_leak_report_after_program_stderr_keeps_that_stderr() {
+        let stderr = format!("warning: x\nleak: 1 block still live at exit\n{SITE}\n");
+        let (report, rest) = split_leak_report(3, &stderr).unwrap();
+        assert_eq!(report.blocks, 1);
+        assert_eq!(rest, "warning: x\n");
+    }
+
+    #[test]
+    fn a_long_leak_report_counts_every_block() {
+        let sites = format!("{SITE}\n").repeat(10);
+        let stderr = format!("leak: 12 blocks still live at exit\n{sites}  and 2 more\n");
+        assert_eq!(split_leak_report(3, &stderr).unwrap().0.blocks, 12);
+    }
+
+    #[test]
+    fn only_a_leak_exit_with_a_report_is_split() {
+        let report = format!("leak: 3 blocks still live at exit\n{SITE}\n");
+        assert_eq!(split_leak_report(1, &report), None);
+        assert_eq!(split_leak_report(3, "error: something else\n"), None);
+        // A program that prints "leak: " itself is not a report.
+        assert_eq!(split_leak_report(3, "leak: the tap\n"), None);
+    }
 
     #[test]
     fn a_compiler_failure_is_a_crash_and_a_program_failure_is_not() {
