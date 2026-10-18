@@ -96,9 +96,13 @@ programs the uninitialised value either fails an operation (`E1009 Cannot add
 Uninit and Int values`, `E1009 read from uninitialized stack slot`,
 `E1004 primop len expected String`) or prints a wrong answer with no error:
 the let-wrapped `examples/guide/array_hash_combo.flx` prints `"unknown"` where
-it should print `"unwrap value Alice"`. 47 of the 190 let-wrapped copies of
-`tests/parity` and `examples/guide` (seed 1) fail on the VM with symptoms like
-these. The five sampled ran correctly natively.
+it should print `"unwrap value Alice"`, and the let-wrapped
+`stdlib_pipelines.flx` counts an emptied list as `0` (`("eng", 0)` for
+`("eng", 3)`). In the full run (seed 1, ways `vm,vm_opt,llvm,llvm_opt`), 51 of
+the 192 let-wrapped copies of `tests/parity` and `examples/guide` give
+`MISMATCH`: in every one, `vm` and `vm_opt` differ from `llvm` and `llvm_opt`,
+which agree with each other. In the five checked against the expected output,
+the VM is wrong and native is right.
 
 Fixture: `tests/parity/do_block_let_keeps_its_source.flx`.
 
