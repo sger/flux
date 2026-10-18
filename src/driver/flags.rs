@@ -57,6 +57,9 @@ pub struct DriverRuntimeFlags {
     pub check_only: bool,
     /// Record the run's effects to a tape, or replay them from one.
     pub tape: Option<TapeRequest>,
+    /// `--metrics <file>` (hidden): write counts that are the same on every
+    /// run, one `key<TAB>value` per line (0190 §15; §12 adds more).
+    pub metrics_path: Option<PathBuf>,
     /// Run under the debugger (`flux debug`, proposal 0188 S2).
     pub debugger: Option<DebuggerRequest>,
 }

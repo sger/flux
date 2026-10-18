@@ -7097,6 +7097,32 @@ impl Compiler {
         self.prepare_backend_core_program_with_preloaded(program, optimize)
     }
 
+    /// Aether's counts over the program's own top-level functions, for
+    /// `--metrics` (0190 S15): the same numbers `--dump-aether` shows per
+    /// function, without the library's, so a fixture's count moves only
+    /// when its own code is planned differently.
+    #[allow(clippy::result_large_err)]
+    pub fn aether_metrics(
+        &mut self,
+        program: &Program,
+        optimize: bool,
+    ) -> Result<crate::aether::AetherStats, Diagnostic> {
+        let own: std::collections::HashSet<_> = program
+            .statements
+            .iter()
+            .filter_map(|statement| match statement {
+                Statement::Function { name, .. } => Some(*name),
+                _ => None,
+            })
+            .collect();
+        let aether = self.lower_aether_report_program(program, optimize)?;
+        let mut total = crate::aether::AetherStats::default();
+        for def in aether.defs().iter().filter(|def| own.contains(&def.name)) {
+            total.add(&crate::aether::collect_stats(&def.expr));
+        }
+        Ok(total)
+    }
+
     /// Render an Aether-native ownership report showing per-function lowering decisions.
     #[allow(clippy::result_large_err)]
     pub fn render_aether_report(
@@ -7225,15 +7251,7 @@ impl Compiler {
             out.push_str(&displayed);
             out.push('\n');
 
-            total.dups += stats.dups;
-            total.drops += stats.drops;
-            total.reuses += stats.reuses;
-            total.drop_specs += stats.drop_specs;
-            total.allocs += stats.allocs;
-            total.performs += stats.performs;
-            total.handles += stats.handles;
-            total.handler_arms += stats.handler_arms;
-            total.guarded_borrowed_args += stats.guarded_borrowed_args;
+            total.add(&stats);
         }
 
         out.push_str(&format!(

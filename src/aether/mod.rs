@@ -666,6 +666,19 @@ pub enum FbipStatus {
 }
 
 impl AetherStats {
+    /// Adds `other`'s counts to these.
+    pub fn add(&mut self, other: &Self) {
+        self.dups += other.dups;
+        self.drops += other.drops;
+        self.reuses += other.reuses;
+        self.drop_specs += other.drop_specs;
+        self.allocs += other.allocs;
+        self.performs += other.performs;
+        self.handles += other.handles;
+        self.handler_arms += other.handler_arms;
+        self.guarded_borrowed_args += other.guarded_borrowed_args;
+    }
+
     /// Total constructor sites (both fresh allocations and reused ones).
     pub fn total_constructors(&self) -> usize {
         self.allocs + self.reuses

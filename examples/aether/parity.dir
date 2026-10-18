@@ -1,0 +1,15 @@
+# What Aether must achieve in each file's own functions (0190 S15), checked
+# against `flux --metrics`. Here rather than in the files' headers, which
+# would move the line numbers the Aether snapshots pin.
+bench_reuse.flx: expect-reuse: 1
+bench_reuse_blocked.flx: expect-reuse: 0
+bench_reuse_enabled.flx: expect-reuse: 1
+fbip_success_cases.flx: expect-reuse: 3
+fbip_vacuous.flx: expect-allocs: 0
+forwarded_wrapper_reuse.flx: expect-reuse: 1
+hof_recursive_suite.flx: expect-reuse: 2
+opt_corpus_positive.flx: expect-reuse: 5
+reuse_alias_spines.flx: expect-reuse: 2
+reuse_specialization.flx: expect-reuse: 3
+tree_updates.flx: expect-reuse: 5
+verify_aether.flx: expect-reuse: 4

@@ -21,7 +21,7 @@ use std::time::{Duration, SystemTime};
 
 use super::census;
 use super::fixture::{
-    Expect, FixtureMeta, SkipWay, parse_fixture_meta, parse_fixture_meta_allowing,
+    Expect, ExpectedCount, FixtureMeta, SkipWay, parse_fixture_meta, parse_fixture_meta_allowing,
 };
 use super::known_issues;
 use super::normalize::normalize_stderr;
@@ -31,7 +31,7 @@ use super::report::{
 };
 use super::runner::{
     DEFAULT_TIMEOUT_SECS, capture_dump_aether, capture_dump_cfg, capture_dump_core,
-    capture_dump_lir, capture_dump_repr, compile_fixture, is_native_skip, run_way,
+    capture_dump_lir, capture_dump_repr, capture_metrics, compile_fixture, is_native_skip, run_way,
 };
 use super::{
     BackendId, DebugArtifacts, ExitKind, MismatchDetail, ParityResult, SurfaceKind, Verdict, Way,
@@ -275,6 +275,7 @@ fn check_one(file: &Path, config: &Config) -> CheckedFile {
             census: config.census.is_some(),
             stdout_varies: fixture_meta.stdout_varies,
             check_skips: config.check_skips,
+            expected_counts: &fixture_meta.expected_counts,
         },
     );
     let rows = if config.census.is_some() {
@@ -461,6 +462,8 @@ struct CheckOpts<'a> {
     stdout_varies: bool,
     /// `--check-skips`: also run the skipped ways, outside the verdict.
     check_skips: bool,
+    /// `// expect-reuse:` and `// expect-allocs:`, checked once the ways pass.
+    expected_counts: &'a [ExpectedCount],
 }
 
 impl CheckOpts<'_> {
@@ -621,7 +624,13 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         );
     }
 
-    let verdict = judge(&run_results, details, opts);
+    let mut verdict = judge(&run_results, details, opts);
+    if matches!(verdict, Verdict::Pass) && !opts.expected_counts.is_empty() && !opts.census {
+        verdict = judge_counts(
+            opts.expected_counts,
+            capture_metrics(opts.vm_binary, file, opts.extra_args, opts.timeout),
+        );
+    }
     let unexpected_passes = if opts.check_skips && matches!(verdict, Verdict::Pass) {
         skipped_ways_that_pass(file, opts, &mut run_results, &skipped_ways)
     } else {
@@ -637,6 +646,36 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         elapsed,
         unexpected_passes,
     }
+}
+
+/// A fixture's stated counts against what `--metrics` reported: `Pass`, or
+/// the first count that does not hold.
+fn judge_counts(
+    expected: &[ExpectedCount],
+    metrics: Result<std::collections::BTreeMap<String, u64>, String>,
+) -> Verdict {
+    let metrics = match metrics {
+        Ok(metrics) => metrics,
+        Err(error) => {
+            return Verdict::ExpectedOutputMismatch {
+                expected: "flux --metrics to report counts".to_string(),
+                actual: error,
+            };
+        }
+    };
+    for count in expected {
+        let seen = metrics.get(count.key).copied();
+        if !seen.is_some_and(|seen| count.holds(seen)) {
+            return Verdict::ExpectedOutputMismatch {
+                expected: count.to_string(),
+                actual: match seen {
+                    Some(seen) => format!("{} is {seen}", count.key),
+                    None => format!("--metrics did not report {}", count.key),
+                },
+            };
+        }
+    }
+    Verdict::Pass
 }
 
 /// `--check-skips`: runs each skipped way and judges it alongside the ways
@@ -1504,6 +1543,7 @@ mod tests {
             census: false,
             stdout_varies: false,
             check_skips: true,
+            expected_counts: &[],
         }
     }
 
@@ -1787,6 +1827,56 @@ mod tests {
     fn an_opt_way_without_its_plain_way_is_not_compared() {
         let run_results = vec![result(Way::VmOpt, ExitKind::Success, "1", "")];
         assert!(collect_opt_mode_details(&run_results).is_empty());
+    }
+
+    fn counts(lines: &[&str]) -> Vec<ExpectedCount> {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("flux_counts_{}_{n}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        let path = dir.join("f.flx");
+        let header: String = lines.iter().map(|line| format!("// {line}\n")).collect();
+        fs::write(&path, format!("{header}fn main() {{ }}\n")).unwrap();
+        let meta = parse_fixture_meta(&path);
+        let _ = fs::remove_dir_all(&dir);
+        meta.expected_counts
+    }
+
+    fn metrics(pairs: &[(&str, u64)]) -> std::collections::BTreeMap<String, u64> {
+        pairs.iter().map(|(k, v)| (k.to_string(), *v)).collect()
+    }
+
+    #[test]
+    fn stated_counts_that_hold_pass() {
+        let expected = counts(&["expect-reuse: >= 1", "expect-allocs: 1"]);
+        let seen = metrics(&[("aether_reuses", 3), ("aether_allocs", 1)]);
+        assert!(matches!(judge_counts(&expected, Ok(seen)), Verdict::Pass));
+    }
+
+    #[test]
+    fn a_lost_reuse_misses_its_stated_count() {
+        let expected = counts(&["expect-reuse: >= 1"]);
+        let verdict = judge_counts(&expected, Ok(metrics(&[("aether_reuses", 0)])));
+        let Verdict::ExpectedOutputMismatch { expected, actual } = verdict else {
+            panic!("expected a mismatch");
+        };
+        assert_eq!(expected, "// expect-reuse: >= 1");
+        assert_eq!(actual, "aether_reuses is 0");
+    }
+
+    #[test]
+    fn missing_metrics_miss_every_stated_count() {
+        let expected = counts(&["expect-allocs: <= 2"]);
+        let verdict = judge_counts(&expected, Ok(metrics(&[])));
+        assert!(matches!(
+            verdict,
+            Verdict::ExpectedOutputMismatch { actual, .. } if actual == "--metrics did not report aether_allocs"
+        ));
+        let verdict = judge_counts(&expected, Err("error[E1]: x".to_string()));
+        assert!(matches!(
+            verdict,
+            Verdict::ExpectedOutputMismatch { actual, .. } if actual == "error[E1]: x"
+        ));
     }
 
     fn heap_labels(run_results: &[super::super::RunResult]) -> Vec<String> {

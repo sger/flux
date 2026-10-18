@@ -413,6 +413,47 @@ fn observe_cache_files(
     obs
 }
 
+/// The `--metrics` counts of a VM run of `file` (0190 §15), keyed by name.
+/// The program runs as on the `vm` way; a run that fails gives its stderr.
+pub fn capture_metrics(
+    vm_binary: &Path,
+    file: &Path,
+    extra_args: &[String],
+    timeout: Duration,
+) -> Result<std::collections::BTreeMap<String, u64>, String> {
+    let cache_dir = parity_cache_dir(file, Way::Vm);
+    let _ = std::fs::create_dir_all(&cache_dir);
+    let metrics = cache_dir.join("metrics.tsv");
+    let _ = std::fs::remove_file(&metrics);
+    let mut args = vec![
+        "--no-cache".to_string(),
+        "--cache-dir".to_string(),
+        cache_dir.to_string_lossy().into_owned(),
+        "--metrics".to_string(),
+        metrics.to_string_lossy().into_owned(),
+        file.to_string_lossy().into_owned(),
+    ];
+    args.extend_from_slice(extra_args);
+    match spawn_with_timeout(vm_binary, &args, timeout) {
+        SpawnResult::Completed { .. } => {}
+        SpawnResult::Timeout => return Err(format!("timed out after {}s", timeout.as_secs())),
+        SpawnResult::SpawnError(err) => return Err(err),
+    }
+    let text = std::fs::read_to_string(&metrics)
+        .map_err(|e| format!("no metrics written to {}: {e}", metrics.display()))?;
+    Ok(parse_metrics(&text))
+}
+
+/// `key<TAB>value` lines; a line that is not one is left out.
+fn parse_metrics(text: &str) -> std::collections::BTreeMap<String, u64> {
+    text.lines()
+        .filter_map(|line| {
+            let (key, value) = line.split_once('\t')?;
+            Some((key.to_string(), value.trim().parse().ok()?))
+        })
+        .collect()
+}
+
 fn parity_cache_dir(file: &Path, way: Way) -> PathBuf {
     let project_root = cache_paths::find_project_root(file)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
@@ -871,6 +912,14 @@ mod tests {
     use super::*;
 
     const SITE: &str = "  a constructor value (24 bytes) allocated at numbers (leak.flx:6:5)";
+
+    #[test]
+    fn metrics_are_read_by_key() {
+        let metrics = parse_metrics("aether_allocs\t1\naether_reuses\t3\nnot a metric\n");
+        assert_eq!(metrics.get("aether_allocs"), Some(&1));
+        assert_eq!(metrics.get("aether_reuses"), Some(&3));
+        assert_eq!(metrics.len(), 2);
+    }
 
     #[test]
     fn a_leak_report_is_split_off_stderr() {

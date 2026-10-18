@@ -141,6 +141,8 @@ pub(crate) struct CliCommandValueOptions {
     pub(crate) debug_engine: Option<String>,
     /// `--opt-bisect-limit <n>` (hidden; proposal 0190 §13).
     pub(crate) opt_bisect_limit: Option<i64>,
+    /// `--metrics <file>` (hidden; proposal 0190 §15).
+    pub(crate) metrics_path: Option<PathBuf>,
 }
 
 impl Default for CliDiagnosticOptions {
@@ -164,6 +166,7 @@ impl Default for CliCommandValueOptions {
             debug_script: None,
             debug_engine: None,
             opt_bisect_limit: None,
+            metrics_path: None,
         }
     }
 }
@@ -361,6 +364,16 @@ pub(crate) fn extract_cli_value_options(args: &mut Vec<String>) -> Result<CliVal
             values.command.opt_bisect_limit = Some(limit);
             continue;
         }
+        if let Some(path) = consume_named_value_option(
+            args,
+            &mut i,
+            "--metrics",
+            "Usage: flux <file.flx> --metrics <file>",
+            |value| Ok(PathBuf::from(value)),
+        )? {
+            values.command.metrics_path = Some(path);
+            continue;
+        }
         if let Some(filter) = take_required_long_option(
             args,
             &mut i,
@@ -420,6 +433,7 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
             quiet: parsed.runtime.quiet,
             check_only: false,
             tape: values.command.tape,
+            metrics_path: values.command.metrics_path,
             // `flux debug` turns the debugger on; `--script` and `--engine`
             // only say where its commands come from.
             debugger: (values.command.debug_script.is_some()

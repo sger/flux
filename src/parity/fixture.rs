@@ -110,6 +110,82 @@ pub struct FixtureMeta {
     pub expected_stdout: Option<String>,
     /// Optional expected normalized stderr block.
     pub expected_stderr: Option<String>,
+    /// What Aether must achieve, from `// expect-reuse:` and
+    /// `// expect-allocs:`, checked against `flux --metrics` (0190 §15).
+    pub expected_counts: Vec<ExpectedCount>,
+}
+
+/// A count a fixture states, such as `// expect-reuse: >= 1`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpectedCount {
+    /// The directive, as written before the colon (`expect-reuse`).
+    pub directive: &'static str,
+    /// The `--metrics` key it reads (`aether_reuses`).
+    pub key: &'static str,
+    pub op: CountOp,
+    pub value: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CountOp {
+    Exactly,
+    AtLeast,
+    AtMost,
+}
+
+impl ExpectedCount {
+    pub fn holds(&self, seen: u64) -> bool {
+        match self.op {
+            CountOp::Exactly => seen == self.value,
+            CountOp::AtLeast => seen >= self.value,
+            CountOp::AtMost => seen <= self.value,
+        }
+    }
+}
+
+impl std::fmt::Display for ExpectedCount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let op = match self.op {
+            CountOp::Exactly => "",
+            CountOp::AtLeast => ">= ",
+            CountOp::AtMost => "<= ",
+        };
+        write!(f, "// {}: {op}{}", self.directive, self.value)
+    }
+}
+
+/// The count directives and the `--metrics` key each reads.
+const COUNT_DIRECTIVES: [(&str, &str); 2] = [
+    ("expect-reuse", "aether_reuses"),
+    ("expect-allocs", "aether_allocs"),
+];
+
+/// `>= 1`, `<= 3`, `= 3` or `3`.
+fn parse_count(
+    directive: &'static str,
+    key: &'static str,
+    value: &str,
+) -> Result<ExpectedCount, String> {
+    let value = value.trim();
+    let (op, number) = if let Some(rest) = value.strip_prefix(">=") {
+        (CountOp::AtLeast, rest)
+    } else if let Some(rest) = value.strip_prefix("<=") {
+        (CountOp::AtMost, rest)
+    } else if let Some(rest) = value.strip_prefix('=') {
+        (CountOp::Exactly, rest)
+    } else {
+        (CountOp::Exactly, value)
+    };
+    let value = number
+        .trim()
+        .parse()
+        .map_err(|_| "expected a count: `3`, `= 3`, `>= 1` or `<= 3`".to_string())?;
+    Ok(ExpectedCount {
+        directive,
+        key,
+        op,
+        value,
+    })
 }
 
 impl Default for FixtureMeta {
@@ -129,6 +205,7 @@ impl Default for FixtureMeta {
             requires: None,
             expected_stdout: None,
             expected_stderr: None,
+            expected_counts: Vec::new(),
         }
     }
 }
@@ -242,6 +319,20 @@ fn apply_directive(meta: &mut FixtureMeta, comment: &str) {
                 Expect::Success
             }
         };
+    } else if let Some((directive, key, value)) =
+        COUNT_DIRECTIVES.iter().find_map(|&(directive, key)| {
+            comment
+                .strip_prefix(directive)
+                .and_then(|rest| rest.strip_prefix(':'))
+                .map(|value| (directive, key, value))
+        })
+    {
+        match parse_count(directive, key, value) {
+            Ok(count) => meta.expected_counts.push(count),
+            Err(error) => meta
+                .meta_errors
+                .push(format!("`// {directive}:{value}`: {error}")),
+        }
     } else if let Some(code) = comment.strip_prefix("expect-error:") {
         let code = code.trim();
         if code.is_empty() {
@@ -457,6 +548,68 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    fn counts_of(lines: &[&str]) -> FixtureMeta {
+        let mut meta = FixtureMeta::default();
+        for line in lines {
+            apply_directive(&mut meta, line);
+        }
+        meta
+    }
+
+    #[test]
+    fn expected_counts_parse_each_comparison() {
+        let meta = counts_of(&[
+            "expect-reuse: >= 1",
+            "expect-allocs: <= 3",
+            "expect-reuse: = 2",
+            "expect-allocs: 0",
+        ]);
+        assert!(meta.meta_errors.is_empty(), "{:?}", meta.meta_errors);
+        let shown: Vec<String> = meta
+            .expected_counts
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                "// expect-reuse: >= 1",
+                "// expect-allocs: <= 3",
+                "// expect-reuse: 2",
+                "// expect-allocs: 0",
+            ]
+        );
+        assert_eq!(meta.expected_counts[0].key, "aether_reuses");
+        assert_eq!(meta.expected_counts[1].key, "aether_allocs");
+    }
+
+    #[test]
+    fn expected_counts_hold_by_their_comparison() {
+        let meta = counts_of(&[
+            "expect-reuse: >= 1",
+            "expect-allocs: <= 3",
+            "expect-reuse: 2",
+        ]);
+        let [at_least, at_most, exactly] = &meta.expected_counts[..] else {
+            panic!("three counts");
+        };
+        assert!(at_least.holds(1) && at_least.holds(5) && !at_least.holds(0));
+        assert!(at_most.holds(3) && at_most.holds(0) && !at_most.holds(4));
+        assert!(exactly.holds(2) && !exactly.holds(1) && !exactly.holds(3));
+    }
+
+    #[test]
+    fn a_bad_expected_count_is_a_meta_error() {
+        let meta = counts_of(&[
+            "expect-reuse: lots",
+            "expect-allocs: >= -1",
+            "expect-reuse:",
+        ]);
+        assert!(meta.expected_counts.is_empty());
+        assert_eq!(meta.meta_errors.len(), 3, "{:?}", meta.meta_errors);
+        assert!(meta.meta_errors[0].starts_with("`// expect-reuse: lots`"));
     }
 
     #[test]
