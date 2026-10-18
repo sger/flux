@@ -33,7 +33,7 @@ pub enum Yielding {
 }
 
 /// VM-side yield state. One instance owned by the VM.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct YieldState {
     /// Current yield mode.
     pub yielding: Yielding,

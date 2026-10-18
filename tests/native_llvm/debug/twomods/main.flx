@@ -1,0 +1,6 @@
+// Two modules, each with its own compile unit.
+import Shapes
+
+fn main() {
+    print(Shapes.double(21))
+}

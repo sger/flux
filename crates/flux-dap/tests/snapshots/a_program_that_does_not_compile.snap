@@ -1,0 +1,9 @@
+---
+source: crates/flux-dap/tests/dap_tests.rs
+---
+-> initialize {"adapterID":"flux"}
+<- {"body":{"exceptionBreakpointFilters":[{"default":true,"filter":"panic","label":"Panics"},{"default":true,"filter":"division_by_zero","label":"Division by zero"},{"default":true,"filter":"unhandled_effect","label":"Unhandled effects"},{"default":true,"filter":"fiber_failure","label":"Fiber failures"},{"default":false,"filter":"runtime_error","label":"Other runtime errors"}],"supportsConfigurationDoneRequest":true,"supportsEvaluateForHovers":true,"supportsExceptionInfoRequest":true,"supportsLoadedSourcesRequest":false,"supportsSetVariable":false,"supportsStepBack":true,"supportsTerminateRequest":true},"command":"initialize","success":true}
+-> launch {"fluxArgs":["--no-cache"],"fluxCommand":["<flux>"],"program":"<dir>/broken.flx"}
+<- {"command":"launch","message":"the program ended before the debugger could start; see the Debug Console","success":false}
+<- event {"body":{"exitCode":1},"event":"exited"}
+<- event {"body":{},"event":"terminated"}

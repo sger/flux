@@ -1,0 +1,37 @@
+---
+source: tests/debug/vm_debug_tests.rs
+assertion_line: 110
+---
+> break 16
+breakpoint at reverse_both.flx:16
+> break 10
+breakpoint at reverse_both.flx:10
+> continue
+stopped: breakpoint at reverse_both.flx:16:5 in fast (thread 3, position 25)
+    16 |     let m = k + 1
+> continue
+stopped: breakpoint at reverse_both.flx:10:5 in slow (thread 2, position 28)
+    10 |     b * 2
+> locals
+a = 1
+b = 11
+> reverse-continue
+stopped: breakpoint at reverse_both.flx:16:5 in fast (thread 3, position 25)
+    16 |     let m = k + 1
+> locals
+k = 4
+> reverse-next
+stopped: step at reverse_both.flx:15:5 in fast (thread 3, position 21)
+    15 |     sleep(5)
+> locals
+k = 4
+> continue
+stopped: breakpoint at reverse_both.flx:16:5 in fast (thread 3, position 25)
+    16 |     let m = k + 1
+> continue
+stopped: breakpoint at reverse_both.flx:10:5 in slow (thread 2, position 28)
+    10 |     b * 2
+> continue
+program finished
+--- program output ---
+137

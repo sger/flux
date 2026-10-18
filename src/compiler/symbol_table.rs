@@ -11,6 +11,9 @@ pub struct SymbolTable {
     pub num_definitions: usize,
     pub free_symbols: Vec<Binding>,
     allow_free: bool,
+    /// Under `-g`, the locals defined in this table that the compiler has
+    /// not yet entered in the function's local-variable table.
+    pub def_log: Option<Vec<Binding>>,
 }
 
 impl SymbolTable {
@@ -21,6 +24,7 @@ impl SymbolTable {
             num_definitions: 0,
             free_symbols: Vec::new(),
             allow_free: true,
+            def_log: None,
         }
     }
 
@@ -31,6 +35,7 @@ impl SymbolTable {
             num_definitions: 0,
             free_symbols: Vec::new(),
             allow_free: true,
+            def_log: None,
         }
     }
 
@@ -41,6 +46,7 @@ impl SymbolTable {
             num_definitions: 0,
             free_symbols: Vec::new(),
             allow_free: false,
+            def_log: None,
         }
     }
 
@@ -59,7 +65,16 @@ impl SymbolTable {
         let symbol = Binding::new(name, scope, self.num_definitions, span);
         self.store.insert(name, symbol.clone());
         self.num_definitions += 1;
+        self.log_definition(&symbol);
         symbol
+    }
+
+    fn log_definition(&mut self, binding: &Binding) {
+        if binding.symbol_scope == SymbolScope::Local
+            && let Some(log) = &mut self.def_log
+        {
+            log.push(binding.clone());
+        }
     }
 
     pub fn exists_in_current_scope(&self, name: Symbol) -> bool {
@@ -103,6 +118,7 @@ impl SymbolTable {
             Span::default(),
         );
         self.num_definitions += 1;
+        self.log_definition(&symbol);
         symbol
     }
 

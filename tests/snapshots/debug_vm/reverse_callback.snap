@@ -1,0 +1,46 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 5
+breakpoint at reverse_callback.flx:5
+> continue
+stopped: breakpoint at reverse_callback.flx:5:5 in bump (position 10)
+     5 |     let y = x + 100
+> continue
+stopped: breakpoint at reverse_callback.flx:5:5 in bump (position 16)
+     5 |     let y = x + 100
+> continue
+stopped: breakpoint at reverse_callback.flx:5:5 in bump (position 22)
+     5 |     let y = x + 100
+> locals
+x = 3
+> reverse-continue
+stopped: breakpoint at reverse_callback.flx:5:5 in bump (position 16)
+     5 |     let y = x + 100
+> locals
+x = 2
+> bt
+#0 bump at reverse_callback.flx:5:5
+#1 map_acc at List.flx:19:40
+   … 2 calls elided by tail calls (last: map_acc at List.flx:19:28)
+#2 main at reverse_callback.flx:10:14
+#3 <entry>
+> reverse-step
+stopped: step at reverse_callback.flx:4:1 in bump (position 15)
+     4 | fn bump(x) {
+> locals
+x = 2
+> delete 5
+deleted breakpoint at reverse_callback.flx:5
+> reverse-finish
+stopped: step at List.flx:19:28 in map_acc (position 14)
+    19 |                 [h | t] -> map_acc(t, [f(h) | acc]),
+> bt
+#0 map_acc at List.flx:19:28
+   … 2 calls elided by tail calls (last: map_acc at List.flx:19:28)
+#1 main at reverse_callback.flx:10:14
+#2 <entry>
+> continue
+program finished
+--- program output ---
+[101, 102, 103]

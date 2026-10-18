@@ -1,0 +1,19 @@
+// A panic stops where it happens, with the stack and values as they were;
+// going on ends the program with it.
+fn check(n: Int) -> Int {
+    if n > 2 {
+        panic("too big")
+    } else {
+        n
+    }
+}
+
+fn total(xs: List<Int>) -> Int {
+    let n = check(len(xs))
+    n + 1
+}
+
+fn main() with IO {
+    let xs = [1, 2, 3]
+    print(to_string(total(xs)))
+}

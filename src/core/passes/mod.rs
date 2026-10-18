@@ -16,6 +16,7 @@ mod evidence;
 mod helpers;
 mod inline;
 mod inliner;
+mod keep;
 pub mod lint;
 mod primop_promote;
 mod specialize;
@@ -91,6 +92,25 @@ pub fn run_core_passes_with_interner_and_registry(
         .map(|_| ())?;
     run_aether_passes_with_optional_interner(program, Some(interner), preloaded_registry)
         .map(|_| ())
+}
+
+/// As [`run_core_passes_with_interner`], for a debug build (proposal 0188
+/// S6, S9c): every pass runs, but no binder the program wrote is substituted
+/// away — a `let`, a lambda's parameter or a pattern variable it named stays,
+/// bound by a `let` where a pass would have inlined it — so that a native
+/// debugger shows each variable and stops on each line, as the VM debugger
+/// does. Returns the lambdas the simplifier inlined, for debug information.
+#[allow(clippy::result_large_err)]
+pub fn run_core_passes_keeping_variables(
+    program: &mut CoreProgram,
+    interner: &Interner,
+    optimize: bool,
+) -> Result<Vec<crate::core::InlineSite>, Diagnostic> {
+    let kept = keep::source_binders(program, interner);
+    let (result, sites) = keep::keeping(kept, || {
+        run_semantic_core_passes_with_optional_interner(program, Some(interner), optimize)
+    });
+    result.map(|_| sites)
 }
 
 #[allow(clippy::result_large_err)]
@@ -491,7 +511,9 @@ fn verify_aether_contract_stage_aether(
     expr: &crate::aether::AetherExpr,
     stage: &'static str,
 ) -> Result<(), Diagnostic> {
-    if let Err(errors) = crate::aether::verify::verify_contract_aether(expr) {
+    if let Err(errors) =
+        crate::aether::verify::verify_def_contract_aether(expr, def.borrow_signature.as_ref())
+    {
         return Err(aether_contract_error_aether(def, stage, &errors));
     }
     Ok(())

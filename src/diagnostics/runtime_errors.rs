@@ -182,6 +182,72 @@ pub const INVALID_SUBSTRING: ErrorCode = ErrorCode {
     hint: Some("Ensure 0 <= start <= end <= length."),
 };
 
+// ── Effect tape errors (Proposal 0188 S1, implementing 0038) ────────────────
+//
+// `flux run --replay <tape>` answers every effect from a recording and stops
+// at the first place the program and the tape disagree. These are fatal: a
+// replay that diverged no longer reproduces the recorded run.
+
+pub const REPLAY_KIND_MISMATCH: ErrorCode = ErrorCode {
+    code: "E1022",
+    title: "REPLAY DIVERGED",
+    error_type: ErrorType::Runtime,
+    message: "Replay diverged at event #{}: the tape expected {}, but the program performed {}.",
+    hint: Some(
+        "The program or its inputs changed since the tape was recorded. \
+         Record a new tape with `flux run --record <tape>`.",
+    ),
+};
+
+pub const REPLAY_PAYLOAD_MISMATCH: ErrorCode = ErrorCode {
+    code: "E1023",
+    title: "REPLAY DIVERGED",
+    error_type: ErrorType::Runtime,
+    message: "Replay diverged at event #{}: {} differs. The tape has {}, the program has {}.",
+    hint: Some(
+        "The program or its inputs changed since the tape was recorded. \
+         Record a new tape with `flux run --record <tape>`.",
+    ),
+};
+
+pub const REPLAY_TAPE_EXHAUSTED: ErrorCode = ErrorCode {
+    code: "E1024",
+    title: "REPLAY TAPE EXHAUSTED",
+    error_type: ErrorType::Runtime,
+    message: "The tape ended after {} events, but the program then performed {}.",
+    hint: Some("The recording may be incomplete, for example if the recorded run crashed."),
+};
+
+pub const REPLAY_LEFTOVER_EVENTS: ErrorCode = ErrorCode {
+    code: "E1025",
+    title: "REPLAY LEFTOVER EVENTS",
+    error_type: ErrorType::Runtime,
+    message: "The program finished, but {} recorded events were never replayed, starting at #{}: {}.",
+    hint: Some(
+        "The program now does less than it did when the tape was recorded. \
+         Record a new tape with `flux run --record <tape>`.",
+    ),
+};
+
+pub const REPLAY_BAD_TAPE: ErrorCode = ErrorCode {
+    code: "E1026",
+    title: "UNUSABLE TAPE",
+    error_type: ErrorType::Runtime,
+    message: "Cannot use tape `{}`: {}.",
+    hint: None,
+};
+
+pub const REPLAY_UNSUPPORTED_EFFECT: ErrorCode = ErrorCode {
+    code: "E1027",
+    title: "EFFECT NOT RECORDABLE",
+    error_type: ErrorType::Runtime,
+    message: "`{}` cannot be recorded or replayed yet.",
+    hint: Some(
+        "`run_async` inside a task (`Task.spawn`) cannot be recorded yet. Run \
+         without --record or --replay, or run the async code outside the task.",
+    ),
+};
+
 // ── Effect handler runtime errors (Proposal 0162) ───────────────────────────
 //
 // E1200 and E1201 mirror the native backend's structured diagnostics. The

@@ -1,0 +1,7 @@
+// The clock is an input: replay returns the recorded readings.
+fn main() with IO {
+    let first = now_ms()
+    let second = now_ms()
+    println(first)
+    println(second >= first)
+}

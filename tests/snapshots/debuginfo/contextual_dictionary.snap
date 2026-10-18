@@ -1,0 +1,51 @@
+---
+source: tests/debuginfo/debug_info_tests.rs
+---
+debug info: <root>/examples/type_classes/contextual_dictionary.flx
+__dict_MyEq_List<a> [dictionary, artificial] @?
+  evidence __dict_m7_466C6F772E4571_Eq: ? @? (artificial)
+<lambda in __dict_MyEq_List<a>> [lambda in __dict_MyEq_List<a>, artificial] @?
+  param __x0: ? @? (artificial)
+  param __x1: ? @? (artificial)
+__dict_m7_466C6F772E4571_Eq_Int [dictionary, artificial] @?
+__tc_MyEq_List<a>_my_eq [instance method, artificial] @?
+  evidence __dict_m7_466C6F772E4571_Eq: ? @? (artificial)
+  param xs: List<?> @?
+  param ys: List<?> @?
+  pattern h1: ? @24:13
+  pattern t1: ? @24:13
+  pattern h2: ? @25:17
+  pattern t2: ? @25:17
+my_eq [fn, artificial] @?
+  param __x0: ? @? (artificial)
+  param __x1: ? @? (artificial)
+pair_eq [fn] @33:1
+  evidence __dict_MyEq: ? @33:1 (artificial)
+  param x: ? @33:1
+  param y: ? @33:1
+main [fn] @37:1
+  let __tmp_2000001: ? @38:5 (artificial)
+  let __tmp_2000000: ? @39:5 (artificial)
+  handler __arg0: ? @37:1 (artificial)
+  handler __resume_default: ? @37:1 (artificial)
+  let __tmp_2000002: ? @37:1 (artificial)
+  handler __arg0: ? @37:1 (artificial)
+  handler __resume_default: ? @37:1 (artificial)
+  let __tmp_2000003: ? @37:1 (artificial)
+  handler __arg0: ? @37:1 (artificial)
+  handler __resume_default: ? @37:1 (artificial)
+  handler __arg0: ? @37:1 (artificial)
+  handler __resume_default: ? @37:1 (artificial)
+  handler __arg0: ? @37:1 (artificial)
+  handler __arg1: ? @37:1 (artificial)
+  handler __resume_default: ? @37:1 (artificial)
+  let __tmp_2000004: ? @37:1 (artificial)
+  handler __resume_default: ? @37:1 (artificial)
+  handler __arg0: ? @37:1 (artificial)
+  handler __resume_default: ? @37:1 (artificial)
+  handler __resume_default: ? @37:1 (artificial)
+  handler __resume_default: ? @37:1 (artificial)
+  handler __resume_default: ? @37:1 (artificial)
+  handler __arg0: ? @37:1 (artificial)
+  handler __arg1: ? @37:1 (artificial)
+  handler __resume_default: ? @37:1 (artificial)

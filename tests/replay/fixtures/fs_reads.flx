@@ -1,0 +1,31 @@
+// Every file read is an input: replay answers it from the tape, so the files
+// may be gone by then.
+import Flow.Fs as Fs
+import Flow.IoError as Io
+import Flow.Crypto as Crypto
+
+fn show(label: String, r: Result<String, IoError>) -> Unit with IO {
+    match r {
+        Ok(text) -> println(label + " ok " + text),
+        Err(e) -> println(label + " " + Io.kind_name(Io.error_kind(e))),
+    }
+}
+
+fn main() with IO {
+    println(read_file("data/in.txt"))
+    println(read_lines("data/in.txt"))
+    show("try", Fs.read_file("data/in.txt"))
+    show("missing", Fs.read_file("data/absent.txt"))
+    println(Fs.exists("data/in.txt"))
+    println(Fs.is_dir("data"))
+    println(Fs.is_file("data"))
+    match Fs.list_dir("data") {
+        Ok(names) -> println(len(names)),
+        Err(_) -> println("list failed"),
+    }
+    match Fs.metadata("data/in.txt") {
+        Ok(meta) -> println(Fs.file_size(meta)),
+        Err(_) -> println("metadata failed"),
+    }
+    show("sha", Crypto.sha256_file("data/in.txt"))
+}

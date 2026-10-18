@@ -1,0 +1,45 @@
+// Functions that rebuild a list, called on lists built at run time that the
+// caller keeps and prints afterwards. Each was inferred to borrow its list
+// yet released it, and the caller's guard released it again (F2).
+import Flow.List as List
+
+fn bump(xs) {
+    match xs {
+        [h | t] -> [h + 1 | bump(t)],
+        _ -> [],
+    }
+}
+
+fn pairs(a, b) {
+    match a {
+        [ha | ta] -> match b {
+            [hb | tb] -> [ha + hb | pairs(ta, tb)],
+            _ -> [],
+        },
+        _ -> [],
+    }
+}
+
+fn build(n) {
+    if n == 0 { [] } else { [n | build(n - 1)] }
+}
+
+fn main() {
+    let xs = build(4)
+    let ys = build(3)
+    print(bump(xs))
+    print(pairs(xs, ys))
+    print(List.map(xs, \x -> x * 10))
+    print(List.init(xs))
+    print(List.intersperse(xs, 0))
+    print(List.enumerate(ys))
+    print(List.span(xs, \x -> x > 2))
+    print(List.sort(xs))
+    print(List.sort(ys))
+    print(List.maximum(xs))
+    let again = \u -> bump(xs)
+    print(again(1))
+    print(again(2))
+    print(xs)
+    print(ys)
+}

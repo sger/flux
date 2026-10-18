@@ -9,6 +9,7 @@ pub fn has_dump_requests(flags: &DriverFlags) -> bool {
         || flags.dumps.dump_cfg
         || flags.dumps.dump_lir
         || flags.dumps.dump_lir_llvm
+        || flags.dumps.dump_debug_info
         || flags.runtime.trace_aether
         || flags.dumps.dump_repr
 }
@@ -46,11 +47,29 @@ pub fn validate_flags(flags: &DriverFlags, is_test_mode: bool) -> Result<(), &'s
             || flags.dumps.dump_repr
             || flags.dumps.dump_cfg
             || flags.dumps.dump_aether != AetherDumpMode::None
+            || flags.dumps.dump_debug_info
             || is_test_mode)
     {
         return Err(
             "Error: --trace-aether only supports normal program execution. Use --dump-aether for report-only output.",
         );
+    }
+
+    // A tape records one run of a program's `main`; tests, dumps and
+    // emitted artifacts are not such a run.
+    if flags.runtime.tape.is_some()
+        && (is_test_mode
+            || flags.backend.emit_llvm
+            || flags.backend.emit_binary
+            || has_dump_requests(flags))
+    {
+        return Err("Error: --record and --replay apply only to running a program.");
+    }
+
+    // The debug heap is a build of the C runtime: only a native program
+    // links one, and the native test runner does not pass it on.
+    if flags.backend.debug_heap && (flags.backend.selected != Backend::Native || is_test_mode) {
+        return Err("Error: --debug-heap applies to a program run or built with --native.");
     }
 
     validate_dump_flags(flags)?;
@@ -160,6 +179,18 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "llvm")]
+    fn validate_flags_keeps_the_debug_heap_native() {
+        let mut flags = base_flags();
+        flags.backend.debug_heap = true;
+        assert!(validate_flags(&flags.clone().finalize_backend(), false).is_err());
+        flags.backend.use_llvm = true;
+        let flags = flags.finalize_backend();
+        assert!(validate_flags(&flags, false).is_ok());
+        assert!(validate_flags(&flags, true).is_err());
+    }
+
+    #[test]
     fn validate_flags_rejects_trace_aether_in_tests() {
         let mut flags = base_flags();
         flags.runtime.trace_aether = true;
@@ -257,6 +288,10 @@ mod tests {
         flags.dumps.dump_lir = true;
         assert!(has_dump_requests(&flags));
         flags.dumps.dump_lir = false;
+
+        flags.dumps.dump_debug_info = true;
+        assert!(has_dump_requests(&flags));
+        flags.dumps.dump_debug_info = false;
 
         flags.dumps.dump_lir_llvm = true;
         assert!(has_dump_requests(&flags));

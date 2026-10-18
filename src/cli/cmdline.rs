@@ -64,6 +64,8 @@ pub enum CliCommand {
     ParityCheck {
         raw_args: Vec<String>,
     },
+    /// `flux debug --lldb-script`: prints `flux_lldb.py`.
+    LldbScript,
     /// `flux init [name] [--lib]` — scaffold a package in place.
     Init {
         name: Option<String>,
@@ -249,6 +251,12 @@ fn reject_unknown_flag_tokens(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
 
+    if args.get(1).map(String::as_str) == Some("debug")
+        && args.get(2).map(String::as_str) == Some("--lldb-script")
+    {
+        return Ok(());
+    }
+
     for arg in args.iter().skip(1) {
         if arg.starts_with("--") && arg != "--help" {
             return Err(format!("Error: unknown flag `{arg}`."));
@@ -351,6 +359,7 @@ fn parse_subcommand(
     match args[1].as_str() {
         "-h" | "--help" | "help" => Ok(CliCommand::Help),
         "run" => parse_run_subcommand(args, flags, run_mode),
+        "debug" => parse_debug_subcommand(args, flags, run_mode),
         "tokens" => {
             parse_flx_subcommand(args, flags, 2, "Usage: flux tokens <file.flx>", |flags| {
                 CliCommand::Tokens { flags }
@@ -450,6 +459,39 @@ fn run_command(flags: DriverFlags, path: String, mode: RunMode) -> CliCommand {
             program_args: Vec::new(),
         },
     }
+}
+
+/// `flux debug <file.flx> [--script <commands>]`: runs the program on the
+/// VM, built with `-g`, under the command-line debugger.
+///
+/// `flux debug --lldb-script` prints the lldb script that shows native
+/// values as Flux values.
+fn parse_debug_subcommand(
+    args: &[String],
+    flags: &DriverFlags,
+    run_mode: RunMode,
+) -> Result<CliCommand, String> {
+    if args.get(2).map(String::as_str) == Some("--lldb-script") {
+        return Ok(CliCommand::LldbScript);
+    }
+    let path = require_flx_arg(
+        args,
+        2,
+        "Usage: flux debug <file.flx> [--script <commands>]",
+    )?;
+    if flags.is_native_backend() {
+        return Err("Error: flux debug runs the program on the VM; drop --native.".to_string());
+    }
+    let mut flags = flags.clone();
+    let request = flags.runtime.debugger.take();
+    flags.runtime.debugger = Some(crate::driver::flags::DebuggerRequest {
+        script: request.as_ref().and_then(|request| request.script.clone()),
+        engine: request.and_then(|request| request.engine),
+    });
+    if !flags.language.debug_level.is_enabled() {
+        flags.language.debug_level = crate::debuginfo::DebugLevel::Full;
+    }
+    Ok(run_command(flags, path, run_mode))
 }
 
 /// Parses the explicit `run` subcommand form.

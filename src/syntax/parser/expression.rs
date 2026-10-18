@@ -302,7 +302,7 @@ impl Parser {
         let right = self.parse_expression(right_precedence)?;
 
         // Transform based on what we got
-        match right {
+        let call = match right {
             // a |> f => f(a)
             Expression::Identifier { name, span, .. } => Some(Expression::Call {
                 function: Box::new(Expression::Identifier {
@@ -351,7 +351,11 @@ impl Parser {
                     .push(pipe_target_error(self.current_token.span()));
                 None
             }
+        }?;
+        if let Expression::Call { id, .. } = &call {
+            self.pipe_calls.insert(*id);
         }
+        Some(call)
     }
 
     pub(super) fn parse_call_expression(&mut self, function: Expression) -> Option<Expression> {

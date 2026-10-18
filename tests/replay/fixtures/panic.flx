@@ -1,0 +1,5 @@
+// A run that fails is recorded as failing, and replays the same way.
+fn main() with IO {
+    println("before the panic")
+    panic("recorded failure")
+}

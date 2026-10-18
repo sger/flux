@@ -1,0 +1,23 @@
+---
+source: crates/flux-dap/tests/dap_tests.rs
+---
+-> initialize {"adapterID":"flux"}
+<- {"body":{"exceptionBreakpointFilters":[{"default":true,"filter":"panic","label":"Panics"},{"default":true,"filter":"division_by_zero","label":"Division by zero"},{"default":true,"filter":"unhandled_effect","label":"Unhandled effects"},{"default":true,"filter":"fiber_failure","label":"Fiber failures"},{"default":false,"filter":"runtime_error","label":"Other runtime errors"}],"supportsConfigurationDoneRequest":true,"supportsEvaluateForHovers":true,"supportsExceptionInfoRequest":true,"supportsLoadedSourcesRequest":false,"supportsSetVariable":false,"supportsStepBack":true,"supportsTerminateRequest":true},"command":"initialize","success":true}
+-> launch {"fluxArgs":["--no-cache"],"fluxCommand":["<flux>"],"program":"<dir>/spin.flx","stopOnEntry":true}
+<- {"body":{},"command":"launch","success":true}
+<- event {"body":{},"event":"initialized"}
+-> configurationDone null
+<- {"body":{},"command":"configurationDone","success":true}
+<- event {"body":{"allThreadsStopped":true,"description":"position N","reason":"entry","threadId":1},"event":"stopped"}
+-> continue {"threadId":1}
+<- {"body":{"allThreadsContinued":true},"command":"continue","success":true}
+-> pause {"threadId":1}
+<- {"body":{},"command":"pause","success":true}
+<- event {"body":{"allThreadsStopped":true,"description":"position N","reason":"pause","threadId":1},"event":"stopped"}
+-> stackTrace {"levels":1,"threadId":1}
+<- stack: spin (line and column vary)
+-> terminate {}
+<- {"body":{},"command":"terminate","success":true}
+<- event {"body":{"exitCode":0},"event":"exited"}
+<- event {"body":{},"event":"terminated"}
+--- program output ---

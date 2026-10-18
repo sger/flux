@@ -1,0 +1,8 @@
+// Tail calls replace their frame; the stack says how many it no longer shows.
+fn count(n, acc) {
+    if n == 0 { acc } else { count(n - 1, acc + 1) }
+}
+
+fn main() {
+    print(count(4, 0))
+}

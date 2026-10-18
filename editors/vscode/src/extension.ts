@@ -3,6 +3,8 @@ import * as fs from "fs";
 import * as path from "path";
 import { promisify } from "util";
 import * as vscode from "vscode";
+import { registerDebugger } from "./debug";
+import { registerTimeline } from "./timeline";
 import {
   LanguageClient,
   LanguageClientOptions,
@@ -17,6 +19,9 @@ let client: LanguageClient | undefined;
 const BINARY_NAME = process.platform === "win32" ? "flux-lsp.exe" : "flux-lsp";
 
 export function activate(context: vscode.ExtensionContext) {
+  registerDebugger(context);
+  registerTimeline(context);
+
   const serverPath = resolveServerPath(context);
 
   const serverOptions: ServerOptions = {

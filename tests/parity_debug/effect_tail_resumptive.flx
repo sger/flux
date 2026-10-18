@@ -1,0 +1,29 @@
+// Debug parity (0188 S7): a tail-resumptive operation performed in another
+// function. The VM calls the arm on top of the performing frames; native
+// code yields, and the arm's `resume` holds them. The stacks read the same.
+// dbg: break 26
+// dbg: continue
+// dbg: bt
+// dbg: handlers
+// dbg: break 20
+// dbg: continue
+// dbg: bt
+// dbg: locals
+// dbg: continue
+
+effect Log {
+    log : (String) -> Int
+}
+
+fn work(n: Int) -> Int with Log {
+    let a = perform Log.log("start")
+    let b = n * 2
+    a + b
+}
+
+fn main() with IO {
+    let total = work(20) handle Log {
+        log(resume, msg) -> resume(len(msg))
+    }
+    print(to_string(total))
+}

@@ -1,0 +1,5 @@
+// Standard input is an input: replay returns what was read.
+fn main() with IO {
+    let input = read_stdin()
+    println("read: " + input)
+}

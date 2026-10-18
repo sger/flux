@@ -18,16 +18,20 @@ mod binary_ops;
 mod channel;
 mod comparison_ops;
 mod core_dispatch;
+pub mod debug;
 
 /// Install the running program's arguments, read back by the `EnvArgs`
 /// primop. Called once by the driver; see `Flow.Env.args`.
 pub use core_dispatch::{program_args_snapshot, set_program_args};
 mod dispatch;
 mod event;
+mod fiber_debug;
 mod function_call;
 mod index_ops;
 mod primop;
 pub mod profiling;
+mod replay_codec;
+mod replay_hook;
 mod task;
 pub mod test_runner;
 mod trace;
@@ -114,6 +118,16 @@ pub struct VM {
     pub(crate) profiling: bool,
     pub(crate) cost_centres: Vec<profiling::CostCentre>,
     pub(crate) cc_stack: Vec<profiling::CostCentreStackEntry>,
+    /// The debugger attached to this VM, if any (proposal 0188 S2).
+    debugger: Option<Box<debug::DebugState>>,
+    /// For each frame index, where its caller was when it called: the
+    /// caller's frame has already moved past the call by the time anyone
+    /// reads its `ip`, so stack traces name the call from here.
+    call_ips: Vec<usize>,
+    /// How many dispatch loops are running inside instructions of the
+    /// top-level loop: callbacks run by `List.map`, resumed continuations.
+    /// The debugger checkpoints only when there are none (0188 S3).
+    nested_runs: u32,
 }
 
 impl VM {
@@ -144,6 +158,9 @@ impl VM {
             profiling: false,
             cost_centres: Vec::new(),
             cc_stack: Vec::new(),
+            debugger: None,
+            call_ips: Vec::new(),
+            nested_runs: 0,
         }
     }
 
@@ -278,7 +295,12 @@ impl VM {
     }
 
     pub fn run(&mut self) -> Result<(), String> {
-        match self.run_inner() {
+        let result = if self.debugger.is_some() {
+            self.run_debugged()
+        } else {
+            self.run_inner()
+        };
+        match result {
             Ok(()) => Ok(()),
             Err(err) => {
                 let normalized = trace::strip_ansi(&err);
@@ -336,7 +358,11 @@ impl VM {
             // frame_index unchanged numerically but swaps in a different frame
             // triggers an instruction-pointer refresh.
             let closure_ptr_before = Rc::as_ptr(&closure);
-            let ip_delta = self.dispatch_instruction(instructions, ip, op)?;
+            let ip_delta = match self.dispatch_instruction(instructions, ip, op) {
+                Ok(delta) => delta,
+                Err(error) if self.debugger.is_some() => return Err(self.debug_on_error(error)),
+                Err(error) => return Err(error),
+            };
             self.apply_ip_delta(frame_before, ip_delta, None);
 
             let closure_changed =
@@ -366,7 +392,11 @@ impl VM {
         }
 
         let frame_before = self.frame_index;
-        let ip_delta = self.dispatch_instruction(instructions, ip, op)?;
+        let ip_delta = match self.dispatch_instruction(instructions, ip, op) {
+            Ok(delta) => delta,
+            Err(error) if self.debugger.is_some() => return Err(self.debug_on_error(error)),
+            Err(error) => return Err(error),
+        };
         self.apply_ip_delta(frame_before, ip_delta, invoke_target_frame);
         Ok(())
     }
@@ -551,11 +581,21 @@ impl VM {
     }
 
     fn push_frame(&mut self, frame: Frame) {
+        // The caller is still at its call instruction here: the dispatch loop
+        // moves it past the call only after this returns.
+        let call_ip = self.frames[self.frame_index].ip;
         self.frame_index += 1;
         if self.frame_index >= self.frames.len() {
             self.frames.push(frame);
         } else {
             self.frames[self.frame_index] = frame;
+        }
+        if self.frame_index >= self.call_ips.len() {
+            self.call_ips.resize(self.frame_index + 1, 0);
+        }
+        self.call_ips[self.frame_index] = call_ip;
+        if self.debugger.is_some() {
+            self.debug_note_push();
         }
     }
 

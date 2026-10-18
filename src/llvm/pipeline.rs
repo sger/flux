@@ -255,7 +255,100 @@ fn has_lld() -> bool {
     }
 }
 
-/// Link `.o`/`.obj` + runtime library → executable.
+/// The file the linker writes for `exe_path`: on Windows, `.exe` is added
+/// to a path without an extension.
+pub fn linked_exe_path(exe_path: &Path) -> PathBuf {
+    if cfg!(windows) && exe_path.extension().is_none() {
+        exe_path.with_extension("exe")
+    } else {
+        exe_path.to_path_buf()
+    }
+}
+
+/// The PDB a `-g` link writes beside the executable on Windows, where
+/// Visual Studio and cdb look for it (0188 S11).
+pub fn pdb_path(exe_path: &Path) -> PathBuf {
+    linked_exe_path(exe_path).with_extension("pdb")
+}
+
+/// Which build of the C runtime a program links.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RuntimeVariant {
+    /// `libflux_rt.a`.
+    #[default]
+    Plain,
+    /// `libflux_rt_debug.a`, built with `FLUX_DEBUG_HEAP`: freed blocks are
+    /// kept and poisoned, and the next dup or drop of one stops the program
+    /// with where it was allocated and freed (`flux --debug-heap`, 0188 S10c).
+    DebugHeap,
+}
+
+impl RuntimeVariant {
+    /// The library's name without `lib` or an extension: what `-l` takes.
+    pub fn stem(self) -> &'static str {
+        match self {
+            RuntimeVariant::Plain => "flux_rt",
+            RuntimeVariant::DebugHeap => "flux_rt_debug",
+        }
+    }
+
+    /// The library's file name in `runtime/c`.
+    pub fn file_name(self) -> String {
+        if cfg!(windows) {
+            format!("{}.lib", self.stem())
+        } else {
+            format!("lib{}.a", self.stem())
+        }
+    }
+
+    /// The preprocessor definitions this build adds.
+    fn defines(self, msvc: bool) -> &'static [&'static str] {
+        match (self, msvc) {
+            (RuntimeVariant::Plain, _) => &[],
+            (RuntimeVariant::DebugHeap, false) => &["-DFLUX_DEBUG_HEAP"],
+            (RuntimeVariant::DebugHeap, true) => &["/DFLUX_DEBUG_HEAP"],
+        }
+    }
+
+    /// What this build adds to an object file's name, so two builds never
+    /// share one.
+    fn object_suffix(self) -> &'static str {
+        match self {
+            RuntimeVariant::Plain => "",
+            RuntimeVariant::DebugHeap => ".debug",
+        }
+    }
+}
+
+/// What the Windows linker is told about debug information. `lld-link`
+/// keeps the Flux DWARF line table in every .exe (`/DEBUG:DWARF`): the
+/// program's own traces read it (0188 S10a), since dbghelp reads only a
+/// PDB. With `debug`, it also writes the program's CodeView into a PDB
+/// for Visual Studio and cdb (S11). MSVC's `link.exe` keeps no DWARF, so
+/// a program it links names no Flux frames.
+fn windows_debug_args(exe_path: &Path, debug: bool, lld: bool) -> Vec<String> {
+    let mut args = Vec::new();
+    if debug {
+        args.push("/DEBUG".to_string());
+    }
+    if lld {
+        // Without `NOSYMTAB`, `DWARF` also keeps a COFF symbol table that
+        // nothing reads, doubling the size of the .exe.
+        args.extend(["/DEBUG:DWARF".to_string(), "/DEBUG:NOSYMTAB".to_string()]);
+    }
+    if !args.is_empty() {
+        // `/DEBUG` turns off dropping unused code, which keeps the whole
+        // Rust staticlib: ten times the size. Turn it back on.
+        args.extend(["/OPT:REF".to_string(), "/OPT:ICF".to_string()]);
+    }
+    if debug {
+        args.push(format!("/PDB:{}", pdb_path(exe_path).display()));
+    }
+    args
+}
+
+/// Link `.o`/`.obj` + runtime library → executable. With `debug`, the
+/// Windows linker also writes the program's CodeView into a PDB.
 ///
 /// Prefers `lld` (LLVM's linker) when available for faster linking.
 /// Falls back to system linker (`cc`/`link.exe`) if `lld` is not found.
@@ -263,6 +356,8 @@ fn run_linker(
     obj_paths: &[PathBuf],
     exe_path: &Path,
     runtime_lib_dir: Option<&Path>,
+    runtime: RuntimeVariant,
+    debug: bool,
 ) -> Result<(), PipelineError> {
     if let Some(parent) = exe_path.parent() {
         fs::create_dir_all(parent)?;
@@ -272,17 +367,13 @@ fn run_linker(
 
     match &toolchain {
         CToolchain::Msvc { .. } => {
-            let exe_path_with_ext = if exe_path.extension().is_none() {
-                exe_path.with_extension("exe")
-            } else {
-                exe_path.to_path_buf()
-            };
             // Prefer lld-link over MSVC link.exe when available.
             let linker = if use_lld { "lld-link" } else { "link" };
             let mut cmd = Command::new(linker);
             cmd.args(["/nologo", "/subsystem:console"])
-                .arg(format!("/OUT:{}", exe_path_with_ext.display()))
+                .arg(format!("/OUT:{}", linked_exe_path(exe_path).display()))
                 .args(obj_paths);
+            cmd.args(windows_debug_args(exe_path, debug, use_lld));
             // Set large stack size for deeply recursive programs.
             cmd.arg("/STACK:67108864"); // 64 MB stack
             // Rust staticlib (defines flux_async_*) must precede flux_rt.lib
@@ -292,7 +383,7 @@ fn run_linker(
             }
             if let Some(dir) = runtime_lib_dir {
                 cmd.arg(format!("/LIBPATH:{}", dir.display()));
-                cmd.arg("flux_rt.lib");
+                cmd.arg(runtime.file_name());
             }
             // Link the C runtime and kernel libraries.
             cmd.args(["libcmt.lib", "kernel32.lib"]);
@@ -300,20 +391,15 @@ fn run_linker(
             check_output(if use_lld { "lld-link" } else { "link" }, &output)
         }
         CToolchain::Gcc { cc, .. } => {
-            let exe_path_final = if cfg!(windows) && exe_path.extension().is_none() {
-                exe_path.with_extension("exe")
-            } else {
-                exe_path.to_path_buf()
-            };
             let mut cmd = Command::new(cc);
-            cmd.args(obj_paths).arg("-o").arg(&exe_path_final);
+            cmd.args(obj_paths).arg("-o").arg(linked_exe_path(exe_path));
             // Use lld for faster linking when available.
             if use_lld {
                 cmd.arg("-fuse-ld=lld");
             }
             if let Some(dir) = runtime_lib_dir {
                 cmd.arg(format!("-L{}", dir.display()));
-                cmd.arg("-lflux_rt");
+                cmd.arg(format!("-l{}", runtime.stem()));
             }
             // libflux.a defines the Rust async bridge symbols referenced by
             // libflux_rt.a. Unix archive linkers extract members left-to-right,
@@ -327,6 +413,11 @@ fn run_linker(
                 // The Rust staticlib linked for native async pulls in small
                 // portions of `std` that reference these Windows system libs.
                 cmd.args(["-luserenv", "-lntdll"]);
+                cmd.args(
+                    windows_debug_args(exe_path, debug, use_lld)
+                        .into_iter()
+                        .map(|arg| format!("-Wl,{arg}")),
+                );
             }
             // Set large stack size for deeply recursive programs.
             #[cfg(target_os = "macos")]
@@ -361,9 +452,24 @@ fn discover_rust_staticlib() -> Option<PathBuf> {
         (exe_dir.to_path_buf(), exe_dir.join("deps"))
     };
 
-    // The archive must export the sentinel proving it was built with
-    // --features llvm (a feature-less build lacks flux_async_* symbols).
-    let has_sentinel = |path: &Path| archive_exports_symbol(path, "flux_async_run_root");
+    // The archive must export the sentinels proving it was built with
+    // --features llvm (a feature-less build lacks flux_async_* symbols) and
+    // is recent enough for the runtime it links with: the C runtime calls
+    // the effect tape's `flux_tape_*` (proposal 0188 S1) and the debugger's
+    // `flux_async_debug_block` (S8b) and the tape's thread ordering,
+    // `flux_tape_ordered_begin` (S8c), and `flux_tape_init` with the program
+    // hash, which came with `flux_debug_tape_events` (S9b), the panic trace's
+    // `flux_print_backtrace` (S10a) and the debug heap's `flux_capture_site`
+    // (S10c); an archive left from an older build lacks them.
+    let has_sentinel = |path: &Path| {
+        archive_exports_symbol(path, "flux_async_run_root")
+            && archive_exports_symbol(path, "flux_tape_init")
+            && archive_exports_symbol(path, "flux_async_debug_block")
+            && archive_exports_symbol(path, "flux_tape_ordered_begin")
+            && archive_exports_symbol(path, "flux_debug_tape_events")
+            && archive_exports_symbol(path, "flux_print_backtrace")
+            && archive_exports_symbol(path, "flux_capture_site")
+    };
 
     // Fast path: sidecar written by a previous successful link.
     // The archive filename embeds a cargo content hash — if native_abi.rs
@@ -421,12 +527,117 @@ fn archive_exports_symbol(path: &Path, symbol: &str) -> bool {
     false
 }
 
+/// Writes the debug information of a linked binary next to it, where a
+/// debugger finds it after the objects it came from are gone. On macOS the
+/// linker leaves DWARF in the object files and `dsymutil` collects it into
+/// `<binary>.dSYM`; elsewhere it is in the binary already.
+pub fn write_debug_symbols(binary: &Path) {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    // Each `dsymutil` holds the runtime's DWARF too, hundreds of MB: many
+    // builds at once (a test suite's) exhausted a 24 GB machine. Take one
+    // of a few machine-wide slots first.
+    let slot = DsymutilSlot::acquire();
+    let status = Command::new("dsymutil")
+        .arg(binary)
+        .stdout(std::process::Stdio::null())
+        .status();
+    drop(slot);
+    match status {
+        Ok(status) if status.success() => write_dsym_script(binary),
+        Ok(status) => eprintln!(
+            "warning: dsymutil failed ({status}); debug information for {} stays in its object files",
+            binary.display()
+        ),
+        Err(err) => eprintln!(
+            "warning: cannot run dsymutil ({err}); debug information for {} stays in its object files",
+            binary.display()
+        ),
+    }
+}
+
+/// One of the machine's `dsymutil` slots, held while it runs: a lock on
+/// `<temp>/flux-dsymutil/slot-<n>.lock`, released when dropped or when the
+/// process ends. `FLUX_DSYMUTIL_JOBS` sets how many (2 by default).
+struct DsymutilSlot(Option<fs::File>);
+
+impl DsymutilSlot {
+    fn acquire() -> Self {
+        let slots = std::env::var("FLUX_DSYMUTIL_JOBS")
+            .ok()
+            .and_then(|jobs| jobs.parse::<usize>().ok())
+            .filter(|jobs| *jobs > 0)
+            .unwrap_or(2);
+        let dir = std::env::temp_dir().join("flux-dsymutil");
+        if fs::create_dir_all(&dir).is_err() {
+            return Self(None);
+        }
+        let files: Vec<fs::File> = (0..slots)
+            .filter_map(|slot| {
+                fs::OpenOptions::new()
+                    .create(true)
+                    .truncate(false)
+                    .write(true)
+                    .open(dir.join(format!("slot-{slot}.lock")))
+                    .ok()
+            })
+            .collect();
+        if files.is_empty() {
+            return Self(None);
+        }
+        loop {
+            for file in &files {
+                if file.try_lock().is_ok() {
+                    return Self(file.try_clone().ok());
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+}
+
+impl Drop for DsymutilSlot {
+    fn drop(&mut self) {
+        if let Some(file) = &self.0 {
+            let _ = file.unlock();
+        }
+    }
+}
+
+/// Puts `flux_lldb.py` in the binary's dSYM, where lldb and Xcode look for
+/// a script that formats its values: `Contents/Resources/Python/<name>.py`,
+/// named after the binary with characters Python cannot import replaced.
+fn write_dsym_script(binary: &Path) {
+    let Some(name) = binary.file_name().map(|name| name.to_string_lossy()) else {
+        return;
+    };
+    let module: String = name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    let mut dsym = binary.as_os_str().to_owned();
+    dsym.push(".dSYM");
+    let dir = PathBuf::from(dsym).join("Contents/Resources/Python");
+    let written = fs::create_dir_all(&dir).and_then(|()| {
+        fs::write(
+            dir.join(format!("{module}.py")),
+            crate::debuginfo::LLDB_SCRIPT,
+        )
+    });
+    if let Err(err) = written {
+        eprintln!("warning: cannot add flux_lldb.py to the dSYM: {err}");
+    }
+}
+
 pub fn link_objects(
     object_paths: &[PathBuf],
     output_path: &Path,
     runtime_lib_dir: Option<&Path>,
+    runtime: RuntimeVariant,
+    debug: bool,
 ) -> Result<(), PipelineError> {
-    run_linker(object_paths, output_path, runtime_lib_dir)
+    run_linker(object_paths, output_path, runtime_lib_dir, runtime, debug)
 }
 
 /// Bundle multiple `.o` files into a static archive (`.a` / `.lib`).
@@ -538,6 +749,8 @@ pub fn compile_to_binary(config: &PipelineConfig) -> Result<PipelineResult, Pipe
         std::slice::from_ref(&obj_path),
         &exe_path,
         config.runtime_lib_dir.as_deref(),
+        RuntimeVariant::Plain,
+        false,
     )?;
 
     // Clean up intermediates (keep the output binary).
@@ -674,15 +887,15 @@ fn detect_c_toolchain() -> Result<CToolchain, PipelineError> {
 ///
 /// On Unix: produces `libflux_rt.a` using `cc` + `ar`.
 /// On Windows: produces `flux_rt.lib` using `clang` + `llvm-ar` or `cl.exe` + `lib.exe`.
-pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
+/// The debug-heap variant is `libflux_rt_debug.a` / `flux_rt_debug.lib`.
+pub fn ensure_runtime_lib(
+    runtime_c_dir: &Path,
+    variant: RuntimeVariant,
+) -> Result<(), PipelineError> {
     let toolchain = detect_c_toolchain()?;
 
-    let lib_name = match &toolchain {
-        CToolchain::Msvc { .. } => "flux_rt.lib",
-        CToolchain::Gcc { .. } if cfg!(windows) => "flux_rt.lib",
-        CToolchain::Gcc { .. } => "libflux_rt.a",
-    };
-    let lib_path = runtime_c_dir.join(lib_name);
+    let lib_name = variant.file_name();
+    let lib_path = runtime_c_dir.join(&lib_name);
 
     // The runtime source tree is shared by every native Flux process. A
     // parallel test run can therefore enter this function once per child
@@ -693,7 +906,29 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
     // platform-specific dependency.
     let _lock = RuntimeBuildLock::acquire(runtime_c_dir)?;
 
-    if lib_path.exists() {
+    // The compile flags, kept beside the library so a change to them
+    // rebuilds it, as a changed source does. Debuggers read the runtime's
+    // debug information too: DWARF, or CodeView on Windows, where clang's
+    // `-g` already gives it and `cl` needs `/Z7` (0188 S11).
+    let mut flags: Vec<&str> = match &toolchain {
+        CToolchain::Msvc { .. } => vec!["/nologo", "/c", "/O2", "/W3", "/Z7"],
+        CToolchain::Gcc { .. } => vec!["-std=c11", "-Wall", "-O2", "-g", "-c"],
+    };
+    // On Windows, the C runtime uses MS SEH (`__try` / `__except` /
+    // `RaiseException`) to unwind across LLVM-emitted Flux frames
+    // — Windows `longjmp` walks the SEH chain and trips on
+    // STATUS_BAD_FUNCTION_TABLE when LLVM `.pdata` is incomplete.
+    // Strict `-std=c11` disables MS extensions; re-enable them so
+    // clang actually generates SEH unwind info for `__try`.
+    if matches!(toolchain, CToolchain::Gcc { .. }) && cfg!(windows) {
+        flags.extend(["-fms-extensions", "-fms-compatibility"]);
+    }
+    flags.extend(variant.defines(matches!(toolchain, CToolchain::Msvc { .. })));
+    let flags_stamp = flags.join(" ");
+    let flags_path = runtime_c_dir.join(format!("{lib_name}.flags"));
+    let same_flags = std::fs::read_to_string(&flags_path).is_ok_and(|kept| kept == flags_stamp);
+
+    if lib_path.exists() && same_flags {
         // Check if any .c or .h file is newer than the library
         let lib_mtime = std::fs::metadata(&lib_path).and_then(|m| m.modified()).ok();
         let sources_newer = lib_mtime.is_none_or(|lib_t| {
@@ -731,6 +966,7 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
         "tcp.c",
         "json.c",
         "sha256.c",
+        "tape.c",
     ];
     let mut obj_files = Vec::new();
 
@@ -741,9 +977,10 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
                 if !src.exists() {
                     continue;
                 }
-                let obj = runtime_c_dir.join(c_file.replace(".c", ".obj"));
+                let obj = runtime_c_dir
+                    .join(c_file.replace(".c", &format!("{}.obj", variant.object_suffix())));
                 let output = Command::new(cc)
-                    .args(["/nologo", "/c", "/O2", "/W3"])
+                    .args(&flags)
                     .arg(format!("/Fo{}", obj.display()))
                     .arg(&src)
                     .arg(format!("/I{}", runtime_c_dir.display()))
@@ -768,24 +1005,15 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
                 if !src.exists() {
                     continue;
                 }
-                let obj = runtime_c_dir.join(c_file.replace(".c", obj_ext));
-                let mut command = Command::new(cc);
-                command
-                    .args(["-std=c11", "-Wall", "-O2", "-g", "-c"])
+                let obj = runtime_c_dir
+                    .join(c_file.replace(".c", &format!("{}{obj_ext}", variant.object_suffix())));
+                let output = Command::new(cc)
+                    .args(&flags)
                     .arg("-o")
                     .arg(&obj)
                     .arg(&src)
-                    .arg(format!("-I{}", runtime_c_dir.display()));
-                // On Windows, the C runtime uses MS SEH (`__try` / `__except` /
-                // `RaiseException`) to unwind across LLVM-emitted Flux frames
-                // — Windows `longjmp` walks the SEH chain and trips on
-                // STATUS_BAD_FUNCTION_TABLE when LLVM `.pdata` is incomplete.
-                // Strict `-std=c11` disables MS extensions; re-enable them so
-                // clang actually generates SEH unwind info for `__try`.
-                if cfg!(windows) {
-                    command.args(["-fms-extensions", "-fms-compatibility"]);
-                }
-                let output = command.output()?;
+                    .arg(format!("-I{}", runtime_c_dir.display()))
+                    .output()?;
                 check_output("cc (runtime)", &output)?;
                 obj_files.push(obj);
             }
@@ -804,6 +1032,7 @@ pub fn ensure_runtime_lib(runtime_c_dir: &Path) -> Result<(), PipelineError> {
     for obj in &obj_files {
         let _ = std::fs::remove_file(obj);
     }
+    std::fs::write(&flags_path, flags_stamp)?;
 
     Ok(())
 }
@@ -943,5 +1172,26 @@ fn check_output(tool: &'static str, output: &std::process::Output) -> Result<(),
             exit_code: output.status.code(),
             stderr: combined,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RuntimeVariant;
+
+    #[test]
+    fn the_debug_heap_runtime_is_its_own_library() {
+        let plain = RuntimeVariant::Plain;
+        let debug = RuntimeVariant::DebugHeap;
+        assert_eq!((plain.stem(), debug.stem()), ("flux_rt", "flux_rt_debug"));
+        if cfg!(windows) {
+            assert_eq!(debug.file_name(), "flux_rt_debug.lib");
+        } else {
+            assert_eq!(debug.file_name(), "libflux_rt_debug.a");
+        }
+        assert!(plain.defines(false).is_empty());
+        assert_eq!(debug.defines(false), ["-DFLUX_DEBUG_HEAP"]);
+        assert_eq!(debug.defines(true), ["/DFLUX_DEBUG_HEAP"]);
+        assert_ne!(plain.object_suffix(), debug.object_suffix());
     }
 }

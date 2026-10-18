@@ -1375,6 +1375,8 @@ impl VM {
                         self.push(state)?;
                     }
                     self.execute_call(1 + arity + usize::from(has_handler_state))?;
+                    // The arm's caller is at the perform, not past it.
+                    self.call_ips[self.frame_index] = ip;
                     Ok(0)
                 } else if is_discard {
                     // Discard handler: never resumes. Skip continuation capture
@@ -1382,6 +1384,13 @@ impl VM {
                     // (Perceus Section 2.7.1: non-linear control flow safety.)
                     let entry_frame_index = self.handler_stack[handler_pos].entry_frame_index;
                     let entry_sp = self.handler_stack[handler_pos].entry_sp;
+                    if self.debugger.is_some() {
+                        self.debug_note_suspend(
+                            entry_frame_index,
+                            format!("{effect_name}.{op_name}"),
+                            false,
+                        );
+                    }
 
                     // Unwind: drop all values between handler entry and perform site.
                     // This is safe because the handler never resumes — those values
@@ -1421,6 +1430,15 @@ impl VM {
                     // FiberSleep/FiberSuspend with a `vm_fibers` boundary
                     // (proposal 0174 Phase 1b-vi-b₂.1).
                     let state_marker = handler.state.as_ref().map(|_| handler.marker);
+                    let debug_serials = if self.debugger.is_some() {
+                        self.debug_note_suspend(
+                            handler.entry_frame_index,
+                            format!("{effect_name}.{op_name}"),
+                            true,
+                        )
+                    } else {
+                        Vec::new()
+                    };
                     let cont_val = self.capture_to_boundary(
                         handler.entry_frame_index,
                         handler.entry_sp,
@@ -1428,6 +1446,11 @@ impl VM {
                         inner_handlers,
                         state_marker,
                     )?;
+                    if !debug_serials.is_empty()
+                        && let Value::Continuation(continuation) = &cont_val
+                    {
+                        continuation.borrow_mut().debug_serials = debug_serials;
+                    }
                     self.handler_stack.truncate(handler_pos + 1);
                     self.context.yield_state.clear();
 
@@ -1740,6 +1763,13 @@ impl VM {
                 if self.profiling {
                     let cc_idx = Self::read_u16_fast(instructions, ip + 1) as u16;
                     self.enter_cost_centre(cc_idx);
+                }
+                Ok(3)
+            }
+            OpCode::OpBreakpoint => {
+                if self.debugger.is_some() {
+                    let site = Self::read_u16_fast(instructions, ip + 1);
+                    self.debug_site(site)?;
                 }
                 Ok(3)
             }

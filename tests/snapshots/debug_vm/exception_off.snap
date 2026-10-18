@@ -1,0 +1,25 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> catch none
+stopping at no runtime errors
+> continue
+program finished
+• 1 error • exception_off.flx
+error[E1008]: Division By Zero
+
+Cannot divide by zero.
+
+  exception_off.flx:4:21
+  |
+4 |     print(to_string(10 / zero))
+  |                     ^^^^^^^^^
+
+Hint:
+  Check divisor is non-zero before division.
+
+Stack trace:
+  at main (exception_off.flx:4:21)
+  at <entry>
+
+--- program output ---

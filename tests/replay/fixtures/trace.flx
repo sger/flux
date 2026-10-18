@@ -1,0 +1,8 @@
+// Debug traces go to stderr and are on the tape too. VM only: a native
+// program prints nothing from `Debug.debug` on, a divergence of its own.
+import Flow.Debug as Debug
+
+fn main() with IO, Debug {
+    let traced = Debug.debug("to stderr")
+    println(traced)
+}

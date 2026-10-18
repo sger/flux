@@ -179,6 +179,29 @@ mod inner {
     // ── Public API ────────────────────────────────────────────────────────────
 
     impl NanBox {
+        /// The value a heap box holds and how many slots share the box,
+        /// without touching either count: for a debugger counting a value's
+        /// references (0188 S10b). `None` for a value held inline.
+        pub fn boxed(&self) -> Option<(&Value, usize)> {
+            if !self.is_heap_pointer() {
+                return None;
+            }
+            // SAFETY: a heap NanBox owns one count of a live `Rc<Value>`,
+            // which outlives `&self`; `ManuallyDrop` leaves that count as it
+            // is.
+            unsafe {
+                let ptr = self.as_raw_ptr();
+                let shared = ManuallyDrop::new(Rc::from_raw(ptr));
+                Some((&*ptr, Rc::strong_count(&shared)))
+            }
+        }
+
+        /// Whether `other` is a copy of this heap box (the same box, not an
+        /// equal value).
+        pub fn same_box(&self, other: &NanBox) -> bool {
+            self.is_heap_pointer() && self.0 == other.0
+        }
+
         /// Returns `true` if this value is a raw IEEE 754 double (not a NaN-box).
         #[inline(always)]
         pub fn is_float(&self) -> bool {
@@ -560,6 +583,21 @@ mod inner {
             let v1 = original.to_value();
             let v2 = cloned.to_value();
             assert_eq!(v1, v2);
+        }
+
+        #[test]
+        fn a_box_is_read_without_touching_its_counts() {
+            let inner = Rc::new("shared".to_string());
+            let original = NanBox::from_value(Value::String(inner.clone()));
+            let copy = original.clone();
+            let (value, outer) = original.boxed().expect("a heap box");
+            assert_eq!(outer, 2);
+            assert_eq!(value, &Value::String(inner.clone()));
+            // The test's `inner` and the one boxed value.
+            assert_eq!(Rc::strong_count(&inner), 2);
+            assert!(original.same_box(&copy));
+            assert!(!original.same_box(&NanBox::from_value(Value::String(inner))));
+            assert!(NanBox::from_value(Value::Integer(3)).boxed().is_none());
         }
 
         #[test]

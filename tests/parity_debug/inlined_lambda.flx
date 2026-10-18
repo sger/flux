@@ -1,0 +1,27 @@
+// Debug parity: a lambda applied where it is written (0188 S9c). Native
+// code inlines the one without parameters, which lldb shows as an inlined
+// frame; the one with a parameter stays a call, as on the VM.
+// dbg: break 20
+// dbg: break 24
+// dbg: continue
+// dbg: bt
+// dbg: locals
+// dbg: next
+// dbg: bt
+// dbg: locals
+// dbg: continue
+// dbg: bt
+// dbg: next
+// dbg: continue
+
+fn main() {
+    let n = (fn() {
+        let y = 20 * 2
+        y + 1
+    })()
+    let m = (fn(a) {
+        let b = a * 3
+        b + 1
+    })(2)
+    println(n + m)
+}

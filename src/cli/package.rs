@@ -478,9 +478,10 @@ fn emit_package_build_plan(project: &Path, flags: &DriverFlags) -> ExitCode {
                 .find(|candidate| candidate.is_file())
                 .unwrap_or(root);
             let source_text = std::fs::read_to_string(&source).unwrap_or_default();
-            let semantic = crate::compiler::module_interface::compute_semantic_config_hash(
+            let semantic = crate::compiler::module_interface::compute_artifact_config_hash(
                 flags.language.strict_mode,
                 flags.language.enable_optimize,
+                flags.language.debug_level,
             );
             let hash = crate::driver::artifact_store::unit_hash(
                 &source,

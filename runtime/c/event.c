@@ -78,6 +78,19 @@ static uint64_t now_ms(void) {
 #endif
 }
 
+/* The clock `after` deadlines are measured on. Under a tape every reading
+ * is an event_clock input, so whether a deadline has passed replays exactly. */
+static uint64_t event_now_ms(void) {
+    if (flux_tape_mode) {
+        if (flux_tape_start(FLUX_TAPE_EV_EVENT_CLOCK, 0, 0)) {
+            return (uint64_t)flux_untag_int(flux_tape_replay_value(FLUX_TAPE_SH_INT, NULL, 0));
+        }
+        return (uint64_t)flux_untag_int(flux_tape_record_value(
+            flux_tag_int((int64_t)now_ms()), FLUX_TAPE_SH_INT, NULL, 0));
+    }
+    return now_ms();
+}
+
 static FluxEvent *lookup_event(int64_t id) {
     if (id < 1 || id >= next_event_id || (size_t)id > event_capacity) return NULL;
     if (events[id - 1].kind == EV_FREE) return NULL;
@@ -277,7 +290,7 @@ static int poll_event(int64_t id, int64_t *out) {
         }
         return 0;
     case EV_AFTER:
-        if (now_ms() >= (uint64_t)ev->a) {
+        if (event_now_ms() >= (uint64_t)ev->a) {
             *out = FLUX_NONE;
             return 1;
         }
@@ -318,7 +331,7 @@ static int event_ready(int64_t id) {
     case EV_SEND_MOVE:
         return flux_chan_event_can_send(ev->a) != 0;
     case EV_AFTER:
-        return now_ms() >= (uint64_t)ev->a;
+        return event_now_ms() >= (uint64_t)ev->a;
     case EV_ALWAYS:
         return 1;
     case EV_NEVER:
@@ -419,13 +432,19 @@ static void register_event_wait(int64_t id, uint64_t request_id) {
     case EV_SEND_MOVE:
         flux_chan_event_watch_send(ev->a, request_id);
         break;
-    case EV_AFTER:
-        if (now_ms() >= (uint64_t)ev->a) {
+    case EV_AFTER: {
+        uint64_t now = event_now_ms();
+        if (now >= (uint64_t)ev->a) {
             flux_event_complete_wait(request_id);
+        } else if (flux_tape_mode) {
+            /* Under a tape the deadline is a backend timer on the wait's own
+             * request, so its firing is on the tape with the rest. */
+            flux_async_event_timer(request_id, (int64_t)((uint64_t)ev->a - now));
         } else {
             spawn_event_timer(request_id, (uint64_t)ev->a);
         }
         break;
+    }
     case EV_ALWAYS:
         flux_event_complete_wait(request_id);
         break;
@@ -500,7 +519,7 @@ int64_t flux_event_send_move(int64_t ch, int64_t value) {
 int64_t flux_event_after(int64_t ms_val) {
     int64_t ms = flux_untag_int(ms_val);
     if (ms < 0) ms = 0;
-    FluxEvent ev = { EV_AFTER, (int64_t)(now_ms() + (uint64_t)ms), 0, NULL, 0 };
+    FluxEvent ev = { EV_AFTER, (int64_t)(event_now_ms() + (uint64_t)ms), 0, NULL, 0 };
     return insert_event(ev);
 }
 
@@ -559,6 +578,7 @@ int64_t flux_event_wait(int64_t id_val) {
         flux_event_complete_wait(request_id);
     } else {
         register_event_wait(id, request_id);
+        flux_async_debug_block(request_id, FLUX_DEBUG_BLOCK_EVENT, id);
     }
     return flux_async_suspend_request(request_id);
 }

@@ -4,7 +4,10 @@ use std::{
 };
 
 use crate::{
-    bytecode::debug_info::{EffectSummary, FunctionDebugInfo, InstructionLocation, Location},
+    bytecode::debug_info::{
+        BreakSite, EffectSummary, FunctionDebugInfo, InstructionLocation, LocalVar, Location,
+        SiteKind,
+    },
     diagnostics::position::{Position, Span},
     runtime::{
         compiled_function::CompiledFunction,
@@ -331,9 +334,95 @@ pub(super) fn write_function_debug_info(
                 EffectSummary::HasEffects => 2u8,
             };
             writer.write_all(&[effect_tag])?;
-            Ok(())
+            write_debug_tables(writer, info)
         }
     }
+}
+
+fn write_opt_location(writer: &mut File, location: Option<&Location>) -> std::io::Result<()> {
+    match location {
+        None => writer.write_all(&[0]),
+        Some(location) => {
+            writer.write_all(&[1])?;
+            write_u32(writer, location.file_id)?;
+            write_span(writer, &location.span)
+        }
+    }
+}
+
+fn read_opt_location(reader: &mut File) -> Option<Option<Location>> {
+    let mut flag = [0u8; 1];
+    reader.read_exact(&mut flag).ok()?;
+    if flag[0] == 0 {
+        return Some(None);
+    }
+    let file_id = read_u32(reader)?;
+    let span = read_span(reader)?;
+    Some(Some(Location { file_id, span }))
+}
+
+/// The debugger tables (proposal 0188 S2): stop sites, local variables and
+/// captured-value names.
+fn write_debug_tables(writer: &mut File, info: &FunctionDebugInfo) -> std::io::Result<()> {
+    write_u32(writer, info.sites.len() as u32)?;
+    for site in &info.sites {
+        let kind = SiteKind::ALL
+            .iter()
+            .position(|kind| *kind == site.kind)
+            .expect("every site kind is in SiteKind::ALL") as u8;
+        writer.write_all(&[kind])?;
+        write_u32(writer, site.ip as u32)?;
+        write_opt_location(writer, site.location.as_ref())?;
+    }
+    write_u32(writer, info.locals.len() as u32)?;
+    for local in &info.locals {
+        write_u32(writer, local.slot)?;
+        write_string(writer, &local.name)?;
+        write_u32(writer, local.start_ip as u32)?;
+        write_u32(writer, local.end_ip as u32)?;
+        writer.write_all(&[u8::from(local.artificial)])?;
+    }
+    write_u32(writer, info.free_names.len() as u32)?;
+    for name in &info.free_names {
+        write_string(writer, name)?;
+    }
+    Ok(())
+}
+
+fn read_debug_tables(reader: &mut File) -> Option<(Vec<BreakSite>, Vec<LocalVar>, Vec<String>)> {
+    let sites_len = read_u32(reader)? as usize;
+    let mut sites = Vec::with_capacity(sites_len);
+    for _ in 0..sites_len {
+        let mut kind = [0u8; 1];
+        reader.read_exact(&mut kind).ok()?;
+        let kind = *SiteKind::ALL.get(kind[0] as usize)?;
+        let ip = read_u32(reader)? as usize;
+        let location = read_opt_location(reader)?;
+        sites.push(BreakSite { kind, ip, location });
+    }
+    let locals_len = read_u32(reader)? as usize;
+    let mut locals = Vec::with_capacity(locals_len);
+    for _ in 0..locals_len {
+        let slot = read_u32(reader)?;
+        let name = read_string(reader)?;
+        let start_ip = read_u32(reader)? as usize;
+        let end_ip = read_u32(reader)? as usize;
+        let mut artificial = [0u8; 1];
+        reader.read_exact(&mut artificial).ok()?;
+        locals.push(LocalVar {
+            slot,
+            name,
+            start_ip,
+            end_ip,
+            artificial: artificial[0] != 0,
+        });
+    }
+    let free_len = read_u32(reader)? as usize;
+    let mut free_names = Vec::with_capacity(free_len);
+    for _ in 0..free_len {
+        free_names.push(read_string(reader)?);
+    }
+    Some((sites, locals, free_names))
 }
 
 pub(super) fn read_function_debug_info(reader: &mut File) -> Option<FunctionDebugInfo> {
@@ -392,10 +481,13 @@ pub(super) fn read_function_debug_info(reader: &mut File) -> Option<FunctionDebu
         _ => EffectSummary::Unknown,
     };
 
+    let (sites, locals, free_names) = read_debug_tables(reader)?;
+
     Some(
         FunctionDebugInfo::new(name, files, locations)
             .with_boundary_location(boundary_location)
-            .with_effect_summary(effect_summary),
+            .with_effect_summary(effect_summary)
+            .with_debug_tables(sites, locals, free_names),
     )
 }
 

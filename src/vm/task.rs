@@ -10,6 +10,7 @@ use crate::runtime::r#async::context::EffectContext;
 use crate::runtime::r#async::fiber_trace::{self, FiberEvent};
 use crate::runtime::r#async::task_scheduler::{TaskHandle, TaskJoinError, TaskScheduler};
 use crate::runtime::frame::Frame;
+use crate::runtime::replay::{self, EffectRequest, Outcome};
 use crate::runtime::{
     closure::Closure,
     compiled_function::CompiledFunction,
@@ -22,7 +23,7 @@ use crate::runtime::{
 
 use super::{VM, slot};
 
-type TaskResult = Result<VmSendValue, String>;
+pub(super) type TaskResult = Result<VmSendValue, String>;
 
 #[derive(Clone)]
 pub(super) enum VmSendValue {
@@ -84,6 +85,8 @@ pub(super) struct WorkerSharedState {
 
 struct VmTaskEntry {
     handle: Option<TaskHandle<TaskResult>>,
+    /// The task's logical number on the effect tape; 0 with no tape.
+    logical: u32,
 }
 
 struct CompletionQueue {
@@ -94,6 +97,11 @@ struct CompletionQueue {
 static NEXT_TASK_ID: AtomicI64 = AtomicI64::new(1);
 static TASKS: OnceLock<Mutex<HashMap<i64, VmTaskEntry>>> = OnceLock::new();
 static CANCELLED: OnceLock<Mutex<HashSet<i64>>> = OnceLock::new();
+/// Under a tape, the tasks whose end is on the tape, and whether they had
+/// been cancelled by then: an await at a later turn finds them finished,
+/// and a cancelled one gives no result, as native's task status does
+/// (0188 S9d).
+static ENDED: OnceLock<Mutex<HashMap<i64, bool>>> = OnceLock::new();
 static SCHEDULER: OnceLock<TaskScheduler> = OnceLock::new();
 static COMPLETIONS: OnceLock<CompletionQueue> = OnceLock::new();
 
@@ -107,6 +115,26 @@ fn tasks() -> &'static Mutex<HashMap<i64, VmTaskEntry>> {
 
 fn cancelled() -> &'static Mutex<HashSet<i64>> {
     CANCELLED.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn ended() -> &'static Mutex<HashMap<i64, bool>> {
+    ENDED.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// What awaiting task `id` gives under a tape: its result, or none when it
+/// was cancelled before its end.
+fn taped_result(id: i64, handle: TaskHandle<TaskResult>) -> TaskResult {
+    let result = finished_result(handle);
+    let cancelled = ended()
+        .lock()
+        .expect("VM task end set poisoned")
+        .remove(&id)
+        .unwrap_or(false);
+    if cancelled {
+        Err("TaskCancelled".to_string())
+    } else {
+        result
+    }
 }
 
 fn scheduler() -> &'static TaskScheduler {
@@ -136,24 +164,45 @@ fn default_worker_count() -> usize {
 
 impl VM {
     pub(super) fn spawn_vm_task(&mut self, action: Value) -> Result<i64, String> {
+        let name_from = super::fiber_debug::on().then(|| action.clone());
         let payload = self.task_payload(action, false)?;
-        self.spawn_task_payload(payload)
+        self.spawn_task_payload(payload, name_from)
     }
 
     pub(super) fn spawn_vm_task_move(&mut self, action: Value) -> Result<i64, String> {
+        let name_from = super::fiber_debug::on().then(|| action.clone());
         let payload = self.task_payload(action, true)?;
-        self.spawn_task_payload(payload)
+        self.spawn_task_payload(payload, name_from)
     }
 
-    fn spawn_task_payload(&mut self, payload: VmTaskPayload) -> Result<i64, String> {
+    fn spawn_task_payload(
+        &mut self,
+        payload: VmTaskPayload,
+        name_from: Option<Value>,
+    ) -> Result<i64, String> {
         let id = NEXT_TASK_ID.fetch_add(1, Ordering::Relaxed);
-        let handle = scheduler().spawn(move || run_task_payload(payload));
-        tasks().lock().expect("VM task table poisoned").insert(
-            id,
-            VmTaskEntry {
-                handle: Some(handle),
-            },
-        );
+        let start = |logical: u32| {
+            let handle = if replay::is_active() {
+                scheduler().spawn(move || run_taped_task(id, logical, payload))
+            } else {
+                scheduler().spawn(move || run_task_payload(payload))
+            };
+            if let Some(action) = &name_from {
+                super::fiber_debug::note_task(id, action, handle.finished_check());
+            }
+            tasks().lock().expect("VM task table poisoned").insert(
+                id,
+                VmTaskEntry {
+                    handle: Some(handle),
+                    logical,
+                },
+            );
+        };
+        if replay::is_active() {
+            replay::spawn_task(start).unwrap_or_else(|err| replay::async_tape::fail(err));
+        } else {
+            start(0);
+        }
         Ok(id)
     }
 
@@ -308,6 +357,25 @@ impl VM {
 }
 
 pub(super) fn blocking_join(id: i64) -> Result<Value, String> {
+    if replay::is_active() {
+        // Recorded once the join returns: it waits for the task, whose own
+        // turns come first (0188 S8c).
+        let logical = logical_of(id);
+        let mut result = None;
+        replay::ordered_after(EffectRequest::TaskJoin { id: logical }, || {
+            result = Some(join_now(id));
+        })
+        .unwrap_or_else(|err| replay::async_tape::fail(err));
+        return result.expect("ordered_after runs the join");
+    }
+    join_now(id)
+}
+
+fn join_now(id: i64) -> Result<Value, String> {
+    ended()
+        .lock()
+        .expect("VM task end set poisoned")
+        .remove(&id);
     if cancelled()
         .lock()
         .expect("VM task cancel set poisoned")
@@ -323,6 +391,30 @@ pub(super) fn blocking_join(id: i64) -> Result<Value, String> {
 }
 
 pub(super) fn cancel(id: i64) -> Result<(), String> {
+    if replay::is_active() {
+        // The task looks at the cancel set itself, at its turn, rather
+        // than the pool looking at the handle whenever a worker is free
+        // (0188 S8c).
+        let logical = logical_of(id);
+        replay::ordered(EffectRequest::TaskCancel { id: logical }, || {
+            cancelled()
+                .lock()
+                .expect("VM task cancel set poisoned")
+                .insert(id);
+            // A task that has already ended loses its result, as on native
+            // (0188 S9d).
+            if let Some(dropped) = ended()
+                .lock()
+                .expect("VM task end set poisoned")
+                .get_mut(&id)
+            {
+                *dropped = true;
+            }
+            None
+        })
+        .unwrap_or_else(|err| replay::async_tape::fail(err));
+        return Ok(());
+    }
     cancelled()
         .lock()
         .expect("VM task cancel set poisoned")
@@ -351,10 +443,7 @@ pub(super) fn start_await(id: i64, request_id: u64) -> Result<(), String> {
             std::thread::Builder::new()
                 .name(format!("flux-vm-task-await-{id}"))
                 .spawn(move || {
-                    let result = match scheduler().blocking_join(handle) {
-                        Ok(result) => result,
-                        Err(err) => Err(join_error(err)),
-                    };
+                    let result = finished_result(handle);
                     fiber_trace::emit(FiberEvent::TaskDone { tid: id });
                     let _ = tx.send((request_id, result));
                 })
@@ -365,6 +454,92 @@ pub(super) fn start_await(id: i64, request_id: u64) -> Result<(), String> {
     }
 }
 
+fn finished_result(handle: TaskHandle<TaskResult>) -> TaskResult {
+    match scheduler().blocking_join(handle) {
+        Ok(result) => result,
+        Err(err) => Err(join_error(err)),
+    }
+}
+
+/// Awaiting task `id` under a tape, as native does (0188 S9d): whether the
+/// task has finished is decided at the await's turn. A finished task's
+/// result is returned to complete the await at once; otherwise the result
+/// comes from a waiter thread as a hand-over the tape orders, even for a
+/// cancelled task, which still ends at its own turn.
+pub(super) fn taped_await(id: i64, request_id: u64) -> Result<Option<TaskResult>, String> {
+    let logical = logical_of(id);
+    let mut finished = false;
+    replay::ordered(EffectRequest::TaskAwait { id: logical }, || {
+        finished = ended()
+            .lock()
+            .expect("VM task end set poisoned")
+            .contains_key(&id);
+        Some(Outcome::Bool(finished))
+    })
+    .unwrap_or_else(|err| replay::async_tape::fail(err));
+    let handle = match take_handle(id)? {
+        JoinTarget::Join(handle) => handle,
+        JoinTarget::Consumed => {
+            return Err(format!("task {id} not found (already joined or awaited)"));
+        }
+    };
+    if finished {
+        // Its end was at an earlier turn: the thread is returning.
+        return Ok(Some(taped_result(id, handle)));
+    }
+    let tx = completion_queue().tx.clone();
+    std::thread::Builder::new()
+        .name(format!("flux-vm-task-await-{id}"))
+        .spawn(move || {
+            let result = taped_result(id, handle);
+            fiber_trace::emit(FiberEvent::TaskDone { tid: id });
+            let _ = tx.send((request_id, result));
+        })
+        .map_err(|e| format!("failed to spawn VM task await waiter: {e}"))?;
+    Ok(None)
+}
+
+/// The id the next task gets: a debugger's checkpoint keeps it.
+pub(crate) fn next_id() -> i64 {
+    NEXT_TASK_ID.load(Ordering::Relaxed)
+}
+
+/// A debugger restored a checkpoint taken when `next` was the next id
+/// (0188 S9a): the re-run gives its tasks the same ids.
+pub(crate) fn rewind_ids(next: i64) {
+    NEXT_TASK_ID.store(next, Ordering::Relaxed);
+}
+
+/// Whether the program has a task it has not joined or awaited: a debugger
+/// takes no checkpoint then, since restoring one would not bring the task
+/// back (0188 S9a).
+pub(crate) fn any_live() -> bool {
+    !tasks().lock().expect("VM task table poisoned").is_empty()
+}
+
+/// A debugger going back abandoned the run (0188 S9a): its tasks are
+/// cancelled and forgotten. A thread still running one finishes on its own,
+/// without touching the tape (`replay::pause` moved the generation on).
+pub(crate) fn abandon_all() {
+    let entries: Vec<VmTaskEntry> = tasks()
+        .lock()
+        .expect("VM task table poisoned")
+        .drain()
+        .map(|(_, entry)| entry)
+        .collect();
+    for entry in entries {
+        if let Some(handle) = entry.handle {
+            handle.cancel();
+        }
+    }
+    cancelled()
+        .lock()
+        .expect("VM task cancel set poisoned")
+        .clear();
+    ended().lock().expect("VM task end set poisoned").clear();
+    while try_recv_completion().is_some() {}
+}
+
 pub(super) fn try_recv_completion() -> Option<(u64, Result<Value, String>)> {
     let queue = completion_queue();
     let rx = queue.rx.lock().expect("VM task completion queue poisoned");
@@ -372,6 +547,15 @@ pub(super) fn try_recv_completion() -> Option<(u64, Result<Value, String>)> {
         Ok((request_id, result)) => Some((request_id, result.and_then(|v| v.into_value()))),
         Err(mpsc::TryRecvError::Empty) | Err(mpsc::TryRecvError::Disconnected) => None,
     }
+}
+
+/// Task `id`'s logical number on the tape.
+fn logical_of(id: i64) -> u32 {
+    tasks()
+        .lock()
+        .expect("VM task table poisoned")
+        .get(&id)
+        .map_or(0, |entry| entry.logical)
 }
 
 enum JoinTarget {
@@ -442,6 +626,52 @@ fn run_task_payload(payload: VmTaskPayload) -> TaskResult {
     TASK_WORKER_VM.with(|pool| {
         *pool.borrow_mut() = Some(vm);
     });
+    result
+}
+
+/// Runs task `id`, logical task `logical` on the tape, on its worker
+/// thread: its start and its end are ordered there, and what it does in
+/// between is recorded as its own (0188 S8c).
+fn run_taped_task(id: i64, logical: u32, payload: VmTaskPayload) -> TaskResult {
+    replay::async_tape::enter_task(logical);
+    let taped = |request, op: &mut dyn FnMut() -> Option<Outcome>| {
+        if let Err(err) = replay::ordered(request, op) {
+            replay::async_tape::fail(err);
+        }
+    };
+    let mut ran = false;
+    taped(EffectRequest::TaskStart { id: logical }, &mut || {
+        ran = !cancelled()
+            .lock()
+            .expect("VM task cancel set poisoned")
+            .contains(&id);
+        Some(Outcome::Bool(ran))
+    });
+    let result = if ran {
+        run_task_payload(payload)
+    } else {
+        Err("TaskCancelled".to_string())
+    };
+    // A task cancelled before it ran did not fail, as on native.
+    let failed = ran && result.is_err();
+    taped(
+        EffectRequest::TaskEnd {
+            id: logical,
+            failed,
+        },
+        &mut || {
+            let cancelled = cancelled()
+                .lock()
+                .expect("VM task cancel set poisoned")
+                .contains(&id);
+            ended()
+                .lock()
+                .expect("VM task end set poisoned")
+                .insert(id, cancelled);
+            None
+        },
+    );
+    replay::async_tape::enter_task(0);
     result
 }
 

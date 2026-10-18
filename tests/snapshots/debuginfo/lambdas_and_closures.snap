@@ -1,0 +1,40 @@
+---
+source: tests/debuginfo/debug_info_tests.rs
+---
+debug info: <root>/examples/functions/closure.flx
+main [fn] @1:1
+  let newClosure: (?) -> () -> ? @2:5
+  let closure: () -> Int @8:5
+  let __tmp_2000001: ? @10:5 (artificial)
+  let test_closure: (?) -> ? @12:5
+  let __tmp_2000000: ? @16:5 (artificial)
+  handler __arg0: ? @1:1 (artificial)
+  handler __resume_default: ? @1:1 (artificial)
+  let __tmp_2000002: ? @1:1 (artificial)
+  handler __arg0: ? @1:1 (artificial)
+  handler __resume_default: ? @1:1 (artificial)
+  let __tmp_2000003: ? @1:1 (artificial)
+  handler __arg0: ? @1:1 (artificial)
+  handler __resume_default: ? @1:1 (artificial)
+  handler __arg0: ? @1:1 (artificial)
+  handler __resume_default: ? @1:1 (artificial)
+  handler __arg0: ? @1:1 (artificial)
+  handler __arg1: ? @1:1 (artificial)
+  handler __resume_default: ? @1:1 (artificial)
+  let __tmp_2000004: ? @1:1 (artificial)
+  handler __resume_default: ? @1:1 (artificial)
+  handler __arg0: ? @1:1 (artificial)
+  handler __resume_default: ? @1:1 (artificial)
+  handler __resume_default: ? @1:1 (artificial)
+  handler __resume_default: ? @1:1 (artificial)
+  handler __resume_default: ? @1:1 (artificial)
+  handler __arg0: ? @1:1 (artificial)
+  handler __arg1: ? @1:1 (artificial)
+  handler __resume_default: ? @1:1 (artificial)
+  handler __resume_default: ? @1:1 (artificial)
+  handler __resume_default: ? @1:1 (artificial)
+<lambda closure.flx:2:22> [lambda in main] @2:22
+  param a: ? @2:22
+<lambda closure.flx:3:9> [lambda in <lambda closure.flx:2:22>] @3:9
+<lambda closure.flx:12:24> [lambda in main] @12:24
+  param b: ? @12:24

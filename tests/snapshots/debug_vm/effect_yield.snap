@@ -1,0 +1,52 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 20
+breakpoint at effect_yield.flx:20
+> continue
+stopped: breakpoint at effect_yield.flx:20:25 in <handler Flip.flip> (position 9)
+    20 |         flip(resume) -> resume(true) + resume(false)
+> bt
+#0 <handler Flip.flip> at effect_yield.flx:20:25
+   ⟂ handling Flip.flip — performed at effect_yield.flx:9:13
+#1 decide at effect_yield.flx:9:13   (suspended)
+#2 twice at effect_yield.flx:14:13   (suspended)
+#3 main at effect_yield.flx:19:18
+#4 <entry>
+> locals
+resume = <continuation>
+> handlers
+#0 Flip — handled in main
+> step
+stopped: step at effect_yield.flx:9:13 in decide (position 10)
+     9 |     let b = perform Flip.flip()
+> bt
+#0 decide at effect_yield.flx:9:13
+#1 twice at effect_yield.flx:14:13
+#2 <handler Flip.flip> at effect_yield.flx:20:25
+#3 main at effect_yield.flx:19:18
+#4 <entry>
+> locals
+no variables
+> break 10
+breakpoint at effect_yield.flx:10
+> continue
+stopped: breakpoint at effect_yield.flx:10:5 in decide (position 11)
+    10 |     if b { 1 } else { 2 }
+> bt
+#0 decide at effect_yield.flx:10:5
+#1 twice at effect_yield.flx:14:13
+#2 <handler Flip.flip> at effect_yield.flx:20:25
+#3 main at effect_yield.flx:19:18
+#4 <entry>
+> locals
+b = true
+> continue
+stopped: breakpoint at effect_yield.flx:10:5 in decide (position 14)
+    10 |     if b { 1 } else { 2 }
+> locals
+b = false
+> continue
+program finished
+--- program output ---
+"30"

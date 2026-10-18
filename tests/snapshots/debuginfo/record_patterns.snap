@@ -1,0 +1,43 @@
+---
+source: tests/debuginfo/debug_info_tests.rs
+---
+debug info: <root>/examples/guide/record_patterns.flx
+describe [fn] @17:1
+  param p: Point @17:1
+  pattern x: ? @20:9
+  pattern x: ? @21:9
+  pattern y: ? @21:9
+greet [fn] @26:1
+  param u: User @26:1
+  pattern name: ? @29:9
+main [fn] @34:1
+  let __tmp_2000002: ? @35:5 (artificial)
+  let __tmp_2000001: ? @36:5 (artificial)
+  let __tmp_2000000: ? @37:5 (artificial)
+  handler __arg0: ? @34:1 (artificial)
+  handler __resume_default: ? @34:1 (artificial)
+  let __tmp_2000003: ? @34:1 (artificial)
+  handler __arg0: ? @34:1 (artificial)
+  handler __resume_default: ? @34:1 (artificial)
+  let __tmp_2000004: ? @34:1 (artificial)
+  handler __arg0: ? @34:1 (artificial)
+  handler __resume_default: ? @34:1 (artificial)
+  handler __arg0: ? @34:1 (artificial)
+  handler __resume_default: ? @34:1 (artificial)
+  handler __arg0: ? @34:1 (artificial)
+  handler __arg1: ? @34:1 (artificial)
+  handler __resume_default: ? @34:1 (artificial)
+  let __tmp_2000005: ? @34:1 (artificial)
+  handler __resume_default: ? @34:1 (artificial)
+  handler __arg0: ? @34:1 (artificial)
+  handler __resume_default: ? @34:1 (artificial)
+  handler __resume_default: ? @34:1 (artificial)
+  handler __resume_default: ? @34:1 (artificial)
+  handler __resume_default: ? @34:1 (artificial)
+  handler __arg0: ? @34:1 (artificial)
+  handler __arg1: ? @34:1 (artificial)
+  handler __resume_default: ? @34:1 (artificial)
+data Point
+  Point(x: Int, y: Int)
+data User
+  User(name: String, age: Int, email: String)

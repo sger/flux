@@ -16,6 +16,7 @@ run_cmd cargo test --all --all-features
 run_cmd cargo run -- --test examples/tests/array_test.flx
 run_cmd cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,vm_strict,llvm_strict
 run_cmd cargo run -- parity-check examples/guide --ways vm,llvm,vm_cached,vm_strict,llvm_strict
+run_cmd cargo run -- parity-check tests/parity_debug --ways vm_debug,llvm_debug
 
 # Expanded parity sweep (--compile) across release-green example folders.
 # Excluded by design: parser_errors, compiler_errors, runtime_errors,

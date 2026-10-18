@@ -1,0 +1,28 @@
+// Fibers that sleep for different times: both, race, first_of and timeout
+// (0188 S1b).
+import Flow.Async exposing (..)
+
+fn slow() -> Int with Async {
+    sleep(60)
+    1
+}
+
+fn fast() -> Int with Async {
+    sleep(10)
+    2
+}
+
+fn body() -> String with Async {
+    let pair = both(slow, fast)
+    let winner = race(slow, fast)
+    let late = timeout(20, slow)
+    let early = timeout(200, fast)
+    "both=" + to_string(pair.0) + "," + to_string(pair.1)
+        + " race=" + to_string(winner)
+        + " late=" + to_string(late)
+        + " early=" + to_string(early)
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

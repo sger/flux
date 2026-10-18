@@ -1,0 +1,29 @@
+// Going back between fibers (0188 S9a): `reverse-next` stays in the fiber
+// it starts in, and `reverse-continue` goes back to a breakpoint another
+// fiber hit.
+import Flow.Async exposing (..)
+
+fn slow() -> Int with Async {
+    let a = 1
+    sleep(20)
+    let b = a + 10
+    b * 2
+}
+
+fn fast() -> Int with Async {
+    let k = 4
+    sleep(5)
+    let m = k + 1
+    m * 3
+}
+
+fn body() -> Int with Async {
+    let pair = both(slow, fast)
+    pair.0 + pair.1
+}
+
+fn main() with IO {
+    let start = 100
+    let total = run_async(body)
+    print(start + total)
+}

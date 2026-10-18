@@ -53,6 +53,7 @@ pub fn show_bytecode(flags: &DriverFlags) {
     let interner = parsed.parser.take_interner();
     let mut compiler = Compiler::new_with_interner(path, interner);
     compiler.set_strict_mode(flags.language.strict_mode);
+    compiler.set_debug_level(flags.language.debug_level);
     let compile_result = compiler.compile_with_opts(
         &parsed.program,
         flags.language.enable_optimize,

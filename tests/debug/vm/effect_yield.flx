@@ -1,0 +1,23 @@
+// A handler that resumes more than once: while its arm runs, the frames
+// that performed the operation are suspended below it; while `resume` runs
+// them again, the arm waits below them.
+effect Flip {
+    flip : () -> Bool
+}
+
+fn decide() -> Int with Flip {
+    let b = perform Flip.flip()
+    if b { 1 } else { 2 }
+}
+
+fn twice() -> Int with Flip {
+    let d = decide()
+    d * 10
+}
+
+fn main() with IO {
+    let result = twice() handle Flip {
+        flip(resume) -> resume(true) + resume(false)
+    }
+    print(to_string(result))
+}

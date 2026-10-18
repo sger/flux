@@ -1,0 +1,33 @@
+# Stop in the first call, note where we are and what we see.
+break 10
+continue
+where
+bt
+locals
+# Run on past the call's end, then come back one stop at a time.
+next
+next
+locals
+reverse-step
+locals
+reverse-step
+reverse-step
+bt
+# Back through this call's lines, then out to the line that called it.
+reverse-next
+reverse-next
+where
+bt
+locals
+reverse-finish
+bt
+# Forward again to the second call, then back to the first stop: the same
+# stack and values. Nothing is printed twice.
+goto 40
+bt
+goto 18
+where
+bt
+locals
+delete 10
+continue

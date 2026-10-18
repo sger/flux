@@ -1250,3 +1250,184 @@ fn disciplined_inline_skips_recursive_binding() {
     let result = disciplined_inline(expr);
     assert!(matches!(result, CoreExpr::LetRec { .. }));
 }
+
+// ── Debug builds keep source binders (0188 S9c) ───────────────────────────
+
+fn at(line: usize, from: usize, to: usize) -> Span {
+    use crate::diagnostics::position::Position;
+    Span::new(Position::new(line, from), Position::new(line, to))
+}
+
+fn int(n: i64) -> CoreExpr {
+    CoreExpr::Lit(CoreLit::Int(n), s())
+}
+
+fn add_one(x: CoreBinder) -> CoreExpr {
+    CoreExpr::PrimOp {
+        op: CorePrimOp::IAdd,
+        args: vec![var_ref(x), int(1)],
+        span: s(),
+    }
+}
+
+/// Runs `pass` on `expr` keeping `kept`, as a debug build does.
+fn keeping(
+    kept: &[CoreBinder],
+    pass: fn(CoreExpr) -> CoreExpr,
+    expr: CoreExpr,
+) -> (CoreExpr, Vec<crate::core::InlineSite>) {
+    let ids = kept.iter().map(|binder| binder.id).collect();
+    keep::keeping(ids, || pass(expr))
+}
+
+#[test]
+fn beta_keeps_a_lambda_with_a_kept_parameter_as_a_call() {
+    let mut interner = Interner::new();
+    let x = binder(0, interner.intern("x"));
+    let applied = || CoreExpr::App {
+        func: Box::new(CoreExpr::Lam {
+            params: vec![x],
+            param_types: vec![None],
+            result_ty: None,
+            body: Box::new(add_one(x)),
+            span: at(2, 13, 40),
+        }),
+        args: vec![int(20)],
+        span: at(2, 13, 44),
+    };
+    let (kept, sites) = keeping(&[x], beta_reduce, applied());
+    assert!(matches!(kept, CoreExpr::App { .. }), "{kept:?}");
+    assert!(sites.is_empty());
+    // A plain build inlines it, and keeps no record.
+    let plain = beta_reduce(applied());
+    assert!(matches!(plain, CoreExpr::PrimOp { .. }), "{plain:?}");
+}
+
+#[test]
+fn beta_records_a_lambda_it_inlines_in_a_debug_build() {
+    let lambda = at(4, 13, 40);
+    let call = at(4, 13, 43);
+    let applied = CoreExpr::App {
+        func: Box::new(CoreExpr::Lam {
+            params: Vec::new(),
+            param_types: Vec::new(),
+            result_ty: None,
+            body: Box::new(int(41)),
+            span: lambda,
+        }),
+        args: Vec::new(),
+        span: call,
+    };
+    let (inlined, sites) = keeping(&[], beta_reduce, applied);
+    assert!(
+        matches!(inlined, CoreExpr::Lit(CoreLit::Int(41), _)),
+        "{inlined:?}"
+    );
+    assert_eq!(sites, vec![crate::core::InlineSite { lambda, call }]);
+}
+
+#[test]
+fn a_known_constructor_binds_a_kept_pattern_variable() {
+    let mut interner = Interner::new();
+    let x = binder(0, interner.intern("x"));
+    let expr = CoreExpr::Case {
+        scrutinee: Box::new(CoreExpr::Con {
+            tag: CoreTag::Some,
+            fields: vec![int(42)],
+            span: s(),
+        }),
+        alts: vec![CoreAlt {
+            pat: CorePat::Con {
+                tag: CoreTag::Some,
+                fields: vec![CorePat::Var(x)],
+            },
+            guard: None,
+            rhs: var_ref(x),
+            span: at(3, 8, 20),
+        }],
+        join_ty: None,
+        span: s(),
+    };
+    let (kept, _) = keeping(&[x], case_of_known_constructor, expr);
+    assert!(
+        matches!(&kept, CoreExpr::Let { var, .. } if var.id == x.id),
+        "{kept:?}"
+    );
+}
+
+#[test]
+fn the_inliners_keep_a_kept_let_even_when_dead() {
+    let mut interner = Interner::new();
+    let y = binder(0, interner.intern("y"));
+    let t = binder(1, interner.intern("__t"));
+    // let y = 1 + 1 in (let __t = 2 in __t), y dead.
+    let expr = || CoreExpr::Let {
+        var: y,
+        rhs: Box::new(CoreExpr::PrimOp {
+            op: CorePrimOp::IAdd,
+            args: vec![int(1), int(1)],
+            span: s(),
+        }),
+        body: Box::new(CoreExpr::Let {
+            var: t,
+            rhs: Box::new(int(2)),
+            body: Box::new(var_ref(t)),
+            span: s(),
+        }),
+        span: at(2, 4, 13),
+    };
+    for pass in [inline_lets, disciplined_inline, elim_dead_let] {
+        let (kept, _) = keeping(&[y], pass, expr());
+        assert!(
+            matches!(&kept, CoreExpr::Let { var, .. } if var.id == y.id),
+            "{kept:?}"
+        );
+    }
+    // `__t` is the compiler's: it goes.
+    let (kept, _) = keeping(&[y], inline_lets, expr());
+    let CoreExpr::Let { body, .. } = &kept else {
+        unreachable!()
+    };
+    assert!(
+        matches!(**body, CoreExpr::Lit(CoreLit::Int(2), _)),
+        "{body:?}"
+    );
+    // A plain build drops `y` too.
+    let plain = inline_lets(expr());
+    assert!(
+        matches!(plain, CoreExpr::Lit(CoreLit::Int(2), _)),
+        "{plain:?}"
+    );
+}
+
+#[test]
+fn the_program_s_own_binders_are_kept_not_the_compiler_s() {
+    let mut interner = Interner::new();
+    let y = binder(0, interner.intern("y"));
+    let t = binder(1, interner.intern("__t"));
+    let z = binder(2, interner.intern("z"));
+    let main = interner.intern("main");
+    // `y` at a place; `__t` named by the compiler; `z` made up, at no place.
+    let body = CoreExpr::Let {
+        var: y,
+        rhs: Box::new(int(1)),
+        body: Box::new(CoreExpr::Let {
+            var: t,
+            rhs: Box::new(int(2)),
+            body: Box::new(CoreExpr::Let {
+                var: z,
+                rhs: Box::new(int(3)),
+                body: Box::new(var_ref(z)),
+                span: s(),
+            }),
+            span: at(3, 4, 10),
+        }),
+        span: at(2, 4, 13),
+    };
+    let program = CoreProgram {
+        defs: vec![CoreDef::new(binder(9, main), body, false, s())],
+        top_level_items: Vec::new(),
+    };
+    let kept = keep::source_binders(&program, &interner);
+    assert_eq!(kept, [y.id].into_iter().collect());
+}

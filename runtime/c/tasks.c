@@ -24,12 +24,22 @@
  * platform until then.
  */
 
+// `-std=c11` defines __STRICT_ANSI__, which hides glibc's `syscall()`;
+// request the default feature set before any header is included.
+#if defined(__linux__) && !defined(_DEFAULT_SOURCE)
+#define _DEFAULT_SOURCE
+#endif
+
 #include "flux_rt.h"
 #include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#if defined(__linux__)
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
 
 #if defined(_WIN32) || defined(_MSC_VER)
 #include <windows.h>
@@ -61,6 +71,7 @@ typedef struct FluxTaskEntry {
     pthread_cond_t   finished;
     _Atomic(int32_t) cancelled_flag; /* 0 = live, 1 = cancel requested       */
     TaskStatus       status;         /* protected by per-slot mutex           */
+    uint32_t         logical;        /* number on the effect tape, 0 = none   */
     struct FluxTaskEntry *next;
 } FluxTaskEntry;
 
@@ -150,14 +161,29 @@ static void flux_task_publish_async_completion(FluxTaskEntry *e) {
     }
 }
 
+/* Under an effect tape (0188 S8c), a task's start and end are ordered on
+ * the tape with what other threads do, so a replay decides a cancel racing
+ * with the task the way the recorded run did. */
+static int flux_task_tape_start(FluxTaskEntry *e) {
+    flux_tape_enter_task(e->logical);
+    flux_tape_ordered_begin(FLUX_TAPE_TASK_START, e->logical, 0);
+    int ran = !atomic_load_explicit(&e->cancelled_flag, memory_order_acquire);
+    flux_tape_ordered_end(FLUX_TAPE_BOOL, ran);
+    return ran;
+}
+
 static void *flux_task_worker(void *arg) {
     FluxTaskEntry *e = (FluxTaskEntry *)arg;
 
     /* Bypass bump arena: worker threads allocate via malloc only. */
     flux_worker_thread = 1;
 
-    if (atomic_load_explicit(&e->cancelled_flag, memory_order_acquire)) {
+    int skip = flux_tape_mode
+        ? !flux_task_tape_start(e)
+        : atomic_load_explicit(&e->cancelled_flag, memory_order_acquire);
+    if (skip) {
         /* Cancelled before the worker picked up the task — skip body. */
+        if (flux_tape_mode) flux_tape_ordered_begin(FLUX_TAPE_TASK_END, e->logical, 0);
         pthread_mutex_lock(&e->mutex);
         e->status = TASK_CANCELLED;
         e->result = FLUX_NONE;
@@ -165,6 +191,10 @@ static void *flux_task_worker(void *arg) {
         flux_drop(e->closure);
         e->closure = FLUX_NONE;
         flux_task_publish_async_completion(e);
+        if (flux_tape_mode) {
+            flux_tape_ordered_end(FLUX_TAPE_NONE, 0);
+            flux_tape_enter_task(0);
+        }
         return NULL;
     }
 
@@ -177,6 +207,7 @@ static void *flux_task_worker(void *arg) {
     int64_t result = flux_call_closure_c(e->closure, NULL, 0);
     flux_drop(e->closure);
 
+    if (flux_tape_mode) flux_tape_ordered_begin(FLUX_TAPE_TASK_END, e->logical, 0);
     pthread_mutex_lock(&e->mutex);
     if (atomic_load_explicit(&e->cancelled_flag, memory_order_acquire)) {
         flux_drop(result);
@@ -188,6 +219,10 @@ static void *flux_task_worker(void *arg) {
     }
     pthread_mutex_unlock(&e->mutex);
     flux_task_publish_async_completion(e);
+    if (flux_tape_mode) {
+        flux_tape_ordered_end(FLUX_TAPE_NONE, 0);
+        flux_tape_enter_task(0);
+    }
     return NULL;
 }
 
@@ -217,6 +252,10 @@ static int64_t flux_task_spawn_inner(int64_t closure, int move_owned, const char
         abort();
     }
 
+    /* Under a tape, the spawn takes its number at its turn (0188 S8c). */
+    e->logical = flux_tape_mode
+        ? (uint32_t)flux_tape_ordered_begin(FLUX_TAPE_TASK_SPAWN, 0, 0)
+        : 0;
     int64_t id = atomic_fetch_add_explicit(&next_task_id, 1,
                                            memory_order_relaxed);
     e->task_id = id;
@@ -240,6 +279,8 @@ static int64_t flux_task_spawn_inner(int64_t closure, int move_owned, const char
             atomic_load_explicit(&task_high_water, memory_order_relaxed));
         abort();
     }
+
+    if (flux_tape_mode) flux_tape_ordered_end(FLUX_TAPE_NONE, 0);
 
     /* Register with the active run's root-task safety net so an unawaited
      * task is cancelled at run_async teardown instead of leaking the OS
@@ -290,7 +331,14 @@ int64_t flux_task_blocking_join(int64_t task) {
     pthread_join(e->thread, NULL);
 
     /* Free the slot for reuse. */
+    uint32_t logical = e->logical;
     flux_task_free_slot(e);
+
+    /* On the tape once joined: the join waits for the task's own turns. */
+    if (flux_tape_mode) {
+        flux_tape_ordered_begin(FLUX_TAPE_TASK_JOIN, logical, 0);
+        flux_tape_ordered_end(FLUX_TAPE_NONE, 0);
+    }
 
     if (s == TASK_CANCELLED) {
         /* Raise a Flux panic so assert_throws / try blocks see it. */
@@ -310,6 +358,7 @@ int64_t flux_task_cancel(int64_t task) {
     FluxTaskEntry *e = flux_task_lookup(id);
 
     if (e) {
+        if (flux_tape_mode) flux_tape_ordered_begin(FLUX_TAPE_TASK_CANCEL, e->logical, 0);
         atomic_store_explicit(&e->cancelled_flag, 1, memory_order_release);
         pthread_mutex_lock(&e->mutex);
         if (e->status == TASK_DONE) {
@@ -319,6 +368,7 @@ int64_t flux_task_cancel(int64_t task) {
             pthread_cond_broadcast(&e->finished);
         }
         pthread_mutex_unlock(&e->mutex);
+        if (flux_tape_mode) flux_tape_ordered_end(FLUX_TAPE_NONE, 0);
     }
     /* Slot not found → already joined; cancel is a no-op. */
     return FLUX_NONE;
@@ -339,6 +389,9 @@ int64_t flux_task_await(int64_t task) {
         abort();
     }
 
+    /* Whether the task has finished is decided at the await's turn on the
+     * tape (0188 S8c). */
+    if (flux_tape_mode) flux_tape_ordered_begin(FLUX_TAPE_TASK_AWAIT, e->logical, 0);
     pthread_mutex_lock(&e->mutex);
     if (e->await_request != 0) {
         pthread_mutex_unlock(&e->mutex);
@@ -351,6 +404,7 @@ int64_t flux_task_await(int64_t task) {
         int64_t result = e->result;
         e->result = FLUX_NONE;
         pthread_mutex_unlock(&e->mutex);
+        if (flux_tape_mode) flux_tape_ordered_end(FLUX_TAPE_BOOL, 1);
 
         uint64_t request_id = flux_async_task_await_request();
         if (request_id == 0) {
@@ -379,6 +433,8 @@ int64_t flux_task_await(int64_t task) {
     e->await_request = request_id;
     pthread_detach(e->thread);
     pthread_mutex_unlock(&e->mutex);
+    if (flux_tape_mode) flux_tape_ordered_end(FLUX_TAPE_BOOL, 0);
+    flux_async_debug_block(request_id, FLUX_DEBUG_BLOCK_TASK, id);
     return flux_async_suspend_request(request_id);
 }
 
@@ -409,6 +465,7 @@ typedef struct FluxTaskEntry {
     CONDITION_VARIABLE finished;
     _Atomic(int32_t)   cancelled_flag; /* 0 = live, 1 = cancel requested       */
     TaskStatus         status;         /* protected by per-slot mutex           */
+    uint32_t           logical;        /* number on the effect tape, 0 = none   */
     struct FluxTaskEntry *next;
 } FluxTaskEntry;
 
@@ -511,14 +568,27 @@ static void flux_task_publish_async_completion(FluxTaskEntry *e) {
  * `_beginthreadex` is required for any thread that calls C runtime
  * functions (malloc, fprintf, etc.) — `CreateThread` skips per-thread CRT
  * setup and can corrupt the heap on exit. */
+/* As on POSIX: a task's start and end are ordered on a tape (0188 S8c). */
+static int flux_task_tape_start(FluxTaskEntry *e) {
+    flux_tape_enter_task(e->logical);
+    flux_tape_ordered_begin(FLUX_TAPE_TASK_START, e->logical, 0);
+    int ran = !atomic_load_explicit(&e->cancelled_flag, memory_order_acquire);
+    flux_tape_ordered_end(FLUX_TAPE_BOOL, ran);
+    return ran;
+}
+
 static unsigned __stdcall flux_task_worker(void *arg) {
     FluxTaskEntry *e = (FluxTaskEntry *)arg;
 
     /* Bypass bump arena: worker threads allocate via malloc only. */
     flux_worker_thread = 1;
 
-    if (atomic_load_explicit(&e->cancelled_flag, memory_order_acquire)) {
+    int skip = flux_tape_mode
+        ? !flux_task_tape_start(e)
+        : atomic_load_explicit(&e->cancelled_flag, memory_order_acquire);
+    if (skip) {
         /* Cancelled before the worker picked up the task — skip body. */
+        if (flux_tape_mode) flux_tape_ordered_begin(FLUX_TAPE_TASK_END, e->logical, 0);
         EnterCriticalSection(&e->mutex);
         e->status = TASK_CANCELLED;
         e->result = FLUX_NONE;
@@ -526,6 +596,10 @@ static unsigned __stdcall flux_task_worker(void *arg) {
         flux_drop(e->closure);
         e->closure = FLUX_NONE;
         flux_task_publish_async_completion(e);
+        if (flux_tape_mode) {
+            flux_tape_ordered_end(FLUX_TAPE_NONE, 0);
+            flux_tape_enter_task(0);
+        }
         return 0;
     }
 
@@ -536,6 +610,7 @@ static unsigned __stdcall flux_task_worker(void *arg) {
     int64_t result = flux_call_closure_c(e->closure, NULL, 0);
     flux_drop(e->closure);
 
+    if (flux_tape_mode) flux_tape_ordered_begin(FLUX_TAPE_TASK_END, e->logical, 0);
     EnterCriticalSection(&e->mutex);
     if (atomic_load_explicit(&e->cancelled_flag, memory_order_acquire)) {
         flux_drop(result);
@@ -547,6 +622,10 @@ static unsigned __stdcall flux_task_worker(void *arg) {
     }
     LeaveCriticalSection(&e->mutex);
     flux_task_publish_async_completion(e);
+    if (flux_tape_mode) {
+        flux_tape_ordered_end(FLUX_TAPE_NONE, 0);
+        flux_tape_enter_task(0);
+    }
     return 0;
 }
 
@@ -575,6 +654,10 @@ static int64_t flux_task_spawn_inner(int64_t closure, int move_owned, const char
         abort();
     }
 
+    /* Under a tape, the spawn takes its number at its turn (0188 S8c). */
+    e->logical = flux_tape_mode
+        ? (uint32_t)flux_tape_ordered_begin(FLUX_TAPE_TASK_SPAWN, 0, 0)
+        : 0;
     int64_t id = atomic_fetch_add_explicit(&next_task_id, 1,
                                            memory_order_relaxed);
     e->task_id = id;
@@ -602,6 +685,8 @@ static int64_t flux_task_spawn_inner(int64_t closure, int move_owned, const char
             atomic_load_explicit(&task_high_water, memory_order_relaxed));
         abort();
     }
+
+    if (flux_tape_mode) flux_tape_ordered_end(FLUX_TAPE_NONE, 0);
 
     /* Register with the active run's root-task safety net so an unawaited
      * task is cancelled at run_async teardown instead of leaking the OS
@@ -653,7 +738,14 @@ int64_t flux_task_blocking_join(int64_t task) {
     CloseHandle(e->thread);
     e->thread = NULL;
 
+    uint32_t logical = e->logical;
     flux_task_free_slot(e);
+
+    /* On the tape once joined: the join waits for the task's own turns. */
+    if (flux_tape_mode) {
+        flux_tape_ordered_begin(FLUX_TAPE_TASK_JOIN, logical, 0);
+        flux_tape_ordered_end(FLUX_TAPE_NONE, 0);
+    }
 
     if (s == TASK_CANCELLED) {
         flux_panic(flux_string_new("TaskCancelled", 13));
@@ -672,6 +764,7 @@ int64_t flux_task_cancel(int64_t task) {
     FluxTaskEntry *e = flux_task_lookup(id);
 
     if (e) {
+        if (flux_tape_mode) flux_tape_ordered_begin(FLUX_TAPE_TASK_CANCEL, e->logical, 0);
         atomic_store_explicit(&e->cancelled_flag, 1, memory_order_release);
         EnterCriticalSection(&e->mutex);
         if (e->status == TASK_DONE) {
@@ -681,6 +774,7 @@ int64_t flux_task_cancel(int64_t task) {
             WakeAllConditionVariable(&e->finished);
         }
         LeaveCriticalSection(&e->mutex);
+        if (flux_tape_mode) flux_tape_ordered_end(FLUX_TAPE_NONE, 0);
     }
     return FLUX_NONE;
 }
@@ -700,6 +794,7 @@ int64_t flux_task_await(int64_t task) {
         abort();
     }
 
+    if (flux_tape_mode) flux_tape_ordered_begin(FLUX_TAPE_TASK_AWAIT, e->logical, 0);
     EnterCriticalSection(&e->mutex);
     if (e->await_request != 0) {
         LeaveCriticalSection(&e->mutex);
@@ -712,6 +807,7 @@ int64_t flux_task_await(int64_t task) {
         int64_t result = e->result;
         e->result = FLUX_NONE;
         LeaveCriticalSection(&e->mutex);
+        if (flux_tape_mode) flux_tape_ordered_end(FLUX_TAPE_BOOL, 1);
 
         uint64_t request_id = flux_async_task_await_request();
         if (request_id == 0) {
@@ -743,6 +839,7 @@ int64_t flux_task_await(int64_t task) {
     CloseHandle(e->thread);
     e->thread = NULL;
     LeaveCriticalSection(&e->mutex);
+    if (flux_tape_mode) flux_tape_ordered_end(FLUX_TAPE_BOOL, 0);
     return flux_async_suspend_request(request_id);
 }
 
@@ -778,8 +875,24 @@ int64_t flux_fiber_get_context(void) {
 }
 
 int64_t flux_fiber_fail(int64_t error_value) {
-    flux_panic(error_value);
+    flux_debug_on_fiber_failure(error_value);
+    flux_panic_unhooked(error_value);
     return FLUX_NONE;
+}
+
+/* The calling OS thread's id, as lldb names threads (0188 S8b). */
+static uint64_t flux_async_os_thread_id(void) {
+#if defined(_WIN32)
+    return (uint64_t)GetCurrentThreadId();
+#elif defined(__APPLE__)
+    uint64_t id = 0;
+    pthread_threadid_np(NULL, &id);
+    return id;
+#elif defined(__linux__)
+    return (uint64_t)syscall(SYS_gettid);
+#else
+    return 0;
+#endif
 }
 
 /* ── Entry-point / scheduling shims (proposal 0174 Phase 1b) ───────────── */
@@ -816,6 +929,7 @@ static void flux_async_register_callbacks(void) {
         flux_task_cancel,
         flux_async_register_root_task,
         flux_async_deregister_root_task,
+        flux_async_os_thread_id,
     };
     if (flux_async_set_callbacks(&callbacks) != 0) {
         fprintf(stderr, "flux_async_set_callbacks failed\n");
@@ -827,7 +941,9 @@ int64_t flux_fiber_run_async(int64_t closure) {
     flux_async_register_callbacks();
     int64_t result = flux_async_run_root(closure);
     if (flux_async_last_run_failed() != 0) {
-        flux_panic(result);
+        /* The root fiber's failure, which the debugger saw where it
+         * happened. */
+        flux_panic_unhooked(result);
     }
     return result;
 }
@@ -1072,5 +1188,9 @@ int64_t flux_fiber_run_async_with(int64_t worker_count, int64_t fs_pool_size, in
     int64_t workers = flux_untag_int(worker_count);
     int64_t fs = flux_untag_int(fs_pool_size);
     int64_t dns = flux_untag_int(dns_pool_size);
-    return flux_async_run_root_with(workers, fs, dns, closure);
+    int64_t result = flux_async_run_root_with(workers, fs, dns, closure);
+    if (flux_async_last_run_failed() != 0) {
+        flux_panic_unhooked(result);
+    }
+    return result;
 }

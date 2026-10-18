@@ -276,11 +276,14 @@ fn outlines_excess_run_async_with_calls_before_llvm_rendering() {
             params: Vec::new(),
             instrs,
             terminator: LirTerminator::Return(LirVar(12)),
+            locs: Vec::new(),
+            term_loc: Default::default(),
         }],
         next_var: 13,
         capture_vars: Vec::new(),
         param_reps: Vec::new(),
         result_rep: FluxRep::TaggedRep,
+        debug: None,
     });
 
     let ll = emit_llvm_ir(&program);
@@ -321,6 +324,7 @@ fn outlines_excess_run_async_with_calls_before_llvm_rendering() {
 #[test]
 fn emitted_prelude_and_arith_snapshot() {
     let mut module = LlvmModule {
+        debug: None,
         source_filename: Some("helpers.flx".into()),
         target_triple: Some("x86_64-unknown-linux-gnu".into()),
         data_layout: Some("e-m:e-p:64:64-i64:64-n8:16:32:64-S128".into()),

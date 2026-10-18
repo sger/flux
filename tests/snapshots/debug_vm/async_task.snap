@@ -1,0 +1,15 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 14
+breakpoint at async_task.flx:14
+> continue
+stopped: breakpoint at async_task.flx:14:5 in body (position 18)
+    14 |     got + 0
+> threads
+* 1 main [stopped] at async_task.flx:14:5
+  1001 task 1 (crunch) [done]
+> continue
+program finished
+--- program output ---
+42

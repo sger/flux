@@ -1,0 +1,29 @@
+// Debug parity (0188 S8): `Async.fail` stops as a fiber failure where the
+// fiber raises it, before `try` turns it into a value.
+// dbg: continue
+// dbg: threads
+// dbg: continue
+
+import Flow.Async exposing (..)
+
+fn checked(n: Int) -> Int with Async {
+    let limit = 2
+    if n > limit {
+        fail(protocol_error(503, "too many"))
+    } else {
+        n
+    }
+}
+
+fn attempt() -> Int with Async {
+    let got = checked(5)
+    got + 1
+}
+
+fn body() -> Int with Async {
+    result_or(try(attempt), -1)
+}
+
+fn main() with IO {
+    print(run_async(body))
+}
