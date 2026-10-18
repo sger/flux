@@ -76,6 +76,12 @@ pub fn validate_flags(flags: &DriverFlags, is_test_mode: bool) -> Result<(), &'s
         });
     }
 
+    // Aether's counts come from the program the VM compiles; a native run
+    // would leave the file unwritten.
+    if flags.runtime.metrics_path.is_some() && flags.backend.selected == Backend::Native {
+        return Err("Error: --metrics applies to a program run on the VM.");
+    }
+
     validate_dump_flags(flags)?;
     Ok(())
 }
@@ -192,6 +198,19 @@ mod tests {
         let flags = flags.finalize_backend();
         assert!(validate_flags(&flags, false).is_ok());
         assert!(validate_flags(&flags, true).is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "llvm")]
+    fn validate_flags_keeps_metrics_on_the_vm() {
+        let mut flags = base_flags();
+        flags.runtime.metrics_path = Some("m.tsv".into());
+        assert!(validate_flags(&flags.clone().finalize_backend(), false).is_ok());
+        flags.backend.use_llvm = true;
+        assert_eq!(
+            validate_flags(&flags.finalize_backend(), false),
+            Err("Error: --metrics applies to a program run on the VM.")
+        );
     }
 
     #[test]

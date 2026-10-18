@@ -54,6 +54,19 @@ Fields:
 - `feature:` — `<tag>[, <tag>…]`, read by the support census (`flux features`).
   A tag adds to what the census infers from the program; `-tag` removes one it
   got wrong. The tags are listed in `src/ast/features.rs` (`TAGS`).
+- `expect-reuse:` / `expect-allocs:` — what Aether must achieve in the
+  fixture's own functions: its reuse sites, or its fresh constructor
+  allocations. A count, `= n`, `>= n` or `<= n`; a bare number means `= n`.
+  Once the ways pass, the fixture is compiled once more with the hidden
+  `flux --metrics <file>`, and a count that does not hold is an
+  `EXPECTED_OUTPUT_MISMATCH` naming the line and the count seen. These are the
+  numbers `--dump-aether` prints per function, summed over the functions the
+  file defines, not the library's. A pass change that loses a reuse then
+  fails a fixture, though the program still prints the same.
+
+  ```
+  // expect-reuse: 3
+  ```
 - `skip:` — a reason to skip the whole fixture. It is still listed as `SKIP`.
   Use it only when no way can run the fixture, for example when it needs the
   network.

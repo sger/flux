@@ -60,6 +60,38 @@ fn vm_run_stats(request: VmRunStatsRequest<'_>) -> RunStats {
     }
 }
 
+/// Writes `--metrics`: Aether's counts over the program's own functions, one
+/// `key<TAB>value` per line, sorted by key.
+fn write_metrics(request: &mut VmRunRequest<'_>, path: &std::path::Path) {
+    let stats = match request
+        .compiler
+        .aether_metrics(request.program, request.compile.enable_optimize)
+    {
+        Ok(stats) => stats,
+        Err(diag) => {
+            emit_diagnostics_or_exit(
+                &[diag],
+                request.path,
+                request.source,
+                request.is_multimodule,
+                request.diagnostics,
+            );
+            return;
+        }
+    };
+    let text = format!(
+        "aether_allocs\t{}\naether_drops\t{}\naether_dups\t{}\naether_reuses\t{}\n",
+        stats.allocs, stats.drops, stats.dups, stats.reuses
+    );
+    if let Err(e) = std::fs::write(path, text) {
+        eprintln!(
+            "Error: could not write --metrics to {}: {e}",
+            path.display()
+        );
+        std::process::exit(1);
+    }
+}
+
 /// Emits the VM Aether trace if the current run requested it.
 fn emit_vm_aether_trace(request: &mut VmRunRequest<'_>) {
     match request.compiler.render_aether_report(
@@ -203,6 +235,9 @@ pub(crate) fn run_vm(mut request: VmRunRequest<'_>) {
     let instruction_bytes = bytecode.instructions.len();
     if request.flags.runtime.trace_aether {
         emit_vm_aether_trace(&mut request);
+    }
+    if let Some(path) = request.flags.runtime.metrics_path.clone() {
+        write_metrics(&mut request, &path);
     }
 
     eprintln!("{}", vm_run_banner());
