@@ -3,9 +3,12 @@ name: CI
 # Forgejo Actions mirror of .github/workflows/ci.yml, trimmed to a single
 # self-hosted Linux runner. GitHub ignores `.forgejo/`, so this only runs on
 # the Forgejo instance — no duplicate runs.
+#
+# Pull requests only, not pushes to main: the runner is the Synology NAS that
+# also serves Forgejo, and a full build and test run there on a merge to main
+# exhausted it (2026-10-18). Main is still checked on GitHub, where the push
+# mirror's pushes run .github/workflows/ci.yml.
 on:
-  push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
 
