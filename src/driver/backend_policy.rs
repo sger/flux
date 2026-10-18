@@ -69,7 +69,11 @@ pub fn validate_flags(flags: &DriverFlags, is_test_mode: bool) -> Result<(), &'s
     // The debug heap is a build of the C runtime: only a native program
     // links one, and the native test runner does not pass it on.
     if flags.backend.debug_heap && (flags.backend.selected != Backend::Native || is_test_mode) {
-        return Err("Error: --debug-heap applies to a program run or built with --native.");
+        return Err(if flags.backend.leak_check {
+            "Error: --leak-check applies to a program run or built with --native."
+        } else {
+            "Error: --debug-heap applies to a program run or built with --native."
+        });
     }
 
     validate_dump_flags(flags)?;
@@ -188,6 +192,17 @@ mod tests {
         let flags = flags.finalize_backend();
         assert!(validate_flags(&flags, false).is_ok());
         assert!(validate_flags(&flags, true).is_err());
+    }
+
+    #[test]
+    fn validate_flags_names_the_leak_check_it_refuses() {
+        let mut flags = base_flags();
+        flags.backend.debug_heap = true;
+        flags.backend.leak_check = true;
+        assert_eq!(
+            validate_flags(&flags.finalize_backend(), false),
+            Err("Error: --leak-check applies to a program run or built with --native.")
+        );
     }
 
     #[test]

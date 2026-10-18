@@ -144,6 +144,8 @@ pub(crate) struct NativeOutputConfig {
     pub(crate) emit_binary: bool,
     /// Link `libflux_rt_debug.a` (0188 S10c).
     pub(crate) debug_heap: bool,
+    /// Ask the debug heap to report blocks live at exit (0190 S15).
+    pub(crate) leak_check: bool,
     pub(crate) output_path: Option<String>,
 }
 
@@ -557,6 +559,13 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
             native_cmd.env(key, tape);
             // This driver renders the program's tape errors itself.
             native_cmd.env(flux::runtime::replay::native_abi::WIRE_ENV, "1");
+        }
+        // Read by the debug heap at exit: one runtime build serves both
+        // `--debug-heap` and `--leak-check`.
+        if request.output.leak_check {
+            native_cmd.env("FLUX_LEAK_CHECK", "1");
+        } else {
+            native_cmd.env_remove("FLUX_LEAK_CHECK");
         }
         match native_cmd.spawn() {
             Ok(child) => {

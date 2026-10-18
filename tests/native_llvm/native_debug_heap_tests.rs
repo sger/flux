@@ -4,6 +4,9 @@
 //!
 //! The fixture's use after free is made on purpose: `FLUX_AETHER_FAULT`
 //! (a test-only hook in LIR lowering) leaves out every Dup of `victim`.
+//!
+//! `--leak-check` (0190 S15) adds a report at the program's end of the blocks
+//! nothing freed; `skip-drop:` plants one.
 
 #![cfg(feature = "llvm")]
 
@@ -152,6 +155,106 @@ fn kept_lists_survive_the_functions_they_are_lent_to() {
         assert!(!vm.is_empty(), "{file}");
         assert_eq!((heap.as_str(), code), (vm.as_str(), 0), "{file}:\n{stderr}");
     }
+}
+
+const LEAK_FIXTURE: &str = "tests/native_llvm/debug_heap/leak.flx";
+
+/// The lines of a leak report that name an allocation site.
+fn site_lines(stderr: &str) -> Vec<&str> {
+    stderr
+        .lines()
+        .filter(|line| line.contains(" allocated at "))
+        .collect()
+}
+
+#[test]
+fn a_leak_is_reported_at_exit_with_its_allocation_site() {
+    let scratch = Scratch::new("debug-heap-leak");
+    let (_, stderr, code) = run(
+        &scratch,
+        LEAK_FIXTURE,
+        &["--native", "--leak-check"],
+        Some("skip-drop:leaked"),
+    );
+    assert_eq!(code, 3, "{stderr}");
+    assert!(
+        stderr.contains("leak: 3 blocks still live at exit"),
+        "{stderr}"
+    );
+    let sites = site_lines(&stderr);
+    assert_eq!(sites.len(), 3, "{stderr}");
+    for line in sites {
+        assert_eq!(
+            line,
+            "  a constructor value (24 bytes) allocated at numbers \
+             (tests/native_llvm/debug_heap/leak.flx:6:5)",
+            "{stderr}"
+        );
+    }
+}
+
+#[test]
+fn a_leak_report_names_at_most_ten_sites() {
+    let scratch = Scratch::new("debug-heap-leak-many");
+    let (_, stderr, code) = run(
+        &scratch,
+        LEAK_FIXTURE,
+        &["--native", "--leak-check"],
+        Some("skip-drop:many"),
+    );
+    assert_eq!(code, 3, "{stderr}");
+    assert!(
+        stderr.contains("leak: 12 blocks still live at exit"),
+        "{stderr}"
+    );
+    assert_eq!(site_lines(&stderr).len(), 10, "{stderr}");
+    assert!(stderr.contains("\n  and 2 more\n"), "{stderr}");
+}
+
+#[test]
+fn the_leak_fixture_frees_everything_without_the_fault() {
+    let scratch = Scratch::new("debug-heap-leak-clean");
+    let (_, stderr, code) = run(&scratch, LEAK_FIXTURE, &["--native", "--leak-check"], None);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(!stderr.contains("leak:"), "{stderr}");
+}
+
+/// `--debug-heap` alone does not report leaks: nearly every program still
+/// leaks (KI-119 to KI-121).
+#[test]
+fn the_debug_heap_alone_does_not_report_leaks() {
+    let scratch = Scratch::new("debug-heap-leak-off");
+    let (_, stderr, code) = run(
+        &scratch,
+        LEAK_FIXTURE,
+        &["--native", "--debug-heap"],
+        Some("skip-drop:leaked"),
+    );
+    assert_eq!(code, 0, "{stderr}");
+    assert!(!stderr.contains("leak:"), "{stderr}");
+}
+
+#[test]
+fn without_the_debug_heap_a_leak_goes_unnoticed() {
+    let scratch = Scratch::new("debug-heap-leak-unnoticed");
+    let (_, stderr, code) = run(
+        &scratch,
+        LEAK_FIXTURE,
+        &["--native"],
+        Some("skip-drop:leaked"),
+    );
+    assert_eq!(code, 0, "{stderr}");
+}
+
+#[test]
+fn the_leak_check_needs_the_native_backend() {
+    let scratch = Scratch::new("debug-heap-leak-vm");
+    let (_, stderr, code) = run(&scratch, LEAK_FIXTURE, &["--vm", "--leak-check"], None);
+    assert_eq!(code, 1);
+    assert!(
+        stderr.contains("Error: --leak-check applies to a program run or built with --native."),
+        "{stderr}"
+    );
 }
 
 #[test]

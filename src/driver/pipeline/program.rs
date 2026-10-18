@@ -369,6 +369,7 @@ fn dispatch_backend(ctx: &mut RunContext, request: RunProgramRequest<'_>) {
                 emit_llvm: request.flags.backend.emit_llvm,
                 emit_binary: request.flags.backend.emit_binary,
                 debug_heap: request.flags.backend.debug_heap,
+                leak_check: request.flags.backend.leak_check,
                 output_path: request.flags.backend.output_path.clone(),
             },
             report: NativeReportConfig {

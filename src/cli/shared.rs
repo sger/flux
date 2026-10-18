@@ -28,6 +28,9 @@ pub(crate) struct ParsedCliBackendFlags {
     pub(crate) emit_binary: bool,
     /// `--debug-heap`: link the debug-heap runtime (0188 S10c).
     pub(crate) debug_heap: bool,
+    /// `--leak-check`: the debug heap, reporting blocks live at exit
+    /// (0190 S15).
+    pub(crate) leak_check: bool,
 }
 
 /// Parsed runtime-related CLI flags that affect execution-time reporting or tracing.
@@ -224,6 +227,7 @@ pub(crate) fn extract_cli_flag_groups(args: &mut Vec<String>) -> ParsedCliFlags 
             "--emit-llvm" => flags.backend.emit_llvm = remove_bool_flag(args, i),
             "--emit-binary" => flags.backend.emit_binary = remove_bool_flag(args, i),
             "--debug-heap" => flags.backend.debug_heap = remove_bool_flag(args, i),
+            "--leak-check" => flags.backend.leak_check = remove_bool_flag(args, i),
             "--no-cache" => flags.execution.no_cache = remove_bool_flag(args, i),
             "--deps" => flags.execution.clean_deps = remove_bool_flag(args, i),
             "--store" => flags.execution.clean_store = remove_bool_flag(args, i),
@@ -396,7 +400,8 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
             use_llvm: parsed.backend.use_llvm.unwrap_or(false),
             emit_llvm: parsed.backend.emit_llvm,
             emit_binary: parsed.backend.emit_binary,
-            debug_heap: parsed.backend.debug_heap,
+            debug_heap: parsed.backend.debug_heap || parsed.backend.leak_check,
+            leak_check: parsed.backend.leak_check,
             output_path: values.paths.output_path,
         },
         input: DriverInputFlags {
@@ -786,6 +791,28 @@ mod tests {
         assert_eq!(lines.language.debug_level, DebugLevel::Lines);
 
         assert_eq!(build(&[]).language.debug_level, DebugLevel::None);
+    }
+
+    #[test]
+    fn leak_check_implies_the_debug_heap() {
+        let build = |extra: &[&str]| {
+            let mut args: Vec<String> = ["flux", "file.flx"]
+                .iter()
+                .chain(extra)
+                .map(|arg| arg.to_string())
+                .collect();
+            let parsed = extract_cli_flag_groups(&mut args);
+            let values = extract_cli_value_options(&mut args).unwrap();
+            build_driver_flags(parsed, values)
+        };
+
+        let leak = build(&["--leak-check"]);
+        assert!(leak.backend.leak_check);
+        assert!(leak.backend.debug_heap);
+
+        let heap = build(&["--debug-heap"]);
+        assert!(heap.backend.debug_heap);
+        assert!(!heap.backend.leak_check);
     }
 
     #[test]
