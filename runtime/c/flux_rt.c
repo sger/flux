@@ -183,6 +183,9 @@ void flux_rt_shutdown(void) {
     /* Skip GC shutdown — the OS reclaims all memory at process exit.
      * Walking millions of malloc'd objects is slower than just exiting. */
     fflush(stdout);
+#ifdef FLUX_DEBUG_HEAP
+    flux_debug_heap_report_leaks();
+#endif
 }
 
 /* ── Printing ───────────────────────────────────────────────────────── */

@@ -140,11 +140,14 @@ static inline size_t align_up(size_t n, size_t align) {
 #define FLUX_FREED_MAGIC 0x464c555846524545ull  /* "FLUXFREE" */
 #define FLUX_POISON      0xDEADDEADDEADDEADull
 
-typedef struct {
+typedef struct FluxDebugPrefix {
     uint64_t  magic;
     uint64_t  size;   /* aligned payload bytes */
     uintptr_t alloc_site[FLUX_SITE_DEPTH];
     uintptr_t free_site[FLUX_SITE_DEPTH];
+    /* The live list, in allocation order (0190 S15). */
+    struct FluxDebugPrefix *prev;
+    struct FluxDebugPrefix *next;
 } FluxDebugPrefix;
 
 #if defined(_MSC_VER)
@@ -161,6 +164,55 @@ static inline FluxDebugPrefix *prefix_of(FluxHeader *hdr) {
     return (FluxDebugPrefix *)((char *)hdr - sizeof(FluxDebugPrefix));
 }
 
+/* Every block not yet freed, so that the end of the program can name the
+ * ones nothing dropped (0190 S15). Task workers allocate too, hence the
+ * lock; a spinlock, because MSVC has no pthreads and the sections are a few
+ * pointer writes. */
+static FluxDebugPrefix *live_first = NULL;
+static FluxDebugPrefix *live_last  = NULL;
+static size_t           live_count = 0;
+static atomic_flag      live_lock  = ATOMIC_FLAG_INIT;
+
+static void live_lock_acquire(void) {
+    while (atomic_flag_test_and_set_explicit(&live_lock, memory_order_acquire)) {
+    }
+}
+
+static void live_lock_release(void) {
+    atomic_flag_clear_explicit(&live_lock, memory_order_release);
+}
+
+static void live_link(FluxDebugPrefix *prefix) {
+    live_lock_acquire();
+    prefix->prev = live_last;
+    prefix->next = NULL;
+    if (live_last) {
+        live_last->next = prefix;
+    } else {
+        live_first = prefix;
+    }
+    live_last = prefix;
+    live_count++;
+    live_lock_release();
+}
+
+static void live_unlink(FluxDebugPrefix *prefix) {
+    live_lock_acquire();
+    if (prefix->prev) {
+        prefix->prev->next = prefix->next;
+    } else {
+        live_first = prefix->next;
+    }
+    if (prefix->next) {
+        prefix->next->prev = prefix->prev;
+    } else {
+        live_last = prefix->prev;
+    }
+    prefix->prev = prefix->next = NULL;
+    live_count--;
+    live_lock_release();
+}
+
 static FluxHeader *debug_alloc(size_t aligned) {
     FluxDebugPrefix *prefix =
         (FluxDebugPrefix *)malloc(sizeof(FluxDebugPrefix) + FLUX_HEADER_SIZE + aligned);
@@ -172,6 +224,7 @@ static FluxHeader *debug_alloc(size_t aligned) {
     prefix->size  = aligned;
     flux_capture_site(prefix->alloc_site, FLUX_SITE_DEPTH);
     memset(prefix->free_site, 0, sizeof prefix->free_site);
+    live_link(prefix);
     return (FluxHeader *)(prefix + 1);
 }
 
@@ -179,6 +232,7 @@ static FluxHeader *debug_alloc(size_t aligned) {
 static void debug_free(FluxHeader *hdr) {
     FluxDebugPrefix *prefix = prefix_of(hdr);
     if (prefix->magic != FLUX_LIVE_MAGIC) return;
+    live_unlink(prefix);
     prefix->magic = FLUX_FREED_MAGIC;
     flux_capture_site(prefix->free_site, FLUX_SITE_DEPTH);
     rc_store_relaxed(hdr, 0);
@@ -222,6 +276,36 @@ static void debug_check(FluxHeader *hdr, const char *operation) {
 }
 
 #define DEBUG_CHECK(hdr, operation) debug_check((hdr), (operation))
+
+#define FLUX_LEAK_SITES 10
+
+void flux_debug_heap_report_leaks(void) {
+    /* Opt-in while nearly every program still leaks (KI-119 to KI-121):
+     * --debug-heap alone stays a use-after-free check. */
+    const char *wanted = getenv("FLUX_LEAK_CHECK");
+    if (!wanted || !*wanted || strcmp(wanted, "0") == 0) return;
+    live_lock_acquire();
+    size_t count = live_count;
+    if (count == 0) {
+        live_lock_release();
+        return;
+    }
+    fprintf(stderr, "leak: %zu block%s still live at exit\n", count, count == 1 ? "" : "s");
+    size_t shown = 0;
+    for (FluxDebugPrefix *p = live_first; p && shown < FLUX_LEAK_SITES; p = p->next, shown++) {
+        FluxHeader *hdr = (FluxHeader *)(p + 1);
+        char allocated[512];
+        flux_describe_site(p->alloc_site, FLUX_SITE_DEPTH, allocated, sizeof allocated);
+        fprintf(stderr, "  %s (%llu bytes) allocated at %s\n",
+                debug_kind(hdr->obj_tag), (unsigned long long)p->size, allocated);
+    }
+    if (count > shown) {
+        fprintf(stderr, "  and %zu more\n", count - shown);
+    }
+    live_lock_release();
+    fflush(stderr);
+    exit(FLUX_EXIT_LEAK);
+}
 
 #else
 

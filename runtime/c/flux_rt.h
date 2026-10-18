@@ -854,6 +854,14 @@ void    flux_panic_unhooked(int64_t msg);
  * debugger hook, then the message and the Flux trace, as a panic nothing
  * catches. A `try` does not catch it: the heap is no longer sound. */
 void    flux_heap_fault(const char *msg, uint32_t len);
+#ifdef FLUX_DEBUG_HEAP
+/* At the program's normal end, with the debug heap and FLUX_LEAK_CHECK set
+ * (`flux --leak-check`): names up to ten blocks nothing freed, with where
+ * each was allocated, and exits with FLUX_EXIT_LEAK. Returns when every
+ * block was freed, or when the check is off (0190 S15). */
+#define FLUX_EXIT_LEAK 3
+void    flux_debug_heap_report_leaks(void);
+#endif
 /* Reports an effect no handler covers and aborts. */
 void    flux_unhandled_effect(const char *where, int64_t htag);
 /* Prints the Flux frames the program is in to stderr, from its line table

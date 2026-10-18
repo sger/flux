@@ -86,6 +86,8 @@ Flags:
   --emit-binary      Compile to native binary via opt + llc + cc (with --native)
   --debug-heap       Link the debug-heap runtime: a dup or drop of freed memory stops
                     the program, naming where it was allocated and freed (with --native)
+  --leak-check       The debug heap, and at the end of the program name the blocks
+                    nothing freed, with where each was allocated; exits 3 (with --native)
   -o <path>          Output path for --emit-llvm or --emit-binary
   -h, --help         Show this help message
 

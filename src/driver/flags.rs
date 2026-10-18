@@ -16,6 +16,9 @@ pub struct DriverBackendFlags {
     /// Link the debug-heap runtime, which catches a use after free
     /// (0188 S10c). Native only.
     pub debug_heap: bool,
+    /// Report the blocks still live when the program ends, on the debug
+    /// heap (0190 S15). Implies `debug_heap`.
+    pub leak_check: bool,
     pub output_path: Option<String>,
 }
 

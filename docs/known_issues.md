@@ -42,6 +42,68 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-121 — Natively, a `let` value read in one branch and dead in the other is never dropped
+
+**Severity:** Medium · **Area:** Aether, drop insertion · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs
+
+```flux
+fn churn(n, keep) {
+    let xs = if n > 5 { twelve(n) } else { numbers(n) }
+    if keep { len(xs) } else { 0 }
+}
+```
+
+`churn(1, false)` leaks the whole list (`flux --native --leak-check` reports
+its 3 cells, allocated at `numbers`). Aether gives `churn` no Drop at all:
+not after `len(xs)`, which only borrows `xs`, and not on the `else` branch,
+where `xs` is dead. A `let` dead right after it is bound is dropped, and so
+is an owned parameter dead on one branch (`fn discard(xs, keep) { if keep {
+xs } else { [] } }` drops `xs`).
+
+Also leaking, cause not yet split from this one: a list matched with `[h |
+_]` in `main` (3 cells) and a tuple destructured with `let (a, b) = t` (1
+block). Not checked on the VM, which frees through Rust's `Rc`.
+
+### KI-120 — Natively, every owned argument of a direct call is copied once too often
+
+**Severity:** Medium · **Area:** LIR lowering, call guards · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs
+
+`dup_owned_call_args` (`src/lir/lower.rs`, added in db7222b7 "fix aether
+examples") emits a `dup` of each argument passed `Owned` to a direct call, a
+primop or a constructor. Nothing drops that extra reference: Aether already
+hands the callee the caller's reference. For
+
+```flux
+fn main() {
+    let a = discard(numbers(1), false)
+    0
+}
+```
+
+the LIR is `dup %1; dup %3; call discard(%1, %3); drop %3; drop %4`: the
+borrowed `false` is guarded and released, the owned list is not. `discard`
+drops the list, its count goes from 2 to 1, and its 3 cells are never
+freed. So any heap value passed by ownership leaks natively: the debug heap
+counted 15 blocks allocated and 0 freed in such a program.
+
+Not yet known: which use after free the extra `dup` was hiding when it was
+added. Taking it out needs `--debug-heap` runs over `examples/aether` and
+`tests/parity` to find that first.
+
+### KI-119 — Natively, the Console handler around `main` is never freed
+
+**Severity:** Low · **Area:** LIR lowering, effect handlers · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs
+
+`fn main() { print(1) }` leaves 5 blocks live at exit under `flux --native
+--leak-check`: two closures and an effect handler allocated at `main`'s
+first line (the default `print` and `println` arms and their evidence), a
+closure at the `print` call, and a tuple allocated in the handler arm (its
+`()` result). Every program that prints leaks these, once per `print` call
+for the last two. A program that prints nothing leaks none of them.
+
+This is why `--leak-check` is a flag of its own and `--debug-heap` alone
+does not report leaks.
+
 ### KI-118 — On the VM, `main`'s own body is not run through the Core simplifier
 
 **Severity:** Low · **Area:** VM, optimizer coverage · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S13, the `--opt-bisect-limit` exit check · **Issue:** [#18](https://forgejo.spirosgerokostas.com/sger/flux/issues/18)

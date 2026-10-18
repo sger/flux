@@ -160,22 +160,38 @@ fn aether_handler_resume_result_rep(handler: &AetherHandler) -> FluxRep {
     }
 }
 
-/// A test-only fault, for the debug heap's own tests (0188 S10c):
+/// A test-only fault, for the debug heap's own tests (0188 S10c, 0190 S15):
 /// `FLUX_AETHER_FAULT=skip-dup:<name>` leaves out every Dup of the variable
 /// a `let` or parameter named `<name>` is bound to — Aether's own and the
-/// call guards' — so the program frees a value it still uses. Never set it
-/// outside a test: the program it builds is wrong on purpose.
+/// call guards' — so the program frees a value it still uses;
+/// `skip-drop:<name>` leaves out its plain Drops, so the value leaks. Never
+/// set it outside a test: the program it builds is wrong on purpose.
 pub fn aether_fault() -> Option<String> {
     std::env::var("FLUX_AETHER_FAULT").ok()
 }
 
-/// The binder name whose Dups `FLUX_AETHER_FAULT` leaves out.
-fn skipped_dup_name() -> Option<&'static str> {
-    static NAME: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-    NAME.get_or_init(|| {
-        aether_fault().and_then(|fault| fault.strip_prefix("skip-dup:").map(str::to_string))
-    })
-    .as_deref()
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AetherFault {
+    SkipDup,
+    SkipDrop,
+}
+
+/// What `FLUX_AETHER_FAULT` leaves out, and of which binder name.
+fn aether_fault_target() -> Option<(AetherFault, &'static str)> {
+    static TARGET: std::sync::OnceLock<Option<(AetherFault, String)>> = std::sync::OnceLock::new();
+    TARGET
+        .get_or_init(|| {
+            let fault = aether_fault()?;
+            if let Some(name) = fault.strip_prefix("skip-dup:") {
+                Some((AetherFault::SkipDup, name.to_string()))
+            } else {
+                fault
+                    .strip_prefix("skip-drop:")
+                    .map(|name| (AetherFault::SkipDrop, name.to_string()))
+            }
+        })
+        .as_ref()
+        .map(|(kind, name)| (*kind, name.as_str()))
 }
 
 /// Enabled by default; opt out with `FLUX_YIELD_CHECKS=0` to fall back to
@@ -1247,7 +1263,8 @@ struct FnLower<'a> {
     /// The source name and representation of each binder bound here, so
     /// that a closure made here can name what it captures (0188 S6).
     binder_names: HashMap<CoreBinderId, (String, crate::core::FluxRep)>,
-    /// The variables `FLUX_AETHER_FAULT` takes the Dups of (a test hook).
+    /// The variables `FLUX_AETHER_FAULT` takes the Dups or Drops of (a test
+    /// hook).
     faulted_vars: HashSet<LirVar>,
 }
 
@@ -1464,7 +1481,13 @@ impl<'a> FnLower<'a> {
 
     /// Emit an instruction into the current block.
     fn emit(&mut self, instr: LirInstr) {
-        if let LirInstr::Dup { val } = &instr
+        let faulted = match &instr {
+            LirInstr::Dup { val } => Some((AetherFault::SkipDup, val)),
+            LirInstr::Drop { val } => Some((AetherFault::SkipDrop, val)),
+            _ => None,
+        };
+        if let Some((kind, val)) = faulted
+            && aether_fault_target().is_some_and(|(target, _)| target == kind)
             && self.faulted_vars.contains(val)
         {
             return;
@@ -1612,7 +1635,7 @@ impl<'a> FnLower<'a> {
         } else {
             binder.rep
         };
-        if skipped_dup_name() == Some(name.as_str()) {
+        if aether_fault_target().is_some_and(|(_, target)| target == name) {
             self.faulted_vars.insert(var);
         }
         self.binder_names.insert(binder.id, (name.clone(), rep));

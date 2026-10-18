@@ -1,0 +1,17 @@
+// Frees every block it allocates: `leaked` and `many` are dropped as soon as
+// they are bound. The leak tests take those Drops away. Nothing reads the
+// lists, since a program that passes or reads one still leaks today
+// (KI-120, KI-121).
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn twelve(n) {
+    [n, n, n, n, n, n, n, n, n, n, n, n]
+}
+
+fn main() {
+    let leaked = numbers(1)
+    let many = twelve(7)
+    0
+}
