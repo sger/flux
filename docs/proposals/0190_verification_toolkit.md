@@ -2,7 +2,7 @@
 - Start Date: 2026-10-16
 - Proposal PR:
 - Flux Issue:
-- Status: In progress: S1–S6 and S16 done, S7 in progress, on `feat/verification-toolkit`
+- Status: In progress: S1–S7 and S16 done, S13 next, on `feat/verification-toolkit`
 - Depends on: [0138](implemented/0138_flux_parity_ways.md) (parity ways and `flux parity-check`), [0188](0188_flux_debugger.md) S6b (the debug parity harness, `// dbg:` fixtures)
 - Relates to: [0188](0188_flux_debugger.md) S9c (`llvm_g` and the guide in `xtask verify`)
 
@@ -521,6 +521,10 @@ a quick check is `--ways vm`, about 1:30 for all three kinds. `rewrite` runs
 parity without `--check-skips`, since a rewritten copy that passes (reorder
 can undo a KI fixture's order) says nothing about the KI.
 
+**The exit check.** A planted order bug, predeclaration skipping every
+function written after `main`, made 78 reordered copies stop compiling
+(`E004`), against 1 without it (KI-117), in 0:32 with `--ways vm`.
+
 ### §11 Behaviour against the base compiler
 
 `--cmp` (§4) fails on any dump change, but most refactors change dumps on
@@ -799,7 +803,7 @@ each joined to an open KI:
 | S4 ✓ | Dump hashes in sweeps, `compare --content`, `verify --cmp`, `sweep --determinism` (§4); the CFG lowering order fix | `cargo xtask sweep --determinism` reports 0 differences for `cfg`, `core` and `core-opt`. `verify <tag> --base main --cmp` on a no-op change passes; on a dump-printer change it fails and names the files. `compare.rs` unit tests. |
 | S5 ✓ | Checked skips: `UNEXPECTED_PASS` and open KIs only (§8) | Unit tests for both. Moving a KI that a fixture names to `## Resolved` gives a metadata error; deleting a skipped bug's cause, not committed, gives `UNEXPECTED_PASS`. |
 | S6 ✓ | Normalized hashes, sampled determinism in verify, `aether` and `lir` sweeps, cache determinism (§9) | Undoing the S4 lowering fix, not committed, fails verify's determinism sample and reads `numbering` in `compare --content`. The new sweeps' cost is recorded here. |
-| S7 | `cargo xtask rewrite` with `reorder`, then `rename` and `let-wrap` (§10) | Every rewrite of `tests/parity` and `examples/guide` compiles and matches; each mismatch is fixed or filed as a KI. A planted order bug, not committed, is caught by `reorder`: `binding_groups` laying groups out in source order instead of dependency order. (Undoing the S4 lowering fix, planned here first, changes only numbering, so no output; S6's determinism sample catches it.) |
+| S7 ✓ | `cargo xtask rewrite` with `reorder`, then `rename` and `let-wrap` (§10) | Every rewrite of `tests/parity` and `examples/guide` compiles and matches; each mismatch is fixed or filed as a KI. A planted order bug, not committed, is caught by `reorder`: predeclaration forgetting the functions written after `main` (78 copies no longer compile, against 1). (Undoing the S4 lowering fix, planned here first, changes only numbering, so no output; S6's determinism sample catches it. `binding_groups` in source order, planned next, changes nothing `reorder` touches: it orders statements inside blocks, not top-level items.) |
 | S8 | The generator and `cargo xtask fuzz` (§6) | Unit tests: the same seed gives the same text; 200 seeds compile with 0 generator failures (an ignored test that runs `flux --dump-core`). A planted miscompile under `--optimize`, not committed, is found within `--count 200`. |
 | S9 | `cargo xtask fuzz reduce` (§7) | The planted miscompile's case shrinks to at most 10 lines. Reducer unit tests on a fake oracle. |
 | S10 | `verify --behaviour` (§11) | A planted change to a `print` builtin's output, not committed, fails it and names the files; a no-op change passes. |
