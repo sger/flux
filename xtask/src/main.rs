@@ -35,6 +35,9 @@
 //!                        [--flux <path>]
 //!     find the optimizing rewrite that makes the opt way differ from the
 //!     plain way, with --opt-bisect-limit; report in .verify/bisect_<name>/
+//! cargo xtask sanitize [--ways <w,…>] [<dir>…]
+//!     the native ways (default llvm,llvm_opt) over tests/parity with the C
+//!     runtime built with ASan and UBSan; report in .verify/sanitize/
 //! ```
 //!
 //! Relative paths are taken from the repository root.
@@ -45,6 +48,7 @@ mod compare;
 mod outcome;
 mod proc;
 mod rewrite;
+mod sanitize;
 mod store;
 mod sweep;
 mod text;
@@ -63,7 +67,8 @@ const USAGE: &str = "usage:
   cargo xtask prune [--keep <n>] [--keep-tag <tag>]... [--yes]
   cargo xtask census [--tag <tag>] [--base <tag>] [--jobs <n>] [--ways <w,...>] [--allow network] [<dir>...]
   cargo xtask rewrite [--kind reorder|rename|let-wrap|all] [--seed <n>] [--ways <w,...>] [--jobs <n>] [<dir|file>...]
-  cargo xtask bisect-opt <fixture> [--way vm_opt|llvm_opt] [--timeout <seconds>] [--flux <path>]";
+  cargo xtask bisect-opt <fixture> [--way vm_opt|llvm_opt] [--timeout <seconds>] [--flux <path>]
+  cargo xtask sanitize [--ways <w,...>] [<dir>...]";
 
 fn main() -> ExitCode {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -183,6 +188,20 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
             };
             args.finish()?;
             bisect::run_bisect(root, &options)
+        }
+        "sanitize" => {
+            let ways = args
+                .value("--ways")?
+                .unwrap_or_else(|| "llvm,llvm_opt".to_string());
+            let mut dirs = Vec::new();
+            while let Some(dir) = args.positional()? {
+                dirs.push(dir);
+            }
+            if dirs.is_empty() {
+                dirs.push("tests/parity".to_string());
+            }
+            args.finish()?;
+            sanitize::run_sanitize(root, &sanitize::Options { ways, dirs })
         }
         "prune" => {
             let keep = args.number("--keep")?.unwrap_or(5);

@@ -696,7 +696,7 @@ pub(crate) struct ParityCounts {
 impl ParityCounts {
     /// Adds another directory's counts and lines to these, for a step over
     /// several; the caller counts the runs that exited non-zero.
-    fn absorb(&mut self, run: ParityCounts) {
+    pub(crate) fn absorb(&mut self, run: ParityCounts) {
         self.mismatches += run.mismatches;
         self.expected += run.expected;
         self.failures.extend(run.failures);
@@ -714,7 +714,7 @@ impl ParityCounts {
         self.failures.push(line.to_string());
     }
 
-    fn ok(&self) -> bool {
+    pub(crate) fn ok(&self) -> bool {
         self.mismatches == 0 && self.expected == 0 && self.exit == 0
     }
 
@@ -742,6 +742,19 @@ pub(crate) fn parity(
     check_skips: bool,
     log: &mut fs::File,
 ) -> std::io::Result<ParityCounts> {
+    parity_with_env(root, flux, dir, ways, check_skips, log, &[])
+}
+
+/// [`parity`], with `env` set for `parity-check` and the runs it starts.
+pub(crate) fn parity_with_env(
+    root: &Path,
+    flux: &Path,
+    dir: &str,
+    ways: &str,
+    check_skips: bool,
+    log: &mut fs::File,
+    env: &[(&str, &str)],
+) -> std::io::Result<ParityCounts> {
     let started = Instant::now();
     let paint = Paint::detect();
     let mut status = StatusLine::new(paint.is_on());
@@ -753,6 +766,7 @@ pub(crate) fn parity(
     let exit = run_tee(
         Command::new(flux)
             .current_dir(root)
+            .envs(env.iter().copied())
             .args(["parity-check", dir, "--ways", ways])
             // 0190 S5: a skip must cite an open KI, and a skipped way that
             // passes is reported.
