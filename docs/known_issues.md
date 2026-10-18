@@ -44,7 +44,7 @@ Severity is about consequence, not effort:
 
 ### KI-118 — On the VM, `main`'s own body is not run through the Core simplifier
 
-**Severity:** Low · **Area:** VM, optimizer coverage · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S13, the `--opt-bisect-limit` exit check
+**Severity:** Low · **Area:** VM, optimizer coverage · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S13, the `--opt-bisect-limit` exit check · **Issue:** [#18](https://forgejo.spirosgerokostas.com/sger/flux/issues/18)
 
 With a wrong `IAdd` fold planted in `src/core/passes/const_fold.rs`, active
 only under `--optimize`, `tests/parity/core_disciplined_inline.flx` printed:
