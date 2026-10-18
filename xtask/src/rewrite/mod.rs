@@ -457,7 +457,7 @@ fn run_kind(
             .into_owned();
         let mut log = fs::File::create(out.join(format!("{}.log", kind.name())))
             .map_err(|e| e.to_string())?;
-        tally.parity = verify::parity(root, flux, &shown, &options.ways, &mut log)
+        tally.parity = verify::parity(root, flux, &shown, &options.ways, false, &mut log)
             .map_err(|e| e.to_string())?;
     }
     Ok(tally)

@@ -512,6 +512,15 @@ found nothing in its 162 copies. Two bugs and one rewriter bug:
 - **A rewriter bug:** `let (x, y) = …` was taken for a call to `let` and
   wrapped. The fix came with its test.
 
+**The full run** (seed 1, `vm,vm_opt,llvm,llvm_opt`, 198 fixtures, 1:34:32:
+`reorder` 8:50, `rename` 9:16, `let-wrap` 1:16:14) found nothing new.
+`rename`: 164 copies, 0 failures. `reorder`: 1 copy that no longer compiles and
+2 `MISMATCH`, all KI-117. `let-wrap`: 51 `MISMATCH`, all with the VM ways
+against the native ones, which agree: KI-116. Parity takes most of the time, so
+a quick check is `--ways vm`, about 1:30 for all three kinds. `rewrite` runs
+parity without `--check-skips`, since a rewritten copy that passes (reorder
+can undo a KI fixture's order) says nothing about the KI.
+
 ### §11 Behaviour against the base compiler
 
 `--cmp` (§4) fails on any dump change, but most refactors change dumps on

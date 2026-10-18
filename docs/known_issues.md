@@ -44,7 +44,7 @@ Severity is about consequence, not effort:
 
 ### KI-117 — A top-level function written after its caller is typed from the call
 
-**Severity:** Medium · **Area:** Type and effect inference · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind reorder`
+**Severity:** Medium · **Area:** Type and effect inference · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind reorder` · **Issue:** [#17](https://forgejo.spirosgerokostas.com/sger/flux/issues/17)
 
 Moving a function below `main`, which calls it, changes whether the program
 compiles or runs. Top-level functions are predeclared, so the order should not
@@ -81,7 +81,7 @@ whose runtime check the VM gets wrong.
 
 ### KI-116 — On the VM, a variable read by a `let` inside a `do` block is uninitialised afterwards
 
-**Severity:** High · **Area:** VM, ownership · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind let-wrap`
+**Severity:** High · **Area:** VM, ownership · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind let-wrap` · **Issue:** [#16](https://forgejo.spirosgerokostas.com/sger/flux/issues/16)
 
 ```flux
 fn main() with IO {
@@ -96,15 +96,19 @@ programs the uninitialised value either fails an operation (`E1009 Cannot add
 Uninit and Int values`, `E1009 read from uninitialized stack slot`,
 `E1004 primop len expected String`) or prints a wrong answer with no error:
 the let-wrapped `examples/guide/array_hash_combo.flx` prints `"unknown"` where
-it should print `"unwrap value Alice"`. 47 of the 190 let-wrapped copies of
-`tests/parity` and `examples/guide` (seed 1) fail on the VM with symptoms like
-these. The five sampled ran correctly natively.
+it should print `"unwrap value Alice"`, and the let-wrapped
+`stdlib_pipelines.flx` counts an emptied list as `0` (`("eng", 0)` for
+`("eng", 3)`). In the full run (seed 1, ways `vm,vm_opt,llvm,llvm_opt`), 51 of
+the 192 let-wrapped copies of `tests/parity` and `examples/guide` give
+`MISMATCH`: in every one, `vm` and `vm_opt` differ from `llvm` and `llvm_opt`,
+which agree with each other. In the five checked against the expected output,
+the VM is wrong and native is right.
 
 Fixture: `tests/parity/do_block_let_keeps_its_source.flx`.
 
 ### KI-115 — A cached module with type-class instances is written differently from one run to the next
 
-**Severity:** Low · **Area:** VM bytecode cache · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) S6, `sweep --determinism --mode cache`
+**Severity:** Low · **Area:** VM bytecode cache · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) S6, `sweep --determinism --mode cache` · **Issue:** [#15](https://forgejo.spirosgerokostas.com/sger/flux/issues/15)
 
 ```
 $ cargo xtask sweep --determinism --mode cache --out .verify/det/cache
@@ -140,7 +144,7 @@ S6 fixed the other causes the check found:
 
 ### KI-114 — The VM runs a user effect named `Console` with the builtin handler; native reports it unhandled
 
-**Severity:** Medium · **Area:** Effects, VM · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) S5, which made untracked skips cite a KI
+**Severity:** Medium · **Area:** Effects, VM · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) S5, which made untracked skips cite a KI · **Issue:** [#14](https://forgejo.spirosgerokostas.com/sger/flux/issues/14)
 
 ```flux
 effect Console {
@@ -176,7 +180,7 @@ Parity records the fixture with
 
 ### KI-113 — A label whose span is in another file is drawn on the reporting file's lines
 
-**Severity:** Low · **Area:** Diagnostics rendering · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c3
+**Severity:** Low · **Area:** Diagnostics rendering · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c3 · **Issue:** [#13](https://forgejo.spirosgerokostas.com/sger/flux/issues/13)
 
 ```
 $ flux --no-cache --root examples/type_system examples/type_system/failing/206_hm_stage2_generic_module_arg_mismatch.flx
@@ -200,7 +204,7 @@ quoted their own comment lines for the same reason.
 
 ### KI-112 — A module can use a type it does not import, when the module importing it does
 
-**Severity:** Medium · **Area:** Module system, name resolution · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+**Severity:** Medium · **Area:** Module system, name resolution · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#12](https://forgejo.spirosgerokostas.com/sger/flux/issues/12)
 
 ```flux
 // lib/Flume/Fail.flx — no `import Flow.Result`
@@ -223,7 +227,7 @@ the reproduction; the fix there is `import Flow.Result`.
 
 ### KI-105 — `--optimize` hides type errors in branches it folds away
 
-**Severity:** High · **Area:** Type inference, AST optimization · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+**Severity:** High · **Area:** Type inference, AST optimization · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#5](https://forgejo.spirosgerokostas.com/sger/flux/issues/5)
 
 ```flux
 // examples/type_system/failing/134_if_concrete_branch_mismatch.flx
@@ -256,7 +260,7 @@ holds for:
 
 ### KI-106 — Natively under `--optimize`, a nested constructor match on a known value takes the wildcard arm
 
-**Severity:** High · **Area:** Native backend, optimizer · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+**Severity:** High · **Area:** Native backend, optimizer · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#6](https://forgejo.spirosgerokostas.com/sger/flux/issues/6)
 
 ```flux
 // examples/patterns/pattern_validation_happy_path.flx
@@ -277,7 +281,7 @@ pattern on a known constructor.
 
 ### KI-107 — Natively, calling a function through a variable with too few arguments is not an error
 
-**Severity:** Medium · **Area:** Native backend, calls · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+**Severity:** Medium · **Area:** Native backend, calls · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#7](https://forgejo.spirosgerokostas.com/sger/flux/issues/7)
 
 ```flux
 // examples/runtime_errors/indirect_call_wrong_arity.flx
@@ -293,7 +297,7 @@ arguments); plain `llvm` exits 0.
 
 ### KI-108 — Native async, channel and HTTP programs crash with a signal
 
-**Severity:** High · **Area:** Native backend, async runtime · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+**Severity:** High · **Area:** Native backend, async runtime · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#8](https://forgejo.spirosgerokostas.com/sger/flux/issues/8)
 
 Each runs to completion on `vm` and `vm_opt`; natively it is killed:
 
@@ -320,7 +324,7 @@ rechecked alone. Some may share a cause with [KI-009](#ki-009).
 
 ### KI-109 — Natively, indexing fails with "index operator not supported: Object" in AoC 2025 day 8
 
-**Severity:** Medium · **Area:** Native backend, indexing · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+**Severity:** Medium · **Area:** Native backend, indexing · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#9](https://forgejo.spirosgerokostas.com/sger/flux/issues/9)
 
 ```
 $ flux --native --no-cache examples/aoc/2025/aoc_day8_part1.flx
@@ -332,7 +336,7 @@ error. Not yet reduced to the indexing expression involved.
 
 ### KI-110 — Natively, a module file without `main` that imports others fails to link
 
-**Severity:** Low · **Area:** Native backend, linking · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+**Severity:** Low · **Area:** Native backend, linking · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#10](https://forgejo.spirosgerokostas.com/sger/flux/issues/10)
 
 ```
 $ flux --native --no-cache lib/Flume/Cli.flx
@@ -347,7 +351,7 @@ entry point.
 
 ### KI-111 — The VM rejects a closure where a function type over `Event` is expected
 
-**Severity:** Medium · **Area:** VM, runtime type checks, async · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+**Severity:** Medium · **Area:** VM, runtime type checks, async · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#11](https://forgejo.spirosgerokostas.com/sger/flux/issues/11)
 
 ```
 $ flux --no-cache examples/async/24_event_composition.flx
@@ -363,7 +367,7 @@ boundary check on a closure passed where a function type is declared.
 
 ### KI-102 — A user effect named after a builtin suppresses the builtin's default handler on `--no-cache` VM runs
 
-**Severity:** Medium · **Area:** Effects, module compilation · **Verified:** 2026-10-16 · **From:** [0190](proposals/0190_verification_toolkit.md) S2 triage
+**Severity:** Medium · **Area:** Effects, module compilation · **Verified:** 2026-10-16 · **From:** [0190](proposals/0190_verification_toolkit.md) S2 triage · **Issue:** [#2](https://forgejo.spirosgerokostas.com/sger/flux/issues/2)
 
 ```
 $ flux --no-cache examples/type_classes/console_logger_example.flx
@@ -404,7 +408,7 @@ and the cached and native ways still compare.
 
 ### KI-104 — Under `--no-cache`, an instance method's call to itself passes a dictionary it does not take
 
-**Severity:** Medium · **Area:** Type classes, module compilation · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) S3 triage
+**Severity:** Medium · **Area:** Type classes, module compilation · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) S3 triage · **Issue:** [#4](https://forgejo.spirosgerokostas.com/sger/flux/issues/4)
 
 ```flux
 // examples/type_classes/FoldableRowPolyExample/Flow/Foldable.flx
@@ -441,7 +445,7 @@ Parity records the fixture with `// skip-way: vm, vm_strict, vm_opt: KI-104`.
 
 ### KI-103 — Natively, a constructor reached through a module alias fails at run time
 
-**Severity:** Medium · **Area:** Native backend, LIR lowering · **Verified:** 2026-10-16 · **From:** [0190](proposals/0190_verification_toolkit.md) S2 triage
+**Severity:** Medium · **Area:** Native backend, LIR lowering · **Verified:** 2026-10-16 · **From:** [0190](proposals/0190_verification_toolkit.md) S2 triage · **Issue:** [#3](https://forgejo.spirosgerokostas.com/sger/flux/issues/3)
 
 ```flux
 import ModuleMemberShadowsStub.Version as V

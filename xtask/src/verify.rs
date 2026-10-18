@@ -345,7 +345,7 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
     for dir in dirs {
         println!("{}", Paint::detect().bold(&format!("=== {dir}")));
         writeln!(log, "=== {dir}").map_err(io)?;
-        let run = parity(root, &flux, dir, MAIN_WAYS, &mut log).map_err(io)?;
+        let run = parity(root, &flux, dir, MAIN_WAYS, true, &mut log).map_err(io)?;
         counts.mismatches += run.mismatches;
         counts.expected += run.expected;
         counts.failures.extend(run.failures);
@@ -381,7 +381,8 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
     println!("every guide example built natively with and without -g; output must agree");
     let log_path = out.join("parity_g.txt");
     let mut log = open_log(&log_path).map_err(io)?;
-    let counts = parity(root, &flux, "examples/guide", "llvm,llvm_g", &mut log).map_err(io)?;
+    let counts =
+        parity(root, &flux, "examples/guide", "llvm,llvm_g", true, &mut log).map_err(io)?;
     record_parity(
         &mut outcome,
         "debug build parity",
@@ -401,6 +402,7 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
         &flux,
         "tests/parity_debug",
         "vm_debug,llvm_debug",
+        true,
         &mut log,
     )
     .map_err(io)?;
@@ -671,12 +673,15 @@ impl ParityCounts {
 /// lines (such as rebuilding its binaries) and each verdict, numbered and
 /// timed, so a long run shows where it is. On a terminal a passing fixture
 /// only redraws one status line, so what scrolls is what needs attention.
-/// Returns the failing verdicts and the exit code.
+/// Returns the failing verdicts and the exit code. With `check_skips`, the
+/// skipped ways run too and report `UNEXPECTED_PASS` (§8); `rewrite` turns it
+/// off, since a rewritten copy passing says nothing about the KI.
 pub(crate) fn parity(
     root: &Path,
     flux: &Path,
     dir: &str,
     ways: &str,
+    check_skips: bool,
     log: &mut fs::File,
 ) -> std::io::Result<ParityCounts> {
     let started = Instant::now();
@@ -693,7 +698,8 @@ pub(crate) fn parity(
             .args(["parity-check", dir, "--ways", ways])
             // 0190 S5: a skip must cite an open KI, and a skipped way that
             // passes is reported.
-            .args(["--check-skips", "--known-issues", "docs/known_issues.md"]),
+            .args(["--known-issues", "docs/known_issues.md"])
+            .args(check_skips.then_some("--check-skips")),
         None,
         |line| {
             if is_cargo_progress(line) {
