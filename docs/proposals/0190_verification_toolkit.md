@@ -2,7 +2,7 @@
 - Start Date: 2026-10-16
 - Proposal PR:
 - Flux Issue:
-- Status: In progress: S1–S6 and S16 done, S7 next, on `feat/verification-toolkit`
+- Status: In progress: S1–S6 and S16 done, S7 in progress, on `feat/verification-toolkit`
 - Depends on: [0138](implemented/0138_flux_parity_ways.md) (parity ways and `flux parity-check`), [0188](0188_flux_debugger.md) S6b (the debug parity harness, `// dbg:` fixtures)
 - Relates to: [0188](0188_flux_debugger.md) S9c (`llvm_g` and the guide in `xtask verify`)
 
@@ -453,24 +453,64 @@ with a known answer. A rewrite that cannot change the meaning of a program must
 not change that answer. This is metamorphic testing, as EMI (Equivalence Modulo
 Inputs) does for C compilers.
 
-- **`cargo xtask rewrite [--kind K] [--seed S] <dir>`** writes rewritten copies
-  of each fixture to `<store>/rewrite_<seed>/` and runs `parity-check` on them
-  with the original's expected output. It is a text transform over the
-  fixture's top-level items, std-only, in `xtask/src/rewrite.rs`.
+- **`cargo xtask rewrite [--kind K|all] [--seed S] [--ways W] [<dir|file>…]`**
+  writes rewritten copies of each fixture to
+  `.verify/rewrite_<seed>/<kind>/<path>` and runs `parity-check` on each kind's
+  folder. The defaults are every kind, seed 1, the ways
+  `vm,vm_opt,llvm,llvm_opt`, and `tests/parity` and `examples/guide`. It is a
+  text transform over the fixture's tokens and top-level items, std-only, in
+  `xtask/src/rewrite/`, with its own small tokenizer (strings with `#{…}`,
+  nested comments). Each file's choices come from the seed and its path, so a
+  run can be repeated exactly.
+- **Each copy is checked against the original's output.** A fixture with an
+  expected-stdout block keeps it. For one without, the original is run once on
+  the VM and what it prints is written into the copy's header, so the copy is
+  checked against it and not only for agreement between its ways.
 - **Kinds,** in order of value:
-  1. `reorder`: shuffle the top-level `fn`, `data`, `class` and `instance` items
-     (the seed picks the order). This targets the bug class S4 found: any
-     lowering that depends on definition or hash order.
-  2. `rename`: rename local binders and parameters to fresh names, which
-     catches name capture and lookups by name that should be by binder.
-  3. `let-wrap`: bind an argument expression to a fresh `let` first. This
-     changes evaluation shape, not order, and exercises the optimizer's
-     inliner.
-- A fixture the rewriter cannot parse, or one that uses modules, is skipped and
-  counted. A rewrite that fails to compile is a rewriter bug, counted on its
-  own line with a target of zero, like generator failures (§6).
+  1. `reorder`: shuffle the top-level `fn`, `data`, `type`, `effect`, `alias`,
+     `class` and `instance` items, each within the run between two pinned
+     items. Imports and top-level `let`s are pinned: a `let` runs where it is
+     written, and whether a function may read a `let` written below it is a
+     language rule, not something a rewrite should decide. Comments before an
+     item move with it. This targets any lowering or inference that depends on
+     definition order.
+  2. `rename`: give each parameter, `let` binder and lambda parameter of a
+     function, class or instance a fresh name (`rw<k>_<name>`), at every use in
+     that item and inside `#{…}`, but not after `.`. Names that could be
+     something else are left alone: anything the file declares, any field
+     (a name before `:` in braces, or a punned one), and a name used in the
+     item before it is bound. This catches name capture and lookups by name
+     that should be by binder.
+  3. `let-wrap`: replace a call's argument `a` with `do { let rw<k> = a; rw<k> }`,
+     at most eight per file. Evaluation order and effects stay the same; the
+     shape changes, which exercises the optimizer's inliner and the ownership
+     pass. Patterns, handler-arm heads, definitions, lambdas (which take their
+     parameter types from the call) and calls inside interpolations are left
+     alone.
+- **What is skipped,** and counted by reason in `summary.txt`: files without
+  `fn main`, files that declare a `module` or import anything outside `Flow`,
+  `skip:` and `stdout: varies` fixtures, `expect: compile_error` fixtures,
+  files under a folder with a `parity.dir` (its defaults would not travel with
+  the copy), and files the splitter cannot read.
+- **A copy that no longer compiles** is counted on its own line, with a target
+  of zero, and set aside (`*.flx.no-compile`) so parity does not count it again.
+  It is either a rewriter bug or a compiler that depends on what was rewritten,
+  and is triaged as one or the other. `failures.txt` lists every failure.
 - verify does not run it. It is a command for refactors of lowering and for a
   weekly run, like `fuzz`.
+
+**What the first run found** (seed 1, `--ways vm`, 0:25 for `reorder` alone, 1:29
+for all three kinds). 190 of the 195 fixtures could be rewritten. `rename`
+found nothing in its 162 copies. Two bugs and one rewriter bug:
+
+- **[KI-116](../known_issues.md#ki-116)**, from `let-wrap`. On the VM, a
+  variable read by `let t = x` inside a `do` block is uninitialised afterwards.
+  47 of the 190 copies fail, some with wrong output and no error.
+- **[KI-117](../known_issues.md#ki-117)**, from `reorder`. A function written
+  after its caller is typed from the call, giving a spurious `E400` in one copy
+  and the VM's closure check ([KI-111](../known_issues.md#ki-111)) in two.
+- **A rewriter bug:** `let (x, y) = …` was taken for a call to `let` and
+  wrapped. The fix came with its test.
 
 ### §11 Behaviour against the base compiler
 
@@ -750,7 +790,7 @@ each joined to an open KI:
 | S4 ✓ | Dump hashes in sweeps, `compare --content`, `verify --cmp`, `sweep --determinism` (§4); the CFG lowering order fix | `cargo xtask sweep --determinism` reports 0 differences for `cfg`, `core` and `core-opt`. `verify <tag> --base main --cmp` on a no-op change passes; on a dump-printer change it fails and names the files. `compare.rs` unit tests. |
 | S5 ✓ | Checked skips: `UNEXPECTED_PASS` and open KIs only (§8) | Unit tests for both. Moving a KI that a fixture names to `## Resolved` gives a metadata error; deleting a skipped bug's cause, not committed, gives `UNEXPECTED_PASS`. |
 | S6 ✓ | Normalized hashes, sampled determinism in verify, `aether` and `lir` sweeps, cache determinism (§9) | Undoing the S4 lowering fix, not committed, fails verify's determinism sample and reads `numbering` in `compare --content`. The new sweeps' cost is recorded here. |
-| S7 | `cargo xtask rewrite` with `reorder`, then `rename` and `let-wrap` (§10) | Every rewrite of `tests/parity` and `examples/guide` compiles and matches; each mismatch is fixed or filed as a KI. Undoing the S4 lowering fix is caught by `reorder`. |
+| S7 | `cargo xtask rewrite` with `reorder`, then `rename` and `let-wrap` (§10) | Every rewrite of `tests/parity` and `examples/guide` compiles and matches; each mismatch is fixed or filed as a KI. A planted order bug, not committed, is caught by `reorder`: `binding_groups` laying groups out in source order instead of dependency order. (Undoing the S4 lowering fix, planned here first, changes only numbering, so no output; S6's determinism sample catches it.) |
 | S8 | The generator and `cargo xtask fuzz` (§6) | Unit tests: the same seed gives the same text; 200 seeds compile with 0 generator failures (an ignored test that runs `flux --dump-core`). A planted miscompile under `--optimize`, not committed, is found within `--count 200`. |
 | S9 | `cargo xtask fuzz reduce` (§7) | The planted miscompile's case shrinks to at most 10 lines. Reducer unit tests on a fake oracle. |
 | S10 | `verify --behaviour` (§11) | A planted change to a `print` builtin's output, not committed, fails it and names the files; a no-op change passes. |

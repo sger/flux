@@ -42,6 +42,66 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-117 — A top-level function written after its caller is typed from the call
+
+**Severity:** Medium · **Area:** Type and effect inference · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind reorder`
+
+Moving a function below `main`, which calls it, changes whether the program
+compiles or runs. Top-level functions are predeclared, so the order should not
+matter. Two symptoms:
+
+```
+$ flux --no-cache tests/parity/fn_after_its_caller_effect.flx
+error[E400]: Missing Effect
+requires effect `Console` but the enclosing context does not provide it
+   |         count(n - 1)
+```
+
+`count` declares `with Acc`; written above `main`, it compiles. The reordered
+copy of `tests/parity/effect_tr_loop.flx` fails the same way.
+
+```
+$ flux --no-cache tests/parity/fn_after_its_caller_higher_order.flx
+error[E1004]: Type Error
+  expected type: (Int) -> Int
+  found type:    Closure
+```
+
+The unannotated higher-order `apply_n` fails the VM's runtime check on the
+closure passed to it, which is the check [KI-111](#ki-111) hits. That happens
+on `vm`, `vm_strict` and `vm_opt`; `vm_cached` and native print `20`. Written
+above `main`, it runs on every way. The reordered copies of
+`examples/guide/using_modules.flx` and `using_list_module.flx` fail the same
+way.
+
+Not yet confirmed: the function appears to be inferred from its first use in
+`main`, not on its own and then generalized. That would give `count`
+the row of `main`'s context, and give `apply_n` a monomorphic function type
+whose runtime check the VM gets wrong.
+
+### KI-116 — On the VM, a variable read by a `let` inside a `do` block is uninitialised afterwards
+
+**Severity:** High · **Area:** VM, ownership · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind let-wrap`
+
+```flux
+fn main() with IO {
+    let x = 5
+    print(do { let t = x; t })   // 5
+    print(x)                     // <uninit> on the VM; 5 natively
+}
+```
+
+`vm` and `vm_opt` both print `<uninit>`; `llvm` prints `5`. In longer
+programs the uninitialised value either fails an operation (`E1009 Cannot add
+Uninit and Int values`, `E1009 read from uninitialized stack slot`,
+`E1004 primop len expected String`) or prints a wrong answer with no error:
+the let-wrapped `examples/guide/array_hash_combo.flx` prints `"unknown"` where
+it should print `"unwrap value Alice"`. 47 of the 190 let-wrapped copies of
+`tests/parity` and `examples/guide` (seed 1) fail on the VM with symptoms like
+these. The five sampled ran correctly natively.
+
+Fixture: `tests/parity/do_block_let_keeps_its_source.flx`.
+
 ### KI-115 — A cached module with type-class instances is written differently from one run to the next
 
 **Severity:** Low · **Area:** VM bytecode cache · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) S6, `sweep --determinism --mode cache`
