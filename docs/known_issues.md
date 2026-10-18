@@ -44,7 +44,7 @@ Severity is about consequence, not effort:
 
 ### KI-121 — Natively, a `let` value read in one branch and dead in the other is never dropped
 
-**Severity:** Medium · **Area:** Aether, drop insertion · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs
+**Severity:** Medium · **Area:** Aether, drop insertion · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs · **Issue:** [#21](https://forgejo.spirosgerokostas.com/sger/flux/issues/21)
 
 ```flux
 fn churn(n, keep) {
@@ -66,7 +66,7 @@ block). Not checked on the VM, which frees through Rust's `Rc`.
 
 ### KI-120 — Natively, every owned argument of a direct call is copied once too often
 
-**Severity:** Medium · **Area:** LIR lowering, call guards · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs
+**Severity:** Medium · **Area:** LIR lowering, call guards · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs · **Issue:** [#20](https://forgejo.spirosgerokostas.com/sger/flux/issues/20)
 
 `dup_owned_call_args` (`src/lir/lower.rs`, added in db7222b7 "fix aether
 examples") emits a `dup` of each argument passed `Owned` to a direct call, a
@@ -92,7 +92,7 @@ added. Taking it out needs `--debug-heap` runs over `examples/aether` and
 
 ### KI-119 — Natively, the Console handler around `main` is never freed
 
-**Severity:** Low · **Area:** LIR lowering, effect handlers · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs
+**Severity:** Low · **Area:** LIR lowering, effect handlers · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs · **Issue:** [#19](https://forgejo.spirosgerokostas.com/sger/flux/issues/19)
 
 `fn main() { print(1) }` leaves 5 blocks live at exit under `flux --native
 --leak-check`: two closures and an effect handler allocated at `main`'s
