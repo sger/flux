@@ -1451,6 +1451,7 @@ impl Compiler {
     }
 
     pub(super) fn compile_statement(&mut self, statement: &Statement) -> CompileResult<()> {
+        self.emit_statement_site(statement);
         let previous_span = self.current_span;
         self.current_span = Some(statement.span());
         let result = (|| {
@@ -2024,6 +2025,7 @@ impl Compiler {
         };
 
         self.enter_scope();
+        self.emit_entry_site(definition_span);
         let previous_function_name = self.current_function_name.replace(name);
         self.symbol_table
             .define_function_name(name, definition_span);
@@ -2263,10 +2265,15 @@ impl Compiler {
             //
             // Well-typed strict-mode annotated lets now stay on the CFG path
             // (Proposal 0167 Part 4).
+            // Under `-g` the AST compiler, which knows each local's name and
+            // where statements start, compiles every function it can
+            // (proposal 0188 S2). Functions that take dictionaries from
+            // evidence still need the CFG path.
             let use_ast_path = if requires_ir_only {
                 ir_function.is_none() || Self::block_contains_cfg_incompatible_statements_ast(body)
             } else {
-                has_body_errors
+                self.debug_tables_enabled()
+                    || has_body_errors
                     || self.has_hm_diagnostics
                     || ir_function.is_none()
                     || Self::block_contains_cfg_incompatible_statements_ast(body)
@@ -2409,16 +2416,18 @@ impl Compiler {
             }
         };
 
+        let function_debug_info = {
+            let info = FunctionDebugInfo::new(Some(self.sym(name).to_string()), files, locations)
+                .with_boundary_location(Some(boundary_location))
+                .with_effect_summary(effect_summary);
+            self.with_function_debug_tables(info, &free_symbols)
+        };
         let fn_idx = self.add_constant(Value::Function(Arc::new(
             CompiledFunction::new(
                 instructions,
                 num_locals,
                 cfg_param_count.get().unwrap_or(runtime_param_count),
-                Some(
-                    FunctionDebugInfo::new(Some(self.sym(name).to_string()), files, locations)
-                        .with_boundary_location(Some(boundary_location))
-                        .with_effect_summary(effect_summary),
-                ),
+                Some(function_debug_info),
             )
             .with_contract(runtime_contract),
         )));
@@ -2502,6 +2511,7 @@ impl Compiler {
             let definition_span = Span::new(entry.span.start, entry.span.start);
 
             self.enter_scope();
+            self.emit_entry_site(definition_span);
 
             // Self-reference (OpCurrentClosure).
             self.symbol_table
@@ -2573,14 +2583,16 @@ impl Compiler {
 
             // Store compiled function in the reserved constant pool slot.
             let fn_name = self.sym(entry.name).to_string();
+            let function_debug_info = {
+                let info = FunctionDebugInfo::new(Some(fn_name), files, locations)
+                    .with_effect_summary(effect_summary);
+                self.with_function_debug_tables(info, &free_symbols)
+            };
             let compiled = CompiledFunction::new(
                 instructions,
                 num_locals,
                 entry.parameters.len(),
-                Some(
-                    FunctionDebugInfo::new(Some(fn_name), files, locations)
-                        .with_effect_summary(effect_summary),
-                ),
+                Some(function_debug_info),
             );
             self.constants[const_slots[idx]] = Value::Function(Arc::new(compiled));
 
@@ -3214,6 +3226,7 @@ impl Compiler {
                             has_semicolon: false,
                             ..
                         } => compiler.with_tail_position(false, |compiler| {
+                            compiler.emit_statement_site(statement);
                             compiler.compile_expression(expression)
                         }),
                         _ => compiler.with_tail_position(false, |compiler| {

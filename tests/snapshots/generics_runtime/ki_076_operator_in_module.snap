@@ -37,6 +37,6 @@ error[E1000]: wrong number of arguments: want=3, got=2
 
 Stack trace:
   at Ki076Ord.bigger (examples/generics/failing/runtime/Ki076Ord.flx:32:12)
-  at Ki076Ord.demo (examples/generics/failing/runtime/Ki076Ord.flx:36:9)
-  at main (examples/generics/failing/runtime/ki_076_operator_in_module.flx:36:5)
+  at Ki076Ord.demo (examples/generics/failing/runtime/Ki076Ord.flx:36:13)
+  at main (examples/generics/failing/runtime/ki_076_operator_in_module.flx:36:11)
   at <main>

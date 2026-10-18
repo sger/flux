@@ -15,6 +15,7 @@ pub(crate) fn base_flags() -> DriverFlags {
             use_llvm: false,
             emit_llvm: false,
             emit_binary: false,
+            debug_heap: false,
             output_path: None,
         },
         input: DriverInputFlags {
@@ -32,6 +33,8 @@ pub(crate) fn base_flags() -> DriverFlags {
             profiling: false,
             quiet: false,
             check_only: false,
+            tape: None,
+            debugger: None,
         },
         dumps: DriverDumpFlags {
             dump_repr: false,
@@ -40,6 +43,7 @@ pub(crate) fn base_flags() -> DriverFlags {
             dump_aether: AetherDumpMode::None,
             dump_lir: false,
             dump_lir_llvm: false,
+            dump_debug_info: false,
         },
         diagnostics: DriverDiagnosticFlags {
             max_errors: 1,
@@ -58,6 +62,7 @@ pub(crate) fn base_flags() -> DriverFlags {
             enable_optimize: false,
             enable_analyze: false,
             strict_mode: false,
+            debug_level: crate::debuginfo::DebugLevel::None,
         },
         profile: Default::default(),
     }

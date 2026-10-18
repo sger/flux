@@ -1,0 +1,10 @@
+// Going back to earlier breakpoint hits in a tail-recursive loop: the
+// elided-call counts and the values are what they were at each hit.
+fn add_up(n, acc) {
+    let next = acc + n
+    if n == 0 { next } else { add_up(n - 1, next) }
+}
+
+fn main() {
+    print(add_up(5, 0))
+}

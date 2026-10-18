@@ -1,0 +1,25 @@
+// Stepping over a perform runs its handler and stops after it, in the same
+// call; stepping over `resume` runs the continuation and stops back in the
+// handler.
+effect Flip {
+    flip : () -> Bool
+}
+
+fn decide() -> Int with Flip {
+    let b = perform Flip.flip()
+    let n = if b { 1 } else { 2 }
+    n
+}
+
+fn both(resume) -> Int {
+    let a = resume(true)
+    let b = resume(false)
+    a + b
+}
+
+fn main() with IO {
+    let result = decide() handle Flip {
+        flip(resume) -> both(resume)
+    }
+    print(to_string(result))
+}

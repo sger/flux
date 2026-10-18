@@ -3,6 +3,7 @@ use crate::core::{CoreBinder, CoreExpr, CorePrimOp};
 use super::{
     helpers::{is_pure, subst},
     inliner::{count_occurrences, occurs_as_callee},
+    keep,
 };
 
 /// Specialize trivial known wrappers into direct Core forms.
@@ -16,7 +17,8 @@ pub fn specialize_known_shapes(expr: CoreExpr) -> CoreExpr {
         } => {
             let rhs = specialize_known_shapes(*rhs);
             let body = specialize_known_shapes(*body);
-            if count_occurrences(var.id, &body) == 1
+            if !keep::keeps(var.id)
+                && count_occurrences(var.id, &body) == 1
                 && occurs_as_callee(var.id, &body)
                 && is_specializable_rhs(&rhs)
                 && is_pure(&rhs)

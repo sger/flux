@@ -1,0 +1,28 @@
+// Debug parity: breakpoints, stepping, frames and Int locals.
+// dbg: break 15
+// dbg: continue
+// dbg: locals
+// dbg: bt
+// dbg: step
+// dbg: bt
+// dbg: locals
+// dbg: finish
+// dbg: next
+// dbg: locals
+// dbg: continue
+
+fn square(x) {
+    let y = x * x
+    y
+}
+
+fn sum_squares(a, b) {
+    let sa = square(a)
+    let sb = square(b)
+    sa + sb + a + b
+}
+
+fn main() {
+    let total = sum_squares(3, 4)
+    print(total)
+}

@@ -1,0 +1,6 @@
+module Shapes {
+    public fn double(x) {
+        let twice = x * 2
+        twice
+    }
+}

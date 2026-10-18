@@ -1,0 +1,20 @@
+---
+source: tests/debug/vm_debug_tests.rs
+assertion_line: 110
+---
+> break 9
+breakpoint at reverse_task.flx:9
+> continue
+stopped: breakpoint at reverse_task.flx:9:5 in main (position 7)
+     9 |     let answer = blocking_join(t)
+> reverse-next
+stopped: step at reverse_task.flx:8:5 in main (position 3)
+     8 |     let t = spawn(work)
+> locals
+no variables
+> continue
+stopped: breakpoint at reverse_task.flx:9:5 in main (position 7)
+     9 |     let answer = blocking_join(t)
+program finished
+--- program output ---
+42

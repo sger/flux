@@ -607,16 +607,11 @@ fn rewrite_drop_body_with_env(
     blocked_outer_token: Option<CoreBinderId>,
     env: &ReuseEnv,
 ) -> ReuseRewrite {
+    // A result that reuses nothing holds no drop of the token: the caller
+    // keeps its one `Drop` around it (`reuse.rs`). Wrapping one here too
+    // dropped the token twice on a path.
     let Some(token_binder) = token.binder else {
-        return ReuseRewrite {
-            expr: CoreExpr::Drop {
-                var: *token,
-                body: Box::new(body),
-                span: drop_span,
-            },
-            reused: false,
-            reason: Some(ReuseFailureReason::ProvenanceLost),
-        };
+        return no_rewrite(body, ReuseFailureReason::ProvenanceLost);
     };
 
     match body {
@@ -748,7 +743,9 @@ fn rewrite_drop_body_with_env(
 
             let mut any_reused = false;
             let mut reasons = Vec::new();
-            let new_alts = alts
+            // Each arm, and whether the token was looked for in it (`None`:
+            // it names the token, so it is left as it is) and reused.
+            let rewritten: Vec<(CoreAlt, Option<bool>)> = alts
                 .into_iter()
                 .map(|alt| {
                     let alt_pat_binders = pat_field_binder_ids(&alt.pat);
@@ -764,7 +761,7 @@ fn rewrite_drop_body_with_env(
                         .unwrap_or_else(|| env.clone());
                     if token_appears_in_expr(token_binder, &alt.rhs) {
                         reasons.push(ReuseFailureReason::BranchAmbiguity);
-                        return alt;
+                        return (alt, None);
                     }
 
                     let inner = rewrite_drop_body_with_env(
@@ -780,18 +777,29 @@ fn rewrite_drop_body_with_env(
                     } else if let Some(reason) = inner.reason {
                         reasons.push(reason);
                     }
-                    CoreAlt {
-                        rhs: if inner.reused {
-                            inner.expr
-                        } else {
-                            CoreExpr::Drop {
-                                var: *token,
-                                body: Box::new(inner.expr),
-                                span: drop_span,
-                            }
+                    (
+                        CoreAlt {
+                            rhs: inner.expr,
+                            ..alt
+                        },
+                        Some(inner.reused),
+                    )
+                })
+                .collect();
+            // Only when some arm reuses the token does each other arm drop
+            // it itself; otherwise the caller's one drop covers every arm.
+            let new_alts = rewritten
+                .into_iter()
+                .map(|(alt, reused)| match reused {
+                    Some(false) if any_reused => CoreAlt {
+                        rhs: CoreExpr::Drop {
+                            var: *token,
+                            body: Box::new(alt.rhs),
+                            span: drop_span,
                         },
                         ..alt
-                    }
+                    },
+                    _ => alt,
                 })
                 .collect();
 
@@ -1367,7 +1375,7 @@ fn rewrite_forwarded_wrapper_body(
             let scrutinee_origin = env.origin_of_expr(&scrutinee);
             let mut any_reused = false;
             let mut reasons = Vec::new();
-            let alts = alts
+            let rewritten: Vec<(CoreAlt, bool)> = alts
                 .into_iter()
                 .map(|alt| {
                     let alt_pat_binders = pat_field_binder_ids(&alt.pat);
@@ -1387,7 +1395,7 @@ fn rewrite_forwarded_wrapper_body(
                         .is_some_and(|guard| token_appears_in_expr(outer_token_binder, guard))
                     {
                         reasons.push(ReuseFailureReason::BranchAmbiguity);
-                        return alt;
+                        return (alt, false);
                     }
                     let inner = rewrite_forwarded_wrapper_body(
                         outer_token,
@@ -1401,8 +1409,29 @@ fn rewrite_forwarded_wrapper_body(
                     } else if let Some(reason) = inner.reason {
                         reasons.push(reason);
                     }
+                    (
+                        CoreAlt {
+                            rhs: inner.expr,
+                            ..alt
+                        },
+                        inner.reused,
+                    )
+                })
+                .collect();
+            // When some arm reuses the token, the caller drops nothing, so
+            // each arm that does not reuse it drops it itself.
+            let alts = rewritten
+                .into_iter()
+                .map(|(alt, reused)| {
+                    if !any_reused || reused {
+                        return alt;
+                    }
                     CoreAlt {
-                        rhs: inner.expr,
+                        rhs: CoreExpr::Drop {
+                            var: *outer_token,
+                            body: Box::new(alt.rhs),
+                            span,
+                        },
                         ..alt
                     }
                 })
@@ -2442,6 +2471,107 @@ mod tests {
             }
             other => panic!("expected exact joined forwarded shape, got {other:?}"),
         }
+    }
+
+    /// How many `Drop`s of `binder` are in `expr`.
+    fn drops_of(expr: &CoreExpr, binder: CoreBinderId) -> usize {
+        match expr {
+            CoreExpr::Drop { var, body, .. } => {
+                usize::from(var.binder == Some(binder)) + drops_of(body, binder)
+            }
+            CoreExpr::Let { rhs, body, .. } => drops_of(rhs, binder) + drops_of(body, binder),
+            CoreExpr::Case {
+                scrutinee, alts, ..
+            } => {
+                drops_of(scrutinee, binder)
+                    + alts
+                        .iter()
+                        .map(|alt| drops_of(&alt.rhs, binder))
+                        .sum::<usize>()
+            }
+            CoreExpr::Con { fields, .. } | CoreExpr::Reuse { fields, .. } => {
+                fields.iter().map(|field| drops_of(field, binder)).sum()
+            }
+            _ => 0,
+        }
+    }
+
+    /// `case flag of true -> <cons>, _ -> 0`: the cons arm, if any.
+    fn flag_case(flag: CoreBinder, cons_arm: Option<CoreExpr>) -> CoreExpr {
+        let other = CoreExpr::Lit(crate::core::CoreLit::Int(0), s());
+        CoreExpr::Case {
+            scrutinee: Box::new(v(flag)),
+            alts: vec![
+                CoreAlt {
+                    pat: crate::core::CorePat::Lit(crate::core::CoreLit::Bool(true)),
+                    guard: None,
+                    rhs: cons_arm.unwrap_or_else(|| other.clone()),
+                    span: s(),
+                },
+                CoreAlt {
+                    pat: crate::core::CorePat::Wildcard,
+                    guard: None,
+                    rhs: other,
+                    span: s(),
+                },
+            ],
+            join_ty: None,
+            span: s(),
+        }
+    }
+
+    #[test]
+    fn a_case_that_reuses_nothing_leaves_the_one_drop_to_its_caller() {
+        let mut interner = Interner::new();
+        let xs = binder(1, interner.intern("xs"));
+        let h = binder(2, interner.intern("h"));
+        let t = binder(3, interner.intern("t"));
+        let flag = binder(4, interner.intern("flag"));
+
+        let rewritten = rewrite_drop_body(
+            &CoreVarRef::resolved(&xs),
+            flag_case(flag, None),
+            s(),
+            Some(&[Some(h.id), Some(t.id)]),
+            Some(&CoreTag::Cons),
+            None,
+        );
+
+        assert!(!rewritten.reused);
+        // The caller wraps the result in its `drop xs`: an arm dropping it
+        // too would release it twice.
+        assert_eq!(drops_of(&rewritten.expr, xs.id), 0, "{:?}", rewritten.expr);
+    }
+
+    #[test]
+    fn a_case_that_reuses_in_one_arm_drops_in_the_others() {
+        let mut interner = Interner::new();
+        let xs = binder(1, interner.intern("xs"));
+        let h = binder(2, interner.intern("h"));
+        let t = binder(3, interner.intern("t"));
+        let flag = binder(4, interner.intern("flag"));
+
+        let cons = CoreExpr::Con {
+            tag: CoreTag::Cons,
+            fields: vec![v(h), v(t)],
+            span: s(),
+        };
+        let rewritten = rewrite_drop_body(
+            &CoreVarRef::resolved(&xs),
+            flag_case(flag, Some(cons)),
+            s(),
+            Some(&[Some(h.id), Some(t.id)]),
+            Some(&CoreTag::Cons),
+            None,
+        );
+
+        assert!(rewritten.reused);
+        let CoreExpr::Case { alts, .. } = &rewritten.expr else {
+            panic!("expected a case, got {:?}", rewritten.expr);
+        };
+        assert!(matches!(alts[0].rhs, CoreExpr::Reuse { .. }));
+        assert_eq!(drops_of(&alts[0].rhs, xs.id), 0);
+        assert_eq!(drops_of(&alts[1].rhs, xs.id), 1);
     }
 
     #[test]

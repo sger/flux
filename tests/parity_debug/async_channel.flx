@@ -1,0 +1,36 @@
+// Debug parity (0188 S8): a consumer waiting on a channel, as `threads`
+// shows it, while the producer is stopped.
+// dbg: break 25
+// dbg: continue
+// dbg: threads
+// dbg: thread 2
+// dbg: bt
+// dbg: continue
+
+import Flow.Async exposing (..)
+import Flow.Channel as Channel
+
+fn body() -> Int with Async {
+    let ch = Channel.make(1)
+
+    fn consume() -> Int with Async {
+        match Channel.recv(ch) {
+            Some(n) -> n + 1,
+            None -> 0
+        }
+    }
+
+    fn produce() -> Int with Async {
+        yield_now()
+        let n = 41
+        Channel.send(ch, n)
+        n
+    }
+
+    let pair = both(consume, produce)
+    pair.0
+}
+
+fn main() with IO {
+    print(run_async(body))
+}

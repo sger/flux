@@ -1,7 +1,7 @@
 {
   "name": "flux-language",
   "displayName": "Flux Language Support",
-  "description": "Syntax highlighting and language server integration for the Flux language.",
+  "description": "Syntax highlighting, language server integration and a debugger for the Flux language.",
   "version": "0.0.6",
   "publisher": "flux",
   "license": "MIT",
@@ -13,11 +13,15 @@
     "vscode": "^1.80.0"
   },
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Debuggers"
   ],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onLanguage:flux"
+    "onLanguage:flux",
+    "onDebugResolve:flux",
+    "onDebugDynamicConfigurations:flux",
+    "onDebugInitialConfigurations"
   ],
   "contributes": {
     "languages": [
@@ -53,8 +57,28 @@
         "command": "flux.restartServer",
         "title": "Flux: Restart Language Server",
         "category": "Flux"
+      },
+      {
+        "command": "flux.timeline.refresh",
+        "title": "Refresh",
+        "category": "Flux",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "flux.timeline.goTo",
+        "title": "Go to This Effect",
+        "category": "Flux"
       }
     ],
+    "views": {
+      "debug": [
+        {
+          "id": "flux.timeline",
+          "name": "Flux Timeline",
+          "when": "debugType == flux"
+        }
+      ]
+    },
     "menus": {
       "commandPalette": [
         {
@@ -72,6 +96,17 @@
         {
           "command": "flux.restartServer",
           "when": "editorLangId == flux"
+        },
+        {
+          "command": "flux.timeline.goTo",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "flux.timeline.refresh",
+          "when": "view == flux.timeline",
+          "group": "navigation"
         }
       ]
     },
@@ -110,6 +145,16 @@
           ],
           "default": "off",
           "description": "Trace LSP messages between VS Code and flux-lsp."
+        },
+        "flux.dapPath": {
+          "type": "string",
+          "default": "",
+          "description": "Override path to the flux-dap binary that runs debug sessions. Leave empty to use the binary bundled with this extension, or `flux-dap` on PATH."
+        },
+        "flux.lldbDapPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to `lldb-dap`, which native debug sessions (`\"backend\": \"native\"`) run on. Leave empty to use `lldb-dap` (or `lldb-dap-18` and later) on PATH, or Xcode's on macOS."
         }
       }
     },
@@ -184,6 +229,134 @@
             "entity.name.type.flux"
           ]
         }
+      }
+    ],
+    "breakpoints": [
+      {
+        "language": "flux"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "flux",
+        "label": "Flux",
+        "languages": [
+          "flux"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "The .flx file to debug.",
+                "default": "${file}"
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Arguments for the program.",
+                "default": []
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Working directory. Defaults to the program's folder."
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Stop at the program's first line.",
+                "default": false
+              },
+              "showInternals": {
+                "type": "boolean",
+                "description": "Show compiler-made frames and variables, such as type-class dictionaries.",
+                "default": false
+              },
+              "backend": {
+                "type": "string",
+                "enum": [
+                  "vm",
+                  "native"
+                ],
+                "markdownDescription": "Which backend runs the program. `vm` can also step back and replay. `native` builds the program with `--native -g` and runs it under `lldb-dap`; its `flux` command must have the native backend (built with `--features llvm`).",
+                "default": "vm"
+              },
+              "lldbDap": {
+                "type": "string",
+                "description": "For the native backend: the lldb-dap to run. Defaults to the `flux.lldbDapPath` setting."
+              },
+              "record": {
+                "type": "string",
+                "description": "Also write the run's effects to this tape file (`--record`)."
+              },
+              "replay": {
+                "type": "string",
+                "description": "Replay this tape instead of performing effects (`--replay`): inputs come from the recording."
+              },
+              "fluxCommand": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "The command that runs `flux`, such as [\"flux\"] or [\"cargo\", \"run\", \"--\"]. Defaults to the `flux.runCommand` setting."
+              },
+              "fluxArgs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Options for `flux` itself, such as [\"--no-cache\"].",
+                "default": []
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "flux",
+            "request": "launch",
+            "name": "Debug current Flux file",
+            "program": "${file}"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "Flux: Debug a file",
+            "description": "Debug a Flux program on the VM.",
+            "body": {
+              "type": "flux",
+              "request": "launch",
+              "name": "Debug ${1:program}",
+              "program": "^\"\\${workspaceFolder}/${1:main.flx}\""
+            }
+          },
+          {
+            "label": "Flux: Debug a native build",
+            "description": "Build the program with --native -g and debug it under lldb-dap.",
+            "body": {
+              "type": "flux",
+              "request": "launch",
+              "name": "Debug ${1:program} (native)",
+              "program": "^\"\\${workspaceFolder}/${1:main.flx}\"",
+              "backend": "native"
+            }
+          },
+          {
+            "label": "Flux: Debug a recorded run",
+            "description": "Replay a tape under the debugger; Step Back and Reverse Continue work through it.",
+            "body": {
+              "type": "flux",
+              "request": "launch",
+              "name": "Replay ${1:program}",
+              "program": "^\"\\${workspaceFolder}/${1:main.flx}\"",
+              "replay": "^\"\\${workspaceFolder}/${2:run.flxtape}\""
+            }
+          }
+        ]
       }
     ]
   },

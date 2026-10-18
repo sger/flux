@@ -31,6 +31,30 @@ fn semantic_config_hash_is_default_eliding_and_optimize_aware() {
     assert_ne!(optimized, strict);
 }
 
+/// `-g` keys its own compiled artifacts (proposal 0188), while a run without
+/// it keeps the keys every existing cache was written under. Interfaces do
+/// not depend on the debug level.
+#[test]
+fn artifact_config_hash_keys_each_debug_level() {
+    use flux::debuginfo::DebugLevel;
+    let default = module_interface::compute_artifact_config_hash(false, false, DebugLevel::None);
+    let lines = module_interface::compute_artifact_config_hash(false, false, DebugLevel::Lines);
+    let full = module_interface::compute_artifact_config_hash(false, false, DebugLevel::Full);
+    let optimized_full =
+        module_interface::compute_artifact_config_hash(false, true, DebugLevel::Full);
+
+    assert_eq!(default, hash_bytes(b""));
+    assert_eq!(
+        module_interface::compute_artifact_config_hash(true, true, DebugLevel::None),
+        module_interface::compute_semantic_config_hash(true, true),
+        "without -g the artifact and semantic hashes must agree"
+    );
+    assert_ne!(default, lines);
+    assert_ne!(default, full);
+    assert_ne!(lines, full);
+    assert_ne!(full, optimized_full);
+}
+
 fn compile_and_build_interface(source: &str) -> ModuleInterface {
     let lexer = Lexer::new(source);
     let mut parser = Parser::new(lexer);
@@ -218,6 +242,49 @@ fn private_helper_added_preserves_interface_fingerprint() {
 /// `FLUX_BUILD_ID` stands in for the executable fingerprint the compiler
 /// normally derives from its own binary: a test cannot rebuild the compiler,
 /// but pinning the identity exercises the same key.
+#[test]
+fn a_debug_build_does_not_reuse_modules_cached_without_debug() {
+    let scratch = Scratch::new("debug-level-cache");
+    let program = scratch.write("main.flx", "fn main() with IO { print(\"hi\") }\n");
+    let home = scratch.join("flux-home");
+
+    let run = |extra: &[&str]| -> String {
+        let output = Command::new(Path::new(env!("CARGO_BIN_EXE_flux")))
+            .arg(&program)
+            .args(extra)
+            .args(scratch.cache_args())
+            .env("FLUX_HOME", &home)
+            .output()
+            .expect("run flux");
+        assert!(
+            output.status.success(),
+            "flux {extra:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+    };
+
+    run(&[]);
+    let debug = run(&["-g"]);
+    assert!(
+        debug.contains("Compiling  main"),
+        "a -g run must not reuse a module cached without -g, got:\n{debug}"
+    );
+    let debug_again = run(&["-g"]);
+    assert!(
+        debug_again.contains("Cached     main"),
+        "a -g run should reuse its own cache, got:\n{debug_again}"
+    );
+    // Not asserted: that a plain run after a -g run reuses `main`. The -g run
+    // recompiles the dependencies, and an interface fingerprint is not stable
+    // across rebuilds of the same source, so `main` sees its dependencies'
+    // interfaces as changed. That instability predates the debug level.
+}
+
 #[test]
 fn a_different_compiler_build_does_not_reuse_cached_modules() {
     let scratch = Scratch::new("ki079-build-id");

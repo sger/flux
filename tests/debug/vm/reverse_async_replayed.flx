@@ -1,0 +1,32 @@
+// Going back in a replay of async code (0188 S9a): the tape answers the
+// re-run, as it answered the run.
+import Flow.Async exposing (..)
+import Flow.Channel as Channel
+
+fn body() -> Int with Async {
+    let ch = Channel.make(1)
+
+    fn produce(n) -> Int with Async {
+        if n > 3 {
+            Channel.close(ch)
+            0
+        } else {
+            Channel.send(ch, n * 10)
+            sleep(2)
+            produce(n + 1)
+        }
+    }
+
+    fn consume(total) -> Int with Async {
+        let got = Channel.recv(ch)
+        let sum = total + unwrap_or(got, 0)
+        if is_some(got) { consume(sum) } else { total }
+    }
+
+    let pair = both(fn() { produce(1) }, fn() { consume(0) })
+    pair.1
+}
+
+fn main() with IO {
+    print("total = " + to_string(run_async(body)))
+}

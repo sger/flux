@@ -1,0 +1,39 @@
+// Debug parity (0188 S7): nested handlers, one with state. In an arm, the
+// handlers inside it are suspended with the frames that performed.
+// dbg: break 33
+// dbg: break 36
+// dbg: continue
+// dbg: bt
+// dbg: handlers
+// dbg: continue
+// dbg: bt
+// dbg: handlers
+// dbg: continue
+// dbg: handlers
+// dbg: continue
+
+effect Counter {
+    next : () -> Int
+}
+
+effect Log {
+    log : (String) -> Int
+}
+
+fn count_twice() -> Int with Counter, Log {
+    let x = perform Counter.next()
+    let _ = perform Log.log("one")
+    let y = perform Counter.next()
+    x + y
+}
+
+fn main() with IO {
+    let result = do {
+        count_twice() handle Log {
+            log(resume, msg) -> resume(len(msg))
+        }
+    } handle Counter(0) {
+        next(resume, state) -> resume(state, state + 1)
+    }
+    print(to_string(result))
+}

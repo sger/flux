@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/flux-lsp"]
+members = [".", "crates/flux-lsp", "crates/flux-dap", "xtask"]
 exclude = ["vendor/clipboard-win-stub"]
 resolver = "2"
 
@@ -22,7 +22,7 @@ default-run = "flux"
 [features]
 default = ["repl"]
 native = []
-llvm = ["native"]
+llvm = ["native", "dep:backtrace", "dep:addr2line", "dep:gimli", "dep:object"]
 # Interactive `flux repl` (proposals 0175 / 0176). Pulls in `rustyline`, which on
 # Windows transitively depends on `clipboard-win` — its Win32 clipboard/bitmap
 # imports make the small native binaries that link the flux staticlib look like
@@ -43,6 +43,17 @@ mio = { version = "1.0", features = ["os-poll", "net"] }
 # Interactive `flux repl` line editing + history (proposal 0175). Optional and
 # behind the default `repl` feature so native builds can exclude it (see above).
 rustyline = { version = "14.0", optional = true }
+# A native program's own panic trace: its frames, named from its DWARF line
+# table (proposal 0188 S10a). In the staticlib only.
+backtrace = { version = "0.3.76", optional = true }
+
+# On Windows, `backtrace` names frames only from a PDB, which a plain native
+# build has none of: the program reads the Flux DWARF line table its .exe
+# keeps instead (0188 S10a). In the staticlib only.
+[target.'cfg(windows)'.dependencies]
+addr2line = { version = "0.25", default-features = false, optional = true }
+gimli = { version = "0.32", default-features = false, features = ["read", "endian-reader", "std"], optional = true }
+object = { version = "0.37", default-features = false, features = ["read_core", "pe", "std"], optional = true }
 
 [dev-dependencies]
 insta = { version = "1.41", features = ["yaml"] }
@@ -101,6 +112,10 @@ harness = false
 
 [[bench]]
 name = "aoc_day1_bench"
+harness = false
+
+[[bench]]
+name = "effect_tape_off_bench"
 harness = false
 
 [[bench]]
@@ -531,8 +546,28 @@ name = "safe_arithmetic_tests"
 path = "tests/native_llvm/safe_arithmetic_tests.rs"
 
 [[test]]
+name = "native_debug_tests"
+path = "tests/native_llvm/native_debug_tests.rs"
+
+[[test]]
+name = "native_codeview_tests"
+path = "tests/native_llvm/native_codeview_tests.rs"
+
+[[test]]
+name = "parity_debug_tests"
+path = "tests/debug/parity_debug_tests.rs"
+
+[[test]]
 name = "native_runtime_error_spans"
 path = "tests/native_llvm/native_runtime_error_spans.rs"
+
+[[test]]
+name = "native_panic_trace_tests"
+path = "tests/native_llvm/native_panic_trace_tests.rs"
+
+[[test]]
+name = "native_debug_heap_tests"
+path = "tests/native_llvm/native_debug_heap_tests.rs"
 
 [[test]]
 name = "effect_runtime_parity_tests"
@@ -785,6 +820,18 @@ path = "tests/error_fixtures/runtime_error_fixtures_snapshots.rs"
 [[test]]
 name = "cache_invalidation_tests"
 path = "tests/integration/cache_invalidation_tests.rs"
+
+[[test]]
+name = "debug_info_tests"
+path = "tests/debuginfo/debug_info_tests.rs"
+
+[[test]]
+name = "vm_debug_tests"
+path = "tests/debug/vm_debug_tests.rs"
+
+[[test]]
+name = "replay_cli_tests"
+path = "tests/replay/replay_cli_tests.rs"
 
 [[test]]
 name = "tuple_projection_predicate_tests"

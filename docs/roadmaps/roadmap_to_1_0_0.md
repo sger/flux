@@ -47,10 +47,10 @@ It does **not** require:
 | `0.3.0` | Reuse and ownership hardening | `0068`, `0069` | `0077` |
 | `0.4.0` | Handler runtime unification | `0162` Phase 3 (Koka yield algorithm, VM↔LLVM parity by construction) | — |
 | `0.5.0` | Capability-oriented effects | `0082`, selective handleable lifting per 0161 future-possibilities | — |
-| `0.6.0` | Tooling and developer workflow | `0076`, debug toolkit extensions | `0024`, `0023` if still incomplete |
+| `0.6.0` | Tooling and developer workflow | `0076`, `0188` S0–S6 (debugger: VM engine, native DWARF, DAP; includes `0038` as S1) | `0188` S7–S10, `0023` if still incomplete |
 | `0.7.0` | Standard library and language polish | finish remaining `0003`/`0030` polish, docs/examples alignment, `0052` | `0082` |
 | `0.8.0` | Pre-RC stabilization | `0062`, VM/LLVM parity sweep, performance and diagnostic freeze | `0041` |
-| `0.9.0` | Release candidate line | compatibility policy, docs freeze, final parity hardening | `0038` |
+| `0.9.0` | Release candidate line | compatibility policy, docs freeze, final parity hardening | — (`0038` moved into `0188` S1) |
 | `0.9.5` | Conditional FP abstraction layer | any remaining constrained-polymorphism polish | — |
 | `1.0.0` | Stable Flux | final stabilization and release promise | — |
 
@@ -288,10 +288,12 @@ Core blockers:
 
 - [0076_debug_toolkit.md](../proposals/0076_debug_toolkit.md)
 - [0083_typed_holes.md](../proposals/0083_typed_holes.md)
+- [0188_flux_debugger.md](../proposals/0188_flux_debugger.md) stages S0–S6: shared debug-info model, effect tape (implements 0038), VM engine with reverse execution, `flux-dap`, native DWARF for VS Code and Xcode, debug parity harness
 
 Optional if still unfinished:
 
-- [0024_runtime_instrumentation_and_value_tracer.md](../proposals/0024_runtime_instrumentation_and_value_tracer.md)
+- [0188_flux_debugger.md](../proposals/0188_flux_debugger.md) stages S7–S10 (effect, fiber and Aether views)
+- [0024_runtime_instrumentation_and_value_tracer.md](../proposals/0024_runtime_instrumentation_and_value_tracer.md) (Part A is consumed by 0188 S2)
 - [0023_bytecode_decode_passes.md](../proposals/0023_bytecode_decode_passes.md)
 
 Exit criteria:
@@ -351,7 +353,6 @@ Core blockers:
 Optional:
 
 - [0071_mn_scheduler_actor_handler.md](../proposals/0071_mn_scheduler_actor_handler.md)
-- [0038_deterministic_effect_replay.md](../proposals/0038_deterministic_effect_replay.md)
 
 Exit criteria:
 
@@ -393,7 +394,7 @@ These should be treated as deferable unless they become unexpectedly easy and lo
 - [0040_macro_system.md](../proposals/0040_macro_system.md)
 - [0041_nan_boxing_runtime_optimization.md](../proposals/0041_nan_boxing_runtime_optimization.md)
 - [0071_mn_scheduler_actor_handler.md](../proposals/0071_mn_scheduler_actor_handler.md)
-- [0038_deterministic_effect_replay.md](../proposals/0038_deterministic_effect_replay.md)
+- [0038_deterministic_effect_replay.md](../proposals/0038_deterministic_effect_replay.md) (now delivered through 0188 S1, targeted at `0.6.0`)
 
 ## Biggest risks to the roadmap
 

@@ -1,0 +1,19 @@
+// Debug parity: a lambda's parameters and what it captures.
+// dbg: break 14
+// dbg: continue
+// dbg: locals
+// dbg: bt
+// dbg: continue
+// dbg: locals
+// dbg: delete 14
+// dbg: continue
+
+fn main() {
+    let offset = 10
+    let shifted = map([1, 2], \x -> {
+        let moved = x + offset
+        moved
+    })
+    print(shifted)
+    print(offset)
+}

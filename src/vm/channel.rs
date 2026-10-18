@@ -56,7 +56,16 @@ fn lookup(id: i64) -> Result<Arc<ChannelEntry>, String> {
 }
 
 fn publish(request_id: u64, result: ChannelResult) {
-    let _ = completion_queue().tx.send((request_id, result));
+    // On the run's own thread the waiter wakes at once (0188 S9d); from
+    // another thread the result goes through the queue.
+    let mut pending = Some(result);
+    super::core_dispatch::wake_here(request_id, || {
+        let result = pending.take().expect("taken once");
+        result.and_then(VmSendValue::into_value)
+    });
+    if let Some(result) = pending {
+        let _ = completion_queue().tx.send((request_id, result));
+    }
 }
 
 fn unit() -> VmSendValue {
@@ -147,6 +156,22 @@ fn flush_waiters(cell: &mut ChannelCell) {
         }
     }
     notify_event_watchers(cell);
+}
+
+/// The id the next channel gets: a debugger's checkpoint keeps it.
+pub(crate) fn next_id() -> i64 {
+    NEXT_CHANNEL_ID.load(Ordering::Relaxed)
+}
+
+/// A debugger restored a checkpoint taken when `next` was the next id
+/// (0188 S9a): channels made since are gone, and the re-run makes them
+/// again with the same ids.
+pub(crate) fn rewind_ids(next: i64) {
+    channels()
+        .lock()
+        .expect("VM channel registry poisoned")
+        .retain(|id, _| *id < next);
+    NEXT_CHANNEL_ID.store(next, Ordering::Relaxed);
 }
 
 pub(super) fn make(capacity: i64) -> Result<i64, String> {

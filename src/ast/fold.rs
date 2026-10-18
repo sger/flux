@@ -55,6 +55,7 @@ pub fn fold_program<F: Folder + ?Sized>(folder: &mut F, program: Program) -> Pro
         statements,
         span,
         doc_comments,
+        pipe_calls,
     } = program;
     Program {
         statements: statements
@@ -63,6 +64,7 @@ pub fn fold_program<F: Folder + ?Sized>(folder: &mut F, program: Program) -> Pro
             .collect(),
         span,
         doc_comments,
+        pipe_calls,
     }
 }
 

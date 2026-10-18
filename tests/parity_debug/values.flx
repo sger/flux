@@ -1,0 +1,26 @@
+// Debug parity: each kind of value, while still in use.
+// dbg: break 20
+// dbg: continue
+// dbg: locals
+// dbg: print pair
+// dbg: print xs
+// dbg: print xs.1
+// dbg: continue
+
+data Point { Point { x: Int, y: Int } }
+
+fn inspect_all(n, name, flag, ratio, xs, pair, opt, arr, p) with IO {
+    print(n)
+    print(name)
+    print(flag)
+    print(ratio)
+    print(opt)
+    print(arr)
+    print(p)
+    print(xs)
+    print(pair)
+}
+
+fn main() with IO {
+    inspect_all(7, "flux", true, 2.5, [1, 2, 3], (9, "x"), Some(4), [|1, 2|], Point { x: 1, y: 2 })
+}

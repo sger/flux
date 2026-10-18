@@ -247,7 +247,13 @@ use sha2::{Digest, Sha256};
 /// Epoch 76: the VM compiles a module's members from their IR, so they take
 /// dictionaries and dispatch from evidence, where an epoch-75 unit compiled
 /// every member on the AST path.
-pub const CACHE_EPOCH: u16 = 76;
+/// Epoch 77: function debug info carries the debugger tables (stop sites,
+/// local variables, captured-value names; proposal 0188 S2), which an
+/// epoch-76 reader would misread.
+/// Epoch 78: a parameter a function may release (reuse in place, or keep in
+/// a collection) is inferred Owned, and a Borrowed one is never released, so
+/// an epoch-77 unit's borrow signatures and code disagree with its callers'.
+pub const CACHE_EPOCH: u16 = 80;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

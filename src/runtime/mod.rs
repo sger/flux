@@ -16,6 +16,8 @@
 use crate::runtime::value::Value;
 
 pub mod r#async;
+#[cfg(feature = "llvm")]
+pub mod backtrace_abi;
 pub mod closure;
 pub mod compiled_function;
 pub mod cons_cell;
@@ -32,6 +34,7 @@ pub mod http;
 pub mod json;
 pub mod leak_detector;
 pub mod perform_descriptor;
+pub mod replay;
 pub mod runtime_type;
 pub mod value;
 pub mod yield_state;
@@ -125,5 +128,11 @@ pub trait RuntimeContext {
     /// context. Only `VM` provides a real implementation.
     fn vm_worker_shared_state(&self) -> Option<Box<dyn std::any::Any + Send>> {
         None
+    }
+
+    /// Every fiber waits and the front end has asked the debugger to
+    /// pause: stop here (0188 S8). Nothing to do without a debugger.
+    fn debug_idle(&mut self) -> Result<(), String> {
+        Ok(())
     }
 }

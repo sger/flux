@@ -1,0 +1,13 @@
+// A pipeline stops at each `|>` stage in order, after its input is ready.
+fn double(x) { x * 2 }
+
+fn inc(x) { x + 1 }
+
+fn main() {
+    let start = 5
+    let result = start
+        |> double
+        |> inc
+        |> double
+    print(result)
+}

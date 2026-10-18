@@ -6,6 +6,34 @@ use crate::core::{CoreBinderId, CoreExpr, CoreHandler, CorePat, CorePrimOp};
 
 // ── Substitution ──────────────────────────────────────────────────────────────
 
+/// `body` with a reduced `case`'s pattern variables given their values:
+/// substituted, or, for one a debug build keeps (proposal 0188 S9c), bound by
+/// a `let` at the arm, so the debugger shows it.
+pub(super) fn bind_pattern(
+    body: CoreExpr,
+    bindings: Vec<(crate::core::CoreBinder, CoreExpr)>,
+    arm: crate::diagnostics::position::Span,
+) -> CoreExpr {
+    let mut body = body;
+    let mut kept = Vec::new();
+    for (binder, value) in bindings {
+        if super::keep::keeps(binder.id) {
+            kept.push((binder, value));
+        } else {
+            body = subst(body, binder.id, &value);
+        }
+    }
+    for (binder, value) in kept.into_iter().rev() {
+        body = CoreExpr::Let {
+            var: binder,
+            rhs: Box::new(value),
+            body: Box::new(body),
+            span: arm,
+        };
+    }
+    body
+}
+
 /// Substitute `replacement` for free occurrences of `var` in `expr`.
 ///
 /// This is capture-avoiding for `Lam` and `Let` binders.

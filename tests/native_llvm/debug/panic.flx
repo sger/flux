@@ -1,0 +1,19 @@
+// A panic and a division by zero, for `flux catch` (0188 S7).
+fn check(n: Int) -> Int {
+    if n > 2 {
+        panic("too big")
+    } else {
+        n
+    }
+}
+
+fn ratio(a: Int, b: Int) -> Int {
+    a / b
+}
+
+fn main() with IO {
+    let zero = 0
+    print(to_string(check(1)))
+    print(to_string(ratio(10, zero)))
+    print(to_string(check(3)))
+}

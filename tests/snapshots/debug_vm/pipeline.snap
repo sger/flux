@@ -1,0 +1,27 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 8
+breakpoint at pipeline.flx:8
+> continue
+stopped: breakpoint at pipeline.flx:8:5 in main (position 4)
+     8 |     let result = start
+> next
+stopped: step at pipeline.flx:9:12 in main (position 5)
+     9 |         |> double
+> next
+stopped: step at pipeline.flx:10:12 in main (position 8)
+    10 |         |> inc
+> next
+stopped: step at pipeline.flx:11:12 in main (position 11)
+    11 |         |> double
+> next
+stopped: step at pipeline.flx:12:5 in main (position 14)
+    12 |     print(result)
+> locals
+start = 5
+result = 22
+> continue
+program finished
+--- program output ---
+22

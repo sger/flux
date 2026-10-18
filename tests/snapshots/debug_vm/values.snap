@@ -1,0 +1,44 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 13
+breakpoint at values.flx:13
+> continue
+stopped: breakpoint at values.flx:13:5 in main (position 7)
+    13 |     print(len(numbers))
+> locals
+numbers = [1, 2, 3]
+pair = (1.5, "two")
+tree = Node(Leaf, 7, Node(Leaf, 9, Leaf))
+maybe = Some(42)
+> print numbers
+numbers = [1, 2, 3]
+  .0 = 1
+  .1 = 2
+  .2 = 3
+> print pair
+pair = (1.5, "two")
+  .0 = 1.5
+  .1 = "two"
+> print tree
+tree = Node(Leaf, 7, Node(Leaf, 9, Leaf))
+  .0 = Leaf
+  .1 = 7
+  .2 = Node(Leaf, 9, Leaf)
+> print tree.2
+tree.2 = Node(Leaf, 9, Leaf)
+  .0 = Leaf
+  .1 = 9
+  .2 = Leaf
+> print tree.2.1
+tree.2.1 = 9
+> print maybe.0
+maybe.0 = 42
+> print missing
+no variable `missing` here
+> print tree.9
+`tree.9` has no part `9`
+> continue
+program finished
+--- program output ---
+3

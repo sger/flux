@@ -160,6 +160,24 @@ fn aether_handler_resume_result_rep(handler: &AetherHandler) -> FluxRep {
     }
 }
 
+/// A test-only fault, for the debug heap's own tests (0188 S10c):
+/// `FLUX_AETHER_FAULT=skip-dup:<name>` leaves out every Dup of the variable
+/// a `let` or parameter named `<name>` is bound to — Aether's own and the
+/// call guards' — so the program frees a value it still uses. Never set it
+/// outside a test: the program it builds is wrong on purpose.
+pub fn aether_fault() -> Option<String> {
+    std::env::var("FLUX_AETHER_FAULT").ok()
+}
+
+/// The binder name whose Dups `FLUX_AETHER_FAULT` leaves out.
+fn skipped_dup_name() -> Option<&'static str> {
+    static NAME: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| {
+        aether_fault().and_then(|fault| fault.strip_prefix("skip-dup:").map(str::to_string))
+    })
+    .as_deref()
+}
+
 /// Enabled by default; opt out with `FLUX_YIELD_CHECKS=0` to fall back to
 /// the legacy direct-perform path.
 fn native_yield_checks_enabled() -> bool {
@@ -531,6 +549,39 @@ fn collect_ctor_tags_inner(
     }
 }
 
+/// Collect the field names of each constructor the program declares.
+fn collect_constructor_fields(
+    items: &[CoreTopLevelItem],
+    fields: &mut HashMap<String, Vec<Option<String>>>,
+    interner: &Interner,
+) {
+    for item in items {
+        match item {
+            CoreTopLevelItem::Data { variants, .. } => {
+                for variant in variants {
+                    let names = (0..variant.fields.len())
+                        .map(|index| {
+                            variant
+                                .field_names
+                                .as_ref()
+                                .and_then(|names| names.get(index))
+                                .and_then(|name| interner.try_resolve(*name))
+                                .map(str::to_string)
+                        })
+                        .collect();
+                    if let Some(name) = interner.try_resolve(variant.name) {
+                        fields.insert(name.to_string(), names);
+                    }
+                }
+            }
+            CoreTopLevelItem::Module { body, .. } => {
+                collect_constructor_fields(body, fields, interner);
+            }
+            _ => {}
+        }
+    }
+}
+
 // ── Public entry point ───────────────────────────────────────────────────────
 
 /// Lower a complete `CoreProgram` to `LirProgram`.
@@ -748,6 +799,28 @@ pub fn lower_aether_program_with_interner_and_externs(
     emit_main: bool,
     entry_qualifier: Option<&str>,
 ) -> LirProgram {
+    with_inline_sites(&program.inline_sites, || {
+        lower_aether_program_inner(
+            program,
+            interner,
+            globals_map,
+            extern_symbols,
+            imported_constructor_tags,
+            emit_main,
+            entry_qualifier,
+        )
+    })
+}
+
+fn lower_aether_program_inner(
+    program: &crate::aether::AetherProgram,
+    interner: Option<&Interner>,
+    globals_map: Option<&HashMap<String, usize>>,
+    extern_symbols: Option<&HashMap<String, ImportedNativeSymbol>>,
+    imported_constructor_tags: Option<&HashMap<String, i32>>,
+    emit_main: bool,
+    entry_qualifier: Option<&str>,
+) -> LirProgram {
     let core = program.as_core();
     let mut lir = LirProgram::new();
 
@@ -772,6 +845,9 @@ pub fn lower_aether_program_with_interner_and_externs(
         }
     }
     collect_constructor_tags(&core.top_level_items, &mut lir.constructor_tags, interner);
+    if let Some(interner) = interner {
+        collect_constructor_fields(&core.top_level_items, &mut lir.constructor_fields, interner);
+    }
 
     let main_idx = if emit_main {
         if let Some(interner) = interner {
@@ -1030,6 +1106,58 @@ fn promote_tail_calls(program: &mut LirProgram) {
     }
 }
 
+thread_local! {
+    /// The lambdas the program's simplifier inlined (proposal 0188 S9c), for
+    /// the lowering in progress on this thread.
+    static INLINE_SITES: std::cell::RefCell<Vec<crate::core::InlineSite>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Makes `sites` the inlined lambdas while `lower` runs.
+fn with_inline_sites<R>(sites: &[crate::core::InlineSite], lower: impl FnOnce() -> R) -> R {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            INLINE_SITES.with(|slot| slot.borrow_mut().clear());
+        }
+    }
+    INLINE_SITES.with(|slot| *slot.borrow_mut() = sites.to_vec());
+    let _reset = Reset;
+    lower()
+}
+
+fn span_within(
+    inner: crate::diagnostics::position::Span,
+    outer: crate::diagnostics::position::Span,
+) -> bool {
+    let at = |p: crate::diagnostics::position::Position| (p.line, p.column);
+    at(outer.start) <= at(inner.start) && at(inner.end) <= at(outer.end)
+}
+
+/// The innermost inlined lambda holding `span`, for the function being
+/// lowered: a lambda inlined into it, not one the function itself is part of
+/// (`own`, a closure's lambda, inside an inlined one).
+fn inlined_lambda_of(
+    span: crate::diagnostics::position::Span,
+    own: Option<crate::diagnostics::position::Span>,
+) -> Option<crate::core::InlineSite> {
+    INLINE_SITES.with(|sites| {
+        sites
+            .borrow()
+            .iter()
+            .filter(|site| own.is_none_or(|own| !span_within(own, site.lambda)))
+            .filter(|site| span_within(span, site.lambda))
+            .fold(
+                None,
+                |innermost: Option<&crate::core::InlineSite>, site| match innermost {
+                    Some(found) if !span_within(site.lambda, found.lambda) => Some(found),
+                    _ => Some(site),
+                },
+            )
+            .copied()
+    })
+}
+
 // ── Per-function lowering context ────────────────────────────────────────────
 
 /// Tracks state while lowering a single function body to LIR.
@@ -1101,6 +1229,26 @@ struct FnLower<'a> {
     parameterized_effects_in_program: &'a HashSet<Identifier>,
     /// True when this lowered function's source effect row includes Async.
     async_indirect_calls: bool,
+    /// The source position of the expression being lowered, stamped on each
+    /// instruction emitted for it (proposal 0188 S5).
+    current_loc: LirLoc,
+    /// Where a lambda being lowered is made: the place of the code around
+    /// it, not the lambda's own, so a breakpoint on the lambda's first line
+    /// stops in the lambda only.
+    lambda_site: Option<LirLoc>,
+    /// For a closure, its lambda's span: an inlined lambda holding it is not
+    /// inlined into this function (proposal 0188 S9c).
+    scope: Option<crate::diagnostics::position::Span>,
+    /// The span of the lambda being lowered, for its function's `scope`.
+    lambda_span: Option<crate::diagnostics::position::Span>,
+    /// The position of the last expression lowered: where a `return`
+    /// happens, once the function's body is done.
+    last_loc: LirLoc,
+    /// The source name and representation of each binder bound here, so
+    /// that a closure made here can name what it captures (0188 S6).
+    binder_names: HashMap<CoreBinderId, (String, crate::core::FluxRep)>,
+    /// The variables `FLUX_AETHER_FAULT` takes the Dups of (a test hook).
+    faulted_vars: HashSet<LirVar>,
 }
 
 struct FnLowerCtx<'a> {
@@ -1120,7 +1268,16 @@ struct FnLowerCtx<'a> {
 
 impl<'a> FnLower<'a> {
     fn new(name: String, id: LirFuncId, qualified_name: String, ctx: FnLowerCtx<'a>) -> Self {
+        let debug = Some(LirFnDebug {
+            kind: LirFnKind::Named(qualified_name.clone()),
+            loc: LirLoc::NONE,
+            artificial: false,
+            vars: Vec::new(),
+            inline_sites: Vec::new(),
+        });
         let entry_block = LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
             id: BlockId(0),
             params: Vec::new(),
             instrs: Vec::new(),
@@ -1130,6 +1287,7 @@ impl<'a> FnLower<'a> {
             env: HashMap::new(),
             block_func_closures: HashMap::new(),
             func: LirFunction {
+                debug,
                 name,
                 id,
                 qualified_name,
@@ -1159,6 +1317,13 @@ impl<'a> FnLower<'a> {
             active_parameterized_effects: HashSet::new(),
             parameterized_effects_in_program: ctx.parameterized_effects_in_program,
             async_indirect_calls: ctx.async_indirect_calls,
+            current_loc: LirLoc::NONE,
+            lambda_site: None,
+            scope: None,
+            lambda_span: None,
+            last_loc: LirLoc::NONE,
+            binder_names: HashMap::new(),
+            faulted_vars: HashSet::new(),
         }
     }
 
@@ -1299,6 +1464,11 @@ impl<'a> FnLower<'a> {
 
     /// Emit an instruction into the current block.
     fn emit(&mut self, instr: LirInstr) {
+        if let LirInstr::Dup { val } = &instr
+            && self.faulted_vars.contains(val)
+        {
+            return;
+        }
         // Phase 6 (Proposal 0140): track TagBool producers and elide
         // UntagBool when the source was a TagBool — the raw i1 value
         // can be used directly, avoiding the tag→untag round-trip.
@@ -1308,23 +1478,84 @@ impl<'a> FnLower<'a> {
             }
             LirInstr::UntagBool { dst, val } => {
                 if let Some(&raw) = self.bool_raw_source.get(val) {
-                    self.func.blocks[self.current_block]
-                        .instrs
-                        .push(LirInstr::Copy {
-                            dst: *dst,
-                            src: raw,
-                        });
+                    self.push_instr(LirInstr::Copy {
+                        dst: *dst,
+                        src: raw,
+                    });
                     return;
                 }
             }
             _ => {}
         }
-        self.func.blocks[self.current_block].instrs.push(instr);
+        self.push_instr(instr);
+    }
+
+    /// Appends `instr` to the current block, with the current location.
+    fn push_instr(&mut self, instr: LirInstr) {
+        let loc = match instr {
+            LirInstr::MakeClosure { .. } => self.lambda_site.take().unwrap_or(self.current_loc),
+            _ => self.current_loc,
+        };
+        let block = &mut self.func.blocks[self.current_block];
+        if !loc.is_none() || !block.locs.is_empty() {
+            block.locs.resize(block.instrs.len(), LirLoc::NONE);
+            block.locs.push(loc);
+        }
+        block.instrs.push(instr);
     }
 
     /// Set the terminator of the current block.
     fn set_terminator(&mut self, term: LirTerminator) {
-        self.func.blocks[self.current_block].terminator = term;
+        // A return comes after the body's last expression, not at the
+        // function's own line. A return where branches join (after a
+        // `match` or an `if`) belongs to no one branch: it is at line 0, or
+        // a breakpoint on the last branch would stop for every branch.
+        let joined = !self.func.blocks[self.current_block].params.is_empty();
+        let loc = match term {
+            LirTerminator::Return(_) if joined => LirLoc::NONE,
+            LirTerminator::Return(_) if !self.last_loc.is_none() => self.last_loc,
+            _ => self.current_loc,
+        };
+        let block = &mut self.func.blocks[self.current_block];
+        block.terminator = term;
+        block.term_loc = loc;
+    }
+
+    /// Says what a debugger calls this function and where it is.
+    fn place(&mut self, kind: LirFnKind, loc: LirLoc) {
+        self.current_loc = loc;
+        let (vars, inline_sites) = self
+            .func
+            .debug
+            .take()
+            .map(|debug| (debug.vars, debug.inline_sites))
+            .unwrap_or_default();
+        self.func.debug = Some(LirFnDebug {
+            kind,
+            loc,
+            artificial: false,
+            vars,
+            inline_sites,
+        });
+    }
+
+    /// A source name, as written.
+    fn name_of(&self, name: Identifier) -> String {
+        self.interner
+            .and_then(|interner| interner.try_resolve(name))
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("{name:?}"))
+    }
+
+    /// Lowers `body` with `loc` as the current location, then restores it.
+    fn at_loc<T>(&mut self, loc: LirLoc, body: impl FnOnce(&mut Self) -> T) -> T {
+        let saved = std::mem::replace(&mut self.current_loc, loc);
+        if !loc.is_none() {
+            self.last_loc = loc;
+        }
+        let result = body(self);
+        self.current_loc = saved;
+        result
     }
 
     fn suppress_yield_check_for_calls_into_block(&mut self, target: BlockId) {
@@ -1346,6 +1577,8 @@ impl<'a> FnLower<'a> {
     fn new_block(&mut self) -> usize {
         let id = BlockId(self.func.blocks.len() as u32);
         self.func.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
             id,
             params: Vec::new(),
             instrs: Vec::new(),
@@ -1362,6 +1595,68 @@ impl<'a> FnLower<'a> {
     /// Bind a Core binder to a LIR variable.
     fn bind(&mut self, binder: CoreBinderId, var: LirVar) {
         self.env.insert(binder, var);
+    }
+
+    /// Binds a source variable, and records it for a debugger.
+    fn bind_source(&mut self, binder: &CoreBinder, var: LirVar, kind: LirVarKind) {
+        self.bind(binder.id, var);
+        let Some(name) = self
+            .interner
+            .and_then(|interner| interner.try_resolve(binder.name))
+            .map(str::to_string)
+        else {
+            return;
+        };
+        let rep = if self.int_vars.contains(&var) {
+            crate::core::FluxRep::IntRep
+        } else {
+            binder.rep
+        };
+        if skipped_dup_name() == Some(name.as_str()) {
+            self.faulted_vars.insert(var);
+        }
+        self.binder_names.insert(binder.id, (name.clone(), rep));
+        self.record_var(var, name, kind, rep);
+    }
+
+    /// Binds a parameter. The emitter takes its representation from
+    /// `param_reps`.
+    fn bind_param(&mut self, binder: &CoreBinder, var: LirVar) {
+        self.bind_source(binder, var, LirVarKind::Param);
+    }
+
+    /// Binds a variable captured from the enclosing function, named as it
+    /// was there.
+    fn bind_captured(
+        &mut self,
+        binder: CoreBinderId,
+        var: LirVar,
+        outer: &HashMap<CoreBinderId, (String, crate::core::FluxRep)>,
+    ) {
+        self.bind(binder, var);
+        if let Some((name, rep)) = outer.get(&binder).cloned() {
+            self.binder_names.insert(binder, (name.clone(), rep));
+            self.record_var(var, name, LirVarKind::Captured, rep);
+        }
+    }
+
+    fn record_var(
+        &mut self,
+        var: LirVar,
+        name: String,
+        kind: LirVarKind,
+        rep: crate::core::FluxRep,
+    ) {
+        let loc = self.current_loc;
+        if let Some(debug) = self.func.debug.as_mut() {
+            debug.vars.push(LirVarBinder {
+                var,
+                name,
+                kind,
+                loc,
+                rep,
+            });
+        }
     }
 
     /// The closure for a top-level function used as a value in this block,
@@ -1394,7 +1689,70 @@ impl<'a> FnLower<'a> {
 
     /// Lower a `CoreExpr` and return the `LirVar` holding the result.
     /// The result is always a NaN-boxed i64 value.
+    /// The location of a node with `span`: its own, with the inlined lambda
+    /// it belongs to, if any, or, for a node the compiler made without one,
+    /// the enclosing node's.
+    fn located(&mut self, span: crate::diagnostics::position::Span, enclosing: LirLoc) -> LirLoc {
+        let loc = LirLoc::from_span(span);
+        if loc.is_none() {
+            return enclosing;
+        }
+        LirLoc {
+            inlined: self.inline_site(span),
+            ..loc
+        }
+    }
+
+    /// A literal is placed where the expression using it is, when that is on
+    /// its line: building `true` for `resume(true)` is part of the call, and
+    /// a debugger stopping on the line stops at the call, not at `true`.
+    fn literal_loc(&mut self, span: crate::diagnostics::position::Span) -> LirLoc {
+        let own = self.located(span, self.current_loc);
+        let user = self.current_loc;
+        if !user.is_none() && user.line == own.line && user.inlined == own.inlined {
+            user
+        } else {
+            own
+        }
+    }
+
+    /// The function's number for the inlined lambda holding `span`, adding
+    /// it, and the lambdas its call is inlined in, to the function's sites.
+    fn inline_site(&mut self, span: crate::diagnostics::position::Span) -> u32 {
+        let Some(site) = inlined_lambda_of(span, self.scope) else {
+            return 0;
+        };
+        let call = self.located(site.call, LirLoc::NONE);
+        let site = LirInlineSite {
+            lambda: LirLoc::from_span(site.lambda),
+            call,
+        };
+        let Some(debug) = self.func.debug.as_mut() else {
+            return 0;
+        };
+        let index = match debug.inline_sites.iter().position(|known| *known == site) {
+            Some(index) => index,
+            None => {
+                debug.inline_sites.push(site);
+                debug.inline_sites.len() - 1
+            }
+        };
+        index as u32 + 1
+    }
+
     fn lower_expr(&mut self, expr: &CoreExpr) -> LirVar {
+        if matches!(expr, CoreExpr::Lam { .. }) {
+            self.lambda_site = Some(self.current_loc);
+            self.lambda_span = Some(expr.span());
+        }
+        let loc = match expr {
+            CoreExpr::Lit(_, span) => self.literal_loc(*span),
+            _ => self.located(expr.span(), self.current_loc),
+        };
+        self.at_loc(loc, |lower| lower.lower_expr_here(expr))
+    }
+
+    fn lower_expr_here(&mut self, expr: &CoreExpr) -> LirVar {
         match expr {
             CoreExpr::Lit(lit, _span) => self.lower_lit(lit),
 
@@ -1569,6 +1927,7 @@ impl<'a> FnLower<'a> {
                     let synthetic_id = temp_program.alloc_synthetic_func_id();
                     let func_idx = temp_program.functions.len();
                     temp_program.functions.push(LirFunction {
+                        debug: None,
                         name: format!("letrec_group_{}_placeholder", func_idx),
                         id: synthetic_id,
                         qualified_name: format!(
@@ -1633,12 +1992,14 @@ impl<'a> FnLower<'a> {
                                 async_indirect_calls: self.async_indirect_calls,
                             },
                         );
+                        inner.place(LirFnKind::Lambda, self.current_loc);
+                        inner.scope = self.lambda_span;
 
                         // Capture shared outer variables.
                         for &(binder_id, _) in &entry.outer_captures {
                             let inner_var = inner.fresh_var();
                             inner.func.capture_vars.push(inner_var);
-                            inner.bind(binder_id, inner_var);
+                            inner.bind_captured(binder_id, inner_var, &self.binder_names);
                         }
 
                         // Self-reference via MakeClosure to own func_id.
@@ -1701,7 +2062,7 @@ impl<'a> FnLower<'a> {
 
                         for (index, param) in params.iter().enumerate() {
                             let pv = inner.fresh_var();
-                            inner.bind(param.id, pv);
+                            inner.bind_param(param, pv);
                             inner.func.params.push(pv);
                             inner.func.param_reps.push(rep_for_typed_binder(
                                 param,
@@ -1782,6 +2143,7 @@ impl<'a> FnLower<'a> {
                     // Pre-assign function slot so self-recursion works.
                     let func_idx = temp_program.functions.len();
                     temp_program.functions.push(LirFunction {
+                        debug: None,
                         name: format!("letrec_{}_placeholder", func_idx),
                         id: synthetic_id,
                         qualified_name: letrec_qname.clone(),
@@ -1814,12 +2176,14 @@ impl<'a> FnLower<'a> {
                             async_indirect_calls: self.async_indirect_calls,
                         },
                     );
+                    inner.place(LirFnKind::Lambda, self.current_loc);
+                    inner.scope = self.lambda_span;
 
                     // Capture outer variables.
                     for &(binder_id, _outer_var) in &outer_captures {
                         let inner_var = inner.fresh_var();
                         inner.func.capture_vars.push(inner_var);
-                        inner.bind(binder_id, inner_var);
+                        inner.bind_captured(binder_id, inner_var, &self.binder_names);
                     }
 
                     // Self-reference: the letrec variable inside the lambda
@@ -1857,7 +2221,7 @@ impl<'a> FnLower<'a> {
 
                     for (index, param) in params.iter().enumerate() {
                         let pv = inner.fresh_var();
-                        inner.bind(param.id, pv);
+                        inner.bind_param(param, pv);
                         inner.func.params.push(pv);
                         inner.func.param_reps.push(rep_for_typed_binder(
                             param,
@@ -1955,13 +2319,15 @@ impl<'a> FnLower<'a> {
                             async_indirect_calls: self.async_indirect_calls,
                         },
                     );
+                    inner.place(LirFnKind::Lambda, self.current_loc);
+                    inner.scope = self.lambda_span;
 
                     // Map captured variables: create fresh LirVars inside the inner
                     // function, mark them as capture_vars (→ OpGetFree in emitter).
                     for &(binder_id, _outer_var) in &outer_captures {
                         let inner_var = inner.fresh_var();
                         inner.func.capture_vars.push(inner_var);
-                        inner.bind(binder_id, inner_var);
+                        inner.bind_captured(binder_id, inner_var, &self.binder_names);
                     }
 
                     // Register parameters.
@@ -1969,7 +2335,7 @@ impl<'a> FnLower<'a> {
 
                     for (index, param) in params.iter().enumerate() {
                         let pv = inner.fresh_var();
-                        inner.bind(param.id, pv);
+                        inner.bind_param(param, pv);
                         inner.func.params.push(pv);
                         inner.func.param_reps.push(rep_for_typed_binder(
                             param,
@@ -2184,6 +2550,25 @@ impl<'a> FnLower<'a> {
     }
 
     fn lower_expr_aether(&mut self, expr: &AetherExpr) -> LirVar {
+        // Reference counting is the compiler's, not the program's: a
+        // debugger steps over it. The expressions inside keep their own
+        // places.
+        let loc = match expr {
+            AetherExpr::Dup { .. }
+            | AetherExpr::Drop { .. }
+            | AetherExpr::Reuse { .. }
+            | AetherExpr::DropSpecialized { .. } => LirLoc::NONE,
+            AetherExpr::Lit(_, span) => self.literal_loc(*span),
+            _ => self.located(expr.span(), self.current_loc),
+        };
+        if matches!(expr, AetherExpr::Lam { .. }) {
+            self.lambda_site = Some(self.current_loc);
+            self.lambda_span = Some(expr.span());
+        }
+        self.at_loc(loc, |lower| lower.lower_expr_aether_here(expr))
+    }
+
+    fn lower_expr_aether_here(&mut self, expr: &AetherExpr) -> LirVar {
         match expr {
             AetherExpr::Lit(lit, _) => self.lower_lit(lit),
             AetherExpr::Var { var, .. } => {
@@ -2230,16 +2615,18 @@ impl<'a> FnLower<'a> {
                             async_indirect_calls: self.async_indirect_calls,
                         },
                     );
+                    inner.place(LirFnKind::Lambda, self.current_loc);
+                    inner.scope = self.lambda_span;
                     for &(binder_id, _) in &outer_captures {
                         let inner_var = inner.fresh_var();
                         inner.func.capture_vars.push(inner_var);
-                        inner.bind(binder_id, inner_var);
+                        inner.bind_captured(binder_id, inner_var, &self.binder_names);
                     }
                     inner.func.result_rep = lambda_result_rep(result_ty.as_ref());
 
                     for (index, param) in params.iter().enumerate() {
                         let pv = inner.fresh_var();
-                        inner.bind(param.id, pv);
+                        inner.bind_param(param, pv);
                         inner.func.params.push(pv);
                         inner.func.param_reps.push(rep_for_typed_binder(
                             param,
@@ -2279,7 +2666,7 @@ impl<'a> FnLower<'a> {
             ),
             AetherExpr::Let { var, rhs, body, .. } => {
                 let rhs_var = self.lower_expr_aether(rhs);
-                self.bind(var.id, rhs_var);
+                self.bind_source(var, rhs_var, LirVarKind::Let);
                 self.lower_expr_aether(body)
             }
             AetherExpr::LetRecGroup { bindings, body, .. } => {
@@ -2315,6 +2702,7 @@ impl<'a> FnLower<'a> {
                     let synthetic_id = temp_program.alloc_synthetic_func_id();
                     let func_idx = temp_program.functions.len();
                     temp_program.functions.push(LirFunction {
+                        debug: None,
                         name: format!("letrec_group_{}_placeholder", func_idx),
                         id: synthetic_id,
                         qualified_name: format!(
@@ -2376,10 +2764,12 @@ impl<'a> FnLower<'a> {
                                 async_indirect_calls: self.async_indirect_calls,
                             },
                         );
+                        inner.place(LirFnKind::Named(self.name_of(var.name)), self.current_loc);
+                        inner.scope = Some(rhs.span());
                         for &(binder_id, _) in &entry.outer_captures {
                             let inner_var = inner.fresh_var();
                             inner.func.capture_vars.push(inner_var);
-                            inner.bind(binder_id, inner_var);
+                            inner.bind_captured(binder_id, inner_var, &self.binder_names);
                         }
                         let self_var = inner.fresh_var();
                         inner.emit(LirInstr::MakeClosure {
@@ -2435,7 +2825,7 @@ impl<'a> FnLower<'a> {
 
                         for (index, param) in params.iter().enumerate() {
                             let pv = inner.fresh_var();
-                            inner.bind(param.id, pv);
+                            inner.bind_param(param, pv);
                             inner.func.params.push(pv);
                             inner.func.param_reps.push(rep_for_typed_binder(
                                 param,
@@ -2494,6 +2884,7 @@ impl<'a> FnLower<'a> {
                         format!("{}_letrec_{}", self.func.qualified_name, synthetic_id.0);
                     let func_idx = temp_program.functions.len();
                     temp_program.functions.push(LirFunction {
+                        debug: None,
                         name: format!("letrec_{}_placeholder", func_idx),
                         id: synthetic_id,
                         qualified_name: letrec_qname.clone(),
@@ -2525,10 +2916,12 @@ impl<'a> FnLower<'a> {
                             async_indirect_calls: self.async_indirect_calls,
                         },
                     );
+                    inner.place(LirFnKind::Named(self.name_of(var.name)), self.current_loc);
+                    inner.scope = Some(rhs.span());
                     for &(binder_id, _) in &outer_captures {
                         let inner_var = inner.fresh_var();
                         inner.func.capture_vars.push(inner_var);
-                        inner.bind(binder_id, inner_var);
+                        inner.bind_captured(binder_id, inner_var, &self.binder_names);
                     }
                     let self_var = inner.fresh_var();
                     inner.emit(LirInstr::MakeClosure {
@@ -2556,7 +2949,7 @@ impl<'a> FnLower<'a> {
 
                     for (index, param) in params.iter().enumerate() {
                         let pv = inner.fresh_var();
-                        inner.bind(param.id, pv);
+                        inner.bind_param(param, pv);
                         inner.func.params.push(pv);
                         inner.func.param_reps.push(rep_for_typed_binder(
                             param,
@@ -2577,7 +2970,7 @@ impl<'a> FnLower<'a> {
                         func_id: synthetic_id,
                         captures: captures.clone(),
                     });
-                    self.bind(var.id, dst);
+                    self.bind_source(var, dst, LirVarKind::Let);
                     if !captures.is_empty() {
                         self.direct_closure_vars.insert(
                             dst,
@@ -2598,7 +2991,7 @@ impl<'a> FnLower<'a> {
                     });
                     self.bind(var.id, placeholder);
                     let rhs_var = self.lower_expr_aether(rhs);
-                    self.bind(var.id, rhs_var);
+                    self.bind_source(var, rhs_var, LirVarKind::Let);
                     self.lower_expr_aether(body)
                 }
             }
@@ -2994,11 +3387,11 @@ impl<'a> FnLower<'a> {
         //    For multi-operation effects, we'd need a dispatch closure, but
         //    for now we support single-operation effects.
         let handler_closure = if handlers.len() == 1 {
-            self.lower_handler_clause(&handlers[0])
+            self.lower_handler_clause(effect, &handlers[0])
         } else {
             // Multi-operation: build the first handler for now.
             // TODO: dispatch closure for multi-op effects.
-            self.lower_handler_clause(&handlers[0])
+            self.lower_handler_clause(effect, &handlers[0])
         };
 
         // 3. Create fresh marker + insert evidence.
@@ -3076,7 +3469,7 @@ impl<'a> FnLower<'a> {
             args: vec![],
         });
 
-        let handler_closure = self.lower_handler_clause_aether(&handlers[0]);
+        let handler_closure = self.lower_handler_clause_aether(effect, &handlers[0]);
 
         let marker = self.fresh_var();
         self.emit(LirInstr::PrimCall {
@@ -3639,7 +4032,7 @@ impl<'a> FnLower<'a> {
     ///
     /// The closure takes (resume, param0, param1, ...) and executes the
     /// handler body. Free variables from the enclosing scope are captured.
-    fn lower_handler_clause(&mut self, handler: &CoreHandler) -> LirVar {
+    fn lower_handler_clause(&mut self, effect: Identifier, handler: &CoreHandler) -> LirVar {
         // Collect free variables in the handler body, excluding params and resume.
         let free = {
             let mut free = HashSet::new();
@@ -3689,17 +4082,25 @@ impl<'a> FnLower<'a> {
                 async_indirect_calls: self.async_indirect_calls,
             },
         );
+        inner.place(
+            LirFnKind::Named(format!(
+                "<handler {}.{}>",
+                self.name_of(effect),
+                self.name_of(handler.operation)
+            )),
+            LirLoc::from_span(handler.span),
+        );
 
         // Map captured variables.
         for &(binder_id, _outer_var) in &outer_captures {
             let inner_var = inner.fresh_var();
             inner.func.capture_vars.push(inner_var);
-            inner.bind(binder_id, inner_var);
+            inner.bind_captured(binder_id, inner_var, &self.binder_names);
         }
 
         // Parameters: resume first, then handler params.
         let resume_var = inner.fresh_var();
-        inner.bind(handler.resume.id, resume_var);
+        inner.bind_param(&handler.resume, resume_var);
         inner.func.params.push(resume_var);
         inner
             .func
@@ -3708,7 +4109,7 @@ impl<'a> FnLower<'a> {
 
         for (index, p) in handler.params.iter().enumerate() {
             let pv = inner.fresh_var();
-            inner.bind(p.id, pv);
+            inner.bind_param(p, pv);
             inner.func.params.push(pv);
             inner.func.param_reps.push(rep_from_semantic_type(
                 handler.param_types.get(index).and_then(|ty| ty.as_ref()),
@@ -3716,7 +4117,7 @@ impl<'a> FnLower<'a> {
         }
         if let Some(state) = &handler.state {
             let pv = inner.fresh_var();
-            inner.bind(state.id, pv);
+            inner.bind_param(state, pv);
             inner.func.params.push(pv);
             inner
                 .func
@@ -3747,7 +4148,11 @@ impl<'a> FnLower<'a> {
         dst
     }
 
-    fn lower_handler_clause_aether(&mut self, handler: &AetherHandler) -> LirVar {
+    fn lower_handler_clause_aether(
+        &mut self,
+        effect: Identifier,
+        handler: &AetherHandler,
+    ) -> LirVar {
         let free = {
             let mut free = HashSet::new();
             let mut bound = HashSet::new();
@@ -3792,15 +4197,23 @@ impl<'a> FnLower<'a> {
                 async_indirect_calls: self.async_indirect_calls,
             },
         );
+        inner.place(
+            LirFnKind::Named(format!(
+                "<handler {}.{}>",
+                self.name_of(effect),
+                self.name_of(handler.operation)
+            )),
+            LirLoc::from_span(handler.span),
+        );
 
         for &(binder_id, _) in &outer_captures {
             let inner_var = inner.fresh_var();
             inner.func.capture_vars.push(inner_var);
-            inner.bind(binder_id, inner_var);
+            inner.bind_captured(binder_id, inner_var, &self.binder_names);
         }
 
         let resume_var = inner.fresh_var();
-        inner.bind(handler.resume.id, resume_var);
+        inner.bind_param(&handler.resume, resume_var);
         inner.func.params.push(resume_var);
         inner
             .func
@@ -3809,7 +4222,7 @@ impl<'a> FnLower<'a> {
 
         for (index, p) in handler.params.iter().enumerate() {
             let pv = inner.fresh_var();
-            inner.bind(p.id, pv);
+            inner.bind_param(p, pv);
             inner.func.params.push(pv);
             inner.func.param_reps.push(rep_from_semantic_type(
                 handler.param_types.get(index).and_then(|ty| ty.as_ref()),
@@ -3817,7 +4230,7 @@ impl<'a> FnLower<'a> {
         }
         if let Some(state) = &handler.state {
             let pv = inner.fresh_var();
-            inner.bind(state.id, pv);
+            inner.bind_param(state, pv);
             inner.func.params.push(pv);
             inner
                 .func
@@ -4790,7 +5203,7 @@ impl<'a> FnLower<'a> {
                 CorePat::Wildcard | CorePat::Var(_) | CorePat::Lit(_) => {
                     // Default arm — bind scrutinee to variable if Var pattern.
                     if let CorePat::Var(binder) = &alt.pat {
-                        self.bind(binder.id, scrut);
+                        self.bind_source(binder, scrut, LirVarKind::Pattern);
                     }
                 }
                 CorePat::EmptyList => {
@@ -4899,7 +5312,7 @@ impl<'a> FnLower<'a> {
             match &alt.pat {
                 CorePat::Wildcard | CorePat::Var(_) | CorePat::Lit(_) => {
                     if let CorePat::Var(binder) = &alt.pat {
-                        self.bind(binder.id, scrut);
+                        self.bind_source(binder, scrut, LirVarKind::Pattern);
                     }
                 }
                 CorePat::EmptyList => {
@@ -5194,7 +5607,7 @@ impl<'a> FnLower<'a> {
         match pat {
             CorePat::Wildcard => {}
             CorePat::Var(binder) => {
-                self.bind(binder.id, scrut);
+                self.bind_source(binder, scrut, LirVarKind::Pattern);
             }
             CorePat::Lit(_) => {}
             CorePat::EmptyList => {}
@@ -5381,6 +5794,15 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
     );
     ctx.func.is_dict_def =
         def.is_dict_def || crate::types::class_env::is_dictionary_name(&ctx.func.qualified_name);
+    let name = if def.is_anonymous {
+        ctx.func.qualified_name.clone()
+    } else {
+        ctx.name_of(def.name)
+    };
+    ctx.place(LirFnKind::Named(name), LirLoc::from_span(def.span));
+    if let Some(debug) = ctx.func.debug.as_mut() {
+        debug.artificial = ctx.func.is_dict_def;
+    }
 
     // Register top-level binders for direct call resolution.
     // Unlike the old approach (which created MakeClosure for every sibling),
@@ -5403,7 +5825,7 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
         } => {
             for (index, param) in params.iter().enumerate() {
                 let pv = ctx.fresh_var();
-                ctx.bind(param.id, pv);
+                ctx.bind_param(param, pv);
                 ctx.func.params.push(pv);
                 ctx.func.param_reps.push(rep_for_typed_binder(
                     param,
@@ -5450,6 +5872,15 @@ fn lower_aether_def(def: &crate::aether::AetherDef, ctx: LowerDefCtx<'_>) -> Lir
     );
     ctx.func.is_dict_def =
         def.is_dict_def || crate::types::class_env::is_dictionary_name(&ctx.func.qualified_name);
+    let name = if def.is_anonymous {
+        ctx.func.qualified_name.clone()
+    } else {
+        ctx.name_of(def.name)
+    };
+    ctx.place(LirFnKind::Named(name), LirLoc::from_span(def.span));
+    if let Some(debug) = ctx.func.debug.as_mut() {
+        debug.artificial = ctx.func.is_dict_def;
+    }
 
     ctx.func.result_rep = result_rep_for_aether_def_expr(&def.expr, def.result_ty.as_ref());
 
@@ -5462,7 +5893,7 @@ fn lower_aether_def(def: &crate::aether::AetherDef, ctx: LowerDefCtx<'_>) -> Lir
         } => {
             for (index, param) in params.iter().enumerate() {
                 let pv = ctx.fresh_var();
-                ctx.bind(param.id, pv);
+                ctx.bind_param(param, pv);
                 ctx.func.params.push(pv);
                 ctx.func.param_reps.push(rep_for_typed_binder(
                     param,
@@ -6366,6 +6797,8 @@ mod tests {
     fn suppress_helper_marks_only_calls_into_target_block() {
         let mut blocks = vec![
             LirBlock {
+                locs: Vec::new(),
+                term_loc: Default::default(),
                 id: BlockId(0),
                 params: Vec::new(),
                 instrs: Vec::new(),
@@ -6382,6 +6815,8 @@ mod tests {
                 },
             },
             LirBlock {
+                locs: Vec::new(),
+                term_loc: Default::default(),
                 id: BlockId(1),
                 params: Vec::new(),
                 instrs: Vec::new(),

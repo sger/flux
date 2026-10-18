@@ -1,7 +1,7 @@
 #requires -Version 7.0
 <#
 .SYNOPSIS
-  Rebuild flux-lsp, repackage the VS Code extension, and reinstall it.
+  Rebuild flux-lsp and flux-dap, repackage the VS Code extension, and reinstall it.
 
 .DESCRIPTION
   PowerShell sibling of scripts/rebuild-vsix.sh. Mirrors the Windows
@@ -28,18 +28,20 @@ $VscodeDir = Join-Path $RepoRoot 'editors\vscode'
 # Platform suffix: .exe on Windows, empty elsewhere (pwsh runs cross-platform).
 $ExeSuffix = if ($IsWindows) { '.exe' } else { '' }
 
-# ── step 1: build the server binary ───────────────────────────────────────────
-Write-Host '==> Building flux-lsp (release)...'
-cargo build --release -p flux-lsp --manifest-path (Join-Path $RepoRoot 'Cargo.toml')
+# ── step 1: build the server binaries ─────────────────────────────────────────
+Write-Host '==> Building flux-lsp and flux-dap (release)...'
+cargo build --release -p flux-lsp -p flux-dap --manifest-path (Join-Path $RepoRoot 'Cargo.toml')
 if ($LASTEXITCODE -ne 0) { throw "cargo build failed ($LASTEXITCODE)" }
 
-# ── step 2: stage the binary ──────────────────────────────────────────────────
-Write-Host '==> Staging binary...'
+# ── step 2: stage the binaries ────────────────────────────────────────────────
+Write-Host '==> Staging binaries...'
 $ServerDir = Join-Path $VscodeDir 'server'
 if (-not (Test-Path $ServerDir)) { New-Item -ItemType Directory -Path $ServerDir | Out-Null }
-$Src = Join-Path $RepoRoot ("target\release\flux-lsp" + $ExeSuffix)
-$Dst = Join-Path $ServerDir ("flux-lsp" + $ExeSuffix)
-Copy-Item -Path $Src -Destination $Dst -Force
+foreach ($Bin in @('flux-lsp', 'flux-dap')) {
+  $Src = Join-Path $RepoRoot ("target\release\" + $Bin + $ExeSuffix)
+  $Dst = Join-Path $ServerDir ($Bin + $ExeSuffix)
+  Copy-Item -Path $Src -Destination $Dst -Force
+}
 
 # ── step 3: install JS deps ───────────────────────────────────────────────────
 Write-Host '==> Installing JS dependencies...'

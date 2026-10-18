@@ -9,7 +9,7 @@ use crate::{
     bytecode::bytecode_cache::{hash_bytes, hash_cache_key, module_cache::ModuleBytecodeCache},
     compiler::{
         module_interface::{
-            build_interface, compute_semantic_config_hash, load_cached_interface,
+            build_interface, compute_artifact_config_hash, load_cached_interface,
             load_valid_interface,
         },
         module_linker::{LinkedVmProgram, VmAssemblyContext},
@@ -86,9 +86,14 @@ fn compile_parallel_module(
         .unwrap_or_default();
     let strict_mode =
         effective_module_strictness(node.kind, entry_module_kind, request.compile.strict_mode);
-    let semantic_config_hash =
-        compute_semantic_config_hash(strict_mode, request.compile.enable_optimize);
-    let cache_key = hash_cache_key(&source_hash, &semantic_config_hash);
+    let artifact_config_hash = compute_artifact_config_hash(
+        strict_mode,
+        request.compile.enable_optimize,
+        request.compile.debug_level,
+    );
+    // A `-g` VM build compiles on the AST path, whose interface differs.
+    let semantic_config_hash = artifact_config_hash;
+    let cache_key = hash_cache_key(&source_hash, &artifact_config_hash);
     let module_cache = ModuleBytecodeCache::new(request.cache.cache_layout.vm_dir());
     let store_deps = collect_dependency_fingerprints(&node.imports, loaded_interfaces)
         .into_iter()
@@ -97,7 +102,7 @@ fn compile_parallel_module(
     let unit_hash = artifact_store::unit_hash(
         &node.path,
         &module_source,
-        &semantic_config_hash,
+        &artifact_config_hash,
         crate::driver::backend::Backend::Vm,
         &store_deps,
     );
@@ -178,6 +183,7 @@ fn compile_parallel_module(
         request.compile.strict_mode,
         is_entry,
     );
+    compiler.set_debug_level(request.compile.debug_level);
     let compile_result = compiler.compile_with_opts(
         &node.program,
         request.compile.enable_optimize,
@@ -435,6 +441,7 @@ fn replay_warnings_if_needed(
             strict_mode: request.compile.strict_mode,
             enable_optimize: request.compile.enable_optimize,
             enable_analyze: request.compile.enable_analyze,
+            debug_level: request.compile.debug_level,
         });
         all_diagnostics.extend(filter_non_error_diagnostics(replayed));
     }
@@ -462,6 +469,7 @@ fn replay_errors(
             strict_mode: request.compile.strict_mode,
             enable_optimize: request.compile.enable_optimize,
             enable_analyze: request.compile.enable_analyze,
+            debug_level: request.compile.debug_level,
         }));
     }
 }
@@ -507,6 +515,7 @@ fn handle_result(
 ) -> Result<(), String> {
     if result.compile_failed {
         build_state.failed.insert(result.path.clone());
+        let before = all_diagnostics.len();
         replay_errors(
             &result,
             nodes_by_path,
@@ -514,6 +523,18 @@ fn handle_result(
             request,
             all_diagnostics,
         );
+        // The replay compiles the module again to recover its diagnostics.
+        // If that compile finds no error, the run must still not go on
+        // without the module.
+        let replay_reported_error = all_diagnostics[before..]
+            .iter()
+            .any(|diag| diag.severity() == crate::diagnostics::types::Severity::Error);
+        if !replay_reported_error {
+            return Err(format!(
+                "module {} failed to compile, but compiling it again reported no error",
+                result.path.display()
+            ));
+        }
         return Ok(());
     }
 

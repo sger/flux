@@ -171,6 +171,8 @@ pub struct Parser {
     /// the parsed [`Program`]'s line-keyed `doc_comments` index at the end of
     /// [`parse_program`](Self::parse_program).
     doc_comments: Vec<RawDocComment>,
+    /// The calls built from `|>` stages (see `Program::pipe_calls`).
+    pipe_calls: std::collections::HashSet<crate::syntax::expression::ExprId>,
 }
 
 impl Parser {
@@ -190,6 +192,7 @@ impl Parser {
             allow_struct_literal: true,
             expr_id_gen: ExprIdGen::new(),
             doc_comments: Vec::new(),
+            pipe_calls: std::collections::HashSet::new(),
         };
         parser.prime();
         parser
@@ -293,6 +296,7 @@ impl Parser {
 
         program.span = Span::new(start, self.current_token.end_position);
         program.doc_comments = self.build_doc_comment_index();
+        program.pipe_calls = std::mem::take(&mut self.pipe_calls);
         program
     }
 

@@ -1,0 +1,31 @@
+---
+source: tests/debug/vm_debug_tests.rs
+---
+> break 9
+breakpoint at reverse_far.flx:9
+> continue
+stopped: breakpoint at reverse_far.flx:9:5 in main (position 900007)
+     9 |     print(total)
+[n] checkpoints
+[n] checkpoints
+> reverse-step
+stopped: step at reverse_far.flx:4:5 in spin (position 900005)
+     4 |     if n == 0 { acc } else { spin(n - 1, acc + 1) }
+> reverse-step
+stopped: step at reverse_far.flx:3:1 in spin (position 900004)
+     3 | fn spin(n, acc) {
+> locals
+n = 0
+acc = 300000
+> goto 3
+stopped: step at reverse_far.flx:8:5 in main (position 3)
+     8 |     let total = spin(300000, 0)
+> locals
+no variables
+> continue
+stopped: breakpoint at reverse_far.flx:9:5 in main (position 900007)
+     9 |     print(total)
+> continue
+program finished
+--- program output ---
+300000
