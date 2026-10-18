@@ -30,6 +30,7 @@
 //! cargo run -- parity-check examples/guide --ways vm,llvm
 //! cargo run -- parity-check examples/effects --ways vm,llvm
 //! cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,vm_strict,llvm_strict
+//! cargo run -- parity-check tests/parity --ways llvm,llvm_heap
 //! ```
 
 pub mod census;
@@ -98,6 +99,9 @@ pub enum Way {
     VmOpt,
     /// The native backend with `--optimize`.
     LlvmOpt,
+    /// The native backend on the debug heap with `--leak-check`: a use after
+    /// free fails, and blocks still live at exit are counted (0190 S15).
+    LlvmHeap,
 }
 
 impl fmt::Display for Way {
@@ -114,13 +118,14 @@ impl fmt::Display for Way {
             Self::LlvmG => write!(f, "llvm_g"),
             Self::VmOpt => write!(f, "vm_opt"),
             Self::LlvmOpt => write!(f, "llvm_opt"),
+            Self::LlvmHeap => write!(f, "llvm_heap"),
         }
     }
 }
 
 impl Way {
     /// Every way, in the order a run reports them.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Vm,
         Self::Llvm,
         Self::VmCached,
@@ -132,6 +137,7 @@ impl Way {
         Self::LlvmG,
         Self::VmOpt,
         Self::LlvmOpt,
+        Self::LlvmHeap,
     ];
 
     pub fn parse(s: &str) -> Option<Self> {
@@ -147,6 +153,7 @@ impl Way {
             "llvm_g" => Some(Self::LlvmG),
             "vm_opt" => Some(Self::VmOpt),
             "llvm_opt" => Some(Self::LlvmOpt),
+            "llvm_heap" => Some(Self::LlvmHeap),
             _ => None,
         }
     }
@@ -199,6 +206,19 @@ impl Way {
         }
     }
 
+    /// Whether this way runs on the debug heap with `--leak-check`.
+    pub fn is_heap(self) -> bool {
+        self == Self::LlvmHeap
+    }
+
+    /// The way a heap way must behave like: the same build on the plain heap.
+    pub fn non_heap(self) -> Self {
+        match self {
+            Self::LlvmHeap => Self::Llvm,
+            other => other,
+        }
+    }
+
     pub fn backend_id(self) -> BackendId {
         match self {
             Self::Vm | Self::VmCached | Self::VmStrict | Self::VmDebug | Self::VmOpt => {
@@ -209,7 +229,8 @@ impl Way {
             | Self::LlvmStrict
             | Self::LlvmDebug
             | Self::LlvmG
-            | Self::LlvmOpt => BackendId::Llvm,
+            | Self::LlvmOpt
+            | Self::LlvmHeap => BackendId::Llvm,
         }
     }
 }
@@ -323,6 +344,18 @@ pub struct RunResult {
     pub normalized_stderr: String,
     /// Cache files observed after execution (for cached ways).
     pub cache_observations: Vec<CacheObservation>,
+    /// The debug heap's report of blocks live at exit, taken out of
+    /// `stderr` (heap ways only).
+    pub leak: Option<LeakReport>,
+}
+
+/// What `--leak-check` reported at the end of a run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeakReport {
+    pub blocks: usize,
+    /// The first site line, as the runtime printed it (`a String (8 bytes)
+    /// allocated at f (file.flx:2:5)`).
+    pub first_site: String,
 }
 
 /// A cache file that was created or found during execution.
@@ -476,6 +509,16 @@ pub enum MismatchDetail {
         unopt: String,
         opt: String,
     },
+    /// A heap way disagreed with the same build on the plain heap.
+    HeapModeMismatch {
+        plain_way: Way,
+        heap_way: Way,
+        field: String,
+        plain: String,
+        heap: String,
+    },
+    /// The debug heap stopped the program at a use after free.
+    HeapFault { way: Way, message: String },
     DiagnosticCodes {
         way: Way,
         expected: Vec<String>,
@@ -510,5 +553,16 @@ mod tests {
             assert_eq!(opt.backend_id(), backend);
         }
         assert_eq!(Way::Vm.non_opt(), Way::Vm);
+    }
+
+    #[test]
+    fn the_heap_way_pairs_with_plain_llvm() {
+        assert!(Way::LlvmHeap.is_heap());
+        assert_eq!(Way::LlvmHeap.non_heap(), Way::Llvm);
+        assert_eq!(Way::LlvmHeap.backend_id(), BackendId::Llvm);
+        assert!(!Way::LlvmHeap.is_opt() && !Way::LlvmHeap.is_cached());
+        for way in Way::ALL.into_iter().filter(|way| !way.is_heap()) {
+            assert_eq!(way.non_heap(), way, "{way}");
+        }
     }
 }

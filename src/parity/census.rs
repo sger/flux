@@ -102,10 +102,13 @@ fn one_line(text: &str) -> String {
 }
 
 /// Whether `way` is one the file's `// parity:` line allows. A line naming a
-/// plain way allows its optimized way too: `// parity: vm` rules out the
-/// native ways, not the optimizer.
+/// plain way allows its optimized and debug-heap ways too: `// parity: vm`
+/// rules out the native ways, not the optimizer or the debug heap.
 pub fn way_allowed(meta: &FixtureMeta, way: Way) -> bool {
-    !meta.declared_ways || meta.ways.contains(&way) || meta.ways.contains(&way.non_opt())
+    !meta.declared_ways
+        || meta.ways.contains(&way)
+        || meta.ways.contains(&way.non_opt())
+        || meta.ways.contains(&way.non_heap())
 }
 
 /// What the census knows about one checked file.
@@ -375,6 +378,7 @@ mod tests {
             normalized_stdout: stdout.to_string(),
             normalized_stderr: stderr.to_string(),
             cache_observations: Vec::new(),
+            leak: None,
         }
     }
 

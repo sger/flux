@@ -87,6 +87,7 @@ pub fn run_debug_way(
             normalized_stdout: transcript,
             normalized_stderr: String::new(),
             cache_observations: vec![],
+            leak: None,
         },
         Err(message) => failure(way, &message),
     }
@@ -112,6 +113,7 @@ fn failure(way: Way, message: &str) -> RunResult {
         normalized_stdout: String::new(),
         normalized_stderr: message.to_string(),
         cache_observations: vec![],
+        leak: None,
     }
 }
 
@@ -788,6 +790,7 @@ finished";
             normalized_stdout: stdout.to_string(),
             normalized_stderr: String::new(),
             cache_observations: vec![],
+            leak: None,
         }
     }
 

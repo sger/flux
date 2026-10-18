@@ -12,6 +12,8 @@
 //!   compared
 //! - `parity_g.txt`: the guide natively with and without `-g`
 //! - `parity_debug.txt`: the VM debugger and lldb compared
+//! - `parity_heap.txt`: native runs on the debug heap against plain ones,
+//!   with the files that leak
 //! - `summary.txt`: each step's result and time, for a later `--base`
 //!
 //! With `--base`, each sweep is compared with the same sweep of the earlier
@@ -87,8 +89,8 @@ fn step_count(options: &Options) -> usize {
         };
         SWEEPS.len() + checks + 1 + compares
     };
-    // fmt and clippy; the suite or a build; then the three parity steps.
-    2 + sweeps + 3
+    // fmt and clippy; the suite or a build; then the four parity steps.
+    2 + sweeps + 4
 }
 
 pub(crate) fn cargo() -> Command {
@@ -346,13 +348,10 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
         println!("{}", Paint::detect().bold(&format!("=== {dir}")));
         writeln!(log, "=== {dir}").map_err(io)?;
         let run = parity(root, &flux, dir, MAIN_WAYS, true, &mut log).map_err(io)?;
-        counts.mismatches += run.mismatches;
-        counts.expected += run.expected;
-        counts.failures.extend(run.failures);
-        counts.unexpected.extend(run.unexpected);
         if run.exit != 0 {
             failed_runs += 1;
         }
+        counts.absorb(run);
     }
     let took = started.elapsed();
     println!("took {}", format_duration(took));
@@ -408,6 +407,51 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
     .map_err(io)?;
     record_parity(&mut outcome, "debug parity", &counts, &log_path, started);
 
+    // The debug heap (0190 S15): each native run again on a heap that stops
+    // at a use after free and names the blocks live at exit. A fault or a
+    // different result fails; a leak is a note while nearly every program
+    // leaks (KI-119 to KI-121).
+    let started = steps.start("heap parity");
+    println!(
+        "each fixture natively on the plain heap and on the debug heap; output must agree, leaks are counted"
+    );
+    let log_path = out.join("parity_heap.txt");
+    let mut log = open_log(&log_path).map_err(io)?;
+    let mut counts = ParityCounts::default();
+    let mut failed_runs = 0;
+    let dirs = ["tests/parity", "examples/aether"];
+    for dir in dirs {
+        println!("{}", Paint::detect().bold(&format!("=== {dir}")));
+        writeln!(log, "=== {dir}").map_err(io)?;
+        let run = parity(root, &flux, dir, "llvm,llvm_heap", true, &mut log).map_err(io)?;
+        if run.exit != 0 {
+            failed_runs += 1;
+        }
+        counts.absorb(run);
+    }
+    let took = started.elapsed();
+    println!("took {}", format_duration(took));
+    let ok = counts.mismatches == 0 && counts.expected == 0 && failed_runs == 0;
+    let entry = outcome.record(
+        "heap parity",
+        ok,
+        format!(
+            "heap parity ({} MISMATCH, {} EXPECTED_OUTPUT_MISMATCH, {} file(s) leak, {failed_runs} of {} dir(s) exited non-zero)",
+            counts.mismatches,
+            counts.expected,
+            counts.leaks.len(),
+            dirs.len()
+        ),
+        took,
+    );
+    if !ok {
+        entry.details = capped(&counts.failures, &log_path);
+    }
+    note_unexpected_passes(&mut outcome, "heap parity", &counts, &log_path);
+    if let Some(line) = listed_note(&counts.leaks, "LEAK ", "file(s) leak", &log_path) {
+        outcome.note("heap parity", line, None);
+    }
+
     Ok(finish(&outcome, &out, base_out.as_deref(), options))
 }
 
@@ -444,6 +488,12 @@ fn note_unexpected_passes(outcome: &mut Outcome, step: &str, counts: &ParityCoun
 /// `2 skipped way(s) now pass: <first>, <second>`, the lines cut to their
 /// file, way and KI; past three, how many more and the log to read.
 fn unexpected_note(lines: &[String], log: &Path) -> Option<String> {
+    listed_note(lines, "UNEXPECTED_PASS ", "skipped way(s) now pass", log)
+}
+
+/// `<n> <what>: <first>; <second>; <third>; <more> more in <log>`, each line
+/// without its `prefix`; `None` when there are no lines.
+fn listed_note(lines: &[String], prefix: &str, what: &str, log: &Path) -> Option<String> {
     const SHOWN: usize = 3;
     if lines.is_empty() {
         return None;
@@ -451,16 +501,12 @@ fn unexpected_note(lines: &[String], log: &Path) -> Option<String> {
     let mut named: Vec<&str> = lines
         .iter()
         .take(SHOWN)
-        .map(|line| line.strip_prefix("UNEXPECTED_PASS ").unwrap_or(line))
+        .map(|line| line.strip_prefix(prefix).unwrap_or(line))
         .collect();
     let more = lines.len().saturating_sub(SHOWN);
     let rest = (more > 0).then(|| format!("{more} more in {}", log.display()));
     named.extend(rest.as_deref());
-    Some(format!(
-        "{} skipped way(s) now pass: {}",
-        lines.len(),
-        named.join("; ")
-    ))
+    Some(format!("{} {what}: {}", lines.len(), named.join("; ")))
 }
 
 /// At most [`MAX_DETAILS`] of `items`, then how many more, then the log to
@@ -643,9 +689,21 @@ pub(crate) struct ParityCounts {
     pub(crate) failures: Vec<String>,
     /// Each `UNEXPECTED_PASS` line: a skipped way that now passes.
     unexpected: Vec<String>,
+    /// Each `LEAK` line: a file with blocks live at exit on a heap way.
+    leaks: Vec<String>,
 }
 
 impl ParityCounts {
+    /// Adds another directory's counts and lines to these, for a step over
+    /// several; the caller counts the runs that exited non-zero.
+    fn absorb(&mut self, run: ParityCounts) {
+        self.mismatches += run.mismatches;
+        self.expected += run.expected;
+        self.failures.extend(run.failures);
+        self.unexpected.extend(run.unexpected);
+        self.leaks.extend(run.leaks);
+    }
+
     /// Counts `verdict`, and keeps `line` when it is a failing one.
     fn tally(&mut self, verdict: Verdict, line: &str) {
         match verdict {
@@ -742,6 +800,11 @@ pub(crate) fn parity(
             } else if plain.starts_with("UNEXPECTED_PASS ") {
                 counts.unexpected.push(plain.clone());
                 Some(paint.yellow(&plain))
+            } else if plain.starts_with("LEAK ") {
+                // Nearly every file leaks for now (KI-119 to KI-121): kept
+                // for the note and the log, not scrolled past.
+                counts.leaks.push(plain.clone());
+                None
             } else if plain.starts_with("[parity]") {
                 Some(paint.dim(&plain))
             } else if let Some(painted) = paint_summary_line(paint, &plain) {
@@ -804,7 +867,8 @@ fn paint_summary_line(paint: Paint, line: &str) -> Option<String> {
         "Mismatch" | "ExpectedMismatch" if count > 0 => paint.red(&digits),
         // Passes, and failure counts that are zero, are good news.
         "Pass" | "Mismatch" | "ExpectedMismatch" => paint.green(&digits),
-        "Skip" | "SkippedWays" | "UnexpectedPass" if count > 0 => paint.yellow(&digits),
+        "Skip" | "SkippedWays" | "UnexpectedPass" | "Leaks" if count > 0 => paint.yellow(&digits),
+        "Leaks" => paint.green(&digits),
         "Skip" | "SkippedWays" => paint.dim(&digits),
         _ => return None,
     };
@@ -923,6 +987,21 @@ mod tests {
     }
 
     #[test]
+    fn leaking_files_are_noted_without_their_prefix() {
+        let lines = ["LEAK a.flx llvm_heap: 5 blocks live at exit, first x".to_string()];
+        assert_eq!(
+            listed_note(
+                &lines,
+                "LEAK ",
+                "file(s) leak",
+                Path::new("parity_heap.txt")
+            )
+            .as_deref(),
+            Some("1 file(s) leak: a.flx llvm_heap: 5 blocks live at exit, first x")
+        );
+    }
+
+    #[test]
     fn each_sweep_has_its_own_folder_in_a_run() {
         assert_eq!(sweep_dir(Mode::Cfg), "sweep_cfg");
         assert_eq!(sweep_dir(Mode::CoreOpt), "sweep_core-opt");
@@ -938,19 +1017,19 @@ mod tests {
             skip_sweeps,
             det_sample: 50,
         };
-        // fmt+clippy, suite or build, then three parity steps.
-        assert_eq!(step_count(&options(true, true, None)), 5);
-        assert_eq!(step_count(&options(false, true, Some("main"))), 5);
+        // fmt+clippy, suite or build, then four parity steps.
+        assert_eq!(step_count(&options(true, true, None)), 6);
+        assert_eq!(step_count(&options(false, true, Some("main"))), 6);
         // Five sweeps, each with its determinism check, and the
         // internal-error tally.
-        assert_eq!(step_count(&options(false, false, None)), 16);
+        assert_eq!(step_count(&options(false, false, None)), 17);
         // And five comparisons with the base.
-        assert_eq!(step_count(&options(true, false, Some("main"))), 21);
+        assert_eq!(step_count(&options(true, false, Some("main"))), 22);
         let unchecked = Options {
             det_sample: 0,
             ..options(false, false, None)
         };
-        assert_eq!(step_count(&unchecked), 11);
+        assert_eq!(step_count(&unchecked), 12);
     }
 
     #[test]
@@ -986,6 +1065,14 @@ mod tests {
         assert_eq!(
             paint_summary_line(on, "SkippedWays: 0").as_deref(),
             Some("SkippedWays: \x1b[2m0\x1b[0m")
+        );
+        assert_eq!(
+            paint_summary_line(on, "Leaks: 4").as_deref(),
+            Some("Leaks: \x1b[33m4\x1b[0m")
+        );
+        assert_eq!(
+            paint_summary_line(on, "Leaks: 0").as_deref(),
+            Some("Leaks: \x1b[32m0\x1b[0m")
         );
         assert_eq!(paint_summary_line(on, "Mismatch: lots"), None);
         assert_eq!(paint_summary_line(on, "error: Mismatch: 2"), None);

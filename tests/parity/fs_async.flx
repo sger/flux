@@ -1,4 +1,5 @@
 // parity: vm, llvm
+// skip-way: llvm_heap: KI-122 the async runtime releases one of its own closures twice
 // expect: success
 // Flow.Fs operations use the blocking filesystem pool inside run_async.
 

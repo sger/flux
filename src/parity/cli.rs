@@ -477,10 +477,21 @@ impl CheckOpts<'_> {
 /// Splits `ways` into those to run and the `skip_ways` that remove one of
 /// them. A skip naming a way that was not requested is not reported.
 fn apply_skip_ways(ways: &[Way], skip_ways: &[SkipWay]) -> (Vec<Way>, Vec<SkipWay>) {
+    // A heap way is the plain build on the debug heap: what makes the plain
+    // way fail fails it too, so its skip carries over with the same KI.
+    let carried = skip_ways.iter().flat_map(|skip| {
+        ways.iter()
+            .filter(move |way| way.is_heap() && way.non_heap() == skip.way)
+            .map(move |&way| SkipWay {
+                way,
+                reason: skip.reason.clone(),
+            })
+    });
     let skipped: Vec<SkipWay> = skip_ways
         .iter()
         .filter(|skip| ways.contains(&skip.way))
         .cloned()
+        .chain(carried)
         .collect();
     let run = ways
         .iter()
@@ -745,6 +756,7 @@ fn judge(
     }
 
     details.extend(collect_opt_mode_details(run_results));
+    details.extend(collect_heap_mode_details(run_results));
 
     if !details.is_empty() {
         Verdict::Mismatch { details }
@@ -813,45 +825,98 @@ fn judge(
 }
 
 /// Optimizer parity: each opt way against its unoptimized counterpart. The
-/// optimizer must not change what a program does, so the exit kind always has
-/// to agree, stdout when both succeed, and stderr when either fails.
+/// optimizer must not change what a program does.
 fn collect_opt_mode_details(run_results: &[super::RunResult]) -> Vec<MismatchDetail> {
+    collect_paired_details(
+        run_results,
+        Way::is_opt,
+        Way::non_opt,
+        |field, unopt, opt| MismatchDetail::OptModeMismatch {
+            unopt_way: unopt.0,
+            opt_way: opt.0,
+            field: field.to_string(),
+            unopt: unopt.1,
+            opt: opt.1,
+        },
+    )
+}
+
+/// Debug-heap parity (0190 S15): `llvm_heap` against `llvm`. The debug heap
+/// must not change what a program does, and a use after free it stops at is
+/// a fault even when the plain build fails too. Leaks are counted apart.
+fn collect_heap_mode_details(run_results: &[super::RunResult]) -> Vec<MismatchDetail> {
+    let mut details = collect_paired_details(
+        run_results,
+        Way::is_heap,
+        Way::non_heap,
+        |field, plain, heap| MismatchDetail::HeapModeMismatch {
+            plain_way: plain.0,
+            heap_way: heap.0,
+            field: field.to_string(),
+            plain: plain.1,
+            heap: heap.1,
+        },
+    );
+    for run in run_results.iter().filter(|r| r.way.is_heap()) {
+        if let Some(line) = run
+            .stderr
+            .lines()
+            .find(|line| line.contains("use after free:"))
+        {
+            details.push(MismatchDetail::HeapFault {
+                way: run.way,
+                message: line.trim().to_string(),
+            });
+        }
+    }
+    details
+}
+
+/// Each run whose way `is_variant` against the run of `base_of(way)`, which
+/// it must behave like: the exit kind always agrees, stdout when both
+/// succeed, and stderr when either fails. A variant whose base did not run
+/// is not compared. `mismatch` gets the field, then (way, text) of the base
+/// and of the variant.
+fn collect_paired_details(
+    run_results: &[super::RunResult],
+    is_variant: fn(Way) -> bool,
+    base_of: fn(Way) -> Way,
+    mismatch: impl Fn(&str, (Way, String), (Way, String)) -> MismatchDetail,
+) -> Vec<MismatchDetail> {
     let mut details = Vec::new();
-    for opt in run_results.iter().filter(|r| r.way.is_opt()) {
-        let unopt_way = opt.way.non_opt();
-        let Some(unopt) = run_results.iter().find(|r| r.way == unopt_way) else {
+    for variant in run_results.iter().filter(|r| is_variant(r.way)) {
+        let base_way = base_of(variant.way);
+        let Some(base) = run_results.iter().find(|r| r.way == base_way) else {
             continue;
         };
-        let mut differ = |field: &str, unopt_text: String, opt_text: String| {
-            details.push(MismatchDetail::OptModeMismatch {
-                unopt_way,
-                opt_way: opt.way,
-                field: field.to_string(),
-                unopt: unopt_text,
-                opt: opt_text,
-            });
+        let mut differ = |field: &str, base_text: String, variant_text: String| {
+            details.push(mismatch(
+                field,
+                (base_way, base_text),
+                (variant.way, variant_text),
+            ));
         };
         let both_succeeded =
-            unopt.exit_kind == ExitKind::Success && opt.exit_kind == ExitKind::Success;
-        if unopt.exit_kind != opt.exit_kind {
+            base.exit_kind == ExitKind::Success && variant.exit_kind == ExitKind::Success;
+        if base.exit_kind != variant.exit_kind {
             differ(
                 "exit_kind",
-                unopt.exit_kind.to_string(),
-                opt.exit_kind.to_string(),
+                base.exit_kind.to_string(),
+                variant.exit_kind.to_string(),
             );
         }
-        if both_succeeded && unopt.normalized_stdout != opt.normalized_stdout {
+        if both_succeeded && base.normalized_stdout != variant.normalized_stdout {
             differ(
                 "stdout",
-                unopt.normalized_stdout.clone(),
-                opt.normalized_stdout.clone(),
+                base.normalized_stdout.clone(),
+                variant.normalized_stdout.clone(),
             );
         }
-        if !both_succeeded && unopt.normalized_stderr != opt.normalized_stderr {
+        if !both_succeeded && base.normalized_stderr != variant.normalized_stderr {
             differ(
                 "stderr",
-                unopt.normalized_stderr.clone(),
-                opt.normalized_stderr.clone(),
+                base.normalized_stderr.clone(),
+                variant.normalized_stderr.clone(),
             );
         }
     }
@@ -1411,6 +1476,7 @@ mod tests {
             normalized_stdout: stdout.to_string(),
             normalized_stderr: stderr.to_string(),
             cache_observations: vec![],
+            leak: None,
         }
     }
 
@@ -1669,6 +1735,21 @@ mod tests {
     }
 
     #[test]
+    fn a_skip_of_llvm_also_skips_the_heap_way() {
+        let skip = |way| SkipWay {
+            way,
+            reason: "KI-1".to_string(),
+        };
+        let (run, skipped) = apply_skip_ways(&[Way::Llvm, Way::LlvmHeap], &[skip(Way::Llvm)]);
+        assert!(run.is_empty());
+        assert_eq!(skipped, [skip(Way::Llvm), skip(Way::LlvmHeap)]);
+        // Without llvm requested, its skip still covers the heap way.
+        let (run, skipped) = apply_skip_ways(&[Way::Vm, Way::LlvmHeap], &[skip(Way::Llvm)]);
+        assert_eq!(run, [Way::Vm]);
+        assert_eq!(skipped, [skip(Way::LlvmHeap)]);
+    }
+
+    #[test]
     fn an_opt_way_must_print_what_its_plain_way_prints() {
         let run_results = vec![
             result(Way::Vm, ExitKind::Success, "1\n2", ""),
@@ -1706,6 +1787,64 @@ mod tests {
     fn an_opt_way_without_its_plain_way_is_not_compared() {
         let run_results = vec![result(Way::VmOpt, ExitKind::Success, "1", "")];
         assert!(collect_opt_mode_details(&run_results).is_empty());
+    }
+
+    fn heap_labels(run_results: &[super::super::RunResult]) -> Vec<String> {
+        collect_heap_mode_details(run_results)
+            .iter()
+            .map(mismatch_detail_label)
+            .collect()
+    }
+
+    #[test]
+    fn the_heap_way_must_print_what_plain_llvm_prints() {
+        let same = vec![
+            result(Way::Llvm, ExitKind::Success, "6", ""),
+            result(Way::LlvmHeap, ExitKind::Success, "6", ""),
+        ];
+        assert!(heap_labels(&same).is_empty());
+        let different = vec![
+            result(Way::Llvm, ExitKind::Success, "6", ""),
+            result(Way::LlvmHeap, ExitKind::Success, "7", ""),
+        ];
+        assert_eq!(heap_labels(&different), ["heap stdout: llvm vs llvm_heap"]);
+    }
+
+    #[test]
+    fn a_use_after_free_is_a_heap_fault_even_when_llvm_fails_too() {
+        let fault = "panic: use after free: copying a String that was already freed \
+                     (allocated at f (a.flx:1:1), freed at g (a.flx:2:1))";
+        let run_results = vec![
+            result(Way::Llvm, ExitKind::RuntimeError, "", "panic: boom"),
+            result(
+                Way::LlvmHeap,
+                ExitKind::RuntimeError,
+                "",
+                &format!("{fault}\nStack trace:"),
+            ),
+        ];
+        let details = collect_heap_mode_details(&run_results);
+        assert_eq!(
+            details
+                .iter()
+                .map(mismatch_detail_label)
+                .collect::<Vec<_>>(),
+            ["heap stderr: llvm vs llvm_heap", "heap_fault: llvm_heap"]
+        );
+        assert!(
+            matches!(&details[1], MismatchDetail::HeapFault { message, .. } if message == fault)
+        );
+    }
+
+    #[test]
+    fn the_heap_way_without_plain_llvm_still_reports_a_fault() {
+        let run_results = vec![result(
+            Way::LlvmHeap,
+            ExitKind::RuntimeError,
+            "",
+            "panic: use after free: dropping a tuple that was already freed",
+        )];
+        assert_eq!(heap_labels(&run_results), ["heap_fault: llvm_heap"]);
     }
 
     #[test]
@@ -2351,6 +2490,8 @@ Options:
   --ways <w1,w2,...>     Ways to compare (default: vm,llvm)
                          Available: vm, llvm, vm_cached, llvm_cached, vm_strict, llvm_strict,
                          llvm_g (native with -g); vm_opt, llvm_opt (with --optimize);
+                         llvm_heap (native with --leak-check: a use after free
+                         fails, blocks live at exit print LEAK lines);
                          vm_debug, llvm_debug (scripted debug sessions)
   --show <filter>        Show only: pass, fail, or all (default: all)
   --capture-core         Capture --dump-core per way and compare Core IR
@@ -3009,6 +3150,13 @@ fn mismatch_detail_label(detail: &MismatchDetail) -> String {
             field,
             ..
         } => format!("opt {field}: {unopt_way} vs {opt_way}"),
+        MismatchDetail::HeapModeMismatch {
+            plain_way,
+            heap_way,
+            field,
+            ..
+        } => format!("heap {field}: {plain_way} vs {heap_way}"),
+        MismatchDetail::HeapFault { way, .. } => format!("heap_fault: {way}"),
     }
 }
 
