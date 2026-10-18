@@ -58,7 +58,9 @@ static inline int flux_is_ptr(int64_t val) {
 }
 
 static inline int64_t flux_tag_int(int64_t raw) {
-    return (raw << 1) | 1;
+    /* Shifted unsigned: a left shift of a negative signed value is undefined
+     * in C (UBSan reports it, 0190 S15); the bits are the same. */
+    return (int64_t)(((uint64_t)raw << 1) | 1);
 }
 
 static inline int64_t flux_untag_int(int64_t val) {

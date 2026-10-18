@@ -194,11 +194,13 @@ fn native_output_path(request: &NativeRunRequest<'_>) -> PathBuf {
                     .unwrap_or("program");
                 // A debug-heap binary links another runtime: a plain run
                 // must not reuse it, nor the other way round (0188 S10c).
-                let kind = if request.output.debug_heap {
-                    ".debug-heap"
-                } else {
-                    ""
-                };
+                let kind =
+                    match flux::llvm::pipeline::RuntimeVariant::from_env(request.output.debug_heap)
+                    {
+                        flux::llvm::pipeline::RuntimeVariant::DebugHeap => ".debug-heap",
+                        flux::llvm::pipeline::RuntimeVariant::Sanitize => ".sanitize",
+                        flux::llvm::pipeline::RuntimeVariant::Plain => "",
+                    };
                 request
                     .cache
                     .cache_layout
@@ -291,11 +293,7 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
         }
 
         let frontend_ms = request.program.compile_start.elapsed().as_secs_f64() * 1000.0;
-        let runtime = if request.output.debug_heap {
-            flux::llvm::pipeline::RuntimeVariant::DebugHeap
-        } else {
-            flux::llvm::pipeline::RuntimeVariant::Plain
-        };
+        let runtime = flux::llvm::pipeline::RuntimeVariant::from_env(request.output.debug_heap);
         let runtime_lib_dir = locate_runtime_lib_dir(runtime);
         if request.runtime.verbose {
             eprintln!(
@@ -479,7 +477,7 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
             any_native_recompiled,
             binary_exists,
         ) && crate::driver::replay_session::native_child_env().is_none()
-            && !request.output.debug_heap;
+            && runtime == flux::llvm::pipeline::RuntimeVariant::Plain;
 
         if binary_up_to_date {
             if request.runtime.verbose {

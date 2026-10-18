@@ -281,6 +281,11 @@ pub enum RuntimeVariant {
     /// kept and poisoned, and the next dup or drop of one stops the program
     /// with where it was allocated and freed (`flux --debug-heap`, 0188 S10c).
     DebugHeap,
+    /// `libflux_rt_sanitize.a`, built with AddressSanitizer and
+    /// UndefinedBehaviorSanitizer, for `cargo xtask sanitize` (0190 S15).
+    /// Chosen by `FLUX_RT_SANITIZE=1`, so parity's runs inherit it. Not on
+    /// MSVC.
+    Sanitize,
 }
 
 impl RuntimeVariant {
@@ -289,6 +294,7 @@ impl RuntimeVariant {
         match self {
             RuntimeVariant::Plain => "flux_rt",
             RuntimeVariant::DebugHeap => "flux_rt_debug",
+            RuntimeVariant::Sanitize => "flux_rt_sanitize",
         }
     }
 
@@ -301,12 +307,38 @@ impl RuntimeVariant {
         }
     }
 
-    /// The preprocessor definitions this build adds.
+    /// The compile flags this build adds: definitions, or sanitizers.
     fn defines(self, msvc: bool) -> &'static [&'static str] {
         match (self, msvc) {
-            (RuntimeVariant::Plain, _) => &[],
+            (RuntimeVariant::Plain, _) | (RuntimeVariant::Sanitize, true) => &[],
             (RuntimeVariant::DebugHeap, false) => &["-DFLUX_DEBUG_HEAP"],
             (RuntimeVariant::DebugHeap, true) => &["/DFLUX_DEBUG_HEAP"],
+            // A report stops the program, so a parity run sees it fail.
+            (RuntimeVariant::Sanitize, false) => &[
+                "-fsanitize=address,undefined",
+                "-fno-sanitize-recover=undefined",
+                "-fno-omit-frame-pointer",
+            ],
+        }
+    }
+
+    /// What linking a program against this build adds: the sanitizers'
+    /// own runtimes.
+    fn link_flags(self) -> &'static [&'static str] {
+        match self {
+            RuntimeVariant::Sanitize => &["-fsanitize=address,undefined"],
+            RuntimeVariant::Plain | RuntimeVariant::DebugHeap => &[],
+        }
+    }
+
+    /// The variant `FLUX_RT_SANITIZE` asks for, when the debug heap is not.
+    pub fn from_env(debug_heap: bool) -> Self {
+        if debug_heap {
+            RuntimeVariant::DebugHeap
+        } else if std::env::var_os("FLUX_RT_SANITIZE").is_some_and(|v| !v.is_empty() && v != "0") {
+            RuntimeVariant::Sanitize
+        } else {
+            RuntimeVariant::Plain
         }
     }
 
@@ -316,6 +348,7 @@ impl RuntimeVariant {
         match self {
             RuntimeVariant::Plain => "",
             RuntimeVariant::DebugHeap => ".debug",
+            RuntimeVariant::Sanitize => ".sanitize",
         }
     }
 }
@@ -401,6 +434,7 @@ fn run_linker(
                 cmd.arg(format!("-L{}", dir.display()));
                 cmd.arg(format!("-l{}", runtime.stem()));
             }
+            cmd.args(runtime.link_flags());
             // libflux.a defines the Rust async bridge symbols referenced by
             // libflux_rt.a. Unix archive linkers extract members left-to-right,
             // so the provider archive must follow the C runtime archive.
@@ -1193,5 +1227,23 @@ mod tests {
         assert_eq!(debug.defines(false), ["-DFLUX_DEBUG_HEAP"]);
         assert_eq!(debug.defines(true), ["/DFLUX_DEBUG_HEAP"]);
         assert_ne!(plain.object_suffix(), debug.object_suffix());
+    }
+
+    #[test]
+    fn the_sanitized_runtime_is_its_own_library_and_links_its_sanitizers() {
+        let sanitize = RuntimeVariant::Sanitize;
+        assert_eq!(sanitize.stem(), "flux_rt_sanitize");
+        assert!(
+            sanitize
+                .defines(false)
+                .contains(&"-fsanitize=address,undefined")
+        );
+        assert!(sanitize.defines(true).is_empty());
+        assert_eq!(sanitize.link_flags(), ["-fsanitize=address,undefined"]);
+        assert!(RuntimeVariant::Plain.link_flags().is_empty());
+        assert_ne!(
+            sanitize.object_suffix(),
+            RuntimeVariant::DebugHeap.object_suffix()
+        );
     }
 }
