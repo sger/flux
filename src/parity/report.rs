@@ -884,7 +884,7 @@ pub fn print_summary(results: &[ParityResult]) {
     if unexpected_passes > 0 {
         println!("UnexpectedPass: {}", yellow(&unexpected_passes.to_string()));
     }
-    // Files that leak on a heap way; counted, not failed (KI-119 to KI-121).
+    // Files that leak on a heap way; counted, not failed (KI-119, KI-121).
     if heap_ran {
         println!("Leaks: {}", yellow(&leaks.to_string()));
     }

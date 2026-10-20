@@ -67,18 +67,14 @@ fn a_use_after_free_is_caught() {
         stderr.contains(
             "use after free: copying a constructor value that was already freed \
              (allocated at numbers (tests/native_llvm/debug_heap/use_after_free.flx:2:5), \
-             freed at main (tests/native_llvm/debug_heap/use_after_free.flx:15:16))"
+             freed at main (tests/native_llvm/debug_heap/use_after_free.flx:16:16))"
         ),
         "{stderr}"
     );
-    // Where the freed list was used again, and how the program got there.
+    // Where the freed list was used again: the call that lends it to `total`.
     assert!(stderr.contains("Stack trace:"), "{stderr}");
     assert!(
-        stderr.contains("at total (tests/native_llvm/debug_heap/use_after_free.flx:10:5)"),
-        "{stderr}"
-    );
-    assert!(
-        stderr.contains("at main (tests/native_llvm/debug_heap/use_after_free.flx:16:23)"),
+        stderr.contains("at main (tests/native_llvm/debug_heap/use_after_free.flx:17:23)"),
         "{stderr}"
     );
 }
@@ -157,6 +153,18 @@ fn kept_lists_survive_the_functions_they_are_lent_to() {
     }
 }
 
+/// A variable lent and given in the same call: the given reference is the
+/// callee's to free, so the lent one needs a reference of its own.
+#[test]
+fn a_list_lent_and_given_in_one_call_survives_the_call() {
+    let scratch = Scratch::new("debug-heap-lent-and-owned");
+    let file = "tests/native_llvm/debug_heap/lent_and_owned.flx";
+    let (vm, _, _) = run(&scratch, file, &["--vm"], None);
+    assert_eq!(vm, "3\n");
+    let (heap, stderr, code) = run(&scratch, file, &["--native", "--debug-heap"], None);
+    assert_eq!((heap.as_str(), code), ("3\n", 0), "{stderr}");
+}
+
 const LEAK_FIXTURE: &str = "tests/native_llvm/debug_heap/leak.flx";
 
 /// The lines of a leak report that name an allocation site.
@@ -187,7 +195,7 @@ fn a_leak_is_reported_at_exit_with_its_allocation_site() {
         assert_eq!(
             line,
             "  a constructor value (24 bytes) allocated at numbers \
-             (tests/native_llvm/debug_heap/leak.flx:6:5)",
+             (tests/native_llvm/debug_heap/leak.flx:5:5)",
             "{stderr}"
         );
     }
@@ -219,8 +227,21 @@ fn the_leak_fixture_frees_everything_without_the_fault() {
     assert!(!stderr.contains("leak:"), "{stderr}");
 }
 
+#[test]
+fn a_value_passed_by_ownership_is_freed_by_its_callee() {
+    let scratch = Scratch::new("debug-heap-owned-arg");
+    let (stdout, stderr, code) = run(
+        &scratch,
+        "tests/native_llvm/debug_heap/owned_arg.flx",
+        &["--native", "--leak-check"],
+        None,
+    );
+    assert_eq!((stdout.as_str(), code), ("", 0), "{stderr}");
+    assert!(!stderr.contains("leak:"), "{stderr}");
+}
+
 /// `--debug-heap` alone does not report leaks: nearly every program still
-/// leaks (KI-119 to KI-121).
+/// leaks (KI-119, KI-121).
 #[test]
 fn the_debug_heap_alone_does_not_report_leaks() {
     let scratch = Scratch::new("debug-heap-leak-off");

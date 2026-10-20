@@ -1,7 +1,6 @@
 // Frees every block it allocates: `leaked` and `many` are dropped as soon as
 // they are bound. The leak tests take those Drops away. Nothing reads the
-// lists, since a program that passes or reads one still leaks today
-// (KI-120, KI-121).
+// lists, since a program that lends or reads one still leaks today (KI-121).
 fn numbers(n) {
     [n, n + 1, n + 2]
 }

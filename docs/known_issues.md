@@ -92,33 +92,8 @@ xs } else { [] } }` drops `xs`).
 
 Also leaking, cause not yet split from this one: a list matched with `[h |
 _]` in `main` (3 cells) and a tuple destructured with `let (a, b) = t` (1
-block). Not checked on the VM, which frees through Rust's `Rc`.
-
-### KI-120 — Natively, every owned argument of a direct call is copied once too often
-
-**Severity:** Medium · **Area:** LIR lowering, call guards · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs · **Issue:** [#20](https://forgejo.spirosgerokostas.com/sger/flux/issues/20)
-
-`dup_owned_call_args` (`src/lir/lower.rs`, added in db7222b7 "fix aether
-examples") emits a `dup` of each argument passed `Owned` to a direct call, a
-primop or a constructor. Nothing drops that extra reference: Aether already
-hands the callee the caller's reference. For
-
-```flux
-fn main() {
-    let a = discard(numbers(1), false)
-    0
-}
-```
-
-the LIR is `dup %1; dup %3; call discard(%1, %3); drop %3; drop %4`: the
-borrowed `false` is guarded and released, the owned list is not. `discard`
-drops the list, its count goes from 2 to 1, and its 3 cells are never
-freed. So any heap value passed by ownership leaks natively: the debug heap
-counted 15 blocks allocated and 0 freed in such a program.
-
-Not yet known: which use after free the extra `dup` was hiding when it was
-added. Taking it out needs `--debug-heap` runs over `examples/aether` and
-`tests/parity` to find that first.
+block). A variable passed twice in one call, owned first and borrowed
+second (`f(xs, xs)`), leaks the reference the borrowed position holds. Not checked on the VM, which frees through Rust's `Rc`.
 
 ### KI-119 — Natively, the Console handler around `main` is never freed
 
@@ -2116,6 +2091,48 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-120 — Natively, every owned argument of a direct call was copied once too often — FIXED 2026-10-20
+
+**Severity:** Medium · **Area:** LIR lowering, call guards · **Verified fixed:** 2026-10-20 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs · **Issue:** [#20](https://forgejo.spirosgerokostas.com/sger/flux/issues/20)
+
+`dup_owned_call_args` (`src/lir/lower.rs`, added in db7222b7 "fix aether
+examples") emits a `dup` of each argument passed `Owned` to a direct call, a
+primop or a constructor. Nothing drops that extra reference: Aether already
+hands the callee the caller's reference. For
+
+```flux
+fn main() {
+    let a = discard(numbers(1), false)
+    0
+}
+```
+
+the LIR is `dup %1; dup %3; call discard(%1, %3); drop %3; drop %4`: the
+borrowed `false` is guarded and released, the owned list is not. `discard`
+drops the list, its count goes from 2 to 1, and its 3 cells are never
+freed. So any heap value passed by ownership leaks natively: the debug heap
+counted 15 blocks allocated and 0 freed in such a program.
+
+**The fix.** `dup_owned_call_args` is gone. The extra `dup` was hiding one
+use after free: a variable passed twice in one call, first to a borrowed
+parameter and then to an owned one, as in `both(xs, xs)`. Aether plans the
+arguments right to left, so the owned position, the last use of `xs`, took
+the caller's only reference without a `Dup`, and the borrowed position lent
+that same reference. The callee could free the list through one parameter
+and then read it through the other.
+`call_guard_mask` (`src/aether/insert.rs`) now also guards a borrowed argument
+whose variable, or a value it was taken from, is passed owned at its
+rightmost use in the same call. Further left, the owned position already gets
+its own `Dup`, and a guard there would only turn a tail call into a plain
+call.
+
+Tests: `tests/native_llvm/debug_heap/owned_arg.flx` (nothing live at exit
+under `--leak-check`) and `lent_and_owned.flx` (prints what the VM prints on
+the debug heap), plus a `call_guard_mask` unit test for both argument orders.
+The heap parity run over `tests/parity` and `examples/aether` found no
+other heap fault. The debugger's reference counts in `native_debug_tests` and
+`dap_tests` drop from 3 to 2, the true count.
 
 ### KI-004 — Native subprocess execution is POSIX-only — FIXED 2026-09-05
 

@@ -626,10 +626,10 @@ fn lldb_counts_references() {
     assert_lines(
         &session,
         &[
-            "xs: 3 references (shared)",
-            "ys: 3 references (shared)",
+            "xs: 2 references (shared)",
+            "ys: 2 references (shared)",
             "pair: 1 reference (unique: can be reused in place)",
-            "pair.0: 3 references (shared)",
+            "pair.0: 2 references (shared)",
             "`pair.5` has no part `5`",
         ],
     );

@@ -7,7 +7,8 @@ fn keep_if(xs, flag) {
 }
 
 fn total(xs) {
-    sum(xs)
+    let n = sum(xs)
+    n + len(keep_if(xs, false))
 }
 
 fn main() {
