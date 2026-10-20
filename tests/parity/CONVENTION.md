@@ -301,7 +301,6 @@ on the debug heap, for example a timeout from the slower allocator.
 `LEAK` lines do not fail a fixture. They count files with blocks still live
 at exit, and the summary's `Leaks:` line totals them. Nearly every native
 program leaks today ([KI-119](../../docs/known_issues.md#ki-119),
-[KI-120](../../docs/known_issues.md#ki-120),
 [KI-121](../../docs/known_issues.md#ki-121)); a fix for those should bring
 the count down.
 

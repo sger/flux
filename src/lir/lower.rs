@@ -2389,7 +2389,7 @@ impl<'a> FnLower<'a> {
                 }
             }
 
-            CoreExpr::App { func, args, .. } => self.lower_call_expr(func, args, None),
+            CoreExpr::App { func, args, .. } => self.lower_call_expr(func, args),
 
             // ── Pattern matching (Phase 3) ────────────────────────────
             CoreExpr::Case {
@@ -3548,12 +3548,7 @@ impl<'a> FnLower<'a> {
         result
     }
 
-    fn lower_call_expr(
-        &mut self,
-        func: &CoreExpr,
-        args: &[CoreExpr],
-        arg_modes: Option<&[crate::aether::borrow_infer::BorrowMode]>,
-    ) -> LirVar {
+    fn lower_call_expr(&mut self, func: &CoreExpr, args: &[CoreExpr]) -> LirVar {
         let resolved_name = match func {
             CoreExpr::Var { var, .. } if var.binder.is_none() => Some(self.resolve_name(var.name)),
             CoreExpr::MemberAccess { member, .. } => Some(self.resolve_name(*member)),
@@ -3564,7 +3559,6 @@ impl<'a> FnLower<'a> {
                 .or_else(|| CorePrimOp::from_name(name, args.len()))
         {
             let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr(a)).collect();
-            self.dup_owned_call_args(&arg_vars, arg_modes);
             let dst = self.fresh_var();
             self.emit(LirInstr::PrimCall {
                 dst: Some(dst),
@@ -3578,7 +3572,6 @@ impl<'a> FnLower<'a> {
             && let Some(&ctor_tag) = self.program.constructor_tags.get(name.as_str())
         {
             let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr(a)).collect();
-            self.dup_owned_call_args(&arg_vars, arg_modes);
             let dst = self.fresh_var();
             self.emit(LirInstr::MakeCtor {
                 dst,
@@ -3626,7 +3619,6 @@ impl<'a> FnLower<'a> {
         };
 
         let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr(a)).collect();
-        self.dup_owned_call_args(&arg_vars, arg_modes);
 
         if let Some(func_id) = direct_func_id {
             let cont_idx = self.new_block();
@@ -3796,7 +3788,6 @@ impl<'a> FnLower<'a> {
                 .or_else(|| CorePrimOp::from_name(name, args.len()))
         {
             let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr_aether(a)).collect();
-            self.dup_owned_call_args(&arg_vars, arg_modes);
             let dst = self.fresh_var();
             self.emit(LirInstr::PrimCall {
                 dst: Some(dst),
@@ -3810,7 +3801,6 @@ impl<'a> FnLower<'a> {
             && let Some(&ctor_tag) = self.program.constructor_tags.get(name.as_str())
         {
             let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr_aether(a)).collect();
-            self.dup_owned_call_args(&arg_vars, arg_modes);
             let dst = self.fresh_var();
             self.emit(LirInstr::MakeCtor {
                 dst,
@@ -3858,7 +3848,6 @@ impl<'a> FnLower<'a> {
         };
 
         let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr_aether(a)).collect();
-        self.dup_owned_call_args(&arg_vars, arg_modes);
         let protected_borrowed_args =
             self.dup_guarded_borrowed_call_args(&arg_vars, arg_modes, guarded_borrowed_args);
 
@@ -3999,23 +3988,6 @@ impl<'a> FnLower<'a> {
         self.switch_to_block(cont_idx);
         self.drop_protected_borrowed_call_args(&protected_borrowed_args);
         result
-    }
-
-    fn dup_owned_call_args(
-        &mut self,
-        arg_vars: &[LirVar],
-        arg_modes: Option<&[crate::aether::borrow_infer::BorrowMode]>,
-    ) {
-        use crate::aether::borrow_infer::BorrowMode;
-
-        let Some(arg_modes) = arg_modes else {
-            return;
-        };
-        for (index, arg_var) in arg_vars.iter().enumerate() {
-            if arg_modes.get(index) == Some(&BorrowMode::Owned) {
-                self.emit(LirInstr::Dup { val: *arg_var });
-            }
-        }
     }
 
     /// Keep a temporary owning reference for borrowed arguments whose Aether

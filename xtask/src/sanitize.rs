@@ -29,7 +29,7 @@ pub struct Options {
 }
 
 /// What the sanitized runs inherit. Leak detection stays off: native
-/// programs still leak (KI-119 to KI-121), which `--leak-check` counts.
+/// programs still leak (KI-119, KI-121), which `--leak-check` counts.
 const ENV: [(&str, &str); 3] = [
     ("FLUX_RT_SANITIZE", "1"),
     ("ASAN_OPTIONS", "detect_leaks=0"),

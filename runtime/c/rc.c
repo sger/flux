@@ -280,7 +280,7 @@ static void debug_check(FluxHeader *hdr, const char *operation) {
 #define FLUX_LEAK_SITES 10
 
 void flux_debug_heap_report_leaks(void) {
-    /* Opt-in while nearly every program still leaks (KI-119 to KI-121):
+    /* Opt-in while nearly every program still leaks (KI-119, KI-121):
      * --debug-heap alone stays a use-after-free check. */
     const char *wanted = getenv("FLUX_LEAK_CHECK");
     if (!wanted || !*wanted || strcmp(wanted, "0") == 0) return;

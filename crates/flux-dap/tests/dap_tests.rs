@@ -402,7 +402,7 @@ fn native_the_console_counts_references() {
         "native .refs pair"
     );
     assert!(
-        console_result(&mut editor, ".refs pair.0").contains("pair.0: 3 references (shared)"),
+        console_result(&mut editor, ".refs pair.0").contains("pair.0: 2 references (shared)"),
         "native .refs pair.0"
     );
     editor.request("continue", json!({ "threadId": thread }));

@@ -955,12 +955,32 @@ fn plan_expr(
 /// the caller still owns the argument (or a live scrutinee owns an extracted
 /// field), that count can under-report reachability and let the callee mutate
 /// the caller's value in place.
+///
+/// A binder also passed Owned in the same call can need a guard too. The
+/// arguments are planned right to left, so the rightmost use of a binder dead
+/// after the call takes no Dup: if that use is Owned, the callee gets the
+/// caller's only reference and may free it while a borrowed position still
+/// lends it. An Owned use further left already has its Dup, and a guard there
+/// would only add a Drop that blocks a tail call.
 fn call_guard_mask(
     args: &[CoreExpr],
     arg_modes: &[BorrowMode],
     tail_env: &AetherEnv,
     field_parents: &FieldParents,
 ) -> Vec<bool> {
+    let mut seen = HashSet::new();
+    let mut given = HashSet::new();
+    for (arg, mode) in args.iter().zip(arg_modes).rev() {
+        if let CoreExpr::Var { var, .. } = arg
+            && let Some(binder) = var.binder
+            && seen.insert(binder)
+            && *mode == BorrowMode::Owned
+        {
+            given.insert(binder);
+        }
+    }
+    let held = |binder: CoreBinderId| tail_env.is_live(binder) || given.contains(&binder);
+
     args.iter()
         .zip(arg_modes.iter())
         .map(|(arg, mode)| {
@@ -978,13 +998,13 @@ fn call_guard_mask(
                 return true;
             };
 
-            if tail_env.is_live(current) {
+            if held(current) {
                 return true;
             }
 
             let mut visited = HashSet::new();
             while let Some(field) = field_parents.get(&current) {
-                if tail_env.is_live(field.parent) {
+                if held(field.parent) {
                     return true;
                 }
                 if !visited.insert(current) || field.parent == current {
@@ -1865,6 +1885,29 @@ mod tests {
         assert_eq!(
             drops_for_x, 0,
             "borrow-only branch joins should not synthesize dead-path drops for the binder"
+        );
+    }
+
+    /// The same binder lent and given in one call: guard the lent position
+    /// only when the given one is the rightmost use, which the planner gives
+    /// the caller's reference without a Dup. Further left, the given position
+    /// already has its Dup, and a guard's Drop would block a tail call.
+    #[test]
+    fn a_binder_lent_and_given_in_one_call_is_guarded_only_when_given_last() {
+        let mut interner = Interner::new();
+        let xs = binder(&mut interner, 1, "xs");
+        let args = [var(xs), var(xs)];
+        let env = super::AetherEnv::default();
+        let parents = super::FieldParents::new();
+        let mask = |modes: &[BorrowMode]| super::call_guard_mask(&args, modes, &env, &parents);
+
+        assert_eq!(
+            mask(&[BorrowMode::Borrowed, BorrowMode::Owned]),
+            [true, false]
+        );
+        assert_eq!(
+            mask(&[BorrowMode::Owned, BorrowMode::Borrowed]),
+            [false, false]
         );
     }
 }

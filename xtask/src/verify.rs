@@ -410,7 +410,7 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
     // The debug heap (0190 S15): each native run again on a heap that stops
     // at a use after free and names the blocks live at exit. A fault or a
     // different result fails; a leak is a note while nearly every program
-    // leaks (KI-119 to KI-121).
+    // leaks (KI-119, KI-121).
     let started = steps.start("heap parity");
     println!(
         "each fixture natively on the plain heap and on the debug heap; output must agree, leaks are counted"
@@ -815,7 +815,7 @@ pub(crate) fn parity_with_env(
                 counts.unexpected.push(plain.clone());
                 Some(paint.yellow(&plain))
             } else if plain.starts_with("LEAK ") {
-                // Nearly every file leaks for now (KI-119 to KI-121): kept
+                // Nearly every file leaks for now (KI-119, KI-121): kept
                 // for the note and the log, not scrolled past.
                 counts.leaks.push(plain.clone());
                 None
