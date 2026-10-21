@@ -1,0 +1,11 @@
+// 0189 V2: a closure returns its capture on each of two calls, and the list
+// is read again afterwards.
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn main() {
+    let xs = numbers(1)
+    let f = \() -> xs
+    print(len(f()) + len(f()) + len(xs))
+}

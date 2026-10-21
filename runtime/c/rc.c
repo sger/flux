@@ -172,6 +172,10 @@ static FluxDebugPrefix *live_first = NULL;
 static FluxDebugPrefix *live_last  = NULL;
 static size_t           live_count = 0;
 static atomic_flag      live_lock  = ATOMIC_FLAG_INIT;
+/* Every block allocated and freed so far, for FLUX_HEAP_STATS (0189 F3-0).
+ * In-place reuse goes through neither, so a reused cell counts once. */
+static size_t           heap_allocs = 0;
+static size_t           heap_frees  = 0;
 
 static void live_lock_acquire(void) {
     while (atomic_flag_test_and_set_explicit(&live_lock, memory_order_acquire)) {
@@ -193,6 +197,7 @@ static void live_link(FluxDebugPrefix *prefix) {
     }
     live_last = prefix;
     live_count++;
+    heap_allocs++;
     live_lock_release();
 }
 
@@ -210,6 +215,7 @@ static void live_unlink(FluxDebugPrefix *prefix) {
     }
     prefix->prev = prefix->next = NULL;
     live_count--;
+    heap_frees++;
     live_lock_release();
 }
 
@@ -278,6 +284,16 @@ static void debug_check(FluxHeader *hdr, const char *operation) {
 #define DEBUG_CHECK(hdr, operation) debug_check((hdr), (operation))
 
 #define FLUX_LEAK_SITES 10
+
+void flux_debug_heap_report_stats(void) {
+    const char *wanted = getenv("FLUX_HEAP_STATS");
+    if (!wanted || !*wanted || strcmp(wanted, "0") == 0) return;
+    live_lock_acquire();
+    size_t allocs = heap_allocs, frees = heap_frees, live = live_count;
+    live_lock_release();
+    fprintf(stderr, "heap: allocs=%zu frees=%zu live=%zu\n", allocs, frees, live);
+    fflush(stderr);
+}
 
 void flux_debug_heap_report_leaks(void) {
     /* Opt-in while nearly every program still leaks (KI-119, KI-121):

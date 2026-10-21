@@ -1,0 +1,35 @@
+// An element of an array matched and rebuilt into a new Some, and guards
+// that read the array.
+
+fn numbers(n) {
+    [|[n], [n + 1], [n + 2]|]
+}
+
+fn guarded(n, k) {
+    let xs = numbers(n)
+    match k {
+        v if v > len(xs) -> 100,
+        v if v == 1 -> v + len(xs),
+        _ -> 0
+    }
+}
+
+fn early(n) {
+    let xs = numbers(n)
+    let h = xs[0]
+    if n > 3 {
+        return h;
+    }
+    match h {
+        Some(v) -> Some(v),
+        _ -> None
+    }
+}
+
+fn main() {
+    print(guarded(1, 9))
+    print(guarded(1, 1))
+    print(guarded(1, 2))
+    print(early(5))
+    print(early(1))
+}

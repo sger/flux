@@ -1,0 +1,29 @@
+// 0189 V1: a list rebuilt while another binder still holds it, then
+// both are matched again.
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn bump(xs) {
+    match xs {
+        [h | t] -> [h + 1 | t],
+        _ -> []
+    }
+}
+
+fn consume(xs, ys) {
+    match xs {
+        [h | t] -> [h | ys],
+        _ -> ys
+    }
+}
+
+fn main() {
+    let xs = numbers(1)
+    let b = bump(xs)
+    let c = consume(xs, [])
+    let d = consume(b, [])
+    print(len(c) + len(d))
+    print(xs)
+    print(b)
+}

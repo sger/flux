@@ -253,6 +253,12 @@ use sha2::{Digest, Sha256};
 /// Epoch 78: a parameter a function may release (reuse in place, or keep in
 /// a collection) is inferred Owned, and a Borrowed one is never released, so
 /// an epoch-77 unit's borrow signatures and code disagree with its callers'.
+/// Epoch 79: a line-tables-only unit asks for profiling debug info, so
+/// outside Darwin a trace names a function's frame by its Flux name, where an
+/// epoch-78 object had dropped it.
+/// Epoch 80: a literal takes the location of the expression using it on its
+/// line, so a debugger stops at the call, where an epoch-79 object stopped at
+/// the literal.
 pub const CACHE_EPOCH: u16 = 80;
 
 /// Identity of the *build* that produced this compiler, not just its released
