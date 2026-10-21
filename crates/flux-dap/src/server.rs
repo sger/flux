@@ -49,12 +49,17 @@ const LABEL_FRAMES: i64 = 1_000_000;
 const OTHER_FRAMES: i64 = 3_000_000;
 /// In a native session, frame ids at or above this are lines the session
 /// adds to lldb-dap's stack: `⟂ handling …` labels and the frames an effect
-/// handler holds (0188 S7). They have no variables.
-const SPLICED_FRAMES: i64 = 2_000_000;
+/// handler holds (0188 S7). They have no variables. lldb-dap's own frame ids
+/// are `(thread index << 19) + frame`, past two million from the fourth
+/// thread on, so the session's start far above them and still well inside
+/// what a JSON number holds exactly (2^53).
+const SPLICED_FRAMES: i64 = 1 << 48;
 /// In a native session, thread ids at or above this are fibers that wait:
 /// `FIBER_THREADS + n` is thread `n` of `flux threads` (0188 S8). A running
-/// fiber is the OS thread lldb-dap knows it by.
-const FIBER_THREADS: i64 = 5_000_000;
+/// fiber is the OS thread lldb-dap knows it by. On macOS that id counts the
+/// threads made since boot, millions after a day or two, so fibers start
+/// above anything it reaches.
+const FIBER_THREADS: i64 = 1 << 49;
 
 /// A `variablesReference`: a frame's scope, or a value in it.
 #[derive(Debug, Clone)]
@@ -525,7 +530,7 @@ impl<W: FnMut(Value)> Session<W> {
         let mut message = message;
         // A fiber that waits is no thread of lldb-dap's: run requests go
         // to the thread the program stopped in.
-        if message["arguments"]["threadId"].as_i64() >= Some(FIBER_THREADS)
+        if is_fiber_thread(&message)
             && command != "stackTrace"
             && let Some(stopped) = self.native_stopped
         {
@@ -543,7 +548,7 @@ impl<W: FnMut(Value)> Session<W> {
                 }
                 return;
             }
-            "stackTrace" if message["arguments"]["threadId"].as_i64() >= Some(FIBER_THREADS) => {
+            "stackTrace" if is_fiber_thread(&message) => {
                 let arguments = &message["arguments"];
                 let number = arguments["threadId"].as_i64().unwrap_or(0) - FIBER_THREADS;
                 let held = json!({
@@ -655,11 +660,11 @@ impl<W: FnMut(Value)> Session<W> {
                 }
                 return;
             }
-            "scopes" if message["arguments"]["frameId"].as_i64() >= Some(SPLICED_FRAMES) => {
+            "scopes" if is_spliced_frame(&message) => {
                 self.respond(&message, Ok(json!({ "scopes": [] })));
                 return;
             }
-            "evaluate" if message["arguments"]["frameId"].as_i64() >= Some(SPLICED_FRAMES) => {
+            "evaluate" if is_spliced_frame(&message) => {
                 if let Some(arguments) = message["arguments"].as_object_mut() {
                     arguments.remove("frameId");
                 }
@@ -1488,6 +1493,18 @@ fn exception_label(kind: &str) -> &str {
     }
 }
 
+/// Whether a native request names a fiber that waits, not a thread of
+/// lldb-dap's.
+fn is_fiber_thread(request: &Value) -> bool {
+    request["arguments"]["threadId"].as_i64() >= Some(FIBER_THREADS)
+}
+
+/// Whether a native request names a frame the session added to lldb-dap's
+/// stack.
+fn is_spliced_frame(request: &Value) -> bool {
+    request["arguments"]["frameId"].as_i64() >= Some(SPLICED_FRAMES)
+}
+
 fn capabilities() -> Value {
     json!({
         "supportsConfigurationDoneRequest": true,
@@ -1499,4 +1516,26 @@ fn capabilities() -> Value {
         "supportsLoadedSourcesRequest": false,
         "supportsSetVariable": false,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// On macOS a thread id counts every thread since boot: this one is from
+    /// a Mac up for 40 hours, where the program's own thread was taken for a
+    /// waiting fiber and its stack came back empty.
+    #[test]
+    fn a_thread_lldb_dap_names_is_not_a_fiber() {
+        let request = json!({ "arguments": { "threadId": 7_175_886 } });
+        assert!(!is_fiber_thread(&request));
+    }
+
+    /// lldb-dap numbers a frame `(thread index << 19) + frame`, so the frames
+    /// of the fourth thread are past two million.
+    #[test]
+    fn a_frame_lldb_dap_names_is_not_one_the_session_added() {
+        let request = json!({ "arguments": { "frameId": (4 << 19) + 2 } });
+        assert!(!is_spliced_frame(&request));
+    }
 }
