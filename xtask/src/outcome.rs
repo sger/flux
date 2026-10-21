@@ -109,15 +109,7 @@ impl Outcome {
             })
             .collect();
         let total_time = format!("{}{}", format_duration(total), delta(TOTAL, total));
-        // Wide enough that every time lines up, however long a line is.
-        let width = self
-            .entries
-            .iter()
-            .zip(&times)
-            .map(|(entry, time)| entry.line.chars().count() + 2 + time.chars().count())
-            .chain([MIN_WIDTH])
-            .max()
-            .unwrap_or(MIN_WIDTH);
+        let width = self.width(&times);
         let rule = "─".repeat(width + 5);
         println!("{}", paint.banner(&rule));
         println!(
@@ -140,6 +132,17 @@ impl Outcome {
             }
         }
         println!("     {}", paint.bold(&pad("total", &total_time, width)));
+    }
+
+    /// Wide enough that every time lines up, however long a line is.
+    fn width(&self, times: &[String]) -> usize {
+        self.entries
+            .iter()
+            .zip(times)
+            .map(|(entry, time)| entry.line.chars().count() + 2 + time.chars().count())
+            .chain([MIN_WIDTH])
+            .max()
+            .unwrap_or(MIN_WIDTH)
     }
 
     /// The summary as a file: one tab-separated `step, mark, seconds, line`
@@ -289,6 +292,17 @@ mod tests {
         assert!(!outcome.failed());
         outcome.record("debug parity", false, "debug parity".into(), secs(1));
         assert!(outcome.failed());
+    }
+
+    /// A note has no time to line up, and one listing 151 leaking files made
+    /// every row and rule wrap across the screen.
+    #[test]
+    fn a_long_note_does_not_widen_the_summary() {
+        let mut outcome = Outcome::new();
+        outcome.record("fmt", true, "fmt".into(), secs(1));
+        outcome.note("heap parity", "x".repeat(600), None);
+        let times = ["0:01".to_string(), String::new()];
+        assert_eq!(outcome.width(&times), MIN_WIDTH);
     }
 
     #[test]
