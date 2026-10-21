@@ -9,7 +9,7 @@ use flux::core::{
 };
 use flux::diagnostics::Diagnostic;
 use flux::runtime::value::Value;
-use flux::syntax::{lexer::Lexer, module_graph::ModuleGraph, parser::Parser};
+use flux::syntax::{interner::Interner, lexer::Lexer, module_graph::ModuleGraph, parser::Parser};
 use flux::types::infer_type::InferType;
 
 fn parse_and_infer(
@@ -17,7 +17,7 @@ fn parse_and_infer(
 ) -> (
     flux::syntax::program::Program,
     HashMap<flux::syntax::expression::ExprId, InferType>,
-    flux::syntax::interner::Interner,
+    Interner,
 ) {
     let lexer = Lexer::new(src);
     let mut parser = Parser::new(lexer);
@@ -126,6 +126,10 @@ fn count_matching(expr: &CoreExpr, predicate: &impl Fn(&CoreExpr) -> bool) -> us
 }
 
 fn lowered_core(src: impl AsRef<str>) -> AetherProgram {
+    lowered_core_and_interner(src).0
+}
+
+fn lowered_core_and_interner(src: impl AsRef<str>) -> (AetherProgram, Interner) {
     let (program, types, interner) = parse_and_infer(src.as_ref());
     let mut core = lower_program_ast(&program, &types);
     run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
@@ -134,7 +138,23 @@ fn lowered_core(src: impl AsRef<str>) -> AetherProgram {
     let (aether, _warnings) =
         lower_core_to_aether_program(&core, Some(&interner), preloaded_registry)
             .expect("aether lowering should succeed");
-    aether
+    (aether, interner)
+}
+
+/// How many `Dup`s of a binder named `name` the program holds.
+fn dups_named(core: &AetherProgram, interner: &Interner, name: &str) -> usize {
+    let Some(name) = interner.lookup(name) else {
+        return 0;
+    };
+    core.defs
+        .iter()
+        .map(|def| {
+            count_matching(
+                &def.expr,
+                &|expr| matches!(expr, CoreExpr::Dup { var, .. } if var.name == name),
+            )
+        })
+        .sum()
 }
 
 fn compile_fixture_warnings(rel: &str) -> Vec<Diagnostic> {
@@ -557,18 +577,16 @@ fn maintained_drop_spec_branchy_fixture_emits_reuse_inside_drop_specialized() {
 
 #[test]
 fn maintained_drop_spec_recursive_fixture_skips_drop_specialized_for_int_elements() {
-    // Phase 7e: `h` in [h | t] is IntRep (typed pattern binders), so
-    // DropSpecialized is no longer emitted — no dup/drop divergence.
+    // Phase 7e: `h` in [h | t] is IntRep (typed pattern binders), so it is
+    // never copied. `t` is, where it is given away (0189 F3-2a), so the arm
+    // may still be drop-specialized for it.
     let src = std::fs::read_to_string("examples/aether/drop_spec_recursive.flx")
         .expect("fixture should exist");
-    let core = lowered_core(src);
-    assert!(
-        !core
-            .defs
-            .iter()
-            .flat_map(|def| collect_core_exprs(&def.expr))
-            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })),
-        "typed pattern binders (IntRep) should eliminate DropSpecialized for integer list elements"
+    let (core, interner) = lowered_core_and_interner(src);
+    assert_eq!(
+        dups_named(&core, &interner, "h"),
+        0,
+        "typed pattern binders (IntRep) keep integer list elements uncounted"
     );
 }
 
@@ -657,9 +675,8 @@ fn main() { keep_right_only(Node(Red, Leaf, 5, Leaf)) }
 
 #[test]
 fn drop_spec_list_multiuse_field_skips_drop_specialized_for_int_elements() {
-    // Phase 7e: `h` in `[h | t]` is now IntRep (from typed pattern binders),
-    // so no dup/drop divergence between unique/shared paths — DropSpecialized
-    // is unnecessary when list elements are unboxed primitives.
+    // Phase 7e: `h` in `[h | t]` is IntRep (from typed pattern binders), so
+    // however often it is used it is never copied.
     let src = r#"
 fn copy_head(xs) {
     match xs {
@@ -669,14 +686,11 @@ fn copy_head(xs) {
 }
 fn main() { copy_head([1, 2, 3]) }
 "#;
-    let core = lowered_core(src);
-    assert!(
-        !core
-            .defs
-            .iter()
-            .flat_map(|def| collect_core_exprs(&def.expr))
-            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })),
-        "typed pattern binders (IntRep) should eliminate DropSpecialized for integer list elements"
+    let (core, interner) = lowered_core_and_interner(src);
+    assert_eq!(
+        dups_named(&core, &interner, "h"),
+        0,
+        "typed pattern binders (IntRep) keep integer list elements uncounted"
     );
 }
 
@@ -730,7 +744,7 @@ fn main() with IO { shadow_in_handler(41) }
 
 #[test]
 fn drop_spec_branchy_list_update_skips_drop_specialized_for_int_elements() {
-    // Phase 7e: `h` is IntRep — no dup/drop divergence, DropSpecialized unnecessary.
+    // Phase 7e: `h` is IntRep, so it is never copied.
     let src = r#"
 fn copy_or_keep_head(xs, copy) {
     match xs {
@@ -740,14 +754,11 @@ fn copy_or_keep_head(xs, copy) {
 }
 fn main() { copy_or_keep_head([1, 2, 3], true) }
 "#;
-    let core = lowered_core(src);
-    assert!(
-        !core
-            .defs
-            .iter()
-            .flat_map(|def| collect_core_exprs(&def.expr))
-            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })),
-        "typed pattern binders (IntRep) should eliminate DropSpecialized for integer list elements"
+    let (core, interner) = lowered_core_and_interner(src);
+    assert_eq!(
+        dups_named(&core, &interner, "h"),
+        0,
+        "typed pattern binders (IntRep) keep integer list elements uncounted"
     );
 }
 
@@ -797,7 +808,7 @@ fn main() { keep_or_dup_left(Node(Red, Leaf, 5, Leaf), false) }
 
 #[test]
 fn drop_spec_recursive_update_skips_drop_specialized_for_int_elements() {
-    // Phase 7e: `h` is IntRep — no dup/drop divergence, DropSpecialized unnecessary.
+    // Phase 7e: `h` is IntRep, so it is never copied.
     let src = r#"
 fn rec_copy_or_keep(xs, choose) {
     match xs {
@@ -807,14 +818,11 @@ fn rec_copy_or_keep(xs, choose) {
 }
 fn main() { rec_copy_or_keep([1, 2, 3], false) }
 "#;
-    let core = lowered_core(src);
-    assert!(
-        !core
-            .defs
-            .iter()
-            .flat_map(|def| collect_core_exprs(&def.expr))
-            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })),
-        "typed pattern binders (IntRep) should eliminate DropSpecialized for integer list elements"
+    let (core, interner) = lowered_core_and_interner(src);
+    assert_eq!(
+        dups_named(&core, &interner, "h"),
+        0,
+        "typed pattern binders (IntRep) keep integer list elements uncounted"
     );
 }
 

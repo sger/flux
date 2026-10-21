@@ -5,6 +5,7 @@
 //! `Reuse(x, tag, fields)` which reuses x's allocation if uniquely owned.
 
 use crate::core::{CoreBinderId, CorePat, CoreTag, CoreVarRef};
+use crate::diagnostics::position::Span;
 use crate::shared::opt_bisect;
 
 use super::reuse_analysis::rewrite_drop_body;
@@ -353,7 +354,8 @@ fn rewrite_with_ctx(
         } => {
             let shared_body =
                 rewrite_with_ctx(*shared_body, pat_binders, pat_tag, scrutinee.binder);
-            let unique_body = insert_reuse_in_unique(&scrutinee, *unique_body, pat_tag);
+            let unique_body =
+                reuse_on_unique_path(&scrutinee, *unique_body, pat_binders, pat_tag, span);
             CoreExpr::DropSpecialized {
                 scrutinee,
                 unique_body: Box::new(unique_body),
@@ -401,6 +403,42 @@ fn is_heap_tag(tag: &CoreTag) -> bool {
     match tag {
         CoreTag::Cons | CoreTag::Some | CoreTag::Left | CoreTag::Right | CoreTag::Named(_) => true,
         CoreTag::Nil | CoreTag::None => false,
+    }
+}
+
+/// The unique path of a `DropSpecialized`: a Con on its spine reuses the
+/// cell. When there is none, the cell may still be built further in, as one
+/// bound by a `let` and passed to a wrapper is; it is looked for there as a
+/// plain drop's body is, so splitting an arm never costs it its reuse.
+fn reuse_on_unique_path(
+    scrutinee: &CoreVarRef,
+    body: CoreExpr,
+    pat_binders: Option<&[Option<CoreBinderId>]>,
+    pat_tag: Option<&CoreTag>,
+    span: Span,
+) -> CoreExpr {
+    let original = body.clone();
+    let walked = insert_reuse_in_unique(scrutinee, body, pat_tag);
+    // drop_spec keeps the cell out of the unique path, so any use of it now
+    // is a Reuse the walk put there.
+    let reused = scrutinee
+        .binder
+        .is_some_and(|id| super::analysis::use_counts_aether(&walked).contains_key(&id));
+    if reused {
+        return walked;
+    }
+    let rewritten = rewrite_drop_body(
+        scrutinee,
+        rewrite_with_pat_ctx(original, None, pat_tag),
+        span,
+        pat_binders,
+        pat_tag,
+        None,
+    );
+    if rewritten.reused {
+        rewritten.expr
+    } else {
+        walked
     }
 }
 
@@ -488,5 +526,93 @@ fn insert_reuse_in_unique(
         },
         // No compatible Con found — return body unchanged, recurse normally
         other => rewrite_with_pat_ctx(other, None, pat_tag),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::aether::borrow_infer::BorrowMode;
+    use crate::aether::{AetherAlt as CoreAlt, AetherExpr as CoreExpr};
+    use crate::core::{CoreBinder, CoreBinderId, CorePat, CoreTag, CoreVarRef};
+    use crate::diagnostics::position::Span;
+    use crate::syntax::interner::Interner;
+
+    fn v(binder: CoreBinder) -> CoreExpr {
+        CoreExpr::bound_var(binder, Span::default())
+    }
+
+    fn reuses_of(expr: &CoreExpr, token: CoreBinderId) -> usize {
+        match expr {
+            CoreExpr::Reuse {
+                token: t, fields, ..
+            } => {
+                usize::from(t.binder == Some(token))
+                    + fields.iter().map(|f| reuses_of(f, token)).sum::<usize>()
+            }
+            CoreExpr::Let { rhs, body, .. } => reuses_of(rhs, token) + reuses_of(body, token),
+            CoreExpr::Con { fields: args, .. } | CoreExpr::AetherCall { args, .. } => {
+                args.iter().map(|a| reuses_of(a, token)).sum()
+            }
+            CoreExpr::Case { alts, .. } => alts.iter().map(|alt| reuses_of(&alt.rhs, token)).sum(),
+            CoreExpr::DropSpecialized { unique_body, .. } => reuses_of(unique_body, token),
+            CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => reuses_of(body, token),
+            _ => 0,
+        }
+    }
+
+    /// `[y | ys] -> Pair2([y | acc], ys)` once drop_spec has split it: the
+    /// unique path holds `xs`'s cell alone, so the new cell bound in a `let`
+    /// and passed to the wrapper reuses it, as it does under a plain `drop`.
+    #[test]
+    fn a_unique_path_reuses_a_cell_passed_through_a_let() {
+        let mut interner = Interner::new();
+        let pair2 = interner.intern("Pair2");
+        let [xs, y, ys, acc, tmp] = [(1, "xs"), (2, "y"), (3, "ys"), (4, "acc"), (5, "tmp")]
+            .map(|(id, name)| CoreBinder::new(CoreBinderId(id), interner.intern(name)));
+        let wrap = |tail| CoreExpr::Let {
+            var: tmp,
+            rhs: Box::new(CoreExpr::Con {
+                tag: CoreTag::Cons,
+                fields: vec![v(y), v(acc)],
+                span: Span::default(),
+            }),
+            body: Box::new(CoreExpr::AetherCall {
+                func: Box::new(CoreExpr::Var {
+                    var: CoreVarRef::unresolved(pair2),
+                    span: Span::default(),
+                }),
+                args: vec![v(tmp), tail],
+                arg_modes: vec![BorrowMode::Owned, BorrowMode::Owned],
+                guarded_borrowed_args: vec![false, false],
+                span: Span::default(),
+            }),
+            span: Span::default(),
+        };
+        let expr = CoreExpr::Case {
+            scrutinee: Box::new(v(xs)),
+            alts: vec![CoreAlt {
+                pat: CorePat::Con {
+                    tag: CoreTag::Cons,
+                    fields: vec![CorePat::Var(y), CorePat::Var(ys)],
+                },
+                guard: None,
+                rhs: CoreExpr::DropSpecialized {
+                    scrutinee: CoreVarRef::resolved(&xs),
+                    unique_body: Box::new(wrap(v(ys))),
+                    shared_body: Box::new(wrap(CoreExpr::Dup {
+                        var: CoreVarRef::resolved(&ys),
+                        body: Box::new(v(ys)),
+                        span: Span::default(),
+                    })),
+                    span: Span::default(),
+                },
+                span: Span::default(),
+            }],
+            join_ty: None,
+            span: Span::default(),
+        };
+
+        let rewritten = super::insert_reuse(expr);
+        assert_eq!(reuses_of(&rewritten, xs.id), 1, "{rewritten:?}");
     }
 }

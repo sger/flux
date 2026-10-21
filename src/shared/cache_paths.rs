@@ -262,7 +262,9 @@ use sha2::{Digest, Sha256};
 /// Epoch 81: the C runtime counts the values it hands out, shares and stores
 /// (0189 F3-1); a cached binary linked against the epoch-80 runtime freed a
 /// value an array, map or option still held.
-pub const CACHE_EPOCH: u16 = 81;
+/// Epoch 82: a pattern or tuple field given away is copied first (0189
+/// F3-2a); an epoch-81 unit moved it out of the cell that still held it.
+pub const CACHE_EPOCH: u16 = 82;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

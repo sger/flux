@@ -973,13 +973,11 @@ fn check_diagnostics(expr: &AetherExpr, diags: &mut Vec<AetherDiagnostic>) {
                 check_diagnostics(&h.body, diags);
             }
         }
-        AetherExpr::DropSpecialized {
-            unique_body,
-            shared_body,
-            ..
-        } => {
+        // The shared path is the unique one with the cell still held: it
+        // builds fresh cells by design, and what else it holds the unique
+        // path holds too.
+        AetherExpr::DropSpecialized { unique_body, .. } => {
             check_diagnostics(unique_body, diags);
-            check_diagnostics(shared_body, diags);
         }
         AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
             check_diagnostics(object, diags);
@@ -1174,7 +1172,7 @@ fn has_reuse_for_tag(expr: &AetherExpr, tag: &CoreTag) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::aether::{AetherAlt as CoreAlt, AetherExpr as CoreExpr};
-    use crate::core::{CoreBinder, CoreBinderId, CoreLit, CorePat, CoreTag};
+    use crate::core::{CoreBinder, CoreBinderId, CoreLit, CorePat, CoreTag, CoreVarRef};
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
 
@@ -1914,5 +1912,62 @@ mod tests {
             diag.kind == AetherDiagnosticKind::MissedReuse
                 && diag.message.contains("EffectfulBoundary")
         }));
+    }
+
+    /// `init`'s arm once drop_spec has split it: the unique path reuses `xs`,
+    /// and the shared path builds a fresh cell because `xs` is still held.
+    /// That fresh cell is the point of the shared path, not a missed reuse.
+    #[test]
+    fn a_shared_path_building_a_fresh_cell_is_not_a_missed_reuse() {
+        let mut interner = Interner::new();
+        let [xs, h, t, h2, t2] = [(1, "xs"), (2, "h"), (3, "t"), (4, "h2"), (5, "t2")]
+            .map(|(id, name)| binder(id, interner.intern(name)));
+        let cons = |a, b| CorePat::Con {
+            tag: CoreTag::Cons,
+            fields: vec![CorePat::Var(a), CorePat::Var(b)],
+        };
+        let on_t = |rhs| CoreExpr::Case {
+            scrutinee: Box::new(v(t)),
+            alts: vec![CoreAlt {
+                pat: cons(h2, t2),
+                guard: None,
+                rhs,
+                span: s(),
+            }],
+            join_ty: None,
+            span: s(),
+        };
+        let expr = CoreExpr::Case {
+            scrutinee: Box::new(v(xs)),
+            alts: vec![CoreAlt {
+                pat: cons(h, t),
+                guard: None,
+                rhs: CoreExpr::DropSpecialized {
+                    scrutinee: CoreVarRef::resolved(&xs),
+                    unique_body: Box::new(on_t(CoreExpr::Reuse {
+                        token: CoreVarRef::resolved(&xs),
+                        tag: CoreTag::Cons,
+                        fields: vec![v(h), v(t)],
+                        field_mask: None,
+                        span: s(),
+                    })),
+                    shared_body: Box::new(on_t(CoreExpr::Con {
+                        tag: CoreTag::Cons,
+                        fields: vec![v(h), v(t)],
+                        span: s(),
+                    })),
+                    span: s(),
+                },
+                span: s(),
+            }],
+            join_ty: None,
+            span: s(),
+        };
+
+        let missed: Vec<_> = verify_diagnostics(&expr)
+            .into_iter()
+            .filter(|diag| diag.kind == AetherDiagnosticKind::MissedReuse)
+            .collect();
+        assert!(missed.is_empty(), "{missed:?}");
     }
 }
