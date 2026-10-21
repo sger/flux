@@ -1,0 +1,12 @@
+// 0189 V2: a closure gives its captured list away on each call.
+
+fn keep_if(xs, flag) {
+    if flag { xs } else { [] }
+}
+
+fn main() {
+    let xs = [1, 2, 3]
+    let f = \() -> len(keep_if(xs, false))
+    print(f() + f())
+    print(xs)
+}

@@ -1,0 +1,14 @@
+// An element of an array returned after the array's last use.
+
+fn arr(n) {
+    [|[n, n + 1], [n + 2]|]
+}
+
+fn pick(n) {
+    let a = arr(n)
+    a[0]
+}
+
+fn main() {
+    print(pick(1))
+}

@@ -184,6 +184,8 @@ void flux_rt_shutdown(void) {
      * Walking millions of malloc'd objects is slower than just exiting. */
     fflush(stdout);
 #ifdef FLUX_DEBUG_HEAP
+    /* Before the leak report, which exits when anything is left. */
+    flux_debug_heap_report_stats();
     flux_debug_heap_report_leaks();
 #endif
 }

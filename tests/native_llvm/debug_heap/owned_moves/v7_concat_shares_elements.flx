@@ -1,0 +1,9 @@
+// 0189 V7: a concatenation shares the elements of its sources.
+
+import Flow.Array as Array
+
+fn main() {
+    let a = [|[1], [2]|]
+    let b = Array.concat(a, [|[3]|])
+    print(b)
+}

@@ -1,0 +1,14 @@
+// 0189 V6: an element taken out of an array and given away; the array
+// still holds it.
+
+fn keep_if(xs, flag) {
+    if flag { xs } else { [] }
+}
+
+fn main() {
+    let a = [|[1, 2], [3]|]
+    let e = match a[0] { Some(v) -> v, _ -> [] }
+    let k = keep_if(e, false)
+    print(len(k))
+    print(a)
+}

@@ -863,6 +863,11 @@ void    flux_heap_fault(const char *msg, uint32_t len);
  * block was freed, or when the check is off (0190 S15). */
 #define FLUX_EXIT_LEAK 3
 void    flux_debug_heap_report_leaks(void);
+/* At the program's normal end, with the debug heap and FLUX_HEAP_STATS
+ * set: one stderr line, `heap: allocs=N frees=N live=N`, counting every
+ * block the program allocated and freed. Exact, since every block goes through the debug
+ * allocator; the oracle 0189's steps are checked against. */
+void    flux_debug_heap_report_stats(void);
 #endif
 /* Reports an effect no handler covers and aborts. */
 void    flux_unhandled_effect(const char *where, int64_t htag);

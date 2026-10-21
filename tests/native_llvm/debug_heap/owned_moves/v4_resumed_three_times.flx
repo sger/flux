@@ -1,0 +1,38 @@
+// 0189 V4: a list live across a perform whose handler resumes three
+// times.
+
+effect Ask {
+    ask: Int -> Int
+}
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn body2(n) -> Int with Ask {
+    let xs = numbers(n)
+    perform Ask.ask(len(xs))
+}
+
+fn body3(n) -> Int with Ask {
+    let xs = numbers(n)
+    let k = perform Ask.ask(1)
+    k + len(xs)
+}
+
+fn thrice(n) -> Int {
+    body2(n) handle Ask {
+        ask(resume, v) -> resume(v * 100) + resume(v * 10) + resume(v)
+    }
+}
+
+fn thrice3(n) -> Int {
+    body3(n) handle Ask {
+        ask(resume, v) -> resume(v * 100) + resume(v * 10) + resume(v)
+    }
+}
+
+fn main() {
+    print(thrice(1))
+    print(thrice3(1))
+}

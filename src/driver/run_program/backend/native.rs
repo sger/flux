@@ -213,6 +213,13 @@ fn native_output_path(request: &NativeRunRequest<'_>) -> PathBuf {
 }
 
 #[cfg(feature = "llvm")]
+/// Whether the program's debug heap was asked for its counts
+/// (`FLUX_HEAP_STATS`, read by the runtime the same way).
+fn heap_stats_wanted() -> bool {
+    std::env::var("FLUX_HEAP_STATS").is_ok_and(|value| !value.is_empty() && value != "0")
+}
+
+#[cfg(feature = "llvm")]
 /// Counts source lines across every module in the execution graph for analytics reporting.
 fn total_graph_source_lines(graph: &ModuleGraph) -> usize {
     graph
@@ -592,6 +599,16 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
                     }
                     crate::driver::replay_session::report(&tape_error, request.program.path);
                     std::process::exit(exit_code);
+                }
+                // A program that ends normally has its stderr dropped; the
+                // debug heap's counts are the one line asked for by name.
+                if exit_code == 0 && heap_stats_wanted() {
+                    for line in child_stderr
+                        .lines()
+                        .filter(|line| line.starts_with("heap: "))
+                    {
+                        eprintln!("{line}");
+                    }
                 }
                 if exit_code != 0 {
                     if let Some(rendered) = if request.report.render_runtime_error {

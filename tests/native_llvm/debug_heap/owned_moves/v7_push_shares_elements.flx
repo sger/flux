@@ -1,0 +1,11 @@
+// 0189 V7: arrays that push onto an array share its elements.
+
+import Flow.Array as Array
+
+fn main() {
+    let a = [|[1], [2]|]
+    let b = Array.push(a, [3])
+    let c = Array.push(b, [4])
+    print(c)
+    print(a)
+}

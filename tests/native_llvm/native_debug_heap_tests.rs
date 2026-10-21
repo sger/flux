@@ -26,6 +26,21 @@ fn workspace_root() -> &'static Path {
 /// What `flux <file> <args>` printed (stdout, stderr) and its exit code,
 /// with `fault` as `FLUX_AETHER_FAULT` when given.
 fn run(scratch: &Scratch, file: &str, args: &[&str], fault: Option<&str>) -> (String, String, i32) {
+    let env: Vec<(&str, &str)> = fault
+        .map(|fault| ("FLUX_AETHER_FAULT", fault))
+        .into_iter()
+        .collect();
+    run_env(scratch, file, args, &env)
+}
+
+/// [`run`] with `env` set; the variables the tests read are cleared first,
+/// so a value in the caller's environment cannot leak into a run.
+fn run_env(
+    scratch: &Scratch,
+    file: &str,
+    args: &[&str],
+    env: &[(&str, &str)],
+) -> (String, String, i32) {
     let mut command = Command::new(env!("CARGO_BIN_EXE_flux"));
     command
         .current_dir(workspace_root())
@@ -34,10 +49,9 @@ fn run(scratch: &Scratch, file: &str, args: &[&str], fault: Option<&str>) -> (St
         .arg("--quiet")
         .args(scratch.cache_args())
         .env("NO_COLOR", "1")
-        .env_remove("FLUX_AETHER_FAULT");
-    if let Some(fault) = fault {
-        command.env("FLUX_AETHER_FAULT", fault);
-    }
+        .env_remove("FLUX_AETHER_FAULT")
+        .env_remove("FLUX_HEAP_STATS")
+        .envs(env.iter().copied());
     let output = command
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux on {file}: {e}"));
@@ -324,4 +338,191 @@ fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
         }
     }
     found
+}
+
+/// The debug heap's counts (`FLUX_HEAP_STATS`): blocks allocated, freed, and
+/// still live at exit.
+fn heap_stats(stderr: &str) -> Option<(u64, u64, u64)> {
+    let line = stderr
+        .lines()
+        .find_map(|line| line.strip_prefix("heap: "))?;
+    let mut parts = line.split(' ');
+    let mut count = |key: &str| parts.next()?.strip_prefix(key)?.parse().ok();
+    Some((count("allocs=")?, count("frees=")?, count("live=")?))
+}
+
+#[test]
+fn heap_stats_are_reported_only_when_asked() {
+    let scratch = Scratch::new("debug-heap-stats");
+    let file = "tests/native_llvm/debug_heap/owned_arg.flx";
+    let args = ["--native", "--debug-heap"];
+    let (_, stderr, code) = run_env(&scratch, file, &args, &[("FLUX_HEAP_STATS", "1")]);
+    assert_eq!(code, 0, "{stderr}");
+    let (allocs, frees, live) = heap_stats(&stderr).unwrap_or_else(|| panic!("{stderr}"));
+    assert!(allocs > 0, "{stderr}");
+    assert_eq!((frees, live), (allocs, 0), "{stderr}");
+
+    // A leak exit forwards all of stderr, so these see what the runtime
+    // printed, not what the driver kept on a normal exit.
+    let leak_args = ["--native", "--leak-check"];
+    let leaked = ("FLUX_AETHER_FAULT", "skip-drop:leaked");
+    let (_, stderr, code) = run_env(
+        &scratch,
+        LEAK_FIXTURE,
+        &leak_args,
+        &[leaked, ("FLUX_HEAP_STATS", "1")],
+    );
+    assert_eq!(code, 3, "{stderr}");
+    assert_eq!(
+        heap_stats(&stderr).map(|(_, _, live)| live),
+        Some(3),
+        "{stderr}"
+    );
+    assert!(stderr.find("heap: ") < stderr.find("leak: "), "{stderr}");
+    let (_, stderr, code) = run_env(
+        &scratch,
+        LEAK_FIXTURE,
+        &leak_args,
+        &[leaked, ("FLUX_HEAP_STATS", "0")],
+    );
+    assert_eq!(code, 3, "{stderr}");
+    assert!(!stderr.contains("heap:"), "{stderr}");
+}
+
+const OWNED_MOVES: &str = "tests/native_llvm/debug_heap/owned_moves";
+
+/// Proposal 0189's hazards V1, V2, V4, V6 and V7, and the step-1 review's
+/// repros: places a value is handed out or shared without being counted. Each
+/// fixture prints on the debug heap what it prints on the VM: a freed value
+/// read back shows up as poison there.
+#[test]
+fn owned_moves_print_what_the_vm_prints() {
+    let scratch = Scratch::new("debug-heap-owned-moves");
+    let mut files: Vec<String> = std::fs::read_dir(workspace_root().join(OWNED_MOVES))
+        .expect("owned_moves fixtures")
+        .filter_map(|entry| {
+            entry
+                .ok()
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        })
+        .filter(|name| Path::new(name).extension().is_some_and(|ext| ext == "flx"))
+        .collect();
+    files.sort();
+    assert!(!files.is_empty(), "no fixtures in {OWNED_MOVES}");
+    let failures: Vec<String> = files
+        .iter()
+        .filter_map(|name| {
+            let file = format!("{OWNED_MOVES}/{name}");
+            let (vm, _, vm_code) = run(&scratch, &file, &["--vm"], None);
+            let (heap, stderr, code) = run(&scratch, &file, &["--native", "--debug-heap"], None);
+            (vm.is_empty() || vm_code != 0 || (heap.as_str(), code) != (vm.as_str(), 0)).then(|| {
+                format!(
+                    "{name}: vm {vm:?} (exit {vm_code}), debug heap {heap:?} (exit {code})\n{stderr}"
+                )
+            })
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Blocks a program allocates on the debug heap. `source` is written to the
+/// scratch directory, so one shape can be measured at two sizes and the
+/// blocks every program allocates (KI-119) cancel out.
+fn allocs_of(scratch: &Scratch, name: &str, source: &str) -> u64 {
+    let path = scratch.write(name, source);
+    let file = path.to_string_lossy();
+    let (_, stderr, code) = run_env(
+        scratch,
+        &file,
+        &["--native", "--debug-heap"],
+        &[("FLUX_HEAP_STATS", "1")],
+    );
+    assert_eq!(code, 0, "{name}:\n{stderr}");
+    heap_stats(&stderr)
+        .unwrap_or_else(|| panic!("{name}:\n{stderr}"))
+        .0
+}
+
+const LINEAR_BUMP: &str = r"fn build(n, acc) {
+    if n == 0 { acc } else { build(n - 1, [n | acc]) }
+}
+
+fn bump(xs) {
+    match xs {
+        [h | t] -> [h + 1 | bump(t)],
+        _ -> []
+    }
+}
+
+fn main() {
+    let ys = bump(build(SIZE, []))
+    print(len(ys))
+}
+";
+
+/// A list built and then rebuilt cell by cell, with nothing else holding it.
+/// Building takes one block per cell; the rebuild takes none when it reuses
+/// each cell in place and one when it does not. Until 0189 F3-4 the rebuild
+/// copies, so the count sits at the top of the range.
+#[test]
+fn a_linear_rebuild_allocates_at_most_twice_per_cell() {
+    let scratch = Scratch::new("debug-heap-linear-bump");
+    let at = |n: u64| {
+        allocs_of(
+            &scratch,
+            &format!("bump_{n}.flx"),
+            &LINEAR_BUMP.replace("SIZE", &n.to_string()),
+        )
+    };
+    let per_thousand = at(2000) - at(1000);
+    assert!(
+        (1000..=2000).contains(&per_thousand),
+        "{per_thousand} blocks per 1000 cells"
+    );
+}
+
+const COUNTING_LOOP: &str = r"fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn count(n, acc) {
+    if n == 0 { acc } else {
+        let xs = numbers(n)
+        let l = len(xs)
+        count(n - 1, acc + l)
+    }
+}
+
+fn main() {
+    print(count(SIZE, 0))
+}
+";
+
+/// A self tail call that makes a list on each turn: it must stay a jump, so
+/// ten million turns run in constant stack natively, and each turn allocates
+/// exactly its three cells.
+#[test]
+fn a_loop_that_makes_a_list_each_turn_stays_a_tail_call() {
+    let scratch = Scratch::new("debug-heap-counting-loop");
+    // Native binaries get a 64 MB stack on macOS and Windows: a frame per turn
+    // still fits at a million turns, and overflows well before ten million.
+    // The VM takes too long at this size, so the sum is checked directly.
+    let path = scratch.write("count_long.flx", &COUNTING_LOOP.replace("SIZE", "10000000"));
+    let file = path.to_string_lossy();
+    let (native, stderr, code) = run(&scratch, &file, &["--native"], None);
+    assert_eq!((native.as_str(), code), ("30000000\n", 0), "{stderr}");
+
+    let at = |n: u64| {
+        allocs_of(
+            &scratch,
+            &format!("count_{n}.flx"),
+            &COUNTING_LOOP.replace("SIZE", &n.to_string()),
+        )
+    };
+    let (small, large) = (at(1000), at(2000));
+    assert_eq!(
+        large.saturating_sub(small),
+        3000,
+        "1000 turns: {small}, 2000 turns: {large}"
+    );
 }
