@@ -424,7 +424,14 @@ int64_t flux_hamt_get(int64_t map, int64_t key) {
     return *val;
 }
 
+/* The map operations are lent their arguments. A map holds a counted
+ * reference to each key and value it stores; maps made from one another share
+ * nodes uncounted, which is sound only while a map's release frees its root
+ * and nothing under it (KI-124). */
+
 int64_t flux_hamt_set(int64_t map, int64_t key, int64_t value) {
+    flux_dup(key);
+    flux_dup(value);
     HamtNode *root = (HamtNode *)flux_untag_ptr(map);
     if (!root) root = make_empty();
     uint64_t hash = hamt_hash(key);
@@ -437,6 +444,8 @@ int64_t flux_hamt_delete(int64_t map, int64_t key) {
     if (!root) return map;
     uint64_t hash = hamt_hash(key);
     HamtNode *new_root = hamt_delete_impl(root, hash, key, 0);
+    /* A missing key gives the same map back. */
+    if (new_root == root) flux_dup(map);
     return flux_tag_ptr(new_root);
 }
 
@@ -507,6 +516,7 @@ int64_t flux_hamt_values(int64_t map) {
     int64_t *vals = (int64_t *)malloc(size * sizeof(int64_t));
     uint32_t idx = 0;
     hamt_collect_values(root, vals, &idx);
+    flux_dup_range(vals, idx);
     int64_t result = flux_array_new(vals, (int32_t)idx);
     free(vals);
     return result;
@@ -515,9 +525,11 @@ int64_t flux_hamt_values(int64_t map) {
 /* Merge two HAMTs: keys from b override keys from a. */
 int64_t flux_hamt_merge(int64_t a, int64_t b) {
     HamtNode *root_b = (HamtNode *)flux_untag_ptr(b);
-    if (!root_b) return a;
-    uint32_t size_b = hamt_size_impl(root_b);
-    if (size_b == 0) return a;
+    uint32_t size_b = root_b ? hamt_size_impl(root_b) : 0;
+    if (size_b == 0) {
+        flux_dup(a);
+        return a;
+    }
 
     /* Collect all key-value pairs from b, then set them into a. */
     int64_t *keys_arr = (int64_t *)malloc(size_b * sizeof(int64_t));
@@ -544,6 +556,7 @@ int64_t flux_hamt_keys(int64_t map) {
     int64_t *keys = (int64_t *)malloc(size * sizeof(int64_t));
     uint32_t idx = 0;
     hamt_collect_keys(root, keys, &idx);
+    flux_dup_range(keys, idx);
 
     int64_t result = flux_array_new(keys, (int32_t)idx);
     free(keys);

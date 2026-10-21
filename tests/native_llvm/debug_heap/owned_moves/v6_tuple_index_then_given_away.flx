@@ -1,0 +1,22 @@
+// 0189 V6: a tuple field read by index, read after the tuple is given to a
+// call that releases it.
+
+fn pair(n) {
+    ([n], [n + 1, n + 2])
+}
+
+fn second(t) {
+    t[1]
+}
+
+fn discard(t, keep) {
+    if keep { t } else { ([0], [0]) }
+}
+
+fn main() {
+    let t = pair(1)
+    let e = second(t)
+    let d = discard(t, false)
+    print(e)
+    print(d)
+}

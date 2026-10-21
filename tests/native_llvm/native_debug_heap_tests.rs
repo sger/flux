@@ -416,6 +416,7 @@ fn owned_moves_print_what_the_vm_prints() {
             let (vm, _, vm_code) = run(&scratch, &file, &["--vm"], None);
             let (heap, stderr, code) = run(&scratch, &file, &["--native", "--debug-heap"], None);
             (vm.is_empty() || vm_code != 0 || (heap.as_str(), code) != (vm.as_str(), 0)).then(|| {
+                let (heap, stderr) = (clip(&heap), clip(&stderr));
                 format!(
                     "{name}: vm {vm:?} (exit {vm_code}), debug heap {heap:?} (exit {code})\n{stderr}"
                 )
@@ -423,6 +424,16 @@ fn owned_moves_print_what_the_vm_prints() {
         })
         .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// The start of a program's output: a freed string read back can print
+/// megabytes of whatever its length field now says.
+fn clip(text: &str) -> String {
+    const SHOWN: usize = 300;
+    match text.char_indices().nth(SHOWN) {
+        Some((end, _)) => format!("{}…", &text[..end]),
+        None => text.to_string(),
+    }
 }
 
 /// Blocks a program allocates on the debug heap. `source` is written to the

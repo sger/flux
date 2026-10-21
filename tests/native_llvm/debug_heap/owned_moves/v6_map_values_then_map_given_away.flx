@@ -1,0 +1,22 @@
+// 0189 V7: what map_set stores outlives the value it was made from, read
+// back with map_values after the map is given to a call that releases it.
+// A map's release frees none of its values (KI-124); map_values's own count is
+// checked by v6_map_values_result_given_away.
+// It calls the primop by its bare name: through the Flow wrapper the
+// argument is never released (KI-121), which hides this.
+
+fn map_of(n) {
+    map_set({}, "k", [n, n + 1])
+}
+
+fn discard(m, keep) {
+    if keep { m } else { {} }
+}
+
+fn main() {
+    let m = map_of(1)
+    let r = map_values(m)
+    let d = discard(m, false)
+    print(r)
+    print(map_size(d))
+}

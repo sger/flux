@@ -1,0 +1,18 @@
+// 0189 V6: the value unwrap takes out of an option, read after the option
+// is given to a call that releases it.
+
+fn some_list(n) {
+    Some([n, n + 1])
+}
+
+fn discard(o, keep) {
+    if keep { o } else { None }
+}
+
+fn main() {
+    let o = some_list(1)
+    let v = unwrap(o)
+    let d = discard(o, false)
+    print(v)
+    print(d)
+}

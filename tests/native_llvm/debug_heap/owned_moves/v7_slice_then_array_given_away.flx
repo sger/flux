@@ -1,0 +1,20 @@
+// 0189 V7: the array array_slice makes shares the elements it keeps, which
+// is then given to a call that releases it.
+// It calls the primop by its bare name: through the Flow wrapper the
+// argument is never released (KI-121), which hides this.
+
+fn arr(n) {
+    [|[n], [n + 1]|]
+}
+
+fn discard(xs, keep) {
+    if keep { xs } else { [||] }
+}
+
+fn main() {
+    let a = arr(1)
+    let b = array_slice(a, 0, 1)
+    let d = discard(a, false)
+    print(b)
+    print(d)
+}

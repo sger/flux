@@ -2221,6 +2221,8 @@ int64_t flux_hamt_get_option(int64_t map, int64_t key) {
     if (result == FLUX_NONE) {
         return flux_make_none();
     }
+    /* The map was only lent, and may be released right after. */
+    flux_dup(result);
     return flux_wrap_some(result);
 }
 
@@ -2378,6 +2380,7 @@ int64_t flux_rt_index(int64_t collection, int64_t key) {
         int64_t idx = flux_untag_int(key);
         if (idx < 0 || (uint32_t)idx >= arity) return flux_make_none();
         int64_t *elems = (int64_t *)((char *)ptr + 8);
+        flux_dup(elems[idx]);
         return flux_wrap_some(elems[idx]);
     }
     case FLUX_OBJ_ADT: {
@@ -2395,6 +2398,7 @@ int64_t flux_rt_index(int64_t collection, int64_t key) {
                 if (*(int32_t *)cp != 4) break;
                 if (idx == 0) {
                     int64_t *fields = (int64_t *)((char *)cp + 8);
+                    flux_dup(fields[0]);
                     return flux_wrap_some(fields[0]);
                 }
                 idx--;
@@ -2979,7 +2983,12 @@ int64_t flux_replace(int64_t s, int64_t from, int64_t to) {
     const char *to_str = flux_string_data(to);
     uint32_t to_len = flux_string_len(to);
 
-    if (from_len == 0) return s;
+    /* Nothing to replace gives `s` back, counted once more for the caller,
+     * which was only lending it. */
+    if (from_len == 0) {
+        flux_dup(s);
+        return s;
+    }
 
     /* Count occurrences to pre-allocate. */
     uint32_t count = 0;
@@ -2989,7 +2998,10 @@ int64_t flux_replace(int64_t s, int64_t from, int64_t to) {
         if (memcmp(p, from_str, from_len) == 0) { count++; p += from_len; }
         else { p++; }
     }
-    if (count == 0) return s;
+    if (count == 0) {
+        flux_dup(s);
+        return s;
+    }
 
     uint32_t new_len = src_len + count * (to_len - from_len);
     char *buf = (char *)malloc(new_len + 1);
@@ -3451,6 +3463,8 @@ int64_t flux_unwrap(int64_t val) {
             int32_t ct = *(int32_t *)ptr;
             if (ct == 1) { /* Some */
                 int64_t *fields = (int64_t *)((char *)ptr + 8);
+                /* The option was only lent, and may be released right after. */
+                flux_dup(fields[0]);
                 return fields[0];
             }
         }
