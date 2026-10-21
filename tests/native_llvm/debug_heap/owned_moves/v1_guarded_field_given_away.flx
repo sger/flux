@@ -1,0 +1,26 @@
+// 0189 V1: a guarded arm binds its fields without the match-time copy. The
+// list it matches is still held by `main`, so the arm's new cell shares the
+// tail with it; releasing the new cell must leave `xs` intact.
+
+fn lists(n) {
+    [[n], [n + 1, n + 2]]
+}
+
+fn retail(xs) {
+    match xs {
+        [h | t] if len(h) > 0 -> [[0] | t],
+        _ -> xs,
+    }
+}
+
+fn discard(xs, keep) {
+    if keep { xs } else { [] }
+}
+
+fn main() {
+    let xs = lists(1)
+    let ys = retail(xs)
+    let d = discard(ys, false)
+    print(d)
+    print(xs)
+}

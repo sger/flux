@@ -46,49 +46,72 @@ Aether Ownership Report
 Note: Reuses and FBIP describe the Aether planner. BorrowedCallGuards are native call-site Dup/Drop safeguards; guarded calls may suppress a callee's reuse for those arguments.
 
 ── fn my_map @fip ──
-  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
-  FreshAllocs: 0
+  Dups: 2  Drops: 0  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  FreshAllocs: 1
   verifier: ok
   fbip: NotProvable
+    - fresh heap allocation remains on at least one path
     - calls indirect or opaque callee `f` whose FBIP behavior is unknown
     - control-flow join loses a precise allocation bound across paths
 lam(xs, f) ->
   case xs#1 of
     Cons(h, t) ->
-      let <sym:4000066> =
-        aether_call[owned] f#2(h#3)
-      let <sym:4000067> =
-        aether_call[owned, borrowed] my_map#0(t#4, f#2)
-      reuse xs#1 as Cons(<sym:4000066>#66, <sym:4000067>#67)
+      drop_specialized xs#1 {
+        unique ->
+          let <sym:4000066> =
+            aether_call[owned] f#2(h#3)
+          let <sym:4000067> =
+            aether_call[owned, borrowed] my_map#0(t#4, f#2)
+          reuse xs#1 as Cons(<sym:4000066>#66, <sym:4000067>#67)
+        shared ->
+          let <sym:4000066> =
+            aether_call[owned] f#2(dup h#3 in h#3)
+          let <sym:4000067> =
+            aether_call[owned, borrowed] my_map#0(dup t#4 in t#4, f#2)
+          Cons(<sym:4000066>#66, <sym:4000067>#67)
+      }
     _ ->
       Nil
 ── fn option_map @fip ──
-  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
-  FreshAllocs: 0
+  Dups: 1  Drops: 0  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  FreshAllocs: 1
   verifier: ok
   fbip: NotProvable
+    - fresh heap allocation remains on at least one path
     - calls indirect or opaque callee `f` whose FBIP behavior is unknown
     - control-flow join loses a precise allocation bound across paths
 lam(opt, f) ->
   case opt#6 of
     Some(x) ->
-      let <sym:4000068> =
-        aether_call[owned] f#7(x#8)
-      reuse opt#6 as Some(<sym:4000068>#68)
+      drop_specialized opt#6 {
+        unique ->
+          let <sym:4000068> =
+            aether_call[owned] f#7(x#8)
+          reuse opt#6 as Some(<sym:4000068>#68)
+        shared ->
+          let <sym:4000068> =
+            aether_call[owned] f#7(dup x#8 in x#8)
+          Some(<sym:4000068>#68)
+      }
     _ ->
       None
 ── fn set_black ──
-  Dups: 0  Drops: 0  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
+  Dups: 3  Drops: 0  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 lam(t) ->
   case t#10 of
     Node(_, left, key, right) ->
-      reuse t#10 as Node mask=0x1(Black, left#11, key#12, right#13)
+      drop_specialized t#10 {
+        unique ->
+          reuse t#10 as Node mask=0x1(Black, left#11, key#12, right#13)
+        shared ->
+          aether_call[owned, owned, owned, owned] Node(Black, dup left#11 in left#11, dup key#12 in key#12, dup right#13 in right#13)
+      }
     _ ->
       t#10
 ── fn my_filter ──
-  Dups: 1  Drops: 0  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 4  Drops: 0  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(xs, f) ->
@@ -111,10 +134,10 @@ lam(xs, f) ->
           case <sym:4000070>#70 of
             true ->
               let <sym:4000071> =
-                aether_call[owned, borrowed] my_filter#17(t#21, f#19)
-              Cons(h#20, <sym:4000071>#71)
+                aether_call[owned, borrowed] my_filter#17(dup t#21 in t#21, f#19)
+              Cons(dup h#20 in h#20, <sym:4000071>#71)
             _ ->
-              aether_call[owned, borrowed] my_filter#17(t#21, f#19)
+              aether_call[owned, borrowed] my_filter#17(dup t#21 in t#21, f#19)
       }
     _ ->
       Nil
@@ -136,8 +159,8 @@ lam() ->
         aether_call[owned] __resume_default#65(<sym:4000126>#126)
 
 ── Total ──
-  Dups: 1  Drops: 21  Reuses: 4  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(2)  Yields: 0  Handles: 5  HandlerArms: 11
-  FreshAllocs: 2
+  Dups: 10  Drops: 21  Reuses: 4  DropSpecs: 4  BorrowedCallGuards: 0  FBIP: fbip(4)  Yields: 0  Handles: 5  HandlerArms: 11
+  FreshAllocs: 4
 
 [cfg→vm] Running via CFG → bytecode VM backend...
 [2, 4, 6]

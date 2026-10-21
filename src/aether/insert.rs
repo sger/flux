@@ -17,6 +17,13 @@ use super::{AetherAlt as CoreAlt, AetherExpr, AetherHandler, constructor_shape_f
 
 type CoreExpr = AetherExpr;
 
+/// Temporaries this pass makes take ids from here up, far above any binder
+/// lowering makes: one is only read in the function it is bound in, so it
+/// can never shadow a real binder there.
+const FIRST_TEMP_ID: u32 = 0xF000_0000;
+/// Their names, past the evidence pass's (`6_000_000 + id`).
+const FIRST_TEMP_SYMBOL: u32 = 7_000_000;
+
 /// The binders in scope, by id, and the function's Borrowed parameters.
 #[derive(Default)]
 struct Scope {
@@ -24,11 +31,28 @@ struct Scope {
     /// Parameters the caller lends: the function never releases them, and
     /// an owned use of one, or of a field taken from one, takes a Dup.
     borrowed_params: HashSet<CoreBinderId>,
+    /// Values read out of a cell that still holds them (pattern fields,
+    /// `let x = t.i`), with no reference of their own: an owned use takes a
+    /// Dup, and they are never released (0189 rule 3).
+    views: HashSet<CoreBinderId>,
+    /// How many temporaries `temp` has handed out in this definition.
+    temps: u32,
 }
 
 impl Scope {
     fn new() -> Self {
         Self::default()
+    }
+
+    /// A fresh binder for a value the plan has to name. Its name is never
+    /// interned, so the debugger never lists it.
+    fn temp(&mut self) -> CoreBinder {
+        let n = self.temps;
+        self.temps += 1;
+        CoreBinder::new(
+            CoreBinderId(FIRST_TEMP_ID + n),
+            crate::syntax::symbol::Symbol::new(FIRST_TEMP_SYMBOL + n),
+        )
     }
 
     /// Whether `binder` is a Borrowed parameter, or a field taken from one
@@ -72,8 +96,6 @@ struct FieldParent {
     parent: CoreBinderId,
     tag: Option<CoreTag>,
     pattern: bool,
-    tuple_pattern: bool,
-    nested_pattern: bool,
 }
 
 type FieldParents = HashMap<CoreBinderId, FieldParent>;
@@ -130,8 +152,8 @@ pub fn insert_dup_drop_for_def(
     borrowed_params: HashSet<CoreBinderId>,
 ) -> CoreExpr {
     let mut scope = Scope {
-        binders: HashMap::new(),
         borrowed_params,
+        ..Scope::default()
     };
     let mut field_parents = FieldParents::new();
     plan_expr(
@@ -170,27 +192,33 @@ fn plan_expr(
             // Track field→parent for TupleField access (e.g. `let total = st.2`).
             // This prevents the parent from being dropped while the field
             // binder is still live (use-after-free on borrowed field).
-            if let CoreExpr::TupleField { object, .. } = rhs.as_ref()
+            let view = if let CoreExpr::TupleField { object, .. } = rhs.as_ref()
                 && let CoreExpr::Var { var: obj_var, .. } = object.as_ref()
                 && let Some(parent_id) = obj_var.binder
             {
+                scope.views.insert(var.id);
                 field_parents.insert(
                     var.id,
                     FieldParent {
                         parent: parent_id,
                         tag: None,
                         pattern: false,
-                        tuple_pattern: false,
-                        nested_pattern: false,
                     },
                 );
-            }
+                true
+            } else {
+                false
+            };
 
             let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
-            let binder_demand = binder_demand(&body_plan.env_before, var.id);
+            let mut binder_demand = binder_demand(&body_plan.env_before, var.id);
             let mut body_expr = body_plan.expr;
-            if binder_demand == ValueDemand::Ignore {
+            if binder_demand == ValueDemand::Ignore && !view {
                 body_expr = wrap_drop(var, body_expr, span);
+            }
+            // A view only reads its field; each owned use copies it.
+            if view && binder_demand == ValueDemand::Owned {
+                binder_demand = ValueDemand::Borrowed;
             }
 
             let mut rhs_tail = body_plan.env_before.clone();
@@ -204,6 +232,7 @@ fn plan_expr(
                 field_parents,
             );
             scope.remove(&var.id);
+            scope.views.remove(&var.id);
             field_parents.remove(&var.id);
 
             let mut env_before = rhs_plan.env_before;
@@ -499,9 +528,20 @@ fn plan_expr(
                     span: alt_span,
                 } = alt;
                 let pat_ids = pat_binders(&pat);
+                // A name for the whole matched value is that value, and a view
+                // only when the value is one.
+                let views = match &pat {
+                    crate::core::CorePat::Var(_) => scrutinee_var
+                        .as_ref()
+                        .is_some_and(|sv| scope.views.contains(&sv.id)),
+                    _ => true,
+                };
                 for binder_id in &pat_ids {
                     if let Some(binder) = find_binder_in_pat(&pat, *binder_id) {
                         scope.insert(*binder_id, binder);
+                    }
+                    if views {
+                        scope.views.insert(*binder_id);
                     }
                 }
 
@@ -516,8 +556,6 @@ fn plan_expr(
                                 parent: sv.id,
                                 tag: parent_tag.clone(),
                                 pattern: true,
-                                tuple_pattern: matches!(pat, crate::core::CorePat::Tuple(_)),
-                                nested_pattern: pat_binder_is_nested(&pat, bid),
                             },
                         );
                     }
@@ -547,6 +585,7 @@ fn plan_expr(
 
                 for binder_id in &pat_ids {
                     scope.remove(binder_id);
+                    scope.views.remove(binder_id);
                     field_parents.remove(binder_id);
                 }
 
@@ -561,6 +600,7 @@ fn plan_expr(
 
                 if let Some(scrut_binder) = scrutinee_var.as_ref()
                     && !scope.lent(scrut_binder.id, field_parents)
+                    && !scope.views.contains(&scrut_binder.id)
                     && is_constructor_pat(&pat)
                     && !env_without_pats.is_live(scrut_binder.id)
                     && !expr_uses_binder(&rhs, scrut_binder.id)
@@ -593,6 +633,8 @@ fn plan_expr(
                         // scrutinee; they are not independent allocations
                         // and must never be released on their own.
                         .filter(|binder_id| !pat_ids.contains(binder_id))
+                        // A view has no reference of its own to give back.
+                        .filter(|binder_id| !scope.views.contains(binder_id))
                         // Lent by the caller: never released here.
                         .filter(|binder_id| !scope.lent(*binder_id, field_parents))
                         .filter(|binder_id| {
@@ -877,6 +919,8 @@ fn plan_expr(
             index,
             span,
         } => {
+            let given_away =
+                demand == ValueDemand::Owned && matches!(object.as_ref(), CoreExpr::Var { .. });
             let object_plan = plan_expr(
                 *object,
                 tail_env,
@@ -885,12 +929,31 @@ fn plan_expr(
                 scope,
                 field_parents,
             );
-            AetherPlan {
-                expr: CoreExpr::TupleField {
-                    object: Box::new(object_plan.expr),
-                    index,
+            let mut expr = CoreExpr::TupleField {
+                object: Box::new(object_plan.expr),
+                index,
+                span,
+            };
+            // The tuple keeps its field: one given away is copied first.
+            if given_away {
+                let held = scope.temp();
+                expr = CoreExpr::Let {
+                    var: held,
+                    rhs: Box::new(expr),
+                    body: Box::new(wrap_dups(
+                        held,
+                        CoreExpr::Var {
+                            var: CoreVarRef::resolved(&held),
+                            span,
+                        },
+                        span,
+                        1,
+                    )),
                     span,
-                },
+                };
+            }
+            AetherPlan {
+                expr,
                 env_before: object_plan.env_before,
             }
         }
@@ -1075,23 +1138,14 @@ fn plan_var(
             }
         }
         ValueDemand::Owned => {
-            let tuple_pattern_field = field_parents
-                .get(&id)
-                .is_some_and(|field| field.pattern && field.tuple_pattern);
             let borrowed_parent = field_parents
                 .get(&id)
                 .is_some_and(|field| tail_env.is_borrowed(field.parent));
-            let nested_pattern_field = field_parents
-                .get(&id)
-                .is_some_and(|field| field.nested_pattern);
             // An owned use of something the caller lent takes its own
             // reference: the caller keeps the one it lent.
             let lent = scope.lent(id, field_parents);
-            let needs_dup = tail_env.is_live(id)
-                || tuple_pattern_field
-                || nested_pattern_field
-                || borrowed_parent
-                || lent;
+            let needs_dup =
+                tail_env.is_live(id) || scope.views.contains(&id) || borrowed_parent || lent;
             tail_env.mark_owned(id);
             let expr = if needs_dup {
                 if let Some(binder) = scope.get(&id).cloned() {
@@ -1182,30 +1236,6 @@ fn pat_constructor_tag(pat: &crate::core::CorePat) -> Option<CoreTag> {
     match pat {
         crate::core::CorePat::Con { tag, .. } => Some(tag.clone()),
         _ => None,
-    }
-}
-
-fn pat_binder_is_nested(pat: &crate::core::CorePat, target: CoreBinderId) -> bool {
-    match pat {
-        crate::core::CorePat::Con { fields, .. } | crate::core::CorePat::Tuple(fields) => {
-            fields.iter().any(|field| match field {
-                crate::core::CorePat::Var(_) => false,
-                nested => contains_pat_binder(nested, target),
-            })
-        }
-        _ => false,
-    }
-}
-
-fn contains_pat_binder(pat: &crate::core::CorePat, target: CoreBinderId) -> bool {
-    match pat {
-        crate::core::CorePat::Var(binder) => binder.id == target,
-        crate::core::CorePat::Con { fields, .. } | crate::core::CorePat::Tuple(fields) => fields
-            .iter()
-            .any(|field| contains_pat_binder(field, target)),
-        crate::core::CorePat::Lit(_)
-        | crate::core::CorePat::Wildcard
-        | crate::core::CorePat::EmptyList => false,
     }
 }
 
@@ -1675,35 +1705,44 @@ mod tests {
         }
     }
 
+    fn dups(expr: &CoreExpr, b: CoreBinder) -> usize {
+        count_binder_nodes(
+            expr,
+            b.id,
+            &|expr, binder| matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(binder)),
+        )
+    }
+
+    fn drops(expr: &CoreExpr, b: CoreBinder) -> usize {
+        count_binder_nodes(
+            expr,
+            b.id,
+            &|expr, binder| matches!(expr, CoreExpr::Drop { var, .. } if var.binder == Some(binder)),
+        )
+    }
+
+    /// The views the F3-2.0 verifier finds given away without a copy.
+    fn views_consumed(expr: &CoreExpr) -> usize {
+        crate::aether::verify::verify_def_views_aether(expr, None).len()
+    }
+
     #[test]
     fn a_borrowed_parameter_is_never_released() {
         let mut interner = Interner::new();
         let xs = binder(&mut interner, 1, "xs");
         let h = binder(&mut interner, 2, "h");
         let t = binder(&mut interner, 3, "t");
-        let dups = |expr: &CoreExpr, b: CoreBinder| {
-            count_binder_nodes(
-                expr,
-                b.id,
-                &|expr, binder| matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(binder)),
-            )
-        };
-        let drops = |expr: &CoreExpr, b: CoreBinder| {
-            count_binder_nodes(
-                expr,
-                b.id,
-                &|expr, binder| matches!(expr, CoreExpr::Drop { var, .. } if var.binder == Some(binder)),
-            )
-        };
 
-        // Owned: the cell is discharged for reuse, its fields move.
+        // Owned: the cell is discharged for reuse. Its fields are views, so
+        // the new cell copies them; on the unique path drop_spec takes the
+        // copies out again and the cell hands its own references over.
         let owned = super::insert_dup_drop_for_def(
             rebuild(xs, h, t),
             &BorrowRegistry::default(),
             Default::default(),
         );
         assert_eq!(drops(&owned, xs), 1, "{owned:?}");
-        assert_eq!((dups(&owned, h), dups(&owned, t)), (0, 0), "{owned:?}");
+        assert_eq!((dups(&owned, h), dups(&owned, t)), (1, 1), "{owned:?}");
 
         // Borrowed: the caller keeps the cell, so it is never dropped, and
         // the new cell takes its own reference to each field.
@@ -1714,6 +1753,303 @@ mod tests {
         );
         assert_eq!(drops(&lent, xs), 0, "{lent:?}");
         assert_eq!((dups(&lent, h), dups(&lent, t)), (1, 1), "{lent:?}");
+    }
+
+    fn call(name: crate::syntax::Identifier, args: Vec<CoreExpr>) -> CoreExpr {
+        CoreExpr::App {
+            func: Box::new(CoreExpr::Var {
+                var: CoreVarRef::unresolved(name),
+                span: Span::default(),
+            }),
+            args,
+            span: Span::default(),
+        }
+    }
+
+    fn lam(params: Vec<CoreBinder>, body: CoreExpr) -> CoreExpr {
+        CoreExpr::Lam {
+            params,
+            param_types: vec![],
+            result_ty: None,
+            body: Box::new(body),
+            span: Span::default(),
+        }
+    }
+
+    /// `lam(xs) -> case xs of pat [if guard] -> rhs; _ -> Nil`.
+    fn match_one(xs: CoreBinder, pat: CorePat, guard: Option<CoreExpr>, rhs: CoreExpr) -> CoreExpr {
+        lam(
+            vec![xs],
+            CoreExpr::Case {
+                scrutinee: Box::new(var(xs)),
+                alts: vec![
+                    CoreAlt {
+                        pat,
+                        guard,
+                        rhs,
+                        span: Span::default(),
+                    },
+                    CoreAlt {
+                        pat: CorePat::Wildcard,
+                        guard: None,
+                        rhs: CoreExpr::Con {
+                            tag: crate::core::CoreTag::Nil,
+                            fields: vec![],
+                            span: Span::default(),
+                        },
+                        span: Span::default(),
+                    },
+                ],
+                join_ty: None,
+                span: Span::default(),
+            },
+        )
+    }
+
+    fn cons(h: CoreBinder, t: CoreBinder) -> CorePat {
+        CorePat::Con {
+            tag: crate::core::CoreTag::Cons,
+            fields: vec![CorePat::Var(h), CorePat::Var(t)],
+        }
+    }
+
+    /// 0189 V1: the cell holds the field, so giving the field away on its
+    /// last use takes a copy, or the cell's release frees it under the
+    /// callee.
+    #[test]
+    fn a_pattern_field_given_away_is_copied() {
+        let mut interner = Interner::new();
+        let xs = binder(&mut interner, 1, "xs");
+        let h = binder(&mut interner, 2, "h");
+        let t = binder(&mut interner, 3, "t");
+        let f = interner.intern("f");
+        let ok = interner.intern("ok");
+
+        let plain = insert_dup_drop_with_registry(
+            match_one(xs, cons(h, t), None, call(f, vec![var(t)])),
+            &BorrowRegistry::default(),
+        );
+        assert_eq!(dups(&plain, t), 1, "{plain:?}");
+        assert_eq!(views_consumed(&plain), 0, "{plain:?}");
+
+        let guarded = insert_dup_drop_with_registry(
+            match_one(
+                xs,
+                cons(h, t),
+                Some(call(ok, vec![var(h)])),
+                call(f, vec![var(t)]),
+            ),
+            &BorrowRegistry::default(),
+        );
+        assert_eq!(dups(&guarded, t), 1, "{guarded:?}");
+        assert_eq!(views_consumed(&guarded), 0, "{guarded:?}");
+    }
+
+    /// A name for the whole matched value is the value itself: it holds the
+    /// scrutinee's reference, so giving it away needs no copy.
+    #[test]
+    fn a_name_for_the_matched_value_is_not_copied() {
+        let mut interner = Interner::new();
+        let xs = binder(&mut interner, 1, "xs");
+        let ys = binder(&mut interner, 2, "ys");
+        let f = interner.intern("f");
+
+        let planned = insert_dup_drop_with_registry(
+            match_one(xs, CorePat::Var(ys), None, call(f, vec![var(ys)])),
+            &BorrowRegistry::default(),
+        );
+        assert_eq!(
+            (dups(&planned, ys), dups(&planned, xs)),
+            (0, 0),
+            "{planned:?}"
+        );
+        assert_eq!(views_consumed(&planned), 0, "{planned:?}");
+    }
+
+    fn field_of(object: CoreBinder, index: usize) -> CoreExpr {
+        CoreExpr::TupleField {
+            object: Box::new(var(object)),
+            index,
+            span: Span::default(),
+        }
+    }
+
+    /// `let x = t.0` reads the field without a reference of its own: giving
+    /// `x` away copies it, and an unused `x` is never released.
+    #[test]
+    fn a_tuple_field_bound_by_let_is_a_view() {
+        let mut interner = Interner::new();
+        let t = binder(&mut interner, 1, "t");
+        let x = binder(&mut interner, 2, "x");
+        let f = interner.intern("f");
+        let let_x = |body| CoreExpr::Let {
+            var: x,
+            rhs: Box::new(field_of(t, 0)),
+            body: Box::new(body),
+            span: Span::default(),
+        };
+
+        let given = insert_dup_drop_with_registry(
+            lam(vec![t], let_x(call(f, vec![var(x)]))),
+            &BorrowRegistry::default(),
+        );
+        assert_eq!(dups(&given, x), 1, "{given:?}");
+        assert_eq!(views_consumed(&given), 0, "{given:?}");
+
+        let unused = insert_dup_drop_with_registry(
+            lam(
+                vec![t],
+                let_x(CoreExpr::Lit(CoreLit::Int(0), Span::default())),
+            ),
+            &BorrowRegistry::default(),
+        );
+        assert_eq!(drops(&unused, x), 0, "{unused:?}");
+    }
+
+    /// `f(t.0)` gives away a field it never named: it is held in a
+    /// temporary and copied, `let tmp = t.0 in dup tmp in tmp`.
+    #[test]
+    fn a_tuple_field_given_away_is_copied() {
+        let mut interner = Interner::new();
+        let t = binder(&mut interner, 1, "t");
+        let f = interner.intern("f");
+
+        let planned = insert_dup_drop_with_registry(
+            lam(vec![t], call(f, vec![field_of(t, 0)])),
+            &BorrowRegistry::default(),
+        );
+        let tmp = CoreBinder::new(CoreBinderId(super::FIRST_TEMP_ID), interner.intern("tmp"));
+        assert_eq!(dups(&planned, tmp), 1, "{planned:?}");
+        assert_eq!(views_consumed(&planned), 0, "{planned:?}");
+    }
+
+    /// Each owned use of a view takes its own copy.
+    #[test]
+    fn a_view_given_away_twice_is_copied_twice() {
+        let mut interner = Interner::new();
+        let xs = binder(&mut interner, 1, "xs");
+        let h = binder(&mut interner, 2, "h");
+        let t = binder(&mut interner, 3, "t");
+        let cell = |fields| CoreExpr::Con {
+            tag: crate::core::CoreTag::Cons,
+            fields,
+            span: Span::default(),
+        };
+
+        let planned = insert_dup_drop_with_registry(
+            match_one(
+                xs,
+                cons(h, t),
+                None,
+                cell(vec![var(h), cell(vec![var(h), var(t)])]),
+            ),
+            &BorrowRegistry::default(),
+        );
+        assert_eq!(
+            (dups(&planned, h), dups(&planned, t)),
+            (2, 1),
+            "{planned:?}"
+        );
+        assert_eq!(views_consumed(&planned), 0, "{planned:?}");
+    }
+
+    /// A name for a matched view is a view too.
+    #[test]
+    fn a_name_for_a_matched_view_is_copied() {
+        let mut interner = Interner::new();
+        let xs = binder(&mut interner, 1, "xs");
+        let h = binder(&mut interner, 2, "h");
+        let t = binder(&mut interner, 3, "t");
+        let ys = binder(&mut interner, 4, "ys");
+        let f = interner.intern("f");
+        let inner = CoreExpr::Case {
+            scrutinee: Box::new(var(t)),
+            alts: vec![CoreAlt {
+                pat: CorePat::Var(ys),
+                guard: None,
+                rhs: call(f, vec![var(ys)]),
+                span: Span::default(),
+            }],
+            join_ty: None,
+            span: Span::default(),
+        };
+
+        let planned = insert_dup_drop_with_registry(
+            match_one(xs, cons(h, t), None, inner),
+            &BorrowRegistry::default(),
+        );
+        assert_eq!(dups(&planned, ys), 1, "{planned:?}");
+        assert_eq!(views_consumed(&planned), 0, "{planned:?}");
+    }
+
+    /// `let x = t.0 in case c of 0 -> f(x); 1 -> h(t); _ -> 0`: the arms
+    /// that do not give `x` away must not release it to even up with the
+    /// arm that does, since `t` still holds it.
+    #[test]
+    fn a_view_is_never_released_to_balance_another_arm() {
+        let mut interner = Interner::new();
+        let t = binder(&mut interner, 1, "t");
+        let c = binder(&mut interner, 2, "c");
+        let x = binder(&mut interner, 3, "x");
+        let f = interner.intern("f");
+        let h = interner.intern("h");
+        let arm = |pat, rhs| CoreAlt {
+            pat,
+            guard: None,
+            rhs,
+            span: Span::default(),
+        };
+        let body = CoreExpr::Case {
+            scrutinee: Box::new(var(c)),
+            alts: vec![
+                arm(CorePat::Lit(CoreLit::Int(0)), call(f, vec![var(x)])),
+                arm(CorePat::Lit(CoreLit::Int(1)), call(h, vec![var(t)])),
+                arm(
+                    CorePat::Wildcard,
+                    CoreExpr::Lit(CoreLit::Int(0), Span::default()),
+                ),
+            ],
+            join_ty: None,
+            span: Span::default(),
+        };
+        let expr = lam(
+            vec![t, c],
+            CoreExpr::Let {
+                var: x,
+                rhs: Box::new(field_of(t, 0)),
+                body: Box::new(body),
+                span: Span::default(),
+            },
+        );
+
+        let planned = insert_dup_drop_with_registry(expr, &BorrowRegistry::default());
+        assert_eq!(drops(&planned, x), 0, "{planned:?}");
+    }
+
+    /// `let x = t.0 in case x of Cons(a, b) -> Cons(a, b)`: `x` holds no
+    /// reference, so the match neither releases it nor reuses its cell.
+    #[test]
+    fn a_matched_view_is_never_released() {
+        let mut interner = Interner::new();
+        let t = binder(&mut interner, 1, "t");
+        let x = binder(&mut interner, 2, "x");
+        let a = binder(&mut interner, 3, "a");
+        let b = binder(&mut interner, 4, "b");
+        let CoreExpr::Lam { body: rebuilt, .. } = rebuild(x, a, b) else {
+            unreachable!("rebuild makes a lambda");
+        };
+        let expr = lam(
+            vec![t],
+            CoreExpr::Let {
+                var: x,
+                rhs: Box::new(field_of(t, 0)),
+                body: rebuilt,
+                span: Span::default(),
+            },
+        );
+
+        let planned = insert_dup_drop_with_registry(expr, &BorrowRegistry::default());
+        assert_eq!(drops(&planned, x), 0, "{planned:?}");
     }
 
     #[test]
